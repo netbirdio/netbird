@@ -348,12 +348,17 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return err
 	}
 
+	var meta map[string]any
+	var eventAction activity.Activity
 	if targetUser.IsServiceUser {
-		meta := map[string]any{"name": targetUser.ServiceUserName}
-		am.storeEvent(initiatorUserID, targetUserID, accountID, activity.ServiceUserDeleted, meta)
+		meta = map[string]any{"name": targetUser.ServiceUserName}
+		eventAction = activity.ServiceUserDeleted
 	} else {
-		am.storeEventWithDeletedTargetEmail(initiatorUserID, targetUserID, targetUserEmail, accountID, activity.UserDeleted, nil)
+		meta = map[string]any{"email": targetUserEmail}
+		eventAction = activity.UserDeleted
+
 	}
+	am.storeEvent(initiatorUserID, targetUserID, accountID, eventAction, meta)
 
 	if !isNil(am.idpManager) {
 		err := am.deleteUserFromIDP(targetUserID, accountID)

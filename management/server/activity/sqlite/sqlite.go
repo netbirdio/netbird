@@ -164,7 +164,7 @@ func (store *Store) Get(accountID string, offset, limit int, descending bool) ([
 	return store.processResult(result)
 }
 
-// Save an event in the SQLite events table
+// Save an event in the SQLite events table end encrypt the "email" element in meta map
 func (store *Store) Save(event *activity.Event) (*activity.Event, error) {
 	stmt, err := store.db.Prepare(insertStatement)
 	if err != nil {
@@ -172,7 +172,12 @@ func (store *Store) Save(event *activity.Event) (*activity.Event, error) {
 	}
 
 	var jsonMeta string
-	if event.Meta != nil {
+	meta, err := store.saveDeletedUserEmailInEncrypted(event)
+	if err != nil {
+		return nil, err
+	}
+
+	if meta != nil {
 		metaBytes, err := json.Marshal(event.Meta)
 		if err != nil {
 			return nil, err
@@ -195,14 +200,27 @@ func (store *Store) Save(event *activity.Event) (*activity.Event, error) {
 	return eventCopy, nil
 }
 
-func (store *Store) SaveWithDeletedUserEmail(event *activity.Event, email string) (*activity.Event, error) {
-	email = store.emailEncrypt.Encrypt(email)
-	_, err := store.deleteUserStmt.Exec(event.TargetID, email)
+// saveDeletedUserEmailInEncrypted if the meta contains email then store it in encrypted way and delete this item from
+// meta map
+func (store *Store) saveDeletedUserEmailInEncrypted(event *activity.Event) (map[string]any, error) {
+	email, ok := event.Meta["email"]
+	if !ok {
+		return event.Meta, nil
+	}
+
+	delete(event.Meta, "email")
+
+	encrypted := store.emailEncrypt.Encrypt(fmt.Sprintf("%s", email))
+	_, err := store.deleteUserStmt.Exec(event.TargetID, encrypted)
 	if err != nil {
 		return nil, err
 	}
 
-	return store.Save(event)
+	if len(event.Meta) == 1 {
+		return nil, nil
+	}
+	delete(event.Meta, "email")
+	return event.Meta, nil
 }
 
 // Close the Store

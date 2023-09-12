@@ -6,8 +6,6 @@ import "sync"
 type Store interface {
 	// Save an event in the store
 	Save(event *Event) (*Event, error)
-	// SaveWithDeletedUserEmail ...
-	SaveWithDeletedUserEmail(event *Event, email string) (*Event, error)
 	// Get returns "limit" number of events from the "offset" index ordered descending or ascending by a timestamp
 	Get(accountID string, offset, limit int, descending bool) ([]*Event, error)
 	// Close the sink flushing events if necessary

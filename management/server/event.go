@@ -55,24 +55,3 @@ func (am *DefaultAccountManager) storeEvent(initiatorID, targetID, accountID str
 	}()
 
 }
-
-func (am *DefaultAccountManager) storeEventWithDeletedTargetEmail(initiatorID, targetID, targetEmail, accountID string, activityID activity.Activity,
-	meta map[string]any) {
-
-	go func() {
-		event := &activity.Event{
-			Timestamp:   time.Now().UTC(),
-			Activity:    activityID,
-			InitiatorID: initiatorID,
-			TargetID:    targetID,
-			AccountID:   accountID,
-			Meta:        meta,
-		}
-		_, err := am.eventStore.SaveWithDeletedUserEmail(event, targetEmail)
-		if err != nil {
-			// todo add metric
-			log.Errorf("received an error while storing an activity event, error: %s", err)
-		}
-	}()
-
-}
