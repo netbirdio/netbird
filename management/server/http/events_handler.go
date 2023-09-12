@@ -93,16 +93,14 @@ func toEventResponse(event *activity.Event) *api.Event {
 		}
 	}
 	e := &api.Event{
-		Id:           fmt.Sprint(event.ID),
-		InitiatorId:  event.InitiatorID,
-		Activity:     event.Activity.Message(),
-		ActivityCode: api.EventActivityCode(event.Activity.StringCode()),
-		TargetId:     event.TargetID,
-		Timestamp:    event.Timestamp,
-		Meta:         meta,
-	}
-	if event.InitiatorEmail != nil {
-		e.InitiatorEmail = *event.InitiatorEmail
+		Id:             fmt.Sprint(event.ID),
+		InitiatorId:    event.InitiatorID,
+		InitiatorEmail: event.InitiatorEmail,
+		Activity:       event.Activity.Message(),
+		ActivityCode:   api.EventActivityCode(event.Activity.StringCode()),
+		TargetId:       event.TargetID,
+		Timestamp:      event.Timestamp,
+		Meta:           meta,
 	}
 	return e
 }

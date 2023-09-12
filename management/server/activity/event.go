@@ -15,7 +15,7 @@ type Event struct {
 	// InitiatorID is the ID of an object that initiated the event (e.g., a user)
 	InitiatorID string
 	// InitiatorEmail is the email address of an object that initiated the event. This will be set on deleted users only
-	InitiatorEmail *string
+	InitiatorEmail string
 	// TargetID is the ID of an object that was effected by the event (e.g., a peer)
 	TargetID string
 	// AccountID is the ID of an account where the event happened

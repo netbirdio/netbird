@@ -112,26 +112,26 @@ func (store *Store) processResult(result *sql.Rows) ([]*activity.Event, error) {
 			}
 		}
 
+		event := &activity.Event{
+			Timestamp:   timestamp,
+			Activity:    operation,
+			ID:          uint64(id),
+			InitiatorID: initiator,
+			TargetID:    target,
+			AccountID:   account,
+			Meta:        meta,
+		}
+
 		if initiatorEmail != nil {
 			email, err := store.emailEncrypt.Decrypt(*initiatorEmail)
 			if err != nil {
 				log.Errorf("failed to decrypt data: %s", *initiatorEmail)
-				*initiatorEmail = ""
 			} else {
-				*initiatorEmail = email
+				event.InitiatorEmail = email
 			}
 		}
 
-		events = append(events, &activity.Event{
-			Timestamp:      timestamp,
-			Activity:       operation,
-			ID:             uint64(id),
-			InitiatorID:    initiator,
-			InitiatorEmail: initiatorEmail,
-			TargetID:       target,
-			AccountID:      account,
-			Meta:           meta,
-		})
+		events = append(events, event)
 	}
 
 	return events, nil
