@@ -112,7 +112,7 @@ func (store *Store) processResult(result *sql.Rows) ([]*activity.Event, error) {
 		if targetEmail != nil {
 			email, err := store.emailEncrypt.Decrypt(*targetEmail)
 			if err != nil {
-				log.Errorf("failed to decrypt data: %s", *targetEmail)
+				log.Errorf("failed to decrypt email address for target id: %s", target)
 				meta["email"] = ""
 			} else {
 				meta["email"] = email
@@ -132,7 +132,7 @@ func (store *Store) processResult(result *sql.Rows) ([]*activity.Event, error) {
 		if initiatorEmail != nil {
 			email, err := store.emailEncrypt.Decrypt(*initiatorEmail)
 			if err != nil {
-				log.Errorf("failed to decrypt data: %s", *initiatorEmail)
+				log.Errorf("failed to decrypt email address of initiator: %s", initiator)
 			} else {
 				event.InitiatorEmail = email
 			}
