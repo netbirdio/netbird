@@ -16,7 +16,7 @@ jobs:
   test:
     strategy:
       matrix:
-        store: ['JsonFile'] # ignore Sqlite for now
+        store: ['JsonFile', 'Sqlite']
     runs-on: windows-latest
     steps:
       - name: Checkout code

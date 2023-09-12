@@ -2,7 +2,6 @@ package server
 
 import (
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -33,7 +32,7 @@ type installation struct {
 
 // NewSqliteStore restores a store from the file located in the datadir
 func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore, error) {
-	file := filepath.Join(dataDir, "store.db?cache=shared")
+	file := filepath.Join(dataDir, "store.db")
 	db, err := gorm.Open(sqlite.Open(file), &gorm.Config{
 		Logger:      logger.Default.LogMode(logger.Silent),
 		PrepareStmt: true,
@@ -42,12 +41,12 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 		return nil, err
 	}
 
-	sql, err := db.DB()
-	if err != nil {
-		return nil, err
-	}
-	conns := runtime.NumCPU()
-	sql.SetMaxOpenConns(conns) // TODO: make it configurable
+	//sql, err := db.DB()
+	//if err != nil {
+	//	return nil, err
+	//}
+	//conns := runtime.NumCPU()
+	//sql.SetMaxOpenConns(conns) // TODO: make it configurable
 
 	err = db.AutoMigrate(
 		&SetupKey{}, &Peer{}, &User{}, &PersonalAccessToken{}, &Group{}, &Rule{},
