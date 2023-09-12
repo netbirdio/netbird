@@ -57,7 +57,7 @@ func TestCorruptKey(t *testing.T) {
 	}
 
 	res, err := ee.Decrypt(encrypted)
-	if err == nil {
-		t.Fatalf("expected error but got nothing: %s", res)
+	if err == nil || res == testData {
+		t.Fatalf("incorrect decryption, the result is: %s", res)
 	}
 }
