@@ -73,9 +73,13 @@ func (h *EventsHandler) fillEventsWithInitiatorEmail(events []*api.Event, accoun
 	}
 
 	// fill event with email of initiator
+	var ok bool
 	for _, event := range events {
 		if event.InitiatorEmail == "" {
-			event.InitiatorEmail = emails[event.InitiatorId]
+			event.InitiatorEmail, ok = emails[event.InitiatorId]
+			if !ok {
+				log.Warnf("failed to resolve email for initiator: %s", event.InitiatorId)
+			}
 		}
 	}
 	return nil
