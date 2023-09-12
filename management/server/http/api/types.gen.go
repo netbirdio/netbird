@@ -5,6 +5,8 @@ package api
 
 import (
 	"time"
+
+	openapi_types "github.com/deepmap/oapi-codegen/pkg/types"
 )
 
 const (
@@ -165,7 +167,7 @@ type Event struct {
 	Id string `json:"id"`
 
 	// InitiatorEmail The e-mail address of the initiator of the event. E.g., an e-mail of a user that triggered the event.
-	InitiatorEmail string `json:"initiator_email"`
+	InitiatorEmail openapi_types.Email `json:"initiator_email"`
 
 	// InitiatorId The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
 	InitiatorId string `json:"initiator_id"`
