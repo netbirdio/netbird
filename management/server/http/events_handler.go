@@ -45,9 +45,9 @@ func (h *EventsHandler) GetAllEvents(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(err, w)
 		return
 	}
-	events := make([]*api.Event, 0, len(accountEvents))
-	for _, e := range accountEvents {
-		events = append(events, toEventResponse(e))
+	events := make([]*api.Event, len(accountEvents))
+	for i, e := range accountEvents {
+		events[i] = toEventResponse(e)
 	}
 
 	err = h.fillEventsWithInitiatorEmail(events, account.Id, user.Id)
