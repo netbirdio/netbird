@@ -42,8 +42,9 @@ const (
 
 // Store is the implementation of the activity.Store interface backed by SQLite
 type Store struct {
-	db           *sql.DB
-	emailEncrypt *EmailEncrypt
+	db             *sql.DB
+	emailEncrypt   *EmailEncrypt
+	deleteUserStmt *sql.Stmt
 }
 
 // NewSQLiteStore creates a new Store with an event table if not exists.
@@ -69,9 +70,15 @@ func NewSQLiteStore(dataDir string, encryptionKey string) (*Store, error) {
 		return nil, err
 	}
 
+	deleteUserStmt, err := db.Prepare(insertDeleteUserStatement)
+	if err != nil {
+		return nil, err
+	}
+
 	s := &Store{
-		db:           db,
-		emailEncrypt: crypt,
+		db:             db,
+		emailEncrypt:   crypt,
+		deleteUserStmt: deleteUserStmt,
 	}
 
 	return s, nil
@@ -190,13 +197,7 @@ func (store *Store) Save(event *activity.Event) (*activity.Event, error) {
 
 func (store *Store) SaveWithDeletedUserEmail(event *activity.Event, email string) (*activity.Event, error) {
 	email = store.emailEncrypt.Encrypt(email)
-
-	stmt, err := store.db.Prepare(insertDeleteUserStatement)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = stmt.Exec(event.TargetID, email)
+	_, err := store.deleteUserStmt.Exec(event.TargetID, email)
 	if err != nil {
 		return nil, err
 	}
