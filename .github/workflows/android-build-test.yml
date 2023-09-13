@@ -1,0 +1,44 @@
+name: Android build test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Install Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.20.x"
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v2
+      - name: NDK Cache
+        id: ndk-cache
+        uses: actions/cache@v3
+        with:
+          path: /usr/local/lib/android/sdk/ndk
+          key: ndk-cache-23.1.7779620
+      - name: Setup NDK
+        run: /usr/local/lib/android/sdk/tools/bin/sdkmanager --install "ndk;23.1.7779620"
+      - name: Checkout netbird repository
+        uses: actions/checkout@v3
+        with:
+          repository: netbirdio/react-native-app
+          ref: main
+          path: react-native-app
+      - name: install gomobile
+        run: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20230531173138-3c911d8e3eda
+      - name: build android nebtird lib
+        run: PATH=$PATH:$(go env GOPATH)/bin bash -x build-android-lib.sh $GITHUB_WORKSPACE/react-native-app
+        env:
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/23.1.7779620
