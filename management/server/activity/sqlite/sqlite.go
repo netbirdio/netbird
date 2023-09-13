@@ -236,7 +236,7 @@ func (store *Store) saveDeletedUserEmailInEncrypted(event *activity.Event) (map[
 	}
 
 	if len(event.Meta) == 1 {
-		return nil, nil
+		return nil, nil // nolint
 	}
 	delete(event.Meta, "email")
 	return event.Meta, nil
