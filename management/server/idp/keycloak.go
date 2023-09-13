@@ -494,6 +494,7 @@ func (km *KeycloakManager) DeleteUser(userID string) error {
 		}
 		return err
 	}
+	defer resp.Body.Close() // nolint
 
 	if resp.StatusCode != http.StatusOK {
 		if km.appMetrics != nil {

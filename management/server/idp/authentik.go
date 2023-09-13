@@ -12,9 +12,10 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
-	"github.com/netbirdio/netbird/management/server/telemetry"
 	log "github.com/sirupsen/logrus"
 	"goauthentik.io/api/v3"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
 // AuthentikManager authentik manager client instance.
@@ -465,11 +466,11 @@ func (am *AuthentikManager) DeleteUser(userID string) error {
 		return err
 	}
 
-	resp, err := am.apiClient.CoreApi.CoreUsersDestroy(ctx, int32(userPk)).
-		Execute()
+	resp, err := am.apiClient.CoreApi.CoreUsersDestroy(ctx, int32(userPk)).Execute()
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close() // nolint
 
 	if am.appMetrics != nil {
 		am.appMetrics.IDPMetrics().CountDeleteUser()
