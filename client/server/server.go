@@ -3,9 +3,10 @@ package server
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal/auth"
 	"sync"
 	"time"
+
+	"github.com/netbirdio/netbird/client/internal/auth"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
@@ -179,6 +180,9 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		inputConfig.CustomDNSAddress = []byte{}
 		s.latestConfigInput.CustomDNSAddress = []byte{}
 	}
+
+	inputConfig.RosenpassEnabled = msg.RosenpassEnabled
+	s.latestConfigInput.RosenpassEnabled = msg.RosenpassEnabled
 
 	s.mutex.Unlock()
 

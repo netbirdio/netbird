@@ -223,6 +223,7 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		SSHKey:               []byte(config.SSHKey),
 		NATExternalIPs:       config.NATExternalIPs,
 		CustomDNSAddress:     config.CustomDNSAddress,
+		RosenpassEnabled:     config.RosenpassEnabled,
 	}
 
 	if config.PreSharedKey != "" {

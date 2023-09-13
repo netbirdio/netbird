@@ -3,9 +3,10 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal/auth"
 	"strings"
 	"time"
+
+	"github.com/netbirdio/netbird/client/internal/auth"
 
 	"github.com/skratchdot/open-golang/open"
 	"google.golang.org/grpc/codes"

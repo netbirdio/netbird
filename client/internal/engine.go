@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
-	"os"
 	"reflect"
 	"runtime"
 	"strings"
@@ -44,7 +43,6 @@ import (
 const (
 	PeerConnectionTimeoutMax = 45000 // ms
 	PeerConnectionTimeoutMin = 30000 // ms
-	envEnableRosenpass       = "NB_RP_ENABLED"
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
@@ -78,6 +76,8 @@ type EngineConfig struct {
 	NATExternalIPs []string
 
 	CustomDNSAddress string
+
+	RosenpassEnabled bool
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -191,12 +191,12 @@ func (e *Engine) Start() error {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 
-	if os.Getenv(envEnableRosenpass) == "true" {
-		e.rpManager, err = rosenpass.NewManager()
+	if e.config.RosenpassEnabled {
+		e.rpManager, err = rosenpass.NewManager(e.config.PreSharedKey)
 		if err != nil {
 			return err
 		}
-		log.Infof("Rosenpass is enabled because the %s variable was set", envEnableRosenpass)
+		log.Infof("Rosenpass is enabled")
 		err := e.rpManager.Run()
 		if err != nil {
 			return err
