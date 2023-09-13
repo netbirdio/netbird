@@ -1,4 +1,4 @@
-name: Android build test
+name: Android build validation
 
 on:
   push:
