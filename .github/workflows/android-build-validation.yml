@@ -1,0 +1,41 @@
+name: Android build validation
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Install Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.20.x"
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v2
+      - name: NDK Cache
+        id: ndk-cache
+        uses: actions/cache@v3
+        with:
+          path: /usr/local/lib/android/sdk/ndk
+          key: ndk-cache-23.1.7779620
+      - name: Setup NDK
+        run: /usr/local/lib/android/sdk/tools/bin/sdkmanager --install "ndk;23.1.7779620"
+      - name: install gomobile
+        run: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20230531173138-3c911d8e3eda
+      - name: gomobile init
+        run: gomobile init
+      - name: build android nebtird lib
+        run: PATH=$PATH:$(go env GOPATH) gomobile bind -o $GITHUB_WORKSPACE/netbird.aar -javapkg=io.netbird.gomobile -ldflags="-X golang.zx2c4.com/wireguard/ipc.socketDirectory=/data/data/io.netbird.client/cache/wireguard -X github.com/netbirdio/netbird/version.version=buildtest"  $GITHUB_WORKSPACE/client/android
+        env:
+          CGO_ENABLED: 0
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/23.1.7779620
