@@ -84,6 +84,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		ConfigPath:       configPath,
 		NATExternalIPs:   natExternalIPs,
 		CustomDNSAddress: customDNSAddressConverted,
+		RosenpassEnabled: rosenpassEnabled,
 	}
 	if preSharedKey != "" {
 		ic.PreSharedKey = &preSharedKey
@@ -148,6 +149,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		NatExternalIPs:      natExternalIPs,
 		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
 		CustomDNSAddress:    customDNSAddressConverted,
+		RosenpassEnabled:    rosenpassEnabled,
 	}
 
 	var loginErr error

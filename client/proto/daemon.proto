@@ -51,6 +51,8 @@ message LoginRequest {
 
   bytes customDNSAddress = 7;
 
+  bool rosenpassEnabled = 8;
+
 }
 
 message LoginResponse {

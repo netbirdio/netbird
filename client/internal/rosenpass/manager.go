@@ -24,17 +24,18 @@ func HashRosenpassKey(key []byte) string {
 }
 
 type Manager struct {
-	spk         []byte
-	ssk         []byte
-	rpKeyHash   string
-	rpPeerIDs   map[string]*rp.PeerID
-	rpWgHandler *handlers.WireGuardHandler
-	server      *rp.Server
-	lock        sync.Mutex
+	spk          []byte
+	ssk          []byte
+	rpKeyHash    string
+	preSharedKey *[32]byte
+	rpPeerIDs    map[string]*rp.PeerID
+	rpWgHandler  *handlers.WireGuardHandler
+	server       *rp.Server
+	lock         sync.Mutex
 }
 
 // NewManager creates a new Rosenpass manager
-func NewManager() (*Manager, error) {
+func NewManager(preSharedKey *wgtypes.Key) (*Manager, error) {
 	public, secret, err := rp.GenerateKeyPair()
 	if err != nil {
 		return nil, err
@@ -42,7 +43,7 @@ func NewManager() (*Manager, error) {
 
 	rpKeyHash := HashRosenpassKey(public)
 	log.Infof("generated new rosenpass key pair with public key %s", rpKeyHash)
-	return &Manager{rpKeyHash: rpKeyHash, spk: public, ssk: secret, rpPeerIDs: make(map[string]*rp.PeerID), lock: sync.Mutex{}}, nil
+	return &Manager{rpKeyHash: rpKeyHash, spk: public, ssk: secret, preSharedKey: (*[32]byte)(preSharedKey), rpPeerIDs: make(map[string]*rp.PeerID), lock: sync.Mutex{}}, nil
 }
 
 func (m *Manager) GetPubKey() []byte {
@@ -58,6 +59,9 @@ func (m *Manager) GetAddress() *net.UDPAddr {
 func (m *Manager) addPeer(rosenpassPubKey []byte, rosenpassAddr string, wireGuardIP string, wireGuardPubKey string) error {
 	var err error
 	pcfg := rp.PeerConfig{PublicKey: rosenpassPubKey}
+	if m.preSharedKey != nil {
+		pcfg.PresharedKey = *m.preSharedKey
+	}
 	if bytes.Compare(m.spk, rosenpassPubKey) == 1 {
 		_, strPort, err := net.SplitHostPort(rosenpassAddr)
 		if err != nil {
