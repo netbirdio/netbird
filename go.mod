@@ -30,10 +30,10 @@ require (
 )
 
 require (
-	cunicu.li/go-rosenpass v0.3.1
+	cunicu.li/go-rosenpass v0.4.0
 	fyne.io/fyne/v2 v2.1.4
 	github.com/c-robinson/iplib v1.0.3
-	github.com/cilium/ebpf v0.10.0
+	github.com/cilium/ebpf v0.11.0
 	github.com/coreos/go-iptables v0.7.0
 	github.com/creack/pty v1.1.18
 	github.com/eko/gocache/v3 v3.1.1
@@ -68,7 +68,7 @@ require (
 	go.opentelemetry.io/otel/metric v0.33.0
 	go.opentelemetry.io/otel/sdk/metric v0.33.0
 	goauthentik.io/api/v3 v3.2023051.3
-	golang.org/x/exp v0.0.0-20220518171630-0b5c67f07fdf
+	golang.org/x/exp v0.0.0-20230224173230-c95f2b4c22f2
 	golang.org/x/mobile v0.0.0-20190719004257-d2bd2a29d028
 	golang.org/x/net v0.14.0
 	golang.org/x/oauth2 v0.8.0
@@ -111,6 +111,7 @@ require (
 	github.com/google/s2a-go v0.1.4 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.2.3 // indirect
 	github.com/googleapis/gax-go/v2 v2.10.0 // indirect
+	github.com/gopacket/gopacket v1.1.1 // indirect
 	github.com/hashicorp/go-uuid v1.0.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/native v1.1.0 // indirect
