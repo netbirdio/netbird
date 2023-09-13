@@ -33,7 +33,7 @@ jobs:
       - name: Checkout netbird repository
         uses: actions/checkout@v3
         with:
-          repository: netbirdio/react-native-app
+          repository: netbirdio/react-native-app.git
           ref: main
           path: react-native-app
       - name: install gomobile
