@@ -67,7 +67,7 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 	return &SqliteStore{db: db, storeFile: file, installationPK: 1}, nil
 }
 
-// NewSqliteStoreFromFileStor restores a store from FileStore and stores SQLite DB in the file located in datadir
+// NewSqliteStoreFromFileStore restores a store from FileStore and stores SQLite DB in the file located in datadir
 func NewSqliteStoreFromFileStore(filestore *FileStore, dataDir string, metrics telemetry.AppMetrics) (*SqliteStore, error) {
 	store, err := NewSqliteStore(dataDir, metrics)
 	if err != nil {
