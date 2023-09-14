@@ -74,13 +74,13 @@ type Peer struct {
 	// ID is an internal ID of the peer
 	ID string `gorm:"primaryKey"`
 	// AccountID is a reference to Account that this object belongs
-	AccountID string `gorm:"index"`
+	AccountID string `gorm:"index;uniqueIndex:idx_peers_account_id_ip"`
 	// WireGuard public key
 	Key string `gorm:"index"`
 	// A setup key this peer was registered with
 	SetupKey string
 	// IP address of the Peer
-	IP net.IP
+	IP net.IP `gorm:"uniqueIndex:idx_peers_account_id_ip"`
 	// Meta is a Peer system meta data
 	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	// Name is peer's name (machine name)
