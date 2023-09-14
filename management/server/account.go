@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	b64 "encoding/base64"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"math/rand"
@@ -938,6 +939,37 @@ func (am *DefaultAccountManager) newAccount(userID, domain string) (*Account, er
 func (am *DefaultAccountManager) warmupIDPCache() error {
 	userData, err := am.idpManager.GetAllAccounts()
 	if err != nil {
+		var idpErr *idp.Error
+		if errors.As(err, &idpErr) {
+			log.Warnf("failed to fetch all accounts from idp: %v", idpErr)
+
+			log.Info("warming cache using store")
+			accounts := am.Store.GetAllAccounts()
+
+			for _, account := range accounts {
+				data := make([]*idp.UserData, 0)
+
+				for _, user := range account.Users {
+					// fetch user info with idp manager
+					userData, err := am.idpManager.GetUserDataByID(user.Id, idp.AppMetadata{WTAccountID: account.Id})
+					if err != nil {
+						return err
+					}
+
+					// update user metadata as are not stored in upstream idp
+					// Note (self-hosted does not support pendingInvite and invitedBy status)
+					userData.AppMetadata.WTAccountID = account.Id
+					data = append(data, userData)
+				}
+
+				err = am.cacheManager.Set(am.ctx, account.Id, data, cacheStore.WithExpiration(cacheEntryExpiration()))
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+
 		return err
 	}
 

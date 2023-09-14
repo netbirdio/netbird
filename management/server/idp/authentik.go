@@ -12,9 +12,10 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
-	"github.com/netbirdio/netbird/management/server/telemetry"
 	log "github.com/sirupsen/logrus"
 	"goauthentik.io/api/v3"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
 // AuthentikManager authentik manager client instance.
@@ -210,47 +211,48 @@ func (ac *AuthentikCredentials) Authenticate() (JWTToken, error) {
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
 func (am *AuthentikManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
-	ctx, err := am.authenticationContext()
-	if err != nil {
-		return err
-	}
-
-	userPk, err := strconv.ParseInt(userID, 10, 32)
-	if err != nil {
-		return err
-	}
-
-	var pendingInvite bool
-	if appMetadata.WTPendingInvite != nil {
-		pendingInvite = *appMetadata.WTPendingInvite
-	}
-
-	patchedUserReq := api.PatchedUserRequest{
-		Attributes: map[string]interface{}{
-			wtAccountID:     appMetadata.WTAccountID,
-			wtPendingInvite: pendingInvite,
-		},
-	}
-	_, resp, err := am.apiClient.CoreApi.CoreUsersPartialUpdate(ctx, int32(userPk)).
-		PatchedUserRequest(patchedUserReq).
-		Execute()
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if am.appMetrics != nil {
-		am.appMetrics.IDPMetrics().CountUpdateUserAppMetadata()
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		if am.appMetrics != nil {
-			am.appMetrics.IDPMetrics().CountRequestStatusError()
-		}
-		return fmt.Errorf("unable to update user %s, statusCode %d", userID, resp.StatusCode)
-	}
-
-	return nil
+	//ctx, err := am.authenticationContext()
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//userPk, err := strconv.ParseInt(userID, 10, 32)
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//var pendingInvite bool
+	//if appMetadata.WTPendingInvite != nil {
+	//	pendingInvite = *appMetadata.WTPendingInvite
+	//}
+	//
+	//patchedUserReq := api.PatchedUserRequest{
+	//	Attributes: map[string]interface{}{
+	//		wtAccountID:     appMetadata.WTAccountID,
+	//		wtPendingInvite: pendingInvite,
+	//	},
+	//}
+	//_, resp, err := am.apiClient.CoreApi.CoreUsersPartialUpdate(ctx, int32(userPk)).
+	//	PatchedUserRequest(patchedUserReq).
+	//	Execute()
+	//if err != nil {
+	//	return err
+	//}
+	//defer resp.Body.Close()
+	//
+	//if am.appMetrics != nil {
+	//	am.appMetrics.IDPMetrics().CountUpdateUserAppMetadata()
+	//}
+	//
+	//if resp.StatusCode != http.StatusOK {
+	//	if am.appMetrics != nil {
+	//		am.appMetrics.IDPMetrics().CountRequestStatusError()
+	//	}
+	//	return fmt.Errorf("unable to update user %s, statusCode %d", userID, resp.StatusCode)
+	//}
+	//
+	//return nil
+	return &Error{"UpdateUserAppMetadata is not implemented"}
 }
 
 // GetUserDataByID requests user data from authentik via ID.
@@ -287,83 +289,86 @@ func (am *AuthentikManager) GetUserDataByID(userID string, appMetadata AppMetada
 
 // GetAccount returns all the users for a given profile.
 func (am *AuthentikManager) GetAccount(accountID string) ([]*UserData, error) {
-	ctx, err := am.authenticationContext()
-	if err != nil {
-		return nil, err
-	}
-
-	accountFilter := fmt.Sprintf("{%q:%q}", wtAccountID, accountID)
-	userList, resp, err := am.apiClient.CoreApi.CoreUsersList(ctx).Attributes(accountFilter).Execute()
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if am.appMetrics != nil {
-		am.appMetrics.IDPMetrics().CountGetAccount()
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		if am.appMetrics != nil {
-			am.appMetrics.IDPMetrics().CountRequestStatusError()
-		}
-		return nil, fmt.Errorf("unable to get account %s users, statusCode %d", accountID, resp.StatusCode)
-	}
-
-	users := make([]*UserData, 0)
-	for _, user := range userList.Results {
-		userData, err := parseAuthentikUser(user)
-		if err != nil {
-			return nil, err
-		}
-		users = append(users, userData)
-	}
-
-	return users, nil
+	//ctx, err := am.authenticationContext()
+	//if err != nil {
+	//	return nil, err
+	//}
+	//
+	//accountFilter := fmt.Sprintf("{%q:%q}", wtAccountID, accountID)
+	//userList, resp, err := am.apiClient.CoreApi.CoreUsersList(ctx).Attributes(accountFilter).Execute()
+	//if err != nil {
+	//	return nil, err
+	//}
+	//defer resp.Body.Close()
+	//
+	//if am.appMetrics != nil {
+	//	am.appMetrics.IDPMetrics().CountGetAccount()
+	//}
+	//
+	//if resp.StatusCode != http.StatusOK {
+	//	if am.appMetrics != nil {
+	//		am.appMetrics.IDPMetrics().CountRequestStatusError()
+	//	}
+	//	return nil, fmt.Errorf("unable to get account %s users, statusCode %d", accountID, resp.StatusCode)
+	//}
+	//
+	//users := make([]*UserData, 0)
+	//for _, user := range userList.Results {
+	//	userData, err := parseAuthentikUser(user)
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	//	users = append(users, userData)
+	//}
+	//
+	//return users, nil
+	return nil, &Error{"GetAccount is not implemented"}
 }
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
 func (am *AuthentikManager) GetAllAccounts() (map[string][]*UserData, error) {
-	ctx, err := am.authenticationContext()
-	if err != nil {
-		return nil, err
-	}
+	//ctx, err := am.authenticationContext()
+	//if err != nil {
+	//	return nil, err
+	//}
+	//
+	//userList, resp, err := am.apiClient.CoreApi.CoreUsersList(ctx).Execute()
+	//if err != nil {
+	//	return nil, err
+	//}
+	//defer resp.Body.Close()
+	//
+	//if am.appMetrics != nil {
+	//	am.appMetrics.IDPMetrics().CountGetAllAccounts()
+	//}
+	//
+	//if resp.StatusCode != http.StatusOK {
+	//	if am.appMetrics != nil {
+	//		am.appMetrics.IDPMetrics().CountRequestStatusError()
+	//	}
+	//	return nil, fmt.Errorf("unable to get all accounts, statusCode %d", resp.StatusCode)
+	//}
+	//
+	//indexedUsers := make(map[string][]*UserData)
+	//for _, user := range userList.Results {
+	//	userData, err := parseAuthentikUser(user)
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	//
+	//	accountID := userData.AppMetadata.WTAccountID
+	//	if accountID != "" {
+	//		if _, ok := indexedUsers[accountID]; !ok {
+	//			indexedUsers[accountID] = make([]*UserData, 0)
+	//		}
+	//		indexedUsers[accountID] = append(indexedUsers[accountID], userData)
+	//	}
+	//}
+	//
+	//return indexedUsers, nil
 
-	userList, resp, err := am.apiClient.CoreApi.CoreUsersList(ctx).Execute()
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if am.appMetrics != nil {
-		am.appMetrics.IDPMetrics().CountGetAllAccounts()
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		if am.appMetrics != nil {
-			am.appMetrics.IDPMetrics().CountRequestStatusError()
-		}
-		return nil, fmt.Errorf("unable to get all accounts, statusCode %d", resp.StatusCode)
-	}
-
-	indexedUsers := make(map[string][]*UserData)
-	for _, user := range userList.Results {
-		userData, err := parseAuthentikUser(user)
-		if err != nil {
-			return nil, err
-		}
-
-		accountID := userData.AppMetadata.WTAccountID
-		if accountID != "" {
-			if _, ok := indexedUsers[accountID]; !ok {
-				indexedUsers[accountID] = make([]*UserData, 0)
-			}
-			indexedUsers[accountID] = append(indexedUsers[accountID], userData)
-		}
-	}
-
-	return indexedUsers, nil
+	return nil, &Error{"GetAllAccounts is not implemented"}
 }
 
 // CreateUser creates a new user in authentik Idp and sends an invitation.
