@@ -37,7 +37,7 @@ type ConfigInput struct {
 	PreSharedKey     *string
 	NATExternalIPs   []string
 	CustomDNSAddress []byte
-	RosenpassEnabled bool
+	RosenpassEnabled *bool
 }
 
 // Config Configuration type
@@ -147,7 +147,7 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		DisableIPv6Discovery: false,
 		NATExternalIPs:       input.NATExternalIPs,
 		CustomDNSAddress:     string(input.CustomDNSAddress),
-		RosenpassEnabled:     input.RosenpassEnabled,
+		RosenpassEnabled:     *input.RosenpassEnabled,
 	}
 
 	defaultManagementURL, err := parseURL("Management URL", DefaultManagementURL)
@@ -168,8 +168,8 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		config.PreSharedKey = *input.PreSharedKey
 	}
 
-	if input.RosenpassEnabled {
-		config.RosenpassEnabled = true
+	if input.RosenpassEnabled != nil {
+		config.RosenpassEnabled = *input.RosenpassEnabled
 	}
 
 	defaultAdminURL, err := parseURL("Admin URL", DefaultAdminURL)
@@ -253,8 +253,8 @@ func update(input ConfigInput) (*Config, error) {
 		refresh = true
 	}
 
-	if input.RosenpassEnabled != config.RosenpassEnabled {
-		config.RosenpassEnabled = input.RosenpassEnabled
+	if input.RosenpassEnabled != nil {
+		config.RosenpassEnabled = *input.RosenpassEnabled
 		refresh = true
 	}
 
