@@ -181,8 +181,8 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		s.latestConfigInput.CustomDNSAddress = []byte{}
 	}
 
-	inputConfig.RosenpassEnabled = msg.RosenpassEnabled
-	s.latestConfigInput.RosenpassEnabled = msg.RosenpassEnabled
+	inputConfig.RosenpassEnabled = &msg.RosenpassEnabled
+	s.latestConfigInput.RosenpassEnabled = &msg.RosenpassEnabled
 
 	s.mutex.Unlock()
 

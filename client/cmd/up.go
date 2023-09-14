@@ -84,7 +84,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		ConfigPath:       configPath,
 		NATExternalIPs:   natExternalIPs,
 		CustomDNSAddress: customDNSAddressConverted,
-		RosenpassEnabled: rosenpassEnabled,
+		RosenpassEnabled: &rosenpassEnabled,
 	}
 	if preSharedKey != "" {
 		ic.PreSharedKey = &preSharedKey
