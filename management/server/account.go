@@ -951,9 +951,12 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 
 				for _, user := range account.Users {
 					// fetch user info with idp manager
+					// verify the validity of this user before adding to the cache
 					userData, err := am.idpManager.GetUserDataByID(user.Id, idp.AppMetadata{WTAccountID: account.Id})
 					if err != nil {
-						return err
+						// delete/do not add user to the cache
+						log.Debugf("user with id: %s does not exist", user.Id)
+						continue
 					}
 
 					// update user metadata as are not stored in upstream idp
@@ -1026,6 +1029,9 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(userID string, account
 
 		err = am.idpManager.UpdateUserAppMetadata(userID, idp.AppMetadata{WTAccountID: account.Id})
 		if err != nil {
+			// TODO: with self hosted with idp which do not implement this method
+			// store the attributes and  tobe available in next cache refresh.
+			// FIX: unable to access dashboard after sending user invite.
 			return status.Errorf(status.Internal, "updating user's app metadata failed with: %v", err)
 		}
 		// refresh cache to reflect the update
@@ -1039,7 +1045,36 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(userID string, account
 
 func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interface{}) ([]*idp.UserData, error) {
 	log.Debugf("account %s not found in cache, reloading", accountID)
-	return am.idpManager.GetAccount(fmt.Sprintf("%v", accountID))
+	account, err := am.idpManager.GetAccount(fmt.Sprintf("%v", accountID))
+	if err != nil {
+		var idpErr *idp.Error
+		if errors.As(err, &idpErr) {
+			acc, err := am.Store.GetAccount(fmt.Sprintf("%v", accountID))
+			if err != nil {
+				return nil, err
+			}
+
+			data := make([]*idp.UserData, 0)
+
+			for _, user := range acc.Users {
+				// fetch user info with idp manager
+				userData, err := am.idpManager.GetUserDataByID(user.Id, idp.AppMetadata{})
+				if err != nil {
+					return nil, err
+				}
+
+				// update user metadata as are not stored in upstream idp
+				// Note (self-hosted does not support pendingInvite and invitedBy status)
+				userData.AppMetadata.WTAccountID = fmt.Sprintf("%v", accountID)
+				data = append(data, userData)
+			}
+
+			return account, nil
+		}
+		return nil, err
+	}
+
+	return account, nil
 }
 
 func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountID string) (*idp.UserData, error) {
