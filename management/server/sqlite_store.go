@@ -74,6 +74,11 @@ func NewSqliteStoreFromFileStore(filestore *FileStore, dataDir string, metrics t
 		return nil, err
 	}
 
+	err = store.SaveInstallationID(filestore.InstallationID)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, account := range filestore.GetAllAccounts() {
 		err := store.SaveAccount(account)
 		if err != nil {
