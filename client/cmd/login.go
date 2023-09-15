@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netbirdio/netbird/client/internal/auth"
+
 	"github.com/skratchdot/open-golang/open"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
