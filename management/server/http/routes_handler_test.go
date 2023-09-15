@@ -206,6 +206,24 @@ func TestRoutesHandlers(t *testing.T) {
 			expectedBody:   false,
 		},
 		{
+			name:        "POST UnprocessableEntity when both peer and peers_group are provided",
+			requestType: http.MethodPost,
+			requestPath: "/api/routes",
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"peer\":\"%s\",\"peers_group\":\"%s\",\"groups\":[\"%s\"]}", existingPeerID, existingGroupID, existingGroupID))),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "POST UnprocessableEntity when no peer and peers_group are provided",
+			requestType: http.MethodPost,
+			requestPath: "/api/routes",
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"groups\":[\"%s\"]}", existingPeerID))),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
 			name:           "PUT OK",
 			requestType:    http.MethodPut,
 			requestPath:    "/api/routes/" + existingRouteID,
@@ -253,6 +271,24 @@ func TestRoutesHandlers(t *testing.T) {
 			requestType:    http.MethodPut,
 			requestPath:    "/api/routes/" + existingRouteID,
 			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/34\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\",\"groups\":[\"%s\"]}", existingPeerID, existingGroupID)),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "PUT UnprocessableEntity when both peer and peers_group are provided",
+			requestType: http.MethodPut,
+			requestPath: "/api/routes/" + existingRouteID,
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"peer\":\"%s\",\"peers_group\":\"%s\",\"groups\":[\"%s\"]}", existingPeerID, existingGroupID, existingGroupID))),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "PUT UnprocessableEntity when no peer and peers_group are provided",
+			requestType: http.MethodPut,
+			requestPath: "/api/routes/" + existingRouteID,
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"groups\":[\"%s\"]}", existingPeerID))),
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},

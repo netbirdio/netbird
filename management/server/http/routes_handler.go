@@ -82,6 +82,16 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Peer != nil && req.PeersGroup != nil {
+		util.WriteError(status.Errorf(status.InvalidArgument, "only peer or peers_group should be provided"), w)
+		return
+	}
+
+	if req.Peer == nil && req.PeersGroup == nil {
+		util.WriteError(status.Errorf(status.InvalidArgument, "either peer or peers_group should be provided"), w)
+		return
+	}
+
 	newRoute, err := h.accountManager.CreateRoute(account.Id, newPrefix.String(), *req.Peer, req.Description, req.NetworkId, req.Masquerade, req.Metric, req.Groups, req.Enabled, user.Id)
 	if err != nil {
 		util.WriteError(err, w)
@@ -132,6 +142,16 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	if utf8.RuneCountInString(req.NetworkId) > route.MaxNetIDChar || req.NetworkId == "" {
 		util.WriteError(status.Errorf(status.InvalidArgument,
 			"identifier should be between 1 and %d", route.MaxNetIDChar), w)
+		return
+	}
+
+	if req.Peer != nil && req.PeersGroup != nil {
+		util.WriteError(status.Errorf(status.InvalidArgument, "only peer or peers_group should be provided"), w)
+		return
+	}
+
+	if req.Peer == nil && req.PeersGroup == nil {
+		util.WriteError(status.Errorf(status.InvalidArgument, "either peer or peers_group should be provided"), w)
 		return
 	}
 
