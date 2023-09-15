@@ -82,7 +82,7 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newRoute, err := h.accountManager.CreateRoute(account.Id, newPrefix.String(), req.Peer, req.Description, req.NetworkId, req.Masquerade, req.Metric, req.Groups, req.Enabled, user.Id)
+	newRoute, err := h.accountManager.CreateRoute(account.Id, newPrefix.String(), *req.Peer, req.Description, req.NetworkId, req.Masquerade, req.Metric, req.Groups, req.Enabled, user.Id)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -141,7 +141,7 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		NetID:       req.NetworkId,
 		NetworkType: prefixType,
 		Masquerade:  req.Masquerade,
-		Peer:        req.Peer,
+		Peer:        *req.Peer,
 		Metric:      req.Metric,
 		Description: req.Description,
 		Enabled:     req.Enabled,
@@ -213,7 +213,7 @@ func toRouteResponse(serverRoute *route.Route) *api.Route {
 		Description: serverRoute.Description,
 		NetworkId:   serverRoute.NetID,
 		Enabled:     serverRoute.Enabled,
-		Peer:        serverRoute.Peer,
+		Peer:        &serverRoute.Peer,
 		Network:     serverRoute.Network.String(),
 		NetworkType: serverRoute.NetworkType.String(),
 		Masquerade:  serverRoute.Masquerade,

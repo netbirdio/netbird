@@ -745,7 +745,11 @@ components:
           type: boolean
           example: true
         peer:
-          description: Peer Identifier associated with route
+          description: Peer Identifier associated with route. This property can not be set together with `peers_group`
+          type: string
+          example: chacbco6lnnbn6cg5s91
+        peers_group:
+          description: Peers Group Identifier associated with route. This property can not be set together with `peers_group`
           type: string
           example: chacbco6lnnbn6cg5s91
         network:
@@ -773,7 +777,9 @@ components:
         - description
         - network_id
         - enabled
-        - peer
+        # Only one property has to be set
+        #- peer
+        #- peers_group
         - network
         - metric
         - masquerade
