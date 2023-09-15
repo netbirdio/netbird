@@ -254,6 +254,28 @@ func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Rou
 	var enabledRoutes []*route.Route
 	var disabledRoutes []*route.Route
 	for _, r := range a.Routes {
+		if r.PeersGroup != "" {
+			group := a.GetGroup(r.PeersGroup)
+			if group == nil {
+				log.Errorf("route %s has peers group %s that doesn't exist under account %s", r.ID, r.PeersGroup, a.Id)
+				continue
+			}
+			for _, id := range group.Peers {
+				peer := a.GetPeer(id)
+				if peer == nil {
+					log.Errorf("route %s has peers group %s that which has %s that doesn't exist under account %s",
+						r.ID, r.PeersGroup, id, a.Id)
+					continue
+				}
+				raut := r.Copy()
+				raut.Peer = peer.Key
+				if r.Enabled {
+					enabledRoutes = append(enabledRoutes, raut)
+					continue
+				}
+				disabledRoutes = append(disabledRoutes, raut)
+			}
+		}
 		if r.Peer == peerID {
 			// We need to set Peer.Key instead of Peer.ID because this object will be sent to agents as part of a network map.
 			// Ideally we should have a separate field for that, but fine for now.
@@ -317,7 +339,31 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 		peersToConnect = append(peersToConnect, p)
 	}
 	// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
-	routesUpdate := a.getRoutesToSync(peerID, peersToConnect)
+	routes := a.getRoutesToSync(peerID, peersToConnect)
+
+	// TODO(yury): each route can contain peers group. We should unfold them to peers
+	var routesUpdate []*route.Route
+	seenPeer := make(map[string]bool)
+	for _, r := range routes {
+		if r.PeersGroup == "" {
+			routesUpdate = append(routesUpdate, r)
+			continue
+		}
+		if group := a.GetGroup(r.PeersGroup); group != nil {
+			for _, peerId := range group.Peers {
+				peer := a.GetPeer(peerId)
+				if peer == nil {
+					continue
+				}
+				if _, ok := seenPeer[peer.Key]; !ok {
+					rCopy := r.Copy()
+					rCopy.Peer = peer.Key
+					routesUpdate = append(routesUpdate, rCopy)
+				}
+				seenPeer[peer.Key] = true
+			}
+		}
+	}
 
 	dnsManagementStatus := a.getPeerDNSManagementStatus(peerID)
 	dnsUpdate := nbdns.Config{

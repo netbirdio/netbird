@@ -668,7 +668,57 @@ func TestDeleteRoute(t *testing.T) {
 	}
 }
 
-// TODO(yury): this test needs to be extended with peers group
+func TestGetNetworkMap_RouteSyncPeersGroup(t *testing.T) {
+	baseRoute := &route.Route{
+		Network:     netip.MustParsePrefix("192.168.0.0/16"),
+		NetID:       "superNet",
+		NetworkType: route.IPv4Network,
+		PeersGroup:  routeGroupHA,
+		Description: "ha route",
+		Masquerade:  false,
+		Metric:      9999,
+		Enabled:     true,
+		Groups:      []string{routeGroup1, routeGroup2},
+	}
+
+	am, err := createRouterManager(t)
+	if err != nil {
+		t.Error("failed to create account manager")
+	}
+
+	account, err := initTestRouteAccount(t, am)
+	if err != nil {
+		t.Error("failed to init testing account")
+	}
+
+	newAccountRoutes, err := am.GetNetworkMap(peer1ID)
+	require.NoError(t, err)
+	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
+
+	newRoute, err := am.CreateRoute(
+		account.Id, baseRoute.Network.String(), baseRoute.Peer, baseRoute.PeersGroup, baseRoute.Description,
+		baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, baseRoute.Enabled, userID)
+	require.NoError(t, err)
+	require.Equal(t, newRoute.Enabled, true)
+
+	peer1Routes, err := am.GetNetworkMap(peer1ID)
+	require.NoError(t, err)
+	require.Len(t, peer1Routes.Routes, 2, "HA route should have more than 1 peer")
+
+	peer2Routes, err := am.GetNetworkMap(peer2ID)
+	require.NoError(t, err)
+	require.Len(t, peer2Routes.Routes, 2, "HA route should have more than 1 peer")
+
+	//TODO(yury): test adding peer to the group. route should have that peer
+
+	err = am.DeleteRoute(account.Id, newRoute.ID, userID)
+	require.NoError(t, err)
+
+	peer1DeletedRoute, err := am.GetNetworkMap(peer1ID)
+	require.NoError(t, err)
+	require.Len(t, peer1DeletedRoute.Routes, 0, "we should receive one route for peer1")
+}
+
 func TestGetNetworkMap_RouteSync(t *testing.T) {
 	// no routes for peer in different groups
 	// no routes when route is deleted
