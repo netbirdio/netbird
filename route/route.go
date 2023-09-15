@@ -70,6 +70,7 @@ type Route struct {
 	NetID       string
 	Description string
 	Peer        string
+	PeersGroup  string
 	NetworkType NetworkType
 	Masquerade  bool
 	Metric      int
@@ -91,6 +92,7 @@ func (r *Route) Copy() *Route {
 		Network:     r.Network,
 		NetworkType: r.NetworkType,
 		Peer:        r.Peer,
+		PeersGroup:  r.PeersGroup,
 		Metric:      r.Metric,
 		Masquerade:  r.Masquerade,
 		Enabled:     r.Enabled,
@@ -108,6 +110,7 @@ func (r *Route) IsEqual(other *Route) bool {
 		other.Network == r.Network &&
 		other.NetworkType == r.NetworkType &&
 		other.Peer == r.Peer &&
+		other.PeersGroup == r.PeersGroup &&
 		other.Metric == r.Metric &&
 		other.Masquerade == r.Masquerade &&
 		other.Enabled == r.Enabled &&
