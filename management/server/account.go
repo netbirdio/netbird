@@ -83,7 +83,7 @@ type AccountManager interface {
 	DeleteGroup(accountId, userId, groupID string) error
 	ListGroups(accountId string) ([]*Group, error)
 	GroupAddPeer(accountId, groupID, peerID string) error
-	GroupDeletePeer(accountId, groupID, peerKey string) error
+	GroupDeletePeer(accountId, groupID, peerID string) error
 	GroupListPeers(accountId, groupID string) ([]*Peer, error)
 	GetPolicy(accountID, policyID, userID string) (*Policy, error)
 	SavePolicy(accountID, userID string, policy *Policy) error
@@ -351,7 +351,7 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 		}
 		if group := a.GetGroup(r.PeersGroup); group != nil {
 			for _, peerId := range group.Peers {
-				peer := a.GetPeer(peerId)
+				peer := a.GetPeer(peerId) // BROKEN!!!
 				if peer == nil {
 					continue
 				}

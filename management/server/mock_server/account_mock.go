@@ -33,8 +33,8 @@ type MockAccountManager struct {
 	SaveGroupFunc                   func(accountID, userID string, group *server.Group) error
 	DeleteGroupFunc                 func(accountID, userId, groupID string) error
 	ListGroupsFunc                  func(accountID string) ([]*server.Group, error)
-	GroupAddPeerFunc                func(accountID, groupID, peerKey string) error
-	GroupDeletePeerFunc             func(accountID, groupID, peerKey string) error
+	GroupAddPeerFunc                func(accountID, groupID, peerID string) error
+	GroupDeletePeerFunc             func(accountID, groupID, peerID string) error
 	GroupListPeersFunc              func(accountID, groupID string) ([]*server.Peer, error)
 	GetRuleFunc                     func(accountID, ruleID, userID string) (*server.Rule, error)
 	SaveRuleFunc                    func(accountID, userID string, rule *server.Rule) error
@@ -281,17 +281,17 @@ func (am *MockAccountManager) ListGroups(accountID string) ([]*server.Group, err
 }
 
 // GroupAddPeer mock implementation of GroupAddPeer from server.AccountManager interface
-func (am *MockAccountManager) GroupAddPeer(accountID, groupID, peerKey string) error {
+func (am *MockAccountManager) GroupAddPeer(accountID, groupID, peerID string) error {
 	if am.GroupAddPeerFunc != nil {
-		return am.GroupAddPeerFunc(accountID, groupID, peerKey)
+		return am.GroupAddPeerFunc(accountID, groupID, peerID)
 	}
 	return status.Errorf(codes.Unimplemented, "method GroupAddPeer is not implemented")
 }
 
 // GroupDeletePeer mock implementation of GroupDeletePeer from server.AccountManager interface
-func (am *MockAccountManager) GroupDeletePeer(accountID, groupID, peerKey string) error {
+func (am *MockAccountManager) GroupDeletePeer(accountID, groupID, peerID string) error {
 	if am.GroupDeletePeerFunc != nil {
-		return am.GroupDeletePeerFunc(accountID, groupID, peerKey)
+		return am.GroupDeletePeerFunc(accountID, groupID, peerID)
 	}
 	return status.Errorf(codes.Unimplemented, "method GroupDeletePeer is not implemented")
 }

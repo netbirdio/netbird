@@ -285,7 +285,7 @@ func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerID string)
 }
 
 // GroupDeletePeer removes peer from the group
-func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey string) error {
+func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerID string) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -301,7 +301,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey str
 
 	account.Network.IncSerial()
 	for i, itemID := range group.Peers {
-		if itemID == peerKey {
+		if itemID == peerID {
 			group.Peers = append(group.Peers[:i], group.Peers[i+1:]...)
 			if err := am.Store.SaveAccount(account); err != nil {
 				return err

@@ -703,11 +703,11 @@ func TestGetNetworkMap_RouteSyncPeersGroup(t *testing.T) {
 
 	peer1Routes, err := am.GetNetworkMap(peer1ID)
 	require.NoError(t, err)
-	require.Len(t, peer1Routes.Routes, 2, "HA route should have more than 1 peer")
+	require.Len(t, peer1Routes.Routes, 2, "HA route should have more than 1 routes")
 
 	peer2Routes, err := am.GetNetworkMap(peer2ID)
 	require.NoError(t, err)
-	require.Len(t, peer2Routes.Routes, 2, "HA route should have more than 1 peer")
+	require.Len(t, peer2Routes.Routes, 2, "HA route should have more than 1 routes")
 
 	groups, err := am.ListGroups(account.Id)
 	require.NoError(t, err)
@@ -718,23 +718,23 @@ func TestGetNetworkMap_RouteSyncPeersGroup(t *testing.T) {
 			break
 		}
 	}
-	err = am.GroupDeletePeer(account.Id, groupHA.ID, peer1Key)
+	err = am.GroupDeletePeer(account.Id, groupHA.ID, peer1ID)
 	require.NoError(t, err)
 
 	peer2RoutesAfterDelete, err := am.GetNetworkMap(peer2ID)
 	require.NoError(t, err)
-	require.Len(t, peer2RoutesAfterDelete.Routes, 1, "after peer deletion group should have only 1 peer")
+	require.Len(t, peer2RoutesAfterDelete.Routes, 1, "after peer deletion group should have only 1 route")
 
 	err = am.GroupAddPeer(account.Id, groupHA.ID, peer1ID)
 	require.NoError(t, err)
 
 	peer1RoutesAfterAdd, err := am.GetNetworkMap(peer1ID)
 	require.NoError(t, err)
-	require.Len(t, peer1RoutesAfterAdd.Routes, 2, "HA route should have more than 1 peer")
+	require.Len(t, peer1RoutesAfterAdd.Routes, 2, "HA route should have more than 1 route")
 
 	peer2RoutesAfterAdd, err := am.GetNetworkMap(peer2ID)
 	require.NoError(t, err)
-	require.Len(t, peer2RoutesAfterAdd.Routes, 2, "HA route should have more than 1 peer")
+	require.Len(t, peer2RoutesAfterAdd.Routes, 2, "HA route should have more than 1 route")
 
 	err = am.DeleteRoute(account.Id, newRoute.ID, userID)
 	require.NoError(t, err)
