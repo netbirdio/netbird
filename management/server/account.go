@@ -93,7 +93,6 @@ type AccountManager interface {
 	GetRoute(accountID, routeID, userID string) (*route.Route, error)
 	CreateRoute(accountID string, prefix, peerID, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
 	SaveRoute(accountID, userID string, route *route.Route) error
-	UpdateRoute(accountID, routeID string, operations []RouteUpdateOperation) (*route.Route, error)
 	DeleteRoute(accountID, routeID, userID string) error
 	ListRoutes(accountID, userID string) ([]*route.Route, error)
 	GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
