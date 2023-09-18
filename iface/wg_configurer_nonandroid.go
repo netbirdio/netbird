@@ -44,7 +44,7 @@ func (c *wGConfigurer) configureInterface(privateKey string, port int) error {
 }
 
 func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
-	//parse allowed ips
+	// parse allowed ips
 	_, ipNet, err := net.ParseCIDR(allowedIps)
 	if err != nil {
 		return err
@@ -59,7 +59,6 @@ func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive t
 		ReplaceAllowedIPs:           true,
 		AllowedIPs:                  []net.IPNet{*ipNet},
 		PersistentKeepaliveInterval: &keepAlive,
-		PresharedKey:                preSharedKey,
 		Endpoint:                    endpoint,
 	}
 

@@ -12,7 +12,6 @@ import (
 	"sync"
 
 	rp "cunicu.li/go-rosenpass"
-	"cunicu.li/go-rosenpass/handlers"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
@@ -29,7 +28,7 @@ type Manager struct {
 	rpKeyHash    string
 	preSharedKey *[32]byte
 	rpPeerIDs    map[string]*rp.PeerID
-	rpWgHandler  *handlers.WireGuardHandler
+	rpWgHandler  *NetbirdHandler
 	server       *rp.Server
 	lock         sync.Mutex
 }
@@ -114,7 +113,7 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	cfg.SecretKey = m.ssk
 
 	cfg.Peers = []rp.PeerConfig{}
-	m.rpWgHandler, _ = handlers.NewWireGuardHandler()
+	m.rpWgHandler, _ = NewNetbirdHandler()
 
 	cfg.Handlers = []rp.Handler{m.rpWgHandler}
 
