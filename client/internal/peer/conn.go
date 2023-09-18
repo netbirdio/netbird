@@ -106,7 +106,7 @@ type Conn struct {
 	signalOffer       func(OfferAnswer) error
 	signalAnswer      func(OfferAnswer) error
 	sendSignalMessage func(message *sProto.Message) error
-	onConnected       func(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string)
+	onConnected       func(remoteWireGuardKey string, remoteRosenpassPubKey []byte, remoteRosenpassAddr string)
 	onDisconnected    func(remotePeer string, wgIP string)
 
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
@@ -342,8 +342,7 @@ func (conn *Conn) Open() error {
 		remoteWgPort = remoteOfferAnswer.WgListenPort
 	}
 	// the ice connection has been established successfully so we are ready to start the proxy
-	remoteAddr, err := conn.configureConnection(remoteConn, remoteWgPort, remoteOfferAnswer.RosenpassPubKey,
-		remoteOfferAnswer.RosenpassAddr)
+	remoteAddr, err := conn.configureConnection(remoteConn, remoteWgPort, remoteOfferAnswer.RosenpassPubKey)
 	if err != nil {
 		return err
 	}
@@ -366,7 +365,7 @@ func isRelayCandidate(candidate ice.Candidate) bool {
 }
 
 // configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
-func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, remoteRosenpassPubKey []byte, remoteRosenpassAddr string) (net.Addr, error) {
+func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, remoteRosenpassPubKey []byte) (net.Addr, error) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -390,6 +389,8 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 	}
 
 	endpointUdpAddr, _ := net.ResolveUDPAddr(endpoint.Network(), endpoint.String())
+
+	conn.onConnected(conn.config.Key, remoteRosenpassPubKey, endpointUdpAddr.String())
 
 	err = conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, endpointUdpAddr, conn.config.WgConfig.PreSharedKey)
 	if err != nil {
@@ -418,12 +419,6 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 		log.Warnf("unable to save peer's state, got error: %v", err)
 	}
 
-	_, ipNet, err := net.ParseCIDR(conn.config.WgConfig.AllowedIps)
-	if err != nil {
-		return nil, err
-	}
-
-	conn.onConnected(conn.config.Key, remoteRosenpassPubKey, ipNet.IP.String(), remoteRosenpassAddr)
 	return endpoint, nil
 }
 
@@ -508,7 +503,7 @@ func (conn *Conn) SetSignalOffer(handler func(offer OfferAnswer) error) {
 }
 
 // SetOnConnected sets a handler function to be triggered by Conn when a new connection to a remote peer established
-func (conn *Conn) SetOnConnected(handler func(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string)) {
+func (conn *Conn) SetOnConnected(handler func(remoteWireGuardKey string, remoteRosenpassPubKey []byte, remoteRosenpassAddr string)) {
 	conn.onConnected = handler
 }
 

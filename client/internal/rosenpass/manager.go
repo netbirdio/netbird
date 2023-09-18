@@ -12,7 +12,6 @@ import (
 	"sync"
 
 	rp "cunicu.li/go-rosenpass"
-	"cunicu.li/go-rosenpass/handlers"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
@@ -29,7 +28,7 @@ type Manager struct {
 	rpKeyHash    string
 	preSharedKey *[32]byte
 	rpPeerIDs    map[string]*rp.PeerID
-	rpWgHandler  *handlers.WireGuardHandler
+	rpWgHandler  *NetbirdHandler
 	server       *rp.Server
 	lock         sync.Mutex
 }
@@ -56,19 +55,15 @@ func (m *Manager) GetAddress() *net.UDPAddr {
 }
 
 // addPeer adds a new peer to the Rosenpass server
-func (m *Manager) addPeer(rosenpassPubKey []byte, rosenpassAddr string, wireGuardIP string, wireGuardPubKey string) error {
+func (m *Manager) addPeer(rosenpassPubKey []byte, rosenpassAddr string, wireGuardPubKey string) error {
 	var err error
 	pcfg := rp.PeerConfig{PublicKey: rosenpassPubKey}
 	if m.preSharedKey != nil {
 		pcfg.PresharedKey = *m.preSharedKey
 	}
 	if bytes.Compare(m.spk, rosenpassPubKey) == 1 {
-		_, strPort, err := net.SplitHostPort(rosenpassAddr)
-		if err != nil {
-			return fmt.Errorf("failed to parse rosenpass address: %w", err)
-		}
-		peerAddr := fmt.Sprintf("%s:%s", wireGuardIP, strPort)
-		if pcfg.Endpoint, err = net.ResolveUDPAddr("udp", peerAddr); err != nil {
+		log.Debugf("starting rosenpass server on address %s", rosenpassAddr)
+		if pcfg.Endpoint, err = net.ResolveUDPAddr("udp", rosenpassAddr); err != nil {
 			return fmt.Errorf("failed to resolve peer endpoint address: %w", err)
 		}
 	}
@@ -114,7 +109,7 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	cfg.SecretKey = m.ssk
 
 	cfg.Peers = []rp.PeerConfig{}
-	m.rpWgHandler, _ = handlers.NewWireGuardHandler()
+	m.rpWgHandler, _ = NewNetbirdHandler()
 
 	cfg.Handlers = []rp.Handler{m.rpWgHandler}
 
@@ -169,8 +164,9 @@ func (m *Manager) Close() error {
 }
 
 // OnConnected is a handler function that is triggered when a connection to a remote peer establishes
-func (m *Manager) OnConnected(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string) {
+func (m *Manager) OnConnected(remoteWireGuardKey string, remoteRosenpassPubKey []byte, remoteRosenpassAddr string) {
 	if m == nil {
+		log.Debugf("rosenpass: on connected not available")
 		return
 	}
 	m.lock.Lock()
@@ -184,7 +180,7 @@ func (m *Manager) OnConnected(remoteWireGuardKey string, remoteRosenpassPubKey [
 	rpKeyHash := HashRosenpassKey(remoteRosenpassPubKey)
 	log.Debugf("received remote rosenpass key %s, my key %s", rpKeyHash, m.rpKeyHash)
 
-	err := m.addPeer(remoteRosenpassPubKey, remoteRosenpassAddr, wireGuardIP, remoteWireGuardKey)
+	err := m.addPeer(remoteRosenpassPubKey, remoteRosenpassAddr, remoteWireGuardKey)
 	if err != nil {
 		log.Errorf("failed to add rosenpass peer: %s", err)
 		return

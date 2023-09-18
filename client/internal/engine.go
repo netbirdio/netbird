@@ -1087,6 +1087,10 @@ func (e *Engine) close() {
 	if e.acl != nil {
 		e.acl.Stop()
 	}
+
+	if e.rpManager != nil {
+		_ = e.rpManager.Close()
+	}
 }
 
 func (e *Engine) readInitialSettings() ([]*route.Route, error) {
