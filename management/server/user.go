@@ -327,7 +327,7 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return status.Errorf(status.NotFound, "user not found")
 	}
 	if executingUser.Role != UserRoleAdmin {
-		return status.Errorf(status.PermissionDenied, "only admins can delete service users")
+		return status.Errorf(status.PermissionDenied, "only admins can delete users")
 	}
 
 	peers, err := account.FindUserPeers(targetUserID)
