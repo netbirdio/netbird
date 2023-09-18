@@ -3,7 +3,6 @@ package server
 import (
 	"errors"
 	"regexp"
-	"strconv"
 	"unicode/utf8"
 
 	"github.com/miekg/dns"
@@ -15,54 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
-const (
-	// UpdateNameServerGroupName indicates a nameserver group name update operation
-	UpdateNameServerGroupName NameServerGroupUpdateOperationType = iota
-	// UpdateNameServerGroupDescription indicates a nameserver group description update operation
-	UpdateNameServerGroupDescription
-	// UpdateNameServerGroupNameServers indicates a nameserver group nameservers list update operation
-	UpdateNameServerGroupNameServers
-	// UpdateNameServerGroupGroups indicates a nameserver group' groups update operation
-	UpdateNameServerGroupGroups
-	// UpdateNameServerGroupEnabled indicates a nameserver group status update operation
-	UpdateNameServerGroupEnabled
-	// UpdateNameServerGroupPrimary indicates a nameserver group primary status update operation
-	UpdateNameServerGroupPrimary
-	// UpdateNameServerGroupDomains indicates a nameserver group' domains update operation
-	UpdateNameServerGroupDomains
-
-	domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}$`
-)
-
-// NameServerGroupUpdateOperationType operation type
-type NameServerGroupUpdateOperationType int
-
-func (t NameServerGroupUpdateOperationType) String() string {
-	switch t {
-	case UpdateNameServerGroupDescription:
-		return "UpdateNameServerGroupDescription"
-	case UpdateNameServerGroupName:
-		return "UpdateNameServerGroupName"
-	case UpdateNameServerGroupNameServers:
-		return "UpdateNameServerGroupNameServers"
-	case UpdateNameServerGroupGroups:
-		return "UpdateNameServerGroupGroups"
-	case UpdateNameServerGroupEnabled:
-		return "UpdateNameServerGroupEnabled"
-	case UpdateNameServerGroupPrimary:
-		return "UpdateNameServerGroupPrimary"
-	case UpdateNameServerGroupDomains:
-		return "UpdateNameServerGroupDomains"
-	default:
-		return "InvalidOperation"
-	}
-}
-
-// NameServerGroupUpdateOperation operation object with type and values to be applied
-type NameServerGroupUpdateOperation struct {
-	Type   NameServerGroupUpdateOperationType
-	Values []string
-}
+const domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}$`
 
 // GetNameServerGroup gets a nameserver group object from account and nameserver group IDs
 func (am *DefaultAccountManager) GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error) {
@@ -170,109 +122,6 @@ func (am *DefaultAccountManager) SaveNameServerGroup(accountID, userID string, n
 	am.storeEvent(userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
 
 	return nil
-}
-
-// UpdateNameServerGroup updates existing nameserver group with set of operations
-func (am *DefaultAccountManager) UpdateNameServerGroup(accountID, nsGroupID, userID string, operations []NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error) {
-
-	unlock := am.Store.AcquireAccountLock(accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(operations) == 0 {
-		return nil, status.Errorf(status.InvalidArgument, "operations shouldn't be empty")
-	}
-
-	nsGroupToUpdate, ok := account.NameServerGroups[nsGroupID]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "nameserver group ID %s no longer exists", nsGroupID)
-	}
-
-	newNSGroup := nsGroupToUpdate.Copy()
-
-	for _, operation := range operations {
-		valuesCount := len(operation.Values)
-		if valuesCount < 1 {
-			return nil, status.Errorf(status.InvalidArgument, "operation %s contains invalid number of values, it should be at least 1", operation.Type.String())
-		}
-
-		for _, value := range operation.Values {
-			if value == "" {
-				return nil, status.Errorf(status.InvalidArgument, "operation %s contains invalid empty string value", operation.Type.String())
-			}
-		}
-		switch operation.Type {
-		case UpdateNameServerGroupDescription:
-			newNSGroup.Description = operation.Values[0]
-		case UpdateNameServerGroupName:
-			if valuesCount > 1 {
-				return nil, status.Errorf(status.InvalidArgument, "failed to parse name values, expected 1 value got %d", valuesCount)
-			}
-			err = validateNSGroupName(operation.Values[0], nsGroupID, account.NameServerGroups)
-			if err != nil {
-				return nil, err
-			}
-			newNSGroup.Name = operation.Values[0]
-		case UpdateNameServerGroupNameServers:
-			var nsList []nbdns.NameServer
-			for _, url := range operation.Values {
-				ns, err := nbdns.ParseNameServerURL(url)
-				if err != nil {
-					return nil, err
-				}
-				nsList = append(nsList, ns)
-			}
-			err = validateNSList(nsList)
-			if err != nil {
-				return nil, err
-			}
-			newNSGroup.NameServers = nsList
-		case UpdateNameServerGroupGroups:
-			err = validateGroups(operation.Values, account.Groups)
-			if err != nil {
-				return nil, err
-			}
-			newNSGroup.Groups = operation.Values
-		case UpdateNameServerGroupEnabled:
-			enabled, err := strconv.ParseBool(operation.Values[0])
-			if err != nil {
-				return nil, status.Errorf(status.InvalidArgument, "failed to parse enabled %s, not boolean", operation.Values[0])
-			}
-			newNSGroup.Enabled = enabled
-		case UpdateNameServerGroupPrimary:
-			primary, err := strconv.ParseBool(operation.Values[0])
-			if err != nil {
-				return nil, status.Errorf(status.InvalidArgument, "failed to parse primary status %s, not boolean", operation.Values[0])
-			}
-			newNSGroup.Primary = primary
-		case UpdateNameServerGroupDomains:
-			err = validateDomainInput(false, operation.Values)
-			if err != nil {
-				return nil, err
-			}
-			newNSGroup.Domains = operation.Values
-		}
-	}
-
-	account.NameServerGroups[nsGroupID] = newNSGroup
-
-	account.Network.IncSerial()
-	err = am.Store.SaveAccount(account)
-	if err != nil {
-		return nil, err
-	}
-
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		log.Error(err)
-		return newNSGroup.Copy(), status.Errorf(status.Internal, "failed to update peers after update nameserver %s", newNSGroup.Name)
-	}
-
-	return newNSGroup.Copy(), nil
 }
 
 // DeleteNameServerGroup deletes nameserver group with nsGroupID

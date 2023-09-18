@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
-	"strconv"
 	"testing"
 
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -107,38 +106,6 @@ func initRoutesTestData() *RoutesHandler {
 					Key: existingPeerKey,
 					IP:  netip.MustParseAddr(existingPeerID).AsSlice(),
 				}, nil
-			},
-			UpdateRouteFunc: func(_ string, routeID string, operations []server.RouteUpdateOperation) (*route.Route, error) {
-				routeToUpdate := baseExistingRoute
-				if routeID != routeToUpdate.ID {
-					return nil, status.Errorf(status.NotFound, "route %s no longer exists", routeID)
-				}
-				for _, operation := range operations {
-					switch operation.Type {
-					case server.UpdateRouteNetwork:
-						routeToUpdate.NetworkType, routeToUpdate.Network, _ = route.ParseNetwork(operation.Values[0])
-					case server.UpdateRouteDescription:
-						routeToUpdate.Description = operation.Values[0]
-					case server.UpdateRouteNetworkIdentifier:
-						routeToUpdate.NetID = operation.Values[0]
-					case server.UpdateRoutePeer:
-						routeToUpdate.Peer = operation.Values[0]
-						if routeToUpdate.Peer == notFoundPeerID {
-							return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", routeToUpdate.Peer)
-						}
-					case server.UpdateRouteMetric:
-						routeToUpdate.Metric, _ = strconv.Atoi(operation.Values[0])
-					case server.UpdateRouteMasquerade:
-						routeToUpdate.Masquerade, _ = strconv.ParseBool(operation.Values[0])
-					case server.UpdateRouteEnabled:
-						routeToUpdate.Enabled, _ = strconv.ParseBool(operation.Values[0])
-					case server.UpdateRouteGroups:
-						routeToUpdate.Groups = operation.Values
-					default:
-						return nil, fmt.Errorf("no operation")
-					}
-				}
-				return routeToUpdate, nil
 			},
 			GetAccountFromTokenFunc: func(_ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return testingAccount, testingAccount.Users["test_user"], nil
