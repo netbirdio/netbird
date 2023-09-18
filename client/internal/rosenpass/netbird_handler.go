@@ -73,9 +73,12 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 		for _, peer := range device.Peers {
 			if peer.PublicKey == wgtypes.Key(wg.PublicKey) {
 				log.Debug("Found WireGuard peer")
-				if peer.PresharedKey.String() != "" {
-					log.Debugf("Peer already has a preshared key: %s", peer.PresharedKey.String())
-					return
+				empty := true
+				for _, b := range peer.PresharedKey {
+					if b != 0 {
+						empty = false
+						break
+					}
 				}
 				config = []wgtypes.PeerConfig{
 					{
@@ -85,18 +88,21 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 						AllowedIPs:   peer.AllowedIPs,
 					},
 				}
-				err := h.client.ConfigureDevice(wg.Interface, wgtypes.Config{
-					Peers: []wgtypes.PeerConfig{
-						{
-							Remove:    true,
-							PublicKey: wgtypes.Key(wg.PublicKey),
+				if empty {
+					err := h.client.ConfigureDevice(wg.Interface, wgtypes.Config{
+						Peers: []wgtypes.PeerConfig{
+							{
+								Remove:    true,
+								PublicKey: wgtypes.Key(wg.PublicKey),
+							},
 						},
-					},
-				})
-				if err != nil {
-					slog.Debug("Failed to remove peer")
-					return
+					})
+					if err != nil {
+						slog.Debug("Failed to remove peer")
+						return
+					}
 				}
+
 			}
 		}
 	}
