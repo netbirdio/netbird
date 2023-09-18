@@ -37,18 +37,6 @@ int xdp_wg_proxy(struct iphdr  *ip, struct udphdr *udp) {
         bpf_printk("proxy port: %d, wg port: %d", proxy_port, wg_port);
     }
 
-    // We're considering the 8th byte of the UDP payload as the WireGuard packet type
-    unsigned char *wg_type = (unsigned char *)udp + sizeof(*udp) + 8;
-    if (wg_type >= data_end) {
-        return XDP_DROP;
-    }
-
-    // Check if the packet type is lower than 0x81
-    if (*wg_type >= 0x81) {
-        udp->dest = 9999;
-        return XDP_PASS;  // Change this to desired action
-    }
-
     // 2130706433 = 127.0.0.1
     if (ip->daddr != htonl(2130706433)) {
         return XDP_PASS;
