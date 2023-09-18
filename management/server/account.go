@@ -80,7 +80,6 @@ type AccountManager interface {
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
 	SaveGroup(accountID, userID string, group *Group) error
-	UpdateGroup(accountID string, groupID string, operations []GroupUpdateOperation) (*Group, error)
 	DeleteGroup(accountId, userId, groupID string) error
 	ListGroups(accountId string) ([]*Group, error)
 	GroupAddPeer(accountId, groupID, peerID string) error
@@ -93,13 +92,11 @@ type AccountManager interface {
 	GetRoute(accountID, routeID, userID string) (*route.Route, error)
 	CreateRoute(accountID string, prefix, peerID, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
 	SaveRoute(accountID, userID string, route *route.Route) error
-	UpdateRoute(accountID, routeID string, operations []RouteUpdateOperation) (*route.Route, error)
 	DeleteRoute(accountID, routeID, userID string) error
 	ListRoutes(accountID, userID string) ([]*route.Route, error)
 	GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
 	CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string) (*nbdns.NameServerGroup, error)
 	SaveNameServerGroup(accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
-	UpdateNameServerGroup(accountID, nsGroupID, userID string, operations []NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error)
 	DeleteNameServerGroup(accountID, nsGroupID, userID string) error
 	ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error)
 	GetDNSDomain() string
@@ -1604,20 +1601,4 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 		log.Errorf("error adding all group to account %s: %v", acc.Id, err)
 	}
 	return acc
-}
-
-func removeFromList(inputList []string, toRemove []string) []string {
-	toRemoveMap := make(map[string]struct{})
-	for _, item := range toRemove {
-		toRemoveMap[item] = struct{}{}
-	}
-
-	var resultList []string
-	for _, item := range inputList {
-		_, ok := toRemoveMap[item]
-		if !ok {
-			resultList = append(resultList, item)
-		}
-	}
-	return resultList
 }

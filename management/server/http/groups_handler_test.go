@@ -53,22 +53,6 @@ func initGroupTestData(user *server.User, groups ...*server.Group) *GroupsHandle
 					Issued: server.GroupIssuedAPI,
 				}, nil
 			},
-			UpdateGroupFunc: func(_ string, groupID string, operations []server.GroupUpdateOperation) (*server.Group, error) {
-				var group server.Group
-				group.ID = groupID
-				for _, operation := range operations {
-					switch operation.Type {
-					case server.UpdateGroupName:
-						group.Name = operation.Values[0]
-					case server.UpdateGroupPeers, server.InsertPeersToGroup:
-						group.Peers = operation.Values
-					case server.RemovePeersFromGroup:
-					default:
-						return nil, fmt.Errorf("no operation")
-					}
-				}
-				return &group, nil
-			},
 			GetPeerByIPFunc: func(_ string, peerIP string) (*server.Peer, error) {
 				for _, peer := range TestPeers {
 					if peer.IP.String() == peerIP {
