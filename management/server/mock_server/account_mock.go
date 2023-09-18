@@ -31,7 +31,6 @@ type MockAccountManager struct {
 	AddPeerFunc                     func(setupKey string, userId string, peer *server.Peer) (*server.Peer, *server.NetworkMap, error)
 	GetGroupFunc                    func(accountID, groupID string) (*server.Group, error)
 	SaveGroupFunc                   func(accountID, userID string, group *server.Group) error
-	UpdateGroupFunc                 func(accountID string, groupID string, operations []server.GroupUpdateOperation) (*server.Group, error)
 	DeleteGroupFunc                 func(accountID, userId, groupID string) error
 	ListGroupsFunc                  func(accountID string) ([]*server.Group, error)
 	GroupAddPeerFunc                func(accountID, groupID, peerKey string) error
@@ -263,14 +262,6 @@ func (am *MockAccountManager) SaveGroup(accountID, userID string, group *server.
 		return am.SaveGroupFunc(accountID, userID, group)
 	}
 	return status.Errorf(codes.Unimplemented, "method SaveGroup is not implemented")
-}
-
-// UpdateGroup mock implementation of UpdateGroup from server.AccountManager interface
-func (am *MockAccountManager) UpdateGroup(accountID string, groupID string, operations []server.GroupUpdateOperation) (*server.Group, error) {
-	if am.UpdateGroupFunc != nil {
-		return am.UpdateGroupFunc(accountID, groupID, operations)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method UpdateGroup not implemented")
 }
 
 // DeleteGroup mock implementation of DeleteGroup from server.AccountManager interface

@@ -33,26 +33,6 @@ type Group struct {
 	Peers []string
 }
 
-const (
-	// UpdateGroupName indicates a name update operation
-	UpdateGroupName GroupUpdateOperationType = iota
-	// InsertPeersToGroup indicates insert peers to group operation
-	InsertPeersToGroup
-	// RemovePeersFromGroup indicates a remove peers from group operation
-	RemovePeersFromGroup
-	// UpdateGroupPeers indicates a replacement of group peers list
-	UpdateGroupPeers
-)
-
-// GroupUpdateOperationType operation type
-type GroupUpdateOperationType int
-
-// GroupUpdateOperation operation object with type and values to be applied
-type GroupUpdateOperation struct {
-	Type   GroupUpdateOperationType
-	Values []string
-}
-
 // EventMeta returns activity event meta related to the group
 func (g *Group) EventMeta() map[string]any {
 	return map[string]any{"name": g.Name}
@@ -163,57 +143,6 @@ func difference(a, b []string) []string {
 		}
 	}
 	return diff
-}
-
-// UpdateGroup updates a group using a list of operations
-func (am *DefaultAccountManager) UpdateGroup(accountID string,
-	groupID string, operations []GroupUpdateOperation,
-) (*Group, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	groupToUpdate, ok := account.Groups[groupID]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "group with ID %s no longer exists", groupID)
-	}
-
-	group := groupToUpdate.Copy()
-
-	for _, operation := range operations {
-		switch operation.Type {
-		case UpdateGroupName:
-			group.Name = operation.Values[0]
-		case UpdateGroupPeers:
-			group.Peers = operation.Values
-		case InsertPeersToGroup:
-			sourceList := group.Peers
-			resultList := removeFromList(sourceList, operation.Values)
-			group.Peers = append(resultList, operation.Values...)
-		case RemovePeersFromGroup:
-			sourceList := group.Peers
-			resultList := removeFromList(sourceList, operation.Values)
-			group.Peers = resultList
-		}
-	}
-
-	account.Groups[groupID] = group
-
-	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
-		return nil, err
-	}
-
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		return nil, err
-	}
-
-	return group, nil
 }
 
 // DeleteGroup object of the peers
