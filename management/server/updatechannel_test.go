@@ -1,9 +1,10 @@
 package server
 
 import (
-	"github.com/netbirdio/netbird/management/proto"
 	"testing"
 	"time"
+
+	"github.com/netbirdio/netbird/management/proto"
 )
 
 //var peersUpdater *PeersUpdateManager
@@ -13,9 +14,21 @@ func TestCreateChannel(t *testing.T) {
 	peersUpdater := NewPeersUpdateManager()
 	defer peersUpdater.CloseChannel(peer)
 
+	if peersUpdater.Len() != 0 {
+		t.Error("peersUpdated should not have any channels yet")
+	}
+
+	if ch := peersUpdater.GetChannel(peer); ch != nil {
+		t.Errorf("We should not have channel for %s yet", peer)
+	}
+
 	_ = peersUpdater.CreateChannel(peer)
-	if _, ok := peersUpdater.peerChannels[peer]; !ok {
+	if ch := peersUpdater.GetChannel(peer); ch == nil {
 		t.Error("Error creating the channel")
+	}
+
+	if peersUpdater.Len() != 1 {
+		t.Error("peersUpdated should have 1 channel")
 	}
 }
 
@@ -28,7 +41,7 @@ func TestSendUpdate(t *testing.T) {
 		},
 	}}
 	_ = peersUpdater.CreateChannel(peer)
-	if _, ok := peersUpdater.peerChannels[peer]; !ok {
+	if ch := peersUpdater.GetChannel(peer); ch == nil {
 		t.Error("Error creating the channel")
 	}
 	err := peersUpdater.SendUpdate(peer, update1)
@@ -36,7 +49,7 @@ func TestSendUpdate(t *testing.T) {
 		t.Error("Error sending update: ", err)
 	}
 	select {
-	case <-peersUpdater.peerChannels[peer]:
+	case <-peersUpdater.GetChannel(peer):
 	default:
 		t.Error("Update wasn't send")
 	}
@@ -63,7 +76,7 @@ func TestSendUpdate(t *testing.T) {
 		select {
 		case <-timeout:
 			t.Error("timed out reading previously sent updates")
-		case updateReader := <-peersUpdater.peerChannels[peer]:
+		case updateReader := <-peersUpdater.GetChannel(peer):
 			if updateReader.Update.NetworkMap.Serial == update2.Update.NetworkMap.Serial {
 				t.Error("got the update that shouldn't have been sent")
 			}
@@ -76,11 +89,11 @@ func TestCloseChannel(t *testing.T) {
 	peer := "test-close"
 	peersUpdater := NewPeersUpdateManager()
 	_ = peersUpdater.CreateChannel(peer)
-	if _, ok := peersUpdater.peerChannels[peer]; !ok {
+	if ch := peersUpdater.GetChannel(peer); ch == nil {
 		t.Error("Error creating the channel")
 	}
 	peersUpdater.CloseChannel(peer)
-	if _, ok := peersUpdater.peerChannels[peer]; ok {
+	if ch := peersUpdater.GetChannel(peer); ch != nil {
 		t.Error("Error closing the channel")
 	}
 }

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -14,25 +15,25 @@ type UpdateMessage struct {
 	Update *proto.SyncResponse
 }
 
+type UpdateChannel chan *UpdateMessage
+
 type PeersUpdateManager struct {
 	// peerChannels is an update channel indexed by Peer.ID
-	peerChannels map[string]chan *UpdateMessage
-	channelsMux  *sync.Mutex
+	peerChannels sync.Map
 }
 
 // NewPeersUpdateManager returns a new instance of PeersUpdateManager
 func NewPeersUpdateManager() *PeersUpdateManager {
-	return &PeersUpdateManager{
-		peerChannels: make(map[string]chan *UpdateMessage),
-		channelsMux:  &sync.Mutex{},
-	}
+	return &PeersUpdateManager{}
 }
 
 // SendUpdate sends update message to the peer's channel
 func (p *PeersUpdateManager) SendUpdate(peerID string, update *UpdateMessage) error {
-	p.channelsMux.Lock()
-	defer p.channelsMux.Unlock()
-	if channel, ok := p.peerChannels[peerID]; ok {
+	if ch, ok := p.peerChannels.Load(peerID); ok {
+		channel, ok := ch.(UpdateChannel)
+		if !ok {
+			return fmt.Errorf("could not cast to UpdateChannel")
+		}
 		select {
 		case channel <- update:
 			log.Debugf("update was sent to channel for peer %s", peerID)
@@ -46,35 +47,38 @@ func (p *PeersUpdateManager) SendUpdate(peerID string, update *UpdateMessage) er
 }
 
 // CreateChannel creates a go channel for a given peer used to deliver updates relevant to the peer.
-func (p *PeersUpdateManager) CreateChannel(peerID string) chan *UpdateMessage {
-	p.channelsMux.Lock()
-	defer p.channelsMux.Unlock()
+func (p *PeersUpdateManager) CreateChannel(peerID string) UpdateChannel {
+	p.closeChannel(peerID)
 
-	if channel, ok := p.peerChannels[peerID]; ok {
-		delete(p.peerChannels, peerID)
-		close(channel)
-	}
 	// mbragin: todo shouldn't it be more? or configurable?
-	channel := make(chan *UpdateMessage, channelBufferSize)
-	p.peerChannels[peerID] = channel
+	channel := make(UpdateChannel, channelBufferSize)
+	p.peerChannels.Store(peerID, channel)
 
 	log.Debugf("opened updates channel for a peer %s", peerID)
 	return channel
 }
 
-func (p *PeersUpdateManager) closeChannel(peerID string) {
-	if channel, ok := p.peerChannels[peerID]; ok {
-		delete(p.peerChannels, peerID)
-		close(channel)
+func (p *PeersUpdateManager) GetChannel(peerID string) UpdateChannel {
+	if ch, ok := p.peerChannels.Load(peerID); ok {
+		channel := ch.(UpdateChannel)
+		return channel
 	}
+	return nil
+}
 
-	log.Debugf("closed updates channel of a peer %s", peerID)
+func (p *PeersUpdateManager) closeChannel(peerID string) {
+	if ch, ok := p.peerChannels.LoadAndDelete(peerID); ok {
+		channel, ok := ch.(UpdateChannel)
+		if !ok {
+			log.Errorf("could not cast to chan *UpdateMessage")
+		}
+		close(channel)
+		log.Debugf("closed updates channel of a peer %s", peerID)
+	}
 }
 
 // CloseChannels closes updates channel for each given peer
 func (p *PeersUpdateManager) CloseChannels(peerIDs []string) {
-	p.channelsMux.Lock()
-	defer p.channelsMux.Unlock()
 	for _, id := range peerIDs {
 		p.closeChannel(id)
 	}
@@ -82,18 +86,26 @@ func (p *PeersUpdateManager) CloseChannels(peerIDs []string) {
 
 // CloseChannel closes updates channel of a given peer
 func (p *PeersUpdateManager) CloseChannel(peerID string) {
-	p.channelsMux.Lock()
-	defer p.channelsMux.Unlock()
 	p.closeChannel(peerID)
 }
 
 // GetAllConnectedPeers returns a copy of the connected peers map
 func (p *PeersUpdateManager) GetAllConnectedPeers() map[string]struct{} {
-	p.channelsMux.Lock()
-	defer p.channelsMux.Unlock()
 	m := make(map[string]struct{})
-	for ID := range p.peerChannels {
-		m[ID] = struct{}{}
-	}
+	p.peerChannels.Range(func(key any, value any) bool {
+		if ID, ok := key.(string); ok {
+			m[ID] = struct{}{}
+		}
+		return true
+	})
 	return m
+}
+
+// Len returns the length of the peer channels
+func (p *PeersUpdateManager) Len() (len int64) {
+	p.peerChannels.Range(func(key any, value any) bool {
+		len++
+		return true
+	})
+	return len
 }
