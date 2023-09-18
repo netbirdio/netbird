@@ -97,8 +97,6 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO(yury): check that peers are Linux
-
 	newRoute, err := h.accountManager.CreateRoute(
 		account.Id, newPrefix.String(), peerId, peersGroupId,
 		req.Description, req.NetworkId, req.Masquerade, req.Metric, req.Groups, req.Enabled, user.Id,

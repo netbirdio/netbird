@@ -14,8 +14,10 @@ import (
 const (
 	peer1Key           = "BhRPtynAAYRDy08+q4HTMsos8fs4plTP4NOSh7C1ry8="
 	peer2Key           = "/yF0+vCfv+mRR5k0dca0TrGdO/oiNeAI58gToZm5NyI="
+	peer3Key           = "ayF0+vCfv+mRR5k0dca0TrGdO/oiNeAI58gToZm5NaF="
 	peer1ID            = "peer-1-id"
 	peer2ID            = "peer-2-id"
+	peer3ID            = "peer-3-id"
 	routeGroup1        = "routeGroup1"
 	routeGroup2        = "routeGroup2"
 	routeGroupHA       = "routeGroupHA"
@@ -929,6 +931,31 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	}
 	account.Peers[peer2.ID] = peer2
 
+	ips = account.getTakenIPs()
+	peer3IP, err := AllocatePeerIP(account.Network.Net, ips)
+	if err != nil {
+		return nil, err
+	}
+
+	peer3 := &Peer{
+		IP:     peer3IP,
+		ID:     peer3ID,
+		Key:    peer3Key,
+		Name:   "test-host3@netbird.io",
+		UserID: userID,
+		Meta: PeerSystemMeta{
+			Hostname:  "test-host3@netbird.io",
+			GoOS:      "darwin",
+			Kernel:    "Darwin",
+			Core:      "13.4.1",
+			Platform:  "arm64",
+			OS:        "darwin",
+			WtVersion: "development",
+			UIVersion: "development",
+		},
+	}
+	account.Peers[peer3.ID] = peer3
+
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, err
@@ -942,6 +969,10 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		return nil, err
 	}
 	err = am.GroupAddPeer(accountID, groupAll.ID, peer2ID)
+	if err != nil {
+		return nil, err
+	}
+	err = am.GroupAddPeer(accountID, groupAll.ID, peer3ID)
 	if err != nil {
 		return nil, err
 	}
@@ -960,7 +991,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		{
 			ID:    routeGroupHA,
 			Name:  routeGroupHA,
-			Peers: []string{peer1.ID, peer2.ID},
+			Peers: []string{peer1.ID, peer2.ID, peer3.ID}, // we have one non Linux peer, see peer3
 		},
 	}
 

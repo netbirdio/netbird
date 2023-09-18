@@ -253,6 +253,21 @@ func (a *Account) filterRoutesByGroups(routes []*route.Route, groupListMap looku
 func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Route, []*route.Route) {
 	var enabledRoutes []*route.Route
 	var disabledRoutes []*route.Route
+
+	takeRoute := func(r *route.Route, id string) {
+		peer := a.GetPeer(peerID)
+		if peer == nil {
+			log.Errorf("route %s has peer %s that doesn't exist under account %s", r.ID, peerID, a.Id)
+			return
+		}
+
+		if r.Enabled {
+			enabledRoutes = append(enabledRoutes, r)
+			return
+		}
+		disabledRoutes = append(disabledRoutes, r)
+	}
+
 	for _, r := range a.Routes {
 		if r.PeersGroup != "" {
 			group := a.GetGroup(r.PeersGroup)
@@ -261,36 +276,14 @@ func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Rou
 				continue
 			}
 			for _, id := range group.Peers {
-				peer := a.GetPeer(id)
-				if peer == nil {
-					log.Errorf("route %s has peers group %s which has %s that doesn't exist under account %s", r.ID, r.PeersGroup, id, a.Id)
-					continue
+				if id == peerID {
+					takeRoute(r, id)
+					break
 				}
-				rCopy := r.Copy()
-				rCopy.Peer = peer.Key
-				if r.Enabled {
-					enabledRoutes = append(enabledRoutes, rCopy)
-					continue
-				}
-				disabledRoutes = append(disabledRoutes, rCopy)
-				continue
 			}
 		}
 		if r.Peer == peerID {
-			// We need to set Peer.Key instead of Peer.ID because this object will be sent to agents as part of a network map.
-			// Ideally we should have a separate field for that, but fine for now.
-			peer := a.GetPeer(peerID)
-			if peer == nil {
-				log.Errorf("route %s has peer %s that doesn't exist under account %s", r.ID, peerID, a.Id)
-				continue
-			}
-			raut := r.Copy()
-			raut.Peer = peer.Key
-			if r.Enabled {
-				enabledRoutes = append(enabledRoutes, raut)
-				continue
-			}
-			disabledRoutes = append(disabledRoutes, raut)
+			takeRoute(r, peerID)
 		}
 	}
 	return enabledRoutes, disabledRoutes
@@ -341,20 +334,36 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 	// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
 	routes := a.getRoutesToSync(peerID, peersToConnect)
 
-	// TODO(yury): each route can contain peers group. We should unfold them to peers
+	takePeer := func(id string) (*Peer, bool) {
+		peer := a.GetPeer(id)
+		if peer == nil || peer.Meta.GoOS != "linux" {
+			return nil, false
+		}
+		return peer, true
+	}
+
+	// We need to set Peer.Key instead of Peer.ID because this object will be sent to agents as part of a network map.
+	// Ideally we should have a separate field for that, but fine for now.
 	var routesUpdate []*route.Route
-	seenPeer := make(map[string]bool)
 	for _, r := range routes {
-		if r.PeersGroup == "" {
-			routesUpdate = append(routesUpdate, r)
+		if r.Peer != "" {
+			peer, valid := takePeer(r.Peer)
+			if !valid {
+				continue
+			}
+			rCopy := r.Copy()
+			rCopy.Peer = peer.Key
+			routesUpdate = append(routesUpdate, rCopy)
 			continue
 		}
+		seenPeer := make(map[string]bool)
 		if group := a.GetGroup(r.PeersGroup); group != nil {
 			for _, peerId := range group.Peers {
-				peer := a.GetPeer(peerId) // BROKEN!!!
-				if peer == nil {
+				peer, valid := takePeer(peerId)
+				if !valid {
 					continue
 				}
+
 				if _, ok := seenPeer[peer.Key]; !ok {
 					rCopy := r.Copy()
 					rCopy.Peer = peer.Key
