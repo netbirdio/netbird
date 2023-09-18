@@ -87,7 +87,11 @@ func (a *Auth) saveConfigIfSSOSupported() (bool, error) {
 		_, err = internal.GetDeviceAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
 		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.NotFound {
 			_, err = internal.GetPKCEAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
-			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.NotFound {
+			s, ok := gstatus.FromError(err)
+			if !ok {
+				return err
+			}
+			if s.Code() == codes.NotFound || s.Code() == codes.Unimplemented {
 				supportsSSO = false
 				err = nil
 			}
