@@ -67,7 +67,6 @@ type MockAccountManager struct {
 	GetNameServerGroupFunc          func(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
 	CreateNameServerGroupFunc       func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string) (*nbdns.NameServerGroup, error)
 	SaveNameServerGroupFunc         func(accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
-	UpdateNameServerGroupFunc       func(accountID, nsGroupID, userID string, operations []server.NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error)
 	DeleteNameServerGroupFunc       func(accountID, nsGroupID, userID string) error
 	ListNameServerGroupsFunc        func(accountID string) ([]*nbdns.NameServerGroup, error)
 	CreateUserFunc                  func(accountID, userID string, key *server.UserInfo) (*server.UserInfo, error)
@@ -522,14 +521,6 @@ func (am *MockAccountManager) SaveNameServerGroup(accountID, userID string, nsGr
 		return am.SaveNameServerGroupFunc(accountID, userID, nsGroupToSave)
 	}
 	return nil
-}
-
-// UpdateNameServerGroup mocks UpdateNameServerGroup of the AccountManager interface
-func (am *MockAccountManager) UpdateNameServerGroup(accountID, nsGroupID, userID string, operations []server.NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error) {
-	if am.UpdateNameServerGroupFunc != nil {
-		return am.UpdateNameServerGroupFunc(accountID, nsGroupID, userID, operations)
-	}
-	return nil, nil
 }
 
 // DeleteNameServerGroup mocks DeleteNameServerGroup of the AccountManager interface

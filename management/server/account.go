@@ -98,7 +98,6 @@ type AccountManager interface {
 	GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
 	CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string) (*nbdns.NameServerGroup, error)
 	SaveNameServerGroup(accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
-	UpdateNameServerGroup(accountID, nsGroupID, userID string, operations []NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error)
 	DeleteNameServerGroup(accountID, nsGroupID, userID string) error
 	ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error)
 	GetDNSDomain() string
