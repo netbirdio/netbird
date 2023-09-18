@@ -496,7 +496,8 @@ func (km *KeycloakManager) DeleteUser(userID string) error {
 	}
 	defer resp.Body.Close() // nolint
 
-	if resp.StatusCode != http.StatusOK {
+	// In the docs, they specified 200, but in the endpoints, they return 204
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		if km.appMetrics != nil {
 			km.appMetrics.IDPMetrics().CountRequestStatusError()
 		}
