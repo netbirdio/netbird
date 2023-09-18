@@ -216,6 +216,7 @@ func TestNameserversHandlers(t *testing.T) {
 			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", p.GetNameserverGroup).Methods("GET")
 			router.HandleFunc("/api/dns/nameservers", p.CreateNameserverGroup).Methods("POST")
 			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", p.DeleteNameserverGroup).Methods("DELETE")
+			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", p.UpdateNameserverGroup).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
