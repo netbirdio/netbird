@@ -147,7 +147,6 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		DisableIPv6Discovery: false,
 		NATExternalIPs:       input.NATExternalIPs,
 		CustomDNSAddress:     string(input.CustomDNSAddress),
-		RosenpassEnabled:     *input.RosenpassEnabled,
 	}
 
 	defaultManagementURL, err := parseURL("Management URL", DefaultManagementURL)
