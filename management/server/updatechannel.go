@@ -74,7 +74,7 @@ func (p *PeersUpdateManager) closeChannel(peerID string) {
 	if ch, ok := p.peerChannels.LoadAndDelete(peerID); ok {
 		channel, ok := ch.(UpdateChannel)
 		if !ok {
-			log.Errorf("could not cast to chan *UpdateMessage")
+			log.Errorf("could not cast to UpdateChannel")
 		}
 		p.len.Add(-1)
 		close(channel)
