@@ -17,13 +17,15 @@ type wireGuardPeer struct {
 }
 
 type NetbirdHandler struct {
-	client *wgctrl.Client
-	peers  map[rp.PeerID]wireGuardPeer
+	client       *wgctrl.Client
+	peers        map[rp.PeerID]wireGuardPeer
+	presharedKey [32]byte
 }
 
-func NewNetbirdHandler() (hdlr *NetbirdHandler, err error) {
+func NewNetbirdHandler(preSharedKey [32]byte) (hdlr *NetbirdHandler, err error) {
 	hdlr = &NetbirdHandler{
-		peers: map[rp.PeerID]wireGuardPeer{},
+		peers:        map[rp.PeerID]wireGuardPeer{},
+		presharedKey: preSharedKey,
 	}
 
 	if hdlr.client, err = wgctrl.New(); err != nil {
@@ -68,27 +70,26 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 		slog.Error("Failed to get WireGuard devices", slog.Any("error", err))
 		return
 	}
-	var config []wgtypes.PeerConfig
+	config := []wgtypes.PeerConfig{
+		{
+			UpdateOnly:   true,
+			PublicKey:    wgtypes.Key(wg.PublicKey),
+			PresharedKey: (*wgtypes.Key)(&psk),
+		},
+	}
 	for _, device := range devices {
 		for _, peer := range device.Peers {
 			if peer.PublicKey == wgtypes.Key(wg.PublicKey) {
 				log.Debug("Found WireGuard peer")
-				empty := true
-				for _, b := range peer.PresharedKey {
-					if b != 0 {
-						empty = false
-						break
+				if publicKeyEmpty(peer.PresharedKey) || peer.PresharedKey == h.presharedKey {
+					config = []wgtypes.PeerConfig{
+						{
+							PublicKey:    wgtypes.Key(wg.PublicKey),
+							PresharedKey: (*wgtypes.Key)(&psk),
+							Endpoint:     peer.Endpoint,
+							AllowedIPs:   peer.AllowedIPs,
+						},
 					}
-				}
-				config = []wgtypes.PeerConfig{
-					{
-						PublicKey:    wgtypes.Key(wg.PublicKey),
-						PresharedKey: (*wgtypes.Key)(&psk),
-						Endpoint:     peer.Endpoint,
-						AllowedIPs:   peer.AllowedIPs,
-					},
-				}
-				if empty {
 					err := h.client.ConfigureDevice(wg.Interface, wgtypes.Config{
 						Peers: []wgtypes.PeerConfig{
 							{
@@ -115,4 +116,13 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 			slog.Any("peer", wg.PublicKey),
 			slog.Any("error", err))
 	}
+}
+
+func publicKeyEmpty(key wgtypes.Key) bool {
+	for _, b := range key {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
 }

@@ -60,6 +60,7 @@ func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive t
 		AllowedIPs:                  []net.IPNet{*ipNet},
 		PersistentKeepaliveInterval: &keepAlive,
 		Endpoint:                    endpoint,
+		PresharedKey:                preSharedKey,
 	}
 
 	config := wgtypes.Config{
