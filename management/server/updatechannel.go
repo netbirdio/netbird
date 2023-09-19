@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	log "github.com/sirupsen/logrus"
 
@@ -20,6 +21,8 @@ type UpdateChannel chan *UpdateMessage
 type PeersUpdateManager struct {
 	// peerChannels is an update channel indexed by Peer.ID
 	peerChannels sync.Map
+	// len is the length of peerChannels
+	len atomic.Int64
 }
 
 // NewPeersUpdateManager returns a new instance of PeersUpdateManager
@@ -53,6 +56,7 @@ func (p *PeersUpdateManager) CreateChannel(peerID string) UpdateChannel {
 	// mbragin: todo shouldn't it be more? or configurable?
 	channel := make(UpdateChannel, channelBufferSize)
 	p.peerChannels.Store(peerID, channel)
+	p.len.Add(1)
 
 	log.Debugf("opened updates channel for a peer %s", peerID)
 	return channel
@@ -72,6 +76,7 @@ func (p *PeersUpdateManager) closeChannel(peerID string) {
 		if !ok {
 			log.Errorf("could not cast to chan *UpdateMessage")
 		}
+		p.len.Add(-1)
 		close(channel)
 		log.Debugf("closed updates channel of a peer %s", peerID)
 	}
@@ -103,9 +108,5 @@ func (p *PeersUpdateManager) GetAllConnectedPeers() map[string]struct{} {
 
 // Len returns the length of the peer channels
 func (p *PeersUpdateManager) Len() (len int64) {
-	p.peerChannels.Range(func(key any, value any) bool {
-		len++
-		return true
-	})
-	return len
+	return p.len.Load()
 }
