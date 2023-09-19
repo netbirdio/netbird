@@ -3,8 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
-	"runtime"
 	"strings"
 	"time"
 
@@ -195,51 +193,12 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string) {
 		codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
 	}
 
-	browserAuthMsg := "Please do the SSO login in your browser. \n" +
+	cmd.Println("Please do the SSO login in your browser. \n" +
 		"If your browser didn't open automatically, use this URL to log in:\n\n" +
-		verificationURIComplete + " " + codeMsg
-
-	setupKeyAuthMsg := "\nAlternatively, you may want to use a setup key, see:\n\n" +
-		"https://docs.netbird.io/how-to/register-machines-using-setup-keys"
-
-	authenticateUsingBrowser := func() {
-		cmd.Println(browserAuthMsg)
-		cmd.Println("")
-		if err := open.Run(verificationURIComplete); err != nil {
-			cmd.Println(setupKeyAuthMsg)
-		}
+		verificationURIComplete + " " + codeMsg)
+	cmd.Println("")
+	if err := open.Run(verificationURIComplete); err != nil {
+		cmd.Println("\nAlternatively, you may want to use a setup key, see:\n\n" +
+			"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
 	}
-
-	switch runtime.GOOS {
-	case "windows", "darwin":
-		authenticateUsingBrowser()
-	case "linux":
-		if isLinuxRunningDesktop() {
-			authenticateUsingBrowser()
-		} else {
-			// If current flow is PKCE, it implies the server is anticipating the redirect to localhost.
-			// Devices lacking browser support are incompatible with this flow.Therefore,
-			// these devices will need to resort to setup keys instead.
-			if isPKCEFlow(verificationURIComplete) {
-				cmd.Println("Please proceed with setting up this device using setup keys, see:\n\n" +
-					"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
-			} else {
-				cmd.Println(browserAuthMsg)
-			}
-		}
-	}
-}
-
-// isLinuxRunningDesktop checks if a Linux OS is running desktop environment.
-func isLinuxRunningDesktop() bool {
-	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
-}
-
-// isPKCEFlow determines if the PKCE flow is active or not,
-// by checking the existence of redirect_uri inside the verification URL.
-func isPKCEFlow(verificationURL string) bool {
-	if verificationURL == "" {
-		return false
-	}
-	return strings.Contains(verificationURL, "redirect_uri")
 }
