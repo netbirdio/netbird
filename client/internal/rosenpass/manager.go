@@ -6,10 +6,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"net"
 	"os"
 	"runtime"
 	"sync"
+	"time"
 
 	rp "cunicu.li/go-rosenpass"
 	log "github.com/sirupsen/logrus"
@@ -31,6 +33,7 @@ type Manager struct {
 	rpWgHandler  *NetbirdHandler
 	server       *rp.Server
 	lock         sync.Mutex
+	port         int
 }
 
 // NewManager creates a new Rosenpass manager
@@ -51,7 +54,7 @@ func (m *Manager) GetPubKey() []byte {
 
 // GetAddress returns the address of the Rosenpass server
 func (m *Manager) GetAddress() *net.UDPAddr {
-	return &net.UDPAddr{Port: 9999}
+	return &net.UDPAddr{Port: m.port}
 }
 
 // addPeer adds a new peer to the Rosenpass server
@@ -108,7 +111,6 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, opts))
 	cfg := rp.Config{Logger: logger}
 
-	cfg.ListenAddrs = []*net.UDPAddr{m.GetAddress()}
 	cfg.PublicKey = m.spk
 	cfg.SecretKey = m.ssk
 
@@ -116,6 +118,15 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	m.rpWgHandler, _ = NewNetbirdHandler(m.preSharedKey)
 
 	cfg.Handlers = []rp.Handler{m.rpWgHandler}
+
+	port, err := findRandomAvailableUDPPort()
+	if err != nil {
+		log.Error("could not determine a random port for rosenpass server")
+		return rp.Config{}, err
+	}
+	m.port = port
+
+	cfg.ListenAddrs = []*net.UDPAddr{m.GetAddress()}
 
 	return cfg, nil
 }
@@ -151,6 +162,8 @@ func (m *Manager) Run() error {
 	if err != nil {
 		return err
 	}
+
+	log.Infof("starting rosenpass server on port %d", m.port)
 
 	return m.server.Run()
 }
@@ -188,4 +201,22 @@ func (m *Manager) OnConnected(remoteWireGuardKey string, remoteRosenpassPubKey [
 		log.Errorf("failed to add rosenpass peer: %s", err)
 		return
 	}
+}
+
+func findRandomAvailableUDPPort() (int, error) {
+	// Seed the random number generator
+	rand.Seed(time.Now().UnixNano())
+
+	const maxAttempts = 1000 // Max attempts to find an available port
+
+	for i := 0; i < maxAttempts; i++ {
+		port := rand.Intn(65535-1024) + 1024 // Random port between 1024 and 65535
+		address := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: port}
+		conn, err := net.ListenUDP("udp", address)
+		if err == nil {
+			conn.Close()
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("could not find an available UDP port after %d attempts", maxAttempts)
 }
