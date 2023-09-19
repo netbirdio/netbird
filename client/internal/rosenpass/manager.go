@@ -11,7 +11,6 @@ import (
 	"os"
 	"runtime"
 	"sync"
-	"time"
 
 	rp "cunicu.li/go-rosenpass"
 	log "github.com/sirupsen/logrus"
@@ -204,9 +203,6 @@ func (m *Manager) OnConnected(remoteWireGuardKey string, remoteRosenpassPubKey [
 }
 
 func findRandomAvailableUDPPort() (int, error) {
-	// Seed the random number generator
-	rand.Seed(time.Now().UnixNano())
-
 	const maxAttempts = 1000 // Max attempts to find an available port
 
 	for i := 0; i < maxAttempts; i++ {
