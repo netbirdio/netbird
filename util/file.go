@@ -100,12 +100,12 @@ func openOrCreateFile(file string) (*os.File, error) {
 		return nil, err
 	}
 
-	targetFile, err2 := os.Create(file)
-	if err2 != nil {
-		return nil, err2
+	targetFile, err := os.Create(file)
+	if err != nil {
+		return nil, err
 	}
 	//no:lint
-	err2 = targetFile.Chmod(0640)
+	err = targetFile.Chmod(0640)
 	if err != nil {
 		_ = targetFile.Close()
 		return nil, err
