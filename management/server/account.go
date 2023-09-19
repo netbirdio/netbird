@@ -130,6 +130,9 @@ type DefaultAccountManager struct {
 	// dnsDomain is used for peer resolution. This is appended to the peer's name
 	dnsDomain       string
 	peerLoginExpiry Scheduler
+
+	// userDeleteFromIDPEnabled allows to delete user from IDP when user is deleted from account
+	userDeleteFromIDPEnabled bool
 }
 
 // Settings represents Account settings structure that can be modified via API and Dashboard
@@ -735,18 +738,19 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
 func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
-	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store,
+	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store, userDeleteFromIDPEnabled bool,
 ) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
-		Store:              store,
-		peersUpdateManager: peersUpdateManager,
-		idpManager:         idpManager,
-		ctx:                context.Background(),
-		cacheMux:           sync.Mutex{},
-		cacheLoading:       map[string]chan struct{}{},
-		dnsDomain:          dnsDomain,
-		eventStore:         eventStore,
-		peerLoginExpiry:    NewDefaultScheduler(),
+		Store:                    store,
+		peersUpdateManager:       peersUpdateManager,
+		idpManager:               idpManager,
+		ctx:                      context.Background(),
+		cacheMux:                 sync.Mutex{},
+		cacheLoading:             map[string]chan struct{}{},
+		dnsDomain:                dnsDomain,
+		eventStore:               eventStore,
+		peerLoginExpiry:          NewDefaultScheduler(),
+		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
 	}
 	allAccounts := store.GetAllAccounts()
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
@@ -871,33 +875,19 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func()
 			return account.GetNextPeerExpiration()
 		}
 
+		expiredPeers := account.GetExpiredPeers()
 		var peerIDs []string
-		for _, peer := range account.GetExpiredPeers() {
-			if peer.Status.LoginExpired {
-				continue
-			}
+		for _, peer := range expiredPeers {
 			peerIDs = append(peerIDs, peer.ID)
-			peer.MarkLoginExpired(true)
-			account.UpdatePeer(peer)
-			err = am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status)
-			if err != nil {
-				log.Errorf("failed saving peer status while expiring peer %s", peer.ID)
-				return account.GetNextPeerExpiration()
-			}
-			am.storeEvent(peer.UserID, peer.ID, account.Id, activity.PeerLoginExpired, peer.EventMeta(am.GetDNSDomain()))
 		}
 
 		log.Debugf("discovered %d peers to expire for account %s", len(peerIDs), account.Id)
 
-		if len(peerIDs) != 0 {
-			// this will trigger peer disconnect from the management service
-			am.peersUpdateManager.CloseChannels(peerIDs)
-			err = am.updateAccountPeers(account)
-			if err != nil {
-				log.Errorf("failed updating account peers while expiring peers for account %s", accountID)
-				return account.GetNextPeerExpiration()
-			}
+		if err := am.expireAndUpdatePeers(account, expiredPeers); err != nil {
+			log.Errorf("failed updating account peers while expiring peers for account %s", account.Id)
+			return account.GetNextPeerExpiration()
 		}
+
 		return account.GetNextPeerExpiration()
 	}
 }

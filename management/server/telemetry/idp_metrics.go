@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/instrument"
 	"go.opentelemetry.io/otel/metric/instrument/syncint64"
@@ -13,6 +14,7 @@ type IDPMetrics struct {
 	getUserByEmailCounter      syncint64.Counter
 	getAllAccountsCounter      syncint64.Counter
 	createUserCounter          syncint64.Counter
+	deleteUserCounter          syncint64.Counter
 	getAccountCounter          syncint64.Counter
 	getUserByIDCounter         syncint64.Counter
 	authenticateRequestCounter syncint64.Counter
@@ -36,6 +38,10 @@ func NewIDPMetrics(ctx context.Context, meter metric.Meter) (*IDPMetrics, error)
 		return nil, err
 	}
 	createUserCounter, err := meter.SyncInt64().Counter("management.idp.create.user.counter", instrument.WithUnit("1"))
+	if err != nil {
+		return nil, err
+	}
+	deleteUserCounter, err := meter.SyncInt64().Counter("management.idp.delete.user.counter", instrument.WithUnit("1"))
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +71,7 @@ func NewIDPMetrics(ctx context.Context, meter metric.Meter) (*IDPMetrics, error)
 		getUserByEmailCounter:      getUserByEmailCounter,
 		getAllAccountsCounter:      getAllAccountsCounter,
 		createUserCounter:          createUserCounter,
+		deleteUserCounter:          deleteUserCounter,
 		getAccountCounter:          getAccountCounter,
 		getUserByIDCounter:         getUserByIDCounter,
 		authenticateRequestCounter: authenticateRequestCounter,
@@ -86,6 +93,11 @@ func (idpMetrics *IDPMetrics) CountGetUserByEmail() {
 // CountCreateUser ...
 func (idpMetrics *IDPMetrics) CountCreateUser() {
 	idpMetrics.createUserCounter.Add(idpMetrics.ctx, 1)
+}
+
+// CountDeleteUser ...
+func (idpMetrics *IDPMetrics) CountDeleteUser() {
+	idpMetrics.deleteUserCounter.Add(idpMetrics.ctx, 1)
 }
 
 // CountGetAllAccounts ...

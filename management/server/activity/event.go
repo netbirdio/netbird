@@ -18,10 +18,13 @@ type Event struct {
 	ID uint64
 	// InitiatorID is the ID of an object that initiated the event (e.g., a user)
 	InitiatorID string
+	// InitiatorEmail is the email address of an object that initiated the event. This will be set on deleted users only
+	InitiatorEmail string
 	// TargetID is the ID of an object that was effected by the event (e.g., a peer)
 	TargetID string
 	// AccountID is the ID of an account where the event happened
 	AccountID string
+
 	// Meta of the event, e.g. deleted peer information like name, IP, etc
 	Meta map[string]any
 }
@@ -35,12 +38,13 @@ func (e *Event) Copy() *Event {
 	}
 
 	return &Event{
-		Timestamp:   e.Timestamp,
-		Activity:    e.Activity,
-		ID:          e.ID,
-		InitiatorID: e.InitiatorID,
-		TargetID:    e.TargetID,
-		AccountID:   e.AccountID,
-		Meta:        meta,
+		Timestamp:      e.Timestamp,
+		Activity:       e.Activity,
+		ID:             e.ID,
+		InitiatorID:    e.InitiatorID,
+		InitiatorEmail: e.InitiatorEmail,
+		TargetID:       e.TargetID,
+		AccountID:      e.AccountID,
+		Meta:           meta,
 	}
 }

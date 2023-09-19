@@ -454,6 +454,43 @@ func (am *AzureManager) InviteUserByID(_ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
 }
 
+// DeleteUser from Azure
+func (am *AzureManager) DeleteUser(userID string) error {
+	jwtToken, err := am.credentials.Authenticate()
+	if err != nil {
+		return err
+	}
+
+	reqURL := fmt.Sprintf("%s/users/%s", am.GraphAPIEndpoint, url.QueryEscape(userID))
+	req, err := http.NewRequest(http.MethodDelete, reqURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	log.Debugf("delete idp user %s", userID)
+
+	resp, err := am.httpClient.Do(req)
+	if err != nil {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return err
+	}
+	defer resp.Body.Close()
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountDeleteUser()
+	}
+
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("unable to delete user, statusCode %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
 func (am *AzureManager) getUserExtensions() ([]azureExtension, error) {
 	q := url.Values{}
 	q.Add("$select", extensionFields)
