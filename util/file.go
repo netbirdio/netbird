@@ -91,9 +91,9 @@ func DirectWriteJson(file string, obj interface{}) error {
 }
 
 func openOrCreateFile(file string) (*os.File, error) {
-	_, err := os.Stat(file)
+	s, err := os.Stat(file)
 	if err == nil {
-		return os.Open(file)
+		return os.OpenFile(file, os.O_WRONLY, s.Mode())
 	}
 
 	if !os.IsNotExist(err) {
