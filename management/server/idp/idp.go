@@ -18,6 +18,7 @@ type Manager interface {
 	CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error)
 	GetUserByEmail(email string) ([]*UserData, error)
 	InviteUserByID(userID string) error
+	DeleteUser(userID string) error
 }
 
 // ClientConfig defines common client configuration for all IdP manager

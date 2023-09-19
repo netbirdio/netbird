@@ -681,7 +681,7 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(), nil, "", "", eventStore)
+	return BuildManager(store, NewPeersUpdateManager(), nil, "", "", eventStore, false)
 }
 
 func createRouterStore(t *testing.T) (Store, error) {

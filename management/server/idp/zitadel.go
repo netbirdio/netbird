@@ -428,7 +428,7 @@ func (zm *ZitadelManager) UpdateUserAppMetadata(userID string, appMetadata AppMe
 		return err
 	}
 
-	resource := fmt.Sprintf("users/%s/metadata/_bulk", userID)
+	resource := fmt.Sprintf("users/%s", userID)
 	_, err = zm.post(resource, string(payload))
 	if err != nil {
 		return err
@@ -445,6 +445,21 @@ func (zm *ZitadelManager) UpdateUserAppMetadata(userID string, appMetadata AppMe
 // their accounts prior to the expiration period.
 func (zm *ZitadelManager) InviteUserByID(_ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
+}
+
+// DeleteUser from Zitadel
+func (zm *ZitadelManager) DeleteUser(userID string) error {
+	resource := fmt.Sprintf("users/%s", userID)
+	if err := zm.delete(resource); err != nil {
+		return err
+	}
+
+	if zm.appMetrics != nil {
+		zm.appMetrics.IDPMetrics().CountDeleteUser()
+	}
+
+	return nil
+
 }
 
 // getUserMetadata requests user metadata from zitadel via ID.
@@ -498,6 +513,42 @@ func (zm *ZitadelManager) post(resource string, body string) ([]byte, error) {
 	}
 
 	return io.ReadAll(resp.Body)
+}
+
+// delete perform Delete requests.
+func (zm *ZitadelManager) delete(resource string) error {
+	jwtToken, err := zm.credentials.Authenticate()
+	if err != nil {
+		return err
+	}
+
+	reqURL := fmt.Sprintf("%s/%s", zm.managementEndpoint, resource)
+	req, err := http.NewRequest(http.MethodDelete, reqURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	resp, err := zm.httpClient.Do(req)
+	if err != nil {
+		if zm.appMetrics != nil {
+			zm.appMetrics.IDPMetrics().CountRequestError()
+		}
+
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		if zm.appMetrics != nil {
+			zm.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+
+		return fmt.Errorf("unable to delete %s, statusCode %d", reqURL, resp.StatusCode)
+	}
+
+	return nil
 }
 
 // get perform Get requests.
