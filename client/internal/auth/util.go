@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"reflect"
 	"strings"
 )
@@ -59,4 +60,9 @@ func isValidAccessToken(token string, audience string) error {
 	}
 
 	return fmt.Errorf("invalid JWT token audience field")
+}
+
+// isLinuxRunningDesktop checks if a Linux OS is running desktop environment
+func isLinuxRunningDesktop() bool {
+	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
 }
