@@ -113,7 +113,7 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	cfg.SecretKey = m.ssk
 
 	cfg.Peers = []rp.PeerConfig{}
-	m.rpWgHandler, _ = NewNetbirdHandler(*m.preSharedKey)
+	m.rpWgHandler, _ = NewNetbirdHandler(m.preSharedKey)
 
 	cfg.Handlers = []rp.Handler{m.rpWgHandler}
 

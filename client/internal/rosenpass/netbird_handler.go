@@ -22,10 +22,13 @@ type NetbirdHandler struct {
 	presharedKey [32]byte
 }
 
-func NewNetbirdHandler(preSharedKey [32]byte) (hdlr *NetbirdHandler, err error) {
+func NewNetbirdHandler(preSharedKey *[32]byte) (hdlr *NetbirdHandler, err error) {
 	hdlr = &NetbirdHandler{
-		peers:        map[rp.PeerID]wireGuardPeer{},
-		presharedKey: preSharedKey,
+		peers: map[rp.PeerID]wireGuardPeer{},
+	}
+
+	if preSharedKey != nil {
+		hdlr.presharedKey = *preSharedKey
 	}
 
 	if hdlr.client, err = wgctrl.New(); err != nil {
@@ -58,16 +61,14 @@ func (h *NetbirdHandler) HandshakeExpired(pid rp.PeerID) {
 }
 
 func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.Key) {
-	log.Debug("Applaying new key")
 	wg, ok := h.peers[pid]
 	if !ok {
 		return
 	}
-	log.Debug("Getting devices")
 
 	devices, err := h.client.Devices()
 	if err != nil {
-		slog.Error("Failed to get WireGuard devices", slog.Any("error", err))
+		log.Errorf("Failed to get WireGuard devices: %v", err)
 		return
 	}
 	config := []wgtypes.PeerConfig{
@@ -80,8 +81,8 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 	for _, device := range devices {
 		for _, peer := range device.Peers {
 			if peer.PublicKey == wgtypes.Key(wg.PublicKey) {
-				log.Debug("Found WireGuard peer")
 				if publicKeyEmpty(peer.PresharedKey) || peer.PresharedKey == h.presharedKey {
+					log.Debugf("Restart wireguard connection to peer %s", peer.PublicKey)
 					config = []wgtypes.PeerConfig{
 						{
 							PublicKey:    wgtypes.Key(wg.PublicKey),
@@ -111,10 +112,7 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 	if err := h.client.ConfigureDevice(wg.Interface, wgtypes.Config{
 		Peers: config,
 	}); err != nil {
-		slog.Error("Failed to configure WireGuard peer",
-			slog.Any("interface", wg.Interface),
-			slog.Any("peer", wg.PublicKey),
-			slog.Any("error", err))
+		log.Errorf("Failed to apply rosenpass key: %v", err)
 	}
 }
 
