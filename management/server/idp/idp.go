@@ -36,12 +36,12 @@ type ExtraConfig map[string]string
 // Config an idp configuration struct to be loaded from management server's config file
 type Config struct {
 	ManagerType               string
-	ClientConfig              *ClientConfig         "json:ClientConfig,omitempty"
-	ExtraConfig               ExtraConfig           "json:ExtraConfig,omitempty"
-	Auth0ClientCredentials    *Auth0ClientConfig    "json:Auth0ClientCredentials,omitempty"
-	AzureClientCredentials    *AzureClientConfig    "json:AzureClientCredentials,omitempty"
-	KeycloakClientCredentials *KeycloakClientConfig "json:KeycloakClientCredentials,omitempty"
-	ZitadelClientCredentials  *ZitadelClientConfig  "json:ZitadelClientCredentials,omitempty"
+	ClientConfig              *ClientConfig
+	ExtraConfig               ExtraConfig
+	Auth0ClientCredentials    *Auth0ClientConfig
+	AzureClientCredentials    *AzureClientConfig
+	KeycloakClientCredentials *KeycloakClientConfig
+	ZitadelClientCredentials  *ZitadelClientConfig
 }
 
 // ManagerCredentials interface that authenticates using the credential of each type of idp

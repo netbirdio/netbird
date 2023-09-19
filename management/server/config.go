@@ -42,9 +42,9 @@ type Config struct {
 
 	IdpManagerConfig *idp.Config
 
-	DeviceAuthorizationFlow *DeviceAuthorizationFlow "json:DeviceAuthorizationFlow,omitempty"
+	DeviceAuthorizationFlow *DeviceAuthorizationFlow
 
-	PKCEAuthorizationFlow *PKCEAuthorizationFlow "json:PKCEAuthorizationFlow,omitempty"
+	PKCEAuthorizationFlow *PKCEAuthorizationFlow
 }
 
 // GetAuthAudiences returns the audience from the http config and device authorization flow config
