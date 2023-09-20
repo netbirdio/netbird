@@ -439,8 +439,9 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 	}
 
 	err = am.DeleteUser(mockAccountID, mockUserID, mockUserID)
-
-	assert.Errorf(t, err, "Regular users can not be deleted (yet)")
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
 }
 
 func TestDefaultAccountManager_GetUser(t *testing.T) {

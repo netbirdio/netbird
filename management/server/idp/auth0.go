@@ -513,7 +513,9 @@ func buildUserExportRequest() (string, error) {
 	return string(str), nil
 }
 
-func (am *Auth0Manager) createPostRequest(endpoint string, payloadStr string) (*http.Request, error) {
+func (am *Auth0Manager) createRequest(
+	method string, endpoint string, body io.Reader,
+) (*http.Request, error) {
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {
 		return nil, err
@@ -521,17 +523,23 @@ func (am *Auth0Manager) createPostRequest(endpoint string, payloadStr string) (*
 
 	reqURL := am.authIssuer + endpoint
 
-	payload := strings.NewReader(payloadStr)
-
-	req, err := http.NewRequest("POST", reqURL, payload)
+	req, err := http.NewRequest(method, reqURL, body)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+
+	return req, nil
+}
+
+func (am *Auth0Manager) createPostRequest(endpoint string, payloadStr string) (*http.Request, error) {
+	req, err := am.createRequest("POST", endpoint, strings.NewReader(payloadStr))
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Add("content-type", "application/json")
 
 	return req, nil
-
 }
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
@@ -732,6 +740,38 @@ func (am *Auth0Manager) InviteUserByID(userID string) error {
 			am.appMetrics.IDPMetrics().CountRequestStatusError()
 		}
 		return fmt.Errorf("unable to invite user, statusCode %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// DeleteUser from Auth0
+func (am *Auth0Manager) DeleteUser(userID string) error {
+	req, err := am.createRequest(http.MethodDelete, "/api/v2/users/"+url.QueryEscape(userID), nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := am.httpClient.Do(req)
+	if err != nil {
+		log.Debugf("execute delete request: %v", err)
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return err
+	}
+
+	defer func() {
+		err = resp.Body.Close()
+		if err != nil {
+			log.Errorf("close delete request body: %v", err)
+		}
+	}()
+	if resp.StatusCode != 204 {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return fmt.Errorf("unable to delete user, statusCode %d", resp.StatusCode)
 	}
 
 	return nil

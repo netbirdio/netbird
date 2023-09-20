@@ -19,8 +19,14 @@ PACKAGE_MANAGER="bin"
 INSTALL_DIR=""
 
 get_latest_release() {
-    curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
-    | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+    if [ -n "$GITHUB_TOKEN" ]; then
+          curl -H  "Authorization: token ${GITHUB_TOKEN}" -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
+              | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+    else
+          curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
+              | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+    fi
+
 }
 
 download_release_binary() {
@@ -45,7 +51,11 @@ download_release_binary() {
     DOWNLOAD_URL="${BASE_URL}/${VERSION}/${BINARY_NAME}"
 
     echo "Installing $1 from $DOWNLOAD_URL"
-    cd /tmp && curl -LO "$DOWNLOAD_URL"
+    if [ -n "$GITHUB_TOKEN" ]; then
+      cd /tmp && curl -H  "Authorization: token ${GITHUB_TOKEN}" -LO "$DOWNLOAD_URL"
+    else
+      cd /tmp && curl -LO "$DOWNLOAD_URL"
+    fi
 
 
     if [ "$OS_TYPE" = "darwin" ] && [ "$1" = "$UI_APP" ]; then
