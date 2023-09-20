@@ -50,7 +50,7 @@ func (h *EventsHandler) GetAllEvents(w http.ResponseWriter, r *http.Request) {
 		events[i] = toEventResponse(e)
 	}
 
-	err = h.fillEventsWithInitiatorEmail(events, account.Id, user.Id)
+	err = h.fillEventsWithInitiatorInfo(events, account.Id, user.Id)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -59,8 +59,8 @@ func (h *EventsHandler) GetAllEvents(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, events)
 }
 
-func (h *EventsHandler) fillEventsWithInitiatorEmail(events []*api.Event, accountId, userId string) error {
-	// build email map based on users
+func (h *EventsHandler) fillEventsWithInitiatorInfo(events []*api.Event, accountId, userId string) error {
+	// build email, name maps based on users
 	userInfos, err := h.accountManager.GetUsersFromAccount(accountId, userId)
 	if err != nil {
 		log.Errorf("failed to get users from account: %s", err)
@@ -68,11 +68,12 @@ func (h *EventsHandler) fillEventsWithInitiatorEmail(events []*api.Event, accoun
 	}
 
 	emails := make(map[string]string)
+	names := make(map[string]string)
 	for _, ui := range userInfos {
 		emails[ui.ID] = ui.Email
+		names[ui.ID] = ui.Name
 	}
 
-	// fill event with email of initiator
 	var ok bool
 	for _, event := range events {
 		if event.InitiatorEmail == "" {
@@ -80,6 +81,11 @@ func (h *EventsHandler) fillEventsWithInitiatorEmail(events []*api.Event, accoun
 			if !ok {
 				log.Warnf("failed to resolve email for initiator: %s", event.InitiatorId)
 			}
+		}
+
+		if event.InitiatorName == "" {
+			// here to allowed to be empty because in the first release we did not store the name
+			event.InitiatorName = names[event.InitiatorId]
 		}
 	}
 	return nil
@@ -95,6 +101,7 @@ func toEventResponse(event *activity.Event) *api.Event {
 	e := &api.Event{
 		Id:             fmt.Sprint(event.ID),
 		InitiatorId:    event.InitiatorID,
+		InitiatorName:  event.InitiatorName,
 		InitiatorEmail: event.InitiatorEmail,
 		Activity:       event.Activity.Message(),
 		ActivityCode:   api.EventActivityCode(event.Activity.StringCode()),

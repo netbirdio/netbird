@@ -10,7 +10,7 @@ func TestGenerateKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to generate key: %s", err)
 	}
-	ee, err := NewEmailEncrypt(key)
+	ee, err := NewFieldEncrypt(key)
 	if err != nil {
 		t.Fatalf("failed to init email encryption: %s", err)
 	}
@@ -36,7 +36,7 @@ func TestCorruptKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to generate key: %s", err)
 	}
-	ee, err := NewEmailEncrypt(key)
+	ee, err := NewFieldEncrypt(key)
 	if err != nil {
 		t.Fatalf("failed to init email encryption: %s", err)
 	}
@@ -51,7 +51,7 @@ func TestCorruptKey(t *testing.T) {
 		t.Fatalf("failed to generate key: %s", err)
 	}
 
-	ee, err = NewEmailEncrypt(newKey)
+	ee, err = NewFieldEncrypt(newKey)
 	if err != nil {
 		t.Fatalf("failed to init email encryption: %s", err)
 	}
