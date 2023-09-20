@@ -87,12 +87,12 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		peerId = *req.Peer
 	}
 
-	peersGroupId := ""
-	if req.PeersGroup != nil {
-		peersGroupId = *req.PeersGroup
+	peerGroupIds := []string{}
+	if req.PeerGroups != nil {
+		peerGroupIds = *req.PeerGroups
 	}
 
-	if (peerId != "" && peersGroupId != "") || (peerId == "" && peersGroupId == "") {
+	if (peerId != "" && len(peerGroupIds) > 0) || (peerId == "" && len(peerGroupIds) == 0) {
 		util.WriteError(status.Errorf(status.InvalidArgument, "only one peer or peers_group should be provided"), w)
 		return
 	}
@@ -106,7 +106,7 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newRoute, err := h.accountManager.CreateRoute(
-		account.Id, newPrefix.String(), peerId, peersGroupId,
+		account.Id, newPrefix.String(), peerId, peerGroupIds,
 		req.Description, req.NetworkId, req.Masquerade, req.Metric, req.Groups, req.Enabled, user.Id,
 	)
 	if err != nil {
@@ -161,12 +161,12 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Peer != nil && req.PeersGroup != nil {
+	if req.Peer != nil && req.PeerGroups != nil {
 		util.WriteError(status.Errorf(status.InvalidArgument, "only peer or peers_group should be provided"), w)
 		return
 	}
 
-	if req.Peer == nil && req.PeersGroup == nil {
+	if req.Peer == nil && req.PeerGroups == nil {
 		util.WriteError(status.Errorf(status.InvalidArgument, "either peer or peers_group should be provided"), w)
 		return
 	}
@@ -195,8 +195,8 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		newRoute.Peer = *req.Peer
 	}
 
-	if req.PeersGroup != nil {
-		newRoute.PeersGroup = *req.PeersGroup
+	if req.PeerGroups != nil {
+		newRoute.PeerGroups = *req.PeerGroups
 	}
 
 	err = h.accountManager.SaveRoute(account.Id, user.Id, newRoute)

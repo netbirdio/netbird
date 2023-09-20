@@ -60,9 +60,9 @@ func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peerID string,
 	return nil
 }
 
-// checkPrefixPeersGroupExists checks the combination of prefix and peer ids from the group, if it exists returns an error, otherwise returns nil
-func (am *DefaultAccountManager) checkPrefixPeersGroupExists(accountID, peersGroupID string, prefix netip.Prefix) error {
-	if peersGroupID == "" {
+// checkPrefixPeerGroupsExists checks the combination of prefix and peer ids from the groups, if it exists returns an error, otherwise returns nil
+func (am *DefaultAccountManager) checkPrefixPeerGroupsExists(accountID string, peerGroupIDs []string, prefix netip.Prefix) error {
+	if len(peerGroupIDs) == 0 {
 		return nil
 	}
 
@@ -73,25 +73,28 @@ func (am *DefaultAccountManager) checkPrefixPeersGroupExists(accountID, peersGro
 
 	routesWithPrefix := account.GetRoutesByPrefix(prefix)
 
-	group := account.GetGroup(peersGroupID)
-	if group == nil {
-		return nil
-	}
+	for _, groupID := range peerGroupIDs {
+		group := account.GetGroup(groupID)
+		if group == nil {
+			return nil
+		}
 
-	for _, prefixRoute := range routesWithPrefix {
-		for _, peerID := range group.Peers {
-			if prefixRoute.Peer == peerID {
-				return status.Errorf(
-					status.AlreadyExists, "failed to add route with prefix %s - peer %s already has this route",
-					prefix.String(), peerID)
+		for _, prefixRoute := range routesWithPrefix {
+			for _, peerID := range group.Peers {
+				if prefixRoute.Peer == peerID {
+					return status.Errorf(
+						status.AlreadyExists, "failed to add route with prefix %s - peer %s already has this route",
+						prefix.String(), peerID)
+				}
 			}
 		}
 	}
+
 	return nil
 }
 
 // CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerID, peersGroupId, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error) {
+func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, peerGroupIDs []string, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -100,11 +103,11 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerID, 
 		return nil, err
 	}
 
-	if peerID != "" && peersGroupId != "" {
+	if peerID != "" && len(peerGroupIDs) != 0 {
 		return nil, status.Errorf(
 			status.InvalidArgument,
 			"peer with ID %s and peers group %s should not be provided at the same time",
-			peerID, peersGroupId)
+			peerID, peerGroupIDs)
 	}
 
 	if peerID != "" {
@@ -114,10 +117,12 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerID, 
 		}
 	}
 
-	if peersGroupId != "" {
-		group := account.GetGroup(peersGroupId)
-		if group == nil {
-			return nil, status.Errorf(status.InvalidArgument, "peers group with ID %s not found", peersGroupId)
+	if len(peerGroupIDs) != 0 {
+		for _, groupID := range peerGroupIDs {
+			group := account.GetGroup(groupID)
+			if group == nil {
+				return nil, status.Errorf(status.InvalidArgument, "peers group with ID %s not found", groupID)
+			}
 		}
 	}
 
@@ -132,7 +137,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerID, 
 		return nil, err
 	}
 
-	err = am.checkPrefixPeersGroupExists(accountID, peersGroupId, newPrefix)
+	err = am.checkPrefixPeerGroupsExists(accountID, peerGroupIDs, newPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +156,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerID, 
 	}
 
 	newRoute.Peer = peerID
-	newRoute.PeersGroup = peersGroupId
+	newRoute.PeerGroups = peerGroupIDs
 	newRoute.ID = xid.New().String()
 	newRoute.Network = newPrefix
 	newRoute.NetworkType = prefixType
@@ -210,11 +215,8 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 		return err
 	}
 
-	if routeToSave.Peer != "" && routeToSave.PeersGroup != "" {
-		return status.Errorf(
-			status.InvalidArgument,
-			"peer with ID %s and peers group %s should not be provided at the same time",
-			routeToSave.Peer, routeToSave.PeersGroup)
+	if routeToSave.Peer != "" && len(routeToSave.PeerGroups) != 0 {
+		return status.Errorf(status.InvalidArgument, "peer with ID and peer groups should not be provided at the same time")
 	}
 
 	if routeToSave.Peer != "" {
@@ -224,10 +226,12 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 		}
 	}
 
-	if routeToSave.PeersGroup != "" {
-		peer := account.GetGroup(routeToSave.PeersGroup)
-		if peer == nil {
-			return status.Errorf(status.InvalidArgument, "peers group with ID %s not found", routeToSave.PeersGroup)
+	if len(routeToSave.PeerGroups) != 0 {
+		for _, groupID := range routeToSave.PeerGroups {
+			group := account.GetGroup(groupID)
+			if group == nil {
+				return status.Errorf(status.InvalidArgument, "peers group with ID %s not found", groupID)
+			}
 		}
 	}
 

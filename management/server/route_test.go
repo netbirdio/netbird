@@ -15,27 +15,30 @@ const (
 	peer1Key           = "BhRPtynAAYRDy08+q4HTMsos8fs4plTP4NOSh7C1ry8="
 	peer2Key           = "/yF0+vCfv+mRR5k0dca0TrGdO/oiNeAI58gToZm5NyI="
 	peer3Key           = "ayF0+vCfv+mRR5k0dca0TrGdO/oiNeAI58gToZm5NaF="
+	peer4Key           = "ayF0+vCfv+mRR5k0dca0TrGdO/oiNeAI58gToZm5acc="
 	peer1ID            = "peer-1-id"
 	peer2ID            = "peer-2-id"
 	peer3ID            = "peer-3-id"
+	peer4ID            = "peer-4-id"
 	routeGroup1        = "routeGroup1"
 	routeGroup2        = "routeGroup2"
-	routeGroupHA       = "routeGroupHA"
+	routeGroupHA1      = "routeGroupHA1"
+	routeGroupHA2      = "routeGroupHA2"
 	routeInvalidGroup1 = "routeInvalidGroup1"
 	userID             = "testingUser"
 )
 
 func TestCreateRoute(t *testing.T) {
 	type input struct {
-		network       string
-		netID         string
-		peerKey       string
-		peersGroupKey string
-		description   string
-		masquerade    bool
-		metric        int
-		enabled       bool
-		groups        []string
+		network      string
+		netID        string
+		peerKey      string
+		peerGroupIDs []string
+		description  string
+		masquerade   bool
+		metric       int
+		enabled      bool
+		groups       []string
 	}
 
 	testCases := []struct {
@@ -72,16 +75,16 @@ func TestCreateRoute(t *testing.T) {
 			},
 		},
 		{
-			name: "Happy Path Peers Group",
+			name: "Happy Path Peer Groups",
 			inputArgs: input{
-				network:       "192.168.0.0/16",
-				netID:         "happy",
-				peersGroupKey: routeGroupHA,
-				description:   "super",
-				masquerade:    false,
-				metric:        9999,
-				enabled:       true,
-				groups:        []string{routeGroup1, routeGroup2},
+				network:      "192.168.0.0/16",
+				netID:        "happy",
+				peerGroupIDs: []string{routeGroupHA1, routeGroupHA2},
+				description:  "super",
+				masquerade:   false,
+				metric:       9999,
+				enabled:      true,
+				groups:       []string{routeGroup1, routeGroup2},
 			},
 			errFunc:      require.NoError,
 			shouldCreate: true,
@@ -89,7 +92,7 @@ func TestCreateRoute(t *testing.T) {
 				Network:     netip.MustParsePrefix("192.168.0.0/16"),
 				NetworkType: route.IPv4Network,
 				NetID:       "happy",
-				PeersGroup:  routeGroupHA,
+				PeerGroups:  []string{routeGroupHA1, routeGroupHA2},
 				Description: "super",
 				Masquerade:  false,
 				Metric:      9999,
@@ -98,17 +101,17 @@ func TestCreateRoute(t *testing.T) {
 			},
 		},
 		{
-			name: "Both peer and peers_roup Provided Should Fail",
+			name: "Both peer and peer_groups Provided Should Fail",
 			inputArgs: input{
-				network:       "192.168.0.0/16",
-				netID:         "happy",
-				peerKey:       peer1ID,
-				peersGroupKey: routeGroupHA,
-				description:   "super",
-				masquerade:    false,
-				metric:        9999,
-				enabled:       true,
-				groups:        []string{routeGroup1},
+				network:      "192.168.0.0/16",
+				netID:        "happy",
+				peerKey:      peer1ID,
+				peerGroupIDs: []string{routeGroupHA1},
+				description:  "super",
+				masquerade:   false,
+				metric:       9999,
+				enabled:      true,
+				groups:       []string{routeGroup1},
 			},
 			errFunc:      require.Error,
 			shouldCreate: false,
@@ -291,7 +294,7 @@ func TestCreateRoute(t *testing.T) {
 				account.Id,
 				testCase.inputArgs.network,
 				testCase.inputArgs.peerKey,
-				testCase.inputArgs.peersGroupKey,
+				testCase.inputArgs.peerGroupIDs,
 				testCase.inputArgs.description,
 				testCase.inputArgs.netID,
 				testCase.inputArgs.masquerade,
@@ -326,13 +329,14 @@ func TestSaveRoute(t *testing.T) {
 	invalidMetric := 99999
 	validNetID := "12345678901234567890qw"
 	invalidNetID := "12345678901234567890qwertyuiopqwertyuiop1"
-	validGroupHA := routeGroupHA
+	validGroupHA1 := routeGroupHA1
+	validGroupHA2 := routeGroupHA2
 
 	testCases := []struct {
 		name          string
 		existingRoute *route.Route
 		newPeer       *string
-		newPeersGroup *string
+		newPeerGroups []string
 		newMetric     *int
 		newPrefix     *netip.Prefix
 		newGroups     []string
@@ -375,7 +379,7 @@ func TestSaveRoute(t *testing.T) {
 			},
 		},
 		{
-			name: "Happy Path Peers Group",
+			name: "Happy Path Peer Groups",
 			existingRoute: &route.Route{
 				ID:          "testingRoute",
 				Network:     netip.MustParsePrefix("192.168.0.0/16"),
@@ -387,7 +391,7 @@ func TestSaveRoute(t *testing.T) {
 				Enabled:     true,
 				Groups:      []string{routeGroup1},
 			},
-			newPeersGroup: &validGroupHA,
+			newPeerGroups: []string{validGroupHA1, validGroupHA2},
 			newMetric:     &validMetric,
 			newPrefix:     &validPrefix,
 			newGroups:     []string{routeGroup2},
@@ -398,7 +402,7 @@ func TestSaveRoute(t *testing.T) {
 				Network:     validPrefix,
 				NetID:       validNetID,
 				NetworkType: route.IPv4Network,
-				PeersGroup:  validGroupHA,
+				PeerGroups:  []string{validGroupHA1, validGroupHA2},
 				Description: "super",
 				Masquerade:  false,
 				Metric:      validMetric,
@@ -420,7 +424,7 @@ func TestSaveRoute(t *testing.T) {
 				Groups:      []string{routeGroup1},
 			},
 			newPeer:       &validPeer,
-			newPeersGroup: &validGroupHA,
+			newPeerGroups: []string{validGroupHA1},
 			errFunc:       require.Error,
 		},
 		{
@@ -586,8 +590,8 @@ func TestSaveRoute(t *testing.T) {
 				if testCase.newPeer != nil {
 					routeToSave.Peer = *testCase.newPeer
 				}
-				if testCase.newPeersGroup != nil {
-					routeToSave.PeersGroup = *testCase.newPeersGroup
+				if len(testCase.newPeerGroups) != 0 {
+					routeToSave.PeerGroups = testCase.newPeerGroups
 				}
 				if testCase.newMetric != nil {
 					routeToSave.Metric = *testCase.newMetric
@@ -670,12 +674,12 @@ func TestDeleteRoute(t *testing.T) {
 	}
 }
 
-func TestGetNetworkMap_RouteSyncPeersGroup(t *testing.T) {
+func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 	baseRoute := &route.Route{
 		Network:     netip.MustParsePrefix("192.168.0.0/16"),
 		NetID:       "superNet",
 		NetworkType: route.IPv4Network,
-		PeersGroup:  routeGroupHA,
+		PeerGroups:  []string{routeGroupHA1, routeGroupHA2},
 		Description: "ha route",
 		Masquerade:  false,
 		Metric:      9999,
@@ -698,36 +702,50 @@ func TestGetNetworkMap_RouteSyncPeersGroup(t *testing.T) {
 	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
 
 	newRoute, err := am.CreateRoute(
-		account.Id, baseRoute.Network.String(), baseRoute.Peer, baseRoute.PeersGroup, baseRoute.Description,
+		account.Id, baseRoute.Network.String(), baseRoute.Peer, baseRoute.PeerGroups, baseRoute.Description,
 		baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, baseRoute.Enabled, userID)
 	require.NoError(t, err)
 	require.Equal(t, newRoute.Enabled, true)
 
 	peer1Routes, err := am.GetNetworkMap(peer1ID)
 	require.NoError(t, err)
-	require.Len(t, peer1Routes.Routes, 2, "HA route should have more than 1 routes")
+	require.Len(t, peer1Routes.Routes, 3, "HA route should have more than 1 routes")
 
 	peer2Routes, err := am.GetNetworkMap(peer2ID)
 	require.NoError(t, err)
-	require.Len(t, peer2Routes.Routes, 2, "HA route should have more than 1 routes")
+	require.Len(t, peer2Routes.Routes, 3, "HA route should have more than 1 routes")
+
+	peer4Routes, err := am.GetNetworkMap(peer4ID)
+	require.NoError(t, err)
+	require.Len(t, peer4Routes.Routes, 3, "HA route should have more than 1 routes")
 
 	groups, err := am.ListGroups(account.Id)
 	require.NoError(t, err)
-	var groupHA *Group
+	var groupHA1, groupHA2 *Group
 	for _, group := range groups {
-		if group.Name == routeGroupHA {
-			groupHA = group
-			break
+		switch group.Name {
+		case routeGroupHA1:
+			groupHA1 = group
+		case routeGroupHA2:
+			groupHA2 = group
 		}
 	}
-	err = am.GroupDeletePeer(account.Id, groupHA.ID, peer1ID)
+
+	err = am.GroupDeletePeer(account.Id, groupHA1.ID, peer2ID)
 	require.NoError(t, err)
 
 	peer2RoutesAfterDelete, err := am.GetNetworkMap(peer2ID)
 	require.NoError(t, err)
+	require.Len(t, peer2RoutesAfterDelete.Routes, 2, "after peer deletion group should have only 2 route")
+
+	err = am.GroupDeletePeer(account.Id, groupHA2.ID, peer4ID)
+	require.NoError(t, err)
+
+	peer2RoutesAfterDelete, err = am.GetNetworkMap(peer2ID)
+	require.NoError(t, err)
 	require.Len(t, peer2RoutesAfterDelete.Routes, 1, "after peer deletion group should have only 1 route")
 
-	err = am.GroupAddPeer(account.Id, groupHA.ID, peer1ID)
+	err = am.GroupAddPeer(account.Id, groupHA2.ID, peer4ID)
 	require.NoError(t, err)
 
 	peer1RoutesAfterAdd, err := am.GetNetworkMap(peer1ID)
@@ -776,7 +794,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
 
-	createdRoute, err := am.CreateRoute(account.Id, baseRoute.Network.String(), peer1ID, "",
+	createdRoute, err := am.CreateRoute(account.Id, baseRoute.Network.String(), peer1ID, []string{},
 		baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, false,
 		userID)
 	require.NoError(t, err)
@@ -956,6 +974,31 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	}
 	account.Peers[peer3.ID] = peer3
 
+	ips = account.getTakenIPs()
+	peer4IP, err := AllocatePeerIP(account.Network.Net, ips)
+	if err != nil {
+		return nil, err
+	}
+
+	peer4 := &Peer{
+		IP:     peer4IP,
+		ID:     peer4ID,
+		Key:    peer4Key,
+		Name:   "test-host4@netbird.io",
+		UserID: userID,
+		Meta: PeerSystemMeta{
+			Hostname:  "test-host4@netbird.io",
+			GoOS:      "linux",
+			Kernel:    "Linux",
+			Core:      "21.04",
+			Platform:  "x86_64",
+			OS:        "Ubuntu",
+			WtVersion: "development",
+			UIVersion: "development",
+		},
+	}
+	account.Peers[peer4.ID] = peer4
+
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, err
@@ -976,6 +1019,10 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	if err != nil {
 		return nil, err
 	}
+	err = am.GroupAddPeer(accountID, groupAll.ID, peer4ID)
+	if err != nil {
+		return nil, err
+	}
 
 	newGroup := []*Group{
 		{
@@ -989,9 +1036,14 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 			Peers: []string{peer2.ID},
 		},
 		{
-			ID:    routeGroupHA,
-			Name:  routeGroupHA,
+			ID:    routeGroupHA1,
+			Name:  routeGroupHA1,
 			Peers: []string{peer1.ID, peer2.ID, peer3.ID}, // we have one non Linux peer, see peer3
+		},
+		{
+			ID:    routeGroupHA2,
+			Name:  routeGroupHA2,
+			Peers: []string{peer1.ID, peer4.ID},
 		},
 	}
 

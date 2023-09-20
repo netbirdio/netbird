@@ -745,13 +745,15 @@ components:
           type: boolean
           example: true
         peer:
-          description: Peer Identifier associated with route. This property can not be set together with `peers_group`
+          description: Peer Identifier associated with route. This property can not be set together with `peer_groups`
           type: string
           example: chacbco6lnnbn6cg5s91
-        peers_group:
-          description: Peers Group Identifier associated with route. This property can not be set together with `peers_group`
-          type: string
-          example: chacbco6lnnbn6cg5s91
+        peer_groups:
+          description: Peers Group Identifier associated with route. This property can not be set together with `peer`
+          type: array
+          items:
+            type: string
+            example: chacbco6lnnbn6cg5s91
         network:
           description: Network range in CIDR format
           type: string
@@ -779,7 +781,7 @@ components:
         - enabled
         # Only one property has to be set
         #- peer
-        #- peers_group
+        #- peer_groups
         - network
         - metric
         - masquerade

@@ -90,7 +90,7 @@ type AccountManager interface {
 	DeletePolicy(accountID, policyID, userID string) error
 	ListPolicies(accountID, userID string) ([]*Policy, error)
 	GetRoute(accountID, routeID, userID string) (*route.Route, error)
-	CreateRoute(accountID string, prefix, peerID, peersGroupID, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
+	CreateRoute(accountID, prefix, peerID string, peerGroupIDs []string, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
 	SaveRoute(accountID, userID string, route *route.Route) error
 	DeleteRoute(accountID, routeID, userID string) error
 	ListRoutes(accountID, userID string) ([]*route.Route, error)
@@ -269,16 +269,18 @@ func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Rou
 	}
 
 	for _, r := range a.Routes {
-		if r.PeersGroup != "" {
-			group := a.GetGroup(r.PeersGroup)
-			if group == nil {
-				log.Errorf("route %s has peers group %s that doesn't exist under account %s", r.ID, r.PeersGroup, a.Id)
-				continue
-			}
-			for _, id := range group.Peers {
-				if id == peerID {
-					takeRoute(r, id)
-					break
+		if len(r.PeerGroups) != 0 {
+			for _, groupID := range r.PeerGroups {
+				group := a.GetGroup(groupID)
+				if group == nil {
+					log.Errorf("route %s has peers group %s that doesn't exist under account %s", r.ID, groupID, a.Id)
+					continue
+				}
+				for _, id := range group.Peers {
+					if id == peerID {
+						takeRoute(r, id)
+						break
+					}
 				}
 			}
 		}
@@ -345,6 +347,7 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 	// We need to set Peer.Key instead of Peer.ID because this object will be sent to agents as part of a network map.
 	// Ideally we should have a separate field for that, but fine for now.
 	var routesUpdate []*route.Route
+	seenPeers := make(map[string]bool)
 	for _, r := range routes {
 		if r.Peer != "" {
 			peer, valid := takePeer(r.Peer)
@@ -356,20 +359,21 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 			routesUpdate = append(routesUpdate, rCopy)
 			continue
 		}
-		seenPeer := make(map[string]bool)
-		if group := a.GetGroup(r.PeersGroup); group != nil {
-			for _, peerId := range group.Peers {
-				peer, valid := takePeer(peerId)
-				if !valid {
-					continue
-				}
+		for _, groupID := range r.PeerGroups {
+			if group := a.GetGroup(groupID); group != nil {
+				for _, peerId := range group.Peers {
+					peer, valid := takePeer(peerId)
+					if !valid {
+						continue
+					}
 
-				if _, ok := seenPeer[peer.Key]; !ok {
-					rCopy := r.Copy()
-					rCopy.Peer = peer.Key
-					routesUpdate = append(routesUpdate, rCopy)
+					if _, ok := seenPeers[peer.Key]; !ok {
+						rCopy := r.Copy()
+						rCopy.Peer = peer.Key
+						routesUpdate = append(routesUpdate, rCopy)
+					}
+					seenPeers[peer.Key] = true
 				}
-				seenPeer[peer.Key] = true
 			}
 		}
 	}

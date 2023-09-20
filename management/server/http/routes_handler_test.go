@@ -85,19 +85,19 @@ func initRoutesTestData() *RoutesHandler {
 				}
 				return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 			},
-			CreateRouteFunc: func(accountID string, network, peerID, peersGroup, description, netID string, masquerade bool, metric int, groups []string, enabled bool, _ string) (*route.Route, error) {
+			CreateRouteFunc: func(accountID, network, peerID string, peerGroups []string, description, netID string, masquerade bool, metric int, groups []string, enabled bool, _ string) (*route.Route, error) {
 				if peerID == notFoundPeerID {
 					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
 				}
-				if peersGroup == notFoundGroupID {
-					return nil, status.Errorf(status.InvalidArgument, "peers group with ID %s not found", peersGroup)
+				if peerGroups[0] == notFoundGroupID {
+					return nil, status.Errorf(status.InvalidArgument, "peer groups with ID %s not found", peerGroups[0])
 				}
 				networkType, p, _ := route.ParseNetwork(network)
 				return &route.Route{
 					ID:          existingRouteID,
 					NetID:       netID,
 					Peer:        peerID,
-					PeersGroup:  peersGroup,
+					PeerGroups:  peerGroups,
 					Network:     p,
 					NetworkType: networkType,
 					Description: description,

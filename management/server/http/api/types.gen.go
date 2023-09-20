@@ -599,11 +599,11 @@ type Route struct {
 	// NetworkType Network type indicating if it is IPv4 or IPv6
 	NetworkType string `json:"network_type"`
 
-	// Peer Peer Identifier associated with route. This property can not be set together with `peers_group`
+	// Peer Peer Identifier associated with route. This property can not be set together with `peer_groups`
 	Peer *string `json:"peer,omitempty"`
 
-	// PeersGroup Peers Group Identifier associated with route. This property can not be set together with `peers_group`
-	PeersGroup *string `json:"peers_group,omitempty"`
+	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
+	PeerGroups *[]string `json:"peer_groups,omitempty"`
 }
 
 // RouteRequest defines model for RouteRequest.
@@ -629,11 +629,11 @@ type RouteRequest struct {
 	// NetworkId Route network identifier, to group HA routes
 	NetworkId string `json:"network_id"`
 
-	// Peer Peer Identifier associated with route. This property can not be set together with `peers_group`
+	// Peer Peer Identifier associated with route. This property can not be set together with `peer_groups`
 	Peer *string `json:"peer,omitempty"`
 
-	// PeersGroup Peers Group Identifier associated with route. This property can not be set together with `peers_group`
-	PeersGroup *string `json:"peers_group,omitempty"`
+	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
+	PeerGroups *[]string `json:"peer_groups,omitempty"`
 }
 
 // Rule defines model for Rule.
