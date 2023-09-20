@@ -89,7 +89,7 @@ func initRoutesTestData() *RoutesHandler {
 				if peerID == notFoundPeerID {
 					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
 				}
-				if peerGroups[0] == notFoundGroupID {
+				if len(peerGroups) > 0 && peerGroups[0] == notFoundGroupID {
 					return nil, status.Errorf(status.InvalidArgument, "peer groups with ID %s not found", peerGroups[0])
 				}
 				networkType, p, _ := route.ParseNetwork(network)
@@ -233,16 +233,16 @@ func TestRoutesHandlers(t *testing.T) {
 			expectedBody:   false,
 		},
 		{
-			name:        "POST UnprocessableEntity when both peer and peers_group are provided",
+			name:        "POST UnprocessableEntity when both peer and peer_groups are provided",
 			requestType: http.MethodPost,
 			requestPath: "/api/routes",
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"peer\":\"%s\",\"peers_group\":\"%s\",\"groups\":[\"%s\"]}", existingPeerID, existingGroupID, existingGroupID))),
+				[]byte(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"peer\":\"%s\",\"peer_groups\":[\"%s\"],\"groups\":[\"%s\"]}", existingPeerID, existingGroupID, existingGroupID))),
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
-			name:        "POST UnprocessableEntity when no peer and peers_group are provided",
+			name:        "POST UnprocessableEntity when no peer and peer_groups are provided",
 			requestType: http.MethodPost,
 			requestPath: "/api/routes",
 			requestBody: bytes.NewBuffer(
@@ -310,16 +310,16 @@ func TestRoutesHandlers(t *testing.T) {
 			expectedBody:   false,
 		},
 		{
-			name:        "PUT UnprocessableEntity when both peer and peers_group are provided",
+			name:        "PUT UnprocessableEntity when both peer and peer_groups are provided",
 			requestType: http.MethodPut,
 			requestPath: "/api/routes/" + existingRouteID,
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"peer\":\"%s\",\"peers_group\":\"%s\",\"groups\":[\"%s\"]}", existingPeerID, existingGroupID, existingGroupID))),
+				[]byte(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"peer\":\"%s\",\"peer_groups\":[\"%s\"],\"groups\":[\"%s\"]}", existingPeerID, existingGroupID, existingGroupID))),
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
-			name:        "PUT UnprocessableEntity when no peer and peers_group are provided",
+			name:        "PUT UnprocessableEntity when no peer and peer_groups are provided",
 			requestType: http.MethodPut,
 			requestPath: "/api/routes/" + existingRouteID,
 			requestBody: bytes.NewBuffer(
