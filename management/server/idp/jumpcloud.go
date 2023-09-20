@@ -314,6 +314,29 @@ func (jm *JumpCloudManager) InviteUserByID(_ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
 }
 
+// DeleteUser from jumpCloud directory
+func (jm *JumpCloudManager) DeleteUser(userID string) error {
+	authCtx := jm.authenticationContext()
+	_, resp, err := jm.client.SystemusersApi.SystemusersDelete(authCtx, userID, contentType, accept, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		if jm.appMetrics != nil {
+			jm.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return fmt.Errorf("unable to delete user, statusCode %d", resp.StatusCode)
+	}
+
+	if jm.appMetrics != nil {
+		jm.appMetrics.IDPMetrics().CountDeleteUser()
+	}
+
+	return nil
+}
+
 // parseJumpCloudUser parse JumpCloud system user returned from API V1 to UserData.
 func parseJumpCloudUser(user v1.Systemuserreturn) *UserData {
 	appMetadata := AppMetadata{}
