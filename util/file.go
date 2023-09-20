@@ -82,6 +82,11 @@ func DirectWriteJson(file string, obj interface{}) error {
 		return err
 	}
 
+	err = targetFile.Truncate(0)
+	if err != nil {
+		return err
+	}
+
 	_, err = targetFile.Write(bs)
 	if err != nil {
 		return err
