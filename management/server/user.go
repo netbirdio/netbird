@@ -309,6 +309,9 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 
 // DeleteUser deletes a user from the given account.
 func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, targetUserID string) error {
+	if initiatorUserID == targetUserID {
+		return status.Errorf(status.InvalidArgument, "self deletion is not allowed")
+	}
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
