@@ -120,7 +120,7 @@ func init() {
 			`An empty string "" clears the previous configuration. `+
 			`E.g. --dns-resolver-address 127.0.0.1:5053 or --dns-resolver-address ""`,
 	)
-	upCmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "Enable Rosenpass feature. If enabled, the connection will be post-quantum secured via Rosenpass.")
+	upCmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "[Experimental] Enable Rosenpass feature. If enabled, the connection will be post-quantum secured via Rosenpass.")
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
