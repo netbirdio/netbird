@@ -369,6 +369,7 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 
 					if _, ok := seenPeers[peer.Key]; !ok {
 						rCopy := r.Copy()
+						rCopy.ID = r.ID + ":" + peer.ID // we have to provide unit route id when distribute network map
 						rCopy.Peer = peer.Key
 						routesUpdate = append(routesUpdate, rCopy)
 					}
