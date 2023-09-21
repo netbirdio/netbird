@@ -61,27 +61,24 @@ type Client struct {
 	ctxCancelLock *sync.Mutex
 	deviceName    string
 	routeListener routemanager.RouteListener
-	logger        CustomLogger
 	onHostDnsFn   func([]string)
 }
 
 // NewClient instantiate a new Client
-func NewClient(cfgFile, deviceName string, iFaceDiscover IFaceDiscover, routeListener RouteListener, logger CustomLogger) *Client {
+func NewClient(cfgFile, deviceName string, iFaceDiscover IFaceDiscover, routeListener RouteListener) *Client {
 	return &Client{
 		cfgFile:       cfgFile,
 		deviceName:    deviceName,
 		iFaceDiscover: iFaceDiscover,
 		recorder:      peer.NewRecorder(""),
 		ctxCancelLock: &sync.Mutex{},
-		logger:        logger,
 		routeListener: routeListener,
 	}
 }
 
 // Run start the internal client. It is a blocker function
-// func (c *Client) Run(fd int32, dns *DNSList, dnsReadyListener DnsReadyListener) error {
 func (c *Client) Run(fd int32, dns *DNSList, dnsReadyListener DnsReadyListener) error {
-	c.logger.Info("Starting NetBird client")
+	log.Infof("Starting NetBird client")
 	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
@@ -100,12 +97,12 @@ func (c *Client) Run(fd int32, dns *DNSList, dnsReadyListener DnsReadyListener) 
 
 	auth := NewAuthWithConfig(ctx, cfg)
 	// err = auth.login(urlOpener)
-	auth.loginWithSetupKeyAndSaveConfig("E9EEBA50-76A1-4C72-A939-C10655C1CC09", "iPhone")
+	auth.loginWithSetupKeyAndSaveConfig("C3803F45-435B-4333-96EB-50F9EC723355", "iPhone")
 	if err != nil {
 		return err
 	}
 
-	c.logger.Info("Auth successful")
+	log.Infof("Auth successful")
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.onHostDnsFn = func([]string) {}
