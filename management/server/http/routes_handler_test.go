@@ -24,6 +24,7 @@ import (
 
 const (
 	existingRouteID         = "existingRouteID"
+	existingRouteID2        = "existingRouteID2" // for peer_groups test
 	notFoundRouteID         = "notFoundRouteID"
 	existingPeerIP1         = "100.64.0.100"
 	existingPeerIP2         = "100.64.0.101"
@@ -82,6 +83,11 @@ func initRoutesTestData() *RoutesHandler {
 			GetRouteFunc: func(_, routeID, _ string) (*route.Route, error) {
 				if routeID == existingRouteID {
 					return baseExistingRoute, nil
+				}
+				if routeID == existingRouteID2 {
+					route := baseExistingRoute.Copy()
+					route.PeerGroups = []string{existingGroupID}
+					return route, nil
 				}
 				return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 			},
@@ -144,6 +150,9 @@ func initRoutesTestData() *RoutesHandler {
 }
 
 func TestRoutesHandlers(t *testing.T) {
+	baseExistingRouteWithPeerGroups := baseExistingRoute.Copy()
+	baseExistingRouteWithPeerGroups.PeerGroups = []string{existingGroupID}
+
 	tt := []struct {
 		name           string
 		expectedStatus int
@@ -166,6 +175,14 @@ func TestRoutesHandlers(t *testing.T) {
 			requestType:    http.MethodGet,
 			requestPath:    "/api/routes/" + notFoundRouteID,
 			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "Get Existing Route with Peer Groups",
+			requestType:    http.MethodGet,
+			requestPath:    "/api/routes/" + existingRouteID2,
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedRoute:  toRouteResponse(baseExistingRouteWithPeerGroups),
 		},
 		{
 			name:           "Delete Existing Route",

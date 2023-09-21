@@ -259,7 +259,7 @@ func (h *RoutesHandler) GetRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func toRouteResponse(serverRoute *route.Route) *api.Route {
-	return &api.Route{
+	route := &api.Route{
 		Id:          serverRoute.ID,
 		Description: serverRoute.Description,
 		NetworkId:   serverRoute.NetID,
@@ -271,4 +271,9 @@ func toRouteResponse(serverRoute *route.Route) *api.Route {
 		Metric:      serverRoute.Metric,
 		Groups:      serverRoute.Groups,
 	}
+
+	if len(serverRoute.PeerGroups) > 0 {
+		route.PeerGroups = &serverRoute.PeerGroups
+	}
+	return route
 }
