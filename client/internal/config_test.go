@@ -23,9 +23,6 @@ func TestGetConfig(t *testing.T) {
 	assert.Equal(t, config.ManagementURL.String(), DefaultManagementURL)
 	assert.Equal(t, config.AdminURL.String(), DefaultAdminURL)
 
-	if err != nil {
-		return
-	}
 	managementURL := "https://test.management.url:33071"
 	adminURL := "https://app.admin.url:443"
 	path := filepath.Join(t.TempDir(), "config.json")

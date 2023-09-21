@@ -124,6 +124,7 @@ func TestZitadelRequestJWTToken(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
+				defer resp.Body.Close()
 				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err, "unable to read the response body")
 

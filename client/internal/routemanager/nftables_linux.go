@@ -86,10 +86,10 @@ type nftablesManager struct {
 	mux                 sync.Mutex
 }
 
-func newNFTablesManager(parentCtx context.Context) (*nftablesManager, error) {
+func newNFTablesManager(parentCtx context.Context) *nftablesManager {
 	ctx, cancel := context.WithCancel(parentCtx)
 
-	mgr := &nftablesManager{
+	return &nftablesManager{
 		ctx:                 ctx,
 		stop:                cancel,
 		conn:                &nftables.Conn{},
@@ -97,18 +97,6 @@ func newNFTablesManager(parentCtx context.Context) (*nftablesManager, error) {
 		rules:               make(map[string]*nftables.Rule),
 		defaultForwardRules: make([]*nftables.Rule, 2),
 	}
-
-	err := mgr.isSupported()
-	if err != nil {
-		return nil, err
-	}
-
-	err = mgr.readFilterTable()
-	if err != nil {
-		return nil, err
-	}
-
-	return mgr, nil
 }
 
 // CleanRoutingRules cleans existing nftables rules from the system
@@ -147,6 +135,10 @@ func (n *nftablesManager) RestoreOrCreateContainers() error {
 	}
 
 	for _, table := range tables {
+		if table.Name == "filter" {
+			n.filterTable = table
+			continue
+		}
 		if table.Name == nftablesTable {
 			if table.Family == nftables.TableFamilyIPv4 {
 				n.tableIPv4 = table
@@ -254,21 +246,6 @@ func (n *nftablesManager) refreshRulesMap() error {
 					n.rules[string(rule.UserData)] = rule
 				}
 			}
-		}
-	}
-	return nil
-}
-
-func (n *nftablesManager) readFilterTable() error {
-	tables, err := n.conn.ListTables()
-	if err != nil {
-		return err
-	}
-
-	for _, t := range tables {
-		if t.Name == "filter" {
-			n.filterTable = t
-			return nil
 		}
 	}
 	return nil
@@ -540,14 +517,6 @@ func (n *nftablesManager) removeRoutingRule(format string, pair routerPair) erro
 		log.Debugf("nftables: removing %s rule for %s", ruleType, pair.destination)
 
 		delete(n.rules, ruleKey)
-	}
-	return nil
-}
-
-func (n *nftablesManager) isSupported() error {
-	_, err := n.conn.ListChains()
-	if err != nil {
-		return fmt.Errorf("nftables is not supported: %s", err)
 	}
 	return nil
 }

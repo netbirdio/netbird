@@ -3,21 +3,19 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal/auth"
 	"strings"
 	"time"
 
 	"github.com/skratchdot/open-golang/open"
+	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/util"
-
-	"github.com/spf13/cobra"
-
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/util"
 )
 
 var loginCmd = &cobra.Command{
@@ -191,17 +189,16 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 
 func openURL(cmd *cobra.Command, verificationURIComplete, userCode string) {
 	var codeMsg string
-	if userCode != "" {
-		if !strings.Contains(verificationURIComplete, userCode) {
-			codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
-		}
+	if userCode != "" && !strings.Contains(verificationURIComplete, userCode) {
+		codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
 	}
 
-	err := open.Run(verificationURIComplete)
-	cmd.Printf("Please do the SSO login in your browser. \n" +
+	cmd.Println("Please do the SSO login in your browser. \n" +
 		"If your browser didn't open automatically, use this URL to log in:\n\n" +
-		" " + verificationURIComplete + " " + codeMsg + " \n\n")
-	if err != nil {
-		cmd.Printf("Alternatively, you may want to use a setup key, see:\n\n https://www.netbird.io/docs/overview/setup-keys\n")
+		verificationURIComplete + " " + codeMsg)
+	cmd.Println("")
+	if err := open.Run(verificationURIComplete); err != nil {
+		cmd.Println("\nAlternatively, you may want to use a setup key, see:\n\n" +
+			"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
 	}
 }

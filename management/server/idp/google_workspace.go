@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2/google"
 	admin "google.golang.org/api/admin/directory/v1"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
-	"net/http"
-	"strings"
-	"time"
 )
 
 // GoogleWorkspaceManager Google Workspace manager client instance.
@@ -185,7 +186,7 @@ func (gm *GoogleWorkspaceManager) GetAllAccounts() (map[string][]*UserData, erro
 }
 
 // CreateUser creates a new user in Google Workspace and sends an invitation.
-func (gm *GoogleWorkspaceManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
+func (gm *GoogleWorkspaceManager) CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error) {
 	invite := true
 	metadata := AppMetadata{
 		WTAccountID:     accountID,
@@ -253,6 +254,19 @@ func (gm *GoogleWorkspaceManager) InviteUserByID(_ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
 }
 
+// DeleteUser from GoogleWorkspace.
+func (gm *GoogleWorkspaceManager) DeleteUser(userID string) error {
+	if err := gm.usersService.Delete(userID).Do(); err != nil {
+		return err
+	}
+
+	if gm.appMetrics != nil {
+		gm.appMetrics.IDPMetrics().CountDeleteUser()
+	}
+
+	return nil
+}
+
 // getGoogleCredentials retrieves Google credentials based on the provided serviceAccountKey.
 // It decodes the base64-encoded serviceAccountKey and attempts to obtain credentials using it.
 // If that fails, it falls back to using the default Google credentials path.
@@ -271,7 +285,8 @@ func getGoogleCredentials(serviceAccountKey string) (*google.Credentials, error)
 		admin.AdminDirectoryUserScope,
 	)
 	if err == nil {
-		return creds, err
+		// No need to fallback to the default Google credentials path
+		return creds, nil
 	}
 
 	log.Debugf("failed to retrieve Google credentials from ServiceAccountKey: %v", err)

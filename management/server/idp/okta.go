@@ -103,7 +103,7 @@ func (oc *OktaCredentials) Authenticate() (JWTToken, error) {
 }
 
 // CreateUser creates a new user in okta Idp and sends an invitation.
-func (om *OktaManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
+func (om *OktaManager) CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error) {
 	var (
 		sendEmail   = true
 		activate    = true
@@ -317,6 +317,28 @@ func (om *OktaManager) UpdateUserAppMetadata(userID string, appMetadata AppMetad
 // their accounts prior to the expiration period.
 func (om *OktaManager) InviteUserByID(_ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
+}
+
+// DeleteUser from Okta
+func (om *OktaManager) DeleteUser(userID string) error {
+	resp, err := om.client.User.DeactivateOrDeleteUser(context.Background(), userID, nil)
+	if err != nil {
+		fmt.Println(err.Error())
+		return err
+	}
+
+	if om.appMetrics != nil {
+		om.appMetrics.IDPMetrics().CountDeleteUser()
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if om.appMetrics != nil {
+			om.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return fmt.Errorf("unable to delete user, statusCode %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 // updateUserProfileSchema updates the Okta user schema to include custom fields,

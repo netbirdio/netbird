@@ -19,28 +19,26 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/miekg/dns"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
-
-	"github.com/netbirdio/netbird/management/server/activity/sqlite"
-	httpapi "github.com/netbirdio/netbird/management/server/http"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
-	"github.com/netbirdio/netbird/management/server/metrics"
-	"github.com/netbirdio/netbird/management/server/telemetry"
-
-	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/util"
-
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/activity/sqlite"
+	httpapi "github.com/netbirdio/netbird/management/server/http"
+	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/metrics"
+	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/util"
 )
 
 // ManagementLegacyPort is the port that was used before by the Management gRPC server.
@@ -72,10 +70,15 @@ var (
 		Use:   "management",
 		Short: "start NetBird Management Server",
 		PreRunE: func(cmd *cobra.Command, args []string) error {
+			flag.Parse()
+			err := util.InitLog(logLevel, logFile)
+			if err != nil {
+				return fmt.Errorf("failed initializing log %v", err)
+			}
+
 			// detect whether user specified a port
 			userPort := cmd.Flag("port").Changed
 
-			var err error
 			config, err = loadMgmtConfig(mgmtConfig)
 			if err != nil {
 				return fmt.Errorf("failed reading provided config file: %s: %v", mgmtConfig, err)
@@ -104,13 +107,7 @@ var (
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			flag.Parse()
-			err := util.InitLog(logLevel, logFile)
-			if err != nil {
-				return fmt.Errorf("failed initializing log %v", err)
-			}
-
-			err = handleRebrand(cmd)
+			err := handleRebrand(cmd)
 			if err != nil {
 				return fmt.Errorf("failed to migrate files %v", err)
 			}
@@ -146,12 +143,22 @@ var (
 			if disableSingleAccMode {
 				mgmtSingleAccModeDomain = ""
 			}
-			eventStore, err := sqlite.NewSQLiteStore(config.Datadir)
+			eventStore, key, err := initEventStore(config.Datadir, config.DataStoreEncryptionKey)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to initialize database: %s", err)
 			}
+
+			if key != "" {
+				log.Debugf("update config with activity store key")
+				config.DataStoreEncryptionKey = key
+				err := updateMgmtConfig(mgmtConfig, config)
+				if err != nil {
+					return fmt.Errorf("failed to write out store encryption key: %s", err)
+				}
+			}
+
 			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
-				dnsDomain, eventStore)
+				dnsDomain, eventStore, userDeleteFromIDPEnabled)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}
@@ -202,8 +209,11 @@ var (
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}
 
+			ephemeralManager := server.NewEphemeralManager(store, accountManager)
+			ephemeralManager.LoadInitialPeers()
+
 			gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
-			srv, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, appMetrics)
+			srv, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, appMetrics, ephemeralManager)
 			if err != nil {
 				return fmt.Errorf("failed creating gRPC API handler: %v", err)
 			}
@@ -272,6 +282,7 @@ var (
 			SetupCloseHandler()
 
 			<-stopCh
+			ephemeralManager.Stop()
 			_ = appMetrics.Close()
 			_ = listener.Close()
 			if certManager != nil {
@@ -286,6 +297,20 @@ var (
 		},
 	}
 )
+
+func initEventStore(dataDir string, key string) (activity.Store, string, error) {
+	var err error
+	if key == "" {
+		log.Debugf("generate new activity store encryption key")
+		key, err = sqlite.GenerateKey()
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	store, err := sqlite.NewSQLiteStore(dataDir, key)
+	return store, key, err
+
+}
 
 func notifyStop(msg string) {
 	select {
@@ -438,6 +463,10 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 	}
 
 	return loadedConfig, err
+}
+
+func updateMgmtConfig(path string, config *server.Config) error {
+	return util.WriteJson(path, config)
 }
 
 // OIDCConfigResponse used for parsing OIDC config response

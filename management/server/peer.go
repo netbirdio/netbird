@@ -99,6 +99,8 @@ type Peer struct {
 	LoginExpirationEnabled bool
 	// LastLogin the time when peer performed last login operation
 	LastLogin time.Time
+	// Indicate ephemeral peer attribute
+	Ephemeral bool
 }
 
 // AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
@@ -108,6 +110,10 @@ func (p *Peer) AddedWithSSOLogin() bool {
 
 // Copy copies Peer object
 func (p *Peer) Copy() *Peer {
+	peerStatus := p.Status
+	if peerStatus != nil {
+		peerStatus = p.Status.Copy()
+	}
 	return &Peer{
 		ID:                     p.ID,
 		Key:                    p.Key,
@@ -115,13 +121,14 @@ func (p *Peer) Copy() *Peer {
 		IP:                     p.IP,
 		Meta:                   p.Meta,
 		Name:                   p.Name,
-		Status:                 p.Status,
+		DNSLabel:               p.DNSLabel,
+		Status:                 peerStatus,
 		UserID:                 p.UserID,
 		SSHKey:                 p.SSHKey,
 		SSHEnabled:             p.SSHEnabled,
-		DNSLabel:               p.DNSLabel,
 		LoginExpirationEnabled: p.LoginExpirationEnabled,
 		LastLogin:              p.LastLogin,
+		Ephemeral:              p.Ephemeral,
 	}
 }
 
@@ -510,6 +517,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		AccountID: account.Id,
 	}
 
+	var ephemeral bool
 	if !addedByUser {
 		// validate the setup key if adding with a key
 		sk, err := account.FindSetupKey(upperKey)
@@ -524,6 +532,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		account.SetupKeys[sk.Key] = sk.IncrementUsage()
 		opEvent.InitiatorID = sk.Id
 		opEvent.Activity = activity.PeerAddedWithSetupKey
+		ephemeral = sk.Ephemeral
 	} else {
 		opEvent.InitiatorID = userID
 		opEvent.Activity = activity.PeerAddedByUser
@@ -558,6 +567,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		SSHKey:                 peer.SSHKey,
 		LastLogin:              time.Now().UTC(),
 		LoginExpirationEnabled: addedByUser,
+		Ephemeral:              ephemeral,
 	}
 
 	// add peer to 'All' group
@@ -695,6 +705,8 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		updatePeerLastLogin(peer, account)
 		updateRemotePeers = true
 		shouldStoreAccount = true
+
+		am.storeEvent(login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
 	}
 
 	peer, updated := updatePeerMeta(peer, login.Meta, account)

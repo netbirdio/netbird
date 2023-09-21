@@ -49,30 +49,28 @@ type iptablesManager struct {
 	mux        sync.Mutex
 }
 
-func newIptablesManager(parentCtx context.Context) *iptablesManager {
-	ctx, cancel := context.WithCancel(parentCtx)
+func newIptablesManager(parentCtx context.Context, ipv6Supported bool) (*iptablesManager, error) {
 	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err != nil {
-		log.Debugf("failed to initialize iptables for ipv4: %s", err)
-	} else if !isIptablesClientAvailable(ipv4Client) {
-		log.Infof("iptables is missing for ipv4")
-		ipv4Client = nil
-	}
-	ipv6Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
-	if err != nil {
-		log.Debugf("failed to initialize iptables for ipv6: %s", err)
-	} else if !isIptablesClientAvailable(ipv6Client) {
-		log.Infof("iptables is missing for ipv6")
-		ipv6Client = nil
+		return nil, fmt.Errorf("failed to initialize iptables for ipv4: %s", err)
 	}
 
-	return &iptablesManager{
+	ctx, cancel := context.WithCancel(parentCtx)
+	manager := &iptablesManager{
 		ctx:        ctx,
 		stop:       cancel,
 		ipv4Client: ipv4Client,
-		ipv6Client: ipv6Client,
 		rules:      make(map[string]map[string][]string),
 	}
+
+	if ipv6Supported {
+		manager.ipv6Client, err = iptables.NewWithProtocol(iptables.ProtocolIPv6)
+		if err != nil {
+			log.Warnf("failed to initialize iptables for ipv6: %s. Routes for this protocol won't be applied.", err)
+		}
+	}
+
+	return manager, nil
 }
 
 // CleanRoutingRules cleans existing iptables resources that we created by the agent
@@ -395,6 +393,10 @@ func (i *iptablesManager) insertRoutingRule(keyFormat, table, chain, jump string
 		ipVersion = ipv6
 	}
 
+	if iptablesClient == nil {
+		return fmt.Errorf("unable to insert iptables routing rules. Iptables client is not initialized")
+	}
+
 	ruleKey := genKey(keyFormat, pair.ID)
 	rule := genRuleSpec(jump, ruleKey, pair.source, pair.destination)
 	existingRule, found := i.rules[ipVersion][ruleKey]
@@ -459,6 +461,10 @@ func (i *iptablesManager) removeRoutingRule(keyFormat, table, chain string, pair
 		ipVersion = ipv6
 	}
 
+	if iptablesClient == nil {
+		return fmt.Errorf("unable to remove iptables routing rules. Iptables client is not initialized")
+	}
+
 	ruleKey := genKey(keyFormat, pair.ID)
 	existingRule, found := i.rules[ipVersion][ruleKey]
 	if found {
@@ -478,9 +484,4 @@ func getIptablesRuleType(table string) string {
 		ruleType = "nat"
 	}
 	return ruleType
-}
-
-func isIptablesClientAvailable(client *iptables.IPTables) bool {
-	_, err := client.ListChains("filter")
-	return err == nil
 }

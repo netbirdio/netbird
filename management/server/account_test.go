@@ -3,6 +3,7 @@ package server
 import (
 	"crypto/sha256"
 	b64 "encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net"
 	"reflect"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/route"
@@ -781,11 +783,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 
 	serial := account.Network.CurrentSerial() // should be 0
 
-	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID)
-	if err != nil {
-		return
-	}
-
+	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -928,11 +926,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID)
-	if err != nil {
-		return
-	}
-
+	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -1112,11 +1106,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID)
-	if err != nil {
-		return
-	}
-
+	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -1348,6 +1338,11 @@ func TestAccount_Copy(t *testing.T) {
 		Peers: map[string]*Peer{
 			"peer1": {
 				Key: "key1",
+				Status: &PeerStatus{
+					LastSeen:     time.Now(),
+					Connected:    true,
+					LoginExpired: false,
+				},
 			},
 		},
 		Users: map[string]*User{
@@ -1370,28 +1365,36 @@ func TestAccount_Copy(t *testing.T) {
 		},
 		Groups: map[string]*Group{
 			"group1": {
-				ID: "group1",
+				ID:    "group1",
+				Peers: []string{"peer1"},
 			},
 		},
 		Rules: map[string]*Rule{
 			"rule1": {
-				ID: "rule1",
+				ID:          "rule1",
+				Destination: []string{},
+				Source:      []string{},
 			},
 		},
 		Policies: []*Policy{
 			{
 				ID:      "policy1",
 				Enabled: true,
+				Rules:   make([]*PolicyRule, 0),
 			},
 		},
 		Routes: map[string]*route.Route{
 			"route1": {
-				ID: "route1",
+				ID:     "route1",
+				Groups: []string{"group1"},
 			},
 		},
 		NameServerGroups: map[string]*nbdns.NameServerGroup{
 			"nsGroup1": {
-				ID: "nsGroup1",
+				ID:          "nsGroup1",
+				Domains:     []string{},
+				Groups:      []string{},
+				NameServers: []nbdns.NameServer{},
 			},
 		},
 		DNSSettings: &DNSSettings{DisabledManagementGroups: []string{}},
@@ -1402,10 +1405,20 @@ func TestAccount_Copy(t *testing.T) {
 		t.Fatal(err)
 	}
 	accountCopy := account.Copy()
-	assert.Equal(t, account, accountCopy, "account copy returned a different value than expected")
+	accBytes, err := json.Marshal(account)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account.Peers["peer1"].Status.Connected = false // we change original object to confirm that copy wont change
+	accCopyBytes, err := json.Marshal(accountCopy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, string(accBytes), string(accCopyBytes), "account copy returned a different value than expected")
 }
 
 // hasNilField validates pointers, maps and slices if they are nil
+// TODO: make it check nested fields too
 func hasNilField(x interface{}) error {
 	rv := reflect.ValueOf(x)
 	rv = rv.Elem()
@@ -1930,7 +1943,7 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 	}
 }
 
-func TestAccount_AddJWTGroups(t *testing.T) {
+func TestAccount_SetJWTGroups(t *testing.T) {
 	// create a new account
 	account := &Account{
 		Peers: map[string]*Peer{
@@ -1951,13 +1964,13 @@ func TestAccount_AddJWTGroups(t *testing.T) {
 	}
 
 	t.Run("api group already exists", func(t *testing.T) {
-		updated := account.AddJWTGroups("user1", []string{"group1"})
+		updated := account.SetJWTGroups("user1", []string{"group1"})
 		assert.False(t, updated, "account should not be updated")
 		assert.Empty(t, account.Users["user1"].AutoGroups, "auto groups must be empty")
 	})
 
 	t.Run("add jwt group", func(t *testing.T) {
-		updated := account.AddJWTGroups("user1", []string{"group1", "group2"})
+		updated := account.SetJWTGroups("user1", []string{"group1", "group2"})
 		assert.True(t, updated, "account should be updated")
 		assert.Len(t, account.Groups, 2, "new group should be added")
 		assert.Len(t, account.Users["user1"].AutoGroups, 1, "new group should be added")
@@ -1965,13 +1978,13 @@ func TestAccount_AddJWTGroups(t *testing.T) {
 	})
 
 	t.Run("existed group not update", func(t *testing.T) {
-		updated := account.AddJWTGroups("user1", []string{"group2"})
+		updated := account.SetJWTGroups("user1", []string{"group2"})
 		assert.False(t, updated, "account should not be updated")
 		assert.Len(t, account.Groups, 2, "groups count should not be changed")
 	})
 
 	t.Run("add new group", func(t *testing.T) {
-		updated := account.AddJWTGroups("user2", []string{"group1", "group3"})
+		updated := account.SetJWTGroups("user2", []string{"group1", "group3"})
 		assert.True(t, updated, "account should be updated")
 		assert.Len(t, account.Groups, 3, "new group should be added")
 		assert.Len(t, account.Users["user2"].AutoGroups, 1, "new group should be added")
@@ -2050,7 +2063,7 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(), nil, "", "netbird.cloud", eventStore)
+	return BuildManager(store, NewPeersUpdateManager(), nil, "", "netbird.cloud", eventStore, false)
 }
 
 func createStore(t *testing.T) (Store, error) {

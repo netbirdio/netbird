@@ -109,9 +109,9 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 
 	ctx := internal.CtxInitState(context.Background())
 
-	resp, _ := getStatus(ctx, cmd)
+	resp, err := getStatus(ctx, cmd)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	if resp.GetStatus() == string(internal.StatusNeedsLogin) || resp.GetStatus() == string(internal.StatusLoginFailed) {
@@ -120,7 +120,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 			" netbird up \n\n"+
 			"If you are running a self-hosted version and no SSO provider has been configured in your Management Server,\n"+
 			"you can use a setup-key:\n\n netbird up --management-url <YOUR_MANAGEMENT_URL> --setup-key <YOUR_SETUP_KEY>\n\n"+
-			"More info: https://www.netbird.io/docs/overview/setup-keys\n\n",
+			"More info: https://docs.netbird.io/how-to/register-machines-using-setup-keys\n\n",
 			resp.GetStatus(),
 		)
 		return nil
@@ -133,7 +133,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 
 	outputInformationHolder := convertToStatusOutputOverview(resp)
 
-	statusOutputString := ""
+	var statusOutputString string
 	switch {
 	case detailFlag:
 		statusOutputString = parseToFullDetailSummary(outputInformationHolder)

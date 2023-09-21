@@ -570,6 +570,26 @@ func (s *FileStore) SavePeerStatus(accountID, peerID string, peerStatus PeerStat
 	return nil
 }
 
+// SaveUserLastLogin stores the last login time for a user in memory. It doesn't attempt to persist data to speed up things.
+func (s *FileStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	peer := account.Users[userID]
+	if peer == nil {
+		return status.Errorf(status.NotFound, "user %s not found", userID)
+	}
+
+	peer.LastLogin = lastLogin
+
+	return nil
+}
+
 // Close the FileStore persisting data to disk
 func (s *FileStore) Close() error {
 	s.mux.Lock()

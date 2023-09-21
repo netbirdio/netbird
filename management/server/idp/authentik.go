@@ -3,10 +3,6 @@ package idp
 import (
 	"context"
 	"fmt"
-	"github.com/golang-jwt/jwt"
-	"github.com/netbirdio/netbird/management/server/telemetry"
-	log "github.com/sirupsen/logrus"
-	"goauthentik.io/api/v3"
 	"io"
 	"net/http"
 	"net/url"
@@ -14,6 +10,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/golang-jwt/jwt"
+	log "github.com/sirupsen/logrus"
+	"goauthentik.io/api/v3"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
 // AuthentikManager authentik manager client instance.
@@ -236,6 +238,7 @@ func (am *AuthentikManager) UpdateUserAppMetadata(userID string, appMetadata App
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
 
 	if am.appMetrics != nil {
 		am.appMetrics.IDPMetrics().CountUpdateUserAppMetadata()
@@ -267,6 +270,7 @@ func (am *AuthentikManager) GetUserDataByID(userID string, appMetadata AppMetada
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	if am.appMetrics != nil {
 		am.appMetrics.IDPMetrics().CountGetUserDataByID()
@@ -294,6 +298,7 @@ func (am *AuthentikManager) GetAccount(accountID string) ([]*UserData, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	if am.appMetrics != nil {
 		am.appMetrics.IDPMetrics().CountGetAccount()
@@ -330,6 +335,7 @@ func (am *AuthentikManager) GetAllAccounts() (map[string][]*UserData, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	if am.appMetrics != nil {
 		am.appMetrics.IDPMetrics().CountGetAllAccounts()
@@ -362,7 +368,7 @@ func (am *AuthentikManager) GetAllAccounts() (map[string][]*UserData, error) {
 }
 
 // CreateUser creates a new user in authentik Idp and sends an invitation.
-func (am *AuthentikManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
+func (am *AuthentikManager) CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error) {
 	ctx, err := am.authenticationContext()
 	if err != nil {
 		return nil, err
@@ -389,6 +395,7 @@ func (am *AuthentikManager) CreateUser(email string, name string, accountID stri
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	if am.appMetrics != nil {
 		am.appMetrics.IDPMetrics().CountCreateUser()
@@ -416,6 +423,7 @@ func (am *AuthentikManager) GetUserByEmail(email string) ([]*UserData, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	if am.appMetrics != nil {
 		am.appMetrics.IDPMetrics().CountGetUserByEmail()
@@ -446,6 +454,38 @@ func (am *AuthentikManager) InviteUserByID(_ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
 }
 
+// DeleteUser from Authentik
+func (am *AuthentikManager) DeleteUser(userID string) error {
+	ctx, err := am.authenticationContext()
+	if err != nil {
+		return err
+	}
+
+	userPk, err := strconv.ParseInt(userID, 10, 32)
+	if err != nil {
+		return err
+	}
+
+	resp, err := am.apiClient.CoreApi.CoreUsersDestroy(ctx, int32(userPk)).Execute()
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close() // nolint
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountDeleteUser()
+	}
+
+	if resp.StatusCode != http.StatusNoContent {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return fmt.Errorf("unable to delete user %s, statusCode %d", userID, resp.StatusCode)
+	}
+
+	return nil
+}
+
 func (am *AuthentikManager) authenticationContext() (context.Context, error) {
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {
@@ -469,10 +509,11 @@ func (am *AuthentikManager) getUserGroupByName(name string) (string, error) {
 		return "", err
 	}
 
-	groupList, _, err := am.apiClient.CoreApi.CoreGroupsList(ctx).Name(name).Execute()
+	groupList, resp, err := am.apiClient.CoreApi.CoreGroupsList(ctx).Name(name).Execute()
 	if err != nil {
 		return "", err
 	}
+	defer resp.Body.Close()
 
 	if groupList != nil {
 		if len(groupList.Results) > 0 {
@@ -485,6 +526,7 @@ func (am *AuthentikManager) getUserGroupByName(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
 		return "", fmt.Errorf("unable to create user group, statusCode: %d", resp.StatusCode)

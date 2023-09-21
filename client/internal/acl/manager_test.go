@@ -1,11 +1,13 @@
 package acl
 
 import (
+	"net"
 	"testing"
 
 	"github.com/golang/mock/gomock"
 
 	"github.com/netbirdio/netbird/client/internal/acl/mocks"
+	"github.com/netbirdio/netbird/iface"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
@@ -32,13 +34,22 @@ func TestDefaultManager(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	iface := mocks.NewMockIFaceMapper(ctrl)
-	iface.EXPECT().IsUserspaceBind().Return(true)
-	// iface.EXPECT().Name().Return("lo")
-	iface.EXPECT().SetFilter(gomock.Any())
+	ifaceMock := mocks.NewMockIFaceMapper(ctrl)
+	ifaceMock.EXPECT().IsUserspaceBind().Return(true)
+	ifaceMock.EXPECT().SetFilter(gomock.Any())
+	ip, network, err := net.ParseCIDR("172.0.0.1/32")
+	if err != nil {
+		t.Fatalf("failed to parse IP address: %v", err)
+	}
+
+	ifaceMock.EXPECT().Name().Return("lo").AnyTimes()
+	ifaceMock.EXPECT().Address().Return(iface.WGAddress{
+		IP:      ip,
+		Network: network,
+	}).AnyTimes()
 
 	// we receive one rule from the management so for testing purposes ignore it
-	acl, err := Create(iface)
+	acl, err := Create(ifaceMock)
 	if err != nil {
 		t.Errorf("create ACL manager: %v", err)
 		return
@@ -311,13 +322,22 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	iface := mocks.NewMockIFaceMapper(ctrl)
-	iface.EXPECT().IsUserspaceBind().Return(true)
-	// iface.EXPECT().Name().Return("lo")
-	iface.EXPECT().SetFilter(gomock.Any())
+	ifaceMock := mocks.NewMockIFaceMapper(ctrl)
+	ifaceMock.EXPECT().IsUserspaceBind().Return(true)
+	ifaceMock.EXPECT().SetFilter(gomock.Any())
+	ip, network, err := net.ParseCIDR("172.0.0.1/32")
+	if err != nil {
+		t.Fatalf("failed to parse IP address: %v", err)
+	}
+
+	ifaceMock.EXPECT().Name().Return("lo").AnyTimes()
+	ifaceMock.EXPECT().Address().Return(iface.WGAddress{
+		IP:      ip,
+		Network: network,
+	}).AnyTimes()
 
 	// we receive one rule from the management so for testing purposes ignore it
-	acl, err := Create(iface)
+	acl, err := Create(ifaceMock)
 	if err != nil {
 		t.Errorf("create ACL manager: %v", err)
 		return

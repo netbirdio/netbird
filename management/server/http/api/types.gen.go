@@ -27,6 +27,7 @@ const (
 	EventActivityCodeNameserverGroupUpdate                    EventActivityCode = "nameserver.group.update"
 	EventActivityCodePeerLoginExpirationDisable               EventActivityCode = "peer.login.expiration.disable"
 	EventActivityCodePeerLoginExpirationEnable                EventActivityCode = "peer.login.expiration.enable"
+	EventActivityCodePeerLoginExpire                          EventActivityCode = "peer.login.expire"
 	EventActivityCodePeerRename                               EventActivityCode = "peer.rename"
 	EventActivityCodePeerSshDisable                           EventActivityCode = "peer.ssh.disable"
 	EventActivityCodePeerSshEnable                            EventActivityCode = "peer.ssh.enable"
@@ -57,6 +58,7 @@ const (
 	EventActivityCodeUserJoin                                 EventActivityCode = "user.join"
 	EventActivityCodeUserPeerAdd                              EventActivityCode = "user.peer.add"
 	EventActivityCodeUserPeerDelete                           EventActivityCode = "user.peer.delete"
+	EventActivityCodeUserPeerLogin                            EventActivityCode = "user.peer.login"
 	EventActivityCodeUserRoleUpdate                           EventActivityCode = "user.role.update"
 	EventActivityCodeUserUnblock                              EventActivityCode = "user.unblock"
 )
@@ -161,6 +163,9 @@ type Event struct {
 
 	// Id Event unique identifier
 	Id string `json:"id"`
+
+	// InitiatorEmail The e-mail address of the initiator of the event. E.g., an e-mail of a user that triggered the event.
+	InitiatorEmail string `json:"initiator_email"`
 
 	// InitiatorId The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
 	InitiatorId string `json:"initiator_id"`
@@ -687,6 +692,9 @@ type SetupKey struct {
 	// AutoGroups List of group IDs to auto-assign to peers registered with this key
 	AutoGroups []string `json:"auto_groups"`
 
+	// Ephemeral Indicate that the peer will be ephemeral or not
+	Ephemeral bool `json:"ephemeral"`
+
 	// Expires Setup Key expiration date
 	Expires time.Time `json:"expires"`
 
@@ -729,6 +737,9 @@ type SetupKeyRequest struct {
 	// AutoGroups List of group IDs to auto-assign to peers registered with this key
 	AutoGroups []string `json:"auto_groups"`
 
+	// Ephemeral Indicate that the peer will be ephemeral or not
+	Ephemeral *bool `json:"ephemeral,omitempty"`
+
 	// ExpiresIn Expiration time in seconds
 	ExpiresIn int `json:"expires_in"`
 
@@ -764,6 +775,9 @@ type User struct {
 
 	// IsServiceUser Is true if this user is a service user
 	IsServiceUser *bool `json:"is_service_user,omitempty"`
+
+	// LastLogin Last time this user performed a login to the dashboard
+	LastLogin *time.Time `json:"last_login,omitempty"`
 
 	// Name User's name from idp provider
 	Name string `json:"name"`

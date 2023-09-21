@@ -18,10 +18,9 @@ func Encode(num uint32) string {
 	}
 
 	var encoded strings.Builder
-	remainder := uint32(0)
 
 	for num > 0 {
-		remainder = num % base
+		remainder := num % base
 		encoded.WriteByte(alphabet[remainder])
 		num /= base
 	}

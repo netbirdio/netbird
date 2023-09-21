@@ -61,7 +61,7 @@ func (n *notifier) clientStart() {
 	n.serverStateLock.Lock()
 	defer n.serverStateLock.Unlock()
 	n.currentClientState = true
-	n.lastNotification = stateConnected
+	n.lastNotification = stateConnecting
 	n.notify(n.lastNotification)
 }
 
@@ -114,7 +114,7 @@ func (n *notifier) calculateState(managementConn, signalConn bool) int {
 		return stateConnected
 	}
 
-	if !managementConn && !signalConn {
+	if !managementConn && !signalConn && !n.currentClientState {
 		return stateDisconnected
 	}
 

@@ -1,0 +1,36 @@
+name: Test installation
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - "release_files/install.sh"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+jobs:
+  test-install-script:
+    strategy:
+      max-parallel: 2
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        skip_ui_mode: [true, false]
+        install_binary: [true, false]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: run install script
+        env:
+          SKIP_UI_APP: ${{ matrix.skip_ui_mode }}
+          USE_BIN_INSTALL: ${{ matrix.install_binary }}
+          GITHUB_TOKEN: ${{ secrets.RO_API_CALLER_TOKEN }}
+        run: |
+          [ "$SKIP_UI_APP" == "false" ] && export XDG_CURRENT_DESKTOP="none"
+          cat release_files/install.sh | sh -x
+
+      - name: check cli binary
+        run: command -v netbird

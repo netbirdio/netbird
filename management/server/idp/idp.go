@@ -15,9 +15,10 @@ type Manager interface {
 	GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error)
 	GetAccount(accountId string) ([]*UserData, error)
 	GetAllAccounts() (map[string][]*UserData, error)
-	CreateUser(email string, name string, accountID string) (*UserData, error)
+	CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error)
 	GetUserByEmail(email string) ([]*UserData, error)
 	InviteUserByID(userID string) error
+	DeleteUser(userID string) error
 }
 
 // ClientConfig defines common client configuration for all IdP manager
@@ -71,7 +72,8 @@ type AppMetadata struct {
 	// WTAccountID is a NetBird (previously Wiretrustee) account id to update in the IDP
 	// maps to wt_account_id when json.marshal
 	WTAccountID     string `json:"wt_account_id,omitempty"`
-	WTPendingInvite *bool  `json:"wt_pending_invite"`
+	WTPendingInvite *bool  `json:"wt_pending_invite,omitempty"`
+	WTInvitedBy     string `json:"wt_invited_by_email,omitempty"`
 }
 
 // JWTToken a JWT object that holds information of a token
@@ -91,7 +93,7 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 
 	switch strings.ToLower(config.ManagerType) {
 	case "none", "":
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	case "auth0":
 		auth0ClientConfig := config.Auth0ClientCredentials
 		if config.ClientConfig != nil {

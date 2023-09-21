@@ -230,7 +230,7 @@ func (kc *KeycloakCredentials) Authenticate() (JWTToken, error) {
 }
 
 // CreateUser creates a new user in keycloak Idp and sends an invite.
-func (km *KeycloakManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
+func (km *KeycloakManager) CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error) {
 	jwtToken, err := km.credentials.Authenticate()
 	if err != nil {
 		return nil, err
@@ -465,6 +465,47 @@ func (km *KeycloakManager) UpdateUserAppMetadata(userID string, appMetadata AppM
 // their accounts prior to the expiration period.
 func (km *KeycloakManager) InviteUserByID(_ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
+}
+
+// DeleteUser from Keycloack
+func (km *KeycloakManager) DeleteUser(userID string) error {
+	jwtToken, err := km.credentials.Authenticate()
+	if err != nil {
+		return err
+	}
+
+	reqURL := fmt.Sprintf("%s/users/%s", km.adminEndpoint, url.QueryEscape(userID))
+
+	req, err := http.NewRequest(http.MethodDelete, reqURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	if km.appMetrics != nil {
+		km.appMetrics.IDPMetrics().CountDeleteUser()
+	}
+
+	resp, err := km.httpClient.Do(req)
+	if err != nil {
+		if km.appMetrics != nil {
+			km.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return err
+	}
+	defer resp.Body.Close() // nolint
+
+	// In the docs, they specified 200, but in the endpoints, they return 204
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		if km.appMetrics != nil {
+			km.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+
+		return fmt.Errorf("unable to delete user, statusCode %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 func buildKeycloakCreateUserRequestPayload(email string, name string, appMetadata AppMetadata) (string, error) {

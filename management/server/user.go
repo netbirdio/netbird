@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -53,11 +54,17 @@ type User struct {
 	PATs       map[string]*PersonalAccessToken
 	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
 	Blocked bool
+	// LastLogin is the last time the user logged in to IdP
+	LastLogin time.Time
 }
 
 // IsBlocked returns true if the user is blocked, false otherwise
 func (u *User) IsBlocked() bool {
 	return u.Blocked
+}
+
+func (u *User) LastDashboardLoginChanged(LastLogin time.Time) bool {
+	return LastLogin.After(u.LastLogin) && !u.LastLogin.IsZero()
 }
 
 // IsAdmin returns true if the user is an admin, false otherwise
@@ -82,6 +89,7 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 			Status:        string(UserStatusActive),
 			IsServiceUser: u.IsServiceUser,
 			IsBlocked:     u.Blocked,
+			LastLogin:     u.LastLogin,
 		}, nil
 	}
 	if userData.ID != u.Id {
@@ -102,6 +110,7 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 		Status:        string(userStatus),
 		IsServiceUser: u.IsServiceUser,
 		IsBlocked:     u.Blocked,
+		LastLogin:     u.LastLogin,
 	}, nil
 }
 
@@ -111,9 +120,7 @@ func (u *User) Copy() *User {
 	copy(autoGroups, u.AutoGroups)
 	pats := make(map[string]*PersonalAccessToken, len(u.PATs))
 	for k, v := range u.PATs {
-		patCopy := new(PersonalAccessToken)
-		*patCopy = *v
-		pats[k] = patCopy
+		pats[k] = v.Copy()
 	}
 	return &User{
 		Id:              u.Id,
@@ -123,6 +130,7 @@ func (u *User) Copy() *User {
 		ServiceUserName: u.ServiceUserName,
 		PATs:            pats,
 		Blocked:         u.Blocked,
+		LastLogin:       u.LastLogin,
 	}
 }
 
@@ -186,6 +194,7 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUs
 		AutoGroups:    newUser.AutoGroups,
 		Status:        string(UserStatusActive),
 		IsServiceUser: true,
+		LastLogin:     time.Time{},
 	}, nil
 }
 
@@ -215,6 +224,12 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 		return nil, status.Errorf(status.NotFound, "account %s doesn't exist", accountID)
 	}
 
+	// initiator is the one who is inviting the new user
+	initiatorUser, err := am.lookupUserInCache(userID, account)
+	if err != nil {
+		return nil, status.Errorf(status.NotFound, "user %s doesn't exist in IdP", userID)
+	}
+
 	// check if the user is already registered with this email => reject
 	user, err := am.lookupUserInCacheByEmail(invite.Email, accountID)
 	if err != nil {
@@ -234,7 +249,7 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 		return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
 	}
 
-	idpUser, err := am.idpManager.CreateUser(invite.Email, invite.Name, accountID)
+	idpUser, err := am.idpManager.CreateUser(invite.Email, invite.Name, accountID, initiatorUser.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -274,6 +289,21 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 	if !ok {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
+
+	// this code should be outside of the am.GetAccountFromToken(claims) because this method is called also by the gRPC
+	// server when user authenticates a device. And we need to separate the Dashboard login event from the Device login event.
+	unlock := am.Store.AcquireAccountLock(account.Id)
+	newLogin := user.LastDashboardLoginChanged(claims.LastLogin)
+	err = am.Store.SaveUserLastLogin(account.Id, claims.UserId, claims.LastLogin)
+	unlock()
+	if newLogin {
+		meta := map[string]any{"timestamp": claims.LastLogin}
+		am.storeEvent(claims.UserId, claims.UserId, account.Id, activity.DashboardLogin, meta)
+		if err != nil {
+			log.Errorf("failed saving user last login: %v", err)
+		}
+	}
+
 	return user, nil
 }
 
@@ -297,15 +327,43 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return status.Errorf(status.NotFound, "user not found")
 	}
 	if executingUser.Role != UserRoleAdmin {
-		return status.Errorf(status.PermissionDenied, "only admins can delete service users")
+		return status.Errorf(status.PermissionDenied, "only admins can delete users")
 	}
 
-	if !targetUser.IsServiceUser {
-		return status.Errorf(status.PermissionDenied, "regular users can not be deleted")
+	peers, err := account.FindUserPeers(targetUserID)
+	if err != nil {
+		return status.Errorf(status.Internal, "failed to find user peers")
 	}
 
-	meta := map[string]any{"name": targetUser.ServiceUserName}
-	am.storeEvent(initiatorUserID, targetUserID, accountID, activity.ServiceUserDeleted, meta)
+	if err := am.expireAndUpdatePeers(account, peers); err != nil {
+		log.Errorf("failed update deleted peers expiration: %s", err)
+		return err
+	}
+
+	targetUserEmail, err := am.getEmailOfTargetUser(account.Id, initiatorUserID, targetUserID)
+	if err != nil {
+		log.Errorf("failed to resolve email address: %s", err)
+		return err
+	}
+
+	var meta map[string]any
+	var eventAction activity.Activity
+	if targetUser.IsServiceUser {
+		meta = map[string]any{"name": targetUser.ServiceUserName}
+		eventAction = activity.ServiceUserDeleted
+	} else {
+		meta = map[string]any{"email": targetUserEmail}
+		eventAction = activity.UserDeleted
+
+	}
+	am.storeEvent(initiatorUserID, targetUserID, accountID, eventAction, meta)
+
+	if !isNil(am.idpManager) {
+		err := am.deleteUserFromIDP(targetUserID, accountID)
+		if err != nil {
+			return err
+		}
+	}
 
 	delete(account.Users, targetUserID)
 
@@ -375,13 +433,13 @@ func (am *DefaultAccountManager) CreatePAT(accountID string, initiatorUserID str
 		return nil, err
 	}
 
-	targetUser := account.Users[targetUserID]
-	if targetUser == nil {
-		return nil, status.Errorf(status.NotFound, "targetUser not found")
+	targetUser, ok := account.Users[targetUserID]
+	if !ok {
+		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
-	executingUser := account.Users[initiatorUserID]
-	if targetUser == nil {
+	executingUser, ok := account.Users[initiatorUserID]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
@@ -417,13 +475,13 @@ func (am *DefaultAccountManager) DeletePAT(accountID string, initiatorUserID str
 		return status.Errorf(status.NotFound, "account not found: %s", err)
 	}
 
-	targetUser := account.Users[targetUserID]
-	if targetUser == nil {
+	targetUser, ok := account.Users[targetUserID]
+	if !ok {
 		return status.Errorf(status.NotFound, "user not found")
 	}
 
-	executingUser := account.Users[initiatorUserID]
-	if targetUser == nil {
+	executingUser, ok := account.Users[initiatorUserID]
+	if !ok {
 		return status.Errorf(status.NotFound, "user not found")
 	}
 
@@ -467,13 +525,13 @@ func (am *DefaultAccountManager) GetPAT(accountID string, initiatorUserID string
 		return nil, status.Errorf(status.NotFound, "account not found: %s", err)
 	}
 
-	targetUser := account.Users[targetUserID]
-	if targetUser == nil {
+	targetUser, ok := account.Users[targetUserID]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
-	executingUser := account.Users[initiatorUserID]
-	if targetUser == nil {
+	executingUser, ok := account.Users[initiatorUserID]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
@@ -499,13 +557,13 @@ func (am *DefaultAccountManager) GetAllPATs(accountID string, initiatorUserID st
 		return nil, status.Errorf(status.NotFound, "account not found: %s", err)
 	}
 
-	targetUser := account.Users[targetUserID]
-	if targetUser == nil {
+	targetUser, ok := account.Users[targetUserID]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
-	executingUser := account.Users[initiatorUserID]
-	if targetUser == nil {
+	executingUser, ok := account.Users[initiatorUserID]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
@@ -579,23 +637,10 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 		if err != nil {
 			return nil, err
 		}
-		var peerIDs []string
-		for _, peer := range blockedPeers {
-			peerIDs = append(peerIDs, peer.ID)
-			peer.MarkLoginExpired(true)
-			account.UpdatePeer(peer)
-			err = am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status)
-			if err != nil {
-				log.Errorf("failed saving peer status while expiring peer %s", peer.ID)
-				return nil, err
-			}
-		}
-		am.peersUpdateManager.CloseChannels(peerIDs)
-		err = am.updateAccountPeers(account)
-		if err != nil {
-			log.Errorf("failed updating account peers while expiring peers of a blocked user %s", accountID)
-			return nil, err
 
+		if err := am.expireAndUpdatePeers(account, blockedPeers); err != nil {
+			log.Errorf("failed update expired peers: %s", err)
+			return nil, err
 		}
 	}
 
@@ -604,10 +649,19 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 		// need force update all auto groups in any case they will not be dublicated
 		account.UserGroupsAddToPeers(oldUser.Id, update.AutoGroups...)
 		account.UserGroupsRemoveFromPeers(oldUser.Id, removedGroups...)
-	}
 
-	if err = am.Store.SaveAccount(account); err != nil {
-		return nil, err
+		account.Network.IncSerial()
+		if err = am.Store.SaveAccount(account); err != nil {
+			return nil, err
+		}
+
+		if err := am.updateAccountPeers(account); err != nil {
+			log.Errorf("failed updating account peers while updating user %s", accountID)
+		}
+	} else {
+		if err = am.Store.SaveAccount(account); err != nil {
+			return nil, err
+		}
 	}
 
 	defer func() {
@@ -635,7 +689,6 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 				} else {
 					log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
 				}
-
 			}
 
 			for _, g := range addedGroups {
@@ -774,6 +827,67 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 	}
 
 	return userInfos, nil
+}
+
+// expireAndUpdatePeers expires all peers of the given user and updates them in the account
+func (am *DefaultAccountManager) expireAndUpdatePeers(account *Account, peers []*Peer) error {
+	var peerIDs []string
+	for _, peer := range peers {
+		peerIDs = append(peerIDs, peer.ID)
+		peer.MarkLoginExpired(true)
+		account.UpdatePeer(peer)
+		if err := am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status); err != nil {
+			return err
+		}
+		am.storeEvent(
+			peer.UserID, peer.ID, account.Id,
+			activity.PeerLoginExpired, peer.EventMeta(am.GetDNSDomain()),
+		)
+	}
+
+	if len(peerIDs) != 0 {
+		// this will trigger peer disconnect from the management service
+		am.peersUpdateManager.CloseChannels(peerIDs)
+		if err := am.updateAccountPeers(account); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (am *DefaultAccountManager) deleteUserFromIDP(targetUserID, accountID string) error {
+	if am.userDeleteFromIDPEnabled {
+		log.Debugf("user %s deleted from IdP", targetUserID)
+		err := am.idpManager.DeleteUser(targetUserID)
+		if err != nil {
+			return fmt.Errorf("failed to delete user %s from IdP: %s", targetUserID, err)
+		}
+	} else {
+		err := am.idpManager.UpdateUserAppMetadata(targetUserID, idp.AppMetadata{})
+		if err != nil {
+			return fmt.Errorf("failed to remove user %s app metadata in IdP: %s", targetUserID, err)
+		}
+
+		_, err = am.refreshCache(accountID)
+		if err != nil {
+			log.Errorf("refresh account (%q) cache: %v", accountID, err)
+		}
+	}
+	return nil
+}
+
+func (am *DefaultAccountManager) getEmailOfTargetUser(accountId string, initiatorId, targetId string) (string, error) {
+	userInfos, err := am.GetUsersFromAccount(accountId, initiatorId)
+	if err != nil {
+		return "", err
+	}
+	for _, ui := range userInfos {
+		if ui.ID == targetId {
+			return ui.Email, nil
+		}
+	}
+
+	return "", fmt.Errorf("email not found for user: %s", targetId)
 }
 
 func findUserInIDPUserdata(userID string, userData []*idp.UserData) (*idp.UserData, bool) {

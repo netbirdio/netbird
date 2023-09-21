@@ -16,6 +16,7 @@ import (
 
 type IFaceMock struct {
 	SetFilterFunc func(iface.PacketFilter) error
+	AddressFunc   func() iface.WGAddress
 }
 
 func (i *IFaceMock) SetFilter(iface iface.PacketFilter) error {
@@ -23,6 +24,13 @@ func (i *IFaceMock) SetFilter(iface iface.PacketFilter) error {
 		return fmt.Errorf("not implemented")
 	}
 	return i.SetFilterFunc(iface)
+}
+
+func (i *IFaceMock) Address() iface.WGAddress {
+	if i.AddressFunc == nil {
+		return iface.WGAddress{}
+	}
+	return i.AddressFunc()
 }
 
 func TestManagerCreate(t *testing.T) {

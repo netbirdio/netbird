@@ -777,7 +777,7 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 	newNet, err := stdnet.NewNet(nil)
 	if err != nil {
 		t.Fatalf("create stdnet: %v", err)
-		return nil, nil
+		return nil, err
 	}
 
 	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.2/24", iface.DefaultMTU, nil, newNet)

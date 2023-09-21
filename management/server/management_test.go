@@ -503,12 +503,12 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	peersUpdateManager := server.NewPeersUpdateManager()
 	eventStore := &activity.InMemoryEventStore{}
 	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "",
-		eventStore)
+		eventStore, false)
 	if err != nil {
 		log.Fatalf("failed creating a manager: %v", err)
 	}
 	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
-	mgmtServer, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, nil)
+	mgmtServer, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, nil, nil)
 	Expect(err).NotTo(HaveOccurred())
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {

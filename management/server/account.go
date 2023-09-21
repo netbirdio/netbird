@@ -49,7 +49,7 @@ func cacheEntryExpiration() time.Duration {
 type AccountManager interface {
 	GetOrCreateAccountByUser(userId, domain string) (*Account, error)
 	CreateSetupKey(accountID string, keyName string, keyType SetupKeyType, expiresIn time.Duration,
-		autoGroups []string, usageLimit int, userID string) (*SetupKey, error)
+		autoGroups []string, usageLimit int, userID string, ephemeral bool) (*SetupKey, error)
 	SaveSetupKey(accountID string, key *SetupKey, userID string) (*SetupKey, error)
 	CreateUser(accountID, initiatorUserID string, key *UserInfo) (*UserInfo, error)
 	DeleteUser(accountID, initiatorUserID string, targetUserID string) error
@@ -80,7 +80,6 @@ type AccountManager interface {
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
 	SaveGroup(accountID, userID string, group *Group) error
-	UpdateGroup(accountID string, groupID string, operations []GroupUpdateOperation) (*Group, error)
 	DeleteGroup(accountId, userId, groupID string) error
 	ListGroups(accountId string) ([]*Group, error)
 	GroupAddPeer(accountId, groupID, peerID string) error
@@ -93,13 +92,11 @@ type AccountManager interface {
 	GetRoute(accountID, routeID, userID string) (*route.Route, error)
 	CreateRoute(accountID string, prefix, peerID, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
 	SaveRoute(accountID, userID string, route *route.Route) error
-	UpdateRoute(accountID, routeID string, operations []RouteUpdateOperation) (*route.Route, error)
 	DeleteRoute(accountID, routeID, userID string) error
 	ListRoutes(accountID, userID string) ([]*route.Route, error)
 	GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
 	CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string) (*nbdns.NameServerGroup, error)
 	SaveNameServerGroup(accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
-	UpdateNameServerGroup(accountID, nsGroupID, userID string, operations []NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error)
 	DeleteNameServerGroup(accountID, nsGroupID, userID string) error
 	ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error)
 	GetDNSDomain() string
@@ -133,6 +130,9 @@ type DefaultAccountManager struct {
 	// dnsDomain is used for peer resolution. This is appended to the peer's name
 	dnsDomain       string
 	peerLoginExpiry Scheduler
+
+	// userDeleteFromIDPEnabled allows to delete user from IDP when user is deleted from account
+	userDeleteFromIDPEnabled bool
 }
 
 // Settings represents Account settings structure that can be modified via API and Dashboard
@@ -189,14 +189,15 @@ type Account struct {
 }
 
 type UserInfo struct {
-	ID            string   `json:"id"`
-	Email         string   `json:"email"`
-	Name          string   `json:"name"`
-	Role          string   `json:"role"`
-	AutoGroups    []string `json:"auto_groups"`
-	Status        string   `json:"-"`
-	IsServiceUser bool     `json:"is_service_user"`
-	IsBlocked     bool     `json:"is_blocked"`
+	ID            string    `json:"id"`
+	Email         string    `json:"email"`
+	Name          string    `json:"name"`
+	Role          string    `json:"role"`
+	AutoGroups    []string  `json:"auto_groups"`
+	Status        string    `json:"-"`
+	IsServiceUser bool      `json:"is_service_user"`
+	IsBlocked     bool      `json:"is_blocked"`
+	LastLogin     time.Time `json:"last_login"`
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
@@ -629,8 +630,8 @@ func (a *Account) GetPeer(peerID string) *Peer {
 	return a.Peers[peerID]
 }
 
-// AddJWTGroups to account and to user autoassigned groups
-func (a *Account) AddJWTGroups(userID string, groups []string) bool {
+// SetJWTGroups to account and to user autoassigned groups
+func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
 	user, ok := a.Users[userID]
 	if !ok {
 		return false
@@ -641,13 +642,21 @@ func (a *Account) AddJWTGroups(userID string, groups []string) bool {
 		existedGroupsByName[group.Name] = group
 	}
 
-	autoGroups := make(map[string]struct{})
-	for _, groupID := range user.AutoGroups {
-		autoGroups[groupID] = struct{}{}
+	// remove JWT groups from the autogroups, to sync them again
+	removed := 0
+	jwtAutoGroups := make(map[string]struct{})
+	for i, id := range user.AutoGroups {
+		if group, ok := a.Groups[id]; ok && group.Issued == GroupIssuedJWT {
+			jwtAutoGroups[group.Name] = struct{}{}
+			user.AutoGroups = append(user.AutoGroups[:i-removed], user.AutoGroups[i-removed+1:]...)
+			removed++
+		}
 	}
 
+	// create JWT groups if they doesn't exist
+	// and all of them to the autogroups
 	var modified bool
-	for _, name := range groups {
+	for _, name := range groupsNames {
 		group, ok := existedGroupsByName[name]
 		if !ok {
 			group = &Group{
@@ -656,14 +665,20 @@ func (a *Account) AddJWTGroups(userID string, groups []string) bool {
 				Issued: GroupIssuedJWT,
 			}
 			a.Groups[group.ID] = group
-			modified = true
 		}
-		if _, ok := autoGroups[group.ID]; !ok {
-			if group.Issued == GroupIssuedJWT {
-				user.AutoGroups = append(user.AutoGroups, group.ID)
+		// only JWT groups will be synced
+		if group.Issued == GroupIssuedJWT {
+			user.AutoGroups = append(user.AutoGroups, group.ID)
+			if _, ok := jwtAutoGroups[name]; !ok {
 				modified = true
 			}
+			delete(jwtAutoGroups, name)
 		}
+	}
+
+	// if not empty it means we removed some groups
+	if len(jwtAutoGroups) > 0 {
+		modified = true
 	}
 
 	return modified
@@ -723,18 +738,19 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
 func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
-	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store,
+	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store, userDeleteFromIDPEnabled bool,
 ) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
-		Store:              store,
-		peersUpdateManager: peersUpdateManager,
-		idpManager:         idpManager,
-		ctx:                context.Background(),
-		cacheMux:           sync.Mutex{},
-		cacheLoading:       map[string]chan struct{}{},
-		dnsDomain:          dnsDomain,
-		eventStore:         eventStore,
-		peerLoginExpiry:    NewDefaultScheduler(),
+		Store:                    store,
+		peersUpdateManager:       peersUpdateManager,
+		idpManager:               idpManager,
+		ctx:                      context.Background(),
+		cacheMux:                 sync.Mutex{},
+		cacheLoading:             map[string]chan struct{}{},
+		dnsDomain:                dnsDomain,
+		eventStore:               eventStore,
+		peerLoginExpiry:          NewDefaultScheduler(),
+		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
 	}
 	allAccounts := store.GetAllAccounts()
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
@@ -859,32 +875,19 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func()
 			return account.GetNextPeerExpiration()
 		}
 
+		expiredPeers := account.GetExpiredPeers()
 		var peerIDs []string
-		for _, peer := range account.GetExpiredPeers() {
-			if peer.Status.LoginExpired {
-				continue
-			}
+		for _, peer := range expiredPeers {
 			peerIDs = append(peerIDs, peer.ID)
-			peer.MarkLoginExpired(true)
-			account.UpdatePeer(peer)
-			err = am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status)
-			if err != nil {
-				log.Errorf("failed saving peer status while expiring peer %s", peer.ID)
-				return account.GetNextPeerExpiration()
-			}
 		}
 
 		log.Debugf("discovered %d peers to expire for account %s", len(peerIDs), account.Id)
 
-		if len(peerIDs) != 0 {
-			// this will trigger peer disconnect from the management service
-			am.peersUpdateManager.CloseChannels(peerIDs)
-			err = am.updateAccountPeers(account)
-			if err != nil {
-				log.Errorf("failed updating account peers while expiring peers for account %s", accountID)
-				return account.GetNextPeerExpiration()
-			}
+		if err := am.expireAndUpdatePeers(account, expiredPeers); err != nil {
+			log.Errorf("failed updating account peers while expiring peers for account %s", account.Id)
+			return account.GetNextPeerExpiration()
 		}
+
 		return account.GetNextPeerExpiration()
 	}
 }
@@ -1006,7 +1009,7 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountI
 		}
 	}
 
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 // lookupUserInCache looks up user in the IdP cache and returns it. If the user wasn't found, the function returns nil
@@ -1029,7 +1032,7 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 		}
 	}
 
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (am *DefaultAccountManager) refreshCache(accountID string) ([]*idp.UserData, error) {
@@ -1357,23 +1360,58 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 		}
 		if claim, ok := claims.Raw[account.Settings.JWTGroupsClaimName]; ok {
 			if slice, ok := claim.([]interface{}); ok {
-				var groups []string
+				var groupsNames []string
 				for _, item := range slice {
 					if g, ok := item.(string); ok {
-						groups = append(groups, g)
+						groupsNames = append(groupsNames, g)
 					} else {
 						log.Errorf("JWT claim %q is not a string: %v", account.Settings.JWTGroupsClaimName, item)
 					}
 				}
+
+				oldGroups := make([]string, len(user.AutoGroups))
+				copy(oldGroups, user.AutoGroups)
 				// if groups were added or modified, save the account
-				if account.AddJWTGroups(claims.UserId, groups) {
+				if account.SetJWTGroups(claims.UserId, groupsNames) {
 					if account.Settings.GroupsPropagationEnabled {
 						if user, err := account.FindUser(claims.UserId); err == nil {
-							account.UserGroupsAddToPeers(claims.UserId, append(user.AutoGroups, groups...)...)
+							addNewGroups := difference(user.AutoGroups, oldGroups)
+							removeOldGroups := difference(oldGroups, user.AutoGroups)
+							account.UserGroupsAddToPeers(claims.UserId, addNewGroups...)
+							account.UserGroupsRemoveFromPeers(claims.UserId, removeOldGroups...)
+							account.Network.IncSerial()
+							if err := am.Store.SaveAccount(account); err != nil {
+								log.Errorf("failed to save account: %v", err)
+							} else {
+								if err := am.updateAccountPeers(account); err != nil {
+									log.Errorf("failed updating account peers while updating user %s", account.Id)
+								}
+								for _, g := range addNewGroups {
+									if group := account.GetGroup(g); group != nil {
+										am.storeEvent(user.Id, user.Id, account.Id, activity.GroupAddedToUser,
+											map[string]any{
+												"group":           group.Name,
+												"group_id":        group.ID,
+												"is_service_user": user.IsServiceUser,
+												"user_name":       user.ServiceUserName})
+									}
+								}
+								for _, g := range removeOldGroups {
+									if group := account.GetGroup(g); group != nil {
+										am.storeEvent(user.Id, user.Id, account.Id, activity.GroupRemovedFromUser,
+											map[string]any{
+												"group":           group.Name,
+												"group_id":        group.ID,
+												"is_service_user": user.IsServiceUser,
+												"user_name":       user.ServiceUserName})
+									}
+								}
+							}
 						}
-					}
-					if err := am.Store.SaveAccount(account); err != nil {
-						log.Errorf("failed to save account: %v", err)
+					} else {
+						if err := am.Store.SaveAccount(account); err != nil {
+							log.Errorf("failed to save account: %v", err)
+						}
 					}
 				}
 			} else {
@@ -1420,7 +1458,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		if _, ok := accountFromID.Users[claims.UserId]; !ok {
 			return nil, fmt.Errorf("user %s is not part of the account id %s", claims.UserId, claims.AccountId)
 		}
-		if accountFromID.DomainCategory == PrivateCategory || claims.DomainCategory != PrivateCategory {
+		if accountFromID.DomainCategory == PrivateCategory || claims.DomainCategory != PrivateCategory || accountFromID.Domain != claims.Domain {
 			return accountFromID, nil
 		}
 	}
@@ -1553,20 +1591,4 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 		log.Errorf("error adding all group to account %s: %v", acc.Id, err)
 	}
 	return acc
-}
-
-func removeFromList(inputList []string, toRemove []string) []string {
-	toRemoveMap := make(map[string]struct{})
-	for _, item := range toRemove {
-		toRemoveMap[item] = struct{}{}
-	}
-
-	var resultList []string
-	for _, item := range inputList {
-		_, ok := toRemoveMap[item]
-		if !ok {
-			resultList = append(resultList, item)
-		}
-	}
-	return resultList
 }

@@ -3,6 +3,9 @@
 # Source: https://github.com/physk/netbird-installer
 set -e
 
+CONFIG_FOLDER="/etc/netbird"
+CONFIG_FILE="$CONFIG_FOLDER/install.conf"
+
 OWNER="netbirdio"
 REPO="netbird"
 CLI_APP="netbird"
@@ -12,34 +15,52 @@ UI_APP="netbird-ui"
 OS_NAME=""
 OS_TYPE=""
 ARCH="$(uname -m)"
-PACKAGE_MANAGER=""
+PACKAGE_MANAGER="bin"
 INSTALL_DIR=""
 
 get_latest_release() {
-    curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
-    | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+    if [ -n "$GITHUB_TOKEN" ]; then
+          curl -H  "Authorization: token ${GITHUB_TOKEN}" -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
+              | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+    else
+          curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
+              | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+    fi
+
 }
 
 download_release_binary() {
     VERSION=$(get_latest_release)
     BASE_URL="https://github.com/${OWNER}/${REPO}/releases/download"
     BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}.tar.gz"
-    
-    # for Darwin, download the signed Netbird-UI
+
+    # for Darwin, download the signed NetBird-UI
     if [ "$OS_TYPE" = "darwin" ] && [ "$1" = "$UI_APP" ]; then
         BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}_signed.zip"
     fi
 
-    BINARY_NAME="$1_${BINARY_BASE_NAME}"
+    if [ "$1" = "$UI_APP" ]; then
+       BINARY_NAME="$1-${OS_TYPE}_${BINARY_BASE_NAME}"
+       if [ "$OS_TYPE" = "darwin" ]; then
+         BINARY_NAME="$1_${BINARY_BASE_NAME}"
+       fi
+    else
+       BINARY_NAME="$1_${BINARY_BASE_NAME}"
+    fi
+
     DOWNLOAD_URL="${BASE_URL}/${VERSION}/${BINARY_NAME}"
 
     echo "Installing $1 from $DOWNLOAD_URL"
-    cd /tmp && curl -LO "$DOWNLOAD_URL" 
-    
-    
+    if [ -n "$GITHUB_TOKEN" ]; then
+      cd /tmp && curl -H  "Authorization: token ${GITHUB_TOKEN}" -LO "$DOWNLOAD_URL"
+    else
+      cd /tmp && curl -LO "$DOWNLOAD_URL"
+    fi
+
+
     if [ "$OS_TYPE" = "darwin" ] && [ "$1" = "$UI_APP" ]; then
         INSTALL_DIR="/Applications/NetBird UI.app"
-        
+
         # Unzip the app and move to INSTALL_DIR
         unzip -q -o "$BINARY_NAME"
         mv "netbird_ui_${OS_TYPE}_${ARCH}" "$INSTALL_DIR"
@@ -53,7 +74,7 @@ download_release_binary() {
 add_apt_repo() {
     sudo apt-get update
     sudo apt-get install ca-certificates gnupg -y
-        
+
     curl -sSL https://pkgs.wiretrustee.com/debian/public.key \
     | sudo gpg --dearmor --output /usr/share/keyrings/wiretrustee-archive-keyring.gpg
 
@@ -65,15 +86,15 @@ add_apt_repo() {
 
 add_rpm_repo() {
 cat <<-EOF | sudo tee /etc/yum.repos.d/netbird.repo
-[Netbird]
-name=Netbird
+[NetBird]
+name=NetBird
 baseurl=https://pkgs.netbird.io/yum/
 enabled=1
 gpgcheck=0
 gpgkey=https://pkgs.netbird.io/yum/repodata/repomd.xml.key
 repo_gpgcheck=1
 EOF
-} 
+}
 
 add_aur_repo() {
     INSTALL_PKGS="git base-devel go"
@@ -91,10 +112,10 @@ add_aur_repo() {
     done
 
     # Build package from AUR
-    cd /tmp && git clone https://aur.archlinux.org/netbird.git 
+    cd /tmp && git clone https://aur.archlinux.org/netbird.git
     cd netbird && makepkg -sri --noconfirm
 
-    if ! $SKIP_UI_APP; then 
+    if ! $SKIP_UI_APP; then
         cd /tmp && git clone https://aur.archlinux.org/netbird-ui.git
         cd netbird-ui && makepkg -sri --noconfirm
     fi
@@ -123,29 +144,40 @@ install_native_binaries() {
 
     # download and copy binaries to INSTALL_DIR
     download_release_binary "$CLI_APP"
-    if ! $SKIP_UI_APP; then 
+    if ! $SKIP_UI_APP; then
         download_release_binary "$UI_APP"
-    fi  
+    fi
+}
+
+check_use_bin_variable() {
+    if [ "${USE_BIN_INSTALL}-x" = "true-x" ]; then
+      echo "The installation will be performed using binary files"
+      return 0
+    fi
+    return 1
 }
 
 install_netbird() {
-    # Check if netbird CLI is installed
     if [ -x "$(command -v netbird)" ]; then
-        if  netbird status > /dev/null 2>&1; then
-            echo "Netbird service is running, please stop it before proceeding"
+        status_output=$(netbird status)
+        if echo "$status_output" | grep -q 'Management: Connected' && echo "$status_output" | grep -q 'Signal: Connected'; then
+            echo "NetBird service is running, please stop it before proceeding"
+            exit 1
         fi
 
-        echo "Netbird seems to be installed already, please remove it before proceeding"
-        exit 1
+        if [ -n "$status_output" ]; then
+            echo "NetBird seems to be installed already, please remove it before proceeding"
+            exit 1
+        fi
     fi
 
     # Checks if SKIP_UI_APP env is set
     if [ -z "$SKIP_UI_APP" ]; then
         SKIP_UI_APP=false
     else
-        if $SKIP_UI_APP; then 
+        if $SKIP_UI_APP; then
             echo "SKIP_UI_APP has been set to true in the environment"
-            echo "Netbird UI installation will be omitted based on your preference"
+            echo "NetBird UI installation will be omitted based on your preference"
         fi
     fi
 
@@ -153,25 +185,27 @@ install_netbird() {
     if type uname >/dev/null 2>&1; then
 	case "$(uname)" in
         Linux)
-            OS_NAME="$(. /etc/os-release && echo "$ID")" 
+            OS_NAME="$(. /etc/os-release && echo "$ID")"
             OS_TYPE="linux"
             INSTALL_DIR="/usr/bin"
-            
+
             # Allow netbird UI installation for x64 arch only
             if [ "$ARCH" != "amd64" ] && [ "$ARCH" != "arm64" ] \
                 && [ "$ARCH" != "x86_64" ];then
                 SKIP_UI_APP=true
-                echo "Netbird UI installation will be omitted as $ARCH is not a compactible architecture"
+                echo "NetBird UI installation will be omitted as $ARCH is not a compactible architecture"
             fi
 
             # Allow netbird UI installation for linux running desktop enviroment
             if [ -z "$XDG_CURRENT_DESKTOP" ];then
-                    SKIP_UI_APP=true
-                    echo "Netbird UI installation will be omitted as Linux does not run desktop environment"
+                SKIP_UI_APP=true
+                echo "NetBird UI installation will be omitted as Linux does not run desktop environment"
             fi
 
-            # Check the availability of a compactible package manager
-            if [ -x "$(command -v apt)" ]; then
+            # Check the availability of a compatible package manager
+            if check_use_bin_variable; then
+                PACKAGE_MANAGER="bin"
+            elif [ -x "$(command -v apt)" ]; then
                 PACKAGE_MANAGER="apt"
                 echo "The installation will be performed using apt package manager"
             elif [ -x "$(command -v dnf)" ]; then
@@ -189,9 +223,11 @@ install_netbird() {
             OS_NAME="macos"
 			OS_TYPE="darwin"
             INSTALL_DIR="/usr/local/bin"
-            
+
             # Check the availability of a compatible package manager
-            if [ -x "$(command -v brew)" ]; then 
+            if check_use_bin_variable; then
+                PACKAGE_MANAGER="bin"
+            elif [ -x "$(command -v brew)" ]; then
                 PACKAGE_MANAGER="brew"
                 echo "The installation will be performed using brew package manager"
             fi
@@ -205,15 +241,15 @@ install_netbird() {
     apt)
         add_apt_repo
         sudo apt-get install netbird -y
-        
-        if ! $SKIP_UI_APP; then 
+
+        if ! $SKIP_UI_APP; then
             sudo apt-get install netbird-ui -y
         fi
     ;;
     yum)
         add_rpm_repo
         sudo yum -y install netbird
-        if ! $SKIP_UI_APP; then 
+        if ! $SKIP_UI_APP; then
             sudo yum -y install netbird-ui
         fi
     ;;
@@ -223,7 +259,7 @@ install_netbird() {
         sudo dnf config-manager --add-repo /etc/yum.repos.d/netbird.repo
         sudo dnf -y install netbird
 
-        if ! $SKIP_UI_APP; then 
+        if ! $SKIP_UI_APP; then
             sudo dnf -y install netbird-ui
         fi
     ;;
@@ -235,46 +271,50 @@ install_netbird() {
         # Remove Wiretrustee if it had been installed using Homebrew before
         if brew ls --versions wiretrustee >/dev/null 2>&1; then
             echo "Removing existing wiretrustee client"
-            
+
             # Stop and uninstall daemon service:
             wiretrustee service stop
-            wiretrustee service uninstall 
+            wiretrustee service uninstall
 
             # Unlik the app
             brew unlink wiretrustee
         fi
 
         brew install netbirdio/tap/netbird
-        if ! $SKIP_UI_APP; then 
+        if ! $SKIP_UI_APP; then
             brew install --cask netbirdio/tap/netbird-ui
         fi
     ;;
     *)
-        if [ "$OS_NAME" = "nixos" ];then
-            echo "Please add Netbird to your NixOS configuration.nix directly:"
-			echo
-			echo "services.netbird.enable = true;"
+      if [ "$OS_NAME" = "nixos" ];then
+        echo "Please add NetBird to your NixOS configuration.nix directly:"
+			  echo ""
+			  echo "services.netbird.enable = true;"
 
-            if ! $SKIP_UI_APP; then 
-                 echo "environment.systemPackages = [ pkgs.netbird-ui ];"
-            fi
+        if ! $SKIP_UI_APP; then
+          echo "environment.systemPackages = [ pkgs.netbird-ui ];"
+        fi
 
-            echo "Build and apply new configuration:"
-            echo
-            echo "sudo nixos-rebuild switch"
-			exit 0
-        fi   
+        echo "Build and apply new configuration:"
+        echo ""
+        echo "sudo nixos-rebuild switch"
+			  exit 0
+      fi
 
         install_native_binaries
     ;;
     esac
 
+    # Add package manager to config
+    sudo mkdir -p "$CONFIG_FOLDER"
+    echo "package_manager=$PACKAGE_MANAGER" | sudo tee "$CONFIG_FILE" > /dev/null
+
     # Load and start netbird service
-    if  ! sudo netbird service install 2>&1; then 
-        echo "Netbird service has already been loaded"
+    if  ! sudo netbird service install 2>&1; then
+        echo "NetBird service has already been loaded"
     fi
-    if  ! sudo netbird service start 2>&1; then 
-        echo "Netbird service has already been started"
+    if  ! sudo netbird service start 2>&1; then
+        echo "NetBird service has already been started"
     fi
 
 
@@ -283,4 +323,51 @@ install_netbird() {
     echo "sudo netbird up"
 }
 
-install_netbird
+version_greater_equal() {
+    printf '%s\n%s\n' "$2" "$1" | sort -V -C
+}
+
+is_bin_package_manager() {
+  if sudo test -f "$1" && sudo grep -q "package_manager=bin" "$1" ; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+update_netbird() {
+  if is_bin_package_manager "$CONFIG_FILE"; then
+    latest_release=$(get_latest_release)
+    latest_version=${latest_release#v}
+    installed_version=$(netbird version)
+
+    if [ "$latest_version" = "$installed_version" ]; then
+      echo "Installed netbird version ($installed_version) is up-to-date"
+      exit 0
+    fi
+
+    if version_greater_equal "$latest_version" "$installed_version"; then
+      echo "NetBird new version ($latest_version) available. Updating..."
+      echo ""
+      echo "Initiating NetBird update. This will stop the netbird service and restart it after the update"
+
+      sudo netbird service stop
+      sudo netbird service uninstall
+      install_native_binaries
+
+      sudo netbird service install
+      sudo netbird service start
+    fi
+  else
+     echo "NetBird installation was done using a package manager. Please use your system's package manager to update"
+  fi
+}
+
+
+case "$1" in
+    --update)
+      update_netbird
+    ;;
+    *)
+      install_netbird
+esac

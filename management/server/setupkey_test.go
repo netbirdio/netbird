@@ -37,7 +37,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 	keyName := "my-test-key"
 
 	key, err := manager.CreateSetupKey(account.Id, keyName, SetupKeyReusable, expiresIn, []string{},
-		SetupKeyUnlimitedUsage, userID)
+		SetupKeyUnlimitedUsage, userID, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 	for _, tCase := range []testCase{testCase1, testCase2} {
 		t.Run(tCase.name, func(t *testing.T) {
 			key, err := manager.CreateSetupKey(account.Id, tCase.expectedKeyName, SetupKeyReusable, expiresIn,
-				tCase.expectedGroups, SetupKeyUnlimitedUsage, userID)
+				tCase.expectedGroups, SetupKeyUnlimitedUsage, userID, false)
 
 			if tCase.expectedFailure {
 				if err == nil {
@@ -193,7 +193,7 @@ func TestGenerateSetupKey(t *testing.T) {
 	expectedUpdatedAt := time.Now().UTC()
 	var expectedAutoGroups []string
 
-	key := GenerateSetupKey(expectedName, SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage)
+	key := GenerateSetupKey(expectedName, SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
 
 	assertKey(t, key, expectedName, expectedRevoke, expectedType, expectedUsedTimes, expectedCreatedAt,
 		expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))), expectedUpdatedAt, expectedAutoGroups)
@@ -201,33 +201,33 @@ func TestGenerateSetupKey(t *testing.T) {
 }
 
 func TestSetupKey_IsValid(t *testing.T) {
-	validKey := GenerateSetupKey("valid key", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage)
+	validKey := GenerateSetupKey("valid key", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
 	if !validKey.IsValid() {
 		t.Errorf("expected key to be valid, got invalid %v", validKey)
 	}
 
 	// expired
-	expiredKey := GenerateSetupKey("invalid key", SetupKeyOneOff, -time.Hour, []string{}, SetupKeyUnlimitedUsage)
+	expiredKey := GenerateSetupKey("invalid key", SetupKeyOneOff, -time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
 	if expiredKey.IsValid() {
 		t.Errorf("expected key to be invalid due to expiration, got valid %v", expiredKey)
 	}
 
 	// revoked
-	revokedKey := GenerateSetupKey("invalid key", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage)
+	revokedKey := GenerateSetupKey("invalid key", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
 	revokedKey.Revoked = true
 	if revokedKey.IsValid() {
 		t.Errorf("expected revoked key to be invalid, got valid %v", revokedKey)
 	}
 
 	// overused
-	overUsedKey := GenerateSetupKey("invalid key", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage)
+	overUsedKey := GenerateSetupKey("invalid key", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
 	overUsedKey.UsedTimes = 1
 	if overUsedKey.IsValid() {
 		t.Errorf("expected overused key to be invalid, got valid %v", overUsedKey)
 	}
 
 	// overused
-	reusableKey := GenerateSetupKey("valid key", SetupKeyReusable, time.Hour, []string{}, SetupKeyUnlimitedUsage)
+	reusableKey := GenerateSetupKey("valid key", SetupKeyReusable, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
 	reusableKey.UsedTimes = 99
 	if !reusableKey.IsValid() {
 		t.Errorf("expected reusable key to be valid when used many times, got valid %v", reusableKey)
@@ -282,7 +282,7 @@ func assertKey(t *testing.T, key *SetupKey, expectedName string, expectedRevoke 
 
 func TestSetupKey_Copy(t *testing.T) {
 
-	key := GenerateSetupKey("key name", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage)
+	key := GenerateSetupKey("key name", SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage, false)
 	keyCopy := key.Copy()
 
 	assertKey(t, keyCopy, key.Name, key.Revoked, string(key.Type), key.UsedTimes, key.CreatedAt, key.ExpiresAt, key.Id,
