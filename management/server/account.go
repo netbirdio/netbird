@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	b64 "encoding/base64"
-	"errors"
 	"fmt"
 	"hash/crc32"
 	"math/rand"
@@ -926,42 +925,29 @@ func (am *DefaultAccountManager) newAccount(userID, domain string) (*Account, er
 func (am *DefaultAccountManager) warmupIDPCache() error {
 	userData, err := am.idpManager.GetAllAccounts()
 	if err != nil {
-		var idpErr *idp.Error
-		if errors.As(err, &idpErr) {
-			log.Warnf("failed to fetch all accounts from idp: %v", idpErr)
-
-			log.Info("warming cache using store")
-			accounts := am.Store.GetAllAccounts()
-
-			for _, account := range accounts {
-				data := make([]*idp.UserData, 0)
-
-				for _, user := range account.Users {
-					// fetch user info with idp manager
-					// verify the validity of this user before adding to the cache
-					userData, err := am.idpManager.GetUserDataByID(user.Id, idp.AppMetadata{WTAccountID: account.Id})
-					if err != nil {
-						// delete/do not add user to the cache
-						log.Debugf("user with id: %s does not exist", user.Id)
-						continue
-					}
-
-					// update user metadata as are not stored in upstream idp
-					// Note (self-hosted does not support pendingInvite and invitedBy status)
-					userData.AppMetadata.WTAccountID = account.Id
-					data = append(data, userData)
-				}
-
-				err = am.cacheManager.Set(am.ctx, account.Id, data, cacheStore.WithExpiration(cacheEntryExpiration()))
-				if err != nil {
-					return err
-				}
-			}
-			return nil
-		}
-
 		return err
 	}
+
+	// If the Identity Provider does not support writing AppMetadata,
+	// in cases like this, we expect it to return all users in an "unset" field.
+	// We iterate over the users in the "unset" field, look up their AccountID in our store, and
+	// update their AppMetadata with the AccountID.
+	if unsetData, ok := userData["unset"]; ok {
+		for _, user := range unsetData {
+			accountID, err := am.Store.GetAccountByUser(user.ID)
+			if err == nil {
+				data := userData[accountID.Id]
+				if data == nil {
+					data = make([]*idp.UserData, 0)
+				}
+
+				user.AppMetadata.WTAccountID = accountID.Id
+
+				userData[accountID.Id] = append(data, user)
+			}
+		}
+	}
+	delete(userData, "unset")
 
 	for accountID, users := range userData {
 		err = am.cacheManager.Set(am.ctx, accountID, users, cacheStore.WithExpiration(cacheEntryExpiration()))
@@ -1032,36 +1018,7 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(userID string, account
 
 func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interface{}) ([]*idp.UserData, error) {
 	log.Debugf("account %s not found in cache, reloading", accountID)
-	account, err := am.idpManager.GetAccount(fmt.Sprintf("%v", accountID))
-	if err != nil {
-		var idpErr *idp.Error
-		if errors.As(err, &idpErr) {
-			acc, err := am.Store.GetAccount(fmt.Sprintf("%v", accountID))
-			if err != nil {
-				return nil, err
-			}
-
-			data := make([]*idp.UserData, 0)
-
-			for _, user := range acc.Users {
-				// fetch user info with idp manager
-				userData, err := am.idpManager.GetUserDataByID(user.Id, idp.AppMetadata{})
-				if err != nil {
-					return nil, err
-				}
-
-				// update user metadata as are not stored in upstream idp
-				// Note (self-hosted does not support pendingInvite and invitedBy status)
-				userData.AppMetadata.WTAccountID = fmt.Sprintf("%v", accountID)
-				data = append(data, userData)
-			}
-
-			return account, nil
-		}
-		return nil, err
-	}
-
-	return account, nil
+	return am.idpManager.GetAccount(fmt.Sprintf("%v", accountID))
 }
 
 func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountID string) (*idp.UserData, error) {
