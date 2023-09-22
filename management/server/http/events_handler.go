@@ -50,7 +50,7 @@ func (h *EventsHandler) GetAllEvents(w http.ResponseWriter, r *http.Request) {
 		events[i] = toEventResponse(e)
 	}
 
-	err = h.fillEventsWithInitiatorInfo(events, account.Id, user.Id)
+	err = h.fillEventsWithUserInfo(events, account.Id, user.Id)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -59,7 +59,7 @@ func (h *EventsHandler) GetAllEvents(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, events)
 }
 
-func (h *EventsHandler) fillEventsWithInitiatorInfo(events []*api.Event, accountId, userId string) error {
+func (h *EventsHandler) fillEventsWithUserInfo(events []*api.Event, accountId, userId string) error {
 	// build email, name maps based on users
 	userInfos, err := h.accountManager.GetUsersFromAccount(accountId, userId)
 	if err != nil {
@@ -76,6 +76,7 @@ func (h *EventsHandler) fillEventsWithInitiatorInfo(events []*api.Event, account
 
 	var ok bool
 	for _, event := range events {
+		// fill initiator
 		if event.InitiatorEmail == "" {
 			event.InitiatorEmail, ok = emails[event.InitiatorId]
 			if !ok {
@@ -87,6 +88,19 @@ func (h *EventsHandler) fillEventsWithInitiatorInfo(events []*api.Event, account
 			// here to allowed to be empty because in the first release we did not store the name
 			event.InitiatorName = names[event.InitiatorId]
 		}
+
+		// fill target meta
+		email, ok := emails[event.TargetId]
+		if !ok {
+			continue
+		}
+		event.Meta["email"] = email
+
+		username, ok := names[event.TargetId]
+		if !ok {
+			continue
+		}
+		event.Meta["username"] = username
 	}
 	return nil
 }
