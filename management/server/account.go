@@ -1002,9 +1002,6 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(userID string, account
 
 		err = am.idpManager.UpdateUserAppMetadata(userID, idp.AppMetadata{WTAccountID: account.Id})
 		if err != nil {
-			// TODO: with self hosted with idp which do not implement this method
-			// store the attributes and  tobe available in next cache refresh.
-			// FIX: unable to access dashboard after sending user invite.
 			return status.Errorf(status.Internal, "updating user's app metadata failed with: %v", err)
 		}
 		// refresh cache to reflect the update
