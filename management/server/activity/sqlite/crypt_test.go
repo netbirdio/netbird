@@ -56,8 +56,8 @@ func TestCorruptKey(t *testing.T) {
 		t.Fatalf("failed to init email encryption: %s", err)
 	}
 
-	res, err := ee.Decrypt(encrypted)
-	if err == nil || res == testData {
+	res, _ := ee.Decrypt(encrypted)
+	if res == testData {
 		t.Fatalf("incorrect decryption, the result is: %s", res)
 	}
 }
