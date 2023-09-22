@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	log "github.com/sirupsen/logrus"
 )
 
 // WriteJson writes JSON config object to a file creating parent directories if required
@@ -52,6 +54,68 @@ func WriteJson(file string, obj interface{}) error {
 	}
 
 	return nil
+}
+
+// DirectWriteJson writes JSON config object to a file creating parent directories if required without creating a temporary file
+func DirectWriteJson(file string, obj interface{}) error {
+
+	_, _, err := prepareConfigFileDir(file)
+	if err != nil {
+		return err
+	}
+
+	targetFile, err := openOrCreateFile(file)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		err = targetFile.Close()
+		if err != nil {
+			log.Errorf("failed to close file %s: %v", file, err)
+		}
+	}()
+
+	// make it pretty
+	bs, err := json.MarshalIndent(obj, "", "    ")
+	if err != nil {
+		return err
+	}
+
+	err = targetFile.Truncate(0)
+	if err != nil {
+		return err
+	}
+
+	_, err = targetFile.Write(bs)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func openOrCreateFile(file string) (*os.File, error) {
+	s, err := os.Stat(file)
+	if err == nil {
+		return os.OpenFile(file, os.O_WRONLY, s.Mode())
+	}
+
+	if !os.IsNotExist(err) {
+		return nil, err
+	}
+
+	targetFile, err := os.Create(file)
+	if err != nil {
+		return nil, err
+	}
+	//no:lint
+	err = targetFile.Chmod(0640)
+	if err != nil {
+		_ = targetFile.Close()
+		return nil, err
+	}
+	return targetFile, nil
 }
 
 // ReadJson reads JSON config file and maps to a provided interface

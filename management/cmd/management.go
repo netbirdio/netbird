@@ -149,7 +149,7 @@ var (
 			}
 
 			if key != "" {
-				log.Debugf("update config with activity store key")
+				log.Infof("update config with activity store key")
 				config.DataStoreEncryptionKey = key
 				err := updateMgmtConfig(mgmtConfig, config)
 				if err != nil {
@@ -466,7 +466,7 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 }
 
 func updateMgmtConfig(path string, config *server.Config) error {
-	return util.WriteJson(path, config)
+	return util.DirectWriteJson(path, config)
 }
 
 // OIDCConfigResponse used for parsing OIDC config response
