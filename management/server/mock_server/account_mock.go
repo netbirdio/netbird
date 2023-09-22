@@ -31,7 +31,6 @@ type MockAccountManager struct {
 	AddPeerFunc                     func(setupKey string, userId string, peer *server.Peer) (*server.Peer, *server.NetworkMap, error)
 	GetGroupFunc                    func(accountID, groupID string) (*server.Group, error)
 	SaveGroupFunc                   func(accountID, userID string, group *server.Group) error
-	UpdateGroupFunc                 func(accountID string, groupID string, operations []server.GroupUpdateOperation) (*server.Group, error)
 	DeleteGroupFunc                 func(accountID, userId, groupID string) error
 	ListGroupsFunc                  func(accountID string) ([]*server.Group, error)
 	GroupAddPeerFunc                func(accountID, groupID, peerKey string) error
@@ -54,7 +53,6 @@ type MockAccountManager struct {
 	CreateRouteFunc                 func(accountID string, prefix, peer, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
 	GetRouteFunc                    func(accountID, routeID, userID string) (*route.Route, error)
 	SaveRouteFunc                   func(accountID, userID string, route *route.Route) error
-	UpdateRouteFunc                 func(accountID string, routeID string, operations []server.RouteUpdateOperation) (*route.Route, error)
 	DeleteRouteFunc                 func(accountID, routeID, userID string) error
 	ListRoutesFunc                  func(accountID, userID string) ([]*route.Route, error)
 	SaveSetupKeyFunc                func(accountID string, key *server.SetupKey, userID string) (*server.SetupKey, error)
@@ -68,7 +66,6 @@ type MockAccountManager struct {
 	GetNameServerGroupFunc          func(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
 	CreateNameServerGroupFunc       func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string) (*nbdns.NameServerGroup, error)
 	SaveNameServerGroupFunc         func(accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
-	UpdateNameServerGroupFunc       func(accountID, nsGroupID, userID string, operations []server.NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error)
 	DeleteNameServerGroupFunc       func(accountID, nsGroupID, userID string) error
 	ListNameServerGroupsFunc        func(accountID string) ([]*nbdns.NameServerGroup, error)
 	CreateUserFunc                  func(accountID, userID string, key *server.UserInfo) (*server.UserInfo, error)
@@ -267,14 +264,6 @@ func (am *MockAccountManager) SaveGroup(accountID, userID string, group *server.
 	return status.Errorf(codes.Unimplemented, "method SaveGroup is not implemented")
 }
 
-// UpdateGroup mock implementation of UpdateGroup from server.AccountManager interface
-func (am *MockAccountManager) UpdateGroup(accountID string, groupID string, operations []server.GroupUpdateOperation) (*server.Group, error) {
-	if am.UpdateGroupFunc != nil {
-		return am.UpdateGroupFunc(accountID, groupID, operations)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method UpdateGroup not implemented")
-}
-
 // DeleteGroup mock implementation of DeleteGroup from server.AccountManager interface
 func (am *MockAccountManager) DeleteGroup(accountId, userId, groupID string) error {
 	if am.DeleteGroupFunc != nil {
@@ -435,14 +424,6 @@ func (am *MockAccountManager) SaveRoute(accountID, userID string, route *route.R
 	return status.Errorf(codes.Unimplemented, "method SaveRoute is not implemented")
 }
 
-// UpdateRoute mock implementation of UpdateRoute from server.AccountManager interface
-func (am *MockAccountManager) UpdateRoute(accountID, ruleID string, operations []server.RouteUpdateOperation) (*route.Route, error) {
-	if am.UpdateRouteFunc != nil {
-		return am.UpdateRouteFunc(accountID, ruleID, operations)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method UpdateRoute not implemented")
-}
-
 // DeleteRoute mock implementation of DeleteRoute from server.AccountManager interface
 func (am *MockAccountManager) DeleteRoute(accountID, routeID, userID string) error {
 	if am.DeleteRouteFunc != nil {
@@ -531,14 +512,6 @@ func (am *MockAccountManager) SaveNameServerGroup(accountID, userID string, nsGr
 		return am.SaveNameServerGroupFunc(accountID, userID, nsGroupToSave)
 	}
 	return nil
-}
-
-// UpdateNameServerGroup mocks UpdateNameServerGroup of the AccountManager interface
-func (am *MockAccountManager) UpdateNameServerGroup(accountID, nsGroupID, userID string, operations []server.NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error) {
-	if am.UpdateNameServerGroupFunc != nil {
-		return am.UpdateNameServerGroupFunc(accountID, nsGroupID, userID, operations)
-	}
-	return nil, nil
 }
 
 // DeleteNameServerGroup mocks DeleteNameServerGroup of the AccountManager interface

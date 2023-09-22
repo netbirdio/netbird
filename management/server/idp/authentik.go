@@ -458,6 +458,38 @@ func (am *AuthentikManager) InviteUserByID(_ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
 }
 
+// DeleteUser from Authentik
+func (am *AuthentikManager) DeleteUser(userID string) error {
+	ctx, err := am.authenticationContext()
+	if err != nil {
+		return err
+	}
+
+	userPk, err := strconv.ParseInt(userID, 10, 32)
+	if err != nil {
+		return err
+	}
+
+	resp, err := am.apiClient.CoreApi.CoreUsersDestroy(ctx, int32(userPk)).Execute()
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close() // nolint
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountDeleteUser()
+	}
+
+	if resp.StatusCode != http.StatusNoContent {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return fmt.Errorf("unable to delete user %s, statusCode %d", userID, resp.StatusCode)
+	}
+
+	return nil
+}
+
 func (am *AuthentikManager) authenticationContext() (context.Context, error) {
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {

@@ -2063,7 +2063,7 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(), nil, "", "netbird.cloud", eventStore)
+	return BuildManager(store, NewPeersUpdateManager(), nil, "", "netbird.cloud", eventStore, false)
 }
 
 func createStore(t *testing.T) (Store, error) {

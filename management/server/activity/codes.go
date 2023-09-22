@@ -104,6 +104,8 @@ const (
 	UserBlocked
 	// UserUnblocked indicates that a user unblocked another user
 	UserUnblocked
+	// UserDeleted indicates that a user deleted another user
+	UserDeleted
 	// GroupDeleted indicates that a user deleted group
 	GroupDeleted
 	// UserLoggedInPeer indicates that user logged in their peer with an interactive SSO login
@@ -162,6 +164,7 @@ var activityMap = map[Activity]Code{
 	ServiceUserDeleted:                        {"Service user deleted", "service.user.delete"},
 	UserBlocked:                               {"User blocked", "user.block"},
 	UserUnblocked:                             {"User unblocked", "user.unblock"},
+	UserDeleted:                               {"User deleted", "user.delete"},
 	GroupDeleted:                              {"Group deleted", "group.delete"},
 	UserLoggedInPeer:                          {"User logged in peer", "user.peer.login"},
 	PeerLoginExpired:                          {"Peer login expired", "peer.login.expire"},

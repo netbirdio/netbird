@@ -88,31 +88,6 @@ func initNameserversTestData() *NameserversHandler {
 				}
 				return status.Errorf(status.NotFound, "nameserver group with ID %s was not found", nsGroupToSave.ID)
 			},
-			UpdateNameServerGroupFunc: func(accountID, nsGroupID, _ string, operations []server.NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error) {
-				nsGroupToUpdate := baseExistingNSGroup.Copy()
-				if nsGroupID != nsGroupToUpdate.ID {
-					return nil, status.Errorf(status.NotFound, "nameserver group ID %s no longer exists", nsGroupID)
-				}
-				for _, operation := range operations {
-					switch operation.Type {
-					case server.UpdateNameServerGroupName:
-						nsGroupToUpdate.Name = operation.Values[0]
-					case server.UpdateNameServerGroupDescription:
-						nsGroupToUpdate.Description = operation.Values[0]
-					case server.UpdateNameServerGroupNameServers:
-						var parsedNSList []nbdns.NameServer
-						for _, nsURL := range operation.Values {
-							parsed, err := nbdns.ParseNameServerURL(nsURL)
-							if err != nil {
-								return nil, err
-							}
-							parsedNSList = append(parsedNSList, parsed)
-						}
-						nsGroupToUpdate.NameServers = parsedNSList
-					}
-				}
-				return nsGroupToUpdate, nil
-			},
 			GetAccountFromTokenFunc: func(_ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return testingNSAccount, testingAccount.Users["test_user"], nil
 			},
