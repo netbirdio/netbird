@@ -170,6 +170,9 @@ type Event struct {
 	// InitiatorId The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
 	InitiatorId string `json:"initiator_id"`
 
+	// InitiatorName The name of the initiator of the event.
+	InitiatorName string `json:"initiator_name"`
+
 	// Meta The metadata of the event
 	Meta map[string]string `json:"meta"`
 
