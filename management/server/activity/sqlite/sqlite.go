@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3" // sqlite driver
+	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -25,16 +25,16 @@ const (
 		"meta TEXT," +
 		" target_id TEXT);"
 
-	creatTableAccountEmailQuery = `CREATE TABLE IF NOT EXISTS deleted_users (id TEXT NOT NULL, email TEXT NOT NULL);`
+	creatTableDeletedUsersQuery = `CREATE TABLE IF NOT EXISTS deleted_users (id TEXT NOT NULL, email TEXT NOT NULL, name TEXT);`
 
-	selectDescQuery = `SELECT events.id, activity, timestamp, initiator_id, i.email as "initiator_email", target_id, t.email as "target_email", account_id, meta
+	selectDescQuery = `SELECT events.id, activity, timestamp, initiator_id, i.name as "initiator_name", i.email as "initiator_email", target_id, t.name as "target_name", t.email as "target_email", account_id, meta
     	FROM events 
     	LEFT JOIN deleted_users i ON events.initiator_id = i.id 
     	LEFT JOIN deleted_users t ON events.target_id = t.id
 		WHERE account_id = ? 
 		ORDER BY timestamp DESC LIMIT ? OFFSET ?;`
 
-	selectAscQuery = `SELECT events.id, activity, timestamp, initiator_id, i.email as "initiator_email", target_id, t.email as "target_email", account_id, meta
+	selectAscQuery = `SELECT events.id, activity, timestamp, initiator_id, i.name as "initiator_name", i.email as "initiator_email", target_id, t.name as "target_name", t.email as "target_email", account_id, meta
     	FROM events 
     	LEFT JOIN deleted_users i ON events.initiator_id = i.id 
     	LEFT JOIN deleted_users t ON events.target_id = t.id
@@ -44,13 +44,13 @@ const (
 	insertQuery = "INSERT INTO events(activity, timestamp, initiator_id, target_id, account_id, meta) " +
 		"VALUES(?, ?, ?, ?, ?, ?)"
 
-	insertDeleteUserQuery = `INSERT INTO deleted_users(id, email) VALUES(?, ?)`
+	insertDeleteUserQuery = `INSERT INTO deleted_users(id, email, name) VALUES(?, ?, ?)`
 )
 
 // Store is the implementation of the activity.Store interface backed by SQLite
 type Store struct {
 	db           *sql.DB
-	emailEncrypt *EmailEncrypt
+	fieldEncrypt *FieldEncrypt
 
 	insertStatement     *sql.Stmt
 	selectAscStatement  *sql.Stmt
@@ -66,49 +66,63 @@ func NewSQLiteStore(dataDir string, encryptionKey string) (*Store, error) {
 		return nil, err
 	}
 
-	crypt, err := NewEmailEncrypt(encryptionKey)
+	crypt, err := NewFieldEncrypt(encryptionKey)
 	if err != nil {
+		_ = db.Close()
 		return nil, err
 	}
 
 	_, err = db.Exec(createTableQuery)
 	if err != nil {
+		_ = db.Close()
 		return nil, err
 	}
 
-	_, err = db.Exec(creatTableAccountEmailQuery)
+	_, err = db.Exec(creatTableDeletedUsersQuery)
 	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	err = updateDeletedUsersTable(db)
+	if err != nil {
+		_ = db.Close()
 		return nil, err
 	}
 
 	insertStmt, err := db.Prepare(insertQuery)
 	if err != nil {
+		_ = db.Close()
 		return nil, err
 	}
 
 	selectDescStmt, err := db.Prepare(selectDescQuery)
 	if err != nil {
+		_ = db.Close()
 		return nil, err
 	}
 
 	selectAscStmt, err := db.Prepare(selectAscQuery)
 	if err != nil {
+		_ = db.Close()
 		return nil, err
 	}
 
 	deleteUserStmt, err := db.Prepare(insertDeleteUserQuery)
 	if err != nil {
+		_ = db.Close()
 		return nil, err
 	}
 
 	s := &Store{
 		db:                  db,
-		emailEncrypt:        crypt,
+		fieldEncrypt:        crypt,
 		insertStatement:     insertStmt,
 		selectDescStatement: selectDescStmt,
 		selectAscStatement:  selectAscStmt,
 		deleteUserStmt:      deleteUserStmt,
 	}
+
 	return s, nil
 }
 
@@ -119,12 +133,14 @@ func (store *Store) processResult(result *sql.Rows) ([]*activity.Event, error) {
 		var operation activity.Activity
 		var timestamp time.Time
 		var initiator string
+		var initiatorName *string
 		var initiatorEmail *string
 		var target string
+		var targetUserName *string
 		var targetEmail *string
 		var account string
 		var jsonMeta string
-		err := result.Scan(&id, &operation, &timestamp, &initiator, &initiatorEmail, &target, &targetEmail, &account, &jsonMeta)
+		err := result.Scan(&id, &operation, &timestamp, &initiator, &initiatorName, &initiatorEmail, &target, &targetUserName, &targetEmail, &account, &jsonMeta)
 		if err != nil {
 			return nil, err
 		}
@@ -137,8 +153,18 @@ func (store *Store) processResult(result *sql.Rows) ([]*activity.Event, error) {
 			}
 		}
 
+		if targetUserName != nil {
+			name, err := store.fieldEncrypt.Decrypt(*targetUserName)
+			if err != nil {
+				log.Errorf("failed to decrypt username for target id: %s", target)
+				meta["username"] = ""
+			} else {
+				meta["username"] = name
+			}
+		}
+
 		if targetEmail != nil {
-			email, err := store.emailEncrypt.Decrypt(*targetEmail)
+			email, err := store.fieldEncrypt.Decrypt(*targetEmail)
 			if err != nil {
 				log.Errorf("failed to decrypt email address for target id: %s", target)
 				meta["email"] = ""
@@ -157,8 +183,17 @@ func (store *Store) processResult(result *sql.Rows) ([]*activity.Event, error) {
 			Meta:        meta,
 		}
 
+		if initiatorName != nil {
+			name, err := store.fieldEncrypt.Decrypt(*initiatorName)
+			if err != nil {
+				log.Errorf("failed to decrypt username of initiator: %s", initiator)
+			} else {
+				event.InitiatorName = name
+			}
+		}
+
 		if initiatorEmail != nil {
-			email, err := store.emailEncrypt.Decrypt(*initiatorEmail)
+			email, err := store.fieldEncrypt.Decrypt(*initiatorEmail)
 			if err != nil {
 				log.Errorf("failed to decrypt email address of initiator: %s", initiator)
 			} else {
@@ -191,7 +226,7 @@ func (store *Store) Get(accountID string, offset, limit int, descending bool) ([
 // Save an event in the SQLite events table end encrypt the "email" element in meta map
 func (store *Store) Save(event *activity.Event) (*activity.Event, error) {
 	var jsonMeta string
-	meta, err := store.saveDeletedUserEmailInEncrypted(event)
+	meta, err := store.saveDeletedUserEmailAndNameInEncrypted(event)
 	if err != nil {
 		return nil, err
 	}
@@ -219,26 +254,31 @@ func (store *Store) Save(event *activity.Event) (*activity.Event, error) {
 	return eventCopy, nil
 }
 
-// saveDeletedUserEmailInEncrypted if the meta contains email then store it in encrypted way and delete this item from
-// meta map
-func (store *Store) saveDeletedUserEmailInEncrypted(event *activity.Event) (map[string]any, error) {
+// saveDeletedUserEmailAndNameInEncrypted if the meta contains email and name then store it in encrypted way and delete
+// this item from meta map
+func (store *Store) saveDeletedUserEmailAndNameInEncrypted(event *activity.Event) (map[string]any, error) {
 	email, ok := event.Meta["email"]
 	if !ok {
 		return event.Meta, nil
 	}
 
-	delete(event.Meta, "email")
+	name, ok := event.Meta["name"]
+	if !ok {
+		return event.Meta, nil
+	}
 
-	encrypted := store.emailEncrypt.Encrypt(fmt.Sprintf("%s", email))
-	_, err := store.deleteUserStmt.Exec(event.TargetID, encrypted)
+	encryptedEmail := store.fieldEncrypt.Encrypt(fmt.Sprintf("%s", email))
+	encryptedName := store.fieldEncrypt.Encrypt(fmt.Sprintf("%s", name))
+	_, err := store.deleteUserStmt.Exec(event.TargetID, encryptedEmail, encryptedName)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(event.Meta) == 1 {
+	if len(event.Meta) == 2 {
 		return nil, nil // nolint
 	}
 	delete(event.Meta, "email")
+	delete(event.Meta, "name")
 	return event.Meta, nil
 }
 
@@ -248,4 +288,45 @@ func (store *Store) Close() error {
 		return store.db.Close()
 	}
 	return nil
+}
+
+func updateDeletedUsersTable(db *sql.DB) error {
+	log.Debugf("check deleted_users table version")
+	rows, err := db.Query(`PRAGMA table_info(deleted_users);`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	found := false
+	for rows.Next() {
+		var (
+			cid      int
+			name     string
+			dataType string
+			notNull  int
+			dfltVal  sql.NullString
+			pk       int
+		)
+		err := rows.Scan(&cid, &name, &dataType, &notNull, &dfltVal, &pk)
+		if err != nil {
+			return err
+		}
+		if name == "name" {
+			found = true
+			break
+		}
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return err
+	}
+
+	if found {
+		return nil
+	}
+
+	log.Debugf("update delted_users table")
+	_, err = db.Exec(`ALTER TABLE deleted_users ADD COLUMN name TEXT;`)
+	return err
 }

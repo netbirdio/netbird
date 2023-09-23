@@ -922,6 +922,10 @@ components:
           description: The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
           type: string
           example: google-oauth2|123456789012345678901
+        initiator_name:
+          description: The name of the initiator of the event.
+          type: string
+          example: John Doe
         initiator_email:
           description: The e-mail address of the initiator of the event. E.g., an e-mail of a user that triggered the event.
           type: string
@@ -942,6 +946,7 @@ components:
         - activity
         - activity_code
         - initiator_id
+        - initiator_name
         - initiator_email
         - target_id
         - meta
