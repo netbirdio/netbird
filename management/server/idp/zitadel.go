@@ -13,8 +13,9 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
-	"github.com/netbirdio/netbird/management/server/telemetry"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
 // ZitadelManager zitadel manager client instance.
@@ -428,7 +429,7 @@ func (zm *ZitadelManager) UpdateUserAppMetadata(userID string, appMetadata AppMe
 		return err
 	}
 
-	resource := fmt.Sprintf("users/%s", userID)
+	resource := fmt.Sprintf("users/%s/metadata/_bulk", userID)
 	_, err = zm.post(resource, string(payload))
 	if err != nil {
 		return err
