@@ -424,7 +424,7 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 	assert.Nil(t, store.Accounts[mockAccountID].Users[mockServiceUserID])
 }
 
-func TestUser_DeleteUser_regularUser(t *testing.T) {
+func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 	store := newStore(t)
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 
@@ -439,6 +439,32 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 	}
 
 	err = am.DeleteUser(mockAccountID, mockUserID, mockUserID)
+	if err == nil {
+		t.Fatalf("failed to prevent self deletion")
+	}
+}
+
+func TestUser_DeleteUser_regularUser(t *testing.T) {
+	store := newStore(t)
+	account := newAccountWithId(mockAccountID, mockUserID, "")
+	targetId := "user2"
+	account.Users[targetId] = &User{
+		Id:              targetId,
+		IsServiceUser:   true,
+		ServiceUserName: "user2username",
+	}
+
+	err := store.SaveAccount(account)
+	if err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
+
+	am := DefaultAccountManager{
+		Store:      store,
+		eventStore: &activity.InMemoryEventStore{},
+	}
+
+	err = am.DeleteUser(mockAccountID, mockUserID, targetId)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}

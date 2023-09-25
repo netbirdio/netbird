@@ -18,7 +18,9 @@ type Event struct {
 	ID uint64
 	// InitiatorID is the ID of an object that initiated the event (e.g., a user)
 	InitiatorID string
-	// InitiatorEmail is the email address of an object that initiated the event. This will be set on deleted users only
+	// InitiatorName is the name of an object that initiated the event.
+	InitiatorName string
+	// InitiatorEmail is the email address of an object that initiated the event.
 	InitiatorEmail string
 	// TargetID is the ID of an object that was effected by the event (e.g., a peer)
 	TargetID string
@@ -42,6 +44,7 @@ func (e *Event) Copy() *Event {
 		Activity:       e.Activity,
 		ID:             e.ID,
 		InitiatorID:    e.InitiatorID,
+		InitiatorName:  e.InitiatorName,
 		InitiatorEmail: e.InitiatorEmail,
 		TargetID:       e.TargetID,
 		AccountID:      e.AccountID,
