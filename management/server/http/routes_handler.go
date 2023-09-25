@@ -93,7 +93,7 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if (peerId != "" && len(peerGroupIds) > 0) || (peerId == "" && len(peerGroupIds) == 0) {
-		util.WriteError(status.Errorf(status.InvalidArgument, "only one peer or peers_group should be provided"), w)
+		util.WriteError(status.Errorf(status.InvalidArgument, "only one peer or peer_groups should be provided"), w)
 		return
 	}
 
