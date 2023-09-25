@@ -24,7 +24,7 @@ func NewWGIFace(ifaceName string, address string, mtu int, tunAdapter TunAdapter
 	tun := newTunDevice(wgAddress, mtu, tunAdapter, transportNet)
 	wgIFace.tun = tun
 
-	wgIFace.configurer = newWGConfigurer(tun.name)
+	wgIFace.configurer = newWGConfigurer(tun)
 
 	wgIFace.userspaceBind = !WireGuardModuleIsLoaded()
 

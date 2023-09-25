@@ -38,7 +38,7 @@ func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter, transportNe
 }
 
 func (t *tunDevice) Create(tunFd int32) error {
-	log.Info("create tun interface")
+	log.Infof("create tun interface")
 
 	dupTunFd, err := unix.Dup(int(tunFd))
 	if err != nil {
