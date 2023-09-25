@@ -77,6 +77,7 @@ func WriteErrorResponse(errMsg string, httpStatus int, w http.ResponseWriter) {
 // WriteError converts an error to an JSON error response.
 // If it is known internal error of type server.Error then it sets the messages from the error, a generic message otherwise
 func WriteError(err error, w http.ResponseWriter) {
+	log.Errorf("got a handler error: %s", err.Error())
 	errStatus, ok := status.FromError(err)
 	httpStatus := http.StatusInternalServerError
 	msg := "internal server error"
