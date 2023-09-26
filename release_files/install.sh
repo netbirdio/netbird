@@ -77,14 +77,14 @@ add_apt_repo() {
 
     # Remove old keys and repo source files
     sudo rm -f \
-    /etc/apt/sources.list.d/netbird.list \
-    /etc/apt/sources.list.d/wiretrustee.list \
-    /etc/apt/trusted.gpg.d/wiretrustee.gpg \
-    /usr/share/keyrings/netbird-archive-keyring.gpg \
-    /usr/share/keyrings/wiretrustee-archive-keyring.gpg
+        /etc/apt/sources.list.d/netbird.list \
+        /etc/apt/sources.list.d/wiretrustee.list \
+        /etc/apt/trusted.gpg.d/wiretrustee.gpg \
+        /usr/share/keyrings/netbird-archive-keyring.gpg \
+        /usr/share/keyrings/wiretrustee-archive-keyring.gpg
 
     curl -sSL https://pkgs.netbird.io/debian/public.key \
-    | sudo gpg --dearmor --output /usr/share/keyrings/netbird-archive-keyring.gpg
+    | sudo gpg --dearmor -o /usr/share/keyrings/netbird-archive-keyring.gpg
 
     echo 'deb [signed-by=/usr/share/keyrings/netbird-archive-keyring.gpg] https://pkgs.netbird.io/debian stable main' \
     | sudo tee /etc/apt/sources.list.d/netbird.list
