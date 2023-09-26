@@ -8,15 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type mockAzureCredentials struct {
-	jwtToken JWTToken
-	err      error
-}
-
-func (mc *mockAzureCredentials) Authenticate() (JWTToken, error) {
-	return mc.jwtToken, mc.err
-}
-
 func TestAzureJwtStillValid(t *testing.T) {
 	type jwtStillValidTest struct {
 		name           string

@@ -294,7 +294,7 @@ func (zm *ZitadelManager) GetUserDataByID(userID string, appMetadata AppMetadata
 }
 
 // GetAccount returns all the users for a given profile.
-func (zm *ZitadelManager) GetAccount(_ string) ([]*UserData, error) {
+func (zm *ZitadelManager) GetAccount(accountID string) ([]*UserData, error) {
 	body, err := zm.post("users/_search", "")
 	if err != nil {
 		return nil, err
@@ -312,7 +312,10 @@ func (zm *ZitadelManager) GetAccount(_ string) ([]*UserData, error) {
 
 	users := make([]*UserData, 0)
 	for _, profile := range profiles.Result {
-		users = append(users, profile.userData())
+		userData := profile.userData()
+		userData.AppMetadata.WTAccountID = accountID
+
+		users = append(users, userData)
 	}
 
 	return users, nil
