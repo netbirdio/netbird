@@ -411,42 +411,6 @@ func (am *AzureManager) get(resource string, q url.Values) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// post perform Post requests.
-func (am *AzureManager) post(resource string, body string) ([]byte, error) {
-	jwtToken, err := am.credentials.Authenticate()
-	if err != nil {
-		return nil, err
-	}
-
-	reqURL := fmt.Sprintf("%s/%s", am.GraphAPIEndpoint, resource)
-	req, err := http.NewRequest(http.MethodPost, reqURL, strings.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
-	req.Header.Add("content-type", "application/json")
-
-	resp, err := am.httpClient.Do(req)
-	if err != nil {
-		if am.appMetrics != nil {
-			am.appMetrics.IDPMetrics().CountRequestError()
-		}
-
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		if am.appMetrics != nil {
-			am.appMetrics.IDPMetrics().CountRequestStatusError()
-		}
-
-		return nil, fmt.Errorf("unable to post %s, statusCode %d", reqURL, resp.StatusCode)
-	}
-
-	return io.ReadAll(resp.Body)
-}
-
 // userData construct user data from keycloak profile.
 func (ap azureProfile) userData() *UserData {
 	id, ok := ap["id"].(string)

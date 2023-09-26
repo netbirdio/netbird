@@ -411,40 +411,6 @@ func (am *AuthentikManager) authenticationContext() (context.Context, error) {
 	return context.WithValue(context.Background(), api.ContextAPIKeys, value), nil
 }
 
-// getUserGroupByName retrieves the user group for assigning new users.
-// If the group is not found, a new group with the specified name will be created.
-func (am *AuthentikManager) getUserGroupByName(name string) (string, error) {
-	ctx, err := am.authenticationContext()
-	if err != nil {
-		return "", err
-	}
-
-	groupList, resp, err := am.apiClient.CoreApi.CoreGroupsList(ctx).Name(name).Execute()
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if groupList != nil {
-		if len(groupList.Results) > 0 {
-			return groupList.Results[0].Pk, nil
-		}
-	}
-
-	createGroupRequest := api.GroupRequest{Name: name}
-	group, resp, err := am.apiClient.CoreApi.CoreGroupsCreate(ctx).GroupRequest(createGroupRequest).Execute()
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		return "", fmt.Errorf("unable to create user group, statusCode: %d", resp.StatusCode)
-	}
-
-	return group.Pk, nil
-}
-
 func parseAuthentikUser(user api.User) *UserData {
 	return &UserData{
 		Email: *user.Email,

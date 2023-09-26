@@ -64,15 +64,6 @@ func TestNewZitadelManager(t *testing.T) {
 	}
 }
 
-type mockZitadelCredentials struct {
-	jwtToken JWTToken
-	err      error
-}
-
-func (mc *mockZitadelCredentials) Authenticate() (JWTToken, error) {
-	return mc.jwtToken, mc.err
-}
-
 func TestZitadelRequestJWTToken(t *testing.T) {
 
 	type requestJWTTokenTest struct {

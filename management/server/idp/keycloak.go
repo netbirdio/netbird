@@ -16,11 +16,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
-const (
-	wtAccountID     = "wt_account_id"
-	wtPendingInvite = "wt_pending_invite"
-)
-
 // KeycloakManager keycloak manager client instance.
 type KeycloakManager struct {
 	adminEndpoint string
