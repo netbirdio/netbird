@@ -36,6 +36,7 @@ const (
 	notFoundGroupID         = "nonExistingGroup"
 )
 
+var emptyString = ""
 var existingPeerID = "peer-id"
 var nonLinuxExistingPeerID = "darwin-peer-id"
 
@@ -280,6 +281,26 @@ func TestRoutesHandlers(t *testing.T) {
 				NetworkId:   "awesomeNet",
 				Network:     "192.168.0.0/16",
 				Peer:        &existingPeerID,
+				NetworkType: route.IPv4NetworkString,
+				Masquerade:  false,
+				Enabled:     false,
+				Groups:      []string{existingGroupID},
+			},
+		},
+		{
+			name:           "PUT OK when peer_groups provided",
+			requestType:    http.MethodPut,
+			requestPath:    "/api/routes/" + existingRouteID,
+			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"peer_groups\":[\"%s\"],\"groups\":[\"%s\"]}", existingGroupID, existingGroupID)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedRoute: &api.Route{
+				Id:          existingRouteID,
+				Description: "Post",
+				NetworkId:   "awesomeNet",
+				Network:     "192.168.0.0/16",
+				Peer:        &emptyString,
+				PeerGroups:  &[]string{existingGroupID},
 				NetworkType: route.IPv4NetworkString,
 				Masquerade:  false,
 				Enabled:     false,

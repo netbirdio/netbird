@@ -171,8 +171,13 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	peerID := ""
+	if req.Peer != nil {
+		peerID = *req.Peer
+	}
+
 	// do not allow non Linux peers
-	if peer := account.GetPeer(*req.Peer); peer != nil {
+	if peer := account.GetPeer(peerID); peer != nil {
 		if peer.Meta.GoOS != "linux" {
 			util.WriteError(status.Errorf(status.InvalidArgument, "non-linux peers are non supported as network routes"), w)
 			return
@@ -192,7 +197,7 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Peer != nil {
-		newRoute.Peer = *req.Peer
+		newRoute.Peer = peerID
 	}
 
 	if req.PeerGroups != nil {
