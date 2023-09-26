@@ -333,7 +333,7 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 		}
 		peersToConnect = append(peersToConnect, p)
 	}
-	// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
+
 	routes := a.getRoutesToSync(peerID, peersToConnect)
 
 	takePeer := func(id string) (*Peer, bool) {
@@ -355,7 +355,7 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 				continue
 			}
 			rCopy := r.Copy()
-			rCopy.Peer = peer.Key
+			rCopy.Peer = peer.Key // client expects the key
 			routesUpdate = append(routesUpdate, rCopy)
 			continue
 		}
@@ -367,13 +367,13 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 						continue
 					}
 
-					if _, ok := seenPeers[peer.Key]; !ok {
+					if _, ok := seenPeers[peer.ID]; !ok {
 						rCopy := r.Copy()
 						rCopy.ID = r.ID + ":" + peer.ID // we have to provide unit route id when distribute network map
-						rCopy.Peer = peer.Key
+						rCopy.Peer = peer.Key           // client expects the key
 						routesUpdate = append(routesUpdate, rCopy)
 					}
-					seenPeers[peer.Key] = true
+					seenPeers[peer.ID] = true
 				}
 			}
 		}
