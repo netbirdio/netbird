@@ -1,4 +1,3 @@
-#!/bin/sh
 # This code is based on the netbird-installer contribution by physk on GitHub.
 # Source: https://github.com/physk/netbird-installer
 set -e
@@ -17,6 +16,12 @@ OS_TYPE=""
 ARCH="$(uname -m)"
 PACKAGE_MANAGER="bin"
 INSTALL_DIR=""
+SUDO=""
+
+
+if command -v sudo > /dev/null && [ "$(id -u)" -ne 0 ]; then
+    SUDO="sudo"
+fi
 
 get_latest_release() {
     if [ -n "$GITHUB_TOKEN" ]; then
@@ -65,27 +70,27 @@ download_release_binary() {
         unzip -q -o "$BINARY_NAME"
         mv "netbird_ui_${OS_TYPE}_${ARCH}" "$INSTALL_DIR"
     else
-        sudo mkdir -p "$INSTALL_DIR"
+        ${SUDO} mkdir -p "$INSTALL_DIR"
         tar -xzvf "$BINARY_NAME"
-        sudo mv "${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
+        ${SUDO} mv "${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
     fi
 }
 
 add_apt_repo() {
-    sudo apt-get update
-    sudo apt-get install ca-certificates gnupg -y
+    ${SUDO} apt-get update
+    ${SUDO} apt-get install ca-certificates gnupg -y
 
     curl -sSL https://pkgs.wiretrustee.com/debian/public.key \
-    | sudo gpg --dearmor --output /usr/share/keyrings/wiretrustee-archive-keyring.gpg
+    | ${SUDO} gpg --dearmor --output /usr/share/keyrings/wiretrustee-archive-keyring.gpg
 
     APT_REPO="deb [signed-by=/usr/share/keyrings/wiretrustee-archive-keyring.gpg] https://pkgs.wiretrustee.com/debian stable main"
-    echo "$APT_REPO" | sudo tee /etc/apt/sources.list.d/wiretrustee.list
+    echo "$APT_REPO" | ${SUDO} tee /etc/apt/sources.list.d/wiretrustee.list
 
-    sudo apt-get update
+    ${SUDO} apt-get update
 }
 
 add_rpm_repo() {
-cat <<-EOF | sudo tee /etc/yum.repos.d/netbird.repo
+cat <<-EOF | ${SUDO} tee /etc/yum.repos.d/netbird.repo
 [NetBird]
 name=NetBird
 baseurl=https://pkgs.netbird.io/yum/
@@ -104,7 +109,7 @@ add_aur_repo() {
     for PKG in $INSTALL_PKGS; do
         if ! pacman -Q "$PKG" > /dev/null 2>&1; then
             # Install missing package(s)
-            sudo pacman -S "$PKG" --noconfirm
+            ${SUDO} pacman -S "$PKG" --noconfirm
 
             # Add installed package for clean up later
             REMOVE_PKGS="$REMOVE_PKGS $PKG"
@@ -121,7 +126,7 @@ add_aur_repo() {
     fi
 
     # Clean up the installed packages
-    sudo pacman -Rs "$REMOVE_PKGS" --noconfirm
+    ${SUDO} pacman -Rs "$REMOVE_PKGS" --noconfirm
 }
 
 install_native_binaries() {
@@ -186,31 +191,31 @@ install_netbird() {
     case "$PACKAGE_MANAGER" in
     apt)
         add_apt_repo
-        sudo apt-get install netbird -y
+        ${SUDO} apt-get install netbird -y
 
         if ! $SKIP_UI_APP; then
-            sudo apt-get install netbird-ui -y
+            ${SUDO} apt-get install netbird-ui -y
         fi
     ;;
     yum)
         add_rpm_repo
-        sudo yum -y install netbird
+        ${SUDO} yum -y install netbird
         if ! $SKIP_UI_APP; then
-            sudo yum -y install netbird-ui
+            ${SUDO} yum -y install netbird-ui
         fi
     ;;
     dnf)
         add_rpm_repo
-        sudo dnf -y install dnf-plugin-config-manager
-        sudo dnf config-manager --add-repo /etc/yum.repos.d/netbird.repo
-        sudo dnf -y install netbird
+        ${SUDO} dnf -y install dnf-plugin-config-manager
+        ${SUDO} dnf config-manager --add-repo /etc/yum.repos.d/netbird.repo
+        ${SUDO} dnf -y install netbird
 
         if ! $SKIP_UI_APP; then
-            sudo dnf -y install netbird-ui
+            ${SUDO} dnf -y install netbird-ui
         fi
     ;;
     pacman)
-        sudo pacman -Syy
+        ${SUDO} pacman -Syy
         add_aur_repo
     ;;
     brew)
@@ -243,7 +248,7 @@ install_netbird() {
 
         echo "Build and apply new configuration:"
         echo ""
-        echo "sudo nixos-rebuild switch"
+        echo "${SUDO} nixos-rebuild switch"
 			  exit 0
       fi
 
@@ -252,14 +257,14 @@ install_netbird() {
     esac
 
     # Add package manager to config
-    sudo mkdir -p "$CONFIG_FOLDER"
-    echo "package_manager=$PACKAGE_MANAGER" | sudo tee "$CONFIG_FILE" > /dev/null
+    ${SUDO} mkdir -p "$CONFIG_FOLDER"
+    echo "package_manager=$PACKAGE_MANAGER" | ${SUDO} tee "$CONFIG_FILE" > /dev/null
 
     # Load and start netbird service
-    if  ! sudo netbird service install 2>&1; then
+    if  ! ${SUDO} netbird service install 2>&1; then
         echo "NetBird service has already been loaded"
     fi
-    if  ! sudo netbird service start 2>&1; then
+    if  ! ${SUDO} netbird service start 2>&1; then
         echo "NetBird service has already been started"
     fi
 
@@ -274,7 +279,7 @@ version_greater_equal() {
 }
 
 is_bin_package_manager() {
-  if sudo test -f "$1" && sudo grep -q "package_manager=bin" "$1" ; then
+  if ${SUDO} test -f "$1" && ${SUDO} grep -q "package_manager=bin" "$1" ; then
     return 0
   else
     return 1
@@ -297,12 +302,12 @@ update_netbird() {
       echo ""
       echo "Initiating NetBird update. This will stop the netbird service and restart it after the update"
 
-      sudo netbird service stop
-      sudo netbird service uninstall
+      ${SUDO} netbird service stop
+      ${SUDO} netbird service uninstall
       install_native_binaries
 
-      sudo netbird service install
-      sudo netbird service start
+      ${SUDO} netbird service install
+      ${SUDO} netbird service start
     fi
   else
      echo "NetBird installation was done using a package manager. Please use your system's package manager to update"
