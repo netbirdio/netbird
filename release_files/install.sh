@@ -73,13 +73,21 @@ download_release_binary() {
 
 add_apt_repo() {
     sudo apt-get update
-    sudo apt-get install ca-certificates gnupg -y
+    sudo apt-get install ca-certificates curl gnupg -y
 
-    curl -sSL https://pkgs.wiretrustee.com/debian/public.key \
-    | sudo gpg --dearmor --output /usr/share/keyrings/wiretrustee-archive-keyring.gpg
+    # Remove old keys and repo source files
+    sudo rm -f \
+        /etc/apt/sources.list.d/netbird.list \
+        /etc/apt/sources.list.d/wiretrustee.list \
+        /etc/apt/trusted.gpg.d/wiretrustee.gpg \
+        /usr/share/keyrings/netbird-archive-keyring.gpg \
+        /usr/share/keyrings/wiretrustee-archive-keyring.gpg
 
-    APT_REPO="deb [signed-by=/usr/share/keyrings/wiretrustee-archive-keyring.gpg] https://pkgs.wiretrustee.com/debian stable main"
-    echo "$APT_REPO" | sudo tee /etc/apt/sources.list.d/wiretrustee.list
+    curl -sSL https://pkgs.netbird.io/debian/public.key \
+    | sudo gpg --dearmor -o /usr/share/keyrings/netbird-archive-keyring.gpg
+
+    echo 'deb [signed-by=/usr/share/keyrings/netbird-archive-keyring.gpg] https://pkgs.netbird.io/debian stable main' \
+    | sudo tee /etc/apt/sources.list.d/netbird.list
 
     sudo apt-get update
 }
