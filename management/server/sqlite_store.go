@@ -128,6 +128,8 @@ func (s *SqliteStore) AcquireAccountLock(accountID string) (unlock func()) {
 }
 
 func (s *SqliteStore) SaveAccount(account *Account) error {
+	start := time.Now()
+
 	for _, key := range account.SetupKeys {
 		account.SetupKeysG = append(account.SetupKeysG, *key)
 	}
@@ -190,6 +192,12 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 		}
 		return nil
 	})
+
+	took := time.Since(start)
+	if s.metrics != nil {
+		s.metrics.StoreMetrics().CountPersistenceDuration(took)
+	}
+	log.Debugf("took %d ms to persist an account to the SQLite", took.Milliseconds())
 
 	return err
 }
