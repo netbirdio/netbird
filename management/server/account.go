@@ -938,7 +938,7 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 			if err == nil {
 				data := userData[accountID.Id]
 				if data == nil {
-					data = make([]*idp.UserData, 0)
+					data = make([]*idp.UserData, 1)
 				}
 
 				user.AppMetadata.WTAccountID = accountID.Id
