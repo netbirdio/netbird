@@ -181,60 +181,6 @@ install_netbird() {
         fi
     fi
 
-    # Identify OS name and default package manager
-    if type uname >/dev/null 2>&1; then
-	case "$(uname)" in
-        Linux)
-            OS_NAME="$(. /etc/os-release && echo "$ID")"
-            OS_TYPE="linux"
-            INSTALL_DIR="/usr/bin"
-
-            # Allow netbird UI installation for x64 arch only
-            if [ "$ARCH" != "amd64" ] && [ "$ARCH" != "arm64" ] \
-                && [ "$ARCH" != "x86_64" ];then
-                SKIP_UI_APP=true
-                echo "NetBird UI installation will be omitted as $ARCH is not a compactible architecture"
-            fi
-
-            # Allow netbird UI installation for linux running desktop enviroment
-            if [ -z "$XDG_CURRENT_DESKTOP" ];then
-                SKIP_UI_APP=true
-                echo "NetBird UI installation will be omitted as Linux does not run desktop environment"
-            fi
-
-            # Check the availability of a compatible package manager
-            if check_use_bin_variable; then
-                PACKAGE_MANAGER="bin"
-            elif [ -x "$(command -v apt)" ]; then
-                PACKAGE_MANAGER="apt"
-                echo "The installation will be performed using apt package manager"
-            elif [ -x "$(command -v dnf)" ]; then
-                PACKAGE_MANAGER="dnf"
-                echo "The installation will be performed using dnf package manager"
-            elif [ -x "$(command -v yum)" ]; then
-                PACKAGE_MANAGER="yum"
-                echo "The installation will be performed using yum package manager"
-            elif [ -x "$(command -v pacman)" ]; then
-                PACKAGE_MANAGER="pacman"
-                echo "The installation will be performed using pacman package manager"
-            fi
-		;;
-		Darwin)
-            OS_NAME="macos"
-			OS_TYPE="darwin"
-            INSTALL_DIR="/usr/local/bin"
-
-            # Check the availability of a compatible package manager
-            if check_use_bin_variable; then
-                PACKAGE_MANAGER="bin"
-            elif [ -x "$(command -v brew)" ]; then
-                PACKAGE_MANAGER="brew"
-                echo "The installation will be performed using brew package manager"
-            fi
-		;;
-	esac
-    fi
-
     # Run the installation, if a desktop environment is not detected
     # only the CLI will be installed
     case "$PACKAGE_MANAGER" in
@@ -320,7 +266,7 @@ install_netbird() {
 
     echo "Installation has been finished. To connect, you need to run NetBird by executing the following command:"
     echo ""
-    echo "sudo netbird up"
+    echo "netbird up"
 }
 
 version_greater_equal() {
@@ -363,6 +309,59 @@ update_netbird() {
   fi
 }
 
+# Identify OS name and default package manager
+if type uname >/dev/null 2>&1; then
+	case "$(uname)" in
+        Linux)
+            OS_NAME="$(. /etc/os-release && echo "$ID")"
+            OS_TYPE="linux"
+            INSTALL_DIR="/usr/bin"
+
+            # Allow netbird UI installation for x64 arch only
+            if [ "$ARCH" != "amd64" ] && [ "$ARCH" != "arm64" ] \
+                && [ "$ARCH" != "x86_64" ];then
+                SKIP_UI_APP=true
+                echo "NetBird UI installation will be omitted as $ARCH is not a compactible architecture"
+            fi
+
+            # Allow netbird UI installation for linux running desktop enviroment
+            if [ -z "$XDG_CURRENT_DESKTOP" ];then
+                SKIP_UI_APP=true
+                echo "NetBird UI installation will be omitted as Linux does not run desktop environment"
+            fi
+
+            # Check the availability of a compatible package manager
+            if check_use_bin_variable; then
+                PACKAGE_MANAGER="bin"
+            elif [ -x "$(command -v apt)" ]; then
+                PACKAGE_MANAGER="apt"
+                echo "The installation will be performed using apt package manager"
+            elif [ -x "$(command -v dnf)" ]; then
+                PACKAGE_MANAGER="dnf"
+                echo "The installation will be performed using dnf package manager"
+            elif [ -x "$(command -v yum)" ]; then
+                PACKAGE_MANAGER="yum"
+                echo "The installation will be performed using yum package manager"
+            elif [ -x "$(command -v pacman)" ]; then
+                PACKAGE_MANAGER="pacman"
+                echo "The installation will be performed using pacman package manager"
+            fi
+		;;
+		Darwin)
+            OS_NAME="macos"
+			OS_TYPE="darwin"
+            INSTALL_DIR="/usr/local/bin"
+
+            # Check the availability of a compatible package manager
+            if check_use_bin_variable; then
+                PACKAGE_MANAGER="bin"
+            elif [ -x "$(command -v brew)" ]; then
+                PACKAGE_MANAGER="brew"
+                echo "The installation will be performed using brew package manager"
+            fi
+		;;
+	esac
+fi
 
 case "$1" in
     --update)
