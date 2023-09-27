@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,18 +66,11 @@ func NewFilestoreFromSqliteStore(sqlitestore *SqliteStore, dataDir string, metri
 		return nil, err
 	}
 
-	l := len(sqlitestore.GetAllAccounts())
-	fmt.Print("\033[s")
-	for i, account := range sqlitestore.GetAllAccounts() {
-		fmt.Print("\033[u\033[K")
-		fmt.Printf("%d/%d", i, l)
-		err := store.SaveAccount(account)
-		if err != nil {
-			return nil, err
-		}
+	for _, account := range sqlitestore.GetAllAccounts() {
+		store.Accounts[account.Id] = account
 	}
 
-	return store, nil
+	return store, store.persist(store.storeFile)
 }
 
 // restore the state of the store from the file.
