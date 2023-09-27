@@ -93,7 +93,7 @@ func Create(wgIface iFaceMapper, ipv6Supported bool) (*Manager, error) {
 
 // AddFiltering rule to the firewall
 //
-// If comment is empty rule ID is used as comment
+// Comment will be ignored because some system this feature is not supported
 func (m *Manager) AddFiltering(
 	ip net.IP,
 	protocol fw.Protocol,
@@ -123,9 +123,6 @@ func (m *Manager) AddFiltering(
 	ipsetName = m.transformIPsetName(ipsetName, sPortVal, dPortVal)
 
 	ruleID := uuid.New().String()
-	if comment == "" {
-		comment = ruleID
-	}
 
 	if ipsetName != "" {
 		rs, rsExists := m.rulesets[ipsetName]
@@ -157,8 +154,7 @@ func (m *Manager) AddFiltering(
 		// this is new ipset so we need to create firewall rule for it
 	}
 
-	specs := m.filterRuleSpecs("filter", ip, string(protocol), sPortVal, dPortVal,
-		direction, action, comment, ipsetName)
+	specs := m.filterRuleSpecs(ip, string(protocol), sPortVal, dPortVal, direction, action, ipsetName)
 
 	if direction == fw.RuleDirectionOUT {
 		ok, err := client.Exists("filter", ChainOutputFilterName, specs...)
@@ -283,7 +279,7 @@ func (m *Manager) AllowNetbird() error {
 			fw.RuleDirectionIN,
 			fw.ActionAccept,
 			"",
-			"allow netbird interface traffic",
+			"",
 		)
 		if err != nil {
 			return fmt.Errorf("failed to allow netbird interface traffic: %w", err)
@@ -296,7 +292,7 @@ func (m *Manager) AllowNetbird() error {
 			fw.RuleDirectionOUT,
 			fw.ActionAccept,
 			"",
-			"allow netbird interface traffic",
+			"",
 		)
 		return err
 	}
@@ -362,9 +358,7 @@ func (m *Manager) reset(client *iptables.IPTables, table string) error {
 
 // filterRuleSpecs returns the specs of a filtering rule
 func (m *Manager) filterRuleSpecs(
-	table string, ip net.IP, protocol string, sPort, dPort string,
-	direction fw.RuleDirection, action fw.Action, comment string,
-	ipsetName string,
+	ip net.IP, protocol string, sPort, dPort string, direction fw.RuleDirection, action fw.Action, ipsetName string,
 ) (specs []string) {
 	matchByIP := true
 	// don't use IP matching if IP is ip 0.0.0.0
@@ -398,8 +392,7 @@ func (m *Manager) filterRuleSpecs(
 	if dPort != "" {
 		specs = append(specs, "--dport", dPort)
 	}
-	specs = append(specs, "-j", m.actionToStr(action))
-	return append(specs, "-m", "comment", "--comment", comment)
+	return append(specs, "-j", m.actionToStr(action))
 }
 
 // rawClient returns corresponding iptables client for the given ip
