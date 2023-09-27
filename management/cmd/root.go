@@ -67,6 +67,10 @@ func init() {
 	migrationCmd.Flags().StringVar(&mgmtDataDir, "datadir", defaultMgmtDataDir, "server data directory location")
 	migrationCmd.MarkFlagRequired("datadir") //nolint
 	rootCmd.AddCommand(migrationCmd)
+
+	rollbackCmd.Flags().StringVar(&mgmtDataDir, "datadir", defaultMgmtDataDir, "server data directory location")
+	rollbackCmd.MarkFlagRequired("datadir") //nolint
+	rootCmd.AddCommand(rollbackCmd)
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success

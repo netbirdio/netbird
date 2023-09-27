@@ -13,12 +13,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var short = "Migrate JSON file store to SQLite store. Please make a backup of the store json file before running this command."
+var shortMigration = "Migrate JSON file store to SQLite store. Please make a backup of the store json file before running this command."
 
 var migrationCmd = &cobra.Command{
 	Use:   "migration [--datadir directory] [--log-file console]",
-	Short: short,
-	Long: short +
+	Short: shortMigration,
+	Long: shortMigration +
 		"\n\n" +
 		"This command reads the content of {datadir}/store.json and migrates it to {datadir}/store.db that can be used by SQLite store driver.",
 	RunE: func(cmd *cobra.Command, args []string) error {

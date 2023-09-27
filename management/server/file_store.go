@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,6 +53,32 @@ func NewFileStore(dataDir string, metrics telemetry.AppMetrics) (*FileStore, err
 	}
 	fs.metrics = metrics
 	return fs, nil
+}
+
+// NewFilestoreFromSqliteStore restores a store from Sqlite and stores to Filestore json in the file located in datadir
+func NewFilestoreFromSqliteStore(sqlitestore *SqliteStore, dataDir string, metrics telemetry.AppMetrics) (*FileStore, error) {
+	store, err := NewFileStore(dataDir, metrics)
+	if err != nil {
+		return nil, err
+	}
+
+	err = store.SaveInstallationID(sqlitestore.GetInstallationID())
+	if err != nil {
+		return nil, err
+	}
+
+	l := len(sqlitestore.GetAllAccounts())
+	fmt.Print("\033[s")
+	for i, account := range sqlitestore.GetAllAccounts() {
+		fmt.Print("\033[u\033[K")
+		fmt.Printf("%d/%d", i, l)
+		err := store.SaveAccount(account)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return store, nil
 }
 
 // restore the state of the store from the file.
