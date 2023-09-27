@@ -26,8 +26,7 @@ func NewStoreMetrics(ctx context.Context, meter metric.Meter) (*StoreMetrics, er
 		return nil, err
 	}
 
-	globalLockAcquisitionDurationMs, err := meter.SyncInt64().Histogram("management.store.global.lock.acquisition.duration.ms",
-		instrument.WithUnit("ms"))
+	globalLockAcquisitionDurationMs, err := meter.SyncInt64().Histogram("management.store.global.lock.acquisition.duration.ms")
 	if err != nil {
 		return nil, err
 	}
@@ -38,8 +37,7 @@ func NewStoreMetrics(ctx context.Context, meter metric.Meter) (*StoreMetrics, er
 		return nil, err
 	}
 
-	persistenceDurationMs, err := meter.SyncInt64().Histogram("management.store.persistence.duration.ms",
-		instrument.WithUnit("ms"))
+	persistenceDurationMs, err := meter.SyncInt64().Histogram("management.store.persistence.duration.ms")
 	if err != nil {
 		return nil, err
 	}
