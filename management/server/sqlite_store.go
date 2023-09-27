@@ -20,10 +20,12 @@ import (
 
 // SqliteStore represents an account storage backed by a Sqlite DB persisted to disk
 type SqliteStore struct {
-	db             *gorm.DB
-	storeFile      string
-	accountLocks   sync.Map
-	installationPK int
+	db                *gorm.DB
+	storeFile         string
+	accountLocks      sync.Map
+	globalAccountLock sync.Mutex
+	metrics           telemetry.AppMetrics
+	installationPK    int
 }
 
 type installation struct {
@@ -64,7 +66,7 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 		return nil, err
 	}
 
-	return &SqliteStore{db: db, storeFile: file, installationPK: 1}, nil
+	return &SqliteStore{db: db, storeFile: file, metrics: metrics, installationPK: 1}, nil
 }
 
 // NewSqliteStoreFromFileStore restores a store from FileStore and stores SQLite DB in the file located in datadir
@@ -89,9 +91,24 @@ func NewSqliteStoreFromFileStore(filestore *FileStore, dataDir string, metrics t
 	return store, nil
 }
 
-// AcquireGlobalLock is noop in SqliteStore
+// AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
 func (s *SqliteStore) AcquireGlobalLock() (unlock func()) {
-	return func() {}
+	log.Debugf("acquiring global lock")
+	start := time.Now()
+	s.globalAccountLock.Lock()
+
+	unlock = func() {
+		s.globalAccountLock.Unlock()
+		log.Debugf("released global lock in %v", time.Since(start))
+	}
+
+	took := time.Since(start)
+	log.Debugf("took %v to acquire global lock", took)
+	if s.metrics != nil {
+		s.metrics.StoreMetrics().CountGlobalLockAcquisitionDuration(took)
+	}
+
+	return unlock
 }
 
 func (s *SqliteStore) AcquireAccountLock(accountID string) (unlock func()) {
