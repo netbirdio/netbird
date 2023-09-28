@@ -33,8 +33,8 @@ type MockAccountManager struct {
 	SaveGroupFunc                   func(accountID, userID string, group *server.Group) error
 	DeleteGroupFunc                 func(accountID, userId, groupID string) error
 	ListGroupsFunc                  func(accountID string) ([]*server.Group, error)
-	GroupAddPeerFunc                func(accountID, groupID, peerKey string) error
-	GroupDeletePeerFunc             func(accountID, groupID, peerKey string) error
+	GroupAddPeerFunc                func(accountID, groupID, peerID string) error
+	GroupDeletePeerFunc             func(accountID, groupID, peerID string) error
 	GroupListPeersFunc              func(accountID, groupID string) ([]*server.Peer, error)
 	GetRuleFunc                     func(accountID, ruleID, userID string) (*server.Rule, error)
 	SaveRuleFunc                    func(accountID, userID string, rule *server.Rule) error
@@ -50,7 +50,7 @@ type MockAccountManager struct {
 	UpdatePeerMetaFunc              func(peerID string, meta server.PeerSystemMeta) error
 	UpdatePeerSSHKeyFunc            func(peerID string, sshKey string) error
 	UpdatePeerFunc                  func(accountID, userID string, peer *server.Peer) (*server.Peer, error)
-	CreateRouteFunc                 func(accountID string, prefix, peer, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
+	CreateRouteFunc                 func(accountID, prefix, peer string, peerGroups []string, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
 	GetRouteFunc                    func(accountID, routeID, userID string) (*route.Route, error)
 	SaveRouteFunc                   func(accountID, userID string, route *route.Route) error
 	DeleteRouteFunc                 func(accountID, routeID, userID string) error
@@ -281,17 +281,17 @@ func (am *MockAccountManager) ListGroups(accountID string) ([]*server.Group, err
 }
 
 // GroupAddPeer mock implementation of GroupAddPeer from server.AccountManager interface
-func (am *MockAccountManager) GroupAddPeer(accountID, groupID, peerKey string) error {
+func (am *MockAccountManager) GroupAddPeer(accountID, groupID, peerID string) error {
 	if am.GroupAddPeerFunc != nil {
-		return am.GroupAddPeerFunc(accountID, groupID, peerKey)
+		return am.GroupAddPeerFunc(accountID, groupID, peerID)
 	}
 	return status.Errorf(codes.Unimplemented, "method GroupAddPeer is not implemented")
 }
 
 // GroupDeletePeer mock implementation of GroupDeletePeer from server.AccountManager interface
-func (am *MockAccountManager) GroupDeletePeer(accountID, groupID, peerKey string) error {
+func (am *MockAccountManager) GroupDeletePeer(accountID, groupID, peerID string) error {
 	if am.GroupDeletePeerFunc != nil {
-		return am.GroupDeletePeerFunc(accountID, groupID, peerKey)
+		return am.GroupDeletePeerFunc(accountID, groupID, peerID)
 	}
 	return status.Errorf(codes.Unimplemented, "method GroupDeletePeer is not implemented")
 }
@@ -401,9 +401,9 @@ func (am *MockAccountManager) UpdatePeer(accountID, userID string, peer *server.
 }
 
 // CreateRoute mock implementation of CreateRoute from server.AccountManager interface
-func (am *MockAccountManager) CreateRoute(accountID string, network, peerID, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error) {
+func (am *MockAccountManager) CreateRoute(accountID, network, peerID string, peerGroups []string, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error) {
 	if am.CreateRouteFunc != nil {
-		return am.CreateRouteFunc(accountID, network, peerID, description, netID, masquerade, metric, groups, enabled, userID)
+		return am.CreateRouteFunc(accountID, network, peerID, peerGroups, description, netID, masquerade, metric, groups, enabled, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method CreateRoute is not implemented")
 }
