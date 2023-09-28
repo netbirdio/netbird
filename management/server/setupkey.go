@@ -76,7 +76,7 @@ type SetupKey struct {
 	Type      SetupKeyType
 	CreatedAt time.Time
 	ExpiresAt time.Time
-	UpdatedAt time.Time
+	UpdatedAt time.Time `gorm:"autoUpdateTime:false"`
 	// Revoked indicates whether the key was revoked or not (we don't remove them for tracking purposes)
 	Revoked bool
 	// UsedTimes indicates how many times the key was used
