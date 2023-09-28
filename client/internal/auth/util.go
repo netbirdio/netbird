@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"reflect"
 	"strings"
 )
 
@@ -44,15 +43,14 @@ func isValidAccessToken(token string, audience string) error {
 	}
 
 	// Audience claim of JWT can be a string or an array of strings
-	typ := reflect.TypeOf(claims.Audience)
-	switch typ.Kind() {
-	case reflect.String:
-		if claims.Audience == audience {
+	switch aud := claims.Audience.(type) {
+	case string:
+		if aud == audience {
 			return nil
 		}
-	case reflect.Slice:
-		for _, aud := range claims.Audience.([]interface{}) {
-			if audience == aud {
+	case []interface{}:
+		for _, audItem := range aud {
+			if audStr, ok := audItem.(string); ok && audStr == audience {
 				return nil
 			}
 		}
