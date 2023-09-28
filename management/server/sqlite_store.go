@@ -343,7 +343,7 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 
 	account.SetupKeys = make(map[string]*SetupKey, len(account.SetupKeysG))
 	for _, key := range account.SetupKeysG {
-		account.SetupKeys[key.Id] = key.Copy()
+		account.SetupKeys[key.Key] = key.Copy()
 	}
 	account.SetupKeysG = nil
 
