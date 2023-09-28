@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"runtime"
 
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
@@ -71,6 +72,8 @@ func NewOAuthFlow(ctx context.Context, config *internal.Config, isLinuxDesktopCl
 	pkceFlow, err := authenticateWithPKCEFlow(ctx, config)
 	if err != nil {
 		// fallback to device code flow
+		log.Debugf("failed to initialize pkce authentication with error: %v\n", err)
+		log.Debug("falling back to device code flow")
 		return authenticateWithDeviceCodeFlow(ctx, config)
 	}
 	return pkceFlow, nil
