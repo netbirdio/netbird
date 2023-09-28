@@ -13,12 +13,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var shortRollback = "Rollback SQLite store to JSON filestore. Please make a backup of the SQLite file before running this command."
+var shortDown = "Rollback SQLite store to JSON filestore. Please make a backup of the SQLite file before running this command."
 
-var rollbackCmd = &cobra.Command{
-	Use:   "rollback [--datadir directory] [--log-file console]",
-	Short: shortRollback,
-	Long: shortRollback +
+var downCmd = &cobra.Command{
+	Use:   "down [--datadir directory] [--log-file console]",
+	Short: shortDown,
+	Long: shortDown +
 		"\n\n" +
 		"This command reads the content of {datadir}/store.db and migrates it to {datadir}/store.json that can be used by File store driver.",
 	RunE: func(cmd *cobra.Command, args []string) error {
