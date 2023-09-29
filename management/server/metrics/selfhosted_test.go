@@ -9,6 +9,7 @@ import (
 
 type mockDatasource struct{}
 
+// GetAllConnectedPeers returns a map of connected peer IDs for use in tests with predefined information
 func (mockDatasource) GetAllConnectedPeers() map[string]struct{} {
 	return map[string]struct{}{
 		"1": {},
