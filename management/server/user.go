@@ -836,6 +836,9 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 func (am *DefaultAccountManager) expireAndUpdatePeers(account *Account, peers []*Peer) error {
 	var peerIDs []string
 	for _, peer := range peers {
+		if peer.Status.LoginExpired {
+			continue
+		}
 		peerIDs = append(peerIDs, peer.ID)
 		peer.MarkLoginExpired(true)
 		account.UpdatePeer(peer)
