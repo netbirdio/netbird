@@ -338,8 +338,12 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return status.Errorf(status.Internal, "failed to find user peers")
 	}
 
-	if err := am.expireAndUpdatePeers(account, peers); err != nil {
-		log.Errorf("failed update deleted peers expiration: %s", err)
+	peerIDs := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		peerIDs = append(peerIDs, peer.ID)
+	}
+	err = am.deletePeers(accountID, peerIDs, initiatorUserID)
+	if err != nil {
 		return err
 	}
 
