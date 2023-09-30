@@ -380,18 +380,18 @@ func (am *DefaultAccountManager) deletePeers(accountID string, peerIDs []string,
 		return err
 	}
 
+	var peerError error
 	for _, peerID := range peerIDs {
 
 		peer := account.GetPeer(peerID)
 		if peer == nil {
-			// todo fix error handling
-			err = status.Errorf(status.NotFound, "peer %s not found", peerID)
+			peerError = status.Errorf(status.NotFound, "peer %s not found", peerID)
 			goto save
 		}
 
 		account.DeletePeer(peerID)
 
-		err = am.peersUpdateManager.SendUpdate(peer.ID,
+		peerError = am.peersUpdateManager.SendUpdate(peer.ID,
 			&UpdateMessage{
 				Update: &proto.SyncResponse{
 					// fill those field for backward compatibility
@@ -407,7 +407,7 @@ func (am *DefaultAccountManager) deletePeers(accountID string, peerIDs []string,
 					},
 				},
 			})
-		if err != nil {
+		if peerError != nil {
 			goto save
 		}
 
@@ -419,13 +419,27 @@ func (am *DefaultAccountManager) deletePeers(accountID string, peerIDs []string,
 save:
 	err = am.Store.SaveAccount(account)
 	if err != nil {
-		return err
+		if peerError != nil {
+			log.Errorf("account save error: %s", err)
+			return peerError
+		} else {
+			return err
+		}
 	}
 
-	if err := am.updateAccountPeers(account); err != nil {
-		return err
+	err = am.updateAccountPeers(account)
+	if err != nil {
+		if peerError != nil {
+			log.Errorf("update account peers error: %s", err)
+			return peerError
+		} else {
+			return err
+		}
 	}
 
+	if peerError != nil {
+		return peerError
+	}
 	return nil
 }
 
