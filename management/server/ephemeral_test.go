@@ -29,9 +29,9 @@ type MocAccountManager struct {
 	store *MockStore
 }
 
-func (a MocAccountManager) DeletePeer(accountID, peerID, userID string) (*Peer, error) {
+func (a MocAccountManager) DeletePeer(accountID, peerID, userID string) error {
 	delete(a.store.account.Peers, peerID)
-	return nil, nil //nolint:nilnil
+	return nil //nolint:nil
 }
 
 func TestNewManager(t *testing.T) {
