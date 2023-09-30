@@ -444,12 +444,11 @@ save:
 }
 
 // DeletePeer removes peer from the account by its IP
-func (am *DefaultAccountManager) DeletePeer(accountID, peerID, userID string) (*Peer, error) {
+func (am *DefaultAccountManager) DeletePeer(accountID, peerID, userID string) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
-	// todo remove *Peer from teh return of DeletePeer function
-	return nil, am.deletePeers(accountID, []string{peerID}, userID)
+	return am.deletePeers(accountID, []string{peerID}, userID)
 }
 
 // GetPeerByIP returns peer by its IP
