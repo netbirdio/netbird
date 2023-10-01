@@ -169,8 +169,8 @@ func (jm *JumpCloudManager) GetAllAccounts() (map[string][]*UserData, error) {
 
 	indexedUsers := make(map[string][]*UserData)
 	for _, user := range userList.Results {
-		accountID := "unset"
-		indexedUsers[accountID] = append(indexedUsers[accountID], parseJumpCloudUser(user))
+		userData := parseJumpCloudUser(user)
+		indexedUsers[unsetAccountID] = append(indexedUsers[unsetAccountID], userData)
 	}
 
 	return indexedUsers, nil
