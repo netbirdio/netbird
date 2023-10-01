@@ -312,9 +312,7 @@ func (am *AuthentikManager) GetAllAccounts() (map[string][]*UserData, error) {
 	indexedUsers := make(map[string][]*UserData)
 	for _, user := range userList.Results {
 		userData := parseAuthentikUser(user)
-
-		accountID := "unset"
-		indexedUsers[accountID] = append(indexedUsers[accountID], userData)
+		indexedUsers[unsetAccountID] = append(indexedUsers[unsetAccountID], userData)
 	}
 
 	return indexedUsers, nil

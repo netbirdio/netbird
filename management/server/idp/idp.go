@@ -9,13 +9,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
-type Error struct {
-	message string
-}
-
-func (e *Error) Error() string {
-	return e.message
-}
+const (
+	unsetAccountID = "unset"
+)
 
 // Manager idp manager interface
 type Manager interface {

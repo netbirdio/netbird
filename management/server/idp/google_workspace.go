@@ -143,8 +143,8 @@ func (gm *GoogleWorkspaceManager) GetAllAccounts() (map[string][]*UserData, erro
 
 	indexedUsers := make(map[string][]*UserData)
 	for _, user := range usersList.Users {
-		accountID := "unset"
-		indexedUsers[accountID] = append(indexedUsers[accountID], parseGoogleWorkspaceUser(user))
+		userData := parseGoogleWorkspaceUser(user)
+		indexedUsers[unsetAccountID] = append(indexedUsers[unsetAccountID], userData)
 	}
 
 	return indexedUsers, nil
