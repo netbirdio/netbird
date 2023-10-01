@@ -295,8 +295,8 @@ func (km *KeycloakManager) GetAllAccounts() (map[string][]*UserData, error) {
 
 	indexedUsers := make(map[string][]*UserData)
 	for _, profile := range profiles {
-		accountID := "unset"
-		indexedUsers[accountID] = append(indexedUsers[accountID], profile.userData())
+		userData := profile.userData()
+		indexedUsers[unsetAccountID] = append(indexedUsers[unsetAccountID], userData)
 	}
 
 	return indexedUsers, nil

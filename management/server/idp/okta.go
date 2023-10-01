@@ -216,8 +216,7 @@ func (om *OktaManager) GetAllAccounts() (map[string][]*UserData, error) {
 			return nil, err
 		}
 
-		accountID := "unset"
-		indexedUsers[accountID] = append(indexedUsers[accountID], userData)
+		indexedUsers[unsetAccountID] = append(indexedUsers[unsetAccountID], userData)
 	}
 
 	return indexedUsers, nil
