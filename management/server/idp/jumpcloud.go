@@ -40,11 +40,6 @@ type JumpCloudCredentials struct {
 	appMetrics   telemetry.AppMetrics
 }
 
-type JumpCloudAttribute struct {
-	Name  string `json:"name"`
-	Value any    `json:"value"`
-}
-
 // NewJumpCloudManager creates a new instance of the JumpCloudManager.
 func NewJumpCloudManager(config JumpCloudClientConfig, appMetrics telemetry.AppMetrics) (*JumpCloudManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
@@ -90,43 +85,12 @@ func (jm *JumpCloudManager) authenticationContext() context.Context {
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
-func (jm *JumpCloudManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
-	authCtx := jm.authenticationContext()
-	user, resp, err := jm.client.SystemusersApi.SystemusersGet(authCtx, userID, contentType, accept, nil)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	attributes := buildUserAttributesUpdatePayload(user, appMetadata)
-	updateReq := map[string]interface{}{
-		"body": v1.Systemuserput{
-			Attributes: attributes,
-		},
-	}
-
-	_, resp, err = jm.client.SystemusersApi.SystemusersPut(authCtx, userID, contentType, accept, updateReq)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		if jm.appMetrics != nil {
-			jm.appMetrics.IDPMetrics().CountRequestStatusError()
-		}
-		return fmt.Errorf("unable to update user %s, statusCode %d", userID, resp.StatusCode)
-	}
-
-	if jm.appMetrics != nil {
-		jm.appMetrics.IDPMetrics().CountUpdateUserAppMetadata()
-	}
-
+func (jm *JumpCloudManager) UpdateUserAppMetadata(_ string, _ AppMetadata) error {
 	return nil
 }
 
 // GetUserDataByID requests user data from JumpCloud via ID.
-func (jm *JumpCloudManager) GetUserDataByID(userID string, _ AppMetadata) (*UserData, error) {
+func (jm *JumpCloudManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
 	authCtx := jm.authenticationContext()
 	user, resp, err := jm.client.SystemusersApi.SystemusersGet(authCtx, userID, contentType, accept, nil)
 	if err != nil {
@@ -145,20 +109,16 @@ func (jm *JumpCloudManager) GetUserDataByID(userID string, _ AppMetadata) (*User
 		jm.appMetrics.IDPMetrics().CountGetUserDataByID()
 	}
 
-	return parseJumpCloudUser(user), nil
+	userData := parseJumpCloudUser(user)
+	userData.AppMetadata = appMetadata
+
+	return userData, nil
 }
 
 // GetAccount returns all the users for a given profile.
 func (jm *JumpCloudManager) GetAccount(accountID string) ([]*UserData, error) {
-	searchFilter := map[string]interface{}{
-		"searchFilter": map[string]interface{}{
-			"filter": []string{accountID},
-			"fields": []string{"wtAccountID"},
-		},
-	}
-
 	authCtx := jm.authenticationContext()
-	userList, resp, err := jm.client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, searchFilter)
+	userList, resp, err := jm.client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -175,13 +135,15 @@ func (jm *JumpCloudManager) GetAccount(accountID string) ([]*UserData, error) {
 		jm.appMetrics.IDPMetrics().CountGetAccount()
 	}
 
-	usersData := make([]*UserData, 0)
+	users := make([]*UserData, 0)
 	for _, user := range userList.Results {
 		userData := parseJumpCloudUser(user)
-		usersData = append(usersData, userData)
+		userData.AppMetadata.WTAccountID = accountID
+
+		users = append(users, userData)
 	}
 
-	return usersData, nil
+	return users, nil
 }
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
@@ -207,68 +169,16 @@ func (jm *JumpCloudManager) GetAllAccounts() (map[string][]*UserData, error) {
 
 	indexedUsers := make(map[string][]*UserData)
 	for _, user := range userList.Results {
-		userData := parseJumpCloudUser(user)
-
-		accountID := userData.AppMetadata.WTAccountID
-		if accountID != "" {
-			if _, ok := indexedUsers[accountID]; !ok {
-				indexedUsers[accountID] = make([]*UserData, 0)
-			}
-			indexedUsers[accountID] = append(indexedUsers[accountID], userData)
-		}
+		accountID := "unset"
+		indexedUsers[accountID] = append(indexedUsers[accountID], parseJumpCloudUser(user))
 	}
 
 	return indexedUsers, nil
 }
 
 // CreateUser creates a new user in JumpCloud Idp and sends an invitation.
-func (jm *JumpCloudManager) CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error) {
-	var firstName, lastName string
-
-	fields := strings.Fields(name)
-	if n := len(fields); n > 0 {
-		firstName = strings.Join(fields[:n-1], " ")
-		lastName = fields[n-1]
-	}
-	createUserReq := map[string]any{
-		"body": v1.Systemuserputpost{
-			Username:  firstName,
-			Email:     email,
-			Firstname: firstName,
-			Lastname:  lastName,
-			Activated: true,
-			Attributes: []any{
-				JumpCloudAttribute{
-					Name:  "wtAccountID",
-					Value: accountID,
-				},
-				JumpCloudAttribute{
-					Name:  "wtPendingInvite",
-					Value: true,
-				},
-			},
-		},
-	}
-
-	authCtx := jm.authenticationContext()
-	user, resp, err := jm.client.SystemusersApi.SystemusersPost(authCtx, contentType, accept, createUserReq)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		if jm.appMetrics != nil {
-			jm.appMetrics.IDPMetrics().CountRequestStatusError()
-		}
-		return nil, fmt.Errorf("unable to create user %s, statusCode %d", email, resp.StatusCode)
-	}
-
-	if jm.appMetrics != nil {
-		jm.appMetrics.IDPMetrics().CountCreateUser()
-	}
-
-	return parseJumpCloudUser(user), nil
+func (jm *JumpCloudManager) CreateUser(_, _, _, _ string) (*UserData, error) {
+	return nil, fmt.Errorf("method CreateUser not implemented")
 }
 
 // GetUserByEmail searches users with a given email.
@@ -301,8 +211,7 @@ func (jm *JumpCloudManager) GetUserByEmail(email string) ([]*UserData, error) {
 
 	usersData := make([]*UserData, 0)
 	for _, user := range userList.Results {
-		userData := parseJumpCloudUser(user)
-		usersData = append(usersData, userData)
+		usersData = append(usersData, parseJumpCloudUser(user))
 	}
 
 	return usersData, nil
@@ -339,68 +248,10 @@ func (jm *JumpCloudManager) DeleteUser(userID string) error {
 
 // parseJumpCloudUser parse JumpCloud system user returned from API V1 to UserData.
 func parseJumpCloudUser(user v1.Systemuserreturn) *UserData {
-	appMetadata := AppMetadata{}
 	names := []string{user.Firstname, user.Middlename, user.Lastname}
-
-	for _, attribute := range user.Attributes {
-		if jcAttribute, ok := attribute.(map[string]any); ok {
-			if jcAttribute["name"] == "wtAccountID" {
-				appMetadata.WTAccountID = jcAttribute["value"].(string)
-			}
-
-			if jcAttribute["name"] == "wtPendingInvite" {
-				if value, ok := jcAttribute["value"].(bool); ok {
-					appMetadata.WTPendingInvite = &value
-				}
-			}
-		}
-	}
-
 	return &UserData{
-		Email:       user.Email,
-		Name:        strings.Join(names, " "),
-		ID:          user.Id,
-		AppMetadata: appMetadata,
+		Email: user.Email,
+		Name:  strings.Join(names, " "),
+		ID:    user.Id,
 	}
-}
-
-// buildUserAttributesUpdatePayload constructs the updated user attributes based on system user and application metadata.
-func buildUserAttributesUpdatePayload(user v1.Systemuserreturn, appMetadata AppMetadata) (userAttributes []interface{}) {
-	var isAccountIDFound, isPendingInviteFound bool
-
-	for _, attribute := range user.Attributes {
-		if jcAttribute, ok := attribute.(JumpCloudAttribute); ok {
-			if jcAttribute.Name == "wtAccountID" {
-				jcAttribute.Value = appMetadata.WTAccountID
-				isAccountIDFound = true
-			}
-
-			if jcAttribute.Name == "wtPendingInvite" {
-				if appMetadata.WTPendingInvite != nil {
-					jcAttribute.Value = appMetadata.WTPendingInvite
-					isPendingInviteFound = true
-				}
-			}
-
-			attribute = jcAttribute
-		}
-
-		userAttributes = append(userAttributes, attribute)
-	}
-
-	if !isAccountIDFound {
-		userAttributes = append(userAttributes, JumpCloudAttribute{
-			Name:  "wtAccountID",
-			Value: appMetadata.WTAccountID,
-		})
-	}
-
-	if !isPendingInviteFound && appMetadata.WTPendingInvite != nil {
-		userAttributes = append(userAttributes, JumpCloudAttribute{
-			Name:  "wtPendingInvite",
-			Value: appMetadata.WTPendingInvite,
-		})
-	}
-
-	return userAttributes
 }
