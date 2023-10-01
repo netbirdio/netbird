@@ -333,6 +333,21 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return status.Errorf(status.PermissionDenied, "only admins can delete users")
 	}
 
+	peers, err := account.FindUserPeers(targetUserID)
+	if err != nil {
+		return status.Errorf(status.Internal, "failed to find user peers")
+	}
+
+	peerIDs := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		peerIDs = append(peerIDs, peer.ID)
+	}
+
+	err = am.deletePeers(account, peerIDs, initiatorUserID)
+	if err != nil {
+		return err
+	}
+
 	tuEmail, tuName, err := am.getEmailAndNameOfTargetUser(account.Id, initiatorUserID, targetUserID)
 	if err != nil {
 		log.Errorf("failed to resolve email address: %s", err)
@@ -360,20 +375,6 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 
 	delete(account.Users, targetUserID)
 
-	peers, err := account.FindUserPeers(targetUserID)
-	if err != nil {
-		return status.Errorf(status.Internal, "failed to find user peers")
-	}
-
-	peerIDs := make([]string, 0, len(peers))
-	for _, peer := range peers {
-		peerIDs = append(peerIDs, peer.ID)
-	}
-
-	err = am.deletePeers(account, peerIDs, initiatorUserID)
-	if err != nil {
-		return err
-	}
 	// todo should be unnecessary because we save account in the am.deletePeers
 	err = am.Store.SaveAccount(account)
 	if err != nil {
