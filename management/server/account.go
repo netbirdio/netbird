@@ -66,7 +66,7 @@ type AccountManager interface {
 	GetPeerByKey(peerKey string) (*Peer, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
-	DeletePeer(accountID, peerID, userID string) (*Peer, error)
+	DeletePeer(accountID, peerID, userID string) error
 	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	UpdatePeer(accountID, userID string, peer *Peer) (*Peer, error)
 	GetNetworkMap(peerID string) (*NetworkMap, error)

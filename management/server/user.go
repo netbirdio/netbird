@@ -338,8 +338,13 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return status.Errorf(status.Internal, "failed to find user peers")
 	}
 
-	if err := am.expireAndUpdatePeers(account, peers); err != nil {
-		log.Errorf("failed update deleted peers expiration: %s", err)
+	peerIDs := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		peerIDs = append(peerIDs, peer.ID)
+	}
+
+	err = am.deletePeers(account, peerIDs, initiatorUserID)
+	if err != nil {
 		return err
 	}
 
@@ -370,6 +375,7 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 
 	delete(account.Users, targetUserID)
 
+	// todo should be unnecessary because we save account in the am.deletePeers
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return err
