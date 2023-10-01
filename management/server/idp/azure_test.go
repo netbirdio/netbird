@@ -8,15 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type mockAzureCredentials struct {
-	jwtToken JWTToken
-	err      error
-}
-
-func (mc *mockAzureCredentials) Authenticate() (JWTToken, error) {
-	return mc.jwtToken, mc.err
-}
-
 func TestAzureJwtStillValid(t *testing.T) {
 	type jwtStillValidTest struct {
 		name           string
@@ -124,206 +115,63 @@ func TestAzureAuthenticate(t *testing.T) {
 	}
 }
 
-func TestAzureUpdateUserAppMetadata(t *testing.T) {
-	type updateUserAppMetadataTest struct {
-		name                 string
-		inputReqBody         string
-		expectedReqBody      string
-		appMetadata          AppMetadata
-		statusCode           int
-		helper               ManagerHelper
-		managerCreds         ManagerCredentials
-		assertErrFunc        assert.ErrorAssertionFunc
-		assertErrFuncMessage string
-	}
-
-	appMetadata := AppMetadata{WTAccountID: "ok"}
-
-	updateUserAppMetadataTestCase1 := updateUserAppMetadataTest{
-		name:            "Bad Authentication",
-		expectedReqBody: "",
-		appMetadata:     appMetadata,
-		statusCode:      400,
-		helper:          JsonParser{},
-		managerCreds: &mockAzureCredentials{
-			jwtToken: JWTToken{},
-			err:      fmt.Errorf("error"),
-		},
-		assertErrFunc:        assert.Error,
-		assertErrFuncMessage: "should return error",
-	}
-
-	updateUserAppMetadataTestCase2 := updateUserAppMetadataTest{
-		name:            "Bad Status Code",
-		expectedReqBody: fmt.Sprintf("{\"extension__wt_account_id\":\"%s\",\"extension__wt_pending_invite\":null}", appMetadata.WTAccountID),
-		appMetadata:     appMetadata,
-		statusCode:      400,
-		helper:          JsonParser{},
-		managerCreds: &mockAzureCredentials{
-			jwtToken: JWTToken{},
-		},
-		assertErrFunc:        assert.Error,
-		assertErrFuncMessage: "should return error",
-	}
-
-	updateUserAppMetadataTestCase3 := updateUserAppMetadataTest{
-		name:       "Bad Response Parsing",
-		statusCode: 400,
-		helper:     &mockJsonParser{marshalErrorString: "error"},
-		managerCreds: &mockAzureCredentials{
-			jwtToken: JWTToken{},
-		},
-		assertErrFunc:        assert.Error,
-		assertErrFuncMessage: "should return error",
-	}
-
-	updateUserAppMetadataTestCase4 := updateUserAppMetadataTest{
-		name:            "Good request",
-		expectedReqBody: fmt.Sprintf("{\"extension__wt_account_id\":\"%s\",\"extension__wt_pending_invite\":null}", appMetadata.WTAccountID),
-		appMetadata:     appMetadata,
-		statusCode:      204,
-		helper:          JsonParser{},
-		managerCreds: &mockAzureCredentials{
-			jwtToken: JWTToken{},
-		},
-		assertErrFunc:        assert.NoError,
-		assertErrFuncMessage: "shouldn't return error",
-	}
-
-	invite := true
-	updateUserAppMetadataTestCase5 := updateUserAppMetadataTest{
-		name:            "Update Pending Invite",
-		expectedReqBody: fmt.Sprintf("{\"extension__wt_account_id\":\"%s\",\"extension__wt_pending_invite\":true}", appMetadata.WTAccountID),
-		appMetadata: AppMetadata{
-			WTAccountID:     "ok",
-			WTPendingInvite: &invite,
-		},
-		statusCode: 204,
-		helper:     JsonParser{},
-		managerCreds: &mockAzureCredentials{
-			jwtToken: JWTToken{},
-		},
-		assertErrFunc:        assert.NoError,
-		assertErrFuncMessage: "shouldn't return error",
-	}
-
-	for _, testCase := range []updateUserAppMetadataTest{updateUserAppMetadataTestCase1, updateUserAppMetadataTestCase2,
-		updateUserAppMetadataTestCase3, updateUserAppMetadataTestCase4, updateUserAppMetadataTestCase5} {
-		t.Run(testCase.name, func(t *testing.T) {
-			reqClient := mockHTTPClient{
-				resBody: testCase.inputReqBody,
-				code:    testCase.statusCode,
-			}
-
-			manager := &AzureManager{
-				httpClient:  &reqClient,
-				credentials: testCase.managerCreds,
-				helper:      testCase.helper,
-			}
-
-			err := manager.UpdateUserAppMetadata("1", testCase.appMetadata)
-			testCase.assertErrFunc(t, err, testCase.assertErrFuncMessage)
-
-			assert.Equal(t, testCase.expectedReqBody, reqClient.reqBody, "request body should match")
-		})
-	}
-}
-
 func TestAzureProfile(t *testing.T) {
 	type azureProfileTest struct {
 		name             string
-		clientID         string
 		invite           bool
 		inputProfile     azureProfile
 		expectedUserData UserData
 	}
 
 	azureProfileTestCase1 := azureProfileTest{
-		name:     "Good Request",
-		clientID: "25d0b095-0484-40d2-9fd3-03f8f4abbb3c",
-		invite:   false,
+		name:   "Good Request",
+		invite: false,
 		inputProfile: azureProfile{
 			"id":                "test1",
 			"displayName":       "John Doe",
 			"userPrincipalName": "test1@test.com",
-			"extension_25d0b095048440d29fd303f8f4abbb3c_wt_account_id":     "1",
-			"extension_25d0b095048440d29fd303f8f4abbb3c_wt_pending_invite": false,
 		},
 		expectedUserData: UserData{
 			Email: "test1@test.com",
 			Name:  "John Doe",
 			ID:    "test1",
-			AppMetadata: AppMetadata{
-				WTAccountID: "1",
-			},
 		},
 	}
 
 	azureProfileTestCase2 := azureProfileTest{
-		name:     "Missing User ID",
-		clientID: "25d0b095-0484-40d2-9fd3-03f8f4abbb3c",
-		invite:   true,
+		name:   "Missing User ID",
+		invite: true,
 		inputProfile: azureProfile{
 			"displayName":       "John Doe",
 			"userPrincipalName": "test2@test.com",
-			"extension_25d0b095048440d29fd303f8f4abbb3c_wt_account_id":     "1",
-			"extension_25d0b095048440d29fd303f8f4abbb3c_wt_pending_invite": true,
 		},
 		expectedUserData: UserData{
 			Email: "test2@test.com",
 			Name:  "John Doe",
-			AppMetadata: AppMetadata{
-				WTAccountID: "1",
-			},
 		},
 	}
 
 	azureProfileTestCase3 := azureProfileTest{
-		name:     "Missing User Name",
-		clientID: "25d0b095-0484-40d2-9fd3-03f8f4abbb3c",
-		invite:   false,
+		name:   "Missing User Name",
+		invite: false,
 		inputProfile: azureProfile{
 			"id":                "test3",
 			"userPrincipalName": "test3@test.com",
-			"extension_25d0b095048440d29fd303f8f4abbb3c_wt_account_id":     "1",
-			"extension_25d0b095048440d29fd303f8f4abbb3c_wt_pending_invite": false,
 		},
 		expectedUserData: UserData{
 			ID:    "test3",
 			Email: "test3@test.com",
-			AppMetadata: AppMetadata{
-				WTAccountID: "1",
-			},
 		},
 	}
 
-	azureProfileTestCase4 := azureProfileTest{
-		name:     "Missing Extension Fields",
-		clientID: "25d0b095-0484-40d2-9fd3-03f8f4abbb3c",
-		invite:   false,
-		inputProfile: azureProfile{
-			"id":                "test4",
-			"displayName":       "John Doe",
-			"userPrincipalName": "test4@test.com",
-		},
-		expectedUserData: UserData{
-			ID:          "test4",
-			Name:        "John Doe",
-			Email:       "test4@test.com",
-			AppMetadata: AppMetadata{},
-		},
-	}
-
-	for _, testCase := range []azureProfileTest{azureProfileTestCase1, azureProfileTestCase2, azureProfileTestCase3, azureProfileTestCase4} {
+	for _, testCase := range []azureProfileTest{azureProfileTestCase1, azureProfileTestCase2, azureProfileTestCase3} {
 		t.Run(testCase.name, func(t *testing.T) {
 			testCase.expectedUserData.AppMetadata.WTPendingInvite = &testCase.invite
-			userData := testCase.inputProfile.userData(testCase.clientID)
+			userData := testCase.inputProfile.userData()
 
 			assert.Equal(t, testCase.expectedUserData.ID, userData.ID, "User id should match")
 			assert.Equal(t, testCase.expectedUserData.Email, userData.Email, "User email should match")
 			assert.Equal(t, testCase.expectedUserData.Name, userData.Name, "User name should match")
-			assert.Equal(t, testCase.expectedUserData.AppMetadata.WTAccountID, userData.AppMetadata.WTAccountID, "Account id should match")
-			assert.Equal(t, testCase.expectedUserData.AppMetadata.WTPendingInvite, userData.AppMetadata.WTPendingInvite, "Pending invite should match")
 		})
 	}
 }
