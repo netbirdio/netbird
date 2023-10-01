@@ -1062,7 +1062,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			}
 		}()
 
-		if _, err := manager.DeletePeer(account.Id, peer3.ID, userID); err != nil {
+		if err := manager.DeletePeer(account.Id, peer3.ID, userID); err != nil {
 			t.Errorf("delete peer: %v", err)
 			return
 		}
@@ -1129,7 +1129,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		return
 	}
 
-	_, err = manager.DeletePeer(account.Id, peerKey, userID)
+	err = manager.DeletePeer(account.Id, peerKey, userID)
 	if err != nil {
 		return
 	}

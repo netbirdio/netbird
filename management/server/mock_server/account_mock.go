@@ -24,7 +24,7 @@ type MockAccountManager struct {
 	GetPeerByKeyFunc                func(peerKey string) (*server.Peer, error)
 	GetPeersFunc                    func(accountID, userID string) ([]*server.Peer, error)
 	MarkPeerConnectedFunc           func(peerKey string, connected bool) error
-	DeletePeerFunc                  func(accountID, peerKey, userID string) (*server.Peer, error)
+	DeletePeerFunc                  func(accountID, peerKey, userID string) error
 	GetPeerByIPFunc                 func(accountId string, peerIP string) (*server.Peer, error)
 	GetNetworkMapFunc               func(peerKey string) (*server.NetworkMap, error)
 	GetPeerNetworkFunc              func(peerKey string) (*server.Network, error)
@@ -90,11 +90,11 @@ func (am *MockAccountManager) GetUsersFromAccount(accountID string, userID strin
 }
 
 // DeletePeer mock implementation of DeletePeer from server.AccountManager interface
-func (am *MockAccountManager) DeletePeer(accountID, peerID, userID string) (*server.Peer, error) {
+func (am *MockAccountManager) DeletePeer(accountID, peerID, userID string) error {
 	if am.DeletePeerFunc != nil {
 		return am.DeletePeerFunc(accountID, peerID, userID)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method DeletePeer is not implemented")
+	return status.Errorf(codes.Unimplemented, "method DeletePeer is not implemented")
 }
 
 // GetOrCreateAccountByUser mock implementation of GetOrCreateAccountByUser from server.AccountManager interface

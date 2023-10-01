@@ -372,55 +372,79 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 	return peer, nil
 }
 
+// deletePeers will delete all specified peers and send updates to the remote peers. Don't call without acquiring account lock
+func (am *DefaultAccountManager) deletePeers(account *Account, peerIDs []string, userID string) error {
+
+	var peerError error
+	for _, peerID := range peerIDs {
+
+		peer := account.GetPeer(peerID)
+		if peer == nil {
+			peerError = status.Errorf(status.NotFound, "peer %s not found", peerID)
+			goto save
+		}
+
+		account.DeletePeer(peerID)
+
+		peerError = am.peersUpdateManager.SendUpdate(peer.ID,
+			&UpdateMessage{
+				Update: &proto.SyncResponse{
+					// fill those field for backward compatibility
+					RemotePeers:        []*proto.RemotePeerConfig{},
+					RemotePeersIsEmpty: true,
+					// new field
+					NetworkMap: &proto.NetworkMap{
+						Serial:               account.Network.CurrentSerial(),
+						RemotePeers:          []*proto.RemotePeerConfig{},
+						RemotePeersIsEmpty:   true,
+						FirewallRules:        []*proto.FirewallRule{},
+						FirewallRulesIsEmpty: true,
+					},
+				},
+			})
+		if peerError != nil {
+			goto save
+		}
+
+		am.peersUpdateManager.CloseChannel(peerID)
+		am.storeEvent(userID, peer.ID, account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
+	}
+
+save:
+	err := am.Store.SaveAccount(account)
+	if err != nil {
+		if peerError != nil {
+			log.Errorf("account save error: %s", err)
+			return peerError
+		} else {
+			return err
+		}
+	}
+
+	err = am.updateAccountPeers(account)
+	if err != nil {
+		if peerError != nil {
+			log.Errorf("update account peers error: %s", err)
+			return peerError
+		} else {
+			return err
+		}
+	}
+
+	return peerError
+}
+
 // DeletePeer removes peer from the account by its IP
-func (am *DefaultAccountManager) DeletePeer(accountID, peerID, userID string) (*Peer, error) {
+func (am *DefaultAccountManager) DeletePeer(accountID, peerID, userID string) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	peer := account.GetPeer(peerID)
-	if peer == nil {
-		return nil, status.Errorf(status.NotFound, "peer %s not found", peerID)
-	}
-
-	account.DeletePeer(peerID)
-
-	err = am.Store.SaveAccount(account)
-	if err != nil {
-		return nil, err
-	}
-
-	err = am.peersUpdateManager.SendUpdate(peer.ID,
-		&UpdateMessage{
-			Update: &proto.SyncResponse{
-				// fill those field for backward compatibility
-				RemotePeers:        []*proto.RemotePeerConfig{},
-				RemotePeersIsEmpty: true,
-				// new field
-				NetworkMap: &proto.NetworkMap{
-					Serial:               account.Network.CurrentSerial(),
-					RemotePeers:          []*proto.RemotePeerConfig{},
-					RemotePeersIsEmpty:   true,
-					FirewallRules:        []*proto.FirewallRule{},
-					FirewallRulesIsEmpty: true,
-				},
-			},
-		})
-	if err != nil {
-		return nil, err
-	}
-
-	if err := am.updateAccountPeers(account); err != nil {
-		return nil, err
-	}
-
-	am.peersUpdateManager.CloseChannel(peerID)
-	am.storeEvent(userID, peer.ID, account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
-	return peer, nil
+	return am.deletePeers(account, []string{peerID}, userID)
 }
 
 // GetPeerByIP returns peer by its IP
