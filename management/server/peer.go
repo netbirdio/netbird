@@ -373,12 +373,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 }
 
 // deletePeers will delete all specified peers and send updates to the remote peers. Don't call without acquiring account lock
-func (am *DefaultAccountManager) deletePeers(accountID string, peerIDs []string, userID string) error {
-
-	account, err := am.Store.GetAccount(accountID)
-	if err != nil {
-		return err
-	}
+func (am *DefaultAccountManager) deletePeers(account *Account, peerIDs []string, userID string) error {
 
 	var peerError error
 	for _, peerID := range peerIDs {
@@ -412,12 +407,11 @@ func (am *DefaultAccountManager) deletePeers(accountID string, peerIDs []string,
 		}
 
 		am.peersUpdateManager.CloseChannel(peerID)
-		// todo consider adding new activity when removing peer when removing a user
 		am.storeEvent(userID, peer.ID, account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
 	}
 
 save:
-	err = am.Store.SaveAccount(account)
+	err := am.Store.SaveAccount(account)
 	if err != nil {
 		if peerError != nil {
 			log.Errorf("account save error: %s", err)
@@ -437,10 +431,7 @@ save:
 		}
 	}
 
-	if peerError != nil {
-		return peerError
-	}
-	return nil
+	return peerError
 }
 
 // DeletePeer removes peer from the account by its IP
@@ -448,7 +439,12 @@ func (am *DefaultAccountManager) DeletePeer(accountID, peerID, userID string) er
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
-	return am.deletePeers(accountID, []string{peerID}, userID)
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	return am.deletePeers(account, []string{peerID}, userID)
 }
 
 // GetPeerByIP returns peer by its IP
