@@ -637,8 +637,8 @@ func (a *Account) Copy() *Account {
 	}
 
 	routes := map[string]*route.Route{}
-	for id, route := range a.Routes {
-		routes[id] = route.Copy()
+	for id, r := range a.Routes {
+		routes[id] = r.Copy()
 	}
 
 	nsGroups := map[string]*nbdns.NameServerGroup{}
@@ -1054,7 +1054,36 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(userID string, account
 
 func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interface{}) ([]*idp.UserData, error) {
 	log.Debugf("account %s not found in cache, reloading", accountID)
-	return am.idpManager.GetAccount(fmt.Sprintf("%v", accountID))
+	accountIDString := fmt.Sprintf("%v", accountID)
+
+	account, err := am.Store.GetAccount(accountIDString)
+	if err != nil {
+		return nil, err
+	}
+
+	userData, err := am.idpManager.GetAccount(accountIDString)
+	if err != nil {
+		return nil, err
+	}
+
+	dataMap := make(map[string]*idp.UserData, len(userData))
+	for _, datum := range userData {
+		dataMap[datum.ID] = datum
+	}
+
+	matchedUserData := make([]*idp.UserData, 0)
+	for _, user := range account.Users {
+		if user.IsServiceUser {
+			continue
+		}
+		datum, ok := dataMap[user.Id]
+		if !ok {
+			log.Warnf("user %s not found in IDP", user.Id)
+			continue
+		}
+		matchedUserData = append(matchedUserData, datum)
+	}
+	return matchedUserData, nil
 }
 
 func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountID string) (*idp.UserData, error) {
