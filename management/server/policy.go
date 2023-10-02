@@ -66,7 +66,7 @@ type PolicyRule struct {
 	ID string `gorm:"primaryKey"`
 
 	// PolicyID is a reference to Policy that this object belongs
-	PolicyID string `gorm:"index"`
+	PolicyID string `json:"-" gorm:"index"`
 
 	// Name of the rule visible in the UI
 	Name string
@@ -135,7 +135,7 @@ type Policy struct {
 	ID string `gorm:"primaryKey"`
 
 	// AccountID is a reference to Account that this object belongs
-	AccountID string `gorm:"index"`
+	AccountID string `json:"-" gorm:"index"`
 
 	// Name of the Policy
 	Name string

@@ -46,7 +46,7 @@ type UserRole string
 type User struct {
 	Id string `gorm:"primaryKey"`
 	// AccountID is a reference to Account that this object belongs
-	AccountID     string `gorm:"index"`
+	AccountID     string `json:"-" gorm:"index"`
 	Role          UserRole
 	IsServiceUser bool
 	// ServiceUserName is only set if IsServiceUser is true

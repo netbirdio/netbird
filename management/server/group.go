@@ -24,7 +24,7 @@ type Group struct {
 	ID string
 
 	// AccountID is a reference to Account that this object belongs
-	AccountID string `gorm:"index"`
+	AccountID string `json:"-" gorm:"index"`
 
 	// Name visible in the UI
 	Name string
