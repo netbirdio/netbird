@@ -357,7 +357,7 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 	for _, user := range account.UsersG {
 		user.PATs = make(map[string]*PersonalAccessToken, len(user.PATs))
 		for _, pat := range user.PATsG {
-			user.PATs[pat.ID] = &pat
+			user.PATs[pat.ID] = pat.Copy()
 		}
 		account.Users[user.Id] = user.Copy()
 	}
