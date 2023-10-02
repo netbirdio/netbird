@@ -72,7 +72,7 @@ type Route struct {
 	NetID       string
 	Description string
 	Peer        string
-	PeerGroups  []string
+	PeerGroups  []string `gorm:"serializer:gob"`
 	NetworkType NetworkType
 	Masquerade  bool
 	Metric      int
