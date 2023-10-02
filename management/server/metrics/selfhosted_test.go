@@ -3,6 +3,7 @@ package metrics
 import (
 	"testing"
 
+	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/route"
 )
@@ -28,6 +29,13 @@ func (mockDatasource) GetAllAccounts() []*server.Account {
 					Ephemeral: true,
 					UsedTimes: 1,
 				},
+			},
+			Groups: map[string]*server.Group{
+				"1": {},
+				"2": {},
+			},
+			NameServerGroups: map[string]*nbdns.NameServerGroup{
+				"1": {},
 			},
 			Peers: map[string]*server.Peer{
 				"1": {
@@ -85,6 +93,13 @@ func (mockDatasource) GetAllAccounts() []*server.Account {
 					Ephemeral: true,
 					UsedTimes: 1,
 				},
+			},
+			Groups: map[string]*server.Group{
+				"1": {},
+				"2": {},
+			},
+			NameServerGroups: map[string]*nbdns.NameServerGroup{
+				"1": {},
 			},
 			Peers: map[string]*server.Peer{
 				"1": {
@@ -200,5 +215,25 @@ func TestGenerateProperties(t *testing.T) {
 
 	if properties["peer_os_linux"] != 2 {
 		t.Errorf("expected 2 peer_os_linux, got %d", properties["peer_os_linux"])
+	}
+
+	if properties["ephemeral_peers_setup_keys"] != 2 {
+		t.Errorf("expected 2 ephemeral_peers_setup_keys, got %d", properties["ephemeral_peers_setup_keys_usage"])
+	}
+
+	if properties["ephemeral_peers_setup_keys_usage"] != 2 {
+		t.Errorf("expected 2 ephemeral_peers_setup_keys_usage, got %d", properties["ephemeral_peers_setup_keys_usage"])
+	}
+
+	if properties["nameservers"] != 2 {
+		t.Errorf("expected 2 nameservers, got %d", properties["nameservers"])
+	}
+
+	if properties["groups"] != 4 {
+		t.Errorf("expected 4 groups, got %d", properties["groups"])
+	}
+
+	if properties["user_peers"] != 2 {
+		t.Errorf("expected 2 user_peers, got %d", properties["user_peers"])
 	}
 }
