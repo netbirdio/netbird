@@ -10,7 +10,8 @@ import (
 )
 
 const (
-	unsetAccountID = "unset"
+	// UnsetAccountID is a special key to map users without an account ID
+	UnsetAccountID = "unset"
 )
 
 // Manager idp manager interface

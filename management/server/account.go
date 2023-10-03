@@ -932,7 +932,7 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	// in cases like this, we expect it to return all users in an "unset" field.
 	// We iterate over the users in the "unset" field, look up their AccountID in our store, and
 	// update their AppMetadata with the AccountID.
-	if unsetData, ok := userData["unset"]; ok {
+	if unsetData, ok := userData[idp.UnsetAccountID]; ok {
 		for _, user := range unsetData {
 			accountID, err := am.Store.GetAccountByUser(user.ID)
 			if err == nil {
@@ -947,7 +947,7 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 			}
 		}
 	}
-	delete(userData, "unset")
+	delete(userData, idp.UnsetAccountID)
 
 	for accountID, users := range userData {
 		err = am.cacheManager.Set(am.ctx, accountID, users, cacheStore.WithExpiration(cacheEntryExpiration()))
