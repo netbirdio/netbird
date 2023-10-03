@@ -164,6 +164,12 @@ done
 
 export NETBIRD_AUTH_PKCE_REDIRECT_URLS=${REDIRECT_URLS%,}
 
+# Remove audience for providers that do not support it
+if [ "$NETBIRD_DASH_AUTH_USE_AUDIENCE" = "false" ]; then
+    export NETBIRD_DASH_AUTH_AUDIENCE=none
+    export NETBIRD_AUTH_PKCE_AUDIENCE=
+fi
+
 env | grep NETBIRD
 
 envsubst <docker-compose.yml.tmpl >docker-compose.yml
