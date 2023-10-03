@@ -9,6 +9,11 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
+const (
+	// UnsetAccountID is a special key to map users without an account ID
+	UnsetAccountID = "unset"
+)
+
 // Manager idp manager interface
 type Manager interface {
 	UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error
