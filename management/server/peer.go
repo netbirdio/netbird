@@ -377,7 +377,7 @@ func (am *DefaultAccountManager) deletePeers(account *Account, peerIDs []string,
 
 	// the first loop is needed to ensure all peers present under the account before modifying, otherwise
 	// we might have some inconsistencies
-	peers := make([]*Peer, len(peerIDs), 0)
+	peers := make([]*Peer, 0, len(peerIDs))
 	for _, peerID := range peerIDs {
 
 		peer := account.GetPeer(peerID)

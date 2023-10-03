@@ -307,6 +307,12 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 	return user, nil
 }
 
+func (am *DefaultAccountManager) deleteServiceUser(account *Account, initiatorUserID string, targetUser *User) {
+	meta := map[string]any{"name": targetUser.ServiceUserName}
+	am.storeEvent(initiatorUserID, targetUser.Id, account.Id, activity.ServiceUserDeleted, meta)
+	delete(account.Users, targetUser.Id)
+}
+
 // DeleteUser deletes a user from the given account.
 func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, targetUserID string) error {
 	if initiatorUserID == targetUserID {
@@ -333,6 +339,16 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return status.Errorf(status.PermissionDenied, "only admins can delete users")
 	}
 
+	// handle service user first and exit, no need to fetch extra data from IDP, etc
+	if targetUser.IsServiceUser {
+		am.deleteServiceUser(account, initiatorUserID, targetUser)
+		return am.Store.SaveAccount(account)
+	}
+
+	return am.deleteRegularUser(initiatorUserID, targetUserID, account)
+}
+
+func (am *DefaultAccountManager) deleteRegularUser(initiatorUserID string, targetUserID string, account *Account) error {
 	tuEmail, tuName, err := am.getEmailAndNameOfTargetUser(account.Id, initiatorUserID, targetUserID)
 	if err != nil {
 		log.Errorf("failed to resolve email address: %s", err)
@@ -354,19 +370,11 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return err
 	}
 
-	var meta map[string]any
-	var eventAction activity.Activity
-	if targetUser.IsServiceUser {
-		meta = map[string]any{"name": targetUser.ServiceUserName}
-		eventAction = activity.ServiceUserDeleted
-	} else {
-		meta = map[string]any{"name": tuName, "email": tuEmail}
-		eventAction = activity.UserDeleted
-	}
-	am.storeEvent(initiatorUserID, targetUserID, accountID, eventAction, meta)
+	meta := map[string]any{"name": tuName, "email": tuEmail}
+	am.storeEvent(initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
 
-	if !targetUser.IsServiceUser && !isNil(am.idpManager) {
-		err := am.deleteUserFromIDP(targetUserID, accountID)
+	if !isNil(am.idpManager) {
+		err = am.deleteUserFromIDP(targetUserID, account.Id)
 		if err != nil {
 			log.Debugf("failed to delete user from IDP: %s", targetUserID)
 			return err
@@ -374,8 +382,6 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 	}
 
 	delete(account.Users, targetUserID)
-
-	// todo should be unnecessary because we save account in the am.deletePeers
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return err
