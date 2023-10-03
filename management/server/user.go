@@ -345,10 +345,10 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return am.Store.SaveAccount(account)
 	}
 
-	return am.deleteRegularUser(initiatorUserID, targetUserID, account)
+	return am.deleteRegularUser(account, initiatorUserID, targetUserID)
 }
 
-func (am *DefaultAccountManager) deleteRegularUser(initiatorUserID string, targetUserID string, account *Account) error {
+func (am *DefaultAccountManager) deleteRegularUser(account *Account, initiatorUserID, targetUserID string) error {
 	tuEmail, tuName, err := am.getEmailAndNameOfTargetUser(account.Id, initiatorUserID, targetUserID)
 	if err != nil {
 		log.Errorf("failed to resolve email address: %s", err)
