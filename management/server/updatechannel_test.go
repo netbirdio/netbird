@@ -31,10 +31,7 @@ func TestSendUpdate(t *testing.T) {
 	if _, ok := peersUpdater.peerChannels[peer]; !ok {
 		t.Error("Error creating the channel")
 	}
-	err := peersUpdater.SendUpdate(peer, update1)
-	if err != nil {
-		t.Error("Error sending update: ", err)
-	}
+	peersUpdater.SendUpdate(peer, update1)
 	select {
 	case <-peersUpdater.peerChannels[peer]:
 	default:
@@ -42,10 +39,7 @@ func TestSendUpdate(t *testing.T) {
 	}
 
 	for range [channelBufferSize]int{} {
-		err = peersUpdater.SendUpdate(peer, update1)
-		if err != nil {
-			t.Errorf("got an early error sending update: %v ", err)
-		}
+		peersUpdater.SendUpdate(peer, update1)
 	}
 
 	update2 := &UpdateMessage{Update: &proto.SyncResponse{
@@ -54,10 +48,7 @@ func TestSendUpdate(t *testing.T) {
 		},
 	}}
 
-	err = peersUpdater.SendUpdate(peer, update2)
-	if err != nil {
-		t.Error("update shouldn't return an error when channel buffer is full")
-	}
+	peersUpdater.SendUpdate(peer, update2)
 	timeout := time.After(5 * time.Second)
 	for range [channelBufferSize]int{} {
 		select {

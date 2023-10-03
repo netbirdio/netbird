@@ -390,7 +390,7 @@ func (am *DefaultAccountManager) deletePeers(account *Account, peerIDs []string,
 	// the 2nd loop performs the actual modification
 	for _, peer := range peers {
 		account.DeletePeer(peer.ID)
-		err := am.peersUpdateManager.SendUpdate(peer.ID,
+		am.peersUpdateManager.SendUpdate(peer.ID,
 			&UpdateMessage{
 				Update: &proto.SyncResponse{
 					// fill those field for backward compatibility
@@ -406,9 +406,6 @@ func (am *DefaultAccountManager) deletePeers(account *Account, peerIDs []string,
 					},
 				},
 			})
-		if err != nil {
-			return err
-		}
 		am.peersUpdateManager.CloseChannel(peer.ID)
 		am.storeEvent(userID, peer.ID, account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
 	}
@@ -935,10 +932,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 		}
 
 		update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain())
-		err = am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})
-		if err != nil {
-			return err
-		}
+		am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})
 	}
 
 	return nil
