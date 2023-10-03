@@ -326,17 +326,17 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return err
 	}
 
-	targetUser := account.Users[targetUserID]
-	if targetUser == nil {
-		return status.Errorf(status.NotFound, "user not found")
-	}
-
 	executingUser := account.Users[initiatorUserID]
 	if executingUser == nil {
 		return status.Errorf(status.NotFound, "user not found")
 	}
 	if executingUser.Role != UserRoleAdmin {
 		return status.Errorf(status.PermissionDenied, "only admins can delete users")
+	}
+
+	targetUser := account.Users[targetUserID]
+	if targetUser == nil {
+		return status.Errorf(status.NotFound, "target user not found")
 	}
 
 	// handle service user first and exit, no need to fetch extra data from IDP, etc
