@@ -333,6 +333,12 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return status.Errorf(status.PermissionDenied, "only admins can delete users")
 	}
 
+	tuEmail, tuName, err := am.getEmailAndNameOfTargetUser(account.Id, initiatorUserID, targetUserID)
+	if err != nil {
+		log.Errorf("failed to resolve email address: %s", err)
+		return err
+	}
+
 	peers, err := account.FindUserPeers(targetUserID)
 	if err != nil {
 		return status.Errorf(status.Internal, "failed to find user peers")
@@ -345,12 +351,6 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 
 	err = am.deletePeers(account, peerIDs, initiatorUserID)
 	if err != nil {
-		return err
-	}
-
-	tuEmail, tuName, err := am.getEmailAndNameOfTargetUser(account.Id, initiatorUserID, targetUserID)
-	if err != nil {
-		log.Errorf("failed to resolve email address: %s", err)
 		return err
 	}
 
@@ -381,7 +381,7 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return err
 	}
 
-	return nil
+	return am.updateAccountPeers(account)
 }
 
 // InviteUser resend invitations to users who haven't activated their accounts prior to the expiration period.

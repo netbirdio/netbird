@@ -375,18 +375,22 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 // deletePeers will delete all specified peers and send updates to the remote peers. Don't call without acquiring account lock
 func (am *DefaultAccountManager) deletePeers(account *Account, peerIDs []string, userID string) error {
 
-	var peerError error
+	// the first loop is needed to ensure all peers present under the account before modifying, otherwise
+	// we might have some inconsistencies
+	peers := make([]*Peer, len(peerIDs), 0)
 	for _, peerID := range peerIDs {
 
 		peer := account.GetPeer(peerID)
 		if peer == nil {
-			peerError = status.Errorf(status.NotFound, "peer %s not found", peerID)
-			goto save
+			return status.Errorf(status.NotFound, "peer %s not found", peerID)
 		}
+		peers = append(peers, peer)
+	}
 
-		account.DeletePeer(peerID)
-
-		peerError = am.peersUpdateManager.SendUpdate(peer.ID,
+	// the 2nd loop performs the actual modification
+	for _, peer := range peers {
+		account.DeletePeer(peer.ID)
+		err := am.peersUpdateManager.SendUpdate(peer.ID,
 			&UpdateMessage{
 				Update: &proto.SyncResponse{
 					// fill those field for backward compatibility
@@ -402,36 +406,14 @@ func (am *DefaultAccountManager) deletePeers(account *Account, peerIDs []string,
 					},
 				},
 			})
-		if peerError != nil {
-			goto save
+		if err != nil {
+			return err
 		}
-
-		am.peersUpdateManager.CloseChannel(peerID)
+		am.peersUpdateManager.CloseChannel(peer.ID)
 		am.storeEvent(userID, peer.ID, account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
 	}
 
-save:
-	err := am.Store.SaveAccount(account)
-	if err != nil {
-		if peerError != nil {
-			log.Errorf("account save error: %s", err)
-			return peerError
-		} else {
-			return err
-		}
-	}
-
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		if peerError != nil {
-			log.Errorf("update account peers error: %s", err)
-			return peerError
-		} else {
-			return err
-		}
-	}
-
-	return peerError
+	return nil
 }
 
 // DeletePeer removes peer from the account by its IP
@@ -444,7 +426,17 @@ func (am *DefaultAccountManager) DeletePeer(accountID, peerID, userID string) er
 		return err
 	}
 
-	return am.deletePeers(account, []string{peerID}, userID)
+	err = am.deletePeers(account, []string{peerID}, userID)
+	if err != nil {
+		return err
+	}
+
+	err = am.Store.SaveAccount(account)
+	if err != nil {
+		return err
+	}
+
+	return am.updateAccountPeers(account)
 }
 
 // GetPeerByIP returns peer by its IP
