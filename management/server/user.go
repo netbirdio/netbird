@@ -355,17 +355,7 @@ func (am *DefaultAccountManager) deleteRegularUser(initiatorUserID string, targe
 		return err
 	}
 
-	peers, err := account.FindUserPeers(targetUserID)
-	if err != nil {
-		return status.Errorf(status.Internal, "failed to find user peers")
-	}
-
-	peerIDs := make([]string, 0, len(peers))
-	for _, peer := range peers {
-		peerIDs = append(peerIDs, peer.ID)
-	}
-
-	err = am.deletePeers(account, peerIDs, initiatorUserID)
+	err = am.deleteUserPeers(initiatorUserID, targetUserID, account, err)
 	if err != nil {
 		return err
 	}
@@ -388,6 +378,20 @@ func (am *DefaultAccountManager) deleteRegularUser(initiatorUserID string, targe
 	}
 
 	return am.updateAccountPeers(account)
+}
+
+func (am *DefaultAccountManager) deleteUserPeers(initiatorUserID string, targetUserID string, account *Account, err error) error {
+	peers, err := account.FindUserPeers(targetUserID)
+	if err != nil {
+		return status.Errorf(status.Internal, "failed to find user peers")
+	}
+
+	peerIDs := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		peerIDs = append(peerIDs, peer.ID)
+	}
+
+	return am.deletePeers(account, peerIDs, initiatorUserID)
 }
 
 // InviteUser resend invitations to users who haven't activated their accounts prior to the expiration period.
