@@ -988,6 +988,27 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 		return err
 	}
 
+	// If the Identity Provider does not support writing AppMetadata,
+	// in cases like this, we expect it to return all users in an "unset" field.
+	// We iterate over the users in the "unset" field, look up their AccountID in our store, and
+	// update their AppMetadata with the AccountID.
+	if unsetData, ok := userData[idp.UnsetAccountID]; ok {
+		for _, user := range unsetData {
+			accountID, err := am.Store.GetAccountByUser(user.ID)
+			if err == nil {
+				data := userData[accountID.Id]
+				if data == nil {
+					data = make([]*idp.UserData, 0, 1)
+				}
+
+				user.AppMetadata.WTAccountID = accountID.Id
+
+				userData[accountID.Id] = append(data, user)
+			}
+		}
+	}
+	delete(userData, idp.UnsetAccountID)
+
 	for accountID, users := range userData {
 		err = am.cacheManager.Set(am.ctx, accountID, users, cacheStore.WithExpiration(cacheEntryExpiration()))
 		if err != nil {
