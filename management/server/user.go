@@ -363,7 +363,7 @@ func (am *DefaultAccountManager) deleteRegularUser(account *Account, initiatorUs
 		}
 	}
 
-	err = am.deleteUserPeers(initiatorUserID, targetUserID, account, err)
+	err = am.deleteUserPeers(initiatorUserID, targetUserID, account)
 	if err != nil {
 		return err
 	}
@@ -380,7 +380,7 @@ func (am *DefaultAccountManager) deleteRegularUser(account *Account, initiatorUs
 	return am.updateAccountPeers(account)
 }
 
-func (am *DefaultAccountManager) deleteUserPeers(initiatorUserID string, targetUserID string, account *Account, err error) error {
+func (am *DefaultAccountManager) deleteUserPeers(initiatorUserID string, targetUserID string, account *Account) error {
 	peers, err := account.FindUserPeers(targetUserID)
 	if err != nil {
 		return status.Errorf(status.Internal, "failed to find user peers")
