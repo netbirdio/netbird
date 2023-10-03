@@ -1,4 +1,3 @@
-#!/bin/sh
 # This code is based on the netbird-installer contribution by physk on GitHub.
 # Source: https://github.com/physk/netbird-installer
 set -e
@@ -17,6 +16,12 @@ OS_TYPE=""
 ARCH="$(uname -m)"
 PACKAGE_MANAGER="bin"
 INSTALL_DIR=""
+SUDO=""
+
+
+if command -v sudo > /dev/null && [ "$(id -u)" -ne 0 ]; then
+    SUDO="sudo"
+fi
 
 get_latest_release() {
     if [ -n "$GITHUB_TOKEN" ]; then
@@ -65,27 +70,35 @@ download_release_binary() {
         unzip -q -o "$BINARY_NAME"
         mv "netbird_ui_${OS_TYPE}_${ARCH}" "$INSTALL_DIR"
     else
-        sudo mkdir -p "$INSTALL_DIR"
+        ${SUDO} mkdir -p "$INSTALL_DIR"
         tar -xzvf "$BINARY_NAME"
-        sudo mv "${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
+        ${SUDO} mv "${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
     fi
 }
 
 add_apt_repo() {
-    sudo apt-get update
-    sudo apt-get install ca-certificates gnupg -y
+    ${SUDO} apt-get update
+    ${SUDO} apt-get install ca-certificates curl gnupg -y
 
-    curl -sSL https://pkgs.wiretrustee.com/debian/public.key \
-    | sudo gpg --dearmor --output /usr/share/keyrings/wiretrustee-archive-keyring.gpg
+    # Remove old keys and repo source files
+    ${SUDO} rm -f \
+        /etc/apt/sources.list.d/netbird.list \
+        /etc/apt/sources.list.d/wiretrustee.list \
+        /etc/apt/trusted.gpg.d/wiretrustee.gpg \
+        /usr/share/keyrings/netbird-archive-keyring.gpg \
+        /usr/share/keyrings/wiretrustee-archive-keyring.gpg
 
-    APT_REPO="deb [signed-by=/usr/share/keyrings/wiretrustee-archive-keyring.gpg] https://pkgs.wiretrustee.com/debian stable main"
-    echo "$APT_REPO" | sudo tee /etc/apt/sources.list.d/wiretrustee.list
+    curl -sSL https://pkgs.netbird.io/debian/public.key \
+    | ${SUDO} gpg --dearmor -o /usr/share/keyrings/netbird-archive-keyring.gpg
 
-    sudo apt-get update
+    echo 'deb [signed-by=/usr/share/keyrings/netbird-archive-keyring.gpg] https://pkgs.netbird.io/debian stable main' \
+    | ${SUDO} tee /etc/apt/sources.list.d/netbird.list
+
+    ${SUDO} apt-get update
 }
 
 add_rpm_repo() {
-cat <<-EOF | sudo tee /etc/yum.repos.d/netbird.repo
+cat <<-EOF | ${SUDO} tee /etc/yum.repos.d/netbird.repo
 [NetBird]
 name=NetBird
 baseurl=https://pkgs.netbird.io/yum/
@@ -104,7 +117,7 @@ add_aur_repo() {
     for PKG in $INSTALL_PKGS; do
         if ! pacman -Q "$PKG" > /dev/null 2>&1; then
             # Install missing package(s)
-            sudo pacman -S "$PKG" --noconfirm
+            ${SUDO} pacman -S "$PKG" --noconfirm
 
             # Add installed package for clean up later
             REMOVE_PKGS="$REMOVE_PKGS $PKG"
@@ -121,7 +134,7 @@ add_aur_repo() {
     fi
 
     # Clean up the installed packages
-    sudo pacman -Rs "$REMOVE_PKGS" --noconfirm
+    ${SUDO} pacman -Rs "$REMOVE_PKGS" --noconfirm
 }
 
 install_native_binaries() {
@@ -181,8 +194,136 @@ install_netbird() {
         fi
     fi
 
-    # Identify OS name and default package manager
-    if type uname >/dev/null 2>&1; then
+    # Run the installation, if a desktop environment is not detected
+    # only the CLI will be installed
+    case "$PACKAGE_MANAGER" in
+    apt)
+        add_apt_repo
+        ${SUDO} apt-get install netbird -y
+
+        if ! $SKIP_UI_APP; then
+            ${SUDO} apt-get install netbird-ui -y
+        fi
+    ;;
+    yum)
+        add_rpm_repo
+        ${SUDO} yum -y install netbird
+        if ! $SKIP_UI_APP; then
+            ${SUDO} yum -y install netbird-ui
+        fi
+    ;;
+    dnf)
+        add_rpm_repo
+        ${SUDO} dnf -y install dnf-plugin-config-manager
+        ${SUDO} dnf config-manager --add-repo /etc/yum.repos.d/netbird.repo
+        ${SUDO} dnf -y install netbird
+
+        if ! $SKIP_UI_APP; then
+            ${SUDO} dnf -y install netbird-ui
+        fi
+    ;;
+    pacman)
+        ${SUDO} pacman -Syy
+        add_aur_repo
+    ;;
+    brew)
+        # Remove Wiretrustee if it had been installed using Homebrew before
+        if brew ls --versions wiretrustee >/dev/null 2>&1; then
+            echo "Removing existing wiretrustee client"
+
+            # Stop and uninstall daemon service:
+            wiretrustee service stop
+            wiretrustee service uninstall
+
+            # Unlik the app
+            brew unlink wiretrustee
+        fi
+
+        brew install netbirdio/tap/netbird
+        if ! $SKIP_UI_APP; then
+            brew install --cask netbirdio/tap/netbird-ui
+        fi
+    ;;
+    *)
+      if [ "$OS_NAME" = "nixos" ];then
+        echo "Please add NetBird to your NixOS configuration.nix directly:"
+			  echo ""
+			  echo "services.netbird.enable = true;"
+
+        if ! $SKIP_UI_APP; then
+          echo "environment.systemPackages = [ pkgs.netbird-ui ];"
+        fi
+
+        echo "Build and apply new configuration:"
+        echo ""
+        echo "${SUDO} nixos-rebuild switch"
+			  exit 0
+      fi
+
+        install_native_binaries
+    ;;
+    esac
+
+    # Add package manager to config
+    ${SUDO} mkdir -p "$CONFIG_FOLDER"
+    echo "package_manager=$PACKAGE_MANAGER" | ${SUDO} tee "$CONFIG_FILE" > /dev/null
+
+    # Load and start netbird service
+    if  ! ${SUDO} netbird service install 2>&1; then
+        echo "NetBird service has already been loaded"
+    fi
+    if  ! ${SUDO} netbird service start 2>&1; then
+        echo "NetBird service has already been started"
+    fi
+
+
+    echo "Installation has been finished. To connect, you need to run NetBird by executing the following command:"
+    echo ""
+    echo "netbird up"
+}
+
+version_greater_equal() {
+    printf '%s\n%s\n' "$2" "$1" | sort -V -C
+}
+
+is_bin_package_manager() {
+  if ${SUDO} test -f "$1" && ${SUDO} grep -q "package_manager=bin" "$1" ; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+update_netbird() {
+  if is_bin_package_manager "$CONFIG_FILE"; then
+    latest_release=$(get_latest_release)
+    latest_version=${latest_release#v}
+    installed_version=$(netbird version)
+
+    if [ "$latest_version" = "$installed_version" ]; then
+      echo "Installed netbird version ($installed_version) is up-to-date"
+      exit 0
+    fi
+
+    if version_greater_equal "$latest_version" "$installed_version"; then
+      echo "NetBird new version ($latest_version) available. Updating..."
+      echo ""
+      echo "Initiating NetBird update. This will stop the netbird service and restart it after the update"
+
+      ${SUDO} netbird service stop
+      ${SUDO} netbird service uninstall
+      install_native_binaries
+
+      ${SUDO} netbird service install
+      ${SUDO} netbird service start
+    fi
+  else
+     echo "NetBird installation was done using a package manager. Please use your system's package manager to update"
+  fi
+}
+
+# Identify OS name and default package manager
+if type uname >/dev/null 2>&1; then
 	case "$(uname)" in
         Linux)
             OS_NAME="$(. /etc/os-release && echo "$ID")"
@@ -233,136 +374,7 @@ install_netbird() {
             fi
 		;;
 	esac
-    fi
-
-    # Run the installation, if a desktop environment is not detected
-    # only the CLI will be installed
-    case "$PACKAGE_MANAGER" in
-    apt)
-        add_apt_repo
-        sudo apt-get install netbird -y
-
-        if ! $SKIP_UI_APP; then
-            sudo apt-get install netbird-ui -y
-        fi
-    ;;
-    yum)
-        add_rpm_repo
-        sudo yum -y install netbird
-        if ! $SKIP_UI_APP; then
-            sudo yum -y install netbird-ui
-        fi
-    ;;
-    dnf)
-        add_rpm_repo
-        sudo dnf -y install dnf-plugin-config-manager
-        sudo dnf config-manager --add-repo /etc/yum.repos.d/netbird.repo
-        sudo dnf -y install netbird
-
-        if ! $SKIP_UI_APP; then
-            sudo dnf -y install netbird-ui
-        fi
-    ;;
-    pacman)
-        sudo pacman -Syy
-        add_aur_repo
-    ;;
-    brew)
-        # Remove Wiretrustee if it had been installed using Homebrew before
-        if brew ls --versions wiretrustee >/dev/null 2>&1; then
-            echo "Removing existing wiretrustee client"
-
-            # Stop and uninstall daemon service:
-            wiretrustee service stop
-            wiretrustee service uninstall
-
-            # Unlik the app
-            brew unlink wiretrustee
-        fi
-
-        brew install netbirdio/tap/netbird
-        if ! $SKIP_UI_APP; then
-            brew install --cask netbirdio/tap/netbird-ui
-        fi
-    ;;
-    *)
-      if [ "$OS_NAME" = "nixos" ];then
-        echo "Please add NetBird to your NixOS configuration.nix directly:"
-			  echo ""
-			  echo "services.netbird.enable = true;"
-
-        if ! $SKIP_UI_APP; then
-          echo "environment.systemPackages = [ pkgs.netbird-ui ];"
-        fi
-
-        echo "Build and apply new configuration:"
-        echo ""
-        echo "sudo nixos-rebuild switch"
-			  exit 0
-      fi
-
-        install_native_binaries
-    ;;
-    esac
-
-    # Add package manager to config
-    sudo mkdir -p "$CONFIG_FOLDER"
-    echo "package_manager=$PACKAGE_MANAGER" | sudo tee "$CONFIG_FILE" > /dev/null
-
-    # Load and start netbird service
-    if  ! sudo netbird service install 2>&1; then
-        echo "NetBird service has already been loaded"
-    fi
-    if  ! sudo netbird service start 2>&1; then
-        echo "NetBird service has already been started"
-    fi
-
-
-    echo "Installation has been finished. To connect, you need to run NetBird by executing the following command:"
-    echo ""
-    echo "sudo netbird up"
-}
-
-version_greater_equal() {
-    printf '%s\n%s\n' "$2" "$1" | sort -V -C
-}
-
-is_bin_package_manager() {
-  if sudo test -f "$1" && sudo grep -q "package_manager=bin" "$1" ; then
-    return 0
-  else
-    return 1
-  fi
-}
-
-update_netbird() {
-  if is_bin_package_manager "$CONFIG_FILE"; then
-    latest_release=$(get_latest_release)
-    latest_version=${latest_release#v}
-    installed_version=$(netbird version)
-
-    if [ "$latest_version" = "$installed_version" ]; then
-      echo "Installed netbird version ($installed_version) is up-to-date"
-      exit 0
-    fi
-
-    if version_greater_equal "$latest_version" "$installed_version"; then
-      echo "NetBird new version ($latest_version) available. Updating..."
-      echo ""
-      echo "Initiating NetBird update. This will stop the netbird service and restart it after the update"
-
-      sudo netbird service stop
-      sudo netbird service uninstall
-      install_native_binaries
-
-      sudo netbird service install
-      sudo netbird service start
-    fi
-  else
-     echo "NetBird installation was done using a package manager. Please use your system's package manager to update"
-  fi
-}
-
+fi
 
 case "$1" in
     --update)

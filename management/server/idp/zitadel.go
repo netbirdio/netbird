@@ -342,7 +342,7 @@ func (zm *ZitadelManager) GetAllAccounts() (map[string][]*UserData, error) {
 	indexedUsers := make(map[string][]*UserData)
 	for _, profile := range profiles.Result {
 		userData := profile.userData()
-		indexedUsers[unsetAccountID] = append(indexedUsers[unsetAccountID], userData)
+		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], userData)
 	}
 
 	return indexedUsers, nil

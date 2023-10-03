@@ -745,9 +745,15 @@ components:
           type: boolean
           example: true
         peer:
-          description: Peer Identifier associated with route
+          description: Peer Identifier associated with route. This property can not be set together with `peer_groups`
           type: string
           example: chacbco6lnnbn6cg5s91
+        peer_groups:
+          description: Peers Group Identifier associated with route. This property can not be set together with `peer`
+          type: array
+          items:
+            type: string
+            example: chacbco6lnnbn6cg5s91
         network:
           description: Network range in CIDR format
           type: string
@@ -773,7 +779,9 @@ components:
         - description
         - network_id
         - enabled
-        - peer
+        # Only one property has to be set
+        #- peer
+        #- peer_groups
         - network
         - metric
         - masquerade
@@ -1144,8 +1152,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:
-      summary: Block a User
-      description: This method blocks a user from accessing the system, but leaves the IDP user intact.
+      summary: Delete a User
+      description: This method removes a user from accessing the system. For this leaves the IDP user intact unless the `--user-delete-from-idp` is passed to management startup.
       tags: [ Users ]
       security:
         - BearerAuth: [ ]

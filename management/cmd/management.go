@@ -148,7 +148,7 @@ var (
 				return fmt.Errorf("failed to initialize database: %s", err)
 			}
 
-			if key != "" {
+			if config.DataStoreEncryptionKey != key {
 				log.Infof("update config with activity store key")
 				config.DataStoreEncryptionKey = key
 				err := updateMgmtConfig(mgmtConfig, config)

@@ -72,7 +72,7 @@ func NewGoogleWorkspaceManager(config GoogleWorkspaceClientConfig, appMetrics te
 	}
 
 	service, err := admin.NewService(context.Background(),
-		option.WithScopes(admin.AdminDirectoryUserScope),
+		option.WithScopes(admin.AdminDirectoryUserReadonlyScope),
 		option.WithCredentials(adminCredentials),
 	)
 	if err != nil {
@@ -144,7 +144,7 @@ func (gm *GoogleWorkspaceManager) GetAllAccounts() (map[string][]*UserData, erro
 	indexedUsers := make(map[string][]*UserData)
 	for _, user := range usersList.Users {
 		userData := parseGoogleWorkspaceUser(user)
-		indexedUsers[unsetAccountID] = append(indexedUsers[unsetAccountID], userData)
+		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], userData)
 	}
 
 	return indexedUsers, nil
@@ -206,7 +206,7 @@ func getGoogleCredentials(serviceAccountKey string) (*google.Credentials, error)
 	creds, err := google.CredentialsFromJSON(
 		context.Background(),
 		decodeKey,
-		admin.AdminDirectoryUserScope,
+		admin.AdminDirectoryUserReadonlyScope,
 	)
 	if err == nil {
 		// No need to fallback to the default Google credentials path
@@ -218,7 +218,7 @@ func getGoogleCredentials(serviceAccountKey string) (*google.Credentials, error)
 
 	creds, err = google.FindDefaultCredentials(
 		context.Background(),
-		admin.AdminDirectoryUserScope,
+		admin.AdminDirectoryUserReadonlyScope,
 	)
 	if err != nil {
 		return nil, err
