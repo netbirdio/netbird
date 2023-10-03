@@ -307,6 +307,12 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 	return user, nil
 }
 
+func (am *DefaultAccountManager) deleteServiceUser(account *Account, initiatorUserID string, targetUser *User) {
+	meta := map[string]any{"name": targetUser.ServiceUserName}
+	am.storeEvent(initiatorUserID, targetUser.Id, account.Id, activity.ServiceUserDeleted, meta)
+	delete(account.Users, targetUser.Id)
+}
+
 // DeleteUser deletes a user from the given account.
 func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, targetUserID string) error {
 	if initiatorUserID == targetUserID {
@@ -320,11 +326,6 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return err
 	}
 
-	targetUser := account.Users[targetUserID]
-	if targetUser == nil {
-		return status.Errorf(status.NotFound, "user not found")
-	}
-
 	executingUser := account.Users[initiatorUserID]
 	if executingUser == nil {
 		return status.Errorf(status.NotFound, "user not found")
@@ -333,6 +334,53 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return status.Errorf(status.PermissionDenied, "only admins can delete users")
 	}
 
+	targetUser := account.Users[targetUserID]
+	if targetUser == nil {
+		return status.Errorf(status.NotFound, "target user not found")
+	}
+
+	// handle service user first and exit, no need to fetch extra data from IDP, etc
+	if targetUser.IsServiceUser {
+		am.deleteServiceUser(account, initiatorUserID, targetUser)
+		return am.Store.SaveAccount(account)
+	}
+
+	return am.deleteRegularUser(account, initiatorUserID, targetUserID)
+}
+
+func (am *DefaultAccountManager) deleteRegularUser(account *Account, initiatorUserID, targetUserID string) error {
+	tuEmail, tuName, err := am.getEmailAndNameOfTargetUser(account.Id, initiatorUserID, targetUserID)
+	if err != nil {
+		log.Errorf("failed to resolve email address: %s", err)
+		return err
+	}
+
+	if !isNil(am.idpManager) {
+		err = am.deleteUserFromIDP(targetUserID, account.Id)
+		if err != nil {
+			log.Debugf("failed to delete user from IDP: %s", targetUserID)
+			return err
+		}
+	}
+
+	err = am.deleteUserPeers(initiatorUserID, targetUserID, account)
+	if err != nil {
+		return err
+	}
+
+	delete(account.Users, targetUserID)
+	err = am.Store.SaveAccount(account)
+	if err != nil {
+		return err
+	}
+
+	meta := map[string]any{"name": tuName, "email": tuEmail}
+	am.storeEvent(initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
+
+	return am.updateAccountPeers(account)
+}
+
+func (am *DefaultAccountManager) deleteUserPeers(initiatorUserID string, targetUserID string, account *Account) error {
 	peers, err := account.FindUserPeers(targetUserID)
 	if err != nil {
 		return status.Errorf(status.Internal, "failed to find user peers")
@@ -343,45 +391,7 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		peerIDs = append(peerIDs, peer.ID)
 	}
 
-	err = am.deletePeers(account, peerIDs, initiatorUserID)
-	if err != nil {
-		return err
-	}
-
-	tuEmail, tuName, err := am.getEmailAndNameOfTargetUser(account.Id, initiatorUserID, targetUserID)
-	if err != nil {
-		log.Errorf("failed to resolve email address: %s", err)
-		return err
-	}
-
-	var meta map[string]any
-	var eventAction activity.Activity
-	if targetUser.IsServiceUser {
-		meta = map[string]any{"name": targetUser.ServiceUserName}
-		eventAction = activity.ServiceUserDeleted
-	} else {
-		meta = map[string]any{"name": tuName, "email": tuEmail}
-		eventAction = activity.UserDeleted
-	}
-	am.storeEvent(initiatorUserID, targetUserID, accountID, eventAction, meta)
-
-	if !targetUser.IsServiceUser && !isNil(am.idpManager) {
-		err := am.deleteUserFromIDP(targetUserID, accountID)
-		if err != nil {
-			log.Debugf("failed to delete user from IDP: %s", targetUserID)
-			return err
-		}
-	}
-
-	delete(account.Users, targetUserID)
-
-	// todo should be unnecessary because we save account in the am.deletePeers
-	err = am.Store.SaveAccount(account)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return am.deletePeers(account, peerIDs, initiatorUserID)
 }
 
 // InviteUser resend invitations to users who haven't activated their accounts prior to the expiration period.
