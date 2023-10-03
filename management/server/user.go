@@ -355,14 +355,6 @@ func (am *DefaultAccountManager) deleteRegularUser(initiatorUserID string, targe
 		return err
 	}
 
-	err = am.deleteUserPeers(initiatorUserID, targetUserID, account, err)
-	if err != nil {
-		return err
-	}
-
-	meta := map[string]any{"name": tuName, "email": tuEmail}
-	am.storeEvent(initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
-
 	if !isNil(am.idpManager) {
 		err = am.deleteUserFromIDP(targetUserID, account.Id)
 		if err != nil {
@@ -371,11 +363,19 @@ func (am *DefaultAccountManager) deleteRegularUser(initiatorUserID string, targe
 		}
 	}
 
+	err = am.deleteUserPeers(initiatorUserID, targetUserID, account, err)
+	if err != nil {
+		return err
+	}
+
 	delete(account.Users, targetUserID)
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return err
 	}
+
+	meta := map[string]any{"name": tuName, "email": tuEmail}
+	am.storeEvent(initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
 
 	return am.updateAccountPeers(account)
 }
