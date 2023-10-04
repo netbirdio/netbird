@@ -926,11 +926,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 	peers := account.GetPeers()
 
 	for _, peer := range peers {
-		remotePeerNetworkMap, err := am.GetNetworkMap(peer.ID)
-		if err != nil {
-			return err
-		}
-
+		remotePeerNetworkMap := account.GetPeerNetworkMap(peer.ID, am.dnsDomain)
 		update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain())
 		am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})
 	}
