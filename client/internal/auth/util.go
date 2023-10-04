@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"reflect"
 	"strings"
 )
 
@@ -45,24 +43,18 @@ func isValidAccessToken(token string, audience string) error {
 	}
 
 	// Audience claim of JWT can be a string or an array of strings
-	typ := reflect.TypeOf(claims.Audience)
-	switch typ.Kind() {
-	case reflect.String:
-		if claims.Audience == audience {
+	switch aud := claims.Audience.(type) {
+	case string:
+		if aud == audience {
 			return nil
 		}
-	case reflect.Slice:
-		for _, aud := range claims.Audience.([]interface{}) {
-			if audience == aud {
+	case []interface{}:
+		for _, audItem := range aud {
+			if audStr, ok := audItem.(string); ok && audStr == audience {
 				return nil
 			}
 		}
 	}
 
 	return fmt.Errorf("invalid JWT token audience field")
-}
-
-// isLinuxRunningDesktop checks if a Linux OS is running desktop environment
-func isLinuxRunningDesktop() bool {
-	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
 }

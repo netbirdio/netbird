@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -31,11 +30,11 @@ func NewPeersUpdateManager() *PeersUpdateManager {
 }
 
 // SendUpdate sends update message to the peer's channel
-func (p *PeersUpdateManager) SendUpdate(peerID string, update *UpdateMessage) error {
+func (p *PeersUpdateManager) SendUpdate(peerID string, update *UpdateMessage) {
 	if ch, ok := p.peerChannels.Load(peerID); ok {
 		channel, ok := ch.(UpdateChannel)
 		if !ok {
-			return fmt.Errorf("could not cast to UpdateChannel")
+			log.Warnf("could not cast to UpdateChannel")
 		}
 		select {
 		case channel <- update:
@@ -43,10 +42,9 @@ func (p *PeersUpdateManager) SendUpdate(peerID string, update *UpdateMessage) er
 		default:
 			log.Warnf("channel for peer %s is %d full", peerID, len(channel))
 		}
-		return nil
+	} else {
+		log.Debugf("peer %s has no channel", peerID)
 	}
-	log.Debugf("peer %s has no channel", peerID)
-	return nil
 }
 
 // CreateChannel creates a go channel for a given peer used to deliver updates relevant to the peer.

@@ -106,9 +106,6 @@ func GetPKCEAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmURL
 
 func isPKCEProviderConfigValid(config PKCEAuthProviderConfig) error {
 	errorMSGFormat := "invalid provider configuration received from management: %s value is empty. Contact your NetBird administrator"
-	if config.Audience == "" {
-		return fmt.Errorf(errorMSGFormat, "Audience")
-	}
 	if config.ClientID == "" {
 		return fmt.Errorf(errorMSGFormat, "Client ID")
 	}
