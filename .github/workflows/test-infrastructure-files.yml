@@ -117,7 +117,7 @@ jobs:
 
       - name: Build management binary
         working-directory: management
-        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} go build -o netbird-mgmt main.go
+        run: CGO_ENABLED=1 go build -o netbird-mgmt main.go
 
       - name: Build management docker image
         working-directory: management
@@ -126,7 +126,7 @@ jobs:
 
       - name: Build signal binary
         working-directory: signal
-        run: CGO_ENABLED=0 GOARCH=${{ matrix.arch }} go build -o netbird-signal main.go
+        run: CGO_ENABLED=0 go build -o netbird-signal main.go
 
       - name: Build signal docker image
         working-directory: signal
@@ -146,3 +146,28 @@ jobs:
           count=$(docker compose ps --format json | jq '. | select(.Name | contains("infrastructure_files")) | .State' | grep -c running)
           test $count -eq 4
         working-directory: infrastructure_files
+
+  test-getting-started-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: run script
+        run: NETBIRD_DOMAIN=use-ip bash -x infrastructure_files/getting-started-with-zitadel.sh
+
+      - name: test Caddy file gen
+        run: test -f Caddyfile
+      - name: test docker-compose file gen
+        run: test -f docker-compose.yml
+      - name: test management.json file gen
+        run: test -f management.json
+      - name: test turnserver.conf file gen
+        run: test -f turnserver.conf
+      - name: test zitadel.env file gen
+        run: test -f zitadel.env
+      - name: test dashboard.env file gen
+        run: test -f dashboard.env
