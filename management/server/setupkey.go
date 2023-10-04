@@ -317,7 +317,9 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 		}
 	}()
 
-	return newKey, am.updateAccountPeers(account)
+	am.updateAccountPeers(account)
+
+	return newKey, nil
 }
 
 // ListSetupKeys returns a list of all setup keys of the account

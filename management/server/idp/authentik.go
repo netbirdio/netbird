@@ -210,47 +210,7 @@ func (ac *AuthentikCredentials) Authenticate() (JWTToken, error) {
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
-func (am *AuthentikManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
-	ctx, err := am.authenticationContext()
-	if err != nil {
-		return err
-	}
-
-	userPk, err := strconv.ParseInt(userID, 10, 32)
-	if err != nil {
-		return err
-	}
-
-	var pendingInvite bool
-	if appMetadata.WTPendingInvite != nil {
-		pendingInvite = *appMetadata.WTPendingInvite
-	}
-
-	patchedUserReq := api.PatchedUserRequest{
-		Attributes: map[string]interface{}{
-			wtAccountID:     appMetadata.WTAccountID,
-			wtPendingInvite: pendingInvite,
-		},
-	}
-	_, resp, err := am.apiClient.CoreApi.CoreUsersPartialUpdate(ctx, int32(userPk)).
-		PatchedUserRequest(patchedUserReq).
-		Execute()
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if am.appMetrics != nil {
-		am.appMetrics.IDPMetrics().CountUpdateUserAppMetadata()
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		if am.appMetrics != nil {
-			am.appMetrics.IDPMetrics().CountRequestStatusError()
-		}
-		return fmt.Errorf("unable to update user %s, statusCode %d", userID, resp.StatusCode)
-	}
-
+func (am *AuthentikManager) UpdateUserAppMetadata(_ string, _ AppMetadata) error {
 	return nil
 }
 
@@ -283,7 +243,10 @@ func (am *AuthentikManager) GetUserDataByID(userID string, appMetadata AppMetada
 		return nil, fmt.Errorf("unable to get user %s, statusCode %d", userID, resp.StatusCode)
 	}
 
-	return parseAuthentikUser(*user)
+	userData := parseAuthentikUser(*user)
+	userData.AppMetadata = appMetadata
+
+	return userData, nil
 }
 
 // GetAccount returns all the users for a given profile.
@@ -293,8 +256,7 @@ func (am *AuthentikManager) GetAccount(accountID string) ([]*UserData, error) {
 		return nil, err
 	}
 
-	accountFilter := fmt.Sprintf("{%q:%q}", wtAccountID, accountID)
-	userList, resp, err := am.apiClient.CoreApi.CoreUsersList(ctx).Attributes(accountFilter).Execute()
+	userList, resp, err := am.apiClient.CoreApi.CoreUsersList(ctx).Execute()
 	if err != nil {
 		return nil, err
 	}
@@ -313,10 +275,9 @@ func (am *AuthentikManager) GetAccount(accountID string) ([]*UserData, error) {
 
 	users := make([]*UserData, 0)
 	for _, user := range userList.Results {
-		userData, err := parseAuthentikUser(user)
-		if err != nil {
-			return nil, err
-		}
+		userData := parseAuthentikUser(user)
+		userData.AppMetadata.WTAccountID = accountID
+
 		users = append(users, userData)
 	}
 
@@ -350,65 +311,16 @@ func (am *AuthentikManager) GetAllAccounts() (map[string][]*UserData, error) {
 
 	indexedUsers := make(map[string][]*UserData)
 	for _, user := range userList.Results {
-		userData, err := parseAuthentikUser(user)
-		if err != nil {
-			return nil, err
-		}
-
-		accountID := userData.AppMetadata.WTAccountID
-		if accountID != "" {
-			if _, ok := indexedUsers[accountID]; !ok {
-				indexedUsers[accountID] = make([]*UserData, 0)
-			}
-			indexedUsers[accountID] = append(indexedUsers[accountID], userData)
-		}
+		userData := parseAuthentikUser(user)
+		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], userData)
 	}
 
 	return indexedUsers, nil
 }
 
 // CreateUser creates a new user in authentik Idp and sends an invitation.
-func (am *AuthentikManager) CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error) {
-	ctx, err := am.authenticationContext()
-	if err != nil {
-		return nil, err
-	}
-
-	groupID, err := am.getUserGroupByName("netbird")
-	if err != nil {
-		return nil, err
-	}
-
-	defaultBoolValue := true
-	createUserRequest := api.UserRequest{
-		Email:    &email,
-		Name:     name,
-		IsActive: &defaultBoolValue,
-		Groups:   []string{groupID},
-		Username: email,
-		Attributes: map[string]interface{}{
-			wtAccountID:     accountID,
-			wtPendingInvite: &defaultBoolValue,
-		},
-	}
-	user, resp, err := am.apiClient.CoreApi.CoreUsersCreate(ctx).UserRequest(createUserRequest).Execute()
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if am.appMetrics != nil {
-		am.appMetrics.IDPMetrics().CountCreateUser()
-	}
-
-	if resp.StatusCode != http.StatusCreated {
-		if am.appMetrics != nil {
-			am.appMetrics.IDPMetrics().CountRequestStatusError()
-		}
-		return nil, fmt.Errorf("unable to create user, statusCode %d", resp.StatusCode)
-	}
-
-	return parseAuthentikUser(*user)
+func (am *AuthentikManager) CreateUser(_, _, _, _ string) (*UserData, error) {
+	return nil, fmt.Errorf("method CreateUser not implemented")
 }
 
 // GetUserByEmail searches users with a given email.
@@ -438,11 +350,7 @@ func (am *AuthentikManager) GetUserByEmail(email string) ([]*UserData, error) {
 
 	users := make([]*UserData, 0)
 	for _, user := range userList.Results {
-		userData, err := parseAuthentikUser(user)
-		if err != nil {
-			return nil, err
-		}
-		users = append(users, userData)
+		users = append(users, parseAuthentikUser(user))
 	}
 
 	return users, nil
@@ -501,64 +409,10 @@ func (am *AuthentikManager) authenticationContext() (context.Context, error) {
 	return context.WithValue(context.Background(), api.ContextAPIKeys, value), nil
 }
 
-// getUserGroupByName retrieves the user group for assigning new users.
-// If the group is not found, a new group with the specified name will be created.
-func (am *AuthentikManager) getUserGroupByName(name string) (string, error) {
-	ctx, err := am.authenticationContext()
-	if err != nil {
-		return "", err
-	}
-
-	groupList, resp, err := am.apiClient.CoreApi.CoreGroupsList(ctx).Name(name).Execute()
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if groupList != nil {
-		if len(groupList.Results) > 0 {
-			return groupList.Results[0].Pk, nil
-		}
-	}
-
-	createGroupRequest := api.GroupRequest{Name: name}
-	group, resp, err := am.apiClient.CoreApi.CoreGroupsCreate(ctx).GroupRequest(createGroupRequest).Execute()
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		return "", fmt.Errorf("unable to create user group, statusCode: %d", resp.StatusCode)
-	}
-
-	return group.Pk, nil
-}
-
-func parseAuthentikUser(user api.User) (*UserData, error) {
-	var attributes struct {
-		AccountID     string `json:"wt_account_id"`
-		PendingInvite bool   `json:"wt_pending_invite"`
-	}
-
-	helper := JsonParser{}
-	buf, err := helper.Marshal(user.Attributes)
-	if err != nil {
-		return nil, err
-	}
-
-	err = helper.Unmarshal(buf, &attributes)
-	if err != nil {
-		return nil, err
-	}
-
+func parseAuthentikUser(user api.User) *UserData {
 	return &UserData{
 		Email: *user.Email,
 		Name:  user.Name,
 		ID:    strconv.FormatInt(int64(user.Pk), 10),
-		AppMetadata: AppMetadata{
-			WTAccountID:     attributes.AccountID,
-			WTPendingInvite: &attributes.PendingInvite,
-		},
-	}, nil
+	}
 }

@@ -84,10 +84,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 		return err
 	}
 
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		return err
-	}
+	am.updateAccountPeers(account)
 
 	// the following snippet tracks the activity and stores the group events in the event store.
 	// It has to happen after all the operations have been successfully performed.
@@ -229,7 +226,9 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 
 	am.storeEvent(userId, groupID, accountId, activity.GroupDeleted, g.EventMeta())
 
-	return am.updateAccountPeers(account)
+	am.updateAccountPeers(account)
+
+	return nil
 }
 
 // ListGroups objects of the peers
@@ -281,11 +280,13 @@ func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerID string)
 		return err
 	}
 
-	return am.updateAccountPeers(account)
+	am.updateAccountPeers(account)
+
+	return nil
 }
 
 // GroupDeletePeer removes peer from the group
-func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey string) error {
+func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerID string) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -301,7 +302,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey str
 
 	account.Network.IncSerial()
 	for i, itemID := range group.Peers {
-		if itemID == peerKey {
+		if itemID == peerID {
 			group.Peers = append(group.Peers[:i], group.Peers[i+1:]...)
 			if err := am.Store.SaveAccount(account); err != nil {
 				return err
@@ -309,7 +310,9 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey str
 		}
 	}
 
-	return am.updateAccountPeers(account)
+	am.updateAccountPeers(account)
+
+	return nil
 }
 
 // GroupListPeers returns list of the peers from the group

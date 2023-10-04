@@ -290,10 +290,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 	if oldStatus.LoginExpired {
 		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
 		// the expired one. Here we notify them that connection is now allowed again.
-		err = am.updateAccountPeers(account)
-		if err != nil {
-			return err
-		}
+		am.updateAccountPeers(account)
 	}
 
 	return nil
@@ -364,63 +361,75 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 		return nil, err
 	}
 
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		return nil, err
-	}
+	am.updateAccountPeers(account)
 
 	return peer, nil
 }
 
+// deletePeers will delete all specified peers and send updates to the remote peers. Don't call without acquiring account lock
+func (am *DefaultAccountManager) deletePeers(account *Account, peerIDs []string, userID string) error {
+
+	// the first loop is needed to ensure all peers present under the account before modifying, otherwise
+	// we might have some inconsistencies
+	peers := make([]*Peer, 0, len(peerIDs))
+	for _, peerID := range peerIDs {
+
+		peer := account.GetPeer(peerID)
+		if peer == nil {
+			return status.Errorf(status.NotFound, "peer %s not found", peerID)
+		}
+		peers = append(peers, peer)
+	}
+
+	// the 2nd loop performs the actual modification
+	for _, peer := range peers {
+		account.DeletePeer(peer.ID)
+		am.peersUpdateManager.SendUpdate(peer.ID,
+			&UpdateMessage{
+				Update: &proto.SyncResponse{
+					// fill those field for backward compatibility
+					RemotePeers:        []*proto.RemotePeerConfig{},
+					RemotePeersIsEmpty: true,
+					// new field
+					NetworkMap: &proto.NetworkMap{
+						Serial:               account.Network.CurrentSerial(),
+						RemotePeers:          []*proto.RemotePeerConfig{},
+						RemotePeersIsEmpty:   true,
+						FirewallRules:        []*proto.FirewallRule{},
+						FirewallRulesIsEmpty: true,
+					},
+				},
+			})
+		am.peersUpdateManager.CloseChannel(peer.ID)
+		am.storeEvent(userID, peer.ID, account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
+	}
+
+	return nil
+}
+
 // DeletePeer removes peer from the account by its IP
-func (am *DefaultAccountManager) DeletePeer(accountID, peerID, userID string) (*Peer, error) {
+func (am *DefaultAccountManager) DeletePeer(accountID, peerID, userID string) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	peer := account.GetPeer(peerID)
-	if peer == nil {
-		return nil, status.Errorf(status.NotFound, "peer %s not found", peerID)
+	err = am.deletePeers(account, []string{peerID}, userID)
+	if err != nil {
+		return err
 	}
-
-	account.DeletePeer(peerID)
 
 	err = am.Store.SaveAccount(account)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	err = am.peersUpdateManager.SendUpdate(peer.ID,
-		&UpdateMessage{
-			Update: &proto.SyncResponse{
-				// fill those field for backward compatibility
-				RemotePeers:        []*proto.RemotePeerConfig{},
-				RemotePeersIsEmpty: true,
-				// new field
-				NetworkMap: &proto.NetworkMap{
-					Serial:               account.Network.CurrentSerial(),
-					RemotePeers:          []*proto.RemotePeerConfig{},
-					RemotePeersIsEmpty:   true,
-					FirewallRules:        []*proto.FirewallRule{},
-					FirewallRulesIsEmpty: true,
-				},
-			},
-		})
-	if err != nil {
-		return nil, err
-	}
+	am.updateAccountPeers(account)
 
-	if err := am.updateAccountPeers(account); err != nil {
-		return nil, err
-	}
-
-	am.peersUpdateManager.CloseChannel(peerID)
-	am.storeEvent(userID, peer.ID, account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
-	return peer, nil
+	return nil
 }
 
 // GetPeerByIP returns peer by its IP
@@ -609,10 +618,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain())
 	am.storeEvent(opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		return nil, nil, err
-	}
+	am.updateAccountPeers(account)
 
 	networkMap := account.GetPeerNetworkMap(newPeer.ID, am.dnsDomain)
 	return newPeer, networkMap, nil
@@ -727,10 +733,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 	}
 
 	if updateRemotePeers {
-		err = am.updateAccountPeers(account)
-		if err != nil {
-			return nil, nil, err
-		}
+		am.updateAccountPeers(account)
 	}
 	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
 }
@@ -804,10 +807,7 @@ func (am *DefaultAccountManager) checkAndUpdatePeerSSHKey(peer *Peer, account *A
 	}
 
 	// trigger network map update
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		return nil, err
-	}
+	am.updateAccountPeers(account)
 
 	return peer, nil
 }
@@ -852,7 +852,9 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerID string, sshKey string) 
 	}
 
 	// trigger network map update
-	return am.updateAccountPeers(account)
+	am.updateAccountPeers(account)
+
+	return nil
 }
 
 // GetPeer for a given accountID, peerID and userID error if not found.
@@ -909,21 +911,12 @@ func updatePeerMeta(peer *Peer, meta PeerSystemMeta, account *Account) (*Peer, b
 
 // updateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
-func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
+func (am *DefaultAccountManager) updateAccountPeers(account *Account) {
 	peers := account.GetPeers()
 
 	for _, peer := range peers {
-		remotePeerNetworkMap, err := am.GetNetworkMap(peer.ID)
-		if err != nil {
-			return err
-		}
-
+		remotePeerNetworkMap := account.GetPeerNetworkMap(peer.ID, am.dnsDomain)
 		update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain())
-		err = am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})
-		if err != nil {
-			return err
-		}
+		am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})
 	}
-
-	return nil
 }

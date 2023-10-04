@@ -66,7 +66,7 @@ type AccountManager interface {
 	GetPeerByKey(peerKey string) (*Peer, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
-	DeletePeer(accountID, peerID, userID string) (*Peer, error)
+	DeletePeer(accountID, peerID, userID string) error
 	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	UpdatePeer(accountID, userID string, peer *Peer) (*Peer, error)
 	GetNetworkMap(peerID string) (*NetworkMap, error)
@@ -83,14 +83,14 @@ type AccountManager interface {
 	DeleteGroup(accountId, userId, groupID string) error
 	ListGroups(accountId string) ([]*Group, error)
 	GroupAddPeer(accountId, groupID, peerID string) error
-	GroupDeletePeer(accountId, groupID, peerKey string) error
+	GroupDeletePeer(accountId, groupID, peerID string) error
 	GroupListPeers(accountId, groupID string) ([]*Peer, error)
 	GetPolicy(accountID, policyID, userID string) (*Policy, error)
 	SavePolicy(accountID, userID string, policy *Policy) error
 	DeletePolicy(accountID, policyID, userID string) error
 	ListPolicies(accountID, userID string) ([]*Policy, error)
 	GetRoute(accountID, routeID, userID string) (*route.Route, error)
-	CreateRoute(accountID string, prefix, peerID, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
+	CreateRoute(accountID, prefix, peerID string, peerGroupIDs []string, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
 	SaveRoute(accountID, userID string, route *route.Route) error
 	DeleteRoute(accountID, routeID, userID string) error
 	ListRoutes(accountID, userID string) ([]*route.Route, error)
@@ -253,22 +253,39 @@ func (a *Account) filterRoutesByGroups(routes []*route.Route, groupListMap looku
 func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Route, []*route.Route) {
 	var enabledRoutes []*route.Route
 	var disabledRoutes []*route.Route
+
+	takeRoute := func(r *route.Route, id string) {
+		peer := a.GetPeer(peerID)
+		if peer == nil {
+			log.Errorf("route %s has peer %s that doesn't exist under account %s", r.ID, peerID, a.Id)
+			return
+		}
+
+		if r.Enabled {
+			enabledRoutes = append(enabledRoutes, r)
+			return
+		}
+		disabledRoutes = append(disabledRoutes, r)
+	}
+
 	for _, r := range a.Routes {
+		if len(r.PeerGroups) != 0 {
+			for _, groupID := range r.PeerGroups {
+				group := a.GetGroup(groupID)
+				if group == nil {
+					log.Errorf("route %s has peers group %s that doesn't exist under account %s", r.ID, groupID, a.Id)
+					continue
+				}
+				for _, id := range group.Peers {
+					if id == peerID {
+						takeRoute(r, id)
+						break
+					}
+				}
+			}
+		}
 		if r.Peer == peerID {
-			// We need to set Peer.Key instead of Peer.ID because this object will be sent to agents as part of a network map.
-			// Ideally we should have a separate field for that, but fine for now.
-			peer := a.GetPeer(peerID)
-			if peer == nil {
-				log.Errorf("route %s has peer %s that doesn't exist under account %s", r.ID, peerID, a.Id)
-				continue
-			}
-			raut := r.Copy()
-			raut.Peer = peer.Key
-			if r.Enabled {
-				enabledRoutes = append(enabledRoutes, raut)
-				continue
-			}
-			disabledRoutes = append(disabledRoutes, raut)
+			takeRoute(r, peerID)
 		}
 	}
 	return enabledRoutes, disabledRoutes
@@ -316,8 +333,51 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 		}
 		peersToConnect = append(peersToConnect, p)
 	}
-	// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
-	routesUpdate := a.getRoutesToSync(peerID, peersToConnect)
+
+	routes := a.getRoutesToSync(peerID, peersToConnect)
+
+	takePeer := func(id string) (*Peer, bool) {
+		peer := a.GetPeer(id)
+		if peer == nil || peer.Meta.GoOS != "linux" {
+			return nil, false
+		}
+		return peer, true
+	}
+
+	// We need to set Peer.Key instead of Peer.ID because this object will be sent to agents as part of a network map.
+	// Ideally we should have a separate field for that, but fine for now.
+	var routesUpdate []*route.Route
+	seenPeers := make(map[string]bool)
+	for _, r := range routes {
+		if r.Peer != "" {
+			peer, valid := takePeer(r.Peer)
+			if !valid {
+				continue
+			}
+			rCopy := r.Copy()
+			rCopy.Peer = peer.Key // client expects the key
+			routesUpdate = append(routesUpdate, rCopy)
+			continue
+		}
+		for _, groupID := range r.PeerGroups {
+			if group := a.GetGroup(groupID); group != nil {
+				for _, peerId := range group.Peers {
+					peer, valid := takePeer(peerId)
+					if !valid {
+						continue
+					}
+
+					if _, ok := seenPeers[peer.ID]; !ok {
+						rCopy := r.Copy()
+						rCopy.ID = r.ID + ":" + peer.ID // we have to provide unit route id when distribute network map
+						rCopy.Peer = peer.Key           // client expects the key
+						routesUpdate = append(routesUpdate, rCopy)
+					}
+					seenPeers[peer.ID] = true
+				}
+			}
+		}
+	}
 
 	dnsManagementStatus := a.getPeerDNSManagementStatus(peerID)
 	dnsUpdate := nbdns.Config{
@@ -577,8 +637,8 @@ func (a *Account) Copy() *Account {
 	}
 
 	routes := map[string]*route.Route{}
-	for id, route := range a.Routes {
-		routes[id] = route.Copy()
+	for id, r := range a.Routes {
+		routes[id] = r.Copy()
 	}
 
 	nsGroups := map[string]*nbdns.NameServerGroup{}
@@ -928,6 +988,27 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 		return err
 	}
 
+	// If the Identity Provider does not support writing AppMetadata,
+	// in cases like this, we expect it to return all users in an "unset" field.
+	// We iterate over the users in the "unset" field, look up their AccountID in our store, and
+	// update their AppMetadata with the AccountID.
+	if unsetData, ok := userData[idp.UnsetAccountID]; ok {
+		for _, user := range unsetData {
+			accountID, err := am.Store.GetAccountByUser(user.ID)
+			if err == nil {
+				data := userData[accountID.Id]
+				if data == nil {
+					data = make([]*idp.UserData, 0, 1)
+				}
+
+				user.AppMetadata.WTAccountID = accountID.Id
+
+				userData[accountID.Id] = append(data, user)
+			}
+		}
+	}
+	delete(userData, idp.UnsetAccountID)
+
 	for accountID, users := range userData {
 		err = am.cacheManager.Set(am.ctx, accountID, users, cacheStore.WithExpiration(cacheEntryExpiration()))
 		if err != nil {
@@ -994,7 +1075,36 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(userID string, account
 
 func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interface{}) ([]*idp.UserData, error) {
 	log.Debugf("account %s not found in cache, reloading", accountID)
-	return am.idpManager.GetAccount(fmt.Sprintf("%v", accountID))
+	accountIDString := fmt.Sprintf("%v", accountID)
+
+	account, err := am.Store.GetAccount(accountIDString)
+	if err != nil {
+		return nil, err
+	}
+
+	userData, err := am.idpManager.GetAccount(accountIDString)
+	if err != nil {
+		return nil, err
+	}
+
+	dataMap := make(map[string]*idp.UserData, len(userData))
+	for _, datum := range userData {
+		dataMap[datum.ID] = datum
+	}
+
+	matchedUserData := make([]*idp.UserData, 0)
+	for _, user := range account.Users {
+		if user.IsServiceUser {
+			continue
+		}
+		datum, ok := dataMap[user.Id]
+		if !ok {
+			log.Warnf("user %s not found in IDP", user.Id)
+			continue
+		}
+		matchedUserData = append(matchedUserData, datum)
+	}
+	return matchedUserData, nil
 }
 
 func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountID string) (*idp.UserData, error) {
@@ -1381,9 +1491,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 							if err := am.Store.SaveAccount(account); err != nil {
 								log.Errorf("failed to save account: %v", err)
 							} else {
-								if err := am.updateAccountPeers(account); err != nil {
-									log.Errorf("failed updating account peers while updating user %s", account.Id)
-								}
+								am.updateAccountPeers(account)
 								for _, g := range addNewGroups {
 									if group := account.GetGroup(g); group != nil {
 										am.storeEvent(user.Id, user.Id, account.Id, activity.GroupAddedToUser,

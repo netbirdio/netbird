@@ -23,15 +23,22 @@ import (
 )
 
 const (
-	existingRouteID = "existingRouteID"
-	notFoundRouteID = "notFoundRouteID"
-	existingPeerIP  = "100.64.0.100"
-	existingPeerID  = "peer-id"
-	notFoundPeerID  = "nonExistingPeer"
-	existingPeerKey = "existingPeerKey"
-	testAccountID   = "test_id"
-	existingGroupID = "testGroup"
+	existingRouteID         = "existingRouteID"
+	existingRouteID2        = "existingRouteID2" // for peer_groups test
+	notFoundRouteID         = "notFoundRouteID"
+	existingPeerIP1         = "100.64.0.100"
+	existingPeerIP2         = "100.64.0.101"
+	notFoundPeerID          = "nonExistingPeer"
+	existingPeerKey         = "existingPeerKey"
+	nonLinuxExistingPeerKey = "darwinExistingPeerKey"
+	testAccountID           = "test_id"
+	existingGroupID         = "testGroup"
+	notFoundGroupID         = "nonExistingGroup"
 )
+
+var emptyString = ""
+var existingPeerID = "peer-id"
+var nonLinuxExistingPeerID = "darwin-peer-id"
 
 var baseExistingRoute = &route.Route{
 	ID:          existingRouteID,
@@ -51,8 +58,19 @@ var testingAccount = &server.Account{
 	Peers: map[string]*server.Peer{
 		existingPeerID: {
 			Key: existingPeerKey,
-			IP:  netip.MustParseAddr(existingPeerIP).AsSlice(),
+			IP:  netip.MustParseAddr(existingPeerIP1).AsSlice(),
 			ID:  existingPeerID,
+			Meta: server.PeerSystemMeta{
+				GoOS: "linux",
+			},
+		},
+		nonLinuxExistingPeerID: {
+			Key: nonLinuxExistingPeerID,
+			IP:  netip.MustParseAddr(existingPeerIP2).AsSlice(),
+			ID:  nonLinuxExistingPeerID,
+			Meta: server.PeerSystemMeta{
+				GoOS: "darwin",
+			},
 		},
 	},
 	Users: map[string]*server.User{
@@ -67,17 +85,26 @@ func initRoutesTestData() *RoutesHandler {
 				if routeID == existingRouteID {
 					return baseExistingRoute, nil
 				}
+				if routeID == existingRouteID2 {
+					route := baseExistingRoute.Copy()
+					route.PeerGroups = []string{existingGroupID}
+					return route, nil
+				}
 				return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 			},
-			CreateRouteFunc: func(accountID string, network, peerID, description, netID string, masquerade bool, metric int, groups []string, enabled bool, _ string) (*route.Route, error) {
+			CreateRouteFunc: func(accountID, network, peerID string, peerGroups []string, description, netID string, masquerade bool, metric int, groups []string, enabled bool, _ string) (*route.Route, error) {
 				if peerID == notFoundPeerID {
 					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
+				}
+				if len(peerGroups) > 0 && peerGroups[0] == notFoundGroupID {
+					return nil, status.Errorf(status.InvalidArgument, "peer groups with ID %s not found", peerGroups[0])
 				}
 				networkType, p, _ := route.ParseNetwork(network)
 				return &route.Route{
 					ID:          existingRouteID,
 					NetID:       netID,
 					Peer:        peerID,
+					PeerGroups:  peerGroups,
 					Network:     p,
 					NetworkType: networkType,
 					Description: description,
@@ -124,6 +151,9 @@ func initRoutesTestData() *RoutesHandler {
 }
 
 func TestRoutesHandlers(t *testing.T) {
+	baseExistingRouteWithPeerGroups := baseExistingRoute.Copy()
+	baseExistingRouteWithPeerGroups.PeerGroups = []string{existingGroupID}
+
 	tt := []struct {
 		name           string
 		expectedStatus int
@@ -146,6 +176,14 @@ func TestRoutesHandlers(t *testing.T) {
 			requestType:    http.MethodGet,
 			requestPath:    "/api/routes/" + notFoundRouteID,
 			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "Get Existing Route with Peer Groups",
+			requestType:    http.MethodGet,
+			requestPath:    "/api/routes/" + existingRouteID2,
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedRoute:  toRouteResponse(baseExistingRouteWithPeerGroups),
 		},
 		{
 			name:           "Delete Existing Route",
@@ -173,12 +211,20 @@ func TestRoutesHandlers(t *testing.T) {
 				Description: "Post",
 				NetworkId:   "awesomeNet",
 				Network:     "192.168.0.0/16",
-				Peer:        existingPeerID,
+				Peer:        &existingPeerID,
 				NetworkType: route.IPv4NetworkString,
 				Masquerade:  false,
 				Enabled:     false,
 				Groups:      []string{existingGroupID},
 			},
+		},
+		{
+			name:           "POST Non Linux Peer",
+			requestType:    http.MethodPost,
+			requestPath:    "/api/routes",
+			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\",\"groups\":[\"%s\"]}", nonLinuxExistingPeerID, existingGroupID)),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
 		},
 		{
 			name:           "POST Not Found Peer",
@@ -205,6 +251,24 @@ func TestRoutesHandlers(t *testing.T) {
 			expectedBody:   false,
 		},
 		{
+			name:        "POST UnprocessableEntity when both peer and peer_groups are provided",
+			requestType: http.MethodPost,
+			requestPath: "/api/routes",
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"peer\":\"%s\",\"peer_groups\":[\"%s\"],\"groups\":[\"%s\"]}", existingPeerID, existingGroupID, existingGroupID))),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "POST UnprocessableEntity when no peer and peer_groups are provided",
+			requestType: http.MethodPost,
+			requestPath: "/api/routes",
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"groups\":[\"%s\"]}", existingPeerID))),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
 			name:           "PUT OK",
 			requestType:    http.MethodPut,
 			requestPath:    "/api/routes/" + existingRouteID,
@@ -216,7 +280,27 @@ func TestRoutesHandlers(t *testing.T) {
 				Description: "Post",
 				NetworkId:   "awesomeNet",
 				Network:     "192.168.0.0/16",
-				Peer:        existingPeerID,
+				Peer:        &existingPeerID,
+				NetworkType: route.IPv4NetworkString,
+				Masquerade:  false,
+				Enabled:     false,
+				Groups:      []string{existingGroupID},
+			},
+		},
+		{
+			name:           "PUT OK when peer_groups provided",
+			requestType:    http.MethodPut,
+			requestPath:    "/api/routes/" + existingRouteID,
+			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"peer_groups\":[\"%s\"],\"groups\":[\"%s\"]}", existingGroupID, existingGroupID)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedRoute: &api.Route{
+				Id:          existingRouteID,
+				Description: "Post",
+				NetworkId:   "awesomeNet",
+				Network:     "192.168.0.0/16",
+				Peer:        &emptyString,
+				PeerGroups:  &[]string{existingGroupID},
 				NetworkType: route.IPv4NetworkString,
 				Masquerade:  false,
 				Enabled:     false,
@@ -240,6 +324,14 @@ func TestRoutesHandlers(t *testing.T) {
 			expectedBody:   false,
 		},
 		{
+			name:           "PUT Non Linux Peer",
+			requestType:    http.MethodPut,
+			requestPath:    "/api/routes/" + existingRouteID,
+			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\",\"groups\":[\"%s\"]}", nonLinuxExistingPeerID, existingGroupID)),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
 			name:           "PUT Invalid Network Identifier",
 			requestType:    http.MethodPut,
 			requestPath:    "/api/routes/" + existingRouteID,
@@ -252,6 +344,24 @@ func TestRoutesHandlers(t *testing.T) {
 			requestType:    http.MethodPut,
 			requestPath:    "/api/routes/" + existingRouteID,
 			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/34\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\",\"groups\":[\"%s\"]}", existingPeerID, existingGroupID)),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "PUT UnprocessableEntity when both peer and peer_groups are provided",
+			requestType: http.MethodPut,
+			requestPath: "/api/routes/" + existingRouteID,
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"peer\":\"%s\",\"peer_groups\":[\"%s\"],\"groups\":[\"%s\"]}", existingPeerID, existingGroupID, existingGroupID))),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "PUT UnprocessableEntity when no peer and peer_groups are provided",
+			requestType: http.MethodPut,
+			requestPath: "/api/routes/" + existingRouteID,
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"groups\":[\"%s\"]}", existingPeerID))),
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
