@@ -195,16 +195,6 @@ func (p *PeerStatus) Copy() *PeerStatus {
 	}
 }
 
-// GetPeerByKey looks up peer by its public WireGuard key
-func (am *DefaultAccountManager) GetPeerByKey(peerPubKey string) (*Peer, error) {
-	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
-	if err != nil {
-		return nil, err
-	}
-
-	return account.FindPeerByPubKey(peerPubKey)
-}
-
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
 // the current user is not an admin.
 func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, error) {
@@ -430,25 +420,6 @@ func (am *DefaultAccountManager) DeletePeer(accountID, peerID, userID string) er
 	am.updateAccountPeers(account)
 
 	return nil
-}
-
-// GetPeerByIP returns peer by its IP
-func (am *DefaultAccountManager) GetPeerByIP(accountID string, peerIP string) (*Peer, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, peer := range account.Peers {
-		if peerIP == peer.IP.String() {
-			return peer, nil
-		}
-	}
-
-	return nil, status.Errorf(status.NotFound, "peer with IP %s not found", peerIP)
 }
 
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)
