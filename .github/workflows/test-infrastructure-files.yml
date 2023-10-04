@@ -21,7 +21,7 @@ jobs:
         run: sudo apt-get install -y jq
 
       - name: Install curl
-        run: sudo apt-get install -y curl glibc-source
+        run: sudo apt-get install -y curl
 
       - name: Install Go
         uses: actions/setup-go@v4
@@ -126,7 +126,7 @@ jobs:
 
       - name: Build signal binary
         working-directory: signal
-        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} go build -o netbird-signal main.go
+        run: CGO_ENABLED=0 GOARCH=${{ matrix.arch }} go build -o netbird-signal main.go
 
       - name: Build signal docker image
         working-directory: signal
