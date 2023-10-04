@@ -195,16 +195,6 @@ func (p *PeerStatus) Copy() *PeerStatus {
 	}
 }
 
-// GetPeerByKey looks up peer by its public WireGuard key
-func (am *DefaultAccountManager) GetPeerByKey(peerPubKey string) (*Peer, error) {
-	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
-	if err != nil {
-		return nil, err
-	}
-
-	return account.FindPeerByPubKey(peerPubKey)
-}
-
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
 // the current user is not an admin.
 func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, error) {

@@ -20,7 +20,6 @@ type MockAccountManager struct {
 	GetSetupKeyFunc                 func(accountID, userID, keyID string) (*server.SetupKey, error)
 	GetAccountByUserOrAccountIdFunc func(userId, accountId, domain string) (*server.Account, error)
 	GetUserFunc                     func(claims jwtclaims.AuthorizationClaims) (*server.User, error)
-	GetPeerByKeyFunc                func(peerKey string) (*server.Peer, error)
 	GetPeersFunc                    func(accountID, userID string) ([]*server.Peer, error)
 	MarkPeerConnectedFunc           func(peerKey string, connected bool) error
 	DeletePeerFunc                  func(accountID, peerKey, userID string) error
@@ -137,14 +136,6 @@ func (am *MockAccountManager) GetAccountByUserOrAccountID(
 		codes.Unimplemented,
 		"method GetAccountByUserOrAccountID is not implemented",
 	)
-}
-
-// GetPeerByKey mocks implementation of GetPeerByKey from server.AccountManager interface
-func (am *MockAccountManager) GetPeerByKey(peerKey string) (*server.Peer, error) {
-	if am.GetPeerByKeyFunc != nil {
-		return am.GetPeerByKeyFunc(peerKey)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetPeerByKey is not implemented")
 }
 
 // MarkPeerConnected mock implementation of MarkPeerConnected from server.AccountManager interface
