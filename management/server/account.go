@@ -1491,9 +1491,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 							if err := am.Store.SaveAccount(account); err != nil {
 								log.Errorf("failed to save account: %v", err)
 							} else {
-								if err := am.updateAccountPeers(account); err != nil {
-									log.Errorf("failed updating account peers while updating user %s", account.Id)
-								}
+								am.updateAccountPeers(account)
 								for _, g := range addNewGroups {
 									if group := account.GetGroup(g); group != nil {
 										am.storeEvent(user.Id, user.Id, account.Id, activity.GroupAddedToUser,
