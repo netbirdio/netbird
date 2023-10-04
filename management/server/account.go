@@ -62,7 +62,6 @@ type AccountManager interface {
 	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
 	MarkPATUsed(tokenID string) error
 	GetUser(claims jwtclaims.AuthorizationClaims) (*User, error)
-	AccountExists(accountId string) (*bool, error)
 	GetPeerByKey(peerKey string) (*Peer, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
@@ -1602,26 +1601,6 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 func isDomainValid(domain string) bool {
 	re := regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
 	return re.Match([]byte(domain))
-}
-
-// AccountExists checks whether account exists (returns true) or not (returns false)
-func (am *DefaultAccountManager) AccountExists(accountID string) (*bool, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
-	defer unlock()
-
-	var res bool
-	_, err := am.Store.GetAccount(accountID)
-	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
-			res = false
-			return &res, nil
-		} else {
-			return nil, err
-		}
-	}
-
-	res = true
-	return &res, nil
 }
 
 // GetDNSDomain returns the configured dnsDomain

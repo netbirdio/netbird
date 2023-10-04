@@ -706,30 +706,6 @@ func createAccount(am *DefaultAccountManager, accountID, userID, domain string) 
 	return account, nil
 }
 
-func TestAccountManager_AccountExists(t *testing.T) {
-	manager, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	expectedId := "test_account"
-	userId := "account_creator"
-	_, err = createAccount(manager, expectedId, userId, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	exists, err := manager.AccountExists(expectedId)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !*exists {
-		t.Errorf("expected account to exist after creation, got false")
-	}
-}
-
 func TestAccountManager_GetAccount(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
