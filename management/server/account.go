@@ -62,12 +62,9 @@ type AccountManager interface {
 	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
 	MarkPATUsed(tokenID string) error
 	GetUser(claims jwtclaims.AuthorizationClaims) (*User, error)
-	AccountExists(accountId string) (*bool, error)
-	GetPeerByKey(peerKey string) (*Peer, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
 	DeletePeer(accountID, peerID, userID string) error
-	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	UpdatePeer(accountID, userID string, peer *Peer) (*Peer, error)
 	GetNetworkMap(peerID string) (*NetworkMap, error)
 	GetPeerNetwork(peerID string) (*Network, error)
@@ -84,7 +81,6 @@ type AccountManager interface {
 	ListGroups(accountId string) ([]*Group, error)
 	GroupAddPeer(accountId, groupID, peerID string) error
 	GroupDeletePeer(accountId, groupID, peerID string) error
-	GroupListPeers(accountId, groupID string) ([]*Peer, error)
 	GetPolicy(accountID, policyID, userID string) (*Policy, error)
 	SavePolicy(accountID, userID string, policy *Policy) error
 	DeletePolicy(accountID, policyID, userID string) error
@@ -301,17 +297,6 @@ func (a *Account) GetRoutesByPrefix(prefix netip.Prefix) []*route.Route {
 	}
 
 	return routes
-}
-
-// GetPeerByIP returns peer by it's IP if exists under account or nil otherwise
-func (a *Account) GetPeerByIP(peerIP string) *Peer {
-	for _, peer := range a.Peers {
-		if peerIP == peer.IP.String() {
-			return peer
-		}
-	}
-
-	return nil
 }
 
 // GetGroup returns a group by ID if exists, nil otherwise
@@ -1600,26 +1585,6 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 func isDomainValid(domain string) bool {
 	re := regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
 	return re.Match([]byte(domain))
-}
-
-// AccountExists checks whether account exists (returns true) or not (returns false)
-func (am *DefaultAccountManager) AccountExists(accountID string) (*bool, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
-	defer unlock()
-
-	var res bool
-	_, err := am.Store.GetAccount(accountID)
-	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
-			res = false
-			return &res, nil
-		} else {
-			return nil, err
-		}
-	}
-
-	res = true
-	return &res, nil
 }
 
 // GetDNSDomain returns the configured dnsDomain

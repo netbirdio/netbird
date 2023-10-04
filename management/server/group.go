@@ -314,29 +314,3 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerID stri
 
 	return nil
 }
-
-// GroupListPeers returns list of the peers from the group
-func (am *DefaultAccountManager) GroupListPeers(accountID, groupID string) ([]*Peer, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(accountID)
-	if err != nil {
-		return nil, status.Errorf(status.NotFound, "account not found")
-	}
-
-	group, ok := account.Groups[groupID]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "group with ID %s not found", groupID)
-	}
-
-	peers := make([]*Peer, 0, len(account.Groups))
-	for _, peerID := range group.Peers {
-		p, ok := account.Peers[peerID]
-		if ok {
-			peers = append(peers, p)
-		}
-	}
-
-	return peers, nil
-}
