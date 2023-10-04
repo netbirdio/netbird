@@ -32,7 +32,6 @@ type MockAccountManager struct {
 	ListGroupsFunc                  func(accountID string) ([]*server.Group, error)
 	GroupAddPeerFunc                func(accountID, groupID, peerID string) error
 	GroupDeletePeerFunc             func(accountID, groupID, peerID string) error
-	GroupListPeersFunc              func(accountID, groupID string) ([]*server.Peer, error)
 	GetRuleFunc                     func(accountID, ruleID, userID string) (*server.Rule, error)
 	SaveRuleFunc                    func(accountID, userID string, rule *server.Rule) error
 	DeleteRuleFunc                  func(accountID, ruleID, userID string) error
@@ -267,14 +266,6 @@ func (am *MockAccountManager) GroupDeletePeer(accountID, groupID, peerID string)
 		return am.GroupDeletePeerFunc(accountID, groupID, peerID)
 	}
 	return status.Errorf(codes.Unimplemented, "method GroupDeletePeer is not implemented")
-}
-
-// GroupListPeers mock implementation of GroupListPeers from server.AccountManager interface
-func (am *MockAccountManager) GroupListPeers(accountID, groupID string) ([]*server.Peer, error) {
-	if am.GroupListPeersFunc != nil {
-		return am.GroupListPeersFunc(accountID, groupID)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method GroupListPeers is not implemented")
 }
 
 // GetRule mock implementation of GetRule from server.AccountManager interface

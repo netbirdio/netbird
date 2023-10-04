@@ -81,7 +81,6 @@ type AccountManager interface {
 	ListGroups(accountId string) ([]*Group, error)
 	GroupAddPeer(accountId, groupID, peerID string) error
 	GroupDeletePeer(accountId, groupID, peerID string) error
-	GroupListPeers(accountId, groupID string) ([]*Peer, error)
 	GetPolicy(accountID, policyID, userID string) (*Policy, error)
 	SavePolicy(accountID, userID string, policy *Policy) error
 	DeletePolicy(accountID, policyID, userID string) error
