@@ -53,14 +53,6 @@ func initGroupTestData(user *server.User, groups ...*server.Group) *GroupsHandle
 					Issued: server.GroupIssuedAPI,
 				}, nil
 			},
-			GetPeerByIPFunc: func(_ string, peerIP string) (*server.Peer, error) {
-				for _, peer := range TestPeers {
-					if peer.IP.String() == peerIP {
-						return peer, nil
-					}
-				}
-				return nil, fmt.Errorf("peer not found")
-			},
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return &server.Account{
 					Id:     claims.AccountId,

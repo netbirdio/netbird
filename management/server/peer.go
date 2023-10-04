@@ -426,25 +426,6 @@ func (am *DefaultAccountManager) DeletePeer(accountID, peerID, userID string) er
 	return am.updateAccountPeers(account)
 }
 
-// GetPeerByIP returns peer by its IP
-func (am *DefaultAccountManager) GetPeerByIP(accountID string, peerIP string) (*Peer, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, peer := range account.Peers {
-		if peerIP == peer.IP.String() {
-			return peer, nil
-		}
-	}
-
-	return nil, status.Errorf(status.NotFound, "peer with IP %s not found", peerIP)
-}
-
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)
 func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, error) {
 	account, err := am.Store.GetAccountByPeerID(peerID)

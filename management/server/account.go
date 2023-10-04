@@ -65,7 +65,6 @@ type AccountManager interface {
 	GetPeers(accountID, userID string) ([]*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
 	DeletePeer(accountID, peerID, userID string) error
-	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	UpdatePeer(accountID, userID string, peer *Peer) (*Peer, error)
 	GetNetworkMap(peerID string) (*NetworkMap, error)
 	GetPeerNetwork(peerID string) (*Network, error)
@@ -299,17 +298,6 @@ func (a *Account) GetRoutesByPrefix(prefix netip.Prefix) []*route.Route {
 	}
 
 	return routes
-}
-
-// GetPeerByIP returns peer by it's IP if exists under account or nil otherwise
-func (a *Account) GetPeerByIP(peerIP string) *Peer {
-	for _, peer := range a.Peers {
-		if peerIP == peer.IP.String() {
-			return peer
-		}
-	}
-
-	return nil
 }
 
 // GetGroup returns a group by ID if exists, nil otherwise
