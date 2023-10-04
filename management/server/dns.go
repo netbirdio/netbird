@@ -122,7 +122,9 @@ func (am *DefaultAccountManager) SaveDNSSettings(accountID string, userID string
 		am.storeEvent(userID, accountID, accountID, activity.GroupRemovedFromDisabledManagementGroups, meta)
 	}
 
-	return am.updateAccountPeers(account)
+	am.updateAccountPeers(account)
+
+	return nil
 }
 
 func toProtocolDNSConfig(update nbdns.Config) *proto.DNSConfig {

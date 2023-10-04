@@ -9,7 +9,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
 )
 
 // GetRoute gets a route object from account and route IDs
@@ -185,11 +184,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, 
 		return nil, err
 	}
 
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		log.Error(err)
-		return &newRoute, status.Errorf(status.Internal, "failed to update peers after create route %s", newPrefix)
-	}
+	am.updateAccountPeers(account)
 
 	am.storeEvent(userID, newRoute.ID, accountID, activity.RouteCreated, newRoute.EventMeta())
 
@@ -250,10 +245,7 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 		return err
 	}
 
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		return err
-	}
+	am.updateAccountPeers(account)
 
 	am.storeEvent(userID, routeToSave.ID, accountID, activity.RouteUpdated, routeToSave.EventMeta())
 
@@ -283,7 +275,9 @@ func (am *DefaultAccountManager) DeleteRoute(accountID, routeID, userID string) 
 
 	am.storeEvent(userID, routy.ID, accountID, activity.RouteRemoved, routy.EventMeta())
 
-	return am.updateAccountPeers(account)
+	am.updateAccountPeers(account)
+
+	return nil
 }
 
 // ListRoutes returns a list of routes from account
