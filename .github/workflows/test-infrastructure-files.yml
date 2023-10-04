@@ -112,6 +112,27 @@ jobs:
           grep -A 6 PKCEAuthorizationFlow management.json | grep -A 5 ProviderConfig | grep TokenEndpoint | grep $CI_NETBIRD_AUTH_TOKEN_ENDPOINT
           grep -A 7 PKCEAuthorizationFlow management.json | grep -A 6 ProviderConfig | grep Scope | grep "$CI_NETBIRD_AUTH_SUPPORTED_SCOPES"
 
+      - name: Install modules
+        run: go mod tidy
+
+      - name: Build management binary
+        working-directory: management
+        run: CGO_ENABLED=1 go build -o netbird-mgmt main.go
+
+      - name: Build management docker image
+        working-directory: management
+        run: |
+          docker build -t netbirdio/management:latest .
+
+      - name: Build signal binary
+        working-directory: signal
+        run: CGO_ENABLED=0 go build -o netbird-signal main.go
+
+      - name: Build signal docker image
+        working-directory: signal
+        run: |
+          docker build -t netbirdio/signal:latest .
+
       - name: run docker compose up
         working-directory: infrastructure_files
         run: |
