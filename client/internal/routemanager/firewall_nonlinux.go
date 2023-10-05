@@ -1,5 +1,5 @@
-//go:build !linux
-// +build !linux
+//go:build !linux && !ios
+// +build !linux,!ios
 
 package routemanager
 

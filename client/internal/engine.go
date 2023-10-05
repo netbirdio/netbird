@@ -214,7 +214,7 @@ func (e *Engine) Start() error {
 		}
 	}
 
-	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
+	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes, wgAddr)
 	e.routeManager.SetRouteChangeListener(e.mobileDep.RouteListener)
 
 	switch runtime.GOOS {
@@ -225,6 +225,8 @@ func (e *Engine) Start() error {
 		})
 	case "ios":
 		err = e.wgInterface.CreateOniOS(e.mobileDep.FileDescriptor)
+		log.Debugf("wireguardAddress: %s", wgAddr)
+		e.mobileDep.RouteListener.OnNewRouteSetting("", "100.127.93.142/16")
 	default:
 		err = e.wgInterface.Create()
 	}
