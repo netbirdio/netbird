@@ -202,9 +202,10 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				}
 
 				_, err = client.Login(s.ctx, &proto.LoginRequest{
-					ManagementUrl: s.iMngURL.Text,
-					AdminURL:      s.iAdminURL.Text,
-					PreSharedKey:  s.iPreSharedKey.Text,
+					ManagementUrl:        s.iMngURL.Text,
+					AdminURL:             s.iAdminURL.Text,
+					PreSharedKey:         s.iPreSharedKey.Text,
+					IsLinuxDesktopClient: runtime.GOOS == "linux",
 				})
 				if err != nil {
 					log.Errorf("login to management URL: %v", err)
