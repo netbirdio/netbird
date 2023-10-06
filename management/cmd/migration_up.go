@@ -16,8 +16,9 @@ import (
 var shortUp = "Migrate JSON file store to SQLite store. Please make a backup of the JSON file before running this command."
 
 var upCmd = &cobra.Command{
-	Use:   "up [--datadir directory] [--log-file console]",
-	Short: shortUp,
+	Use:     "upgrade [--datadir directory] [--log-file console]",
+	Aliases: []string{"up"},
+	Short:   shortUp,
 	Long: shortUp +
 		"\n\n" +
 		"This command reads the content of {datadir}/store.json and migrates it to {datadir}/store.db that can be used by SQLite store driver.",

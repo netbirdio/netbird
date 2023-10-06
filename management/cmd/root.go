@@ -36,7 +36,7 @@ var (
 
 	migrationCmd = &cobra.Command{
 		Use:          "sqlite-migration",
-		Short:        "Contains sub commands to perform filesotre to sqlite store migration and rollback",
+		Short:        "Contains sub-commands to perform JSON file store to SQLite store migration and rollback",
 		Long:         "",
 		SilenceUsage: true,
 	}

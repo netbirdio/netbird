@@ -13,11 +13,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var shortDown = "Rollback SQLite store to JSON filestore. Please make a backup of the SQLite file before running this command."
+var shortDown = "Rollback SQLite store to JSON file store. Please make a backup of the SQLite file before running this command."
 
 var downCmd = &cobra.Command{
-	Use:   "down [--datadir directory] [--log-file console]",
-	Short: shortDown,
+	Use:     "downgrade [--datadir directory] [--log-file console]",
+	Aliases: []string{"down"},
+	Short:   shortDown,
 	Long: shortDown +
 		"\n\n" +
 		"This command reads the content of {datadir}/store.db and migrates it to {datadir}/store.json that can be used by File store driver.",
