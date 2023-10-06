@@ -43,6 +43,10 @@ func Execute() error {
 	return rootCmd.Execute()
 }
 
+func lint() (*string, error) {
+	return nil, nil
+}
+
 func init() {
 	stopCh = make(chan int)
 	mgmtCmd.Flags().IntVar(&mgmtPort, "port", 80, "server port to listen on (defaults to 443 if TLS is enabled, 80 otherwise")
