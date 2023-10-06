@@ -170,6 +170,10 @@ if [ "$NETBIRD_DASH_AUTH_USE_AUDIENCE" = "false" ]; then
     export NETBIRD_AUTH_PKCE_AUDIENCE=
 fi
 
+# Read the encryption key
+encKey=$(grep DataStoreEncryptionKey management.json | awk -F'"' '{$0=$4}1')
+export NETBIRD_DATASTORE_ENC_KEY=$encKey
+
 env | grep NETBIRD
 
 envsubst <docker-compose.yml.tmpl >docker-compose.yml
