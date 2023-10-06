@@ -301,15 +301,23 @@ var (
 func initEventStore(dataDir string, key string) (activity.Store, string, error) {
 	var err error
 	if key == "" {
-		log.Debugf("generate new activity store encryption key")
-		key, err = sqlite.GenerateKey()
+		log.Debugf("restore or generate new activity store encryption key")
+		key, err = sqlite.RestoreKey(dataDir)
+		if err == nil {
+			goto CreateStore
+		} else {
+			log.Debugf("failed to restore encryption key for activity store: %s", err)
+		}
+
+		log.Infof("generate new encryption key for activity store")
+		key, err = sqlite.GenerateKey(dataDir)
 		if err != nil {
 			return nil, "", err
 		}
 	}
+CreateStore:
 	store, err := sqlite.NewSQLiteStore(dataDir, key)
 	return store, key, err
-
 }
 
 func notifyStop(msg string) {

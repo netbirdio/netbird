@@ -7,6 +7,12 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
+)
+
+const (
+	backupFile = ".datastore.key"
 )
 
 var iv = []byte{10, 22, 13, 79, 05, 8, 52, 91, 87, 98, 88, 98, 35, 25, 13, 05}
@@ -15,14 +21,38 @@ type FieldEncrypt struct {
 	block cipher.Block
 }
 
-func GenerateKey() (string, error) {
+func RestoreKey(dataDir string) (string, error) {
+	fName := filepath.Join(dataDir, backupFile)
+	data, err := os.ReadFile(fName)
+	return string(data), err
+}
+
+func GenerateKey(dataDir string) (string, error) {
 	key := make([]byte, 32)
 	_, err := rand.Read(key)
 	if err != nil {
 		return "", err
 	}
 	readableKey := base64.StdEncoding.EncodeToString(key)
+
+	err = saveKey(dataDir, readableKey)
+	if err != nil {
+		return "", err
+	}
 	return readableKey, nil
+}
+
+func saveKey(dataDir, key string) error {
+	f, err := os.Create(filepath.Join(dataDir, backupFile))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(key)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func NewFieldEncrypt(key string) (*FieldEncrypt, error) {

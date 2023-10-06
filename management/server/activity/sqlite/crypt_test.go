@@ -2,11 +2,20 @@ package sqlite
 
 import (
 	"testing"
+
+	log "github.com/sirupsen/logrus"
 )
+
+func TestRestoreKey(t *testing.T) {
+	_, err := RestoreKey(t.TempDir())
+	if err != nil {
+		log.Infof("err: %s", err)
+	}
+}
 
 func TestGenerateKey(t *testing.T) {
 	testData := "exampl@netbird.io"
-	key, err := GenerateKey()
+	key, err := GenerateKey(t.TempDir())
 	if err != nil {
 		t.Fatalf("failed to generate key: %s", err)
 	}
@@ -32,7 +41,7 @@ func TestGenerateKey(t *testing.T) {
 
 func TestCorruptKey(t *testing.T) {
 	testData := "exampl@netbird.io"
-	key, err := GenerateKey()
+	key, err := GenerateKey(t.TempDir())
 	if err != nil {
 		t.Fatalf("failed to generate key: %s", err)
 	}
@@ -46,7 +55,7 @@ func TestCorruptKey(t *testing.T) {
 		t.Fatalf("invalid encrypted text")
 	}
 
-	newKey, err := GenerateKey()
+	newKey, err := GenerateKey(t.TempDir())
 	if err != nil {
 		t.Fatalf("failed to generate key: %s", err)
 	}

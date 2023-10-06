@@ -12,7 +12,7 @@ import (
 
 func TestNewSQLiteStore(t *testing.T) {
 	dataDir := t.TempDir()
-	key, _ := GenerateKey()
+	key, _ := GenerateKey(dataDir)
 	store, err := NewSQLiteStore(dataDir, key)
 	if err != nil {
 		t.Fatal(err)
