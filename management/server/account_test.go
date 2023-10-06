@@ -706,30 +706,6 @@ func createAccount(am *DefaultAccountManager, accountID, userID, domain string) 
 	return account, nil
 }
 
-func TestAccountManager_AccountExists(t *testing.T) {
-	manager, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	expectedId := "test_account"
-	userId := "account_creator"
-	_, err = createAccount(manager, expectedId, userId, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	exists, err := manager.AccountExists(expectedId)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !*exists {
-		t.Errorf("expected account to exist after creation, got false")
-	}
-}
-
 func TestAccountManager_GetAccount(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
@@ -1062,7 +1038,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			}
 		}()
 
-		if _, err := manager.DeletePeer(account.Id, peer3.ID, userID); err != nil {
+		if err := manager.DeletePeer(account.Id, peer3.ID, userID); err != nil {
 			t.Errorf("delete peer: %v", err)
 			return
 		}
@@ -1129,7 +1105,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		return
 	}
 
-	_, err = manager.DeletePeer(account.Id, peerKey, userID)
+	err = manager.DeletePeer(account.Id, peerKey, userID)
 	if err != nil {
 		return
 	}
@@ -1385,8 +1361,9 @@ func TestAccount_Copy(t *testing.T) {
 		},
 		Routes: map[string]*route.Route{
 			"route1": {
-				ID:     "route1",
-				Groups: []string{"group1"},
+				ID:         "route1",
+				PeerGroups: []string{},
+				Groups:     []string{"group1"},
 			},
 		},
 		NameServerGroups: map[string]*nbdns.NameServerGroup{

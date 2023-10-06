@@ -11,7 +11,7 @@ import (
 
 var iv = []byte{10, 22, 13, 79, 05, 8, 52, 91, 87, 98, 88, 98, 35, 25, 13, 05}
 
-type EmailEncrypt struct {
+type FieldEncrypt struct {
 	block cipher.Block
 }
 
@@ -25,7 +25,7 @@ func GenerateKey() (string, error) {
 	return readableKey, nil
 }
 
-func NewEmailEncrypt(key string) (*EmailEncrypt, error) {
+func NewFieldEncrypt(key string) (*FieldEncrypt, error) {
 	binKey, err := base64.StdEncoding.DecodeString(key)
 	if err != nil {
 		return nil, err
@@ -35,14 +35,14 @@ func NewEmailEncrypt(key string) (*EmailEncrypt, error) {
 	if err != nil {
 		return nil, err
 	}
-	ec := &EmailEncrypt{
+	ec := &FieldEncrypt{
 		block: block,
 	}
 
 	return ec, nil
 }
 
-func (ec *EmailEncrypt) Encrypt(payload string) string {
+func (ec *FieldEncrypt) Encrypt(payload string) string {
 	plainText := pkcs5Padding([]byte(payload))
 	cipherText := make([]byte, len(plainText))
 	cbc := cipher.NewCBCEncrypter(ec.block, iv)
@@ -50,7 +50,7 @@ func (ec *EmailEncrypt) Encrypt(payload string) string {
 	return base64.StdEncoding.EncodeToString(cipherText)
 }
 
-func (ec *EmailEncrypt) Decrypt(data string) (string, error) {
+func (ec *FieldEncrypt) Decrypt(data string) (string, error) {
 	cipherText, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
 		return "", err
