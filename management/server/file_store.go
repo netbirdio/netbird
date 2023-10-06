@@ -614,3 +614,8 @@ func (s *FileStore) Close() error {
 
 	return s.persist(s.storeFile)
 }
+
+// GetStoreKind returns FileStoreKind
+func (s *FileStore) GetStoreKind() StoreKind {
+	return FileStoreKind
+}

@@ -31,6 +31,9 @@ type Store interface {
 	SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error
 	// Close should close the store persisting all unsaved data.
 	Close() error
+	// GetStoreKind should return StoreKind of the current store implementation.
+	// This is also a method of metrics.DataSource interface.
+	GetStoreKind() StoreKind
 }
 
 type StoreKind string

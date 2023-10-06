@@ -48,6 +48,7 @@ type properties map[string]interface{}
 // DataSource metric data source
 type DataSource interface {
 	GetAllAccounts() []*server.Account
+	GetStoreKind() server.StoreKind
 }
 
 // ConnManager peer connection manager that holds state for current active connections
@@ -295,6 +296,7 @@ func (w *Worker) generateProperties() properties {
 	metricsProperties["max_active_peer_version"] = maxActivePeerVersion
 	metricsProperties["ui_clients"] = uiClient
 	metricsProperties["idp_manager"] = w.idpManager
+	metricsProperties["store_kind"] = w.dataSource.GetStoreKind()
 
 	for protocol, count := range rulesProtocol {
 		metricsProperties["rules_protocol_"+protocol] = count

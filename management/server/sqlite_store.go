@@ -451,3 +451,8 @@ func (s *SqliteStore) SaveUserLastLogin(accountID, userID string, lastLogin time
 func (s *SqliteStore) Close() error {
 	return nil
 }
+
+// GetStoreKind returns SqliteStoreKind
+func (s *SqliteStore) GetStoreKind() StoreKind {
+	return SqliteStoreKind
+}
