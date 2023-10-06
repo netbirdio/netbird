@@ -35,7 +35,7 @@ type DefaultManager struct {
 }
 
 // NewManager returns a new route manager
-func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, initialRoutes []*route.Route, wgAddr string) *DefaultManager {
+func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, initialRoutes []*route.Route) *DefaultManager {
 	srvRouter, err := newServerRouter(ctx, wgInterface)
 	if err != nil {
 		log.Errorf("server router is not supported: %s", err)
@@ -50,7 +50,7 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 		statusRecorder: statusRecorder,
 		wgInterface:    wgInterface,
 		pubKey:         pubKey,
-		notifier:       newNotifier(wgAddr),
+		notifier:       newNotifier(),
 	}
 
 	log.Debug("initializing route manager")

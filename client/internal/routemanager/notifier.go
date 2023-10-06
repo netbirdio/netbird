@@ -13,12 +13,11 @@ import (
 // RouteListener is a callback interface for mobile system
 type RouteListener interface {
 	// OnNewRouteSetting invoke when new route setting has been arrived
-	OnNewRouteSetting(string, string)
+	OnNewRouteSetting(string)
+	SetInterfaceIP(string)
 }
 
 type notifier struct {
-	// ownIPAddr is the ip address of the netbird interface including the netmask
-	ownIPAddr           string
 	initialRouteRangers []string
 	routeRangers        []string
 
@@ -26,11 +25,8 @@ type notifier struct {
 	routeListenerMux sync.Mutex
 }
 
-func newNotifier(ip string) *notifier {
-	log.Debugf("creating notifier with own ip: %s", ip)
-	return &notifier{
-		ownIPAddr: ip,
-	}
+func newNotifier() *notifier {
+	return &notifier{}
 }
 
 func (n *notifier) setListener(listener RouteListener) {
@@ -77,8 +73,8 @@ func (n *notifier) notify() {
 	}
 
 	go func(l RouteListener) {
-		log.Debugf("notifying route listener with route ranges: %s and own ip: %s", strings.Join(n.routeRangers, ","), n.ownIPAddr)
-		l.OnNewRouteSetting(strings.Join(n.routeRangers, ","), n.ownIPAddr)
+		log.Debugf("notifying route listener with route ranges: %s", strings.Join(n.routeRangers, ","))
+		l.OnNewRouteSetting(strings.Join(n.routeRangers, ","))
 	}(n.routeListener)
 }
 
