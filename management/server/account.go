@@ -249,6 +249,7 @@ func (a *Account) filterRoutesByGroups(routes []*route.Route, groupListMap looku
 func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Route, []*route.Route) {
 	var enabledRoutes []*route.Route
 	var disabledRoutes []*route.Route
+	seenRoute := make(map[string]struct{})
 
 	takeRoute := func(r *route.Route, id string) {
 		peer := a.GetPeer(peerID)
@@ -261,6 +262,11 @@ func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Rou
 		if peer.Meta.GoOS != "linux" {
 			return
 		}
+
+		if _, ok := seenRoute[r.ID]; ok {
+			return
+		}
+		seenRoute[r.ID] = struct{}{}
 
 		if r.Enabled {
 			r.Peer = peer.Key
