@@ -263,9 +263,8 @@ func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Rou
 		}
 
 		if r.Enabled {
-			copiedRoute := r.Copy()
-			copiedRoute.Peer = peer.Key
-			enabledRoutes = append(enabledRoutes, copiedRoute)
+			r.Peer = peer.Key
+			enabledRoutes = append(enabledRoutes, r)
 			return
 		}
 		disabledRoutes = append(disabledRoutes, r)
@@ -292,7 +291,7 @@ func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Rou
 			}
 		}
 		if r.Peer == peerID {
-			takeRoute(r, peerID)
+			takeRoute(r.Copy(), peerID)
 		}
 	}
 	return enabledRoutes, disabledRoutes
