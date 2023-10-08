@@ -257,6 +257,11 @@ func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Rou
 			return
 		}
 
+		// currently we support only linux routing peers
+		if peer.Meta.GoOS != "linux" {
+			return
+		}
+
 		if r.Enabled {
 			enabledRoutes = append(enabledRoutes, r)
 			return
@@ -274,7 +279,11 @@ func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Rou
 				}
 				for _, id := range group.Peers {
 					if id == peerID {
-						takeRoute(r, id)
+						newPeerRoute := r.Copy()
+						newPeerRoute.Peer = peerID
+						newPeerRoute.PeerGroups = nil
+						newPeerRoute.ID = r.ID + ":" + peerID // we have to provide unit route id when distribute network map
+						takeRoute(newPeerRoute, peerID)
 						break
 					}
 				}
@@ -319,50 +328,7 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 		peersToConnect = append(peersToConnect, p)
 	}
 
-	routes := a.getRoutesToSync(peerID, peersToConnect)
-
-	takePeer := func(id string) (*Peer, bool) {
-		peer := a.GetPeer(id)
-		if peer == nil || peer.Meta.GoOS != "linux" {
-			return nil, false
-		}
-		return peer, true
-	}
-
-	// We need to set Peer.Key instead of Peer.ID because this object will be sent to agents as part of a network map.
-	// Ideally we should have a separate field for that, but fine for now.
-	var routesUpdate []*route.Route
-	seenPeers := make(map[string]bool)
-	for _, r := range routes {
-		if r.Peer != "" {
-			peer, valid := takePeer(r.Peer)
-			if !valid {
-				continue
-			}
-			rCopy := r.Copy()
-			rCopy.Peer = peer.Key // client expects the key
-			routesUpdate = append(routesUpdate, rCopy)
-			continue
-		}
-		for _, groupID := range r.PeerGroups {
-			if group := a.GetGroup(groupID); group != nil {
-				for _, peerId := range group.Peers {
-					peer, valid := takePeer(peerId)
-					if !valid {
-						continue
-					}
-
-					if _, ok := seenPeers[peer.ID]; !ok {
-						rCopy := r.Copy()
-						rCopy.ID = r.ID + ":" + peer.ID // we have to provide unit route id when distribute network map
-						rCopy.Peer = peer.Key           // client expects the key
-						routesUpdate = append(routesUpdate, rCopy)
-					}
-					seenPeers[peer.ID] = true
-				}
-			}
-		}
-	}
+	routesUpdate := a.getRoutesToSync(peerID, peersToConnect)
 
 	dnsManagementStatus := a.getPeerDNSManagementStatus(peerID)
 	dnsUpdate := nbdns.Config{
