@@ -335,8 +335,11 @@ func TestCreateRoute(t *testing.T) {
 				if errInit != nil {
 					t.Errorf("failed to get group all: %s", errInit)
 				}
-				_, err = am.CreateRoute(account.Id, existingNetwork, "", []string{routeGroup3, routeGroup4},
+				_, errInit = am.CreateRoute(account.Id, existingNetwork, "", []string{routeGroup3, routeGroup4},
 					"", existingRouteID, false, 1000, []string{groupAll.ID}, true, userID)
+				if errInit != nil {
+					t.Errorf("failed to create init route: %s", errInit)
+				}
 			}
 
 			outRoute, err := am.CreateRoute(
