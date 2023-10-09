@@ -171,13 +171,25 @@ if [ "$NETBIRD_DASH_AUTH_USE_AUDIENCE" = "false" ]; then
 fi
 
 # Read the encryption key
-if test -f "management.json"; then
+if test -f 'management.json'; then
     encKey=$(jq -r  ".DataStoreEncryptionKey" management.json)
     export NETBIRD_DATASTORE_ENC_KEY=$encKey
 fi
 
 env | grep NETBIRD
 
+bkp_postfix="$(date +%s)"
+if test -f 'docker-compose.yml'; then
+    cp docker-compose.yml "docker-compose.yml.$bkp_postfix"
+fi
+
+if test -f 'management.json'; then
+    cp management.json "management.json.$bkp_postfix"
+fi
+
+if test -f 'turnserver.conf'; then
+    cp turnserver.conf "turnserver.conf.$bkp_postfix"
+fi
 envsubst <docker-compose.yml.tmpl >docker-compose.yml
 envsubst <management.json.tmpl >management.json
 envsubst <turnserver.conf.tmpl >turnserver.conf
