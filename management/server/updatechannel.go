@@ -20,6 +20,8 @@ type UpdateChannel chan *UpdateMessage
 type PeersUpdateManager struct {
 	// peerChannels is an update channel indexed by Peer.ID
 	peerChannels sync.Map
+	// peerChannelLocks keeps the peer locks to organize channel creations
+	peerChannelLocks sync.Map
 	// len is the length of peerChannels
 	len atomic.Int64
 }
@@ -49,6 +51,14 @@ func (p *PeersUpdateManager) SendUpdate(peerID string, update *UpdateMessage) {
 
 // CreateChannel creates a go channel for a given peer used to deliver updates relevant to the peer.
 func (p *PeersUpdateManager) CreateChannel(peerID string) UpdateChannel {
+	// we have to lock the whole operation by peerID as we do two non atomic operations:
+	// - closeChannel()
+	// - Store
+	value, _ := p.peerChannelLocks.LoadOrStore(peerID, &sync.Mutex{})
+	mtx := value.(*sync.Mutex)
+	mtx.Lock()
+	defer mtx.Unlock()
+
 	p.closeChannel(peerID)
 
 	// mbragin: todo shouldn't it be more? or configurable?
