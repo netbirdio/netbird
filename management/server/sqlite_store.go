@@ -311,7 +311,6 @@ func (s *SqliteStore) GetAllAccounts() (all []*Account) {
 	}
 
 	for _, account := range accounts {
-		//all = append(all, account.Copy()) // TODO: copy and delete gorm models
 		if acc, err := s.GetAccount(account.Id); err == nil {
 			all = append(all, acc)
 		}
