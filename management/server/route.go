@@ -2,7 +2,6 @@ package server
 
 import (
 	"net/netip"
-	"strconv"
 	"unicode/utf8"
 
 	"github.com/netbirdio/netbird/management/proto"
@@ -10,59 +9,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
 )
-
-const (
-	// UpdateRouteDescription indicates a route description update operation
-	UpdateRouteDescription RouteUpdateOperationType = iota
-	// UpdateRouteNetwork indicates a route IP update operation
-	UpdateRouteNetwork
-	// UpdateRoutePeer indicates a route peer update operation
-	UpdateRoutePeer
-	// UpdateRouteMetric indicates a route metric update operation
-	UpdateRouteMetric
-	// UpdateRouteMasquerade indicates a route masquerade update operation
-	UpdateRouteMasquerade
-	// UpdateRouteEnabled indicates a route enabled update operation
-	UpdateRouteEnabled
-	// UpdateRouteNetworkIdentifier indicates a route net ID update operation
-	UpdateRouteNetworkIdentifier
-	// UpdateRouteGroups indicates a group list update operation
-	UpdateRouteGroups
-)
-
-// RouteUpdateOperationType operation type
-type RouteUpdateOperationType int
-
-func (t RouteUpdateOperationType) String() string {
-	switch t {
-	case UpdateRouteDescription:
-		return "UpdateRouteDescription"
-	case UpdateRouteNetwork:
-		return "UpdateRouteNetwork"
-	case UpdateRoutePeer:
-		return "UpdateRoutePeer"
-	case UpdateRouteMetric:
-		return "UpdateRouteMetric"
-	case UpdateRouteMasquerade:
-		return "UpdateRouteMasquerade"
-	case UpdateRouteEnabled:
-		return "UpdateRouteEnabled"
-	case UpdateRouteNetworkIdentifier:
-		return "UpdateRouteNetworkIdentifier"
-	case UpdateRouteGroups:
-		return "UpdateRouteGroups"
-	default:
-		return "InvalidOperation"
-	}
-}
-
-// RouteUpdateOperation operation object with type and values to be applied
-type RouteUpdateOperation struct {
-	Type   RouteUpdateOperationType
-	Values []string
-}
 
 // GetRoute gets a route object from account and route IDs
 func (am *DefaultAccountManager) GetRoute(accountID, routeID, userID string) (*route.Route, error) {
@@ -91,30 +38,82 @@ func (am *DefaultAccountManager) GetRoute(accountID, routeID, userID string) (*r
 	return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 }
 
-// checkPrefixPeerExists checks the combination of prefix and peer id, if it exists returns an error, otherwise returns nil
-func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peerID string, prefix netip.Prefix) error {
-
-	if peerID == "" {
-		return nil
-	}
-
-	account, err := am.Store.GetAccount(accountID)
-	if err != nil {
-		return err
-	}
-
+// checkRoutePrefixExistsForPeers checks if a route with a given prefix exists for a single peer or multiple peer groups.
+func (am *DefaultAccountManager) checkRoutePrefixExistsForPeers(account *Account, peerID, routeID string, peerGroupIDs []string, prefix netip.Prefix) error {
+	// routes can have both peer and peer_groups
 	routesWithPrefix := account.GetRoutesByPrefix(prefix)
 
+	// lets remember all the peers and the peer groups from routesWithPrefix
+	seenPeers := make(map[string]bool)
+	seenPeerGroups := make(map[string]bool)
+
 	for _, prefixRoute := range routesWithPrefix {
-		if prefixRoute.Peer == peerID {
-			return status.Errorf(status.AlreadyExists, "failed to add route with prefix %s - peer already has this route", prefix.String())
+		// we skip route(s) with the same network ID as we want to allow updating of the existing route
+		// when create a new route routeID is newly generated so nothing will be skipped
+		if routeID == prefixRoute.ID {
+			continue
+		}
+
+		if prefixRoute.Peer != "" {
+			seenPeers[prefixRoute.ID] = true
+		}
+		for _, groupID := range prefixRoute.PeerGroups {
+			seenPeerGroups[groupID] = true
+
+			group := account.GetGroup(groupID)
+			if group == nil {
+				return status.Errorf(
+					status.InvalidArgument, "failed to add route with prefix %s - peer group %s doesn't exist",
+					prefix.String(), groupID)
+			}
+
+			for _, pID := range group.Peers {
+				seenPeers[pID] = true
+			}
 		}
 	}
+
+	if peerID != "" {
+		// check that peerID exists and is not in any route as single peer or part of the group
+		peer := account.GetPeer(peerID)
+		if peer == nil {
+			return status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
+		}
+		if _, ok := seenPeers[peerID]; ok {
+			return status.Errorf(status.AlreadyExists,
+				"failed to add route with prefix %s - peer %s already has this route", prefix.String(), peerID)
+		}
+	}
+
+	// check that peerGroupIDs are not in any route peerGroups list
+	for _, groupID := range peerGroupIDs {
+		group := account.GetGroup(groupID) // we validated the group existent before entering this function, o need to check again.
+
+		if _, ok := seenPeerGroups[groupID]; ok {
+			return status.Errorf(
+				status.AlreadyExists, "failed to add route with prefix %s - peer group %s already has this route",
+				prefix.String(), group.Name)
+		}
+
+		// check that the peers from peerGroupIDs groups are not the same peers we saw in routesWithPrefix
+		for _, id := range group.Peers {
+			if _, ok := seenPeers[id]; ok {
+				peer := account.GetPeer(id)
+				if peer == nil {
+					return status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
+				}
+				return status.Errorf(status.AlreadyExists,
+					"failed to add route with prefix %s - peer %s from the group %s already has this route",
+					prefix.String(), peer.Name, group.Name)
+			}
+		}
+	}
+
 	return nil
 }
 
 // CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerID, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error) {
+func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, peerGroupIDs []string, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -123,19 +122,29 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerID, 
 		return nil, err
 	}
 
-	if peerID != "" {
-		peer := account.GetPeer(peerID)
-		if peer == nil {
-			return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
-		}
+	if peerID != "" && len(peerGroupIDs) != 0 {
+		return nil, status.Errorf(
+			status.InvalidArgument,
+			"peer with ID %s and peers group %s should not be provided at the same time",
+			peerID, peerGroupIDs)
 	}
 
 	var newRoute route.Route
+	newRoute.ID = xid.New().String()
+
 	prefixType, newPrefix, err := route.ParseNetwork(network)
 	if err != nil {
 		return nil, status.Errorf(status.InvalidArgument, "failed to parse IP %s", network)
 	}
-	err = am.checkPrefixPeerExists(accountID, peerID, newPrefix)
+
+	if len(peerGroupIDs) > 0 {
+		err = validateGroups(peerGroupIDs, account.Groups)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	err = am.checkRoutePrefixExistsForPeers(account, peerID, newRoute.ID, peerGroupIDs, newPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +163,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerID, 
 	}
 
 	newRoute.Peer = peerID
-	newRoute.ID = xid.New().String()
+	newRoute.PeerGroups = peerGroupIDs
 	newRoute.Network = newPrefix
 	newRoute.NetworkType = prefixType
 	newRoute.Description = description
@@ -175,11 +184,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerID, 
 		return nil, err
 	}
 
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		log.Error(err)
-		return &newRoute, status.Errorf(status.Internal, "failed to update peers after create route %s", newPrefix)
-	}
+	am.updateAccountPeers(account)
 
 	am.storeEvent(userID, newRoute.ID, accountID, activity.RouteCreated, newRoute.EventMeta())
 
@@ -212,11 +217,20 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 		return err
 	}
 
-	if routeToSave.Peer != "" {
-		peer := account.GetPeer(routeToSave.Peer)
-		if peer == nil {
-			return status.Errorf(status.InvalidArgument, "peer with ID %s not found", routeToSave.Peer)
+	if routeToSave.Peer != "" && len(routeToSave.PeerGroups) != 0 {
+		return status.Errorf(status.InvalidArgument, "peer with ID and peer groups should not be provided at the same time")
+	}
+
+	if len(routeToSave.PeerGroups) > 0 {
+		err = validateGroups(routeToSave.PeerGroups, account.Groups)
+		if err != nil {
+			return err
 		}
+	}
+
+	err = am.checkRoutePrefixExistsForPeers(account, routeToSave.Peer, routeToSave.ID, routeToSave.Copy().PeerGroups, routeToSave.Network)
+	if err != nil {
+		return err
 	}
 
 	err = validateGroups(routeToSave.Groups, account.Groups)
@@ -231,117 +245,11 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 		return err
 	}
 
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		return err
-	}
+	am.updateAccountPeers(account)
 
 	am.storeEvent(userID, routeToSave.ID, accountID, activity.RouteUpdated, routeToSave.EventMeta())
 
 	return nil
-}
-
-// UpdateRoute updates existing route with set of operations
-func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operations []RouteUpdateOperation) (*route.Route, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	routeToUpdate, ok := account.Routes[routeID]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "route %s no longer exists", routeID)
-	}
-
-	newRoute := routeToUpdate.Copy()
-
-	for _, operation := range operations {
-
-		if len(operation.Values) != 1 {
-			return nil, status.Errorf(status.InvalidArgument, "operation %s contains invalid number of values, it should be 1", operation.Type.String())
-		}
-
-		switch operation.Type {
-		case UpdateRouteDescription:
-			newRoute.Description = operation.Values[0]
-		case UpdateRouteNetworkIdentifier:
-			if utf8.RuneCountInString(operation.Values[0]) > route.MaxNetIDChar || operation.Values[0] == "" {
-				return nil, status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
-			}
-			newRoute.NetID = operation.Values[0]
-		case UpdateRouteNetwork:
-			prefixType, prefix, err := route.ParseNetwork(operation.Values[0])
-			if err != nil {
-				return nil, status.Errorf(status.InvalidArgument, "failed to parse IP %s", operation.Values[0])
-			}
-			err = am.checkPrefixPeerExists(accountID, routeToUpdate.Peer, prefix)
-			if err != nil {
-				return nil, err
-			}
-			newRoute.Network = prefix
-			newRoute.NetworkType = prefixType
-		case UpdateRoutePeer:
-			if operation.Values[0] != "" {
-				peer := account.GetPeer(operation.Values[0])
-				if peer == nil {
-					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", operation.Values[0])
-				}
-			}
-
-			err = am.checkPrefixPeerExists(accountID, operation.Values[0], routeToUpdate.Network)
-			if err != nil {
-				return nil, err
-			}
-			newRoute.Peer = operation.Values[0]
-		case UpdateRouteMetric:
-			metric, err := strconv.Atoi(operation.Values[0])
-			if err != nil {
-				return nil, status.Errorf(status.InvalidArgument, "failed to parse metric %s, not int", operation.Values[0])
-			}
-			if metric < route.MinMetric || metric > route.MaxMetric {
-				return nil, status.Errorf(status.InvalidArgument, "failed to parse metric %s, value should be %d > N < %d",
-					operation.Values[0],
-					route.MinMetric,
-					route.MaxMetric,
-				)
-			}
-			newRoute.Metric = metric
-		case UpdateRouteMasquerade:
-			masquerade, err := strconv.ParseBool(operation.Values[0])
-			if err != nil {
-				return nil, status.Errorf(status.InvalidArgument, "failed to parse masquerade %s, not boolean", operation.Values[0])
-			}
-			newRoute.Masquerade = masquerade
-		case UpdateRouteEnabled:
-			enabled, err := strconv.ParseBool(operation.Values[0])
-			if err != nil {
-				return nil, status.Errorf(status.InvalidArgument, "failed to parse enabled %s, not boolean", operation.Values[0])
-			}
-			newRoute.Enabled = enabled
-		case UpdateRouteGroups:
-			err = validateGroups(operation.Values, account.Groups)
-			if err != nil {
-				return nil, err
-			}
-			newRoute.Groups = operation.Values
-		}
-	}
-
-	account.Routes[routeID] = newRoute
-
-	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
-		return nil, err
-	}
-
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		return nil, status.Errorf(status.Internal, "failed to update account peers")
-	}
-	return newRoute, nil
 }
 
 // DeleteRoute deletes route with routeID
@@ -367,7 +275,9 @@ func (am *DefaultAccountManager) DeleteRoute(accountID, routeID, userID string) 
 
 	am.storeEvent(userID, routy.ID, accountID, activity.RouteRemoved, routy.EventMeta())
 
-	return am.updateAccountPeers(account)
+	am.updateAccountPeers(account)
+
+	return nil
 }
 
 // ListRoutes returns a list of routes from account

@@ -84,10 +84,14 @@ func (a *Auth) SaveConfigIfSSOSupported(listener SSOListener) {
 func (a *Auth) saveConfigIfSSOSupported() (bool, error) {
 	supportsSSO := true
 	err := a.withBackOff(a.ctx, func() (err error) {
-		_, err = internal.GetDeviceAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
-		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.NotFound {
-			_, err = internal.GetPKCEAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
-			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.NotFound {
+		_, err = internal.GetPKCEAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
+		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.NotFound || s.Code() == codes.Unimplemented) {
+			_, err = internal.GetDeviceAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
+			s, ok := gstatus.FromError(err)
+			if !ok {
+				return err
+			}
+			if s.Code() == codes.NotFound || s.Code() == codes.Unimplemented {
 				supportsSSO = false
 				err = nil
 			}
@@ -189,7 +193,7 @@ func (a *Auth) login(urlOpener URLOpener) error {
 }
 
 func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener) (*auth.TokenInfo, error) {
-	oAuthFlow, err := auth.NewOAuthFlow(a.ctx, a.config)
+	oAuthFlow, err := auth.NewOAuthFlow(a.ctx, a.config, false)
 	if err != nil {
 		return nil, err
 	}

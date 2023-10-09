@@ -32,6 +32,7 @@ require (
 require (
 	cunicu.li/go-rosenpass v0.4.0
 	fyne.io/fyne/v2 v2.1.4
+	github.com/TheJumpCloud/jcapi-go v3.0.0+incompatible
 	github.com/c-robinson/iplib v1.0.3
 	github.com/cilium/ebpf v0.11.0
 	github.com/coreos/go-iptables v0.7.0

@@ -19,6 +19,7 @@ type GRPCMetrics struct {
 	activeStreamsGauge    asyncint64.Gauge
 	syncRequestDuration   syncint64.Histogram
 	loginRequestDuration  syncint64.Histogram
+	channelQueueLength    syncint64.Histogram
 	ctx                   context.Context
 }
 
@@ -52,6 +53,18 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 		return nil, err
 	}
 
+	// We use histogram here as we have multiple channel at the same time and we want to see a slice at any given time
+	// Then we should be able to extract min, manx, mean and the percentiles.
+	// TODO(yury): This needs custom bucketing as we are interested in the values from 0 to server.channelBufferSize (100)
+	channelQueue, err := meter.SyncInt64().Histogram(
+		"management.grpc.updatechannel.queue",
+		instrument.WithDescription("Number of update messages in the channel queue"),
+		instrument.WithUnit("length"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &GRPCMetrics{
 		meter:                 meter,
 		syncRequestsCounter:   syncRequestsCounter,
@@ -60,6 +73,7 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 		activeStreamsGauge:    activeStreamsGauge,
 		syncRequestDuration:   syncRequestDuration,
 		loginRequestDuration:  loginRequestDuration,
+		channelQueueLength:    channelQueue,
 		ctx:                   ctx,
 	}, err
 }
@@ -99,4 +113,9 @@ func (grpcMetrics *GRPCMetrics) RegisterConnectedStreams(producer func() int64) 
 			grpcMetrics.activeStreamsGauge.Observe(ctx, producer())
 		},
 	)
+}
+
+// UpdateChannelQueueLength update the histogram that keep distribution of the update messages channel queue
+func (metrics *GRPCMetrics) UpdateChannelQueueLength(len int) {
+	metrics.channelQueueLength.Record(metrics.ctx, int64(len))
 }

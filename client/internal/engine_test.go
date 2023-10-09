@@ -1049,7 +1049,7 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 		return nil, "", err
 	}
 	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "",
-		eventStore)
+		eventStore, false)
 	if err != nil {
 		return nil, "", err
 	}

@@ -307,8 +307,17 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 	return user, nil
 }
 
+func (am *DefaultAccountManager) deleteServiceUser(account *Account, initiatorUserID string, targetUser *User) {
+	meta := map[string]any{"name": targetUser.ServiceUserName}
+	am.storeEvent(initiatorUserID, targetUser.Id, account.Id, activity.ServiceUserDeleted, meta)
+	delete(account.Users, targetUser.Id)
+}
+
 // DeleteUser deletes a user from the given account.
 func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, targetUserID string) error {
+	if initiatorUserID == targetUserID {
+		return status.Errorf(status.InvalidArgument, "self deletion is not allowed")
+	}
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -317,34 +326,74 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return err
 	}
 
-	targetUser := account.Users[targetUserID]
-	if targetUser == nil {
-		return status.Errorf(status.NotFound, "user not found")
-	}
-
 	executingUser := account.Users[initiatorUserID]
 	if executingUser == nil {
 		return status.Errorf(status.NotFound, "user not found")
 	}
 	if executingUser.Role != UserRoleAdmin {
-		return status.Errorf(status.PermissionDenied, "only admins can delete service users")
+		return status.Errorf(status.PermissionDenied, "only admins can delete users")
 	}
 
-	if !targetUser.IsServiceUser {
-		return status.Errorf(status.PermissionDenied, "regular users can not be deleted")
+	targetUser := account.Users[targetUserID]
+	if targetUser == nil {
+		return status.Errorf(status.NotFound, "target user not found")
 	}
 
-	meta := map[string]any{"name": targetUser.ServiceUserName}
-	am.storeEvent(initiatorUserID, targetUserID, accountID, activity.ServiceUserDeleted, meta)
+	// handle service user first and exit, no need to fetch extra data from IDP, etc
+	if targetUser.IsServiceUser {
+		am.deleteServiceUser(account, initiatorUserID, targetUser)
+		return am.Store.SaveAccount(account)
+	}
+
+	return am.deleteRegularUser(account, initiatorUserID, targetUserID)
+}
+
+func (am *DefaultAccountManager) deleteRegularUser(account *Account, initiatorUserID, targetUserID string) error {
+	tuEmail, tuName, err := am.getEmailAndNameOfTargetUser(account.Id, initiatorUserID, targetUserID)
+	if err != nil {
+		log.Errorf("failed to resolve email address: %s", err)
+		return err
+	}
+
+	if !isNil(am.idpManager) {
+		err = am.deleteUserFromIDP(targetUserID, account.Id)
+		if err != nil {
+			log.Debugf("failed to delete user from IDP: %s", targetUserID)
+			return err
+		}
+	}
+
+	err = am.deleteUserPeers(initiatorUserID, targetUserID, account)
+	if err != nil {
+		return err
+	}
 
 	delete(account.Users, targetUserID)
-
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return err
 	}
 
+	meta := map[string]any{"name": tuName, "email": tuEmail}
+	am.storeEvent(initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
+
+	am.updateAccountPeers(account)
+
 	return nil
+}
+
+func (am *DefaultAccountManager) deleteUserPeers(initiatorUserID string, targetUserID string, account *Account) error {
+	peers, err := account.FindUserPeers(targetUserID)
+	if err != nil {
+		return status.Errorf(status.Internal, "failed to find user peers")
+	}
+
+	peerIDs := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		peerIDs = append(peerIDs, peer.ID)
+	}
+
+	return am.deletePeers(account, peerIDs, initiatorUserID)
 }
 
 // InviteUser resend invitations to users who haven't activated their accounts prior to the expiration period.
@@ -609,23 +658,10 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 		if err != nil {
 			return nil, err
 		}
-		var peerIDs []string
-		for _, peer := range blockedPeers {
-			peerIDs = append(peerIDs, peer.ID)
-			peer.MarkLoginExpired(true)
-			account.UpdatePeer(peer)
-			err = am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status)
-			if err != nil {
-				log.Errorf("failed saving peer status while expiring peer %s", peer.ID)
-				return nil, err
-			}
-		}
-		am.peersUpdateManager.CloseChannels(peerIDs)
-		err = am.updateAccountPeers(account)
-		if err != nil {
-			log.Errorf("failed updating account peers while expiring peers of a blocked user %s", accountID)
-			return nil, err
 
+		if err := am.expireAndUpdatePeers(account, blockedPeers); err != nil {
+			log.Errorf("failed update expired peers: %s", err)
+			return nil, err
 		}
 	}
 
@@ -640,9 +676,7 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 			return nil, err
 		}
 
-		if err := am.updateAccountPeers(account); err != nil {
-			log.Errorf("failed updating account peers while updating user %s", accountID)
-		}
+		am.updateAccountPeers(account)
 	} else {
 		if err = am.Store.SaveAccount(account); err != nil {
 			return nil, err
@@ -812,6 +846,68 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 	}
 
 	return userInfos, nil
+}
+
+// expireAndUpdatePeers expires all peers of the given user and updates them in the account
+func (am *DefaultAccountManager) expireAndUpdatePeers(account *Account, peers []*Peer) error {
+	var peerIDs []string
+	for _, peer := range peers {
+		if peer.Status.LoginExpired {
+			continue
+		}
+		peerIDs = append(peerIDs, peer.ID)
+		peer.MarkLoginExpired(true)
+		account.UpdatePeer(peer)
+		if err := am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status); err != nil {
+			return err
+		}
+		am.storeEvent(
+			peer.UserID, peer.ID, account.Id,
+			activity.PeerLoginExpired, peer.EventMeta(am.GetDNSDomain()),
+		)
+	}
+
+	if len(peerIDs) != 0 {
+		// this will trigger peer disconnect from the management service
+		am.peersUpdateManager.CloseChannels(peerIDs)
+		am.updateAccountPeers(account)
+	}
+	return nil
+}
+
+func (am *DefaultAccountManager) deleteUserFromIDP(targetUserID, accountID string) error {
+	if am.userDeleteFromIDPEnabled {
+		log.Debugf("user %s deleted from IdP", targetUserID)
+		err := am.idpManager.DeleteUser(targetUserID)
+		if err != nil {
+			return fmt.Errorf("failed to delete user %s from IdP: %s", targetUserID, err)
+		}
+	} else {
+		err := am.idpManager.UpdateUserAppMetadata(targetUserID, idp.AppMetadata{})
+		if err != nil {
+			return fmt.Errorf("failed to remove user %s app metadata in IdP: %s", targetUserID, err)
+		}
+
+		_, err = am.refreshCache(accountID)
+		if err != nil {
+			log.Errorf("refresh account (%q) cache: %v", accountID, err)
+		}
+	}
+	return nil
+}
+
+func (am *DefaultAccountManager) getEmailAndNameOfTargetUser(accountId, initiatorId, targetId string) (string, string, error) {
+	userInfos, err := am.GetUsersFromAccount(accountId, initiatorId)
+	if err != nil {
+		return "", "", err
+	}
+	for _, ui := range userInfos {
+		if ui.ID == targetId {
+			return ui.Email, ui.Name, nil
+		}
+	}
+
+	return "", "", fmt.Errorf("user info not found for user: %s", targetId)
 }
 
 func findUserInIDPUserdata(userID string, userData []*idp.UserData) (*idp.UserData, bool) {

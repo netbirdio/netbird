@@ -159,6 +159,11 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		select {
 		// condition when there are some updates
 		case update, open := <-updates:
+
+			if s.appMetrics != nil {
+				s.appMetrics.GRPCMetrics().UpdateChannelQueueLength(len(updates) + 1)
+			}
+
 			if !open {
 				log.Debugf("updates channel for peer %s was closed", peerKey.String())
 				s.cancelPeerRoutines(peer)
