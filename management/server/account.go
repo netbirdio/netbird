@@ -249,20 +249,21 @@ func (a *Account) filterRoutesByGroups(routes []*route.Route, groupListMap looku
 func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Route, []*route.Route) {
 	var enabledRoutes []*route.Route
 	var disabledRoutes []*route.Route
+
+	peer := a.GetPeer(peerID)
+	if peer == nil {
+		log.Errorf("peer %s that doesn't exist under account %s", peerID, a.Id)
+		return enabledRoutes, disabledRoutes
+	}
+
+	// currently we support only linux routing peers
+	if peer.Meta.GoOS != "linux" {
+		return enabledRoutes, disabledRoutes
+	}
+
 	seenRoute := make(map[string]struct{})
 
 	takeRoute := func(r *route.Route, id string) {
-		peer := a.GetPeer(peerID)
-		if peer == nil {
-			log.Errorf("route %s has peer %s that doesn't exist under account %s", r.ID, peerID, a.Id)
-			return
-		}
-
-		// currently we support only linux routing peers
-		if peer.Meta.GoOS != "linux" {
-			return
-		}
-
 		if _, ok := seenRoute[r.ID]; ok {
 			return
 		}
@@ -277,29 +278,30 @@ func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Rou
 	}
 
 	for _, r := range a.Routes {
-		if len(r.PeerGroups) != 0 {
-			for _, groupID := range r.PeerGroups {
-				group := a.GetGroup(groupID)
-				if group == nil {
-					log.Errorf("route %s has peers group %s that doesn't exist under account %s", r.ID, groupID, a.Id)
+		for _, groupID := range r.PeerGroups {
+			group := a.GetGroup(groupID)
+			if group == nil {
+				log.Errorf("route %s has peers group %s that doesn't exist under account %s", r.ID, groupID, a.Id)
+				continue
+			}
+			for _, id := range group.Peers {
+				if id != peerID {
 					continue
 				}
-				for _, id := range group.Peers {
-					if id == peerID {
-						newPeerRoute := r.Copy()
-						newPeerRoute.Peer = peerID
-						newPeerRoute.PeerGroups = nil
-						newPeerRoute.ID = r.ID + ":" + peerID // we have to provide unit route id when distribute network map
-						takeRoute(newPeerRoute, peerID)
-						break
-					}
-				}
+
+				newPeerRoute := r.Copy()
+				newPeerRoute.Peer = id
+				newPeerRoute.PeerGroups = nil
+				newPeerRoute.ID = r.ID + ":" + id // we have to provide unique route id when distribute network map
+				takeRoute(newPeerRoute, id)
+				break
 			}
 		}
 		if r.Peer == peerID {
 			takeRoute(r.Copy(), peerID)
 		}
 	}
+
 	return enabledRoutes, disabledRoutes
 }
 
