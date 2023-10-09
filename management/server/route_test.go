@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/rs/xid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -48,11 +49,12 @@ func TestCreateRoute(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name          string
-		inputArgs     input
-		shouldCreate  bool
-		errFunc       require.ErrorAssertionFunc
-		expectedRoute *route.Route
+		name            string
+		inputArgs       input
+		createInitRoute bool
+		shouldCreate    bool
+		errFunc         require.ErrorAssertionFunc
+		expectedRoute   *route.Route
 	}{
 		{
 			name: "Happy Path",
@@ -164,8 +166,9 @@ func TestCreateRoute(t *testing.T) {
 				enabled:     true,
 				groups:      []string{routeGroup1},
 			},
-			errFunc:      require.Error,
-			shouldCreate: false,
+			createInitRoute: true,
+			errFunc:         require.Error,
+			shouldCreate:    false,
 		},
 		{
 			name: "Bad Peers Group already has this route",
@@ -179,8 +182,9 @@ func TestCreateRoute(t *testing.T) {
 				enabled:      true,
 				groups:       []string{routeGroup1},
 			},
-			errFunc:      require.Error,
-			shouldCreate: false,
+			createInitRoute: true,
+			errFunc:         require.Error,
+			shouldCreate:    false,
 		},
 		{
 			name: "Empty Peer Should Create",
@@ -326,6 +330,18 @@ func TestCreateRoute(t *testing.T) {
 				t.Errorf("failed to init testing account: %s", err)
 			}
 
+			if testCase.createInitRoute {
+				groupAll, errInit := account.GetGroupAll()
+				if errInit != nil {
+					t.Errorf("failed to get group all: %s", errInit)
+				}
+				_, errInit = am.CreateRoute(account.Id, existingNetwork, "", []string{routeGroup3, routeGroup4},
+					"", existingRouteID, false, 1000, []string{groupAll.ID}, true, userID)
+				if errInit != nil {
+					t.Errorf("failed to create init route: %s", errInit)
+				}
+			}
+
 			outRoute, err := am.CreateRoute(
 				account.Id,
 				testCase.inputArgs.network,
@@ -370,17 +386,18 @@ func TestSaveRoute(t *testing.T) {
 	validGroupHA2 := routeGroupHA2
 
 	testCases := []struct {
-		name          string
-		existingRoute *route.Route
-		newPeer       *string
-		newPeerGroups []string
-		newMetric     *int
-		newPrefix     *netip.Prefix
-		newGroups     []string
-		skipCopying   bool
-		shouldCreate  bool
-		errFunc       require.ErrorAssertionFunc
-		expectedRoute *route.Route
+		name            string
+		existingRoute   *route.Route
+		createInitRoute bool
+		newPeer         *string
+		newPeerGroups   []string
+		newMetric       *int
+		newPrefix       *netip.Prefix
+		newGroups       []string
+		skipCopying     bool
+		shouldCreate    bool
+		errFunc         require.ErrorAssertionFunc
+		expectedRoute   *route.Route
 	}{
 		{
 			name: "Happy Path",
@@ -645,8 +662,9 @@ func TestSaveRoute(t *testing.T) {
 				Enabled:     true,
 				Groups:      []string{routeGroup1},
 			},
-			newPeer: &validUsedPeer,
-			errFunc: require.Error,
+			createInitRoute: true,
+			newPeer:         &validUsedPeer,
+			errFunc:         require.Error,
 		},
 		{
 			name: "Do not allow to modify existing route with a peers group from another route",
@@ -662,8 +680,9 @@ func TestSaveRoute(t *testing.T) {
 				Enabled:     true,
 				Groups:      []string{routeGroup1},
 			},
-			newPeerGroups: []string{routeGroup4},
-			errFunc:       require.Error,
+			createInitRoute: true,
+			newPeerGroups:   []string{routeGroup4},
+			errFunc:         require.Error,
 		},
 	}
 	for _, testCase := range testCases {
@@ -676,6 +695,21 @@ func TestSaveRoute(t *testing.T) {
 			account, err := initTestRouteAccount(t, am)
 			if err != nil {
 				t.Error("failed to init testing account")
+			}
+
+			if testCase.createInitRoute {
+				account.Routes["initRoute"] = &route.Route{
+					ID:          "initRoute",
+					Network:     netip.MustParsePrefix(existingNetwork),
+					NetID:       existingRouteID,
+					NetworkType: route.IPv4Network,
+					PeerGroups:  []string{routeGroup4},
+					Description: "super",
+					Masquerade:  false,
+					Metric:      9999,
+					Enabled:     true,
+					Groups:      []string{routeGroup1},
+				}
 			}
 
 			account.Routes[testCase.existingRoute.ID] = testCase.existingRoute
@@ -811,15 +845,15 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 
 	peer1Routes, err := am.GetNetworkMap(peer1ID)
 	require.NoError(t, err)
-	require.Len(t, peer1Routes.Routes, 3, "HA route should have more than 1 routes")
+	assert.Len(t, peer1Routes.Routes, 1, "HA route should have 1 server route")
 
 	peer2Routes, err := am.GetNetworkMap(peer2ID)
 	require.NoError(t, err)
-	require.Len(t, peer2Routes.Routes, 3, "HA route should have more than 1 routes")
+	assert.Len(t, peer2Routes.Routes, 1, "HA route should have 1 server route")
 
 	peer4Routes, err := am.GetNetworkMap(peer4ID)
 	require.NoError(t, err)
-	require.Len(t, peer4Routes.Routes, 3, "HA route should have more than 1 routes")
+	assert.Len(t, peer4Routes.Routes, 1, "HA route should have 1 server route")
 
 	groups, err := am.ListGroups(account.Id)
 	require.NoError(t, err)
@@ -838,32 +872,32 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 
 	peer2RoutesAfterDelete, err := am.GetNetworkMap(peer2ID)
 	require.NoError(t, err)
-	require.Len(t, peer2RoutesAfterDelete.Routes, 2, "after peer deletion group should have only 2 route")
+	assert.Len(t, peer2RoutesAfterDelete.Routes, 2, "after peer deletion group should have 2 client routes")
 
 	err = am.GroupDeletePeer(account.Id, groupHA2.ID, peer4ID)
 	require.NoError(t, err)
 
 	peer2RoutesAfterDelete, err = am.GetNetworkMap(peer2ID)
 	require.NoError(t, err)
-	require.Len(t, peer2RoutesAfterDelete.Routes, 1, "after peer deletion group should have only 1 route")
+	assert.Len(t, peer2RoutesAfterDelete.Routes, 1, "after peer deletion group should have only 1 route")
 
 	err = am.GroupAddPeer(account.Id, groupHA2.ID, peer4ID)
 	require.NoError(t, err)
 
 	peer1RoutesAfterAdd, err := am.GetNetworkMap(peer1ID)
 	require.NoError(t, err)
-	require.Len(t, peer1RoutesAfterAdd.Routes, 2, "HA route should have more than 1 route")
+	assert.Len(t, peer1RoutesAfterAdd.Routes, 1, "HA route should have more than 1 route")
 
 	peer2RoutesAfterAdd, err := am.GetNetworkMap(peer2ID)
 	require.NoError(t, err)
-	require.Len(t, peer2RoutesAfterAdd.Routes, 2, "HA route should have more than 1 route")
+	assert.Len(t, peer2RoutesAfterAdd.Routes, 2, "HA route should have 2 client routes")
 
 	err = am.DeleteRoute(account.Id, newRoute.ID, userID)
 	require.NoError(t, err)
 
 	peer1DeletedRoute, err := am.GetNetworkMap(peer1ID)
 	require.NoError(t, err)
-	require.Len(t, peer1DeletedRoute.Routes, 0, "we should receive one route for peer1")
+	assert.Len(t, peer1DeletedRoute.Routes, 0, "we should receive one route for peer1")
 }
 
 func TestGetNetworkMap_RouteSync(t *testing.T) {
@@ -1191,12 +1225,6 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	_, err = am.CreateRoute(account.Id, existingNetwork, "", []string{routeGroup3, routeGroup4},
-		"", existingRouteID, false, 1000, []string{groupAll.ID}, true, userID)
-	if err != nil {
-		return nil, err
 	}
 
 	return am.Store.GetAccount(account.Id)

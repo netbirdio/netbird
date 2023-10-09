@@ -98,7 +98,7 @@ func (am *DefaultAccountManager) checkRoutePrefixExistsForPeers(account *Account
 		// check that the peers from peerGroupIDs groups are not the same peers we saw in routesWithPrefix
 		for _, id := range group.Peers {
 			if _, ok := seenPeers[id]; ok {
-				peer := account.GetPeer(peerID)
+				peer := account.GetPeer(id)
 				if peer == nil {
 					return status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
 				}

@@ -200,7 +200,7 @@ type UserInfo struct {
 // from the ACL peers that have distribution groups associated with the peer ID.
 // Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
 func (a *Account) getRoutesToSync(peerID string, aclPeers []*Peer) []*route.Route {
-	routes, peerDisabledRoutes := a.getEnabledAndDisabledRoutesByPeer(peerID)
+	routes, peerDisabledRoutes := a.getRoutingPeerRoutes(peerID)
 	peerRoutesMembership := make(lookupMap)
 	for _, r := range append(routes, peerDisabledRoutes...) {
 		peerRoutesMembership[route.GetHAUniqueID(r)] = struct{}{}
@@ -208,7 +208,7 @@ func (a *Account) getRoutesToSync(peerID string, aclPeers []*Peer) []*route.Rout
 
 	groupListMap := a.getPeerGroups(peerID)
 	for _, peer := range aclPeers {
-		activeRoutes, _ := a.getEnabledAndDisabledRoutesByPeer(peer.ID)
+		activeRoutes, _ := a.getRoutingPeerRoutes(peer.ID)
 		groupFilteredRoutes := a.filterRoutesByGroups(activeRoutes, groupListMap)
 		filteredRoutes := a.filterRoutesFromPeersOfSameHAGroup(groupFilteredRoutes, peerRoutesMembership)
 		routes = append(routes, filteredRoutes...)
@@ -244,20 +244,32 @@ func (a *Account) filterRoutesByGroups(routes []*route.Route, groupListMap looku
 	return filteredRoutes
 }
 
-// getEnabledAndDisabledRoutesByPeer returns the enabled and disabled lists of routes that belong to a peer.
+// getRoutingPeerRoutes returns the enabled and disabled lists of routes that the given routing peer serves
 // Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
-func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Route, []*route.Route) {
-	var enabledRoutes []*route.Route
-	var disabledRoutes []*route.Route
+// If the given is not a routing peer, then the lists are empty.
+func (a *Account) getRoutingPeerRoutes(peerID string) (enabledRoutes []*route.Route, disabledRoutes []*route.Route) {
+
+	peer := a.GetPeer(peerID)
+	if peer == nil {
+		log.Errorf("peer %s that doesn't exist under account %s", peerID, a.Id)
+		return enabledRoutes, disabledRoutes
+	}
+
+	// currently we support only linux routing peers
+	if peer.Meta.GoOS != "linux" {
+		return enabledRoutes, disabledRoutes
+	}
+
+	seenRoute := make(map[string]struct{})
 
 	takeRoute := func(r *route.Route, id string) {
-		peer := a.GetPeer(peerID)
-		if peer == nil {
-			log.Errorf("route %s has peer %s that doesn't exist under account %s", r.ID, peerID, a.Id)
+		if _, ok := seenRoute[r.ID]; ok {
 			return
 		}
+		seenRoute[r.ID] = struct{}{}
 
 		if r.Enabled {
+			r.Peer = peer.Key
 			enabledRoutes = append(enabledRoutes, r)
 			return
 		}
@@ -265,25 +277,30 @@ func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Rou
 	}
 
 	for _, r := range a.Routes {
-		if len(r.PeerGroups) != 0 {
-			for _, groupID := range r.PeerGroups {
-				group := a.GetGroup(groupID)
-				if group == nil {
-					log.Errorf("route %s has peers group %s that doesn't exist under account %s", r.ID, groupID, a.Id)
+		for _, groupID := range r.PeerGroups {
+			group := a.GetGroup(groupID)
+			if group == nil {
+				log.Errorf("route %s has peers group %s that doesn't exist under account %s", r.ID, groupID, a.Id)
+				continue
+			}
+			for _, id := range group.Peers {
+				if id != peerID {
 					continue
 				}
-				for _, id := range group.Peers {
-					if id == peerID {
-						takeRoute(r, id)
-						break
-					}
-				}
+
+				newPeerRoute := r.Copy()
+				newPeerRoute.Peer = id
+				newPeerRoute.PeerGroups = nil
+				newPeerRoute.ID = r.ID + ":" + id // we have to provide unique route id when distribute network map
+				takeRoute(newPeerRoute, id)
+				break
 			}
 		}
 		if r.Peer == peerID {
-			takeRoute(r, peerID)
+			takeRoute(r.Copy(), peerID)
 		}
 	}
+
 	return enabledRoutes, disabledRoutes
 }
 
@@ -319,50 +336,7 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 		peersToConnect = append(peersToConnect, p)
 	}
 
-	routes := a.getRoutesToSync(peerID, peersToConnect)
-
-	takePeer := func(id string) (*Peer, bool) {
-		peer := a.GetPeer(id)
-		if peer == nil || peer.Meta.GoOS != "linux" {
-			return nil, false
-		}
-		return peer, true
-	}
-
-	// We need to set Peer.Key instead of Peer.ID because this object will be sent to agents as part of a network map.
-	// Ideally we should have a separate field for that, but fine for now.
-	var routesUpdate []*route.Route
-	seenPeers := make(map[string]bool)
-	for _, r := range routes {
-		if r.Peer != "" {
-			peer, valid := takePeer(r.Peer)
-			if !valid {
-				continue
-			}
-			rCopy := r.Copy()
-			rCopy.Peer = peer.Key // client expects the key
-			routesUpdate = append(routesUpdate, rCopy)
-			continue
-		}
-		for _, groupID := range r.PeerGroups {
-			if group := a.GetGroup(groupID); group != nil {
-				for _, peerId := range group.Peers {
-					peer, valid := takePeer(peerId)
-					if !valid {
-						continue
-					}
-
-					if _, ok := seenPeers[peer.ID]; !ok {
-						rCopy := r.Copy()
-						rCopy.ID = r.ID + ":" + peer.ID // we have to provide unit route id when distribute network map
-						rCopy.Peer = peer.Key           // client expects the key
-						routesUpdate = append(routesUpdate, rCopy)
-					}
-					seenPeers[peer.ID] = true
-				}
-			}
-		}
-	}
+	routesUpdate := a.getRoutesToSync(peerID, peersToConnect)
 
 	dnsManagementStatus := a.getPeerDNSManagementStatus(peerID)
 	dnsUpdate := nbdns.Config{
