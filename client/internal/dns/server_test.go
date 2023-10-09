@@ -527,7 +527,7 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 			registeredMap: make(registrationMap),
 		},
 		hostManager: hostManager,
-		currentConfig: hostDNSConfig{
+		currentConfig: HostDNSConfig{
 			domains: []domainConfig{
 				{false, "domain0", false},
 				{false, "domain1", false},
@@ -537,7 +537,7 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	}
 
 	var domainsUpdate string
-	hostManager.applyDNSConfigFunc = func(config hostDNSConfig) error {
+	hostManager.applyDNSConfigFunc = func(config HostDNSConfig) error {
 		domains := []string{}
 		for _, item := range config.domains {
 			if item.disabled {

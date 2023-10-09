@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"runtime"
 	"sync"
 
 	"github.com/miekg/dns"
@@ -18,9 +19,14 @@ type ReadyListener interface {
 	OnReady()
 }
 
+// IosDnsManager is a dns manager interface for iosß
+type IosDnsManager interface {
+	applyDns(string)
+}
+
 // Server is a dns server interface
 type Server interface {
-	Initialize() error
+	Initialize(manager IosDnsManager) error
 	Stop()
 	DnsIP() string
 	UpdateDNSServer(serial uint64, update nbdns.Config) error
@@ -41,7 +47,7 @@ type DefaultServer struct {
 	hostManager        hostManager
 	updateSerial       uint64
 	previousConfigHash uint64
-	currentConfig      hostDNSConfig
+	currentConfig      HostDNSConfig
 
 	// permanent related properties
 	permanent        bool
@@ -108,7 +114,7 @@ func newDefaultServer(ctx context.Context, wgInterface WGIface, dnsService servi
 }
 
 // Initialize instantiate host manager and the dns service
-func (s *DefaultServer) Initialize() (err error) {
+func (s *DefaultServer) Initialize(manager IosDnsManager) (err error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -123,7 +129,11 @@ func (s *DefaultServer) Initialize() (err error) {
 		}
 	}
 
-	s.hostManager, err = newHostManager(s.wgInterface)
+	if runtime.GOOS == "ios" {
+		s.hostManager, err = newHostManager(nil, manager)
+	} else {
+		s.hostManager, err = newHostManager(s.wgInterface, nil)
+	}
 	return
 }
 

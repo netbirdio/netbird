@@ -39,7 +39,7 @@ func (f *fileConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
+func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	backupFileExist := false
 	_, err := os.Stat(fileDefaultResolvConfBackupLocation)
 	if err == nil {

@@ -271,7 +271,11 @@ func (e *Engine) Start() error {
 		e.acl = acl
 	}
 
-	err = e.dnsServer.Initialize()
+	if runtime.GOOS == "ios" {
+		err = e.dnsServer.Initialize(e.mobileDep.DnsManager)
+	} else {
+		err = e.dnsServer.Initialize(nil)
+	}
 	if err != nil {
 		e.close()
 		return err

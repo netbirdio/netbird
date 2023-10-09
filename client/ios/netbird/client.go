@@ -10,10 +10,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
-	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
-	"github.com/netbirdio/netbird/iface"
 )
 
 // ConnectionListener export internal Listener for mobile
@@ -21,24 +19,14 @@ type ConnectionListener interface {
 	peer.Listener
 }
 
-// TunAdapter export internal TunAdapter for mobile
-type TunAdapter interface {
-	iface.TunAdapter
-}
-
-// IFaceDiscover export internal IFaceDiscover for mobile
-type IFaceDiscover interface {
-	stdnet.ExternalIFaceDiscover
-}
-
 // RouteListener export internal RouteListener for mobile
 type RouteListener interface {
 	routemanager.RouteListener
 }
 
-// DnsReadyListener export internal dns ReadyListener for mobile
-type DnsReadyListener interface {
-	dns.ReadyListener
+// DnsManager export internal dns Manager for mobile
+type DnsManager interface {
+	dns.IosDnsManager
 }
 
 // CustomLogger export internal CustomLogger for mobile
@@ -55,29 +43,29 @@ func init() {
 // Client struct manage the life circle of background service
 type Client struct {
 	cfgFile       string
-	iFaceDiscover IFaceDiscover
 	recorder      *peer.Status
 	ctxCancel     context.CancelFunc
 	ctxCancelLock *sync.Mutex
 	deviceName    string
 	routeListener routemanager.RouteListener
 	onHostDnsFn   func([]string)
+	dnsManager    dns.IosDnsManager
 }
 
 // NewClient instantiate a new Client
-func NewClient(cfgFile, deviceName string, iFaceDiscover IFaceDiscover, routeListener RouteListener) *Client {
+func NewClient(cfgFile, deviceName string, routeListener RouteListener, dnsManager DnsManager) *Client {
 	return &Client{
 		cfgFile:       cfgFile,
 		deviceName:    deviceName,
-		iFaceDiscover: iFaceDiscover,
 		recorder:      peer.NewRecorder(""),
 		ctxCancelLock: &sync.Mutex{},
 		routeListener: routeListener,
+		dnsManager:    dnsManager,
 	}
 }
 
 // Run start the internal client. It is a blocker function
-func (c *Client) Run(fd int32, dns *DNSList, dnsReadyListener DnsReadyListener) error {
+func (c *Client) Run(fd int32) error {
 	log.Infof("Starting NetBird client")
 	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
 		ConfigPath: c.cfgFile,
@@ -106,7 +94,32 @@ func (c *Client) Run(fd int32, dns *DNSList, dnsReadyListener DnsReadyListener) 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.onHostDnsFn = func([]string) {}
-	return internal.RunClientiOS(ctx, cfg, c.recorder, fd, c.iFaceDiscover, c.routeListener, dns.items, dnsReadyListener)
+	return internal.RunClientiOS(ctx, cfg, c.recorder, fd, c.routeListener, c.dnsManager)
+}
+
+func (c *Client) Auth(urlOpener URLOpener) error {
+	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
+		ConfigPath: c.cfgFile,
+	})
+	if err != nil {
+		return err
+	}
+	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
+
+	var ctx context.Context
+	//nolint
+	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
+	c.ctxCancelLock.Lock()
+	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
+	defer c.ctxCancel()
+	c.ctxCancelLock.Unlock()
+
+	auth := NewAuthWithConfig(ctx, cfg)
+	err = auth.login(urlOpener)
+	if err != nil {
+		return err
+	}
+
 }
 
 // Stop the internal client and free the resources

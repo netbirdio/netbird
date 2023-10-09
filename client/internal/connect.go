@@ -42,15 +42,11 @@ func RunClientMobile(ctx context.Context, config *Config, statusRecorder *peer.S
 	return runClient(ctx, config, statusRecorder, mobileDependency)
 }
 
-func RunClientiOS(ctx context.Context, config *Config, statusRecorder *peer.Status, fileDescriptor int32, iFaceDiscover stdnet.ExternalIFaceDiscover, routeListener routemanager.RouteListener, dnsAddresses []string, dnsReadyListener dns.ReadyListener) error {
-	// func RunClientiOS(ctx context.Context, config *Config, statusRecorder *peer.Status, iFaceDiscover stdnet.ExternalIFaceDiscover, routeListener routemanager.RouteListener, dnsAddresses []string, dnsReadyListener dns.ReadyListener) error {
+func RunClientiOS(ctx context.Context, config *Config, statusRecorder *peer.Status, fileDescriptor int32, routeListener routemanager.RouteListener, dnsManager dns.IosDnsManager) error {
 	mobileDependency := MobileDependency{
-		TunAdapter:       nil,
-		FileDescriptor:   fileDescriptor,
-		IFaceDiscover:    iFaceDiscover,
-		RouteListener:    routeListener,
-		HostDNSAddresses: dnsAddresses,
-		DnsReadyListener: dnsReadyListener,
+		FileDescriptor: fileDescriptor,
+		RouteListener:  routeListener,
+		DnsManager:     dnsManager,
 	}
 	return runClient(ctx, config, statusRecorder, mobileDependency)
 }

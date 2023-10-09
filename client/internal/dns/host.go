@@ -8,12 +8,12 @@ import (
 )
 
 type hostManager interface {
-	applyDNSConfig(config hostDNSConfig) error
+	applyDNSConfig(config HostDNSConfig) error
 	restoreHostDNS() error
 	supportCustomPort() bool
 }
 
-type hostDNSConfig struct {
+type HostDNSConfig struct {
 	domains    []domainConfig
 	routeAll   bool
 	serverIP   string
@@ -27,12 +27,12 @@ type domainConfig struct {
 }
 
 type mockHostConfigurator struct {
-	applyDNSConfigFunc    func(config hostDNSConfig) error
+	applyDNSConfigFunc    func(config HostDNSConfig) error
 	restoreHostDNSFunc    func() error
 	supportCustomPortFunc func() bool
 }
 
-func (m *mockHostConfigurator) applyDNSConfig(config hostDNSConfig) error {
+func (m *mockHostConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	if m.applyDNSConfigFunc != nil {
 		return m.applyDNSConfigFunc(config)
 	}
@@ -55,14 +55,14 @@ func (m *mockHostConfigurator) supportCustomPort() bool {
 
 func newNoopHostMocker() hostManager {
 	return &mockHostConfigurator{
-		applyDNSConfigFunc:    func(config hostDNSConfig) error { return nil },
+		applyDNSConfigFunc:    func(config HostDNSConfig) error { return nil },
 		restoreHostDNSFunc:    func() error { return nil },
 		supportCustomPortFunc: func() bool { return true },
 	}
 }
 
-func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) hostDNSConfig {
-	config := hostDNSConfig{
+func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) HostDNSConfig {
+	config := HostDNSConfig{
 		routeAll:   false,
 		serverIP:   ip,
 		serverPort: port,

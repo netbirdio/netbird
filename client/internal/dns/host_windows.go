@@ -45,7 +45,7 @@ func (s *registryConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (r *registryConfigurator) applyDNSConfig(config hostDNSConfig) error {
+func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	var err error
 	if config.routeAll {
 		err = r.addDNSSetupForAll(config.serverIP)

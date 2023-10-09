@@ -1,3 +1,5 @@
+//go:build !ios
+
 package dns
 
 import (
@@ -42,7 +44,7 @@ func (s *systemConfigurator) supportCustomPort() bool {
 	return true
 }
 
-func (s *systemConfigurator) applyDNSConfig(config hostDNSConfig) error {
+func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	var err error
 
 	if config.routeAll {

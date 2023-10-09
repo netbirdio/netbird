@@ -27,7 +27,7 @@ func (r *resolvconf) supportCustomPort() bool {
 	return false
 }
 
-func (r *resolvconf) applyDNSConfig(config hostDNSConfig) error {
+func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
 	var err error
 	if !config.routeAll {
 		err = r.restoreHostDNS()
