@@ -120,6 +120,7 @@ func (c *Client) Auth(urlOpener URLOpener) error {
 		return err
 	}
 
+	return nil
 }
 
 // Stop the internal client and free the resources
