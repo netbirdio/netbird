@@ -234,7 +234,9 @@ func (s *serviceClient) login() error {
 		return err
 	}
 
-	loginResp, err := conn.Login(s.ctx, &proto.LoginRequest{})
+	loginResp, err := conn.Login(s.ctx, &proto.LoginRequest{
+		IsLinuxDesktopClient: runtime.GOOS == "linux",
+	})
 	if err != nil {
 		log.Errorf("login to management URL with: %v", err)
 		return err
