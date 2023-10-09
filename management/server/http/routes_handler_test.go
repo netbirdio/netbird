@@ -125,15 +125,6 @@ func initRoutesTestData() *RoutesHandler {
 				}
 				return nil
 			},
-			GetPeerByIPFunc: func(_ string, peerIP string) (*server.Peer, error) {
-				if peerIP != existingPeerID {
-					return nil, status.Errorf(status.NotFound, "Peer with ID %s not found", peerIP)
-				}
-				return &server.Peer{
-					Key: existingPeerKey,
-					IP:  netip.MustParseAddr(existingPeerID).AsSlice(),
-				}, nil
-			},
 			GetAccountFromTokenFunc: func(_ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return testingAccount, testingAccount.Users["test_user"], nil
 			},

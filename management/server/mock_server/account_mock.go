@@ -20,12 +20,9 @@ type MockAccountManager struct {
 	GetSetupKeyFunc                 func(accountID, userID, keyID string) (*server.SetupKey, error)
 	GetAccountByUserOrAccountIdFunc func(userId, accountId, domain string) (*server.Account, error)
 	GetUserFunc                     func(claims jwtclaims.AuthorizationClaims) (*server.User, error)
-	AccountExistsFunc               func(accountId string) (*bool, error)
-	GetPeerByKeyFunc                func(peerKey string) (*server.Peer, error)
 	GetPeersFunc                    func(accountID, userID string) ([]*server.Peer, error)
 	MarkPeerConnectedFunc           func(peerKey string, connected bool) error
 	DeletePeerFunc                  func(accountID, peerKey, userID string) error
-	GetPeerByIPFunc                 func(accountId string, peerIP string) (*server.Peer, error)
 	GetNetworkMapFunc               func(peerKey string) (*server.NetworkMap, error)
 	GetPeerNetworkFunc              func(peerKey string) (*server.Network, error)
 	AddPeerFunc                     func(setupKey string, userId string, peer *server.Peer) (*server.Peer, *server.NetworkMap, error)
@@ -35,7 +32,6 @@ type MockAccountManager struct {
 	ListGroupsFunc                  func(accountID string) ([]*server.Group, error)
 	GroupAddPeerFunc                func(accountID, groupID, peerID string) error
 	GroupDeletePeerFunc             func(accountID, groupID, peerID string) error
-	GroupListPeersFunc              func(accountID, groupID string) ([]*server.Peer, error)
 	GetRuleFunc                     func(accountID, ruleID, userID string) (*server.Rule, error)
 	SaveRuleFunc                    func(accountID, userID string, rule *server.Rule) error
 	DeleteRuleFunc                  func(accountID, ruleID, userID string) error
@@ -140,36 +136,12 @@ func (am *MockAccountManager) GetAccountByUserOrAccountID(
 	)
 }
 
-// AccountExists mock implementation of AccountExists from server.AccountManager interface
-func (am *MockAccountManager) AccountExists(accountId string) (*bool, error) {
-	if am.AccountExistsFunc != nil {
-		return am.AccountExistsFunc(accountId)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method AccountExists is not implemented")
-}
-
-// GetPeerByKey mocks implementation of GetPeerByKey from server.AccountManager interface
-func (am *MockAccountManager) GetPeerByKey(peerKey string) (*server.Peer, error) {
-	if am.GetPeerByKeyFunc != nil {
-		return am.GetPeerByKeyFunc(peerKey)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetPeerByKey is not implemented")
-}
-
 // MarkPeerConnected mock implementation of MarkPeerConnected from server.AccountManager interface
 func (am *MockAccountManager) MarkPeerConnected(peerKey string, connected bool) error {
 	if am.MarkPeerConnectedFunc != nil {
 		return am.MarkPeerConnectedFunc(peerKey, connected)
 	}
 	return status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
-}
-
-// GetPeerByIP mock implementation of GetPeerByIP from server.AccountManager interface
-func (am *MockAccountManager) GetPeerByIP(accountId string, peerIP string) (*server.Peer, error) {
-	if am.GetPeerByIPFunc != nil {
-		return am.GetPeerByIPFunc(accountId, peerIP)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetPeerByIP is not implemented")
 }
 
 // GetAccountFromPAT mock implementation of GetAccountFromPAT from server.AccountManager interface
@@ -294,14 +266,6 @@ func (am *MockAccountManager) GroupDeletePeer(accountID, groupID, peerID string)
 		return am.GroupDeletePeerFunc(accountID, groupID, peerID)
 	}
 	return status.Errorf(codes.Unimplemented, "method GroupDeletePeer is not implemented")
-}
-
-// GroupListPeers mock implementation of GroupListPeers from server.AccountManager interface
-func (am *MockAccountManager) GroupListPeers(accountID, groupID string) ([]*server.Peer, error) {
-	if am.GroupListPeersFunc != nil {
-		return am.GroupListPeersFunc(accountID, groupID)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method GroupListPeers is not implemented")
 }
 
 // GetRule mock implementation of GetRule from server.AccountManager interface

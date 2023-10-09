@@ -195,16 +195,6 @@ func (p *PeerStatus) Copy() *PeerStatus {
 	}
 }
 
-// GetPeerByKey looks up peer by its public WireGuard key
-func (am *DefaultAccountManager) GetPeerByKey(peerPubKey string) (*Peer, error) {
-	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
-	if err != nil {
-		return nil, err
-	}
-
-	return account.FindPeerByPubKey(peerPubKey)
-}
-
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
 // the current user is not an admin.
 func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, error) {
@@ -290,10 +280,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 	if oldStatus.LoginExpired {
 		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
 		// the expired one. Here we notify them that connection is now allowed again.
-		err = am.updateAccountPeers(account)
-		if err != nil {
-			return err
-		}
+		am.updateAccountPeers(account)
 	}
 
 	return nil
@@ -364,10 +351,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 		return nil, err
 	}
 
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		return nil, err
-	}
+	am.updateAccountPeers(account)
 
 	return peer, nil
 }
@@ -433,26 +417,9 @@ func (am *DefaultAccountManager) DeletePeer(accountID, peerID, userID string) er
 		return err
 	}
 
-	return am.updateAccountPeers(account)
-}
+	am.updateAccountPeers(account)
 
-// GetPeerByIP returns peer by its IP
-func (am *DefaultAccountManager) GetPeerByIP(accountID string, peerIP string) (*Peer, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, peer := range account.Peers {
-		if peerIP == peer.IP.String() {
-			return peer, nil
-		}
-	}
-
-	return nil, status.Errorf(status.NotFound, "peer with IP %s not found", peerIP)
+	return nil
 }
 
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)
@@ -622,10 +589,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain())
 	am.storeEvent(opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		return nil, nil, err
-	}
+	am.updateAccountPeers(account)
 
 	networkMap := account.GetPeerNetworkMap(newPeer.ID, am.dnsDomain)
 	return newPeer, networkMap, nil
@@ -740,10 +704,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 	}
 
 	if updateRemotePeers {
-		err = am.updateAccountPeers(account)
-		if err != nil {
-			return nil, nil, err
-		}
+		am.updateAccountPeers(account)
 	}
 	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
 }
@@ -817,10 +778,7 @@ func (am *DefaultAccountManager) checkAndUpdatePeerSSHKey(peer *Peer, account *A
 	}
 
 	// trigger network map update
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		return nil, err
-	}
+	am.updateAccountPeers(account)
 
 	return peer, nil
 }
@@ -865,7 +823,9 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerID string, sshKey string) 
 	}
 
 	// trigger network map update
-	return am.updateAccountPeers(account)
+	am.updateAccountPeers(account)
+
+	return nil
 }
 
 // GetPeer for a given accountID, peerID and userID error if not found.
@@ -922,18 +882,12 @@ func updatePeerMeta(peer *Peer, meta PeerSystemMeta, account *Account) (*Peer, b
 
 // updateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
-func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
+func (am *DefaultAccountManager) updateAccountPeers(account *Account) {
 	peers := account.GetPeers()
 
 	for _, peer := range peers {
-		remotePeerNetworkMap, err := am.GetNetworkMap(peer.ID)
-		if err != nil {
-			return err
-		}
-
+		remotePeerNetworkMap := account.GetPeerNetworkMap(peer.ID, am.dnsDomain)
 		update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain())
 		am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})
 	}
-
-	return nil
 }

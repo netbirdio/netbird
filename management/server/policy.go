@@ -350,7 +350,9 @@ func (am *DefaultAccountManager) SavePolicy(accountID, userID string, policy *Po
 	}
 	am.storeEvent(userID, policy.ID, accountID, action, policy.EventMeta())
 
-	return am.updateAccountPeers(account)
+	am.updateAccountPeers(account)
+
+	return nil
 }
 
 // DeletePolicy from the store
@@ -375,7 +377,9 @@ func (am *DefaultAccountManager) DeletePolicy(accountID, policyID, userID string
 
 	am.storeEvent(userID, policy.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
-	return am.updateAccountPeers(account)
+	am.updateAccountPeers(account)
+
+	return nil
 }
 
 // ListPolicies from the store

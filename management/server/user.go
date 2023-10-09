@@ -377,7 +377,9 @@ func (am *DefaultAccountManager) deleteRegularUser(account *Account, initiatorUs
 	meta := map[string]any{"name": tuName, "email": tuEmail}
 	am.storeEvent(initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
 
-	return am.updateAccountPeers(account)
+	am.updateAccountPeers(account)
+
+	return nil
 }
 
 func (am *DefaultAccountManager) deleteUserPeers(initiatorUserID string, targetUserID string, account *Account) error {
@@ -674,9 +676,7 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 			return nil, err
 		}
 
-		if err := am.updateAccountPeers(account); err != nil {
-			log.Errorf("failed updating account peers while updating user %s", accountID)
-		}
+		am.updateAccountPeers(account)
 	} else {
 		if err = am.Store.SaveAccount(account); err != nil {
 			return nil, err
@@ -870,9 +870,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(account *Account, peers []
 	if len(peerIDs) != 0 {
 		// this will trigger peer disconnect from the management service
 		am.peersUpdateManager.CloseChannels(peerIDs)
-		if err := am.updateAccountPeers(account); err != nil {
-			return err
-		}
+		am.updateAccountPeers(account)
 	}
 	return nil
 }
