@@ -154,6 +154,8 @@ if [ -n "$NETBIRD_MGMT_IDP" ]; then
   export NETBIRD_IDP_MGMT_CLIENT_ID
   export NETBIRD_IDP_MGMT_CLIENT_SECRET
   export NETBIRD_IDP_MGMT_EXTRA_CONFIG=$EXTRA_CONFIG
+else
+  export NETBIRD_IDP_MGMT_EXTRA_CONFIG={}
 fi
 
 IFS=',' read -r -a REDIRECT_URL_PORTS <<< "$NETBIRD_AUTH_PKCE_REDIRECT_URL_PORTS"
@@ -191,5 +193,5 @@ if test -f 'turnserver.conf'; then
     cp turnserver.conf "turnserver.conf.$bkp_postfix"
 fi
 envsubst <docker-compose.yml.tmpl >docker-compose.yml
-envsubst <management.json.tmpl >management.json
+envsubst <management.json.tmpl | jq . >management.json
 envsubst <turnserver.conf.tmpl >turnserver.conf
