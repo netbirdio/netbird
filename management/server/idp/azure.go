@@ -384,8 +384,7 @@ func (am *AzureManager) get(resource string, q url.Values) ([]byte, error) {
 		return nil, err
 	}
 
-	reqURL := am.GraphAPIEndpoint + "/" + resource
-
+	var reqURL string
 	if strings.HasPrefix(resource, "https") {
 		// Already an absolute URL for paging
 		reqURL = resource
