@@ -251,34 +251,14 @@ func (am *AuthentikManager) GetUserDataByID(userID string, appMetadata AppMetada
 
 // GetAccount returns all the users for a given profile.
 func (am *AuthentikManager) GetAccount(accountID string) ([]*UserData, error) {
-	ctx, err := am.authenticationContext()
+	users, err := am.getAllUsers()
 	if err != nil {
 		return nil, err
 	}
 
-	userList, resp, err := am.apiClient.CoreApi.CoreUsersList(ctx).Execute()
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if am.appMetrics != nil {
-		am.appMetrics.IDPMetrics().CountGetAccount()
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		if am.appMetrics != nil {
-			am.appMetrics.IDPMetrics().CountRequestStatusError()
-		}
-		return nil, fmt.Errorf("unable to get account %s users, statusCode %d", accountID, resp.StatusCode)
-	}
-
-	users := make([]*UserData, 0)
-	for _, user := range userList.Results {
-		userData := parseAuthentikUser(user)
-		userData.AppMetadata.WTAccountID = accountID
-
-		users = append(users, userData)
+	for index, user := range users {
+		user.AppMetadata.WTAccountID = accountID
+		users[index] = user
 	}
 
 	return users, nil
@@ -287,35 +267,59 @@ func (am *AuthentikManager) GetAccount(accountID string) ([]*UserData, error) {
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
 func (am *AuthentikManager) GetAllAccounts() (map[string][]*UserData, error) {
-	ctx, err := am.authenticationContext()
+	users, err := am.getAllUsers()
 	if err != nil {
 		return nil, err
 	}
 
-	userList, resp, err := am.apiClient.CoreApi.CoreUsersList(ctx).Execute()
-	if err != nil {
-		return nil, err
+	indexedUsers := make(map[string][]*UserData)
+	for _, user := range users {
+		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], user)
 	}
-	defer resp.Body.Close()
 
 	if am.appMetrics != nil {
 		am.appMetrics.IDPMetrics().CountGetAllAccounts()
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		if am.appMetrics != nil {
-			am.appMetrics.IDPMetrics().CountRequestStatusError()
-		}
-		return nil, fmt.Errorf("unable to get all accounts, statusCode %d", resp.StatusCode)
-	}
-
-	indexedUsers := make(map[string][]*UserData)
-	for _, user := range userList.Results {
-		userData := parseAuthentikUser(user)
-		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], userData)
-	}
-
 	return indexedUsers, nil
+}
+
+// getAllUsers returns all users in a Authentik filtered by customer ID.
+func (am *AuthentikManager) getAllUsers() ([]*UserData, error) {
+	users := make([]*UserData, 0)
+
+	page := int32(1)
+	for {
+		ctx, err := am.authenticationContext()
+		if err != nil {
+			return nil, err
+		}
+
+		userList, resp, err := am.apiClient.CoreApi.CoreUsersList(ctx).Page(page).Execute()
+		if err != nil {
+			return nil, err
+		}
+		_ = resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			if am.appMetrics != nil {
+				am.appMetrics.IDPMetrics().CountRequestStatusError()
+			}
+			return nil, fmt.Errorf("unable to get all accounts, statusCode %d", resp.StatusCode)
+		}
+
+		for _, user := range userList.Results {
+			users = append(users, parseAuthentikUser(user))
+		}
+
+		page = int32(userList.GetPagination().Next)
+		if userList.GetPagination().Next == 0 {
+			break
+		}
+
+	}
+
+	return users, nil
 }
 
 // CreateUser creates a new user in authentik Idp and sends an invitation.
