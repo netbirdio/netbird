@@ -196,7 +196,7 @@ func (om *OktaManager) GetAllAccounts() (map[string][]*UserData, error) {
 	return indexedUsers, nil
 }
 
-// getAllUsers returns all users in an Okta account filtered by customer ID.
+// getAllUsers returns all users in an Okta account.
 func (om *OktaManager) getAllUsers() ([]*UserData, error) {
 	qp := query.NewQueryParams(query.WithLimit(200))
 	userList, resp, err := om.client.User.ListUsers(context.Background(), qp)

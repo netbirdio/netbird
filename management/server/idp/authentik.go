@@ -286,7 +286,7 @@ func (am *AuthentikManager) GetAllAccounts() (map[string][]*UserData, error) {
 	return indexedUsers, nil
 }
 
-// getAllUsers returns all users in a Authentik filtered by customer ID.
+// getAllUsers returns all users in a Authentik account.
 func (am *AuthentikManager) getAllUsers() ([]*UserData, error) {
 	users := make([]*UserData, 0)
 

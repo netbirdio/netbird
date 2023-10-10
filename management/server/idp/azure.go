@@ -349,6 +349,7 @@ func (am *AzureManager) DeleteUser(userID string) error {
 	return nil
 }
 
+// getAllUsers returns all users in an Azure AD account.
 func (am *AzureManager) getAllUsers() ([]*UserData, error) {
 	users := make([]*UserData, 0)
 
