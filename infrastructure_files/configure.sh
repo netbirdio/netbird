@@ -186,15 +186,15 @@ env | grep NETBIRD
 
 bkp_postfix="$(date +%s)"
 if test -f 'docker-compose.yml'; then
-    cp docker-compose.yml "docker-compose.yml.$bkp_postfix"
+    cp docker-compose.yml "docker-compose.yml.bkp.${bkp_postfix}"
 fi
 
 if test -f 'management.json'; then
-    cp management.json "management.json.$bkp_postfix"
+    cp management.json "management.json.bkp.${bkp_postfix}"
 fi
 
 if test -f 'turnserver.conf'; then
-    cp turnserver.conf "turnserver.conf.$bkp_postfix"
+    cp turnserver.conf "turnserver.conf.bpk.${bkp_postfix}"
 fi
 envsubst <docker-compose.yml.tmpl >docker-compose.yml
 envsubst <management.json.tmpl | jq . >management.json
