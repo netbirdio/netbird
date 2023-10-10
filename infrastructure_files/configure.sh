@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 if ! which curl >/dev/null 2>&1; then
   echo "This script uses curl fetch OpenID configuration from IDP."
