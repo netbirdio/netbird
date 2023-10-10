@@ -271,6 +271,10 @@ func (am *AzureManager) GetAccount(accountID string) ([]*UserData, error) {
 		return nil, err
 	}
 
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountGetAccount()
+	}
+
 	for index, user := range users {
 		user.AppMetadata.WTAccountID = accountID
 		users[index] = user

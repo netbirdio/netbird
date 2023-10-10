@@ -118,6 +118,10 @@ func (gm *GoogleWorkspaceManager) GetAccount(accountID string) ([]*UserData, err
 		return nil, err
 	}
 
+	if gm.appMetrics != nil {
+		gm.appMetrics.IDPMetrics().CountGetAccount()
+	}
+
 	for index, user := range users {
 		user.AppMetadata.WTAccountID = accountID
 		users[index] = user
