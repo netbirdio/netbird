@@ -175,7 +175,10 @@ fi
 # Read the encryption key
 if test -f 'management.json'; then
     encKey=$(jq -r  ".DataStoreEncryptionKey" management.json)
-    export NETBIRD_DATASTORE_ENC_KEY=$encKey
+    if [[ "$encKey" != "null" ]]; then
+        export NETBIRD_DATASTORE_ENC_KEY=$encKey
+
+    fi
 fi
 
 env | grep NETBIRD
