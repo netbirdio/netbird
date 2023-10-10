@@ -1,0 +1,12 @@
+{
+	"name": "NetBird",
+	"build": {
+		"context": "..",
+		"dockerfile": "Dockerfile"
+	},
+	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+	"onCreateCommand": {
+		"management build": "go build -o management/management ./management",
+		"client build": "go build -o client/client ./client"
+	}
+}
