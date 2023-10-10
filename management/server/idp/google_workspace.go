@@ -135,9 +135,7 @@ func (gm *GoogleWorkspaceManager) GetAllAccounts() (map[string][]*UserData, erro
 	}
 
 	indexedUsers := make(map[string][]*UserData)
-	for _, user := range users {
-		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], user)
-	}
+	indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], users...)
 
 	if gm.appMetrics != nil {
 		gm.appMetrics.IDPMetrics().CountGetAllAccounts()

@@ -288,9 +288,7 @@ func (am *AzureManager) GetAllAccounts() (map[string][]*UserData, error) {
 	}
 
 	indexedUsers := make(map[string][]*UserData)
-	for _, user := range users {
-		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], user)
-	}
+	indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], users...)
 
 	if am.appMetrics != nil {
 		am.appMetrics.IDPMetrics().CountGetAllAccounts()
