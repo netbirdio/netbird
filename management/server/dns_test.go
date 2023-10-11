@@ -42,7 +42,7 @@ func TestGetDNSSettings(t *testing.T) {
 		t.Fatal("DNS settings for new accounts shouldn't return nil")
 	}
 
-	account.DNSSettings = &DNSSettings{
+	account.DNSSettings = DNSSettings{
 		DisabledManagementGroups: []string{group1ID},
 	}
 

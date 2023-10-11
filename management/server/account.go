@@ -179,7 +179,7 @@ type Account struct {
 	Policies               []*Policy
 	Routes                 map[string]*route.Route
 	NameServerGroups       map[string]*nbdns.NameServerGroup
-	DNSSettings            *DNSSettings
+	DNSSettings            DNSSettings
 	// Settings is a dictionary of Account settings
 	Settings *Settings
 }
@@ -512,13 +512,11 @@ func (a *Account) getUserGroups(userID string) ([]string, error) {
 func (a *Account) getPeerDNSManagementStatus(peerID string) bool {
 	peerGroups := a.getPeerGroups(peerID)
 	enabled := true
-	if a.DNSSettings != nil {
-		for _, groupID := range a.DNSSettings.DisabledManagementGroups {
-			_, found := peerGroups[groupID]
-			if found {
-				enabled = false
-				break
-			}
+	for _, groupID := range a.DNSSettings.DisabledManagementGroups {
+		_, found := peerGroups[groupID]
+		if found {
+			enabled = false
+			break
 		}
 	}
 	return enabled
@@ -605,10 +603,7 @@ func (a *Account) Copy() *Account {
 		nsGroups[id] = nsGroup.Copy()
 	}
 
-	var dnsSettings *DNSSettings
-	if a.DNSSettings != nil {
-		dnsSettings = a.DNSSettings.Copy()
-	}
+	dnsSettings := a.DNSSettings.Copy()
 
 	var settings *Settings
 	if a.Settings != nil {
@@ -1610,7 +1605,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 	setupKeys := map[string]*SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
 	users[userID] = NewAdminUser(userID)
-	dnsSettings := &DNSSettings{
+	dnsSettings := DNSSettings{
 		DisabledManagementGroups: make([]string, 0),
 	}
 	log.Debugf("created new account %s", accountID)

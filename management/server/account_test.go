@@ -1374,7 +1374,7 @@ func TestAccount_Copy(t *testing.T) {
 				NameServers: []nbdns.NameServer{},
 			},
 		},
-		DNSSettings: &DNSSettings{DisabledManagementGroups: []string{}},
+		DNSSettings: DNSSettings{DisabledManagementGroups: []string{}},
 		Settings:    &Settings{},
 	}
 	err := hasNilField(account)
