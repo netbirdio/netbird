@@ -24,19 +24,11 @@ type DNSSettings struct {
 }
 
 // Copy returns a copy of the DNS settings
-func (d *DNSSettings) Copy() *DNSSettings {
-	settings := &DNSSettings{
-		DisabledManagementGroups: make([]string, 0),
+func (d DNSSettings) Copy() DNSSettings {
+	settings := DNSSettings{
+		DisabledManagementGroups: make([]string, len(d.DisabledManagementGroups)),
 	}
-
-	if d == nil {
-		return settings
-	}
-
-	if d.DisabledManagementGroups != nil && len(d.DisabledManagementGroups) > 0 {
-		settings.DisabledManagementGroups = d.DisabledManagementGroups[:]
-	}
-
+	copy(settings.DisabledManagementGroups, d.DisabledManagementGroups)
 	return settings
 }
 
@@ -58,12 +50,8 @@ func (am *DefaultAccountManager) GetDNSSettings(accountID string, userID string)
 	if !user.IsAdmin() {
 		return nil, status.Errorf(status.PermissionDenied, "only admins are allowed to view DNS settings")
 	}
-
-	if account.DNSSettings == nil {
-		return &DNSSettings{}, nil
-	}
-
-	return account.DNSSettings.Copy(), nil
+	dnsSettings := account.DNSSettings.Copy()
+	return &dnsSettings, nil
 }
 
 // SaveDNSSettings validates a user role and updates the account's DNS settings
@@ -96,11 +84,7 @@ func (am *DefaultAccountManager) SaveDNSSettings(accountID string, userID string
 		}
 	}
 
-	oldSettings := &DNSSettings{}
-	if account.DNSSettings != nil {
-		oldSettings = account.DNSSettings.Copy()
-	}
-
+	oldSettings := account.DNSSettings.Copy()
 	account.DNSSettings = dnsSettingsToSave.Copy()
 
 	account.Network.IncSerial()

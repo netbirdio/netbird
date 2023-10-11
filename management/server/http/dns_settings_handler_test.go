@@ -26,7 +26,7 @@ const (
 	testDNSSettingsUserID        = "test_user"
 )
 
-var baseExistingDNSSettings = &server.DNSSettings{
+var baseExistingDNSSettings = server.DNSSettings{
 	DisabledManagementGroups: []string{testDNSSettingsExistingGroup},
 }
 
@@ -43,7 +43,7 @@ func initDNSSettingsTestData() *DNSSettingsHandler {
 	return &DNSSettingsHandler{
 		accountManager: &mock_server.MockAccountManager{
 			GetDNSSettingsFunc: func(accountID string, userID string) (*server.DNSSettings, error) {
-				return testingDNSSettingsAccount.DNSSettings, nil
+				return &testingDNSSettingsAccount.DNSSettings, nil
 			},
 			SaveDNSSettingsFunc: func(accountID string, userID string, dnsSettingsToSave *server.DNSSettings) error {
 				if dnsSettingsToSave != nil {
