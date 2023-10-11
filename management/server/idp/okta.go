@@ -228,7 +228,7 @@ func (om *OktaManager) getAllUsers() ([]*UserData, error) {
 		userList = append(userList, paginatedUsers...)
 	}
 
-	users := make([]*UserData, 0)
+	users := make([]*UserData, 0, len(userList))
 	for _, user := range userList {
 		userData, err := parseOktaUser(user)
 		if err != nil {
