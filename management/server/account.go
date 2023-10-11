@@ -972,6 +972,7 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	if err != nil {
 		return err
 	}
+	log.Infof("%d entries received from IdP management", len(userData))
 
 	// If the Identity Provider does not support writing AppMetadata,
 	// in cases like this, we expect it to return all users in an "unset" field.
@@ -1071,6 +1072,7 @@ func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interf
 	if err != nil {
 		return nil, err
 	}
+	log.Debugf("%d entries received from IdP management", len(userData))
 
 	dataMap := make(map[string]*idp.UserData, len(userData))
 	for _, datum := range userData {
