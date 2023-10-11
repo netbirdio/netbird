@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 if ! which curl >/dev/null 2>&1; then
   echo "This script uses curl fetch OpenID configuration from IDP."
@@ -154,6 +155,8 @@ if [ -n "$NETBIRD_MGMT_IDP" ]; then
   export NETBIRD_IDP_MGMT_CLIENT_ID
   export NETBIRD_IDP_MGMT_CLIENT_SECRET
   export NETBIRD_IDP_MGMT_EXTRA_CONFIG=$EXTRA_CONFIG
+else
+  export NETBIRD_IDP_MGMT_EXTRA_CONFIG={}
 fi
 
 IFS=',' read -r -a REDIRECT_URL_PORTS <<< "$NETBIRD_AUTH_PKCE_REDIRECT_URL_PORTS"
@@ -170,8 +173,29 @@ if [ "$NETBIRD_DASH_AUTH_USE_AUDIENCE" = "false" ]; then
     export NETBIRD_AUTH_PKCE_AUDIENCE=
 fi
 
+# Read the encryption key
+if test -f 'management.json'; then
+    encKey=$(jq -r  ".DataStoreEncryptionKey" management.json)
+    if [[ "$encKey" != "null" ]]; then
+        export NETBIRD_DATASTORE_ENC_KEY=$encKey
+
+    fi
+fi
+
 env | grep NETBIRD
 
+bkp_postfix="$(date +%s)"
+if test -f 'docker-compose.yml'; then
+    cp docker-compose.yml "docker-compose.yml.bkp.${bkp_postfix}"
+fi
+
+if test -f 'management.json'; then
+    cp management.json "management.json.bkp.${bkp_postfix}"
+fi
+
+if test -f 'turnserver.conf'; then
+    cp turnserver.conf "turnserver.conf.bpk.${bkp_postfix}"
+fi
 envsubst <docker-compose.yml.tmpl >docker-compose.yml
-envsubst <management.json.tmpl >management.json
+envsubst <management.json.tmpl | jq . >management.json
 envsubst <turnserver.conf.tmpl >turnserver.conf

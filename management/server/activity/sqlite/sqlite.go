@@ -45,6 +45,9 @@ const (
 		"VALUES(?, ?, ?, ?, ?, ?)"
 
 	insertDeleteUserQuery = `INSERT INTO deleted_users(id, email, name) VALUES(?, ?, ?)`
+
+	fallbackName  = "unknown"
+	fallbackEmail = "unknown@unknown.com"
 )
 
 // Store is the implementation of the activity.Store interface backed by SQLite
@@ -128,6 +131,7 @@ func NewSQLiteStore(dataDir string, encryptionKey string) (*Store, error) {
 
 func (store *Store) processResult(result *sql.Rows) ([]*activity.Event, error) {
 	events := make([]*activity.Event, 0)
+	var cryptErr error
 	for result.Next() {
 		var id int64
 		var operation activity.Activity
@@ -156,8 +160,8 @@ func (store *Store) processResult(result *sql.Rows) ([]*activity.Event, error) {
 		if targetUserName != nil {
 			name, err := store.fieldEncrypt.Decrypt(*targetUserName)
 			if err != nil {
-				log.Errorf("failed to decrypt username for target id: %s", target)
-				meta["username"] = ""
+				cryptErr = fmt.Errorf("failed to decrypt username for target id: %s", target)
+				meta["username"] = fallbackName
 			} else {
 				meta["username"] = name
 			}
@@ -166,8 +170,8 @@ func (store *Store) processResult(result *sql.Rows) ([]*activity.Event, error) {
 		if targetEmail != nil {
 			email, err := store.fieldEncrypt.Decrypt(*targetEmail)
 			if err != nil {
-				log.Errorf("failed to decrypt email address for target id: %s", target)
-				meta["email"] = ""
+				cryptErr = fmt.Errorf("failed to decrypt email address for target id: %s", target)
+				meta["email"] = fallbackEmail
 			} else {
 				meta["email"] = email
 			}
@@ -186,7 +190,8 @@ func (store *Store) processResult(result *sql.Rows) ([]*activity.Event, error) {
 		if initiatorName != nil {
 			name, err := store.fieldEncrypt.Decrypt(*initiatorName)
 			if err != nil {
-				log.Errorf("failed to decrypt username of initiator: %s", initiator)
+				cryptErr = fmt.Errorf("failed to decrypt username of initiator: %s", initiator)
+				event.InitiatorName = fallbackName
 			} else {
 				event.InitiatorName = name
 			}
@@ -195,13 +200,18 @@ func (store *Store) processResult(result *sql.Rows) ([]*activity.Event, error) {
 		if initiatorEmail != nil {
 			email, err := store.fieldEncrypt.Decrypt(*initiatorEmail)
 			if err != nil {
-				log.Errorf("failed to decrypt email address of initiator: %s", initiator)
+				cryptErr = fmt.Errorf("failed to decrypt email address of initiator: %s", initiator)
+				event.InitiatorEmail = fallbackEmail
 			} else {
 				event.InitiatorEmail = email
 			}
 		}
 
 		events = append(events, event)
+	}
+
+	if cryptErr != nil {
+		log.Warnf("%s", cryptErr)
 	}
 
 	return events, nil
