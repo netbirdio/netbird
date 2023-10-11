@@ -75,6 +75,7 @@ type MockAccountManager struct {
 	LoginPeerFunc                   func(login server.PeerLogin) (*server.Peer, *server.NetworkMap, error)
 	SyncPeerFunc                    func(sync server.PeerSync) (*server.Peer, *server.NetworkMap, error)
 	InviteUserFunc                  func(accountID string, initiatorUserID string, targetUserEmail string) error
+	GetAllConnectedPeersFunc        func() (map[string]struct{}, error)
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -582,4 +583,12 @@ func (am *MockAccountManager) SyncPeer(sync server.PeerSync) (*server.Peer, *ser
 		return am.SyncPeerFunc(sync)
 	}
 	return nil, nil, status.Errorf(codes.Unimplemented, "method SyncPeer is not implemented")
+}
+
+// GetAllConnectedPeers mocks GetAllConnectedPeers of the AccountManager interface
+func (am *MockAccountManager) GetAllConnectedPeers() (map[string]struct{}, error) {
+	if am.GetAllConnectedPeersFunc != nil {
+		return am.GetAllConnectedPeersFunc()
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetAllConnectedPeers is not implemented")
 }

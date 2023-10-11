@@ -3,6 +3,7 @@ package http
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -23,19 +24,33 @@ import (
 )
 
 const testPeerID = "test_peer"
+const noUpdateChannelTestPeerID = "no-update-channel"
 
 func initTestMetaData(peers ...*server.Peer) *PeersHandler {
 	return &PeersHandler{
 		accountManager: &mock_server.MockAccountManager{
 			UpdatePeerFunc: func(accountID, userID string, update *server.Peer) (*server.Peer, error) {
-				p := peers[0].Copy()
+				var p *server.Peer
+				for _, peer := range peers {
+					if update.ID == peer.ID {
+						p = peer.Copy()
+						break
+					}
+				}
 				p.SSHEnabled = update.SSHEnabled
 				p.LoginExpirationEnabled = update.LoginExpirationEnabled
 				p.Name = update.Name
 				return p, nil
 			},
 			GetPeerFunc: func(accountID, peerID, userID string) (*server.Peer, error) {
-				return peers[0], nil
+				var p *server.Peer
+				for _, peer := range peers {
+					if peerID == peer.ID {
+						p = peer.Copy()
+						break
+					}
+				}
+				return p, nil
 			},
 			GetPeersFunc: func(accountID, userID string) ([]*server.Peer, error) {
 				return peers, nil
@@ -56,6 +71,16 @@ func initTestMetaData(peers ...*server.Peer) *PeersHandler {
 						PeerLoginExpiration:        time.Hour,
 					},
 				}, user, nil
+			},
+			GetAllConnectedPeersFunc: func() (map[string]struct{}, error) {
+				statuses := make(map[string]struct{})
+				for _, peer := range peers {
+					if peer.ID == noUpdateChannelTestPeerID {
+						break
+					}
+					statuses[peer.ID] = struct{}{}
+				}
+				return statuses, nil
 			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -79,7 +104,7 @@ func TestGetPeers(t *testing.T) {
 		Key:                    "key",
 		SetupKey:               "setupkey",
 		IP:                     net.ParseIP("100.64.0.1"),
-		Status:                 &server.PeerStatus{},
+		Status:                 &server.PeerStatus{Connected: true},
 		Name:                   "PeerName",
 		LoginExpirationEnabled: false,
 		Meta: server.PeerSystemMeta{
@@ -93,10 +118,16 @@ func TestGetPeers(t *testing.T) {
 		},
 	}
 
+	peer1 := peer.Copy()
+	peer1.ID = noUpdateChannelTestPeerID
+
 	expectedUpdatedPeer := peer.Copy()
 	expectedUpdatedPeer.LoginExpirationEnabled = true
 	expectedUpdatedPeer.SSHEnabled = true
 	expectedUpdatedPeer.Name = "New Name"
+
+	expectedPeer1 := peer1.Copy()
+	expectedPeer1.Status.Connected = false
 
 	tt := []struct {
 		name           string
@@ -116,12 +147,20 @@ func TestGetPeers(t *testing.T) {
 			expectedPeer:   peer,
 		},
 		{
-			name:           "GetPeer",
+			name:           "GetPeer with update channel",
 			requestType:    http.MethodGet,
 			requestPath:    "/api/peers/" + testPeerID,
 			expectedStatus: http.StatusOK,
 			expectedArray:  false,
 			expectedPeer:   peer,
+		},
+		{
+			name:           "GetPeer with no update channel",
+			requestType:    http.MethodGet,
+			requestPath:    "/api/peers/" + peer1.ID,
+			expectedStatus: http.StatusOK,
+			expectedArray:  false,
+			expectedPeer:   expectedPeer1,
 		},
 		{
 			name:           "PutPeer",
@@ -136,7 +175,7 @@ func TestGetPeers(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 
-	p := initTestMetaData(peer)
+	p := initTestMetaData(peer, peer1)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -171,6 +210,10 @@ func TestGetPeers(t *testing.T) {
 					t.Fatalf("Sent content is not in correct json format; %v", err)
 				}
 
+				// hardcode this check for now as we only have two peers in this suite
+				assert.Equal(t, len(respBody), 2)
+				assert.Equal(t, respBody[1].Connected, false)
+
 				got = respBody[0]
 			} else {
 				got = &api.Peer{}
@@ -180,12 +223,15 @@ func TestGetPeers(t *testing.T) {
 				}
 			}
 
+			fmt.Println(got)
+
 			assert.Equal(t, got.Name, tc.expectedPeer.Name)
 			assert.Equal(t, got.Version, tc.expectedPeer.Meta.WtVersion)
 			assert.Equal(t, got.Ip, tc.expectedPeer.IP.String())
 			assert.Equal(t, got.Os, "OS core")
 			assert.Equal(t, got.LoginExpirationEnabled, tc.expectedPeer.LoginExpirationEnabled)
 			assert.Equal(t, got.SshEnabled, tc.expectedPeer.SSHEnabled)
+			assert.Equal(t, got.Connected, tc.expectedPeer.Status.Connected)
 		})
 	}
 }
