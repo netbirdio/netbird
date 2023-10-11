@@ -26,13 +26,9 @@ type DNSSettings struct {
 // Copy returns a copy of the DNS settings
 func (d DNSSettings) Copy() DNSSettings {
 	settings := DNSSettings{
-		DisabledManagementGroups: make([]string, 0),
+		DisabledManagementGroups: make([]string, len(d.DisabledManagementGroups)),
 	}
-
-	if len(d.DisabledManagementGroups) > 0 {
-		settings.DisabledManagementGroups = d.DisabledManagementGroups[:]
-	}
-
+	copy(settings.DisabledManagementGroups, d.DisabledManagementGroups)
 	return settings
 }
 
