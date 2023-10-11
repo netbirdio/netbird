@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/okta/okta-sdk-golang/v2/okta"
+	"github.com/okta/okta-sdk-golang/v2/okta/query"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
@@ -160,7 +161,7 @@ func (om *OktaManager) GetUserByEmail(email string) ([]*UserData, error) {
 
 // GetAccount returns all the users for a given profile.
 func (om *OktaManager) GetAccount(accountID string) ([]*UserData, error) {
-	users, resp, err := om.client.User.ListUsers(context.Background(), nil)
+	users, err := om.getAllUsers()
 	if err != nil {
 		return nil, err
 	}
@@ -169,37 +170,38 @@ func (om *OktaManager) GetAccount(accountID string) ([]*UserData, error) {
 		om.appMetrics.IDPMetrics().CountGetAccount()
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		if om.appMetrics != nil {
-			om.appMetrics.IDPMetrics().CountRequestStatusError()
-		}
-		return nil, fmt.Errorf("unable to get account, statusCode %d", resp.StatusCode)
+	for index, user := range users {
+		user.AppMetadata.WTAccountID = accountID
+		users[index] = user
 	}
 
-	list := make([]*UserData, 0)
-	for _, user := range users {
-		userData, err := parseOktaUser(user)
-		if err != nil {
-			return nil, err
-		}
-		userData.AppMetadata.WTAccountID = accountID
-
-		list = append(list, userData)
-	}
-
-	return list, nil
+	return users, nil
 }
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
 func (om *OktaManager) GetAllAccounts() (map[string][]*UserData, error) {
-	users, resp, err := om.client.User.ListUsers(context.Background(), nil)
+	users, err := om.getAllUsers()
 	if err != nil {
 		return nil, err
 	}
 
+	indexedUsers := make(map[string][]*UserData)
+	indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], users...)
+
 	if om.appMetrics != nil {
 		om.appMetrics.IDPMetrics().CountGetAllAccounts()
+	}
+
+	return indexedUsers, nil
+}
+
+// getAllUsers returns all users in an Okta account.
+func (om *OktaManager) getAllUsers() ([]*UserData, error) {
+	qp := query.NewQueryParams(query.WithLimit(200))
+	userList, resp, err := om.client.User.ListUsers(context.Background(), qp)
+	if err != nil {
+		return nil, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -209,17 +211,34 @@ func (om *OktaManager) GetAllAccounts() (map[string][]*UserData, error) {
 		return nil, fmt.Errorf("unable to get all accounts, statusCode %d", resp.StatusCode)
 	}
 
-	indexedUsers := make(map[string][]*UserData)
-	for _, user := range users {
+	for resp.HasNextPage() {
+		paginatedUsers := make([]*okta.User, 0)
+		resp, err = resp.Next(context.Background(), &paginatedUsers)
+		if err != nil {
+			return nil, err
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			if om.appMetrics != nil {
+				om.appMetrics.IDPMetrics().CountRequestStatusError()
+			}
+			return nil, fmt.Errorf("unable to get all accounts, statusCode %d", resp.StatusCode)
+		}
+
+		userList = append(userList, paginatedUsers...)
+	}
+
+	users := make([]*UserData, 0, len(userList))
+	for _, user := range userList {
 		userData, err := parseOktaUser(user)
 		if err != nil {
 			return nil, err
 		}
 
-		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], userData)
+		users = append(users, userData)
 	}
 
-	return indexedUsers, nil
+	return users, nil
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
