@@ -103,6 +103,7 @@ type AccountManager interface {
 	UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error)
 	LoginPeer(login PeerLogin) (*Peer, *NetworkMap, error) // used by peer gRPC API
 	SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error)    // used by peer gRPC API
+	GetAllConnectedPeers() (map[string]struct{}, error)
 }
 
 type DefaultAccountManager struct {
@@ -1556,6 +1557,11 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		// other error
 		return nil, err
 	}
+}
+
+// GetAllConnectedPeers returns connected peers based on peersUpdateManager.GetAllConnectedPeers()
+func (am *DefaultAccountManager) GetAllConnectedPeers() (map[string]struct{}, error) {
+	return am.peersUpdateManager.GetAllConnectedPeers(), nil
 }
 
 func isDomainValid(domain string) bool {
