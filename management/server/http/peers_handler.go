@@ -31,6 +31,24 @@ func NewPeersHandler(accountManager server.AccountManager, authCfg AuthCfg) *Pee
 	}
 }
 
+func (h *PeersHandler) checkPeerStatus(peer *server.Peer) (*server.Peer, error) {
+	peerToReturn := peer.Copy()
+	if peer.Status.Connected {
+		statuses, err := h.accountManager.GetAllConnectedPeers()
+		if err != nil {
+			return peerToReturn, err
+		}
+
+		// Although we have online status in store we do not yet have an updated channel so have to show it as disconnected
+		// This may happen after server restart when not all peers are yet connected
+		if _, connected := statuses[peerToReturn.ID]; !connected {
+			peerToReturn.Status.Connected = false
+		}
+	}
+
+	return peerToReturn, nil
+}
+
 func (h *PeersHandler) getPeer(account *server.Account, peerID, userID string, w http.ResponseWriter) {
 	peer, err := h.accountManager.GetPeer(account.Id, peerID, userID)
 	if err != nil {
@@ -38,7 +56,13 @@ func (h *PeersHandler) getPeer(account *server.Account, peerID, userID string, w
 		return
 	}
 
-	util.WriteJSONObject(w, toPeerResponse(peer, account, h.accountManager.GetDNSDomain()))
+	peerToReturn, err := h.checkPeerStatus(peer)
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+
+	util.WriteJSONObject(w, toPeerResponse(peerToReturn, account, h.accountManager.GetDNSDomain()))
 }
 
 func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, peerID string, w http.ResponseWriter, r *http.Request) {
@@ -120,7 +144,12 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 		respBody := []*api.Peer{}
 		for _, peer := range peers {
-			respBody = append(respBody, toPeerResponse(peer, account, dnsDomain))
+			peerToReturn, err := h.checkPeerStatus(peer)
+			if err != nil {
+				util.WriteError(err, w)
+				return
+			}
+			respBody = append(respBody, toPeerResponse(peerToReturn, account, dnsDomain))
 		}
 		util.WriteJSONObject(w, respBody)
 		return

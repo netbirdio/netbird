@@ -111,10 +111,6 @@ func restore(file string) (*FileStore, error) {
 		for _, peer := range account.Peers {
 			store.PeerKeyID2AccountID[peer.Key] = accountID
 			store.PeerID2AccountID[peer.ID] = accountID
-			// reset all peers to status = Disconnected
-			if peer.Status != nil && peer.Status.Connected {
-				peer.Status.Connected = false
-			}
 		}
 		for _, user := range account.Users {
 			store.UserID2AccountID[user.Id] = accountID
