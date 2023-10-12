@@ -14,6 +14,9 @@ concurrency:
 
 jobs:
   test:
+    strategy:
+      matrix:
+        store: ['JsonFile', 'Sqlite']
     runs-on: windows-latest
     steps:
       - name: Checkout code
@@ -40,6 +43,8 @@ jobs:
       - run: mv ${{ env.downloadPath }}/wintun/bin/amd64/wintun.dll 'C:\Windows\System32\'
 
       - run: choco install -y sysinternals
+      - run: choco install -y mingw
+      
       - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe env -w GOMODCACHE=C:\Users\runneradmin\go\pkg\mod
       - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe env -w GOCACHE=C:\Users\runneradmin\AppData\Local\go-build
 

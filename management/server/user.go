@@ -44,14 +44,17 @@ type UserRole string
 
 // User represents a user of the system
 type User struct {
-	Id            string
+	Id string `gorm:"primaryKey"`
+	// AccountID is a reference to Account that this object belongs
+	AccountID     string `json:"-" gorm:"index"`
 	Role          UserRole
 	IsServiceUser bool
 	// ServiceUserName is only set if IsServiceUser is true
 	ServiceUserName string
 	// AutoGroups is a list of Group IDs to auto-assign to peers registered by this user
-	AutoGroups []string
-	PATs       map[string]*PersonalAccessToken
+	AutoGroups []string                        `gorm:"serializer:json"`
+	PATs       map[string]*PersonalAccessToken `gorm:"-"`
+	PATsG      []PersonalAccessToken           `json:"-" gorm:"foreignKey:UserID;references:id"`
 	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
 	Blocked bool
 	// LastLogin is the last time the user logged in to IdP
@@ -124,6 +127,7 @@ func (u *User) Copy() *User {
 	}
 	return &User{
 		Id:              u.Id,
+		AccountID:       u.AccountID,
 		Role:            u.Role,
 		AutoGroups:      autoGroups,
 		IsServiceUser:   u.IsServiceUser,

@@ -15,6 +15,7 @@ jobs:
     strategy:
       matrix:
         arch: ['386','amd64']
+        store: ['JsonFile', 'Sqlite']
     runs-on: ubuntu-latest
     steps:
       - name: Install Go
@@ -41,16 +42,15 @@ jobs:
         run: go mod tidy
 
       - name: Test
-        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} go test -exec 'sudo --preserve-env=CI' -timeout 5m -p 1 ./...
+        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} NETBIRD_STORE_KIND=${{ matrix.store }} go test -exec 'sudo --preserve-env=CI' -timeout 5m -p 1 ./...
 
   test_client_on_docker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - name: Install Go
         uses: actions/setup-go@v4
         with:
           go-version: "1.20.x"
-
 
       - name: Cache Go modules
         uses: actions/cache@v3
@@ -64,7 +64,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib
 
       - name: Install modules
         run: go mod tidy
@@ -82,7 +82,7 @@ jobs:
         run: CGO_ENABLED=0 go test -c -o nftablesmanager-testing.bin ./client/firewall/nftables/...
 
       - name: Generate Engine Test bin
-        run: CGO_ENABLED=0 go test -c -o engine-testing.bin ./client/internal
+        run: CGO_ENABLED=1 go test -c -o engine-testing.bin ./client/internal
 
       - name: Generate Peer Test bin
         run: CGO_ENABLED=0 go test -c -o peer-testing.bin ./client/internal/peer/...
@@ -95,15 +95,17 @@ jobs:
       - name: Run Iface tests in docker
         run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/iface --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/iface-testing.bin -test.timeout 5m -test.parallel 1
 
-
       - name: Run RouteManager tests in docker
         run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/routemanager --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/routemanager-testing.bin  -test.timeout 5m -test.parallel 1
 
       - name: Run nftables Manager tests in docker
         run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/firewall --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/nftablesmanager-testing.bin  -test.timeout 5m -test.parallel 1
 
-      - name: Run Engine tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/engine-testing.bin  -test.timeout 5m -test.parallel 1
+      - name: Run Engine tests in docker with file store
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal -e NETBIRD_STORE_KIND="JsonFile" --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/engine-testing.bin  -test.timeout 5m -test.parallel 1
+      
+      - name: Run Engine tests in docker with sqlite store
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal -e NETBIRD_STORE_KIND="Sqlite" --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/engine-testing.bin  -test.timeout 5m -test.parallel 1
 
       - name: Run Peer tests in docker
         run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/peer  --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/peer-testing.bin  -test.timeout 5m -test.parallel 1

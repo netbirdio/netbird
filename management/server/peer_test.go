@@ -369,8 +369,8 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		return
 	}
 
-	if account.Network.Id != network.Id {
-		t.Errorf("expecting Account Networks ID to be equal, got %s expected %s", network.Id, account.Network.Id)
+	if account.Network.Identifier != network.Identifier {
+		t.Errorf("expecting Account Networks ID to be equal, got %s expected %s", network.Identifier, account.Network.Identifier)
 	}
 }
 
