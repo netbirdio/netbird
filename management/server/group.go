@@ -23,6 +23,9 @@ type Group struct {
 	// ID of the group
 	ID string
 
+	// AccountID is a reference to Account that this object belongs
+	AccountID string `json:"-" gorm:"index"`
+
 	// Name visible in the UI
 	Name string
 
@@ -30,7 +33,7 @@ type Group struct {
 	Issued string
 
 	// Peers list of the group
-	Peers []string
+	Peers []string `gorm:"serializer:json"`
 }
 
 // EventMeta returns activity event meta related to the group

@@ -196,7 +196,7 @@ func createDNSManager(t *testing.T) (*DefaultAccountManager, error) {
 
 func createDNSStore(t *testing.T) (Store, error) {
 	dataDir := t.TempDir()
-	store, err := NewFileStore(dataDir, nil)
+	store, err := NewStoreFromJson(dataDir, nil)
 	if err != nil {
 		return nil, err
 	}

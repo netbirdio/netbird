@@ -393,6 +393,7 @@ var _ = Describe("Management service", func() {
 			ipChannel := make(chan string, 20)
 			for i := 0; i < initialPeers; i++ {
 				go func() {
+					defer GinkgoRecover()
 					key, _ := wgtypes.GenerateKey()
 					loginPeerWithValidSetupKey(serverPubKey, key, client)
 					encryptedBytes, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.SyncRequest{})
@@ -496,7 +497,7 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	Expect(err).NotTo(HaveOccurred())
 	s := grpc.NewServer()
 
-	store, err := server.NewFileStore(config.Datadir, nil)
+	store, err := server.NewStoreFromJson(config.Datadir, nil)
 	if err != nil {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}

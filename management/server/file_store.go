@@ -54,6 +54,25 @@ func NewFileStore(dataDir string, metrics telemetry.AppMetrics) (*FileStore, err
 	return fs, nil
 }
 
+// NewFilestoreFromSqliteStore restores a store from Sqlite and stores to Filestore json in the file located in datadir
+func NewFilestoreFromSqliteStore(sqlitestore *SqliteStore, dataDir string, metrics telemetry.AppMetrics) (*FileStore, error) {
+	store, err := NewFileStore(dataDir, metrics)
+	if err != nil {
+		return nil, err
+	}
+
+	err = store.SaveInstallationID(sqlitestore.GetInstallationID())
+	if err != nil {
+		return nil, err
+	}
+
+	for _, account := range sqlitestore.GetAllAccounts() {
+		store.Accounts[account.Id] = account
+	}
+
+	return store, store.persist(store.storeFile)
+}
+
 // restore the state of the store from the file.
 // Creates a new empty store file if doesn't exist
 func restore(file string) (*FileStore, error) {
@@ -594,4 +613,9 @@ func (s *FileStore) Close() error {
 	log.Infof("closing FileStore")
 
 	return s.persist(s.storeFile)
+}
+
+// GetStoreKind returns FileStoreKind
+func (s *FileStore) GetStoreKind() StoreKind {
+	return FileStoreKind
 }

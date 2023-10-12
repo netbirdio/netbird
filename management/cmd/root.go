@@ -34,6 +34,12 @@ var (
 		SilenceUsage: true,
 	}
 
+	migrationCmd = &cobra.Command{
+		Use:          "sqlite-migration",
+		Short:        "Contains sub-commands to perform JSON file store to SQLite store migration and rollback",
+		Long:         "",
+		SilenceUsage: true,
+	}
 	// Execution control channel for stopCh signal
 	stopCh chan int
 )
@@ -63,6 +69,14 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")
 	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the the log will be output to stdout")
 	rootCmd.AddCommand(mgmtCmd)
+
+	migrationCmd.PersistentFlags().StringVar(&mgmtDataDir, "datadir", defaultMgmtDataDir, "server data directory location")
+	migrationCmd.MarkFlagRequired("datadir") //nolint
+
+	migrationCmd.AddCommand(upCmd)
+	migrationCmd.AddCommand(downCmd)
+
+	rootCmd.AddCommand(migrationCmd)
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success

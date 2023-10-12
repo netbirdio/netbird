@@ -25,6 +25,9 @@ type Rule struct {
 	// ID of the rule
 	ID string
 
+	// AccountID is a reference to Account that this object belongs
+	AccountID string `json:"-" gorm:"index"`
+
 	// Name of the rule visible in the UI
 	Name string
 
@@ -35,10 +38,10 @@ type Rule struct {
 	Disabled bool
 
 	// Source list of groups IDs of peers
-	Source []string
+	Source []string `gorm:"serializer:json"`
 
 	// Destination list of groups IDs of peers
-	Destination []string
+	Destination []string `gorm:"serializer:json"`
 
 	// Flow of the traffic allowed by the rule
 	Flow TrafficFlowType
