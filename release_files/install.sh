@@ -184,16 +184,6 @@ install_netbird() {
         fi
     fi
 
-    # Checks if SKIP_UI_APP env is set
-    if [ -z "$SKIP_UI_APP" ]; then
-        SKIP_UI_APP=false
-    else
-        if $SKIP_UI_APP; then
-            echo "SKIP_UI_APP has been set to true in the environment"
-            echo "NetBird UI installation will be omitted based on your preference"
-        fi
-    fi
-
     # Run the installation, if a desktop environment is not detected
     # only the CLI will be installed
     case "$PACKAGE_MANAGER" in
@@ -322,6 +312,16 @@ update_netbird() {
   fi
 }
 
+# Checks if SKIP_UI_APP env is set
+if [ -z "$SKIP_UI_APP" ]; then
+    SKIP_UI_APP=false
+else
+    if $SKIP_UI_APP; then
+      echo "SKIP_UI_APP has been set to true in the environment"
+      echo "NetBird UI installation will be omitted based on your preference"
+    fi
+fi
+
 # Identify OS name and default package manager
 if type uname >/dev/null 2>&1; then
 	case "$(uname)" in
@@ -334,7 +334,7 @@ if type uname >/dev/null 2>&1; then
             if [ "$ARCH" != "amd64" ] && [ "$ARCH" != "arm64" ] \
                 && [ "$ARCH" != "x86_64" ];then
                 SKIP_UI_APP=true
-                echo "NetBird UI installation will be omitted as $ARCH is not a compactible architecture"
+                echo "NetBird UI installation will be omitted as $ARCH is not a compatible architecture"
             fi
 
             # Allow netbird UI installation for linux running desktop enviroment
