@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -39,8 +40,8 @@ type Store interface {
 type StoreKind string
 
 const (
-	FileStoreKind   StoreKind = "JsonFile"
-	SqliteStoreKind StoreKind = "Sqlite"
+	FileStoreKind   StoreKind = "jsonfile"
+	SqliteStoreKind StoreKind = "sqlite"
 )
 
 func GetStoreKindFromEnv() StoreKind {
@@ -49,7 +50,7 @@ func GetStoreKindFromEnv() StoreKind {
 		return FileStoreKind
 	}
 
-	value := StoreKind(kind)
+	value := StoreKind(strings.ToLower(kind))
 
 	if value == FileStoreKind || value == SqliteStoreKind {
 		return value
