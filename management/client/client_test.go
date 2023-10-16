@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/encryption"
-	"github.com/netbirdio/netbird/management/proto"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	mgmt "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -95,8 +94,8 @@ func startMockManagement(t *testing.T) (*grpc.Server, net.Listener, *mock_server
 	}
 
 	mgmtMockServer := &mock_server.ManagementServiceServerMock{
-		GetServerKeyFunc: func(context.Context, *proto.Empty) (*proto.ServerKeyResponse, error) {
-			response := &proto.ServerKeyResponse{
+		GetServerKeyFunc: func(context.Context, *mgmtProto.Empty) (*mgmtProto.ServerKeyResponse, error) {
+			response := &mgmtProto.ServerKeyResponse{
 				Key: serverKey.PublicKey().String(),
 			}
 			return response, nil
@@ -300,19 +299,19 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 		log.Fatalf("error while getting server public key from testclient, %v", err)
 	}
 
-	var actualMeta *proto.PeerSystemMeta
+	var actualMeta *mgmtProto.PeerSystemMeta
 	var actualValidKey string
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	mgmtMockServer.LoginFunc = func(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	mgmtMockServer.LoginFunc = func(ctx context.Context, msg *mgmtProto.EncryptedMessage) (*mgmtProto.EncryptedMessage, error) {
 		peerKey, err := wgtypes.ParseKey(msg.GetWgPubKey())
 		if err != nil {
 			log.Warnf("error while parsing peer's Wireguard public key %s on Sync request.", msg.WgPubKey)
 			return nil, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", msg.WgPubKey)
 		}
 
-		loginReq := &proto.LoginRequest{}
+		loginReq := &mgmtProto.LoginRequest{}
 		err = encryption.DecryptMessage(peerKey, serverKey, msg.Body, loginReq)
 		if err != nil {
 			log.Fatal(err)
@@ -322,7 +321,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 		actualValidKey = loginReq.GetSetupKey()
 		wg.Done()
 
-		loginResp := &proto.LoginResponse{}
+		loginResp := &mgmtProto.LoginResponse{}
 		encryptedResp, err := encryption.EncryptMessage(peerKey, serverKey, loginResp)
 		if err != nil {
 			return nil, err
@@ -343,7 +342,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 
 	wg.Wait()
 
-	expectedMeta := &proto.PeerSystemMeta{
+	expectedMeta := &mgmtProto.PeerSystemMeta{
 		Hostname:           info.Hostname,
 		GoOS:               info.GoOS,
 		Kernel:             info.Kernel,
@@ -374,12 +373,12 @@ func Test_GetDeviceAuthorizationFlow(t *testing.T) {
 		log.Fatalf("error while creating testClient: %v", err)
 	}
 
-	expectedFlowInfo := &proto.DeviceAuthorizationFlow{
+	expectedFlowInfo := &mgmtProto.DeviceAuthorizationFlow{
 		Provider:       0,
-		ProviderConfig: &proto.ProviderConfig{ClientID: "client"},
+		ProviderConfig: &mgmtProto.ProviderConfig{ClientID: "client"},
 	}
 
-	mgmtMockServer.GetDeviceAuthorizationFlowFunc = func(ctx context.Context, req *mgmtProto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	mgmtMockServer.GetDeviceAuthorizationFlowFunc = func(ctx context.Context, req *mgmtProto.EncryptedMessage) (*mgmtProto.EncryptedMessage, error) {
 		encryptedResp, err := encryption.EncryptMessage(serverKey, client.key, expectedFlowInfo)
 		if err != nil {
 			return nil, err
@@ -418,14 +417,14 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 		log.Fatalf("error while creating testClient: %v", err)
 	}
 
-	expectedFlowInfo := &proto.PKCEAuthorizationFlow{
-		ProviderConfig: &proto.ProviderConfig{
+	expectedFlowInfo := &mgmtProto.PKCEAuthorizationFlow{
+		ProviderConfig: &mgmtProto.ProviderConfig{
 			ClientID:     "client",
 			ClientSecret: "secret",
 		},
 	}
 
-	mgmtMockServer.GetPKCEAuthorizationFlowFunc = func(ctx context.Context, req *mgmtProto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	mgmtMockServer.GetPKCEAuthorizationFlowFunc = func(ctx context.Context, req *mgmtProto.EncryptedMessage) (*mgmtProto.EncryptedMessage, error) {
 		encryptedResp, err := encryption.EncryptMessage(serverKey, client.key, expectedFlowInfo)
 		if err != nil {
 			return nil, err
