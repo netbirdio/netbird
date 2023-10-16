@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -31,42 +32,43 @@ type Store interface {
 	SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error
 	// Close should close the store persisting all unsaved data.
 	Close() error
-	// GetStoreKind should return StoreKind of the current store implementation.
+	// GetStoreEngine should return StoreEngine of the current store implementation.
 	// This is also a method of metrics.DataSource interface.
-	GetStoreKind() StoreKind
+	GetStoreEngine() StoreEngine
 }
 
-type StoreKind string
+type StoreEngine string
 
 const (
-	FileStoreKind   StoreKind = "JsonFile"
-	SqliteStoreKind StoreKind = "Sqlite"
+	FileStoreEngine   StoreEngine = "jsonfile"
+	SqliteStoreEngine StoreEngine = "sqlite"
 )
 
-func GetStoreKindFromEnv() StoreKind {
-	kind, ok := os.LookupEnv("NETBIRD_STORE_KIND")
+func getStoreEngineFromEnv() StoreEngine {
+	// NETBIRD_STORE_ENGINE supposed to be used in tests. Otherwise rely on the config file.
+	kind, ok := os.LookupEnv("NETBIRD_STORE_ENGINE")
 	if !ok {
-		return FileStoreKind
+		return FileStoreEngine
 	}
 
-	value := StoreKind(kind)
+	value := StoreEngine(strings.ToLower(kind))
 
-	if value == FileStoreKind || value == SqliteStoreKind {
+	if value == FileStoreEngine || value == SqliteStoreEngine {
 		return value
 	}
 
-	return FileStoreKind
+	return FileStoreEngine
 }
 
-func NewStore(kind StoreKind, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
+func NewStore(kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
 	if kind == "" {
 		// fallback to env. Normally this only should be used from tests
-		kind = GetStoreKindFromEnv()
+		kind = getStoreEngineFromEnv()
 	}
 	switch kind {
-	case FileStoreKind:
+	case FileStoreEngine:
 		return NewFileStore(dataDir, metrics)
-	case SqliteStoreKind:
+	case SqliteStoreEngine:
 		return NewSqliteStore(dataDir, metrics)
 	default:
 		return nil, fmt.Errorf("unsupported kind of store %s", kind)
@@ -79,15 +81,14 @@ func NewStoreFromJson(dataDir string, metrics telemetry.AppMetrics) (Store, erro
 		return nil, err
 	}
 
-	kind := GetStoreKindFromEnv()
+	kind := getStoreEngineFromEnv()
 
 	switch kind {
-	case FileStoreKind:
+	case FileStoreEngine:
 		return fstore, nil
-	case SqliteStoreKind:
+	case SqliteStoreEngine:
 		return NewSqliteStoreFromFileStore(fstore, dataDir, metrics)
 	default:
-		return nil, fmt.Errorf("unsupported kind of store %s", kind)
+		return nil, fmt.Errorf("unsupported store engine %s", kind)
 	}
-
 }

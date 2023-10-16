@@ -56,6 +56,7 @@ jobs:
           CI_NETBIRD_IDP_MGMT_CLIENT_ID: testing.client.id
           CI_NETBIRD_IDP_MGMT_CLIENT_SECRET: testing.client.secret
           CI_NETBIRD_AUTH_SUPPORTED_SCOPES: "openid profile email offline_access api email_verified"
+          CI_NETBIRD_STORE_CONFIG_ENGINE: "sqlite"
 
       - name: check values
         working-directory: infrastructure_files
@@ -81,6 +82,7 @@ jobs:
           CI_NETBIRD_IDP_MGMT_CLIENT_ID: testing.client.id
           CI_NETBIRD_IDP_MGMT_CLIENT_SECRET: testing.client.secret
           CI_NETBIRD_SIGNAL_PORT: 12345
+          CI_NETBIRD_STORE_CONFIG_ENGINE: "sqlite"
 
         run: |
           grep AUTH_CLIENT_ID docker-compose.yml | grep $CI_NETBIRD_AUTH_CLIENT_ID
@@ -97,7 +99,8 @@ jobs:
           grep NETBIRD_TOKEN_SOURCE docker-compose.yml | grep $CI_NETBIRD_TOKEN_SOURCE
           grep AuthUserIDClaim management.json | grep $CI_NETBIRD_AUTH_USER_ID_CLAIM
           grep -A 3 DeviceAuthorizationFlow management.json | grep -A 1 ProviderConfig | grep Audience | grep $CI_NETBIRD_AUTH_DEVICE_AUTH_AUDIENCE
-          grep -A 8 DeviceAuthorizationFlow management.json | grep -A 6 ProviderConfig | grep Scope | grep "$CI_NETBIRD_AUTH_DEVICE_AUTH_SCOPE"
+          grep -A 3 DeviceAuthorizationFlow management.json | grep -A 1 ProviderConfig | grep Audience | grep $CI_NETBIRD_AUTH_DEVICE_AUTH_AUDIENCE
+          grep Engine management.json  | grep "$CI_NETBIRD_STORE_CONFIG_ENGINE"
           grep UseIDToken management.json | grep false
           grep -A 1 IdpManagerConfig management.json | grep ManagerType | grep $CI_NETBIRD_MGMT_IDP 
           grep -A 3 IdpManagerConfig management.json | grep -A 1 ClientConfig | grep Issuer | grep $CI_NETBIRD_AUTH_AUTHORITY

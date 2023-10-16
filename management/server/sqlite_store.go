@@ -451,7 +451,7 @@ func (s *SqliteStore) Close() error {
 	return nil
 }
 
-// GetStoreKind returns SqliteStoreKind
-func (s *SqliteStore) GetStoreKind() StoreKind {
-	return SqliteStoreKind
+// GetStoreEngine returns SqliteStoreEngine
+func (s *SqliteStore) GetStoreEngine() StoreEngine {
+	return SqliteStoreEngine
 }
