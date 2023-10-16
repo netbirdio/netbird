@@ -140,7 +140,7 @@ type ProviderConfig struct {
 
 // StoreConfig contains Store configuration
 type StoreConfig struct {
-	Engine StoreKind
+	Engine StoreEngine
 }
 
 // validateURL validates input http url
