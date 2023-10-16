@@ -69,15 +69,15 @@ func initNameserversTestData() *NameserversHandler {
 			},
 			CreateNameServerGroupFunc: func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, _ string, searchDomains bool) (*nbdns.NameServerGroup, error) {
 				return &nbdns.NameServerGroup{
-					ID:            existingNSGroupID,
-					Name:          name,
-					Description:   description,
-					NameServers:   nameServerList,
-					Groups:        groups,
-					Enabled:       enabled,
-					Primary:       primary,
-					Domains:       domains,
-					SearchDomains: searchDomains,
+					ID:                   existingNSGroupID,
+					Name:                 name,
+					Description:          description,
+					NameServers:          nameServerList,
+					Groups:               groups,
+					Enabled:              enabled,
+					Primary:              primary,
+					Domains:              domains,
+					SearchDomainsEnabled: searchDomains,
 				}, nil
 			},
 			DeleteNameServerGroupFunc: func(accountID, nsGroupID, _ string) error {

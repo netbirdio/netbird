@@ -864,7 +864,7 @@ components:
             minLength: 1
             maxLength: 255
             example: "example.com"
-        search_domains:
+        search_domains_enabled:
           description: Nameserver group search domain status for match domains. It should be true only if domains list is not empty.
           type: boolean
           example: true
@@ -876,7 +876,7 @@ components:
         - groups
         - primary
         - domains
-        - search_domains
+        - search_domains_enabled
     NameserverGroup:
       allOf:
         - type: object

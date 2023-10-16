@@ -35,7 +35,7 @@ func (am *DefaultAccountManager) GetNameServerGroup(accountID, nsGroupID string)
 }
 
 // CreateNameServerGroup creates and saves a new nameserver group
-func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomain bool) (*nbdns.NameServerGroup, error) {
+func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainEnabled bool) (*nbdns.NameServerGroup, error) {
 
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
@@ -46,15 +46,15 @@ func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, d
 	}
 
 	newNSGroup := &nbdns.NameServerGroup{
-		ID:            xid.New().String(),
-		Name:          name,
-		Description:   description,
-		NameServers:   nameServerList,
-		Groups:        groups,
-		Enabled:       enabled,
-		Primary:       primary,
-		Domains:       domains,
-		SearchDomains: searchDomain,
+		ID:                   xid.New().String(),
+		Name:                 name,
+		Description:          description,
+		NameServers:          nameServerList,
+		Groups:               groups,
+		Enabled:              enabled,
+		Primary:              primary,
+		Domains:              domains,
+		SearchDomainsEnabled: searchDomainEnabled,
 	}
 
 	err = validateNameServerGroup(false, newNSGroup, account)
@@ -175,7 +175,7 @@ func validateNameServerGroup(existingGroup bool, nameserverGroup *nbdns.NameServ
 		}
 	}
 
-	err := validateDomainInput(nameserverGroup.Primary, nameserverGroup.Domains, nameserverGroup.SearchDomains)
+	err := validateDomainInput(nameserverGroup.Primary, nameserverGroup.Domains, nameserverGroup.SearchDomainsEnabled)
 	if err != nil {
 		return err
 	}
@@ -198,7 +198,7 @@ func validateNameServerGroup(existingGroup bool, nameserverGroup *nbdns.NameServ
 	return nil
 }
 
-func validateDomainInput(primary bool, domains []string, searchDomains bool) error {
+func validateDomainInput(primary bool, domains []string, searchDomainsEnabled bool) error {
 	if !primary && len(domains) == 0 {
 		return status.Errorf(status.InvalidArgument, "nameserver group primary status is false and domains are empty,"+
 			" it should be primary or have at least one domain")
@@ -208,7 +208,7 @@ func validateDomainInput(primary bool, domains []string, searchDomains bool) err
 			" you should set either primary or domain")
 	}
 
-	if primary && searchDomains {
+	if primary && searchDomainsEnabled {
 		return status.Errorf(status.InvalidArgument, "nameserver group primary status is true and search domains is enabled,"+
 			" you should not set search domains for primary nameservers")
 	}

@@ -269,8 +269,8 @@ type NameserverGroup struct {
 	// Primary Nameserver group primary status
 	Primary bool `json:"primary"`
 
-	// SearchDomains Nameserver group search domain status for match domains. It should be true only if domains list is not empty.
-	SearchDomains bool `json:"search_domains"`
+	// SearchDomainsEnabled Nameserver group search domain status for match domains. It should be true only if domains list is not empty.
+	SearchDomainsEnabled bool `json:"search_domains_enabled"`
 }
 
 // NameserverGroupRequest defines model for NameserverGroupRequest.
@@ -296,8 +296,8 @@ type NameserverGroupRequest struct {
 	// Primary Nameserver group primary status
 	Primary bool `json:"primary"`
 
-	// SearchDomains Nameserver group search domain status for match domains. It should be true only if domains list is not empty.
-	SearchDomains bool `json:"search_domains"`
+	// SearchDomainsEnabled Nameserver group search domain status for match domains. It should be true only if domains list is not empty.
+	SearchDomainsEnabled bool `json:"search_domains_enabled"`
 }
 
 // Peer defines model for Peer.
