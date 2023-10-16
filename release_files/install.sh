@@ -284,6 +284,13 @@ is_bin_package_manager() {
   fi
 }
 
+stop_running_netbird_ui() {
+  if pgrep -x "netbird-ui" >/dev/null; then
+    echo "NetBird UI is running. Stopping it..."
+    pkill -x "netbird-ui"
+  fi
+}
+
 update_netbird() {
   if is_bin_package_manager "$CONFIG_FILE"; then
     latest_release=$(get_latest_release)
@@ -291,7 +298,7 @@ update_netbird() {
     installed_version=$(netbird version)
 
     if [ "$latest_version" = "$installed_version" ]; then
-      echo "Installed netbird version ($installed_version) is up-to-date"
+      echo "Installed NetBird version ($installed_version) is up-to-date"
       exit 0
     fi
 
@@ -302,6 +309,7 @@ update_netbird() {
 
       ${SUDO} netbird service stop
       ${SUDO} netbird service uninstall
+      stop_running_netbird_ui
       install_native_binaries
 
       ${SUDO} netbird service install
