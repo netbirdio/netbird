@@ -44,7 +44,8 @@ const (
 	SqliteStoreKind StoreKind = "sqlite"
 )
 
-func GetStoreKindFromEnv() StoreKind {
+func getStoreKindFromEnv() StoreKind {
+	// NETBIRD_STORE_KIND supposed to be used in tests. Otherwise rely on the config file.
 	kind, ok := os.LookupEnv("NETBIRD_STORE_KIND")
 	if !ok {
 		return FileStoreKind
@@ -62,7 +63,7 @@ func GetStoreKindFromEnv() StoreKind {
 func NewStore(kind StoreKind, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
 	if kind == "" {
 		// fallback to env. Normally this only should be used from tests
-		kind = GetStoreKindFromEnv()
+		kind = getStoreKindFromEnv()
 	}
 	switch kind {
 	case FileStoreKind:
@@ -80,7 +81,7 @@ func NewStoreFromJson(dataDir string, metrics telemetry.AppMetrics) (Store, erro
 		return nil, err
 	}
 
-	kind := GetStoreKindFromEnv()
+	kind := getStoreKindFromEnv()
 
 	switch kind {
 	case FileStoreKind:
@@ -90,5 +91,4 @@ func NewStoreFromJson(dataDir string, metrics telemetry.AppMetrics) (Store, erro
 	default:
 		return nil, fmt.Errorf("unsupported kind of store %s", kind)
 	}
-
 }
