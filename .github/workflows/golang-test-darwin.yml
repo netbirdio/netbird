@@ -14,7 +14,7 @@ jobs:
   test:
     strategy:
       matrix:
-        store: ['JsonFile', 'Sqlite']
+        store: ['jsonfile', 'sqlite']
     runs-on: macos-latest
     steps:
       - name: Install Go
@@ -36,4 +36,4 @@ jobs:
         run: go mod tidy
 
       - name: Test
-        run: NETBIRD_STORE_KIND=${{ matrix.store }} go test -exec 'sudo --preserve-env=CI' -timeout 5m -p 1 ./...
+        run: NETBIRD_STORE_ENGINE=${{ matrix.store }} go test -exec 'sudo --preserve-env=CI' -timeout 5m -p 1 ./...

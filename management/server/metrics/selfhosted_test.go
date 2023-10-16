@@ -151,9 +151,9 @@ func (mockDatasource) GetAllAccounts() []*server.Account {
 	}
 }
 
-// GetStoreKind returns FileStoreKind
-func (mockDatasource) GetStoreKind() server.StoreKind {
-	return server.FileStoreKind
+// GetStoreEngine returns FileStoreEngine
+func (mockDatasource) GetStoreEngine() server.StoreEngine {
+	return server.FileStoreEngine
 }
 
 // TestGenerateProperties tests and validate the properties generation by using the mockDatasource for the Worker.generateProperties
@@ -242,7 +242,7 @@ func TestGenerateProperties(t *testing.T) {
 		t.Errorf("expected 2 user_peers, got %d", properties["user_peers"])
 	}
 
-	if properties["store_kind"] != server.FileStoreKind {
-		t.Errorf("expected JsonFile, got %s", properties["store_kind"])
+	if properties["store_engine"] != server.FileStoreEngine {
+		t.Errorf("expected JsonFile, got %s", properties["store_engine"])
 	}
 }

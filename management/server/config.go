@@ -46,7 +46,7 @@ type Config struct {
 
 	PKCEAuthorizationFlow *PKCEAuthorizationFlow
 
-	StoreKind StoreKind
+	StoreConfig StoreConfig
 }
 
 // GetAuthAudiences returns the audience from the http config and device authorization flow config
@@ -136,6 +136,11 @@ type ProviderConfig struct {
 	UseIDToken bool
 	// RedirectURL handles authorization code from IDP manager
 	RedirectURLs []string
+}
+
+// StoreConfig contains Store configuration
+type StoreConfig struct {
+	Engine StoreEngine
 }
 
 // validateURL validates input http url

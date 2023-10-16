@@ -126,7 +126,7 @@ var (
 			if err != nil {
 				return err
 			}
-			store, err := server.NewStore(config.StoreKind, config.Datadir, appMetrics)
+			store, err := server.NewStore(config.StoreConfig.Engine, config.Datadir, appMetrics)
 			if err != nil {
 				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
 			}

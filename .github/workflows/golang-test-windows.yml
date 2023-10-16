@@ -16,7 +16,7 @@ jobs:
   test:
     strategy:
       matrix:
-        store: ['JsonFile', 'Sqlite']
+        store: ['jsonfile', 'sqlite']
     runs-on: windows-latest
     steps:
       - name: Checkout code
