@@ -23,7 +23,6 @@ If you haven't already, join our slack workspace [here](https://join.slack.com/t
         - [Test suite](#test-suite)
     - [Checklist before submitting a PR](#checklist-before-submitting-a-pr)
     - [Other project repositories](#other-project-repositories)
-    - [Checklist before submitting a new node](#checklist-before-submitting-a-new-node)
     - [Contributor License Agreement](#contributor-license-agreement)
 
 ## Code of conduct
@@ -70,7 +69,7 @@ dependencies are installed. Here is a short guide on how that can be done.
 
 ### Requirements
 
-#### Go 1.19
+#### Go 1.21
 
 Follow the installation guide from https://go.dev/
 
@@ -139,14 +138,13 @@ checked out and set up:
 ### Build and start
 #### Client
 
-> Windows clients have a Wireguard driver requirement. We provide a bash script that can be executed in WLS 2 with docker support [wireguard_nt.sh](/client/wireguard_nt.sh).
-
 To start NetBird, execute:
 ```
 cd client
-# bash wireguard_nt.sh # if windows
 go build .
 ```
+
+> Windows clients have a Wireguard driver requirement. You can downlowd the wintun driver from https://www.wintun.net/builds/wintun-0.14.1.zip, after decompressing, you can copy the file `windtun\bin\ARCH\wintun.dll` to the same path as your binary file or to `C:\Windows\System32\wintun.dll`.
 
 To start NetBird the client in the foreground:
 
