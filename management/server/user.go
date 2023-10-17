@@ -228,10 +228,20 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 		return nil, status.Errorf(status.NotFound, "account %s doesn't exist", accountID)
 	}
 
-	// initiator is the one who is inviting the new user
-	initiatorUser, err := am.lookupUserInCache(userID, account)
+	initiatorUser, err := account.FindUser(userID)
 	if err != nil {
-		return nil, status.Errorf(status.NotFound, "user %s doesn't exist in IdP", userID)
+		return nil, status.Errorf(status.NotFound, "initiator user with ID %s doesn't exist", userID)
+	}
+
+	inviterID := userID
+	if initiatorUser.IsServiceUser {
+		inviterID = account.CreatedBy
+	}
+
+	// inviterUser is the one who is inviting the new user
+	inviterUser, err := am.lookupUserInCache(inviterID, account)
+	if err != nil || inviterUser == nil {
+		return nil, status.Errorf(status.NotFound, "inviter user with ID %s doesn't exist in IdP", inviterID)
 	}
 
 	// check if the user is already registered with this email => reject
@@ -253,7 +263,7 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 		return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
 	}
 
-	idpUser, err := am.idpManager.CreateUser(invite.Email, invite.Name, accountID, initiatorUser.Email)
+	idpUser, err := am.idpManager.CreateUser(invite.Email, invite.Name, accountID, inviterUser.Email)
 	if err != nil {
 		return nil, err
 	}
