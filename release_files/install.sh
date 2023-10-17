@@ -285,9 +285,10 @@ is_bin_package_manager() {
 }
 
 stop_running_netbird_ui() {
-  if pgrep -x "netbird-ui" >/dev/null; then
-    echo "NetBird UI is running. Stopping it..."
-    pkill -x "netbird-ui"
+  NB_UI_PROC=$(ps -ef | grep "[n]etbird-ui" | awk '{print $2}')
+  if [ -n "$NB_UI_PROC" ]; then
+    echo "NetBird UI is running with PID $NB_UI_PROC. Stopping it..."
+    kill -9 "$NB_UI_PROC"
   fi
 }
 
