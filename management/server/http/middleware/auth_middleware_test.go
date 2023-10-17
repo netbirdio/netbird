@@ -19,7 +19,7 @@ const (
 	domain      = "domain"
 	userID      = "userID"
 	tokenID     = "tokenID"
-	PAT         = "PAT"
+	PAT         = "nbp_PAT"
 	JWT         = "JWT"
 	wrongToken  = "wrongToken"
 )
@@ -81,6 +81,11 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 			name:               "Invalid PAT Token",
 			authHeader:         "Token " + wrongToken,
 			expectedStatusCode: 401,
+		},
+		{
+			name:               "Fallback to PAT Token",
+			authHeader:         "Bearer " + PAT,
+			expectedStatusCode: 200,
 		},
 		{
 			name:               "Valid JWT Token",
