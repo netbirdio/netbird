@@ -101,6 +101,8 @@ type serviceClient struct {
 	mDown       *systray.MenuItem
 	mAdminPanel *systray.MenuItem
 	mSettings   *systray.MenuItem
+	mVersion    *systray.MenuItem
+	mUpdate     *systray.MenuItem
 	mQuit       *systray.MenuItem
 
 	// application with main windows.
@@ -119,6 +121,9 @@ type serviceClient struct {
 	managementURL string
 	preSharedKey  string
 	adminURL      string
+
+	update        *version.Update
+	daemonVersion string
 }
 
 // newServiceClient instance constructor
@@ -131,6 +136,7 @@ func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient
 		app:  a,
 
 		showSettings: showSettings,
+		update:       version.NewUpdate(),
 	}
 
 	if runtime.GOOS == "windows" {
@@ -342,6 +348,15 @@ func (s *serviceClient) updateStatus() error {
 			s.mDown.Disable()
 			s.mUp.Enable()
 		}
+
+		// the updater struct notify by the upgrades available only, but if meanwhile the daemon has successfully updated
+		// must reset the mUpdate visibility state
+		if s.daemonVersion != status.DaemonVersion {
+			s.mUpdate.Hide()
+			s.daemonVersion = status.DaemonVersion
+			s.update.SetDaemonVersion(status.DaemonVersion)
+		}
+
 		return nil
 	}, &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
@@ -377,11 +392,16 @@ func (s *serviceClient) onTrayReady() {
 	systray.AddSeparator()
 
 	versionString := normalizedVersion()
-	v := systray.AddMenuItem(versionString, "Client Version: "+versionString)
-	v.Disable()
+	v := systray.AddMenuItem("About", "About")
+	s.mVersion = v.AddSubMenuItem(versionString, "Client Version: "+versionString)
+	s.mVersion.Disable()
+	s.mUpdate = v.AddSubMenuItem("Download latest version", "Download latest version")
+	s.mUpdate.Hide()
+
 	systray.AddSeparator()
 	s.mQuit = systray.AddMenuItem("Quit", "Quit the client app")
 
+	s.update.SetOnUpdateListener(s.onUpdateAvailable)
 	go func() {
 		s.getSrvConfig()
 		for {
@@ -439,6 +459,11 @@ func (s *serviceClient) onTrayReady() {
 			case <-s.mQuit.ClickedCh:
 				systray.Quit()
 				return
+			case <-s.mUpdate.ClickedCh:
+				err := openURL(version.DownloadUrl())
+				if err != nil {
+					log.Errorf("%s", err)
+				}
 			}
 			if err != nil {
 				log.Errorf("process connection: %v", err)
@@ -513,6 +538,26 @@ func (s *serviceClient) getSrvConfig() {
 		s.iLogFile.SetText(cfg.LogFile)
 		s.iPreSharedKey.SetText(cfg.PreSharedKey)
 	}
+}
+
+// todo hide after success daemon update
+func (s *serviceClient) onUpdateAvailable(version string) {
+	s.mUpdate.Show()
+}
+
+func openURL(url string) error {
+	var err error
+	switch runtime.GOOS {
+	case "windows":
+		err = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		err = exec.Command("open", url).Start()
+	case "linux":
+		err = exec.Command("xdg-open", url).Start()
+	default:
+		err = fmt.Errorf("unsupported platform")
+	}
+	return err
 }
 
 // checkPIDFile exists and return error, or write new.
