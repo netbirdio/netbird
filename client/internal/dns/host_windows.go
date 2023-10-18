@@ -25,9 +25,8 @@ const (
 )
 
 type registryConfigurator struct {
-	guid                  string
-	routingAll            bool
-	existingSearchDomains []string
+	guid       string
+	routingAll bool
 }
 
 func newHostManager(wgInterface WGIface) (hostManager, error) {
