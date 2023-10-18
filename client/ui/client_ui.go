@@ -17,6 +17,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -374,7 +375,9 @@ func (s *serviceClient) onTrayReady() {
 	systray.AddSeparator()
 	s.mSettings = systray.AddMenuItem("Settings", "Settings of the application")
 	systray.AddSeparator()
-	v := systray.AddMenuItem("v"+version.NetbirdVersion(), "Client Version: "+version.NetbirdVersion())
+
+	versionString := normalizedVersion()
+	v := systray.AddMenuItem(versionString, "Client Version: "+versionString)
 	v.Disable()
 	systray.AddSeparator()
 	s.mQuit = systray.AddMenuItem("Quit", "Quit the client app")
@@ -442,6 +445,14 @@ func (s *serviceClient) onTrayReady() {
 			}
 		}
 	}()
+}
+
+func normalizedVersion() string {
+	versionString := version.NetbirdVersion()
+	if unicode.IsDigit(rune(versionString[0])) {
+		versionString = fmt.Sprintf("v%s", versionString)
+	}
+	return versionString
 }
 
 func (s *serviceClient) onTrayExit() {}
