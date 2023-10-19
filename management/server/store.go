@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
@@ -67,8 +69,10 @@ func NewStore(kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (S
 	}
 	switch kind {
 	case FileStoreEngine:
+		log.Info("using JSON file store engine")
 		return NewFileStore(dataDir, metrics)
 	case SqliteStoreEngine:
+		log.Info("using SQLite store engine")
 		return NewSqliteStore(dataDir, metrics)
 	default:
 		return nil, fmt.Errorf("unsupported kind of store %s", kind)
