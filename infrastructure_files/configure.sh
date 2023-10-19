@@ -54,6 +54,9 @@ if [[ "x-$TURN_PASSWORD" == "x-" ]]; then
   export TURN_PASSWORD=$(openssl rand -base64 32 | sed 's/=//g')
 fi
 
+artifacts_path="./artifacts"
+mkdir -p $artifacts_path
+
 MGMT_VOLUMENAME="${VOLUME_PREFIX}${MGMT_VOLUMESUFFIX}"
 SIGNAL_VOLUMENAME="${VOLUME_PREFIX}${SIGNAL_VOLUMESUFFIX}"
 LETSENCRYPT_VOLUMENAME="${VOLUME_PREFIX}${LETSENCRYPT_VOLUMESUFFIX}"
@@ -94,13 +97,13 @@ if [[ -z "${NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT}" ]]; then
 fi
 
 echo "loading OpenID configuration from ${NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT} to the openid-configuration.json file"
-curl "${NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT}" -q -o openid-configuration.json
+curl "${NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT}" -q -o ${artifacts_path}/openid-configuration.json
 
-export NETBIRD_AUTH_AUTHORITY=$(jq -r '.issuer' openid-configuration.json)
-export NETBIRD_AUTH_JWT_CERTS=$(jq -r '.jwks_uri' openid-configuration.json)
-export NETBIRD_AUTH_TOKEN_ENDPOINT=$(jq -r '.token_endpoint' openid-configuration.json)
-export NETBIRD_AUTH_DEVICE_AUTH_ENDPOINT=$(jq -r '.device_authorization_endpoint' openid-configuration.json)
-export NETBIRD_AUTH_PKCE_AUTHORIZATION_ENDPOINT=$(jq -r '.authorization_endpoint' openid-configuration.json)
+export NETBIRD_AUTH_AUTHORITY=$(jq -r '.issuer' ${artifacts_path}/openid-configuration.json)
+export NETBIRD_AUTH_JWT_CERTS=$(jq -r '.jwks_uri' ${artifacts_path}/openid-configuration.json)
+export NETBIRD_AUTH_TOKEN_ENDPOINT=$(jq -r '.token_endpoint' ${artifacts_path}/openid-configuration.json)
+export NETBIRD_AUTH_DEVICE_AUTH_ENDPOINT=$(jq -r '.device_authorization_endpoint' ${artifacts_path}/openid-configuration.json)
+export NETBIRD_AUTH_PKCE_AUTHORIZATION_ENDPOINT=$(jq -r '.authorization_endpoint' ${artifacts_path}/openid-configuration.json)
 
 if [[ ! -z "${NETBIRD_AUTH_DEVICE_AUTH_CLIENT_ID}" ]]; then
   # user enabled Device Authorization Grant feature
@@ -185,17 +188,17 @@ fi
 env | grep NETBIRD
 
 bkp_postfix="$(date +%s)"
-if test -f 'docker-compose.yml'; then
-    cp docker-compose.yml "docker-compose.yml.bkp.${bkp_postfix}"
+if test -f "${artifacts_path}/docker-compose.yml"; then
+    cp $artifacts_path/docker-compose.yml "${artifacts_path}/docker-compose.yml.bkp.${bkp_postfix}"
 fi
 
-if test -f 'management.json'; then
-    cp management.json "management.json.bkp.${bkp_postfix}"
+if test -f "${artifacts_path}/management.json"; then
+    cp $artifacts_path/management.json "${artifacts_path}/management.json.bkp.${bkp_postfix}"
 fi
 
-if test -f 'turnserver.conf'; then
-    cp turnserver.conf "turnserver.conf.bpk.${bkp_postfix}"
+if test -f "${artifacts_path}/turnserver.conf"; then
+    cp ${artifacts_path}/turnserver.conf "${artifacts_path}/turnserver.conf.bpk.${bkp_postfix}"
 fi
-envsubst <docker-compose.yml.tmpl >docker-compose.yml
-envsubst <management.json.tmpl | jq . >management.json
-envsubst <turnserver.conf.tmpl >turnserver.conf
+envsubst <docker-compose.yml.tmpl >$artifacts_path/docker-compose.yml
+envsubst <management.json.tmpl | jq . >$artifacts_path/management.json
+envsubst <turnserver.conf.tmpl >$artifacts_path/turnserver.conf
