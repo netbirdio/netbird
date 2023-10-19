@@ -8,6 +8,8 @@ on:
     paths:
       - 'infrastructure_files/**'
       - '.github/workflows/test-infrastructure-files.yml'
+      - 'management/cmd/**'
+      - 'signal/cmd/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
