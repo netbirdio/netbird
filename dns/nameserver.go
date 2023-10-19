@@ -67,6 +67,8 @@ type NameServerGroup struct {
 	Domains []string `gorm:"serializer:json"`
 	// Enabled group status
 	Enabled bool
+	// SearchDomainsEnabled indicates whether to add match domains to search domains list or not
+	SearchDomainsEnabled bool
 }
 
 // NameServer represents a DNS nameserver
@@ -133,14 +135,15 @@ func ParseNameServerURL(nsURL string) (NameServer, error) {
 // Copy copies a nameserver group object
 func (g *NameServerGroup) Copy() *NameServerGroup {
 	nsGroup := &NameServerGroup{
-		ID:          g.ID,
-		Name:        g.Name,
-		Description: g.Description,
-		NameServers: make([]NameServer, len(g.NameServers)),
-		Groups:      make([]string, len(g.Groups)),
-		Enabled:     g.Enabled,
-		Primary:     g.Primary,
-		Domains:     make([]string, len(g.Domains)),
+		ID:                   g.ID,
+		Name:                 g.Name,
+		Description:          g.Description,
+		NameServers:          make([]NameServer, len(g.NameServers)),
+		Groups:               make([]string, len(g.Groups)),
+		Enabled:              g.Enabled,
+		Primary:              g.Primary,
+		Domains:              make([]string, len(g.Domains)),
+		SearchDomainsEnabled: g.SearchDomainsEnabled,
 	}
 
 	copy(nsGroup.NameServers, g.NameServers)
@@ -156,6 +159,7 @@ func (g *NameServerGroup) IsEqual(other *NameServerGroup) bool {
 		other.Name == g.Name &&
 		other.Description == g.Description &&
 		other.Primary == g.Primary &&
+		other.SearchDomainsEnabled == g.SearchDomainsEnabled &&
 		compareNameServerList(g.NameServers, other.NameServers) &&
 		compareGroupsList(g.Groups, other.Groups) &&
 		compareGroupsList(g.Domains, other.Domains)

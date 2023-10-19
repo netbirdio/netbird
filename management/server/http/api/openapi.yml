@@ -857,13 +857,17 @@ components:
           type: boolean
           example: true
         domains:
-          description: Nameserver group domain list
+          description: Nameserver group match domain list
           type: array
           items:
             type: string
             minLength: 1
             maxLength: 255
             example: "example.com"
+        search_domains_enabled:
+          description: Nameserver group search domain status for match domains. It should be true only if domains list is not empty.
+          type: boolean
+          example: true
       required:
         - name
         - description
@@ -872,6 +876,7 @@ components:
         - groups
         - primary
         - domains
+        - search_domains_enabled
     NameserverGroup:
       allOf:
         - type: object

@@ -67,16 +67,17 @@ func initNameserversTestData() *NameserversHandler {
 				}
 				return nil, status.Errorf(status.NotFound, "nameserver group with ID %s not found", nsGroupID)
 			},
-			CreateNameServerGroupFunc: func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, _ string) (*nbdns.NameServerGroup, error) {
+			CreateNameServerGroupFunc: func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, _ string, searchDomains bool) (*nbdns.NameServerGroup, error) {
 				return &nbdns.NameServerGroup{
-					ID:          existingNSGroupID,
-					Name:        name,
-					Description: description,
-					NameServers: nameServerList,
-					Groups:      groups,
-					Enabled:     enabled,
-					Primary:     primary,
-					Domains:     domains,
+					ID:                   existingNSGroupID,
+					Name:                 name,
+					Description:          description,
+					NameServers:          nameServerList,
+					Groups:               groups,
+					Enabled:              enabled,
+					Primary:              primary,
+					Domains:              domains,
+					SearchDomainsEnabled: searchDomains,
 				}, nil
 			},
 			DeleteNameServerGroupFunc: func(accountID, nsGroupID, _ string) error {
