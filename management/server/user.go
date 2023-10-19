@@ -44,14 +44,17 @@ type UserRole string
 
 // User represents a user of the system
 type User struct {
-	Id            string
+	Id string `gorm:"primaryKey"`
+	// AccountID is a reference to Account that this object belongs
+	AccountID     string `json:"-" gorm:"index"`
 	Role          UserRole
 	IsServiceUser bool
 	// ServiceUserName is only set if IsServiceUser is true
 	ServiceUserName string
 	// AutoGroups is a list of Group IDs to auto-assign to peers registered by this user
-	AutoGroups []string
-	PATs       map[string]*PersonalAccessToken
+	AutoGroups []string                        `gorm:"serializer:json"`
+	PATs       map[string]*PersonalAccessToken `gorm:"-"`
+	PATsG      []PersonalAccessToken           `json:"-" gorm:"foreignKey:UserID;references:id"`
 	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
 	Blocked bool
 	// LastLogin is the last time the user logged in to IdP
@@ -124,6 +127,7 @@ func (u *User) Copy() *User {
 	}
 	return &User{
 		Id:              u.Id,
+		AccountID:       u.AccountID,
 		Role:            u.Role,
 		AutoGroups:      autoGroups,
 		IsServiceUser:   u.IsServiceUser,
@@ -224,10 +228,20 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 		return nil, status.Errorf(status.NotFound, "account %s doesn't exist", accountID)
 	}
 
-	// initiator is the one who is inviting the new user
-	initiatorUser, err := am.lookupUserInCache(userID, account)
+	initiatorUser, err := account.FindUser(userID)
 	if err != nil {
-		return nil, status.Errorf(status.NotFound, "user %s doesn't exist in IdP", userID)
+		return nil, status.Errorf(status.NotFound, "initiator user with ID %s doesn't exist", userID)
+	}
+
+	inviterID := userID
+	if initiatorUser.IsServiceUser {
+		inviterID = account.CreatedBy
+	}
+
+	// inviterUser is the one who is inviting the new user
+	inviterUser, err := am.lookupUserInCache(inviterID, account)
+	if err != nil || inviterUser == nil {
+		return nil, status.Errorf(status.NotFound, "inviter user with ID %s doesn't exist in IdP", inviterID)
 	}
 
 	// check if the user is already registered with this email => reject
@@ -249,7 +263,7 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 		return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
 	}
 
-	idpUser, err := am.idpManager.CreateUser(invite.Email, invite.Name, accountID, initiatorUser.Email)
+	idpUser, err := am.idpManager.CreateUser(invite.Email, invite.Name, accountID, inviterUser.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -307,6 +321,12 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 	return user, nil
 }
 
+func (am *DefaultAccountManager) deleteServiceUser(account *Account, initiatorUserID string, targetUser *User) {
+	meta := map[string]any{"name": targetUser.ServiceUserName}
+	am.storeEvent(initiatorUserID, targetUser.Id, account.Id, activity.ServiceUserDeleted, meta)
+	delete(account.Users, targetUser.Id)
+}
+
 // DeleteUser deletes a user from the given account.
 func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, targetUserID string) error {
 	if initiatorUserID == targetUserID {
@@ -320,11 +340,6 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return err
 	}
 
-	targetUser := account.Users[targetUserID]
-	if targetUser == nil {
-		return status.Errorf(status.NotFound, "user not found")
-	}
-
 	executingUser := account.Users[initiatorUserID]
 	if executingUser == nil {
 		return status.Errorf(status.NotFound, "user not found")
@@ -333,49 +348,66 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return status.Errorf(status.PermissionDenied, "only admins can delete users")
 	}
 
-	peers, err := account.FindUserPeers(targetUserID)
-	if err != nil {
-		return status.Errorf(status.Internal, "failed to find user peers")
+	targetUser := account.Users[targetUserID]
+	if targetUser == nil {
+		return status.Errorf(status.NotFound, "target user not found")
 	}
 
-	if err := am.expireAndUpdatePeers(account, peers); err != nil {
-		log.Errorf("failed update deleted peers expiration: %s", err)
-		return err
+	// handle service user first and exit, no need to fetch extra data from IDP, etc
+	if targetUser.IsServiceUser {
+		am.deleteServiceUser(account, initiatorUserID, targetUser)
+		return am.Store.SaveAccount(account)
 	}
 
+	return am.deleteRegularUser(account, initiatorUserID, targetUserID)
+}
+
+func (am *DefaultAccountManager) deleteRegularUser(account *Account, initiatorUserID, targetUserID string) error {
 	tuEmail, tuName, err := am.getEmailAndNameOfTargetUser(account.Id, initiatorUserID, targetUserID)
 	if err != nil {
 		log.Errorf("failed to resolve email address: %s", err)
 		return err
 	}
 
-	var meta map[string]any
-	var eventAction activity.Activity
-	if targetUser.IsServiceUser {
-		meta = map[string]any{"name": targetUser.ServiceUserName}
-		eventAction = activity.ServiceUserDeleted
-	} else {
-		meta = map[string]any{"name": tuName, "email": tuEmail}
-		eventAction = activity.UserDeleted
-	}
-	am.storeEvent(initiatorUserID, targetUserID, accountID, eventAction, meta)
-
-	if !targetUser.IsServiceUser && !isNil(am.idpManager) {
-		err := am.deleteUserFromIDP(targetUserID, accountID)
+	if !isNil(am.idpManager) {
+		err = am.deleteUserFromIDP(targetUserID, account.Id)
 		if err != nil {
 			log.Debugf("failed to delete user from IDP: %s", targetUserID)
 			return err
 		}
 	}
 
-	delete(account.Users, targetUserID)
+	err = am.deleteUserPeers(initiatorUserID, targetUserID, account)
+	if err != nil {
+		return err
+	}
 
+	delete(account.Users, targetUserID)
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return err
 	}
 
+	meta := map[string]any{"name": tuName, "email": tuEmail}
+	am.storeEvent(initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
+
+	am.updateAccountPeers(account)
+
 	return nil
+}
+
+func (am *DefaultAccountManager) deleteUserPeers(initiatorUserID string, targetUserID string, account *Account) error {
+	peers, err := account.FindUserPeers(targetUserID)
+	if err != nil {
+		return status.Errorf(status.Internal, "failed to find user peers")
+	}
+
+	peerIDs := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		peerIDs = append(peerIDs, peer.ID)
+	}
+
+	return am.deletePeers(account, peerIDs, initiatorUserID)
 }
 
 // InviteUser resend invitations to users who haven't activated their accounts prior to the expiration period.
@@ -658,9 +690,7 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 			return nil, err
 		}
 
-		if err := am.updateAccountPeers(account); err != nil {
-			log.Errorf("failed updating account peers while updating user %s", accountID)
-		}
+		am.updateAccountPeers(account)
 	} else {
 		if err = am.Store.SaveAccount(account); err != nil {
 			return nil, err
@@ -836,6 +866,9 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 func (am *DefaultAccountManager) expireAndUpdatePeers(account *Account, peers []*Peer) error {
 	var peerIDs []string
 	for _, peer := range peers {
+		if peer.Status.LoginExpired {
+			continue
+		}
 		peerIDs = append(peerIDs, peer.ID)
 		peer.MarkLoginExpired(true)
 		account.UpdatePeer(peer)
@@ -851,9 +884,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(account *Account, peers []
 	if len(peerIDs) != 0 {
 		// this will trigger peer disconnect from the management service
 		am.peersUpdateManager.CloseChannels(peerIDs)
-		if err := am.updateAccountPeers(account); err != nil {
-			return err
-		}
+		am.updateAccountPeers(account)
 	}
 	return nil
 }

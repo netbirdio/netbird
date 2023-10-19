@@ -1,4 +1,3 @@
-#!/bin/sh
 # This code is based on the netbird-installer contribution by physk on GitHub.
 # Source: https://github.com/physk/netbird-installer
 set -e
@@ -17,6 +16,12 @@ OS_TYPE=""
 ARCH="$(uname -m)"
 PACKAGE_MANAGER="bin"
 INSTALL_DIR=""
+SUDO=""
+
+
+if command -v sudo > /dev/null && [ "$(id -u)" -ne 0 ]; then
+    SUDO="sudo"
+fi
 
 get_latest_release() {
     if [ -n "$GITHUB_TOKEN" ]; then
@@ -61,31 +66,44 @@ download_release_binary() {
     if [ "$OS_TYPE" = "darwin" ] && [ "$1" = "$UI_APP" ]; then
         INSTALL_DIR="/Applications/NetBird UI.app"
 
+        if test -d "$INSTALL_DIR" ; then
+          echo "removing $INSTALL_DIR"
+          rm -rfv "$INSTALL_DIR"
+        fi
+
         # Unzip the app and move to INSTALL_DIR
         unzip -q -o "$BINARY_NAME"
-        mv "netbird_ui_${OS_TYPE}_${ARCH}" "$INSTALL_DIR"
+        mv "netbird_ui_${OS_TYPE}_${ARCH}/" "$INSTALL_DIR/"
     else
-        sudo mkdir -p "$INSTALL_DIR"
+        ${SUDO} mkdir -p "$INSTALL_DIR"
         tar -xzvf "$BINARY_NAME"
-        sudo mv "${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
+        ${SUDO} mv "${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
     fi
 }
 
 add_apt_repo() {
-    sudo apt-get update
-    sudo apt-get install ca-certificates gnupg -y
+    ${SUDO} apt-get update
+    ${SUDO} apt-get install ca-certificates curl gnupg -y
 
-    curl -sSL https://pkgs.wiretrustee.com/debian/public.key \
-    | sudo gpg --dearmor --output /usr/share/keyrings/wiretrustee-archive-keyring.gpg
+    # Remove old keys and repo source files
+    ${SUDO} rm -f \
+        /etc/apt/sources.list.d/netbird.list \
+        /etc/apt/sources.list.d/wiretrustee.list \
+        /etc/apt/trusted.gpg.d/wiretrustee.gpg \
+        /usr/share/keyrings/netbird-archive-keyring.gpg \
+        /usr/share/keyrings/wiretrustee-archive-keyring.gpg
 
-    APT_REPO="deb [signed-by=/usr/share/keyrings/wiretrustee-archive-keyring.gpg] https://pkgs.wiretrustee.com/debian stable main"
-    echo "$APT_REPO" | sudo tee /etc/apt/sources.list.d/wiretrustee.list
+    curl -sSL https://pkgs.netbird.io/debian/public.key \
+    | ${SUDO} gpg --dearmor -o /usr/share/keyrings/netbird-archive-keyring.gpg
 
-    sudo apt-get update
+    echo 'deb [signed-by=/usr/share/keyrings/netbird-archive-keyring.gpg] https://pkgs.netbird.io/debian stable main' \
+    | ${SUDO} tee /etc/apt/sources.list.d/netbird.list
+
+    ${SUDO} apt-get update
 }
 
 add_rpm_repo() {
-cat <<-EOF | sudo tee /etc/yum.repos.d/netbird.repo
+cat <<-EOF | ${SUDO} tee /etc/yum.repos.d/netbird.repo
 [NetBird]
 name=NetBird
 baseurl=https://pkgs.netbird.io/yum/
@@ -104,7 +122,7 @@ add_aur_repo() {
     for PKG in $INSTALL_PKGS; do
         if ! pacman -Q "$PKG" > /dev/null 2>&1; then
             # Install missing package(s)
-            sudo pacman -S "$PKG" --noconfirm
+            ${SUDO} pacman -S "$PKG" --noconfirm
 
             # Add installed package for clean up later
             REMOVE_PKGS="$REMOVE_PKGS $PKG"
@@ -121,7 +139,7 @@ add_aur_repo() {
     fi
 
     # Clean up the installed packages
-    sudo pacman -Rs "$REMOVE_PKGS" --noconfirm
+    ${SUDO} pacman -Rs "$REMOVE_PKGS" --noconfirm
 }
 
 install_native_binaries() {
@@ -171,46 +189,36 @@ install_netbird() {
         fi
     fi
 
-    # Checks if SKIP_UI_APP env is set
-    if [ -z "$SKIP_UI_APP" ]; then
-        SKIP_UI_APP=false
-    else
-        if $SKIP_UI_APP; then
-            echo "SKIP_UI_APP has been set to true in the environment"
-            echo "NetBird UI installation will be omitted based on your preference"
-        fi
-    fi
-
     # Run the installation, if a desktop environment is not detected
     # only the CLI will be installed
     case "$PACKAGE_MANAGER" in
     apt)
         add_apt_repo
-        sudo apt-get install netbird -y
+        ${SUDO} apt-get install netbird -y
 
         if ! $SKIP_UI_APP; then
-            sudo apt-get install netbird-ui -y
+            ${SUDO} apt-get install netbird-ui -y
         fi
     ;;
     yum)
         add_rpm_repo
-        sudo yum -y install netbird
+        ${SUDO} yum -y install netbird
         if ! $SKIP_UI_APP; then
-            sudo yum -y install netbird-ui
+            ${SUDO} yum -y install netbird-ui
         fi
     ;;
     dnf)
         add_rpm_repo
-        sudo dnf -y install dnf-plugin-config-manager
-        sudo dnf config-manager --add-repo /etc/yum.repos.d/netbird.repo
-        sudo dnf -y install netbird
+        ${SUDO} dnf -y install dnf-plugin-config-manager
+        ${SUDO} dnf config-manager --add-repo /etc/yum.repos.d/netbird.repo
+        ${SUDO} dnf -y install netbird
 
         if ! $SKIP_UI_APP; then
-            sudo dnf -y install netbird-ui
+            ${SUDO} dnf -y install netbird-ui
         fi
     ;;
     pacman)
-        sudo pacman -Syy
+        ${SUDO} pacman -Syy
         add_aur_repo
     ;;
     brew)
@@ -243,7 +251,7 @@ install_netbird() {
 
         echo "Build and apply new configuration:"
         echo ""
-        echo "sudo nixos-rebuild switch"
+        echo "${SUDO} nixos-rebuild switch"
 			  exit 0
       fi
 
@@ -252,14 +260,14 @@ install_netbird() {
     esac
 
     # Add package manager to config
-    sudo mkdir -p "$CONFIG_FOLDER"
-    echo "package_manager=$PACKAGE_MANAGER" | sudo tee "$CONFIG_FILE" > /dev/null
+    ${SUDO} mkdir -p "$CONFIG_FOLDER"
+    echo "package_manager=$PACKAGE_MANAGER" | ${SUDO} tee "$CONFIG_FILE" > /dev/null
 
     # Load and start netbird service
-    if  ! sudo netbird service install 2>&1; then
+    if  ! ${SUDO} netbird service install 2>&1; then
         echo "NetBird service has already been loaded"
     fi
-    if  ! sudo netbird service start 2>&1; then
+    if  ! ${SUDO} netbird service start 2>&1; then
         echo "NetBird service has already been started"
     fi
 
@@ -274,10 +282,18 @@ version_greater_equal() {
 }
 
 is_bin_package_manager() {
-  if sudo test -f "$1" && sudo grep -q "package_manager=bin" "$1" ; then
+  if ${SUDO} test -f "$1" && ${SUDO} grep -q "package_manager=bin" "$1" ; then
     return 0
   else
     return 1
+  fi
+}
+
+stop_running_netbird_ui() {
+  NB_UI_PROC=$(ps -ef | grep "[n]etbird-ui" | awk '{print $2}')
+  if [ -n "$NB_UI_PROC" ]; then
+    echo "NetBird UI is running with PID $NB_UI_PROC. Stopping it..."
+    kill -9 "$NB_UI_PROC"
   fi
 }
 
@@ -288,7 +304,7 @@ update_netbird() {
     installed_version=$(netbird version)
 
     if [ "$latest_version" = "$installed_version" ]; then
-      echo "Installed netbird version ($installed_version) is up-to-date"
+      echo "Installed NetBird version ($installed_version) is up-to-date"
       exit 0
     fi
 
@@ -297,17 +313,28 @@ update_netbird() {
       echo ""
       echo "Initiating NetBird update. This will stop the netbird service and restart it after the update"
 
-      sudo netbird service stop
-      sudo netbird service uninstall
+      ${SUDO} netbird service stop || true
+      ${SUDO} netbird service uninstall || true
+      stop_running_netbird_ui
       install_native_binaries
 
-      sudo netbird service install
-      sudo netbird service start
+      ${SUDO} netbird service install
+      ${SUDO} netbird service start
     fi
   else
      echo "NetBird installation was done using a package manager. Please use your system's package manager to update"
   fi
 }
+
+# Checks if SKIP_UI_APP env is set
+if [ -z "$SKIP_UI_APP" ]; then
+    SKIP_UI_APP=false
+else
+    if $SKIP_UI_APP; then
+      echo "SKIP_UI_APP has been set to true in the environment"
+      echo "NetBird UI installation will be omitted based on your preference"
+    fi
+fi
 
 # Identify OS name and default package manager
 if type uname >/dev/null 2>&1; then
@@ -321,7 +348,7 @@ if type uname >/dev/null 2>&1; then
             if [ "$ARCH" != "amd64" ] && [ "$ARCH" != "arm64" ] \
                 && [ "$ARCH" != "x86_64" ];then
                 SKIP_UI_APP=true
-                echo "NetBird UI installation will be omitted as $ARCH is not a compactible architecture"
+                echo "NetBird UI installation will be omitted as $ARCH is not a compatible architecture"
             fi
 
             # Allow netbird UI installation for linux running desktop enviroment
@@ -363,7 +390,13 @@ if type uname >/dev/null 2>&1; then
 	esac
 fi
 
-case "$1" in
+UPDATE_FLAG=$1
+
+if [ "${UPDATE_NETBIRD}-x" = "true-x" ]; then
+  UPDATE_FLAG="--update"
+fi
+
+case "$UPDATE_FLAG" in
     --update)
       update_netbird
     ;;

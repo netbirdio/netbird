@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -80,9 +81,10 @@ var loginCmd = &cobra.Command{
 		client := proto.NewDaemonServiceClient(conn)
 
 		loginRequest := proto.LoginRequest{
-			SetupKey:      setupKey,
-			PreSharedKey:  preSharedKey,
-			ManagementUrl: managementURL,
+			SetupKey:             setupKey,
+			PreSharedKey:         preSharedKey,
+			ManagementUrl:        managementURL,
+			IsLinuxDesktopClient: isLinuxRunningDesktop(),
 		}
 
 		var loginErr error
@@ -163,7 +165,7 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.C
 }
 
 func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *internal.Config) (*auth.TokenInfo, error) {
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isLinuxRunningDesktop())
 	if err != nil {
 		return nil, err
 	}
@@ -201,4 +203,9 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string) {
 		cmd.Println("\nAlternatively, you may want to use a setup key, see:\n\n" +
 			"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
 	}
+}
+
+// isLinuxRunningDesktop checks if a Linux OS is running desktop environment
+func isLinuxRunningDesktop() bool {
+	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
 }

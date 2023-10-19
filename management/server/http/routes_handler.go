@@ -82,7 +82,33 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newRoute, err := h.accountManager.CreateRoute(account.Id, newPrefix.String(), req.Peer, req.Description, req.NetworkId, req.Masquerade, req.Metric, req.Groups, req.Enabled, user.Id)
+	peerId := ""
+	if req.Peer != nil {
+		peerId = *req.Peer
+	}
+
+	peerGroupIds := []string{}
+	if req.PeerGroups != nil {
+		peerGroupIds = *req.PeerGroups
+	}
+
+	if (peerId != "" && len(peerGroupIds) > 0) || (peerId == "" && len(peerGroupIds) == 0) {
+		util.WriteError(status.Errorf(status.InvalidArgument, "only one peer or peer_groups should be provided"), w)
+		return
+	}
+
+	// do not allow non Linux peers
+	if peer := account.GetPeer(peerId); peer != nil {
+		if peer.Meta.GoOS != "linux" {
+			util.WriteError(status.Errorf(status.InvalidArgument, "non-linux peers are non supported as network routes"), w)
+			return
+		}
+	}
+
+	newRoute, err := h.accountManager.CreateRoute(
+		account.Id, newPrefix.String(), peerId, peerGroupIds,
+		req.Description, req.NetworkId, req.Masquerade, req.Metric, req.Groups, req.Enabled, user.Id,
+	)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -135,17 +161,47 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Peer != nil && req.PeerGroups != nil {
+		util.WriteError(status.Errorf(status.InvalidArgument, "only peer or peers_group should be provided"), w)
+		return
+	}
+
+	if req.Peer == nil && req.PeerGroups == nil {
+		util.WriteError(status.Errorf(status.InvalidArgument, "either peer or peers_group should be provided"), w)
+		return
+	}
+
+	peerID := ""
+	if req.Peer != nil {
+		peerID = *req.Peer
+	}
+
+	// do not allow non Linux peers
+	if peer := account.GetPeer(peerID); peer != nil {
+		if peer.Meta.GoOS != "linux" {
+			util.WriteError(status.Errorf(status.InvalidArgument, "non-linux peers are non supported as network routes"), w)
+			return
+		}
+	}
+
 	newRoute := &route.Route{
 		ID:          routeID,
 		Network:     newPrefix,
 		NetID:       req.NetworkId,
 		NetworkType: prefixType,
 		Masquerade:  req.Masquerade,
-		Peer:        req.Peer,
 		Metric:      req.Metric,
 		Description: req.Description,
 		Enabled:     req.Enabled,
 		Groups:      req.Groups,
+	}
+
+	if req.Peer != nil {
+		newRoute.Peer = peerID
+	}
+
+	if req.PeerGroups != nil {
+		newRoute.PeerGroups = *req.PeerGroups
 	}
 
 	err = h.accountManager.SaveRoute(account.Id, user.Id, newRoute)
@@ -208,16 +264,21 @@ func (h *RoutesHandler) GetRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func toRouteResponse(serverRoute *route.Route) *api.Route {
-	return &api.Route{
+	route := &api.Route{
 		Id:          serverRoute.ID,
 		Description: serverRoute.Description,
 		NetworkId:   serverRoute.NetID,
 		Enabled:     serverRoute.Enabled,
-		Peer:        serverRoute.Peer,
+		Peer:        &serverRoute.Peer,
 		Network:     serverRoute.Network.String(),
 		NetworkType: serverRoute.NetworkType.String(),
 		Masquerade:  serverRoute.Masquerade,
 		Metric:      serverRoute.Metric,
 		Groups:      serverRoute.Groups,
 	}
+
+	if len(serverRoute.PeerGroups) > 0 {
+		route.PeerGroups = &serverRoute.PeerGroups
+	}
+	return route
 }

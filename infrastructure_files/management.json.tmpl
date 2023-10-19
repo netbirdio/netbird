@@ -27,7 +27,10 @@
         "Password": null
     },
     "Datadir": "",
-    "DataStoreEncryptionKey": "",
+    "DataStoreEncryptionKey": "$NETBIRD_DATASTORE_ENC_KEY",
+    "StoreConfig": {
+        "Engine": "$NETBIRD_STORE_CONFIG_ENGINE"
+    },
     "HttpConfig": {
         "Address": "0.0.0.0:$NETBIRD_MGMT_API_PORT",
         "AuthIssuer": "$NETBIRD_AUTH_AUTHORITY",
@@ -36,8 +39,7 @@
         "AuthUserIDClaim": "$NETBIRD_AUTH_USER_ID_CLAIM",
         "CertFile":"$NETBIRD_MGMT_API_CERT_FILE",
         "CertKey":"$NETBIRD_MGMT_API_CERT_KEY_FILE",
-        "IdpSignKeyRefreshEnabled": false,
-        "LetsEncryptDomain": "",
+        "IdpSignKeyRefreshEnabled": $NETBIRD_MGMT_IDP_SIGNKEY_REFRESH,
         "OIDCConfigEndpoint":"$NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT"
     },
     "IdpManagerConfig": {
@@ -72,7 +74,7 @@
     },
     "PKCEAuthorizationFlow": {
         "ProviderConfig": {
-            "Audience": "$NETBIRD_AUTH_AUDIENCE",
+            "Audience": "$NETBIRD_AUTH_PKCE_AUDIENCE",
             "ClientID": "$NETBIRD_AUTH_CLIENT_ID",
             "ClientSecret": "$NETBIRD_AUTH_CLIENT_SECRET",
             "Domain": "",

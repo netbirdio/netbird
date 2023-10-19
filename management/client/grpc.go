@@ -57,7 +57,7 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		transportOption,
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    15 * time.Second,
+			Time:    30 * time.Second,
 			Timeout: 10 * time.Second,
 		}))
 	if err != nil {

@@ -198,11 +198,11 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 	netIP := net.IP{100, 64, 0, 0}
 	netMask := net.IPMask{255, 255, 0, 0}
 	network := &Network{
-		Id:     "network",
-		Net:    net.IPNet{IP: netIP, Mask: netMask},
-		Dns:    "netbird.selfhosted",
-		Serial: 0,
-		mu:     sync.Mutex{},
+		Identifier: "network",
+		Net:        net.IPNet{IP: netIP, Mask: netMask},
+		Dns:        "netbird.selfhosted",
+		Serial:     0,
+		mu:         sync.Mutex{},
 	}
 
 	for _, testCase := range tt {
@@ -476,7 +476,7 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 	// as initAccount was created without account id we have to take the id after account initialization
 	// that happens inside the GetAccountByUserOrAccountID where the id is getting generated
 	// it is important to set the id as it help to avoid creating additional account with empty Id and re-pointing indices to it
-	initAccount.Id = acc.Id
+	initAccount = acc
 
 	claims := jwtclaims.AuthorizationClaims{
 		AccountId:      accountID, // is empty as it is based on accountID right after initialization of initAccount
@@ -704,30 +704,6 @@ func createAccount(am *DefaultAccountManager, accountID, userID, domain string) 
 		return nil, err
 	}
 	return account, nil
-}
-
-func TestAccountManager_AccountExists(t *testing.T) {
-	manager, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	expectedId := "test_account"
-	userId := "account_creator"
-	_, err = createAccount(manager, expectedId, userId, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	exists, err := manager.AccountExists(expectedId)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !*exists {
-		t.Errorf("expected account to exist after creation, got false")
-	}
 }
 
 func TestAccountManager_GetAccount(t *testing.T) {
@@ -1049,7 +1025,6 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 
 		wg.Wait()
 	})
-
 	t.Run("delete peer update", func(t *testing.T) {
 		wg.Add(1)
 		go func() {
@@ -1062,7 +1037,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			}
 		}()
 
-		if _, err := manager.DeletePeer(account.Id, peer3.ID, userID); err != nil {
+		if err := manager.DeletePeer(account.Id, peer3.ID, userID); err != nil {
 			t.Errorf("delete peer: %v", err)
 			return
 		}
@@ -1129,7 +1104,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		return
 	}
 
-	_, err = manager.DeletePeer(account.Id, peerKey, userID)
+	err = manager.DeletePeer(account.Id, peerKey, userID)
 	if err != nil {
 		return
 	}
@@ -1261,7 +1236,7 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 	}
 	account := &Account{
 		Peers: map[string]*Peer{
-			"peer-1": {Key: "peer-1"}, "peer-2": {Key: "peer-2"}, "peer-3": {Key: "peer-1"},
+			"peer-1": {Key: "peer-1", Meta: PeerSystemMeta{GoOS: "linux"}}, "peer-2": {Key: "peer-2", Meta: PeerSystemMeta{GoOS: "linux"}}, "peer-3": {Key: "peer-1", Meta: PeerSystemMeta{GoOS: "linux"}},
 		},
 		Groups: map[string]*Group{"group1": {ID: "group1", Peers: []string{"peer-1", "peer-2"}}},
 		Routes: map[string]*route.Route{
@@ -1333,7 +1308,7 @@ func TestAccount_Copy(t *testing.T) {
 			},
 		},
 		Network: &Network{
-			Id: "net1",
+			Identifier: "net1",
 		},
 		Peers: map[string]*Peer{
 			"peer1": {
@@ -1385,8 +1360,9 @@ func TestAccount_Copy(t *testing.T) {
 		},
 		Routes: map[string]*route.Route{
 			"route1": {
-				ID:     "route1",
-				Groups: []string{"group1"},
+				ID:         "route1",
+				PeerGroups: []string{},
+				Groups:     []string{"group1"},
 			},
 		},
 		NameServerGroups: map[string]*nbdns.NameServerGroup{
@@ -1397,7 +1373,7 @@ func TestAccount_Copy(t *testing.T) {
 				NameServers: []nbdns.NameServer{},
 			},
 		},
-		DNSSettings: &DNSSettings{DisabledManagementGroups: []string{}},
+		DNSSettings: DNSSettings{DisabledManagementGroups: []string{}},
 		Settings:    &Settings{},
 	}
 	err := hasNilField(account)
@@ -1423,6 +1399,10 @@ func hasNilField(x interface{}) error {
 	rv := reflect.ValueOf(x)
 	rv = rv.Elem()
 	for i := 0; i < rv.NumField(); i++ {
+		// skip gorm internal fields
+		if json, ok := rv.Type().Field(i).Tag.Lookup("json"); ok && json == "-" {
+			continue
+		}
 		if f := rv.Field(i); f.IsValid() {
 			k := f.Kind()
 			switch k {
@@ -2068,7 +2048,7 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 
 func createStore(t *testing.T) (Store, error) {
 	dataDir := t.TempDir()
-	store, err := NewFileStore(dataDir, nil)
+	store, err := NewStoreFromJson(dataDir, nil)
 	if err != nil {
 		return nil, err
 	}

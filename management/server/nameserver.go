@@ -7,7 +7,6 @@ import (
 
 	"github.com/miekg/dns"
 	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -74,11 +73,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, d
 		return nil, err
 	}
 
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		log.Error(err)
-		return newNSGroup.Copy(), status.Errorf(status.Internal, "failed to update peers after create nameserver %s", name)
-	}
+	am.updateAccountPeers(account)
 
 	am.storeEvent(userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
 
@@ -113,11 +108,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(accountID, userID string, n
 		return err
 	}
 
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		log.Error(err)
-		return status.Errorf(status.Internal, "failed to update peers after update nameserver %s", nsGroupToSave.Name)
-	}
+	am.updateAccountPeers(account)
 
 	am.storeEvent(userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
 
@@ -147,10 +138,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(accountID, nsGroupID, use
 		return err
 	}
 
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		return status.Errorf(status.Internal, "failed to update peers after deleting nameserver %s", nsGroupID)
-	}
+	am.updateAccountPeers(account)
 
 	am.storeEvent(userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
 

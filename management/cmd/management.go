@@ -126,7 +126,7 @@ var (
 			if err != nil {
 				return err
 			}
-			store, err := server.NewFileStore(config.Datadir, appMetrics)
+			store, err := server.NewStore(config.StoreConfig.Engine, config.Datadir, appMetrics)
 			if err != nil {
 				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
 			}
@@ -148,7 +148,7 @@ var (
 				return fmt.Errorf("failed to initialize database: %s", err)
 			}
 
-			if key != "" {
+			if config.DataStoreEncryptionKey != key {
 				log.Infof("update config with activity store key")
 				config.DataStoreEncryptionKey = key
 				err := updateMgmtConfig(mgmtConfig, config)

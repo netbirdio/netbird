@@ -197,7 +197,13 @@ func (p *PKCEAuthorizationFlow) parseOAuthToken(token *oauth2.Token) (TokenInfo,
 		tokenInfo.IDToken = idToken
 	}
 
-	if err := isValidAccessToken(tokenInfo.GetTokenToUse(), p.providerConfig.Audience); err != nil {
+	// if a provider doesn't support an audience, use the Client ID for token verification
+	audience := p.providerConfig.Audience
+	if audience == "" {
+		audience = p.providerConfig.ClientID
+	}
+
+	if err := isValidAccessToken(tokenInfo.GetTokenToUse(), audience); err != nil {
 		return TokenInfo{}, fmt.Errorf("validate access token failed with error: %v", err)
 	}
 

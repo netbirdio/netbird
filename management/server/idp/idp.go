@@ -9,6 +9,11 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
+const (
+	// UnsetAccountID is a special key to map users without an account ID
+	UnsetAccountID = "unset"
+)
+
 // Manager idp manager interface
 type Manager interface {
 	UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error
@@ -171,7 +176,11 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 			CustomerID:        config.ExtraConfig["CustomerId"],
 		}
 		return NewGoogleWorkspaceManager(googleClientConfig, appMetrics)
-
+	case "jumpcloud":
+		jumpcloudConfig := JumpCloudClientConfig{
+			APIToken: config.ExtraConfig["ApiToken"],
+		}
+		return NewJumpCloudManager(jumpcloudConfig, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}

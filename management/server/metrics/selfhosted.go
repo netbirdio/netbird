@@ -48,6 +48,7 @@ type properties map[string]interface{}
 // DataSource metric data source
 type DataSource interface {
 	GetAllAccounts() []*server.Account
+	GetStoreEngine() server.StoreEngine
 }
 
 // ConnManager peer connection manager that holds state for current active connections
@@ -176,6 +177,7 @@ func (w *Worker) generateProperties() properties {
 		rulesDirection        map[string]int
 		groups                int
 		routes                int
+		routesWithRGGroups    int
 		nameservers           int
 		uiClient              int
 		version               string
@@ -201,6 +203,11 @@ func (w *Worker) generateProperties() properties {
 
 		groups = groups + len(account.Groups)
 		routes = routes + len(account.Routes)
+		for _, route := range account.Routes {
+			if len(route.PeerGroups) > 0 {
+				routesWithRGGroups++
+			}
+		}
 		nameservers = nameservers + len(account.NameServerGroups)
 
 		for _, policy := range account.Policies {
@@ -282,12 +289,14 @@ func (w *Worker) generateProperties() properties {
 	metricsProperties["rules"] = rules
 	metricsProperties["groups"] = groups
 	metricsProperties["routes"] = routes
+	metricsProperties["routes_with_routing_groups"] = routesWithRGGroups
 	metricsProperties["nameservers"] = nameservers
 	metricsProperties["version"] = version
 	metricsProperties["min_active_peer_version"] = minActivePeerVersion
 	metricsProperties["max_active_peer_version"] = maxActivePeerVersion
 	metricsProperties["ui_clients"] = uiClient
 	metricsProperties["idp_manager"] = w.idpManager
+	metricsProperties["store_engine"] = w.dataSource.GetStoreEngine()
 
 	for protocol, count := range rulesProtocol {
 		metricsProperties["rules_protocol_"+protocol] = count

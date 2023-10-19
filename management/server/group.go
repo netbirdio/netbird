@@ -23,6 +23,9 @@ type Group struct {
 	// ID of the group
 	ID string
 
+	// AccountID is a reference to Account that this object belongs
+	AccountID string `json:"-" gorm:"index"`
+
 	// Name visible in the UI
 	Name string
 
@@ -30,7 +33,7 @@ type Group struct {
 	Issued string
 
 	// Peers list of the group
-	Peers []string
+	Peers []string `gorm:"serializer:json"`
 }
 
 // EventMeta returns activity event meta related to the group
@@ -84,10 +87,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 		return err
 	}
 
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		return err
-	}
+	am.updateAccountPeers(account)
 
 	// the following snippet tracks the activity and stores the group events in the event store.
 	// It has to happen after all the operations have been successfully performed.
@@ -229,7 +229,9 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 
 	am.storeEvent(userId, groupID, accountId, activity.GroupDeleted, g.EventMeta())
 
-	return am.updateAccountPeers(account)
+	am.updateAccountPeers(account)
+
+	return nil
 }
 
 // ListGroups objects of the peers
@@ -281,11 +283,13 @@ func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerID string)
 		return err
 	}
 
-	return am.updateAccountPeers(account)
+	am.updateAccountPeers(account)
+
+	return nil
 }
 
 // GroupDeletePeer removes peer from the group
-func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey string) error {
+func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerID string) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -301,7 +305,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey str
 
 	account.Network.IncSerial()
 	for i, itemID := range group.Peers {
-		if itemID == peerKey {
+		if itemID == peerID {
 			group.Peers = append(group.Peers[:i], group.Peers[i+1:]...)
 			if err := am.Store.SaveAccount(account); err != nil {
 				return err
@@ -309,31 +313,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey str
 		}
 	}
 
-	return am.updateAccountPeers(account)
-}
+	am.updateAccountPeers(account)
 
-// GroupListPeers returns list of the peers from the group
-func (am *DefaultAccountManager) GroupListPeers(accountID, groupID string) ([]*Peer, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(accountID)
-	if err != nil {
-		return nil, status.Errorf(status.NotFound, "account not found")
-	}
-
-	group, ok := account.Groups[groupID]
-	if !ok {
-		return nil, status.Errorf(status.NotFound, "group with ID %s not found", groupID)
-	}
-
-	peers := make([]*Peer, 0, len(account.Groups))
-	for _, peerID := range group.Peers {
-		p, ok := account.Peers[peerID]
-		if ok {
-			peers = append(peers, p)
-		}
-	}
-
-	return peers, nil
+	return nil
 }
