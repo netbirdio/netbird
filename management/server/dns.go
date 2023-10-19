@@ -130,8 +130,9 @@ func toProtocolDNSConfig(update nbdns.Config) *proto.DNSConfig {
 
 	for _, nsGroup := range update.NameServerGroups {
 		protoGroup := &proto.NameServerGroup{
-			Primary: nsGroup.Primary,
-			Domains: nsGroup.Domains,
+			Primary:              nsGroup.Primary,
+			Domains:              nsGroup.Domains,
+			SearchDomainsEnabled: nsGroup.SearchDomainsEnabled,
 		}
 		for _, ns := range nsGroup.NameServers {
 			protoNS := &proto.NameServer{

@@ -23,13 +23,14 @@ const (
 
 func TestCreateNameServerGroup(t *testing.T) {
 	type input struct {
-		name        string
-		description string
-		enabled     bool
-		groups      []string
-		nameServers []nbdns.NameServer
-		primary     bool
-		domains     []string
+		name          string
+		description   string
+		enabled       bool
+		groups        []string
+		nameServers   []nbdns.NameServer
+		primary       bool
+		domains       []string
+		searchDomains bool
 	}
 
 	testCases := []struct {
@@ -383,6 +384,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 				testCase.inputArgs.domains,
 				testCase.inputArgs.enabled,
 				userID,
+				testCase.inputArgs.searchDomains,
 			)
 
 			testCase.errFunc(t, err)

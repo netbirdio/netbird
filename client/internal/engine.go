@@ -714,8 +714,9 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
 
 	for _, nsGroup := range protoDNSConfig.GetNameServerGroups() {
 		dnsNSGroup := &nbdns.NameServerGroup{
-			Primary: nsGroup.GetPrimary(),
-			Domains: nsGroup.GetDomains(),
+			Primary:              nsGroup.GetPrimary(),
+			Domains:              nsGroup.GetDomains(),
+			SearchDomainsEnabled: nsGroup.GetSearchDomainsEnabled(),
 		}
 		for _, ns := range nsGroup.GetNameServers() {
 			dnsNS := nbdns.NameServer{
