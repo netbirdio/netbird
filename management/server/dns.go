@@ -20,7 +20,7 @@ type lookupMap map[string]struct{}
 // DNSSettings defines dns settings at the account level
 type DNSSettings struct {
 	// DisabledManagementGroups groups whose DNS management is disabled
-	DisabledManagementGroups []string
+	DisabledManagementGroups []string `gorm:"serializer:json"`
 }
 
 // Copy returns a copy of the DNS settings

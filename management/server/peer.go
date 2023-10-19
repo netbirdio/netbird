@@ -72,22 +72,24 @@ type PeerLogin struct {
 // The Peer is a WireGuard peer identified by a public key
 type Peer struct {
 	// ID is an internal ID of the peer
-	ID string
+	ID string `gorm:"primaryKey"`
+	// AccountID is a reference to Account that this object belongs
+	AccountID string `json:"-" gorm:"index;uniqueIndex:idx_peers_account_id_ip"`
 	// WireGuard public key
-	Key string
+	Key string `gorm:"index"`
 	// A setup key this peer was registered with
 	SetupKey string
 	// IP address of the Peer
-	IP net.IP
+	IP net.IP `gorm:"uniqueIndex:idx_peers_account_id_ip"`
 	// Meta is a Peer system meta data
-	Meta PeerSystemMeta
+	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	// Name is peer's name (machine name)
 	Name string
 	// DNSLabel is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's
 	// domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DNSLabel string
 	// Status peer's management connection status
-	Status *PeerStatus
+	Status *PeerStatus `gorm:"embedded;embeddedPrefix:peer_status_"`
 	// The user ID that registered the peer
 	UserID string
 	// SSHKey is a public SSH key of the peer
@@ -116,6 +118,7 @@ func (p *Peer) Copy() *Peer {
 	}
 	return &Peer{
 		ID:                     p.ID,
+		AccountID:              p.AccountID,
 		Key:                    p.Key,
 		SetupKey:               p.SetupKey,
 		IP:                     p.IP,

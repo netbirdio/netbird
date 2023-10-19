@@ -198,11 +198,11 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 	netIP := net.IP{100, 64, 0, 0}
 	netMask := net.IPMask{255, 255, 0, 0}
 	network := &Network{
-		Id:     "network",
-		Net:    net.IPNet{IP: netIP, Mask: netMask},
-		Dns:    "netbird.selfhosted",
-		Serial: 0,
-		mu:     sync.Mutex{},
+		Identifier: "network",
+		Net:        net.IPNet{IP: netIP, Mask: netMask},
+		Dns:        "netbird.selfhosted",
+		Serial:     0,
+		mu:         sync.Mutex{},
 	}
 
 	for _, testCase := range tt {
@@ -476,7 +476,7 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 	// as initAccount was created without account id we have to take the id after account initialization
 	// that happens inside the GetAccountByUserOrAccountID where the id is getting generated
 	// it is important to set the id as it help to avoid creating additional account with empty Id and re-pointing indices to it
-	initAccount.Id = acc.Id
+	initAccount = acc
 
 	claims := jwtclaims.AuthorizationClaims{
 		AccountId:      accountID, // is empty as it is based on accountID right after initialization of initAccount
@@ -1025,7 +1025,6 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 
 		wg.Wait()
 	})
-
 	t.Run("delete peer update", func(t *testing.T) {
 		wg.Add(1)
 		go func() {
@@ -1309,7 +1308,7 @@ func TestAccount_Copy(t *testing.T) {
 			},
 		},
 		Network: &Network{
-			Id: "net1",
+			Identifier: "net1",
 		},
 		Peers: map[string]*Peer{
 			"peer1": {
@@ -1400,6 +1399,10 @@ func hasNilField(x interface{}) error {
 	rv := reflect.ValueOf(x)
 	rv = rv.Elem()
 	for i := 0; i < rv.NumField(); i++ {
+		// skip gorm internal fields
+		if json, ok := rv.Type().Field(i).Tag.Lookup("json"); ok && json == "-" {
+			continue
+		}
 		if f := rv.Field(i); f.IsValid() {
 			k := f.Kind()
 			switch k {
@@ -2045,7 +2048,7 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 
 func createStore(t *testing.T) (Store, error) {
 	dataDir := t.TempDir()
-	store, err := NewFileStore(dataDir, nil)
+	store, err := NewStoreFromJson(dataDir, nil)
 	if err != nil {
 		return nil, err
 	}

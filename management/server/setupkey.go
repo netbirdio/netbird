@@ -68,13 +68,15 @@ type SetupKeyType string
 
 // SetupKey represents a pre-authorized key used to register machines (peers)
 type SetupKey struct {
-	Id        string
+	Id string
+	// AccountID is a reference to Account that this object belongs
+	AccountID string `json:"-" gorm:"index"`
 	Key       string
 	Name      string
 	Type      SetupKeyType
 	CreatedAt time.Time
 	ExpiresAt time.Time
-	UpdatedAt time.Time
+	UpdatedAt time.Time `gorm:"autoUpdateTime:false"`
 	// Revoked indicates whether the key was revoked or not (we don't remove them for tracking purposes)
 	Revoked bool
 	// UsedTimes indicates how many times the key was used
@@ -82,7 +84,7 @@ type SetupKey struct {
 	// LastUsed last time the key was used for peer registration
 	LastUsed time.Time
 	// AutoGroups is a list of Group IDs that are auto assigned to a Peer when it uses this key to register
-	AutoGroups []string
+	AutoGroups []string `gorm:"serializer:json"`
 	// UsageLimit indicates the number of times this key can be used to enroll a machine.
 	// The value of 0 indicates the unlimited usage.
 	UsageLimit int
@@ -99,6 +101,7 @@ func (key *SetupKey) Copy() *SetupKey {
 	}
 	return &SetupKey{
 		Id:         key.Id,
+		AccountID:  key.AccountID,
 		Key:        key.Key,
 		Name:       key.Name,
 		Type:       key.Type,
