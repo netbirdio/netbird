@@ -66,9 +66,14 @@ download_release_binary() {
     if [ "$OS_TYPE" = "darwin" ] && [ "$1" = "$UI_APP" ]; then
         INSTALL_DIR="/Applications/NetBird UI.app"
 
+        if test -d "$INSTALL_DIR" ; then
+          echo "removing $INSTALL_DIR"
+          rm -rfv "$INSTALL_DIR"
+        fi
+
         # Unzip the app and move to INSTALL_DIR
         unzip -q -o "$BINARY_NAME"
-        mv "netbird_ui_${OS_TYPE}_${ARCH}" "$INSTALL_DIR"
+        mv "netbird_ui_${OS_TYPE}_${ARCH}/" "$INSTALL_DIR/"
     else
         ${SUDO} mkdir -p "$INSTALL_DIR"
         tar -xzvf "$BINARY_NAME"
@@ -308,8 +313,8 @@ update_netbird() {
       echo ""
       echo "Initiating NetBird update. This will stop the netbird service and restart it after the update"
 
-      ${SUDO} netbird service stop
-      ${SUDO} netbird service uninstall
+      ${SUDO} netbird service stop || true
+      ${SUDO} netbird service uninstall || true
       stop_running_netbird_ui
       install_native_binaries
 
@@ -385,7 +390,13 @@ if type uname >/dev/null 2>&1; then
 	esac
 fi
 
-case "$1" in
+UPDATE_FLAG=$1
+
+if [ "${UPDATE_NETBIRD}-x" = "true-x" ]; then
+  UPDATE_FLAG="--update"
+fi
+
+case "$UPDATE_FLAG" in
     --update)
       update_netbird
     ;;
