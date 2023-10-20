@@ -540,8 +540,7 @@ func (s *serviceClient) getSrvConfig() {
 	}
 }
 
-// todo hide after success daemon update
-func (s *serviceClient) onUpdateAvailable(version string) {
+func (s *serviceClient) onUpdateAvailable() {
 	s.mUpdate.Show()
 }
 

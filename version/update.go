@@ -11,8 +11,11 @@ import (
 )
 
 const (
-	versionURL  = "https://pkgs.netbird.io/releases/latest/version"
 	fetchPeriod = 30 * time.Minute
+)
+
+var (
+	versionURL = "https://pkgs.netbird.io/releases/latest/version"
 )
 
 type Update struct {
@@ -21,7 +24,10 @@ type Update struct {
 	lastAvailable *goversion.Version
 	versionsLock  sync.Mutex
 
-	onUpdateListener func(version string)
+	fetchTicker *time.Ticker
+	fetchDone   chan struct{}
+
+	onUpdateListener func()
 	listenerLock     sync.Mutex
 }
 
@@ -36,10 +42,20 @@ func NewUpdate() *Update {
 	u := &Update{
 		lastAvailable: lastAvailable,
 		uiVersion:     currentVersion,
+		fetchTicker:   time.NewTicker(fetchPeriod),
+		fetchDone:     make(chan struct{}),
 	}
-
 	go u.startFetcher()
 	return u
+}
+
+func (u *Update) StopWatch() {
+	u.fetchTicker.Stop()
+
+	select {
+	case u.fetchDone <- struct{}{}:
+	default:
+	}
 }
 
 func (u *Update) SetDaemonVersion(newVersion string) {
@@ -59,13 +75,13 @@ func (u *Update) SetDaemonVersion(newVersion string) {
 	u.checkUpdate()
 }
 
-func (u *Update) SetOnUpdateListener(updateFn func(version string)) {
+func (u *Update) SetOnUpdateListener(updateFn func()) {
 	u.listenerLock.Lock()
 	defer u.listenerLock.Unlock()
 
 	u.onUpdateListener = updateFn
 	if u.isUpdateAvailable() {
-		u.onUpdateListener(version)
+		u.onUpdateListener()
 	}
 }
 
@@ -75,8 +91,10 @@ func (u *Update) startFetcher() {
 		u.checkUpdate()
 	}
 
-	uptimeTicker := time.NewTicker(fetchPeriod)
-	for range uptimeTicker.C {
+	select {
+	case <-u.fetchDone:
+		return
+	case <-u.fetchTicker.C:
 		changed := u.fetchVersion()
 		if changed {
 			u.checkUpdate()
@@ -136,7 +154,7 @@ func (u *Update) checkUpdate() {
 		return
 	}
 
-	u.onUpdateListener(u.lastAvailable.String())
+	u.onUpdateListener()
 }
 
 func (u *Update) isUpdateAvailable() bool {
