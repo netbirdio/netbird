@@ -11,6 +11,7 @@ const (
 	macM1M2URL  = "https://pkgs.netbird.io/macos/arm64"
 )
 
+// DownloadUrl return with the proper download link
 func DownloadUrl() string {
 	switch runtime.GOOS {
 	case "windows":

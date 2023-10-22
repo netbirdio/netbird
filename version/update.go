@@ -18,6 +18,8 @@ var (
 	versionURL = "https://pkgs.netbird.io/releases/latest/version"
 )
 
+// Update fetch the version info periodically and notify the onUpdateListener in case the UI version or the
+// daemon version are deprecated
 type Update struct {
 	uiVersion     *goversion.Version
 	daemonVersion *goversion.Version
@@ -31,6 +33,7 @@ type Update struct {
 	listenerLock     sync.Mutex
 }
 
+// NewUpdate instantiate Update and start to fetch the new version information
 func NewUpdate() *Update {
 	currentVersion, err := goversion.NewVersion(version)
 	if err != nil {
@@ -49,6 +52,7 @@ func NewUpdate() *Update {
 	return u
 }
 
+// StopWatch stop the version info fetch loop
 func (u *Update) StopWatch() {
 	u.fetchTicker.Stop()
 
@@ -58,6 +62,8 @@ func (u *Update) StopWatch() {
 	}
 }
 
+// SetDaemonVersion update the currently running daemon version. If new version is available it will trigger
+// the onUpdateListener
 func (u *Update) SetDaemonVersion(newVersion string) {
 	daemonVersion, err := goversion.NewVersion(newVersion)
 	if err != nil {
@@ -75,6 +81,7 @@ func (u *Update) SetDaemonVersion(newVersion string) {
 	u.checkUpdate()
 }
 
+// SetOnUpdateListener set new update listener
 func (u *Update) SetOnUpdateListener(updateFn func()) {
 	u.listenerLock.Lock()
 	defer u.listenerLock.Unlock()
