@@ -310,12 +310,12 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 	newLogin := user.LastDashboardLoginChanged(claims.LastLogin)
 	err = am.Store.SaveUserLastLogin(account.Id, claims.UserId, claims.LastLogin)
 	unlock()
+	if err != nil {
+		log.Errorf("failed saving user last login: %v", err)
+	}
 	if newLogin {
 		meta := map[string]any{"timestamp": claims.LastLogin}
 		am.storeEvent(claims.UserId, claims.UserId, account.Id, activity.DashboardLogin, meta)
-		if err != nil {
-			log.Errorf("failed saving user last login: %v", err)
-		}
 	}
 
 	return user, nil
