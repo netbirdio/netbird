@@ -1,4 +1,4 @@
-package netbird
+package NetBirdSDK
 
 import _ "golang.org/x/mobile/bind"
 

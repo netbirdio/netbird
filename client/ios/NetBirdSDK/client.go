@@ -1,23 +1,20 @@
-package netbird
+package NetBirdSDK
 
 import (
 	"context"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 )
-
-// ConnectionListener export internal Listener for mobile
-type ConnectionListener interface {
-	peer.Listener
-}
 
 // RouteListener export internal RouteListener for mobile
 type RouteListener interface {
@@ -47,16 +44,21 @@ type Client struct {
 	ctxCancel     context.CancelFunc
 	ctxCancelLock *sync.Mutex
 	deviceName    string
+	osName        string
+	osVersion     string
 	routeListener routemanager.RouteListener
 	onHostDnsFn   func([]string)
 	dnsManager    dns.IosDnsManager
+	loginComplete bool
 }
 
 // NewClient instantiate a new Client
-func NewClient(cfgFile, deviceName string, routeListener RouteListener, dnsManager DnsManager) *Client {
+func NewClient(cfgFile, deviceName string, osVersion string, osName string, routeListener RouteListener, dnsManager DnsManager) *Client {
 	return &Client{
 		cfgFile:       cfgFile,
 		deviceName:    deviceName,
+		osName:        osName,
+		osVersion:     osVersion,
 		recorder:      peer.NewRecorder(""),
 		ctxCancelLock: &sync.Mutex{},
 		routeListener: routeListener,
@@ -78,14 +80,15 @@ func (c *Client) Run(fd int32) error {
 	var ctx context.Context
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
+	ctxWithValues = context.WithValue(ctxWithValues, system.OsNameCtxKey, c.osName)
+	ctxWithValues = context.WithValue(ctxWithValues, system.OsVersionCtxKey, c.osVersion)
 	c.ctxCancelLock.Lock()
 	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
 	defer c.ctxCancel()
 	c.ctxCancelLock.Unlock()
 
 	auth := NewAuthWithConfig(ctx, cfg)
-	// err = auth.login(urlOpener)
-	auth.loginWithSetupKeyAndSaveConfig("C3803F45-435B-4333-96EB-50F9EC723355", "iPhone")
+	err = auth.Login()
 	if err != nil {
 		return err
 	}
@@ -95,32 +98,6 @@ func (c *Client) Run(fd int32) error {
 	ctx = internal.CtxInitState(ctx)
 	c.onHostDnsFn = func([]string) {}
 	return internal.RunClientiOS(ctx, cfg, c.recorder, fd, c.routeListener, c.dnsManager)
-}
-
-func (c *Client) Auth(urlOpener URLOpener) error {
-	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
-		ConfigPath: c.cfgFile,
-	})
-	if err != nil {
-		return err
-	}
-	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
-
-	var ctx context.Context
-	//nolint
-	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
-	c.ctxCancelLock.Lock()
-	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
-	defer c.ctxCancel()
-	c.ctxCancelLock.Unlock()
-
-	auth := NewAuthWithConfig(ctx, cfg)
-	err = auth.login(urlOpener)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Stop the internal client and free the resources
@@ -139,8 +116,8 @@ func (c *Client) SetTraceLogLevel() {
 	log.SetLevel(log.TraceLevel)
 }
 
-// PeersList return with the list of the PeerInfos
-func (c *Client) PeersList() *PeerInfoArray {
+// getStatusDetails return with the list of the PeerInfos
+func (c *Client) GetStatusDetails() *StatusDetails {
 
 	fullStatus := c.recorder.GetFullStatus()
 
@@ -153,26 +130,70 @@ func (c *Client) PeersList() *PeerInfoArray {
 		}
 		peerInfos[n] = pi
 	}
-	return &PeerInfoArray{items: peerInfos}
+	return &StatusDetails{items: peerInfos, fqdn: fullStatus.LocalPeerState.FQDN, ip: fullStatus.LocalPeerState.IP}
 }
 
-// OnUpdatedHostDNS update the DNS servers addresses for root zones
-func (c *Client) OnUpdatedHostDNS(list *DNSList) error {
-	dnsServer, err := dns.GetServerDns()
+func (c *Client) GetManagementStatus() bool {
+	return c.recorder.GetFullStatus().ManagementState.Connected
+}
+
+func (c *Client) IsLoginRequired() bool {
+	var ctx context.Context
+	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
+	c.ctxCancelLock.Lock()
+	defer c.ctxCancelLock.Unlock()
+	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
+
+	cfg, _ := internal.UpdateOrCreateConfig(internal.ConfigInput{
+		ConfigPath: c.cfgFile,
+	})
+
+	needsLogin, _ := internal.IsLoginRequired(ctx, cfg.PrivateKey, cfg.ManagementURL, cfg.SSHKey)
+	return needsLogin
+}
+
+func (c *Client) LoginForMobile() string {
+	var ctx context.Context
+	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
+	c.ctxCancelLock.Lock()
+	defer c.ctxCancelLock.Unlock()
+	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
+
+	cfg, _ := internal.UpdateOrCreateConfig(internal.ConfigInput{
+		ConfigPath: c.cfgFile,
+	})
+
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, cfg, false)
 	if err != nil {
-		return err
+		return err.Error()
 	}
 
-	dnsServer.OnUpdatedHostDNSServer(list.items)
-	return nil
+	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
+	if err != nil {
+		return err.Error()
+	}
+
+	// This could cause a potential race condition with loading the extension which need to be handled on swift side
+	go func() {
+		waitTimeout := time.Duration(flowInfo.ExpiresIn)
+		waitCTX, cancel := context.WithTimeout(ctx, waitTimeout*time.Second)
+		defer cancel()
+		tokenInfo, err := oAuthFlow.WaitToken(waitCTX, flowInfo)
+		if err != nil {
+			return
+		}
+		jwtToken := tokenInfo.GetTokenToUse()
+		_ = internal.Login(ctx, cfg, "", jwtToken)
+		c.loginComplete = true
+	}()
+
+	return flowInfo.VerificationURIComplete
 }
 
-// SetConnectionListener set the network connection listener
-func (c *Client) SetConnectionListener(listener ConnectionListener) {
-	c.recorder.SetConnectionListener(listener)
+func (c *Client) IsLoginComplete() bool {
+	return c.loginComplete
 }
 
-// RemoveConnectionListener remove connection listener
-func (c *Client) RemoveConnectionListener() {
-	c.recorder.RemoveConnectionListener()
+func (c *Client) ClearLoginComplete() {
+	c.loginComplete = false
 }

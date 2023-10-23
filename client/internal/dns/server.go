@@ -21,7 +21,7 @@ type ReadyListener interface {
 
 // IosDnsManager is a dns manager interface for iosß
 type IosDnsManager interface {
-	applyDns(string)
+	ApplyDns(string)
 }
 
 // Server is a dns server interface

@@ -12,6 +12,12 @@ import (
 // DeviceNameCtxKey context key for device name
 const DeviceNameCtxKey = "deviceName"
 
+// OsVersionCtxKey context key for operating system version
+const OsVersionCtxKey = "OsVersion"
+
+// OsNameCtxKey context key for operating system name
+const OsNameCtxKey = "OsName"
+
 // Info is an object that contains machine information
 // Most of the code is taken from https://github.com/matishsiao/goInfo
 type Info struct {
@@ -46,6 +52,24 @@ func extractUserAgent(ctx context.Context) string {
 // extractDeviceName extracts device name from context or returns the default system name
 func extractDeviceName(ctx context.Context, defaultName string) string {
 	v, ok := ctx.Value(DeviceNameCtxKey).(string)
+	if !ok {
+		return defaultName
+	}
+	return v
+}
+
+// extractOsVersion extracts operating system version from context or returns the default
+func extractOsVersion(ctx context.Context, defaultName string) string {
+	v, ok := ctx.Value(OsVersionCtxKey).(string)
+	if !ok {
+		return defaultName
+	}
+	return v
+}
+
+// extractOsName extracts operating system name from context or returns the default
+func extractOsName(ctx context.Context, defaultName string) string {
+	v, ok := ctx.Value(OsNameCtxKey).(string)
 	if !ok {
 		return defaultName
 	}

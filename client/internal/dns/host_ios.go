@@ -1,5 +1,12 @@
 package dns
 
+import (
+	"strconv"
+	"strings"
+
+	log "github.com/sirupsen/logrus"
+)
+
 type iosHostManager struct {
 	dnsManager IosDnsManager
 	config     HostDNSConfig
@@ -12,7 +19,23 @@ func newHostManager(wgInterface WGIface, dnsManager IosDnsManager) (hostManager,
 }
 
 func (a iosHostManager) applyDNSConfig(config HostDNSConfig) error {
-	a.dnsManager.applyDns("bla")
+	var configAsString []string
+	configAsString = append(configAsString, config.serverIP)
+	configAsString = append(configAsString, strconv.Itoa(config.serverPort))
+	configAsString = append(configAsString, strconv.FormatBool(config.routeAll))
+	var domainConfigAsString []string
+	for _, domain := range config.domains {
+		var domainAsString []string
+		domainAsString = append(domainAsString, strconv.FormatBool(domain.disabled))
+		domainAsString = append(domainAsString, domain.domain)
+		domainAsString = append(domainAsString, strconv.FormatBool(domain.matchOnly))
+		domainConfigAsString = append(domainConfigAsString, strings.Join(domainAsString, "|"))
+	}
+	domainConfig := strings.Join(domainConfigAsString, ";")
+	configAsString = append(configAsString, domainConfig)
+	outputString := strings.Join(configAsString, ",")
+	log.Debug("applyDNSConfig: " + outputString)
+	a.dnsManager.ApplyDns(outputString)
 	return nil
 }
 

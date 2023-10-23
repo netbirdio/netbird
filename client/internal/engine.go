@@ -217,6 +217,7 @@ func (e *Engine) Start() error {
 	log.Debugf("Initial routes contain %d routes", len(routes))
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
 	e.mobileDep.RouteListener.SetInterfaceIP(wgAddr)
+
 	e.routeManager.SetRouteChangeListener(e.mobileDep.RouteListener)
 
 	switch runtime.GOOS {

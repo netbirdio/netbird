@@ -1,4 +1,4 @@
-package netbird
+package NetBirdSDK
 
 import (
 	"path/filepath"
