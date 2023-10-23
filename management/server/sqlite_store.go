@@ -245,7 +245,8 @@ func (s *SqliteStore) DeleteTokenID2UserIDIndex(tokenID string) error {
 func (s *SqliteStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 	var account Account
 
-	result := s.db.First(&account, "domain = ?", strings.ToLower(domain))
+	result := s.db.First(&account, "domain = ? and is_domain_primary_account = ? and domain_category = ?",
+		strings.ToLower(domain), true, PrivateCategory)
 	if result.Error != nil {
 		return nil, status.Errorf(status.NotFound, "account not found: provided domain is not registered or is not private")
 	}
