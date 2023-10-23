@@ -434,16 +434,16 @@ func (s *SqliteStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 
 // SaveUserLastLogin stores the last login time for a user in DB.
 func (s *SqliteStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error {
-	var peer Peer
+	var user User
 
-	result := s.db.First(&peer, "account_id = ? and user_id = ?", accountID, userID)
+	result := s.db.First(&user, "account_id = ? and id = ?", accountID, userID)
 	if result.Error != nil {
 		return status.Errorf(status.NotFound, "user %s not found", userID)
 	}
 
-	peer.LastLogin = lastLogin
+	user.LastLogin = lastLogin
 
-	return s.db.Save(peer).Error
+	return s.db.Save(user).Error
 }
 
 // Close is noop in Sqlite
