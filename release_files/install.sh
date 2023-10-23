@@ -44,7 +44,7 @@ get_release() {
 }
 
 download_release_binary() {
-    VERSION=$(get_release $NETBIRD_RELEASE)
+    VERSION="$(get_release $NETBIRD_RELEASE)"
     BASE_URL="https://github.com/${OWNER}/${REPO}/releases/download"
     BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}.tar.gz"
 
