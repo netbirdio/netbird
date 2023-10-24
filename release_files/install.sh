@@ -23,13 +23,13 @@ if command -v sudo > /dev/null && [ "$(id -u)" -ne 0 ]; then
     SUDO="sudo"
 fi
 
-if [ -z ${NETBIRD_RELEASE+x} ]; then 
+if [ -z ${NETBIRD_RELEASE+x} ]; then
     NETBIRD_RELEASE=latest
 fi
 
 get_release() {
     local RELEASE=$1
-    if [ "$RELEASE" == "latest" ]; then
+    if [ "$RELEASE" = "latest" ]; then
         local TAG="latest"
     else
         local TAG="tags/${RELEASE}"
