@@ -15,7 +15,7 @@ fi
 brew list --formula | grep netbird
 if [ $? -eq 0 ]
 then
-  echo "Netbird has been installed with brew. Use brew to update the package."
+  echo "NetBird has been installed with Brew. Please use Brew to update the package."
   exit 1
 fi
 
