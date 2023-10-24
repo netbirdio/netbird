@@ -245,7 +245,8 @@ func (s *SqliteStore) DeleteTokenID2UserIDIndex(tokenID string) error {
 func (s *SqliteStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 	var account Account
 
-	result := s.db.First(&account, "domain = ?", strings.ToLower(domain))
+	result := s.db.First(&account, "domain = ? and is_domain_primary_account = ? and domain_category = ?",
+		strings.ToLower(domain), true, PrivateCategory)
 	if result.Error != nil {
 		return nil, status.Errorf(status.NotFound, "account not found: provided domain is not registered or is not private")
 	}
@@ -434,16 +435,16 @@ func (s *SqliteStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 
 // SaveUserLastLogin stores the last login time for a user in DB.
 func (s *SqliteStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error {
-	var peer Peer
+	var user User
 
-	result := s.db.First(&peer, "account_id = ? and user_id = ?", accountID, userID)
+	result := s.db.First(&user, "account_id = ? and id = ?", accountID, userID)
 	if result.Error != nil {
 		return status.Errorf(status.NotFound, "user %s not found", userID)
 	}
 
-	peer.LastLogin = lastLogin
+	user.LastLogin = lastLogin
 
-	return s.db.Save(peer).Error
+	return s.db.Save(user).Error
 }
 
 // Close is noop in Sqlite
