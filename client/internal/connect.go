@@ -22,6 +22,7 @@ import (
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	signal "github.com/netbirdio/netbird/signal/client"
+	"github.com/netbirdio/netbird/version"
 )
 
 // RunClient with main logic.
@@ -43,6 +44,8 @@ func RunClientMobile(ctx context.Context, config *Config, statusRecorder *peer.S
 }
 
 func runClient(ctx context.Context, config *Config, statusRecorder *peer.Status, mobileDependency MobileDependency) error {
+	log.Infof("starting NetBird client version %s", version.NetbirdVersion())
+
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
 		RandomizationFactor: 1,
