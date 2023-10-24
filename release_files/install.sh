@@ -23,19 +23,28 @@ if command -v sudo > /dev/null && [ "$(id -u)" -ne 0 ]; then
     SUDO="sudo"
 fi
 
-get_latest_release() {
+if [ -z ${NETBIRD_RELEASE+x} ]; then
+    NETBIRD_RELEASE=latest
+fi
+
+get_release() {
+    local RELEASE=$1
+    if [ "$RELEASE" = "latest" ]; then
+        local TAG="latest"
+    else
+        local TAG="tags/${RELEASE}"
+    fi
     if [ -n "$GITHUB_TOKEN" ]; then
-          curl -H  "Authorization: token ${GITHUB_TOKEN}" -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
+          curl -H  "Authorization: token ${GITHUB_TOKEN}" -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/${TAG}" \
               | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
     else
-          curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
+          curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/${TAG}" \
               | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
     fi
-
 }
 
 download_release_binary() {
-    VERSION=$(get_latest_release)
+    VERSION=$(get_release "$NETBIRD_RELEASE")
     BASE_URL="https://github.com/${OWNER}/${REPO}/releases/download"
     BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}.tar.gz"
 
@@ -299,7 +308,7 @@ stop_running_netbird_ui() {
 
 update_netbird() {
   if is_bin_package_manager "$CONFIG_FILE"; then
-    latest_release=$(get_latest_release)
+    latest_release=$(get_release "latest")
     latest_version=${latest_release#v}
     installed_version=$(netbird version)
 
