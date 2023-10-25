@@ -96,14 +96,15 @@ type serviceClient struct {
 	icDisconnected []byte
 
 	// systray menu items
-	mStatus     *systray.MenuItem
-	mUp         *systray.MenuItem
-	mDown       *systray.MenuItem
-	mAdminPanel *systray.MenuItem
-	mSettings   *systray.MenuItem
-	mVersion    *systray.MenuItem
-	mUpdate     *systray.MenuItem
-	mQuit       *systray.MenuItem
+	mStatus        *systray.MenuItem
+	mUp            *systray.MenuItem
+	mDown          *systray.MenuItem
+	mAdminPanel    *systray.MenuItem
+	mSettings      *systray.MenuItem
+	mVersionUI     *systray.MenuItem
+	mVersionDaemon *systray.MenuItem
+	mUpdate        *systray.MenuItem
+	mQuit          *systray.MenuItem
 
 	// application with main windows.
 	app          fyne.App
@@ -355,6 +356,10 @@ func (s *serviceClient) updateStatus() error {
 			s.mUpdate.Hide()
 			s.daemonVersion = status.DaemonVersion
 			s.update.SetDaemonVersion(status.DaemonVersion)
+			daemonVersionTitle := normalizedVersion(s.daemonVersion)
+			s.mVersionDaemon.SetTitle(fmt.Sprintf("Daemon: %s", daemonVersionTitle))
+			s.mVersionDaemon.SetTooltip(fmt.Sprintf("Daemon version: %s", daemonVersionTitle))
+			s.mVersionDaemon.Show()
 		}
 
 		return nil
@@ -391,10 +396,15 @@ func (s *serviceClient) onTrayReady() {
 	s.mSettings = systray.AddMenuItem("Settings", "Settings of the application")
 	systray.AddSeparator()
 
-	versionString := normalizedVersion()
 	v := systray.AddMenuItem("About", "About")
-	s.mVersion = v.AddSubMenuItem(versionString, "Client Version: "+versionString)
-	s.mVersion.Disable()
+	versionString := normalizedVersion(version.NetbirdVersion())
+	s.mVersionUI = v.AddSubMenuItem(fmt.Sprintf("GUI: %s", versionString), fmt.Sprintf("GUI Version: %s", versionString))
+	s.mVersionUI.Disable()
+
+	s.mVersionDaemon = v.AddSubMenuItem("", "")
+	s.mVersionDaemon.Disable()
+	s.mVersionDaemon.Hide()
+
 	s.mUpdate = v.AddSubMenuItem("Download latest version", "Download latest version")
 	s.mUpdate.Hide()
 
@@ -472,8 +482,8 @@ func (s *serviceClient) onTrayReady() {
 	}()
 }
 
-func normalizedVersion() string {
-	versionString := version.NetbirdVersion()
+func normalizedVersion(version string) string {
+	versionString := version
 	if unicode.IsDigit(rune(versionString[0])) {
 		versionString = fmt.Sprintf("v%s", versionString)
 	}
