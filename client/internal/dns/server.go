@@ -25,6 +25,7 @@ type Server interface {
 	DnsIP() string
 	UpdateDNSServer(serial uint64, update nbdns.Config) error
 	OnUpdatedHostDNSServer(strings []string)
+	SearchDomains() []string
 }
 
 type registeredHandlerMap map[string]handlerWithStop
@@ -81,12 +82,13 @@ func NewDefaultServer(ctx context.Context, wgInterface WGIface, customAddress st
 }
 
 // NewDefaultServerPermanentUpstream returns a new dns server. It optimized for mobile systems
-func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface, hostsDnsList []string) *DefaultServer {
+func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface, hostsDnsList []string, config nbdns.Config) *DefaultServer {
 	log.Debugf("host dns address list is: %v", hostsDnsList)
 	ds := newDefaultServer(ctx, wgInterface, newServiceViaMemory(wgInterface))
 	ds.permanent = true
 	ds.hostsDnsList = hostsDnsList
 	ds.addHostRootZone()
+	ds.currentConfig = dnsConfigToHostDNSConfig(config, ds.service.RuntimeIP(), ds.service.RuntimePort())
 	setServerDns(ds)
 	return ds
 }
@@ -210,6 +212,21 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 
 		return nil
 	}
+}
+
+func (s *DefaultServer) SearchDomains() []string {
+	var searchDomains []string
+
+	for _, dConf := range s.currentConfig.domains {
+		if dConf.disabled {
+			continue
+		}
+		if dConf.matchOnly {
+			continue
+		}
+		searchDomains = append(searchDomains, dConf.domain)
+	}
+	return searchDomains
 }
 
 func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
