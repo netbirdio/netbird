@@ -337,7 +337,7 @@ func (am *Auth0Manager) GetAccount(accountID string) ([]*UserData, error) {
 			return nil, err
 		}
 
-		log.Debugf("returned user batch for accountID %s on page %d, %v", accountID, page, batch)
+		log.Debugf("returned user batch for accountID %s on page %d, batch lenght %d", accountID, page, len(batch))
 
 		err = res.Body.Close()
 		if err != nil {
