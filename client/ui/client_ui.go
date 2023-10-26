@@ -383,8 +383,10 @@ func (s *serviceClient) updateStatus() error {
 			if !s.isUpdateIconActive {
 				if systrayIconState {
 					systray.SetIcon(s.icConnected)
+					s.mAbout.SetIcon(s.icConnected)
 				} else {
 					systray.SetIcon(s.icDisconnected)
+					s.mAbout.SetIcon(s.icDisconnected)
 				}
 			}
 
@@ -429,6 +431,7 @@ func (s *serviceClient) onTrayReady() {
 	systray.AddSeparator()
 
 	s.mAbout = systray.AddMenuItem("About", "About")
+	s.mAbout.SetIcon(s.icDisconnected)
 	versionString := normalizedVersion(version.NetbirdVersion())
 	s.mVersionUI = s.mAbout.AddSubMenuItem(fmt.Sprintf("GUI: %s", versionString), fmt.Sprintf("GUI Version: %s", versionString))
 	s.mVersionUI.Disable()
