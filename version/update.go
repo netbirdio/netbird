@@ -135,7 +135,7 @@ func (u *Update) fetchVersion() bool {
 
 	lastAvailable, err := goversion.NewVersion(string(content))
 	if err != nil {
-		log.Errorf("faield to parse the version string: %s", err)
+		log.Errorf("failed to parse the version string: %s", err)
 		return false
 	}
 
