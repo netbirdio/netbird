@@ -21,10 +21,10 @@ var (
 // Update fetch the version info periodically and notify the onUpdateListener in case the UI version or the
 // daemon version are deprecated
 type Update struct {
-	uiVersion     *goversion.Version
-	daemonVersion *goversion.Version
-	lastAvailable *goversion.Version
-	versionsLock  sync.Mutex
+	uiVersion       *goversion.Version
+	daemonVersion   *goversion.Version
+	latestAvailable *goversion.Version
+	versionsLock    sync.Mutex
 
 	fetchTicker *time.Ticker
 	fetchDone   chan struct{}
@@ -43,10 +43,10 @@ func NewUpdate() *Update {
 	lastAvailable, _ := goversion.NewVersion("0.0.0")
 
 	u := &Update{
-		lastAvailable: lastAvailable,
-		uiVersion:     currentVersion,
-		fetchTicker:   time.NewTicker(fetchPeriod),
-		fetchDone:     make(chan struct{}),
+		latestAvailable: lastAvailable,
+		uiVersion:       currentVersion,
+		fetchTicker:     time.NewTicker(fetchPeriod),
+		fetchDone:       make(chan struct{}),
 	}
 	go u.startFetcher()
 	return u
@@ -142,10 +142,10 @@ func (u *Update) fetchVersion() bool {
 	u.versionsLock.Lock()
 	defer u.versionsLock.Unlock()
 
-	if u.lastAvailable.Equal(lastAvailable) {
+	if u.latestAvailable.Equal(lastAvailable) {
 		return false
 	}
-	u.lastAvailable = lastAvailable
+	u.latestAvailable = lastAvailable
 
 	return true
 }
@@ -169,7 +169,7 @@ func (u *Update) isUpdateAvailable() bool {
 	u.versionsLock.Lock()
 	defer u.versionsLock.Unlock()
 
-	if u.lastAvailable.GreaterThan(u.uiVersion) {
+	if u.latestAvailable.GreaterThan(u.uiVersion) {
 		return true
 	}
 
@@ -177,7 +177,7 @@ func (u *Update) isUpdateAvailable() bool {
 		return false
 	}
 
-	if u.lastAvailable.GreaterThan(u.daemonVersion) {
+	if u.latestAvailable.GreaterThan(u.daemonVersion) {
 		return true
 	}
 	return false
