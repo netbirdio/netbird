@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode"
@@ -131,8 +132,10 @@ type serviceClient struct {
 	preSharedKey  string
 	adminURL      string
 
-	update        *version.Update
-	daemonVersion string
+	update               *version.Update
+	daemonVersion        string
+	updateIndicationLock sync.Mutex
+	isUpdateIconActive   bool
 }
 
 // newServiceClient instance constructor
@@ -346,23 +349,45 @@ func (s *serviceClient) updateStatus() error {
 			return err
 		}
 
+		var systrayIconState bool
 		if status.Status == string(internal.StatusConnected) && !s.mUp.Disabled() {
-			systray.SetIcon(s.icConnected)
+			s.updateIndicationLock.Lock()
+			if !s.isUpdateIconActive {
+				systray.SetIcon(s.icConnected)
+			}
+			s.updateIndicationLock.Unlock()
 			systray.SetTooltip("NetBird (Connected)")
 			s.mStatus.SetTitle("Connected")
 			s.mUp.Disable()
 			s.mDown.Enable()
+			systrayIconState = true
 		} else if status.Status != string(internal.StatusConnected) && s.mUp.Disabled() {
-			systray.SetIcon(s.icDisconnected)
+			s.updateIndicationLock.Lock()
+			if !s.isUpdateIconActive {
+				systray.SetIcon(s.icDisconnected)
+			}
+			s.updateIndicationLock.Unlock()
 			systray.SetTooltip("NetBird (Disconnected)")
 			s.mStatus.SetTitle("Disconnected")
 			s.mDown.Disable()
 			s.mUp.Enable()
+			systrayIconState = false
 		}
 
 		// the updater struct notify by the upgrades available only, but if meanwhile the daemon has successfully updated
 		// must reset the mUpdate visibility state
 		if s.daemonVersion != status.DaemonVersion {
+			s.updateIndicationLock.Lock()
+			s.isUpdateIconActive = false
+
+			// reset systray state
+			if systrayIconState {
+				systray.SetIcon(s.icConnected)
+			} else {
+				systray.SetIcon(s.icDisconnected)
+			}
+			s.updateIndicationLock.Unlock()
+
 			s.mUpdate.Hide()
 			s.daemonVersion = status.DaemonVersion
 			s.update.SetDaemonVersion(status.DaemonVersion)
@@ -563,6 +588,10 @@ func (s *serviceClient) getSrvConfig() {
 func (s *serviceClient) onUpdateAvailable() {
 	s.mUpdate.Show()
 	s.mAbout.SetIcon(s.icUpdate)
+
+	s.updateIndicationLock.Lock()
+	defer s.updateIndicationLock.Unlock()
+	s.isUpdateIconActive = true
 	systray.SetIcon(s.icUpdate)
 }
 
