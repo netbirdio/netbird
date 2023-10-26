@@ -64,7 +64,7 @@ func (u *Update) StopWatch() {
 
 // SetDaemonVersion update the currently running daemon version. If new version is available it will trigger
 // the onUpdateListener
-func (u *Update) SetDaemonVersion(newVersion string) {
+func (u *Update) SetDaemonVersion(newVersion string) bool {
 	daemonVersion, err := goversion.NewVersion(newVersion)
 	if err != nil {
 		daemonVersion, _ = goversion.NewVersion("0.0.0")
@@ -73,12 +73,12 @@ func (u *Update) SetDaemonVersion(newVersion string) {
 	u.versionsLock.Lock()
 	if u.daemonVersion != nil && u.daemonVersion.Equal(daemonVersion) {
 		u.versionsLock.Unlock()
-		return
+		return false
 	}
 
 	u.daemonVersion = daemonVersion
 	u.versionsLock.Unlock()
-	u.checkUpdate()
+	return u.checkUpdate()
 }
 
 // SetOnUpdateListener set new update listener
@@ -150,18 +150,19 @@ func (u *Update) fetchVersion() bool {
 	return true
 }
 
-func (u *Update) checkUpdate() {
+func (u *Update) checkUpdate() bool {
 	if !u.isUpdateAvailable() {
-		return
+		return false
 	}
 
 	u.listenerLock.Lock()
 	defer u.listenerLock.Unlock()
 	if u.onUpdateListener == nil {
-		return
+		return true
 	}
 
-	u.onUpdateListener()
+	go u.onUpdateListener()
+	return true
 }
 
 func (u *Update) isUpdateAvailable() bool {

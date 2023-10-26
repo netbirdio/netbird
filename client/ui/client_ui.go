@@ -349,24 +349,23 @@ func (s *serviceClient) updateStatus() error {
 			return err
 		}
 
+		s.updateIndicationLock.Lock()
+		defer s.updateIndicationLock.Unlock()
+
 		var systrayIconState bool
 		if status.Status == string(internal.StatusConnected) && !s.mUp.Disabled() {
-			s.updateIndicationLock.Lock()
 			if !s.isUpdateIconActive {
 				systray.SetIcon(s.icConnected)
 			}
-			s.updateIndicationLock.Unlock()
 			systray.SetTooltip("NetBird (Connected)")
 			s.mStatus.SetTitle("Connected")
 			s.mUp.Disable()
 			s.mDown.Enable()
 			systrayIconState = true
 		} else if status.Status != string(internal.StatusConnected) && s.mUp.Disabled() {
-			s.updateIndicationLock.Lock()
 			if !s.isUpdateIconActive {
 				systray.SetIcon(s.icDisconnected)
 			}
-			s.updateIndicationLock.Unlock()
 			systray.SetTooltip("NetBird (Disconnected)")
 			s.mStatus.SetTitle("Disconnected")
 			s.mDown.Disable()
@@ -374,23 +373,21 @@ func (s *serviceClient) updateStatus() error {
 			systrayIconState = false
 		}
 
-		// the updater struct notify by the upgrades available only, but if meanwhile the daemon has successfully updated
-		// must reset the mUpdate visibility state
+		// the updater struct notify by the upgrades available only, but if meanwhile the daemon has successfully
+		// updated must reset the mUpdate visibility state
 		if s.daemonVersion != status.DaemonVersion {
-			s.updateIndicationLock.Lock()
-			s.isUpdateIconActive = false
-
-			// reset systray state
-			if systrayIconState {
-				systray.SetIcon(s.icConnected)
-			} else {
-				systray.SetIcon(s.icDisconnected)
-			}
-			s.updateIndicationLock.Unlock()
-
 			s.mUpdate.Hide()
 			s.daemonVersion = status.DaemonVersion
-			s.update.SetDaemonVersion(status.DaemonVersion)
+
+			s.isUpdateIconActive = s.update.SetDaemonVersion(status.DaemonVersion)
+			if !s.isUpdateIconActive {
+				if systrayIconState {
+					systray.SetIcon(s.icConnected)
+				} else {
+					systray.SetIcon(s.icDisconnected)
+				}
+			}
+
 			daemonVersionTitle := normalizedVersion(s.daemonVersion)
 			s.mVersionDaemon.SetTitle(fmt.Sprintf("Daemon: %s", daemonVersionTitle))
 			s.mVersionDaemon.SetTooltip(fmt.Sprintf("Daemon version: %s", daemonVersionTitle))
@@ -586,11 +583,12 @@ func (s *serviceClient) getSrvConfig() {
 }
 
 func (s *serviceClient) onUpdateAvailable() {
+	s.updateIndicationLock.Lock()
+	defer s.updateIndicationLock.Unlock()
+
 	s.mUpdate.Show()
 	s.mAbout.SetIcon(s.icUpdate)
 
-	s.updateIndicationLock.Lock()
-	defer s.updateIndicationLock.Unlock()
 	s.isUpdateIconActive = true
 	systray.SetIcon(s.icUpdate)
 }
