@@ -201,7 +201,7 @@ func (e *Engine) Start() error {
 			return err
 		}
 		if e.dnsServer == nil {
-			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, *dnsConfig)
+			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, *dnsConfig, e.mobileDep.NetworkChangeListener)
 			go e.mobileDep.DnsReadyListener.OnReady()
 		}
 	} else {
@@ -216,7 +216,7 @@ func (e *Engine) Start() error {
 	}
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
-	e.routeManager.SetRouteChangeListener(e.mobileDep.RouteListener)
+	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
 	if runtime.GOOS == "android" {
 		err = e.wgInterface.CreateOnMobile(iface.MobileIFaceArguments{

@@ -10,6 +10,7 @@ import (
 	"github.com/mitchellh/hashstructure/v2"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/listener"
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
@@ -48,6 +49,9 @@ type DefaultServer struct {
 	permanent        bool
 	hostsDnsList     []string
 	hostsDnsListLock sync.Mutex
+
+	// make sense on mobile only
+	searchDomainNotifier *notifier
 }
 
 type handlerWithStop interface {
@@ -82,13 +86,15 @@ func NewDefaultServer(ctx context.Context, wgInterface WGIface, customAddress st
 }
 
 // NewDefaultServerPermanentUpstream returns a new dns server. It optimized for mobile systems
-func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface, hostsDnsList []string, config nbdns.Config) *DefaultServer {
+func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface, hostsDnsList []string, config nbdns.Config, listener listener.NetworkChangeListener) *DefaultServer {
 	log.Debugf("host dns address list is: %v", hostsDnsList)
 	ds := newDefaultServer(ctx, wgInterface, newServiceViaMemory(wgInterface))
 	ds.permanent = true
 	ds.hostsDnsList = hostsDnsList
 	ds.addHostRootZone()
 	ds.currentConfig = dnsConfigToHostDNSConfig(config, ds.service.RuntimeIP(), ds.service.RuntimePort())
+	ds.searchDomainNotifier = newNotifier(ds.SearchDomains())
+	ds.searchDomainNotifier.SetListener(listener)
 	setServerDns(ds)
 	return ds
 }
