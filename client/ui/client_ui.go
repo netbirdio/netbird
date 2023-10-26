@@ -75,17 +75,23 @@ func main() {
 	}
 }
 
-//go:embed connected.ico
+//go:embed netbird-systemtray-connected.ico
 var iconConnectedICO []byte
 
-//go:embed connected.png
+//go:embed netbird-systemtray-connected.png
 var iconConnectedPNG []byte
 
-//go:embed disconnected.ico
+//go:embed netbird-systemtray-default.ico
 var iconDisconnectedICO []byte
 
-//go:embed disconnected.png
+//go:embed netbird-systemtray-default.png
 var iconDisconnectedPNG []byte
+
+//go:embed netbird-systemtray-update.ico
+var iconUpdateICO []byte
+
+//go:embed netbird-systemtray-update.png
+var iconUpdatePNG []byte
 
 type serviceClient struct {
 	ctx  context.Context
@@ -94,6 +100,7 @@ type serviceClient struct {
 
 	icConnected    []byte
 	icDisconnected []byte
+	icUpdate       []byte
 
 	// systray menu items
 	mStatus        *systray.MenuItem
@@ -101,6 +108,7 @@ type serviceClient struct {
 	mDown          *systray.MenuItem
 	mAdminPanel    *systray.MenuItem
 	mSettings      *systray.MenuItem
+	mAbout         *systray.MenuItem
 	mVersionUI     *systray.MenuItem
 	mVersionDaemon *systray.MenuItem
 	mUpdate        *systray.MenuItem
@@ -143,9 +151,11 @@ func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient
 	if runtime.GOOS == "windows" {
 		s.icConnected = iconConnectedICO
 		s.icDisconnected = iconDisconnectedICO
+		s.icUpdate = iconUpdateICO
 	} else {
 		s.icConnected = iconConnectedPNG
 		s.icDisconnected = iconDisconnectedPNG
+		s.icUpdate = iconUpdatePNG
 	}
 
 	if showSettings {
@@ -396,16 +406,16 @@ func (s *serviceClient) onTrayReady() {
 	s.mSettings = systray.AddMenuItem("Settings", "Settings of the application")
 	systray.AddSeparator()
 
-	v := systray.AddMenuItem("About", "About")
+	s.mAbout = systray.AddMenuItem("About", "About")
 	versionString := normalizedVersion(version.NetbirdVersion())
-	s.mVersionUI = v.AddSubMenuItem(fmt.Sprintf("GUI: %s", versionString), fmt.Sprintf("GUI Version: %s", versionString))
+	s.mVersionUI = s.mAbout.AddSubMenuItem(fmt.Sprintf("GUI: %s", versionString), fmt.Sprintf("GUI Version: %s", versionString))
 	s.mVersionUI.Disable()
 
-	s.mVersionDaemon = v.AddSubMenuItem("", "")
+	s.mVersionDaemon = s.mAbout.AddSubMenuItem("", "")
 	s.mVersionDaemon.Disable()
 	s.mVersionDaemon.Hide()
 
-	s.mUpdate = v.AddSubMenuItem("Download latest version", "Download latest version")
+	s.mUpdate = s.mAbout.AddSubMenuItem("Download latest version", "Download latest version")
 	s.mUpdate.Hide()
 
 	systray.AddSeparator()
@@ -552,6 +562,8 @@ func (s *serviceClient) getSrvConfig() {
 
 func (s *serviceClient) onUpdateAvailable() {
 	s.mUpdate.Show()
+	s.mAbout.SetIcon(s.icUpdate)
+	systray.SetIcon(s.icUpdate)
 }
 
 func openURL(url string) error {
