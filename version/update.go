@@ -40,10 +40,10 @@ func NewUpdate() *Update {
 		currentVersion, _ = goversion.NewVersion("0.0.0")
 	}
 
-	lastAvailable, _ := goversion.NewVersion("0.0.0")
+	latestAvailable, _ := goversion.NewVersion("0.0.0")
 
 	u := &Update{
-		latestAvailable: lastAvailable,
+		latestAvailable: latestAvailable,
 		uiVersion:       currentVersion,
 		fetchTicker:     time.NewTicker(fetchPeriod),
 		fetchDone:       make(chan struct{}),
@@ -133,7 +133,7 @@ func (u *Update) fetchVersion() bool {
 		return false
 	}
 
-	lastAvailable, err := goversion.NewVersion(string(content))
+	latestAvailable, err := goversion.NewVersion(string(content))
 	if err != nil {
 		log.Errorf("failed to parse the version string: %s", err)
 		return false
@@ -142,10 +142,10 @@ func (u *Update) fetchVersion() bool {
 	u.versionsLock.Lock()
 	defer u.versionsLock.Unlock()
 
-	if u.latestAvailable.Equal(lastAvailable) {
+	if u.latestAvailable.Equal(latestAvailable) {
 		return false
 	}
-	u.latestAvailable = lastAvailable
+	u.latestAvailable = latestAvailable
 
 	return true
 }
