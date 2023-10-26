@@ -21,6 +21,9 @@ func (m *Manager) Reset() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	m.outgoingRules = make(map[string]RuleSet)
+	m.incomingRules = make(map[string]RuleSet)
+
 	if !isWindowsFirewallReachable() {
 		return nil
 	}
@@ -28,9 +31,6 @@ func (m *Manager) Reset() error {
 	if !isFirewallRuleActive(firewallRuleName) {
 		return nil
 	}
-
-	m.outgoingRules = make(map[string]RuleSet)
-	m.incomingRules = make(map[string]RuleSet)
 
 	if err := manageFirewallRule(firewallRuleName, deleteRule); err != nil {
 		return fmt.Errorf("couldn't remove windows firewall: %w", err)
@@ -71,13 +71,13 @@ func manageFirewallRule(ruleName string, action action, extraArgs ...string) err
 }
 
 func isWindowsFirewallReachable() bool {
-	args := []string{"advfirewall", "firewall", "show", "allprofiles", "state"}
+	args := []string{"advfirewall", "show", "allprofiles", "state"}
 	cmd := exec.Command("netsh", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
 	_, err := cmd.Output()
 	if err != nil {
-		log.Info("Windows firewall is not reachable, skipping default rule creation. Error: ", err)
+		log.Infof("Windows firewall is not reachable, skipping default rule management. Using only user space rules. Error: %s", err)
 		return false
 	}
 
@@ -90,9 +90,5 @@ func isFirewallRuleActive(ruleName string) bool {
 	cmd := exec.Command("netsh", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	_, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-
-	return true
+	return err == nil
 }
