@@ -94,6 +94,12 @@ var iconUpdateICO []byte
 //go:embed netbird-systemtray-update.png
 var iconUpdatePNG []byte
 
+//go:embed netbird-systemtray-update-cloud.ico
+var iconUpdateCloudICO []byte
+
+//go:embed netbird-systemtray-update-cloud.png
+var iconUpdateCloudPNG []byte
+
 type serviceClient struct {
 	ctx  context.Context
 	addr string
@@ -102,6 +108,7 @@ type serviceClient struct {
 	icConnected    []byte
 	icDisconnected []byte
 	icUpdate       []byte
+	icUpdateCloud  []byte
 
 	// systray menu items
 	mStatus        *systray.MenuItem
@@ -155,10 +162,13 @@ func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient
 		s.icConnected = iconConnectedICO
 		s.icDisconnected = iconDisconnectedICO
 		s.icUpdate = iconUpdateICO
+		s.icUpdateCloud = iconUpdateCloudICO
+
 	} else {
 		s.icConnected = iconConnectedPNG
 		s.icDisconnected = iconDisconnectedPNG
 		s.icUpdate = iconUpdatePNG
+		s.icUpdateCloud = iconUpdateCloudPNG
 	}
 
 	if showSettings {
@@ -590,7 +600,7 @@ func (s *serviceClient) onUpdateAvailable() {
 	defer s.updateIndicationLock.Unlock()
 
 	s.mUpdate.Show()
-	s.mAbout.SetIcon(s.icUpdate)
+	s.mAbout.SetIcon(s.icUpdateCloud)
 
 	s.isUpdateIconActive = true
 	systray.SetIcon(s.icUpdate)
