@@ -42,6 +42,12 @@ type UserStatus string
 // UserRole is the role of a User
 type UserRole string
 
+// IntegrationReference holds the reference to a particular integration
+type IntegrationReference struct {
+	ID              int
+	IntegrationType string
+}
+
 // User represents a user of the system
 type User struct {
 	Id string `gorm:"primaryKey"`
@@ -59,6 +65,11 @@ type User struct {
 	Blocked bool
 	// LastLogin is the last time the user logged in to IdP
 	LastLogin time.Time
+
+	// Issued of the user
+	Issued string
+
+	IntegrationReference IntegrationReference `gorm:"serializer:json"`
 }
 
 // IsBlocked returns true if the user is blocked, false otherwise

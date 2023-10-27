@@ -34,6 +34,8 @@ type Group struct {
 
 	// Peers list of the group
 	Peers []string `gorm:"serializer:json"`
+
+	IntegrationReference IntegrationReference `gorm:"serializer:json"`
 }
 
 // EventMeta returns activity event meta related to the group
