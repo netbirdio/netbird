@@ -11,14 +11,6 @@ then
   wiretrustee service uninstall || true
 fi
 
-# check if it was installed with brew
-brew list --formula | grep netbird
-if [ $? -eq 0 ]
-then
-  echo "NetBird has been installed with Brew. Please use Brew to update the package."
-  exit 1
-fi
-
 # check if netbird is installed
 NB_BIN=$(which netbird)
 if [ -z "$NB_BIN" ]
