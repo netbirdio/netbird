@@ -20,7 +20,7 @@ func Create(iface IFaceMapper) (manager *DefaultManager, err error) {
 			return nil, err
 		}
 		if err := fm.AllowNetbird(); err != nil {
-			log.Errorf("failed to allow netbird interface traffic: %v", err)
+			log.Warnf("failed to allow netbird interface traffic: %v", err)
 		}
 		return newDefaultManager(fm), nil
 	}
