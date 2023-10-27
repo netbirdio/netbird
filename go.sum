@@ -495,8 +495,8 @@ github.com/mwitkow/go-conntrack v0.0.0-20190716064945-2f068394615f/go.mod h1:qRW
 github.com/mxk/go-flowrate v0.0.0-20140419014527-cca7078d478f/go.mod h1:ZdcZmHo+o7JKHSa8/e818NopupXU1YMK5fe1lsApnBw=
 github.com/nadoo/ipset v0.5.0 h1:5GJUAuZ7ITQQQGne5J96AmFjRtI8Avlbk6CabzYWVUc=
 github.com/nadoo/ipset v0.5.0/go.mod h1:rYF5DQLRGGoQ8ZSWeK+6eX5amAuPqwFkWjhQlEITGJQ=
-github.com/netbirdio/management-integrations/integrations v0.0.0-20231017101406-322cbabed3da h1:S1RoPhLTw3+IhHGnyfcQlj4aqIIaQdVd3SqaiK+MYFY=
-github.com/netbirdio/management-integrations/integrations v0.0.0-20231017101406-322cbabed3da/go.mod h1:KSqjzHcqlodTWiuap5lRXxt5KT3vtYRoksL0KIrTK40=
+github.com/netbirdio/management-integrations/integrations v0.0.0-20231027143200-a966bce7db88 h1:zhe8qseauBuYOS910jpl5sv8Tb+36zxQPXrwYXqll0g=
+github.com/netbirdio/management-integrations/integrations v0.0.0-20231027143200-a966bce7db88/go.mod h1:KSqjzHcqlodTWiuap5lRXxt5KT3vtYRoksL0KIrTK40=
 github.com/netbirdio/service v0.0.0-20230215170314-b923b89432b0 h1:hirFRfx3grVA/9eEyjME5/z3nxdJlN9kfQpvWWPk32g=
 github.com/netbirdio/service v0.0.0-20230215170314-b923b89432b0/go.mod h1:CIMRFEJVL+0DS1a3Nx06NaMn4Dz63Ng6O7dl0qH0zVM=
 github.com/netbirdio/systray v0.0.0-20221012095658-dc8eda872c0c h1:wK/s4nyZj/GF/kFJQjX6nqNfE0G3gcqd6hhnPCyp4sw=
