@@ -59,9 +59,6 @@ func (n *notifier) onNewRoutes(idMap map[string][]*route.Route) {
 
 	n.routeRangers = newNets
 
-	if !n.hasDiff(n.initialRouteRangers, newNets) {
-		return
-	}
 	n.notify()
 }
 

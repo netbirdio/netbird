@@ -53,8 +53,7 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 		notifier:       newNotifier(),
 	}
 
-	log.Debug("initializing route manager")
-	if runtime.GOOS == "android" || runtime.GOOS == "ios" {
+	if runtime.GOOS == "android" {
 		cr := dm.clientRoutes(initialRoutes)
 		dm.notifier.setInitialClientRoutes(cr)
 	}

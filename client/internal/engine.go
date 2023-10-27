@@ -228,8 +228,6 @@ func (e *Engine) Start() error {
 		})
 	case "ios":
 		err = e.wgInterface.CreateOniOS(e.mobileDep.FileDescriptor)
-		log.Debugf("sending initial route range %s to iOS", strings.Join(e.routeManager.InitialRouteRange(), ","))
-		e.mobileDep.RouteListener.OnNewRouteSetting(strings.Join(e.routeManager.InitialRouteRange(), ","))
 	default:
 		err = e.wgInterface.Create()
 	}
