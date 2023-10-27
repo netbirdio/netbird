@@ -94,7 +94,7 @@ func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface,
 	ds.addHostRootZone()
 	ds.currentConfig = dnsConfigToHostDNSConfig(config, ds.service.RuntimeIP(), ds.service.RuntimePort())
 	ds.searchDomainNotifier = newNotifier(ds.SearchDomains())
-	ds.searchDomainNotifier.SetListener(listener)
+	ds.searchDomainNotifier.setListener(listener)
 	setServerDns(ds)
 	return ds
 }
@@ -267,6 +267,10 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 
 	if err = s.hostManager.applyDNSConfig(hostUpdate); err != nil {
 		log.Error(err)
+	}
+
+	if s.searchDomainNotifier != nil {
+		s.searchDomainNotifier.onNewSearchDomains(s.SearchDomains())
 	}
 
 	return nil

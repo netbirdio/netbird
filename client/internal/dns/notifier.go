@@ -21,7 +21,7 @@ func newNotifier(initialSearchDomains []string) *notifier {
 	}
 }
 
-func (n *notifier) SetListener(listener listener.NetworkChangeListener) {
+func (n *notifier) setListener(listener listener.NetworkChangeListener) {
 	n.listenerMux.Lock()
 	defer n.listenerMux.Unlock()
 	n.listener = listener
