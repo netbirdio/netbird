@@ -14,11 +14,23 @@ const resolvconfCommand = "resolvconf"
 
 type resolvconf struct {
 	ifaceName string
+
+	originalSearchDomains []string
+	originalNameServers   []string
+	othersConfigs         []string
 }
 
 func newResolvConfConfigurator(wgInterface WGIface) (hostManager, error) {
+	originalSearchDomains, nameServers, others, err := originalDNSConfigs()
+	if err != nil {
+		log.Error(err)
+	}
+
 	return &resolvconf{
-		ifaceName: wgInterface.Name(),
+		ifaceName:             wgInterface.Name(),
+		originalSearchDomains: originalSearchDomains,
+		originalNameServers:   nameServers,
+		othersConfigs:         others,
 	}, nil
 }
 
@@ -37,17 +49,12 @@ func (r *resolvconf) applyDNSConfig(config hostDNSConfig) error {
 	}
 
 	searchDomainList := searchDomains(config)
-
-	originalSearchDomains, nameServers, others, err := originalDNSConfigs()
-	if err != nil {
-		log.Error(err)
-	}
-	searchDomainList = append(searchDomainList, originalSearchDomains...)
+	searchDomainList = append(searchDomainList, r.originalSearchDomains...)
 
 	buf := prepareResolvConfContent(
 		searchDomainList,
-		append([]string{config.serverIP}, nameServers...),
-		others)
+		append([]string{config.serverIP}, r.originalNameServers...),
+		r.othersConfigs)
 
 	err = r.applyConfig(buf)
 	if err != nil {
