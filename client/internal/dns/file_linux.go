@@ -73,16 +73,13 @@ func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
 	log.Debugf("creating managed file %s", defaultResolvConfPath)
 	err = os.WriteFile(defaultResolvConfPath, buf.Bytes(), f.originalPerms)
 	if err != nil {
-		return fmt.Errorf("got an creating resolver file %s. Error: %s", defaultResolvConfPath, err)
-	}
-
-	if err != nil {
 		restoreErr := f.restore()
 		if restoreErr != nil {
 			log.Errorf("attempt to restore default file failed with error: %s", err)
 		}
-		return err
+		return fmt.Errorf("got an creating resolver file %s. Error: %s", defaultResolvConfPath, err)
 	}
+
 	log.Infof("created a NetBird managed %s file with your DNS settings. Added %d search domains. Search list: %s", defaultResolvConfPath, len(searchDomainList), searchDomainList)
 	return nil
 }
