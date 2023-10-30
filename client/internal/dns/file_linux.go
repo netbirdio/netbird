@@ -59,7 +59,7 @@ func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
 
 	searchDomainList := searchDomains(config)
 
-	originalSearchDomains, nameServers, others, err := originalDNSConfigs()
+	originalSearchDomains, nameServers, others, err := originalDNSConfigs(fileDefaultResolvConfBackupLocation)
 	if err != nil {
 		log.Error(err)
 	}
@@ -161,8 +161,8 @@ func searchDomains(config hostDNSConfig) []string {
 	return listOfDomains
 }
 
-func originalDNSConfigs() (searchDomains, nameServers, others []string, err error) {
-	file, err := os.Open(fileDefaultResolvConfBackupLocation)
+func originalDNSConfigs(resolvconfFile string) (searchDomains, nameServers, others []string, err error) {
+	file, err := os.Open(resolvconfFile)
 	if err != nil {
 		err = fmt.Errorf(`could not read existing resolv.conf`)
 		return

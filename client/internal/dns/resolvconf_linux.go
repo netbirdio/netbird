@@ -21,7 +21,7 @@ type resolvconf struct {
 }
 
 func newResolvConfConfigurator(wgInterface WGIface) (hostManager, error) {
-	originalSearchDomains, nameServers, others, err := originalDNSConfigs()
+	originalSearchDomains, nameServers, others, err := originalDNSConfigs("/etc/resolv.conf")
 	if err != nil {
 		log.Error(err)
 	}
