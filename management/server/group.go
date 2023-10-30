@@ -162,6 +162,11 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 		return nil
 	}
 
+	// check integration link
+	if g.Issued == GroupIssuedIntegration {
+		return &GroupLinkError{GroupIssuedIntegration, g.IntegrationReference.String()}
+	}
+
 	// check route links
 	for _, r := range account.Routes {
 		for _, g := range r.Groups {
