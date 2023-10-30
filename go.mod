@@ -1,9 +1,13 @@
 module github.com/netbirdio/netbird
 
-go 1.20
+go 1.21
+
+toolchain go1.21.0
 
 require (
+	cunicu.li/go-rosenpass v0.4.0
 	github.com/cenkalti/backoff/v4 v4.1.3
+	github.com/cloudflare/circl v1.3.3 // indirect
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/golang/protobuf v1.5.3
 	github.com/google/uuid v1.3.0
@@ -14,13 +18,13 @@ require (
 	github.com/pion/ice/v2 v2.3.1
 	github.com/rs/cors v1.8.0
 	github.com/sirupsen/logrus v1.9.0
-	github.com/spf13/cobra v1.6.1
+	github.com/spf13/cobra v1.7.0
 	github.com/spf13/pflag v1.0.5
 	github.com/vishvananda/netlink v1.1.0
 	golang.org/x/crypto v0.14.0
 	golang.org/x/sys v0.13.0
-	golang.zx2c4.com/wireguard v0.0.0-20230223181233-21636207a675
-	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20211215182854-7a385b3431de
+	golang.zx2c4.com/wireguard v0.0.0-20230704135630-469159ecf7d1
+	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20230429144221-925a1e7659e6
 	golang.zx2c4.com/wireguard/windows v0.5.3
 	google.golang.org/grpc v1.55.0
 	google.golang.org/protobuf v1.30.0
@@ -31,7 +35,7 @@ require (
 	fyne.io/fyne/v2 v2.1.4
 	github.com/TheJumpCloud/jcapi-go v3.0.0+incompatible
 	github.com/c-robinson/iplib v1.0.3
-	github.com/cilium/ebpf v0.10.0
+	github.com/cilium/ebpf v0.11.0
 	github.com/coreos/go-iptables v0.7.0
 	github.com/creack/pty v1.1.18
 	github.com/eko/gocache/v3 v3.1.1
@@ -47,7 +51,7 @@ require (
 	github.com/libp2p/go-netroute v0.2.0
 	github.com/magiconair/properties v1.8.5
 	github.com/mattn/go-sqlite3 v1.14.17
-	github.com/mdlayher/socket v0.4.0
+	github.com/mdlayher/socket v0.4.1
 	github.com/miekg/dns v1.1.43
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/nadoo/ipset v0.5.0
@@ -60,18 +64,18 @@ require (
 	github.com/prometheus/client_golang v1.14.0
 	github.com/rs/xid v1.3.0
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
-	github.com/stretchr/testify v1.8.1
+	github.com/stretchr/testify v1.8.4
 	github.com/yusufpapurcu/wmi v1.2.3
 	go.opentelemetry.io/otel v1.11.1
 	go.opentelemetry.io/otel/exporters/prometheus v0.33.0
 	go.opentelemetry.io/otel/metric v0.33.0
 	go.opentelemetry.io/otel/sdk/metric v0.33.0
 	goauthentik.io/api/v3 v3.2023051.3
-	golang.org/x/exp v0.0.0-20220518171630-0b5c67f07fdf
+	golang.org/x/exp v0.0.0-20230224173230-c95f2b4c22f2
 	golang.org/x/mobile v0.0.0-20190719004257-d2bd2a29d028
 	golang.org/x/net v0.17.0
 	golang.org/x/oauth2 v0.8.0
-	golang.org/x/sync v0.2.0
+	golang.org/x/sync v0.3.0
 	golang.org/x/term v0.13.0
 	google.golang.org/api v0.126.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -111,15 +115,16 @@ require (
 	github.com/google/s2a-go v0.1.4 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.2.3 // indirect
 	github.com/googleapis/gax-go/v2 v2.10.0 // indirect
+	github.com/gopacket/gopacket v1.1.1 // indirect
 	github.com/hashicorp/go-uuid v1.0.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
-	github.com/josharian/native v1.0.0 // indirect
+	github.com/josharian/native v1.1.0 // indirect
 	github.com/kelseyhightower/envconfig v1.4.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
-	github.com/mdlayher/genetlink v1.1.0 // indirect
-	github.com/mdlayher/netlink v1.7.1 // indirect
+	github.com/mdlayher/genetlink v1.3.2 // indirect
+	github.com/mdlayher/netlink v1.7.2 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
 	github.com/pegasus-kv/thrift v0.13.0 // indirect
@@ -141,10 +146,8 @@ require (
 	go.opentelemetry.io/otel/sdk v1.11.1 // indirect
 	go.opentelemetry.io/otel/trace v1.11.1 // indirect
 	golang.org/x/image v0.5.0 // indirect
-	golang.org/x/mod v0.8.0 // indirect
 	golang.org/x/text v0.13.0 // indirect
 	golang.org/x/time v0.0.0-20210723032227-1f47c861a9ac // indirect
-	golang.org/x/tools v0.6.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20230530153820-e85fd2cbaebc // indirect
@@ -153,7 +156,6 @@ require (
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/tomb.v2 v2.0.0-20161208151619-d5d1b5820637 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	honnef.co/go/tools v0.2.2 // indirect
 	k8s.io/apimachinery v0.23.5 // indirect
 )
 
@@ -162,3 +164,5 @@ replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-2023
 replace github.com/getlantern/systray => github.com/netbirdio/systray v0.0.0-20221012095658-dc8eda872c0c
 
 replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20230524172305-5a498a82b33f
+
+replace github.com/cloudflare/circl => github.com/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
