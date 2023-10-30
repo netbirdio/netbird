@@ -269,6 +269,11 @@ func TestUser_Copy(t *testing.T) {
 		},
 		Blocked:   false,
 		LastLogin: time.Now(),
+		Issued:    "test",
+		IntegrationReference: IntegrationReference{
+			ID:              0,
+			IntegrationType: "test",
+		},
 	}
 
 	err := validateStruct(user)
