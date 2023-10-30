@@ -60,7 +60,7 @@ jobs:
           CI_NETBIRD_MGMT_IDP_SIGNKEY_REFRESH: false
 
       - name: check values
-        working-directory: infrastructure_files
+        working-directory: infrastructure_files/artifacts
         env:
           CI_NETBIRD_DOMAIN: localhost
           CI_NETBIRD_AUTH_CLIENT_ID: testing.client.id
@@ -105,7 +105,7 @@ jobs:
           grep Engine management.json  | grep "$CI_NETBIRD_STORE_CONFIG_ENGINE"
           grep IdpSignKeyRefreshEnabled management.json | grep "$CI_NETBIRD_MGMT_IDP_SIGNKEY_REFRESH"
           grep UseIDToken management.json | grep false
-          grep -A 1 IdpManagerConfig management.json | grep ManagerType | grep $CI_NETBIRD_MGMT_IDP 
+          grep -A 1 IdpManagerConfig management.json | grep ManagerType | grep $CI_NETBIRD_MGMT_IDP
           grep -A 3 IdpManagerConfig management.json | grep -A 1 ClientConfig | grep Issuer | grep $CI_NETBIRD_AUTH_AUTHORITY
           grep -A 4 IdpManagerConfig management.json | grep -A 2 ClientConfig | grep TokenEndpoint | grep $CI_NETBIRD_AUTH_TOKEN_ENDPOINT
           grep -A 5 IdpManagerConfig management.json | grep -A 3 ClientConfig | grep ClientID | grep $CI_NETBIRD_IDP_MGMT_CLIENT_ID
