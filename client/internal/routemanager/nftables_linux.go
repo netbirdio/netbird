@@ -135,7 +135,8 @@ func (n *nftablesManager) RestoreOrCreateContainers() error {
 	}
 
 	for _, table := range tables {
-		if table.Name == "filter" {
+		if table.Name == "filter" && table.Family == nftables.TableFamilyIPv4 {
+			log.Debugf("nftables: found filter table for ipv4")
 			n.filterTable = table
 			continue
 		}

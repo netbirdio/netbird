@@ -15,8 +15,10 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
+	"unicode"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -74,17 +76,29 @@ func main() {
 	}
 }
 
-//go:embed connected.ico
+//go:embed netbird-systemtray-connected.ico
 var iconConnectedICO []byte
 
-//go:embed connected.png
+//go:embed netbird-systemtray-connected.png
 var iconConnectedPNG []byte
 
-//go:embed disconnected.ico
+//go:embed netbird-systemtray-default.ico
 var iconDisconnectedICO []byte
 
-//go:embed disconnected.png
+//go:embed netbird-systemtray-default.png
 var iconDisconnectedPNG []byte
+
+//go:embed netbird-systemtray-update.ico
+var iconUpdateICO []byte
+
+//go:embed netbird-systemtray-update.png
+var iconUpdatePNG []byte
+
+//go:embed netbird-systemtray-update-cloud.ico
+var iconUpdateCloudICO []byte
+
+//go:embed netbird-systemtray-update-cloud.png
+var iconUpdateCloudPNG []byte
 
 type serviceClient struct {
 	ctx  context.Context
@@ -93,14 +107,20 @@ type serviceClient struct {
 
 	icConnected    []byte
 	icDisconnected []byte
+	icUpdate       []byte
+	icUpdateCloud  []byte
 
 	// systray menu items
-	mStatus     *systray.MenuItem
-	mUp         *systray.MenuItem
-	mDown       *systray.MenuItem
-	mAdminPanel *systray.MenuItem
-	mSettings   *systray.MenuItem
-	mQuit       *systray.MenuItem
+	mStatus        *systray.MenuItem
+	mUp            *systray.MenuItem
+	mDown          *systray.MenuItem
+	mAdminPanel    *systray.MenuItem
+	mSettings      *systray.MenuItem
+	mAbout         *systray.MenuItem
+	mVersionUI     *systray.MenuItem
+	mVersionDaemon *systray.MenuItem
+	mUpdate        *systray.MenuItem
+	mQuit          *systray.MenuItem
 
 	// application with main windows.
 	app          fyne.App
@@ -118,6 +138,11 @@ type serviceClient struct {
 	managementURL string
 	preSharedKey  string
 	adminURL      string
+
+	update               *version.Update
+	daemonVersion        string
+	updateIndicationLock sync.Mutex
+	isUpdateIconActive   bool
 }
 
 // newServiceClient instance constructor
@@ -130,14 +155,20 @@ func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient
 		app:  a,
 
 		showSettings: showSettings,
+		update:       version.NewUpdate(),
 	}
 
 	if runtime.GOOS == "windows" {
 		s.icConnected = iconConnectedICO
 		s.icDisconnected = iconDisconnectedICO
+		s.icUpdate = iconUpdateICO
+		s.icUpdateCloud = iconUpdateCloudICO
+
 	} else {
 		s.icConnected = iconConnectedPNG
 		s.icDisconnected = iconDisconnectedPNG
+		s.icUpdate = iconUpdatePNG
+		s.icUpdateCloud = iconUpdateCloudPNG
 	}
 
 	if showSettings {
@@ -328,19 +359,53 @@ func (s *serviceClient) updateStatus() error {
 			return err
 		}
 
+		s.updateIndicationLock.Lock()
+		defer s.updateIndicationLock.Unlock()
+
+		var systrayIconState bool
 		if status.Status == string(internal.StatusConnected) && !s.mUp.Disabled() {
-			systray.SetIcon(s.icConnected)
+			if !s.isUpdateIconActive {
+				systray.SetIcon(s.icConnected)
+			}
 			systray.SetTooltip("NetBird (Connected)")
 			s.mStatus.SetTitle("Connected")
 			s.mUp.Disable()
 			s.mDown.Enable()
+			systrayIconState = true
 		} else if status.Status != string(internal.StatusConnected) && s.mUp.Disabled() {
-			systray.SetIcon(s.icDisconnected)
+			if !s.isUpdateIconActive {
+				systray.SetIcon(s.icDisconnected)
+			}
 			systray.SetTooltip("NetBird (Disconnected)")
 			s.mStatus.SetTitle("Disconnected")
 			s.mDown.Disable()
 			s.mUp.Enable()
+			systrayIconState = false
 		}
+
+		// the updater struct notify by the upgrades available only, but if meanwhile the daemon has successfully
+		// updated must reset the mUpdate visibility state
+		if s.daemonVersion != status.DaemonVersion {
+			s.mUpdate.Hide()
+			s.daemonVersion = status.DaemonVersion
+
+			s.isUpdateIconActive = s.update.SetDaemonVersion(status.DaemonVersion)
+			if !s.isUpdateIconActive {
+				if systrayIconState {
+					systray.SetIcon(s.icConnected)
+					s.mAbout.SetIcon(s.icConnected)
+				} else {
+					systray.SetIcon(s.icDisconnected)
+					s.mAbout.SetIcon(s.icDisconnected)
+				}
+			}
+
+			daemonVersionTitle := normalizedVersion(s.daemonVersion)
+			s.mVersionDaemon.SetTitle(fmt.Sprintf("Daemon: %s", daemonVersionTitle))
+			s.mVersionDaemon.SetTooltip(fmt.Sprintf("Daemon version: %s", daemonVersionTitle))
+			s.mVersionDaemon.Show()
+		}
+
 		return nil
 	}, &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
@@ -374,11 +439,24 @@ func (s *serviceClient) onTrayReady() {
 	systray.AddSeparator()
 	s.mSettings = systray.AddMenuItem("Settings", "Settings of the application")
 	systray.AddSeparator()
-	v := systray.AddMenuItem("v"+version.NetbirdVersion(), "Client Version: "+version.NetbirdVersion())
-	v.Disable()
+
+	s.mAbout = systray.AddMenuItem("About", "About")
+	s.mAbout.SetIcon(s.icDisconnected)
+	versionString := normalizedVersion(version.NetbirdVersion())
+	s.mVersionUI = s.mAbout.AddSubMenuItem(fmt.Sprintf("GUI: %s", versionString), fmt.Sprintf("GUI Version: %s", versionString))
+	s.mVersionUI.Disable()
+
+	s.mVersionDaemon = s.mAbout.AddSubMenuItem("", "")
+	s.mVersionDaemon.Disable()
+	s.mVersionDaemon.Hide()
+
+	s.mUpdate = s.mAbout.AddSubMenuItem("Download latest version", "Download latest version")
+	s.mUpdate.Hide()
+
 	systray.AddSeparator()
 	s.mQuit = systray.AddMenuItem("Quit", "Quit the client app")
 
+	s.update.SetOnUpdateListener(s.onUpdateAvailable)
 	go func() {
 		s.getSrvConfig()
 		for {
@@ -436,12 +514,25 @@ func (s *serviceClient) onTrayReady() {
 			case <-s.mQuit.ClickedCh:
 				systray.Quit()
 				return
+			case <-s.mUpdate.ClickedCh:
+				err := openURL(version.DownloadUrl())
+				if err != nil {
+					log.Errorf("%s", err)
+				}
 			}
 			if err != nil {
 				log.Errorf("process connection: %v", err)
 			}
 		}
 	}()
+}
+
+func normalizedVersion(version string) string {
+	versionString := version
+	if unicode.IsDigit(rune(versionString[0])) {
+		versionString = fmt.Sprintf("v%s", versionString)
+	}
+	return versionString
 }
 
 func (s *serviceClient) onTrayExit() {}
@@ -502,6 +593,32 @@ func (s *serviceClient) getSrvConfig() {
 		s.iLogFile.SetText(cfg.LogFile)
 		s.iPreSharedKey.SetText(cfg.PreSharedKey)
 	}
+}
+
+func (s *serviceClient) onUpdateAvailable() {
+	s.updateIndicationLock.Lock()
+	defer s.updateIndicationLock.Unlock()
+
+	s.mUpdate.Show()
+	s.mAbout.SetIcon(s.icUpdateCloud)
+
+	s.isUpdateIconActive = true
+	systray.SetIcon(s.icUpdate)
+}
+
+func openURL(url string) error {
+	var err error
+	switch runtime.GOOS {
+	case "windows":
+		err = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		err = exec.Command("open", url).Start()
+	case "linux":
+		err = exec.Command("xdg-open", url).Start()
+	default:
+		err = fmt.Errorf("unsupported platform")
+	}
+	return err
 }
 
 // checkPIDFile exists and return error, or write new.

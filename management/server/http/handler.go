@@ -59,7 +59,12 @@ func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValid
 		AuthCfg:        authCfg,
 	}
 
-	integrations.RegisterHandlers(api.Router, accountManager)
+	claimsExtractor := jwtclaims.NewClaimsExtractor(
+		jwtclaims.WithAudience(authCfg.Audience),
+		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
+	)
+
+	integrations.RegisterHandlers(api.Router, accountManager, claimsExtractor)
 	api.addAccountsEndpoint()
 	api.addPeersEndpoint()
 	api.addUsersEndpoint()
