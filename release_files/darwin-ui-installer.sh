@@ -10,6 +10,7 @@ then
   wiretrustee service stop || true
   wiretrustee service uninstall || true
 fi
+
 # check if netbird is installed
 NB_BIN=$(which netbird)
 if [ -z "$NB_BIN" ]

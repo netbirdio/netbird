@@ -54,6 +54,25 @@ func NewFileStore(dataDir string, metrics telemetry.AppMetrics) (*FileStore, err
 	return fs, nil
 }
 
+// NewFilestoreFromSqliteStore restores a store from Sqlite and stores to Filestore json in the file located in datadir
+func NewFilestoreFromSqliteStore(sqlitestore *SqliteStore, dataDir string, metrics telemetry.AppMetrics) (*FileStore, error) {
+	store, err := NewFileStore(dataDir, metrics)
+	if err != nil {
+		return nil, err
+	}
+
+	err = store.SaveInstallationID(sqlitestore.GetInstallationID())
+	if err != nil {
+		return nil, err
+	}
+
+	for _, account := range sqlitestore.GetAllAccounts() {
+		store.Accounts[account.Id] = account
+	}
+
+	return store, store.persist(store.storeFile)
+}
+
 // restore the state of the store from the file.
 // Creates a new empty store file if doesn't exist
 func restore(file string) (*FileStore, error) {
@@ -111,10 +130,6 @@ func restore(file string) (*FileStore, error) {
 		for _, peer := range account.Peers {
 			store.PeerKeyID2AccountID[peer.Key] = accountID
 			store.PeerID2AccountID[peer.ID] = accountID
-			// reset all peers to status = Disconnected
-			if peer.Status != nil && peer.Status.Connected {
-				peer.Status.Connected = false
-			}
 		}
 		for _, user := range account.Users {
 			store.UserID2AccountID[user.Id] = accountID
@@ -598,4 +613,9 @@ func (s *FileStore) Close() error {
 	log.Infof("closing FileStore")
 
 	return s.persist(s.storeFile)
+}
+
+// GetStoreEngine returns FileStoreEngine
+func (s *FileStore) GetStoreEngine() StoreEngine {
+	return FileStoreEngine
 }

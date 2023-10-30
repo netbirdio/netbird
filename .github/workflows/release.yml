@@ -17,6 +17,7 @@ on:
       - 'release_files/**'
       - '**/Dockerfile'
       - '**/Dockerfile.*'
+      - 'client/ui/**'
 
 env:
   SIGN_PIPE_VER: "v0.0.9"

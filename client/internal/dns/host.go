@@ -78,7 +78,7 @@ func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) hostD
 		for _, domain := range nsConfig.Domains {
 			config.domains = append(config.domains, domainConfig{
 				domain:    strings.TrimSuffix(domain, "."),
-				matchOnly: true,
+				matchOnly: !nsConfig.SearchDomainsEnabled,
 			})
 		}
 	}

@@ -44,14 +44,17 @@ type UserRole string
 
 // User represents a user of the system
 type User struct {
-	Id            string
+	Id string `gorm:"primaryKey"`
+	// AccountID is a reference to Account that this object belongs
+	AccountID     string `json:"-" gorm:"index"`
 	Role          UserRole
 	IsServiceUser bool
 	// ServiceUserName is only set if IsServiceUser is true
 	ServiceUserName string
 	// AutoGroups is a list of Group IDs to auto-assign to peers registered by this user
-	AutoGroups []string
-	PATs       map[string]*PersonalAccessToken
+	AutoGroups []string                        `gorm:"serializer:json"`
+	PATs       map[string]*PersonalAccessToken `gorm:"-"`
+	PATsG      []PersonalAccessToken           `json:"-" gorm:"foreignKey:UserID;references:id"`
 	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
 	Blocked bool
 	// LastLogin is the last time the user logged in to IdP
@@ -124,6 +127,7 @@ func (u *User) Copy() *User {
 	}
 	return &User{
 		Id:              u.Id,
+		AccountID:       u.AccountID,
 		Role:            u.Role,
 		AutoGroups:      autoGroups,
 		IsServiceUser:   u.IsServiceUser,
@@ -224,10 +228,20 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 		return nil, status.Errorf(status.NotFound, "account %s doesn't exist", accountID)
 	}
 
-	// initiator is the one who is inviting the new user
-	initiatorUser, err := am.lookupUserInCache(userID, account)
+	initiatorUser, err := account.FindUser(userID)
 	if err != nil {
-		return nil, status.Errorf(status.NotFound, "user %s doesn't exist in IdP", userID)
+		return nil, status.Errorf(status.NotFound, "initiator user with ID %s doesn't exist", userID)
+	}
+
+	inviterID := userID
+	if initiatorUser.IsServiceUser {
+		inviterID = account.CreatedBy
+	}
+
+	// inviterUser is the one who is inviting the new user
+	inviterUser, err := am.lookupUserInCache(inviterID, account)
+	if err != nil || inviterUser == nil {
+		return nil, status.Errorf(status.NotFound, "inviter user with ID %s doesn't exist in IdP", inviterID)
 	}
 
 	// check if the user is already registered with this email => reject
@@ -249,7 +263,7 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 		return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
 	}
 
-	idpUser, err := am.idpManager.CreateUser(invite.Email, invite.Name, accountID, initiatorUser.Email)
+	idpUser, err := am.idpManager.CreateUser(invite.Email, invite.Name, accountID, inviterUser.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -285,6 +299,14 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 		return nil, fmt.Errorf("failed to get account with token claims %v", err)
 	}
 
+	unlock := am.Store.AcquireAccountLock(account.Id)
+	defer unlock()
+
+	account, err = am.Store.GetAccount(account.Id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get an account from store %v", err)
+	}
+
 	user, ok := account.Users[claims.UserId]
 	if !ok {
 		return nil, status.Errorf(status.NotFound, "user not found")
@@ -292,16 +314,16 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 
 	// this code should be outside of the am.GetAccountFromToken(claims) because this method is called also by the gRPC
 	// server when user authenticates a device. And we need to separate the Dashboard login event from the Device login event.
-	unlock := am.Store.AcquireAccountLock(account.Id)
 	newLogin := user.LastDashboardLoginChanged(claims.LastLogin)
+
 	err = am.Store.SaveUserLastLogin(account.Id, claims.UserId, claims.LastLogin)
-	unlock()
+	if err != nil {
+		log.Errorf("failed saving user last login: %v", err)
+	}
+
 	if newLogin {
 		meta := map[string]any{"timestamp": claims.LastLogin}
 		am.storeEvent(claims.UserId, claims.UserId, account.Id, activity.DashboardLogin, meta)
-		if err != nil {
-			log.Errorf("failed saving user last login: %v", err)
-		}
 	}
 
 	return user, nil

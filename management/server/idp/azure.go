@@ -266,10 +266,7 @@ func (am *AzureManager) GetUserByEmail(email string) ([]*UserData, error) {
 
 // GetAccount returns all the users for a given profile.
 func (am *AzureManager) GetAccount(accountID string) ([]*UserData, error) {
-	q := url.Values{}
-	q.Add("$select", profileFields)
-
-	body, err := am.get("users", q)
+	users, err := am.getAllUsers()
 	if err != nil {
 		return nil, err
 	}
@@ -278,18 +275,9 @@ func (am *AzureManager) GetAccount(accountID string) ([]*UserData, error) {
 		am.appMetrics.IDPMetrics().CountGetAccount()
 	}
 
-	var profiles struct{ Value []azureProfile }
-	err = am.helper.Unmarshal(body, &profiles)
-	if err != nil {
-		return nil, err
-	}
-
-	users := make([]*UserData, 0)
-	for _, profile := range profiles.Value {
-		userData := profile.userData()
-		userData.AppMetadata.WTAccountID = accountID
-
-		users = append(users, userData)
+	for index, user := range users {
+		user.AppMetadata.WTAccountID = accountID
+		users[index] = user
 	}
 
 	return users, nil
@@ -298,28 +286,16 @@ func (am *AzureManager) GetAccount(accountID string) ([]*UserData, error) {
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
 func (am *AzureManager) GetAllAccounts() (map[string][]*UserData, error) {
-	q := url.Values{}
-	q.Add("$select", profileFields)
-
-	body, err := am.get("users", q)
-	if err != nil {
-		return nil, err
-	}
-
-	if am.appMetrics != nil {
-		am.appMetrics.IDPMetrics().CountGetAllAccounts()
-	}
-
-	var profiles struct{ Value []azureProfile }
-	err = am.helper.Unmarshal(body, &profiles)
+	users, err := am.getAllUsers()
 	if err != nil {
 		return nil, err
 	}
 
 	indexedUsers := make(map[string][]*UserData)
-	for _, profile := range profiles.Value {
-		userData := profile.userData()
-		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], userData)
+	indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], users...)
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountGetAllAccounts()
 	}
 
 	return indexedUsers, nil
@@ -373,6 +349,39 @@ func (am *AzureManager) DeleteUser(userID string) error {
 	return nil
 }
 
+// getAllUsers returns all users in an Azure AD account.
+func (am *AzureManager) getAllUsers() ([]*UserData, error) {
+	users := make([]*UserData, 0)
+
+	q := url.Values{}
+	q.Add("$select", profileFields)
+	q.Add("$top", "500")
+
+	for nextLink := "users"; nextLink != ""; {
+		body, err := am.get(nextLink, q)
+		if err != nil {
+			return nil, err
+		}
+
+		var profiles struct {
+			Value    []azureProfile
+			NextLink string `json:"@odata.nextLink"`
+		}
+		err = am.helper.Unmarshal(body, &profiles)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, profile := range profiles.Value {
+			users = append(users, profile.userData())
+		}
+
+		nextLink = profiles.NextLink
+	}
+
+	return users, nil
+}
+
 // get perform Get requests.
 func (am *AzureManager) get(resource string, q url.Values) ([]byte, error) {
 	jwtToken, err := am.credentials.Authenticate()
@@ -380,7 +389,14 @@ func (am *AzureManager) get(resource string, q url.Values) ([]byte, error) {
 		return nil, err
 	}
 
-	reqURL := fmt.Sprintf("%s/%s?%s", am.GraphAPIEndpoint, resource, q.Encode())
+	var reqURL string
+	if strings.HasPrefix(resource, "https") {
+		// Already an absolute URL for paging
+		reqURL = resource
+	} else {
+		reqURL = fmt.Sprintf("%s/%s?%s", am.GraphAPIEndpoint, resource, q.Encode())
+	}
+
 	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, err

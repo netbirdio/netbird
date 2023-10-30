@@ -63,7 +63,10 @@ type PolicyUpdateOperation struct {
 // PolicyRule is the metadata of the policy
 type PolicyRule struct {
 	// ID of the policy rule
-	ID string
+	ID string `gorm:"primaryKey"`
+
+	// PolicyID is a reference to Policy that this object belongs
+	PolicyID string `json:"-" gorm:"index"`
 
 	// Name of the rule visible in the UI
 	Name string
@@ -78,10 +81,10 @@ type PolicyRule struct {
 	Action PolicyTrafficActionType
 
 	// Destinations policy destination groups
-	Destinations []string
+	Destinations []string `gorm:"serializer:json"`
 
 	// Sources policy source groups
-	Sources []string
+	Sources []string `gorm:"serializer:json"`
 
 	// Bidirectional define if the rule is applicable in both directions, sources, and destinations
 	Bidirectional bool
@@ -90,7 +93,7 @@ type PolicyRule struct {
 	Protocol PolicyRuleProtocolType
 
 	// Ports or it ranges list
-	Ports []string
+	Ports []string `gorm:"serializer:json"`
 }
 
 // Copy returns a copy of a policy rule
@@ -128,8 +131,11 @@ func (pm *PolicyRule) ToRule() *Rule {
 
 // Policy of the Rego query
 type Policy struct {
-	// ID of the policy
-	ID string
+	// ID of the policy'
+	ID string `gorm:"primaryKey"`
+
+	// AccountID is a reference to Account that this object belongs
+	AccountID string `json:"-" gorm:"index"`
 
 	// Name of the Policy
 	Name string
@@ -141,7 +147,7 @@ type Policy struct {
 	Enabled bool
 
 	// Rules of the policy
-	Rules []*PolicyRule
+	Rules []*PolicyRule `gorm:"foreignKey:PolicyID;references:id"`
 }
 
 // Copy returns a copy of the policy.
@@ -201,7 +207,6 @@ type FirewallRule struct {
 // This function returns the list of peers and firewall rules that are applicable to a given peer.
 func (a *Account) getPeerConnectionResources(peerID string) ([]*Peer, []*FirewallRule) {
 	generateResources, getAccumulatedResources := a.connResourcesGenerator()
-
 	for _, policy := range a.Policies {
 		if !policy.Enabled {
 			continue

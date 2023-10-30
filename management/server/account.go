@@ -91,7 +91,7 @@ type AccountManager interface {
 	DeleteRoute(accountID, routeID, userID string) error
 	ListRoutes(accountID, userID string) ([]*route.Route, error)
 	GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
-	CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string) (*nbdns.NameServerGroup, error)
+	CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainsEnabled bool) (*nbdns.NameServerGroup, error)
 	SaveNameServerGroup(accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
 	DeleteNameServerGroup(accountID, nsGroupID, userID string) error
 	ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error)
@@ -103,6 +103,7 @@ type AccountManager interface {
 	UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error)
 	LoginPeer(login PeerLogin) (*Peer, *NetworkMap, error) // used by peer gRPC API
 	SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error)    // used by peer gRPC API
+	GetAllConnectedPeers() (map[string]struct{}, error)
 }
 
 type DefaultAccountManager struct {
@@ -164,24 +165,33 @@ func (s *Settings) Copy() *Settings {
 
 // Account represents a unique account of the system
 type Account struct {
-	Id string
+	// we have to name column to aid as it collides with Network.Id when work with associations
+	Id string `gorm:"primaryKey"`
+
 	// User.Id it was created by
 	CreatedBy              string
-	Domain                 string
+	Domain                 string `gorm:"index"`
 	DomainCategory         string
 	IsDomainPrimaryAccount bool
-	SetupKeys              map[string]*SetupKey
-	Network                *Network
-	Peers                  map[string]*Peer
-	Users                  map[string]*User
-	Groups                 map[string]*Group
-	Rules                  map[string]*Rule
-	Policies               []*Policy
-	Routes                 map[string]*route.Route
-	NameServerGroups       map[string]*nbdns.NameServerGroup
-	DNSSettings            *DNSSettings
+	SetupKeys              map[string]*SetupKey              `gorm:"-"`
+	SetupKeysG             []SetupKey                        `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	Network                *Network                          `gorm:"embedded;embeddedPrefix:network_"`
+	Peers                  map[string]*Peer                  `gorm:"-"`
+	PeersG                 []Peer                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	Users                  map[string]*User                  `gorm:"-"`
+	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	Groups                 map[string]*Group                 `gorm:"-"`
+	GroupsG                []Group                           `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	Rules                  map[string]*Rule                  `gorm:"-"`
+	RulesG                 []Rule                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
+	Routes                 map[string]*route.Route           `gorm:"-"`
+	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	NameServerGroups       map[string]*nbdns.NameServerGroup `gorm:"-"`
+	NameServerGroupsG      []nbdns.NameServerGroup           `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	DNSSettings            DNSSettings                       `gorm:"embedded;embeddedPrefix:dns_settings_"`
 	// Settings is a dictionary of Account settings
-	Settings *Settings
+	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
 }
 
 type UserInfo struct {
@@ -512,13 +522,11 @@ func (a *Account) getUserGroups(userID string) ([]string, error) {
 func (a *Account) getPeerDNSManagementStatus(peerID string) bool {
 	peerGroups := a.getPeerGroups(peerID)
 	enabled := true
-	if a.DNSSettings != nil {
-		for _, groupID := range a.DNSSettings.DisabledManagementGroups {
-			_, found := peerGroups[groupID]
-			if found {
-				enabled = false
-				break
-			}
+	for _, groupID := range a.DNSSettings.DisabledManagementGroups {
+		_, found := peerGroups[groupID]
+		if found {
+			enabled = false
+			break
 		}
 	}
 	return enabled
@@ -605,10 +613,7 @@ func (a *Account) Copy() *Account {
 		nsGroups[id] = nsGroup.Copy()
 	}
 
-	var dnsSettings *DNSSettings
-	if a.DNSSettings != nil {
-		dnsSettings = a.DNSSettings.Copy()
-	}
+	dnsSettings := a.DNSSettings.Copy()
 
 	var settings *Settings
 	if a.Settings != nil {
@@ -946,6 +951,7 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	if err != nil {
 		return err
 	}
+	log.Infof("%d entries received from IdP management", len(userData))
 
 	// If the Identity Provider does not support writing AppMetadata,
 	// in cases like this, we expect it to return all users in an "unset" field.
@@ -1045,6 +1051,7 @@ func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interf
 	if err != nil {
 		return nil, err
 	}
+	log.Debugf("%d entries received from IdP management", len(userData))
 
 	dataMap := make(map[string]*idp.UserData, len(userData))
 	for _, datum := range userData {
@@ -1556,6 +1563,11 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 	}
 }
 
+// GetAllConnectedPeers returns connected peers based on peersUpdateManager.GetAllConnectedPeers()
+func (am *DefaultAccountManager) GetAllConnectedPeers() (map[string]struct{}, error) {
+	return am.peersUpdateManager.GetAllConnectedPeers(), nil
+}
+
 func isDomainValid(domain string) bool {
 	re := regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
 	return re.Match([]byte(domain))
@@ -1610,7 +1622,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 	setupKeys := map[string]*SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
 	users[userID] = NewAdminUser(userID)
-	dnsSettings := &DNSSettings{
+	dnsSettings := DNSSettings{
 		DisabledManagementGroups: make([]string, 0),
 	}
 	log.Debugf("created new account %s", accountID)

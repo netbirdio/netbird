@@ -22,13 +22,11 @@ const (
 	interfaceConfigPath          = "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces"
 	interfaceConfigNameServerKey = "NameServer"
 	interfaceConfigSearchListKey = "SearchList"
-	tcpipParametersPath          = "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters"
 )
 
 type registryConfigurator struct {
-	guid                  string
-	routingAll            bool
-	existingSearchDomains []string
+	guid       string
+	routingAll bool
 }
 
 func newHostManager(wgInterface WGIface) (hostManager, error) {
@@ -148,30 +146,11 @@ func (r *registryConfigurator) restoreHostDNS() error {
 		log.Error(err)
 	}
 
-	return r.updateSearchDomains([]string{})
+	return r.deleteInterfaceRegistryKeyProperty(interfaceConfigSearchListKey)
 }
 
 func (r *registryConfigurator) updateSearchDomains(domains []string) error {
-	value, err := getLocalMachineRegistryKeyStringValue(tcpipParametersPath, interfaceConfigSearchListKey)
-	if err != nil {
-		return fmt.Errorf("unable to get current search domains failed with error: %s", err)
-	}
-
-	valueList := strings.Split(value, ",")
-	setExisting := false
-	if len(r.existingSearchDomains) == 0 {
-		r.existingSearchDomains = valueList
-		setExisting = true
-	}
-
-	if len(domains) == 0 && setExisting {
-		log.Infof("added %d search domains to the registry. Domain list: %s", len(domains), domains)
-		return nil
-	}
-
-	newList := append(r.existingSearchDomains, domains...)
-
-	err = setLocalMachineRegistryKeyStringValue(tcpipParametersPath, interfaceConfigSearchListKey, strings.Join(newList, ","))
+	err := r.setInterfaceRegistryKeyStringValue(interfaceConfigSearchListKey, strings.Join(domains, ","))
 	if err != nil {
 		return fmt.Errorf("adding search domain failed with error: %s", err)
 	}
@@ -233,35 +212,5 @@ func removeRegistryKeyFromDNSPolicyConfig(regKeyPath string) error {
 			return fmt.Errorf("unable to remove existing key from registry, key: HKEY_LOCAL_MACHINE\\%s, error: %s", regKeyPath, err)
 		}
 	}
-	return nil
-}
-
-func getLocalMachineRegistryKeyStringValue(keyPath, key string) (string, error) {
-	regKey, err := registry.OpenKey(registry.LOCAL_MACHINE, keyPath, registry.QUERY_VALUE)
-	if err != nil {
-		return "", fmt.Errorf("unable to open existing key from registry, key path: HKEY_LOCAL_MACHINE\\%s, error: %s", keyPath, err)
-	}
-	defer regKey.Close()
-
-	val, _, err := regKey.GetStringValue(key)
-	if err != nil {
-		return "", fmt.Errorf("getting %s value for key path HKEY_LOCAL_MACHINE\\%s failed with error: %s", key, keyPath, err)
-	}
-
-	return val, nil
-}
-
-func setLocalMachineRegistryKeyStringValue(keyPath, key, value string) error {
-	regKey, err := registry.OpenKey(registry.LOCAL_MACHINE, keyPath, registry.SET_VALUE)
-	if err != nil {
-		return fmt.Errorf("unable to open existing key from registry, key path: HKEY_LOCAL_MACHINE\\%s, error: %s", keyPath, err)
-	}
-	defer regKey.Close()
-
-	err = regKey.SetStringValue(key, value)
-	if err != nil {
-		return fmt.Errorf("setting %s value %s for key path HKEY_LOCAL_MACHINE\\%s failed with error: %s", key, value, keyPath, err)
-	}
-
 	return nil
 }

@@ -251,6 +251,7 @@ func TestUser_Copy(t *testing.T) {
 	// this is an imaginary case which will never be in DB this way
 	user := User{
 		Id:              "userId",
+		AccountID:       "accountId",
 		Role:            "role",
 		IsServiceUser:   true,
 		ServiceUserName: "servicename",
@@ -290,6 +291,11 @@ func validateStruct(s interface{}) (err error) {
 	for i := 0; i < fieldNum; i++ {
 		field := structVal.Field(i)
 		fieldName := structType.Field(i).Name
+
+		// skip gorm internal fields
+		if json, ok := structType.Field(i).Tag.Lookup("json"); ok && json == "-" {
+			continue
+		}
 
 		isSet := field.IsValid() && (!field.IsZero() || field.Type().String() == "bool")
 
