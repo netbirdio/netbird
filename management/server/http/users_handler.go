@@ -54,7 +54,7 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	savedUser, ok := account.Groups[userID]
+	existingUser, ok := account.Users[userID]
 	if !ok {
 		util.WriteError(status.Errorf(status.NotFound, "couldn't find user with ID %s", userID), w)
 		return
@@ -83,7 +83,7 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		Role:       userRole,
 		AutoGroups: req.AutoGroups,
 		Blocked:    req.IsBlocked,
-		Issued:     savedUser.Issued,
+		Issued:     existingUser.Issued,
 	})
 
 	if err != nil {
