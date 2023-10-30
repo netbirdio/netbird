@@ -54,6 +54,12 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	savedUser, ok := account.Groups[userID]
+	if !ok {
+		util.WriteError(status.Errorf(status.NotFound, "couldn't find user with ID %s", userID), w)
+		return
+	}
+
 	req := &api.PutApiUsersUserIdJSONRequestBody{}
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -77,6 +83,7 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		Role:       userRole,
 		AutoGroups: req.AutoGroups,
 		Blocked:    req.IsBlocked,
+		Issued:     savedUser.Issued,
 	})
 
 	if err != nil {
@@ -153,6 +160,7 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		Role:          req.Role,
 		AutoGroups:    req.AutoGroups,
 		IsServiceUser: req.IsServiceUser,
+		Issued:        server.UserIssuedAPI,
 	})
 	if err != nil {
 		util.WriteError(err, w)
