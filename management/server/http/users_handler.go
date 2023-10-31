@@ -79,11 +79,12 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newUser, err := h.accountManager.SaveUser(account.Id, user.Id, &server.User{
-		Id:         userID,
-		Role:       userRole,
-		AutoGroups: req.AutoGroups,
-		Blocked:    req.IsBlocked,
-		Issued:     existingUser.Issued,
+		Id:                   userID,
+		Role:                 userRole,
+		AutoGroups:           req.AutoGroups,
+		Blocked:              req.IsBlocked,
+		Issued:               existingUser.Issued,
+		IntegrationReference: existingUser.IntegrationReference,
 	})
 
 	if err != nil {
@@ -279,5 +280,6 @@ func toUserResponse(user *server.UserInfo, currenUserID string) *api.User {
 		IsServiceUser: &user.IsServiceUser,
 		IsBlocked:     user.IsBlocked,
 		LastLogin:     &user.LastLogin,
+		Issued:        &user.Issued,
 	}
 }

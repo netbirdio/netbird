@@ -74,7 +74,7 @@ type User struct {
 	LastLogin time.Time
 
 	// Issued of the user
-	Issued string
+	Issued string `gorm:"default:api"`
 
 	IntegrationReference IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
 }
@@ -102,17 +102,16 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 
 	if userData == nil {
 		return &UserInfo{
-			ID:                   u.Id,
-			Email:                "",
-			Name:                 u.ServiceUserName,
-			Role:                 string(u.Role),
-			AutoGroups:           u.AutoGroups,
-			Status:               string(UserStatusActive),
-			IsServiceUser:        u.IsServiceUser,
-			IsBlocked:            u.Blocked,
-			LastLogin:            u.LastLogin,
-			Issued:               u.Issued,
-			IntegrationReference: u.IntegrationReference,
+			ID:            u.Id,
+			Email:         "",
+			Name:          u.ServiceUserName,
+			Role:          string(u.Role),
+			AutoGroups:    u.AutoGroups,
+			Status:        string(UserStatusActive),
+			IsServiceUser: u.IsServiceUser,
+			IsBlocked:     u.Blocked,
+			LastLogin:     u.LastLogin,
+			Issued:        u.Issued,
 		}, nil
 	}
 	if userData.ID != u.Id {
@@ -125,17 +124,16 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 	}
 
 	return &UserInfo{
-		ID:                   u.Id,
-		Email:                userData.Email,
-		Name:                 userData.Name,
-		Role:                 string(u.Role),
-		AutoGroups:           autoGroups,
-		Status:               string(userStatus),
-		IsServiceUser:        u.IsServiceUser,
-		IsBlocked:            u.Blocked,
-		LastLogin:            u.LastLogin,
-		Issued:               u.Issued,
-		IntegrationReference: u.IntegrationReference,
+		ID:            u.Id,
+		Email:         userData.Email,
+		Name:          userData.Name,
+		Role:          string(u.Role),
+		AutoGroups:    autoGroups,
+		Status:        string(userStatus),
+		IsServiceUser: u.IsServiceUser,
+		IsBlocked:     u.Blocked,
+		LastLogin:     u.LastLogin,
+		Issued:        u.Issued,
 	}, nil
 }
 
