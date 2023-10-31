@@ -149,9 +149,9 @@ jobs:
 
       - name: test running containers
         run: |
-          count=$(docker compose ps --format json | jq '. | select(.Name | contains("infrastructure_files")) | .State' | grep -c running)
+          count=$(docker compose ps --format json | jq '. | select(.Name | contains("artifacts")) | .State' | grep -c running)
           test $count -eq 4
-        working-directory: infrastructure_files
+        working-directory: infrastructure_files/artifacts
 
   test-getting-started-script:
     runs-on: ubuntu-latest
