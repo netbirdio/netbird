@@ -20,6 +20,7 @@ type resolvconf struct {
 	othersConfigs         []string
 }
 
+// supported "openresolv" only
 func newResolvConfConfigurator(wgInterface WGIface) (hostManager, error) {
 	originalSearchDomains, nameServers, others, err := originalDNSConfigs("/etc/resolv.conf")
 	if err != nil {
