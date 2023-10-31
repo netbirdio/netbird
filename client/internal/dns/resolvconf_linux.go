@@ -76,8 +76,8 @@ func (r *resolvconf) restoreHostDNS() error {
 }
 
 func (r *resolvconf) applyConfig(content bytes.Buffer) error {
-	cmd := exec.Command(resolvconfCommand, "-x", "-a", r.ifaceName)
-	cmd.Stdin = bytes.NewReader(content.Bytes())
+	cmd := exec.Command(resolvconfCommand, "-m", "0", "-x", "-a", r.ifaceName)
+	cmd.Stdin = &content
 	_, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("got an error while applying resolvconf configuration for %s interface, error: %s", r.ifaceName, err)
