@@ -140,7 +140,7 @@ jobs:
           docker build -t netbirdio/signal:latest .
 
       - name: run docker compose up
-        working-directory: infrastructure_files
+        working-directory: infrastructure_files/artifacts
         run: |
           docker-compose up -d
           sleep 5
