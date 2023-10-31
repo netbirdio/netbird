@@ -76,7 +76,7 @@ type User struct {
 	// Issued of the user
 	Issued string
 
-	IntegrationReference IntegrationReference `gorm:"serializer:json"`
+	IntegrationReference IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
 }
 
 // IsBlocked returns true if the user is blocked, false otherwise
