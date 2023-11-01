@@ -65,7 +65,8 @@ func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
 		log.Error(err)
 	}
 
-	searchDomainList = append(searchDomainList, originalSearchDomains...)
+	searchDomainList = mergeSearchDomains(searchDomainList, originalSearchDomains)
+
 	buf := prepareResolvConfContent(
 		searchDomainList,
 		append([]string{config.serverIP}, nameServers...),
@@ -138,19 +139,10 @@ func prepareResolvConfContent(searchDomains, nameServers, others []string) bytes
 
 func searchDomains(config hostDNSConfig) []string {
 	listOfDomains := make([]string, 0)
-	charCount := len("search")
 	for _, dConf := range config.domains {
 		if dConf.matchOnly || dConf.disabled {
 			continue
 		}
-		if charCount > fileMaxLineCharsLimit {
-			// lets log all skipped domains
-			log.Infof("search list line is larger than %d characters. Skipping append of %s domain", fileMaxLineCharsLimit, dConf.domain)
-			continue
-		}
-
-		// +1 is the space between domains
-		charCount += 1 + len(dConf.domain)
 
 		listOfDomains = append(listOfDomains, dConf.domain)
 	}
@@ -219,6 +211,29 @@ func originalDNSConfigs(resolvconfFile string) (searchDomains, nameServers, othe
 		others = append(others, line)
 	}
 	return
+}
+
+// merge lists and cut off
+func mergeSearchDomains(searchDomains []string, originalSearchDomains []string) []string {
+	charsNumber := len("search")
+	searchDomainsList := make([]string, 0, len(searchDomains)+len(originalSearchDomains))
+	for _, sd := range searchDomains {
+		charsNumber += 1 + len(sd)
+		if charsNumber > fileMaxLineCharsLimit {
+			break
+		}
+		searchDomainsList = append(searchDomainsList, sd)
+	}
+
+	for _, sd := range originalSearchDomains {
+		charsNumber += 1 + len(sd)
+		if charsNumber > fileMaxLineCharsLimit {
+			break
+		}
+		searchDomainsList = append(searchDomainsList, sd)
+	}
+
+	return searchDomainsList
 }
 
 func copyFile(src, dest string) error {
