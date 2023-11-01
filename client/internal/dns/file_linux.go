@@ -220,29 +220,37 @@ func mergeSearchDomains(searchDomains []string, originalSearchDomains []string) 
 	searchDomainsList := make([]string, 0, len(searchDomains)+len(originalSearchDomains))
 
 	for _, sd := range searchDomains {
-		charsNumber += 1 + len(sd)
+		tmpCharsNumber := charsNumber + 1 + len(sd)
 		if charsNumber > fileMaxLineCharsLimit {
-			log.Infof("search list line is larger than %d characters. Skip to append more domains", fileMaxLineCharsLimit)
-			return searchDomainsList
+			// lets log all skipped domains
+			log.Infof("search list line is larger than %d characters. Skipping append of %s domain", fileMaxLineCharsLimit, sd)
+			continue
 		}
 
+		charsNumber = tmpCharsNumber
+
 		if len(searchDomains)+1 > fileMaxNumberOfSearchDomains {
-			log.Infof("size of search list is larger than %d. Skip to append more domains", fileMaxNumberOfSearchDomains)
-			return searchDomainsList
+			// lets log all skipped domains
+			log.Infof("already appended %d domains to search list. Skipping append of %s domain", fileMaxNumberOfSearchDomains, sd)
+			continue
 		}
 		searchDomainsList = append(searchDomainsList, sd)
 	}
 
 	for _, sd := range originalSearchDomains {
-		charsNumber += 1 + len(sd)
+		tmpCharsNumber := charsNumber + 1 + len(sd)
 		if charsNumber > fileMaxLineCharsLimit {
-			log.Infof("search list line is larger than %d characters. Skip to append more domains", fileMaxLineCharsLimit)
-			return searchDomainsList
+			// lets log all skipped domains
+			log.Infof("search list line is larger than %d characters. Skipping append of %s domain", fileMaxLineCharsLimit, sd)
+			continue
 		}
 
+		charsNumber = tmpCharsNumber
+
 		if len(searchDomains)+1 > fileMaxNumberOfSearchDomains {
-			log.Infof("size of search list is larger than %d. Skip to append more domains", fileMaxNumberOfSearchDomains)
-			return searchDomainsList
+			// lets log all skipped domains
+			log.Infof("already appended %d domains to search list. Skipping append of %s domain", fileMaxNumberOfSearchDomains, sd)
+			continue
 		}
 
 		searchDomainsList = append(searchDomainsList, sd)
