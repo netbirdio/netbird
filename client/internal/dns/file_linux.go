@@ -194,8 +194,10 @@ func originalDNSConfigs(resolvconfFile string) (searchDomains, nameServers, othe
 			continue
 		}
 
-		if strings.HasPrefix(line, "options rotate") {
-			continue
+		if strings.HasPrefix(line, "options") && strings.Contains(line, "rotate") {
+			line = strings.ReplaceAll(line, "rotate", "")
+			splitLines := strings.Fields(line)
+			line = strings.Join(splitLines, " ")
 		}
 
 		if strings.HasPrefix(line, "search") {
