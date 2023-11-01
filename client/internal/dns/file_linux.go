@@ -19,8 +19,7 @@ const (
 
 	fileDefaultResolvConfBackupLocation = defaultResolvConfPath + ".original.netbird"
 
-	fileMaxLineCharsLimit        = 256
-	fileMaxNumberOfSearchDomains = 6
+	fileMaxLineCharsLimit = 256
 )
 
 type fileConfigurator struct {
@@ -142,11 +141,6 @@ func searchDomains(config hostDNSConfig) []string {
 	charCount := len("search")
 	for _, dConf := range config.domains {
 		if dConf.matchOnly || dConf.disabled {
-			continue
-		}
-		if len(listOfDomains) >= fileMaxNumberOfSearchDomains {
-			// lets log all skipped domains
-			log.Infof("already appended %d domains to search list. Skipping append of %s domain", fileMaxNumberOfSearchDomains, dConf.domain)
 			continue
 		}
 		if charCount > fileMaxLineCharsLimit {
