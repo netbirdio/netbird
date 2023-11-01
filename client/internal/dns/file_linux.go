@@ -194,6 +194,10 @@ func originalDNSConfigs(resolvconfFile string) (searchDomains, nameServers, othe
 			continue
 		}
 
+		if strings.HasPrefix(line, "options rotate") {
+			continue
+		}
+
 		if strings.HasPrefix(line, "search") {
 			splitLines := strings.Fields(line)
 			if len(splitLines) < 2 {
