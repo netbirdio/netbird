@@ -50,7 +50,7 @@ func (r *resolvconf) applyDNSConfig(config hostDNSConfig) error {
 	}
 
 	searchDomainList := searchDomains(config)
-	searchDomainList = append(searchDomainList, r.originalSearchDomains...)
+	searchDomainList = mergeSearchDomains(searchDomainList, r.originalSearchDomains)
 
 	buf := prepareResolvConfContent(
 		searchDomainList,

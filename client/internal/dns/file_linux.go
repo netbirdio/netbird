@@ -19,7 +19,8 @@ const (
 
 	fileDefaultResolvConfBackupLocation = defaultResolvConfPath + ".original.netbird"
 
-	fileMaxLineCharsLimit = 256
+	fileMaxLineCharsLimit        = 256
+	fileMaxNumberOfSearchDomains = 6
 )
 
 type fileConfigurator struct {
@@ -222,6 +223,10 @@ func mergeSearchDomains(searchDomains []string, originalSearchDomains []string) 
 		if charsNumber > fileMaxLineCharsLimit {
 			break
 		}
+
+		if len(searchDomains)+1 > fileMaxNumberOfSearchDomains {
+			return searchDomainsList
+		}
 		searchDomainsList = append(searchDomainsList, sd)
 	}
 
@@ -230,6 +235,11 @@ func mergeSearchDomains(searchDomains []string, originalSearchDomains []string) 
 		if charsNumber > fileMaxLineCharsLimit {
 			break
 		}
+
+		if len(searchDomains)+1 > fileMaxNumberOfSearchDomains {
+			return searchDomainsList
+		}
+
 		searchDomainsList = append(searchDomainsList, sd)
 	}
 
