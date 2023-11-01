@@ -18,7 +18,7 @@ type ErrorResponse struct {
 	Code    int    `json:"code"`
 }
 
-// WriteJSONObject simply writes object to the HTTP reponse in JSON format
+// WriteJSONObject simply writes object to the HTTP response in JSON format
 func WriteJSONObject(w http.ResponseWriter, obj interface{}) {
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")

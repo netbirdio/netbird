@@ -731,7 +731,7 @@ func checkAuth(loginUserID string, peer *Peer) error {
 		return status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
 	}
 	if peer.UserID != loginUserID {
-		log.Warnf("user mismatch when loggin in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, loginUserID)
+		log.Warnf("user mismatch when logging in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, loginUserID)
 		return status.Errorf(status.Unauthenticated, "can't login")
 	}
 	return nil

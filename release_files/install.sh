@@ -360,7 +360,7 @@ if type uname >/dev/null 2>&1; then
                 echo "NetBird UI installation will be omitted as $ARCH is not a compatible architecture"
             fi
 
-            # Allow netbird UI installation for linux running desktop enviroment
+            # Allow netbird UI installation for linux running desktop environment
             if [ -z "$XDG_CURRENT_DESKTOP" ];then
                 SKIP_UI_APP=true
                 echo "NetBird UI installation will be omitted as Linux does not run desktop environment"

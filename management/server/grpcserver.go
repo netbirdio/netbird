@@ -169,7 +169,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 				s.cancelPeerRoutines(peer)
 				return nil
 			}
-			log.Debugf("recevied an update for peer %s", peerKey.String())
+			log.Debugf("received an update for peer %s", peerKey.String())
 
 			encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, update.Update)
 			if err != nil {

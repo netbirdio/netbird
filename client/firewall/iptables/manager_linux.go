@@ -192,7 +192,7 @@ func (m *Manager) AddFiltering(
 	}
 	if ipsetName != "" {
 		// ipset name is defined and it means that this rule was created
-		// for it, need to assosiate it with ruleset
+		// for it, need to associate it with ruleset
 		m.rulesets[ipsetName] = ruleset{
 			rule: rule,
 			ips:  map[string]string{rule.ip: ruleID},
@@ -236,7 +236,7 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 		}
 
 		// we delete last IP from the set, that means we need to delete
-		// set itself and assosiated firewall rule too
+		// set itself and associated firewall rule too
 		delete(m.rulesets, r.ipsetName)
 
 		if err := ipset.Destroy(r.ipsetName); err != nil {

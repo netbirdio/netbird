@@ -13,7 +13,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
-// keep darwin compability
+// keep darwin compatibility
 const (
 	WgIntNumber = 2000
 )

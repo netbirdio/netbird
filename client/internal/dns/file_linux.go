@@ -69,7 +69,7 @@ func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
 		}
 	default:
 		// todo improve this and maybe restart DNS manager from scratch
-		return fmt.Errorf("something happened and file manager is not your prefered host dns configurator, restart the agent")
+		return fmt.Errorf("something happened and file manager is not your preferred host dns configurator, restart the agent")
 	}
 
 	var searchDomains string

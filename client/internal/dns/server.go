@@ -288,7 +288,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 		handler := newUpstreamResolver(s.ctx)
 		for _, ns := range nsGroup.NameServers {
 			if ns.NSType != nbdns.UDPNameServerType {
-				log.Warnf("skiping nameserver %s with type %s, this peer supports only %s",
+				log.Warnf("skipping nameserver %s with type %s, this peer supports only %s",
 					ns.IP.String(), ns.NSType.String(), nbdns.UDPNameServerType.String())
 				continue
 			}
@@ -306,7 +306,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 		// reapply DNS settings, but it not touch the original configuration and serial number
 		// because it is temporal deactivation until next try
 		//
-		// after some period defined by upstream it trys to reactivate self by calling this hook
+		// after some period defined by upstream it tries to reactivate self by calling this hook
 		// everything we need here is just to re-apply current configuration because it already
 		// contains this upstream settings (temporal deactivation not removed it)
 		handler.deactivate, handler.reactivate = s.upstreamCallbacks(nsGroup, handler)

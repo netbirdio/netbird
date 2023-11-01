@@ -110,7 +110,7 @@ func canCreateFakeWireGuardInterface() bool {
 	// We willingly try to create a device with an invalid
 	// MTU here as the validation of the MTU will be performed after
 	// the validation of the link kind and hence allows us to check
-	// for the existance of the wireguard module without actually
+	// for the existence of the wireguard module without actually
 	// creating a link.
 	//
 	// As a side-effect, this will also let the kernel lazy-load
@@ -271,12 +271,12 @@ func moduleStatus(name string) (status, error) {
 func loadModuleWithDependencies(name, path string) error {
 	deps, err := getModuleDependencies(name)
 	if err != nil {
-		return fmt.Errorf("couldn't load list of module %s dependecies", name)
+		return fmt.Errorf("couldn't load list of module %s dependencies", name)
 	}
 	for _, dep := range deps {
 		err = loadModule(dep.name, dep.path)
 		if err != nil {
-			return fmt.Errorf("couldn't load dependecy module %s for %s", dep.name, name)
+			return fmt.Errorf("couldn't load dependency module %s for %s", dep.name, name)
 		}
 	}
 	return loadModule(name, path)
