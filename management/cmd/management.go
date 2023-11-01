@@ -101,7 +101,7 @@ var (
 
 			_, valid := dns.IsDomainName(dnsDomain)
 			if !valid || len(dnsDomain) > 192 {
-				return fmt.Errorf("failed parsing the provided dns-domain. Valid status: %t, Lenght: %d", valid, len(dnsDomain))
+				return fmt.Errorf("failed parsing the provided dns-domain. Valid status: %t, Length: %d", valid, len(dnsDomain))
 			}
 
 			return nil

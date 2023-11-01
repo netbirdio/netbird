@@ -82,7 +82,7 @@ func TestDaemonUpdate(t *testing.T) {
 
 	waitTimeout(wg)
 	if onUpdate != true {
-		t.Errorf("invalid dameon version check")
+		t.Errorf("invalid daemon version check")
 	}
 }
 

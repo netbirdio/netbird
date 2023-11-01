@@ -32,7 +32,7 @@ type Manager struct {
 	wgNetwork     *net.IPNet
 	decoders      sync.Pool
 	wgIface       IFaceMapper
-	resetHook func() error
+	resetHook     func() error
 
 	mutex sync.RWMutex
 }
@@ -188,7 +188,7 @@ func (m *Manager) DropIncoming(packetData []byte) bool {
 	return m.dropFilter(packetData, m.incomingRules, true)
 }
 
-// dropFilter imlements same logic for booth direction of the traffic
+// dropFilter implements same logic for booth direction of the traffic
 func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet, isIncomingPacket bool) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()

@@ -59,7 +59,7 @@ func TestDeviceWrapperRead(t *testing.T) {
 
 		n, err := wrapped.Read(bufs, sizes, offset)
 		if err != nil {
-			t.Errorf("unexpeted error: %v", err)
+			t.Errorf("unexpected error: %v", err)
 			return
 		}
 		if n != 1 {
@@ -105,7 +105,7 @@ func TestDeviceWrapperRead(t *testing.T) {
 
 		n, err := wrapped.Write(bufs, 0)
 		if err != nil {
-			t.Errorf("unexpeted error: %v", err)
+			t.Errorf("unexpected error: %v", err)
 			return
 		}
 		if n != 1 {
@@ -154,7 +154,7 @@ func TestDeviceWrapperRead(t *testing.T) {
 
 		n, err := wrapped.Write(bufs, 0)
 		if err != nil {
-			t.Errorf("unexpeted error: %v", err)
+			t.Errorf("unexpected error: %v", err)
 			return
 		}
 		if n != 0 {
@@ -211,7 +211,7 @@ func TestDeviceWrapperRead(t *testing.T) {
 
 		n, err := wrapped.Read(bufs, sizes, offset)
 		if err != nil {
-			t.Errorf("unexpeted error: %v", err)
+			t.Errorf("unexpected error: %v", err)
 			return
 		}
 		if n != 0 {

@@ -125,7 +125,7 @@ if [[ "$NETBIRD_DISABLE_LETSENCRYPT" == "true" ]]; then
   echo "- $NETBIRD_SIGNAL_ENDPOINT/signalexchange.SignalExchange/ -grpc-> signal:80"
   echo "You most likely also have to change NETBIRD_MGMT_API_ENDPOINT in base.setup.env and port-mappings in docker-compose.yml.tmpl and rerun this script."
   echo " The target of the forwards depends on your setup. Beware of the gRPC protocol instead of http for management and signal!"
-  echo "You are also free to remove any occurences of the Letsencrypt-volume $LETSENCRYPT_VOLUMENAME"
+  echo "You are also free to remove any occurrences of the Letsencrypt-volume $LETSENCRYPT_VOLUMENAME"
   echo ""
 
   export NETBIRD_SIGNAL_PROTOCOL="https"

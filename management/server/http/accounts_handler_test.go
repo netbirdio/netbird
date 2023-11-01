@@ -117,7 +117,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			expectedID:    accountID,
 		},
 		{
-			name:           "PutAccount OK wiht JWT",
+			name:           "PutAccount OK with JWT",
 			expectedBody:   true,
 			requestType:    http.MethodPut,
 			requestPath:    "/api/accounts/" + accountID,
@@ -134,7 +134,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			expectedID:    accountID,
 		},
 		{
-			name:           "PutAccount OK wiht JWT Propagation",
+			name:           "PutAccount OK with JWT Propagation",
 			expectedBody:   true,
 			requestType:    http.MethodPut,
 			requestPath:    "/api/accounts/" + accountID,
