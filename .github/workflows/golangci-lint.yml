@@ -19,7 +19,7 @@ jobs:
       - name: codespell
         uses: codespell-project/actions-codespell@v2
         with:
-          uri_ignore_words_list: ERRO,clientA
+          ignore_words_list: ERRO,clientA
           skip: go.mod,go.sum
   golangci:
     strategy:
