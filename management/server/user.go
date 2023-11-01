@@ -22,6 +22,9 @@ const (
 	UserStatusActive   UserStatus = "active"
 	UserStatusDisabled UserStatus = "disabled"
 	UserStatusInvited  UserStatus = "invited"
+
+	UserIssuedAPI         = "api"
+	UserIssuedIntegration = "integration"
 )
 
 // StrRoleToUserRole returns UserRole for a given strRole or UserRoleUnknown if the specified role is unknown
@@ -42,6 +45,16 @@ type UserStatus string
 // UserRole is the role of a User
 type UserRole string
 
+// IntegrationReference holds the reference to a particular integration
+type IntegrationReference struct {
+	ID              int
+	IntegrationType string
+}
+
+func (ir IntegrationReference) String() string {
+	return fmt.Sprintf("%d:%s", ir.ID, ir.IntegrationType)
+}
+
 // User represents a user of the system
 type User struct {
 	Id string `gorm:"primaryKey"`
@@ -59,6 +72,11 @@ type User struct {
 	Blocked bool
 	// LastLogin is the last time the user logged in to IdP
 	LastLogin time.Time
+
+	// Issued of the user
+	Issued string `gorm:"default:api"`
+
+	IntegrationReference IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
 }
 
 // IsBlocked returns true if the user is blocked, false otherwise
@@ -93,6 +111,7 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 			IsServiceUser: u.IsServiceUser,
 			IsBlocked:     u.Blocked,
 			LastLogin:     u.LastLogin,
+			Issued:        u.Issued,
 		}, nil
 	}
 	if userData.ID != u.Id {
@@ -114,6 +133,7 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 		IsServiceUser: u.IsServiceUser,
 		IsBlocked:     u.Blocked,
 		LastLogin:     u.LastLogin,
+		Issued:        u.Issued,
 	}, nil
 }
 
@@ -126,37 +146,40 @@ func (u *User) Copy() *User {
 		pats[k] = v.Copy()
 	}
 	return &User{
-		Id:              u.Id,
-		AccountID:       u.AccountID,
-		Role:            u.Role,
-		AutoGroups:      autoGroups,
-		IsServiceUser:   u.IsServiceUser,
-		ServiceUserName: u.ServiceUserName,
-		PATs:            pats,
-		Blocked:         u.Blocked,
-		LastLogin:       u.LastLogin,
+		Id:                   u.Id,
+		AccountID:            u.AccountID,
+		Role:                 u.Role,
+		AutoGroups:           autoGroups,
+		IsServiceUser:        u.IsServiceUser,
+		ServiceUserName:      u.ServiceUserName,
+		PATs:                 pats,
+		Blocked:              u.Blocked,
+		LastLogin:            u.LastLogin,
+		Issued:               u.Issued,
+		IntegrationReference: u.IntegrationReference,
 	}
 }
 
 // NewUser creates a new user
-func NewUser(id string, role UserRole, isServiceUser bool, serviceUserName string, autoGroups []string) *User {
+func NewUser(id string, role UserRole, isServiceUser bool, serviceUserName string, autoGroups []string, issued string) *User {
 	return &User{
 		Id:              id,
 		Role:            role,
 		IsServiceUser:   isServiceUser,
 		ServiceUserName: serviceUserName,
 		AutoGroups:      autoGroups,
+		Issued:          issued,
 	}
 }
 
 // NewRegularUser creates a new user with role UserRoleUser
 func NewRegularUser(id string) *User {
-	return NewUser(id, UserRoleUser, false, "", []string{})
+	return NewUser(id, UserRoleUser, false, "", []string{}, UserIssuedAPI)
 }
 
 // NewAdminUser creates a new user with role UserRoleAdmin
 func NewAdminUser(id string) *User {
-	return NewUser(id, UserRoleAdmin, false, "", []string{})
+	return NewUser(id, UserRoleAdmin, false, "", []string{}, UserIssuedAPI)
 }
 
 // createServiceUser creates a new service user under the given account.
@@ -178,7 +201,7 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUs
 	}
 
 	newUserID := uuid.New().String()
-	newUser := NewUser(newUserID, role, true, serviceUserName, autoGroups)
+	newUser := NewUser(newUserID, role, true, serviceUserName, autoGroups, UserIssuedAPI)
 	log.Debugf("New User: %v", newUser)
 	account.Users[newUserID] = newUser
 
@@ -199,6 +222,7 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUs
 		Status:        string(UserStatusActive),
 		IsServiceUser: true,
 		LastLogin:     time.Time{},
+		Issued:        UserIssuedAPI,
 	}, nil
 }
 
@@ -270,9 +294,11 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 
 	role := StrRoleToUserRole(invite.Role)
 	newUser := &User{
-		Id:         idpUser.ID,
-		Role:       role,
-		AutoGroups: invite.AutoGroups,
+		Id:                   idpUser.ID,
+		Role:                 role,
+		AutoGroups:           invite.AutoGroups,
+		Issued:               invite.Issued,
+		IntegrationReference: invite.IntegrationReference,
 	}
 	account.Users[idpUser.ID] = newUser
 
@@ -359,6 +385,10 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 	targetUser := account.Users[targetUserID]
 	if targetUser == nil {
 		return status.Errorf(status.NotFound, "target user not found")
+	}
+
+	if targetUser.Issued == UserIssuedIntegration {
+		return status.Errorf(status.PermissionDenied, "only integration can delete this user")
 	}
 
 	// handle service user first and exit, no need to fetch extra data from IDP, etc

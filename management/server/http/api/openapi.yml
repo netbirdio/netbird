@@ -125,6 +125,10 @@ components:
           description: Is true if this user is blocked. Blocked users can't use the system
           type: boolean
           example: false
+        issued:
+          description: How user was issued by API or Integration
+          type: string
+          example: api
       required:
         - id
         - email
