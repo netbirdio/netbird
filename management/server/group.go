@@ -34,6 +34,8 @@ type Group struct {
 
 	// Peers list of the group
 	Peers []string `gorm:"serializer:json"`
+
+	IntegrationReference IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
 }
 
 // EventMeta returns activity event meta related to the group
@@ -158,6 +160,11 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 	g, ok := account.Groups[groupID]
 	if !ok {
 		return nil
+	}
+
+	// check integration link
+	if g.Issued == GroupIssuedIntegration {
+		return &GroupLinkError{GroupIssuedIntegration, g.IntegrationReference.String()}
 	}
 
 	// check route links

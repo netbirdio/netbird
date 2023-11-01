@@ -36,6 +36,7 @@ const (
 	UnknownCategory            = "unknown"
 	GroupIssuedAPI             = "api"
 	GroupIssuedJWT             = "jwt"
+	GroupIssuedIntegration     = "integration"
 	CacheExpirationMax         = 7 * 24 * 3600 * time.Second // 7 days
 	CacheExpirationMin         = 3 * 24 * 3600 * time.Second // 3 days
 	DefaultPeerLoginExpiration = 24 * time.Hour
@@ -195,15 +196,17 @@ type Account struct {
 }
 
 type UserInfo struct {
-	ID            string    `json:"id"`
-	Email         string    `json:"email"`
-	Name          string    `json:"name"`
-	Role          string    `json:"role"`
-	AutoGroups    []string  `json:"auto_groups"`
-	Status        string    `json:"-"`
-	IsServiceUser bool      `json:"is_service_user"`
-	IsBlocked     bool      `json:"is_blocked"`
-	LastLogin     time.Time `json:"last_login"`
+	ID                   string               `json:"id"`
+	Email                string               `json:"email"`
+	Name                 string               `json:"name"`
+	Role                 string               `json:"role"`
+	AutoGroups           []string             `json:"auto_groups"`
+	Status               string               `json:"-"`
+	IsServiceUser        bool                 `json:"is_service_user"`
+	IsBlocked            bool                 `json:"is_blocked"`
+	LastLogin            time.Time            `json:"last_login"`
+	Issued               string               `json:"issued"`
+	IntegrationReference IntegrationReference `json:"-"`
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes

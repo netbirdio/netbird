@@ -54,6 +54,12 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	existingUser, ok := account.Users[userID]
+	if !ok {
+		util.WriteError(status.Errorf(status.NotFound, "couldn't find user with ID %s", userID), w)
+		return
+	}
+
 	req := &api.PutApiUsersUserIdJSONRequestBody{}
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -73,10 +79,12 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newUser, err := h.accountManager.SaveUser(account.Id, user.Id, &server.User{
-		Id:         userID,
-		Role:       userRole,
-		AutoGroups: req.AutoGroups,
-		Blocked:    req.IsBlocked,
+		Id:                   userID,
+		Role:                 userRole,
+		AutoGroups:           req.AutoGroups,
+		Blocked:              req.IsBlocked,
+		Issued:               existingUser.Issued,
+		IntegrationReference: existingUser.IntegrationReference,
 	})
 
 	if err != nil {
@@ -153,6 +161,7 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		Role:          req.Role,
 		AutoGroups:    req.AutoGroups,
 		IsServiceUser: req.IsServiceUser,
+		Issued:        server.UserIssuedAPI,
 	})
 	if err != nil {
 		util.WriteError(err, w)
@@ -271,5 +280,6 @@ func toUserResponse(user *server.UserInfo, currenUserID string) *api.User {
 		IsServiceUser: &user.IsServiceUser,
 		IsBlocked:     user.IsBlocked,
 		LastLogin:     &user.LastLogin,
+		Issued:        &user.Issued,
 	}
 }

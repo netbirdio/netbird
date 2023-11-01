@@ -33,18 +33,21 @@ var usersTestAccount = &server.Account{
 			Role:          "admin",
 			IsServiceUser: false,
 			AutoGroups:    []string{"group_1"},
+			Issued:        server.UserIssuedAPI,
 		},
 		regularUserID: {
 			Id:            regularUserID,
 			Role:          "user",
 			IsServiceUser: false,
 			AutoGroups:    []string{"group_1"},
+			Issued:        server.UserIssuedAPI,
 		},
 		serviceUserID: {
 			Id:            serviceUserID,
 			Role:          "user",
 			IsServiceUser: true,
 			AutoGroups:    []string{"group_1"},
+			Issued:        server.UserIssuedAPI,
 		},
 	},
 }
@@ -64,6 +67,7 @@ func initUsersTestData() *UsersHandler {
 						Name:          "",
 						Email:         "",
 						IsServiceUser: v.IsServiceUser,
+						Issued:        v.Issued,
 					})
 				}
 				return users, nil
@@ -170,6 +174,7 @@ func TestGetUsers(t *testing.T) {
 				assert.Equal(t, v.ID, usersTestAccount.Users[v.ID].Id)
 				assert.Equal(t, v.Role, string(usersTestAccount.Users[v.ID].Role))
 				assert.Equal(t, v.IsServiceUser, usersTestAccount.Users[v.ID].IsServiceUser)
+				assert.Equal(t, v.Issued, usersTestAccount.Users[v.ID].Issued)
 			}
 		})
 	}
