@@ -214,49 +214,39 @@ func originalDNSConfigs(resolvconfFile string) (searchDomains, nameServers, othe
 	return
 }
 
-// merge lists and cut off
+// merge search domains lists and cut off the list if it is too long
 func mergeSearchDomains(searchDomains []string, originalSearchDomains []string) []string {
-	charsNumber := len("search")
+	lineSize := len("search")
 	searchDomainsList := make([]string, 0, len(searchDomains)+len(originalSearchDomains))
 
-	for _, sd := range searchDomains {
-		tmpCharsNumber := charsNumber + 1 + len(sd)
-		if charsNumber > fileMaxLineCharsLimit {
-			// lets log all skipped domains
-			log.Infof("search list line is larger than %d characters. Skipping append of %s domain", fileMaxLineCharsLimit, sd)
-			continue
-		}
-
-		charsNumber = tmpCharsNumber
-
-		if len(searchDomains)+1 > fileMaxNumberOfSearchDomains {
-			// lets log all skipped domains
-			log.Infof("already appended %d domains to search list. Skipping append of %s domain", fileMaxNumberOfSearchDomains, sd)
-			continue
-		}
-		searchDomainsList = append(searchDomainsList, sd)
-	}
-
-	for _, sd := range originalSearchDomains {
-		tmpCharsNumber := charsNumber + 1 + len(sd)
-		if charsNumber > fileMaxLineCharsLimit {
-			// lets log all skipped domains
-			log.Infof("search list line is larger than %d characters. Skipping append of %s domain", fileMaxLineCharsLimit, sd)
-			continue
-		}
-
-		charsNumber = tmpCharsNumber
-
-		if len(searchDomains)+1 > fileMaxNumberOfSearchDomains {
-			// lets log all skipped domains
-			log.Infof("already appended %d domains to search list. Skipping append of %s domain", fileMaxNumberOfSearchDomains, sd)
-			continue
-		}
-
-		searchDomainsList = append(searchDomainsList, sd)
-	}
+	lineSize = validateAndFillSearchDomains(lineSize, &searchDomainsList, searchDomains)
+	_ = validateAndFillSearchDomains(lineSize, &searchDomainsList, originalSearchDomains)
 
 	return searchDomainsList
+}
+
+// validateAndFillSearchDomains checks if the search domains list is not too long and if the line is not too long
+// extend s slice with vs elements
+// return with the number of characters in the searchDomains line
+func validateAndFillSearchDomains(initialLineChars int, s *[]string, vs []string) int {
+	for _, sd := range vs {
+		tmpCharsNumber := initialLineChars + 1 + len(sd)
+		if tmpCharsNumber > fileMaxLineCharsLimit {
+			// lets log all skipped domains
+			log.Infof("search list line is larger than %d characters. Skipping append of %s domain", fileMaxLineCharsLimit, sd)
+			continue
+		}
+
+		initialLineChars = tmpCharsNumber
+
+		if len(*s) >= fileMaxNumberOfSearchDomains {
+			// lets log all skipped domains
+			log.Infof("already appended %d domains to search list. Skipping append of %s domain", fileMaxNumberOfSearchDomains, sd)
+			continue
+		}
+		*s = append(*s, sd)
+	}
+	return initialLineChars
 }
 
 func copyFile(src, dest string) error {
