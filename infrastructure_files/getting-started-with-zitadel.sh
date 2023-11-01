@@ -387,7 +387,7 @@ check_nb_domain() {
 
   if [ "$DOMAIN" == "netbird.example.com" ]; then
     echo "The NETBIRD_DOMAIN cannot be netbird.example.com" > /dev/stderr
-    retrun 1
+    return 1
   fi
   return 0
 }
