@@ -207,9 +207,7 @@ func (h *UsersHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 			util.WriteError(status.Errorf(status.InvalidArgument, "invalid service_user query parameter"), w)
 			return
 		}
-		log.Debugf("User %v is service user: %v", r.Name, r.IsServiceUser)
 		if includeServiceUser == r.IsServiceUser {
-			log.Debugf("Found service user: %v", r.Name)
 			users = append(users, toUserResponse(r, claims.UserId))
 		}
 	}
