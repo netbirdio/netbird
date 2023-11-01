@@ -43,7 +43,7 @@ const (
 )
 
 const (
-	// PolicyRuleFlowDirect allows trafic from source to destination
+	// PolicyRuleFlowDirect allows traffic from source to destination
 	PolicyRuleFlowDirect = PolicyRuleDirection("direct")
 	// PolicyRuleFlowBidirect allows traffic to both directions
 	PolicyRuleFlowBidirect = PolicyRuleDirection("bidirect")

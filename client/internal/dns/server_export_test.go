@@ -19,6 +19,6 @@ func TestGetServerDns(t *testing.T) {
 	}
 
 	if srvB != srv {
-		t.Errorf("missmatch dns instances")
+		t.Errorf("mismatch dns instances")
 	}
 }

@@ -20,7 +20,7 @@ func (c *tunDevice) Create() error {
 func (c *tunDevice) assignAddr() error {
 	cmd := exec.Command("ifconfig", c.name, "inet", c.address.IP.String(), c.address.IP.String())
 	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Infof(`adding addreess command "%v" failed with output %s and error: `, cmd.String(), out)
+		log.Infof(`adding address command "%v" failed with output %s and error: `, cmd.String(), out)
 		return err
 	}
 

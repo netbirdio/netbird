@@ -89,7 +89,7 @@ func (r *resolvconf) applyConfig(content string) error {
 	cmd.Stdin = strings.NewReader(content)
 	_, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("got an error while appying resolvconf configuration for %s interface, error: %s", r.ifaceName, err)
+		return fmt.Errorf("got an error while applying resolvconf configuration for %s interface, error: %s", r.ifaceName, err)
 	}
 	return nil
 }

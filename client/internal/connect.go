@@ -99,7 +99,7 @@ func runClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 			cancel()
 		}()
 
-		log.Debugf("conecting to the Management service %s", config.ManagementURL.Host)
+		log.Debugf("connecting to the Management service %s", config.ManagementURL.Host)
 		mgmClient, err := mgm.NewClient(engineCtx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 		if err != nil {
 			return wrapErr(gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err))

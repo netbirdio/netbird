@@ -1116,7 +1116,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 	}
 
 	if account.Network.CurrentSerial() != 2 {
-		t.Errorf("expecting Network Serial=%d to be incremented and be equal to 2 after adding and deleteing a peer", account.Network.CurrentSerial())
+		t.Errorf("expecting Network Serial=%d to be incremented and be equal to 2 after adding and deleting a peer", account.Network.CurrentSerial())
 	}
 
 	ev := getEvent(t, account.Id, manager, activity.PeerRemovedByUser)

@@ -30,7 +30,7 @@ func Decrypt(encryptedMsg []byte, peerPublicKey wgtypes.Key, privateKey wgtypes.
 		return nil, err
 	}
 	if len(encryptedMsg) < nonceSize {
-		return nil, fmt.Errorf("invalid encrypted message lenght")
+		return nil, fmt.Errorf("invalid encrypted message length")
 	}
 	copy(nonce[:], encryptedMsg[:nonceSize])
 	opened, ok := box.Open(nil, encryptedMsg[nonceSize:], nonce, toByte32(peerPublicKey), toByte32(privateKey))
