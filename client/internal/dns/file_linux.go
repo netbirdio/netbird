@@ -218,13 +218,16 @@ func originalDNSConfigs(resolvconfFile string) (searchDomains, nameServers, othe
 func mergeSearchDomains(searchDomains []string, originalSearchDomains []string) []string {
 	charsNumber := len("search")
 	searchDomainsList := make([]string, 0, len(searchDomains)+len(originalSearchDomains))
+
 	for _, sd := range searchDomains {
 		charsNumber += 1 + len(sd)
 		if charsNumber > fileMaxLineCharsLimit {
-			break
+			log.Infof("search list line is larger than %d characters. Skip to append more domains", fileMaxLineCharsLimit)
+			return searchDomainsList
 		}
 
 		if len(searchDomains)+1 > fileMaxNumberOfSearchDomains {
+			log.Infof("size of search list is larger than %d. Skip to append more domains", fileMaxNumberOfSearchDomains)
 			return searchDomainsList
 		}
 		searchDomainsList = append(searchDomainsList, sd)
@@ -233,10 +236,12 @@ func mergeSearchDomains(searchDomains []string, originalSearchDomains []string) 
 	for _, sd := range originalSearchDomains {
 		charsNumber += 1 + len(sd)
 		if charsNumber > fileMaxLineCharsLimit {
-			break
+			log.Infof("search list line is larger than %d characters. Skip to append more domains", fileMaxLineCharsLimit)
+			return searchDomainsList
 		}
 
 		if len(searchDomains)+1 > fileMaxNumberOfSearchDomains {
+			log.Infof("size of search list is larger than %d. Skip to append more domains", fileMaxNumberOfSearchDomains)
 			return searchDomainsList
 		}
 
