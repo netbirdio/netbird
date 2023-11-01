@@ -42,10 +42,12 @@ func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
 		backupFileExist = true
 	}
 
-	if !config.routeAll && backupFileExist {
-		err = f.restore()
-		if err != nil {
-			return fmt.Errorf("unable to configure DNS for this peer using file manager without a Primary nameserver group. Restoring the original file return err: %s", err)
+	if !config.routeAll {
+		if backupFileExist {
+			err = f.restore()
+			if err != nil {
+				return fmt.Errorf("unable to configure DNS for this peer using file manager without a Primary nameserver group. Restoring the original file return err: %s", err)
+			}
 		}
 		return fmt.Errorf("unable to configure DNS for this peer using file manager without a nameserver group with all domains configured")
 	}
