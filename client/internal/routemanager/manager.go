@@ -7,6 +7,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
@@ -16,7 +17,7 @@ import (
 // Manager is a route manager interface
 type Manager interface {
 	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error
-	SetRouteChangeListener(listener RouteListener)
+	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
 	Stop()
 }
@@ -96,7 +97,7 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 }
 
 // SetRouteChangeListener set RouteListener for route change notifier
-func (m *DefaultManager) SetRouteChangeListener(listener RouteListener) {
+func (m *DefaultManager) SetRouteChangeListener(listener listener.NetworkChangeListener) {
 	m.notifier.setListener(listener)
 }
 

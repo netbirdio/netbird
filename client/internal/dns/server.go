@@ -10,6 +10,7 @@ import (
 	"github.com/mitchellh/hashstructure/v2"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/listener"
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
@@ -25,6 +26,7 @@ type Server interface {
 	DnsIP() string
 	UpdateDNSServer(serial uint64, update nbdns.Config) error
 	OnUpdatedHostDNSServer(strings []string)
+	SearchDomains() []string
 }
 
 type registeredHandlerMap map[string]handlerWithStop
@@ -47,6 +49,9 @@ type DefaultServer struct {
 	permanent        bool
 	hostsDnsList     []string
 	hostsDnsListLock sync.Mutex
+
+	// make sense on mobile only
+	searchDomainNotifier *notifier
 }
 
 type handlerWithStop interface {
@@ -81,12 +86,15 @@ func NewDefaultServer(ctx context.Context, wgInterface WGIface, customAddress st
 }
 
 // NewDefaultServerPermanentUpstream returns a new dns server. It optimized for mobile systems
-func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface, hostsDnsList []string) *DefaultServer {
+func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface, hostsDnsList []string, config nbdns.Config, listener listener.NetworkChangeListener) *DefaultServer {
 	log.Debugf("host dns address list is: %v", hostsDnsList)
 	ds := newDefaultServer(ctx, wgInterface, newServiceViaMemory(wgInterface))
 	ds.permanent = true
 	ds.hostsDnsList = hostsDnsList
 	ds.addHostRootZone()
+	ds.currentConfig = dnsConfigToHostDNSConfig(config, ds.service.RuntimeIP(), ds.service.RuntimePort())
+	ds.searchDomainNotifier = newNotifier(ds.SearchDomains())
+	ds.searchDomainNotifier.setListener(listener)
 	setServerDns(ds)
 	return ds
 }
@@ -212,6 +220,21 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 	}
 }
 
+func (s *DefaultServer) SearchDomains() []string {
+	var searchDomains []string
+
+	for _, dConf := range s.currentConfig.domains {
+		if dConf.disabled {
+			continue
+		}
+		if dConf.matchOnly {
+			continue
+		}
+		searchDomains = append(searchDomains, dConf.domain)
+	}
+	return searchDomains
+}
+
 func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	// is the service should be disabled, we stop the listener or fake resolver
 	// and proceed with a regular update to clean up the handlers and records
@@ -244,6 +267,10 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 
 	if err = s.hostManager.applyDNSConfig(hostUpdate); err != nil {
 		log.Error(err)
+	}
+
+	if s.searchDomainNotifier != nil {
+		s.searchDomainNotifier.onNewSearchDomains(s.SearchDomains())
 	}
 
 	return nil

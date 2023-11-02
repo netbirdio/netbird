@@ -8,8 +8,8 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
@@ -31,9 +31,9 @@ type IFaceDiscover interface {
 	stdnet.ExternalIFaceDiscover
 }
 
-// RouteListener export internal RouteListener for mobile
-type RouteListener interface {
-	routemanager.RouteListener
+// NetworkChangeListener export internal NetworkChangeListener for mobile
+type NetworkChangeListener interface {
+	listener.NetworkChangeListener
 }
 
 // DnsReadyListener export internal dns ReadyListener for mobile
@@ -47,26 +47,26 @@ func init() {
 
 // Client struct manage the life circle of background service
 type Client struct {
-	cfgFile       string
-	tunAdapter    iface.TunAdapter
-	iFaceDiscover IFaceDiscover
-	recorder      *peer.Status
-	ctxCancel     context.CancelFunc
-	ctxCancelLock *sync.Mutex
-	deviceName    string
-	routeListener routemanager.RouteListener
+	cfgFile               string
+	tunAdapter            iface.TunAdapter
+	iFaceDiscover         IFaceDiscover
+	recorder              *peer.Status
+	ctxCancel             context.CancelFunc
+	ctxCancelLock         *sync.Mutex
+	deviceName            string
+	networkChangeListener listener.NetworkChangeListener
 }
 
 // NewClient instantiate a new Client
-func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover, routeListener RouteListener) *Client {
+func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover, networkChangeListener NetworkChangeListener) *Client {
 	return &Client{
-		cfgFile:       cfgFile,
-		deviceName:    deviceName,
-		tunAdapter:    tunAdapter,
-		iFaceDiscover: iFaceDiscover,
-		recorder:      peer.NewRecorder(""),
-		ctxCancelLock: &sync.Mutex{},
-		routeListener: routeListener,
+		cfgFile:               cfgFile,
+		deviceName:            deviceName,
+		tunAdapter:            tunAdapter,
+		iFaceDiscover:         iFaceDiscover,
+		recorder:              peer.NewRecorder(""),
+		ctxCancelLock:         &sync.Mutex{},
+		networkChangeListener: networkChangeListener,
 	}
 }
 
@@ -96,7 +96,7 @@ func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsRead
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	return internal.RunClientMobile(ctx, cfg, c.recorder, c.tunAdapter, c.iFaceDiscover, c.routeListener, dns.items, dnsReadyListener)
+	return internal.RunClientMobile(ctx, cfg, c.recorder, c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, dns.items, dnsReadyListener)
 }
 
 // RunWithoutLogin we apply this type of run function when the backed has been started without UI (i.e. after reboot).
@@ -120,7 +120,7 @@ func (c *Client) RunWithoutLogin(dns *DNSList, dnsReadyListener DnsReadyListener
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	return internal.RunClientMobile(ctx, cfg, c.recorder, c.tunAdapter, c.iFaceDiscover, c.routeListener, dns.items, dnsReadyListener)
+	return internal.RunClientMobile(ctx, cfg, c.recorder, c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, dns.items, dnsReadyListener)
 }
 
 // Stop the internal client and free the resources

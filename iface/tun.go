@@ -1,8 +1,9 @@
 package iface
 
 type MobileIFaceArguments struct {
-	Routes []string
-	Dns    string
+	Routes        []string
+	Dns           string
+	SearchDomains []string
 }
 
 // NetInterface represents a generic network tunnel interface
