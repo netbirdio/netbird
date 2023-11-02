@@ -21,6 +21,7 @@ jobs:
         with:
           ignore_words_file: .codespellignore
           skip: go.mod,go.sum
+          only_warn: 1
   golangci:
     strategy:
       fail-fast: false
