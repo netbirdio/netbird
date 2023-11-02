@@ -62,7 +62,12 @@ func (h *PeersHandler) getPeer(account *server.Account, peerID, userID string, w
 		return
 	}
 
-	util.WriteJSONObject(w, toPeerResponse(peerToReturn, account, h.accountManager.GetDNSDomain()))
+	groupsInfo := toGroupsInfo(account.Groups, peer.ID)
+
+	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain())
+	accessiblePeers := toAccessiblePeers(netMap)
+
+	util.WriteJSONObject(w, toSinglePeerResponse(peerToReturn, groupsInfo, h.accountManager.GetDNSDomain(), accessiblePeers))
 }
 
 func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, peerID string, w http.ResponseWriter, r *http.Request) {
@@ -81,7 +86,10 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 		return
 	}
 	dnsDomain := h.accountManager.GetDNSDomain()
-	util.WriteJSONObject(w, toPeerResponse(peer, account, dnsDomain))
+
+	groupMinimumInfo := toGroupsInfo(account.Groups, peer.ID)
+	// todo: fill accessiblePeersCount or not
+	util.WriteJSONObject(w, toPeerListItemResponse(peer, groupMinimumInfo, dnsDomain, 0))
 }
 
 func (h *PeersHandler) deletePeer(accountID, userID string, peerID string, w http.ResponseWriter) {
@@ -142,14 +150,18 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 		dnsDomain := h.accountManager.GetDNSDomain()
 
-		respBody := []*api.Peer{}
+		respBody := make([]*api.PeerBatch, 0, len(peers))
 		for _, peer := range peers {
 			peerToReturn, err := h.checkPeerStatus(peer)
 			if err != nil {
 				util.WriteError(err, w)
 				return
 			}
-			respBody = append(respBody, toPeerResponse(peerToReturn, account, dnsDomain))
+			groupMinimumInfo := toGroupsInfo(account.Groups, peer.ID)
+
+			accessiblePeerNumbers := h.accessiblePeersNumber(account, peer.ID)
+
+			respBody = append(respBody, toPeerListItemResponse(peerToReturn, groupMinimumInfo, dnsDomain, accessiblePeerNumbers))
 		}
 		util.WriteJSONObject(w, respBody)
 		return
@@ -158,17 +170,48 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func toPeerResponse(peer *server.Peer, account *server.Account, dnsDomain string) *api.Peer {
+func (h *PeersHandler) accessiblePeersNumber(account *server.Account, peerID string) int {
+	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain())
+	return len(netMap.Peers) + len(netMap.OfflinePeers)
+}
+
+func toAccessiblePeers(netMap *server.NetworkMap) []api.AccessiblePeer {
+	accessiblePeers := make([]api.AccessiblePeer, 0, len(netMap.Peers)+len(netMap.OfflinePeers))
+	for _, p := range netMap.Peers {
+		ap := api.AccessiblePeer{
+			Id:       p.ID,
+			Name:     p.Name,
+			Ip:       p.IP.String(),
+			DnsLabel: p.DNSLabel,
+			UserId:   p.UserID,
+		}
+		accessiblePeers = append(accessiblePeers, ap)
+	}
+
+	for _, p := range netMap.OfflinePeers {
+		ap := api.AccessiblePeer{
+			Id:       p.ID,
+			Name:     p.Name,
+			Ip:       p.IP.String(),
+			DnsLabel: p.DNSLabel,
+			UserId:   p.UserID,
+		}
+		accessiblePeers = append(accessiblePeers, ap)
+	}
+	return accessiblePeers
+}
+
+func toGroupsInfo(groups map[string]*server.Group, peerID string) []api.GroupMinimum {
 	var groupsInfo []api.GroupMinimum
 	groupsChecked := make(map[string]struct{})
-	for _, group := range account.Groups {
+	for _, group := range groups {
 		_, ok := groupsChecked[group.ID]
 		if ok {
 			continue
 		}
 		groupsChecked[group.ID] = struct{}{}
 		for _, pk := range group.Peers {
-			if pk == peer.ID {
+			if pk != peerID {
 				info := api.GroupMinimum{
 					Id:         group.ID,
 					Name:       group.Name,
@@ -179,7 +222,10 @@ func toPeerResponse(peer *server.Peer, account *server.Account, dnsDomain string
 			}
 		}
 	}
+	return groupsInfo
+}
 
+func toSinglePeerResponse(peer *server.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeer []api.AccessiblePeer) *api.Peer {
 	fqdn := peer.FQDN(dnsDomain)
 	if fqdn == "" {
 		fqdn = peer.DNSLabel
@@ -202,5 +248,34 @@ func toPeerResponse(peer *server.Peer, account *server.Account, dnsDomain string
 		LoginExpirationEnabled: peer.LoginExpirationEnabled,
 		LastLogin:              peer.LastLogin,
 		LoginExpired:           peer.Status.LoginExpired,
+		AccessiblePeers:        accessiblePeer,
+	}
+}
+
+func toPeerListItemResponse(peer *server.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeersCount int) *api.PeerBatch {
+
+	fqdn := peer.FQDN(dnsDomain)
+	if fqdn == "" {
+		fqdn = peer.DNSLabel
+	}
+
+	return &api.PeerBatch{
+		Id:                     peer.ID,
+		Name:                   peer.Name,
+		Ip:                     peer.IP.String(),
+		Connected:              peer.Status.Connected,
+		LastSeen:               peer.Status.LastSeen,
+		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, peer.Meta.Core),
+		Version:                peer.Meta.WtVersion,
+		Groups:                 groupsInfo,
+		SshEnabled:             peer.SSHEnabled,
+		Hostname:               peer.Meta.Hostname,
+		UserId:                 &peer.UserID,
+		UiVersion:              &peer.Meta.UIVersion,
+		DnsLabel:               fqdn,
+		LoginExpirationEnabled: peer.LoginExpirationEnabled,
+		LastLogin:              peer.LastLogin,
+		LoginExpired:           peer.Status.LoginExpired,
+		AccessiblePeersCount:   accessiblePeersCount,
 	}
 }
