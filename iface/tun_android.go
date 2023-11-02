@@ -37,7 +37,8 @@ func (t *tunDevice) Create(mIFaceArgs MobileIFaceArguments) error {
 	log.Info("create tun interface")
 	var err error
 	routesString := t.routesToString(mIFaceArgs.Routes)
-	t.fd, err = t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, mIFaceArgs.Dns, routesString)
+	searchDomainsToString := t.searchDomainsToString(mIFaceArgs.SearchDomains)
+	t.fd, err = t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, mIFaceArgs.Dns, searchDomainsToString, routesString)
 	if err != nil {
 		log.Errorf("failed to create Android interface: %s", err)
 		return err
@@ -93,4 +94,8 @@ func (t *tunDevice) Close() (err error) {
 
 func (t *tunDevice) routesToString(routes []string) string {
 	return strings.Join(routes, ";")
+}
+
+func (t *tunDevice) searchDomainsToString(searchDomains []string) string {
+	return strings.Join(searchDomains, ";")
 }

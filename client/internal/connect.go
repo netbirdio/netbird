@@ -13,8 +13,8 @@ import (
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -31,14 +31,14 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status)
 }
 
 // RunClientMobile with main logic on mobile system
-func RunClientMobile(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover, routeListener routemanager.RouteListener, dnsAddresses []string, dnsReadyListener dns.ReadyListener) error {
+func RunClientMobile(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover, networkChangeListener listener.NetworkChangeListener, dnsAddresses []string, dnsReadyListener dns.ReadyListener) error {
 	// in case of non Android os these variables will be nil
 	mobileDependency := MobileDependency{
-		TunAdapter:       tunAdapter,
-		IFaceDiscover:    iFaceDiscover,
-		RouteListener:    routeListener,
-		HostDNSAddresses: dnsAddresses,
-		DnsReadyListener: dnsReadyListener,
+		TunAdapter:            tunAdapter,
+		IFaceDiscover:         iFaceDiscover,
+		NetworkChangeListener: networkChangeListener,
+		HostDNSAddresses:      dnsAddresses,
+		DnsReadyListener:      dnsReadyListener,
 	}
 	return runClient(ctx, config, statusRecorder, mobileDependency)
 }
