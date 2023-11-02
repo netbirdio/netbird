@@ -88,8 +88,11 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 	dnsDomain := h.accountManager.GetDNSDomain()
 
 	groupMinimumInfo := toGroupsInfo(account.Groups, peer.ID)
-	// todo: fill accessiblePeersCount or not
-	util.WriteJSONObject(w, toPeerListItemResponse(peer, groupMinimumInfo, dnsDomain, 0))
+
+	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain())
+	accessiblePeers := toAccessiblePeers(netMap)
+
+	util.WriteJSONObject(w, toSinglePeerResponse(peer, groupMinimumInfo, dnsDomain, accessiblePeers))
 }
 
 func (h *PeersHandler) deletePeer(accountID, userID string, peerID string, w http.ResponseWriter) {
