@@ -47,16 +47,7 @@ type Manager interface {
 	//
 	// If comment argument is empty firewall manager should set
 	// rule ID as comment for the rule
-	AddFiltering(
-		ip net.IP,
-		proto Protocol,
-		sPort *Port,
-		dPort *Port,
-		direction RuleDirection,
-		action Action,
-		ipsetName string,
-		comment string,
-	) (Rule, error)
+	AddFiltering(ruleRequest RuleRequest) ([]Rule, error)
 
 	// DeleteRule from the firewall by rule definition
 	DeleteRule(rule Rule) error
@@ -68,4 +59,24 @@ type Manager interface {
 	Flush() error
 
 	// TODO: migrate routemanager firewal actions to this interface
+}
+
+// RuleRequest is the request to create a rule
+type RuleRequest struct {
+	// IP is the IP address of the rule
+	IP net.IP
+	// Proto is the protocol of the rule
+	Proto Protocol
+	// SrcPort is the source port of the rule
+	SrcPort *Port
+	// DstPort is the destination port of the rule
+	DstPort *Port
+	// Direction is the direction of the rule
+	Direction RuleDirection
+	// Action is the action of the rule
+	Action Action
+	// IPSetName is the name of the IPSet
+	IPSetName string
+	// Comment is the comment of the rule
+	Comment string
 }

@@ -287,13 +287,14 @@ func (d *DefaultManager) addOutRules(
 	ipsetName string,
 	comment string,
 ) ([]firewall.Rule, error) {
+
 	var rules []firewall.Rule
 	rule, err := d.manager.AddFiltering(
 		ip, protocol, nil, port, firewall.RuleDirectionOUT, action, ipsetName, comment)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
 	}
-	rules = append(rules, rule)
+	rules = append(rules, rule...)
 
 	if shouldSkipInvertedRule(protocol, port) {
 		return rules, nil
@@ -305,7 +306,7 @@ func (d *DefaultManager) addOutRules(
 		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
 	}
 
-	return append(rules, rule), nil
+	return append(rules, rule...), nil
 }
 
 // getRuleID() returns unique ID for the rule based on its parameters.

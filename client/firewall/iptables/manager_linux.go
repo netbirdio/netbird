@@ -94,33 +94,24 @@ func Create(wgIface iFaceMapper, ipv6Supported bool) (*Manager, error) {
 // AddFiltering rule to the firewall
 //
 // Comment will be ignored because some system this feature is not supported
-func (m *Manager) AddFiltering(
-	ip net.IP,
-	protocol fw.Protocol,
-	sPort *fw.Port,
-	dPort *fw.Port,
-	direction fw.RuleDirection,
-	action fw.Action,
-	ipsetName string,
-	comment string,
-) (fw.Rule, error) {
+func (m *Manager) AddFiltering(request fw.RuleRequest) ([]fw.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	client, err := m.client(ip)
+	client, err := m.client(request.IP)
 	if err != nil {
 		return nil, err
 	}
 
 	var dPortVal, sPortVal string
-	if dPort != nil && dPort.Values != nil {
+	if request.DstPort != nil && request.DstPort.Values != nil {
 		// TODO: we support only one port per rule in current implementation of ACLs
-		dPortVal = strconv.Itoa(dPort.Values[0])
+		dPortVal = strconv.Itoa(request.DstPort.Values[0])
 	}
-	if sPort != nil && sPort.Values != nil {
-		sPortVal = strconv.Itoa(sPort.Values[0])
+	if request.SrcPort != nil && request.SrcPort.Values != nil {
+		sPortVal = strconv.Itoa(request.SrcPort.Values[0])
 	}
-	ipsetName = m.transformIPsetName(ipsetName, sPortVal, dPortVal)
+	ipsetName := m.transformIPsetName(request.IPSetName, sPortVal, dPortVal)
 
 	ruleID := uuid.New().String()
 
@@ -135,28 +126,28 @@ func (m *Manager) AddFiltering(
 			}
 		}
 
-		if err := ipset.Add(ipsetName, ip.String()); err != nil {
+		if err := ipset.Add(ipsetName, request.IP.String()); err != nil {
 			return nil, fmt.Errorf("failed to add IP to ipset: %w", err)
 		}
 
 		if rsExists {
 			// if ruleset already exists it means we already have the firewall rule
 			// so we need to update IPs in the ruleset and return new fw.Rule object for ACL manager.
-			rs.ips[ip.String()] = ruleID
-			return &Rule{
+			rs.ips[request.IP.String()] = ruleID
+			return []fw.Rule{&Rule{
 				ruleID:    ruleID,
 				ipsetName: ipsetName,
-				ip:        ip.String(),
-				dst:       direction == fw.RuleDirectionOUT,
-				v6:        ip.To4() == nil,
-			}, nil
+				ip:        request.IP.String(),
+				dst:       request.Direction == fw.RuleDirectionOUT,
+				v6:        request.IP.To4() == nil,
+			}}, nil
 		}
 		// this is new ipset so we need to create firewall rule for it
 	}
 
-	specs := m.filterRuleSpecs(ip, string(protocol), sPortVal, dPortVal, direction, action, ipsetName)
+	specs := m.filterRuleSpecs(request.IP, string(request.Proto), sPortVal, dPortVal, request.Direction, request.Action, ipsetName)
 
-	if direction == fw.RuleDirectionOUT {
+	if request.Direction == fw.RuleDirectionOUT {
 		ok, err := client.Exists("filter", ChainOutputFilterName, specs...)
 		if err != nil {
 			return nil, fmt.Errorf("check is output rule already exists: %w", err)
@@ -186,9 +177,9 @@ func (m *Manager) AddFiltering(
 		ruleID:    ruleID,
 		specs:     specs,
 		ipsetName: ipsetName,
-		ip:        ip.String(),
-		dst:       direction == fw.RuleDirectionOUT,
-		v6:        ip.To4() == nil,
+		ip:        request.IP.String(),
+		dst:       request.Direction == fw.RuleDirectionOUT,
+		v6:        request.IP.To4() == nil,
 	}
 	if ipsetName != "" {
 		// ipset name is defined and it means that this rule was created
@@ -199,7 +190,7 @@ func (m *Manager) AddFiltering(
 		}
 	}
 
-	return rule, nil
+	return []fw.Rule{rule}, nil
 }
 
 // DeleteRule from the firewall by rule definition
@@ -272,27 +263,31 @@ func (m *Manager) Reset() error {
 func (m *Manager) AllowNetbird() error {
 	if m.wgIface.IsUserspaceBind() {
 		_, err := m.AddFiltering(
-			net.ParseIP("0.0.0.0"),
-			"all",
-			nil,
-			nil,
-			fw.RuleDirectionIN,
-			fw.ActionAccept,
-			"",
-			"",
+			fw.RuleRequest{
+				IP:        net.ParseIP("0.0.0.0"),
+				Proto:     "all",
+				SrcPort:   nil,
+				DstPort:   nil,
+				Direction: fw.RuleDirectionIN,
+				Action:    fw.ActionAccept,
+				IPSetName: "",
+				Comment:   "",
+			},
 		)
 		if err != nil {
 			return fmt.Errorf("failed to allow netbird interface traffic: %w", err)
 		}
 		_, err = m.AddFiltering(
-			net.ParseIP("0.0.0.0"),
-			"all",
-			nil,
-			nil,
-			fw.RuleDirectionOUT,
-			fw.ActionAccept,
-			"",
-			"",
+			fw.RuleRequest{
+				IP:        net.ParseIP("0.0.0.0"),
+				Proto:     "all",
+				SrcPort:   nil,
+				DstPort:   nil,
+				Direction: fw.RuleDirectionOUT,
+				Action:    fw.ActionAccept,
+				IPSetName: "",
+				Comment:   "",
+			},
 		)
 		return err
 	}

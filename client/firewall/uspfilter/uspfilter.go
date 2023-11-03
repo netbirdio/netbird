@@ -81,26 +81,17 @@ func Create(iface IFaceMapper) (*Manager, error) {
 //
 // If comment argument is empty firewall manager should set
 // rule ID as comment for the rule
-func (m *Manager) AddFiltering(
-	ip net.IP,
-	proto fw.Protocol,
-	sPort *fw.Port,
-	dPort *fw.Port,
-	direction fw.RuleDirection,
-	action fw.Action,
-	ipsetName string,
-	comment string,
-) (fw.Rule, error) {
+func (m *Manager) AddFiltering(request fw.RuleRequest) ([]fw.Rule, error) {
 	r := Rule{
 		id:        uuid.New().String(),
-		ip:        ip,
+		ip:        request.IP,
 		ipLayer:   layers.LayerTypeIPv6,
 		matchByIP: true,
-		direction: direction,
-		drop:      action == fw.ActionDrop,
-		comment:   comment,
+		direction: request.Direction,
+		drop:      request.Action == fw.ActionDrop,
+		comment:   request.Comment,
 	}
-	if ipNormalized := ip.To4(); ipNormalized != nil {
+	if ipNormalized := request.IP.To4(); ipNormalized != nil {
 		r.ipLayer = layers.LayerTypeIPv4
 		r.ip = ipNormalized
 	}
@@ -109,15 +100,15 @@ func (m *Manager) AddFiltering(
 		r.matchByIP = false
 	}
 
-	if sPort != nil && len(sPort.Values) == 1 {
-		r.sPort = uint16(sPort.Values[0])
+	if request.SrcPort != nil && len(request.SrcPort.Values) == 1 {
+		r.sPort = uint16(request.SrcPort.Values[0])
 	}
 
-	if dPort != nil && len(dPort.Values) == 1 {
-		r.dPort = uint16(dPort.Values[0])
+	if request.DstPort != nil && len(request.DstPort.Values) == 1 {
+		r.dPort = uint16(request.DstPort.Values[0])
 	}
 
-	switch proto {
+	switch request.Proto {
 	case fw.ProtocolTCP:
 		r.protoLayer = layers.LayerTypeTCP
 	case fw.ProtocolUDP:
@@ -132,7 +123,7 @@ func (m *Manager) AddFiltering(
 	}
 
 	m.mutex.Lock()
-	if direction == fw.RuleDirectionIN {
+	if request.Direction == fw.RuleDirectionIN {
 		if _, ok := m.incomingRules[r.ip.String()]; !ok {
 			m.incomingRules[r.ip.String()] = make(RuleSet)
 		}
@@ -145,7 +136,7 @@ func (m *Manager) AddFiltering(
 	}
 	m.mutex.Unlock()
 
-	return &r, nil
+	return []fw.Rule{&r}, nil
 }
 
 // DeleteRule from the firewall by rule definition
