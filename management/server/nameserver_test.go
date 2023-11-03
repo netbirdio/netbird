@@ -23,13 +23,14 @@ const (
 
 func TestCreateNameServerGroup(t *testing.T) {
 	type input struct {
-		name        string
-		description string
-		enabled     bool
-		groups      []string
-		nameServers []nbdns.NameServer
-		primary     bool
-		domains     []string
+		name          string
+		description   string
+		enabled       bool
+		groups        []string
+		nameServers   []nbdns.NameServer
+		primary       bool
+		domains       []string
+		searchDomains bool
 	}
 
 	testCases := []struct {
@@ -383,6 +384,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 				testCase.inputArgs.domains,
 				testCase.inputArgs.enabled,
 				userID,
+				testCase.inputArgs.searchDomains,
 			)
 
 			testCase.errFunc(t, err)
@@ -749,7 +751,7 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 
 func createNSStore(t *testing.T) (Store, error) {
 	dataDir := t.TempDir()
-	store, err := NewFileStore(dataDir, nil)
+	store, err := NewStoreFromJson(dataDir, nil)
 	if err != nil {
 		return nil, err
 	}

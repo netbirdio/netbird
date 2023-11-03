@@ -8,6 +8,13 @@ AGENT=/usr/local/bin/netbird
 mkdir -p /var/log/netbird/
 
 {
+    # check if it was installed with brew
+    brew list --formula | grep netbird
+    if [ $? -eq 0 ]
+    then
+        echo "NetBird has been installed with Brew. Please use Brew to update the package."
+        exit 1
+    fi
     osascript -e 'quit app "Netbird"' || true
     $AGENT service stop || true
 

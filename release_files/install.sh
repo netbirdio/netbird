@@ -23,19 +23,28 @@ if command -v sudo > /dev/null && [ "$(id -u)" -ne 0 ]; then
     SUDO="sudo"
 fi
 
-get_latest_release() {
+if [ -z ${NETBIRD_RELEASE+x} ]; then
+    NETBIRD_RELEASE=latest
+fi
+
+get_release() {
+    local RELEASE=$1
+    if [ "$RELEASE" = "latest" ]; then
+        local TAG="latest"
+    else
+        local TAG="tags/${RELEASE}"
+    fi
     if [ -n "$GITHUB_TOKEN" ]; then
-          curl -H  "Authorization: token ${GITHUB_TOKEN}" -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
+          curl -H  "Authorization: token ${GITHUB_TOKEN}" -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/${TAG}" \
               | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
     else
-          curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
+          curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/${TAG}" \
               | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
     fi
-
 }
 
 download_release_binary() {
-    VERSION=$(get_latest_release)
+    VERSION=$(get_release "$NETBIRD_RELEASE")
     BASE_URL="https://github.com/${OWNER}/${REPO}/releases/download"
     BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}.tar.gz"
 
@@ -66,9 +75,14 @@ download_release_binary() {
     if [ "$OS_TYPE" = "darwin" ] && [ "$1" = "$UI_APP" ]; then
         INSTALL_DIR="/Applications/NetBird UI.app"
 
+        if test -d "$INSTALL_DIR" ; then
+          echo "removing $INSTALL_DIR"
+          rm -rfv "$INSTALL_DIR"
+        fi
+
         # Unzip the app and move to INSTALL_DIR
         unzip -q -o "$BINARY_NAME"
-        mv "netbird_ui_${OS_TYPE}_${ARCH}" "$INSTALL_DIR"
+        mv "netbird_ui_${OS_TYPE}_${ARCH}/" "$INSTALL_DIR/"
     else
         ${SUDO} mkdir -p "$INSTALL_DIR"
         tar -xzvf "$BINARY_NAME"
@@ -184,16 +198,6 @@ install_netbird() {
         fi
     fi
 
-    # Checks if SKIP_UI_APP env is set
-    if [ -z "$SKIP_UI_APP" ]; then
-        SKIP_UI_APP=false
-    else
-        if $SKIP_UI_APP; then
-            echo "SKIP_UI_APP has been set to true in the environment"
-            echo "NetBird UI installation will be omitted based on your preference"
-        fi
-    fi
-
     # Run the installation, if a desktop environment is not detected
     # only the CLI will be installed
     case "$PACKAGE_MANAGER" in
@@ -294,14 +298,22 @@ is_bin_package_manager() {
   fi
 }
 
+stop_running_netbird_ui() {
+  NB_UI_PROC=$(ps -ef | grep "[n]etbird-ui" | awk '{print $2}')
+  if [ -n "$NB_UI_PROC" ]; then
+    echo "NetBird UI is running with PID $NB_UI_PROC. Stopping it..."
+    kill -9 "$NB_UI_PROC"
+  fi
+}
+
 update_netbird() {
   if is_bin_package_manager "$CONFIG_FILE"; then
-    latest_release=$(get_latest_release)
+    latest_release=$(get_release "latest")
     latest_version=${latest_release#v}
     installed_version=$(netbird version)
 
     if [ "$latest_version" = "$installed_version" ]; then
-      echo "Installed netbird version ($installed_version) is up-to-date"
+      echo "Installed NetBird version ($installed_version) is up-to-date"
       exit 0
     fi
 
@@ -310,8 +322,9 @@ update_netbird() {
       echo ""
       echo "Initiating NetBird update. This will stop the netbird service and restart it after the update"
 
-      ${SUDO} netbird service stop
-      ${SUDO} netbird service uninstall
+      ${SUDO} netbird service stop || true
+      ${SUDO} netbird service uninstall || true
+      stop_running_netbird_ui
       install_native_binaries
 
       ${SUDO} netbird service install
@@ -321,6 +334,16 @@ update_netbird() {
      echo "NetBird installation was done using a package manager. Please use your system's package manager to update"
   fi
 }
+
+# Checks if SKIP_UI_APP env is set
+if [ -z "$SKIP_UI_APP" ]; then
+    SKIP_UI_APP=false
+else
+    if $SKIP_UI_APP; then
+      echo "SKIP_UI_APP has been set to true in the environment"
+      echo "NetBird UI installation will be omitted based on your preference"
+    fi
+fi
 
 # Identify OS name and default package manager
 if type uname >/dev/null 2>&1; then
@@ -334,10 +357,10 @@ if type uname >/dev/null 2>&1; then
             if [ "$ARCH" != "amd64" ] && [ "$ARCH" != "arm64" ] \
                 && [ "$ARCH" != "x86_64" ];then
                 SKIP_UI_APP=true
-                echo "NetBird UI installation will be omitted as $ARCH is not a compactible architecture"
+                echo "NetBird UI installation will be omitted as $ARCH is not a compatible architecture"
             fi
 
-            # Allow netbird UI installation for linux running desktop enviroment
+            # Allow netbird UI installation for linux running desktop environment
             if [ -z "$XDG_CURRENT_DESKTOP" ];then
                 SKIP_UI_APP=true
                 echo "NetBird UI installation will be omitted as Linux does not run desktop environment"
@@ -376,7 +399,13 @@ if type uname >/dev/null 2>&1; then
 	esac
 fi
 
-case "$1" in
+UPDATE_FLAG=$1
+
+if [ "${UPDATE_NETBIRD}-x" = "true-x" ]; then
+  UPDATE_FLAG="--update"
+fi
+
+case "$UPDATE_FLAG" in
     --update)
       update_netbird
     ;;

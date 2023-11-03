@@ -34,14 +34,14 @@ type NetworkMap struct {
 }
 
 type Network struct {
-	Id  string
-	Net net.IPNet
-	Dns string
+	Identifier string    `json:"id"`
+	Net        net.IPNet `gorm:"serializer:gob"`
+	Dns        string
 	// Serial is an ID that increments by 1 when any change to the network happened (e.g. new peer has been added).
 	// Used to synchronize state to the client apps.
 	Serial uint64
 
-	mu sync.Mutex `json:"-"`
+	mu sync.Mutex `json:"-" gorm:"-"`
 }
 
 // NewNetwork creates a new Network initializing it with a Serial=0
@@ -56,10 +56,10 @@ func NewNetwork() *Network {
 	intn := r.Intn(len(sub))
 
 	return &Network{
-		Id:     xid.New().String(),
-		Net:    sub[intn].IPNet,
-		Dns:    "",
-		Serial: 0}
+		Identifier: xid.New().String(),
+		Net:        sub[intn].IPNet,
+		Dns:        "",
+		Serial:     0}
 }
 
 // IncSerial increments Serial by 1 reflecting that the network state has been changed
@@ -78,10 +78,10 @@ func (n *Network) CurrentSerial() uint64 {
 
 func (n *Network) Copy() *Network {
 	return &Network{
-		Id:     n.Id,
-		Net:    n.Net,
-		Dns:    n.Dns,
-		Serial: n.Serial,
+		Identifier: n.Identifier,
+		Net:        n.Net,
+		Dns:        n.Dns,
+		Serial:     n.Serial,
 	}
 }
 

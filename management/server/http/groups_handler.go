@@ -107,10 +107,11 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		peers = *req.Peers
 	}
 	group := server.Group{
-		ID:     groupID,
-		Name:   req.Name,
-		Peers:  peers,
-		Issued: eg.Issued,
+		ID:                   groupID,
+		Name:                 req.Name,
+		Peers:                peers,
+		Issued:               eg.Issued,
+		IntegrationReference: eg.IntegrationReference,
 	}
 
 	if err := h.accountManager.SaveGroup(account.Id, user.Id, &group); err != nil {

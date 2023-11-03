@@ -135,7 +135,8 @@ func (n *nftablesManager) RestoreOrCreateContainers() error {
 	}
 
 	for _, table := range tables {
-		if table.Name == "filter" {
+		if table.Name == "filter" && table.Family == nftables.TableFamilyIPv4 {
+			log.Debugf("nftables: found filter table for ipv4")
 			n.filterTable = table
 			continue
 		}
@@ -486,7 +487,7 @@ func (n *nftablesManager) RemoveRoutingRules(pair routerPair) error {
 	if len(n.rules) == 2 && n.defaultForwardRules[0] != nil {
 		err := n.eraseDefaultForwardRule()
 		if err != nil {
-			log.Errorf("failed to delte default fwd rule: %s", err)
+			log.Errorf("failed to delete default fwd rule: %s", err)
 		}
 	}
 

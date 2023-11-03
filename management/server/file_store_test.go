@@ -387,7 +387,7 @@ func TestFileStore_GetAccount(t *testing.T) {
 	assert.Equal(t, expected.DomainCategory, account.DomainCategory)
 	assert.Equal(t, expected.Domain, account.Domain)
 	assert.Equal(t, expected.CreatedBy, account.CreatedBy)
-	assert.Equal(t, expected.Network.Id, account.Network.Id)
+	assert.Equal(t, expected.Network.Identifier, account.Network.Identifier)
 	assert.Len(t, account.Peers, len(expected.Peers))
 	assert.Len(t, account.Users, len(expected.Users))
 	assert.Len(t, account.SetupKeys, len(expected.SetupKeys))
