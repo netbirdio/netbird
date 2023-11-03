@@ -67,8 +67,9 @@ func NewClient(cfgFile, deviceName string, osVersion string, osName string, rout
 }
 
 // Run start the internal client. It is a blocker function
-func (c *Client) Run(fd int32) error {
+func (c *Client) Run(fd int32, interfaceName string) error {
 	log.Infof("Starting NetBird client")
+	log.Debugf("Tunnel uses interface: %s", interfaceName)
 	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
@@ -97,7 +98,7 @@ func (c *Client) Run(fd int32) error {
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.onHostDnsFn = func([]string) {}
-	return internal.RunClientiOS(ctx, cfg, c.recorder, fd, c.routeListener, c.dnsManager)
+	return internal.RunClientiOS(ctx, cfg, c.recorder, fd, c.routeListener, c.dnsManager, interfaceName)
 }
 
 // Stop the internal client and free the resources

@@ -4,14 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/libp2p/go-netroute"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -40,12 +45,80 @@ type upstreamResolver struct {
 	reactivate func()
 }
 
-func newUpstreamResolver(parentCTX context.Context) *upstreamResolver {
+// func newUpstreamResolver(parentCTX context.Context) *upstreamResolver {
+// 	ctx, cancel := context.WithCancel(parentCTX)
+// 	return &upstreamResolver{
+// 		ctx:              ctx,
+// 		cancel:           cancel,
+// 		upstreamClient:   &dns.Client{},
+// 		upstreamTimeout:  upstreamTimeout,
+// 		reactivatePeriod: reactivatePeriod,
+// 		failsTillDeact:   failsTillDeact,
+// 	}
+// }
+
+func getInterfaceIndex(interfaceName string) (int, error) {
+	iface, err := net.InterfaceByName(interfaceName)
+	if err != nil {
+		return 0, err
+	}
+
+	return iface.Index, nil
+}
+
+func newUpstreamResolver(parentCTX context.Context, interfaceName string, wgAddr string) *upstreamResolver {
 	ctx, cancel := context.WithCancel(parentCTX)
+
+	// Specify the local IP address you want to bind to
+	localIP, _, err := net.ParseCIDR(wgAddr) // Should be our interface IP
+	if err != nil {
+		log.Errorf("error while parsing CIDR: %s", err)
+	}
+	index, err := getInterfaceIndex(interfaceName)
+	rand.Seed(time.Now().UnixNano())
+	port := rand.Intn(4001) + 1000
+	log.Debugf("UpstreamResolver interface name: %s, index: %d, ip: %s, port: %d", interfaceName, index, localIP, port)
+	if err != nil {
+		log.Debugf("unable to get interface index for %s: %s", interfaceName, err)
+	}
+	localIFaceIndex := index // Should be our interface index
+	// Create a custom dialer with the LocalAddr set to the desired IP
+	dialer := &net.Dialer{
+		LocalAddr: &net.UDPAddr{
+			IP:   localIP,
+			Port: port, // Let the OS pick a free port
+		},
+		Control: func(network, address string, c syscall.RawConn) error {
+			var operr error
+			fn := func(s uintptr) {
+				operr = syscall.SetsockoptInt(int(s), unix.IPPROTO_IP, unix.IP_BOUND_IF, localIFaceIndex)
+			}
+
+			if err := c.Control(fn); err != nil {
+				return err
+			}
+
+			return operr
+		},
+	}
+	// pktConn, err := dialer.Dial("udp", "100.127.136.151:10053")
+	// if err != nil {
+	// 	log.Errorf("error while dialing: %s", err)
+	//
+	// } else {
+	// 	pktConn.Write([]byte("hello"))
+	// 	pktConn.Close()
+	// }
+
+	// Create a new DNS client with the custom dialer
+	client := &dns.Client{
+		Dialer: dialer,
+	}
+
 	return &upstreamResolver{
 		ctx:              ctx,
 		cancel:           cancel,
-		upstreamClient:   &dns.Client{},
+		upstreamClient:   client,
 		upstreamTimeout:  upstreamTimeout,
 		reactivatePeriod: reactivatePeriod,
 		failsTillDeact:   failsTillDeact,
@@ -61,7 +134,7 @@ func (u *upstreamResolver) stop() {
 func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	defer u.checkUpstreamFails()
 
-	log.WithField("question", r.Question[0]).Trace("received an upstream question")
+	log.WithField("question", r.Question[0]).Debug("received an upstream question")
 
 	select {
 	case <-u.ctx.Done():
@@ -70,6 +143,19 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	for _, upstream := range u.upstreamServers {
+		log.Debugf("querying the upstream %s", upstream)
+		rr, errR := netroute.New()
+		if errR != nil {
+			log.Errorf("unable to create networute: %s", errR)
+		} else {
+			add := netip.MustParseAddrPort(upstream)
+			_, gateway, preferredSrc, errR := rr.Route(add.Addr().AsSlice())
+			if errR != nil {
+				log.Errorf("getting routes returned an error: %v", errR)
+			} else {
+				log.Infof("upstream %s gateway: %s, preferredSrc: %s", add.Addr(), gateway, preferredSrc)
+			}
+		}
 		ctx, cancel := context.WithTimeout(u.ctx, u.upstreamTimeout)
 		rm, t, err := u.upstreamClient.ExchangeContext(ctx, r, upstream)
 
@@ -87,7 +173,7 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			return
 		}
 
-		log.Tracef("took %s to query the upstream %s", t, upstream)
+		log.Debugf("took %s to query the upstream %s", t, upstream)
 
 		err = w.WriteMsg(rm)
 		if err != nil {

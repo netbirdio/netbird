@@ -53,6 +53,9 @@ type DefaultServer struct {
 	permanent        bool
 	hostsDnsList     []string
 	hostsDnsListLock sync.Mutex
+
+	interfaceName string
+	wgAddr        string
 }
 
 type handlerWithStop interface {
@@ -66,7 +69,7 @@ type muxUpdate struct {
 }
 
 // NewDefaultServer returns a new dns server
-func NewDefaultServer(ctx context.Context, wgInterface WGIface, customAddress string) (*DefaultServer, error) {
+func NewDefaultServer(ctx context.Context, wgInterface WGIface, customAddress string, interfaceName string, wgAddr string) (*DefaultServer, error) {
 	var addrPort *netip.AddrPort
 	if customAddress != "" {
 		parsedAddrPort, err := netip.ParseAddrPort(customAddress)
@@ -83,13 +86,13 @@ func NewDefaultServer(ctx context.Context, wgInterface WGIface, customAddress st
 		dnsService = newServiceViaListener(wgInterface, addrPort)
 	}
 
-	return newDefaultServer(ctx, wgInterface, dnsService), nil
+	return newDefaultServer(ctx, wgInterface, dnsService, interfaceName, wgAddr), nil
 }
 
 // NewDefaultServerPermanentUpstream returns a new dns server. It optimized for mobile systems
 func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface, hostsDnsList []string) *DefaultServer {
 	log.Debugf("host dns address list is: %v", hostsDnsList)
-	ds := newDefaultServer(ctx, wgInterface, newServiceViaMemory(wgInterface))
+	ds := newDefaultServer(ctx, wgInterface, newServiceViaMemory(wgInterface), "", "")
 	ds.permanent = true
 	ds.hostsDnsList = hostsDnsList
 	ds.addHostRootZone()
@@ -97,7 +100,7 @@ func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface,
 	return ds
 }
 
-func newDefaultServer(ctx context.Context, wgInterface WGIface, dnsService service) *DefaultServer {
+func newDefaultServer(ctx context.Context, wgInterface WGIface, dnsService service, interfaceName string, wgAddr string) *DefaultServer {
 	ctx, stop := context.WithCancel(ctx)
 	defaultServer := &DefaultServer{
 		ctx:       ctx,
@@ -107,7 +110,9 @@ func newDefaultServer(ctx context.Context, wgInterface WGIface, dnsService servi
 		localResolver: &localResolver{
 			registeredMap: make(registrationMap),
 		},
-		wgInterface: wgInterface,
+		wgInterface:   wgInterface,
+		interfaceName: interfaceName,
+		wgAddr:        wgAddr,
 	}
 
 	return defaultServer
@@ -295,7 +300,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			continue
 		}
 
-		handler := newUpstreamResolver(s.ctx)
+		handler := newUpstreamResolver(s.ctx, s.interfaceName, s.wgAddr)
 		for _, ns := range nsGroup.NameServers {
 			if ns.NSType != nbdns.UDPNameServerType {
 				log.Warnf("skiping nameserver %s with type %s, this peer supports only %s",
@@ -468,7 +473,7 @@ func (s *DefaultServer) upstreamCallbacks(
 }
 
 func (s *DefaultServer) addHostRootZone() {
-	handler := newUpstreamResolver(s.ctx)
+	handler := newUpstreamResolver(s.ctx, s.interfaceName, s.wgAddr)
 	handler.upstreamServers = make([]string, len(s.hostsDnsList))
 	for n, ua := range s.hostsDnsList {
 		handler.upstreamServers[n] = fmt.Sprintf("%s:53", ua)

@@ -206,7 +206,7 @@ func (e *Engine) Start() error {
 	} else {
 		// todo fix custom address
 		if e.dnsServer == nil {
-			e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
+			e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.mobileDep.InterfaceName, wgAddr)
 			if err != nil {
 				e.close()
 				return err
