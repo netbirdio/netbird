@@ -1438,7 +1438,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PeerBase'
+                $ref: '#/components/schemas/Peer'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
