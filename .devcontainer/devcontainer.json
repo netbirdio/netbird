@@ -8,7 +8,6 @@
 	"capAdd": ["NET_ADMIN", "SYS_ADMIN", "SYS_RESOURCE"],
 	"privileged": true,
 	"onCreateCommand": {
-		"management build": "go build -o management/management ./management",
-		"client build": "go build -o client/client ./client"
+		"tests": "go test ./..."
 	}
 }
