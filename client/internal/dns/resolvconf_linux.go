@@ -3,10 +3,9 @@
 package dns
 
 import (
+	"bytes"
 	"fmt"
-	"os"
 	"os/exec"
-	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -15,11 +14,24 @@ const resolvconfCommand = "resolvconf"
 
 type resolvconf struct {
 	ifaceName string
+
+	originalSearchDomains []string
+	originalNameServers   []string
+	othersConfigs         []string
 }
 
+// supported "openresolv" only
 func newResolvConfConfigurator(wgInterface WGIface) (hostManager, error) {
+	originalSearchDomains, nameServers, others, err := originalDNSConfigs("/etc/resolv.conf")
+	if err != nil {
+		log.Error(err)
+	}
+
 	return &resolvconf{
-		ifaceName: wgInterface.Name(),
+		ifaceName:             wgInterface.Name(),
+		originalSearchDomains: originalSearchDomains,
+		originalNameServers:   nameServers,
+		othersConfigs:         others,
 	}, nil
 }
 
@@ -37,41 +49,20 @@ func (r *resolvconf) applyDNSConfig(config hostDNSConfig) error {
 		return fmt.Errorf("unable to configure DNS for this peer using resolvconf manager without a nameserver group with all domains configured")
 	}
 
-	var searchDomains string
-	appendedDomains := 0
-	for _, dConf := range config.domains {
-		if dConf.matchOnly || dConf.disabled {
-			continue
-		}
+	searchDomainList := searchDomains(config)
+	searchDomainList = mergeSearchDomains(searchDomainList, r.originalSearchDomains)
 
-		if appendedDomains >= fileMaxNumberOfSearchDomains {
-			// lets log all skipped domains
-			log.Infof("already appended %d domains to search list. Skipping append of %s domain", fileMaxNumberOfSearchDomains, dConf.domain)
-			continue
-		}
+	buf := prepareResolvConfContent(
+		searchDomainList,
+		append([]string{config.serverIP}, r.originalNameServers...),
+		r.othersConfigs)
 
-		if fileSearchLineBeginCharCount+len(searchDomains) > fileMaxLineCharsLimit {
-			// lets log all skipped domains
-			log.Infof("search list line is larger than %d characters. Skipping append of %s domain", fileMaxLineCharsLimit, dConf.domain)
-			continue
-		}
-
-		searchDomains += " " + dConf.domain
-		appendedDomains++
-	}
-
-	originalContent, err := os.ReadFile(fileDefaultResolvConfBackupLocation)
-	if err != nil {
-		log.Errorf("Could not read existing resolv.conf")
-	}
-	content := fmt.Sprintf(fileGeneratedResolvConfContentFormat, fileDefaultResolvConfBackupLocation, config.serverIP, searchDomains, string(originalContent))
-
-	err = r.applyConfig(content)
+	err = r.applyConfig(buf)
 	if err != nil {
 		return err
 	}
 
-	log.Infof("added %d search domains. Search list: %s", appendedDomains, searchDomains)
+	log.Infof("added %d search domains. Search list: %s", len(searchDomainList), searchDomainList)
 	return nil
 }
 
@@ -84,9 +75,9 @@ func (r *resolvconf) restoreHostDNS() error {
 	return nil
 }
 
-func (r *resolvconf) applyConfig(content string) error {
+func (r *resolvconf) applyConfig(content bytes.Buffer) error {
 	cmd := exec.Command(resolvconfCommand, "-x", "-a", r.ifaceName)
-	cmd.Stdin = strings.NewReader(content)
+	cmd.Stdin = &content
 	_, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("got an error while applying resolvconf configuration for %s interface, error: %s", r.ifaceName, err)
