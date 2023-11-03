@@ -11,7 +11,7 @@ infrastructure_files/management-*.json
 infrastructure_files/docker-compose.yml
 infrastructure_files/openid-configuration.json
 infrastructure_files/turnserver.conf
-management/netbird-mgmt
+management/management
 client/client
 client/client.exe
 *.syso
@@ -20,3 +20,4 @@ infrastructure_files/setup.env
 infrastructure_files/setup-*.env
 .vscode
 .DS_Store
+*.db
