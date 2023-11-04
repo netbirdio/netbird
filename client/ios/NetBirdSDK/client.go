@@ -141,6 +141,8 @@ func (c *Client) GetManagementStatus() bool {
 func (c *Client) IsLoginRequired() bool {
 	var ctx context.Context
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
+	ctxWithValues = context.WithValue(ctxWithValues, system.OsNameCtxKey, c.osName)
+	ctxWithValues = context.WithValue(ctxWithValues, system.OsVersionCtxKey, c.osVersion)
 	c.ctxCancelLock.Lock()
 	defer c.ctxCancelLock.Unlock()
 	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
@@ -156,6 +158,8 @@ func (c *Client) IsLoginRequired() bool {
 func (c *Client) LoginForMobile() string {
 	var ctx context.Context
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
+	ctxWithValues = context.WithValue(ctxWithValues, system.OsNameCtxKey, c.osName)
+	ctxWithValues = context.WithValue(ctxWithValues, system.OsVersionCtxKey, c.osVersion)
 	c.ctxCancelLock.Lock()
 	defer c.ctxCancelLock.Unlock()
 	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
