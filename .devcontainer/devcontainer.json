@@ -6,8 +6,5 @@
 	},
 	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
 	"capAdd": ["NET_ADMIN", "SYS_ADMIN", "SYS_RESOURCE"],
-	"privileged": true,
-	"onCreateCommand": {
-		"tests": "go test ./..."
-	}
+	"privileged": true
 }
