@@ -1,0 +1,10 @@
+{
+	"name": "NetBird",
+	"build": {
+		"context": "..",
+		"dockerfile": "Dockerfile"
+	},
+	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+	"capAdd": ["NET_ADMIN", "SYS_ADMIN", "SYS_RESOURCE"],
+	"privileged": true
+}
