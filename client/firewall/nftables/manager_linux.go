@@ -122,14 +122,14 @@ func (m *Manager) AddFiltering(
 			FilterOutputChainName,
 			nftables.ChainHookPostrouting,
 			nftables.ChainPriorityNATSource,
-			nftables.ChainTypeFilter)
+			nftables.ChainTypeNAT)
 	} else {
 		table, chain, err = m.chain(
 			ip,
 			FilterInputChainName,
 			nftables.ChainHookPrerouting,
 			nftables.ChainPriorityNATDest,
-			nftables.ChainTypeFilter)
+			nftables.ChainTypeNAT)
 	}
 	if err != nil {
 		return nil, err
