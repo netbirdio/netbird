@@ -108,6 +108,8 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 			chosen = r.ID
 			chosenScore = tempScore
 		}
+		// TODO IPv6 consider IPv6 connectivity for route selection?
+		// 		Depends on how we want to handle non-ipv6-compatible clients
 	}
 
 	if chosen == "" {
@@ -176,7 +178,11 @@ func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 		if err != nil {
 			return err
 		}
-		err = removeFromRouteTableIfNonSystem(c.network, c.wgInterface.Address().IP.String())
+		addr := c.wgInterface.Address().IP.String()
+		if c.chosenRoute.Network.Addr().Is6() {
+			addr = c.wgInterface.Address6().IP.String()
+		}
+		err = removeFromRouteTableIfNonSystem(c.network, addr)
 		if err != nil {
 			return fmt.Errorf("couldn't remove route %s from system, err: %v",
 				c.network, err)
@@ -215,7 +221,12 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 			return err
 		}
 	} else {
-		err = addToRouteTableIfNoExists(c.network, c.wgInterface.Address().IP.String())
+		gwAddr := c.wgInterface.Address().IP.String()
+		if c.network.Addr().Is6() {
+			gwAddr = c.wgInterface.Address6().IP.String()
+		}
+
+		err = addToRouteTableIfNoExists(c.network, gwAddr, c.wgInterface.Name())
 		if err != nil {
 			return fmt.Errorf("route %s couldn't be added for peer %s, err: %v",
 				c.network.String(), c.wgInterface.Address().IP.String(), err)

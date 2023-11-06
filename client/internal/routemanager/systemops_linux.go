@@ -29,8 +29,9 @@ type routeInfoInMemory struct {
 }
 
 const ipv4ForwardingPath = "/proc/sys/net/ipv4/ip_forward"
+const ipv6ForwardingPath = "/proc/sys/net/ipv6/conf/all/forwarding"
 
-func addToRouteTable(prefix netip.Prefix, addr string) error {
+func addToRouteTable(prefix netip.Prefix, addr string, devName string) error {
 	_, ipNet, err := net.ParseCIDR(prefix.String())
 	if err != nil {
 		return err
@@ -41,15 +42,30 @@ func addToRouteTable(prefix netip.Prefix, addr string) error {
 		addrMask = "/128"
 	}
 
-	ip, _, err := net.ParseCIDR(addr + addrMask)
+	var ip net.IP = nil
+	if addr != "" {
+		parsedIp, _, err := net.ParseCIDR(addr + addrMask)
+		if err != nil {
+			return err
+		}
+		// for IPv6, setting the local IP as the gateway address results in an "invalid argument" error.
+		// Therefore, we cannot use it to obtain the interface for the route (that would only be possible in IPv4).
+		if parsedIp.To4() != nil {
+			ip = parsedIp
+		}
+	}
+
+	// We obtain the route interface using the device name.
+	linkAlias, err := netlink.LinkByName(devName)
 	if err != nil {
 		return err
 	}
 
 	route := &netlink.Route{
-		Scope: netlink.SCOPE_UNIVERSE,
-		Dst:   ipNet,
-		Gw:    ip,
+		Scope:     netlink.SCOPE_UNIVERSE,
+		Dst:       ipNet,
+		Gw:        ip,
+		LinkIndex: linkAlias.Attrs().Index,
 	}
 
 	err = netlink.RouteAdd(route)
@@ -126,9 +142,18 @@ func enableIPForwarding() error {
 
 	// check if it is already enabled
 	// see more: https://github.com/netbirdio/netbird/issues/872
+	if len(bytes) == 0 || bytes[0] != 49 {
+		err = os.WriteFile(ipv4ForwardingPath, []byte("1"), 0644)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Do the same for IPv6
+	bytes, err = os.ReadFile(ipv6ForwardingPath)
 	if len(bytes) > 0 && bytes[0] == 49 {
 		return nil
 	}
+	return os.WriteFile(ipv6ForwardingPath, []byte("1"), 0644)
 
-	return os.WriteFile(ipv4ForwardingPath, []byte("1"), 0644)
 }

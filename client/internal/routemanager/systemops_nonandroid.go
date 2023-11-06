@@ -13,8 +13,19 @@ import (
 
 var errRouteNotFound = fmt.Errorf("route not found")
 
-func addToRouteTableIfNoExists(prefix netip.Prefix, addr string) error {
-	defaultGateway, err := getExistingRIBRouteGateway(netip.MustParsePrefix("0.0.0.0/0"))
+// Adds a route for a prefix to the routing table, if such a route doesn't already exist.
+//
+// Note: depending on the address family and operating system, one of addr or devName may be ignored, and addr should
+// always be the local address of the wireguard interface and not an explicit gateway address.
+// addr will then be used by some implementations/operating systems to determine the correct device (for OSes that can
+// not use devName directly).
+// See the concrete implementations of addToRouteTable to see what exactly is done for each OS.
+func addToRouteTableIfNoExists(prefix netip.Prefix, addr string, devName string) error {
+	defaultRoutePrefix := netip.MustParsePrefix("0.0.0.0/0")
+	if prefix.Addr().Is6() {
+		defaultRoutePrefix = netip.MustParsePrefix("::/0")
+	}
+	defaultGateway, err := getExistingRIBRouteGateway(defaultRoutePrefix)
 	if err != nil && err != errRouteNotFound {
 		return err
 	}
@@ -34,7 +45,7 @@ func addToRouteTableIfNoExists(prefix netip.Prefix, addr string) error {
 		return nil
 	}
 
-	return addToRouteTable(prefix, addr)
+	return addToRouteTable(prefix, addr, devName)
 }
 
 func removeFromRouteTableIfNonSystem(prefix netip.Prefix, addr string) error {

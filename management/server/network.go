@@ -131,6 +131,7 @@ func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 // AllocatePeerIP6 pics an available IPv6 from an net.IPNet.
 // This method considers already taken IPs and reuses IPs if there are gaps in takenIps
 // E.g. if ipNet=100.30.0.0/16 and takenIps=[100.30.0.1, 100.30.0.4] then the result would be 100.30.0.2 or 100.30.0.3
+// TODO docs, and recheck if there might be a duplicate issue here?
 func AllocatePeerIP6(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 
 	takenIPMap := make(map[string]struct{})

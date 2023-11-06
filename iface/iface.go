@@ -83,7 +83,7 @@ func (w *WGIface) UpdateAddr6(newAddr6 string) error {
 		return err
 	}
 
-	return w.tun.UpdateAddr(addr)
+	return w.tun.UpdateAddr6(&addr)
 }
 
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist

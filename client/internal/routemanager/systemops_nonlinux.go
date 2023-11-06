@@ -11,7 +11,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func addToRouteTable(prefix netip.Prefix, addr string) error {
+func addToRouteTable(prefix netip.Prefix, addr string, devName string) error {
+	// devName is ignored here, the route interface is automatically determined based on the gateway address.
 	cmd := exec.Command("route", "add", prefix.String(), addr)
 	out, err := cmd.Output()
 	if err != nil {
