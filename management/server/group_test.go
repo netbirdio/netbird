@@ -1,9 +1,11 @@
 package server
 
 import (
+	"errors"
 	"testing"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -55,19 +57,28 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 		{
 			"integration",
 			"grp-for-integration",
-			"integration",
+			"only admins service user can delete integration group",
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			err = am.DeleteGroup(account.Id, "", testCase.groupID)
+			err = am.DeleteGroup(account.Id, groupAdminUserID, testCase.groupID)
 			if err == nil {
 				t.Errorf("delete %s group successfully", testCase.groupID)
 				return
 			}
 
-			gErr, ok := err.(*GroupLinkError)
+			var sErr *status.Error
+			if errors.As(err, &sErr) {
+				if sErr.Message != testCase.expectedReason {
+					t.Errorf("invalid error case: %s, expected: %s", sErr.Message, testCase.expectedReason)
+				}
+				return
+			}
+
+			var gErr *GroupLinkError
+			ok := errors.As(err, &gErr)
 			if !ok {
 				t.Error("invalid error type")
 				return
