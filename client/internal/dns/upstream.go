@@ -147,7 +147,6 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			rm, t, err = upstreamExchangeClient.ExchangeContext(ctx, r, upstream)
 			cancel()
 		} else {
-			log.Debugf("ios upstream resolver: %s", upstream)
 			upstreamHost, _, err := net.SplitHostPort(upstream)
 			if err != nil {
 				log.Errorf("error while parsing upstream host: %s", err)
@@ -172,9 +171,16 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			return
 		}
 
+		if rm == nil {
+			log.WithError(err).WithField("upstream", upstream).
+				Warn("no response from upstream")
+			return
+		}
+		// those checks need to be independent of each other due to memory address issues
 		if !rm.Response {
 			log.WithError(err).WithField("upstream", upstream).
 				Warn("no response from upstream")
+			return
 		}
 
 		log.Tracef("took %s to query the upstream %s", t, upstream)
