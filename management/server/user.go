@@ -387,8 +387,9 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return status.Errorf(status.NotFound, "target user not found")
 	}
 
-	if targetUser.Issued == UserIssuedIntegration {
-		return status.Errorf(status.PermissionDenied, "only integration can delete this user")
+	// disable deleting integration user if the initiator is not admin service user
+	if targetUser.Issued == UserIssuedIntegration && !executingUser.IsServiceUser {
+		return status.Errorf(status.PermissionDenied, "only admin service user can delete this user")
 	}
 
 	// handle service user first and exit, no need to fetch extra data from IDP, etc
