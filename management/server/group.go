@@ -163,9 +163,15 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 		return nil
 	}
 
-	// check integration link
+	// disable a deleting integration group if the initiator is not an admin service user
 	if g.Issued == GroupIssuedIntegration {
-		return &GroupLinkError{GroupIssuedIntegration, g.IntegrationReference.String()}
+		executingUser := account.Users[userId]
+		if executingUser == nil {
+			return status.Errorf(status.NotFound, "user not found")
+		}
+		if executingUser.Role != UserRoleAdmin || !executingUser.IsServiceUser {
+			return status.Errorf(status.PermissionDenied, "only admins service user can delete integration group")
+		}
 	}
 
 	// check route links
