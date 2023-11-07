@@ -508,7 +508,7 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 			name:             "Delete integration regular user permission denied ",
 			userID:           "user4",
 			assertErrFunc:    assert.Error,
-			assertErrMessage: "only integration can delete this user",
+			assertErrMessage: "only admin service user can delete this user",
 		},
 	}
 
