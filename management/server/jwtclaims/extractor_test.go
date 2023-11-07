@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestRequestWithJWT(t *testing.T, claims AuthorizationClaims, audiance string) *http.Request {
+func newTestRequestWithJWT(t *testing.T, claims AuthorizationClaims, audience string) *http.Request {
 	const layout = "2006-01-02T15:04:05.999Z"
 
 	claimMaps := jwt.MapClaims{}
@@ -18,16 +18,16 @@ func newTestRequestWithJWT(t *testing.T, claims AuthorizationClaims, audiance st
 		claimMaps[UserIDClaim] = claims.UserId
 	}
 	if claims.AccountId != "" {
-		claimMaps[audiance+AccountIDSuffix] = claims.AccountId
+		claimMaps[audience+AccountIDSuffix] = claims.AccountId
 	}
 	if claims.Domain != "" {
-		claimMaps[audiance+DomainIDSuffix] = claims.Domain
+		claimMaps[audience+DomainIDSuffix] = claims.Domain
 	}
 	if claims.DomainCategory != "" {
-		claimMaps[audiance+DomainCategorySuffix] = claims.DomainCategory
+		claimMaps[audience+DomainCategorySuffix] = claims.DomainCategory
 	}
 	if claims.LastLogin != (time.Time{}) {
-		claimMaps[audiance+LastLoginSuffix] = claims.LastLogin.Format(layout)
+		claimMaps[audience+LastLoginSuffix] = claims.LastLogin.Format(layout)
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claimMaps)
 	r, err := http.NewRequest(http.MethodGet, "http://localhost", nil)

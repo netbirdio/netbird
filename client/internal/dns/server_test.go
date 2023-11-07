@@ -339,7 +339,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 
 	err = wgIface.Create()
 	if err != nil {
-		t.Errorf("crate and init wireguard interface: %v", err)
+		t.Errorf("create and init wireguard interface: %v", err)
 		return
 	}
 	defer func() {
@@ -789,7 +789,7 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 
 	err = wgIface.Create()
 	if err != nil {
-		t.Fatalf("crate and init wireguard interface: %v", err)
+		t.Fatalf("create and init wireguard interface: %v", err)
 		return nil, err
 	}
 
