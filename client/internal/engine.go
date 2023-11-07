@@ -212,12 +212,13 @@ func (e *Engine) Start() error {
 	var routes []*route.Route
 
 	if runtime.GOOS == "android" {
-		routes, err = e.readInitialSettings()
+		var dnsConfig *nbdns.Config
+		routes, dnsConfig, err = e.readInitialSettings()
 		if err != nil {
 			return err
 		}
 		if e.dnsServer == nil {
-			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses)
+			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, *dnsConfig, e.mobileDep.NetworkChangeListener)
 			go e.mobileDep.DnsReadyListener.OnReady()
 		}
 	} else {
@@ -232,15 +233,16 @@ func (e *Engine) Start() error {
 	}
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
-	e.routeManager.SetRouteChangeListener(e.mobileDep.RouteListener)
+	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
-	if runtime.GOOS != "android" {
-		err = e.wgInterface.Create()
-	} else {
+	if runtime.GOOS == "android" {
 		err = e.wgInterface.CreateOnMobile(iface.MobileIFaceArguments{
-			Routes: e.routeManager.InitialRouteRange(),
-			Dns:    e.dnsServer.DnsIP(),
+			Routes:        e.routeManager.InitialRouteRange(),
+			Dns:           e.dnsServer.DnsIP(),
+			SearchDomains: e.dnsServer.SearchDomains(),
 		})
+	} else {
+		err = e.wgInterface.Create()
 	}
 	if err != nil {
 		log.Errorf("failed creating tunnel interface %s: [%s]", wgIFaceName, err.Error())
@@ -1094,13 +1096,14 @@ func (e *Engine) close() {
 	}
 }
 
-func (e *Engine) readInitialSettings() ([]*route.Route, error) {
+func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 	netMap, err := e.mgmClient.GetNetworkMap()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	routes := toRoutes(netMap.GetRoutes())
-	return routes, nil
+	dnsCfg := toDNSConfig(netMap.GetDNSConfig())
+	return routes, &dnsCfg, nil
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {

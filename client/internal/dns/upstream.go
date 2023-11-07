@@ -53,7 +53,7 @@ func newUpstreamResolver(parentCTX context.Context) *upstreamResolver {
 }
 
 func (u *upstreamResolver) stop() {
-	log.Debugf("stoping serving DNS for upstreams %s", u.upstreamServers)
+	log.Debugf("stopping serving DNS for upstreams %s", u.upstreamServers)
 	u.cancel()
 }
 

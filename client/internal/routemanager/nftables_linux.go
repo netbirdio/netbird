@@ -487,7 +487,7 @@ func (n *nftablesManager) RemoveRoutingRules(pair routerPair) error {
 	if len(n.rules) == 2 && n.defaultForwardRules[0] != nil {
 		err := n.eraseDefaultForwardRule()
 		if err != nil {
-			log.Errorf("failed to delte default fwd rule: %s", err)
+			log.Errorf("failed to delete default fwd rule: %s", err)
 		}
 	}
 

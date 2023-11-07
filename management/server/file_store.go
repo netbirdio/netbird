@@ -133,6 +133,11 @@ func restore(file string) (*FileStore, error) {
 		}
 		for _, user := range account.Users {
 			store.UserID2AccountID[user.Id] = accountID
+			if user.Issued == "" {
+				user.Issued = UserIssuedAPI
+				account.Users[user.Id] = user
+			}
+
 			for _, pat := range user.PATs {
 				store.TokenID2UserID[pat.ID] = user.Id
 				store.HashedPAT2TokenID[pat.HashedToken] = pat.ID

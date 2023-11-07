@@ -282,7 +282,7 @@ func (a *xorMapped) closeWaiters() {
 		// just exit
 		break
 	default:
-		// notify tha twe have a new addr
+		// notify that twe have a new addr
 		close(a.waitAddrReceived)
 	}
 }

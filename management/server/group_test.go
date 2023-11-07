@@ -52,6 +52,11 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 			"grp-for-users",
 			"user",
 		},
+		{
+			"integration",
+			"grp-for-integration",
+			"integration",
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -79,43 +84,51 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 	domain := "example.com"
 
 	groupForRoute := &Group{
-		"grp-for-route",
-		"account-id",
-		"Group for route",
-		GroupIssuedAPI,
-		make([]string, 0),
+		ID:        "grp-for-route",
+		AccountID: "account-id",
+		Name:      "Group for route",
+		Issued:    GroupIssuedAPI,
+		Peers:     make([]string, 0),
 	}
 
 	groupForNameServerGroups := &Group{
-		"grp-for-name-server-grp",
-		"account-id",
-		"Group for name server groups",
-		GroupIssuedAPI,
-		make([]string, 0),
+		ID:        "grp-for-name-server-grp",
+		AccountID: "account-id",
+		Name:      "Group for name server groups",
+		Issued:    GroupIssuedAPI,
+		Peers:     make([]string, 0),
 	}
 
 	groupForPolicies := &Group{
-		"grp-for-policies",
-		"account-id",
-		"Group for policies",
-		GroupIssuedAPI,
-		make([]string, 0),
+		ID:        "grp-for-policies",
+		AccountID: "account-id",
+		Name:      "Group for policies",
+		Issued:    GroupIssuedAPI,
+		Peers:     make([]string, 0),
 	}
 
 	groupForSetupKeys := &Group{
-		"grp-for-keys",
-		"account-id",
-		"Group for setup keys",
-		GroupIssuedAPI,
-		make([]string, 0),
+		ID:        "grp-for-keys",
+		AccountID: "account-id",
+		Name:      "Group for setup keys",
+		Issued:    GroupIssuedAPI,
+		Peers:     make([]string, 0),
 	}
 
 	groupForUsers := &Group{
-		"grp-for-users",
-		"account-id",
-		"Group for users",
-		GroupIssuedAPI,
-		make([]string, 0),
+		ID:        "grp-for-users",
+		AccountID: "account-id",
+		Name:      "Group for users",
+		Issued:    GroupIssuedAPI,
+		Peers:     make([]string, 0),
+	}
+
+	groupForIntegration := &Group{
+		ID:        "grp-for-integration",
+		AccountID: "account-id",
+		Name:      "Group for users",
+		Issued:    GroupIssuedIntegration,
+		Peers:     make([]string, 0),
 	}
 
 	routeResource := &route.Route{
@@ -164,6 +177,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 	_ = am.SaveGroup(accountID, groupAdminUserID, groupForPolicies)
 	_ = am.SaveGroup(accountID, groupAdminUserID, groupForSetupKeys)
 	_ = am.SaveGroup(accountID, groupAdminUserID, groupForUsers)
+	_ = am.SaveGroup(accountID, groupAdminUserID, groupForIntegration)
 
 	return am.Store.GetAccount(account.Id)
 }

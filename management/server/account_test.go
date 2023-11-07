@@ -251,7 +251,7 @@ func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 	}
 
 	if account != nil && account.Users[userID] == nil {
-		t.Fatalf("expected to create an account for a user %s but no user was found after creation udner the account %s", userID, account.Id)
+		t.Fatalf("expected to create an account for a user %s but no user was found after creation under the account %s", userID, account.Id)
 		return
 	}
 
@@ -626,7 +626,7 @@ func TestAccountManager_PrivateAccount(t *testing.T) {
 	}
 
 	if account != nil && account.Users[userId] == nil {
-		t.Fatalf("expected to create an account for a user %s but no user was found after creation udner the account %s", userId, account.Id)
+		t.Fatalf("expected to create an account for a user %s but no user was found after creation under the account %s", userId, account.Id)
 	}
 }
 
@@ -1116,7 +1116,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 	}
 
 	if account.Network.CurrentSerial() != 2 {
-		t.Errorf("expecting Network Serial=%d to be incremented and be equal to 2 after adding and deleteing a peer", account.Network.CurrentSerial())
+		t.Errorf("expecting Network Serial=%d to be incremented and be equal to 2 after adding and deleting a peer", account.Network.CurrentSerial())
 	}
 
 	ev := getEvent(t, account.Id, manager, activity.PeerRemovedByUser)
@@ -1385,7 +1385,7 @@ func TestAccount_Copy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	account.Peers["peer1"].Status.Connected = false // we change original object to confirm that copy wont change
+	account.Peers["peer1"].Status.Connected = false // we change original object to confirm that copy won't change
 	accCopyBytes, err := json.Marshal(accountCopy)
 	if err != nil {
 		t.Fatal(err)

@@ -53,7 +53,7 @@ func newDefaultManager(fm firewall.Manager) *DefaultManager {
 
 // ApplyFiltering firewall rules to the local firewall manager processed by ACL policy.
 //
-// If allowByDefault is ture it appends allow ALL traffic rules to input and output chains.
+// If allowByDefault is true it appends allow ALL traffic rules to input and output chains.
 func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
@@ -366,7 +366,7 @@ func (d *DefaultManager) squashAcceptRules(
 			protocols[r.Protocol] = map[string]int{}
 		}
 
-		// special case, when we recieve this all network IP address
+		// special case, when we receive this all network IP address
 		// it means that rules for that protocol was already optimized on the
 		// management side
 		if r.PeerIP == "0.0.0.0" {
@@ -393,7 +393,7 @@ func (d *DefaultManager) squashAcceptRules(
 	}
 
 	// order of squashing by protocol is important
-	// only for ther first element ALL, it must be done first
+	// only for their first element ALL, it must be done first
 	protocolOrders := []mgmProto.FirewallRuleProtocol{
 		mgmProto.FirewallRule_ALL,
 		mgmProto.FirewallRule_ICMP,
