@@ -10,15 +10,15 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 )
 
 // RouteListener export internal RouteListener for mobile
-type RouteListener interface {
-	routemanager.RouteListener
+type NetworkChangeListener interface {
+	listener.NetworkChangeListener
 }
 
 // DnsManager export internal dns Manager for mobile
@@ -39,30 +39,30 @@ func init() {
 
 // Client struct manage the life circle of background service
 type Client struct {
-	cfgFile       string
-	recorder      *peer.Status
-	ctxCancel     context.CancelFunc
-	ctxCancelLock *sync.Mutex
-	deviceName    string
-	osName        string
-	osVersion     string
-	routeListener routemanager.RouteListener
-	onHostDnsFn   func([]string)
-	dnsManager    dns.IosDnsManager
-	loginComplete bool
+	cfgFile               string
+	recorder              *peer.Status
+	ctxCancel             context.CancelFunc
+	ctxCancelLock         *sync.Mutex
+	deviceName            string
+	osName                string
+	osVersion             string
+	networkChangeListener listener.NetworkChangeListener
+	onHostDnsFn           func([]string)
+	dnsManager            dns.IosDnsManager
+	loginComplete         bool
 }
 
 // NewClient instantiate a new Client
-func NewClient(cfgFile, deviceName string, osVersion string, osName string, routeListener RouteListener, dnsManager DnsManager) *Client {
+func NewClient(cfgFile, deviceName string, osVersion string, osName string, networkChangeListener NetworkChangeListener, dnsManager DnsManager) *Client {
 	return &Client{
-		cfgFile:       cfgFile,
-		deviceName:    deviceName,
-		osName:        osName,
-		osVersion:     osVersion,
-		recorder:      peer.NewRecorder(""),
-		ctxCancelLock: &sync.Mutex{},
-		routeListener: routeListener,
-		dnsManager:    dnsManager,
+		cfgFile:               cfgFile,
+		deviceName:            deviceName,
+		osName:                osName,
+		osVersion:             osVersion,
+		recorder:              peer.NewRecorder(""),
+		ctxCancelLock:         &sync.Mutex{},
+		networkChangeListener: networkChangeListener,
+		dnsManager:            dnsManager,
 	}
 }
 
@@ -98,7 +98,7 @@ func (c *Client) Run(fd int32, interfaceName string) error {
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.onHostDnsFn = func([]string) {}
-	return internal.RunClientiOS(ctx, cfg, c.recorder, fd, c.routeListener, c.dnsManager, interfaceName)
+	return internal.RunClientiOS(ctx, cfg, c.recorder, fd, c.networkChangeListener, c.dnsManager, interfaceName)
 }
 
 // Stop the internal client and free the resources

@@ -2,17 +2,14 @@ package routemanager
 
 import (
 	"sort"
+	"strings"
 	"sync"
 
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/route"
 )
-
-// RouteListener is a callback interface for mobile system
-// type RouteListener interface {
-// 	// OnNewRouteSetting invoke when new route setting has been arrived
-// 	OnNewRouteSetting(string)
-// 	SetInterfaceIP(string)
-// }
 
 type notifier struct {
 	initialRouteRangers []string

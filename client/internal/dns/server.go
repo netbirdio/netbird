@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"runtime"
 	"sync"
 
 	"github.com/miekg/dns"
