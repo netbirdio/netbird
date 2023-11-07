@@ -114,6 +114,12 @@ const (
 	PeerLoginExpired
 	// DashboardLogin indicates that the user logged in to the dashboard
 	DashboardLogin
+	// IntegrationCreated indicates that the user created an integration
+	IntegrationCreated
+	// IntegrationUpdated indicates that the user updated an integration
+	IntegrationUpdated
+	// IntegrationDeleted indicates that the user deleted an integration
+	IntegrationDeleted
 )
 
 var activityMap = map[Activity]Code{
@@ -169,6 +175,9 @@ var activityMap = map[Activity]Code{
 	UserLoggedInPeer:                          {"User logged in peer", "user.peer.login"},
 	PeerLoginExpired:                          {"Peer login expired", "peer.login.expire"},
 	DashboardLogin:                            {"Dashboard login", "dashboard.login"},
+	IntegrationCreated:                        {"Integration created", "integration.create"},
+	IntegrationUpdated:                        {"Integration updated", "integration.update"},
+	IntegrationDeleted:                        {"Integration deleted", "integration.delete"},
 }
 
 // StringCode returns a string code of the activity
