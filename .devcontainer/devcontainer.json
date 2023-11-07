@@ -4,7 +4,17 @@
 		"context": "..",
 		"dockerfile": "Dockerfile"
 	},
+	"features": {
+		"ghcr.io/devcontainers/features/docker-in-docker:2": {},
+		"ghcr.io/devcontainers/features/go:1": {
+			"version": "1.20"
+		}
+	},
 	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
-	"capAdd": ["NET_ADMIN", "SYS_ADMIN", "SYS_RESOURCE"],
+	"capAdd": [
+		"NET_ADMIN",
+		"SYS_ADMIN",
+		"SYS_RESOURCE"
+	],
 	"privileged": true
 }

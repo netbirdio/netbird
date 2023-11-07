@@ -8,7 +8,8 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
         xorg-dev=1:7.7+22 \
         libayatana-appindicator3-dev=0.5.5-2+deb11u2 \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && go install -v golang.org/x/tools/gopls@latest
 
 
 WORKDIR /app
