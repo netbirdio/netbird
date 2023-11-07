@@ -260,7 +260,7 @@ func (c *GrpcClient) SendToStream(msg *proto.EncryptedMessage) error {
 		return fmt.Errorf("no connection to signal")
 	}
 	if c.stream == nil {
-		return fmt.Errorf("connection to the Signal Exchnage has not been established yet. Please call GrpcClient.Receive before sending messages")
+		return fmt.Errorf("connection to the Signal Exchange has not been established yet. Please call GrpcClient.Receive before sending messages")
 	}
 
 	err := c.stream.Send(msg)

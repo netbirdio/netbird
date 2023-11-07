@@ -9,9 +9,10 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"strings"
+
 	"golang.org/x/crypto/ed25519"
 	gossh "golang.org/x/crypto/ssh"
-	"strings"
 )
 
 // KeyType is a type of SSH key
@@ -42,7 +43,7 @@ func GeneratePrivateKey(keyType KeyType) ([]byte, error) {
 	case RSA:
 		key, err = rsa.GenerateKey(rand.Reader, RSAKeySize)
 	default:
-		return nil, fmt.Errorf("unsupported ket type %s", keyType)
+		return nil, fmt.Errorf("unsupported key type %s", keyType)
 	}
 	if err != nil {
 		return nil, err

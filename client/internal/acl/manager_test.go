@@ -281,7 +281,7 @@ func TestDefaultManagerSquashRulesNoAffect(t *testing.T) {
 
 	manager := &DefaultManager{}
 	if rules, _ := manager.squashAcceptRules(networkMap); len(rules) != len(networkMap.FirewallRules) {
-		t.Errorf("we should got same amount of rules as intput, got %v", len(rules))
+		t.Errorf("we should get the same amount of rules as output, got %v", len(rules))
 	}
 }
 

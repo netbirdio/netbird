@@ -4,11 +4,12 @@ package dns
 
 import (
 	"fmt"
-	"github.com/miekg/dns"
-	"golang.org/x/net/idna"
 	"net"
 	"regexp"
 	"strings"
+
+	"github.com/miekg/dns"
+	"golang.org/x/net/idna"
 )
 
 const (
@@ -95,7 +96,7 @@ func GetParsedDomainLabel(name string) (string, error) {
 	rawLabel := labels[0]
 	ascii, err := idna.Punycode.ToASCII(rawLabel)
 	if err != nil {
-		return "", fmt.Errorf("unable to convert host lavel to ASCII, error: %v", err)
+		return "", fmt.Errorf("unable to convert host label to ASCII, error: %v", err)
 	}
 
 	invalidHostMatcher := regexp.MustCompile(invalidHostLabel)
