@@ -61,13 +61,14 @@ func (h *PeersHandler) getPeer(account *server.Account, peerID, userID string, w
 		util.WriteError(err, w)
 		return
 	}
+	dnsDomain := h.accountManager.GetDNSDomain()
 
 	groupsInfo := toGroupsInfo(account.Groups, peer.ID)
 
 	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain())
-	accessiblePeers := toAccessiblePeers(netMap)
+	accessiblePeers := toAccessiblePeers(netMap, dnsDomain)
 
-	util.WriteJSONObject(w, toSinglePeerResponse(peerToReturn, groupsInfo, h.accountManager.GetDNSDomain(), accessiblePeers))
+	util.WriteJSONObject(w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, accessiblePeers))
 }
 
 func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, peerID string, w http.ResponseWriter, r *http.Request) {
@@ -90,7 +91,7 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 	groupMinimumInfo := toGroupsInfo(account.Groups, peer.ID)
 
 	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain())
-	accessiblePeers := toAccessiblePeers(netMap)
+	accessiblePeers := toAccessiblePeers(netMap, dnsDomain)
 
 	util.WriteJSONObject(w, toSinglePeerResponse(peer, groupMinimumInfo, dnsDomain, accessiblePeers))
 }
@@ -178,14 +179,14 @@ func (h *PeersHandler) accessiblePeersNumber(account *server.Account, peerID str
 	return len(netMap.Peers) + len(netMap.OfflinePeers)
 }
 
-func toAccessiblePeers(netMap *server.NetworkMap) []api.AccessiblePeer {
+func toAccessiblePeers(netMap *server.NetworkMap, dnsDomain string) []api.AccessiblePeer {
 	accessiblePeers := make([]api.AccessiblePeer, 0, len(netMap.Peers)+len(netMap.OfflinePeers))
 	for _, p := range netMap.Peers {
 		ap := api.AccessiblePeer{
 			Id:       p.ID,
 			Name:     p.Name,
 			Ip:       p.IP.String(),
-			DnsLabel: p.DNSLabel,
+			DnsLabel: fqdn(p, dnsDomain),
 			UserId:   p.UserID,
 		}
 		accessiblePeers = append(accessiblePeers, ap)
@@ -196,7 +197,7 @@ func toAccessiblePeers(netMap *server.NetworkMap) []api.AccessiblePeer {
 			Id:       p.ID,
 			Name:     p.Name,
 			Ip:       p.IP.String(),
-			DnsLabel: p.DNSLabel,
+			DnsLabel: fqdn(p, dnsDomain),
 			UserId:   p.UserID,
 		}
 		accessiblePeers = append(accessiblePeers, ap)
@@ -229,11 +230,6 @@ func toGroupsInfo(groups map[string]*server.Group, peerID string) []api.GroupMin
 }
 
 func toSinglePeerResponse(peer *server.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeer []api.AccessiblePeer) *api.Peer {
-	fqdn := peer.FQDN(dnsDomain)
-	if fqdn == "" {
-		fqdn = peer.DNSLabel
-	}
-
 	return &api.Peer{
 		Id:                     peer.ID,
 		Name:                   peer.Name,
@@ -247,7 +243,7 @@ func toSinglePeerResponse(peer *server.Peer, groupsInfo []api.GroupMinimum, dnsD
 		Hostname:               peer.Meta.Hostname,
 		UserId:                 &peer.UserID,
 		UiVersion:              &peer.Meta.UIVersion,
-		DnsLabel:               fqdn,
+		DnsLabel:               fqdn(peer, dnsDomain),
 		LoginExpirationEnabled: peer.LoginExpirationEnabled,
 		LastLogin:              peer.LastLogin,
 		LoginExpired:           peer.Status.LoginExpired,
@@ -256,12 +252,6 @@ func toSinglePeerResponse(peer *server.Peer, groupsInfo []api.GroupMinimum, dnsD
 }
 
 func toPeerListItemResponse(peer *server.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeersCount int) *api.PeerBatch {
-
-	fqdn := peer.FQDN(dnsDomain)
-	if fqdn == "" {
-		fqdn = peer.DNSLabel
-	}
-
 	return &api.PeerBatch{
 		Id:                     peer.ID,
 		Name:                   peer.Name,
@@ -275,10 +265,19 @@ func toPeerListItemResponse(peer *server.Peer, groupsInfo []api.GroupMinimum, dn
 		Hostname:               peer.Meta.Hostname,
 		UserId:                 &peer.UserID,
 		UiVersion:              &peer.Meta.UIVersion,
-		DnsLabel:               fqdn,
+		DnsLabel:               fqdn(peer, dnsDomain),
 		LoginExpirationEnabled: peer.LoginExpirationEnabled,
 		LastLogin:              peer.LastLogin,
 		LoginExpired:           peer.Status.LoginExpired,
 		AccessiblePeersCount:   accessiblePeersCount,
+	}
+}
+
+func fqdn(peer *server.Peer, dnsDomain string) string {
+	fqdn := peer.FQDN(dnsDomain)
+	if fqdn == "" {
+		return peer.DNSLabel
+	} else {
+		return fqdn
 	}
 }
