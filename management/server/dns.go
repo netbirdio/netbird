@@ -20,23 +20,15 @@ type lookupMap map[string]struct{}
 // DNSSettings defines dns settings at the account level
 type DNSSettings struct {
 	// DisabledManagementGroups groups whose DNS management is disabled
-	DisabledManagementGroups []string
+	DisabledManagementGroups []string `gorm:"serializer:json"`
 }
 
 // Copy returns a copy of the DNS settings
-func (d *DNSSettings) Copy() *DNSSettings {
-	settings := &DNSSettings{
-		DisabledManagementGroups: make([]string, 0),
+func (d DNSSettings) Copy() DNSSettings {
+	settings := DNSSettings{
+		DisabledManagementGroups: make([]string, len(d.DisabledManagementGroups)),
 	}
-
-	if d == nil {
-		return settings
-	}
-
-	if d.DisabledManagementGroups != nil && len(d.DisabledManagementGroups) > 0 {
-		settings.DisabledManagementGroups = d.DisabledManagementGroups[:]
-	}
-
+	copy(settings.DisabledManagementGroups, d.DisabledManagementGroups)
 	return settings
 }
 
@@ -58,12 +50,8 @@ func (am *DefaultAccountManager) GetDNSSettings(accountID string, userID string)
 	if !user.IsAdmin() {
 		return nil, status.Errorf(status.PermissionDenied, "only admins are allowed to view DNS settings")
 	}
-
-	if account.DNSSettings == nil {
-		return &DNSSettings{}, nil
-	}
-
-	return account.DNSSettings.Copy(), nil
+	dnsSettings := account.DNSSettings.Copy()
+	return &dnsSettings, nil
 }
 
 // SaveDNSSettings validates a user role and updates the account's DNS settings
@@ -96,11 +84,7 @@ func (am *DefaultAccountManager) SaveDNSSettings(accountID string, userID string
 		}
 	}
 
-	oldSettings := &DNSSettings{}
-	if account.DNSSettings != nil {
-		oldSettings = account.DNSSettings.Copy()
-	}
-
+	oldSettings := account.DNSSettings.Copy()
 	account.DNSSettings = dnsSettingsToSave.Copy()
 
 	account.Network.IncSerial()
@@ -146,8 +130,9 @@ func toProtocolDNSConfig(update nbdns.Config) *proto.DNSConfig {
 
 	for _, nsGroup := range update.NameServerGroups {
 		protoGroup := &proto.NameServerGroup{
-			Primary: nsGroup.Primary,
-			Domains: nsGroup.Domains,
+			Primary:              nsGroup.Primary,
+			Domains:              nsGroup.Domains,
+			SearchDomainsEnabled: nsGroup.SearchDomainsEnabled,
 		}
 		for _, ns := range nsGroup.NameServers {
 			protoNS := &proto.NameServer{
@@ -231,7 +216,7 @@ func addPeerLabelsToAccount(account *Account, peerLabels lookupMap) {
 			log.Errorf("got an error while generating a peer host label. Peer name %s, error: %v. Trying with the peer's meta hostname", peer.Name, err)
 			label, err = getPeerHostLabel(peer.Meta.Hostname, peerLabels)
 			if err != nil {
-				log.Errorf("got another error while generating a peer host label with hostname. Peer hostname %s, error: %v. Skiping", peer.Meta.Hostname, err)
+				log.Errorf("got another error while generating a peer host label with hostname. Peer hostname %s, error: %v. Skipping", peer.Meta.Hostname, err)
 				continue
 			}
 		}

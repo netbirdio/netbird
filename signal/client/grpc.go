@@ -79,7 +79,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		transportOption,
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    15 * time.Second,
+			Time:    30 * time.Second,
 			Timeout: 10 * time.Second,
 		}))
 

@@ -754,7 +754,7 @@ func (m *Manager) AllowNetbird() error {
 	}
 
 	if chain == nil {
-		log.Debugf("chain INPUT not found. Skiping add allow netbird rule")
+		log.Debugf("chain INPUT not found. Skipping add allow netbird rule")
 		return nil
 	}
 

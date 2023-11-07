@@ -101,7 +101,7 @@ var (
 
 			_, valid := dns.IsDomainName(dnsDomain)
 			if !valid || len(dnsDomain) > 192 {
-				return fmt.Errorf("failed parsing the provided dns-domain. Valid status: %t, Lenght: %d", valid, len(dnsDomain))
+				return fmt.Errorf("failed parsing the provided dns-domain. Valid status: %t, Length: %d", valid, len(dnsDomain))
 			}
 
 			return nil
@@ -126,7 +126,7 @@ var (
 			if err != nil {
 				return err
 			}
-			store, err := server.NewFileStore(config.Datadir, appMetrics)
+			store, err := server.NewStore(config.StoreConfig.Engine, config.Datadir, appMetrics)
 			if err != nil {
 				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
 			}

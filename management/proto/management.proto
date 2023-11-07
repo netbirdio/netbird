@@ -317,6 +317,7 @@ message NameServerGroup {
   repeated NameServer NameServers = 1;
   bool Primary = 2;
   repeated string Domains = 3;
+  bool SearchDomainsEnabled = 4;
 }
 
 // NameServer represents a dns.NameServer

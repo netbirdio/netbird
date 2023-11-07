@@ -13,8 +13,8 @@ import (
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -22,6 +22,7 @@ import (
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	signal "github.com/netbirdio/netbird/signal/client"
+	"github.com/netbirdio/netbird/version"
 )
 
 // RunClient with main logic.
@@ -30,14 +31,14 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status)
 }
 
 // RunClientMobile with main logic on mobile system
-func RunClientMobile(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover, routeListener routemanager.RouteListener, dnsAddresses []string, dnsReadyListener dns.ReadyListener) error {
+func RunClientMobile(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover, networkChangeListener listener.NetworkChangeListener, dnsAddresses []string, dnsReadyListener dns.ReadyListener) error {
 	// in case of non Android os these variables will be nil
 	mobileDependency := MobileDependency{
-		TunAdapter:       tunAdapter,
-		IFaceDiscover:    iFaceDiscover,
-		RouteListener:    routeListener,
-		HostDNSAddresses: dnsAddresses,
-		DnsReadyListener: dnsReadyListener,
+		TunAdapter:            tunAdapter,
+		IFaceDiscover:         iFaceDiscover,
+		NetworkChangeListener: networkChangeListener,
+		HostDNSAddresses:      dnsAddresses,
+		DnsReadyListener:      dnsReadyListener,
 	}
 	return runClient(ctx, config, statusRecorder, mobileDependency)
 }
@@ -53,6 +54,8 @@ func RunClientiOS(ctx context.Context, config *Config, statusRecorder *peer.Stat
 }
 
 func runClient(ctx context.Context, config *Config, statusRecorder *peer.Status, mobileDependency MobileDependency) error {
+	log.Infof("starting NetBird client version %s", version.NetbirdVersion())
+
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
 		RandomizationFactor: 1,
@@ -106,7 +109,7 @@ func runClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 			cancel()
 		}()
 
-		log.Debugf("conecting to the Management service %s", config.ManagementURL.Host)
+		log.Debugf("connecting to the Management service %s", config.ManagementURL.Host)
 		mgmClient, err := mgm.NewClient(engineCtx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 		if err != nil {
 			return wrapErr(gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err))

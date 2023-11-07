@@ -17,12 +17,12 @@ require (
 	github.com/spf13/cobra v1.6.1
 	github.com/spf13/pflag v1.0.5
 	github.com/vishvananda/netlink v1.1.0
-	golang.org/x/crypto v0.9.0
-	golang.org/x/sys v0.8.0
+	golang.org/x/crypto v0.14.0
+	golang.org/x/sys v0.13.0
 	golang.zx2c4.com/wireguard v0.0.0-20230223181233-21636207a675
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20211215182854-7a385b3431de
 	golang.zx2c4.com/wireguard/windows v0.5.3
-	google.golang.org/grpc v1.55.0
+	google.golang.org/grpc v1.56.3
 	google.golang.org/protobuf v1.30.0
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )
@@ -46,11 +46,12 @@ require (
 	github.com/hashicorp/go-version v1.6.0
 	github.com/libp2p/go-netroute v0.2.0
 	github.com/magiconair/properties v1.8.5
-	github.com/mattn/go-sqlite3 v1.14.16
+	github.com/mattn/go-sqlite3 v1.14.17
 	github.com/mdlayher/socket v0.4.0
 	github.com/miekg/dns v1.1.43
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/nadoo/ipset v0.5.0
+	github.com/netbirdio/management-integrations/integrations v0.0.0-20231027143200-a966bce7db88
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pion/logging v0.2.2
@@ -68,12 +69,14 @@ require (
 	goauthentik.io/api/v3 v3.2023051.3
 	golang.org/x/exp v0.0.0-20220518171630-0b5c67f07fdf
 	golang.org/x/mobile v0.0.0-20190719004257-d2bd2a29d028
-	golang.org/x/net v0.10.0
+	golang.org/x/net v0.17.0
 	golang.org/x/oauth2 v0.8.0
 	golang.org/x/sync v0.2.0
-	golang.org/x/term v0.8.0
+	golang.org/x/term v0.13.0
 	google.golang.org/api v0.126.0
 	gopkg.in/yaml.v3 v3.0.1
+	gorm.io/driver/sqlite v1.5.3
+	gorm.io/gorm v1.25.4
 )
 
 require (
@@ -110,6 +113,8 @@ require (
 	github.com/googleapis/gax-go/v2 v2.10.0 // indirect
 	github.com/hashicorp/go-uuid v1.0.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/jinzhu/inflection v1.0.0 // indirect
+	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/josharian/native v1.0.0 // indirect
 	github.com/kelseyhightower/envconfig v1.4.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
@@ -135,9 +140,9 @@ require (
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.11.1 // indirect
 	go.opentelemetry.io/otel/trace v1.11.1 // indirect
-	golang.org/x/image v0.5.0 // indirect
+	golang.org/x/image v0.10.0 // indirect
 	golang.org/x/mod v0.8.0 // indirect
-	golang.org/x/text v0.9.0 // indirect
+	golang.org/x/text v0.13.0 // indirect
 	golang.org/x/time v0.0.0-20210723032227-1f47c861a9ac // indirect
 	golang.org/x/tools v0.6.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
@@ -154,6 +159,6 @@ require (
 
 replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-20230215170314-b923b89432b0
 
-replace github.com/getlantern/systray => github.com/netbirdio/systray v0.0.0-20221012095658-dc8eda872c0c
+replace github.com/getlantern/systray => github.com/netbirdio/systray v0.0.0-20231030152038-ef1ed2a27949
 
 replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20230524172305-5a498a82b33f

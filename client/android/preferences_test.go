@@ -57,11 +57,11 @@ func TestPreferences_ReadUncommitedValues(t *testing.T) {
 	p.SetManagementURL(exampleString)
 	resp, err = p.GetManagementURL()
 	if err != nil {
-		t.Fatalf("failed to read managmenet url: %s", err)
+		t.Fatalf("failed to read management url: %s", err)
 	}
 
 	if resp != exampleString {
-		t.Errorf("unexpected managemenet url: %s", resp)
+		t.Errorf("unexpected management url: %s", resp)
 	}
 
 	p.SetPreSharedKey(exampleString)
@@ -102,11 +102,11 @@ func TestPreferences_Commit(t *testing.T) {
 
 	resp, err = p.GetManagementURL()
 	if err != nil {
-		t.Fatalf("failed to read managmenet url: %s", err)
+		t.Fatalf("failed to read management url: %s", err)
 	}
 
 	if resp != exampleURL {
-		t.Errorf("unexpected managemenet url: %s", resp)
+		t.Errorf("unexpected management url: %s", resp)
 	}
 
 	resp, err = p.GetPreSharedKey()

@@ -251,6 +251,7 @@ func TestUser_Copy(t *testing.T) {
 	// this is an imaginary case which will never be in DB this way
 	user := User{
 		Id:              "userId",
+		AccountID:       "accountId",
 		Role:            "role",
 		IsServiceUser:   true,
 		ServiceUserName: "servicename",
@@ -268,6 +269,11 @@ func TestUser_Copy(t *testing.T) {
 		},
 		Blocked:   false,
 		LastLogin: time.Now(),
+		Issued:    "test",
+		IntegrationReference: IntegrationReference{
+			ID:              0,
+			IntegrationType: "test",
+		},
 	}
 
 	err := validateStruct(user)
@@ -290,6 +296,11 @@ func validateStruct(s interface{}) (err error) {
 	for i := 0; i < fieldNum; i++ {
 		field := structVal.Field(i)
 		fieldName := structType.Field(i).Name
+
+		// skip gorm internal fields
+		if json, ok := structType.Field(i).Tag.Lookup("json"); ok && json == "-" {
+			continue
+		}
 
 		isSet := field.IsValid() && (!field.IsZero() || field.Type().String() == "bool")
 
@@ -447,11 +458,24 @@ func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 func TestUser_DeleteUser_regularUser(t *testing.T) {
 	store := newStore(t)
 	account := newAccountWithId(mockAccountID, mockUserID, "")
+
 	targetId := "user2"
 	account.Users[targetId] = &User{
 		Id:              targetId,
 		IsServiceUser:   true,
 		ServiceUserName: "user2username",
+	}
+	targetId = "user3"
+	account.Users[targetId] = &User{
+		Id:            targetId,
+		IsServiceUser: false,
+		Issued:        UserIssuedAPI,
+	}
+	targetId = "user4"
+	account.Users[targetId] = &User{
+		Id:            targetId,
+		IsServiceUser: false,
+		Issued:        UserIssuedIntegration,
 	}
 
 	err := store.SaveAccount(account)
@@ -464,10 +488,37 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	err = am.DeleteUser(mockAccountID, mockUserID, targetId)
-	if err != nil {
-		t.Errorf("unexpected error: %s", err)
+	testCases := []struct {
+		name             string
+		userID           string
+		assertErrFunc    assert.ErrorAssertionFunc
+		assertErrMessage string
+	}{
+		{
+			name:          "Delete service user successfully ",
+			userID:        "user2",
+			assertErrFunc: assert.NoError,
+		},
+		{
+			name:          "Delete regular user successfully ",
+			userID:        "user3",
+			assertErrFunc: assert.NoError,
+		},
+		{
+			name:             "Delete integration regular user permission denied ",
+			userID:           "user4",
+			assertErrFunc:    assert.Error,
+			assertErrMessage: "only integration can delete this user",
+		},
 	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err = am.DeleteUser(mockAccountID, mockUserID, testCase.userID)
+			testCase.assertErrFunc(t, err, testCase.assertErrMessage)
+		})
+	}
+
 }
 
 func TestDefaultAccountManager_GetUser(t *testing.T) {

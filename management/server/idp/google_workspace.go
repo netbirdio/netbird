@@ -96,7 +96,7 @@ func (gm *GoogleWorkspaceManager) UpdateUserAppMetadata(_ string, _ AppMetadata)
 
 // GetUserDataByID requests user data from Google Workspace via ID.
 func (gm *GoogleWorkspaceManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
-	user, err := gm.usersService.Get(userID).Projection("full").Do()
+	user, err := gm.usersService.Get(userID).Do()
 	if err != nil {
 		return nil, err
 	}
@@ -113,41 +113,67 @@ func (gm *GoogleWorkspaceManager) GetUserDataByID(userID string, appMetadata App
 
 // GetAccount returns all the users for a given profile.
 func (gm *GoogleWorkspaceManager) GetAccount(accountID string) ([]*UserData, error) {
-	usersList, err := gm.usersService.List().Customer(gm.CustomerID).Projection("full").Do()
-	if err != nil {
-		return nil, err
-	}
-
-	usersData := make([]*UserData, 0)
-	for _, user := range usersList.Users {
-		userData := parseGoogleWorkspaceUser(user)
-		userData.AppMetadata.WTAccountID = accountID
-
-		usersData = append(usersData, userData)
-	}
-
-	return usersData, nil
-}
-
-// GetAllAccounts gets all registered accounts with corresponding user data.
-// It returns a list of users indexed by accountID.
-func (gm *GoogleWorkspaceManager) GetAllAccounts() (map[string][]*UserData, error) {
-	usersList, err := gm.usersService.List().Customer(gm.CustomerID).Projection("full").Do()
+	users, err := gm.getAllUsers()
 	if err != nil {
 		return nil, err
 	}
 
 	if gm.appMetrics != nil {
-		gm.appMetrics.IDPMetrics().CountGetAllAccounts()
+		gm.appMetrics.IDPMetrics().CountGetAccount()
+	}
+
+	for index, user := range users {
+		user.AppMetadata.WTAccountID = accountID
+		users[index] = user
+	}
+
+	return users, nil
+}
+
+// GetAllAccounts gets all registered accounts with corresponding user data.
+// It returns a list of users indexed by accountID.
+func (gm *GoogleWorkspaceManager) GetAllAccounts() (map[string][]*UserData, error) {
+	users, err := gm.getAllUsers()
+	if err != nil {
+		return nil, err
 	}
 
 	indexedUsers := make(map[string][]*UserData)
-	for _, user := range usersList.Users {
-		userData := parseGoogleWorkspaceUser(user)
-		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], userData)
+	indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], users...)
+
+	if gm.appMetrics != nil {
+		gm.appMetrics.IDPMetrics().CountGetAllAccounts()
 	}
 
 	return indexedUsers, nil
+}
+
+// getAllUsers returns all users in a Google Workspace account filtered by customer ID.
+func (gm *GoogleWorkspaceManager) getAllUsers() ([]*UserData, error) {
+	users := make([]*UserData, 0)
+	pageToken := ""
+	for {
+		call := gm.usersService.List().Customer(gm.CustomerID).MaxResults(500)
+		if pageToken != "" {
+			call.PageToken(pageToken)
+		}
+
+		resp, err := call.Do()
+		if err != nil {
+			return nil, err
+		}
+
+		for _, user := range resp.Users {
+			users = append(users, parseGoogleWorkspaceUser(user))
+		}
+
+		pageToken = resp.NextPageToken
+		if pageToken == "" {
+			break
+		}
+	}
+
+	return users, nil
 }
 
 // CreateUser creates a new user in Google Workspace and sends an invitation.
@@ -158,7 +184,7 @@ func (gm *GoogleWorkspaceManager) CreateUser(_, _, _, _ string) (*UserData, erro
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
 func (gm *GoogleWorkspaceManager) GetUserByEmail(email string) ([]*UserData, error) {
-	user, err := gm.usersService.Get(email).Projection("full").Do()
+	user, err := gm.usersService.Get(email).Do()
 	if err != nil {
 		return nil, err
 	}

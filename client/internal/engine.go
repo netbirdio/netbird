@@ -195,12 +195,13 @@ func (e *Engine) Start() error {
 	var routes []*route.Route
 
 	if runtime.GOOS == "android" {
-		routes, err = e.readInitialSettings()
+		var dnsConfig *nbdns.Config
+		routes, dnsConfig, err = e.readInitialSettings()
 		if err != nil {
 			return err
 		}
 		if e.dnsServer == nil {
-			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses)
+			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, *dnsConfig, e.mobileDep.NetworkChangeListener)
 			go e.mobileDep.DnsReadyListener.OnReady()
 		}
 	} else {
@@ -214,17 +215,16 @@ func (e *Engine) Start() error {
 		}
 	}
 
-	log.Debugf("Initial routes contain %d routes", len(routes))
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
-	e.mobileDep.RouteListener.SetInterfaceIP(wgAddr)
-
-	e.routeManager.SetRouteChangeListener(e.mobileDep.RouteListener)
+	e.mobileDep.NetworkChangeListener.SetInterfaceIP(wgAddr)
+	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
 	switch runtime.GOOS {
 	case "android":
 		err = e.wgInterface.CreateOnAndroid(iface.MobileIFaceArguments{
-			Routes: e.routeManager.InitialRouteRange(),
-			Dns:    e.dnsServer.DnsIP(),
+			Routes:        e.routeManager.InitialRouteRange(),
+			Dns:           e.dnsServer.DnsIP(),
+			SearchDomains: e.dnsServer.SearchDomains(),
 		})
 	case "ios":
 		err = e.wgInterface.CreateOniOS(e.mobileDep.FileDescriptor)
@@ -724,8 +724,9 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
 
 	for _, nsGroup := range protoDNSConfig.GetNameServerGroups() {
 		dnsNSGroup := &nbdns.NameServerGroup{
-			Primary: nsGroup.GetPrimary(),
-			Domains: nsGroup.GetDomains(),
+			Primary:              nsGroup.GetPrimary(),
+			Domains:              nsGroup.GetDomains(),
+			SearchDomainsEnabled: nsGroup.GetSearchDomainsEnabled(),
 		}
 		for _, ns := range nsGroup.GetNameServers() {
 			dnsNS := nbdns.NameServer{
@@ -1060,13 +1061,14 @@ func (e *Engine) close() {
 	}
 }
 
-func (e *Engine) readInitialSettings() ([]*route.Route, error) {
+func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 	netMap, err := e.mgmClient.GetNetworkMap()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	routes := toRoutes(netMap.GetRoutes())
-	return routes, nil
+	dnsCfg := toDNSConfig(netMap.GetDNSConfig())
+	return routes, &dnsCfg, nil
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {

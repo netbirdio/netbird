@@ -20,3 +20,4 @@ infrastructure_files/setup.env
 infrastructure_files/setup-*.env
 .vscode
 .DS_Store
+*.db

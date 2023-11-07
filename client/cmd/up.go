@@ -123,7 +123,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 	defer func() {
 		err := conn.Close()
 		if err != nil {
-			log.Warnf("failed closing dameon gRPC client connection %v", err)
+			log.Warnf("failed closing daemon gRPC client connection %v", err)
 			return
 		}
 	}()
@@ -200,11 +200,11 @@ func validateNATExternalIPs(list []string) error {
 
 		subElements := strings.Split(element, "/")
 		if len(subElements) > 2 {
-			return fmt.Errorf("%s is not a valid input for %s. it should be formated as \"String\" or \"String/String\"", element, externalIPMapFlag)
+			return fmt.Errorf("%s is not a valid input for %s. it should be formatted as \"String\" or \"String/String\"", element, externalIPMapFlag)
 		}
 
 		if len(subElements) == 1 && !isValidIP(subElements[0]) {
-			return fmt.Errorf("%s is not a valid input for %s. it should be formated as \"IP\" or \"IP/IP\", or \"IP/Interface Name\"", element, externalIPMapFlag)
+			return fmt.Errorf("%s is not a valid input for %s. it should be formatted as \"IP\" or \"IP/IP\", or \"IP/Interface Name\"", element, externalIPMapFlag)
 		}
 
 		last := 0
@@ -259,7 +259,7 @@ func parseCustomDNSAddress(modified bool) ([]byte, error) {
 	var parsed []byte
 	if modified {
 		if !isValidAddrPort(customDNSAddress) {
-			return nil, fmt.Errorf("%s is invalid, it should be formated as IP:Port string or as an empty string like \"\"", customDNSAddress)
+			return nil, fmt.Errorf("%s is invalid, it should be formatted as IP:Port string or as an empty string like \"\"", customDNSAddress)
 		}
 		if customDNSAddress == "" && logFile != "console" {
 			parsed = []byte("empty")

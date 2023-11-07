@@ -593,7 +593,8 @@ func TestDNSPermanent_updateHostDNS_emptyUpstream(t *testing.T) {
 	defer wgIFace.Close()
 
 	var dnsList []string
-	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, dnsList)
+	dnsConfig := nbdns.Config{}
+	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, dnsList, dnsConfig, nil)
 	err = dnsServer.Initialize()
 	if err != nil {
 		t.Errorf("failed to initialize DNS server: %v", err)
@@ -616,8 +617,8 @@ func TestDNSPermanent_updateUpstream(t *testing.T) {
 		t.Fatal("failed to initialize wg interface")
 	}
 	defer wgIFace.Close()
-
-	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []string{"8.8.8.8"})
+	dnsConfig := nbdns.Config{}
+	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []string{"8.8.8.8"}, dnsConfig, nil)
 	err = dnsServer.Initialize()
 	if err != nil {
 		t.Errorf("failed to initialize DNS server: %v", err)
@@ -708,8 +709,8 @@ func TestDNSPermanent_matchOnly(t *testing.T) {
 		t.Fatal("failed to initialize wg interface")
 	}
 	defer wgIFace.Close()
-
-	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []string{"8.8.8.8"})
+	dnsConfig := nbdns.Config{}
+	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []string{"8.8.8.8"}, dnsConfig, nil)
 	err = dnsServer.Initialize()
 	if err != nil {
 		t.Errorf("failed to initialize DNS server: %v", err)

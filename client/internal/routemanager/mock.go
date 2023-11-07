@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 )
@@ -32,7 +33,7 @@ func (m *MockManager) Start(ctx context.Context, iface *iface.WGIface) {
 }
 
 // SetRouteChangeListener mock implementation of SetRouteChangeListener from Manager interface
-func (m *MockManager) SetRouteChangeListener(listener RouteListener) {
+func (m *MockManager) SetRouteChangeListener(listener listener.NetworkChangeListener) {
 
 }
 

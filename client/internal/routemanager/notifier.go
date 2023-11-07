@@ -2,37 +2,34 @@ package routemanager
 
 import (
 	"sort"
-	"strings"
 	"sync"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/route"
 )
 
 // RouteListener is a callback interface for mobile system
-type RouteListener interface {
-	// OnNewRouteSetting invoke when new route setting has been arrived
-	OnNewRouteSetting(string)
-	SetInterfaceIP(string)
-}
+// type RouteListener interface {
+// 	// OnNewRouteSetting invoke when new route setting has been arrived
+// 	OnNewRouteSetting(string)
+// 	SetInterfaceIP(string)
+// }
 
 type notifier struct {
 	initialRouteRangers []string
 	routeRangers        []string
 
-	routeListener    RouteListener
-	routeListenerMux sync.Mutex
+	listener    listener.NetworkChangeListener
+	listenerMux sync.Mutex
 }
 
 func newNotifier() *notifier {
 	return &notifier{}
 }
 
-func (n *notifier) setListener(listener RouteListener) {
-	n.routeListenerMux.Lock()
-	defer n.routeListenerMux.Unlock()
-	n.routeListener = listener
+func (n *notifier) setListener(listener listener.NetworkChangeListener) {
+	n.listenerMux.Lock()
+	defer n.listenerMux.Unlock()
+	n.listener = listener
 }
 
 func (n *notifier) setInitialClientRoutes(clientRoutes []*route.Route) {
@@ -63,16 +60,16 @@ func (n *notifier) onNewRoutes(idMap map[string][]*route.Route) {
 }
 
 func (n *notifier) notify() {
-	n.routeListenerMux.Lock()
-	defer n.routeListenerMux.Unlock()
-	if n.routeListener == nil {
+	n.listenerMux.Lock()
+	defer n.listenerMux.Unlock()
+	if n.listener == nil {
 		return
 	}
 
-	go func(l RouteListener) {
+	go func(l listener.NetworkChangeListener) {
 		log.Debugf("notifying route listener with route ranges: %s", strings.Join(n.routeRangers, ","))
-		l.OnNewRouteSetting(strings.Join(n.routeRangers, ","))
-	}(n.routeListener)
+		l.OnNetworkChanged(strings.Join(n.routeRangers, ","))
+	}(n.listener)
 }
 
 func (n *notifier) hasDiff(a []string, b []string) bool {

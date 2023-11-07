@@ -23,6 +23,9 @@ type Group struct {
 	// ID of the group
 	ID string
 
+	// AccountID is a reference to Account that this object belongs
+	AccountID string `json:"-" gorm:"index"`
+
 	// Name visible in the UI
 	Name string
 
@@ -30,7 +33,9 @@ type Group struct {
 	Issued string
 
 	// Peers list of the group
-	Peers []string
+	Peers []string `gorm:"serializer:json"`
+
+	IntegrationReference IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
 }
 
 // EventMeta returns activity event meta related to the group
@@ -40,10 +45,11 @@ func (g *Group) EventMeta() map[string]any {
 
 func (g *Group) Copy() *Group {
 	group := &Group{
-		ID:     g.ID,
-		Name:   g.Name,
-		Issued: g.Issued,
-		Peers:  make([]string, len(g.Peers)),
+		ID:                   g.ID,
+		Name:                 g.Name,
+		Issued:               g.Issued,
+		Peers:                make([]string, len(g.Peers)),
+		IntegrationReference: g.IntegrationReference,
 	}
 	copy(group.Peers, g.Peers)
 	return group
@@ -155,6 +161,11 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 	g, ok := account.Groups[groupID]
 	if !ok {
 		return nil
+	}
+
+	// check integration link
+	if g.Issued == GroupIssuedIntegration {
+		return &GroupLinkError{GroupIssuedIntegration, g.IntegrationReference.String()}
 	}
 
 	// check route links

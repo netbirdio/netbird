@@ -36,6 +36,7 @@ const (
 	UnknownCategory            = "unknown"
 	GroupIssuedAPI             = "api"
 	GroupIssuedJWT             = "jwt"
+	GroupIssuedIntegration     = "integration"
 	CacheExpirationMax         = 7 * 24 * 3600 * time.Second // 7 days
 	CacheExpirationMin         = 3 * 24 * 3600 * time.Second // 3 days
 	DefaultPeerLoginExpiration = 24 * time.Hour
@@ -91,7 +92,7 @@ type AccountManager interface {
 	DeleteRoute(accountID, routeID, userID string) error
 	ListRoutes(accountID, userID string) ([]*route.Route, error)
 	GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
-	CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string) (*nbdns.NameServerGroup, error)
+	CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainsEnabled bool) (*nbdns.NameServerGroup, error)
 	SaveNameServerGroup(accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
 	DeleteNameServerGroup(accountID, nsGroupID, userID string) error
 	ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error)
@@ -103,6 +104,7 @@ type AccountManager interface {
 	UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error)
 	LoginPeer(login PeerLogin) (*Peer, *NetworkMap, error) // used by peer gRPC API
 	SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error)    // used by peer gRPC API
+	GetAllConnectedPeers() (map[string]struct{}, error)
 }
 
 type DefaultAccountManager struct {
@@ -164,43 +166,54 @@ func (s *Settings) Copy() *Settings {
 
 // Account represents a unique account of the system
 type Account struct {
-	Id string
+	// we have to name column to aid as it collides with Network.Id when work with associations
+	Id string `gorm:"primaryKey"`
+
 	// User.Id it was created by
 	CreatedBy              string
-	Domain                 string
+	Domain                 string `gorm:"index"`
 	DomainCategory         string
 	IsDomainPrimaryAccount bool
-	SetupKeys              map[string]*SetupKey
-	Network                *Network
-	Peers                  map[string]*Peer
-	Users                  map[string]*User
-	Groups                 map[string]*Group
-	Rules                  map[string]*Rule
-	Policies               []*Policy
-	Routes                 map[string]*route.Route
-	NameServerGroups       map[string]*nbdns.NameServerGroup
-	DNSSettings            *DNSSettings
+	SetupKeys              map[string]*SetupKey              `gorm:"-"`
+	SetupKeysG             []SetupKey                        `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	Network                *Network                          `gorm:"embedded;embeddedPrefix:network_"`
+	Peers                  map[string]*Peer                  `gorm:"-"`
+	PeersG                 []Peer                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	Users                  map[string]*User                  `gorm:"-"`
+	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	Groups                 map[string]*Group                 `gorm:"-"`
+	GroupsG                []Group                           `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	Rules                  map[string]*Rule                  `gorm:"-"`
+	RulesG                 []Rule                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
+	Routes                 map[string]*route.Route           `gorm:"-"`
+	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	NameServerGroups       map[string]*nbdns.NameServerGroup `gorm:"-"`
+	NameServerGroupsG      []nbdns.NameServerGroup           `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	DNSSettings            DNSSettings                       `gorm:"embedded;embeddedPrefix:dns_settings_"`
 	// Settings is a dictionary of Account settings
-	Settings *Settings
+	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
 }
 
 type UserInfo struct {
-	ID            string    `json:"id"`
-	Email         string    `json:"email"`
-	Name          string    `json:"name"`
-	Role          string    `json:"role"`
-	AutoGroups    []string  `json:"auto_groups"`
-	Status        string    `json:"-"`
-	IsServiceUser bool      `json:"is_service_user"`
-	IsBlocked     bool      `json:"is_blocked"`
-	LastLogin     time.Time `json:"last_login"`
+	ID                   string               `json:"id"`
+	Email                string               `json:"email"`
+	Name                 string               `json:"name"`
+	Role                 string               `json:"role"`
+	AutoGroups           []string             `json:"auto_groups"`
+	Status               string               `json:"-"`
+	IsServiceUser        bool                 `json:"is_service_user"`
+	IsBlocked            bool                 `json:"is_blocked"`
+	LastLogin            time.Time            `json:"last_login"`
+	Issued               string               `json:"issued"`
+	IntegrationReference IntegrationReference `json:"-"`
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
 // from the ACL peers that have distribution groups associated with the peer ID.
 // Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
 func (a *Account) getRoutesToSync(peerID string, aclPeers []*Peer) []*route.Route {
-	routes, peerDisabledRoutes := a.getEnabledAndDisabledRoutesByPeer(peerID)
+	routes, peerDisabledRoutes := a.getRoutingPeerRoutes(peerID)
 	peerRoutesMembership := make(lookupMap)
 	for _, r := range append(routes, peerDisabledRoutes...) {
 		peerRoutesMembership[route.GetHAUniqueID(r)] = struct{}{}
@@ -208,7 +221,7 @@ func (a *Account) getRoutesToSync(peerID string, aclPeers []*Peer) []*route.Rout
 
 	groupListMap := a.getPeerGroups(peerID)
 	for _, peer := range aclPeers {
-		activeRoutes, _ := a.getEnabledAndDisabledRoutesByPeer(peer.ID)
+		activeRoutes, _ := a.getRoutingPeerRoutes(peer.ID)
 		groupFilteredRoutes := a.filterRoutesByGroups(activeRoutes, groupListMap)
 		filteredRoutes := a.filterRoutesFromPeersOfSameHAGroup(groupFilteredRoutes, peerRoutesMembership)
 		routes = append(routes, filteredRoutes...)
@@ -244,20 +257,32 @@ func (a *Account) filterRoutesByGroups(routes []*route.Route, groupListMap looku
 	return filteredRoutes
 }
 
-// getEnabledAndDisabledRoutesByPeer returns the enabled and disabled lists of routes that belong to a peer.
+// getRoutingPeerRoutes returns the enabled and disabled lists of routes that the given routing peer serves
 // Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
-func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Route, []*route.Route) {
-	var enabledRoutes []*route.Route
-	var disabledRoutes []*route.Route
+// If the given is not a routing peer, then the lists are empty.
+func (a *Account) getRoutingPeerRoutes(peerID string) (enabledRoutes []*route.Route, disabledRoutes []*route.Route) {
+
+	peer := a.GetPeer(peerID)
+	if peer == nil {
+		log.Errorf("peer %s that doesn't exist under account %s", peerID, a.Id)
+		return enabledRoutes, disabledRoutes
+	}
+
+	// currently we support only linux routing peers
+	if peer.Meta.GoOS != "linux" {
+		return enabledRoutes, disabledRoutes
+	}
+
+	seenRoute := make(map[string]struct{})
 
 	takeRoute := func(r *route.Route, id string) {
-		peer := a.GetPeer(peerID)
-		if peer == nil {
-			log.Errorf("route %s has peer %s that doesn't exist under account %s", r.ID, peerID, a.Id)
+		if _, ok := seenRoute[r.ID]; ok {
 			return
 		}
+		seenRoute[r.ID] = struct{}{}
 
 		if r.Enabled {
+			r.Peer = peer.Key
 			enabledRoutes = append(enabledRoutes, r)
 			return
 		}
@@ -265,25 +290,30 @@ func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Rou
 	}
 
 	for _, r := range a.Routes {
-		if len(r.PeerGroups) != 0 {
-			for _, groupID := range r.PeerGroups {
-				group := a.GetGroup(groupID)
-				if group == nil {
-					log.Errorf("route %s has peers group %s that doesn't exist under account %s", r.ID, groupID, a.Id)
+		for _, groupID := range r.PeerGroups {
+			group := a.GetGroup(groupID)
+			if group == nil {
+				log.Errorf("route %s has peers group %s that doesn't exist under account %s", r.ID, groupID, a.Id)
+				continue
+			}
+			for _, id := range group.Peers {
+				if id != peerID {
 					continue
 				}
-				for _, id := range group.Peers {
-					if id == peerID {
-						takeRoute(r, id)
-						break
-					}
-				}
+
+				newPeerRoute := r.Copy()
+				newPeerRoute.Peer = id
+				newPeerRoute.PeerGroups = nil
+				newPeerRoute.ID = r.ID + ":" + id // we have to provide unique route id when distribute network map
+				takeRoute(newPeerRoute, id)
+				break
 			}
 		}
 		if r.Peer == peerID {
-			takeRoute(r, peerID)
+			takeRoute(r.Copy(), peerID)
 		}
 	}
+
 	return enabledRoutes, disabledRoutes
 }
 
@@ -319,50 +349,7 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 		peersToConnect = append(peersToConnect, p)
 	}
 
-	routes := a.getRoutesToSync(peerID, peersToConnect)
-
-	takePeer := func(id string) (*Peer, bool) {
-		peer := a.GetPeer(id)
-		if peer == nil || peer.Meta.GoOS != "linux" {
-			return nil, false
-		}
-		return peer, true
-	}
-
-	// We need to set Peer.Key instead of Peer.ID because this object will be sent to agents as part of a network map.
-	// Ideally we should have a separate field for that, but fine for now.
-	var routesUpdate []*route.Route
-	seenPeers := make(map[string]bool)
-	for _, r := range routes {
-		if r.Peer != "" {
-			peer, valid := takePeer(r.Peer)
-			if !valid {
-				continue
-			}
-			rCopy := r.Copy()
-			rCopy.Peer = peer.Key // client expects the key
-			routesUpdate = append(routesUpdate, rCopy)
-			continue
-		}
-		for _, groupID := range r.PeerGroups {
-			if group := a.GetGroup(groupID); group != nil {
-				for _, peerId := range group.Peers {
-					peer, valid := takePeer(peerId)
-					if !valid {
-						continue
-					}
-
-					if _, ok := seenPeers[peer.ID]; !ok {
-						rCopy := r.Copy()
-						rCopy.ID = r.ID + ":" + peer.ID // we have to provide unit route id when distribute network map
-						rCopy.Peer = peer.Key           // client expects the key
-						routesUpdate = append(routesUpdate, rCopy)
-					}
-					seenPeers[peer.ID] = true
-				}
-			}
-		}
-	}
+	routesUpdate := a.getRoutesToSync(peerID, peersToConnect)
 
 	dnsManagementStatus := a.getPeerDNSManagementStatus(peerID)
 	dnsUpdate := nbdns.Config{
@@ -538,13 +525,11 @@ func (a *Account) getUserGroups(userID string) ([]string, error) {
 func (a *Account) getPeerDNSManagementStatus(peerID string) bool {
 	peerGroups := a.getPeerGroups(peerID)
 	enabled := true
-	if a.DNSSettings != nil {
-		for _, groupID := range a.DNSSettings.DisabledManagementGroups {
-			_, found := peerGroups[groupID]
-			if found {
-				enabled = false
-				break
-			}
+	for _, groupID := range a.DNSSettings.DisabledManagementGroups {
+		_, found := peerGroups[groupID]
+		if found {
+			enabled = false
+			break
 		}
 	}
 	return enabled
@@ -631,10 +616,7 @@ func (a *Account) Copy() *Account {
 		nsGroups[id] = nsGroup.Copy()
 	}
 
-	var dnsSettings *DNSSettings
-	if a.DNSSettings != nil {
-		dnsSettings = a.DNSSettings.Copy()
-	}
+	dnsSettings := a.DNSSettings.Copy()
 
 	var settings *Settings
 	if a.Settings != nil {
@@ -972,6 +954,7 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	if err != nil {
 		return err
 	}
+	log.Infof("%d entries received from IdP management", len(userData))
 
 	// If the Identity Provider does not support writing AppMetadata,
 	// in cases like this, we expect it to return all users in an "unset" field.
@@ -1071,6 +1054,7 @@ func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interf
 	if err != nil {
 		return nil, err
 	}
+	log.Debugf("%d entries received from IdP management", len(userData))
 
 	dataMap := make(map[string]*idp.UserData, len(userData))
 	for _, datum := range userData {
@@ -1582,6 +1566,11 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 	}
 }
 
+// GetAllConnectedPeers returns connected peers based on peersUpdateManager.GetAllConnectedPeers()
+func (am *DefaultAccountManager) GetAllConnectedPeers() (map[string]struct{}, error) {
+	return am.peersUpdateManager.GetAllConnectedPeers(), nil
+}
+
 func isDomainValid(domain string) bool {
 	re := regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
 	return re.Match([]byte(domain))
@@ -1636,7 +1625,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 	setupKeys := map[string]*SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
 	users[userID] = NewAdminUser(userID)
-	dnsSettings := &DNSSettings{
+	dnsSettings := DNSSettings{
 		DisabledManagementGroups: make([]string, 0),
 	}
 	log.Debugf("created new account %s", accountID)

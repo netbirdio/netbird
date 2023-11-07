@@ -6,6 +6,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
 
+	"github.com/netbirdio/management-integrations/integrations"
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -58,6 +59,12 @@ func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValid
 		AuthCfg:        authCfg,
 	}
 
+	claimsExtractor := jwtclaims.NewClaimsExtractor(
+		jwtclaims.WithAudience(authCfg.Audience),
+		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
+	)
+
+	integrations.RegisterHandlers(api.Router, accountManager, claimsExtractor)
 	api.addAccountsEndpoint()
 	api.addPeersEndpoint()
 	api.addUsersEndpoint()
@@ -73,8 +80,8 @@ func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValid
 
 	err := api.Router.Walk(func(route *mux.Route, _ *mux.Router, _ []*mux.Route) error {
 		methods, err := route.GetMethods()
-		if err != nil {
-			return err
+		if err != nil { // we may have wildcard routes from integrations without methods, skip them for now
+			methods = []string{}
 		}
 		for _, method := range methods {
 			template, err := route.GetPathTemplate()

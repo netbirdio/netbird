@@ -1,21 +1,19 @@
 package uspfilter
 
 import (
-	"errors"
 	"fmt"
 	"os/exec"
-	"strings"
 	"syscall"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type action string
 
 const (
-	addRule    action = "add"
-	deleteRule action = "delete"
-
-	firewallRuleName     = "Netbird"
-	noRulesMatchCriteria = "No rules match the specified criteria"
+	addRule          action = "add"
+	deleteRule       action = "delete"
+	firewallRuleName        = "Netbird"
 )
 
 // Reset firewall to the default state
@@ -26,6 +24,14 @@ func (m *Manager) Reset() error {
 	m.outgoingRules = make(map[string]RuleSet)
 	m.incomingRules = make(map[string]RuleSet)
 
+	if !isWindowsFirewallReachable() {
+		return nil
+	}
+
+	if !isFirewallRuleActive(firewallRuleName) {
+		return nil
+	}
+
 	if err := manageFirewallRule(firewallRuleName, deleteRule); err != nil {
 		return fmt.Errorf("couldn't remove windows firewall: %w", err)
 	}
@@ -35,6 +41,13 @@ func (m *Manager) Reset() error {
 
 // AllowNetbird allows netbird interface traffic
 func (m *Manager) AllowNetbird() error {
+	if !isWindowsFirewallReachable() {
+		return nil
+	}
+
+	if isFirewallRuleActive(firewallRuleName) {
+		return nil
+	}
 	return manageFirewallRule(firewallRuleName,
 		addRule,
 		"dir=in",
@@ -45,47 +58,37 @@ func (m *Manager) AllowNetbird() error {
 	)
 }
 
-func manageFirewallRule(ruleName string, action action, args ...string) error {
-	active, err := isFirewallRuleActive(ruleName)
-	if err != nil {
-		return err
+func manageFirewallRule(ruleName string, action action, extraArgs ...string) error {
+
+	args := []string{"advfirewall", "firewall", string(action), "rule", "name=" + ruleName}
+	if action == addRule {
+		args = append(args, extraArgs...)
 	}
 
-	if (action == addRule && !active) || (action == deleteRule && active) {
-		baseArgs := []string{"advfirewall", "firewall", string(action), "rule", "name=" + ruleName}
-		args := append(baseArgs, args...)
-
-		cmd := exec.Command("netsh", args...)
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-		return cmd.Run()
-	}
-
-	return nil
+	cmd := exec.Command("netsh", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	return cmd.Run()
 }
 
-func isFirewallRuleActive(ruleName string) (bool, error) {
+func isWindowsFirewallReachable() bool {
+	args := []string{"advfirewall", "show", "allprofiles", "state"}
+	cmd := exec.Command("netsh", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+
+	_, err := cmd.Output()
+	if err != nil {
+		log.Infof("Windows firewall is not reachable, skipping default rule management. Using only user space rules. Error: %s", err)
+		return false
+	}
+
+	return true
+}
+
+func isFirewallRuleActive(ruleName string) bool {
 	args := []string{"advfirewall", "firewall", "show", "rule", "name=" + ruleName}
 
 	cmd := exec.Command("netsh", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	output, err := cmd.Output()
-	if err != nil {
-		var exitError *exec.ExitError
-		if errors.As(err, &exitError) {
-			// if the firewall rule is not active, we expect last exit code to be 1
-			exitStatus := exitError.Sys().(syscall.WaitStatus).ExitStatus()
-			if exitStatus == 1 {
-				if strings.Contains(string(output), noRulesMatchCriteria) {
-					return false, nil
-				}
-			}
-		}
-		return false, err
-	}
-
-	if strings.Contains(string(output), noRulesMatchCriteria) {
-		return false, nil
-	}
-
-	return true, nil
+	_, err := cmd.Output()
+	return err == nil
 }

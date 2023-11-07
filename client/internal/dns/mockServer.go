@@ -2,6 +2,7 @@ package dns
 
 import (
 	"fmt"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
@@ -42,4 +43,8 @@ func (m *MockServer) UpdateDNSServer(serial uint64, update nbdns.Config) error {
 		return m.UpdateDNSServerFunc(serial, update)
 	}
 	return fmt.Errorf("method UpdateDNSServer is not implemented")
+}
+
+func (m *MockServer) SearchDomains() []string {
+	return make([]string, 0)
 }

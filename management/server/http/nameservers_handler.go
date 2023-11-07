@@ -79,7 +79,7 @@ func (h *NameserversHandler) CreateNameserverGroup(w http.ResponseWriter, r *htt
 		return
 	}
 
-	nsGroup, err := h.accountManager.CreateNameServerGroup(account.Id, req.Name, req.Description, nsList, req.Groups, req.Primary, req.Domains, req.Enabled, user.Id)
+	nsGroup, err := h.accountManager.CreateNameServerGroup(account.Id, req.Name, req.Description, nsList, req.Groups, req.Primary, req.Domains, req.Enabled, user.Id, req.SearchDomainsEnabled)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -119,14 +119,15 @@ func (h *NameserversHandler) UpdateNameserverGroup(w http.ResponseWriter, r *htt
 	}
 
 	updatedNSGroup := &nbdns.NameServerGroup{
-		ID:          nsGroupID,
-		Name:        req.Name,
-		Description: req.Description,
-		Primary:     req.Primary,
-		Domains:     req.Domains,
-		NameServers: nsList,
-		Groups:      req.Groups,
-		Enabled:     req.Enabled,
+		ID:                   nsGroupID,
+		Name:                 req.Name,
+		Description:          req.Description,
+		Primary:              req.Primary,
+		Domains:              req.Domains,
+		NameServers:          nsList,
+		Groups:               req.Groups,
+		Enabled:              req.Enabled,
+		SearchDomainsEnabled: req.SearchDomainsEnabled,
 	}
 
 	err = h.accountManager.SaveNameServerGroup(account.Id, user.Id, updatedNSGroup)
@@ -216,13 +217,14 @@ func toNameserverGroupResponse(serverNSGroup *nbdns.NameServerGroup) *api.Namese
 	}
 
 	return &api.NameserverGroup{
-		Id:          serverNSGroup.ID,
-		Name:        serverNSGroup.Name,
-		Description: serverNSGroup.Description,
-		Primary:     serverNSGroup.Primary,
-		Domains:     serverNSGroup.Domains,
-		Groups:      serverNSGroup.Groups,
-		Nameservers: nsList,
-		Enabled:     serverNSGroup.Enabled,
+		Id:                   serverNSGroup.ID,
+		Name:                 serverNSGroup.Name,
+		Description:          serverNSGroup.Description,
+		Primary:              serverNSGroup.Primary,
+		Domains:              serverNSGroup.Domains,
+		Groups:               serverNSGroup.Groups,
+		Nameservers:          nsList,
+		Enabled:              serverNSGroup.Enabled,
+		SearchDomainsEnabled: serverNSGroup.SearchDomainsEnabled,
 	}
 }
