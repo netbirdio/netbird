@@ -70,8 +70,17 @@ func initTestMetaData(peers ...*server.Peer) *PeersHandler {
 						PeerLoginExpirationEnabled: true,
 						PeerLoginExpiration:        time.Hour,
 					},
+					Network: &server.Network{
+						Identifier: "ciclqisab2ss43jdn8q0",
+						Net: net.IPNet{
+							IP:   net.ParseIP("100.67.0.0"),
+							Mask: net.IPv4Mask(255, 255, 0, 0),
+						},
+						Serial: 51,
+					},
 				}, user, nil
 			},
+
 			GetAllConnectedPeersFunc: func() (map[string]struct{}, error) {
 				statuses := make(map[string]struct{})
 				for _, peer := range peers {

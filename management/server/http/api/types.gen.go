@@ -117,6 +117,24 @@ const (
 	UserStatusInvited UserStatus = "invited"
 )
 
+// AccessiblePeer defines model for AccessiblePeer.
+type AccessiblePeer struct {
+	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
+	DnsLabel string `json:"dns_label"`
+
+	// Id Peer ID
+	Id string `json:"id"`
+
+	// Ip Peer's IP address
+	Ip string `json:"ip"`
+
+	// Name Peer's hostname
+	Name string `json:"name"`
+
+	// UserId User ID of the user that enrolled this peer
+	UserId string `json:"user_id"`
+}
+
 // Account defines model for Account.
 type Account struct {
 	// Id Account ID
@@ -302,6 +320,114 @@ type NameserverGroupRequest struct {
 
 // Peer defines model for Peer.
 type Peer struct {
+	// AccessiblePeers List of accessible peers
+	AccessiblePeers []AccessiblePeer `json:"accessible_peers"`
+
+	// Connected Peer to Management connection status
+	Connected bool `json:"connected"`
+
+	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
+	DnsLabel string `json:"dns_label"`
+
+	// Groups Groups that the peer belongs to
+	Groups []GroupMinimum `json:"groups"`
+
+	// Hostname Hostname of the machine
+	Hostname string `json:"hostname"`
+
+	// Id Peer ID
+	Id string `json:"id"`
+
+	// Ip Peer's IP address
+	Ip string `json:"ip"`
+
+	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
+	LastLogin time.Time `json:"last_login"`
+
+	// LastSeen Last time peer connected to Netbird's management service
+	LastSeen time.Time `json:"last_seen"`
+
+	// LoginExpirationEnabled Indicates whether peer login expiration has been enabled or not
+	LoginExpirationEnabled bool `json:"login_expiration_enabled"`
+
+	// LoginExpired Indicates whether peer's login expired or not
+	LoginExpired bool `json:"login_expired"`
+
+	// Name Peer's hostname
+	Name string `json:"name"`
+
+	// Os Peer's operating system and version
+	Os string `json:"os"`
+
+	// SshEnabled Indicates whether SSH server is enabled on this peer
+	SshEnabled bool `json:"ssh_enabled"`
+
+	// UiVersion Peer's desktop UI version
+	UiVersion *string `json:"ui_version,omitempty"`
+
+	// UserId User ID of the user that enrolled this peer
+	UserId *string `json:"user_id,omitempty"`
+
+	// Version Peer's daemon or cli version
+	Version string `json:"version"`
+}
+
+// PeerBase defines model for PeerBase.
+type PeerBase struct {
+	// Connected Peer to Management connection status
+	Connected bool `json:"connected"`
+
+	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
+	DnsLabel string `json:"dns_label"`
+
+	// Groups Groups that the peer belongs to
+	Groups []GroupMinimum `json:"groups"`
+
+	// Hostname Hostname of the machine
+	Hostname string `json:"hostname"`
+
+	// Id Peer ID
+	Id string `json:"id"`
+
+	// Ip Peer's IP address
+	Ip string `json:"ip"`
+
+	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
+	LastLogin time.Time `json:"last_login"`
+
+	// LastSeen Last time peer connected to Netbird's management service
+	LastSeen time.Time `json:"last_seen"`
+
+	// LoginExpirationEnabled Indicates whether peer login expiration has been enabled or not
+	LoginExpirationEnabled bool `json:"login_expiration_enabled"`
+
+	// LoginExpired Indicates whether peer's login expired or not
+	LoginExpired bool `json:"login_expired"`
+
+	// Name Peer's hostname
+	Name string `json:"name"`
+
+	// Os Peer's operating system and version
+	Os string `json:"os"`
+
+	// SshEnabled Indicates whether SSH server is enabled on this peer
+	SshEnabled bool `json:"ssh_enabled"`
+
+	// UiVersion Peer's desktop UI version
+	UiVersion *string `json:"ui_version,omitempty"`
+
+	// UserId User ID of the user that enrolled this peer
+	UserId *string `json:"user_id,omitempty"`
+
+	// Version Peer's daemon or cli version
+	Version string `json:"version"`
+}
+
+// PeerBatch defines model for PeerBatch.
+type PeerBatch struct {
+	// AccessiblePeersCount Number of accessible peers
+	AccessiblePeersCount int `json:"accessible_peers_count"`
+
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
