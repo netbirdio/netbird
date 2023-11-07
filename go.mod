@@ -23,8 +23,8 @@ require (
 	github.com/vishvananda/netlink v1.1.0
 	golang.org/x/crypto v0.14.0
 	golang.org/x/sys v0.13.0
-	golang.zx2c4.com/wireguard v0.0.0-20230223181233-21636207a675
-	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20211215182854-7a385b3431de
+	golang.zx2c4.com/wireguard v0.0.0-20230704135630-469159ecf7d1
+	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20230429144221-925a1e7659e6
 	golang.zx2c4.com/wireguard/windows v0.5.3
 	google.golang.org/grpc v1.56.3
 	google.golang.org/protobuf v1.30.0
@@ -146,7 +146,6 @@ require (
 	go.opentelemetry.io/otel/sdk v1.11.1 // indirect
 	go.opentelemetry.io/otel/trace v1.11.1 // indirect
 	golang.org/x/image v0.10.0 // indirect
-	golang.org/x/mod v0.8.0 // indirect
 	golang.org/x/text v0.13.0 // indirect
 	golang.org/x/time v0.0.0-20210723032227-1f47c861a9ac // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
