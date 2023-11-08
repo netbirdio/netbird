@@ -1,0 +1,20 @@
+version: "3.4"
+services:
+  caddy:
+    image: caddy
+    restart: unless-stopped
+    networks: [ netbird ]
+    ports:
+      - '443:443'
+      - '80:80'
+      - '8080:8080'
+    volumes:
+      - netbird_caddy_data:/data
+      - ./Caddyfile:/etc/caddy/Caddyfile
+  
+volumes:
+  netbird_caddy_data:
+
+networks:
+  netbird:
+    external: true

@@ -1,0 +1,17 @@
+{
+  debug
+        servers :80,:443 {
+    protocols h1 h2c
+  }
+}
+
+(security_headers) {
+    header * {
+        Strict-Transport-Security "max-age=3600; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        X-XSS-Protection "1; mode=block"
+        -Server
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+}

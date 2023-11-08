@@ -1,0 +1,13 @@
+[Unit]
+Description=NETBIRD-DEPLOY-API
+After=systemd-user-sessions.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ZTNA
+ExecStart=uvicorn main:app --port 8000
+KillMode=process
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
