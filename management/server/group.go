@@ -101,7 +101,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 		removedPeers = difference(oldGroup.Peers, newGroup.Peers)
 	} else {
 		addedPeers = append(addedPeers, newGroup.Peers...)
-		am.storeEvent(userID, newGroup.ID, accountID, activity.GroupCreated, newGroup.EventMeta())
+		am.StoreEvent(userID, newGroup.ID, accountID, activity.GroupCreated, newGroup.EventMeta())
 	}
 
 	for _, p := range addedPeers {
@@ -110,7 +110,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 			log.Errorf("peer %s not found under account %s while saving group", p, accountID)
 			continue
 		}
-		am.storeEvent(userID, peer.ID, accountID, activity.GroupAddedToPeer,
+		am.StoreEvent(userID, peer.ID, accountID, activity.GroupAddedToPeer,
 			map[string]any{
 				"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
 				"peer_fqdn": peer.FQDN(am.GetDNSDomain()),
@@ -123,7 +123,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 			log.Errorf("peer %s not found under account %s while saving group", p, accountID)
 			continue
 		}
-		am.storeEvent(userID, peer.ID, accountID, activity.GroupRemovedFromPeer,
+		am.StoreEvent(userID, peer.ID, accountID, activity.GroupRemovedFromPeer,
 			map[string]any{
 				"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
 				"peer_fqdn": peer.FQDN(am.GetDNSDomain()),
@@ -241,7 +241,7 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 		return err
 	}
 
-	am.storeEvent(userId, groupID, accountId, activity.GroupDeleted, g.EventMeta())
+	am.StoreEvent(userId, groupID, accountId, activity.GroupDeleted, g.EventMeta())
 
 	am.updateAccountPeers(account)
 

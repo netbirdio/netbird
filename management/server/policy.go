@@ -353,7 +353,7 @@ func (am *DefaultAccountManager) SavePolicy(accountID, userID string, policy *Po
 	if exists {
 		action = activity.PolicyUpdated
 	}
-	am.storeEvent(userID, policy.ID, accountID, action, policy.EventMeta())
+	am.StoreEvent(userID, policy.ID, accountID, action, policy.EventMeta())
 
 	am.updateAccountPeers(account)
 
@@ -380,7 +380,7 @@ func (am *DefaultAccountManager) DeletePolicy(accountID, policyID, userID string
 		return err
 	}
 
-	am.storeEvent(userID, policy.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
+	am.StoreEvent(userID, policy.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
 	am.updateAccountPeers(account)
 
