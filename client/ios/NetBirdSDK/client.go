@@ -33,6 +33,11 @@ type CustomLogger interface {
 	Error(message string)
 }
 
+// EngineReadyListener export internal EngineReadyListener for mobile
+type EngineReadyListener interface {
+	listener.EngineReadyListener
+}
+
 func init() {
 	formatter.SetLogcatFormatter(log.StandardLogger())
 }
@@ -67,7 +72,7 @@ func NewClient(cfgFile, deviceName string, osVersion string, osName string, netw
 }
 
 // Run start the internal client. It is a blocker function
-func (c *Client) Run(fd int32, interfaceName string) error {
+func (c *Client) Run(fd int32, interfaceName string, engineReadyListener EngineReadyListener) error {
 	log.Infof("Starting NetBird client")
 	log.Debugf("Tunnel uses interface: %s", interfaceName)
 	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
@@ -98,7 +103,7 @@ func (c *Client) Run(fd int32, interfaceName string) error {
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.onHostDnsFn = func([]string) {}
-	return internal.RunClientiOS(ctx, cfg, c.recorder, fd, c.networkChangeListener, c.dnsManager, interfaceName)
+	return internal.RunClientiOS(ctx, cfg, c.recorder, fd, c.networkChangeListener, c.dnsManager, interfaceName, engineReadyListener)
 }
 
 // Stop the internal client and free the resources
