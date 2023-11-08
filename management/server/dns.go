@@ -96,14 +96,14 @@ func (am *DefaultAccountManager) SaveDNSSettings(accountID string, userID string
 	for _, id := range addedGroups {
 		group := account.GetGroup(id)
 		meta := map[string]any{"group": group.Name, "group_id": group.ID}
-		am.storeEvent(userID, accountID, accountID, activity.GroupAddedToDisabledManagementGroups, meta)
+		am.StoreEvent(userID, accountID, accountID, activity.GroupAddedToDisabledManagementGroups, meta)
 	}
 
 	removedGroups := difference(oldSettings.DisabledManagementGroups, dnsSettingsToSave.DisabledManagementGroups)
 	for _, id := range removedGroups {
 		group := account.GetGroup(id)
 		meta := map[string]any{"group": group.Name, "group_id": group.ID}
-		am.storeEvent(userID, accountID, accountID, activity.GroupRemovedFromDisabledManagementGroups, meta)
+		am.StoreEvent(userID, accountID, accountID, activity.GroupRemovedFromDisabledManagementGroups, meta)
 	}
 
 	am.updateAccountPeers(account)

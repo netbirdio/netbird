@@ -211,7 +211,7 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUs
 	}
 
 	meta := map[string]any{"name": newUser.ServiceUserName}
-	am.storeEvent(initiatorUserID, newUser.Id, accountID, activity.ServiceUserCreated, meta)
+	am.StoreEvent(initiatorUserID, newUser.Id, accountID, activity.ServiceUserCreated, meta)
 
 	return &UserInfo{
 		ID:            newUser.Id,
@@ -312,7 +312,7 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 		return nil, err
 	}
 
-	am.storeEvent(userID, newUser.Id, accountID, activity.UserInvited, nil)
+	am.StoreEvent(userID, newUser.Id, accountID, activity.UserInvited, nil)
 
 	return newUser.ToUserInfo(idpUser)
 }
@@ -349,7 +349,7 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 
 	if newLogin {
 		meta := map[string]any{"timestamp": claims.LastLogin}
-		am.storeEvent(claims.UserId, claims.UserId, account.Id, activity.DashboardLogin, meta)
+		am.StoreEvent(claims.UserId, claims.UserId, account.Id, activity.DashboardLogin, meta)
 	}
 
 	return user, nil
@@ -357,7 +357,7 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 
 func (am *DefaultAccountManager) deleteServiceUser(account *Account, initiatorUserID string, targetUser *User) {
 	meta := map[string]any{"name": targetUser.ServiceUserName}
-	am.storeEvent(initiatorUserID, targetUser.Id, account.Id, activity.ServiceUserDeleted, meta)
+	am.StoreEvent(initiatorUserID, targetUser.Id, account.Id, activity.ServiceUserDeleted, meta)
 	delete(account.Users, targetUser.Id)
 }
 
@@ -428,7 +428,7 @@ func (am *DefaultAccountManager) deleteRegularUser(account *Account, initiatorUs
 	}
 
 	meta := map[string]any{"name": tuName, "email": tuEmail}
-	am.storeEvent(initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
+	am.StoreEvent(initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
 
 	am.updateAccountPeers(account)
 
@@ -484,7 +484,7 @@ func (am *DefaultAccountManager) InviteUser(accountID string, initiatorUserID st
 		return err
 	}
 
-	am.storeEvent(initiatorUserID, user.ID, accountID, activity.UserInvited, nil)
+	am.StoreEvent(initiatorUserID, user.ID, accountID, activity.UserInvited, nil)
 
 	return nil
 }
@@ -534,7 +534,7 @@ func (am *DefaultAccountManager) CreatePAT(accountID string, initiatorUserID str
 	}
 
 	meta := map[string]any{"name": pat.Name, "is_service_user": targetUser.IsServiceUser, "user_name": targetUser.ServiceUserName}
-	am.storeEvent(initiatorUserID, targetUserID, accountID, activity.PersonalAccessTokenCreated, meta)
+	am.StoreEvent(initiatorUserID, targetUserID, accountID, activity.PersonalAccessTokenCreated, meta)
 
 	return pat, nil
 }
@@ -578,7 +578,7 @@ func (am *DefaultAccountManager) DeletePAT(accountID string, initiatorUserID str
 	}
 
 	meta := map[string]any{"name": pat.Name, "is_service_user": targetUser.IsServiceUser, "user_name": targetUser.ServiceUserName}
-	am.storeEvent(initiatorUserID, targetUserID, accountID, activity.PersonalAccessTokenDeleted, meta)
+	am.StoreEvent(initiatorUserID, targetUserID, accountID, activity.PersonalAccessTokenDeleted, meta)
 
 	delete(targetUser.PATs, tokenID)
 
@@ -739,15 +739,15 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 	defer func() {
 		if oldUser.IsBlocked() != update.IsBlocked() {
 			if update.IsBlocked() {
-				am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.UserBlocked, nil)
+				am.StoreEvent(initiatorUserID, oldUser.Id, accountID, activity.UserBlocked, nil)
 			} else {
-				am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.UserUnblocked, nil)
+				am.StoreEvent(initiatorUserID, oldUser.Id, accountID, activity.UserUnblocked, nil)
 			}
 		}
 
 		// store activity logs
 		if oldUser.Role != newUser.Role {
-			am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
+			am.StoreEvent(initiatorUserID, oldUser.Id, accountID, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
 		}
 
 		if update.AutoGroups != nil {
@@ -756,7 +756,7 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 			for _, g := range removedGroups {
 				group := account.GetGroup(g)
 				if group != nil {
-					am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.GroupRemovedFromUser,
+					am.StoreEvent(initiatorUserID, oldUser.Id, accountID, activity.GroupRemovedFromUser,
 						map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
 				} else {
 					log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
@@ -766,7 +766,7 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 			for _, g := range addedGroups {
 				group := account.GetGroup(g)
 				if group != nil {
-					am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.GroupAddedToUser,
+					am.StoreEvent(initiatorUserID, oldUser.Id, accountID, activity.GroupAddedToUser,
 						map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
 				}
 			}
@@ -914,7 +914,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(account *Account, peers []
 		if err := am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status); err != nil {
 			return err
 		}
-		am.storeEvent(
+		am.StoreEvent(
 			peer.UserID, peer.ID, account.Id,
 			activity.PeerLoginExpired, peer.EventMeta(am.GetDNSDomain()),
 		)
