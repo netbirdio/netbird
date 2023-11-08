@@ -97,6 +97,7 @@ type AccountManager interface {
 	DeleteNameServerGroup(accountID, nsGroupID, userID string) error
 	ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error)
 	GetDNSDomain() string
+	StoreEvent(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any)
 	GetEvents(accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettings(accountID string, userID string) (*DNSSettings, error)
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
@@ -873,11 +874,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 		} else {
 			am.checkAndSchedulePeerLoginExpiration(account)
 		}
-		am.storeEvent(userID, accountID, accountID, event, nil)
+		am.StoreEvent(userID, accountID, accountID, event, nil)
 	}
 
 	if oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration {
-		am.storeEvent(userID, accountID, accountID, activity.AccountPeerLoginExpirationDurationUpdated, nil)
+		am.StoreEvent(userID, accountID, accountID, activity.AccountPeerLoginExpirationDurationUpdated, nil)
 		am.checkAndSchedulePeerLoginExpiration(account)
 	}
 
@@ -939,7 +940,7 @@ func (am *DefaultAccountManager) newAccount(userID, domain string) (*Account, er
 			continue
 		} else if statusErr.Type() == status.NotFound {
 			newAccount := newAccountWithId(accountId, userID, domain)
-			am.storeEvent(userID, newAccount.Id, accountId, activity.AccountCreated, nil)
+			am.StoreEvent(userID, newAccount.Id, accountId, activity.AccountCreated, nil)
 			return newAccount, nil
 		} else {
 			return nil, err
@@ -1280,7 +1281,7 @@ func (am *DefaultAccountManager) handleNewUserAccount(domainAcc *Account, claims
 		return nil, err
 	}
 
-	am.storeEvent(claims.UserId, claims.UserId, account.Id, activity.UserJoined, nil)
+	am.StoreEvent(claims.UserId, claims.UserId, account.Id, activity.UserJoined, nil)
 
 	return account, nil
 }
@@ -1313,7 +1314,7 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 				return
 			}
 			log.Debugf("user %s of account %s redeemed invite", user.ID, account.Id)
-			am.storeEvent(userID, userID, account.Id, activity.UserJoined, nil)
+			am.StoreEvent(userID, userID, account.Id, activity.UserJoined, nil)
 		}()
 	}
 
@@ -1463,7 +1464,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 								am.updateAccountPeers(account)
 								for _, g := range addNewGroups {
 									if group := account.GetGroup(g); group != nil {
-										am.storeEvent(user.Id, user.Id, account.Id, activity.GroupAddedToUser,
+										am.StoreEvent(user.Id, user.Id, account.Id, activity.GroupAddedToUser,
 											map[string]any{
 												"group":           group.Name,
 												"group_id":        group.ID,
@@ -1473,7 +1474,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 								}
 								for _, g := range removeOldGroups {
 									if group := account.GetGroup(g); group != nil {
-										am.storeEvent(user.Id, user.Id, account.Id, activity.GroupRemovedFromUser,
+										am.StoreEvent(user.Id, user.Id, account.Id, activity.GroupRemovedFromUser,
 											map[string]any{
 												"group":           group.Name,
 												"group_id":        group.ID,

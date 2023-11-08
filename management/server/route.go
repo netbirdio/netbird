@@ -4,11 +4,12 @@ import (
 	"net/netip"
 	"unicode/utf8"
 
+	"github.com/rs/xid"
+
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
-	"github.com/rs/xid"
 )
 
 // GetRoute gets a route object from account and route IDs
@@ -186,7 +187,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, 
 
 	am.updateAccountPeers(account)
 
-	am.storeEvent(userID, newRoute.ID, accountID, activity.RouteCreated, newRoute.EventMeta())
+	am.StoreEvent(userID, newRoute.ID, accountID, activity.RouteCreated, newRoute.EventMeta())
 
 	return &newRoute, nil
 }
@@ -247,7 +248,7 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 
 	am.updateAccountPeers(account)
 
-	am.storeEvent(userID, routeToSave.ID, accountID, activity.RouteUpdated, routeToSave.EventMeta())
+	am.StoreEvent(userID, routeToSave.ID, accountID, activity.RouteUpdated, routeToSave.EventMeta())
 
 	return nil
 }
@@ -273,7 +274,7 @@ func (am *DefaultAccountManager) DeleteRoute(accountID, routeID, userID string) 
 		return err
 	}
 
-	am.storeEvent(userID, routy.ID, accountID, activity.RouteRemoved, routy.EventMeta())
+	am.StoreEvent(userID, routy.ID, accountID, activity.RouteRemoved, routy.EventMeta())
 
 	am.updateAccountPeers(account)
 
