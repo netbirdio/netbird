@@ -310,7 +310,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 		if !update.SSHEnabled {
 			event = activity.PeerSSHDisabled
 		}
-		am.storeEvent(userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
+		am.StoreEvent(userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
 	}
 
 	if peer.Name != update.Name {
@@ -325,7 +325,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 
 		peer.DNSLabel = newLabel
 
-		am.storeEvent(userID, peer.ID, accountID, activity.PeerRenamed, peer.EventMeta(am.GetDNSDomain()))
+		am.StoreEvent(userID, peer.ID, accountID, activity.PeerRenamed, peer.EventMeta(am.GetDNSDomain()))
 	}
 
 	if peer.LoginExpirationEnabled != update.LoginExpirationEnabled {
@@ -340,7 +340,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 		if !update.LoginExpirationEnabled {
 			event = activity.PeerLoginExpirationDisabled
 		}
-		am.storeEvent(userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
+		am.StoreEvent(userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
 
 		if peer.AddedWithSSOLogin() && peer.LoginExpirationEnabled && account.Settings.PeerLoginExpirationEnabled {
 			am.checkAndSchedulePeerLoginExpiration(account)
@@ -394,7 +394,7 @@ func (am *DefaultAccountManager) deletePeers(account *Account, peerIDs []string,
 				},
 			})
 		am.peersUpdateManager.CloseChannel(peer.ID)
-		am.storeEvent(userID, peer.ID, account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
+		am.StoreEvent(userID, peer.ID, account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
 	}
 
 	return nil
@@ -590,7 +590,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 
 	opEvent.TargetID = newPeer.ID
 	opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain())
-	am.storeEvent(opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
+	am.StoreEvent(opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
 	am.updateAccountPeers(account)
 
@@ -686,7 +686,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		updateRemotePeers = true
 		shouldStoreAccount = true
 
-		am.storeEvent(login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
+		am.StoreEvent(login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
 	}
 
 	peer, updated := updatePeerMeta(peer, login.Meta, account)

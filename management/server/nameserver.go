@@ -76,7 +76,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, d
 
 	am.updateAccountPeers(account)
 
-	am.storeEvent(userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
+	am.StoreEvent(userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
 
 	return newNSGroup.Copy(), nil
 }
@@ -111,7 +111,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(accountID, userID string, n
 
 	am.updateAccountPeers(account)
 
-	am.storeEvent(userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
+	am.StoreEvent(userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
 
 	return nil
 }
@@ -141,7 +141,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(accountID, nsGroupID, use
 
 	am.updateAccountPeers(account)
 
-	am.storeEvent(userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
+	am.StoreEvent(userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
 
 	return nil
 }
