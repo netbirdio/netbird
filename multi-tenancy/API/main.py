@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Security
-from fastapi.security.api_key import APIKeyQuery, APIKeyHeader
+from fastapi.security.api_key import APIKeyHeader
 import subprocess
 from pydantic import BaseModel
 
