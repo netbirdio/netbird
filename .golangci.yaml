@@ -34,6 +34,7 @@ linters:
     - bodyclose # checks whether HTTP response body is closed successfully
     - dupword # dupword checks for duplicate words in the source code
     - durationcheck # durationcheck checks for two durations multiplied together
+    - forbidigo # forbidigo forbids identifiers
     # - mirror # mirror reports wrong mirror patterns of bytes/strings usage
     - misspell # misspess finds commonly misspelled English words in comments
     - nilerr # finds the code that returns nil even if it checks that the error is not nil
@@ -49,6 +50,11 @@ issues:
   max-same-issues: 5
 
   exclude-rules:
+    # allow fmt
+    - path: management/cmd/root.go
+      linters: forbidigo
+    - path: signal/cmd/root.go
+      linters: forbidigo
     - path: sharedsock/filter.go
       linters:
       - unused
