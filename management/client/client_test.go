@@ -170,7 +170,7 @@ func TestClient_LoginUnregistered_ShouldThrow_401(t *testing.T) {
 		t.Error("expecting err on unregistered login, got nil")
 	}
 	if s, ok := status.FromError(err); !ok || s.Code() != codes.PermissionDenied {
-		t.Errorf("expecting err code %d denied on on unregistered login got %d", codes.PermissionDenied, s.Code())
+		t.Errorf("expecting err code %d denied on unregistered login got %d", codes.PermissionDenied, s.Code())
 	}
 }
 
