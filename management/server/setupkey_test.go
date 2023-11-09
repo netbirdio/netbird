@@ -237,6 +237,7 @@ func TestSetupKey_IsValid(t *testing.T) {
 func assertKey(t *testing.T, key *SetupKey, expectedName string, expectedRevoke bool, expectedType string,
 	expectedUsedTimes int, expectedCreatedAt time.Time, expectedExpiresAt time.Time, expectedID string,
 	expectedUpdatedAt time.Time, expectedAutoGroups []string) {
+	t.Helper()
 	if key.Name != expectedName {
 		t.Errorf("expected setup key to have Name %v, got %v", expectedName, key.Name)
 	}

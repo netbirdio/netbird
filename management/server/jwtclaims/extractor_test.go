@@ -11,6 +11,7 @@ import (
 )
 
 func newTestRequestWithJWT(t *testing.T, claims AuthorizationClaims, audience string) *http.Request {
+	t.Helper()
 	const layout = "2006-01-02T15:04:05.999Z"
 
 	claimMaps := jwt.MapClaims{}
@@ -143,6 +144,7 @@ func TestExtractClaimsFromRequestContext(t *testing.T) {
 }
 
 func TestExtractClaimsSetOptions(t *testing.T) {
+	t.Helper()
 	type test struct {
 		name      string
 		extractor *ClaimsExtractor
@@ -153,6 +155,7 @@ func TestExtractClaimsSetOptions(t *testing.T) {
 		name:      "No custom options",
 		extractor: NewClaimsExtractor(),
 		check: func(t *testing.T, c test) {
+			t.Helper()
 			if c.extractor.authAudience != "" {
 				t.Error("audience should be empty")
 				return
@@ -172,6 +175,7 @@ func TestExtractClaimsSetOptions(t *testing.T) {
 		name:      "Custom audience",
 		extractor: NewClaimsExtractor(WithAudience("https://login/")),
 		check: func(t *testing.T, c test) {
+			t.Helper()
 			if c.extractor.authAudience != "https://login/" {
 				t.Errorf("audience expected %s, got %s", "https://login/", c.extractor.authAudience)
 				return
@@ -183,6 +187,7 @@ func TestExtractClaimsSetOptions(t *testing.T) {
 		name:      "Custom user id claim",
 		extractor: NewClaimsExtractor(WithUserIDClaim("customUserId")),
 		check: func(t *testing.T, c test) {
+			t.Helper()
 			if c.extractor.userIDClaim != "customUserId" {
 				t.Errorf("user id claim expected %s, got %s", "customUserId", c.extractor.userIDClaim)
 				return
@@ -199,6 +204,7 @@ func TestExtractClaimsSetOptions(t *testing.T) {
 				}
 			})),
 		check: func(t *testing.T, c test) {
+			t.Helper()
 			claims := c.extractor.FromRequestContext(&http.Request{})
 			if claims.UserId != "testCustomRequest" {
 				t.Errorf("user id claim expected %s, got %s", "testCustomRequest", claims.UserId)

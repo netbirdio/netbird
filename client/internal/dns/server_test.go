@@ -771,6 +771,7 @@ func TestDNSPermanent_matchOnly(t *testing.T) {
 }
 
 func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
+	t.Helper()
 	ov := os.Getenv("NB_WG_KERNEL_DISABLED")
 	defer os.Setenv("NB_WG_KERNEL_DISABLED", ov)
 

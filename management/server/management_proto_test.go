@@ -400,6 +400,7 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 }
 
 func startManagement(t *testing.T, config *Config) (*grpc.Server, string, error) {
+	t.Helper()
 	lis, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
 		return nil, "", err

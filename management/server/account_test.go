@@ -25,6 +25,7 @@ import (
 )
 
 func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Account, userID string) {
+	t.Helper()
 	peer := &Peer{
 		Key:  "BhRPtynAAYRDy08+q4HTMsos8fs4plTP4NOSh7C1ry8=",
 		Name: "test-host@netbird.io",
@@ -52,6 +53,7 @@ func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Ac
 }
 
 func verifyNewAccountHasDefaultFields(t *testing.T, account *Account, createdBy string, domain string, expectedUsers []string) {
+	t.Helper()
 	if len(account.Peers) != 0 {
 		t.Errorf("expected account to have len(Peers) = %v, got %v", 0, len(account.Peers))
 	}
@@ -1131,6 +1133,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 }
 
 func getEvent(t *testing.T, accountID string, manager AccountManager, eventType activity.Activity) *activity.Event {
+	t.Helper()
 	for {
 		select {
 		case <-time.After(time.Second):
@@ -2038,6 +2041,7 @@ func TestAccount_UserGroupsRemoveFromPeers(t *testing.T) {
 }
 
 func createManager(t *testing.T) (*DefaultAccountManager, error) {
+	t.Helper()
 	store, err := createStore(t)
 	if err != nil {
 		return nil, err
@@ -2047,6 +2051,7 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 }
 
 func createStore(t *testing.T) (Store, error) {
+	t.Helper()
 	dataDir := t.TempDir()
 	store, err := NewStoreFromJson(dataDir, nil)
 	if err != nil {
