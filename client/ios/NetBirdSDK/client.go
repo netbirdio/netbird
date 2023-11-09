@@ -16,6 +16,11 @@ import (
 	"github.com/netbirdio/netbird/formatter"
 )
 
+// ConnectionListener export internal Listener for mobile
+type ConnectionListener interface {
+	peer.Listener
+}
+
 // RouteListener export internal RouteListener for mobile
 type NetworkChangeListener interface {
 	listener.NetworkChangeListener
@@ -31,11 +36,6 @@ type CustomLogger interface {
 	Debug(message string)
 	Info(message string)
 	Error(message string)
-}
-
-// EngineReadyListener export internal EngineReadyListener for mobile
-type EngineReadyListener interface {
-	listener.EngineReadyListener
 }
 
 func init() {
@@ -72,7 +72,7 @@ func NewClient(cfgFile, deviceName string, osVersion string, osName string, netw
 }
 
 // Run start the internal client. It is a blocker function
-func (c *Client) Run(fd int32, interfaceName string, engineReadyListener EngineReadyListener) error {
+func (c *Client) Run(fd int32, interfaceName string) error {
 	log.Infof("Starting NetBird client")
 	log.Debugf("Tunnel uses interface: %s", interfaceName)
 	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
@@ -103,7 +103,7 @@ func (c *Client) Run(fd int32, interfaceName string, engineReadyListener EngineR
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.onHostDnsFn = func([]string) {}
-	return internal.RunClientiOS(ctx, cfg, c.recorder, fd, c.networkChangeListener, c.dnsManager, interfaceName, engineReadyListener)
+	return internal.RunClientiOS(ctx, cfg, c.recorder, fd, c.networkChangeListener, c.dnsManager, interfaceName)
 }
 
 // Stop the internal client and free the resources
@@ -139,8 +139,14 @@ func (c *Client) GetStatusDetails() *StatusDetails {
 	return &StatusDetails{items: peerInfos, fqdn: fullStatus.LocalPeerState.FQDN, ip: fullStatus.LocalPeerState.IP}
 }
 
-func (c *Client) GetManagementStatus() bool {
-	return c.recorder.GetFullStatus().ManagementState.Connected
+// SetConnectionListener set the network connection listener
+func (c *Client) SetConnectionListener(listener ConnectionListener) {
+	c.recorder.SetConnectionListener(listener)
+}
+
+// RemoveConnectionListener remove connection listener
+func (c *Client) RemoveConnectionListener() {
+	c.recorder.RemoveConnectionListener()
 }
 
 func (c *Client) IsLoginRequired() bool {

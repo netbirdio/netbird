@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"strings"
 	"time"
 
@@ -44,12 +43,11 @@ func RunClientMobile(ctx context.Context, config *Config, statusRecorder *peer.S
 	return runClient(ctx, config, statusRecorder, mobileDependency)
 }
 
-func RunClientiOS(ctx context.Context, config *Config, statusRecorder *peer.Status, fileDescriptor int32, networkChangeListener listener.NetworkChangeListener, dnsManager dns.IosDnsManager, interfaceName string, engineReadyListener listener.EngineReadyListener) error {
+func RunClientiOS(ctx context.Context, config *Config, statusRecorder *peer.Status, fileDescriptor int32, networkChangeListener listener.NetworkChangeListener, dnsManager dns.IosDnsManager, interfaceName string) error {
 	mobileDependency := MobileDependency{
 		FileDescriptor:        fileDescriptor,
 		InterfaceName:         interfaceName,
 		NetworkChangeListener: networkChangeListener,
-		EngineReadyListener:   engineReadyListener,
 		DnsManager:            dnsManager,
 	}
 	return runClient(ctx, config, statusRecorder, mobileDependency)
@@ -189,10 +187,6 @@ func runClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 		if err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
-		}
-
-		if runtime.GOOS == "ios" {
-			mobileDependency.EngineReadyListener.Notify()
 		}
 
 		log.Print("Netbird engine started, my IP is: ", peerConfig.Address)

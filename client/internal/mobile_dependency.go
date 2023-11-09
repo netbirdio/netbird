@@ -12,7 +12,6 @@ type MobileDependency struct {
 	TunAdapter            iface.TunAdapter
 	IFaceDiscover         stdnet.ExternalIFaceDiscover
 	NetworkChangeListener listener.NetworkChangeListener
-	EngineReadyListener   listener.EngineReadyListener
 	HostDNSAddresses      []string
 	DnsReadyListener      dns.ReadyListener
 	DnsManager            dns.IosDnsManager
