@@ -34,6 +34,7 @@ linters:
     - bodyclose # checks whether HTTP response body is closed successfully
     - nilerr # finds the code that returns nil even if it checks that the error is not nil
     - nilnil # checks that there is no simultaneous return of nil error and an invalid value
+    - predeclared # predeclared finds code that shadows one of Go's predeclared identifiers
     - sqlclosecheck # checks that sql.Rows and sql.Stmt are closed
     - thelper # thelper detects Go test helpers without t.Helper() call and checks the consistency of test helpers.
     - wastedassign # wastedassign finds wasted assignment statements
