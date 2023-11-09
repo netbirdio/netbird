@@ -33,6 +33,8 @@ linters:
     ## disable by default but the have interesting results so lets add them
     - bodyclose # checks whether HTTP response body is closed successfully
     - dupword # dupword checks for duplicate words in the source code
+    - durationcheck # durationcheck checks for two durations multiplied together
+    #- mirror # mirror reports wrong mirror patterns of bytes/strings usage
     - nilerr # finds the code that returns nil even if it checks that the error is not nil
     - nilnil # checks that there is no simultaneous return of nil error and an invalid value
     - predeclared # predeclared finds code that shadows one of Go's predeclared identifiers
