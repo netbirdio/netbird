@@ -1574,7 +1574,7 @@ func (am *DefaultAccountManager) GetAllConnectedPeers() (map[string]struct{}, er
 
 func isDomainValid(domain string) bool {
 	re := regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
-	return re.Match([]byte(domain))
+	return re.MatchString(domain)
 }
 
 // GetDNSDomain returns the configured dnsDomain

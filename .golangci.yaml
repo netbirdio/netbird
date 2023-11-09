@@ -35,7 +35,7 @@ linters:
     - dupword # dupword checks for duplicate words in the source code
     - durationcheck # durationcheck checks for two durations multiplied together
     - forbidigo # forbidigo forbids identifiers
-    # - mirror # mirror reports wrong mirror patterns of bytes/strings usage
+    - mirror # mirror reports wrong mirror patterns of bytes/strings usage
     - misspell # misspess finds commonly misspelled English words in comments
     - nilerr # finds the code that returns nil even if it checks that the error is not nil
     - nilnil # checks that there is no simultaneous return of nil error and an invalid value
@@ -61,6 +61,9 @@ issues:
     - path: client/firewall/iptables/rule.go
       linters:
       - unused
+    - path: test.go
+      linters:
+      - mirror
     - path: mock.go
       linters:
       - nilnil
