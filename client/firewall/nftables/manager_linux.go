@@ -39,16 +39,13 @@ var anyIP = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 type Manager struct {
 	mutex sync.Mutex
 
-	rConn     *nftables.Conn
-	sConn     *nftables.Conn
-	tableIPv4 *nftables.Table
-	tableIPv6 *nftables.Table
+	rConn *nftables.Conn
+	sConn *nftables.Conn
 
-	filterInputChainIPv4  *nftables.Chain
-	filterOutputChainIPv4 *nftables.Chain
-
-	filterInputChainIPv6  *nftables.Chain
-	filterOutputChainIPv6 *nftables.Chain
+	// cached nftalbes objects
+	filterTable       *nftables.Table
+	filterInputChain  *nftables.Chain
+	filterOutputChain *nftables.Chain
 
 	rulesetManager *rulesetManager
 	setRemovedIPs  map[string]struct{}
@@ -109,28 +106,26 @@ func (m *Manager) AddFiltering(
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	var (
-		err   error
-		ipset *nftables.Set
-		table *nftables.Table
-		chain *nftables.Chain
-	)
+	var name string
+	var hook nftables.ChainHook
 
 	if direction == fw.RuleDirectionOUT {
-		table, chain, err = m.chain(
-			ip,
-			FilterOutputChainName,
-			nftables.ChainHookPostrouting,
-			nftables.ChainPriorityNATSource,
-			nftables.ChainTypeNAT)
+		name = FilterOutputChainName
+		hook = nftables.ChainHookOutput
 	} else {
-		table, chain, err = m.chain(
-			ip,
-			FilterInputChainName,
-			nftables.ChainHookPrerouting,
-			nftables.ChainPriorityNATDest,
-			nftables.ChainTypeNAT)
+		name = FilterInputChainName
+		hook = nftables.ChainHookInput
 	}
+
+	var err error
+	if m.filterTable == nil {
+		m.filterTable, err = m.createFilterTableIfNotExists()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	chain, err := m.createChainIfNotExists(name, hook)
 	if err != nil {
 		return nil, err
 	}
@@ -140,17 +135,17 @@ func (m *Manager) AddFiltering(
 		rawIP = ip.To16()
 	}
 
-	rulesetID := m.getRulesetID(ip, proto, sPort, dPort, direction, action, ipsetName)
-
+	var ipset *nftables.Set
+	rulesetID := m.getRulesetID(ip, sPort, dPort, direction, action, ipsetName)
 	if ipsetName != "" {
 		// if we already have set with given name, just add ip to the set
 		// and return rule with new ID in other case let's create rule
 		// with fresh created set and set element
 
 		var isSetNew bool
-		ipset, err = m.rConn.GetSetByName(table, ipsetName)
+		ipset, err = m.rConn.GetSetByName(m.filterTable, ipsetName)
 		if err != nil {
-			if ipset, err = m.createSet(table, rawIP, ipsetName); err != nil {
+			if ipset, err = m.createSet(m.filterTable, rawIP, ipsetName); err != nil {
 				return nil, fmt.Errorf("get set name: %v", err)
 			}
 			isSetNew = true
@@ -298,7 +293,7 @@ func (m *Manager) AddFiltering(
 	userData := []byte(strings.Join([]string{rulesetID, comment}, " "))
 
 	rule := m.rConn.InsertRule(&nftables.Rule{
-		Table:    table,
+		Table:    m.filterTable,
 		Chain:    chain,
 		Position: 0,
 		Exprs:    expressions,
@@ -315,7 +310,6 @@ func (m *Manager) AddFiltering(
 // getRulesetID returns ruleset ID based on given parameters
 func (m *Manager) getRulesetID(
 	ip net.IP,
-	proto fw.Protocol,
 	sPort *fw.Port,
 	dPort *fw.Port,
 	direction fw.RuleDirection,
@@ -367,125 +361,51 @@ func (m *Manager) createSet(
 	return ipset, nil
 }
 
-// chain returns the chain for the given IP address with specific settings
-func (m *Manager) chain(
-	ip net.IP,
-	name string,
-	hook nftables.ChainHook,
-	priority nftables.ChainPriority,
-	cType nftables.ChainType,
-) (*nftables.Table, *nftables.Chain, error) {
-	var err error
-
-	getChain := func(c *nftables.Chain, tf nftables.TableFamily) (*nftables.Chain, error) {
-		if c != nil {
-			return c, nil
-		}
-		return m.createChainIfNotExists(tf, FilterTableName, name, hook, priority, cType)
-	}
-
-	if ip.To4() != nil {
-		if name == FilterInputChainName {
-			m.filterInputChainIPv4, err = getChain(m.filterInputChainIPv4, nftables.TableFamilyIPv4)
-			return m.tableIPv4, m.filterInputChainIPv4, err
-		}
-		m.filterOutputChainIPv4, err = getChain(m.filterOutputChainIPv4, nftables.TableFamilyIPv4)
-		return m.tableIPv4, m.filterOutputChainIPv4, err
-	}
-	if name == FilterInputChainName {
-		m.filterInputChainIPv6, err = getChain(m.filterInputChainIPv6, nftables.TableFamilyIPv6)
-		return m.tableIPv4, m.filterInputChainIPv6, err
-	}
-	m.filterOutputChainIPv6, err = getChain(m.filterOutputChainIPv6, nftables.TableFamilyIPv6)
-	return m.tableIPv4, m.filterOutputChainIPv6, err
-}
-
-// table returns the table for the given family of the IP address
-func (m *Manager) table(
-	family nftables.TableFamily, tableName string,
-) (*nftables.Table, error) {
-	// we cache access to Netbird ACL table only
-	if tableName != FilterTableName {
-		return m.createTableIfNotExists(nftables.TableFamilyIPv4, tableName)
-	}
-
-	if family == nftables.TableFamilyIPv4 {
-		if m.tableIPv4 != nil {
-			return m.tableIPv4, nil
-		}
-
-		table, err := m.createTableIfNotExists(nftables.TableFamilyIPv4, tableName)
-		if err != nil {
-			return nil, err
-		}
-		m.tableIPv4 = table
-		return m.tableIPv4, nil
-	}
-
-	if m.tableIPv6 != nil {
-		return m.tableIPv6, nil
-	}
-
-	table, err := m.createTableIfNotExists(nftables.TableFamilyIPv6, tableName)
-	if err != nil {
-		return nil, err
-	}
-	m.tableIPv6 = table
-	return m.tableIPv6, nil
-}
-
-func (m *Manager) createTableIfNotExists(
-	family nftables.TableFamily, tableName string,
-) (*nftables.Table, error) {
-	tables, err := m.rConn.ListTablesOfFamily(family)
+func (m *Manager) createFilterTableIfNotExists() (*nftables.Table, error) {
+	tables, err := m.rConn.ListTablesOfFamily(nftables.TableFamilyIPv4)
 	if err != nil {
 		return nil, fmt.Errorf("list of tables: %w", err)
 	}
 
 	for _, t := range tables {
-		if t.Name == tableName {
+		if t.Name == FilterTableName {
 			return t, nil
 		}
 	}
 
-	table := m.rConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv4})
-	if err := m.rConn.Flush(); err != nil {
-		return nil, err
-	}
-	return table, nil
+	table := m.rConn.AddTable(&nftables.Table{Name: FilterTableName, Family: nftables.TableFamilyIPv4})
+	err = m.rConn.Flush()
+	return table, err
 }
 
-func (m *Manager) createChainIfNotExists(
-	family nftables.TableFamily,
-	tableName string,
-	name string,
-	hooknum nftables.ChainHook,
-	priority nftables.ChainPriority,
-	chainType nftables.ChainType,
-) (*nftables.Chain, error) {
-	table, err := m.table(family, tableName)
-	if err != nil {
-		return nil, err
+func (m *Manager) createChainIfNotExists(name string, hookNum nftables.ChainHook) (*nftables.Chain, error) {
+	var workChain **nftables.Chain
+	if name == FilterInputChainName {
+		workChain = &m.filterInputChain
+	} else {
+		workChain = &m.filterOutputChain
+	}
+	if *workChain != nil {
+		return *workChain, nil
 	}
 
-	chains, err := m.rConn.ListChainsOfTableFamily(family)
+	chains, err := m.rConn.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
 	if err != nil {
 		return nil, fmt.Errorf("list of chains: %w", err)
 	}
 
 	for _, c := range chains {
-		if c.Name == name && c.Table.Name == table.Name {
+		if c.Name == name && c.Table.Name == m.filterTable.Name {
 			return c, nil
 		}
 	}
-
 	polAccept := nftables.ChainPolicyAccept
 	chain := &nftables.Chain{
 		Name:     name,
-		Table:    table,
-		Hooknum:  hooknum,
-		Priority: priority,
-		Type:     chainType,
+		Table:    m.filterTable,
+		Hooknum:  hookNum,
+		Priority: nftables.ChainPriorityFilter,
+		Type:     nftables.ChainTypeFilter,
 		Policy:   &polAccept,
 	}
 
@@ -557,7 +477,7 @@ func (m *Manager) createChainIfNotExists(
 	}
 
 	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: table,
+		Table: m.filterTable,
 		Chain: chain,
 		Exprs: expressions,
 	})
@@ -572,7 +492,7 @@ func (m *Manager) createChainIfNotExists(
 		&expr.Verdict{Kind: expr.VerdictDrop},
 	}
 	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: table,
+		Table: m.filterTable,
 		Chain: chain,
 		Exprs: expressions,
 	})
@@ -581,6 +501,7 @@ func (m *Manager) createChainIfNotExists(
 		return nil, err
 	}
 
+	*workChain = chain
 	return chain, nil
 }
 
@@ -711,20 +632,12 @@ func (m *Manager) Flush() error {
 	m.setRemovedIPs = map[string]struct{}{}
 	m.setRemoved = map[string]*nftables.Set{}
 
-	if err := m.refreshRuleHandles(m.tableIPv4, m.filterInputChainIPv4); err != nil {
+	if err := m.refreshRuleHandles(m.filterTable, m.filterInputChain); err != nil {
 		log.Errorf("failed to refresh rule handles ipv4 input chain: %v", err)
 	}
 
-	if err := m.refreshRuleHandles(m.tableIPv4, m.filterOutputChainIPv4); err != nil {
+	if err := m.refreshRuleHandles(m.filterTable, m.filterOutputChain); err != nil {
 		log.Errorf("failed to refresh rule handles IPv4 output chain: %v", err)
-	}
-
-	if err := m.refreshRuleHandles(m.tableIPv6, m.filterInputChainIPv6); err != nil {
-		log.Errorf("failed to refresh rule handles IPv6 input chain: %v", err)
-	}
-
-	if err := m.refreshRuleHandles(m.tableIPv6, m.filterOutputChainIPv6); err != nil {
-		log.Errorf("failed to refresh rule handles IPv6 output chain: %v", err)
 	}
 
 	return nil
