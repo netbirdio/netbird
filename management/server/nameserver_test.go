@@ -741,6 +741,7 @@ func TestGetNameServerGroup(t *testing.T) {
 }
 
 func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
+	t.Helper()
 	store, err := createNSStore(t)
 	if err != nil {
 		return nil, err
@@ -750,6 +751,7 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 }
 
 func createNSStore(t *testing.T) (Store, error) {
+	t.Helper()
 	dataDir := t.TempDir()
 	store, err := NewStoreFromJson(dataDir, nil)
 	if err != nil {
@@ -760,6 +762,7 @@ func createNSStore(t *testing.T) (Store, error) {
 }
 
 func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error) {
+	t.Helper()
 	peer1 := &Peer{
 		Key:  nsGroupPeer1Key,
 		Name: "test-host1@netbird.io",

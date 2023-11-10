@@ -580,6 +580,7 @@ func TestFileStore_SavePeerStatus(t *testing.T) {
 }
 
 func newStore(t *testing.T) *FileStore {
+	t.Helper()
 	store, err := NewFileStore(t.TempDir(), nil)
 	if err != nil {
 		t.Errorf("failed creating a new store")

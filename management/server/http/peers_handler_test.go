@@ -3,7 +3,6 @@ package http
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -232,7 +231,7 @@ func TestGetPeers(t *testing.T) {
 				}
 			}
 
-			fmt.Println(got)
+			t.Log(got)
 
 			assert.Equal(t, got.Name, tc.expectedPeer.Name)
 			assert.Equal(t, got.Version, tc.expectedPeer.Meta.WtVersion)

@@ -1007,6 +1007,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 }
 
 func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
+	t.Helper()
 	store, err := createRouterStore(t)
 	if err != nil {
 		return nil, err
@@ -1016,6 +1017,7 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 }
 
 func createRouterStore(t *testing.T) (Store, error) {
+	t.Helper()
 	dataDir := t.TempDir()
 	store, err := NewStoreFromJson(dataDir, nil)
 	if err != nil {

@@ -31,6 +31,7 @@ import (
 const ValidKey = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
 
 func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
+	t.Helper()
 	level, _ := log.ParseLevel("debug")
 	log.SetLevel(level)
 
@@ -81,6 +82,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 }
 
 func startMockManagement(t *testing.T) (*grpc.Server, net.Listener, *mock_server.ManagementServiceServerMock, wgtypes.Key) {
+	t.Helper()
 	lis, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +170,7 @@ func TestClient_LoginUnregistered_ShouldThrow_401(t *testing.T) {
 		t.Error("expecting err on unregistered login, got nil")
 	}
 	if s, ok := status.FromError(err); !ok || s.Code() != codes.PermissionDenied {
-		t.Errorf("expecting err code %d denied on on unregistered login got %d", codes.PermissionDenied, s.Code())
+		t.Errorf("expecting err code %d denied on unregistered login got %d", codes.PermissionDenied, s.Code())
 	}
 }
 
