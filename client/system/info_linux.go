@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -67,7 +69,7 @@ func _getInfo() string {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		fmt.Println("getInfo:", err)
+		log.Warnf("getInfo: %s", err)
 	}
 	return out.String()
 }
@@ -81,7 +83,7 @@ func _getReleaseInfo() string {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		fmt.Println("getReleaseInfo:", err)
+		log.Warnf("geucwReleaseInfo: %s", err)
 	}
 	return out.String()
 }
