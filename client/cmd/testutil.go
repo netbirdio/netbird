@@ -22,6 +22,7 @@ import (
 )
 
 func startTestingServices(t *testing.T) string {
+	t.Helper()
 	config := &mgmt.Config{}
 	_, err := util.ReadJson("../testdata/management.json", config)
 	if err != nil {
@@ -44,6 +45,7 @@ func startTestingServices(t *testing.T) string {
 }
 
 func startSignal(t *testing.T) (*grpc.Server, net.Listener) {
+	t.Helper()
 	lis, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
@@ -60,6 +62,7 @@ func startSignal(t *testing.T) (*grpc.Server, net.Listener) {
 }
 
 func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Listener) {
+	t.Helper()
 	lis, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
@@ -98,6 +101,7 @@ func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Liste
 func startClientDaemon(
 	t *testing.T, ctx context.Context, managementURL, configPath string,
 ) (*grpc.Server, net.Listener) {
+	t.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

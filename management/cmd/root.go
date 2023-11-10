@@ -67,7 +67,7 @@ func init() {
 	rootCmd.MarkFlagRequired("config") //nolint
 
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")
-	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the the log will be output to stdout")
+	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the log will be output to stdout")
 	rootCmd.AddCommand(mgmtCmd)
 
 	migrationCmd.PersistentFlags().StringVar(&mgmtDataDir, "datadir", defaultMgmtDataDir, "server data directory location")

@@ -355,7 +355,7 @@ func (am *MockAccountManager) UpdatePeerSSHKey(peerID string, sshKey string) err
 	if am.UpdatePeerSSHKeyFunc != nil {
 		return am.UpdatePeerSSHKeyFunc(peerID, sshKey)
 	}
-	return status.Errorf(codes.Unimplemented, "method UpdatePeerSSHKey is is not implemented")
+	return status.Errorf(codes.Unimplemented, "method UpdatePeerSSHKey is not implemented")
 }
 
 // UpdatePeer mocks UpdatePeerFunc function of the account manager
@@ -363,7 +363,7 @@ func (am *MockAccountManager) UpdatePeer(accountID, userID string, peer *server.
 	if am.UpdatePeerFunc != nil {
 		return am.UpdatePeerFunc(accountID, userID, peer)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method UpdatePeerFunc is is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method UpdatePeerFunc is not implemented")
 }
 
 // CreateRoute mock implementation of CreateRoute from server.AccountManager interface

@@ -230,7 +230,7 @@ func TestWriteGroup(t *testing.T) {
 			expectedBody:   false,
 		},
 		{
-			name:        "Write Group PUT not not change Issue",
+			name:        "Write Group PUT not change Issue",
 			requestType: http.MethodPut,
 			requestPath: "/api/groups/id-jwt-group",
 			requestBody: bytes.NewBuffer(

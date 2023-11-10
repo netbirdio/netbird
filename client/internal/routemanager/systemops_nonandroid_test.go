@@ -123,7 +123,7 @@ func TestGetExistingRIBRouteGateway(t *testing.T) {
 
 func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
 	defaultGateway, err := getExistingRIBRouteGateway(netip.MustParsePrefix("0.0.0.0/0"))
-	fmt.Println("defaultGateway: ", defaultGateway)
+	t.Log("defaultGateway: ", defaultGateway)
 	if err != nil {
 		t.Fatal("shouldn't return error when fetching the gateway: ", err)
 	}
@@ -207,7 +207,7 @@ func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
 			// route should either not have been added or should have been removed
 			// In case of already existing route, it should not have been added (but still exist)
 			ok, err := existsInRouteTable(testCase.prefix)
-			fmt.Println("Buffer string: ", buf.String())
+			t.Log("Buffer string: ", buf.String())
 			require.NoError(t, err, "should not return err")
 			if !strings.Contains(buf.String(), "because it already exists") {
 				require.False(t, ok, "route should not exist")
