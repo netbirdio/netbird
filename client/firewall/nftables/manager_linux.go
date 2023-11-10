@@ -24,13 +24,16 @@ const (
 	// FilterTableName is the name of the table that is used for filtering by the Netbird client
 	FilterTableName = "netbird-acl"
 
-	// FilterInputChainName is the name of the chain that is used for filtering incoming packets
-	FilterInputChainName = "netbird-acl-input-filter"
+	// chainNameInputRules is the name of the chain that is used for filtering incoming packets
+	chainNameInputRules = "input-rules"
 
-	// FilterOutputChainName is the name of the chain that is used for filtering outgoing packets
-	FilterOutputChainName = "netbird-acl-output-filter"
+	// chainNameOutputRules is the name of the chain that is used for filtering outgoing packets
+	chainNameOutputRules   = "output-rules"
+	chainNameInputFilter   = "input-filter"
+	chainNameOutputFilter  = "output-filter"
+	chainNameForwardFilter = "forward-filter"
 
-	AllowNetbirdInputRuleID = "allow Netbird incoming traffic"
+	allowNetbirdInputRuleID = "allow Netbird incoming traffic"
 )
 
 var anyIP = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
@@ -43,9 +46,15 @@ type Manager struct {
 	sConn *nftables.Conn
 
 	// cached nftalbes objects
-	filterTable       *nftables.Table
-	filterInputChain  *nftables.Chain
-	filterOutputChain *nftables.Chain
+	tableFilter      *nftables.Table
+	chainInputRules  *nftables.Chain
+	chainOutputRules *nftables.Chain
+
+	chainInputFilterIsExists  bool
+	chainOutputFilterIsExists bool
+	chainForwardIsExists      bool
+	chainInputIsExists        bool
+	chainOutputIsExists       bool
 
 	rulesetManager *rulesetManager
 	setRemovedIPs  map[string]struct{}
@@ -106,36 +115,18 @@ func (m *Manager) AddFiltering(
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	var name string
-	var hook nftables.ChainHook
-
-	if direction == fw.RuleDirectionOUT {
-		name = FilterOutputChainName
-		hook = nftables.ChainHookOutput
-	} else {
-		name = FilterInputChainName
-		hook = nftables.ChainHookInput
-	}
-
-	var err error
-	if m.filterTable == nil {
-		m.filterTable, err = m.createFilterTableIfNotExists()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	chain, err := m.createChainIfNotExists(name, hook)
+	err := m.createFilterTableIfNotExists()
 	if err != nil {
 		return nil, err
 	}
 
-	rawIP := ip.To4()
-	if rawIP == nil {
-		rawIP = ip.To16()
+	err = m.createDefaultChains()
+	if err != nil {
+		return nil, err
 	}
 
 	var ipset *nftables.Set
+	rawIP := ip.To4()
 	rulesetID := m.getRulesetID(ip, sPort, dPort, direction, action, ipsetName)
 	if ipsetName != "" {
 		// if we already have set with given name, just add ip to the set
@@ -143,9 +134,9 @@ func (m *Manager) AddFiltering(
 		// with fresh created set and set element
 
 		var isSetNew bool
-		ipset, err = m.rConn.GetSetByName(m.filterTable, ipsetName)
+		ipset, err = m.rConn.GetSetByName(m.tableFilter, ipsetName)
 		if err != nil {
-			if ipset, err = m.createSet(m.filterTable, rawIP, ipsetName); err != nil {
+			if ipset, err = m.createSet(m.tableFilter, rawIP, ipsetName); err != nil {
 				return nil, fmt.Errorf("get set name: %v", err)
 			}
 			isSetNew = true
@@ -292,8 +283,14 @@ func (m *Manager) AddFiltering(
 
 	userData := []byte(strings.Join([]string{rulesetID, comment}, " "))
 
+	var chain *nftables.Chain
+	if direction == fw.RuleDirectionIN {
+		chain = m.chainInputRules
+	} else {
+		chain = m.chainOutputRules
+	}
 	rule := m.rConn.InsertRule(&nftables.Rule{
-		Table:    m.filterTable,
+		Table:    m.tableFilter,
 		Chain:    chain,
 		Position: 0,
 		Exprs:    expressions,
@@ -361,150 +358,6 @@ func (m *Manager) createSet(
 	return ipset, nil
 }
 
-func (m *Manager) createFilterTableIfNotExists() (*nftables.Table, error) {
-	tables, err := m.rConn.ListTablesOfFamily(nftables.TableFamilyIPv4)
-	if err != nil {
-		return nil, fmt.Errorf("list of tables: %w", err)
-	}
-
-	for _, t := range tables {
-		if t.Name == FilterTableName {
-			return t, nil
-		}
-	}
-
-	table := m.rConn.AddTable(&nftables.Table{Name: FilterTableName, Family: nftables.TableFamilyIPv4})
-	err = m.rConn.Flush()
-	return table, err
-}
-
-func (m *Manager) createChainIfNotExists(name string, hookNum nftables.ChainHook) (*nftables.Chain, error) {
-	var workChain **nftables.Chain
-	if name == FilterInputChainName {
-		workChain = &m.filterInputChain
-	} else {
-		workChain = &m.filterOutputChain
-	}
-	if *workChain != nil {
-		return *workChain, nil
-	}
-
-	chains, err := m.rConn.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
-	if err != nil {
-		return nil, fmt.Errorf("list of chains: %w", err)
-	}
-
-	for _, c := range chains {
-		if c.Name == name && c.Table.Name == m.filterTable.Name {
-			return c, nil
-		}
-	}
-	polAccept := nftables.ChainPolicyAccept
-	chain := &nftables.Chain{
-		Name:     name,
-		Table:    m.filterTable,
-		Hooknum:  hookNum,
-		Priority: nftables.ChainPriorityFilter,
-		Type:     nftables.ChainTypeFilter,
-		Policy:   &polAccept,
-	}
-
-	chain = m.rConn.AddChain(chain)
-
-	ifaceKey := expr.MetaKeyIIFNAME
-	shiftDSTAddr := 0
-	if name == FilterOutputChainName {
-		ifaceKey = expr.MetaKeyOIFNAME
-		shiftDSTAddr = 1
-	}
-
-	expressions := []expr.Any{
-		&expr.Meta{Key: ifaceKey, Register: 1},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     ifname(m.wgIface.Name()),
-		},
-	}
-
-	mask, _ := netip.AddrFromSlice(m.wgIface.Address().Network.Mask)
-	if m.wgIface.Address().IP.To4() == nil {
-		ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To16())
-		expressions = append(expressions,
-			&expr.Payload{
-				DestRegister: 2,
-				Base:         expr.PayloadBaseNetworkHeader,
-				Offset:       uint32(8 + (16 * shiftDSTAddr)),
-				Len:          16,
-			},
-			&expr.Bitwise{
-				SourceRegister: 2,
-				DestRegister:   2,
-				Len:            16,
-				Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-				Mask:           mask.Unmap().AsSlice(),
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpNeq,
-				Register: 2,
-				Data:     ip.Unmap().AsSlice(),
-			},
-			&expr.Verdict{Kind: expr.VerdictAccept},
-		)
-	} else {
-		ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
-		expressions = append(expressions,
-			&expr.Payload{
-				DestRegister: 2,
-				Base:         expr.PayloadBaseNetworkHeader,
-				Offset:       uint32(12 + (4 * shiftDSTAddr)),
-				Len:          4,
-			},
-			&expr.Bitwise{
-				SourceRegister: 2,
-				DestRegister:   2,
-				Len:            4,
-				Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-				Mask:           m.wgIface.Address().Network.Mask,
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpNeq,
-				Register: 2,
-				Data:     ip.Unmap().AsSlice(),
-			},
-			&expr.Verdict{Kind: expr.VerdictAccept},
-		)
-	}
-
-	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: m.filterTable,
-		Chain: chain,
-		Exprs: expressions,
-	})
-
-	expressions = []expr.Any{
-		&expr.Meta{Key: ifaceKey, Register: 1},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     ifname(m.wgIface.Name()),
-		},
-		&expr.Verdict{Kind: expr.VerdictDrop},
-	}
-	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: m.filterTable,
-		Chain: chain,
-		Exprs: expressions,
-	})
-
-	if err := m.rConn.Flush(); err != nil {
-		return nil, err
-	}
-
-	*workChain = chain
-	return chain, nil
-}
-
 // DeleteRule from the firewall by rule definition
 func (m *Manager) DeleteRule(rule fw.Rule) error {
 	m.mutex.Lock()
@@ -570,6 +423,26 @@ func (m *Manager) Reset() error {
 	if err != nil {
 		return fmt.Errorf("list of chains: %w", err)
 	}
+
+	for _, c := range chains {
+		if c.Table.Name != FilterTableName {
+			continue
+		}
+
+		if c.Name == chainNameForwardFilter {
+			m.rConn.DelChain(c)
+			continue
+		}
+
+		if c.Name == chainNameInputFilter {
+			m.rConn.DelChain(c)
+		}
+
+		if c.Name == chainNameOutputFilter {
+			m.rConn.DelChain(c)
+		}
+	}
+
 	for _, c := range chains {
 		// delete Netbird allow input traffic rule if it exists
 		if c.Table.Name == "filter" && c.Name == "INPUT" {
@@ -579,7 +452,7 @@ func (m *Manager) Reset() error {
 				continue
 			}
 			for _, r := range rules {
-				if bytes.Equal(r.UserData, []byte(AllowNetbirdInputRuleID)) {
+				if bytes.Equal(r.UserData, []byte(allowNetbirdInputRuleID)) {
 					if err := m.rConn.DelRule(r); err != nil {
 						log.Errorf("delete rule: %v", err)
 					}
@@ -587,7 +460,11 @@ func (m *Manager) Reset() error {
 			}
 		}
 
-		if c.Name == FilterInputChainName || c.Name == FilterOutputChainName {
+		if c.Table.Name != FilterTableName {
+			continue
+		}
+
+		if c.Name == chainNameInputRules || c.Name == chainNameOutputRules {
 			m.rConn.DelChain(c)
 		}
 	}
@@ -632,11 +509,11 @@ func (m *Manager) Flush() error {
 	m.setRemovedIPs = map[string]struct{}{}
 	m.setRemoved = map[string]*nftables.Set{}
 
-	if err := m.refreshRuleHandles(m.filterTable, m.filterInputChain); err != nil {
+	if err := m.refreshRuleHandles(m.tableFilter, m.chainInputRules); err != nil {
 		log.Errorf("failed to refresh rule handles ipv4 input chain: %v", err)
 	}
 
-	if err := m.refreshRuleHandles(m.filterTable, m.filterOutputChain); err != nil {
+	if err := m.refreshRuleHandles(m.tableFilter, m.chainOutputRules); err != nil {
 		log.Errorf("failed to refresh rule handles IPv4 output chain: %v", err)
 	}
 
@@ -648,12 +525,7 @@ func (m *Manager) AllowNetbird() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	tf := nftables.TableFamilyIPv4
-	if m.wgIface.Address().IP.To4() == nil {
-		tf = nftables.TableFamilyIPv6
-	}
-
-	chains, err := m.rConn.ListChainsOfTableFamily(tf)
+	chains, err := m.rConn.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
 	if err != nil {
 		return fmt.Errorf("list of chains: %w", err)
 	}
@@ -748,7 +620,7 @@ func (m *Manager) applyAllowNetbirdRules(chain *nftables.Chain) {
 				Kind: expr.VerdictAccept,
 			},
 		},
-		UserData: []byte(AllowNetbirdInputRuleID),
+		UserData: []byte(allowNetbirdInputRuleID),
 	}
 	_ = m.rConn.InsertRule(rule)
 }
@@ -769,6 +641,239 @@ func (m *Manager) detectAllowNetbirdRule(existedRules []*nftables.Rule) *nftable
 		}
 	}
 	return nil
+}
+
+func (m *Manager) createDefaultChains() (err error) {
+	if !m.chainInputFilterIsExists {
+		chain, err := m.createChainIfNotExists(chainNameInputRules)
+		if err != nil {
+			return err
+		}
+		m.createDefaultExpressions(chain, nftables.ChainHookInput)
+		err = m.rConn.Flush()
+		if err != nil {
+			return err
+		}
+		m.chainInputRules = chain
+		m.chainInputFilterIsExists = true
+	}
+
+	if !m.chainOutputFilterIsExists {
+		chain, err := m.createChainIfNotExists(chainNameOutputRules)
+		if err != nil {
+			return err
+		}
+		m.createDefaultExpressions(chain, nftables.ChainHookOutput)
+		err = m.rConn.Flush()
+		if err != nil {
+			return err
+		}
+		m.chainOutputRules = chain
+		m.chainOutputFilterIsExists = true
+	}
+
+	if !m.chainInputIsExists {
+		c, err := m.createChainWithHookIfNotExists(chainNameInputFilter, nftables.ChainHookInput)
+		if err != nil {
+			return err
+		}
+		m.addJumpRule(c, m.chainInputRules.Name)
+		err = m.rConn.Flush()
+		if err != nil {
+			return err
+		}
+		m.chainInputIsExists = true
+	}
+
+	if !m.chainOutputIsExists {
+		c, err := m.createChainWithHookIfNotExists(chainNameOutputFilter, nftables.ChainHookOutput)
+		if err != nil {
+			return err
+		}
+		m.addJumpRule(c, m.chainOutputRules.Name)
+		err = m.rConn.Flush()
+		if err != nil {
+			return err
+		}
+		m.chainOutputIsExists = true
+	}
+
+	if !m.chainForwardIsExists {
+		c, err := m.createChainWithHookIfNotExists(chainNameForwardFilter, nftables.ChainHookForward)
+		if err != nil {
+			return err
+		}
+
+		m.addJumpRule(c, m.chainOutputRules.Name)
+		m.addJumpRule(c, m.chainInputRules.Name)
+
+		err = m.rConn.Flush()
+		if err != nil {
+			return err
+		}
+		m.chainForwardIsExists = true
+	}
+
+	return nil
+}
+
+func (m *Manager) createFilterTableIfNotExists() error {
+	tables, err := m.rConn.ListTablesOfFamily(nftables.TableFamilyIPv4)
+	if err != nil {
+		return fmt.Errorf("list of tables: %w", err)
+	}
+
+	for _, t := range tables {
+		if t.Name == FilterTableName {
+			m.tableFilter = t
+			return nil
+		}
+	}
+
+	table := m.rConn.AddTable(&nftables.Table{Name: FilterTableName, Family: nftables.TableFamilyIPv4})
+	err = m.rConn.Flush()
+	m.tableFilter = table
+	return err
+}
+
+func (m *Manager) createChainIfNotExists(name string) (*nftables.Chain, error) {
+	chains, err := m.rConn.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
+	if err != nil {
+		return nil, fmt.Errorf("list of chains: %w", err)
+	}
+
+	for _, c := range chains {
+		if c.Name == name && c.Table.Name == m.tableFilter.Name {
+			return c, nil
+		}
+	}
+	chain := &nftables.Chain{
+		Name:  name,
+		Table: m.tableFilter,
+	}
+
+	chain = m.rConn.AddChain(chain)
+	return chain, nil
+}
+
+func (m *Manager) createChainWithHookIfNotExists(name string, hookNum nftables.ChainHook) (*nftables.Chain, error) {
+	chains, err := m.rConn.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
+	if err != nil {
+		return nil, fmt.Errorf("list of chains: %w", err)
+	}
+
+	for _, c := range chains {
+		if c.Name == name && c.Table.Name == m.tableFilter.Name {
+			return c, nil
+		}
+	}
+
+	polAccept := nftables.ChainPolicyAccept
+	chain := &nftables.Chain{
+		Name:     name,
+		Table:    m.tableFilter,
+		Hooknum:  hookNum,
+		Priority: nftables.ChainPriorityFilter,
+		Type:     nftables.ChainTypeFilter,
+		Policy:   &polAccept,
+	}
+
+	chain = m.rConn.AddChain(chain)
+	return chain, nil
+}
+
+func (m *Manager) createDefaultExpressions(chain *nftables.Chain, hookNum nftables.ChainHook) []expr.Any {
+	var ifaceKey expr.MetaKey
+	var shiftAddress uint32
+	if hookNum == nftables.ChainHookInput {
+		ifaceKey = expr.MetaKeyIIFNAME
+		shiftAddress = 12
+	} else {
+		ifaceKey = expr.MetaKeyOIFNAME
+		shiftAddress = 16 // 12 + 4
+	}
+
+	expressions := []expr.Any{
+		&expr.Meta{Key: ifaceKey, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(m.wgIface.Name()),
+		},
+	}
+
+	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
+	expressions = append(expressions,
+		&expr.Payload{
+			DestRegister: 2,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       shiftAddress,
+			Len:          4,
+		},
+		&expr.Bitwise{
+			SourceRegister: 2,
+			DestRegister:   2,
+			Len:            4,
+			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
+			Mask:           m.wgIface.Address().Network.Mask,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpNeq,
+			Register: 2,
+			Data:     ip.Unmap().AsSlice(),
+		},
+		&expr.Verdict{Kind: expr.VerdictAccept},
+	)
+
+	_ = m.rConn.AddRule(&nftables.Rule{
+		Table: m.tableFilter,
+		Chain: chain,
+		Exprs: expressions,
+	})
+
+	expressions = []expr.Any{
+		&expr.Meta{Key: ifaceKey, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(m.wgIface.Name()),
+		},
+		&expr.Verdict{Kind: expr.VerdictDrop},
+	}
+	_ = m.rConn.AddRule(&nftables.Rule{
+		Table: m.tableFilter,
+		Chain: chain,
+		Exprs: expressions,
+	})
+	return nil
+}
+
+func (m *Manager) addJumpRule(chain *nftables.Chain, to string) {
+	var ifaceKey expr.MetaKey
+	if chain.Hooknum == nftables.ChainHookInput {
+		ifaceKey = expr.MetaKeyIIFNAME
+	} else {
+		ifaceKey = expr.MetaKeyOIFNAME
+	}
+
+	expressions := []expr.Any{
+		&expr.Meta{Key: ifaceKey, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(m.wgIface.Name()),
+		},
+		&expr.Verdict{
+			Kind:  expr.VerdictJump,
+			Chain: to,
+		},
+	}
+	_ = m.rConn.AddRule(&nftables.Rule{
+		Table: chain.Table,
+		Chain: chain,
+		Exprs: expressions,
+	})
+
 }
 
 func encodePort(port fw.Port) []byte {
