@@ -21,17 +21,17 @@ import (
 )
 
 const (
-	// FilterTableName is the name of the table that is used for filtering by the Netbird client
-	FilterTableName = "netbird-acl"
+	// tableNameFilter is the name of the table that is used for filtering by the Netbird client
+	tableNameFilter = "netbird-acl"
 
 	// chainNameInputRules is the name of the chain that is used for filtering incoming packets
-	chainNameInputRules = "input-rules"
+	chainNameInputRules = "netbird-acl-input-rules"
 
 	// chainNameOutputRules is the name of the chain that is used for filtering outgoing packets
-	chainNameOutputRules   = "output-rules"
-	chainNameInputFilter   = "input-filter"
-	chainNameOutputFilter  = "output-filter"
-	chainNameForwardFilter = "forward-filter"
+	chainNameOutputRules   = "netbird-acl-output-rules"
+	chainNameInputFilter   = "netbird-acl-input-filter"
+	chainNameOutputFilter  = "netbird-acl-output-filter"
+	chainNameForwardFilter = "netbird-acl-forward-filter"
 
 	allowNetbirdInputRuleID = "allow Netbird incoming traffic"
 )
@@ -425,7 +425,7 @@ func (m *Manager) Reset() error {
 	}
 
 	for _, c := range chains {
-		if c.Table.Name != FilterTableName {
+		if c.Table.Name != tableNameFilter {
 			continue
 		}
 
@@ -460,7 +460,7 @@ func (m *Manager) Reset() error {
 			}
 		}
 
-		if c.Table.Name != FilterTableName {
+		if c.Table.Name != tableNameFilter {
 			continue
 		}
 
@@ -474,7 +474,7 @@ func (m *Manager) Reset() error {
 		return fmt.Errorf("list of tables: %w", err)
 	}
 	for _, t := range tables {
-		if t.Name == FilterTableName {
+		if t.Name == tableNameFilter {
 			m.rConn.DelTable(t)
 		}
 	}
@@ -724,13 +724,13 @@ func (m *Manager) createFilterTableIfNotExists() error {
 	}
 
 	for _, t := range tables {
-		if t.Name == FilterTableName {
+		if t.Name == tableNameFilter {
 			m.tableFilter = t
 			return nil
 		}
 	}
 
-	table := m.rConn.AddTable(&nftables.Table{Name: FilterTableName, Family: nftables.TableFamilyIPv4})
+	table := m.rConn.AddTable(&nftables.Table{Name: tableNameFilter, Family: nftables.TableFamilyIPv4})
 	err = m.rConn.Flush()
 	m.tableFilter = table
 	return err
