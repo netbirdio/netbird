@@ -24,11 +24,11 @@ const (
 	// tableNameFilter is the name of the table that is used for filtering by the Netbird client
 	tableNameFilter = "netbird-acl"
 
-	// chainNameInputRules is the name of the chain that is used for filtering incoming packets
-	chainNameInputRules = "netbird-acl-input-rules"
+	// rules chains contains the effective ACL rules
+	chainNameInputRules  = "netbird-acl-input-rules"
+	chainNameOutputRules = "netbird-acl-output-rules"
 
-	// chainNameOutputRules is the name of the chain that is used for filtering outgoing packets
-	chainNameOutputRules   = "netbird-acl-output-rules"
+	// filter chains contains the rules that jump to the rules chains
 	chainNameInputFilter   = "netbird-acl-input-filter"
 	chainNameOutputFilter  = "netbird-acl-output-filter"
 	chainNameForwardFilter = "netbird-acl-forward-filter"
@@ -330,11 +330,7 @@ func (m *Manager) getRulesetID(
 }
 
 // createSet in given table by name
-func (m *Manager) createSet(
-	table *nftables.Table,
-	rawIP []byte,
-	name string,
-) (*nftables.Set, error) {
+func (m *Manager) createSet(table *nftables.Table, rawIP []byte, name string) (*nftables.Set, error) {
 	keyType := nftables.TypeIPAddr
 	if len(rawIP) == 16 {
 		keyType = nftables.TypeIP6Addr
@@ -424,6 +420,7 @@ func (m *Manager) Reset() error {
 		return fmt.Errorf("list of chains: %w", err)
 	}
 
+	// remove filter chains
 	for _, c := range chains {
 		if c.Table.Name != tableNameFilter {
 			continue
@@ -460,6 +457,7 @@ func (m *Manager) Reset() error {
 			}
 		}
 
+		// remove rules chains
 		if c.Table.Name != tableNameFilter {
 			continue
 		}
@@ -677,7 +675,7 @@ func (m *Manager) createDefaultChains() (err error) {
 		if err != nil {
 			return err
 		}
-		m.addJumpRule(c, m.chainInputRules.Name)
+		m.addJumpRule(c, m.chainInputRules.Name, expr.MetaKeyIIFNAME)
 		err = m.rConn.Flush()
 		if err != nil {
 			return err
@@ -690,7 +688,7 @@ func (m *Manager) createDefaultChains() (err error) {
 		if err != nil {
 			return err
 		}
-		m.addJumpRule(c, m.chainOutputRules.Name)
+		m.addJumpRule(c, m.chainOutputRules.Name, expr.MetaKeyOIFNAME)
 		err = m.rConn.Flush()
 		if err != nil {
 			return err
@@ -704,8 +702,8 @@ func (m *Manager) createDefaultChains() (err error) {
 			return err
 		}
 
-		m.addJumpRule(c, m.chainOutputRules.Name)
-		m.addJumpRule(c, m.chainInputRules.Name)
+		m.addJumpRule(c, m.chainInputRules.Name, expr.MetaKeyIIFNAME)
+		m.addJumpRule(c, m.chainOutputRules.Name, expr.MetaKeyOIFNAME)
 
 		err = m.rConn.Flush()
 		if err != nil {
@@ -848,14 +846,7 @@ func (m *Manager) createDefaultExpressions(chain *nftables.Chain, hookNum nftabl
 	return nil
 }
 
-func (m *Manager) addJumpRule(chain *nftables.Chain, to string) {
-	var ifaceKey expr.MetaKey
-	if chain.Hooknum == nftables.ChainHookInput {
-		ifaceKey = expr.MetaKeyIIFNAME
-	} else {
-		ifaceKey = expr.MetaKeyOIFNAME
-	}
-
+func (m *Manager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr.MetaKey) {
 	expressions := []expr.Any{
 		&expr.Meta{Key: ifaceKey, Register: 1},
 		&expr.Cmp{
@@ -873,7 +864,6 @@ func (m *Manager) addJumpRule(chain *nftables.Chain, to string) {
 		Chain: chain,
 		Exprs: expressions,
 	})
-
 }
 
 func encodePort(port fw.Port) []byte {
