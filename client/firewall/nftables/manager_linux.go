@@ -509,11 +509,11 @@ func (m *Manager) Flush() error {
 	m.setRemovedIPs = map[string]struct{}{}
 	m.setRemoved = map[string]*nftables.Set{}
 
-	if err := m.refreshRuleHandles(m.tableFilter, m.chainInputRules); err != nil {
+	if err := m.refreshRuleHandles(m.chainInputRules); err != nil {
 		log.Errorf("failed to refresh rule handles ipv4 input chain: %v", err)
 	}
 
-	if err := m.refreshRuleHandles(m.tableFilter, m.chainOutputRules); err != nil {
+	if err := m.refreshRuleHandles(m.chainOutputRules); err != nil {
 		log.Errorf("failed to refresh rule handles IPv4 output chain: %v", err)
 	}
 
@@ -584,12 +584,12 @@ func (m *Manager) flushWithBackoff() (err error) {
 	return
 }
 
-func (m *Manager) refreshRuleHandles(table *nftables.Table, chain *nftables.Chain) error {
-	if table == nil || chain == nil {
+func (m *Manager) refreshRuleHandles(chain *nftables.Chain) error {
+	if m.tableFilter == nil || chain == nil {
 		return nil
 	}
 
-	list, err := m.rConn.GetRules(table, chain)
+	list, err := m.rConn.GetRules(m.tableFilter, chain)
 	if err != nil {
 		return err
 	}
@@ -652,6 +652,7 @@ func (m *Manager) createDefaultChains() (err error) {
 		m.createDefaultExpressions(chain, nftables.ChainHookInput)
 		err = m.rConn.Flush()
 		if err != nil {
+			log.Errorf("failed to create chain (%s): %s", chainNameInputRules, err)
 			return err
 		}
 		m.chainInputRules = chain
@@ -666,6 +667,7 @@ func (m *Manager) createDefaultChains() (err error) {
 		m.createDefaultExpressions(chain, nftables.ChainHookOutput)
 		err = m.rConn.Flush()
 		if err != nil {
+			log.Errorf("failed to create chain (%s): %s", chainNameOutputRules, err)
 			return err
 		}
 		m.chainOutputRules = chain
@@ -680,6 +682,7 @@ func (m *Manager) createDefaultChains() (err error) {
 		m.addJumpRule(c, m.chainInputRules.Name, expr.MetaKeyIIFNAME)
 		err = m.rConn.Flush()
 		if err != nil {
+			log.Errorf("failed to create chain (%s): %s", chainNameInputFilter, err)
 			return err
 		}
 		m.chainInputIsExists = true
@@ -693,6 +696,7 @@ func (m *Manager) createDefaultChains() (err error) {
 		m.addJumpRule(c, m.chainOutputRules.Name, expr.MetaKeyOIFNAME)
 		err = m.rConn.Flush()
 		if err != nil {
+			log.Errorf("failed to create chain (%s): %s", chainNameOutputFilter, err)
 			return err
 		}
 		m.chainOutputIsExists = true
@@ -709,6 +713,7 @@ func (m *Manager) createDefaultChains() (err error) {
 
 		err = m.rConn.Flush()
 		if err != nil {
+			log.Errorf("failed to create chain (%s): %s", chainNameForwardFilter, err)
 			return err
 		}
 		m.chainForwardIsExists = true
