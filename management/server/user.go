@@ -52,7 +52,14 @@ type IntegrationReference struct {
 }
 
 func (ir IntegrationReference) String() string {
-	return fmt.Sprintf("%d:%s", ir.ID, ir.IntegrationType)
+	return fmt.Sprintf("%s:%d", ir.IntegrationType, ir.ID)
+}
+
+func (ir IntegrationReference) CacheKey(path ...string) string {
+	if len(path) == 0 {
+		return ir.String()
+	}
+	return fmt.Sprintf("%s:%s", ir.String(), strings.Join(path, ":"))
 }
 
 // User represents a user of the system
@@ -355,6 +362,25 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 	return user, nil
 }
 
+// ListUsers returns lists of all users under the account.
+// It doesn't populate user information such a email or name.
+func (am *DefaultAccountManager) ListUsers(accountID string) ([]*User, error) {
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	users := make([]*User, 0, len(account.Users))
+	for _, item := range account.Users {
+		users = append(users, item)
+	}
+
+	return users, nil
+}
+
 func (am *DefaultAccountManager) deleteServiceUser(account *Account, initiatorUserID string, targetUser *User) {
 	meta := map[string]any{"name": targetUser.ServiceUserName}
 	am.StoreEvent(initiatorUserID, targetUser.Id, account.Id, activity.ServiceUserDeleted, meta)
@@ -654,8 +680,13 @@ func (am *DefaultAccountManager) GetAllPATs(accountID string, initiatorUserID st
 }
 
 // SaveUser saves updates to the given user. If the user doesn't exit it will throw status.NotFound error.
-// Only User.AutoGroups, User.Role, and User.Blocked fields are allowed to be updated for now.
 func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, update *User) (*UserInfo, error) {
+	return am.SaveOrAddUser(accountID, initiatorUserID, update, false) // false means do not create user and throw status.NotFound
+}
+
+// SaveOrAddUser updates the given user. If addIfNotExists is set to true it will add user when no exist
+// Only User.AutoGroups, User.Role, and User.Blocked fields are allowed to be updated for now.
+func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string, update *User, addIfNotExists bool) (*UserInfo, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -679,7 +710,11 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 
 	oldUser := account.Users[update.Id]
 	if oldUser == nil {
-		return nil, status.Errorf(status.NotFound, "user to update doesn't exist")
+		if !addIfNotExists {
+			return nil, status.Errorf(status.NotFound, "user to update doesn't exist")
+		}
+		// will add a user based on input
+		oldUser = update
 	}
 
 	if initiatorUser.IsAdmin() && initiatorUserID == update.Id && oldUser.Blocked != update.Blocked {
@@ -691,6 +726,7 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 	}
 
 	// only auto groups, revoked status, and name can be updated for now
+	// when addIfNotExists is set to true the newUser will use all fields from the update input
 	newUser := oldUser.Copy()
 	newUser.Role = update.Role
 	newUser.Blocked = update.Blocked
@@ -779,7 +815,16 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 			return nil, err
 		}
 		if userData == nil {
-			return nil, status.Errorf(status.NotFound, "user %s not found in the IdP", newUser.Id)
+			// lets check external cache
+			key := newUser.IntegrationReference.CacheKey(account.Id, newUser.Id)
+			log.Debugf("looking up user %s of account %s in external cache", key, account.Id)
+			info, err := am.externalCacheManager.Get(am.ctx, key)
+			if err != nil {
+				log.Infof("Get ExternalCache for key: %s, error: %s", key, err)
+				return nil, status.Errorf(status.NotFound, "user %s not found in the IdP", newUser.Id)
+			}
+
+			return newUser.ToUserInfo(info)
 		}
 		return newUser.ToUserInfo(userData)
 	}
@@ -839,7 +884,19 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 	queriedUsers := make([]*idp.UserData, 0)
 	if !isNil(am.idpManager) {
 		users := make(map[string]struct{}, len(account.Users))
+		usersFromIntegration := make([]*idp.UserData, 0)
 		for _, user := range account.Users {
+			if user.Issued == UserIssuedIntegration && user.LastLogin.IsZero() {
+				key := user.IntegrationReference.CacheKey(accountID, user.Id)
+				info, err := am.externalCacheManager.Get(am.ctx, key)
+				if err != nil {
+					log.Infof("Get ExternalCache for key: %s, error: %s", key, err)
+					users[user.Id] = struct{}{}
+					continue
+				}
+				usersFromIntegration = append(usersFromIntegration, info)
+				continue
+			}
 			if !user.IsServiceUser {
 				users[user.Id] = struct{}{}
 			}
@@ -848,6 +905,9 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 		if err != nil {
 			return nil, err
 		}
+		log.Debugf("Got %d users from ExternalCache for account %s", len(usersFromIntegration), accountID)
+		log.Debugf("Got %d users from InternalCache for account %s", len(queriedUsers), accountID)
+		queriedUsers = append(queriedUsers, usersFromIntegration...)
 	}
 
 	userInfos := make([]*UserInfo, 0)

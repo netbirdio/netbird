@@ -1,16 +1,21 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/eko/gocache/v3/cache"
+	cacheStore "github.com/eko/gocache/v3/store"
 	"github.com/google/go-cmp/cmp"
+	gocache "github.com/patrickmn/go-cache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
@@ -549,6 +554,95 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 	assert.False(t, user.IsBlocked())
 }
 
+func TestDefaultAccountManager_ListUsers(t *testing.T) {
+	store := newStore(t)
+	account := newAccountWithId(mockAccountID, mockUserID, "")
+	account.Users["normal_user1"] = NewRegularUser("normal_user1")
+	account.Users["normal_user2"] = NewRegularUser("normal_user2")
+
+	err := store.SaveAccount(account)
+	if err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
+
+	am := DefaultAccountManager{
+		Store:      store,
+		eventStore: &activity.InMemoryEventStore{},
+	}
+
+	users, err := am.ListUsers(mockAccountID)
+	if err != nil {
+		t.Fatalf("Error when checking user role: %s", err)
+	}
+
+	admins := 0
+	regular := 0
+	for _, user := range users {
+		if user.IsAdmin() {
+			admins++
+			continue
+		}
+		regular++
+	}
+	assert.Equal(t, 3, len(users))
+	assert.Equal(t, 1, admins)
+	assert.Equal(t, 2, regular)
+}
+
+func TestDefaultAccountManager_ExternalCache(t *testing.T) {
+	store := newStore(t)
+	account := newAccountWithId(mockAccountID, mockUserID, "")
+	externalUser := &User{
+		Id:     "externalUser",
+		Role:   UserRoleUser,
+		Issued: UserIssuedIntegration,
+		IntegrationReference: IntegrationReference{
+			ID:              1,
+			IntegrationType: "external",
+		},
+	}
+	account.Users[externalUser.Id] = externalUser
+
+	err := store.SaveAccount(account)
+	if err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
+
+	am := DefaultAccountManager{
+		Store:        store,
+		eventStore:   &activity.InMemoryEventStore{},
+		idpManager:   &idp.GoogleWorkspaceManager{}, // empty manager
+		cacheLoading: map[string]chan struct{}{},
+		cacheManager: cache.New[[]*idp.UserData](
+			cacheStore.NewGoCache(gocache.New(CacheExpirationMax, 30*time.Minute)),
+		),
+		externalCacheManager: cache.New[*idp.UserData](
+			cacheStore.NewGoCache(gocache.New(CacheExpirationMax, 30*time.Minute)),
+		),
+	}
+
+	// pretend that we receive mockUserID from IDP
+	err = am.cacheManager.Set(am.ctx, mockAccountID, []*idp.UserData{{Name: mockUserID, ID: mockUserID}})
+	assert.NoError(t, err)
+
+	cacheManager := am.GetExternalCacheManager()
+	cacheKey := externalUser.IntegrationReference.CacheKey(mockAccountID, externalUser.Id)
+	err = cacheManager.Set(context.Background(), cacheKey, &idp.UserData{ID: externalUser.Id, Name: "Test User", Email: "user@example.com"})
+	assert.NoError(t, err)
+
+	infos, err := am.GetUsersFromAccount(mockAccountID, mockUserID)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(infos))
+	var user *UserInfo
+	for _, info := range infos {
+		if info.ID == externalUser.Id {
+			user = info
+		}
+	}
+	assert.NotNil(t, user)
+	assert.Equal(t, "user@example.com", user.Email)
+}
+
 func TestUser_IsAdmin(t *testing.T) {
 
 	user := NewAdminUser(mockUserID)
@@ -710,5 +804,4 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 			assert.Equal(t, tc.update.IsBlocked(), updated.IsBlocked)
 		}
 	}
-
 }

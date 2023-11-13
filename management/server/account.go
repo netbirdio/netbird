@@ -42,6 +42,8 @@ const (
 	DefaultPeerLoginExpiration = 24 * time.Hour
 )
 
+type ExternalCacheManager cache.CacheInterface[*idp.UserData]
+
 func cacheEntryExpiration() time.Duration {
 	r := rand.Intn(int(CacheExpirationMax.Milliseconds()-CacheExpirationMin.Milliseconds())) + int(CacheExpirationMin.Milliseconds())
 	return time.Duration(r) * time.Millisecond
@@ -57,12 +59,14 @@ type AccountManager interface {
 	InviteUser(accountID string, initiatorUserID string, targetUserID string) error
 	ListSetupKeys(accountID, userID string) ([]*SetupKey, error)
 	SaveUser(accountID, initiatorUserID string, update *User) (*UserInfo, error)
+	SaveOrAddUser(accountID, initiatorUserID string, update *User, addIfNotExists bool) (*UserInfo, error)
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
 	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
 	MarkPATUsed(tokenID string) error
 	GetUser(claims jwtclaims.AuthorizationClaims) (*User, error)
+	ListUsers(accountID string) ([]*User, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
 	DeletePeer(accountID, peerID, userID string) error
@@ -106,6 +110,7 @@ type AccountManager interface {
 	LoginPeer(login PeerLogin) (*Peer, *NetworkMap, error) // used by peer gRPC API
 	SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error)    // used by peer gRPC API
 	GetAllConnectedPeers() (map[string]struct{}, error)
+	GetExternalCacheManager() ExternalCacheManager
 }
 
 type DefaultAccountManager struct {
@@ -113,12 +118,13 @@ type DefaultAccountManager struct {
 	// cacheMux and cacheLoading helps to make sure that only a single cache reload runs at a time per accountID
 	cacheMux sync.Mutex
 	// cacheLoading keeps the accountIDs that are currently reloading. The accountID has to be removed once cache has been reloaded
-	cacheLoading       map[string]chan struct{}
-	peersUpdateManager *PeersUpdateManager
-	idpManager         idp.Manager
-	cacheManager       cache.CacheInterface[[]*idp.UserData]
-	ctx                context.Context
-	eventStore         activity.Store
+	cacheLoading         map[string]chan struct{}
+	peersUpdateManager   *PeersUpdateManager
+	idpManager           idp.Manager
+	cacheManager         cache.CacheInterface[[]*idp.UserData]
+	externalCacheManager ExternalCacheManager
+	ctx                  context.Context
+	eventStore           activity.Store
 
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
@@ -817,8 +823,12 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 
 	goCacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
 	goCacheStore := cacheStore.NewGoCache(goCacheClient)
-
 	am.cacheManager = cache.NewLoadable[[]*idp.UserData](am.loadAccount, cache.New[[]*idp.UserData](goCacheStore))
+
+	// TODO: what is max expiration time? Should be quite long
+	am.externalCacheManager = cache.New[*idp.UserData](
+		cacheStore.NewGoCache(goCacheClient),
+	)
 
 	if !isNil(am.idpManager) {
 		go func() {
@@ -832,6 +842,10 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 	}
 
 	return am, nil
+}
+
+func (am *DefaultAccountManager) GetExternalCacheManager() ExternalCacheManager {
+	return am.externalCacheManager
 }
 
 // UpdateAccountSettings updates Account settings.
@@ -1095,10 +1109,15 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountI
 // lookupUserInCache looks up user in the IdP cache and returns it. If the user wasn't found, the function returns nil
 func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Account) (*idp.UserData, error) {
 	users := make(map[string]struct{}, len(account.Users))
+	// ignore service users and users provisioned by integrations than are never logged in
 	for _, user := range account.Users {
-		if !user.IsServiceUser {
-			users[user.Id] = struct{}{}
+		if user.IsServiceUser {
+			continue
 		}
+		if user.Issued == UserIssuedIntegration && user.LastLogin.IsZero() {
+			continue
+		}
+		users[user.Id] = struct{}{}
 	}
 	log.Debugf("looking up user %s of account %s in cache", userID, account.Id)
 	userData, err := am.lookupCache(users, account.Id)
