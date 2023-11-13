@@ -477,6 +477,8 @@ func (m *Manager) Reset() error {
 		}
 	}
 
+	m.tableFilter = nil
+
 	return m.rConn.Flush()
 }
 
@@ -716,6 +718,10 @@ func (m *Manager) createDefaultChains() (err error) {
 }
 
 func (m *Manager) createFilterTableIfNotExists() error {
+	if m.tableFilter != nil {
+		return nil
+	}
+
 	tables, err := m.rConn.ListTablesOfFamily(nftables.TableFamilyIPv4)
 	if err != nil {
 		return fmt.Errorf("list of tables: %w", err)
