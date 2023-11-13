@@ -818,8 +818,85 @@ func (m *Manager) createDefaultExpressions(chain *nftables.Chain, ifaceKey expr.
 // addJumpRuleWithIPRestriction adds jump rule with IP restriction, The restriction required for to ignore the ACL
 // rules on routed traffic.
 func (m *Manager) addJumpRuleWithIPRestriction(chain *nftables.Chain, to string, ifaceKey expr.MetaKey) {
+	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
+	expressions := []expr.Any{
+		&expr.Meta{Key: ifaceKey, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(m.wgIface.Name()),
+		},
+		&expr.Payload{
+			DestRegister: 2,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       12,
+			Len:          4,
+		},
+		&expr.Bitwise{
+			SourceRegister: 2,
+			DestRegister:   2,
+			Len:            4,
+			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
+			Mask:           m.wgIface.Address().Network.Mask,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 2,
+			Data:     ip.Unmap().AsSlice(),
+		},
+		&expr.Verdict{
+			Kind:  expr.VerdictJump,
+			Chain: to,
+		},
+	}
+
+	_ = m.rConn.AddRule(&nftables.Rule{
+		Table: chain.Table,
+		Chain: chain,
+		Exprs: expressions,
+	})
+
+	expressions = []expr.Any{
+		&expr.Meta{Key: ifaceKey, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(m.wgIface.Name()),
+		},
+		&expr.Payload{
+			DestRegister: 2,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       16,
+			Len:          4,
+		},
+		&expr.Bitwise{
+			SourceRegister: 2,
+			DestRegister:   2,
+			Len:            4,
+			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
+			Mask:           m.wgIface.Address().Network.Mask,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 2,
+			Data:     ip.Unmap().AsSlice(),
+		},
+		&expr.Verdict{
+			Kind:  expr.VerdictJump,
+			Chain: to,
+		},
+	}
+
+	_ = m.rConn.AddRule(&nftables.Rule{
+		Table: chain.Table,
+		Chain: chain,
+		Exprs: expressions,
+	})
+}
+
+func (m *Manager) addJumpRuleWithIPRestriction2(chain *nftables.Chain, to string, ifaceKey expr.MetaKey) {
 	var shiftAddress uint32
-	if ifaceKey == expr.MetaKeyOIFNAME {
+	if ifaceKey != expr.MetaKeyOIFNAME {
 		shiftAddress = 12
 	} else {
 		shiftAddress = 16 // 12 + 4
