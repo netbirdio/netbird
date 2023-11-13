@@ -50,11 +50,11 @@ type Manager struct {
 	chainInputRules  *nftables.Chain
 	chainOutputRules *nftables.Chain
 
-	chainInputFilterIsExists  bool
-	chainOutputFilterIsExists bool
-	chainForwardIsExists      bool
-	chainInputIsExists        bool
-	chainOutputIsExists       bool
+	chainInputRulesIsExists  bool
+	chainOutputRulesIsExists bool
+	chainForwardIsExists     bool
+	chainInputIsExists       bool
+	chainOutputIsExists      bool
 
 	rulesetManager *rulesetManager
 	setRemovedIPs  map[string]struct{}
@@ -644,41 +644,43 @@ func (m *Manager) detectAllowNetbirdRule(existedRules []*nftables.Rule) *nftable
 }
 
 func (m *Manager) createDefaultChains() (err error) {
-	if !m.chainInputFilterIsExists {
+	if !m.chainInputRulesIsExists {
 		chain, err := m.createChainIfNotExists(chainNameInputRules)
 		if err != nil {
 			return err
 		}
-		m.createDefaultExpressions(chain, nftables.ChainHookInput)
+		m.createDefaultExpressions(chain, expr.MetaKeyIIFNAME)
 		err = m.rConn.Flush()
 		if err != nil {
 			log.Errorf("failed to create chain (%s): %s", chainNameInputRules, err)
 			return err
 		}
 		m.chainInputRules = chain
-		m.chainInputFilterIsExists = true
+		m.chainInputRulesIsExists = true
 	}
 
-	if !m.chainOutputFilterIsExists {
+	if !m.chainOutputRulesIsExists {
 		chain, err := m.createChainIfNotExists(chainNameOutputRules)
 		if err != nil {
 			return err
 		}
-		m.createDefaultExpressions(chain, nftables.ChainHookOutput)
+		m.createDefaultExpressions(chain, expr.MetaKeyOIFNAME)
 		err = m.rConn.Flush()
 		if err != nil {
 			log.Errorf("failed to create chain (%s): %s", chainNameOutputRules, err)
 			return err
 		}
 		m.chainOutputRules = chain
-		m.chainOutputFilterIsExists = true
+		m.chainOutputRulesIsExists = true
 	}
 
 	if !m.chainInputIsExists {
+		// type filter hook input priority filter; policy accept;
 		c, err := m.createChainWithHookIfNotExists(chainNameInputFilter, nftables.ChainHookInput)
 		if err != nil {
 			return err
 		}
+		// iifname "wt0" ip saddr [netbird-range]/16 ip daddr [netbird-range]/16 jump netbird-acl-input-rules
 		m.addJumpRule(c, m.chainInputRules.Name, expr.MetaKeyIIFNAME)
 		err = m.rConn.Flush()
 		if err != nil {
@@ -689,10 +691,12 @@ func (m *Manager) createDefaultChains() (err error) {
 	}
 
 	if !m.chainOutputIsExists {
+		// type filter hook output priority filter; policy accept;
 		c, err := m.createChainWithHookIfNotExists(chainNameOutputFilter, nftables.ChainHookOutput)
 		if err != nil {
 			return err
 		}
+		// oifname "wt0" ip saddr 100.72.0.0/16 ip daddr 100.72.0.0/16 jump netbird-acl-output-rules
 		m.addJumpRule(c, m.chainOutputRules.Name, expr.MetaKeyOIFNAME)
 		err = m.rConn.Flush()
 		if err != nil {
@@ -708,6 +712,8 @@ func (m *Manager) createDefaultChains() (err error) {
 			return err
 		}
 
+		// oifname "wt0" ip saddr [netbird-range]/16 jump netbird-acl-output-rules
+		// iifname "wt0" ip daddr [netbird-range]/16 jump netbird-acl-input-rules
 		m.addJumpRuleWithIPRestriction(c, m.chainOutputRules.Name, expr.MetaKeyOIFNAME)
 		m.addJumpRuleWithIPRestriction(c, m.chainInputRules.Name, expr.MetaKeyIIFNAME)
 
@@ -791,56 +797,8 @@ func (m *Manager) createChainWithHookIfNotExists(name string, hookNum nftables.C
 	return chain, nil
 }
 
-func (m *Manager) createDefaultExpressions(chain *nftables.Chain, hookNum nftables.ChainHook) []expr.Any {
-	var ifaceKey expr.MetaKey
-	var shiftAddress uint32
-	if hookNum == nftables.ChainHookInput {
-		ifaceKey = expr.MetaKeyIIFNAME
-		shiftAddress = 12
-	} else {
-		ifaceKey = expr.MetaKeyOIFNAME
-		shiftAddress = 16 // 12 + 4
-	}
-
+func (m *Manager) createDefaultExpressions(chain *nftables.Chain, ifaceKey expr.MetaKey) []expr.Any {
 	expressions := []expr.Any{
-		&expr.Meta{Key: ifaceKey, Register: 1},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     ifname(m.wgIface.Name()),
-		},
-	}
-
-	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
-	expressions = append(expressions,
-		&expr.Payload{
-			DestRegister: 2,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       shiftAddress,
-			Len:          4,
-		},
-		&expr.Bitwise{
-			SourceRegister: 2,
-			DestRegister:   2,
-			Len:            4,
-			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-			Mask:           m.wgIface.Address().Network.Mask,
-		},
-		&expr.Cmp{
-			Op:       expr.CmpOpNeq,
-			Register: 2,
-			Data:     ip.Unmap().AsSlice(),
-		},
-		&expr.Verdict{Kind: expr.VerdictAccept},
-	)
-
-	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: m.tableFilter,
-		Chain: chain,
-		Exprs: expressions,
-	})
-
-	expressions = []expr.Any{
 		&expr.Meta{Key: ifaceKey, Register: 1},
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
@@ -907,12 +865,49 @@ func (m *Manager) addJumpRuleWithIPRestriction(chain *nftables.Chain, to string,
 }
 
 func (m *Manager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr.MetaKey) {
+	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
 	expressions := []expr.Any{
 		&expr.Meta{Key: ifaceKey, Register: 1},
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
 			Register: 1,
 			Data:     ifname(m.wgIface.Name()),
+		},
+		&expr.Payload{
+			DestRegister: 2,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       12,
+			Len:          4,
+		},
+		&expr.Bitwise{
+			SourceRegister: 2,
+			DestRegister:   2,
+			Len:            4,
+			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
+			Mask:           m.wgIface.Address().Network.Mask,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 2,
+			Data:     ip.Unmap().AsSlice(),
+		},
+		&expr.Payload{
+			DestRegister: 2,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       16,
+			Len:          4,
+		},
+		&expr.Bitwise{
+			SourceRegister: 2,
+			DestRegister:   2,
+			Len:            4,
+			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
+			Mask:           m.wgIface.Address().Network.Mask,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 2,
+			Data:     ip.Unmap().AsSlice(),
 		},
 		&expr.Verdict{
 			Kind:  expr.VerdictJump,
