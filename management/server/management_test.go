@@ -501,7 +501,7 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	if err != nil {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
-	peersUpdateManager := server.NewPeersUpdateManager()
+	peersUpdateManager := server.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "",
 		eventStore, false)

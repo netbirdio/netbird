@@ -747,7 +747,7 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(), nil, "", "", eventStore, false)
+	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "", eventStore, false)
 }
 
 func createNSStore(t *testing.T) (Store, error) {

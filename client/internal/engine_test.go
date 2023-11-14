@@ -1044,7 +1044,7 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 		return nil, "", err
 	}
 
-	peersUpdateManager := server.NewPeersUpdateManager()
+	peersUpdateManager := server.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 	if err != nil {
 		return nil, "", err

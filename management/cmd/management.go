@@ -130,7 +130,7 @@ var (
 			if err != nil {
 				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
 			}
-			peersUpdateManager := server.NewPeersUpdateManager()
+			peersUpdateManager := server.NewPeersUpdateManager(nil)
 
 			var idpManager idp.Manager
 			if config.IdpManagerConfig != nil {
