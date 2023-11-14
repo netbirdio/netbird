@@ -363,7 +363,7 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 }
 
 // ListUsers returns lists of all users under the account.
-// It doesn't populate user information such a email or name.
+// It doesn't populate user information such as email or name.
 func (am *DefaultAccountManager) ListUsers(accountID string) ([]*User, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
@@ -713,7 +713,7 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 		if !addIfNotExists {
 			return nil, status.Errorf(status.NotFound, "user to update doesn't exist")
 		}
-		// will add a user based on input
+		// when addIfNotExists is set to true the newUser will use all fields from the update input
 		oldUser = update
 	}
 
@@ -725,11 +725,13 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 		return nil, status.Errorf(status.PermissionDenied, "admins can't change their role")
 	}
 
-	// only auto groups, revoked status, and name can be updated for now
-	// when addIfNotExists is set to true the newUser will use all fields from the update input
+	// only auto groups, revoked status, and integration reference can be updated for now
 	newUser := oldUser.Copy()
 	newUser.Role = update.Role
 	newUser.Blocked = update.Blocked
+	// these two fields can't be set via API, only via direct call to the method
+	newUser.Issued = update.Issued
+	newUser.IntegrationReference = update.IntegrationReference
 
 	for _, newGroupID := range update.AutoGroups {
 		if _, ok := account.Groups[newGroupID]; !ok {
