@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	//eventSinkDB is the default name of the events database
+	// eventSinkDB is the default name of the events database
 	eventSinkDB      = "events.db"
 	createTableQuery = "CREATE TABLE IF NOT EXISTS events " +
 		"(id INTEGER PRIMARY KEY AUTOINCREMENT, " +
@@ -28,16 +28,32 @@ const (
 	creatTableDeletedUsersQuery = `CREATE TABLE IF NOT EXISTS deleted_users (id TEXT NOT NULL, email TEXT NOT NULL, name TEXT);`
 
 	selectDescQuery = `SELECT events.id, activity, timestamp, initiator_id, i.name as "initiator_name", i.email as "initiator_email", target_id, t.name as "target_name", t.email as "target_email", account_id, meta
-    	FROM events 
-    	LEFT JOIN deleted_users i ON events.initiator_id = i.id 
-    	LEFT JOIN deleted_users t ON events.target_id = t.id
+		FROM events 
+		LEFT JOIN (
+		    SELECT id, MAX(name) as name, MAX(email) as email 
+		    FROM deleted_users
+		    GROUP BY id
+		) i ON events.initiator_id = i.id 
+		LEFT JOIN (
+		    SELECT id, MAX(name) as name, MAX(email) as email 
+		    FROM deleted_users
+		    GROUP BY id
+		) t ON events.target_id = t.id
 		WHERE account_id = ? 
 		ORDER BY timestamp DESC LIMIT ? OFFSET ?;`
 
 	selectAscQuery = `SELECT events.id, activity, timestamp, initiator_id, i.name as "initiator_name", i.email as "initiator_email", target_id, t.name as "target_name", t.email as "target_email", account_id, meta
-    	FROM events 
-    	LEFT JOIN deleted_users i ON events.initiator_id = i.id 
-    	LEFT JOIN deleted_users t ON events.target_id = t.id
+		FROM events 
+		LEFT JOIN (
+		    SELECT id, MAX(name) as name, MAX(email) as email 
+		    FROM deleted_users
+		    GROUP BY id
+		) i ON events.initiator_id = i.id 
+		LEFT JOIN (
+		    SELECT id, MAX(name) as name, MAX(email) as email 
+		    FROM deleted_users
+		    GROUP BY id
+		) t ON events.target_id = t.id
 		WHERE account_id = ? 
 		ORDER BY timestamp ASC LIMIT ? OFFSET ?;`
 
