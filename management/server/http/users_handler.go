@@ -197,19 +197,21 @@ func (h *UsersHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 
 	users := make([]*api.User, 0)
 	for _, r := range data {
-		if serviceUser == "" {
-			if !r.NonDeletable {
-				users = append(users, toUserResponse(r, claims.UserId))
-			}
+		if r.NonDeletable {
 			continue
 		}
+		if serviceUser == "" {
+			users = append(users, toUserResponse(r, claims.UserId))
+			continue
+		}
+
 		includeServiceUser, err := strconv.ParseBool(serviceUser)
 		log.Debugf("Should include service user: %v", includeServiceUser)
 		if err != nil {
 			util.WriteError(status.Errorf(status.InvalidArgument, "invalid service_user query parameter"), w)
 			return
 		}
-		if includeServiceUser == r.IsServiceUser && !r.NonDeletable {
+		if includeServiceUser == r.IsServiceUser {
 			users = append(users, toUserResponse(r, claims.UserId))
 		}
 	}
