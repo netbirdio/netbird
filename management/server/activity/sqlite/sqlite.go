@@ -60,6 +60,14 @@ const (
 	insertQuery = "INSERT INTO events(activity, timestamp, initiator_id, target_id, account_id, meta) " +
 		"VALUES(?, ?, ?, ?, ?, ?)"
 
+	/*
+		 TODO:
+			The insert should avoid duplicated IDs in the table. So the query should be changes to something like:
+			`INSERT INTO deleted_users(id, email, name) VALUES(?, ?, ?) ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name;`
+			For this to work we have to set the id column as primary key. But this is not possible because the id column is not unique
+			and some selfhosted deployments might have duplicates already so we need to clean the table first.
+	*/
+
 	insertDeleteUserQuery = `INSERT INTO deleted_users(id, email, name) VALUES(?, ?, ?)`
 
 	fallbackName  = "unknown"
