@@ -298,7 +298,7 @@ func (s *SqliteStore) GetUserByTokenID(tokenID string) (*User, error) {
 
 	user.PATs = make(map[string]*PersonalAccessToken, len(user.PATsG))
 	for _, pat := range user.PATsG {
-		user.PATs[pat.ID] = &pat
+		user.PATs[pat.ID] = pat.Copy()
 	}
 
 	return &user, nil
