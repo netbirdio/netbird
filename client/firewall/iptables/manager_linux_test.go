@@ -55,7 +55,7 @@ func TestIptablesManager(t *testing.T) {
 	}
 
 	// just check on the local interface
-	manager, err := Create(mock, true)
+	manager, err := Create(mock)
 	require.NoError(t, err)
 
 	time.Sleep(time.Second)
@@ -143,7 +143,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 	}
 
 	// just check on the local interface
-	manager, err := Create(mock, true)
+	manager, err := Create(mock)
 	require.NoError(t, err)
 
 	time.Sleep(time.Second)
@@ -232,7 +232,7 @@ func TestIptablesCreatePerformance(t *testing.T) {
 	for _, testMax := range []int{10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000} {
 		t.Run(fmt.Sprintf("Testing %d rules", testMax), func(t *testing.T) {
 			// just check on the local interface
-			manager, err := Create(mock, true)
+			manager, err := Create(mock)
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 
@@ -243,7 +243,7 @@ func TestIptablesCreatePerformance(t *testing.T) {
 				time.Sleep(time.Second)
 			}()
 
-			_, err = manager.client(net.ParseIP("10.20.0.100"))
+			err = manager.initialize()
 			require.NoError(t, err)
 
 			ip := net.ParseIP("10.20.0.100")

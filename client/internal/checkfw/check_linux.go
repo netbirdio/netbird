@@ -14,8 +14,6 @@ const (
 	UNKNOWN FWType = iota
 	// IPTABLES is the value for the iptables firewall type
 	IPTABLES
-	// IPTABLESWITHV6 is the value for the iptables firewall type with ipv6
-	IPTABLESWITHV6
 	// NFTABLES is the value for the nftables firewall type
 	NFTABLES
 )
@@ -34,17 +32,11 @@ func Check() FWType {
 	}
 
 	ip, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
-	if err == nil {
-		if isIptablesClientAvailable(ip) {
-			ipSupport := IPTABLES
-			ipv6, ip6Err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
-			if ip6Err == nil {
-				if isIptablesClientAvailable(ipv6) {
-					ipSupport = IPTABLESWITHV6
-				}
-			}
-			return ipSupport
-		}
+	if err != nil {
+		return UNKNOWN
+	}
+	if isIptablesClientAvailable(ip) {
+		return IPTABLES
 	}
 
 	return UNKNOWN

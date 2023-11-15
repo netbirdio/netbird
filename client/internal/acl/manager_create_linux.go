@@ -23,10 +23,9 @@ func Create(iface IFaceMapper) (*DefaultManager, error) {
 
 	checkResult := checkfw.Check()
 	switch checkResult {
-	case checkfw.IPTABLES, checkfw.IPTABLESWITHV6:
+	case checkfw.IPTABLES:
 		log.Debug("creating an iptables firewall manager for access control")
-		ipv6Supported := checkResult == checkfw.IPTABLESWITHV6
-		if fm, err = iptables.Create(iface, ipv6Supported); err != nil {
+		if fm, err = iptables.Create(iface); err != nil {
 			log.Infof("failed to create iptables manager for access control: %s", err)
 		}
 	case checkfw.NFTABLES:

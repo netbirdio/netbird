@@ -31,7 +31,6 @@ type Manager struct {
 	mutex sync.Mutex
 
 	ipv4Client *iptables.IPTables
-	ipv6Client *iptables.IPTables
 
 	inputDefaultRuleSpecs  []string
 	outputDefaultRuleSpecs []string
@@ -53,7 +52,7 @@ type ruleset struct {
 }
 
 // Create iptables firewall manager
-func Create(wgIface iFaceMapper, ipv6Supported bool) (*Manager, error) {
+func Create(wgIface iFaceMapper) (*Manager, error) {
 	m := &Manager{
 		wgIface: wgIface,
 		inputDefaultRuleSpecs: []string{
@@ -68,21 +67,9 @@ func Create(wgIface iFaceMapper, ipv6Supported bool) (*Manager, error) {
 		return nil, fmt.Errorf("init ipset: %w", err)
 	}
 
-	// init clients for booth ipv4 and ipv6
 	m.ipv4Client, err = iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err != nil {
 		return nil, fmt.Errorf("iptables is not installed in the system or not supported")
-	}
-
-	if ipv6Supported {
-		m.ipv6Client, err = iptables.NewWithProtocol(iptables.ProtocolIPv6)
-		if err != nil {
-			log.Warnf("ip6tables is not installed in the system or not supported: %v. Access rules for this protocol won't be applied.", err)
-		}
-	}
-
-	if m.ipv4Client == nil && m.ipv6Client == nil {
-		return nil, fmt.Errorf("iptables is not installed in the system or not enough permissions to use it")
 	}
 
 	if err := m.Reset(); err != nil {
@@ -107,7 +94,7 @@ func (m *Manager) AddFiltering(
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	client, err := m.client(ip)
+	err := m.initialize()
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +144,7 @@ func (m *Manager) AddFiltering(
 	specs := m.filterRuleSpecs(ip, string(protocol), sPortVal, dPortVal, direction, action, ipsetName)
 
 	if direction == fw.RuleDirectionOUT {
-		ok, err := client.Exists("filter", ChainOutputFilterName, specs...)
+		ok, err := m.ipv4Client.Exists("filter", ChainOutputFilterName, specs...)
 		if err != nil {
 			return nil, fmt.Errorf("check is output rule already exists: %w", err)
 		}
@@ -165,11 +152,11 @@ func (m *Manager) AddFiltering(
 			return nil, fmt.Errorf("input rule already exists")
 		}
 
-		if err := client.Insert("filter", ChainOutputFilterName, 1, specs...); err != nil {
+		if err := m.ipv4Client.Insert("filter", ChainOutputFilterName, 1, specs...); err != nil {
 			return nil, err
 		}
 	} else {
-		ok, err := client.Exists("filter", ChainInputFilterName, specs...)
+		ok, err := m.ipv4Client.Exists("filter", ChainInputFilterName, specs...)
 		if err != nil {
 			return nil, fmt.Errorf("check is input rule already exists: %w", err)
 		}
@@ -177,7 +164,7 @@ func (m *Manager) AddFiltering(
 			return nil, fmt.Errorf("input rule already exists")
 		}
 
-		if err := client.Insert("filter", ChainInputFilterName, 1, specs...); err != nil {
+		if err := m.ipv4Client.Insert("filter", ChainInputFilterName, 1, specs...); err != nil {
 			return nil, err
 		}
 	}
@@ -212,14 +199,6 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 		return fmt.Errorf("invalid rule type")
 	}
 
-	client := m.ipv4Client
-	if r.v6 {
-		if m.ipv6Client == nil {
-			return fmt.Errorf("ipv6 is not supported")
-		}
-		client = m.ipv6Client
-	}
-
 	if rs, ok := m.rulesets[r.ipsetName]; ok {
 		// delete IP from ruleset IPs list and ipset
 		if _, ok := rs.ips[r.ip]; ok {
@@ -246,9 +225,9 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 	}
 
 	if r.dst {
-		return client.Delete("filter", ChainOutputFilterName, r.specs...)
+		return m.ipv4Client.Delete("filter", ChainOutputFilterName, r.specs...)
 	}
-	return client.Delete("filter", ChainInputFilterName, r.specs...)
+	return m.ipv4Client.Delete("filter", ChainInputFilterName, r.specs...)
 }
 
 // Reset firewall to the default state
@@ -256,15 +235,9 @@ func (m *Manager) Reset() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	if err := m.reset(m.ipv4Client, "filter"); err != nil {
-		return fmt.Errorf("clean ipv4 firewall ACL input chain: %w", err)
+	if err := m.resetFilter(); err != nil {
+		return fmt.Errorf("clean firewall ACL input chain: %w", err)
 	}
-	if m.ipv6Client != nil {
-		if err := m.reset(m.ipv6Client, "filter"); err != nil {
-			return fmt.Errorf("clean ipv6 firewall ACL input chain: %w", err)
-		}
-	}
-
 	return nil
 }
 
@@ -304,41 +277,41 @@ func (m *Manager) AllowNetbird() error {
 func (m *Manager) Flush() error { return nil }
 
 // reset firewall chain, clear it and drop it
-func (m *Manager) reset(client *iptables.IPTables, table string) error {
-	ok, err := client.ChainExists(table, ChainInputFilterName)
+func (m *Manager) resetFilter() error {
+	ok, err := m.ipv4Client.ChainExists("filter", ChainInputFilterName)
 	if err != nil {
 		return fmt.Errorf("failed to check if input chain exists: %w", err)
 	}
 	if ok {
-		if ok, err := client.Exists("filter", "INPUT", m.inputDefaultRuleSpecs...); err != nil {
+		if ok, err := m.ipv4Client.Exists("filter", "INPUT", m.inputDefaultRuleSpecs...); err != nil {
 			return err
 		} else if ok {
-			if err := client.Delete("filter", "INPUT", m.inputDefaultRuleSpecs...); err != nil {
+			if err := m.ipv4Client.Delete("filter", "INPUT", m.inputDefaultRuleSpecs...); err != nil {
 				log.WithError(err).Errorf("failed to delete default input rule: %v", err)
 			}
 		}
 	}
 
-	ok, err = client.ChainExists(table, ChainOutputFilterName)
+	ok, err = m.ipv4Client.ChainExists("filter", ChainOutputFilterName)
 	if err != nil {
 		return fmt.Errorf("failed to check if output chain exists: %w", err)
 	}
 	if ok {
-		if ok, err := client.Exists("filter", "OUTPUT", m.outputDefaultRuleSpecs...); err != nil {
+		if ok, err := m.ipv4Client.Exists("filter", "OUTPUT", m.outputDefaultRuleSpecs...); err != nil {
 			return err
 		} else if ok {
-			if err := client.Delete("filter", "OUTPUT", m.outputDefaultRuleSpecs...); err != nil {
+			if err := m.ipv4Client.Delete("filter", "OUTPUT", m.outputDefaultRuleSpecs...); err != nil {
 				log.WithError(err).Errorf("failed to delete default output rule: %v", err)
 			}
 		}
 	}
 
-	if err := client.ClearAndDeleteChain(table, ChainInputFilterName); err != nil {
+	if err := m.ipv4Client.ClearAndDeleteChain("filter", ChainInputFilterName); err != nil {
 		log.Errorf("failed to clear and delete input chain: %v", err)
 		return nil
 	}
 
-	if err := client.ClearAndDeleteChain(table, ChainOutputFilterName); err != nil {
+	if err := m.ipv4Client.ClearAndDeleteChain("filter", ChainOutputFilterName); err != nil {
 		log.Errorf("failed to clear and delete input chain: %v", err)
 		return nil
 	}
@@ -395,64 +368,48 @@ func (m *Manager) filterRuleSpecs(
 	return append(specs, "-j", m.actionToStr(action))
 }
 
-// rawClient returns corresponding iptables client for the given ip
-func (m *Manager) rawClient(ip net.IP) (*iptables.IPTables, error) {
-	if ip.To4() != nil {
-		return m.ipv4Client, nil
-	}
-	if m.ipv6Client == nil {
-		return nil, fmt.Errorf("ipv6 is not supported")
-	}
-	return m.ipv6Client, nil
-}
-
-// client returns client with initialized chain and default rules
-func (m *Manager) client(ip net.IP) (*iptables.IPTables, error) {
-	client, err := m.rawClient(ip)
+// initialize chain and default rules
+func (m *Manager) initialize() error {
+	ok, err := m.ipv4Client.ChainExists("filter", ChainInputFilterName)
 	if err != nil {
-		return nil, err
-	}
-
-	ok, err := client.ChainExists("filter", ChainInputFilterName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check if chain exists: %w", err)
+		return fmt.Errorf("failed to check if chain exists: %w", err)
 	}
 
 	if !ok {
-		if err := client.NewChain("filter", ChainInputFilterName); err != nil {
-			return nil, fmt.Errorf("failed to create input chain: %w", err)
+		if err := m.ipv4Client.NewChain("filter", ChainInputFilterName); err != nil {
+			return fmt.Errorf("failed to create input chain: %w", err)
 		}
 
-		if err := client.AppendUnique("filter", ChainInputFilterName, dropAllDefaultRule...); err != nil {
-			return nil, fmt.Errorf("failed to create default drop all in netbird input chain: %w", err)
+		if err := m.ipv4Client.AppendUnique("filter", ChainInputFilterName, dropAllDefaultRule...); err != nil {
+			return fmt.Errorf("failed to create default drop all in netbird input chain: %w", err)
 		}
 
-		if err := client.Insert("filter", "INPUT", 1, m.inputDefaultRuleSpecs...); err != nil {
-			return nil, fmt.Errorf("failed to create input chain jump rule: %w", err)
+		if err := m.ipv4Client.Insert("filter", "INPUT", 1, m.inputDefaultRuleSpecs...); err != nil {
+			return fmt.Errorf("failed to create input chain jump rule: %w", err)
 		}
 
 	}
 
-	ok, err = client.ChainExists("filter", ChainOutputFilterName)
+	ok, err = m.ipv4Client.ChainExists("filter", ChainOutputFilterName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check if chain exists: %w", err)
+		return fmt.Errorf("failed to check if chain exists: %w", err)
+	}
+	if ok {
+		return nil
 	}
 
-	if !ok {
-		if err := client.NewChain("filter", ChainOutputFilterName); err != nil {
-			return nil, fmt.Errorf("failed to create output chain: %w", err)
-		}
-
-		if err := client.AppendUnique("filter", ChainOutputFilterName, dropAllDefaultRule...); err != nil {
-			return nil, fmt.Errorf("failed to create default drop all in netbird output chain: %w", err)
-		}
-
-		if err := client.AppendUnique("filter", "OUTPUT", m.outputDefaultRuleSpecs...); err != nil {
-			return nil, fmt.Errorf("failed to create output chain jump rule: %w", err)
-		}
+	if err := m.ipv4Client.NewChain("filter", ChainOutputFilterName); err != nil {
+		return fmt.Errorf("failed to create output chain: %w", err)
 	}
 
-	return client, nil
+	if err := m.ipv4Client.AppendUnique("filter", ChainOutputFilterName, dropAllDefaultRule...); err != nil {
+		return fmt.Errorf("failed to create default drop all in netbird output chain: %w", err)
+	}
+
+	if err := m.ipv4Client.AppendUnique("filter", "OUTPUT", m.outputDefaultRuleSpecs...); err != nil {
+		return fmt.Errorf("failed to create output chain jump rule: %w", err)
+	}
+	return nil
 }
 
 func (m *Manager) actionToStr(action fw.Action) string {

@@ -12,16 +12,12 @@ import (
 )
 
 const (
-	ipv6Forwarding     = "netbird-rt-ipv6-forwarding"
-	ipv4Forwarding     = "netbird-rt-ipv4-forwarding"
-	ipv6Nat            = "netbird-rt-ipv6-nat"
-	ipv4Nat            = "netbird-rt-ipv4-nat"
+	ipv4Forwarding     = "netbird-rt-forwarding"
+	ipv4Nat            = "netbird-rt-nat"
 	natFormat          = "netbird-nat-%s"
 	forwardingFormat   = "netbird-fwd-%s"
 	inNatFormat        = "netbird-nat-in-%s"
 	inForwardingFormat = "netbird-fwd-in-%s"
-	ipv6               = "ipv6"
-	ipv4               = "ipv4"
 )
 
 func genKey(format string, input string) string {
@@ -32,10 +28,9 @@ func genKey(format string, input string) string {
 func newFirewall(parentCTX context.Context) (firewallManager, error) {
 	checkResult := checkfw.Check()
 	switch checkResult {
-	case checkfw.IPTABLES, checkfw.IPTABLESWITHV6:
+	case checkfw.IPTABLES:
 		log.Debug("creating an iptables firewall manager for route rules")
-		ipv6Supported := checkResult == checkfw.IPTABLESWITHV6
-		return newIptablesManager(parentCTX, ipv6Supported)
+		return newIptablesManager(parentCTX)
 	case checkfw.NFTABLES:
 		log.Info("creating an nftables firewall manager for route rules")
 		return newNFTablesManager(parentCTX), nil
