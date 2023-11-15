@@ -332,7 +332,7 @@ func TestUser_CreateServiceUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	user, err := am.createServiceUser(mockAccountID, mockUserID, mockRole, mockServiceUserName, []string{"group1", "group2"})
+	user, err := am.createServiceUser(mockAccountID, mockUserID, mockRole, mockServiceUserName, false, []string{"group1", "group2"})
 	if err != nil {
 		t.Fatalf("Error when creating service user: %s", err)
 	}
@@ -413,31 +413,62 @@ func TestUser_CreateUser_RegularUser(t *testing.T) {
 }
 
 func TestUser_DeleteUser_ServiceUser(t *testing.T) {
-	store := newStore(t)
-	account := newAccountWithId(mockAccountID, mockUserID, "")
-	account.Users[mockServiceUserID] = &User{
-		Id:              mockServiceUserID,
-		IsServiceUser:   true,
-		ServiceUserName: mockServiceUserName,
+	tests := []struct {
+		name             string
+		serviceUser      *User
+		assertErrFunc    assert.ErrorAssertionFunc
+		assertErrMessage string
+	}{
+		{
+			name: "Can delete service user",
+			serviceUser: &User{
+				Id:              mockServiceUserID,
+				IsServiceUser:   true,
+				ServiceUserName: mockServiceUserName,
+			},
+			assertErrFunc: assert.NoError,
+		},
+		{
+			name: "Cannot delete non-deletable service user",
+			serviceUser: &User{
+				Id:              mockServiceUserID,
+				IsServiceUser:   true,
+				ServiceUserName: mockServiceUserName,
+				NonDeletable:    true,
+			},
+			assertErrFunc:    assert.Error,
+			assertErrMessage: "service user is marked as non-deletable",
+		},
 	}
 
-	err := store.SaveAccount(account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newStore(t)
+			account := newAccountWithId(mockAccountID, mockUserID, "")
+			account.Users[mockServiceUserID] = tt.serviceUser
 
-	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
-	}
+			err := store.SaveAccount(account)
+			if err != nil {
+				t.Fatalf("Error when saving account: %s", err)
+			}
 
-	err = am.DeleteUser(mockAccountID, mockUserID, mockServiceUserID)
-	if err != nil {
-		t.Fatalf("Error when deleting user: %s", err)
-	}
+			am := DefaultAccountManager{
+				Store:      store,
+				eventStore: &activity.InMemoryEventStore{},
+			}
 
-	assert.Equal(t, 1, len(store.Accounts[mockAccountID].Users))
-	assert.Nil(t, store.Accounts[mockAccountID].Users[mockServiceUserID])
+			err = am.DeleteUser(mockAccountID, mockUserID, mockServiceUserID)
+			tt.assertErrFunc(t, err, tt.assertErrMessage)
+
+			if err != nil {
+				assert.Equal(t, 2, len(store.Accounts[mockAccountID].Users))
+				assert.NotNil(t, store.Accounts[mockAccountID].Users[mockServiceUserID])
+			} else {
+				assert.Equal(t, 1, len(store.Accounts[mockAccountID].Users))
+				assert.Nil(t, store.Accounts[mockAccountID].Users[mockServiceUserID])
+			}
+		})
+	}
 }
 
 func TestUser_DeleteUser_SelfDelete(t *testing.T) {

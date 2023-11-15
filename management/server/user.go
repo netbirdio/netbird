@@ -69,6 +69,8 @@ type User struct {
 	AccountID     string `json:"-" gorm:"index"`
 	Role          UserRole
 	IsServiceUser bool
+	// NonDeletable indicates whether the service user can be deleted
+	NonDeletable bool
 	// ServiceUserName is only set if IsServiceUser is true
 	ServiceUserName string
 	// AutoGroups is a list of Group IDs to auto-assign to peers registered by this user
@@ -158,6 +160,7 @@ func (u *User) Copy() *User {
 		Role:                 u.Role,
 		AutoGroups:           autoGroups,
 		IsServiceUser:        u.IsServiceUser,
+		NonDeletable:         u.NonDeletable,
 		ServiceUserName:      u.ServiceUserName,
 		PATs:                 pats,
 		Blocked:              u.Blocked,
@@ -168,11 +171,12 @@ func (u *User) Copy() *User {
 }
 
 // NewUser creates a new user
-func NewUser(id string, role UserRole, isServiceUser bool, serviceUserName string, autoGroups []string, issued string) *User {
+func NewUser(id string, role UserRole, isServiceUser bool, nonDeletable bool, serviceUserName string, autoGroups []string, issued string) *User {
 	return &User{
 		Id:              id,
 		Role:            role,
 		IsServiceUser:   isServiceUser,
+		NonDeletable:    nonDeletable,
 		ServiceUserName: serviceUserName,
 		AutoGroups:      autoGroups,
 		Issued:          issued,
@@ -181,16 +185,16 @@ func NewUser(id string, role UserRole, isServiceUser bool, serviceUserName strin
 
 // NewRegularUser creates a new user with role UserRoleUser
 func NewRegularUser(id string) *User {
-	return NewUser(id, UserRoleUser, false, "", []string{}, UserIssuedAPI)
+	return NewUser(id, UserRoleUser, false, false, "", []string{}, UserIssuedAPI)
 }
 
 // NewAdminUser creates a new user with role UserRoleAdmin
 func NewAdminUser(id string) *User {
-	return NewUser(id, UserRoleAdmin, false, "", []string{}, UserIssuedAPI)
+	return NewUser(id, UserRoleAdmin, false, false, "", []string{}, UserIssuedAPI)
 }
 
 // createServiceUser creates a new service user under the given account.
-func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUserID string, role UserRole, serviceUserName string, autoGroups []string) (*UserInfo, error) {
+func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUserID string, role UserRole, serviceUserName string, nonDeletable bool, autoGroups []string) (*UserInfo, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -208,7 +212,7 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUs
 	}
 
 	newUserID := uuid.New().String()
-	newUser := NewUser(newUserID, role, true, serviceUserName, autoGroups, UserIssuedAPI)
+	newUser := NewUser(newUserID, role, true, nonDeletable, serviceUserName, autoGroups, UserIssuedAPI)
 	log.Debugf("New User: %v", newUser)
 	account.Users[newUserID] = newUser
 
@@ -236,7 +240,7 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUs
 // CreateUser creates a new user under the given account. Effectively this is a user invite.
 func (am *DefaultAccountManager) CreateUser(accountID, userID string, user *UserInfo) (*UserInfo, error) {
 	if user.IsServiceUser {
-		return am.createServiceUser(accountID, userID, StrRoleToUserRole(user.Role), user.Name, user.AutoGroups)
+		return am.createServiceUser(accountID, userID, StrRoleToUserRole(user.Role), user.Name, user.NonDeletable, user.AutoGroups)
 	}
 	return am.inviteNewUser(accountID, userID, user)
 }
@@ -420,6 +424,10 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 
 	// handle service user first and exit, no need to fetch extra data from IDP, etc
 	if targetUser.IsServiceUser {
+		if targetUser.NonDeletable {
+			return status.Errorf(status.PermissionDenied, "service user is marked as non-deletable")
+		}
+
 		am.deleteServiceUser(account, initiatorUserID, targetUser)
 		return am.Store.SaveAccount(account)
 	}
@@ -955,6 +963,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 				AutoGroups:    localUser.AutoGroups,
 				Status:        string(UserStatusActive),
 				IsServiceUser: localUser.IsServiceUser,
+				NonDeletable:  localUser.NonDeletable,
 			}
 		}
 		userInfos = append(userInfos, info)
