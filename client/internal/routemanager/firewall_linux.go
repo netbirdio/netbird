@@ -8,7 +8,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/internal/checkfw"
+	"github.com/netbirdio/netbird/client/firewall"
 )
 
 const (
@@ -26,12 +26,12 @@ func genKey(format string, input string) string {
 
 // newFirewall if supported, returns an iptables manager, otherwise returns a nftables manager
 func newFirewall(parentCTX context.Context) (firewallManager, error) {
-	checkResult := checkfw.Check()
+	checkResult := firewall.Check()
 	switch checkResult {
-	case checkfw.IPTABLES:
+	case firewall.IPTABLES:
 		log.Debug("creating an iptables firewall manager for route rules")
 		return newIptablesManager(parentCTX)
-	case checkfw.NFTABLES:
+	case firewall.NFTABLES:
 		log.Info("creating an nftables firewall manager for route rules")
 		return newNFTablesManager(parentCTX), nil
 	}

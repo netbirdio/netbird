@@ -9,7 +9,6 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/iptables"
 	"github.com/netbirdio/netbird/client/firewall/nftables"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
-	"github.com/netbirdio/netbird/client/internal/checkfw"
 )
 
 // Create creates a firewall manager instance for the Linux
@@ -21,14 +20,14 @@ func Create(iface IFaceMapper) (*DefaultManager, error) {
 	var fm firewall.Manager
 	var err error
 
-	checkResult := checkfw.Check()
+	checkResult := firewall.Check()
 	switch checkResult {
-	case checkfw.IPTABLES:
+	case firewall.IPTABLES:
 		log.Debug("creating an iptables firewall manager for access control")
 		if fm, err = iptables.Create(iface); err != nil {
 			log.Infof("failed to create iptables manager for access control: %s", err)
 		}
-	case checkfw.NFTABLES:
+	case firewall.NFTABLES:
 		log.Debug("creating an nftables firewall manager for access control")
 		if fm, err = nftables.Create(iface); err != nil {
 			log.Debugf("failed to create nftables manager for access control: %s", err)

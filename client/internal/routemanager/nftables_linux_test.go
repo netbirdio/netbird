@@ -11,12 +11,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/client/internal/checkfw"
+	"github.com/netbirdio/netbird/client/firewall"
 )
 
 func TestNftablesManager_RestoreOrCreateContainers(t *testing.T) {
 
-	if checkfw.Check() != checkfw.NFTABLES {
+	if firewall.Check() != firewall.NFTABLES {
 		t.Skip("nftables not supported on this OS")
 	}
 
@@ -83,7 +83,7 @@ func TestNftablesManager_RestoreOrCreateContainers(t *testing.T) {
 }
 
 func TestNftablesManager_InsertRoutingRules(t *testing.T) {
-	if checkfw.Check() != checkfw.NFTABLES {
+	if firewall.Check() != firewall.NFTABLES {
 		t.Skip("nftables not supported on this OS")
 	}
 
@@ -175,7 +175,7 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 }
 
 func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
-	if checkfw.Check() != checkfw.NFTABLES {
+	if firewall.Check() != firewall.NFTABLES {
 		t.Skip("nftables not supported on this OS")
 	}
 

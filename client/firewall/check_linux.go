@@ -1,6 +1,6 @@
 //go:build !android
 
-package checkfw
+package firewall
 
 import (
 	"os"
