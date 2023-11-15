@@ -198,7 +198,9 @@ func (h *UsersHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	users := make([]*api.User, 0)
 	for _, r := range data {
 		if serviceUser == "" {
-			users = append(users, toUserResponse(r, claims.UserId))
+			if !r.NonDeletable {
+				users = append(users, toUserResponse(r, claims.UserId))
+			}
 			continue
 		}
 		includeServiceUser, err := strconv.ParseBool(serviceUser)
