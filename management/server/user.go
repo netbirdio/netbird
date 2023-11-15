@@ -69,6 +69,8 @@ type User struct {
 	AccountID     string `json:"-" gorm:"index"`
 	Role          UserRole
 	IsServiceUser bool
+	// NonDeletable indicates whether the service user can be deleted
+	NonDeletable bool
 	// ServiceUserName is only set if IsServiceUser is true
 	ServiceUserName string
 	// AutoGroups is a list of Group IDs to auto-assign to peers registered by this user
@@ -164,6 +166,7 @@ func (u *User) Copy() *User {
 		LastLogin:            u.LastLogin,
 		Issued:               u.Issued,
 		IntegrationReference: u.IntegrationReference,
+		NonDeletable:         u.NonDeletable,
 	}
 }
 
@@ -420,6 +423,10 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 
 	// handle service user first and exit, no need to fetch extra data from IDP, etc
 	if targetUser.IsServiceUser {
+		if targetUser.NonDeletable {
+			return status.Errorf(status.PermissionDenied, "service user is marked as non-deletable")
+		}
+
 		am.deleteServiceUser(account, initiatorUserID, targetUser)
 		return am.Store.SaveAccount(account)
 	}

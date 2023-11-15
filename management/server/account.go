@@ -211,6 +211,7 @@ type UserInfo struct {
 	Status               string               `json:"-"`
 	IsServiceUser        bool                 `json:"is_service_user"`
 	IsBlocked            bool                 `json:"is_blocked"`
+	NonDeletable         bool                 `json:"non_deletable"`
 	LastLogin            time.Time            `json:"last_login"`
 	Issued               string               `json:"issued"`
 	IntegrationReference IntegrationReference `json:"-"`
