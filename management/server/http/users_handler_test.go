@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	serviceUserID = "serviceUserID"
-	regularUserID = "regularUserID"
+	serviceUserID             = "serviceUserID"
+	nonDeletableServiceUserID = "nonDeletableServiceUserID"
+	regularUserID             = "regularUserID"
 )
 
 var usersTestAccount = &server.Account{
@@ -49,6 +50,13 @@ var usersTestAccount = &server.Account{
 			AutoGroups:    []string{"group_1"},
 			Issued:        server.UserIssuedAPI,
 		},
+		nonDeletableServiceUserID: {
+			Id:            serviceUserID,
+			Role:          "admin",
+			IsServiceUser: true,
+			NonDeletable:  true,
+			Issued:        server.UserIssuedIntegration,
+		},
 	},
 }
 
@@ -67,6 +75,7 @@ func initUsersTestData() *UsersHandler {
 						Name:          "",
 						Email:         "",
 						IsServiceUser: v.IsServiceUser,
+						NonDeletable:  v.NonDeletable,
 						Issued:        v.Issued,
 					})
 				}
