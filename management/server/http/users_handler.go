@@ -207,7 +207,7 @@ func (h *UsersHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 			util.WriteError(status.Errorf(status.InvalidArgument, "invalid service_user query parameter"), w)
 			return
 		}
-		if includeServiceUser == r.IsServiceUser {
+		if includeServiceUser == r.IsServiceUser && !r.NonDeletable {
 			users = append(users, toUserResponse(r, claims.UserId))
 		}
 	}

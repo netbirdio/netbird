@@ -963,6 +963,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 				AutoGroups:    localUser.AutoGroups,
 				Status:        string(UserStatusActive),
 				IsServiceUser: localUser.IsServiceUser,
+				NonDeletable:  localUser.NonDeletable,
 			}
 		}
 		userInfos = append(userInfos, info)
