@@ -332,7 +332,7 @@ func TestUser_CreateServiceUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	user, err := am.createServiceUser(mockAccountID, mockUserID, mockRole, mockServiceUserName, []string{"group1", "group2"})
+	user, err := am.createServiceUser(mockAccountID, mockUserID, mockRole, mockServiceUserName, false, []string{"group1", "group2"})
 	if err != nil {
 		t.Fatalf("Error when creating service user: %s", err)
 	}
