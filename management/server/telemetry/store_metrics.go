@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/metric/instrument/syncint64"
 )
 
-// StoreMetrics represents all metrics related to the FileStore
+// StoreMetrics represents all metrics related to the Store
 type StoreMetrics struct {
 	globalLockAcquisitionDurationMicro syncint64.Histogram
 	globalLockAcquisitionDurationMs    syncint64.Histogram

@@ -20,7 +20,7 @@ var TurnTestHost = &Host{
 func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 	ttl := util.Duration{Duration: time.Hour}
 	secret := "some_secret"
-	peersManager := NewPeersUpdateManager()
+	peersManager := NewPeersUpdateManager(nil)
 
 	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
 		CredentialsTTL: ttl,
@@ -44,7 +44,7 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	ttl := util.Duration{Duration: 2 * time.Second}
 	secret := "some_secret"
-	peersManager := NewPeersUpdateManager()
+	peersManager := NewPeersUpdateManager(nil)
 	peer := "some_peer"
 	updateChannel := peersManager.CreateChannel(peer)
 
@@ -93,7 +93,7 @@ loop:
 func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	ttl := util.Duration{Duration: time.Hour}
 	secret := "some_secret"
-	peersManager := NewPeersUpdateManager()
+	peersManager := NewPeersUpdateManager(nil)
 	peer := "some_peer"
 
 	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
