@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -224,6 +225,10 @@ func (conn *Conn) reCreateAgent() error {
 func (conn *Conn) candidateTypes() []ice.CandidateType {
 	if hasICEForceRelayConn() {
 		return []ice.CandidateType{ice.CandidateTypeRelay}
+	}
+	// TODO: remove this once we have refactored userspace proxy into the bind package
+	if runtime.GOOS == "ios" {
+		return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive}
 	}
 	return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay}
 }
@@ -464,7 +469,7 @@ func (conn *Conn) cleanup() error {
 	err := conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
 		// pretty common error because by that time Engine can already remove the peer and status won't be available.
-		//todo rethink status updates
+		// todo rethink status updates
 		log.Debugf("error while updating peer's %s state, err: %v", conn.config.Key, err)
 	}
 
