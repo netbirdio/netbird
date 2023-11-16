@@ -9,7 +9,6 @@ import (
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/status"
 
 	log "github.com/sirupsen/logrus"
@@ -487,9 +486,11 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	}
 
 	if strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad" && userID != "" {
-		userdata, err := am.idpManager.GetUserDataByID(userID, idp.AppMetadata{})
-		if err == nil {
-			peer.Meta.Hostname = fmt.Sprintf("%s-%s", peer.Meta.Hostname, strings.Split(userdata.Email, "@")[0])
+		if am.idpManager != nil {
+			userdata, err := am.lookupUserInCache(userID, account)
+			if err == nil {
+				peer.Meta.Hostname = fmt.Sprintf("%s-%s", peer.Meta.Hostname, strings.Split(userdata.Email, "@")[0])
+			}
 		}
 	}
 
