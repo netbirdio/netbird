@@ -486,10 +486,10 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		return nil, nil, err
 	}
 
-	if peer.Meta.Hostname == "iPhone" && userID != "" {
+	if strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad" && userID != "" {
 		userdata, err := am.idpManager.GetUserDataByID(userID, idp.AppMetadata{})
 		if err == nil {
-			peer.Meta.Hostname = fmt.Sprintf("iPhone-%s", strings.Split(userdata.Email, "@")[0])
+			peer.Meta.Hostname = fmt.Sprintf("%s-%s", peer.Meta.Hostname, strings.Split(userdata.Email, "@")[0])
 		}
 	}
 
