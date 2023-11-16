@@ -1,16 +1,17 @@
 package server
 
 import (
-	"github.com/netbirdio/netbird/management/proto"
 	"testing"
 	"time"
+
+	"github.com/netbirdio/netbird/management/proto"
 )
 
 //var peersUpdater *PeersUpdateManager
 
 func TestCreateChannel(t *testing.T) {
 	peer := "test-create"
-	peersUpdater := NewPeersUpdateManager()
+	peersUpdater := NewPeersUpdateManager(nil)
 	defer peersUpdater.CloseChannel(peer)
 
 	_ = peersUpdater.CreateChannel(peer)
@@ -21,7 +22,7 @@ func TestCreateChannel(t *testing.T) {
 
 func TestSendUpdate(t *testing.T) {
 	peer := "test-sendupdate"
-	peersUpdater := NewPeersUpdateManager()
+	peersUpdater := NewPeersUpdateManager(nil)
 	update1 := &UpdateMessage{Update: &proto.SyncResponse{
 		NetworkMap: &proto.NetworkMap{
 			Serial: 0,
@@ -65,7 +66,7 @@ func TestSendUpdate(t *testing.T) {
 
 func TestCloseChannel(t *testing.T) {
 	peer := "test-close"
-	peersUpdater := NewPeersUpdateManager()
+	peersUpdater := NewPeersUpdateManager(nil)
 	_ = peersUpdater.CreateChannel(peer)
 	if _, ok := peersUpdater.peerChannels[peer]; !ok {
 		t.Error("Error creating the channel")
