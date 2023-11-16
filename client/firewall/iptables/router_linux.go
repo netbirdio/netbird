@@ -1,6 +1,6 @@
 //go:build !android
 
-package routemanager
+package iptables
 
 import (
 	"context"
@@ -10,6 +10,12 @@ import (
 
 	"github.com/coreos/go-iptables/iptables"
 	log "github.com/sirupsen/logrus"
+
+	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+)
+
+const (
+	ipv4Nat = "netbird-rt-nat"
 )
 
 // constants needed to manage and create iptable rules
@@ -32,7 +38,7 @@ var (
 	iptablesDefaultNetbirdNatRule        = []string{"-j", "RETURN"}
 )
 
-type iptablesManager struct {
+type routerManager struct {
 	ctx            context.Context
 	stop           context.CancelFunc
 	iptablesClient *iptables.IPTables
@@ -40,24 +46,19 @@ type iptablesManager struct {
 	mux            sync.Mutex
 }
 
-func newIptablesManager(parentCtx context.Context) (*iptablesManager, error) {
-	client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize iptables for ipv4: %s", err)
-	}
-
+func newRouterManager(parentCtx context.Context, iptablesClient *iptables.IPTables) *routerManager {
 	ctx, cancel := context.WithCancel(parentCtx)
-	manager := &iptablesManager{
+	manager := &routerManager{
 		ctx:            ctx,
 		stop:           cancel,
-		iptablesClient: client,
+		iptablesClient: iptablesClient,
 		rules:          make(map[string][]string),
 	}
-	return manager, nil
+	return manager
 }
 
 // CleanRoutingRules cleans existing iptables resources that we created by the agent
-func (i *iptablesManager) CleanRoutingRules() {
+func (i *routerManager) CleanRoutingRules() {
 	i.mux.Lock()
 	defer i.mux.Unlock()
 
@@ -83,11 +84,11 @@ func (i *iptablesManager) CleanRoutingRules() {
 
 // RestoreOrCreateContainers restores existing iptables containers (chains and rules)
 // if they don't exist, we create them
-func (i *iptablesManager) RestoreOrCreateContainers() error {
+func (i *routerManager) RestoreOrCreateContainers() error {
 	i.mux.Lock()
 	defer i.mux.Unlock()
 
-	if i.rules[ipv4Forwarding] != nil {
+	if i.rules[firewall.Ipv4Forwarding] != nil {
 		return nil
 	}
 
@@ -117,19 +118,19 @@ func (i *iptablesManager) RestoreOrCreateContainers() error {
 }
 
 // addJumpRules create jump rules to send packets to NetBird chains
-func (i *iptablesManager) addJumpRules() error {
+func (i *routerManager) addJumpRules() error {
 	err := i.cleanJumpRules()
 	if err != nil {
 		return err
 	}
 
-	rule := append(iptablesDefaultForwardingRule, ipv4Forwarding)
+	rule := append(iptablesDefaultForwardingRule, firewall.Ipv4Forwarding)
 
 	err = i.iptablesClient.Insert(iptablesFilterTable, iptablesForwardChain, 1, rule...)
 	if err != nil {
 		return err
 	}
-	i.rules[ipv4Forwarding] = rule
+	i.rules[firewall.Ipv4Forwarding] = rule
 
 	rule = append(iptablesDefaultNatRule, ipv4Nat)
 	err = i.iptablesClient.Insert(iptablesNatTable, iptablesPostRoutingChain, 1, rule...)
@@ -142,12 +143,12 @@ func (i *iptablesManager) addJumpRules() error {
 }
 
 // cleanJumpRules cleans jump rules that was sending packets to NetBird chains
-func (i *iptablesManager) cleanJumpRules() error {
+func (i *routerManager) cleanJumpRules() error {
 	var err error
 	errMSGFormat := "iptables: failed cleaning rule from chain %s,err: %v"
-	rule, found := i.rules[ipv4Forwarding]
+	rule, found := i.rules[firewall.Ipv4Forwarding]
 	if found {
-		log.Debugf("iptables: removing rule: %s ", ipv4Forwarding)
+		log.Debugf("iptables: removing rule: %s ", firewall.Ipv4Forwarding)
 		err = i.iptablesClient.DeleteIfExists(iptablesFilterTable, iptablesForwardChain, rule...)
 		if err != nil {
 			return fmt.Errorf(errMSGFormat, iptablesForwardChain, err)
@@ -165,7 +166,7 @@ func (i *iptablesManager) cleanJumpRules() error {
 }
 
 // restoreRules restores existing NetBird rules
-func (i *iptablesManager) restoreRules(iptablesClient *iptables.IPTables) error {
+func (i *routerManager) restoreRules(iptablesClient *iptables.IPTables) error {
 	if i.rules == nil {
 		i.rules = make(map[string][]string)
 	}
@@ -203,7 +204,7 @@ func (i *iptablesManager) restoreRules(iptablesClient *iptables.IPTables) error 
 }
 
 // createChain create NetBird chains
-func (i *iptablesManager) createChain(table, newChain string) error {
+func (i *routerManager) createChain(table, newChain string) error {
 	chains, err := i.iptablesClient.ListChains(table)
 	if err != nil {
 		return fmt.Errorf("couldn't get %s table chains, error: %v", table, err)
@@ -254,30 +255,30 @@ func getRuleRouteID(rule []string) string {
 }
 
 // InsertRoutingRules inserts an iptables rule pair to the forwarding chain and if enabled, to the nat chain
-func (i *iptablesManager) InsertRoutingRules(pair routerPair) error {
+func (i *routerManager) InsertRoutingRules(pair firewall.RouterPair) error {
 	i.mux.Lock()
 	defer i.mux.Unlock()
 
-	err := i.insertRoutingRule(forwardingFormat, iptablesFilterTable, iptablesRoutingForwardingChain, routingFinalForwardJump, pair)
+	err := i.insertRoutingRule(firewall.ForwardingFormat, iptablesFilterTable, iptablesRoutingForwardingChain, routingFinalForwardJump, pair)
 	if err != nil {
 		return err
 	}
 
-	err = i.insertRoutingRule(inForwardingFormat, iptablesFilterTable, iptablesRoutingForwardingChain, routingFinalForwardJump, getInPair(pair))
+	err = i.insertRoutingRule(firewall.InForwardingFormat, iptablesFilterTable, iptablesRoutingForwardingChain, routingFinalForwardJump, firewall.GetInPair(pair))
 	if err != nil {
 		return err
 	}
 
-	if !pair.masquerade {
+	if !pair.Masquerade {
 		return nil
 	}
 
-	err = i.insertRoutingRule(natFormat, iptablesNatTable, iptablesRoutingNatChain, routingFinalNatJump, pair)
+	err = i.insertRoutingRule(firewall.NatFormat, iptablesNatTable, iptablesRoutingNatChain, routingFinalNatJump, pair)
 	if err != nil {
 		return err
 	}
 
-	err = i.insertRoutingRule(inNatFormat, iptablesNatTable, iptablesRoutingNatChain, routingFinalNatJump, getInPair(pair))
+	err = i.insertRoutingRule(firewall.InNatFormat, iptablesNatTable, iptablesRoutingNatChain, routingFinalNatJump, firewall.GetInPair(pair))
 	if err != nil {
 		return err
 	}
@@ -286,22 +287,22 @@ func (i *iptablesManager) InsertRoutingRules(pair routerPair) error {
 }
 
 // insertRoutingRule inserts an iptable rule
-func (i *iptablesManager) insertRoutingRule(keyFormat, table, chain, jump string, pair routerPair) error {
+func (i *routerManager) insertRoutingRule(keyFormat, table, chain, jump string, pair firewall.RouterPair) error {
 	var err error
 
-	ruleKey := genKey(keyFormat, pair.ID)
-	rule := genRuleSpec(jump, ruleKey, pair.source, pair.destination)
+	ruleKey := firewall.GenKey(keyFormat, pair.ID)
+	rule := genRuleSpec(jump, ruleKey, pair.Source, pair.Destination)
 	existingRule, found := i.rules[ruleKey]
 	if found {
 		err = i.iptablesClient.DeleteIfExists(table, chain, existingRule...)
 		if err != nil {
-			return fmt.Errorf("iptables: error while removing existing %s rule for %s: %v", getIptablesRuleType(table), pair.destination, err)
+			return fmt.Errorf("iptables: error while removing existing %s rule for %s: %v", getIptablesRuleType(table), pair.Destination, err)
 		}
 		delete(i.rules, ruleKey)
 	}
 	err = i.iptablesClient.Insert(table, chain, 1, rule...)
 	if err != nil {
-		return fmt.Errorf("iptables: error while adding new %s rule for %s: %v", getIptablesRuleType(table), pair.destination, err)
+		return fmt.Errorf("iptables: error while adding new %s rule for %s: %v", getIptablesRuleType(table), pair.Destination, err)
 	}
 
 	i.rules[ruleKey] = rule
@@ -310,30 +311,30 @@ func (i *iptablesManager) insertRoutingRule(keyFormat, table, chain, jump string
 }
 
 // RemoveRoutingRules removes an iptables rule pair from forwarding and nat chains
-func (i *iptablesManager) RemoveRoutingRules(pair routerPair) error {
+func (i *routerManager) RemoveRoutingRules(pair firewall.RouterPair) error {
 	i.mux.Lock()
 	defer i.mux.Unlock()
 
-	err := i.removeRoutingRule(forwardingFormat, iptablesFilterTable, iptablesRoutingForwardingChain, pair)
+	err := i.removeRoutingRule(firewall.ForwardingFormat, iptablesFilterTable, iptablesRoutingForwardingChain, pair)
 	if err != nil {
 		return err
 	}
 
-	err = i.removeRoutingRule(inForwardingFormat, iptablesFilterTable, iptablesRoutingForwardingChain, getInPair(pair))
+	err = i.removeRoutingRule(firewall.InForwardingFormat, iptablesFilterTable, iptablesRoutingForwardingChain, firewall.GetInPair(pair))
 	if err != nil {
 		return err
 	}
 
-	if !pair.masquerade {
+	if !pair.Masquerade {
 		return nil
 	}
 
-	err = i.removeRoutingRule(natFormat, iptablesNatTable, iptablesRoutingNatChain, pair)
+	err = i.removeRoutingRule(firewall.NatFormat, iptablesNatTable, iptablesRoutingNatChain, pair)
 	if err != nil {
 		return err
 	}
 
-	err = i.removeRoutingRule(inNatFormat, iptablesNatTable, iptablesRoutingNatChain, getInPair(pair))
+	err = i.removeRoutingRule(firewall.InNatFormat, iptablesNatTable, iptablesRoutingNatChain, firewall.GetInPair(pair))
 	if err != nil {
 		return err
 	}
@@ -342,15 +343,15 @@ func (i *iptablesManager) RemoveRoutingRules(pair routerPair) error {
 }
 
 // removeRoutingRule removes an iptables rule
-func (i *iptablesManager) removeRoutingRule(keyFormat, table, chain string, pair routerPair) error {
+func (i *routerManager) removeRoutingRule(keyFormat, table, chain string, pair firewall.RouterPair) error {
 	var err error
 
-	ruleKey := genKey(keyFormat, pair.ID)
+	ruleKey := firewall.GenKey(keyFormat, pair.ID)
 	existingRule, found := i.rules[ruleKey]
 	if found {
 		err = i.iptablesClient.DeleteIfExists(table, chain, existingRule...)
 		if err != nil {
-			return fmt.Errorf("iptables: error while removing existing %s rule for %s: %v", getIptablesRuleType(table), pair.destination, err)
+			return fmt.Errorf("iptables: error while removing existing %s rule for %s: %v", getIptablesRuleType(table), pair.Destination, err)
 		}
 	}
 	delete(i.rules, ruleKey)

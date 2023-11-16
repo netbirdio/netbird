@@ -1,7 +1,16 @@
-package firewall
+package manager
 
 import (
+	"fmt"
 	"net"
+)
+
+const (
+	Ipv4Forwarding     = "netbird-rt-forwarding"
+	NatFormat          = "netbird-nat-%s"
+	ForwardingFormat   = "netbird-fwd-%s"
+	InNatFormat        = "netbird-nat-in-%s"
+	InForwardingFormat = "netbird-fwd-in-%s"
 )
 
 // Rule abstraction should be implemented by each firewall manager
@@ -61,11 +70,30 @@ type Manager interface {
 	// DeleteRule from the firewall by rule definition
 	DeleteRule(rule Rule) error
 
+	// IsServerRouteSupported returns true if the firewall supports server side routing operations
+	IsServerRouteSupported() bool
+
+	// InsertRoutingRules inserts a routing firewall rule
+	InsertRoutingRules(pair RouterPair) error
+
+	// RemoveRoutingRules removes a routing firewall rule
+	RemoveRoutingRules(pair RouterPair) error
+
+	/*
+		// RestoreOrCreateContainers restores or creates a firewall container set of rules, tables and default rules
+		RestoreOrCreateContainers() error
+		// CleanRoutingRules cleans a firewall set of containers
+		CleanRoutingRules()
+
+	*/
+
 	// Reset firewall to the default state
 	Reset() error
 
 	// Flush the changes to firewall controller
 	Flush() error
+}
 
-	// TODO: migrate routemanager firewal actions to this interface
+func GenKey(format string, input string) string {
+	return fmt.Sprintf(format, input)
 }

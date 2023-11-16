@@ -7,6 +7,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/iface"
@@ -35,28 +36,32 @@ type DefaultManager struct {
 	notifier       *notifier
 }
 
-// NewManager returns a new route manager
-func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, initialRoutes []*route.Route) *DefaultManager {
-	srvRouter, err := newServerRouter(ctx, wgInterface)
-	if err != nil {
-		log.Errorf("server router is not supported: %s", err)
-	}
+// NewManagerWithServerRouter returns a new route manager
+func NewManagerWithServerRouter(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, initialRoutes []*route.Route, firewall firewall.Manager) *DefaultManager {
+	dm := newManager(ctx, pubKey, wgInterface, statusRecorder, initialRoutes)
+	dm.serverRouter = newServerRouter(ctx, wgInterface, firewall)
+	return dm
+}
 
+func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, initialRoutes []*route.Route) *DefaultManager {
+	dm := newManager(ctx, pubKey, wgInterface, statusRecorder, initialRoutes)
+	if runtime.GOOS == "android" {
+		cr := dm.clientRoutes(initialRoutes)
+		dm.notifier.setInitialClientRoutes(cr)
+	}
+	return dm
+}
+
+func newManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, initialRoutes []*route.Route) *DefaultManager {
 	mCTX, cancel := context.WithCancel(ctx)
 	dm := &DefaultManager{
 		ctx:            mCTX,
 		stop:           cancel,
 		clientNetworks: make(map[string]*clientNetwork),
-		serverRouter:   srvRouter,
 		statusRecorder: statusRecorder,
 		wgInterface:    wgInterface,
 		pubKey:         pubKey,
 		notifier:       newNotifier(),
-	}
-
-	if runtime.GOOS == "android" {
-		cr := dm.clientRoutes(initialRoutes)
-		dm.notifier.setInitialClientRoutes(cr)
 	}
 	return dm
 }

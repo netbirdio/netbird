@@ -5,10 +5,12 @@ package routemanager
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
 
+	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 )
@@ -17,22 +19,17 @@ type defaultServerRouter struct {
 	mux         sync.Mutex
 	ctx         context.Context
 	routes      map[string]*route.Route
-	firewall    firewallManager
+	firewall    firewall.Manager
 	wgInterface *iface.WGIface
 }
 
-func newServerRouter(ctx context.Context, wgInterface *iface.WGIface) (serverRouter, error) {
-	firewall, err := newFirewall(ctx)
-	if err != nil {
-		return nil, err
-	}
-
+func newServerRouter(ctx context.Context, wgInterface *iface.WGIface, firewall firewall.Manager) serverRouter {
 	return &defaultServerRouter{
 		ctx:         ctx,
 		routes:      make(map[string]*route.Route),
 		firewall:    firewall,
 		wgInterface: wgInterface,
-	}, nil
+	}
 }
 
 func (m *defaultServerRouter) updateRoutes(routesMap map[string]*route.Route) error {
@@ -121,5 +118,22 @@ func (m *defaultServerRouter) addToServerNetwork(route *route.Route) error {
 }
 
 func (m *defaultServerRouter) cleanUp() {
-	m.firewall.CleanRoutingRules()
+	m.mux.Lock()
+	defer m.mux.Unlock()
+	for _, r := range m.routes {
+		err := m.firewall.RemoveRoutingRules(routeToRouterPair(m.wgInterface.Address().String(), r))
+		if err != nil {
+			log.Warnf("failed to remove clean up route: %s", r.ID)
+		}
+	}
+}
+
+func routeToRouterPair(source string, route *route.Route) firewall.RouterPair {
+	parsed := netip.MustParsePrefix(source).Masked()
+	return firewall.RouterPair{
+		ID:          route.ID,
+		Source:      parsed.String(),
+		Destination: route.Network.Masked().String(),
+		Masquerade:  route.Masquerade,
+	}
 }

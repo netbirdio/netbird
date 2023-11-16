@@ -17,6 +17,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -213,8 +214,19 @@ func (e *Engine) Start() error {
 		}
 	}
 
-	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
-	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
+	fw, err := firewall.NewFirewall(e.ctx, e.wgInterface)
+	if err != nil {
+		log.Errorf("failed creating firewall manager: %s", err)
+	}
+
+	if fw != nil {
+		if fw.IsServerRouteSupported() {
+			e.routeManager = routemanager.NewManagerWithServerRouter(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes, fw)
+		}
+	} else {
+		e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
+		e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
+	}
 
 	if runtime.GOOS == "android" {
 		err = e.wgInterface.CreateOnMobile(iface.MobileIFaceArguments{
@@ -258,10 +270,10 @@ func (e *Engine) Start() error {
 		e.udpMux = mux
 	}
 
-	if acl, err := acl.Create(e.wgInterface); err != nil {
-		log.Errorf("failed to create ACL manager, policy will not work: %s", err.Error())
+	if fw != nil {
+		e.acl = acl.NewDefaultManager(fw)
 	} else {
-		e.acl = acl
+		log.Errorf("failed creating firewall manager, ACL will not work")
 	}
 
 	err = e.dnsServer.Initialize()

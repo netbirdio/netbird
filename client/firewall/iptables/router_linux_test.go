@@ -1,6 +1,6 @@
 //go:build !android
 
-package routemanager
+package iptables
 
 import (
 	"context"
@@ -22,7 +22,7 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 		t.SkipNow()
 	}
 
-	manager, err := newIptablesManager(context.TODO())
+	manager, err := newRouterManager(context.TODO())
 	require.NoError(t, err, "should return a valid iptables manager")
 
 	defer manager.CleanRoutingRules()
@@ -40,20 +40,20 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", iptablesNatTable, iptablesPostRoutingChain)
 	require.True(t, exists, "postrouting rule should exist")
 
-	pair := routerPair{
+	pair := router_pair.RouterPair{
 		ID:          "abc",
-		source:      "100.100.100.1/32",
-		destination: "100.100.100.0/24",
-		masquerade:  true,
+		Source:      "100.100.100.1/32",
+		Destination: "100.100.100.0/24",
+		Masquerade:  true,
 	}
 	forward4RuleKey := genKey(forwardingFormat, pair.ID)
-	forward4Rule := genRuleSpec(routingFinalForwardJump, forward4RuleKey, pair.source, pair.destination)
+	forward4Rule := genRuleSpec(routingFinalForwardJump, forward4RuleKey, pair.Source, pair.Destination)
 
 	err = manager.iptablesClient.Insert(iptablesFilterTable, iptablesRoutingForwardingChain, 1, forward4Rule...)
 	require.NoError(t, err, "inserting rule should not return error")
 
 	nat4RuleKey := genKey(natFormat, pair.ID)
-	nat4Rule := genRuleSpec(routingFinalNatJump, nat4RuleKey, pair.source, pair.destination)
+	nat4Rule := genRuleSpec(routingFinalNatJump, nat4RuleKey, pair.Source, pair.Destination)
 
 	err = manager.iptablesClient.Insert(iptablesNatTable, iptablesRoutingNatChain, 1, nat4Rule...)
 	require.NoError(t, err, "inserting rule should not return error")
@@ -85,7 +85,7 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.TODO())
 			iptablesClient, _ := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 
-			manager := &iptablesManager{
+			manager := &routerManager{
 				ctx:            ctx,
 				stop:           cancel,
 				iptablesClient: iptablesClient,
@@ -101,7 +101,7 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 			require.NoError(t, err, "forwarding pair should be inserted")
 
 			forwardRuleKey := genKey(forwardingFormat, testCase.inputPair.ID)
-			forwardRule := genRuleSpec(routingFinalForwardJump, forwardRuleKey, testCase.inputPair.source, testCase.inputPair.destination)
+			forwardRule := genRuleSpec(routingFinalForwardJump, forwardRuleKey, testCase.inputPair.Source, testCase.inputPair.Destination)
 
 			exists, err := iptablesClient.Exists(iptablesFilterTable, iptablesRoutingForwardingChain, forwardRule...)
 			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", iptablesFilterTable, iptablesRoutingForwardingChain)
@@ -112,7 +112,7 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 			require.Equal(t, forwardRule[:4], foundRule[:4], "stored forwarding rule should match")
 
 			inForwardRuleKey := genKey(inForwardingFormat, testCase.inputPair.ID)
-			inForwardRule := genRuleSpec(routingFinalForwardJump, inForwardRuleKey, getInPair(testCase.inputPair).source, getInPair(testCase.inputPair).destination)
+			inForwardRule := genRuleSpec(routingFinalForwardJump, inForwardRuleKey, getInPair(testCase.inputPair).Source, getInPair(testCase.inputPair).Destination)
 
 			exists, err = iptablesClient.Exists(iptablesFilterTable, iptablesRoutingForwardingChain, inForwardRule...)
 			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", iptablesFilterTable, iptablesRoutingForwardingChain)
@@ -123,11 +123,11 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 			require.Equal(t, inForwardRule[:4], foundRule[:4], "stored income forwarding rule should match")
 
 			natRuleKey := genKey(natFormat, testCase.inputPair.ID)
-			natRule := genRuleSpec(routingFinalNatJump, natRuleKey, testCase.inputPair.source, testCase.inputPair.destination)
+			natRule := genRuleSpec(routingFinalNatJump, natRuleKey, testCase.inputPair.Source, testCase.inputPair.Destination)
 
 			exists, err = iptablesClient.Exists(iptablesNatTable, iptablesRoutingNatChain, natRule...)
 			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", iptablesNatTable, iptablesRoutingNatChain)
-			if testCase.inputPair.masquerade {
+			if testCase.inputPair.Masquerade {
 				require.True(t, exists, "nat rule should be created")
 				foundNatRule, foundNat := manager.rules[natRuleKey]
 				require.True(t, foundNat, "nat rule should exist in the map")
@@ -139,11 +139,11 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 			}
 
 			inNatRuleKey := genKey(inNatFormat, testCase.inputPair.ID)
-			inNatRule := genRuleSpec(routingFinalNatJump, inNatRuleKey, getInPair(testCase.inputPair).source, getInPair(testCase.inputPair).destination)
+			inNatRule := genRuleSpec(routingFinalNatJump, inNatRuleKey, getInPair(testCase.inputPair).Source, getInPair(testCase.inputPair).Destination)
 
 			exists, err = iptablesClient.Exists(iptablesNatTable, iptablesRoutingNatChain, inNatRule...)
 			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", iptablesNatTable, iptablesRoutingNatChain)
-			if testCase.inputPair.masquerade {
+			if testCase.inputPair.Masquerade {
 				require.True(t, exists, "income nat rule should be created")
 				foundNatRule, foundNat := manager.rules[inNatRuleKey]
 				require.True(t, foundNat, "income nat rule should exist in the map")
@@ -167,7 +167,7 @@ func TestIptablesManager_RemoveRoutingRules(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.TODO())
 			iptablesClient, _ := iptables.NewWithProtocol(iptables.ProtocolIPv4)
-			manager := &iptablesManager{
+			manager := &routerManager{
 				ctx:            ctx,
 				stop:           cancel,
 				iptablesClient: iptablesClient,
@@ -180,25 +180,25 @@ func TestIptablesManager_RemoveRoutingRules(t *testing.T) {
 			require.NoError(t, err, "shouldn't return error")
 
 			forwardRuleKey := genKey(forwardingFormat, testCase.inputPair.ID)
-			forwardRule := genRuleSpec(routingFinalForwardJump, forwardRuleKey, testCase.inputPair.source, testCase.inputPair.destination)
+			forwardRule := genRuleSpec(routingFinalForwardJump, forwardRuleKey, testCase.inputPair.Source, testCase.inputPair.Destination)
 
 			err = iptablesClient.Insert(iptablesFilterTable, iptablesRoutingForwardingChain, 1, forwardRule...)
 			require.NoError(t, err, "inserting rule should not return error")
 
 			inForwardRuleKey := genKey(inForwardingFormat, testCase.inputPair.ID)
-			inForwardRule := genRuleSpec(routingFinalForwardJump, inForwardRuleKey, getInPair(testCase.inputPair).source, getInPair(testCase.inputPair).destination)
+			inForwardRule := genRuleSpec(routingFinalForwardJump, inForwardRuleKey, getInPair(testCase.inputPair).Source, getInPair(testCase.inputPair).Destination)
 
 			err = iptablesClient.Insert(iptablesFilterTable, iptablesRoutingForwardingChain, 1, inForwardRule...)
 			require.NoError(t, err, "inserting rule should not return error")
 
 			natRuleKey := genKey(natFormat, testCase.inputPair.ID)
-			natRule := genRuleSpec(routingFinalNatJump, natRuleKey, testCase.inputPair.source, testCase.inputPair.destination)
+			natRule := genRuleSpec(routingFinalNatJump, natRuleKey, testCase.inputPair.Source, testCase.inputPair.Destination)
 
 			err = iptablesClient.Insert(iptablesNatTable, iptablesRoutingNatChain, 1, natRule...)
 			require.NoError(t, err, "inserting rule should not return error")
 
 			inNatRuleKey := genKey(inNatFormat, testCase.inputPair.ID)
-			inNatRule := genRuleSpec(routingFinalNatJump, inNatRuleKey, getInPair(testCase.inputPair).source, getInPair(testCase.inputPair).destination)
+			inNatRule := genRuleSpec(routingFinalNatJump, inNatRuleKey, getInPair(testCase.inputPair).Source, getInPair(testCase.inputPair).Destination)
 
 			err = iptablesClient.Insert(iptablesNatTable, iptablesRoutingNatChain, 1, inNatRule...)
 			require.NoError(t, err, "inserting rule should not return error")

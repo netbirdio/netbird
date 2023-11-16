@@ -1,6 +1,6 @@
 //go:build !android
 
-package routemanager
+package nftables
 
 import (
 	"context"
@@ -32,15 +32,15 @@ func TestNftablesManager_RestoreOrCreateContainers(t *testing.T) {
 	require.Len(t, manager.chains, 2, "should have created chains")
 	require.Len(t, manager.rules, 1, "should have created rules")
 
-	pair := routerPair{
+	pair := firewall.RouterPair{
 		ID:          "abc",
-		source:      "100.100.100.1/32",
-		destination: "100.100.100.0/24",
-		masquerade:  true,
+		Source:      "100.100.100.1/32",
+		Destination: "100.100.100.0/24",
+		Masquerade:  true,
 	}
 
-	sourceExp := generateCIDRMatcherExpressions("source", pair.source)
-	destExp := generateCIDRMatcherExpressions("destination", pair.destination)
+	sourceExp := generateCIDRMatcherExpressions("Source", pair.Source)
+	destExp := generateCIDRMatcherExpressions("Destination", pair.Destination)
 
 	forward4Exp := append(sourceExp, append(destExp, exprCounterAccept...)...)
 	forward4RuleKey := genKey(forwardingFormat, pair.ID)
@@ -78,7 +78,7 @@ func TestNftablesManager_RestoreOrCreateContainers(t *testing.T) {
 
 	foundRule, found = manager.rules[nat4RuleKey]
 	require.True(t, found, "nat rule should exist in the map")
-	// match len of output as nftables client doesn't return expressions with masquerade expression
+	// match len of output as nftables client doesn't return expressions with Masquerade expression
 	assert.ElementsMatch(t, inserted4Nat.Exprs[:len(foundRule.Exprs)], foundRule.Exprs, "stored nat rule expressions should match")
 }
 
@@ -101,8 +101,8 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 			err = manager.InsertRoutingRules(testCase.inputPair)
 			require.NoError(t, err, "forwarding pair should be inserted")
 
-			sourceExp := generateCIDRMatcherExpressions("source", testCase.inputPair.source)
-			destExp := generateCIDRMatcherExpressions("destination", testCase.inputPair.destination)
+			sourceExp := generateCIDRMatcherExpressions("Source", testCase.inputPair.Source)
+			destExp := generateCIDRMatcherExpressions("Destination", testCase.inputPair.Destination)
 			testingExpression := append(sourceExp, destExp...)
 			fwdRuleKey := genKey(forwardingFormat, testCase.inputPair.ID)
 
@@ -120,7 +120,7 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 
 			require.Equal(t, 1, found, "should find at least 1 rule to test")
 
-			if testCase.inputPair.masquerade {
+			if testCase.inputPair.Masquerade {
 				natRuleKey := genKey(natFormat, testCase.inputPair.ID)
 				found := 0
 				for _, chain := range manager.chains {
@@ -136,8 +136,8 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 				require.Equal(t, 1, found, "should find at least 1 rule to test")
 			}
 
-			sourceExp = generateCIDRMatcherExpressions("source", getInPair(testCase.inputPair).source)
-			destExp = generateCIDRMatcherExpressions("destination", getInPair(testCase.inputPair).destination)
+			sourceExp = generateCIDRMatcherExpressions("Source", getInPair(testCase.inputPair).Source)
+			destExp = generateCIDRMatcherExpressions("Destination", getInPair(testCase.inputPair).Destination)
 			testingExpression = append(sourceExp, destExp...)
 			inFwdRuleKey := genKey(inForwardingFormat, testCase.inputPair.ID)
 
@@ -155,7 +155,7 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 
 			require.Equal(t, 1, found, "should find at least 1 rule to test")
 
-			if testCase.inputPair.masquerade {
+			if testCase.inputPair.Masquerade {
 				inNatRuleKey := genKey(inNatFormat, testCase.inputPair.ID)
 				found := 0
 				for _, chain := range manager.chains {
@@ -190,8 +190,8 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 			err := manager.RestoreOrCreateContainers()
 			require.NoError(t, err, "shouldn't return error")
 
-			sourceExp := generateCIDRMatcherExpressions("source", testCase.inputPair.source)
-			destExp := generateCIDRMatcherExpressions("destination", testCase.inputPair.destination)
+			sourceExp := generateCIDRMatcherExpressions("Source", testCase.inputPair.Source)
+			destExp := generateCIDRMatcherExpressions("Destination", testCase.inputPair.Destination)
 
 			forwardExp := append(sourceExp, append(destExp, exprCounterAccept...)...)
 			forwardRuleKey := genKey(forwardingFormat, testCase.inputPair.ID)
@@ -212,8 +212,8 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 				UserData: []byte(natRuleKey),
 			})
 
-			sourceExp = generateCIDRMatcherExpressions("source", getInPair(testCase.inputPair).source)
-			destExp = generateCIDRMatcherExpressions("destination", getInPair(testCase.inputPair).destination)
+			sourceExp = generateCIDRMatcherExpressions("Source", getInPair(testCase.inputPair).Source)
+			destExp = generateCIDRMatcherExpressions("Destination", getInPair(testCase.inputPair).Destination)
 
 			forwardExp = append(sourceExp, append(destExp, exprCounterAccept...)...)
 			inForwardRuleKey := genKey(inForwardingFormat, testCase.inputPair.ID)

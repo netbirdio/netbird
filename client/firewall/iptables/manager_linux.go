@@ -1,6 +1,7 @@
 package iptables
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strconv"
@@ -11,7 +12,7 @@ import (
 	"github.com/nadoo/ipset"
 	log "github.com/sirupsen/logrus"
 
-	fw "github.com/netbirdio/netbird/client/firewall"
+	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/iface"
 )
 
@@ -37,6 +38,7 @@ type Manager struct {
 	wgIface                iFaceMapper
 
 	rulesets map[string]ruleset
+	router   *routerManager
 }
 
 // iFaceMapper defines subset methods of interface required for manager
@@ -52,7 +54,17 @@ type ruleset struct {
 }
 
 // Create iptables firewall manager
-func Create(wgIface iFaceMapper) (*Manager, error) {
+func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
+	err := ipset.Init()
+	if err != nil {
+		return nil, fmt.Errorf("init ipset: %w", err)
+	}
+
+	iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	if err != nil {
+		return nil, fmt.Errorf("iptables is not installed in the system or not supported")
+	}
+
 	m := &Manager{
 		wgIface: wgIface,
 		inputDefaultRuleSpecs: []string{
@@ -60,16 +72,7 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 		outputDefaultRuleSpecs: []string{
 			"-o", wgIface.Name(), "-j", ChainOutputFilterName, "-d", wgIface.Address().String()},
 		rulesets: make(map[string]ruleset),
-	}
-
-	err := ipset.Init()
-	if err != nil {
-		return nil, fmt.Errorf("init ipset: %w", err)
-	}
-
-	m.ipv4Client, err = iptables.NewWithProtocol(iptables.ProtocolIPv4)
-	if err != nil {
-		return nil, fmt.Errorf("iptables is not installed in the system or not supported")
+		router:   newRouterManager(context, iptablesClient),
 	}
 
 	if err := m.Reset(); err != nil {
@@ -83,14 +86,14 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 // Comment will be ignored because some system this feature is not supported
 func (m *Manager) AddFiltering(
 	ip net.IP,
-	protocol fw.Protocol,
-	sPort *fw.Port,
-	dPort *fw.Port,
-	direction fw.RuleDirection,
-	action fw.Action,
+	protocol firewall.Protocol,
+	sPort *firewall.Port,
+	dPort *firewall.Port,
+	direction firewall.RuleDirection,
+	action firewall.Action,
 	ipsetName string,
 	comment string,
-) (fw.Rule, error) {
+) (firewall.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -134,7 +137,7 @@ func (m *Manager) AddFiltering(
 				ruleID:    ruleID,
 				ipsetName: ipsetName,
 				ip:        ip.String(),
-				dst:       direction == fw.RuleDirectionOUT,
+				dst:       direction == firewall.RuleDirectionOUT,
 				v6:        ip.To4() == nil,
 			}, nil
 		}
@@ -143,7 +146,7 @@ func (m *Manager) AddFiltering(
 
 	specs := m.filterRuleSpecs(ip, string(protocol), sPortVal, dPortVal, direction, action, ipsetName)
 
-	if direction == fw.RuleDirectionOUT {
+	if direction == firewall.RuleDirectionOUT {
 		ok, err := m.ipv4Client.Exists("filter", ChainOutputFilterName, specs...)
 		if err != nil {
 			return nil, fmt.Errorf("check is output rule already exists: %w", err)
@@ -174,7 +177,7 @@ func (m *Manager) AddFiltering(
 		specs:     specs,
 		ipsetName: ipsetName,
 		ip:        ip.String(),
-		dst:       direction == fw.RuleDirectionOUT,
+		dst:       direction == firewall.RuleDirectionOUT,
 		v6:        ip.To4() == nil,
 	}
 	if ipsetName != "" {
@@ -190,7 +193,7 @@ func (m *Manager) AddFiltering(
 }
 
 // DeleteRule from the firewall by rule definition
-func (m *Manager) DeleteRule(rule fw.Rule) error {
+func (m *Manager) DeleteRule(rule firewall.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -230,6 +233,18 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 	return m.ipv4Client.Delete("filter", ChainInputFilterName, r.specs...)
 }
 
+func (m *Manager) IsServerRouteSupported() bool {
+	return true
+}
+
+func (m *Manager) InsertRoutingRules(pair firewall.RouterPair) error {
+	return m.router.InsertRoutingRules(pair)
+}
+
+func (m *Manager) RemoveRoutingRules(pair firewall.RouterPair) error {
+	return m.router.RemoveRoutingRules(pair)
+}
+
 // Reset firewall to the default state
 func (m *Manager) Reset() error {
 	m.mutex.Lock()
@@ -249,8 +264,8 @@ func (m *Manager) AllowNetbird() error {
 			"all",
 			nil,
 			nil,
-			fw.RuleDirectionIN,
-			fw.ActionAccept,
+			firewall.RuleDirectionIN,
+			firewall.ActionAccept,
 			"",
 			"",
 		)
@@ -262,8 +277,8 @@ func (m *Manager) AllowNetbird() error {
 			"all",
 			nil,
 			nil,
-			fw.RuleDirectionOUT,
-			fw.ActionAccept,
+			firewall.RuleDirectionOUT,
+			firewall.ActionAccept,
 			"",
 			"",
 		)
@@ -331,7 +346,7 @@ func (m *Manager) resetFilter() error {
 
 // filterRuleSpecs returns the specs of a filtering rule
 func (m *Manager) filterRuleSpecs(
-	ip net.IP, protocol string, sPort, dPort string, direction fw.RuleDirection, action fw.Action, ipsetName string,
+	ip net.IP, protocol string, sPort, dPort string, direction firewall.RuleDirection, action firewall.Action, ipsetName string,
 ) (specs []string) {
 	matchByIP := true
 	// don't use IP matching if IP is ip 0.0.0.0
@@ -339,7 +354,7 @@ func (m *Manager) filterRuleSpecs(
 		matchByIP = false
 	}
 	switch direction {
-	case fw.RuleDirectionIN:
+	case firewall.RuleDirectionIN:
 		if matchByIP {
 			if ipsetName != "" {
 				specs = append(specs, "-m", "set", "--set", ipsetName, "src")
@@ -347,7 +362,7 @@ func (m *Manager) filterRuleSpecs(
 				specs = append(specs, "-s", ip.String())
 			}
 		}
-	case fw.RuleDirectionOUT:
+	case firewall.RuleDirectionOUT:
 		if matchByIP {
 			if ipsetName != "" {
 				specs = append(specs, "-m", "set", "--set", ipsetName, "dst")
@@ -412,8 +427,8 @@ func (m *Manager) initialize() error {
 	return nil
 }
 
-func (m *Manager) actionToStr(action fw.Action) string {
-	if action == fw.ActionAccept {
+func (m *Manager) actionToStr(action firewall.Action) string {
+	if action == firewall.ActionAccept {
 		return "ACCEPT"
 	}
 	return "DROP"

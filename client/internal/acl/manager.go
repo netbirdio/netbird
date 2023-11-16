@@ -11,19 +11,10 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/firewall"
+	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/ssh"
-	"github.com/netbirdio/netbird/iface"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
-
-// IFaceMapper defines subset methods of interface required for manager
-type IFaceMapper interface {
-	Name() string
-	Address() iface.WGAddress
-	IsUserspaceBind() bool
-	SetFilter(iface.PacketFilter) error
-}
 
 // Manager is a ACL rules manager
 type Manager interface {
@@ -33,7 +24,7 @@ type Manager interface {
 
 // DefaultManager uses firewall manager to handle
 type DefaultManager struct {
-	manager      firewall.Manager
+	firewall     firewall.Manager
 	ipsetCounter int
 	rulesPairs   map[string][]firewall.Rule
 	mutex        sync.Mutex
@@ -44,9 +35,9 @@ type ipsetInfo struct {
 	ipCount int
 }
 
-func newDefaultManager(fm firewall.Manager) *DefaultManager {
+func NewDefaultManager(fm firewall.Manager) *DefaultManager {
 	return &DefaultManager{
-		manager:    fm,
+		firewall:   fm,
 		rulesPairs: make(map[string][]firewall.Rule),
 	}
 }
@@ -69,13 +60,13 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 			time.Since(start), total)
 	}()
 
-	if d.manager == nil {
+	if d.firewall == nil {
 		log.Debug("firewall manager is not supported, skipping firewall rules")
 		return
 	}
 
 	defer func() {
-		if err := d.manager.Flush(); err != nil {
+		if err := d.firewall.Flush(); err != nil {
 			log.Error("failed to flush firewall rules: ", err)
 		}
 	}()
@@ -163,7 +154,7 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 		log.Error("failed to apply firewall rules, rollback ACL to previous state")
 		for _, rules := range newRulePairs {
 			for _, rule := range rules {
-				if err := d.manager.DeleteRule(rule); err != nil {
+				if err := d.firewall.DeleteRule(rule); err != nil {
 					log.Errorf("failed to delete new firewall rule (id: %v) during rollback: %v", rule.GetRuleID(), err)
 					continue
 				}
@@ -175,7 +166,7 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 	for pairID, rules := range d.rulesPairs {
 		if _, ok := newRulePairs[pairID]; !ok {
 			for _, rule := range rules {
-				if err := d.manager.DeleteRule(rule); err != nil {
+				if err := d.firewall.DeleteRule(rule); err != nil {
 					log.Errorf("failed to delete firewall rule: %v", err)
 					continue
 				}
@@ -191,7 +182,7 @@ func (d *DefaultManager) Stop() {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	if err := d.manager.Reset(); err != nil {
+	if err := d.firewall.Reset(); err != nil {
 		log.WithError(err).Error("reset firewall state")
 	}
 }
@@ -259,7 +250,7 @@ func (d *DefaultManager) addInRules(
 	comment string,
 ) ([]firewall.Rule, error) {
 	var rules []firewall.Rule
-	rule, err := d.manager.AddFiltering(
+	rule, err := d.firewall.AddFiltering(
 		ip, protocol, nil, port, firewall.RuleDirectionIN, action, ipsetName, comment)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
@@ -270,7 +261,7 @@ func (d *DefaultManager) addInRules(
 		return rules, nil
 	}
 
-	rule, err = d.manager.AddFiltering(
+	rule, err = d.firewall.AddFiltering(
 		ip, protocol, port, nil, firewall.RuleDirectionOUT, action, ipsetName, comment)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
@@ -288,7 +279,7 @@ func (d *DefaultManager) addOutRules(
 	comment string,
 ) ([]firewall.Rule, error) {
 	var rules []firewall.Rule
-	rule, err := d.manager.AddFiltering(
+	rule, err := d.firewall.AddFiltering(
 		ip, protocol, nil, port, firewall.RuleDirectionOUT, action, ipsetName, comment)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
@@ -299,7 +290,7 @@ func (d *DefaultManager) addOutRules(
 		return rules, nil
 	}
 
-	rule, err = d.manager.AddFiltering(
+	rule, err = d.firewall.AddFiltering(
 		ip, protocol, port, nil, firewall.RuleDirectionIN, action, ipsetName, comment)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add firewall rule: %v", err)

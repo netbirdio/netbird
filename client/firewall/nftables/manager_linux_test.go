@@ -1,6 +1,7 @@
 package nftables
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/netip"
@@ -12,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 
-	fw "github.com/netbirdio/netbird/client/firewall"
+	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/iface"
 )
 
@@ -53,7 +54,7 @@ func TestNftablesManager(t *testing.T) {
 	}
 
 	// just check on the local interface
-	manager, err := Create(mock)
+	manager, err := Create(context.Background(), mock)
 	require.NoError(t, err)
 	time.Sleep(time.Second * 3)
 
@@ -173,7 +174,7 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 	for _, testMax := range []int{10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000} {
 		t.Run(fmt.Sprintf("Testing %d rules", testMax), func(t *testing.T) {
 			// just check on the local interface
-			manager, err := Create(mock)
+			manager, err := Create(context.Background(), mock)
 			require.NoError(t, err)
 			time.Sleep(time.Second * 3)
 

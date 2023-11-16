@@ -2,6 +2,7 @@ package nftables
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -16,13 +17,13 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
-	fw "github.com/netbirdio/netbird/client/firewall"
+	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/iface"
 )
 
 const (
-	// tableNameFilter is the name of the table that is used for filtering by the Netbird client
-	tableNameFilter = "netbird-acl"
+	// tableName is the name of the table that is used for filtering by the Netbird client
+	tableName = "netbird"
 
 	// rules chains contains the effective ACL rules
 	chainNameInputRules  = "netbird-acl-input-rules"
@@ -61,6 +62,7 @@ type Manager struct {
 	setRemoved     map[string]*nftables.Set
 
 	wgIface iFaceMapper
+	router  *router
 }
 
 // iFaceMapper defines subset methods of interface required for manager
@@ -70,7 +72,7 @@ type iFaceMapper interface {
 }
 
 // Create nftables firewall manager
-func Create(wgIface iFaceMapper) (*Manager, error) {
+func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 	// sConn is used for creating sets and adding/removing elements from them
 	// it's differ then rConn (which does create new conn for each flush operation)
 	// and is permanent. Using same connection for booth type of operations
@@ -89,6 +91,8 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 		setRemoved:     map[string]*nftables.Set{},
 
 		wgIface: wgIface,
+
+		router: newRouter(context),
 	}
 
 	if err := m.Reset(); err != nil {
@@ -104,14 +108,14 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 // rule ID as comment for the rule
 func (m *Manager) AddFiltering(
 	ip net.IP,
-	proto fw.Protocol,
-	sPort *fw.Port,
-	dPort *fw.Port,
-	direction fw.RuleDirection,
-	action fw.Action,
+	proto firewall.Protocol,
+	sPort *firewall.Port,
+	dPort *firewall.Port,
+	direction firewall.RuleDirection,
+	action firewall.Action,
 	ipsetName string,
 	comment string,
-) (fw.Rule, error) {
+) (firewall.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -162,7 +166,7 @@ func (m *Manager) AddFiltering(
 	}
 
 	ifaceKey := expr.MetaKeyIIFNAME
-	if direction == fw.RuleDirectionOUT {
+	if direction == firewall.RuleDirectionOUT {
 		ifaceKey = expr.MetaKeyOIFNAME
 	}
 	expressions := []expr.Any{
@@ -184,11 +188,11 @@ func (m *Manager) AddFiltering(
 
 		var protoData []byte
 		switch proto {
-		case fw.ProtocolTCP:
+		case firewall.ProtocolTCP:
 			protoData = []byte{unix.IPPROTO_TCP}
-		case fw.ProtocolUDP:
+		case firewall.ProtocolUDP:
 			protoData = []byte{unix.IPPROTO_UDP}
-		case fw.ProtocolICMP:
+		case firewall.ProtocolICMP:
 			protoData = []byte{unix.IPPROTO_ICMP}
 		default:
 			return nil, fmt.Errorf("unsupported protocol: %s", proto)
@@ -211,7 +215,7 @@ func (m *Manager) AddFiltering(
 		}
 
 		// change to destination address position if need
-		if direction == fw.RuleDirectionOUT {
+		if direction == firewall.RuleDirectionOUT {
 			addrOffset += addrLen
 		}
 
@@ -275,7 +279,7 @@ func (m *Manager) AddFiltering(
 		)
 	}
 
-	if action == fw.ActionAccept {
+	if action == firewall.ActionAccept {
 		expressions = append(expressions, &expr.Verdict{Kind: expr.VerdictAccept})
 	} else {
 		expressions = append(expressions, &expr.Verdict{Kind: expr.VerdictDrop})
@@ -284,7 +288,7 @@ func (m *Manager) AddFiltering(
 	userData := []byte(strings.Join([]string{rulesetID, comment}, " "))
 
 	var chain *nftables.Chain
-	if direction == fw.RuleDirectionIN {
+	if direction == firewall.RuleDirectionIN {
 		chain = m.chainInputRules
 	} else {
 		chain = m.chainOutputRules
@@ -304,58 +308,8 @@ func (m *Manager) AddFiltering(
 	return m.rulesetManager.addRule(ruleset, rawIP)
 }
 
-// getRulesetID returns ruleset ID based on given parameters
-func (m *Manager) getRulesetID(
-	ip net.IP,
-	sPort *fw.Port,
-	dPort *fw.Port,
-	direction fw.RuleDirection,
-	action fw.Action,
-	ipsetName string,
-) string {
-	rulesetID := ":" + strconv.Itoa(int(direction)) + ":"
-	if sPort != nil {
-		rulesetID += sPort.String()
-	}
-	rulesetID += ":"
-	if dPort != nil {
-		rulesetID += dPort.String()
-	}
-	rulesetID += ":"
-	rulesetID += strconv.Itoa(int(action))
-	if ipsetName == "" {
-		return "ip:" + ip.String() + rulesetID
-	}
-	return "set:" + ipsetName + rulesetID
-}
-
-// createSet in given table by name
-func (m *Manager) createSet(table *nftables.Table, rawIP []byte, name string) (*nftables.Set, error) {
-	keyType := nftables.TypeIPAddr
-	if len(rawIP) == 16 {
-		keyType = nftables.TypeIP6Addr
-	}
-	// else we create new ipset and continue creating rule
-	ipset := &nftables.Set{
-		Name:    name,
-		Table:   table,
-		Dynamic: true,
-		KeyType: keyType,
-	}
-
-	if err := m.rConn.AddSet(ipset, nil); err != nil {
-		return nil, fmt.Errorf("create set: %v", err)
-	}
-
-	if err := m.rConn.Flush(); err != nil {
-		return nil, fmt.Errorf("flush created set: %v", err)
-	}
-
-	return ipset, nil
-}
-
 // DeleteRule from the firewall by rule definition
-func (m *Manager) DeleteRule(rule fw.Rule) error {
+func (m *Manager) DeleteRule(rule firewall.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -410,6 +364,18 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 	return nil
 }
 
+func (m *Manager) IsServerRouteSupported() bool {
+	return true
+}
+
+func (m *Manager) InsertRoutingRules(pair firewall.RouterPair) error {
+	return m.router.InsertRoutingRules(pair)
+}
+
+func (m *Manager) RemoveRoutingRules(pair firewall.RouterPair) error {
+	return m.router.RemoveRoutingRules(pair)
+}
+
 // Reset firewall to the default state
 func (m *Manager) Reset() error {
 	m.mutex.Lock()
@@ -422,7 +388,7 @@ func (m *Manager) Reset() error {
 
 	// remove filter chains
 	for _, c := range chains {
-		if c.Table.Name != tableNameFilter {
+		if c.Table.Name != tableName {
 			continue
 		}
 
@@ -458,7 +424,7 @@ func (m *Manager) Reset() error {
 		}
 
 		// remove rules chains
-		if c.Table.Name != tableNameFilter {
+		if c.Table.Name != tableName {
 			continue
 		}
 
@@ -472,7 +438,7 @@ func (m *Manager) Reset() error {
 		return fmt.Errorf("list of tables: %w", err)
 	}
 	for _, t := range tables {
-		if t.Name == tableNameFilter {
+		if t.Name == tableName {
 			m.rConn.DelTable(t)
 		}
 	}
@@ -480,44 +446,6 @@ func (m *Manager) Reset() error {
 	m.tableFilter = nil
 
 	return m.rConn.Flush()
-}
-
-// Flush rule/chain/set operations from the buffer
-//
-// Method also get all rules after flush and refreshes handle values in the rulesets
-func (m *Manager) Flush() error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	if err := m.flushWithBackoff(); err != nil {
-		return err
-	}
-
-	// set must be removed after flush rule changes
-	// otherwise we will get error
-	for _, s := range m.setRemoved {
-		m.rConn.FlushSet(s)
-		m.rConn.DelSet(s)
-	}
-
-	if len(m.setRemoved) > 0 {
-		if err := m.flushWithBackoff(); err != nil {
-			return err
-		}
-	}
-
-	m.setRemovedIPs = map[string]struct{}{}
-	m.setRemoved = map[string]*nftables.Set{}
-
-	if err := m.refreshRuleHandles(m.chainInputRules); err != nil {
-		log.Errorf("failed to refresh rule handles ipv4 input chain: %v", err)
-	}
-
-	if err := m.refreshRuleHandles(m.chainOutputRules); err != nil {
-		log.Errorf("failed to refresh rule handles IPv4 output chain: %v", err)
-	}
-
-	return nil
 }
 
 // AllowNetbird allows netbird interface traffic
@@ -559,6 +487,94 @@ func (m *Manager) AllowNetbird() error {
 	if err != nil {
 		return fmt.Errorf("failed to flush allow input netbird rules: %v", err)
 	}
+	return nil
+}
+
+// getRulesetID returns ruleset ID based on given parameters
+func (m *Manager) getRulesetID(
+	ip net.IP,
+	sPort *firewall.Port,
+	dPort *firewall.Port,
+	direction firewall.RuleDirection,
+	action firewall.Action,
+	ipsetName string,
+) string {
+	rulesetID := ":" + strconv.Itoa(int(direction)) + ":"
+	if sPort != nil {
+		rulesetID += sPort.String()
+	}
+	rulesetID += ":"
+	if dPort != nil {
+		rulesetID += dPort.String()
+	}
+	rulesetID += ":"
+	rulesetID += strconv.Itoa(int(action))
+	if ipsetName == "" {
+		return "ip:" + ip.String() + rulesetID
+	}
+	return "set:" + ipsetName + rulesetID
+}
+
+// createSet in given table by name
+func (m *Manager) createSet(table *nftables.Table, rawIP []byte, name string) (*nftables.Set, error) {
+	keyType := nftables.TypeIPAddr
+	if len(rawIP) == 16 {
+		keyType = nftables.TypeIP6Addr
+	}
+	// else we create new ipset and continue creating rule
+	ipset := &nftables.Set{
+		Name:    name,
+		Table:   table,
+		Dynamic: true,
+		KeyType: keyType,
+	}
+
+	if err := m.rConn.AddSet(ipset, nil); err != nil {
+		return nil, fmt.Errorf("create set: %v", err)
+	}
+
+	if err := m.rConn.Flush(); err != nil {
+		return nil, fmt.Errorf("flush created set: %v", err)
+	}
+
+	return ipset, nil
+}
+
+// Flush rule/chain/set operations from the buffer
+//
+// Method also get all rules after flush and refreshes handle values in the rulesets
+func (m *Manager) Flush() error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	if err := m.flushWithBackoff(); err != nil {
+		return err
+	}
+
+	// set must be removed after flush rule changes
+	// otherwise we will get error
+	for _, s := range m.setRemoved {
+		m.rConn.FlushSet(s)
+		m.rConn.DelSet(s)
+	}
+
+	if len(m.setRemoved) > 0 {
+		if err := m.flushWithBackoff(); err != nil {
+			return err
+		}
+	}
+
+	m.setRemovedIPs = map[string]struct{}{}
+	m.setRemoved = map[string]*nftables.Set{}
+
+	if err := m.refreshRuleHandles(m.chainInputRules); err != nil {
+		log.Errorf("failed to refresh rule handles ipv4 input chain: %v", err)
+	}
+
+	if err := m.refreshRuleHandles(m.chainOutputRules); err != nil {
+		log.Errorf("failed to refresh rule handles IPv4 output chain: %v", err)
+	}
+
 	return nil
 }
 
@@ -739,13 +755,13 @@ func (m *Manager) createFilterTableIfNotExists() error {
 	}
 
 	for _, t := range tables {
-		if t.Name == tableNameFilter {
+		if t.Name == tableName {
 			m.tableFilter = t
 			return nil
 		}
 	}
 
-	table := m.rConn.AddTable(&nftables.Table{Name: tableNameFilter, Family: nftables.TableFamilyIPv4})
+	table := m.rConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv4})
 	err = m.rConn.Flush()
 	m.tableFilter = table
 	return err
@@ -998,7 +1014,7 @@ func (m *Manager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr.Me
 	})
 }
 
-func encodePort(port fw.Port) []byte {
+func encodePort(port firewall.Port) []byte {
 	bs := make([]byte, 2)
 	binary.BigEndian.PutUint16(bs, uint16(port.Values[0]))
 	return bs
