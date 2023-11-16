@@ -485,6 +485,15 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		return nil, nil, err
 	}
 
+	if strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad" && userID != "" {
+		if am.idpManager != nil {
+			userdata, err := am.lookupUserInCache(userID, account)
+			if err == nil {
+				peer.Meta.Hostname = fmt.Sprintf("%s-%s", peer.Meta.Hostname, strings.Split(userdata.Email, "@")[0])
+			}
+		}
+	}
+
 	// This is a handling for the case when the same machine (with the same WireGuard pub key) tries to register twice.
 	// Such case is possible when AddPeer function takes long time to finish after AcquireAccountLock (e.g., database is slow)
 	// and the peer disconnects with a timeout and tries to register again.
@@ -638,6 +647,7 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*Peer, *NetworkMap, er
 // If peer doesn't exist the function checks whether a setup key or a user is present and registers a new peer if so.
 func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap, error) {
 	account, err := am.Store.GetAccountByPeerPubKey(login.WireGuardPubKey)
+
 	if err != nil {
 		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
 			// we couldn't find this peer by its public key which can mean that peer hasn't been registered yet.
