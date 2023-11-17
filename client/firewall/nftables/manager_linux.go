@@ -390,6 +390,11 @@ func (m *Manager) RemoveRoutingRules(pair firewall.RouterPair) error {
 		}
 	}
 
+	err = m.rConn.Flush()
+	if err != nil {
+		return err
+	}
+
 	return m.router.RemoveRoutingRules(pair)
 }
 

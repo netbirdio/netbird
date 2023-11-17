@@ -1,6 +1,7 @@
 package nftables
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -83,6 +84,7 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table) (*router, e
 	}
 
 	// todo cleanup garbage fwd rules from the forward chains
+	r.cleanUpFilterForwardRules()
 
 	err := r.createContainers()
 	if err != nil {
@@ -366,6 +368,38 @@ func (r *router) refreshDefaultForwardRule() error {
 	}
 
 	return nil
+}
+
+func (r *router) cleanUpFilterForwardRules() error {
+	chains, err := r.conn.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
+	if err != nil {
+		return err
+	}
+
+	var rules []*nftables.Rule
+	for _, chain := range chains {
+		if chain.Table != r.filterTable {
+			continue
+		}
+		if chain.Name != "FORWARD" {
+			continue
+		}
+
+		rules, err = r.conn.GetRules(r.filterTable, chain)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, rule := range rules {
+		if bytes.Equal(rule.UserData, []byte(userDataAcceptForwardRuleSrc)) || bytes.Equal(rule.UserData, []byte(userDataAcceptForwardRuleDst)) {
+			err := r.conn.DelRule(rule)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return r.conn.Flush()
 }
 
 // generateCIDRMatcherExpressions generates nftables expressions that matches a CIDR
