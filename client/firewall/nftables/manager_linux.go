@@ -47,15 +47,9 @@ type Manager struct {
 	sConn *nftables.Conn
 
 	// cached nftalbes objects
-	tableFilter      *nftables.Table
+	workTable        *nftables.Table
 	chainInputRules  *nftables.Chain
 	chainOutputRules *nftables.Chain
-
-	chainInputRulesIsExists  bool
-	chainOutputRulesIsExists bool
-	chainForwardIsExists     bool
-	chainInputIsExists       bool
-	chainOutputIsExists      bool
 
 	rulesetManager *rulesetManager
 	setRemovedIPs  map[string]struct{}
@@ -91,14 +85,19 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 		setRemoved:     map[string]*nftables.Set{},
 
 		wgIface: wgIface,
-
-		router: newRouter(context),
 	}
 
-	if err := m.Reset(); err != nil {
+	if err := m.createWorkTable(); err != nil {
 		return nil, err
 	}
 
+	if err := m.createDefaultChains(); err != nil {
+		return nil, err
+	}
+	m.router, err = newRouter(context, m.workTable)
+	if err != nil {
+		return nil, err
+	}
 	return m, nil
 }
 
@@ -119,16 +118,6 @@ func (m *Manager) AddFiltering(
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	err := m.createFilterTableIfNotExists()
-	if err != nil {
-		return nil, err
-	}
-
-	err = m.createDefaultChains()
-	if err != nil {
-		return nil, err
-	}
-
 	var ipset *nftables.Set
 	rawIP := ip.To4()
 	rulesetID := m.getRulesetID(ip, sPort, dPort, direction, action, ipsetName)
@@ -138,9 +127,9 @@ func (m *Manager) AddFiltering(
 		// with fresh created set and set element
 
 		var isSetNew bool
-		ipset, err = m.rConn.GetSetByName(m.tableFilter, ipsetName)
+		ipset, err := m.rConn.GetSetByName(m.workTable, ipsetName)
 		if err != nil {
-			if ipset, err = m.createSet(m.tableFilter, rawIP, ipsetName); err != nil {
+			if ipset, err = m.createSet(m.workTable, rawIP, ipsetName); err != nil {
 				return nil, fmt.Errorf("get set name: %v", err)
 			}
 			isSetNew = true
@@ -294,7 +283,7 @@ func (m *Manager) AddFiltering(
 		chain = m.chainOutputRules
 	}
 	rule := m.rConn.InsertRule(&nftables.Rule{
-		Table:    m.tableFilter,
+		Table:    m.workTable,
 		Chain:    chain,
 		Position: 0,
 		Exprs:    expressions,
@@ -369,10 +358,14 @@ func (m *Manager) IsServerRouteSupported() bool {
 }
 
 func (m *Manager) InsertRoutingRules(pair firewall.RouterPair) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	return m.router.InsertRoutingRules(pair)
 }
 
 func (m *Manager) RemoveRoutingRules(pair firewall.RouterPair) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	return m.router.RemoveRoutingRules(pair)
 }
 
@@ -384,26 +377,6 @@ func (m *Manager) Reset() error {
 	chains, err := m.rConn.ListChains()
 	if err != nil {
 		return fmt.Errorf("list of chains: %w", err)
-	}
-
-	// remove filter chains
-	for _, c := range chains {
-		if c.Table.Name != tableName {
-			continue
-		}
-
-		if c.Name == chainNameForwardFilter {
-			m.rConn.DelChain(c)
-			continue
-		}
-
-		if c.Name == chainNameInputFilter {
-			m.rConn.DelChain(c)
-		}
-
-		if c.Name == chainNameOutputFilter {
-			m.rConn.DelChain(c)
-		}
 	}
 
 	for _, c := range chains {
@@ -422,15 +395,11 @@ func (m *Manager) Reset() error {
 				}
 			}
 		}
+	}
 
-		// remove rules chains
-		if c.Table.Name != tableName {
-			continue
-		}
-
-		if c.Name == chainNameInputRules || c.Name == chainNameOutputRules {
-			m.rConn.DelChain(c)
-		}
+	err = m.router.ResetForwardRules()
+	if err != nil {
+		return err
 	}
 
 	tables, err := m.rConn.ListTables()
@@ -443,7 +412,9 @@ func (m *Manager) Reset() error {
 		}
 	}
 
-	m.tableFilter = nil
+	m.workTable = nil
+	m.chainInputRules = nil
+	m.chainOutputRules = nil
 
 	return m.rConn.Flush()
 }
@@ -601,11 +572,11 @@ func (m *Manager) flushWithBackoff() (err error) {
 }
 
 func (m *Manager) refreshRuleHandles(chain *nftables.Chain) error {
-	if m.tableFilter == nil || chain == nil {
+	if m.workTable == nil || chain == nil {
 		return nil
 	}
 
-	list, err := m.rConn.GetRules(m.tableFilter, chain)
+	list, err := m.rConn.GetRules(m.workTable, chain)
 	if err != nil {
 		return err
 	}
@@ -660,95 +631,81 @@ func (m *Manager) detectAllowNetbirdRule(existedRules []*nftables.Rule) *nftable
 }
 
 func (m *Manager) createDefaultChains() (err error) {
-	if !m.chainInputRulesIsExists {
-		chain, err := m.createChainIfNotExists(chainNameInputRules)
-		if err != nil {
-			return err
-		}
-		m.createDefaultExpressions(chain, expr.MetaKeyIIFNAME)
-		err = m.rConn.Flush()
-		if err != nil {
-			log.Errorf("failed to create chain (%s): %s", chainNameInputRules, err)
-			return err
-		}
-		m.chainInputRules = chain
-		m.chainInputRulesIsExists = true
+	// chainNameInputRules
+	chain, err := m.createChainIfNotExists(chainNameInputRules)
+	if err != nil {
+		return err
+	}
+	m.createDefaultExpressions(chain, expr.MetaKeyIIFNAME)
+	err = m.rConn.Flush()
+	if err != nil {
+		log.Errorf("failed to create chain (%s): %s", chainNameInputRules, err)
+		return err
+	}
+	m.chainInputRules = chain
+
+	// chainNameOutputRules
+	chain, err = m.createChainIfNotExists(chainNameOutputRules)
+	if err != nil {
+		return err
+	}
+	m.createDefaultExpressions(chain, expr.MetaKeyOIFNAME)
+	err = m.rConn.Flush()
+	if err != nil {
+		log.Errorf("failed to create chain (%s): %s", chainNameOutputRules, err)
+		return err
+	}
+	m.chainOutputRules = chain
+
+	// chainNameInputFilter
+	// type filter hook input priority filter; policy accept;
+	c, err := m.createChainWithHookIfNotExists(chainNameInputFilter, nftables.ChainHookInput)
+	if err != nil {
+		return err
+	}
+	// iifname "wt0" ip saddr [netbird-range]/16 ip daddr [netbird-range]/16 jump netbird-acl-input-rules
+	m.addJumpRule(c, m.chainInputRules.Name, expr.MetaKeyIIFNAME)
+	err = m.rConn.Flush()
+	if err != nil {
+		log.Errorf("failed to create chain (%s): %s", chainNameInputFilter, err)
+		return err
 	}
 
-	if !m.chainOutputRulesIsExists {
-		chain, err := m.createChainIfNotExists(chainNameOutputRules)
-		if err != nil {
-			return err
-		}
-		m.createDefaultExpressions(chain, expr.MetaKeyOIFNAME)
-		err = m.rConn.Flush()
-		if err != nil {
-			log.Errorf("failed to create chain (%s): %s", chainNameOutputRules, err)
-			return err
-		}
-		m.chainOutputRules = chain
-		m.chainOutputRulesIsExists = true
+	// chainNameOutputFilter
+	// type filter hook output priority filter; policy accept;
+	c, err = m.createChainWithHookIfNotExists(chainNameOutputFilter, nftables.ChainHookOutput)
+	if err != nil {
+		return err
+	}
+	// oifname "wt0" ip saddr 100.72.0.0/16 ip daddr 100.72.0.0/16 jump netbird-acl-output-rules
+	m.addJumpRule(c, m.chainOutputRules.Name, expr.MetaKeyOIFNAME)
+	err = m.rConn.Flush()
+	if err != nil {
+		log.Errorf("failed to create chain (%s): %s", chainNameOutputFilter, err)
+		return err
 	}
 
-	if !m.chainInputIsExists {
-		// type filter hook input priority filter; policy accept;
-		c, err := m.createChainWithHookIfNotExists(chainNameInputFilter, nftables.ChainHookInput)
-		if err != nil {
-			return err
-		}
-		// iifname "wt0" ip saddr [netbird-range]/16 ip daddr [netbird-range]/16 jump netbird-acl-input-rules
-		m.addJumpRule(c, m.chainInputRules.Name, expr.MetaKeyIIFNAME)
-		err = m.rConn.Flush()
-		if err != nil {
-			log.Errorf("failed to create chain (%s): %s", chainNameInputFilter, err)
-			return err
-		}
-		m.chainInputIsExists = true
+	// chainNameForwardFilter
+	c, err = m.createChainWithHookIfNotExists(chainNameForwardFilter, nftables.ChainHookForward)
+	if err != nil {
+		return err
 	}
 
-	if !m.chainOutputIsExists {
-		// type filter hook output priority filter; policy accept;
-		c, err := m.createChainWithHookIfNotExists(chainNameOutputFilter, nftables.ChainHookOutput)
-		if err != nil {
-			return err
-		}
-		// oifname "wt0" ip saddr 100.72.0.0/16 ip daddr 100.72.0.0/16 jump netbird-acl-output-rules
-		m.addJumpRule(c, m.chainOutputRules.Name, expr.MetaKeyOIFNAME)
-		err = m.rConn.Flush()
-		if err != nil {
-			log.Errorf("failed to create chain (%s): %s", chainNameOutputFilter, err)
-			return err
-		}
-		m.chainOutputIsExists = true
-	}
+	// oifname "wt0" ip saddr [netbird-range]/16 jump netbird-acl-output-rules
+	// iifname "wt0" ip daddr [netbird-range]/16 jump netbird-acl-input-rules
+	m.addJumpRuleWithIPRestriction(c, m.chainOutputRules.Name, expr.MetaKeyOIFNAME)
+	m.addJumpRuleWithIPRestriction(c, m.chainInputRules.Name, expr.MetaKeyIIFNAME)
 
-	if !m.chainForwardIsExists {
-		c, err := m.createChainWithHookIfNotExists(chainNameForwardFilter, nftables.ChainHookForward)
-		if err != nil {
-			return err
-		}
-
-		// oifname "wt0" ip saddr [netbird-range]/16 jump netbird-acl-output-rules
-		// iifname "wt0" ip daddr [netbird-range]/16 jump netbird-acl-input-rules
-		m.addJumpRuleWithIPRestriction(c, m.chainOutputRules.Name, expr.MetaKeyOIFNAME)
-		m.addJumpRuleWithIPRestriction(c, m.chainInputRules.Name, expr.MetaKeyIIFNAME)
-
-		err = m.rConn.Flush()
-		if err != nil {
-			log.Errorf("failed to create chain (%s): %s", chainNameForwardFilter, err)
-			return err
-		}
-		m.chainForwardIsExists = true
+	err = m.rConn.Flush()
+	if err != nil {
+		log.Errorf("failed to create chain (%s): %s", chainNameForwardFilter, err)
+		return err
 	}
 
 	return nil
 }
 
-func (m *Manager) createFilterTableIfNotExists() error {
-	if m.tableFilter != nil {
-		return nil
-	}
-
+func (m *Manager) createWorkTable() error {
 	tables, err := m.rConn.ListTablesOfFamily(nftables.TableFamilyIPv4)
 	if err != nil {
 		return fmt.Errorf("list of tables: %w", err)
@@ -756,14 +713,13 @@ func (m *Manager) createFilterTableIfNotExists() error {
 
 	for _, t := range tables {
 		if t.Name == tableName {
-			m.tableFilter = t
-			return nil
+			m.rConn.DelTable(t)
 		}
 	}
 
 	table := m.rConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv4})
 	err = m.rConn.Flush()
-	m.tableFilter = table
+	m.workTable = table
 	return err
 }
 
@@ -774,13 +730,13 @@ func (m *Manager) createChainIfNotExists(name string) (*nftables.Chain, error) {
 	}
 
 	for _, c := range chains {
-		if c.Name == name && c.Table.Name == m.tableFilter.Name {
+		if c.Name == name && c.Table.Name == m.workTable.Name {
 			return c, nil
 		}
 	}
 	chain := &nftables.Chain{
 		Name:  name,
-		Table: m.tableFilter,
+		Table: m.workTable,
 	}
 
 	chain = m.rConn.AddChain(chain)
@@ -794,7 +750,7 @@ func (m *Manager) createChainWithHookIfNotExists(name string, hookNum nftables.C
 	}
 
 	for _, c := range chains {
-		if c.Name == name && c.Table.Name == m.tableFilter.Name {
+		if c.Name == name && c.Table.Name == m.workTable.Name {
 			return c, nil
 		}
 	}
@@ -802,7 +758,7 @@ func (m *Manager) createChainWithHookIfNotExists(name string, hookNum nftables.C
 	polAccept := nftables.ChainPolicyAccept
 	chain := &nftables.Chain{
 		Name:     name,
-		Table:    m.tableFilter,
+		Table:    m.workTable,
 		Hooknum:  hookNum,
 		Priority: nftables.ChainPriorityFilter,
 		Type:     nftables.ChainTypeFilter,
@@ -824,7 +780,7 @@ func (m *Manager) createDefaultExpressions(chain *nftables.Chain, ifaceKey expr.
 		&expr.Verdict{Kind: expr.VerdictDrop},
 	}
 	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: m.tableFilter,
+		Table: m.workTable,
 		Chain: chain,
 		Exprs: expressions,
 	})

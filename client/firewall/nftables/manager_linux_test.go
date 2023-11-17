@@ -83,7 +83,7 @@ func TestNftablesManager(t *testing.T) {
 	err = manager.Flush()
 	require.NoError(t, err, "failed to flush")
 
-	rules, err := testClient.GetRules(manager.tableFilter, manager.chainInputRules)
+	rules, err := testClient.GetRules(manager.workTable, manager.chainInputRules)
 	require.NoError(t, err, "failed to get rules")
 
 	// test expectations:
@@ -144,7 +144,7 @@ func TestNftablesManager(t *testing.T) {
 	err = manager.Flush()
 	require.NoError(t, err, "failed to flush")
 
-	rules, err = testClient.GetRules(manager.tableFilter, manager.chainInputRules)
+	rules, err = testClient.GetRules(manager.workTable, manager.chainInputRules)
 	require.NoError(t, err, "failed to get rules")
 	// test expectations:
 	// 1) "accept extra routed traffic rule" for the interface

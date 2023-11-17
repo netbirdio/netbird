@@ -19,7 +19,6 @@ import (
 // Manager is a ACL rules manager
 type Manager interface {
 	ApplyFiltering(networkMap *mgmProto.NetworkMap)
-	Stop()
 }
 
 // DefaultManager uses firewall manager to handle
@@ -175,16 +174,6 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 		}
 	}
 	d.rulesPairs = newRulePairs
-}
-
-// Stop ACL controller and clear firewall state
-func (d *DefaultManager) Stop() {
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
-
-	if err := d.firewall.Reset(); err != nil {
-		log.WithError(err).Error("reset firewall state")
-	}
 }
 
 func (d *DefaultManager) protoRuleToFirewallRule(

@@ -4,7 +4,6 @@ package routemanager
 
 import (
 	"context"
-	"fmt"
 	"net/netip"
 	"sync"
 
@@ -34,13 +33,6 @@ func newServerRouter(ctx context.Context, wgInterface *iface.WGIface, firewall f
 
 func (m *defaultServerRouter) updateRoutes(routesMap map[string]*route.Route) error {
 	serverRoutesToRemove := make([]string, 0)
-
-	if len(routesMap) > 0 {
-		err := m.firewall.RestoreOrCreateContainers()
-		if err != nil {
-			return fmt.Errorf("couldn't initialize firewall containers, got err: %v", err)
-		}
-	}
 
 	for routeID := range m.routes {
 		update, found := routesMap[routeID]

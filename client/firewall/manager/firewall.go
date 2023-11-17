@@ -79,14 +79,6 @@ type Manager interface {
 	// RemoveRoutingRules removes a routing firewall rule
 	RemoveRoutingRules(pair RouterPair) error
 
-	/*
-		// RestoreOrCreateContainers restores or creates a firewall container set of rules, tables and default rules
-		RestoreOrCreateContainers() error
-		// CleanRoutingRules cleans a firewall set of containers
-		CleanRoutingRules()
-
-	*/
-
 	// Reset firewall to the default state
 	Reset() error
 
