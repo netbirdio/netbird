@@ -11,8 +11,31 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/client/firewall"
+	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 )
+
+func createWorkTable() (*nftables.Table, error) {
+	sConn, err := nftables.New(nftables.AsLasting())
+	if err != nil {
+		return nil, err
+	}
+
+	tables, err := sConn.ListTablesOfFamily(nftables.TableFamilyIPv4)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, t := range tables {
+		if t.Name == tableName {
+			sConn.DelTable(t)
+		}
+	}
+
+	table := sConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv4})
+	err = sConn.Flush()
+
+	return table, err
+}
 
 func TestNftablesManager_RestoreOrCreateContainers(t *testing.T) {
 
@@ -20,14 +43,19 @@ func TestNftablesManager_RestoreOrCreateContainers(t *testing.T) {
 		t.Skip("nftables not supported on this OS")
 	}
 
-	manager := newNFTablesManager(context.TODO())
+	table, err := createWorkTable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manager, err := newRouter(context.TODO(), table)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	nftablesTestingClient := &nftables.Conn{}
 
-	defer manager.CleanRoutingRules()
-
-	err := manager.RestoreOrCreateContainers()
-	require.NoError(t, err, "shouldn't return error")
+	//defer manager.CleanRoutingRules()
 
 	require.Len(t, manager.chains, 2, "should have created chains")
 	require.Len(t, manager.rules, 1, "should have created rules")
@@ -39,23 +67,23 @@ func TestNftablesManager_RestoreOrCreateContainers(t *testing.T) {
 		Masquerade:  true,
 	}
 
-	sourceExp := generateCIDRMatcherExpressions("Source", pair.Source)
-	destExp := generateCIDRMatcherExpressions("Destination", pair.Destination)
+	sourceExp := generateCIDRMatcherExpressions(true, pair.Source)
+	destExp := generateCIDRMatcherExpressions(false, pair.Destination)
 
 	forward4Exp := append(sourceExp, append(destExp, exprCounterAccept...)...)
-	forward4RuleKey := genKey(forwardingFormat, pair.ID)
+	forward4RuleKey := firewall.GenKey(firewall.ForwardingFormat, pair.ID)
 	inserted4Forwarding := nftablesTestingClient.InsertRule(&nftables.Rule{
-		Table:    manager.table,
+		Table:    table,
 		Chain:    manager.chains[nftablesRoutingForwardingChain],
 		Exprs:    forward4Exp,
 		UserData: []byte(forward4RuleKey),
 	})
 
 	nat4Exp := append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...)
-	nat4RuleKey := genKey(natFormat, pair.ID)
+	nat4RuleKey := firewall.GenKey(firewall.NatFormat, pair.ID)
 
 	inserted4Nat := nftablesTestingClient.InsertRule(&nftables.Rule{
-		Table:    manager.table,
+		Table:    table,
 		Chain:    manager.chains[nftablesRoutingNatChain],
 		Exprs:    nat4Exp,
 		UserData: []byte(nat4RuleKey),
@@ -64,7 +92,7 @@ func TestNftablesManager_RestoreOrCreateContainers(t *testing.T) {
 	err = nftablesTestingClient.Flush()
 	require.NoError(t, err, "shouldn't return error")
 
-	manager.table = nil
+	table = nil
 
 	err = manager.RestoreOrCreateContainers()
 	require.NoError(t, err, "shouldn't return error")

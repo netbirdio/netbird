@@ -695,12 +695,12 @@ func (m *Manager) createDefaultChains() (err error) {
 		return err
 	}
 
-	m.addJumpToForward()
+	m.addJumpToRouteForward()
 
-	// oifname "wt0" ip saddr [netbird-range]/16 jump netbird-acl-output-rules
-	// iifname "wt0" ip daddr [netbird-range]/16 jump netbird-acl-input-rules
-	m.addJumpRuleWithIPRestriction(m.chainFwFilter, m.chainOutputRules.Name, expr.MetaKeyOIFNAME)
-	m.addJumpRuleWithIPRestriction(m.chainFwFilter, m.chainInputRules.Name, expr.MetaKeyIIFNAME)
+	// iifname "wt0" jump netbird-acl-input-rules
+	// oifname "wt0" jump netbird-acl-output-rules
+	m.addJumpRulesToACLrules(m.chainInputRules.Name, expr.MetaKeyIIFNAME)
+	m.addJumpRulesToACLrules(m.chainOutputRules.Name, expr.MetaKeyOIFNAME)
 
 	err = m.rConn.Flush()
 	if err != nil {
@@ -711,7 +711,7 @@ func (m *Manager) createDefaultChains() (err error) {
 	return nil
 }
 
-func (m *Manager) addJumpToForward() {
+func (m *Manager) addJumpToRouteForward() {
 	expressions := []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
 		&expr.Cmp{
@@ -833,10 +833,7 @@ func (m *Manager) createDefaultExpressions(chain *nftables.Chain, ifaceKey expr.
 	return nil
 }
 
-// addJumpRuleWithIPRestriction adds jump rule with IP restriction, The restriction required for to ignore the ACL
-// rules on routed traffic.
-func (m *Manager) addJumpRuleWithIPRestriction(chain *nftables.Chain, to string, ifaceKey expr.MetaKey) {
-	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
+func (m *Manager) addJumpRulesToACLrules(to string, ifaceKey expr.MetaKey) {
 	expressions := []expr.Any{
 		&expr.Meta{Key: ifaceKey, Register: 1},
 		&expr.Cmp{
@@ -844,24 +841,6 @@ func (m *Manager) addJumpRuleWithIPRestriction(chain *nftables.Chain, to string,
 			Register: 1,
 			Data:     ifname(m.wgIface.Name()),
 		},
-		&expr.Payload{
-			DestRegister: 2,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       12,
-			Len:          4,
-		},
-		&expr.Bitwise{
-			SourceRegister: 2,
-			DestRegister:   2,
-			Len:            4,
-			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-			Mask:           m.wgIface.Address().Network.Mask,
-		},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 2,
-			Data:     ip.Unmap().AsSlice(),
-		},
 		&expr.Verdict{
 			Kind:  expr.VerdictJump,
 			Chain: to,
@@ -869,45 +848,8 @@ func (m *Manager) addJumpRuleWithIPRestriction(chain *nftables.Chain, to string,
 	}
 
 	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: chain.Table,
-		Chain: chain,
-		Exprs: expressions,
-	})
-
-	expressions = []expr.Any{
-		&expr.Meta{Key: ifaceKey, Register: 1},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     ifname(m.wgIface.Name()),
-		},
-		&expr.Payload{
-			DestRegister: 2,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       16,
-			Len:          4,
-		},
-		&expr.Bitwise{
-			SourceRegister: 2,
-			DestRegister:   2,
-			Len:            4,
-			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-			Mask:           m.wgIface.Address().Network.Mask,
-		},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 2,
-			Data:     ip.Unmap().AsSlice(),
-		},
-		&expr.Verdict{
-			Kind:  expr.VerdictJump,
-			Chain: to,
-		},
-	}
-
-	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: chain.Table,
-		Chain: chain,
+		Table: m.workTable,
+		Chain: m.chainFwFilter,
 		Exprs: expressions,
 	})
 }
