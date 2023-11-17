@@ -14,17 +14,6 @@ import (
 var errRouteNotFound = fmt.Errorf("route not found")
 
 func addToRouteTableIfNoExists(prefix netip.Prefix, addr string) error {
-	defaultGateway, err := getExistingRIBRouteGateway(netip.MustParsePrefix("0.0.0.0/0"))
-	if err != nil && err != errRouteNotFound {
-		return err
-	}
-
-	gatewayIP := netip.MustParseAddr(defaultGateway.String())
-	if prefix.Contains(gatewayIP) {
-		log.Warnf("skipping adding a new route for network %s because it overlaps with the default gateway: %s", prefix, gatewayIP)
-		return nil
-	}
-
 	ok, err := existsInRouteTable(prefix)
 	if err != nil {
 		return err
