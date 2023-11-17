@@ -83,10 +83,12 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table) (*router, e
 		defaultForwardRules: make([]*nftables.Rule, 2),
 	}
 
-	// todo cleanup garbage fwd rules from the forward chains
-	r.cleanUpFilterForwardRules()
+	err := r.cleanUpFilterForwardRules()
+	if err != nil {
+		log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
+	}
 
-	err := r.createContainers()
+	err = r.createContainers()
 	if err != nil {
 		log.Errorf("failed to create containers for route: %s", err)
 	}
