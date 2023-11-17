@@ -50,6 +50,7 @@ type Manager struct {
 	workTable        *nftables.Table
 	chainInputRules  *nftables.Chain
 	chainOutputRules *nftables.Chain
+	chainFwFilter    *nftables.Chain
 
 	rulesetManager *rulesetManager
 	setRemovedIPs  map[string]struct{}
@@ -360,12 +361,35 @@ func (m *Manager) IsServerRouteSupported() bool {
 func (m *Manager) InsertRoutingRules(pair firewall.RouterPair) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
+
+	m.addRouteAllowed(pair)
+	m.addRouteAllowed(firewall.GetInPair(pair))
+
+	err := m.rConn.Flush()
+	if err != nil {
+		return err
+	}
+
 	return m.router.InsertRoutingRules(pair)
 }
 
 func (m *Manager) RemoveRoutingRules(pair firewall.RouterPair) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
+
+	rules, err := m.rConn.GetRules(m.workTable, m.chainFwFilter)
+	if err != nil {
+		return err
+	}
+
+	for _, rule := range rules {
+		if bytes.Equal(rule.UserData, genRuleId(pair.ID)) {
+			if err := m.rConn.DelRule(rule); err != nil {
+				return err
+			}
+		}
+	}
+
 	return m.router.RemoveRoutingRules(pair)
 }
 
@@ -686,15 +710,15 @@ func (m *Manager) createDefaultChains() (err error) {
 	}
 
 	// chainNameForwardFilter
-	c, err = m.createChainWithHookIfNotExists(chainNameForwardFilter, nftables.ChainHookForward)
+	m.chainFwFilter, err = m.createChainWithHookIfNotExists(chainNameForwardFilter, nftables.ChainHookForward)
 	if err != nil {
 		return err
 	}
 
 	// oifname "wt0" ip saddr [netbird-range]/16 jump netbird-acl-output-rules
 	// iifname "wt0" ip daddr [netbird-range]/16 jump netbird-acl-input-rules
-	m.addJumpRuleWithIPRestriction(c, m.chainOutputRules.Name, expr.MetaKeyOIFNAME)
-	m.addJumpRuleWithIPRestriction(c, m.chainInputRules.Name, expr.MetaKeyIIFNAME)
+	m.addJumpRuleWithIPRestriction(m.chainFwFilter, m.chainOutputRules.Name, expr.MetaKeyOIFNAME)
+	m.addJumpRuleWithIPRestriction(m.chainFwFilter, m.chainInputRules.Name, expr.MetaKeyIIFNAME)
 
 	err = m.rConn.Flush()
 	if err != nil {
@@ -785,6 +809,21 @@ func (m *Manager) createDefaultExpressions(chain *nftables.Chain, ifaceKey expr.
 		Exprs: expressions,
 	})
 	return nil
+}
+
+func (m *Manager) addRouteAllowed(pair firewall.RouterPair) {
+	sourceExp := generateCIDRMatcherExpressions(true, pair.Source)
+	destExp := generateCIDRMatcherExpressions(false, pair.Destination)
+
+	var expression []expr.Any
+	expression = append(sourceExp, append(destExp, exprCounterAccept...)...)
+
+	m.rConn.InsertRule(&nftables.Rule{
+		Table:    m.workTable,
+		Chain:    m.chainFwFilter,
+		Exprs:    expression,
+		UserData: genRuleId(pair.ID),
+	})
 }
 
 // addJumpRuleWithIPRestriction adds jump rule with IP restriction, The restriction required for to ignore the ACL
@@ -980,4 +1019,8 @@ func ifname(n string) []byte {
 	b := make([]byte, 16)
 	copy(b, []byte(n+"\x00"))
 	return b
+}
+
+func genRuleId(pairId string) []byte {
+	return []byte(fmt.Sprintf("netbird-acl-forward-%s", pairId))
 }
