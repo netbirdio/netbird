@@ -1115,7 +1115,7 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 		if user.IsServiceUser {
 			continue
 		}
-		if user.Issued == UserIssuedIntegration && user.LastLogin.IsZero() {
+		if user.Issued == UserIssuedIntegration {
 			continue
 		}
 		users[user.Id] = struct{}{}
@@ -1188,16 +1188,20 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, a
 		userDataMap[datum.ID] = struct{}{}
 	}
 
-	// check whether we need to reload the cache
-	// the accountUsers ID list is the source of truth and all the users should be in the cache
-	reload := len(accountUsers) != len(data)
+	// the accountUsers ID list of non integration users from store, we check if cache has all of them
+	// as result of for loop knownUsersCount will have number of users are not presented in the cashed
+	knownUsersCount := len(accountUsers)
 	for user := range accountUsers {
-		if _, ok := userDataMap[user]; !ok {
-			reload = true
+		if _, ok := userDataMap[user]; ok {
+			knownUsersCount--
+			continue
 		}
+		log.Debugf("cache doesn't know about %s user", user)
 	}
 
-	if reload {
+	// if we know users that are not yet in cache more likely cache is outdated
+	if knownUsersCount > 0 {
+		log.Debugf("cache doesn't know about %d users from store, reloading", knownUsersCount)
 		// reload cache once avoiding loops
 		data, err = am.refreshCache(accountID)
 		if err != nil {
