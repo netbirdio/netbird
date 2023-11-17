@@ -92,13 +92,15 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 		return nil, err
 	}
 
-	if err := m.createDefaultChains(); err != nil {
-		return nil, err
-	}
 	m.router, err = newRouter(context, m.workTable)
 	if err != nil {
 		return nil, err
 	}
+
+	if err := m.createDefaultChains(); err != nil {
+		return nil, err
+	}
+
 	return m, nil
 }
 
@@ -361,39 +363,12 @@ func (m *Manager) IsServerRouteSupported() bool {
 func (m *Manager) InsertRoutingRules(pair firewall.RouterPair) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-
-	m.addRouteAllowed(pair)
-	m.addRouteAllowed(firewall.GetInPair(pair))
-
-	err := m.rConn.Flush()
-	if err != nil {
-		return err
-	}
-
 	return m.router.InsertRoutingRules(pair)
 }
 
 func (m *Manager) RemoveRoutingRules(pair firewall.RouterPair) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-
-	rules, err := m.rConn.GetRules(m.workTable, m.chainFwFilter)
-	if err != nil {
-		return err
-	}
-
-	for _, rule := range rules {
-		if bytes.Equal(rule.UserData, genRuleId(pair.ID)) {
-			if err := m.rConn.DelRule(rule); err != nil {
-				return err
-			}
-		}
-	}
-
-	err = m.rConn.Flush()
-	if err != nil {
-		return err
-	}
 
 	return m.router.RemoveRoutingRules(pair)
 }
@@ -686,7 +661,7 @@ func (m *Manager) createDefaultChains() (err error) {
 	}
 	m.chainOutputRules = chain
 
-	// chainNameInputFilter
+	// netbird-acl-input-filter
 	// type filter hook input priority filter; policy accept;
 	c, err := m.createChainWithHookIfNotExists(chainNameInputFilter, nftables.ChainHookInput)
 	if err != nil {
@@ -700,7 +675,7 @@ func (m *Manager) createDefaultChains() (err error) {
 		return err
 	}
 
-	// chainNameOutputFilter
+	// netbird-acl-output-filter
 	// type filter hook output priority filter; policy accept;
 	c, err = m.createChainWithHookIfNotExists(chainNameOutputFilter, nftables.ChainHookOutput)
 	if err != nil {
@@ -714,11 +689,13 @@ func (m *Manager) createDefaultChains() (err error) {
 		return err
 	}
 
-	// chainNameForwardFilter
+	// netbird-acl-forward-filter
 	m.chainFwFilter, err = m.createChainWithHookIfNotExists(chainNameForwardFilter, nftables.ChainHookForward)
 	if err != nil {
 		return err
 	}
+
+	m.addJumpToForward()
 
 	// oifname "wt0" ip saddr [netbird-range]/16 jump netbird-acl-output-rules
 	// iifname "wt0" ip daddr [netbird-range]/16 jump netbird-acl-input-rules
@@ -732,6 +709,46 @@ func (m *Manager) createDefaultChains() (err error) {
 	}
 
 	return nil
+}
+
+func (m *Manager) addJumpToForward() {
+	expressions := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(m.wgIface.Name()),
+		},
+		&expr.Verdict{
+			Kind:  expr.VerdictJump,
+			Chain: m.router.RouteingFwChainName(),
+		},
+	}
+
+	_ = m.rConn.AddRule(&nftables.Rule{
+		Table: m.workTable,
+		Chain: m.chainFwFilter,
+		Exprs: expressions,
+	})
+
+	expressions = []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(m.wgIface.Name()),
+		},
+		&expr.Verdict{
+			Kind:  expr.VerdictJump,
+			Chain: m.router.RouteingFwChainName(),
+		},
+	}
+
+	_ = m.rConn.AddRule(&nftables.Rule{
+		Table: m.workTable,
+		Chain: m.chainFwFilter,
+		Exprs: expressions,
+	})
 }
 
 func (m *Manager) createWorkTable() error {
@@ -814,21 +831,6 @@ func (m *Manager) createDefaultExpressions(chain *nftables.Chain, ifaceKey expr.
 		Exprs: expressions,
 	})
 	return nil
-}
-
-func (m *Manager) addRouteAllowed(pair firewall.RouterPair) {
-	sourceExp := generateCIDRMatcherExpressions(true, pair.Source)
-	destExp := generateCIDRMatcherExpressions(false, pair.Destination)
-
-	var expression []expr.Any
-	expression = append(sourceExp, append(destExp, exprCounterAccept...)...)
-
-	m.rConn.InsertRule(&nftables.Rule{
-		Table:    m.workTable,
-		Chain:    m.chainFwFilter,
-		Exprs:    expression,
-		UserData: genRuleId(pair.ID),
-	})
 }
 
 // addJumpRuleWithIPRestriction adds jump rule with IP restriction, The restriction required for to ignore the ACL
@@ -1024,8 +1026,4 @@ func ifname(n string) []byte {
 	b := make([]byte, 16)
 	copy(b, []byte(n+"\x00"))
 	return b
-}
-
-func genRuleId(pairId string) []byte {
-	return []byte(fmt.Sprintf("netbird-acl-forward-%s", pairId))
 }

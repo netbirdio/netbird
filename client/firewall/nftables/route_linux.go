@@ -95,6 +95,10 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table) (*router, e
 	return r, err
 }
 
+func (r *router) RouteingFwChainName() string {
+	return chainNameRouteingFw
+}
+
 // ResetForwardRules cleans existing nftables rules from the system
 func (r *router) ResetForwardRules() error {
 	err := r.eraseDefaultForwardRule()
@@ -122,21 +126,11 @@ func (r *router) createContainers() error {
 		}
 	}
 
-	fwdChain := r.conn.AddChain(&nftables.Chain{
-		Name:     chainNameRouteingFw,
-		Table:    r.workTable,
-		Hooknum:  nftables.ChainHookForward,
-		Priority: nftables.ChainPriorityNATDest + 1,
-		Type:     nftables.ChainTypeFilter,
+	r.chains[chainNameRouteingFw] = r.conn.AddChain(&nftables.Chain{
+		Name:  chainNameRouteingFw,
+		Table: r.workTable,
+		//		Priority: nftables.ChainPriorityNATDest + 1,
 	})
-
-	_ = r.conn.AddRule(&nftables.Rule{
-		Table:    r.workTable,
-		Chain:    fwdChain,
-		Exprs:    exprAllowRelatedEstablished,
-		UserData: []byte(manager.Ipv4Forwarding),
-	})
-	r.chains[chainNameRouteingFw] = fwdChain
 
 	r.chains[chainNameRoutingNat] = r.conn.AddChain(&nftables.Chain{
 		Name:     chainNameRoutingNat,
