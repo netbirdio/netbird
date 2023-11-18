@@ -197,7 +197,7 @@ func (m *Manager) Flush() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.rConn.Flush()
+	return m.aclManager.Flush()
 }
 
 func (m *Manager) createWorkTable() (*nftables.Table, error) {
