@@ -443,10 +443,17 @@ func (am *DefaultAccountManager) deleteRegularUser(account *Account, initiatorUs
 	}
 
 	if !isNil(am.idpManager) {
-		err = am.deleteUserFromIDP(targetUserID, account.Id)
-		if err != nil {
-			log.Debugf("failed to delete user from IDP: %s", targetUserID)
-			return err
+		// Delete if the user already exists in the IdP.Necessary in cases where a user account
+		// was created where a user account was provisioned but the user did not sign in
+		_, err = am.idpManager.GetUserDataByID(targetUserID, idp.AppMetadata{WTAccountID: account.Id})
+		if err == nil {
+			err = am.deleteUserFromIDP(targetUserID, account.Id)
+			if err != nil {
+				log.Debugf("failed to delete user from IDP: %s", targetUserID)
+				return err
+			}
+		} else {
+			log.Debugf("skipped deleting user %s from IDP, error: %v", targetUserID, err)
 		}
 	}
 
