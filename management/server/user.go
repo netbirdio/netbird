@@ -896,7 +896,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 		users := make(map[string]struct{}, len(account.Users))
 		usersFromIntegration := make([]*idp.UserData, 0)
 		for _, user := range account.Users {
-			if user.Issued == UserIssuedIntegration && user.LastLogin.IsZero() {
+			if user.Issued == UserIssuedIntegration {
 				key := user.IntegrationReference.CacheKey(accountID, user.Id)
 				info, err := am.externalCacheManager.Get(am.ctx, key)
 				if err != nil {
