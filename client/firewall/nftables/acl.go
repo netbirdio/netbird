@@ -101,6 +101,7 @@ func (m *AclManager) AddFiltering(
 	comment string,
 ) (firewall.Rule, error) {
 	var ipset *nftables.Set
+	var err error
 	rawIP := ip.To4()
 	rulesetID := m.getRulesetID(ip, sPort, dPort, direction, action, ipsetName)
 	if ipsetName != "" {
@@ -109,7 +110,7 @@ func (m *AclManager) AddFiltering(
 		// with fresh created set and set element
 
 		var isSetNew bool
-		ipset, err := m.rConn.GetSetByName(m.workTable, ipsetName)
+		ipset, err = m.rConn.GetSetByName(m.workTable, ipsetName)
 		if err != nil {
 			if ipset, err = m.createSet(m.workTable, rawIP, ipsetName); err != nil {
 				return nil, fmt.Errorf("get set name: %v", err)
