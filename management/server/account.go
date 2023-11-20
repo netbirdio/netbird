@@ -1188,20 +1188,19 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, a
 		userDataMap[datum.ID] = struct{}{}
 	}
 
-	// the accountUsers ID list of non integration users from store, we check if cache has all of them
-	// as result of for loop knownUsersCount will have number of users are not presented in the cashed
-	knownUsersCount := len(accountUsers)
+	// check whether we need to reload the cache
+	// the accountUsers ID list is the source of truth and all the users should be in the cache
+	reload := len(accountUsers) != len(data)
 	for user := range accountUsers {
-		if _, ok := userDataMap[user]; ok {
-			knownUsersCount--
-			continue
+		if _, ok := userDataMap[user]; !ok {
+			reload = true
+			log.Debugf("idp cache doesn't have user %s", user)
+			break
 		}
-		log.Debugf("cache doesn't know about %s user", user)
 	}
 
-	// if we know users that are not yet in cache more likely cache is outdated
-	if knownUsersCount > 0 {
-		log.Debugf("cache doesn't know about %d users from store, reloading", knownUsersCount)
+	if reload {
+		log.Debugf("reload cache, len(accountUsers) = %d, len(data) = %d", len(accountUsers), len(data))
 		// reload cache once avoiding loops
 		data, err = am.refreshCache(accountID)
 		if err != nil {
