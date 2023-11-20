@@ -1082,6 +1082,9 @@ func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interf
 		if user.IsServiceUser {
 			continue
 		}
+		if user.Issued == UserIssuedIntegration {
+			continue
+		}
 		datum, ok := dataMap[user.Id]
 		if !ok {
 			log.Warnf("user %s not found in IDP", user.Id)
