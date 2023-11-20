@@ -1082,6 +1082,9 @@ func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interf
 		if user.IsServiceUser {
 			continue
 		}
+		if user.Issued == UserIssuedIntegration {
+			continue
+		}
 		datum, ok := dataMap[user.Id]
 		if !ok {
 			log.Warnf("user %s not found in IDP", user.Id)
@@ -1115,7 +1118,7 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 		if user.IsServiceUser {
 			continue
 		}
-		if user.Issued == UserIssuedIntegration && user.LastLogin.IsZero() {
+		if user.Issued == UserIssuedIntegration {
 			continue
 		}
 		users[user.Id] = struct{}{}
@@ -1194,10 +1197,13 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, a
 	for user := range accountUsers {
 		if _, ok := userDataMap[user]; !ok {
 			reload = true
+			log.Debugf("idp cache doesn't have user %s", user)
+			break
 		}
 	}
 
 	if reload {
+		log.Debugf("reload cache, len(accountUsers) = %d, len(data) = %d", len(accountUsers), len(data))
 		// reload cache once avoiding loops
 		data, err = am.refreshCache(accountID)
 		if err != nil {
