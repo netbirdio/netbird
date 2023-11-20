@@ -175,19 +175,13 @@ func (m *AclManager) AddFiltering(
 		})
 	}
 
-	// check if rawIP contains zeroed IPv4 0.0.0.0 or same IPv6 value
+	// check if rawIP contains zeroed IPv4 0.0.0.0 value
 	// in that case not add IP match expression into the rule definition
 	if !bytes.HasPrefix(anyIP, rawIP) {
 		// source address position
-		addrLen := uint32(len(rawIP))
 		addrOffset := uint32(12)
-		if addrLen == 16 {
-			addrOffset = 8
-		}
-
-		// change to destination address position if need
 		if direction == firewall.RuleDirectionOUT {
-			addrOffset += addrLen
+			addrOffset += 4 // is ipv4 address length
 		}
 
 		expressions = append(expressions,
@@ -195,7 +189,7 @@ func (m *AclManager) AddFiltering(
 				DestRegister: 1,
 				Base:         expr.PayloadBaseNetworkHeader,
 				Offset:       addrOffset,
-				Len:          addrLen,
+				Len:          4,
 			},
 		)
 		// add individual IP for match if no ipset defined
