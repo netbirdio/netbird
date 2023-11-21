@@ -217,7 +217,7 @@ components:
         - name
         - ssh_enabled
         - login_expiration_enabled
-    Peer:
+    PeerBase:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
         - type: object
@@ -294,6 +294,50 @@ components:
             - login_expiration_enabled
             - login_expired
             - last_login
+    AccessiblePeer:
+      allOf:
+        - $ref: '#/components/schemas/PeerMinimum'
+        - type: object
+          properties:
+            ip:
+              description: Peer's IP address
+              type: string
+              example: 10.64.0.1
+            dns_label:
+              description: Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
+              type: string
+              example: stage-host-1.netbird.cloud
+            user_id:
+              description: User ID of the user that enrolled this peer
+              type: string
+              example: google-oauth2|277474792786460067937
+          required:
+            - ip
+            - dns_label
+            - user_id
+    Peer:
+      allOf:
+        - $ref: '#/components/schemas/PeerBase'
+        - type: object
+          properties:
+            accessible_peers:
+              description: List of accessible peers
+              type: array
+              items:
+                $ref: '#/components/schemas/AccessiblePeer'
+          required:
+            - accessible_peers
+    PeerBatch:
+      allOf:
+        - $ref: '#/components/schemas/PeerBase'
+        - type: object
+          properties:
+            accessible_peers_count:
+              description: Number of accessible peers
+              type: integer
+              example: 5
+          required:
+            - accessible_peers_count
     SetupKey:
       type: object
       properties:
@@ -1364,7 +1408,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Peer'
+                  $ref: '#/components/schemas/PeerBatch'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

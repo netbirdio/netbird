@@ -42,6 +42,8 @@ const (
 	DefaultPeerLoginExpiration = 24 * time.Hour
 )
 
+type ExternalCacheManager cache.CacheInterface[*idp.UserData]
+
 func cacheEntryExpiration() time.Duration {
 	r := rand.Intn(int(CacheExpirationMax.Milliseconds()-CacheExpirationMin.Milliseconds())) + int(CacheExpirationMin.Milliseconds())
 	return time.Duration(r) * time.Millisecond
@@ -57,12 +59,14 @@ type AccountManager interface {
 	InviteUser(accountID string, initiatorUserID string, targetUserID string) error
 	ListSetupKeys(accountID, userID string) ([]*SetupKey, error)
 	SaveUser(accountID, initiatorUserID string, update *User) (*UserInfo, error)
+	SaveOrAddUser(accountID, initiatorUserID string, update *User, addIfNotExists bool) (*UserInfo, error)
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
 	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
 	MarkPATUsed(tokenID string) error
 	GetUser(claims jwtclaims.AuthorizationClaims) (*User, error)
+	ListUsers(accountID string) ([]*User, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
 	DeletePeer(accountID, peerID, userID string) error
@@ -97,6 +101,7 @@ type AccountManager interface {
 	DeleteNameServerGroup(accountID, nsGroupID, userID string) error
 	ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error)
 	GetDNSDomain() string
+	StoreEvent(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any)
 	GetEvents(accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettings(accountID string, userID string) (*DNSSettings, error)
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
@@ -105,6 +110,7 @@ type AccountManager interface {
 	LoginPeer(login PeerLogin) (*Peer, *NetworkMap, error) // used by peer gRPC API
 	SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error)    // used by peer gRPC API
 	GetAllConnectedPeers() (map[string]struct{}, error)
+	GetExternalCacheManager() ExternalCacheManager
 }
 
 type DefaultAccountManager struct {
@@ -112,12 +118,13 @@ type DefaultAccountManager struct {
 	// cacheMux and cacheLoading helps to make sure that only a single cache reload runs at a time per accountID
 	cacheMux sync.Mutex
 	// cacheLoading keeps the accountIDs that are currently reloading. The accountID has to be removed once cache has been reloaded
-	cacheLoading       map[string]chan struct{}
-	peersUpdateManager *PeersUpdateManager
-	idpManager         idp.Manager
-	cacheManager       cache.CacheInterface[[]*idp.UserData]
-	ctx                context.Context
-	eventStore         activity.Store
+	cacheLoading         map[string]chan struct{}
+	peersUpdateManager   *PeersUpdateManager
+	idpManager           idp.Manager
+	cacheManager         cache.CacheInterface[[]*idp.UserData]
+	externalCacheManager ExternalCacheManager
+	ctx                  context.Context
+	eventStore           activity.Store
 
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
@@ -204,6 +211,7 @@ type UserInfo struct {
 	Status               string               `json:"-"`
 	IsServiceUser        bool                 `json:"is_service_user"`
 	IsBlocked            bool                 `json:"is_blocked"`
+	NonDeletable         bool                 `json:"non_deletable"`
 	LastLogin            time.Time            `json:"last_login"`
 	Issued               string               `json:"issued"`
 	IntegrationReference IntegrationReference `json:"-"`
@@ -816,8 +824,12 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 
 	goCacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
 	goCacheStore := cacheStore.NewGoCache(goCacheClient)
-
 	am.cacheManager = cache.NewLoadable[[]*idp.UserData](am.loadAccount, cache.New[[]*idp.UserData](goCacheStore))
+
+	// TODO: what is max expiration time? Should be quite long
+	am.externalCacheManager = cache.New[*idp.UserData](
+		cacheStore.NewGoCache(goCacheClient),
+	)
 
 	if !isNil(am.idpManager) {
 		go func() {
@@ -831,6 +843,10 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 	}
 
 	return am, nil
+}
+
+func (am *DefaultAccountManager) GetExternalCacheManager() ExternalCacheManager {
+	return am.externalCacheManager
 }
 
 // UpdateAccountSettings updates Account settings.
@@ -873,11 +889,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 		} else {
 			am.checkAndSchedulePeerLoginExpiration(account)
 		}
-		am.storeEvent(userID, accountID, accountID, event, nil)
+		am.StoreEvent(userID, accountID, accountID, event, nil)
 	}
 
 	if oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration {
-		am.storeEvent(userID, accountID, accountID, activity.AccountPeerLoginExpirationDurationUpdated, nil)
+		am.StoreEvent(userID, accountID, accountID, activity.AccountPeerLoginExpirationDurationUpdated, nil)
 		am.checkAndSchedulePeerLoginExpiration(account)
 	}
 
@@ -939,7 +955,7 @@ func (am *DefaultAccountManager) newAccount(userID, domain string) (*Account, er
 			continue
 		} else if statusErr.Type() == status.NotFound {
 			newAccount := newAccountWithId(accountId, userID, domain)
-			am.storeEvent(userID, newAccount.Id, accountId, activity.AccountCreated, nil)
+			am.StoreEvent(userID, newAccount.Id, accountId, activity.AccountCreated, nil)
 			return newAccount, nil
 		} else {
 			return nil, err
@@ -1094,10 +1110,15 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountI
 // lookupUserInCache looks up user in the IdP cache and returns it. If the user wasn't found, the function returns nil
 func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Account) (*idp.UserData, error) {
 	users := make(map[string]struct{}, len(account.Users))
+	// ignore service users and users provisioned by integrations than are never logged in
 	for _, user := range account.Users {
-		if !user.IsServiceUser {
-			users[user.Id] = struct{}{}
+		if user.IsServiceUser {
+			continue
 		}
+		if user.Issued == UserIssuedIntegration {
+			continue
+		}
+		users[user.Id] = struct{}{}
 	}
 	log.Debugf("looking up user %s of account %s in cache", userID, account.Id)
 	userData, err := am.lookupCache(users, account.Id)
@@ -1167,16 +1188,20 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, a
 		userDataMap[datum.ID] = struct{}{}
 	}
 
-	// check whether we need to reload the cache
-	// the accountUsers ID list is the source of truth and all the users should be in the cache
-	reload := len(accountUsers) != len(data)
+	// the accountUsers ID list of non integration users from store, we check if cache has all of them
+	// as result of for loop knownUsersCount will have number of users are not presented in the cashed
+	knownUsersCount := len(accountUsers)
 	for user := range accountUsers {
-		if _, ok := userDataMap[user]; !ok {
-			reload = true
+		if _, ok := userDataMap[user]; ok {
+			knownUsersCount--
+			continue
 		}
+		log.Debugf("cache doesn't know about %s user", user)
 	}
 
-	if reload {
+	// if we know users that are not yet in cache more likely cache is outdated
+	if knownUsersCount > 0 {
+		log.Debugf("cache doesn't know about %d users from store, reloading", knownUsersCount)
 		// reload cache once avoiding loops
 		data, err = am.refreshCache(accountID)
 		if err != nil {
@@ -1280,7 +1305,7 @@ func (am *DefaultAccountManager) handleNewUserAccount(domainAcc *Account, claims
 		return nil, err
 	}
 
-	am.storeEvent(claims.UserId, claims.UserId, account.Id, activity.UserJoined, nil)
+	am.StoreEvent(claims.UserId, claims.UserId, account.Id, activity.UserJoined, nil)
 
 	return account, nil
 }
@@ -1313,7 +1338,7 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 				return
 			}
 			log.Debugf("user %s of account %s redeemed invite", user.ID, account.Id)
-			am.storeEvent(userID, userID, account.Id, activity.UserJoined, nil)
+			am.StoreEvent(userID, userID, account.Id, activity.UserJoined, nil)
 		}()
 	}
 
@@ -1463,7 +1488,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 								am.updateAccountPeers(account)
 								for _, g := range addNewGroups {
 									if group := account.GetGroup(g); group != nil {
-										am.storeEvent(user.Id, user.Id, account.Id, activity.GroupAddedToUser,
+										am.StoreEvent(user.Id, user.Id, account.Id, activity.GroupAddedToUser,
 											map[string]any{
 												"group":           group.Name,
 												"group_id":        group.ID,
@@ -1473,7 +1498,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 								}
 								for _, g := range removeOldGroups {
 									if group := account.GetGroup(g); group != nil {
-										am.storeEvent(user.Id, user.Id, account.Id, activity.GroupRemovedFromUser,
+										am.StoreEvent(user.Id, user.Id, account.Id, activity.GroupRemovedFromUser,
 											map[string]any{
 												"group":           group.Name,
 												"group_id":        group.ID,
@@ -1573,7 +1598,7 @@ func (am *DefaultAccountManager) GetAllConnectedPeers() (map[string]struct{}, er
 
 func isDomainValid(domain string) bool {
 	re := regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
-	return re.Match([]byte(domain))
+	return re.MatchString(domain)
 }
 
 // GetDNSDomain returns the configured dnsDomain

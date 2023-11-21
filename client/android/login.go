@@ -205,8 +205,8 @@ func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener) (*auth.TokenInfo, err
 
 	go urlOpener.Open(flowInfo.VerificationURIComplete)
 
-	waitTimeout := time.Duration(flowInfo.ExpiresIn)
-	waitCTX, cancel := context.WithTimeout(a.ctx, waitTimeout*time.Second)
+	waitTimeout := time.Duration(flowInfo.ExpiresIn) * time.Second
+	waitCTX, cancel := context.WithTimeout(a.ctx, waitTimeout)
 	defer cancel()
 	tokenInfo, err := oAuthFlow.WaitToken(waitCTX, flowInfo)
 	if err != nil {

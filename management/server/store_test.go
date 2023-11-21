@@ -14,11 +14,13 @@ type benchCase struct {
 }
 
 var newFs = func(b *testing.B) Store {
+	b.Helper()
 	store, _ := NewFileStore(b.TempDir(), nil)
 	return store
 }
 
 var newSqlite = func(b *testing.B) Store {
+	b.Helper()
 	store, _ := NewSqliteStore(b.TempDir(), nil)
 	return store
 }

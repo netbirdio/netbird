@@ -11,6 +11,7 @@ import (
 
 func generateAndStoreEvents(t *testing.T, manager *DefaultAccountManager, typ activity.Activity, initiatorID, targetID,
 	accountID string, count int) {
+	t.Helper()
 	for i := 0; i < count; i++ {
 		_, err := manager.eventStore.Save(&activity.Event{
 			Timestamp:   time.Now().UTC(),

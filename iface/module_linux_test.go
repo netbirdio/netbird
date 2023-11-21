@@ -132,6 +132,7 @@ func resetGlobals() {
 }
 
 func createFiles(t *testing.T) (string, []module) {
+    t.Helper()
 	writeFile := func(path, text string) {
 		if err := os.WriteFile(path, []byte(text), 0644); err != nil {
 			t.Fatal(err)
@@ -167,6 +168,7 @@ func createFiles(t *testing.T) (string, []module) {
 }
 
 func getRandomLoadedModule(t *testing.T) (string, error) {
+    t.Helper()
 	f, err := os.Open("/proc/modules")
 	if err != nil {
 		return "", err

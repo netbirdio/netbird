@@ -1,16 +1,21 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/eko/gocache/v3/cache"
+	cacheStore "github.com/eko/gocache/v3/store"
 	"github.com/google/go-cmp/cmp"
+	gocache "github.com/patrickmn/go-cache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
@@ -327,7 +332,7 @@ func TestUser_CreateServiceUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	user, err := am.createServiceUser(mockAccountID, mockUserID, mockRole, mockServiceUserName, []string{"group1", "group2"})
+	user, err := am.createServiceUser(mockAccountID, mockUserID, mockRole, mockServiceUserName, false, []string{"group1", "group2"})
 	if err != nil {
 		t.Fatalf("Error when creating service user: %s", err)
 	}
@@ -408,31 +413,62 @@ func TestUser_CreateUser_RegularUser(t *testing.T) {
 }
 
 func TestUser_DeleteUser_ServiceUser(t *testing.T) {
-	store := newStore(t)
-	account := newAccountWithId(mockAccountID, mockUserID, "")
-	account.Users[mockServiceUserID] = &User{
-		Id:              mockServiceUserID,
-		IsServiceUser:   true,
-		ServiceUserName: mockServiceUserName,
+	tests := []struct {
+		name             string
+		serviceUser      *User
+		assertErrFunc    assert.ErrorAssertionFunc
+		assertErrMessage string
+	}{
+		{
+			name: "Can delete service user",
+			serviceUser: &User{
+				Id:              mockServiceUserID,
+				IsServiceUser:   true,
+				ServiceUserName: mockServiceUserName,
+			},
+			assertErrFunc: assert.NoError,
+		},
+		{
+			name: "Cannot delete non-deletable service user",
+			serviceUser: &User{
+				Id:              mockServiceUserID,
+				IsServiceUser:   true,
+				ServiceUserName: mockServiceUserName,
+				NonDeletable:    true,
+			},
+			assertErrFunc:    assert.Error,
+			assertErrMessage: "service user is marked as non-deletable",
+		},
 	}
 
-	err := store.SaveAccount(account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newStore(t)
+			account := newAccountWithId(mockAccountID, mockUserID, "")
+			account.Users[mockServiceUserID] = tt.serviceUser
 
-	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
-	}
+			err := store.SaveAccount(account)
+			if err != nil {
+				t.Fatalf("Error when saving account: %s", err)
+			}
 
-	err = am.DeleteUser(mockAccountID, mockUserID, mockServiceUserID)
-	if err != nil {
-		t.Fatalf("Error when deleting user: %s", err)
-	}
+			am := DefaultAccountManager{
+				Store:      store,
+				eventStore: &activity.InMemoryEventStore{},
+			}
 
-	assert.Equal(t, 1, len(store.Accounts[mockAccountID].Users))
-	assert.Nil(t, store.Accounts[mockAccountID].Users[mockServiceUserID])
+			err = am.DeleteUser(mockAccountID, mockUserID, mockServiceUserID)
+			tt.assertErrFunc(t, err, tt.assertErrMessage)
+
+			if err != nil {
+				assert.Equal(t, 2, len(store.Accounts[mockAccountID].Users))
+				assert.NotNil(t, store.Accounts[mockAccountID].Users[mockServiceUserID])
+			} else {
+				assert.Equal(t, 1, len(store.Accounts[mockAccountID].Users))
+				assert.Nil(t, store.Accounts[mockAccountID].Users[mockServiceUserID])
+			}
+		})
+	}
 }
 
 func TestUser_DeleteUser_SelfDelete(t *testing.T) {
@@ -508,7 +544,7 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 			name:             "Delete integration regular user permission denied ",
 			userID:           "user4",
 			assertErrFunc:    assert.Error,
-			assertErrMessage: "only integration can delete this user",
+			assertErrMessage: "only admin service user can delete this user",
 		},
 	}
 
@@ -547,6 +583,95 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 	assert.Equal(t, mockUserID, user.Id)
 	assert.True(t, user.IsAdmin())
 	assert.False(t, user.IsBlocked())
+}
+
+func TestDefaultAccountManager_ListUsers(t *testing.T) {
+	store := newStore(t)
+	account := newAccountWithId(mockAccountID, mockUserID, "")
+	account.Users["normal_user1"] = NewRegularUser("normal_user1")
+	account.Users["normal_user2"] = NewRegularUser("normal_user2")
+
+	err := store.SaveAccount(account)
+	if err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
+
+	am := DefaultAccountManager{
+		Store:      store,
+		eventStore: &activity.InMemoryEventStore{},
+	}
+
+	users, err := am.ListUsers(mockAccountID)
+	if err != nil {
+		t.Fatalf("Error when checking user role: %s", err)
+	}
+
+	admins := 0
+	regular := 0
+	for _, user := range users {
+		if user.IsAdmin() {
+			admins++
+			continue
+		}
+		regular++
+	}
+	assert.Equal(t, 3, len(users))
+	assert.Equal(t, 1, admins)
+	assert.Equal(t, 2, regular)
+}
+
+func TestDefaultAccountManager_ExternalCache(t *testing.T) {
+	store := newStore(t)
+	account := newAccountWithId(mockAccountID, mockUserID, "")
+	externalUser := &User{
+		Id:     "externalUser",
+		Role:   UserRoleUser,
+		Issued: UserIssuedIntegration,
+		IntegrationReference: IntegrationReference{
+			ID:              1,
+			IntegrationType: "external",
+		},
+	}
+	account.Users[externalUser.Id] = externalUser
+
+	err := store.SaveAccount(account)
+	if err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
+
+	am := DefaultAccountManager{
+		Store:        store,
+		eventStore:   &activity.InMemoryEventStore{},
+		idpManager:   &idp.GoogleWorkspaceManager{}, // empty manager
+		cacheLoading: map[string]chan struct{}{},
+		cacheManager: cache.New[[]*idp.UserData](
+			cacheStore.NewGoCache(gocache.New(CacheExpirationMax, 30*time.Minute)),
+		),
+		externalCacheManager: cache.New[*idp.UserData](
+			cacheStore.NewGoCache(gocache.New(CacheExpirationMax, 30*time.Minute)),
+		),
+	}
+
+	// pretend that we receive mockUserID from IDP
+	err = am.cacheManager.Set(am.ctx, mockAccountID, []*idp.UserData{{Name: mockUserID, ID: mockUserID}})
+	assert.NoError(t, err)
+
+	cacheManager := am.GetExternalCacheManager()
+	cacheKey := externalUser.IntegrationReference.CacheKey(mockAccountID, externalUser.Id)
+	err = cacheManager.Set(context.Background(), cacheKey, &idp.UserData{ID: externalUser.Id, Name: "Test User", Email: "user@example.com"})
+	assert.NoError(t, err)
+
+	infos, err := am.GetUsersFromAccount(mockAccountID, mockUserID)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(infos))
+	var user *UserInfo
+	for _, info := range infos {
+		if info.ID == externalUser.Id {
+			user = info
+		}
+	}
+	assert.NotNil(t, user)
+	assert.Equal(t, "user@example.com", user.Email)
 }
 
 func TestUser_IsAdmin(t *testing.T) {
@@ -710,5 +835,4 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 			assert.Equal(t, tc.update.IsBlocked(), updated.IsBlocked)
 		}
 	}
-
 }

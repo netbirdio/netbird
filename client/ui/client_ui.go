@@ -69,7 +69,7 @@ func main() {
 		a.Run()
 	} else {
 		if err := checkPIDFile(); err != nil {
-			fmt.Println(err)
+			log.Errorf("check PID file: %v", err)
 			return
 		}
 		systray.Run(client.onTrayReady, client.onTrayExit)

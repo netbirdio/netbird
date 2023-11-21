@@ -186,15 +186,17 @@ func TestGetNetworkMap_DNSConfigSync(t *testing.T) {
 }
 
 func createDNSManager(t *testing.T) (*DefaultAccountManager, error) {
+	t.Helper()
 	store, err := createDNSStore(t)
 	if err != nil {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(), nil, "", "netbird.test", eventStore, false)
+	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.test", eventStore, false)
 }
 
 func createDNSStore(t *testing.T) (Store, error) {
+	t.Helper()
 	dataDir := t.TempDir()
 	store, err := NewStoreFromJson(dataDir, nil)
 	if err != nil {
@@ -205,6 +207,7 @@ func createDNSStore(t *testing.T) (Store, error) {
 }
 
 func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error) {
+	t.Helper()
 	peer1 := &Peer{
 		Key:  dnsPeer1Key,
 		Name: "test-host1@netbird.io",

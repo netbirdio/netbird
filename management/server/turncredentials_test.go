@@ -4,9 +4,10 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/base64"
-	"github.com/netbirdio/netbird/util"
 	"testing"
 	"time"
+
+	"github.com/netbirdio/netbird/util"
 )
 
 var TurnTestHost = &Host{
@@ -19,7 +20,7 @@ var TurnTestHost = &Host{
 func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 	ttl := util.Duration{Duration: time.Hour}
 	secret := "some_secret"
-	peersManager := NewPeersUpdateManager()
+	peersManager := NewPeersUpdateManager(nil)
 
 	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
 		CredentialsTTL: ttl,
@@ -36,14 +37,14 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 		t.Errorf("expected generated TURN password not to be empty, got empty")
 	}
 
-	validateMAC(credentials.Username, credentials.Password, []byte(secret), t)
+	validateMAC(t, credentials.Username, credentials.Password, []byte(secret))
 
 }
 
 func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	ttl := util.Duration{Duration: 2 * time.Second}
 	secret := "some_secret"
-	peersManager := NewPeersUpdateManager()
+	peersManager := NewPeersUpdateManager(nil)
 	peer := "some_peer"
 	updateChannel := peersManager.CreateChannel(peer)
 
@@ -92,7 +93,7 @@ loop:
 func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	ttl := util.Duration{Duration: time.Hour}
 	secret := "some_secret"
-	peersManager := NewPeersUpdateManager()
+	peersManager := NewPeersUpdateManager(nil)
 	peer := "some_peer"
 
 	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
@@ -112,7 +113,8 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	}
 }
 
-func validateMAC(username string, actualMAC string, key []byte, t *testing.T) {
+func validateMAC(t *testing.T, username string, actualMAC string, key []byte) {
+	t.Helper()
 	mac := hmac.New(sha1.New, key)
 
 	_, err := mac.Write([]byte(username))

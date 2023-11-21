@@ -116,6 +116,6 @@ func (grpcMetrics *GRPCMetrics) RegisterConnectedStreams(producer func() int64) 
 }
 
 // UpdateChannelQueueLength update the histogram that keep distribution of the update messages channel queue
-func (metrics *GRPCMetrics) UpdateChannelQueueLength(len int) {
-	metrics.channelQueueLength.Record(metrics.ctx, int64(len))
+func (metrics *GRPCMetrics) UpdateChannelQueueLength(length int) {
+	metrics.channelQueueLength.Record(metrics.ctx, int64(length))
 }

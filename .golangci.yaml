@@ -32,9 +32,16 @@ linters:
     - unused # checks for unused constants, variables, functions and types
     ## disable by default but the have interesting results so lets add them
     - bodyclose # checks whether HTTP response body is closed successfully
+    - dupword # dupword checks for duplicate words in the source code
+    - durationcheck # durationcheck checks for two durations multiplied together
+    - forbidigo # forbidigo forbids identifiers
+    - mirror # mirror reports wrong mirror patterns of bytes/strings usage
+    - misspell # misspess finds commonly misspelled English words in comments
     - nilerr # finds the code that returns nil even if it checks that the error is not nil
     - nilnil # checks that there is no simultaneous return of nil error and an invalid value
+    - predeclared # predeclared finds code that shadows one of Go's predeclared identifiers
     - sqlclosecheck # checks that sql.Rows and sql.Stmt are closed
+    - thelper # thelper detects Go test helpers without t.Helper() call and checks the consistency of test helpers.
     - wastedassign # wastedassign finds wasted assignment statements
 issues:
   # Maximum count of issues with the same text.
@@ -43,12 +50,20 @@ issues:
   max-same-issues: 5
 
   exclude-rules:
+    # allow fmt
+    - path: management/cmd/root.go
+      linters: forbidigo
+    - path: signal/cmd/root.go
+      linters: forbidigo
     - path: sharedsock/filter.go
       linters:
       - unused
     - path: client/firewall/iptables/rule.go
       linters:
       - unused
+    - path: test.go
+      linters:
+      - mirror
     - path: mock.go
       linters:
       - nilnil
