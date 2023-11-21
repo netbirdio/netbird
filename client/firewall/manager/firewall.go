@@ -65,7 +65,7 @@ type Manager interface {
 		action Action,
 		ipsetName string,
 		comment string,
-	) (Rule, error)
+	) ([]Rule, error)
 
 	// DeleteRule from the firewall by rule definition
 	DeleteRule(rule Rule) error

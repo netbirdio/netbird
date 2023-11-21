@@ -131,7 +131,7 @@ func (m *Manager) AddFiltering(
 	action firewall.Action,
 	ipsetName string,
 	comment string,
-) (firewall.Rule, error) {
+) ([]firewall.Rule, error) {
 	r := Rule{
 		id:        uuid.New().String(),
 		ip:        ip,
@@ -185,8 +185,7 @@ func (m *Manager) AddFiltering(
 		m.outgoingRules[r.ip.String()][r.id] = r
 	}
 	m.mutex.Unlock()
-
-	return &r, nil
+	return []firewall.Rule{&r}, nil
 }
 
 // DeleteRule from the firewall by rule definition

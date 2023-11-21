@@ -37,11 +37,7 @@ func (r *rulesetManager) getRuleset(rulesetID string) (*nftRuleset, bool) {
 	return ruleset, ok
 }
 
-func (r *rulesetManager) createRuleset(
-	rulesetID string,
-	nftRule *nftables.Rule,
-	nftSet *nftables.Set,
-) *nftRuleset {
+func (r *rulesetManager) createRuleset(rulesetID string, nftRule *nftables.Rule, nftSet *nftables.Set) *nftRuleset {
 	ruleset := nftRuleset{
 		rulesetID:   rulesetID,
 		nftRule:     nftRule,
@@ -55,10 +51,7 @@ func (r *rulesetManager) createRuleset(
 	return &ruleset
 }
 
-func (r *rulesetManager) addRule(
-	ruleset *nftRuleset,
-	ip []byte,
-) (*Rule, error) {
+func (r *rulesetManager) addRule(ruleset *nftRuleset, ip []byte) (*Rule, error) {
 	if _, ok := r.rulesets[ruleset.rulesetID]; !ok {
 		return nil, fmt.Errorf("ruleset not found")
 	}
@@ -108,7 +101,7 @@ func (r *rulesetManager) setNftRuleHandle(nftRule *nftables.Rule) error {
 	split := bytes.Split(nftRule.UserData, []byte(" "))
 	ruleset, ok := r.rulesets[string(split[0])]
 	if !ok {
-		return fmt.Errorf("ruleset not found")
+		return fmt.Errorf("ruleset not found: %s", string(split[0]))
 	}
 	*ruleset.nftRule = *nftRule
 	return nil

@@ -244,7 +244,7 @@ func (d *DefaultManager) addInRules(
 	if err != nil {
 		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
 	}
-	rules = append(rules, rule)
+	rules = append(rules, rule...)
 
 	if shouldSkipInvertedRule(protocol, port) {
 		return rules, nil
@@ -256,7 +256,7 @@ func (d *DefaultManager) addInRules(
 		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
 	}
 
-	return append(rules, rule), nil
+	return append(rules, rule...), nil
 }
 
 func (d *DefaultManager) addOutRules(
@@ -273,7 +273,7 @@ func (d *DefaultManager) addOutRules(
 	if err != nil {
 		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
 	}
-	rules = append(rules, rule)
+	rules = append(rules, rule...)
 
 	if shouldSkipInvertedRule(protocol, port) {
 		return rules, nil
@@ -285,7 +285,7 @@ func (d *DefaultManager) addOutRules(
 		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
 	}
 
-	return append(rules, rule), nil
+	return append(rules, rule...), nil
 }
 
 // getRuleID() returns unique ID for the rule based on its parameters.

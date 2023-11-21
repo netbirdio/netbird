@@ -93,7 +93,7 @@ func (m *Manager) AddFiltering(
 	action firewall.Action,
 	ipsetName string,
 	comment string,
-) (firewall.Rule, error) {
+) ([]firewall.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -133,13 +133,13 @@ func (m *Manager) AddFiltering(
 			// if ruleset already exists it means we already have the firewall rule
 			// so we need to update IPs in the ruleset and return new fw.Rule object for ACL manager.
 			rs.ips[ip.String()] = ruleID
-			return &Rule{
+			return []firewall.Rule{&Rule{
 				ruleID:    ruleID,
 				ipsetName: ipsetName,
 				ip:        ip.String(),
 				dst:       direction == firewall.RuleDirectionOUT,
 				v6:        ip.To4() == nil,
-			}, nil
+			}}, nil
 		}
 		// this is new ipset so we need to create firewall rule for it
 	}
@@ -189,7 +189,7 @@ func (m *Manager) AddFiltering(
 		}
 	}
 
-	return rule, nil
+	return []firewall.Rule{rule}, nil
 }
 
 // DeleteRule from the firewall by rule definition

@@ -67,7 +67,7 @@ func (m *Manager) AddFiltering(
 	action firewall.Action,
 	ipsetName string,
 	comment string,
-) (firewall.Rule, error) {
+) ([]firewall.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
