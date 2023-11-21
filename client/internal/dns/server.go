@@ -252,7 +252,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	if err != nil {
 		return fmt.Errorf("not applying dns update, error: %v", err)
 	}
-	muxUpdates := append(localMuxUpdates, upstreamMuxUpdates...) //nolint:gocritic
+	muxUpdates := append(localMuxUpdates, upstreamMuxUpdates...)
 
 	s.updateMux(muxUpdates)
 	s.updateLocalResolver(localRecords)
