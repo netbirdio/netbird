@@ -183,6 +183,42 @@ To start NetBird the management service:
 ./management management --log-level debug --log-file console --config ./management.json
 ```
 
+#### Windows Netbird Installer
+Create dist directory
+```shell
+mkdir -p dist/netbird_windows_amd64
+```
+
+UI client
+```shell
+CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -o netbird-ui.exe -ldflags "-s -w -H windowsgui" ./client/ui
+mv netbird-ui.exe ./dist/netbird_windows_amd64/
+```
+
+Client
+```shell
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o netbird.exe ./client/
+mv netbird.exe ./dist/netbird_windows_amd64/
+```
+> Windows clients have a Wireguard driver requirement. You can download the wintun driver from https://www.wintun.net/builds/wintun-0.14.1.zip, after decompressing, you can copy the file `windtun\bin\ARCH\wintun.dll` to `./dist/netbird_windows_amd64/`.
+
+NSIS compiler
+- [Windows-nsis]( https://nsis.sourceforge.io/Download)
+- [MacOS-makensis](https://formulae.brew.sh/formula/makensis#default)
+- [Linux-makensis](https://manpages.ubuntu.com/manpages/trusty/man1/makensis.1.html)
+
+NSIS Plugins. Download and move them to the NSIS plugins folder.
+- [EnVar](https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip)
+- [ShellExecAsUser](https://nsis.sourceforge.io/mediawiki/images/6/68/ShellExecAsUser_amd64-Unicode.7z)
+
+Windows Installer
+```shell
+export APPVER=0.0.0.1
+makensis -V4 client/installer.nsis
+```
+
+The installer `netbird-installer.exe` will be created in root directory.
+
 ### Test suite
 
 The tests can be started via:
