@@ -80,14 +80,28 @@ func removeFromRouteTable(prefix netip.Prefix) error {
 }
 
 func existsInRouteTable(prefix netip.Prefix) (bool, error) {
+	routes, err := getRoutesFromTable()
+	if err != nil {
+		return false, err
+	}
+	for _, route := range routes {
+		if route == prefix {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func getRoutesFromTable() ([]netip.Prefix, error) {
 	tab, err := syscall.NetlinkRIB(syscall.RTM_GETROUTE, syscall.AF_UNSPEC)
 	if err != nil {
-		return true, err
+		return nil, err
 	}
 	msgs, err := syscall.ParseNetlinkMessage(tab)
 	if err != nil {
-		return true, err
+		return nil, err
 	}
+	var prefixList []netip.Prefix
 loop:
 	for _, m := range msgs {
 		switch m.Header.Type {
@@ -97,7 +111,7 @@ loop:
 			rt := (*routeInfoInMemory)(unsafe.Pointer(&m.Data[0]))
 			attrs, err := syscall.ParseNetlinkRouteAttr(&m)
 			if err != nil {
-				return true, err
+				return nil, err
 			}
 			if rt.Family != syscall.AF_INET {
 				continue loop
@@ -105,17 +119,21 @@ loop:
 
 			for _, attr := range attrs {
 				if attr.Attr.Type == syscall.RTA_DST {
-					ip := net.IP(attr.Value)
+					addr, ok := netip.AddrFromSlice(attr.Value)
+					if !ok {
+						continue
+					}
 					mask := net.CIDRMask(int(rt.DstLen), len(attr.Value)*8)
 					cidr, _ := mask.Size()
-					if ip.String() == prefix.Addr().String() && cidr == prefix.Bits() {
-						return true, nil
+					routePrefix := netip.PrefixFrom(addr, cidr)
+					if routePrefix.IsValid() && routePrefix.Addr().Is4() {
+						prefixList = append(prefixList, routePrefix)
 					}
 				}
 			}
 		}
 	}
-	return false, nil
+	return prefixList, nil
 }
 
 func enableIPForwarding() error {
