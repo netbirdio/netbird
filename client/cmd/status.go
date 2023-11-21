@@ -234,7 +234,7 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 			continue
 		}
 		if isPeerConnected {
-			peersConnected = peersConnected + 1
+			peersConnected++
 
 			localICE = pbPeerState.GetLocalIceCandidateType()
 			remoteICE = pbPeerState.GetRemoteIceCandidateType()
@@ -407,7 +407,7 @@ func parsePeers(peers peersStateOutput) string {
 			peerState.LastStatusUpdate.Format("2006-01-02 15:04:05"),
 		)
 
-		peersString = peersString + peerString
+		peersString += peerString
 	}
 	return peersString
 }

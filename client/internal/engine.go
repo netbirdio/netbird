@@ -204,14 +204,12 @@ func (e *Engine) Start() error {
 			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, *dnsConfig, e.mobileDep.NetworkChangeListener)
 			go e.mobileDep.DnsReadyListener.OnReady()
 		}
-	} else {
+	} else if e.dnsServer == nil {
 		// todo fix custom address
-		if e.dnsServer == nil {
-			e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
-			if err != nil {
-				e.close()
-				return err
-			}
+		e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
+		if err != nil {
+			e.close()
+			return err
 		}
 	}
 
@@ -490,15 +488,13 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 		} else {
 			log.Debugf("SSH server is already running")
 		}
-	} else {
+	} else if !isNil(e.sshServer) {
 		// Disable SSH server request, so stop it if it was running
-		if !isNil(e.sshServer) {
-			err := e.sshServer.Stop()
-			if err != nil {
-				log.Warnf("failed to stop SSH server %v", err)
-			}
-			e.sshServer = nil
+		err := e.sshServer.Stop()
+		if err != nil {
+			log.Warnf("failed to stop SSH server %v", err)
 		}
+		e.sshServer = nil
 	}
 	return nil
 }

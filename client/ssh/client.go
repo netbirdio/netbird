@@ -2,11 +2,12 @@ package ssh
 
 import (
 	"fmt"
-	"golang.org/x/crypto/ssh"
-	"golang.org/x/term"
 	"net"
 	"os"
 	"time"
+
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/term"
 )
 
 // Client wraps crypto/ssh Client to simplify usage
@@ -73,8 +74,7 @@ func (c *Client) OpenTerminal() error {
 
 	if err := session.Wait(); err != nil {
 		if e, ok := err.(*ssh.ExitError); ok {
-			switch e.ExitStatus() {
-			case 130:
+			if e.ExitStatus() == 130 {
 				return nil
 			}
 		}

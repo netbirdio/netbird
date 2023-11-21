@@ -406,7 +406,7 @@ func (am *DefaultAccountManager) ListPolicies(accountID, userID string) ([]*Poli
 		return nil, status.Errorf(status.PermissionDenied, "Only Administrators can view policies")
 	}
 
-	return account.Policies[:], nil
+	return account.Policies, nil
 }
 
 func (am *DefaultAccountManager) deletePolicy(account *Account, policyID string) (*Policy, error) {
