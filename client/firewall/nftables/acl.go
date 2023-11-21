@@ -376,18 +376,22 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 
 func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, rawIP []byte) (*Rule, error) {
 	var port *firewall.Port
-	if sPort != nil {
-		port = sPort
-	} else {
-		port = dPort
-	}
-
 	var protoData []byte
 	switch proto {
 	case firewall.ProtocolTCP:
 		protoData = []byte{unix.IPPROTO_TCP}
+		if sPort != nil {
+			port = sPort
+		} else {
+			port = dPort
+		}
 	case firewall.ProtocolUDP:
 		protoData = []byte{unix.IPPROTO_UDP}
+		if sPort != nil {
+			port = sPort
+		} else {
+			port = dPort
+		}
 	case firewall.ProtocolICMP:
 		protoData = []byte{unix.IPPROTO_ICMP}
 	default:
@@ -428,17 +432,25 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 			Op:       expr.CmpOpEq,
 			Data:     protoData,
 		},
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseTransportHeader,
-			Offset:       2,
-			Len:          2,
-		},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     encodePort(*port),
-		},
+	}
+
+	if port != nil {
+		expressions = append(expressions,
+			&expr.Payload{
+				DestRegister: 1,
+				Base:         expr.PayloadBaseTransportHeader,
+				Offset:       2,
+				Len:          2,
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     encodePort(*port),
+			},
+		)
+	}
+
+	expressions = append(expressions,
 		&expr.Immediate{
 			Register: 1,
 			Data:     postroutingMark,
@@ -448,9 +460,9 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 			SourceRegister: true,
 			Register:       1,
 		},
-	}
+	)
 
-	rulesetID := fmt.Sprintf("set:%s:%s:%s", ipset.Name, proto, port.String())
+	rulesetID := fmt.Sprintf("set:%s:%s:%v", ipset.Name, proto, port)
 	rule := m.rConn.InsertRule(&nftables.Rule{
 		Table:    m.workTable,
 		Chain:    m.chainPrerouting,
