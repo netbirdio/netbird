@@ -200,10 +200,11 @@ Client
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o netbird.exe ./client/
 mv netbird.exe ./dist/netbird_windows_amd64/
 ```
+> Windows clients have a Wireguard driver requirement. You can download the wintun driver from https://www.wintun.net/builds/wintun-0.14.1.zip, after decompressing, you can copy the file `windtun\bin\ARCH\wintun.dll` to `./dist/netbird_windows_amd64/`.
 
 NSIS compiler
 - [Windows-nsis]( https://nsis.sourceforge.io/Download)
-- [MacOs-makensis](https://formulae.brew.sh/formula/makensis#default)
+- [MacOS-makensis](https://formulae.brew.sh/formula/makensis#default)
 - [Linux-makensis](https://manpages.ubuntu.com/manpages/trusty/man1/makensis.1.html)
 
 NSIS Plugins. Download and move them to the NSIS plugins folder.
