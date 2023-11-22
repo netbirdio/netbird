@@ -86,11 +86,7 @@ func TestNftablesManager(t *testing.T) {
 	rules, err := testClient.GetRules(manager.aclManager.workTable, manager.aclManager.chainInputRules)
 	require.NoError(t, err, "failed to get rules")
 
-	// test expectations:
-	// 1) regular rule
-	// 2) "accept extra routed traffic rule" for the interface
-	// 3) "drop all rule" for the interface
-	require.Len(t, rules, 3, "expected 3 rules")
+	require.Len(t, rules, 1, "expected 1 rules")
 
 	ipToAdd, _ := netip.AddrFromSlice(ip)
 	add := ipToAdd.Unmap()
