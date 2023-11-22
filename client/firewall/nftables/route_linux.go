@@ -82,7 +82,13 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table) (*router, e
 		rules:     make(map[string]*nftables.Rule),
 	}
 
-	err := r.cleanUpDefaultForwardRules()
+	var err error
+	r.filterTable, err = r.loadFilterTable()
+	if err != nil {
+		return nil, err
+	}
+
+	err = r.cleanUpDefaultForwardRules()
 	if err != nil {
 		log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
 	}
@@ -107,19 +113,23 @@ func (r *router) ResetForwardRules() error {
 	return nil
 }
 
-func (r *router) createContainers() error {
+func (r *router) loadFilterTable() (*nftables.Table, error) {
 	tables, err := r.conn.ListTablesOfFamily(nftables.TableFamilyIPv4)
 	if err != nil {
-		return fmt.Errorf("nftables: unable to list tables: %v", err)
+		return nil, fmt.Errorf("nftables: unable to list tables: %v", err)
 	}
 
 	for _, table := range tables {
 		if table.Name == "filter" {
 			log.Debugf("nftables: found 'filter' table")
-			r.filterTable = table
-			break
+			return table, nil
 		}
 	}
+
+	return nil, fmt.Errorf("nftables: filter table not found")
+}
+
+func (r *router) createContainers() error {
 
 	r.chains[chainNameRouteingFw] = r.conn.AddChain(&nftables.Chain{
 		Name:  chainNameRouteingFw,
@@ -134,7 +144,7 @@ func (r *router) createContainers() error {
 		Type:     nftables.ChainTypeNAT,
 	})
 
-	err = r.refreshRulesMap()
+	err := r.refreshRulesMap()
 	if err != nil {
 		log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
 	}
@@ -353,7 +363,7 @@ func (r *router) cleanUpDefaultForwardRules() error {
 
 	var rules []*nftables.Rule
 	for _, chain := range chains {
-		if chain.Table != r.filterTable {
+		if chain.Table.Name != r.filterTable.Name {
 			continue
 		}
 		if chain.Name != "FORWARD" {
