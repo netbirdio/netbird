@@ -12,7 +12,7 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/hashicorp/go-version"
 	"github.com/miekg/dns"
-	"github.com/netbirdio/netbird/version"
+	nbversion "github.com/netbirdio/netbird/version"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -289,7 +289,7 @@ func isNetworkManagerSupportedVersion() bool {
 }
 
 func parseVersion(inputVersion string) (*version.Version, error) {
-	if inputVersion == "" || !version.SemverRegexp.MatchString(inputVersion) {
+	if inputVersion == "" || !nbversion.SemverRegexp.MatchString(inputVersion) {
 		return nil, fmt.Errorf("couldn't parse the provided version: Not SemVer")
 	}
 
