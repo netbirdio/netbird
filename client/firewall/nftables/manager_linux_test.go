@@ -144,10 +144,7 @@ func TestNftablesManager(t *testing.T) {
 
 	rules, err = testClient.GetRules(manager.aclManager.workTable, manager.aclManager.chainInputRules)
 	require.NoError(t, err, "failed to get rules")
-	// test expectations:
-	// 1) "accept extra routed traffic rule" for the interface
-	// 2) "drop all rule" for the interface
-	require.Len(t, rules, 2, "expected 2 rules after deletion")
+	require.Len(t, rules, 0, "expected 0 rules after deletion")
 
 	err = manager.Reset()
 	require.NoError(t, err, "failed to reset")
