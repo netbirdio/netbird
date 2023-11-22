@@ -5,17 +5,24 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/yusufpapurcu/wmi"
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/netbirdio/netbird/version"
 )
 
+type Win32_OperatingSystem struct {
+	Caption string
+}
+
 // GetInfo retrieves and parses the system information
 func GetInfo(ctx context.Context) *Info {
-	ver := getOSVersion()
-	gio := &Info{Kernel: "windows", OSVersion: ver, Core: ver, Platform: "unknown", OS: "windows", GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
+	osName, osVersion := getOSNameAndVersion()
+	buildVersion := getBuildVersion()
+	gio := &Info{Kernel: "windows", OSVersion: buildVersion, Core: osVersion, Platform: "unknown", OS: osName, GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
 	systemHostname, _ := os.Hostname()
 	gio.Hostname = extractDeviceName(ctx, systemHostname)
 	gio.WiretrusteeVersion = version.NetbirdVersion()
@@ -24,7 +31,35 @@ func GetInfo(ctx context.Context) *Info {
 	return gio
 }
 
-func getOSVersion() string {
+func getOSNameAndVersion() (string, string) {
+	var dst []Win32_OperatingSystem
+	query := wmi.CreateQuery(&dst, "")
+	err := wmi.Query(query, &dst)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if len(dst) == 0 {
+		return "Windows", getBuildVersion()
+	}
+
+	split := strings.Split(dst[0].Caption, " ")
+
+	if len(split) < 3 {
+		return "Windows", getBuildVersion()
+	}
+
+	name := split[1]
+	version := split[2]
+	if split[2] == "Server" {
+		name = fmt.Sprintf("%s %s", split[1], split[2])
+		version = split[3]
+	}
+
+	return name, version
+}
+
+func getBuildVersion() string {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion`, registry.QUERY_VALUE)
 	if err != nil {
 		log.Error(err)
