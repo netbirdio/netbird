@@ -229,7 +229,7 @@ func (m *AclManager) Flush() error {
 func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, direction firewall.RuleDirection, action firewall.Action, ipset *nftables.Set, isNewSet bool, comment string) (*Rule, error) {
 	rawIP := ip.To4()
 
-	rulesetID := m.getRulesetID(ip, sPort, dPort, direction, action, ipset.Name)
+	rulesetID := m.getRulesetID(ip, sPort, dPort, direction, action, ipset)
 	if ipset != nil && !isNewSet {
 		// if we already have nftables rules with set for given direction
 		// just add new rule to the ruleset and return new fw.Rule object
@@ -903,7 +903,7 @@ func (m *AclManager) getRulesetID(
 	dPort *firewall.Port,
 	direction firewall.RuleDirection,
 	action firewall.Action,
-	ipsetName string,
+	ipset *nftables.Set,
 ) string {
 	rulesetID := ":" + strconv.Itoa(int(direction)) + ":"
 	if sPort != nil {
@@ -915,10 +915,10 @@ func (m *AclManager) getRulesetID(
 	}
 	rulesetID += ":"
 	rulesetID += strconv.Itoa(int(action))
-	if ipsetName == "" {
+	if ipset == nil {
 		return "ip:" + ip.String() + rulesetID
 	}
-	return "set:" + ipsetName + rulesetID
+	return "set:" + ipset.Name + rulesetID
 }
 
 // createSet in given table by name
