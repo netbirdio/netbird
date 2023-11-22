@@ -383,7 +383,7 @@ func getMinMaxVersion(inputList []string) (string, string) {
 	versions := make([]*version.Version, 0)
 
 	for _, raw := range inputList {
-		if raw != "" && version.SemverRegexp.MatchString(raw) {
+		if raw != "" && nbversion.SemverRegexp.MatchString(raw) {
 			v, err := version.NewVersion(raw)
 			if err == nil {
 				versions = append(versions, v)
