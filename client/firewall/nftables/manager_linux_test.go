@@ -83,7 +83,7 @@ func TestNftablesManager(t *testing.T) {
 	err = manager.Flush()
 	require.NoError(t, err, "failed to flush")
 
-	rules, err := testClient.GetRules(manager.workTable, manager.chainInputRules)
+	rules, err := testClient.GetRules(manager.aclManager.workTable, manager.aclManager.chainInputRules)
 	require.NoError(t, err, "failed to get rules")
 
 	// test expectations:
@@ -138,13 +138,15 @@ func TestNftablesManager(t *testing.T) {
 	}
 	require.ElementsMatch(t, rules[0].Exprs, expectedExprs, "expected the same expressions")
 
-	err = manager.DeleteRule(rule)
-	require.NoError(t, err, "failed to delete rule")
+	for _, r := range rule {
+		err = manager.DeleteRule(r)
+		require.NoError(t, err, "failed to delete rule")
+	}
 
 	err = manager.Flush()
 	require.NoError(t, err, "failed to flush")
 
-	rules, err = testClient.GetRules(manager.workTable, manager.chainInputRules)
+	rules, err = testClient.GetRules(manager.aclManager.workTable, manager.aclManager.chainInputRules)
 	require.NoError(t, err, "failed to get rules")
 	// test expectations:
 	// 1) "accept extra routed traffic rule" for the interface

@@ -76,7 +76,7 @@ func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, 
 	return fm, nil
 }
 
-// Check returns the firewall type based on common lib checks. It returns UNKNOWN if no firewall is found.
+// check returns the firewall type based on common lib checks. It returns UNKNOWN if no firewall is found.
 func check() FWType {
 	nf := nftables.Conn{}
 	if _, err := nf.ListChains(); err == nil && os.Getenv(SKIP_NFTABLES_ENV) != "true" {
