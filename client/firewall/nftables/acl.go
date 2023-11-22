@@ -501,6 +501,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	// netbird-acl-input-filter
 	// type filter hook input priority filter; policy accept;
 	chain = m.createFilterChainWithHook(chainNameInputFilter, nftables.ChainHookInput)
+	m.addFwdAllow(chain, expr.MetaKeyIIFNAME)
 	m.addJumpRule(chain, m.chainInputRules.Name, expr.MetaKeyIIFNAME) // to netbird-acl-input-rules
 	m.addDropExpressions(chain, expr.MetaKeyIIFNAME)
 	err = m.rConn.Flush()
@@ -512,6 +513,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	// netbird-acl-output-filter
 	// type filter hook output priority filter; policy accept;
 	chain = m.createFilterChainWithHook(chainNameOutputFilter, nftables.ChainHookOutput)
+	m.addFwdAllow(chain, expr.MetaKeyOIFNAME)
 	m.addJumpRule(chain, m.chainOutputRules.Name, expr.MetaKeyOIFNAME) // to netbird-acl-output-rules
 	m.addDropExpressions(chain, expr.MetaKeyOIFNAME)
 	err = m.rConn.Flush()
@@ -691,6 +693,70 @@ func (m *AclManager) addJumpRuleToInputChain() {
 	_ = m.rConn.AddRule(&nftables.Rule{
 		Table: m.workTable,
 		Chain: m.chainFwFilter,
+		Exprs: expressions,
+	})
+}
+
+func (m *AclManager) addFwdAllow(chain *nftables.Chain, iifname expr.MetaKey) {
+	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
+	var srcOp, dstOp expr.CmpOp
+	if iifname == expr.MetaKeyIIFNAME {
+		srcOp = expr.CmpOpNeq
+		dstOp = expr.CmpOpEq
+	} else {
+		srcOp = expr.CmpOpEq
+		dstOp = expr.CmpOpNeq
+	}
+	expressions := []expr.Any{
+		&expr.Meta{Key: iifname, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(m.wgIface.Name()),
+		},
+		&expr.Payload{
+			DestRegister: 2,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       12,
+			Len:          4,
+		},
+		&expr.Bitwise{
+			SourceRegister: 2,
+			DestRegister:   2,
+			Len:            4,
+			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
+			Mask:           m.wgIface.Address().Network.Mask,
+		},
+		&expr.Cmp{
+			Op:       srcOp,
+			Register: 2,
+			Data:     ip.Unmap().AsSlice(),
+		},
+		&expr.Payload{
+			DestRegister: 2,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       16,
+			Len:          4,
+		},
+		&expr.Bitwise{
+			SourceRegister: 2,
+			DestRegister:   2,
+			Len:            4,
+			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
+			Mask:           m.wgIface.Address().Network.Mask,
+		},
+		&expr.Cmp{
+			Op:       dstOp,
+			Register: 2,
+			Data:     ip.Unmap().AsSlice(),
+		},
+		&expr.Verdict{
+			Kind: expr.VerdictAccept,
+		},
+	}
+	_ = m.rConn.AddRule(&nftables.Rule{
+		Table: chain.Table,
+		Chain: chain,
 		Exprs: expressions,
 	})
 }
