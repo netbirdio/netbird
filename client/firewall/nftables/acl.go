@@ -125,6 +125,7 @@ func (m *AclManager) AddFiltering(
 		return []firewall.Rule{ioRule}, nil
 	}
 
+	// todo: warning, ipset could be nil!
 	preroutingRule, err := m.addPreroutingFiltering(ipset, proto, sPort, dPort, rawIP)
 	if err != nil {
 		return []firewall.Rule{ioRule}, err
@@ -654,6 +655,60 @@ func (m *AclManager) createPreroutingMangle() *nftables.Chain {
 		Policy:   &polAccept,
 	}
 
+	chain = m.rConn.AddChain(chain)
+
+	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
+	expressions := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(m.wgIface.Name()),
+		},
+		&expr.Payload{
+			DestRegister: 2,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       12,
+			Len:          4,
+		},
+		&expr.Bitwise{
+			SourceRegister: 2,
+			DestRegister:   2,
+			Len:            4,
+			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
+			Mask:           m.wgIface.Address().Network.Mask,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpNeq,
+			Register: 2,
+			Data:     ip.Unmap().AsSlice(),
+		},
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       16,
+			Len:          4,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     m.wgIface.Address().IP.To4(),
+		},
+		&expr.Immediate{
+			Register: 1,
+			Data:     postroutingMark,
+		},
+		&expr.Meta{
+			Key:            expr.MetaKeyMARK,
+			SourceRegister: true,
+			Register:       1,
+		},
+	}
+	_ = m.rConn.AddRule(&nftables.Rule{
+		Table: m.workTable,
+		Chain: chain,
+		Exprs: expressions,
+	})
 	chain = m.rConn.AddChain(chain)
 	return chain
 }
