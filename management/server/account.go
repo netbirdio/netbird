@@ -1596,9 +1596,10 @@ func (am *DefaultAccountManager) GetAllConnectedPeers() (map[string]struct{}, er
 	return am.peersUpdateManager.GetAllConnectedPeers(), nil
 }
 
+var invalidDomainRegexp = regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
+
 func isDomainValid(domain string) bool {
-	re := regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
-	return re.MatchString(domain)
+	return invalidDomainRegexp.MatchString(domain)
 }
 
 // GetDNSDomain returns the configured dnsDomain

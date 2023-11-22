@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net/netip"
-	"regexp"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -289,12 +288,7 @@ func isNetworkManagerSupportedVersion() bool {
 }
 
 func parseVersion(inputVersion string) (*version.Version, error) {
-	reg, err := regexp.Compile(version.SemverRegexpRaw)
-	if err != nil {
-		return nil, err
-	}
-
-	if inputVersion == "" || !reg.MatchString(inputVersion) {
+	if inputVersion == "" || !version.semverRegexp.MatchString(inputVersion) {
 		return nil, fmt.Errorf("couldn't parse the provided version: Not SemVer")
 	}
 
