@@ -71,8 +71,9 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 			"-i", wgIface.Name(), "-j", ChainInputFilterName, "-s", wgIface.Address().String()},
 		outputDefaultRuleSpecs: []string{
 			"-o", wgIface.Name(), "-j", ChainOutputFilterName, "-d", wgIface.Address().String()},
-		rulesets: make(map[string]ruleset),
-		router:   newRouterManager(context, iptablesClient),
+		rulesets:   make(map[string]ruleset),
+		router:     newRouterManager(context, iptablesClient),
+		ipv4Client: iptablesClient,
 	}
 
 	if err := m.Reset(); err != nil {
