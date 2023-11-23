@@ -37,10 +37,11 @@ type DefaultManager struct {
 }
 
 // NewManagerWithServerRouter returns a new route manager
-func NewManagerWithServerRouter(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, firewall firewall.Manager) *DefaultManager {
+func NewManagerWithServerRouter(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, firewall firewall.Manager) (*DefaultManager, error) {
+	var err error
 	dm := newManager(ctx, pubKey, wgInterface, statusRecorder)
-	dm.serverRouter = newServerRouter(ctx, wgInterface, firewall)
-	return dm
+	dm.serverRouter, err = newServerRouter(ctx, wgInterface, firewall)
+	return dm, err
 }
 
 func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, initialRoutes []*route.Route) *DefaultManager {
