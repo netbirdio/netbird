@@ -60,8 +60,18 @@ func addToRouteTable(prefix netip.Prefix, addr string) error {
 	return nil
 }
 
-func removeFromRouteTable(prefix netip.Prefix) error {
+func removeFromRouteTable(prefix netip.Prefix, addr string) error {
 	_, ipNet, err := net.ParseCIDR(prefix.String())
+	if err != nil {
+		return err
+	}
+
+	addrMask := "/32"
+	if prefix.Addr().Unmap().Is6() {
+		addrMask = "/128"
+	}
+
+	ip, _, err := net.ParseCIDR(addr + addrMask)
 	if err != nil {
 		return err
 	}
@@ -69,6 +79,7 @@ func removeFromRouteTable(prefix netip.Prefix) error {
 	route := &netlink.Route{
 		Scope: netlink.SCOPE_UNIVERSE,
 		Dst:   ipNet,
+		Gw:    ip,
 	}
 
 	err = netlink.RouteDel(route)

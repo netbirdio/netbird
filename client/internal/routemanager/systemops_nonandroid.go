@@ -90,7 +90,7 @@ func isSubRange(prefix netip.Prefix) (bool, error) {
 		return false, err
 	}
 	for _, tableRoute := range routes {
-		if tableRoute.Contains(prefix.Addr()) && tableRoute.Bits() < prefix.Bits() {
+		if tableRoute.Bits() > minRangeBits && tableRoute.Contains(prefix.Addr()) && tableRoute.Bits() < prefix.Bits() {
 			return true, nil
 		}
 	}
@@ -98,16 +98,7 @@ func isSubRange(prefix netip.Prefix) (bool, error) {
 }
 
 func removeFromRouteTableIfNonSystem(prefix netip.Prefix, addr string) error {
-	addrIP := net.ParseIP(addr)
-	prefixGateway, err := getExistingRIBRouteGateway(prefix)
-	if err != nil {
-		return err
-	}
-	if prefixGateway != nil && !prefixGateway.Equal(addrIP) {
-		log.Warnf("route for network %s is pointing to a different gateway: %s, should be pointing to: %s, not removing", prefix, prefixGateway, addrIP)
-		return nil
-	}
-	return removeFromRouteTable(prefix)
+	return removeFromRouteTable(prefix, addr)
 }
 
 func getExistingRIBRouteGateway(prefix netip.Prefix) (net.IP, error) {

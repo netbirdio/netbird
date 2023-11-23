@@ -12,6 +12,8 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
+const minRangeBits = 7
+
 type routerPeerStatus struct {
 	connected bool
 	relayed   bool
