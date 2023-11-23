@@ -17,17 +17,13 @@ type nftRuleset struct {
 }
 
 type rulesetManager struct {
-	rulesets map[string]*nftRuleset
-
-	nftSetName2rulesetID   map[string]string
+	rulesets               map[string]*nftRuleset
 	issuedRuleID2rulesetID map[string]string
 }
 
 func newRuleManager() *rulesetManager {
 	return &rulesetManager{
-		rulesets: map[string]*nftRuleset{},
-
-		nftSetName2rulesetID:   map[string]string{},
+		rulesets:               map[string]*nftRuleset{},
 		issuedRuleID2rulesetID: map[string]string{},
 	}
 }
@@ -45,10 +41,6 @@ func (r *rulesetManager) createRuleset(rulesetID string, nftRule *nftables.Rule,
 		issuedRules: map[string]*Rule{},
 	}
 	r.rulesets[rulesetID] = &ruleset
-	if nftSet != nil {
-		// todo do not overwrite it with prerouting ruleset
-		r.nftSetName2rulesetID[nftSet.Name] = rulesetID
-	}
 	return
 }
 
@@ -66,7 +58,7 @@ func (r *rulesetManager) addRule(rulesetID string, ip []byte) (*Rule, error) {
 	}
 
 	ruleset.issuedRules[rule.ruleID] = &rule
-	r.issuedRuleID2rulesetID[rule.ruleID] = ruleset.rulesetID
+	r.issuedRuleID2rulesetID[rule.ruleID] = rulesetID
 
 	return &rule, nil
 }
@@ -87,9 +79,6 @@ func (r *rulesetManager) deleteRule(rule *Rule) bool {
 
 	if len(ruleset.issuedRules) == 0 {
 		delete(r.rulesets, ruleset.rulesetID)
-		if rule.nftSet != nil {
-			delete(r.nftSetName2rulesetID, rule.nftSet.Name)
-		}
 		return false
 	}
 	return true
