@@ -106,8 +106,11 @@ func (m *AclManager) AddFiltering(
 ) ([]firewall.Rule, error) {
 	var ipset *nftables.Set
 	var isNewSet bool
-	// todo filter out IPV6 for the future backward compatible
 	rawIP := ip.To4()
+	if rawIP != nil {
+		return nil, fmt.Errorf("unsupported IP version: %s", ip.String())
+	}
+
 	if ipsetName != "" {
 		var err error
 		ipset, isNewSet, err = m.addIpToSet(ipsetName, rawIP)
