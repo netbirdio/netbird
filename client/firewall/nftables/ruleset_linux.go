@@ -41,7 +41,6 @@ func (r *rulesetManager) createRuleset(rulesetID string, nftRule *nftables.Rule,
 		issuedRules: map[string]*Rule{},
 	}
 	r.rulesets[rulesetID] = &ruleset
-	return
 }
 
 func (r *rulesetManager) addRule(rulesetID string, ip []byte) (*Rule, error) {

@@ -43,12 +43,16 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 
 			nftablesTestingClient := &nftables.Conn{}
 
-			defer manager.ResetForwardRules()
+			defer func() {
+				_ = manager.ResetForwardRules()
+			}()
 
 			require.NoError(t, err, "shouldn't return error")
 
 			err = manager.InsertRoutingRules(testCase.InputPair)
-			defer manager.RemoveRoutingRules(testCase.InputPair)
+			defer func() {
+				_ = manager.RemoveRoutingRules(testCase.InputPair)
+			}()
 			require.NoError(t, err, "forwarding pair should be inserted")
 
 			sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
@@ -143,7 +147,9 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 
 			nftablesTestingClient := &nftables.Conn{}
 
-			defer manager.ResetForwardRules()
+			defer func(manager *router) {
+				_ = manager.ResetForwardRules()
+			}(manager)
 
 			sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
 			destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
