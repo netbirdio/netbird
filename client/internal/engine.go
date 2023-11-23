@@ -1062,7 +1062,10 @@ func (e *Engine) close() {
 	}
 
 	if e.firewall != nil {
-		e.firewall.Reset()
+		err := e.firewall.Reset()
+		if err != nil {
+			log.Warnf("failed to reset firewall: %s", err)
+		}
 	}
 }
 

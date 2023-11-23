@@ -8,6 +8,7 @@ import (
 	"github.com/golang/mock/gomock"
 
 	"github.com/netbirdio/netbird/client/firewall"
+	"github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl/mocks"
 	"github.com/netbirdio/netbird/iface"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
@@ -56,7 +57,9 @@ func TestDefaultManager(t *testing.T) {
 		t.Errorf("create firewall: %v", err)
 		return
 	}
-	defer fw.Reset()
+	defer func(fw manager.Manager) {
+		_ = fw.Reset()
+	}(fw)
 	acl := NewDefaultManager(fw)
 
 	t.Run("apply firewall rules", func(t *testing.T) {
@@ -347,7 +350,9 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 		t.Errorf("create firewall: %v", err)
 		return
 	}
-	defer fw.Reset()
+	defer func(fw manager.Manager) {
+		_ = fw.Reset()
+	}(fw)
 	acl := NewDefaultManager(fw)
 
 	acl.ApplyFiltering(networkMap)
