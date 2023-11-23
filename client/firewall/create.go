@@ -3,16 +3,18 @@
 package firewall
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 
 	log "github.com/sirupsen/logrus"
 
+	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
 )
 
 // NewFirewall creates a firewall manager instance
-func NewFirewall(iface IFaceMapper) (manager *DefaultManager, err error) {
+func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, error) {
 	if !iface.IsUserspaceBind() {
 		return nil, fmt.Errorf("not implemented for this OS: %s", runtime.GOOS)
 	}
@@ -26,5 +28,5 @@ func NewFirewall(iface IFaceMapper) (manager *DefaultManager, err error) {
 	if err != nil {
 		log.Warnf("failed to allow netbird interface traffic: %v", err)
 	}
-	return newDefaultManager(fm), nil
+	return fm, nil
 }

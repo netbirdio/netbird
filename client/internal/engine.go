@@ -223,7 +223,7 @@ func (e *Engine) Start() error {
 
 	if e.firewall != nil {
 		if e.firewall.IsServerRouteSupported() {
-			e.routeManager = routemanager.NewManagerWithServerRouter(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes, e.firewall)
+			e.routeManager = routemanager.NewManagerWithServerRouter(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, e.firewall)
 		}
 	} else {
 		e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)

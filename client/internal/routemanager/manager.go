@@ -37,14 +37,14 @@ type DefaultManager struct {
 }
 
 // NewManagerWithServerRouter returns a new route manager
-func NewManagerWithServerRouter(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, initialRoutes []*route.Route, firewall firewall.Manager) *DefaultManager {
-	dm := newManager(ctx, pubKey, wgInterface, statusRecorder, initialRoutes)
+func NewManagerWithServerRouter(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, firewall firewall.Manager) *DefaultManager {
+	dm := newManager(ctx, pubKey, wgInterface, statusRecorder)
 	dm.serverRouter = newServerRouter(ctx, wgInterface, firewall)
 	return dm
 }
 
 func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, initialRoutes []*route.Route) *DefaultManager {
-	dm := newManager(ctx, pubKey, wgInterface, statusRecorder, initialRoutes)
+	dm := newManager(ctx, pubKey, wgInterface, statusRecorder)
 	if runtime.GOOS == "android" {
 		cr := dm.clientRoutes(initialRoutes)
 		dm.notifier.setInitialClientRoutes(cr)
@@ -52,7 +52,7 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 	return dm
 }
 
-func newManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, initialRoutes []*route.Route) *DefaultManager {
+func newManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status) *DefaultManager {
 	mCTX, cancel := context.WithCancel(ctx)
 	dm := &DefaultManager{
 		ctx:            mCTX,
