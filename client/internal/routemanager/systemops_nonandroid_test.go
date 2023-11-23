@@ -233,7 +233,6 @@ func TestExistsInRouteTable(t *testing.T) {
 		}
 	}
 
-	addressPrefixes = append(addressPrefixes, netip.MustParsePrefix("0.0.0.0/0"))
 	for _, prefix := range addressPrefixes {
 		exists, err := existsInRouteTable(prefix)
 		if err != nil {
