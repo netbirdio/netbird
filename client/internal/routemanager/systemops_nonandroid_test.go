@@ -62,7 +62,7 @@ func TestAddRemoveRoutes(t *testing.T) {
 			}
 			exists, err := existsInRouteTable(testCase.prefix)
 			require.NoError(t, err, "existsInRouteTable should not return err")
-			if exists {
+			if exists && testCase.shouldRouteToWireguard {
 				err = removeFromRouteTableIfNonSystem(testCase.prefix, wgInterface.Address().IP.String())
 				require.NoError(t, err, "removeFromRouteTableIfNonSystem should not return err")
 
