@@ -27,19 +27,6 @@ const (
 	RTF_MULTICAST = 0x800000
 )
 
-func existsInRouteTable(prefix netip.Prefix) (bool, error) {
-	routes, err := getRoutesFromTable()
-	if err != nil {
-		return false, err
-	}
-	for _, tableRoute := range routes {
-		if tableRoute == prefix {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 func getRoutesFromTable() ([]netip.Prefix, error) {
 	tab, err := route.FetchRIB(syscall.AF_UNSPEC, route.RIBTypeRoute, 0)
 	if err != nil {

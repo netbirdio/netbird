@@ -79,19 +79,6 @@ func removeFromRouteTable(prefix netip.Prefix) error {
 	return nil
 }
 
-func existsInRouteTable(prefix netip.Prefix) (bool, error) {
-	routes, err := getRoutesFromTable()
-	if err != nil {
-		return false, err
-	}
-	for _, route := range routes {
-		if route == prefix {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 func getRoutesFromTable() ([]netip.Prefix, error) {
 	tab, err := syscall.NetlinkRIB(syscall.RTM_GETROUTE, syscall.AF_UNSPEC)
 	if err != nil {
