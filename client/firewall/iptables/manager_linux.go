@@ -139,7 +139,6 @@ func (m *Manager) AddFiltering(
 				ipsetName: ipsetName,
 				ip:        ip.String(),
 				dst:       direction == firewall.RuleDirectionOUT,
-				v6:        ip.To4() == nil,
 			}}, nil
 		}
 		// this is new ipset so we need to create firewall rule for it
@@ -179,7 +178,6 @@ func (m *Manager) AddFiltering(
 		ipsetName: ipsetName,
 		ip:        ip.String(),
 		dst:       direction == firewall.RuleDirectionOUT,
-		v6:        ip.To4() == nil,
 	}
 	if ipsetName != "" {
 		// ipset name is defined and it means that this rule was created

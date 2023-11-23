@@ -8,7 +8,6 @@ type Rule struct {
 	specs []string
 	ip    string
 	dst   bool
-	v6    bool
 }
 
 // GetRuleID returns the rule id
