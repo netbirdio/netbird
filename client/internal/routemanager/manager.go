@@ -2,6 +2,7 @@ package routemanager
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"sync"
 
@@ -38,10 +39,12 @@ type DefaultManager struct {
 
 // NewManagerWithServerRouter returns a new route manager
 func NewManagerWithServerRouter(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, firewall firewall.Manager) (*DefaultManager, error) {
-	var err error
+	if runtime.GOOS == "android" {
+		return nil, fmt.Errorf("server route not supported on this os")
+	}
 	dm := newManager(ctx, pubKey, wgInterface, statusRecorder)
-	dm.serverRouter, err = newServerRouter(ctx, wgInterface, firewall)
-	return dm, err
+	dm.serverRouter = newServerRouter(ctx, wgInterface, firewall)
+	return dm, nil
 }
 
 func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, initialRoutes []*route.Route) *DefaultManager {
