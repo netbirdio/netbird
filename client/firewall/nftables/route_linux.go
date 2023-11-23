@@ -3,6 +3,7 @@ package nftables
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -33,6 +34,8 @@ var (
 			Kind: expr.VerdictAccept,
 		},
 	}
+
+	errFilterTableNotFound = fmt.Errorf("nftables: 'filter' table not found")
 )
 
 type router struct {
@@ -62,7 +65,11 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table) (*router, e
 	var err error
 	r.filterTable, err = r.loadFilterTable()
 	if err != nil {
-		return nil, err
+		if errors.Is(err, errFilterTableNotFound) {
+			log.Warnf("table 'filter' not found for forward rules")
+		} else {
+			return nil, err
+		}
 	}
 
 	err = r.cleanUpDefaultForwardRules()
@@ -98,12 +105,11 @@ func (r *router) loadFilterTable() (*nftables.Table, error) {
 
 	for _, table := range tables {
 		if table.Name == "filter" {
-			log.Debugf("nftables: found 'filter' table")
 			return table, nil
 		}
 	}
 
-	return nil, fmt.Errorf("nftables: filter table not found")
+	return nil, errFilterTableNotFound
 }
 
 func (r *router) createContainers() error {
@@ -160,7 +166,7 @@ func (r *router) InsertRoutingRules(pair manager.RouterPair) error {
 		}
 	}
 
-	if !r.isDefaultFwdRulesEnabled {
+	if r.filterTable != nil && !r.isDefaultFwdRulesEnabled {
 		log.Debugf("add default accept forward rule")
 		r.acceptForwardRule(pair.Source)
 	}
@@ -333,6 +339,11 @@ func (r *router) refreshRulesMap() error {
 }
 
 func (r *router) cleanUpDefaultForwardRules() error {
+	if r.filterTable == nil {
+		r.isDefaultFwdRulesEnabled = false
+		return nil
+	}
+
 	chains, err := r.conn.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
 	if err != nil {
 		return err
