@@ -107,7 +107,7 @@ func (m *AclManager) AddFiltering(
 	var ipset *nftables.Set
 	var isNewSet bool
 	rawIP := ip.To4()
-	if rawIP != nil {
+	if rawIP == nil {
 		return nil, fmt.Errorf("unsupported IP version: %s", ip.String())
 	}
 
