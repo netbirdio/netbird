@@ -187,7 +187,7 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 
 	protocol, err := convertToFirewallProtocol(r.Protocol)
 	if err != nil {
-		return "", nil, fmt.Errorf("skipping firewall rule: ", err)
+		return "", nil, fmt.Errorf("skipping firewall rule: %s", err)
 	}
 
 	action, err := convertFirewallAction(r.Action)
