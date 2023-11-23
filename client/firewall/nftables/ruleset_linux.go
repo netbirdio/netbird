@@ -13,7 +13,6 @@ type nftRuleset struct {
 	nftRule     *nftables.Rule
 	nftSet      *nftables.Set
 	issuedRules map[string]*Rule
-	rulesetID   string
 }
 
 type rulesetManager struct {
@@ -35,7 +34,6 @@ func (r *rulesetManager) isRulesetExists(rulesetID string) bool {
 
 func (r *rulesetManager) createRuleset(rulesetID string, nftRule *nftables.Rule, nftSet *nftables.Set) {
 	ruleset := nftRuleset{
-		rulesetID:   rulesetID,
 		nftRule:     nftRule,
 		nftSet:      nftSet,
 		issuedRules: map[string]*Rule{},
@@ -77,7 +75,7 @@ func (r *rulesetManager) deleteRule(rule *Rule) bool {
 	delete(ruleset.issuedRules, rule.ruleID)
 
 	if len(ruleset.issuedRules) == 0 {
-		delete(r.rulesets, ruleset.rulesetID)
+		delete(r.rulesets, rulesetID)
 		return false
 	}
 	return true
