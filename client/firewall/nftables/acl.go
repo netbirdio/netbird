@@ -125,7 +125,6 @@ func (m *AclManager) AddFiltering(
 		return []firewall.Rule{ioRule}, nil
 	}
 
-	// todo: warning, ipset could be nil!
 	preroutingRule, err := m.addPreroutingFiltering(ipset, proto, sPort, dPort, rawIP)
 	if err != nil {
 		return []firewall.Rule{ioRule}, err
@@ -234,9 +233,8 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 		// if we already have nftables rules with set for given direction
 		// just add new rule to the ruleset and return new fw.Rule object
 
-		if ruleset, ok := m.rulesetManager.getRuleset(rulesetID); ok {
-			return m.rulesetManager.addRule(ruleset, rawIP)
-
+		if m.rulesetManager.isRulesetExists(rulesetID) {
+			return m.rulesetManager.addRule(rulesetID, rawIP)
 		}
 		// if ipset exists but it is not linked to rule for given direction
 		// create new rule for direction and bind ipset to it later
@@ -255,7 +253,7 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 		},
 	}
 
-	if proto != "all" {
+	if proto != firewall.ProtocolALL {
 		expressions = append(expressions, &expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
@@ -350,9 +348,10 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 		)
 	}
 
-	if action == firewall.ActionAccept {
+	switch action {
+	case firewall.ActionAccept:
 		expressions = append(expressions, &expr.Verdict{Kind: expr.VerdictAccept})
-	} else {
+	case firewall.ActionDrop:
 		expressions = append(expressions, &expr.Verdict{Kind: expr.VerdictDrop})
 	}
 
@@ -371,8 +370,8 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 		Exprs:    expressions,
 		UserData: userData,
 	})
-	ruleset := m.rulesetManager.createRuleset(rulesetID, rule, ipset)
-	return m.rulesetManager.addRule(ruleset, rawIP)
+	m.rulesetManager.createRuleset(rulesetID, rule, ipset)
+	return m.rulesetManager.addRule(rulesetID, rawIP)
 }
 
 func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, rawIP []byte) (*Rule, error) {
@@ -399,6 +398,22 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 		return nil, fmt.Errorf("unsupported protocol: %s", proto)
 	}
 
+	var ipExpression expr.Any
+	// add individual IP for match if no ipset defined
+	if ipset == nil {
+		ipExpression = &expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     rawIP,
+		}
+	} else {
+		ipExpression = &expr.Lookup{
+			SourceRegister: 1,
+			SetName:        ipset.Name,
+			SetID:          ipset.ID,
+		}
+	}
+
 	expressions := []expr.Any{
 		&expr.Payload{
 			DestRegister: 1,
@@ -406,11 +421,7 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 			Offset:       12,
 			Len:          4,
 		},
-		&expr.Lookup{
-			SourceRegister: 1,
-			SetName:        ipset.Name,
-			SetID:          ipset.ID,
-		},
+		ipExpression,
 		&expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
@@ -476,8 +487,8 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 		return nil, fmt.Errorf("flush insert rule: %v", err)
 	}
 
-	nftRuleset := m.rulesetManager.createRuleset(rulesetID, rule, ipset)
-	return m.rulesetManager.addRule(nftRuleset, rawIP)
+	m.rulesetManager.createRuleset(rulesetID, rule, ipset)
+	return m.rulesetManager.addRule(rulesetID, rawIP)
 }
 
 func (m *AclManager) createDefaultChains() (err error) {

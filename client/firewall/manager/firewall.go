@@ -36,10 +36,8 @@ const (
 type Action int
 
 const (
-	// ActionUnknown is a unknown action
-	ActionUnknown Action = iota
 	// ActionAccept is the action to accept a packet
-	ActionAccept
+	ActionAccept Action = iota
 	// ActionDrop is the action to drop a packet
 	ActionDrop
 )

@@ -185,14 +185,14 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 		return "", nil, fmt.Errorf("invalid IP address, skipping firewall rule")
 	}
 
-	protocol := convertToFirewallProtocol(r.Protocol)
-	if protocol == firewall.ProtocolUnknown {
-		return "", nil, fmt.Errorf("invalid protocol type: %d, skipping firewall rule", r.Protocol)
+	protocol, err := convertToFirewallProtocol(r.Protocol)
+	if err != nil {
+		return "", nil, fmt.Errorf("skipping firewall rule: ", err)
 	}
 
-	action := convertFirewallAction(r.Action)
-	if action == firewall.ActionUnknown {
-		return "", nil, fmt.Errorf("invalid action type: %d, skipping firewall rule", r.Action)
+	action, err := convertFirewallAction(r.Action)
+	if err != nil {
+		return "", nil, fmt.Errorf("skipping firewall rule: %s", err)
 	}
 
 	var port *firewall.Port
@@ -212,7 +212,6 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	}
 
 	var rules []firewall.Rule
-	var err error
 	switch r.Direction {
 	case mgmProto.FirewallRule_IN:
 		rules, err = d.addInRules(ip, protocol, port, action, ipsetName, "")
@@ -441,18 +440,18 @@ func (d *DefaultManager) getRuleGroupingSelector(rule *mgmProto.FirewallRule) st
 	return fmt.Sprintf("%v:%v:%v:%s", strconv.Itoa(int(rule.Direction)), rule.Action, rule.Protocol, rule.Port)
 }
 
-func convertToFirewallProtocol(protocol mgmProto.FirewallRuleProtocol) firewall.Protocol {
+func convertToFirewallProtocol(protocol mgmProto.FirewallRuleProtocol) (firewall.Protocol, error) {
 	switch protocol {
 	case mgmProto.FirewallRule_TCP:
-		return firewall.ProtocolTCP
+		return firewall.ProtocolTCP, nil
 	case mgmProto.FirewallRule_UDP:
-		return firewall.ProtocolUDP
+		return firewall.ProtocolUDP, nil
 	case mgmProto.FirewallRule_ICMP:
-		return firewall.ProtocolICMP
+		return firewall.ProtocolICMP, nil
 	case mgmProto.FirewallRule_ALL:
-		return firewall.ProtocolALL
+		return firewall.ProtocolALL, nil
 	default:
-		return firewall.ProtocolUnknown
+		return firewall.ProtocolALL, fmt.Errorf("invalid protocol type: %s", protocol.String())
 	}
 }
 
@@ -460,13 +459,13 @@ func shouldSkipInvertedRule(protocol firewall.Protocol, port *firewall.Port) boo
 	return protocol == firewall.ProtocolALL || protocol == firewall.ProtocolICMP || port == nil
 }
 
-func convertFirewallAction(action mgmProto.FirewallRuleAction) firewall.Action {
+func convertFirewallAction(action mgmProto.FirewallRuleAction) (firewall.Action, error) {
 	switch action {
 	case mgmProto.FirewallRule_ACCEPT:
-		return firewall.ActionAccept
+		return firewall.ActionAccept, nil
 	case mgmProto.FirewallRule_DROP:
-		return firewall.ActionDrop
+		return firewall.ActionDrop, nil
 	default:
-		return firewall.ActionUnknown
+		return firewall.ActionDrop, fmt.Errorf("invalid action type: %d", action)
 	}
 }

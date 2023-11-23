@@ -27,29 +27,6 @@ const (
 var (
 	zeroXor = binaryutil.NativeEndian.PutUint32(0)
 
-	exprAllowRelatedEstablished = []expr.Any{
-		&expr.Ct{
-			Register:       1,
-			SourceRegister: false,
-			Key:            0,
-		},
-		&expr.Bitwise{
-			DestRegister:   1,
-			SourceRegister: 1,
-			Len:            4,
-			Mask:           []uint8{0x6, 0x0, 0x0, 0x0},
-			Xor:            zeroXor,
-		},
-		&expr.Cmp{
-			Register: 1,
-			Data:     binaryutil.NativeEndian.PutUint32(0),
-		},
-		&expr.Counter{},
-		&expr.Verdict{
-			Kind: expr.VerdictAccept,
-		},
-	}
-
 	exprCounterAccept = []expr.Any{
 		&expr.Counter{},
 		&expr.Verdict{

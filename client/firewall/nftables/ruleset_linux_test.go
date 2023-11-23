@@ -16,7 +16,8 @@ func TestRulesetManager_createRuleset(t *testing.T) {
 	nftRule := nftables.Rule{
 		UserData: []byte(rulesetID),
 	}
-	ruleset := rulesetManager.createRuleset(rulesetID, &nftRule, nil)
+	rulesetManager.createRuleset(rulesetID, &nftRule, nil)
+	ruleset := rulesetManager.rulesets[rulesetID]
 	require.NotNil(t, ruleset, "createRuleset() failed")
 	require.Equal(t, ruleset.rulesetID, rulesetID, "rulesetID is incorrect")
 	require.Equal(t, ruleset.nftRule, &nftRule, "nftRule is incorrect")
@@ -29,22 +30,19 @@ func TestRulesetManager_addRule(t *testing.T) {
 	// Create a ruleset.
 	rulesetID := "ruleset-1"
 	nftRule := nftables.Rule{}
-	ruleset := rulesetManager.createRuleset(rulesetID, &nftRule, nil)
+	rulesetManager.createRuleset(rulesetID, &nftRule, nil)
 
 	// Add a rule to the ruleset.
 	ip := []byte("192.168.1.1")
-	rule, err := rulesetManager.addRule(ruleset, ip)
+	rule, err := rulesetManager.addRule(rulesetID, ip)
 	require.NoError(t, err, "addRule() failed")
 	require.NotNil(t, rule, "rule should not be nil")
 	require.NotEqual(t, rule.ruleID, "ruleID is empty")
 	require.EqualValues(t, rule.ip, ip, "ip is incorrect")
-	require.Contains(t, ruleset.issuedRules, rule.ruleID, "ruleID already exists in ruleset")
+	require.Contains(t, rulesetManager.rulesets[rulesetID].issuedRules, rule.ruleID, "ruleID already exists in ruleset")
 	require.Contains(t, rulesetManager.issuedRuleID2rulesetID, rule.ruleID, "ruleID already exists in ruleset manager")
 
-	ruleset2 := &nftRuleset{
-		rulesetID: "ruleset-2",
-	}
-	_, err = rulesetManager.addRule(ruleset2, ip)
+	_, err = rulesetManager.addRule("non-exists-ruleset", ip)
 	require.Error(t, err, "addRule() should have failed")
 }
 
@@ -55,16 +53,16 @@ func TestRulesetManager_deleteRule(t *testing.T) {
 	// Create a ruleset.
 	rulesetID := "ruleset-1"
 	nftRule := nftables.Rule{}
-	ruleset := rulesetManager.createRuleset(rulesetID, &nftRule, nil)
+	rulesetManager.createRuleset(rulesetID, &nftRule, nil)
 
 	// Add a rule to the ruleset.
 	ip := []byte("192.168.1.1")
-	rule, err := rulesetManager.addRule(ruleset, ip)
+	rule, err := rulesetManager.addRule(rulesetID, ip)
 	require.NoError(t, err, "addRule() failed")
 	require.NotNil(t, rule, "rule should not be nil")
 
 	ip2 := []byte("192.168.1.1")
-	rule2, err := rulesetManager.addRule(ruleset, ip2)
+	rule2, err := rulesetManager.addRule(rulesetID, ip2)
 	require.NoError(t, err, "addRule() failed")
 	require.NotNil(t, rule2, "rule should not be nil")
 
@@ -84,11 +82,11 @@ func TestRulesetManager_setNftRuleHandle(t *testing.T) {
 	// Create a ruleset.
 	rulesetID := "ruleset-1"
 	nftRule := nftables.Rule{}
-	ruleset := rulesetManager.createRuleset(rulesetID, &nftRule, nil)
+	rulesetManager.createRuleset(rulesetID, &nftRule, nil)
 	// Add a rule to the ruleset.
 	ip := []byte("192.168.0.1")
 
-	rule, err := rulesetManager.addRule(ruleset, ip)
+	rule, err := rulesetManager.addRule(rulesetID, ip)
 	require.NoError(t, err, "addRule() failed")
 	require.NotNil(t, rule, "rule should not be nil")
 
@@ -110,13 +108,11 @@ func TestRulesetManager_getRuleset(t *testing.T) {
 	nftSet := nftables.Set{
 		ID: 2,
 	}
-	ruleset := rulesetManager.createRuleset(rulesetID, &nftRule, &nftSet)
-	require.NotNil(t, ruleset, "createRuleset() failed")
+	rulesetManager.createRuleset(rulesetID, &nftRule, &nftSet)
 
-	find, ok := rulesetManager.getRuleset(rulesetID)
-	require.True(t, ok, "getRuleset() failed")
-	require.Equal(t, ruleset, find, "getRulesetBySetID() failed")
+	ok := rulesetManager.isRulesetExists(rulesetID)
+	require.True(t, ok, "isRulesetExists() failed")
 
-	_, ok = rulesetManager.getRuleset("does-not-exist")
+	ok = rulesetManager.isRulesetExists("does-not-exist")
 	require.False(t, ok, "getRuleset() failed")
 }

@@ -32,27 +32,29 @@ func newRuleManager() *rulesetManager {
 	}
 }
 
-func (r *rulesetManager) getRuleset(rulesetID string) (*nftRuleset, bool) {
-	ruleset, ok := r.rulesets[rulesetID]
-	return ruleset, ok
+func (r *rulesetManager) isRulesetExists(rulesetID string) bool {
+	_, ok := r.rulesets[rulesetID]
+	return ok
 }
 
-func (r *rulesetManager) createRuleset(rulesetID string, nftRule *nftables.Rule, nftSet *nftables.Set) *nftRuleset {
+func (r *rulesetManager) createRuleset(rulesetID string, nftRule *nftables.Rule, nftSet *nftables.Set) {
 	ruleset := nftRuleset{
 		rulesetID:   rulesetID,
 		nftRule:     nftRule,
 		nftSet:      nftSet,
 		issuedRules: map[string]*Rule{},
 	}
-	r.rulesets[ruleset.rulesetID] = &ruleset
+	r.rulesets[rulesetID] = &ruleset
 	if nftSet != nil {
-		r.nftSetName2rulesetID[nftSet.Name] = ruleset.rulesetID
+		// todo do not overwrite it with prerouting ruleset
+		r.nftSetName2rulesetID[nftSet.Name] = rulesetID
 	}
-	return &ruleset
+	return
 }
 
-func (r *rulesetManager) addRule(ruleset *nftRuleset, ip []byte) (*Rule, error) {
-	if _, ok := r.rulesets[ruleset.rulesetID]; !ok {
+func (r *rulesetManager) addRule(rulesetID string, ip []byte) (*Rule, error) {
+	ruleset, ok := r.rulesets[rulesetID]
+	if !ok {
 		return nil, fmt.Errorf("ruleset not found")
 	}
 
