@@ -173,7 +173,7 @@ func (i *iptablesManager) addJumpRules() error {
 		return err
 	}
 	if i.ipv4Client != nil {
-		rule := append(iptablesDefaultForwardingRule, ipv4Forwarding)
+		rule := append(iptablesDefaultForwardingRule, ipv4Forwarding) //nolint:gorcitic
 
 		err = i.ipv4Client.Insert(iptablesFilterTable, iptablesForwardChain, 1, rule...)
 		if err != nil {
@@ -181,7 +181,7 @@ func (i *iptablesManager) addJumpRules() error {
 		}
 		i.rules[ipv4][ipv4Forwarding] = rule
 
-		rule = append(iptablesDefaultNatRule, ipv4Nat)
+		rule = append(iptablesDefaultNatRule, ipv4Nat) //nolint:gocritic
 		err = i.ipv4Client.Insert(iptablesNatTable, iptablesPostRoutingChain, 1, rule...)
 		if err != nil {
 			return err
