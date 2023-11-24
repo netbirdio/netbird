@@ -56,7 +56,7 @@ func TestNftablesManager_RestoreOrCreateContainers(t *testing.T) {
 	nat4Exp := append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) //nolint:gocritic
 	nat4RuleKey := genKey(natFormat, pair.ID)
 
-	inserted4Nat := nftablesTestingClient.Inserclient / internal / routemanager / nftables_linux_test.gotRule(&nftables.Rule{
+	inserted4Nat := nftablesTestingClient.InsertRule(&nftables.Rule{
 		Table:    manager.tableIPv4,
 		Chain:    manager.chains[ipv4][nftablesRoutingNatChain],
 		Exprs:    nat4Exp,
