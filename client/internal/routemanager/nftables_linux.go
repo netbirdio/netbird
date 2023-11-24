@@ -423,7 +423,7 @@ func (n *nftablesManager) insertRoutingRule(format, chain string, pair routerPai
 	if isNat {
 		expression = append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) //nolint:gocritic
 	} else {
-		expression = append(sourceExp, append(destExp, exprCounterAccept...)...) //nolint:gorcritic
+		expression = append(sourceExp, append(destExp, exprCounterAccept...)...) //nolint:gocritic
 	}
 
 	ruleKey := genKey(format, pair.ID)

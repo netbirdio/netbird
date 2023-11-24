@@ -56,7 +56,7 @@ func TestNftablesManager_RestoreOrCreateContainers(t *testing.T) {
 	nat4Exp := append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) //nolint:gocritic
 	nat4RuleKey := genKey(natFormat, pair.ID)
 
-	inserted4Nat := nftablesTestingClient.InsertRule(&nftables.Rule{
+	inserted4Nat := nftablesTestingClient.Inserclient / internal / routemanager / nftables_linux_test.gotRule(&nftables.Rule{
 		Table:    manager.tableIPv4,
 		Chain:    manager.chains[ipv4][nftablesRoutingNatChain],
 		Exprs:    nat4Exp,
@@ -76,7 +76,7 @@ func TestNftablesManager_RestoreOrCreateContainers(t *testing.T) {
 	sourceExp = generateCIDRMatcherExpressions("source", pair.source)
 	destExp = generateCIDRMatcherExpressions("destination", pair.destination)
 
-	forward6Exp := append(sourceExp, append(destExp, exprCounterAccept...)...) //nolint:gorcritic
+	forward6Exp := append(sourceExp, append(destExp, exprCounterAccept...)...) //nolint:gocritic
 	forward6RuleKey := genKey(forwardingFormat, pair.ID)
 	inserted6Forwarding := nftablesTestingClient.InsertRule(&nftables.Rule{
 		Table:    manager.tableIPv6,
@@ -188,7 +188,7 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 
 			sourceExp = generateCIDRMatcherExpressions("source", getInPair(testCase.inputPair).source)
 			destExp = generateCIDRMatcherExpressions("destination", getInPair(testCase.inputPair).destination)
-			testingExpression = append(sourceExp, destExp...)
+			testingExpression = append(sourceExp, destExp...) //nolint:gocritic
 			inFwdRuleKey := genKey(inForwardingFormat, testCase.inputPair.ID)
 
 			found = 0
@@ -252,7 +252,7 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 			sourceExp := generateCIDRMatcherExpressions("source", testCase.inputPair.source)
 			destExp := generateCIDRMatcherExpressions("destination", testCase.inputPair.destination)
 
-			forwardExp := append(sourceExp, append(destExp, exprCounterAccept...)...)
+			forwardExp := append(sourceExp, append(destExp, exprCounterAccept...)...) //nolint:gocritic
 			forwardRuleKey := genKey(forwardingFormat, testCase.inputPair.ID)
 			insertedForwarding := nftablesTestingClient.InsertRule(&nftables.Rule{
 				Table:    table,
@@ -261,7 +261,7 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 				UserData: []byte(forwardRuleKey),
 			})
 
-			natExp := append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...)
+			natExp := append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) //nolint:gocritic
 			natRuleKey := genKey(natFormat, testCase.inputPair.ID)
 
 			insertedNat := nftablesTestingClient.InsertRule(&nftables.Rule{
