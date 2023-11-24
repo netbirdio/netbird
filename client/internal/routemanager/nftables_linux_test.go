@@ -274,7 +274,7 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 			sourceExp = generateCIDRMatcherExpressions("source", getInPair(testCase.inputPair).source)
 			destExp = generateCIDRMatcherExpressions("destination", getInPair(testCase.inputPair).destination)
 
-			forwardExp = append(sourceExp, append(destExp, exprCounterAccept...)...)
+			forwardExp = append(sourceExp, append(destExp, exprCounterAccept...)...) //nolint:gocritic
 			inForwardRuleKey := genKey(inForwardingFormat, testCase.inputPair.ID)
 			insertedInForwarding := nftablesTestingClient.InsertRule(&nftables.Rule{
 				Table:    table,
@@ -283,7 +283,7 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 				UserData: []byte(inForwardRuleKey),
 			})
 
-			natExp = append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...)
+			natExp = append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) //nolint:gocritic
 			inNatRuleKey := genKey(inNatFormat, testCase.inputPair.ID)
 
 			insertedInNat := nftablesTestingClient.InsertRule(&nftables.Rule{
