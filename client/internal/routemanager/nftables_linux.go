@@ -302,7 +302,7 @@ func (n *nftablesManager) acceptForwardRule(sourceNetwork string) error {
 	var exprs []expr.Any
 	exprs = append(src, append(dst, &expr.Verdict{
 		Kind: expr.VerdictAccept,
-	})...)
+	})...) //nolint:gocritic
 
 	r := &nftables.Rule{
 		Table: n.filterTable,
@@ -324,7 +324,7 @@ func (n *nftablesManager) acceptForwardRule(sourceNetwork string) error {
 
 	exprs = append(src, append(dst, &expr.Verdict{
 		Kind: expr.VerdictAccept,
-	})...)
+	})...) //nolint:gocritic
 
 	r = &nftables.Rule{
 		Table: n.filterTable,
