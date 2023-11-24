@@ -155,7 +155,7 @@ func (m *DefaultManager) classifiesRoutes(newRoutes []*route.Route) (map[string]
 		if !ownNetworkIDs[networkID] {
 			// if prefix is too small, lets assume is a possible default route which is not yet supported
 			// we skip this route management
-			if newRoute.Network.Bits() < 7 {
+			if newRoute.Network.Bits() < minRangeBits {
 				log.Errorf("this agent version: %s, doesn't support default routes, received %s, skipping this route",
 					version.NetbirdVersion(), newRoute.Network)
 				continue

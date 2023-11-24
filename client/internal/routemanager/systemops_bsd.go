@@ -27,24 +27,24 @@ const (
 	RTF_MULTICAST = 0x800000
 )
 
-func existsInRouteTable(prefix netip.Prefix) (bool, error) {
+func getRoutesFromTable() ([]netip.Prefix, error) {
 	tab, err := route.FetchRIB(syscall.AF_UNSPEC, route.RIBTypeRoute, 0)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	msgs, err := route.ParseRIB(route.RIBTypeRoute, tab)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-
+	var prefixList []netip.Prefix
 	for _, msg := range msgs {
 		m := msg.(*route.RouteMessage)
 
 		if m.Version < 3 || m.Version > 5 {
-			return false, fmt.Errorf("unexpected RIB message version: %d", m.Version)
+			return nil, fmt.Errorf("unexpected RIB message version: %d", m.Version)
 		}
 		if m.Type != 4 /* RTM_GET */ {
-			return true, fmt.Errorf("unexpected RIB message type: %d", m.Type)
+			return nil, fmt.Errorf("unexpected RIB message type: %d", m.Type)
 		}
 
 		if m.Flags&RTF_UP == 0 ||
@@ -52,31 +52,42 @@ func existsInRouteTable(prefix netip.Prefix) (bool, error) {
 			continue
 		}
 
-		dst, err := toIPAddr(m.Addrs[0])
-		if err != nil {
-			return true, fmt.Errorf("unexpected RIB destination: %v", err)
+		addr, ok := toNetIPAddr(m.Addrs[0])
+		if !ok {
+			continue
 		}
 
-		mask, _ := toIPAddr(m.Addrs[2])
-		cidr, _ := net.IPMask(mask.To4()).Size()
-		if dst.String() == prefix.Addr().String() && cidr == prefix.Bits() {
-			return true, nil
+		mask, ok := toNetIPMASK(m.Addrs[2])
+		if !ok {
+			continue
+		}
+		cidr, _ := mask.Size()
+
+		routePrefix := netip.PrefixFrom(addr, cidr)
+		if routePrefix.IsValid() {
+			prefixList = append(prefixList, routePrefix)
 		}
 	}
-
-	return false, nil
+	return prefixList, nil
 }
 
-func toIPAddr(a route.Addr) (net.IP, error) {
+func toNetIPAddr(a route.Addr) (netip.Addr, bool) {
 	switch t := a.(type) {
 	case *route.Inet4Addr:
 		ip := net.IPv4(t.IP[0], t.IP[1], t.IP[2], t.IP[3])
-		return ip, nil
-	case *route.Inet6Addr:
-		ip := make(net.IP, net.IPv6len)
-		copy(ip, t.IP[:])
-		return ip, nil
+		addr := netip.MustParseAddr(ip.String())
+		return addr, true
 	default:
-		return net.IP{}, fmt.Errorf("unknown family: %v", t)
+		return netip.Addr{}, false
+	}
+}
+
+func toNetIPMASK(a route.Addr) (net.IPMask, bool) {
+	switch t := a.(type) {
+	case *route.Inet4Addr:
+		mask := net.IPv4Mask(t.IP[0], t.IP[1], t.IP[2], t.IP[3])
+		return mask, true
+	default:
+		return nil, false
 	}
 }
