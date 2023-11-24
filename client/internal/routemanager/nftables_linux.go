@@ -300,9 +300,9 @@ func (n *nftablesManager) acceptForwardRule(sourceNetwork string) error {
 	dst := generateCIDRMatcherExpressions("destination", "0.0.0.0/0")
 
 	var exprs []expr.Any
-	exprs = append(src, append(dst, &expr.Verdict{
+	exprs = append(src, append(dst, &expr.Verdict{ //nolint:gocritic
 		Kind: expr.VerdictAccept,
-	})...) //nolint:gocritic
+	})...)
 
 	r := &nftables.Rule{
 		Table: n.filterTable,
@@ -322,9 +322,9 @@ func (n *nftablesManager) acceptForwardRule(sourceNetwork string) error {
 	src = generateCIDRMatcherExpressions("source", "0.0.0.0/0")
 	dst = generateCIDRMatcherExpressions("destination", sourceNetwork)
 
-	exprs = append(src, append(dst, &expr.Verdict{
+	exprs = append(src, append(dst, &expr.Verdict{ //nolint:gocritic
 		Kind: expr.VerdictAccept,
-	})...) //nolint:gocritic
+	})...)
 
 	r = &nftables.Rule{
 		Table: n.filterTable,
@@ -421,9 +421,9 @@ func (n *nftablesManager) insertRoutingRule(format, chain string, pair routerPai
 
 	var expression []expr.Any
 	if isNat {
-		expression = append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...)
+		expression = append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) //nolint:gocritic
 	} else {
-		expression = append(sourceExp, append(destExp, exprCounterAccept...)...)
+		expression = append(sourceExp, append(destExp, exprCounterAccept...)...) //nolint:gorcritic
 	}
 
 	ruleKey := genKey(format, pair.ID)

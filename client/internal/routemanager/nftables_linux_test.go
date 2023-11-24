@@ -44,7 +44,7 @@ func TestNftablesManager_RestoreOrCreateContainers(t *testing.T) {
 	sourceExp := generateCIDRMatcherExpressions("source", pair.source)
 	destExp := generateCIDRMatcherExpressions("destination", pair.destination)
 
-	forward4Exp := append(sourceExp, append(destExp, exprCounterAccept...)...)
+	forward4Exp := append(sourceExp, append(destExp, exprCounterAccept...)...) //nolint:gocritic
 	forward4RuleKey := genKey(forwardingFormat, pair.ID)
 	inserted4Forwarding := nftablesTestingClient.InsertRule(&nftables.Rule{
 		Table:    manager.tableIPv4,
