@@ -31,7 +31,7 @@ func addToRouteTableIfNoExists(prefix netip.Prefix, addr string) error {
 	if ok {
 		err := addRouteForCurrentDefaultGateway(prefix)
 		if err != nil {
-			log.Warnf("unable to add route for current default gateway route. Will procceed without it. error: %s", err)
+			log.Warnf("unable to add route for current default gateway route. Will proceed without it. error: %s", err)
 		}
 	}
 
