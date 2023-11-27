@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -381,15 +380,10 @@ func createPostRequest(ctx context.Context, endpoint string, payloadStr string) 
 }
 
 func getMinMaxVersion(inputList []string) (string, string) {
-	reg, err := regexp.Compile(version.SemverRegexpRaw)
-	if err != nil {
-		return "", ""
-	}
-
 	versions := make([]*version.Version, 0)
 
 	for _, raw := range inputList {
-		if raw != "" && reg.MatchString(raw) {
+		if raw != "" && nbversion.SemverRegexp.MatchString(raw) {
 			v, err := version.NewVersion(raw)
 			if err == nil {
 				versions = append(versions, v)
