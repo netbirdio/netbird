@@ -267,8 +267,9 @@ func validateGroups(list []string, groups map[string]*Group) error {
 	return nil
 }
 
+var domainMatcher = regexp.MustCompile(domainPattern)
+
 func validateDomain(domain string) error {
-	domainMatcher := regexp.MustCompile(domainPattern)
 	if !domainMatcher.MatchString(domain) {
 		return errors.New("domain should consists of only letters, numbers, and hyphens with no leading, trailing hyphens, or spaces")
 	}
