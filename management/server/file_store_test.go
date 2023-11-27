@@ -121,6 +121,60 @@ func TestSaveAccount(t *testing.T) {
 	}
 }
 
+func TestDeleteAccount(t *testing.T) {
+	storeDir := t.TempDir()
+	storeFile := filepath.Join(storeDir, "store.json")
+	err := util.CopyFileContents("testdata/store.json", storeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewFileStore(storeDir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var account *Account
+	for _, a := range store.Accounts {
+		account = a
+		break
+	}
+
+	require.NotNil(t, account, "failed to restore a FileStore file and get at least one account")
+
+	err = store.DeleteAccount(account)
+	require.NoError(t, err, "failed to delete account, error: %v", err)
+
+	_, ok := store.Accounts[account.Id]
+	require.False(t, ok, "failed to delete account")
+
+	for id := range account.Users {
+		_, ok := store.UserID2AccountID[id]
+		assert.False(t, ok, "failed to delete UserID2AccountID index")
+		for _, pat := range account.Users[id].PATs {
+			_, ok := store.HashedPAT2TokenID[pat.HashedToken]
+			assert.False(t, ok, "failed to delete HashedPAT2TokenID index")
+			_, ok = store.TokenID2UserID[pat.ID]
+			assert.False(t, ok, "failed to delete TokenID2UserID index")
+		}
+	}
+
+	for _, p := range account.Peers {
+		_, ok := store.PeerKeyID2AccountID[p.Key]
+		assert.False(t, ok, "failed to delete PeerKeyID2AccountID index")
+		_, ok = store.PeerID2AccountID[p.ID]
+		assert.False(t, ok, "failed to delete PeerID2AccountID index")
+	}
+
+	for id := range account.SetupKeys {
+		_, ok := store.SetupKeyID2AccountID[id]
+		assert.False(t, ok, "failed to delete SetupKeyID2AccountID index")
+	}
+
+	_, ok = store.PrivateDomain2AccountID[account.Domain]
+	assert.False(t, ok, "failed to delete PrivateDomain2AccountID index")
+
+}
+
 func TestStore(t *testing.T) {
 	store := newStore(t)
 

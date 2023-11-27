@@ -1006,7 +1006,7 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 
 // DeleteAccount deletes an account and all its users from local store and from the remote IDP if the requester is an admin and account owner
 func (am *DefaultAccountManager) DeleteAccount(accountID, userID string) error {
-	unlock := am.Store.AcquireGlobalLock()
+	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {

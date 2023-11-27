@@ -372,7 +372,7 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 		var rules []*PolicyRule
 		err := s.db.Model(&PolicyRule{}).Find(&rules, "policy_id = ?", policy.ID).Error
 		if err != nil {
-			return nil, status.Errorf(status.NotFound, "account not found")
+			return nil, status.Errorf(status.NotFound, "rule not found")
 		}
 		account.Policies[i].Rules = rules
 	}
