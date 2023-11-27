@@ -37,8 +37,9 @@ type Manager struct {
 	outputDefaultRuleSpecs []string
 	wgIface                iFaceMapper
 
-	rulesets map[string]ruleset
-	router   *routerManager
+	ruleStore *rulesetStore
+
+	router *routerManager
 }
 
 // iFaceMapper defines subset methods of interface required for manager
@@ -46,11 +47,6 @@ type iFaceMapper interface {
 	Name() string
 	Address() iface.WGAddress
 	IsUserspaceBind() bool
-}
-
-type ruleset struct {
-	rule *Rule
-	ips  map[string]string
 }
 
 // Create iptables firewall manager
@@ -71,7 +67,7 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 			"-i", wgIface.Name(), "-j", ChainInputFilterName, "-s", wgIface.Address().String()},
 		outputDefaultRuleSpecs: []string{
 			"-o", wgIface.Name(), "-j", ChainOutputFilterName, "-d", wgIface.Address().String()},
-		rulesets:   make(map[string]ruleset),
+		ruleStore:  newRulesetStore(),
 		router:     newRouterManager(context, iptablesClient),
 		ipv4Client: iptablesClient,
 	}
@@ -116,30 +112,30 @@ func (m *Manager) AddFiltering(
 	ruleID := uuid.New().String()
 
 	if ipsetName != "" {
-		rs, rsExists := m.rulesets[ipsetName]
-		if !rsExists {
-			if err := ipset.Flush(ipsetName); err != nil {
-				log.Errorf("flush ipset %q before use it: %v", ipsetName, err)
-			}
-			if err := ipset.Create(ipsetName); err != nil {
-				return nil, fmt.Errorf("failed to create ipset: %w", err)
-			}
-		}
-
-		if err := ipset.Add(ipsetName, ip.String()); err != nil {
-			return nil, fmt.Errorf("failed to add IP to ipset: %w", err)
-		}
-
+		rs, rsExists := m.ruleStore.ruleset(ipsetName)
 		if rsExists {
+			if err := ipset.Add(ipsetName, ip.String()); err != nil {
+				return nil, fmt.Errorf("failed to add IP to ipset: %w", err)
+			}
 			// if ruleset already exists it means we already have the firewall rule
 			// so we need to update IPs in the ruleset and return new fw.Rule object for ACL manager.
-			rs.ips[ip.String()] = ruleID
+			rs.addIP(ip.String())
 			return []firewall.Rule{&Rule{
 				ruleID:    ruleID,
 				ipsetName: ipsetName,
 				ip:        ip.String(),
 				dst:       direction == firewall.RuleDirectionOUT,
 			}}, nil
+		}
+
+		if err := ipset.Flush(ipsetName); err != nil {
+			log.Errorf("flush ipset %q before use it: %v", ipsetName, err)
+		}
+		if err := ipset.Create(ipsetName); err != nil {
+			return nil, fmt.Errorf("failed to create ipset: %w", err)
+		}
+		if err := ipset.Add(ipsetName, ip.String()); err != nil {
+			return nil, fmt.Errorf("failed to add IP to ipset: %w", err)
 		}
 		// this is new ipset so we need to create firewall rule for it
 	}
@@ -182,10 +178,7 @@ func (m *Manager) AddFiltering(
 	if ipsetName != "" {
 		// ipset name is defined and it means that this rule was created
 		// for it, need to associate it with ruleset
-		m.rulesets[ipsetName] = ruleset{
-			rule: rule,
-			ips:  map[string]string{rule.ip: ruleID},
-		}
+		m.ruleStore.newRuleset(ip.String())
 	}
 
 	return []firewall.Rule{rule}, nil
@@ -201,7 +194,7 @@ func (m *Manager) DeleteRule(rule firewall.Rule) error {
 		return fmt.Errorf("invalid rule type")
 	}
 
-	if rs, ok := m.rulesets[r.ipsetName]; ok {
+	if rs, ok := m.ruleStore.ruleset(r.ipsetName); ok {
 		// delete IP from ruleset IPs list and ipset
 		if _, ok := rs.ips[r.ip]; ok {
 			if err := ipset.Del(r.ipsetName, r.ip); err != nil {
@@ -218,12 +211,11 @@ func (m *Manager) DeleteRule(rule firewall.Rule) error {
 
 		// we delete last IP from the set, that means we need to delete
 		// set itself and associated firewall rule too
-		delete(m.rulesets, r.ipsetName)
+		m.ruleStore.deleteRuleset(r.ipsetName)
 
 		if err := ipset.Destroy(r.ipsetName); err != nil {
 			log.Errorf("delete empty ipset: %v", err)
 		}
-		r = rs.rule
 	}
 
 	if r.dst {
@@ -330,14 +322,14 @@ func (m *Manager) resetFilter() error {
 		return nil
 	}
 
-	for ipsetName := range m.rulesets {
+	for _, ipsetName := range m.ruleStore.ipsetNames() {
 		if err := ipset.Flush(ipsetName); err != nil {
 			log.Errorf("flush ipset %q during reset: %v", ipsetName, err)
 		}
 		if err := ipset.Destroy(ipsetName); err != nil {
 			log.Errorf("delete ipset %q during reset: %v", ipsetName, err)
 		}
-		delete(m.rulesets, ipsetName)
+		m.ruleStore.deleteRuleset(ipsetName)
 	}
 
 	return nil

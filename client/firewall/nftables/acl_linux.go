@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
@@ -50,9 +51,8 @@ type AclManager struct {
 	chainFwFilter    *nftables.Chain
 	chainPrerouting  *nftables.Chain
 
-	rulesetManager *rulesetManager
-	setRemovedIPs  map[string]struct{}
-	setRemoved     map[string]*nftables.Set
+	ipsetStore *ipsetStore
+	rules      map[string]*Rule
 }
 
 // iFaceMapper defines subset methods of interface required for manager
@@ -78,9 +78,8 @@ func newAclManager(table *nftables.Table, wgIface iFaceMapper, routeingFwChainNa
 		workTable:           table,
 		routeingFwChainName: routeingFwChainName,
 
-		rulesetManager: newRuleManager(),
-		setRemovedIPs:  map[string]struct{}{},
-		setRemoved:     map[string]*nftables.Set{},
+		ipsetStore: newIpsetStore(),
+		rules:      make(map[string]*Rule),
 	}
 
 	if err := m.createDefaultChains(); err != nil {
@@ -105,7 +104,6 @@ func (m *AclManager) AddFiltering(
 	comment string,
 ) ([]firewall.Rule, error) {
 	var ipset *nftables.Set
-	var isNewSet bool
 	rawIP := ip.To4()
 	if rawIP == nil {
 		return nil, fmt.Errorf("unsupported IP version: %s", ip.String())
@@ -113,79 +111,92 @@ func (m *AclManager) AddFiltering(
 
 	if ipsetName != "" {
 		var err error
-		ipset, isNewSet, err = m.addIpToSet(ipsetName, rawIP)
+		ipset, err = m.addIpToSet(ipsetName, ip)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	ioRule, err := m.addIOFiltering(ip, proto, sPort, dPort, direction, action, ipset, isNewSet, comment)
+	newRules := make([]firewall.Rule, 0, 2)
+	ioRule, err := m.addIOFiltering(ip, proto, sPort, dPort, direction, action, ipset, comment)
 	if err != nil {
 		return nil, err
 	}
 
-	if !shouldAddToPrerouting(isNewSet, proto, direction) {
-		return []firewall.Rule{ioRule}, nil
+	newRules = append(newRules, ioRule)
+
+	if !shouldAddToPrerouting(proto, dPort, direction) {
+		return newRules, nil
 	}
 
-	preroutingRule, err := m.addPreroutingFiltering(ipset, proto, sPort, dPort, rawIP)
+	preroutingRule, err := m.addPreroutingFiltering(ipset, proto, dPort, ip)
 	if err != nil {
-		return []firewall.Rule{ioRule}, err
+		return newRules, err
 	}
+	newRules = append(newRules, preroutingRule)
+	return newRules, nil
 
-	return []firewall.Rule{ioRule, preroutingRule}, nil
 }
 
 // DeleteRule from the firewall by rule definition
 func (m *AclManager) DeleteRule(rule firewall.Rule) error {
-	nativeRule, ok := rule.(*Rule)
+	r, ok := rule.(*Rule)
 	if !ok {
 		return fmt.Errorf("invalid rule type")
 	}
 
-	if nativeRule.nftRule == nil {
-		return nil
-	}
-
-	if nativeRule.nftSet != nil {
-		// call twice of delete set element raises error
-		// so we need to check if element is already removed
-		key := fmt.Sprintf("%s:%v", nativeRule.nftSet.Name, nativeRule.ip)
-		if _, ok := m.setRemovedIPs[key]; !ok {
-			err := m.sConn.SetDeleteElements(nativeRule.nftSet, []nftables.SetElement{{Key: nativeRule.ip}})
-			if err != nil {
-				log.Errorf("delete elements for set %q: %v", nativeRule.nftSet.Name, err)
-			}
-			if err := m.sConn.Flush(); err != nil {
-				return err
-			}
-			m.setRemovedIPs[key] = struct{}{}
+	// todo handle if nfset is nil
+	ips, ok := m.ipsetStore.ips(r.nftSet.Name)
+	if !ok {
+		err := m.rConn.DelRule(r.nftRule)
+		if err != nil {
+			log.Errorf("failed to delete rule: %v", err)
 		}
+		delete(m.rules, r.GetRuleID())
+		return m.rConn.Flush()
 	}
 
-	if m.rulesetManager.deleteRule(nativeRule) {
-		// deleteRule indicates that we still have IP in the ruleset
-		// it means we should not remove the nftables rule but need to update set
-		// so we prepare IP to be removed from set on the next flush call
+	if _, ok := ips[r.ip.String()]; ok {
+		err := m.sConn.SetDeleteElements(r.nftSet, []nftables.SetElement{{Key: r.ip.To4()}})
+		if err != nil {
+			log.Errorf("delete elements for set %q: %v", r.nftSet.Name, err)
+		}
+		if err := m.sConn.Flush(); err != nil {
+			log.Debugf("flush error of set delete element, %s", r.nftSet.Name)
+			return err
+		}
+		m.ipsetStore.DeleteIpFromSet(r.nftSet.Name, r.ip)
+	}
+
+	// if after delete, set still contains other IPs,
+	// no need to delete firewall rule and we should exit here
+	if len(ips) > 0 {
 		return nil
 	}
 
-	// ruleset doesn't contain IP anymore (or contains only one), remove nft rule
-	if err := m.rConn.DelRule(nativeRule.nftRule); err != nil {
+	log.Debugf("permanentli delete rule: %s", r.nftRule.UserData)
+	err := m.rConn.DelRule(r.nftRule)
+	if err != nil {
 		log.Errorf("failed to delete rule: %v", err)
 	}
-	if err := m.rConn.Flush(); err != nil {
+	err = m.rConn.Flush()
+	if err != nil {
 		return err
 	}
-	nativeRule.nftRule = nil
 
-	if nativeRule.nftSet != nil {
-		if _, ok := m.setRemoved[nativeRule.nftSet.Name]; !ok {
-			m.setRemoved[nativeRule.nftSet.Name] = nativeRule.nftSet
-		}
-		nativeRule.nftSet = nil
+	delete(m.rules, r.GetRuleID())
+	m.ipsetStore.DeleteReferenceFromIpSet(r.nftSet.Name)
+
+	if m.ipsetStore.HasReferenceToSet(r.nftSet.Name) {
+		return nil
 	}
 
+	// we delete last IP from the set, that means we need to delete
+	// set itself and associated firewall rule too
+	log.Debugf("destroy ip set because it is empty: %s", r.nftSet.Name)
+	m.rConn.FlushSet(r.nftSet)
+	m.rConn.DelSet(r.nftSet)
+	m.ipsetStore.deleteIpset(r.nftSet.Name)
 	return nil
 }
 
@@ -196,22 +207,6 @@ func (m *AclManager) Flush() error {
 	if err := m.flushWithBackoff(); err != nil {
 		return err
 	}
-
-	// set must be removed after flush rule changes
-	// otherwise we will get error
-	for _, s := range m.setRemoved {
-		m.rConn.FlushSet(s)
-		m.rConn.DelSet(s)
-	}
-
-	if len(m.setRemoved) > 0 {
-		if err := m.flushWithBackoff(); err != nil {
-			return err
-		}
-	}
-
-	m.setRemovedIPs = map[string]struct{}{}
-	m.setRemoved = map[string]*nftables.Set{}
 
 	if err := m.refreshRuleHandles(m.chainInputRules); err != nil {
 		log.Errorf("failed to refresh rule handles ipv4 input chain: %v", err)
@@ -228,19 +223,10 @@ func (m *AclManager) Flush() error {
 	return nil
 }
 
-func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, direction firewall.RuleDirection, action firewall.Action, ipset *nftables.Set, isNewSet bool, comment string) (*Rule, error) {
-	rawIP := ip.To4()
-
-	rulesetID := m.getRulesetID(ip, sPort, dPort, direction, action, ipset)
-	if ipset != nil && !isNewSet {
-		// if we already have nftables rules with set for given direction
-		// just add new rule to the ruleset and return new fw.Rule object
-
-		if m.rulesetManager.isRulesetExists(rulesetID) {
-			return m.rulesetManager.addRule(rulesetID, rawIP)
-		}
-		// if ipset exists but it is not linked to rule for given direction
-		// create new rule for direction and bind ipset to it later
+func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, direction firewall.RuleDirection, action firewall.Action, ipset *nftables.Set, comment string) (*Rule, error) {
+	ruleId := m.generateRuleId(ip, sPort, dPort, direction, action, ipset)
+	if r, ok := m.rules[ruleId]; ok {
+		return r, nil
 	}
 
 	ifaceKey := expr.MetaKeyIIFNAME
@@ -282,6 +268,7 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 		})
 	}
 
+	rawIP := ip.To4()
 	// check if rawIP contains zeroed IPv4 0.0.0.0 value
 	// in that case not add IP match expression into the rule definition
 	if !bytes.HasPrefix(anyIP, rawIP) {
@@ -358,7 +345,7 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 		expressions = append(expressions, &expr.Verdict{Kind: expr.VerdictDrop})
 	}
 
-	userData := []byte(strings.Join([]string{rulesetID, comment}, " "))
+	userData := []byte(strings.Join([]string{ruleId, comment}, " "))
 
 	var chain *nftables.Chain
 	if direction == firewall.RuleDirectionIN {
@@ -366,43 +353,46 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 	} else {
 		chain = m.chainOutputRules
 	}
-	rule := m.rConn.InsertRule(&nftables.Rule{
+	nftRule := m.rConn.InsertRule(&nftables.Rule{
 		Table:    m.workTable,
 		Chain:    chain,
 		Position: 0,
 		Exprs:    expressions,
 		UserData: userData,
 	})
-	m.rulesetManager.createRuleset(rulesetID, rule, ipset)
-	return m.rulesetManager.addRule(rulesetID, rawIP)
+
+	rule := &Rule{
+		nftRule: nftRule,
+		nftSet:  ipset,
+		ruleID:  xid.New().String(),
+		ip:      ip,
+	}
+	m.rules[ruleId] = rule
+	m.ipsetStore.AddReferenceToIpset(ipset.Name)
+	return rule, nil
 }
 
-func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, rawIP []byte) (*Rule, error) {
-	var port *firewall.Port
+func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.Protocol, port *firewall.Port, ip net.IP) (*Rule, error) {
 	var protoData []byte
 	switch proto {
 	case firewall.ProtocolTCP:
 		protoData = []byte{unix.IPPROTO_TCP}
-		if sPort != nil {
-			port = sPort
-		} else {
-			port = dPort
-		}
 	case firewall.ProtocolUDP:
 		protoData = []byte{unix.IPPROTO_UDP}
-		if sPort != nil {
-			port = sPort
-		} else {
-			port = dPort
-		}
 	case firewall.ProtocolICMP:
 		protoData = []byte{unix.IPPROTO_ICMP}
 	default:
 		return nil, fmt.Errorf("unsupported protocol: %s", proto)
 	}
 
+	ruleId := fmt.Sprintf("set:%s:%s:%v", ipset.Name, proto, port)
+	if r, ok := m.rules[ruleId]; ok {
+		return r, nil
+	}
+
 	var ipExpression expr.Any
 	// add individual IP for match if no ipset defined
+	rawIP := ip.To4()
 	if ipset == nil {
 		ipExpression = &expr.Cmp{
 			Op:       expr.CmpOpEq,
@@ -477,21 +467,29 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 		},
 	)
 
-	rulesetID := fmt.Sprintf("set:%s:%s:%v", ipset.Name, proto, port)
-	rule := m.rConn.InsertRule(&nftables.Rule{
+	nftRule := m.rConn.InsertRule(&nftables.Rule{
 		Table:    m.workTable,
 		Chain:    m.chainPrerouting,
 		Position: 0,
 		Exprs:    expressions,
-		UserData: []byte(rulesetID),
+		UserData: []byte(ruleId),
 	})
 
 	if err := m.rConn.Flush(); err != nil {
 		return nil, fmt.Errorf("flush insert rule: %v", err)
 	}
 
-	m.rulesetManager.createRuleset(rulesetID, rule, ipset)
-	return m.rulesetManager.addRule(rulesetID, rawIP)
+	rule := &Rule{
+		nftRule: nftRule,
+		nftSet:  ipset,
+		ruleID:  xid.New().String(),
+		ip:      ip,
+	}
+	log.Debugf("create new prerouting rule: %s", m.chainPrerouting.Name)
+
+	m.rules[ruleId] = rule
+	m.ipsetStore.AddReferenceToIpset(ipset.Name)
+	return rule, nil
 }
 
 func (m *AclManager) createDefaultChains() (err error) {
@@ -887,31 +885,35 @@ func (m *AclManager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr
 	})
 }
 
-func (m *AclManager) addIpToSet(ipsetName string, rawIP []byte) (*nftables.Set, bool, error) {
-	// if we already have set with given name, just add ip to the set
-	// and return rule with new ID in other case let's create rule
-	// with fresh created set and set element
-	var isSetNew bool
+func (m *AclManager) addIpToSet(ipsetName string, ip net.IP) (*nftables.Set, error) {
 	ipset, err := m.rConn.GetSetByName(m.workTable, ipsetName)
+	rawIP := ip.To4()
 	if err != nil {
-		if ipset, err = m.createSet(m.workTable, rawIP, ipsetName); err != nil {
-			return nil, false, fmt.Errorf("get set name: %v", err)
+		if ipset, err = m.createSet(m.workTable, ipsetName); err != nil {
+			return nil, fmt.Errorf("get set name: %v", err)
 		}
-		isSetNew = true
+
+		m.ipsetStore.newIpset(ipset.Name)
+	}
+
+	if m.ipsetStore.IsIpInSet(ipset.Name, ip) {
+		return ipset, nil
 	}
 
 	if err := m.sConn.SetAddElements(ipset, []nftables.SetElement{{Key: rawIP}}); err != nil {
-		return nil, isSetNew, fmt.Errorf("add set element for the first time: %v", err)
-	}
-	if err := m.sConn.Flush(); err != nil {
-		return nil, isSetNew, fmt.Errorf("flush add elements: %v", err)
+		return nil, fmt.Errorf("add set element for the first time: %v", err)
 	}
 
-	return ipset, isSetNew, nil
+	m.ipsetStore.AddIpToSet(ipset.Name, ip)
+
+	if err := m.sConn.Flush(); err != nil {
+		return nil, fmt.Errorf("flush add elements: %v", err)
+	}
+
+	return ipset, nil
 }
 
-// getRulesetID returns ruleset ID based on given parameters
-func (m *AclManager) getRulesetID(
+func (m *AclManager) generateRuleId(
 	ip net.IP,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
@@ -936,17 +938,12 @@ func (m *AclManager) getRulesetID(
 }
 
 // createSet in given table by name
-func (m *AclManager) createSet(table *nftables.Table, rawIP []byte, name string) (*nftables.Set, error) {
-	keyType := nftables.TypeIPAddr
-	if len(rawIP) == 16 {
-		keyType = nftables.TypeIP6Addr
-	}
-	// else we create new ipset and continue creating rule
+func (m *AclManager) createSet(table *nftables.Table, name string) (*nftables.Set, error) {
 	ipset := &nftables.Set{
 		Name:    name,
 		Table:   table,
 		Dynamic: true,
-		KeyType: keyType,
+		KeyType: nftables.TypeIPAddr,
 	}
 
 	if err := m.rConn.AddSet(ipset, nil); err != nil {
@@ -993,25 +990,29 @@ func (m *AclManager) refreshRuleHandles(chain *nftables.Chain) error {
 	}
 
 	for _, rule := range list {
-		if len(rule.UserData) != 0 {
-			if err := m.rulesetManager.setNftRuleHandle(rule); err != nil {
-				log.Errorf("failed to set rule handle: %v", err)
-			}
+		if len(rule.UserData) == 0 {
+			continue
+		}
+		split := bytes.Split(rule.UserData, []byte(" "))
+		_, ok := m.rules[string(split[0])]
+		if ok {
+			m.rules[string(split[0])].nftRule = rule
 		}
 	}
 
 	return nil
 }
 
-func shouldAddToPrerouting(isNewSet bool, proto firewall.Protocol, direction firewall.RuleDirection) bool {
-	if !isNewSet {
-		return false
-	}
+func shouldAddToPrerouting(proto firewall.Protocol, dPort *firewall.Port, direction firewall.RuleDirection) bool {
 	if proto == "all" {
 		return false
 	}
 
 	if direction != firewall.RuleDirectionIN {
+		return false
+	}
+
+	if dPort == nil {
 		return false
 	}
 	return true

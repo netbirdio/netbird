@@ -29,11 +29,6 @@ type DefaultManager struct {
 	mutex        sync.Mutex
 }
 
-type ipsetInfo struct {
-	name    string
-	ipCount int
-}
-
 func NewDefaultManager(fm firewall.Manager) *DefaultManager {
 	return &DefaultManager{
 		firewall:   fm,
@@ -115,51 +110,29 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 		)
 	}
 
-	applyFailed := false
 	newRulePairs := make(map[string][]firewall.Rule)
-	ipsetByRuleSelectors := make(map[string]*ipsetInfo)
-
-	// calculate which IP's can be grouped in by which ipset
-	// to do that we use rule selector (which is just rule properties without IP's)
-	for _, r := range rules {
-		selector := d.getRuleGroupingSelector(r)
-		ipset, ok := ipsetByRuleSelectors[selector]
-		if !ok {
-			ipset = &ipsetInfo{}
-		}
-
-		ipset.ipCount++
-		ipsetByRuleSelectors[selector] = ipset
-	}
+	ipsetByRuleSelectors := make(map[string]string)
 
 	for _, r := range rules {
 		// if this rule is member of rule selection with more than DefaultIPsCountForSet
 		// it's IP address can be used in the ipset for firewall manager which supports it
-		ipset := ipsetByRuleSelectors[d.getRuleGroupingSelector(r)]
-		if ipset.name == "" {
+		selector := d.getRuleGroupingSelector(r)
+		ipsetName, ok := ipsetByRuleSelectors[selector]
+		if !ok {
 			d.ipsetCounter++
-			ipset.name = fmt.Sprintf("nb%07d", d.ipsetCounter)
+			ipsetName = fmt.Sprintf("nb%07d", d.ipsetCounter)
+			ipsetByRuleSelectors[selector] = ipsetName
 		}
-		ipsetName := ipset.name
 		pairID, rulePair, err := d.protoRuleToFirewallRule(r, ipsetName)
 		if err != nil {
 			log.Errorf("failed to apply firewall rule: %+v, %v", r, err)
-			applyFailed = true
+			d.rollBack(newRulePairs)
 			break
 		}
-		newRulePairs[pairID] = rulePair
-	}
-	if applyFailed {
-		log.Error("failed to apply firewall rules, rollback ACL to previous state")
-		for _, rules := range newRulePairs {
-			for _, rule := range rules {
-				if err := d.firewall.DeleteRule(rule); err != nil {
-					log.Errorf("failed to delete new firewall rule (id: %v) during rollback: %v", rule.GetRuleID(), err)
-					continue
-				}
-			}
+		if len(rules) > 0 {
+			d.rulesPairs[pairID] = rulePair
+			newRulePairs[pairID] = rulePair
 		}
-		return
 	}
 
 	for pairID, rules := range d.rulesPairs {
@@ -225,7 +198,6 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 		return "", nil, err
 	}
 
-	d.rulesPairs[ruleID] = rules
 	return ruleID, rules, nil
 }
 
@@ -438,6 +410,19 @@ func (d *DefaultManager) squashAcceptRules(
 // getRuleGroupingSelector takes all rule properties except IP address to build selector
 func (d *DefaultManager) getRuleGroupingSelector(rule *mgmProto.FirewallRule) string {
 	return fmt.Sprintf("%v:%v:%v:%s", strconv.Itoa(int(rule.Direction)), rule.Action, rule.Protocol, rule.Port)
+}
+
+func (d *DefaultManager) rollBack(newRulePairs map[string][]firewall.Rule) {
+	log.Debugf("rollback ACL to previous state")
+	for _, rules := range newRulePairs {
+		for _, rule := range rules {
+			if err := d.firewall.DeleteRule(rule); err != nil {
+				log.Errorf("failed to delete new firewall rule (id: %v) during rollback: %v", rule.GetRuleID(), err)
+				continue
+			}
+		}
+	}
+	return
 }
 
 func convertToFirewallProtocol(protocol mgmProto.FirewallRuleProtocol) (firewall.Protocol, error) {
