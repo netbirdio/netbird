@@ -300,7 +300,7 @@ func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Polic
 			Action:        api.PolicyRuleAction(r.Action),
 		}
 		if len(r.Ports) != 0 {
-			portsCopy := r.Ports[:]
+			portsCopy := r.Ports
 			rule.Ports = &portsCopy
 		}
 		for _, gid := range r.Sources {

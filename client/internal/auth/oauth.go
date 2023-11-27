@@ -92,15 +92,15 @@ func authenticateWithPKCEFlow(ctx context.Context, config *internal.Config) (OAu
 func authenticateWithDeviceCodeFlow(ctx context.Context, config *internal.Config) (OAuthFlow, error) {
 	deviceFlowInfo, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL)
 	if err != nil {
-		s, ok := gstatus.FromError(err)
-		if ok && s.Code() == codes.NotFound {
+		switch s, ok := gstatus.FromError(err); {
+		case ok && s.Code() == codes.NotFound:
 			return nil, fmt.Errorf("no SSO provider returned from management. " +
 				"Please proceed with setting up this device using setup keys " +
 				"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
-		} else if ok && s.Code() == codes.Unimplemented {
+		case ok && s.Code() == codes.Unimplemented:
 			return nil, fmt.Errorf("the management server, %s, does not support SSO providers, "+
 				"please update your server or use Setup Keys to login", config.ManagementURL)
-		} else {
+		default:
 			return nil, fmt.Errorf("getting device authorization flow info failed with error: %v", err)
 		}
 	}
