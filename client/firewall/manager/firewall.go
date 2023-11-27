@@ -6,7 +6,6 @@ import (
 )
 
 const (
-	Ipv4Forwarding     = "netbird-rt-forwarding"
 	NatFormat          = "netbird-nat-%s"
 	ForwardingFormat   = "netbird-fwd-%s"
 	InNatFormat        = "netbird-nat-in-%s"

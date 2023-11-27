@@ -27,7 +27,7 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	require.NoError(t, err, "failed to init iptables client")
 
-	manager := newRouterManager(context.TODO(), iptablesClient)
+	manager, _ := newRouterManager(context.TODO(), iptablesClient)
 	require.NoError(t, err, "should return a valid iptables manager")
 
 	defer manager.CleanRoutingRules()

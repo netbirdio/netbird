@@ -76,7 +76,7 @@ func TestIptablesManager(t *testing.T) {
 		require.NoError(t, err, "failed to add rule")
 
 		for _, r := range rule1 {
-			checkRuleSpecs(t, ipv4Client, ChainOutputFilterName, true, r.(*Rule).specs...)
+			checkRuleSpecs(t, ipv4Client, chainNameOutputRules, true, r.(*Rule).specs...)
 		}
 
 	})
@@ -92,7 +92,7 @@ func TestIptablesManager(t *testing.T) {
 		require.NoError(t, err, "failed to add rule")
 
 		for _, r := range rule2 {
-			checkRuleSpecs(t, ipv4Client, ChainInputFilterName, true, r.(*Rule).specs...)
+			checkRuleSpecs(t, ipv4Client, chainNameOutputRules, true, r.(*Rule).specs...)
 		}
 	})
 
@@ -101,7 +101,7 @@ func TestIptablesManager(t *testing.T) {
 			err := manager.DeleteRule(r)
 			require.NoError(t, err, "failed to delete rule")
 
-			checkRuleSpecs(t, ipv4Client, ChainOutputFilterName, false, r.(*Rule).specs...)
+			checkRuleSpecs(t, ipv4Client, chainNameOutputRules, false, r.(*Rule).specs...)
 		}
 	})
 
@@ -111,7 +111,7 @@ func TestIptablesManager(t *testing.T) {
 			require.NoError(t, err, "failed to delete rule")
 		}
 
-		require.Empty(t, manager.rulesets, "rulesets index after removed second rule must be empty")
+		require.Empty(t, manager.aclMgr.ruleStore.ruleSets, "rulesets index after removed second rule must be empty")
 	})
 
 	t.Run("reset check", func(t *testing.T) {
@@ -124,11 +124,11 @@ func TestIptablesManager(t *testing.T) {
 		err = manager.Reset()
 		require.NoError(t, err, "failed to reset")
 
-		ok, err := ipv4Client.ChainExists("filter", ChainInputFilterName)
+		ok, err := ipv4Client.ChainExists("filter", chainNameInputRules)
 		require.NoError(t, err, "failed check chain exists")
 
 		if ok {
-			require.NoErrorf(t, err, "chain '%v' still exists after Reset", ChainInputFilterName)
+			require.NoErrorf(t, err, "chain '%v' still exists after Reset", chainNameInputRules)
 		}
 	})
 }
@@ -176,7 +176,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 		require.NoError(t, err, "failed to add rule")
 
 		for _, r := range rule1 {
-			checkRuleSpecs(t, ipv4Client, ChainOutputFilterName, true, r.(*Rule).specs...)
+			checkRuleSpecs(t, ipv4Client, chainNameOutputRules, true, r.(*Rule).specs...)
 			require.Equal(t, r.(*Rule).ipsetName, "default-dport", "ipset name must be set")
 			require.Equal(t, r.(*Rule).ip, "10.20.0.2", "ipset IP must be set")
 		}
@@ -204,7 +204,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 			err := manager.DeleteRule(r)
 			require.NoError(t, err, "failed to delete rule")
 
-			require.NotContains(t, manager.rulesets, r.(*Rule).ruleID, "rule must be removed form the ruleset index")
+			require.NotContains(t, manager.aclMgr.ruleStore.ruleSets, r.(*Rule).ruleID, "rule must be removed form the ruleset index")
 		}
 	})
 
@@ -213,7 +213,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 			err := manager.DeleteRule(r)
 			require.NoError(t, err, "failed to delete rule")
 
-			require.Empty(t, manager.rulesets, "rulesets index after removed second rule must be empty")
+			require.Empty(t, manager.aclMgr.ruleStore.ruleSets, "rulesets index after removed second rule must be empty")
 		}
 	})
 
