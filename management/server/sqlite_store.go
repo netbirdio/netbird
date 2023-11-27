@@ -7,15 +7,16 @@ import (
 	"sync"
 	"time"
 
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/netbirdio/netbird/route"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
+
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/route"
 )
 
 // SqliteStore represents an account storage backed by a Sqlite DB persisted to disk
@@ -198,6 +199,41 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 		s.metrics.StoreMetrics().CountPersistenceDuration(took)
 	}
 	log.Debugf("took %d ms to persist an account to the SQLite", took.Milliseconds())
+
+	return err
+}
+
+func (s *SqliteStore) DeleteAccount(account *Account) error {
+	start := time.Now()
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Select(clause.Associations).Delete(account.Policies, "account_id = ?", account.Id)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		result = tx.Select(clause.Associations).Delete(account.UsersG, "account_id = ?", account.Id)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		result = tx.Select(clause.Associations).Delete(account)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		result = tx.Session(&gorm.Session{FullSaveAssociations: true})
+		if result.Error != nil {
+			return result.Error
+		}
+		return nil
+	})
+
+	took := time.Since(start)
+	if s.metrics != nil {
+		s.metrics.StoreMetrics().CountPersistenceDuration(took)
+	}
+	log.Debugf("took %d ms to delete an account to the SQLite", took.Milliseconds())
 
 	return err
 }
