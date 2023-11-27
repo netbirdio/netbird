@@ -12,6 +12,12 @@ linters-settings:
     # Default: false
     check-type-assertions: false
 
+  gocritic:
+    disabled-checks:
+      - commentFormatting
+      - captLocal
+      - deprecatedComment
+
   govet:
     # Enable all analyzers.
     # Default: false
@@ -42,6 +48,7 @@ linters:
     - dupword # dupword checks for duplicate words in the source code
     - durationcheck # durationcheck checks for two durations multiplied together
     - forbidigo # forbidigo forbids identifiers
+    - gocritic # provides diagnostics that check for bugs, performance and style issues
     - mirror # mirror reports wrong mirror patterns of bytes/strings usage
     - misspell # misspess finds commonly misspelled English words in comments
     - nilerr # finds the code that returns nil even if it checks that the error is not nil

@@ -44,8 +44,8 @@ func GetInfo(ctx context.Context) *Info {
 		}
 	}
 
-	osStr := strings.Replace(info, "\n", "", -1)
-	osStr = strings.Replace(osStr, "\r\n", "", -1)
+	osStr := strings.ReplaceAll(info, "\n", "")
+	osStr = strings.ReplaceAll(osStr, "\r\n", "")
 	osInfo := strings.Split(osStr, " ")
 	if osName == "" {
 		osName = osInfo[3]

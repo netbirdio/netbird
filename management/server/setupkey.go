@@ -137,7 +137,7 @@ func (key *SetupKey) HiddenCopy(length int) *SetupKey {
 // IncrementUsage makes a copy of a key, increments the UsedTimes by 1 and sets LastUsed to now
 func (key *SetupKey) IncrementUsage() *SetupKey {
 	c := key.Copy()
-	c.UsedTimes = c.UsedTimes + 1
+	c.UsedTimes++
 	c.LastUsed = time.Now().UTC()
 	return c
 }

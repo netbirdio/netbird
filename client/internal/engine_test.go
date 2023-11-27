@@ -869,7 +869,7 @@ loop:
 		case <-ticker.C:
 			totalConnected := 0
 			for _, engine := range engines {
-				totalConnected = totalConnected + getConnectedPeers(engine)
+				totalConnected += getConnectedPeers(engine)
 			}
 			if totalConnected == expectedConnected {
 				log.Infof("total connected=%d", totalConnected)
