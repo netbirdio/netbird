@@ -950,14 +950,15 @@ func (am *DefaultAccountManager) newAccount(userID, domain string) (*Account, er
 
 		_, err := am.Store.GetAccount(accountId)
 		statusErr, _ := status.FromError(err)
-		if err == nil {
+		switch {
+		case err == nil:
 			log.Warnf("an account with ID already exists, retrying...")
 			continue
-		} else if statusErr.Type() == status.NotFound {
+		case statusErr.Type() == status.NotFound:
 			newAccount := newAccountWithId(accountId, userID, domain)
 			am.StoreEvent(userID, newAccount.Id, accountId, activity.AccountCreated, nil)
 			return newAccount, nil
-		} else {
+		default:
 			return nil, err
 		}
 	}

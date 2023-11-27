@@ -463,11 +463,9 @@ func (zp zitadelProfile) userData() *UserData {
 	if zp.Human != nil {
 		email = zp.Human.Email.Email
 		name = zp.Human.Profile.DisplayName
-	} else {
-		if len(zp.LoginNames) > 0 {
-			email = zp.LoginNames[0]
-			name = zp.LoginNames[0]
-		}
+	} else if len(zp.LoginNames) > 0 {
+		email = zp.LoginNames[0]
+		name = zp.LoginNames[0]
 	}
 
 	return &UserData{

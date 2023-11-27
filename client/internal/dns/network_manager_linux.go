@@ -122,7 +122,7 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config hostDNSConfig) er
 		searchDomains = append(searchDomains, dns.Fqdn(dConf.domain))
 	}
 
-	newDomainList := append(searchDomains, matchDomains...)
+	newDomainList := append(searchDomains, matchDomains...) //nolint:gocritic
 
 	priority := networkManagerDbusSearchDomainOnlyPriority
 	switch {
