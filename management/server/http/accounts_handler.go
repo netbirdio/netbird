@@ -98,7 +98,7 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 	util.WriteJSONObject(w, &resp)
 }
 
-// DeleteAccount is a DELETE request to delete an account
+// DeleteAccount is a HTTP DELETE handler to delete an account
 func (h *AccountsHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
