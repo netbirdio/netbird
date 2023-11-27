@@ -158,6 +158,14 @@ type Settings struct {
 
 	// JWTGroupsClaimName from which we extract groups name to add it to account groups
 	JWTGroupsClaimName string
+
+	// Extra contains additional settings that are not supported in the open-source version
+	Extra *ExtraSettings
+}
+
+type ExtraSettings struct {
+	// PeerApprovalEnabled enables or disables the need for peers to be approved by an administrator
+	PeerApprovalEnabled bool
 }
 
 // Copy copies the Settings struct
