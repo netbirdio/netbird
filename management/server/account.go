@@ -1703,7 +1703,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 	routes := make(map[string]*route.Route)
 	setupKeys := map[string]*SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
-	users[userID] = NewAdminUser(userID)
+	users[userID] = NewOwnerUser(userID)
 	dnsSettings := DNSSettings{
 		DisabledManagementGroups: make([]string, 0),
 	}

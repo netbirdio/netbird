@@ -15,6 +15,7 @@ import (
 )
 
 const (
+	UserRoleOwner   UserRole = "owner"
 	UserRoleAdmin   UserRole = "admin"
 	UserRoleUser    UserRole = "user"
 	UserRoleUnknown UserRole = "unknown"
@@ -30,6 +31,8 @@ const (
 // StrRoleToUserRole returns UserRole for a given strRole or UserRoleUnknown if the specified role is unknown
 func StrRoleToUserRole(strRole string) UserRole {
 	switch strings.ToLower(strRole) {
+	case "owner":
+		return UserRoleOwner
 	case "admin":
 		return UserRoleAdmin
 	case "user":
@@ -99,7 +102,7 @@ func (u *User) LastDashboardLoginChanged(LastLogin time.Time) bool {
 
 // IsAdmin returns true if the user is an admin, false otherwise
 func (u *User) IsAdmin() bool {
-	return u.Role == UserRoleAdmin
+	return u.Role == UserRoleAdmin || u.Role == UserRoleOwner
 }
 
 // ToUserInfo converts a User object to a UserInfo object.
@@ -193,6 +196,11 @@ func NewAdminUser(id string) *User {
 	return NewUser(id, UserRoleAdmin, false, false, "", []string{}, UserIssuedAPI)
 }
 
+// NewOwnerUser creates a new user with role UserRoleOwner
+func NewOwnerUser(id string) *User {
+	return NewUser(id, UserRoleOwner, false, false, "", []string{}, UserIssuedAPI)
+}
+
 // createServiceUser creates a new service user under the given account.
 func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUserID string, role UserRole, serviceUserName string, nonDeletable bool, autoGroups []string) (*UserInfo, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
@@ -207,8 +215,12 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUs
 	if executingUser == nil {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
-	if executingUser.Role != UserRoleAdmin {
+	if !executingUser.IsAdmin() {
 		return nil, status.Errorf(status.PermissionDenied, "only admins can create service users")
+	}
+
+	if role == UserRoleOwner {
+		return nil, status.Errorf(status.InvalidArgument, "can't create a service user with owner role")
 	}
 
 	newUserID := uuid.New().String()
@@ -258,11 +270,15 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 		return nil, fmt.Errorf("provided user update is nil")
 	}
 
+	invitedRole := StrRoleToUserRole(invite.Role)
+
 	switch {
 	case invite.Name == "":
 		return nil, status.Errorf(status.InvalidArgument, "name can't be empty")
 	case invite.Email == "":
 		return nil, status.Errorf(status.InvalidArgument, "email can't be empty")
+	case invitedRole == UserRoleOwner:
+		return nil, status.Errorf(status.InvalidArgument, "can't invite a user with owner role")
 	default:
 	}
 
@@ -311,10 +327,9 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 		return nil, err
 	}
 
-	role := StrRoleToUserRole(invite.Role)
 	newUser := &User{
 		Id:                   idpUser.ID,
-		Role:                 role,
+		Role:                 invitedRole,
 		AutoGroups:           invite.AutoGroups,
 		Issued:               invite.Issued,
 		IntegrationReference: invite.IntegrationReference,
@@ -416,7 +431,7 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 	if executingUser == nil {
 		return status.Errorf(status.NotFound, "user not found")
 	}
-	if executingUser.Role != UserRoleAdmin {
+	if !executingUser.IsAdmin() {
 		return status.Errorf(status.PermissionDenied, "only admins can delete users")
 	}
 
@@ -425,9 +440,13 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return status.Errorf(status.NotFound, "target user not found")
 	}
 
+	if targetUser.Role == UserRoleOwner {
+		return status.Errorf(status.PermissionDenied, "unable to delete a user with owner role")
+	}
+
 	// disable deleting integration user if the initiator is not admin service user
 	if targetUser.Issued == UserIssuedIntegration && !executingUser.IsServiceUser {
-		return status.Errorf(status.PermissionDenied, "only admin service user can delete this user")
+		return status.Errorf(status.PermissionDenied, "only integration service user can delete this user")
 	}
 
 	// handle service user first and exit, no need to fetch extra data from IDP, etc
@@ -744,8 +763,20 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 		return nil, status.Errorf(status.PermissionDenied, "admins can't block or unblock themselves")
 	}
 
-	if initiatorUser.IsAdmin() && initiatorUserID == update.Id && update.Role != UserRoleAdmin {
+	if initiatorUser.IsAdmin() && initiatorUserID == update.Id && update.Role != initiatorUser.Role {
 		return nil, status.Errorf(status.PermissionDenied, "admins can't change their role")
+	}
+
+	if initiatorUser.Role == UserRoleAdmin && initiatorUserID != update.Id && update.Role == UserRoleOwner {
+		return nil, status.Errorf(status.PermissionDenied, "only owners can assign owner role to other users")
+	}
+
+	transferedOwnerRole := false
+	if initiatorUser.Role == UserRoleOwner && initiatorUserID != update.Id && update.Role == UserRoleOwner {
+		newInitiatorUser := initiatorUser.Copy()
+		newInitiatorUser.Role = UserRoleAdmin
+		account.Users[initiatorUserID] = newInitiatorUser
+		transferedOwnerRole = true
 	}
 
 	// only auto groups, revoked status, and integration reference can be updated for now
@@ -806,9 +837,12 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 			}
 		}
 
-		// store activity logs
-		if oldUser.Role != newUser.Role {
+		switch {
+		case oldUser.Role != newUser.Role:
 			am.StoreEvent(initiatorUserID, oldUser.Id, accountID, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
+		case transferedOwnerRole:
+			am.StoreEvent(initiatorUserID, oldUser.Id, accountID, activity.TransferredOwnerRole, nil)
+		default:
 		}
 
 		if update.AutoGroups != nil {
@@ -882,7 +916,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userID, domain string)
 
 	userObj := account.Users[userID]
 
-	if account.Domain != lowerDomain && userObj.Role == UserRoleAdmin {
+	if account.Domain != lowerDomain && userObj.Role == UserRoleOwner {
 		account.Domain = lowerDomain
 		err = am.Store.SaveAccount(account)
 		if err != nil {
