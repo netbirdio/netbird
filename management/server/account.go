@@ -24,6 +24,7 @@ import (
 
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -162,7 +163,7 @@ type Settings struct {
 	JWTGroupsClaimName string
 
 	// Extra is a dictionary of Account settings
-	Extra *ExtraSettings
+	Extra *account.ExtraSettings
 }
 
 // Copy copies the Settings struct
@@ -178,18 +179,6 @@ func (s *Settings) Copy() *Settings {
 		settings.Extra = s.Extra.Copy()
 	}
 	return settings
-}
-
-type ExtraSettings struct {
-	// PeerApprovalEnabled enables or disables the need for peers bo be approved by an administrator
-	PeerApprovalEnabled bool
-}
-
-// Copy copies the ExtraSettings struct
-func (e *ExtraSettings) Copy() *ExtraSettings {
-	return &ExtraSettings{
-		PeerApprovalEnabled: e.PeerApprovalEnabled,
-	}
 }
 
 // Account represents a unique account of the system
