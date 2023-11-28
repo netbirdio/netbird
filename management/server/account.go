@@ -17,6 +17,7 @@ import (
 
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
+	"github.com/netbirdio/management-integrations/integrations"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -159,12 +160,12 @@ type Settings struct {
 	// JWTGroupsClaimName from which we extract groups name to add it to account groups
 	JWTGroupsClaimName string
 
-	// Extra contains additional settings that are not supported in the open-source version
+	// Extra is a dictionary of Account settings
 	Extra *ExtraSettings
 }
 
 type ExtraSettings struct {
-	// PeerApprovalEnabled enables or disables the need for peers to be approved by an administrator
+	// PeerApprovalEnabled enables or disables the need for peers bo be approved by an administrator
 	PeerApprovalEnabled bool
 }
 
@@ -352,7 +353,20 @@ func (a *Account) GetGroup(groupID string) *Group {
 
 // GetPeerNetworkMap returns a group by ID if exists, nil otherwise
 func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
+	peer := a.Peers[peerID]
+	if peer == nil {
+		return &NetworkMap{
+			Network: a.Network.Copy(),
+		}
+	}
+	validatedPeers := integrations.ValidatePeers([]*Peer{peer}, a)
+	if len(validatedPeers) == 0 {
+		return &NetworkMap{
+			Network: a.Network.Copy(),
+		}
+	}
 	aclPeers, firewallRules := a.getPeerConnectionResources(peerID)
+	aclPeers = integrations.ValidatePeers(aclPeers, a)
 	// exclude expired peers
 	var peersToConnect []*Peer
 	var expiredPeers []*Peer
@@ -879,6 +893,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 		return nil, err
 	}
 
+	err = integrations.ValidateExtraSettings(newSettings.Extra, account, am)
+	if err != nil {
+		return nil, err
+	}
+
 	user, err := account.FindUser(userID)
 	if err != nil {
 		return nil, err
@@ -904,6 +923,18 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 		am.StoreEvent(userID, accountID, accountID, activity.AccountPeerLoginExpirationDurationUpdated, nil)
 		am.checkAndSchedulePeerLoginExpiration(account)
 	}
+
+	// if oldSettings.PeerApprovalEnabled != newSettings.PeerApprovalEnabled {
+	// 	event := activity.AccountPeerApprovalEnabled
+	// 	if !newSettings.PeerApprovalEnabled {
+	// 		event = activity.AccountPeerApprovalDisabled
+	// 	}
+	// 	am.StoreEvent(userID, accountID, accountID, event, nil)
+	//
+	// 	for _, peer := range account.Peers {
+	// 		peer.Status.RequiresApproval = false
+	// 	}
+	// }
 
 	updatedAccount := account.UpdateSettings(newSettings)
 

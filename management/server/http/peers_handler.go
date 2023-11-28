@@ -81,6 +81,11 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 
 	update := &server.Peer{ID: peerID, SSHEnabled: req.SshEnabled, Name: req.Name,
 		LoginExpirationEnabled: req.LoginExpirationEnabled}
+
+	if req.ApprovalRequired != nil {
+		update.Status = &server.PeerStatus{RequiresApproval: *req.ApprovalRequired}
+	}
+
 	peer, err := h.accountManager.UpdatePeer(account.Id, user.Id, update)
 	if err != nil {
 		util.WriteError(err, w)
@@ -248,6 +253,7 @@ func toSinglePeerResponse(peer *server.Peer, groupsInfo []api.GroupMinimum, dnsD
 		LastLogin:              peer.LastLogin,
 		LoginExpired:           peer.Status.LoginExpired,
 		AccessiblePeers:        accessiblePeer,
+		Approved:               &peer.Status.Approved,
 	}
 }
 
@@ -270,6 +276,7 @@ func toPeerListItemResponse(peer *server.Peer, groupsInfo []api.GroupMinimum, dn
 		LastLogin:              peer.LastLogin,
 		LoginExpired:           peer.Status.LoginExpired,
 		AccessiblePeersCount:   accessiblePeersCount,
+		Approved:               peer.Status.Approved,
 	}
 }
 
