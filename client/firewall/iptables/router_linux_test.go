@@ -27,13 +27,12 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	require.NoError(t, err, "failed to init iptables client")
 
-	manager, _ := newRouterManager(context.TODO(), iptablesClient)
+	manager, err := newRouterManager(context.TODO(), iptablesClient)
 	require.NoError(t, err, "should return a valid iptables manager")
 
-	defer manager.CleanRoutingRules()
-
-	err = manager.RestoreOrCreateContainers()
-	require.NoError(t, err, "shouldn't return error")
+	defer func() {
+		_ = manager.Reset()
+	}()
 
 	require.Len(t, manager.rules, 1, "should have created rules map")
 
@@ -65,7 +64,7 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 
 	manager.rules = make(map[string][]string)
 
-	err = manager.RestoreOrCreateContainers()
+	err = manager.Reset()
 	require.NoError(t, err, "shouldn't return error")
 
 	require.Len(t, manager.rules, 4, "should have restored all rules for ipv4")
@@ -97,7 +96,9 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 				rules:          make(map[string][]string),
 			}
 
-			defer manager.CleanRoutingRules()
+			defer func() {
+				_ = manager.Reset()
+			}()
 
 			err := manager.RestoreOrCreateContainers()
 			require.NoError(t, err, "shouldn't return error")
@@ -179,7 +180,9 @@ func TestIptablesManager_RemoveRoutingRules(t *testing.T) {
 				rules:          make(map[string][]string),
 			}
 
-			defer manager.CleanRoutingRules()
+			defer func() {
+				_ = manager.Reset()
+			}()
 
 			err := manager.RestoreOrCreateContainers()
 			require.NoError(t, err, "shouldn't return error")
@@ -210,7 +213,7 @@ func TestIptablesManager_RemoveRoutingRules(t *testing.T) {
 
 			manager.rules = make(map[string][]string)
 
-			err = manager.RestoreOrCreateContainers()
+			err = manager.Reset()
 			require.NoError(t, err, "shouldn't return error")
 
 			err = manager.RemoveRoutingRules(testCase.InputPair)
