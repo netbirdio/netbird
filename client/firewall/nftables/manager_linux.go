@@ -171,10 +171,7 @@ func (m *Manager) Reset() error {
 		}
 	}
 
-	err = m.router.ResetForwardRules()
-	if err != nil {
-		return err
-	}
+	m.router.ResetForwardRules()
 
 	tables, err := m.rConn.ListTables()
 	if err != nil {

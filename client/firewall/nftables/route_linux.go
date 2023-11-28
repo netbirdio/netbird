@@ -89,12 +89,11 @@ func (r *router) RouteingFwChainName() string {
 }
 
 // ResetForwardRules cleans existing nftables default forward rules from the system
-func (r *router) ResetForwardRules() error {
+func (r *router) ResetForwardRules() {
 	err := r.cleanUpDefaultForwardRules()
 	if err != nil {
-		return fmt.Errorf("failed to delete default forward rule: %s", err)
+		log.Errorf("failed to reset forward rules: %s", err)
 	}
-	return nil
 }
 
 func (r *router) loadFilterTable() (*nftables.Table, error) {

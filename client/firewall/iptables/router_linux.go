@@ -20,14 +20,14 @@ const (
 
 // constants needed to manage and create iptable rules
 const (
-	iptablesFilterTable            = "filter"
-	iptablesNatTable               = "nat"
-	iptablesForwardChain           = "FORWARD"
-	iptablesPostRoutingChain       = "POSTROUTING"
-	iptablesRoutingNatChain        = "NETBIRD-RT-NAT"
-	iptablesRoutingForwardingChain = "NETBIRD-RT-FWD"
-	routingFinalForwardJump        = "ACCEPT"
-	routingFinalNatJump            = "MASQUERADE"
+	tableFilter             = "filter"
+	tableNat                = "nat"
+	chainFORWARD            = "FORWARD"
+	chainPOSTROUTING        = "POSTROUTING"
+	chainRTNAT              = "NETBIRD-RT-NAT"
+	chainRTFWD              = "NETBIRD-RT-FWD"
+	routingFinalForwardJump = "ACCEPT"
+	routingFinalNatJump     = "MASQUERADE"
 )
 
 type routerManager struct {
@@ -47,7 +47,7 @@ func newRouterManager(parentCtx context.Context, iptablesClient *iptables.IPTabl
 	}
 
 	m.cleanUpDefaultForwardRules()
-	err := m.restoreOrCreateContainers()
+	err := m.createContainers()
 	if err != nil {
 		log.Errorf("failed to create containers for route: %s", err)
 	}
@@ -56,12 +56,12 @@ func newRouterManager(parentCtx context.Context, iptablesClient *iptables.IPTabl
 
 // InsertRoutingRules inserts an iptables rule pair to the forwarding chain and if enabled, to the nat chain
 func (i *routerManager) InsertRoutingRules(pair firewall.RouterPair) error {
-	err := i.insertRoutingRule(firewall.ForwardingFormat, iptablesFilterTable, iptablesRoutingForwardingChain, routingFinalForwardJump, pair)
+	err := i.insertRoutingRule(firewall.ForwardingFormat, tableFilter, chainRTFWD, routingFinalForwardJump, pair)
 	if err != nil {
 		return err
 	}
 
-	err = i.insertRoutingRule(firewall.InForwardingFormat, iptablesFilterTable, iptablesRoutingForwardingChain, routingFinalForwardJump, firewall.GetInPair(pair))
+	err = i.insertRoutingRule(firewall.InForwardingFormat, tableFilter, chainRTFWD, routingFinalForwardJump, firewall.GetInPair(pair))
 	if err != nil {
 		return err
 	}
@@ -70,12 +70,12 @@ func (i *routerManager) InsertRoutingRules(pair firewall.RouterPair) error {
 		return nil
 	}
 
-	err = i.insertRoutingRule(firewall.NatFormat, iptablesNatTable, iptablesRoutingNatChain, routingFinalNatJump, pair)
+	err = i.insertRoutingRule(firewall.NatFormat, tableNat, chainRTNAT, routingFinalNatJump, pair)
 	if err != nil {
 		return err
 	}
 
-	err = i.insertRoutingRule(firewall.InNatFormat, iptablesNatTable, iptablesRoutingNatChain, routingFinalNatJump, firewall.GetInPair(pair))
+	err = i.insertRoutingRule(firewall.InNatFormat, tableNat, chainRTNAT, routingFinalNatJump, firewall.GetInPair(pair))
 	if err != nil {
 		return err
 	}
@@ -93,13 +93,13 @@ func (i *routerManager) insertRoutingRule(keyFormat, table, chain, jump string, 
 	if found {
 		err = i.iptablesClient.DeleteIfExists(table, chain, existingRule...)
 		if err != nil {
-			return fmt.Errorf("iptables: error while removing existing %s rule for %s: %v", getIptablesRuleType(table), pair.Destination, err)
+			return fmt.Errorf("error while removing existing %s rule for %s: %v", getIptablesRuleType(table), pair.Destination, err)
 		}
 		delete(i.rules, ruleKey)
 	}
 	err = i.iptablesClient.Insert(table, chain, 1, rule...)
 	if err != nil {
-		return fmt.Errorf("iptables: error while adding new %s rule for %s: %v", getIptablesRuleType(table), pair.Destination, err)
+		return fmt.Errorf("error while adding new %s rule for %s: %v", getIptablesRuleType(table), pair.Destination, err)
 	}
 
 	i.rules[ruleKey] = rule
@@ -109,12 +109,12 @@ func (i *routerManager) insertRoutingRule(keyFormat, table, chain, jump string, 
 
 // RemoveRoutingRules removes an iptables rule pair from forwarding and nat chains
 func (i *routerManager) RemoveRoutingRules(pair firewall.RouterPair) error {
-	err := i.removeRoutingRule(firewall.ForwardingFormat, iptablesFilterTable, iptablesRoutingForwardingChain, pair)
+	err := i.removeRoutingRule(firewall.ForwardingFormat, tableFilter, chainRTFWD, pair)
 	if err != nil {
 		return err
 	}
 
-	err = i.removeRoutingRule(firewall.InForwardingFormat, iptablesFilterTable, iptablesRoutingForwardingChain, firewall.GetInPair(pair))
+	err = i.removeRoutingRule(firewall.InForwardingFormat, tableFilter, chainRTFWD, firewall.GetInPair(pair))
 	if err != nil {
 		return err
 	}
@@ -123,12 +123,12 @@ func (i *routerManager) RemoveRoutingRules(pair firewall.RouterPair) error {
 		return nil
 	}
 
-	err = i.removeRoutingRule(firewall.NatFormat, iptablesNatTable, iptablesRoutingNatChain, pair)
+	err = i.removeRoutingRule(firewall.NatFormat, tableNat, chainRTNAT, pair)
 	if err != nil {
 		return err
 	}
 
-	err = i.removeRoutingRule(firewall.InNatFormat, iptablesNatTable, iptablesRoutingNatChain, firewall.GetInPair(pair))
+	err = i.removeRoutingRule(firewall.InNatFormat, tableNat, chainRTNAT, firewall.GetInPair(pair))
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func (i *routerManager) removeRoutingRule(keyFormat, table, chain string, pair f
 	if found {
 		err = i.iptablesClient.DeleteIfExists(table, chain, existingRule...)
 		if err != nil {
-			return fmt.Errorf("iptables: error while removing existing %s rule for %s: %v", getIptablesRuleType(table), pair.Destination, err)
+			return fmt.Errorf("error while removing existing %s rule for %s: %v", getIptablesRuleType(table), pair.Destination, err)
 		}
 	}
 	delete(i.rules, ruleKey)
@@ -153,7 +153,7 @@ func (i *routerManager) removeRoutingRule(keyFormat, table, chain string, pair f
 }
 
 func (i *routerManager) RouteingFwChainName() string {
-	return iptablesRoutingForwardingChain
+	return chainRTFWD
 }
 
 func (i *routerManager) Reset() error {
@@ -168,45 +168,39 @@ func (i *routerManager) cleanUpDefaultForwardRules() {
 	}
 
 	log.Debug("flushing tables")
-	errMSGFormat := "iptables: failed cleaning chain %s,error: %v"
-	err = i.iptablesClient.ClearAndDeleteChain(iptablesFilterTable, iptablesRoutingForwardingChain)
+	errMSGFormat := "failed cleaning chain %s,error: %v"
+	err = i.iptablesClient.ClearAndDeleteChain(tableFilter, chainRTFWD)
 	if err != nil {
-		log.Errorf(errMSGFormat, iptablesRoutingForwardingChain, err)
+		log.Errorf(errMSGFormat, chainRTFWD, err)
 	}
 
-	err = i.iptablesClient.ClearAndDeleteChain(iptablesNatTable, iptablesRoutingNatChain)
+	err = i.iptablesClient.ClearAndDeleteChain(tableNat, chainRTNAT)
 	if err != nil {
-		log.Errorf(errMSGFormat, iptablesRoutingNatChain, err)
+		log.Errorf(errMSGFormat, chainRTNAT, err)
 	}
 
 	log.Info("done cleaning up iptables rules")
 }
 
-func (i *routerManager) restoreOrCreateContainers() error {
+func (i *routerManager) createContainers() error {
 	if i.rules[Ipv4Forwarding] != nil {
 		return nil
 	}
 
-	errMSGFormat := "iptables: failed creating chain %s,error: %v"
-
-	err := i.createChain(iptablesFilterTable, iptablesRoutingForwardingChain)
+	errMSGFormat := "failed creating chain %s,error: %v"
+	err := i.createChain(tableFilter, chainRTFWD)
 	if err != nil {
-		return fmt.Errorf(errMSGFormat, iptablesRoutingForwardingChain, err)
+		return fmt.Errorf(errMSGFormat, chainRTFWD, err)
 	}
 
-	err = i.createChain(iptablesNatTable, iptablesRoutingNatChain)
+	err = i.createChain(tableNat, chainRTNAT)
 	if err != nil {
-		return fmt.Errorf(errMSGFormat, iptablesRoutingNatChain, err)
-	}
-
-	err = i.restoreRules(i.iptablesClient)
-	if err != nil {
-		return fmt.Errorf("iptables: error while restoring ipv4 rules: %v", err)
+		return fmt.Errorf(errMSGFormat, chainRTNAT, err)
 	}
 
 	err = i.addJumpRules()
 	if err != nil {
-		return fmt.Errorf("iptables: error while creating jump rules: %v", err)
+		return fmt.Errorf("error while creating jump rules: %v", err)
 	}
 
 	return nil
@@ -214,20 +208,15 @@ func (i *routerManager) restoreOrCreateContainers() error {
 
 // addJumpRules create jump rules to send packets to NetBird chains
 func (i *routerManager) addJumpRules() error {
-	err := i.cleanJumpRules()
-	if err != nil {
-		return err
-	}
-
-	rule := []string{"-j", iptablesRoutingForwardingChain}
-	err = i.iptablesClient.Insert(iptablesFilterTable, iptablesForwardChain, 1, rule...)
+	rule := []string{"-j", chainRTFWD}
+	err := i.iptablesClient.Insert(tableFilter, chainFORWARD, 1, rule...)
 	if err != nil {
 		return err
 	}
 	i.rules[Ipv4Forwarding] = rule
 
-	rule = []string{"-j", iptablesRoutingNatChain}
-	err = i.iptablesClient.Insert(iptablesNatTable, iptablesPostRoutingChain, 1, rule...)
+	rule = []string{"-j", chainRTNAT}
+	err = i.iptablesClient.Insert(tableNat, chainPOSTROUTING, 1, rule...)
 	if err != nil {
 		return err
 	}
@@ -239,21 +228,55 @@ func (i *routerManager) addJumpRules() error {
 // cleanJumpRules cleans jump rules that was sending packets to NetBird chains
 func (i *routerManager) cleanJumpRules() error {
 	var err error
-	errMSGFormat := "iptables: failed cleaning rule from chain %s,err: %v"
+	errMSGFormat := "failed cleaning rule from chain %s,err: %v"
 	rule, found := i.rules[Ipv4Forwarding]
 	if found {
-		log.Debugf("iptables: removing rule: %s, %v ", Ipv4Forwarding, rule)
-		err = i.iptablesClient.DeleteIfExists(iptablesFilterTable, iptablesForwardChain, rule...)
+		log.Debugf("removing rule: %s, %v ", Ipv4Forwarding, rule)
+		err = i.iptablesClient.DeleteIfExists(tableFilter, chainFORWARD, rule...)
 		if err != nil {
-			return fmt.Errorf(errMSGFormat, iptablesForwardChain, err)
+			return fmt.Errorf(errMSGFormat, chainFORWARD, err)
 		}
 	}
 	rule, found = i.rules[ipv4Nat]
 	if found {
-		log.Debugf("iptables: removing rule: %s ", ipv4Nat)
-		err = i.iptablesClient.DeleteIfExists(iptablesNatTable, iptablesPostRoutingChain, rule...)
+		log.Debugf("removing rule: %s ", ipv4Nat)
+		err = i.iptablesClient.DeleteIfExists(tableNat, chainPOSTROUTING, rule...)
 		if err != nil {
-			return fmt.Errorf(errMSGFormat, iptablesPostRoutingChain, err)
+			return fmt.Errorf(errMSGFormat, chainPOSTROUTING, err)
+		}
+	}
+
+	rules, err := i.iptablesClient.List("nat", "POSTROUTING")
+	if err != nil {
+		return fmt.Errorf("failed to list rules: %s", err)
+	}
+
+	for _, ruleString := range rules {
+		if !strings.Contains(ruleString, "NETBIRD") {
+			continue
+		}
+		rule := strings.Fields(ruleString)
+		err := i.iptablesClient.DeleteIfExists("nat", "POSTROUTING", rule[2:]...)
+		if err != nil {
+			log.Errorf("failed to delete postrouting jump rule: %s", err)
+			return err
+		}
+	}
+
+	rules, err = i.iptablesClient.List(tableFilter, "FORWARD")
+	if err != nil {
+		return fmt.Errorf("failed to list rules: %s", err)
+	}
+
+	for _, ruleString := range rules {
+		if !strings.Contains(ruleString, "NETBIRD") {
+			continue
+		}
+		rule := strings.Fields(ruleString)
+		err := i.iptablesClient.DeleteIfExists(tableFilter, "FORWARD", rule[2:]...)
+		if err != nil {
+			log.Errorf("failed to delete FORWARD jump rule: %s", err)
+			return err
 		}
 	}
 	return nil
@@ -263,8 +286,8 @@ func (i *routerManager) restoreRules(iptablesClient *iptables.IPTables) error {
 	if i.rules == nil {
 		i.rules = make(map[string][]string)
 	}
-	table := iptablesFilterTable
-	for _, chain := range []string{iptablesForwardChain, iptablesRoutingForwardingChain} {
+	table := tableFilter
+	for _, chain := range []string{chainFORWARD, chainRTFWD} {
 		rules, err := iptablesClient.List(table, chain)
 		if err != nil {
 			return err
@@ -278,8 +301,8 @@ func (i *routerManager) restoreRules(iptablesClient *iptables.IPTables) error {
 		}
 	}
 
-	table = iptablesNatTable
-	for _, chain := range []string{iptablesPostRoutingChain, iptablesRoutingNatChain} {
+	table = tableNat
+	for _, chain := range []string{chainPOSTROUTING, chainRTNAT} {
 		rules, err := iptablesClient.List(table, chain)
 		if err != nil {
 			return err
@@ -315,7 +338,7 @@ func (i *routerManager) createChain(table, newChain string) error {
 			return fmt.Errorf("couldn't create chain %s in %s table, error: %v", newChain, table, err)
 		}
 
-		if table == iptablesNatTable {
+		if table == tableNat {
 			err = i.iptablesClient.Append(table, newChain, "-j", "RETURN")
 		} else {
 			err = i.iptablesClient.Append(table, newChain, "-j", "RETURN")
@@ -348,7 +371,7 @@ func getRuleRouteID(rule []string) string {
 
 func getIptablesRuleType(table string) string {
 	ruleType := "forwarding"
-	if table == iptablesNatTable {
+	if table == tableNat {
 		ruleType = "nat"
 	}
 	return ruleType

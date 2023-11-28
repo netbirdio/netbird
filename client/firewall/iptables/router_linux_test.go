@@ -37,12 +37,12 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 
 	require.Len(t, manager.rules, 1, "should have created rules map")
 
-	exists, err := manager.iptablesClient.Exists(iptablesFilterTable, iptablesForwardChain, manager.rules[firewall.Ipv4Forwarding]...)
-	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", iptablesFilterTable, iptablesForwardChain)
+	exists, err := manager.iptablesClient.Exists(tableFilter, chainFORWARD, manager.rules[firewall.Ipv4Forwarding]...)
+	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableFilter, chainFORWARD)
 	require.True(t, exists, "forwarding rule should exist")
 
-	exists, err = manager.iptablesClient.Exists(iptablesNatTable, iptablesPostRoutingChain, manager.rules[ipv4Nat]...)
-	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", iptablesNatTable, iptablesPostRoutingChain)
+	exists, err = manager.iptablesClient.Exists(tableNat, chainPOSTROUTING, manager.rules[ipv4Nat]...)
+	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainPOSTROUTING)
 	require.True(t, exists, "postrouting rule should exist")
 
 	pair := firewall.RouterPair{
@@ -54,13 +54,13 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	forward4RuleKey := firewall.GenKey(firewall.ForwardingFormat, pair.ID)
 	forward4Rule := genRuleSpec(routingFinalForwardJump, forward4RuleKey, pair.Source, pair.Destination)
 
-	err = manager.iptablesClient.Insert(iptablesFilterTable, iptablesRoutingForwardingChain, 1, forward4Rule...)
+	err = manager.iptablesClient.Insert(tableFilter, chainRTFWD, 1, forward4Rule...)
 	require.NoError(t, err, "inserting rule should not return error")
 
 	nat4RuleKey := firewall.GenKey(firewall.NatFormat, pair.ID)
 	nat4Rule := genRuleSpec(routingFinalNatJump, nat4RuleKey, pair.Source, pair.Destination)
 
-	err = manager.iptablesClient.Insert(iptablesNatTable, iptablesRoutingNatChain, 1, nat4Rule...)
+	err = manager.iptablesClient.Insert(tableNat, chainRTNAT, 1, nat4Rule...)
 	require.NoError(t, err, "inserting rule should not return error")
 
 	manager.rules = make(map[string][]string)
@@ -108,8 +108,8 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 			forwardRuleKey := firewall.GenKey(firewall.ForwardingFormat, testCase.InputPair.ID)
 			forwardRule := genRuleSpec(routingFinalForwardJump, forwardRuleKey, testCase.InputPair.Source, testCase.InputPair.Destination)
 
-			exists, err := iptablesClient.Exists(iptablesFilterTable, iptablesRoutingForwardingChain, forwardRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", iptablesFilterTable, iptablesRoutingForwardingChain)
+			exists, err := iptablesClient.Exists(tableFilter, chainRTFWD, forwardRule...)
+			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableFilter, chainRTFWD)
 			require.True(t, exists, "forwarding rule should exist")
 
 			foundRule, found := manager.rules[forwardRuleKey]
@@ -119,8 +119,8 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 			inForwardRuleKey := firewall.GenKey(firewall.InForwardingFormat, testCase.InputPair.ID)
 			inForwardRule := genRuleSpec(routingFinalForwardJump, inForwardRuleKey, firewall.GetInPair(testCase.InputPair).Source, firewall.GetInPair(testCase.InputPair).Destination)
 
-			exists, err = iptablesClient.Exists(iptablesFilterTable, iptablesRoutingForwardingChain, inForwardRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", iptablesFilterTable, iptablesRoutingForwardingChain)
+			exists, err = iptablesClient.Exists(tableFilter, chainRTFWD, inForwardRule...)
+			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableFilter, chainRTFWD)
 			require.True(t, exists, "income forwarding rule should exist")
 
 			foundRule, found = manager.rules[inForwardRuleKey]
@@ -130,8 +130,8 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair.ID)
 			natRule := genRuleSpec(routingFinalNatJump, natRuleKey, testCase.InputPair.Source, testCase.InputPair.Destination)
 
-			exists, err = iptablesClient.Exists(iptablesNatTable, iptablesRoutingNatChain, natRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", iptablesNatTable, iptablesRoutingNatChain)
+			exists, err = iptablesClient.Exists(tableNat, chainRTNAT, natRule...)
+			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainRTNAT)
 			if testCase.InputPair.Masquerade {
 				require.True(t, exists, "nat rule should be created")
 				foundNatRule, foundNat := manager.rules[natRuleKey]
@@ -146,8 +146,8 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 			inNatRuleKey := firewall.GenKey(firewall.InNatFormat, testCase.InputPair.ID)
 			inNatRule := genRuleSpec(routingFinalNatJump, inNatRuleKey, firewall.GetInPair(testCase.InputPair).Source, firewall.GetInPair(testCase.InputPair).Destination)
 
-			exists, err = iptablesClient.Exists(iptablesNatTable, iptablesRoutingNatChain, inNatRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", iptablesNatTable, iptablesRoutingNatChain)
+			exists, err = iptablesClient.Exists(tableNat, chainRTNAT, inNatRule...)
+			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainRTNAT)
 			if testCase.InputPair.Masquerade {
 				require.True(t, exists, "income nat rule should be created")
 				foundNatRule, foundNat := manager.rules[inNatRuleKey]
@@ -187,25 +187,25 @@ func TestIptablesManager_RemoveRoutingRules(t *testing.T) {
 			forwardRuleKey := firewall.GenKey(firewall.ForwardingFormat, testCase.InputPair.ID)
 			forwardRule := genRuleSpec(routingFinalForwardJump, forwardRuleKey, testCase.InputPair.Source, testCase.InputPair.Destination)
 
-			err = iptablesClient.Insert(iptablesFilterTable, iptablesRoutingForwardingChain, 1, forwardRule...)
+			err = iptablesClient.Insert(tableFilter, chainRTFWD, 1, forwardRule...)
 			require.NoError(t, err, "inserting rule should not return error")
 
 			inForwardRuleKey := firewall.GenKey(firewall.InForwardingFormat, testCase.InputPair.ID)
 			inForwardRule := genRuleSpec(routingFinalForwardJump, inForwardRuleKey, firewall.GetInPair(testCase.InputPair).Source, firewall.GetInPair(testCase.InputPair).Destination)
 
-			err = iptablesClient.Insert(iptablesFilterTable, iptablesRoutingForwardingChain, 1, inForwardRule...)
+			err = iptablesClient.Insert(tableFilter, chainRTFWD, 1, inForwardRule...)
 			require.NoError(t, err, "inserting rule should not return error")
 
 			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair.ID)
 			natRule := genRuleSpec(routingFinalNatJump, natRuleKey, testCase.InputPair.Source, testCase.InputPair.Destination)
 
-			err = iptablesClient.Insert(iptablesNatTable, iptablesRoutingNatChain, 1, natRule...)
+			err = iptablesClient.Insert(tableNat, chainRTNAT, 1, natRule...)
 			require.NoError(t, err, "inserting rule should not return error")
 
 			inNatRuleKey := firewall.GenKey(firewall.InNatFormat, testCase.InputPair.ID)
 			inNatRule := genRuleSpec(routingFinalNatJump, inNatRuleKey, firewall.GetInPair(testCase.InputPair).Source, firewall.GetInPair(testCase.InputPair).Destination)
 
-			err = iptablesClient.Insert(iptablesNatTable, iptablesRoutingNatChain, 1, inNatRule...)
+			err = iptablesClient.Insert(tableNat, chainRTNAT, 1, inNatRule...)
 			require.NoError(t, err, "inserting rule should not return error")
 
 			manager.rules = make(map[string][]string)
@@ -216,29 +216,29 @@ func TestIptablesManager_RemoveRoutingRules(t *testing.T) {
 			err = manager.RemoveRoutingRules(testCase.InputPair)
 			require.NoError(t, err, "shouldn't return error")
 
-			exists, err := iptablesClient.Exists(iptablesFilterTable, iptablesRoutingForwardingChain, forwardRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", iptablesFilterTable, iptablesRoutingForwardingChain)
+			exists, err := iptablesClient.Exists(tableFilter, chainRTFWD, forwardRule...)
+			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableFilter, chainRTFWD)
 			require.False(t, exists, "forwarding rule should not exist")
 
 			_, found := manager.rules[forwardRuleKey]
 			require.False(t, found, "forwarding rule should exist in the manager map")
 
-			exists, err = iptablesClient.Exists(iptablesFilterTable, iptablesRoutingForwardingChain, inForwardRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", iptablesFilterTable, iptablesRoutingForwardingChain)
+			exists, err = iptablesClient.Exists(tableFilter, chainRTFWD, inForwardRule...)
+			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableFilter, chainRTFWD)
 			require.False(t, exists, "income forwarding rule should not exist")
 
 			_, found = manager.rules[inForwardRuleKey]
 			require.False(t, found, "income forwarding rule should exist in the manager map")
 
-			exists, err = iptablesClient.Exists(iptablesNatTable, iptablesRoutingNatChain, natRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", iptablesNatTable, iptablesRoutingNatChain)
+			exists, err = iptablesClient.Exists(tableNat, chainRTNAT, natRule...)
+			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainRTNAT)
 			require.False(t, exists, "nat rule should not exist")
 
 			_, found = manager.rules[natRuleKey]
 			require.False(t, found, "nat rule should exist in the manager map")
 
-			exists, err = iptablesClient.Exists(iptablesNatTable, iptablesRoutingNatChain, inNatRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", iptablesNatTable, iptablesRoutingNatChain)
+			exists, err = iptablesClient.Exists(tableNat, chainRTNAT, inNatRule...)
+			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainRTNAT)
 			require.False(t, exists, "income nat rule should not exist")
 
 			_, found = manager.rules[inNatRuleKey]

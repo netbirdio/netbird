@@ -304,7 +304,8 @@ func (m *aclManager) seedInitialEntries() {
 	m.appendToEntries("FORWARD",
 		[]string{"-o", m.wgIface.Name(), "-m", "mark", "--mark", "0x000007e4", "-j", "ACCEPT"})
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", chainNameInputRules})
-	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
+	m.appendToEntries(
+		"FORWARD", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
 
 	m.appendToEntries("PREROUTING", []string{"-t", "mangle", "-i", m.wgIface.Name(), "!", "-s", m.wgIface.Address().String(), "-d", m.wgIface.Address().IP.String(), "-m", "mark", "--mark", "0x000007e4"})
 }
