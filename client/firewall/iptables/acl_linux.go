@@ -79,7 +79,12 @@ func (m *aclManager) AddFiltering(
 	ipsetName = transformIPsetName(ipsetName, sPortVal, dPortVal)
 
 	ruleID := uuid.New().String()
-
+	var chain string
+	if direction == firewall.RuleDirectionOUT {
+		chain = chainNameOutputRules
+	} else {
+		chain = chainNameInputRules
+	}
 	if ipsetName != "" {
 		if ipList, ipsetExists := m.ipsetStore.ipset(ipsetName); ipsetExists {
 			if err := ipset.Add(ipsetName, ip.String()); err != nil {
@@ -92,7 +97,7 @@ func (m *aclManager) AddFiltering(
 				ruleID:    ruleID,
 				ipsetName: ipsetName,
 				ip:        ip.String(),
-				dst:       direction == firewall.RuleDirectionOUT,
+				chain:     chain,
 			}}, nil
 		}
 
@@ -112,30 +117,16 @@ func (m *aclManager) AddFiltering(
 
 	specs := filterRuleSpecs(ip, string(protocol), sPortVal, dPortVal, direction, action, ipsetName)
 
-	if direction == firewall.RuleDirectionOUT {
-		ok, err := m.iptablesClient.Exists("filter", chainNameOutputRules, specs...)
-		if err != nil {
-			return nil, fmt.Errorf("check is output rule already exists: %w", err)
-		}
-		if ok {
-			return nil, fmt.Errorf("input rule already exists")
-		}
+	ok, err := m.iptablesClient.Exists("filter", chain, specs...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check rule: %w", err)
+	}
+	if ok {
+		return nil, fmt.Errorf("rule already exists")
+	}
 
-		if err := m.iptablesClient.Insert("filter", chainNameOutputRules, 1, specs...); err != nil {
-			return nil, err
-		}
-	} else {
-		ok, err := m.iptablesClient.Exists("filter", chainNameInputRules, specs...)
-		if err != nil {
-			return nil, fmt.Errorf("check is input rule already exists: %w", err)
-		}
-		if ok {
-			return nil, fmt.Errorf("input rule already exists")
-		}
-
-		if err := m.iptablesClient.Insert("filter", chainNameInputRules, 1, specs...); err != nil {
-			return nil, err
-		}
+	if err := m.iptablesClient.Insert("filter", chain, 1, specs...); err != nil {
+		return nil, err
 	}
 
 	rule := &Rule{
@@ -143,7 +134,7 @@ func (m *aclManager) AddFiltering(
 		specs:     specs,
 		ipsetName: ipsetName,
 		ip:        ip.String(),
-		dst:       direction == firewall.RuleDirectionOUT,
+		chain:     chain,
 	}
 	return []firewall.Rule{rule}, nil
 }
@@ -179,10 +170,7 @@ func (m *aclManager) DeleteRule(rule firewall.Rule) error {
 		}
 	}
 
-	if r.dst {
-		return m.iptablesClient.Delete("filter", chainNameOutputRules, r.specs...)
-	}
-	return m.iptablesClient.Delete("filter", chainNameInputRules, r.specs...)
+	return m.iptablesClient.Delete("filter", r.chain, r.specs...)
 }
 
 func (m *aclManager) Reset() error {
@@ -330,7 +318,7 @@ func filterRuleSpecs(
 	case firewall.RuleDirectionOUT:
 		if matchByIP {
 			if ipsetName != "" {
-				specs = append(specs, "-m", "set", "--set", ipsetName, "dst")
+				specs = append(specs, "-m", "set", "--set", ipsetName, "chain")
 			} else {
 				specs = append(specs, "-d", ip.String())
 			}

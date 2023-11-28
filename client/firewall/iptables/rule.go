@@ -7,7 +7,7 @@ type Rule struct {
 
 	specs []string
 	ip    string
-	dst   bool
+	chain string
 }
 
 // GetRuleID returns the rule id
