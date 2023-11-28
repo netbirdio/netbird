@@ -64,6 +64,7 @@ type AccountManager interface {
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
 	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
+	DeleteAccount(accountID, userID string) error
 	MarkPATUsed(tokenID string) error
 	GetUser(claims jwtclaims.AuthorizationClaims) (*User, error)
 	ListUsers(accountID string) ([]*User, error)
@@ -1001,6 +1002,57 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 		}
 	}
 	log.Infof("warmed up IDP cache with %d entries", len(userData))
+	return nil
+}
+
+// DeleteAccount deletes an account and all its users from local store and from the remote IDP if the requester is an admin and account owner
+func (am *DefaultAccountManager) DeleteAccount(accountID, userID string) error {
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return err
+	}
+
+	if !user.IsAdmin() {
+		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account")
+	}
+
+	if user.Id != account.CreatedBy {
+		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account. Only account owner can delete account")
+	}
+	for _, otherUser := range account.Users {
+		if otherUser.IsServiceUser {
+			continue
+		}
+
+		if otherUser.Id == userID {
+			continue
+		}
+
+		deleteUserErr := am.deleteRegularUser(account, userID, otherUser.Id)
+		if deleteUserErr != nil {
+			return deleteUserErr
+		}
+	}
+
+	err = am.deleteRegularUser(account, userID, userID)
+	if err != nil {
+		log.Errorf("failed deleting user %s. error: %s", userID, err)
+		return err
+	}
+
+	err = am.Store.DeleteAccount(account)
+	if err != nil {
+		log.Errorf("failed deleting account %s. error: %s", accountID, err)
+		return err
+	}
+	log.Debugf("account %s deleted", accountID)
 	return nil
 }
 
