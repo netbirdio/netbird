@@ -7,11 +7,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/exp/slices"
+
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
 func TestAccount_getPeersByPolicy(t *testing.T) {
 	account := &Account{
-		Peers: map[string]*Peer{
+		Peers: map[string]*nbpeer.Peer{
 			"peerA": {
 				ID: "peerA",
 				IP: net.ParseIP("100.65.14.88"),
@@ -255,7 +257,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 
 func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 	account := &Account{
-		Peers: map[string]*Peer{
+		Peers: map[string]*nbpeer.Peer{
 			"peerA": {
 				ID: "peerA",
 				IP: net.ParseIP("100.65.14.88"),

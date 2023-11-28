@@ -10,6 +10,7 @@ import (
 	"github.com/rs/xid"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 )
@@ -25,11 +26,11 @@ const (
 )
 
 type NetworkMap struct {
-	Peers         []*Peer
+	Peers         []*nbpeer.Peer
 	Network       *Network
 	Routes        []*route.Route
 	DNSConfig     nbdns.Config
-	OfflinePeers  []*Peer
+	OfflinePeers  []*nbpeer.Peer
 	FirewallRules []*FirewallRule
 }
 

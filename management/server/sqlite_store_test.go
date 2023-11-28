@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/netbirdio/netbird/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/util"
 )
 
 func TestSqlite_NewStore(t *testing.T) {
@@ -36,13 +38,13 @@ func TestSqlite_SaveAccount(t *testing.T) {
 	account := newAccountWithId("account_id", "testuser", "")
 	setupKey := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
-	account.Peers["testpeer"] = &Peer{
+	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:      "peerkey",
 		SetupKey: "peerkeysetupkey",
 		IP:       net.IP{127, 0, 0, 1},
-		Meta:     PeerSystemMeta{},
+		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	err := store.SaveAccount(account)
@@ -51,13 +53,13 @@ func TestSqlite_SaveAccount(t *testing.T) {
 	account2 := newAccountWithId("account_id2", "testuser2", "")
 	setupKey = GenerateDefaultSetupKey()
 	account2.SetupKeys[setupKey.Key] = setupKey
-	account2.Peers["testpeer2"] = &Peer{
+	account2.Peers["testpeer2"] = &nbpeer.Peer{
 		Key:      "peerkey2",
 		SetupKey: "peerkeysetupkey2",
 		IP:       net.IP{127, 0, 0, 2},
-		Meta:     PeerSystemMeta{},
+		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name 2",
-		Status:   &PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(account2)
@@ -109,19 +111,19 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	// save status of non-existing peer
-	newStatus := PeerStatus{Connected: true, LastSeen: time.Now().UTC()}
+	newStatus := nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()}
 	err = store.SavePeerStatus(account.Id, "non-existing-peer", newStatus)
 	assert.Error(t, err)
 
 	// save new status of existing peer
-	account.Peers["testpeer"] = &Peer{
+	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:      "peerkey",
 		ID:       "testpeer",
 		SetupKey: "peerkeysetupkey",
 		IP:       net.IP{127, 0, 0, 1},
-		Meta:     PeerSystemMeta{},
+		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(account)
@@ -216,13 +218,13 @@ func newAccount(store Store, id int) error {
 	account := newAccountWithId(str, str+"-testuser", "example.com")
 	setupKey := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
-	account.Peers["p"+str] = &Peer{
+	account.Peers["p"+str] = &nbpeer.Peer{
 		Key:      "peerkey" + str,
 		SetupKey: "peerkeysetupkey",
 		IP:       net.IP{127, 0, 0, 1},
-		Meta:     PeerSystemMeta{},
+		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	return store.SaveAccount(account)

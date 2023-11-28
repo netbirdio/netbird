@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 )
@@ -68,13 +69,13 @@ type AccountManager interface {
 	MarkPATUsed(tokenID string) error
 	GetUser(claims jwtclaims.AuthorizationClaims) (*User, error)
 	ListUsers(accountID string) ([]*User, error)
-	GetPeers(accountID, userID string) ([]*Peer, error)
+	GetPeers(accountID, userID string) ([]*nbpeer.Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
 	DeletePeer(accountID, peerID, userID string) error
-	UpdatePeer(accountID, userID string, peer *Peer) (*Peer, error)
+	UpdatePeer(accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
 	GetNetworkMap(peerID string) (*NetworkMap, error)
 	GetPeerNetwork(peerID string) (*Network, error)
-	AddPeer(setupKey, userID string, peer *Peer) (*Peer, *NetworkMap, error)
+	AddPeer(setupKey, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, *NetworkMap, error)
 	CreatePAT(accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error)
 	DeletePAT(accountID string, initiatorUserID string, targetUserID string, tokenID string) error
 	GetPAT(accountID string, initiatorUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error)
@@ -106,10 +107,10 @@ type AccountManager interface {
 	GetEvents(accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettings(accountID string, userID string) (*DNSSettings, error)
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
-	GetPeer(accountID, peerID, userID string) (*Peer, error)
+	GetPeer(accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error)
-	LoginPeer(login PeerLogin) (*Peer, *NetworkMap, error) // used by peer gRPC API
-	SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error)    // used by peer gRPC API
+	LoginPeer(login PeerLogin) (*nbpeer.Peer, *NetworkMap, error) // used by peer gRPC API
+	SyncPeer(sync PeerSync) (*nbpeer.Peer, *NetworkMap, error)    // used by peer gRPC API
 	GetAllConnectedPeers() (map[string]struct{}, error)
 	GetExternalCacheManager() ExternalCacheManager
 }
@@ -164,19 +165,30 @@ type Settings struct {
 	Extra *ExtraSettings
 }
 
-type ExtraSettings struct {
-	// PeerApprovalEnabled enables or disables the need for peers bo be approved by an administrator
-	PeerApprovalEnabled bool
-}
-
 // Copy copies the Settings struct
 func (s *Settings) Copy() *Settings {
-	return &Settings{
+	settings := &Settings{
 		PeerLoginExpirationEnabled: s.PeerLoginExpirationEnabled,
 		PeerLoginExpiration:        s.PeerLoginExpiration,
 		JWTGroupsEnabled:           s.JWTGroupsEnabled,
 		JWTGroupsClaimName:         s.JWTGroupsClaimName,
 		GroupsPropagationEnabled:   s.GroupsPropagationEnabled,
+	}
+	if s.Extra != nil {
+		settings.Extra = s.Extra.Copy()
+	}
+	return settings
+}
+
+type ExtraSettings struct {
+	// PeerApprovalEnabled enables or disables the need for peers bo be approved by an administrator
+	PeerApprovalEnabled bool
+}
+
+// Copy copies the ExtraSettings struct
+func (e *ExtraSettings) Copy() *ExtraSettings {
+	return &ExtraSettings{
+		PeerApprovalEnabled: e.PeerApprovalEnabled,
 	}
 }
 
@@ -193,8 +205,8 @@ type Account struct {
 	SetupKeys              map[string]*SetupKey              `gorm:"-"`
 	SetupKeysG             []SetupKey                        `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Network                *Network                          `gorm:"embedded;embeddedPrefix:network_"`
-	Peers                  map[string]*Peer                  `gorm:"-"`
-	PeersG                 []Peer                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	Peers                  map[string]*nbpeer.Peer           `gorm:"-"`
+	PeersG                 []nbpeer.Peer                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Users                  map[string]*User                  `gorm:"-"`
 	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Groups                 map[string]*Group                 `gorm:"-"`
@@ -229,7 +241,7 @@ type UserInfo struct {
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
 // from the ACL peers that have distribution groups associated with the peer ID.
 // Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
-func (a *Account) getRoutesToSync(peerID string, aclPeers []*Peer) []*route.Route {
+func (a *Account) getRoutesToSync(peerID string, aclPeers []*nbpeer.Peer) []*route.Route {
 	routes, peerDisabledRoutes := a.getRoutingPeerRoutes(peerID)
 	peerRoutesMembership := make(lookupMap)
 	for _, r := range append(routes, peerDisabledRoutes...) {
@@ -359,7 +371,7 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 			Network: a.Network.Copy(),
 		}
 	}
-	validatedPeers := integrations.ValidatePeers([]*Peer{peer}, a)
+	validatedPeers := integrations.ValidatePeers([]*nbpeer.Peer{peer}, a)
 	if len(validatedPeers) == 0 {
 		return &NetworkMap{
 			Network: a.Network.Copy(),
@@ -368,8 +380,8 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 	aclPeers, firewallRules := a.getPeerConnectionResources(peerID)
 	aclPeers = integrations.ValidatePeers(aclPeers, a)
 	// exclude expired peers
-	var peersToConnect []*Peer
-	var expiredPeers []*Peer
+	var peersToConnect []*nbpeer.Peer
+	var expiredPeers []*nbpeer.Peer
 	for _, p := range aclPeers {
 		expired, _ := p.LoginExpired(a.Settings.PeerLoginExpiration)
 		if a.Settings.PeerLoginExpirationEnabled && expired {
@@ -407,8 +419,8 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 }
 
 // GetExpiredPeers returns peers that have been expired
-func (a *Account) GetExpiredPeers() []*Peer {
-	var peers []*Peer
+func (a *Account) GetExpiredPeers() []*nbpeer.Peer {
+	var peers []*nbpeer.Peer
 	for _, peer := range a.GetPeersWithExpiration() {
 		expired, _ := peer.LoginExpired(a.Settings.PeerLoginExpiration)
 		if expired {
@@ -447,8 +459,8 @@ func (a *Account) GetNextPeerExpiration() (time.Duration, bool) {
 }
 
 // GetPeersWithExpiration returns a list of peers that have Peer.LoginExpirationEnabled set to true and that were added by a user
-func (a *Account) GetPeersWithExpiration() []*Peer {
-	peers := make([]*Peer, 0)
+func (a *Account) GetPeersWithExpiration() []*nbpeer.Peer {
+	peers := make([]*nbpeer.Peer, 0)
 	for _, peer := range a.Peers {
 		if peer.LoginExpirationEnabled && peer.AddedWithSSOLogin() {
 			peers = append(peers, peer)
@@ -458,8 +470,8 @@ func (a *Account) GetPeersWithExpiration() []*Peer {
 }
 
 // GetPeers returns a list of all Account peers
-func (a *Account) GetPeers() []*Peer {
-	var peers []*Peer
+func (a *Account) GetPeers() []*nbpeer.Peer {
+	var peers []*nbpeer.Peer
 	for _, peer := range a.Peers {
 		peers = append(peers, peer)
 	}
@@ -473,7 +485,7 @@ func (a *Account) UpdateSettings(update *Settings) *Account {
 }
 
 // UpdatePeer saves new or replaces existing peer
-func (a *Account) UpdatePeer(update *Peer) {
+func (a *Account) UpdatePeer(update *nbpeer.Peer) {
 	a.Peers[update.ID] = update
 }
 
@@ -502,7 +514,7 @@ func (a *Account) DeletePeer(peerID string) {
 
 // FindPeerByPubKey looks for a Peer by provided WireGuard public key in the Account or returns error if it wasn't found.
 // It will return an object copy of the peer.
-func (a *Account) FindPeerByPubKey(peerPubKey string) (*Peer, error) {
+func (a *Account) FindPeerByPubKey(peerPubKey string) (*nbpeer.Peer, error) {
 	for _, peer := range a.Peers {
 		if peer.Key == peerPubKey {
 			return peer.Copy(), nil
@@ -513,8 +525,8 @@ func (a *Account) FindPeerByPubKey(peerPubKey string) (*Peer, error) {
 }
 
 // FindUserPeers returns a list of peers that user owns (created)
-func (a *Account) FindUserPeers(userID string) ([]*Peer, error) {
-	peers := make([]*Peer, 0)
+func (a *Account) FindUserPeers(userID string) ([]*nbpeer.Peer, error) {
+	peers := make([]*nbpeer.Peer, 0)
 	for _, peer := range a.Peers {
 		if peer.UserID == userID {
 			peers = append(peers, peer)
@@ -606,7 +618,7 @@ func (a *Account) getPeerDNSLabels() lookupMap {
 }
 
 func (a *Account) Copy() *Account {
-	peers := map[string]*Peer{}
+	peers := map[string]*nbpeer.Peer{}
 	for id, peer := range a.Peers {
 		peers[id] = peer.Copy()
 	}
@@ -683,7 +695,7 @@ func (a *Account) GetGroupAll() (*Group, error) {
 }
 
 // GetPeer looks up a Peer by ID
-func (a *Account) GetPeer(peerID string) *Peer {
+func (a *Account) GetPeer(peerID string) *nbpeer.Peer {
 	return a.Peers[peerID]
 }
 
@@ -893,7 +905,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 		return nil, err
 	}
 
-	err = integrations.ValidateExtraSettings(newSettings.Extra, account, am)
+	err = integrations.ValidateExtraSettings(newSettings.Extra, account, userID, am)
 	if err != nil {
 		return nil, err
 	}
@@ -923,18 +935,6 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 		am.StoreEvent(userID, accountID, accountID, activity.AccountPeerLoginExpirationDurationUpdated, nil)
 		am.checkAndSchedulePeerLoginExpiration(account)
 	}
-
-	// if oldSettings.PeerApprovalEnabled != newSettings.PeerApprovalEnabled {
-	// 	event := activity.AccountPeerApprovalEnabled
-	// 	if !newSettings.PeerApprovalEnabled {
-	// 		event = activity.AccountPeerApprovalDisabled
-	// 	}
-	// 	am.StoreEvent(userID, accountID, accountID, event, nil)
-	//
-	// 	for _, peer := range account.Peers {
-	// 		peer.Status.RequiresApproval = false
-	// 	}
-	// }
 
 	updatedAccount := account.UpdateSettings(newSettings)
 
@@ -1683,7 +1683,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 	log.Debugf("creating new account")
 
 	network := NewNetwork()
-	peers := make(map[string]*Peer)
+	peers := make(map[string]*nbpeer.Peer)
 	users := make(map[string]*User)
 	routes := make(map[string]*route.Route)
 	setupKeys := map[string]*SetupKey{}
