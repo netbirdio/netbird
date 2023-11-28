@@ -52,7 +52,7 @@ func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper, route
 		return nil, err
 	}
 
-	err = m.createChains()
+	err = m.createDefaultChains()
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +221,6 @@ func (m *aclManager) cleanChains() error {
 		log.Debugf("failed to list chains: %s", err)
 		return err
 	}
-	log.Debugf("chain exists, %s, %v", chainNameInputRules, ok)
 	if ok {
 		for _, rule := range m.entries["INPUT"] {
 			err := m.iptablesClient.DeleteIfExists(tableName, "INPUT", rule...)
@@ -257,7 +256,7 @@ func (m *aclManager) cleanChains() error {
 	return nil
 }
 
-func (m *aclManager) createChains() error {
+func (m *aclManager) createDefaultChains() error {
 	// chain netbird-acl-input-rules
 	if err := m.iptablesClient.NewChain(tableName, chainNameInputRules); err != nil {
 		log.Errorf("failed to create '%s' chain: %s", chainNameInputRules, err)
@@ -306,6 +305,8 @@ func (m *aclManager) seedInitialEntries() {
 		[]string{"-o", m.wgIface.Name(), "-m", "mark", "--mark", "0x000007e4", "-j", "ACCEPT"})
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", chainNameInputRules})
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
+
+	m.appendToEntries("PREROUTING", []string{"-t", "mangle", "-i", m.wgIface.Name(), "!", "-s", m.wgIface.Address().String(), "-d", m.wgIface.Address().IP.String(), "-m", "mark", "--mark", "0x000007e4"})
 }
 
 func (m *aclManager) appendToEntries(chainName string, spec []string) {
