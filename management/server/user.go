@@ -258,6 +258,14 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 		return nil, fmt.Errorf("provided user update is nil")
 	}
 
+	switch {
+	case invite.Name == "":
+		return nil, status.Errorf(status.InvalidArgument, "name can't be empty")
+	case invite.Email == "":
+		return nil, status.Errorf(status.InvalidArgument, "email can't be empty")
+	default:
+	}
+
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(status.NotFound, "account %s doesn't exist", accountID)
