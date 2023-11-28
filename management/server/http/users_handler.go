@@ -155,9 +155,14 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		email = *req.Email
 	}
 
+	name := ""
+	if req.Name != nil {
+		name = *req.Name
+	}
+
 	newUser, err := h.accountManager.CreateUser(account.Id, user.Id, &server.UserInfo{
 		Email:         email,
-		Name:          *req.Name,
+		Name:          name,
 		Role:          req.Role,
 		AutoGroups:    req.AutoGroups,
 		IsServiceUser: req.IsServiceUser,
