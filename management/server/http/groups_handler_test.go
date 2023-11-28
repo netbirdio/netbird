@@ -19,10 +19,11 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
-var TestPeers = map[string]*server.Peer{
+var TestPeers = map[string]*nbpeer.Peer{
 	"A": {Key: "A", ID: "peer-A-ID", IP: net.ParseIP("100.100.100.100")},
 	"B": {Key: "B", ID: "peer-B-ID", IP: net.ParseIP("200.200.200.200")},
 }
