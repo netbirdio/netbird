@@ -11,6 +11,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
@@ -31,7 +32,7 @@ func NewPeersHandler(accountManager server.AccountManager, authCfg AuthCfg) *Pee
 	}
 }
 
-func (h *PeersHandler) checkPeerStatus(peer *server.Peer) (*server.Peer, error) {
+func (h *PeersHandler) checkPeerStatus(peer *nbpeer.Peer) (*nbpeer.Peer, error) {
 	peerToReturn := peer.Copy()
 	if peer.Status.Connected {
 		statuses, err := h.accountManager.GetAllConnectedPeers()
@@ -79,11 +80,11 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 		return
 	}
 
-	update := &server.Peer{ID: peerID, SSHEnabled: req.SshEnabled, Name: req.Name,
+	update := &nbpeer.Peer{ID: peerID, SSHEnabled: req.SshEnabled, Name: req.Name,
 		LoginExpirationEnabled: req.LoginExpirationEnabled}
 
 	if req.ApprovalRequired != nil {
-		update.Status = &server.PeerStatus{RequiresApproval: *req.ApprovalRequired}
+		update.Status = &nbpeer.PeerStatus{RequiresApproval: *req.ApprovalRequired}
 	}
 
 	peer, err := h.accountManager.UpdatePeer(account.Id, user.Id, update)
@@ -234,7 +235,7 @@ func toGroupsInfo(groups map[string]*server.Group, peerID string) []api.GroupMin
 	return groupsInfo
 }
 
-func toSinglePeerResponse(peer *server.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeer []api.AccessiblePeer) *api.Peer {
+func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeer []api.AccessiblePeer) *api.Peer {
 	return &api.Peer{
 		Id:                     peer.ID,
 		Name:                   peer.Name,
@@ -253,11 +254,11 @@ func toSinglePeerResponse(peer *server.Peer, groupsInfo []api.GroupMinimum, dnsD
 		LastLogin:              peer.LastLogin,
 		LoginExpired:           peer.Status.LoginExpired,
 		AccessiblePeers:        accessiblePeer,
-		Approved:               &peer.Status.Approved,
+		ApprovalRequired:       &peer.Status.RequiresApproval,
 	}
 }
 
-func toPeerListItemResponse(peer *server.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeersCount int) *api.PeerBatch {
+func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeersCount int) *api.PeerBatch {
 	return &api.PeerBatch{
 		Id:                     peer.ID,
 		Name:                   peer.Name,
@@ -276,11 +277,11 @@ func toPeerListItemResponse(peer *server.Peer, groupsInfo []api.GroupMinimum, dn
 		LastLogin:              peer.LastLogin,
 		LoginExpired:           peer.Status.LoginExpired,
 		AccessiblePeersCount:   accessiblePeersCount,
-		Approved:               peer.Status.Approved,
+		ApprovalRequired:       &peer.Status.RequiresApproval,
 	}
 }
 
-func fqdn(peer *server.Peer, dnsDomain string) string {
+func fqdn(peer *nbpeer.Peer, dnsDomain string) string {
 	fqdn := peer.FQDN(dnsDomain)
 	if fqdn == "" {
 		return peer.DNSLabel
