@@ -51,7 +51,7 @@ require (
 	github.com/miekg/dns v1.1.43
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/nadoo/ipset v0.5.0
-	github.com/netbirdio/management-integrations/integrations v0.0.0-20231128134945-092a9f4a2d06
+	github.com/netbirdio/management-integrations/integrations v0.0.0-20231128140355-566178608e97
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pion/logging v0.2.2
@@ -120,6 +120,7 @@ require (
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/mdlayher/genetlink v1.1.0 // indirect
 	github.com/mdlayher/netlink v1.7.1 // indirect
+	github.com/netbirdio/management-integrations/additions v0.0.0-20231128140355-566178608e97 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
 	github.com/pegasus-kv/thrift v0.13.0 // indirect

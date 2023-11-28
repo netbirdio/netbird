@@ -17,7 +17,7 @@ import (
 
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
-	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/management-integrations/additions"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -360,14 +360,14 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 			Network: a.Network.Copy(),
 		}
 	}
-	validatedPeers := integrations.ValidatePeers([]*nbpeer.Peer{peer})
+	validatedPeers := additions.ValidatePeers([]*nbpeer.Peer{peer})
 	if len(validatedPeers) == 0 {
 		return &NetworkMap{
 			Network: a.Network.Copy(),
 		}
 	}
 	aclPeers, firewallRules := a.getPeerConnectionResources(peerID)
-	aclPeers = integrations.ValidatePeers(aclPeers)
+	aclPeers = additions.ValidatePeers(aclPeers)
 	// exclude expired peers
 	var peersToConnect []*nbpeer.Peer
 	var expiredPeers []*nbpeer.Peer
@@ -894,7 +894,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 		return nil, err
 	}
 
-	err = integrations.ValidateExtraSettings(newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID, am.eventStore)
+	err = additions.ValidateExtraSettings(newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID, am.eventStore)
 	if err != nil {
 		return nil, err
 	}
