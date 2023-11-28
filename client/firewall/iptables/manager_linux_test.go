@@ -111,7 +111,7 @@ func TestIptablesManager(t *testing.T) {
 			require.NoError(t, err, "failed to delete rule")
 		}
 
-		require.Empty(t, manager.aclMgr.ruleStore.ruleSets, "rulesets index after removed second rule must be empty")
+		require.Empty(t, manager.aclMgr.ipsetStore.ipsets, "rulesets index after removed second rule must be empty")
 	})
 
 	t.Run("reset check", func(t *testing.T) {
@@ -204,7 +204,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 			err := manager.DeleteRule(r)
 			require.NoError(t, err, "failed to delete rule")
 
-			require.NotContains(t, manager.aclMgr.ruleStore.ruleSets, r.(*Rule).ruleID, "rule must be removed form the ruleset index")
+			require.NotContains(t, manager.aclMgr.ipsetStore.ipsets, r.(*Rule).ruleID, "rule must be removed form the ruleset index")
 		}
 	})
 
@@ -213,7 +213,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 			err := manager.DeleteRule(r)
 			require.NoError(t, err, "failed to delete rule")
 
-			require.Empty(t, manager.aclMgr.ruleStore.ruleSets, "rulesets index after removed second rule must be empty")
+			require.Empty(t, manager.aclMgr.ipsetStore.ipsets, "rulesets index after removed second rule must be empty")
 		}
 	})
 

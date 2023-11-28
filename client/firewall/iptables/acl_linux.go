@@ -26,8 +26,8 @@ type aclManager struct {
 	wgIface             iFaceMapper
 	routeingFwChainName string
 
-	entries   map[string][][]string
-	ruleStore *rulesetStore
+	entries    map[string][][]string
+	ipsetStore *ipsetStore
 }
 
 func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper, routeingFwChainName string) (*aclManager, error) {
@@ -36,8 +36,8 @@ func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper, route
 		wgIface:             wgIface,
 		routeingFwChainName: routeingFwChainName,
 
-		entries:   make(map[string][][]string),
-		ruleStore: newRulesetStore(),
+		entries:    make(map[string][][]string),
+		ipsetStore: newIpsetStore(),
 	}
 
 	err := ipset.Init()
@@ -81,14 +81,14 @@ func (m *aclManager) AddFiltering(
 	ruleID := uuid.New().String()
 
 	if ipsetName != "" {
-		rs, rsExists := m.ruleStore.ruleset(ipsetName)
-		if rsExists {
+		ipList, ipsetExists := m.ipsetStore.ipset(ipsetName)
+		if ipsetExists {
 			if err := ipset.Add(ipsetName, ip.String()); err != nil {
 				return nil, fmt.Errorf("failed to add IP to ipset: %w", err)
 			}
 			// if ruleset already exists it means we already have the firewall rule
 			// so we need to update IPs in the ruleset and return new fw.Rule object for ACL manager.
-			rs.addIP(ip.String())
+			ipList.addIP(ip.String())
 			return []firewall.Rule{&Rule{
 				ruleID:    ruleID,
 				ipsetName: ipsetName,
@@ -147,7 +147,8 @@ func (m *aclManager) AddFiltering(
 	if ipsetName != "" {
 		// ipset name is defined and it means that this rule was created
 		// for it, need to associate it with ruleset
-		m.ruleStore.newRuleset(ip.String())
+		ipList := newIpList(ip.String())
+		m.ipsetStore.addIpList(ipsetName, ipList)
 	}
 
 	return []firewall.Rule{rule}, nil
@@ -160,24 +161,24 @@ func (m *aclManager) DeleteRule(rule firewall.Rule) error {
 		return fmt.Errorf("invalid rule type")
 	}
 
-	if rs, ok := m.ruleStore.ruleset(r.ipsetName); ok {
+	if ipsetList, ok := m.ipsetStore.ipset(r.ipsetName); ok {
 		// delete IP from ruleset IPs list and ipset
-		if _, ok := rs.ips[r.ip]; ok {
+		if _, ok := ipsetList.ips[r.ip]; ok {
 			if err := ipset.Del(r.ipsetName, r.ip); err != nil {
 				return fmt.Errorf("failed to delete ip from ipset: %w", err)
 			}
-			delete(rs.ips, r.ip)
+			delete(ipsetList.ips, r.ip)
 		}
 
 		// if after delete, set still contains other IPs,
 		// no need to delete firewall rule and we should exit here
-		if len(rs.ips) != 0 {
+		if len(ipsetList.ips) != 0 {
 			return nil
 		}
 
 		// we delete last IP from the set, that means we need to delete
 		// set itself and associated firewall rule too
-		m.ruleStore.deleteRuleset(r.ipsetName)
+		m.ipsetStore.deleteIpset(r.ipsetName)
 
 		if err := ipset.Destroy(r.ipsetName); err != nil {
 			log.Errorf("delete empty ipset: %v", err)
@@ -243,14 +244,14 @@ func (m *aclManager) cleanChains() error {
 		}
 	}
 
-	for _, ipsetName := range m.ruleStore.ipsetNames() {
+	for _, ipsetName := range m.ipsetStore.ipsetNames() {
 		if err := ipset.Flush(ipsetName); err != nil {
 			log.Errorf("flush ipset %q during reset: %v", ipsetName, err)
 		}
 		if err := ipset.Destroy(ipsetName); err != nil {
 			log.Errorf("delete ipset %q during reset: %v", ipsetName, err)
 		}
-		m.ruleStore.deleteRuleset(ipsetName)
+		m.ipsetStore.deleteIpset(ipsetName)
 	}
 
 	return nil

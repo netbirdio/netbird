@@ -1,45 +1,49 @@
 package iptables
 
-type ruleset struct {
+type ipList struct {
 	ips map[string]struct{}
 }
 
-func (s ruleset) addIP(ip string) {
-	s.ips[ip] = struct{}{}
-}
-
-type rulesetStore struct {
-	ruleSets map[string]ruleset // ipsetName -> ruleset
-}
-
-func newRulesetStore() *rulesetStore {
-	return &rulesetStore{
-		ruleSets: make(map[string]ruleset),
-	}
-}
-
-func (s *rulesetStore) ruleset(ipsetName string) (ruleset, bool) {
-	r, ok := s.ruleSets[ipsetName]
-	return r, ok
-}
-
-func (s *rulesetStore) newRuleset(ip string) ruleset {
+func newIpList(ip string) ipList {
 	ips := make(map[string]struct{})
 	ips[ip] = struct{}{}
 
-	return ruleset{
+	return ipList{
 		ips: ips,
 	}
 }
 
-func (s *rulesetStore) deleteRuleset(ipsetName string) {
-	s.ruleSets[ipsetName] = ruleset{}
-	delete(s.ruleSets, ipsetName)
+func (s *ipList) addIP(ip string) {
+	s.ips[ip] = struct{}{}
 }
 
-func (s *rulesetStore) ipsetNames() []string {
-	names := make([]string, 0, len(s.ruleSets))
-	for name := range s.ruleSets {
+type ipsetStore struct {
+	ipsets map[string]ipList // ipsetName -> ruleset
+}
+
+func newIpsetStore() *ipsetStore {
+	return &ipsetStore{
+		ipsets: make(map[string]ipList),
+	}
+}
+
+func (s *ipsetStore) ipset(ipsetName string) (ipList, bool) {
+	r, ok := s.ipsets[ipsetName]
+	return r, ok
+}
+
+func (s *ipsetStore) addIpList(ipsetName string, list ipList) {
+	s.ipsets[ipsetName] = list
+}
+
+func (s *ipsetStore) deleteIpset(ipsetName string) {
+	s.ipsets[ipsetName] = ipList{}
+	delete(s.ipsets, ipsetName)
+}
+
+func (s *ipsetStore) ipsetNames() []string {
+	names := make([]string, 0, len(s.ipsets))
+	for name := range s.ipsets {
 		names = append(names, name)
 	}
 	return names

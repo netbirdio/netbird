@@ -71,6 +71,11 @@ func (m *Manager) AddFiltering(
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	rawIP := ip.To4()
+	if rawIP == nil {
+		return nil, fmt.Errorf("unsupported IP version: %s", ip.String())
+	}
+
 	return m.aclManager.AddFiltering(ip, proto, sPort, dPort, direction, action, ipsetName, comment)
 }
 
