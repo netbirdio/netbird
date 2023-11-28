@@ -81,8 +81,7 @@ func (m *aclManager) AddFiltering(
 	ruleID := uuid.New().String()
 
 	if ipsetName != "" {
-		ipList, ipsetExists := m.ipsetStore.ipset(ipsetName)
-		if ipsetExists {
+		if ipList, ipsetExists := m.ipsetStore.ipset(ipsetName); ipsetExists {
 			if err := ipset.Add(ipsetName, ip.String()); err != nil {
 				return nil, fmt.Errorf("failed to add IP to ipset: %w", err)
 			}
@@ -98,7 +97,7 @@ func (m *aclManager) AddFiltering(
 		}
 
 		if err := ipset.Flush(ipsetName); err != nil {
-			log.Errorf("flush ipset %q before use it: %v", ipsetName, err)
+			log.Errorf("flush ipset %s before use it: %s", ipsetName, err)
 		}
 		if err := ipset.Create(ipsetName); err != nil {
 			return nil, fmt.Errorf("failed to create ipset: %w", err)
@@ -106,7 +105,9 @@ func (m *aclManager) AddFiltering(
 		if err := ipset.Add(ipsetName, ip.String()); err != nil {
 			return nil, fmt.Errorf("failed to add IP to ipset: %w", err)
 		}
-		// this is new ipset so we need to create firewall rule for it
+
+		ipList := newIpList(ip.String())
+		m.ipsetStore.addIpList(ipsetName, ipList)
 	}
 
 	specs := filterRuleSpecs(ip, string(protocol), sPortVal, dPortVal, direction, action, ipsetName)
@@ -144,13 +145,6 @@ func (m *aclManager) AddFiltering(
 		ip:        ip.String(),
 		dst:       direction == firewall.RuleDirectionOUT,
 	}
-	if ipsetName != "" {
-		// ipset name is defined and it means that this rule was created
-		// for it, need to associate it with ruleset
-		ipList := newIpList(ip.String())
-		m.ipsetStore.addIpList(ipsetName, ipList)
-	}
-
 	return []firewall.Rule{rule}, nil
 }
 
