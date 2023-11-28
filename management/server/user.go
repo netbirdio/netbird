@@ -11,6 +11,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
@@ -980,7 +981,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 }
 
 // expireAndUpdatePeers expires all peers of the given user and updates them in the account
-func (am *DefaultAccountManager) expireAndUpdatePeers(account *Account, peers []*Peer) error {
+func (am *DefaultAccountManager) expireAndUpdatePeers(account *Account, peers []*nbpeer.Peer) error {
 	var peerIDs []string
 	for _, peer := range peers {
 		if peer.Status.LoginExpired {

@@ -61,6 +61,7 @@ func initTestMetaData(peers ...*server.Peer) *PeersHandler {
 					Domain: "hotmail.com",
 					Peers: map[string]*server.Peer{
 						peers[0].ID: peers[0],
+						peers[1].ID: peers[1],
 					},
 					Users: map[string]*server.User{
 						"test_user": user,
@@ -112,7 +113,7 @@ func TestGetPeers(t *testing.T) {
 		Key:                    "key",
 		SetupKey:               "setupkey",
 		IP:                     net.ParseIP("100.64.0.1"),
-		Status:                 &server.PeerStatus{Connected: true},
+		Status:                 &server.PeerStatus{Connected: true, Approved: true},
 		Name:                   "PeerName",
 		LoginExpirationEnabled: false,
 		Meta: server.PeerSystemMeta{

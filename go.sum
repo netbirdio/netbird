@@ -507,6 +507,8 @@ github.com/netbirdio/management-integrations/integrations v0.0.0-20231127171411-
 github.com/netbirdio/management-integrations/integrations v0.0.0-20231127171411-ffb4ff80f85a/go.mod h1:aRyvEvLzMX9+eDgW+cMRh0CkxR8sYIszmEITaWFZ5Vc=
 github.com/netbirdio/management-integrations/integrations v0.0.0-20231128103220-a3b41e63c818 h1:PTQ2SSijkoN8Qkctq9oLzEdzCLLv7WoD2dqScmpb15o=
 github.com/netbirdio/management-integrations/integrations v0.0.0-20231128103220-a3b41e63c818/go.mod h1:aRyvEvLzMX9+eDgW+cMRh0CkxR8sYIszmEITaWFZ5Vc=
+github.com/netbirdio/management-integrations/integrations v0.0.0-20231128110844-6dc8ff1bf262 h1:JVImKBfZC2tC88GcJS0Hi6sdFL+FkhCcmbpU8lRAWss=
+github.com/netbirdio/management-integrations/integrations v0.0.0-20231128110844-6dc8ff1bf262/go.mod h1:aRyvEvLzMX9+eDgW+cMRh0CkxR8sYIszmEITaWFZ5Vc=
 github.com/netbirdio/service v0.0.0-20230215170314-b923b89432b0 h1:hirFRfx3grVA/9eEyjME5/z3nxdJlN9kfQpvWWPk32g=
 github.com/netbirdio/service v0.0.0-20230215170314-b923b89432b0/go.mod h1:CIMRFEJVL+0DS1a3Nx06NaMn4Dz63Ng6O7dl0qH0zVM=
 github.com/netbirdio/systray v0.0.0-20231030152038-ef1ed2a27949 h1:xbWM9BU6mwZZLHxEjxIX/V8Hv3HurQt4mReIE4mY4DM=
