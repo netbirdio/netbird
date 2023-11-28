@@ -142,6 +142,12 @@ type Account struct {
 	Settings AccountSettings `json:"settings"`
 }
 
+// AccountExtraSettings defines model for AccountExtraSettings.
+type AccountExtraSettings struct {
+	// PeerApprovalEnabled Enables or disables peer approval globally. If enabled, all peers added will be in pending state until approved by an admin.
+	PeerApprovalEnabled *bool `json:"peer_approval_enabled,omitempty"`
+}
+
 // AccountRequest defines model for AccountRequest.
 type AccountRequest struct {
 	Settings AccountSettings `json:"settings"`
@@ -149,6 +155,8 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
+	Extra *AccountExtraSettings `json:"extra,omitempty"`
+
 	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
 	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`
 
@@ -323,6 +331,9 @@ type Peer struct {
 	// AccessiblePeers List of accessible peers
 	AccessiblePeers []AccessiblePeer `json:"accessible_peers"`
 
+	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
+	ApprovalRequired *bool `json:"approval_required,omitempty"`
+
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
@@ -374,6 +385,9 @@ type Peer struct {
 
 // PeerBase defines model for PeerBase.
 type PeerBase struct {
+	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
+	ApprovalRequired *bool `json:"approval_required,omitempty"`
+
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
@@ -427,6 +441,9 @@ type PeerBase struct {
 type PeerBatch struct {
 	// AccessiblePeersCount Number of accessible peers
 	AccessiblePeersCount int `json:"accessible_peers_count"`
+
+	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
+	ApprovalRequired *bool `json:"approval_required,omitempty"`
 
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
@@ -488,6 +505,8 @@ type PeerMinimum struct {
 
 // PeerRequest defines model for PeerRequest.
 type PeerRequest struct {
+	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
+	ApprovalRequired       *bool  `json:"approval_required,omitempty"`
 	LoginExpirationEnabled bool   `json:"login_expiration_enabled"`
 	Name                   string `json:"name"`
 	SshEnabled             bool   `json:"ssh_enabled"`

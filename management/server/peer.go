@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -46,6 +47,8 @@ type PeerStatus struct {
 	Connected bool
 	// LoginExpired
 	LoginExpired bool
+	// RequiresApproval indicates whether peer requires approval or not
+	RequiresApproval bool
 }
 
 // PeerSync used as a data object between the gRPC API and AccountManager on Sync request.
@@ -192,9 +195,10 @@ func (p *Peer) EventMeta(dnsDomain string) map[string]any {
 // Copy PeerStatus
 func (p *PeerStatus) Copy() *PeerStatus {
 	return &PeerStatus{
-		LastSeen:     p.LastSeen,
-		Connected:    p.Connected,
-		LoginExpired: p.LoginExpired,
+		LastSeen:         p.LastSeen,
+		Connected:        p.Connected,
+		LoginExpired:     p.LoginExpired,
+		RequiresApproval: p.RequiresApproval,
 	}
 }
 
@@ -302,6 +306,11 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 	peer := account.GetPeer(update.ID)
 	if peer == nil {
 		return nil, status.Errorf(status.NotFound, "peer %s not found", update.ID)
+	}
+
+	update, err = integrations.ValidatePeersUpdateRequest(update, peer, am)
+	if err != nil {
+		return nil, err
 	}
 
 	if peer.SSHEnabled != update.SSHEnabled {
@@ -562,6 +571,10 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		Ephemeral:              ephemeral,
 	}
 
+	if account.Settings.Extra.PeerApprovalEnabled {
+		newPeer.Status.RequiresApproval = true
+	}
+
 	// add peer to 'All' group
 	group, err := account.GetGroupAll()
 	if err != nil {
@@ -630,6 +643,11 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*Peer, *NetworkMap, er
 	peer, err := account.FindPeerByPubKey(sync.WireGuardPubKey)
 	if err != nil {
 		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
+	}
+
+	validatedPeers := integrations.ValidatePeers([]*Peer{peer}, account)
+	if len(validatedPeers) == 0 {
+		return nil, nil, status.Errorf(status.PermissionDenied, "peer validation failed")
 	}
 
 	err = checkIfPeerOwnerIsBlocked(peer, account)
