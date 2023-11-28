@@ -360,14 +360,14 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 			Network: a.Network.Copy(),
 		}
 	}
-	validatedPeers := integrations.ValidatePeers([]*nbpeer.Peer{peer}, a)
+	validatedPeers := integrations.ValidatePeers([]*nbpeer.Peer{peer})
 	if len(validatedPeers) == 0 {
 		return &NetworkMap{
 			Network: a.Network.Copy(),
 		}
 	}
 	aclPeers, firewallRules := a.getPeerConnectionResources(peerID)
-	aclPeers = integrations.ValidatePeers(aclPeers, a)
+	aclPeers = integrations.ValidatePeers(aclPeers)
 	// exclude expired peers
 	var peersToConnect []*nbpeer.Peer
 	var expiredPeers []*nbpeer.Peer
@@ -894,7 +894,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 		return nil, err
 	}
 
-	err = integrations.ValidateExtraSettings(newSettings.Extra, account, userID, am)
+	err = integrations.ValidateExtraSettings(newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID, am.eventStore)
 	if err != nil {
 		return nil, err
 	}

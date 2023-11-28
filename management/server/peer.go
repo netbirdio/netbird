@@ -143,7 +143,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *nb
 		return nil, status.Errorf(status.NotFound, "peer %s not found", update.ID)
 	}
 
-	update, err = integrations.ValidatePeersUpdateRequest(update, peer, am)
+	update, err = integrations.ValidatePeersUpdateRequest(update, peer, userID, am.eventStore, am.GetDNSDomain())
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +480,7 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *Network
 		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
 	}
 
-	validatedPeers := integrations.ValidatePeers([]*nbpeer.Peer{peer}, account)
+	validatedPeers := integrations.ValidatePeers([]*nbpeer.Peer{peer})
 	if len(validatedPeers) == 0 {
 		return nil, nil, status.Errorf(status.PermissionDenied, "peer validation failed")
 	}
