@@ -222,10 +222,6 @@ func (s *SqliteStore) DeleteAccount(account *Account) error {
 			return result.Error
 		}
 
-		result = tx.Session(&gorm.Session{FullSaveAssociations: true})
-		if result.Error != nil {
-			return result.Error
-		}
 		return nil
 	})
 
