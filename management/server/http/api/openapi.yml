@@ -1074,6 +1074,32 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/accounts/{accountId}:
+    delete:
+      summary: Delete an Account
+      description: Deletes an account and all its resources. Only administrators and account owners can delete accounts.
+      tags: [ Accounts ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: accountId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an account
+      responses:
+        '200':
+          description: Delete account status code
+          content: { }
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     put:
       summary: Update an Account
       description: Update information about an account
