@@ -167,7 +167,7 @@ func (i *routerManager) cleanUpDefaultForwardRules() {
 		log.Error(err)
 	}
 
-	log.Debug("flushing tables")
+	log.Debug("flushing routing related tables")
 	errMSGFormat := "failed cleaning chain %s,error: %v"
 	err = i.iptablesClient.ClearAndDeleteChain(tableFilter, chainRTFWD)
 	if err != nil {
@@ -178,8 +178,6 @@ func (i *routerManager) cleanUpDefaultForwardRules() {
 	if err != nil {
 		log.Errorf(errMSGFormat, chainRTNAT, err)
 	}
-
-	log.Info("done cleaning up iptables rules")
 }
 
 func (i *routerManager) createContainers() error {
@@ -231,7 +229,6 @@ func (i *routerManager) cleanJumpRules() error {
 	errMSGFormat := "failed cleaning rule from chain %s,err: %v"
 	rule, found := i.rules[Ipv4Forwarding]
 	if found {
-		log.Debugf("removing rule: %s, %v ", Ipv4Forwarding, rule)
 		err = i.iptablesClient.DeleteIfExists(tableFilter, chainFORWARD, rule...)
 		if err != nil {
 			return fmt.Errorf(errMSGFormat, chainFORWARD, err)
@@ -239,7 +236,6 @@ func (i *routerManager) cleanJumpRules() error {
 	}
 	rule, found = i.rules[ipv4Nat]
 	if found {
-		log.Debugf("removing rule: %s ", ipv4Nat)
 		err = i.iptablesClient.DeleteIfExists(tableNat, chainPOSTROUTING, rule...)
 		if err != nil {
 			return fmt.Errorf(errMSGFormat, chainPOSTROUTING, err)

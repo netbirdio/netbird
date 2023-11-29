@@ -76,15 +76,15 @@ func (m *aclManager) AddFiltering(
 	if sPort != nil && sPort.Values != nil {
 		sPortVal = strconv.Itoa(sPort.Values[0])
 	}
-	ipsetName = transformIPsetName(ipsetName, sPortVal, dPortVal)
 
-	ruleID := uuid.New().String()
 	var chain string
 	if direction == firewall.RuleDirectionOUT {
 		chain = chainNameOutputRules
 	} else {
 		chain = chainNameInputRules
 	}
+
+	ipsetName = transformIPsetName(ipsetName, sPortVal, dPortVal)
 	if ipsetName != "" {
 		if ipList, ipsetExists := m.ipsetStore.ipset(ipsetName); ipsetExists {
 			if err := ipset.Add(ipsetName, ip.String()); err != nil {
@@ -94,7 +94,7 @@ func (m *aclManager) AddFiltering(
 			// so we need to update IPs in the ruleset and return new fw.Rule object for ACL manager.
 			ipList.addIP(ip.String())
 			return []firewall.Rule{&Rule{
-				ruleID:    ruleID,
+				ruleID:    uuid.New().String(),
 				ipsetName: ipsetName,
 				ip:        ip.String(),
 				chain:     chain,
@@ -130,13 +130,22 @@ func (m *aclManager) AddFiltering(
 	}
 
 	rule := &Rule{
-		ruleID:    ruleID,
+		ruleID:    uuid.New().String(),
 		specs:     specs,
 		ipsetName: ipsetName,
 		ip:        ip.String(),
 		chain:     chain,
 	}
-	return []firewall.Rule{rule}, nil
+
+	if !shouldAddToPrerouting(protocol, dPort, direction) {
+		return []firewall.Rule{rule}, nil
+	}
+
+	rulePrerouting, err := m.addPreroutingFilter(ipsetName, string(protocol), dPortVal, ip)
+	if err != nil {
+		return []firewall.Rule{rule}, err
+	}
+	return []firewall.Rule{rule, rulePrerouting}, nil
 }
 
 // DeleteRule from the firewall by rule definition
@@ -175,6 +184,37 @@ func (m *aclManager) DeleteRule(rule firewall.Rule) error {
 
 func (m *aclManager) Reset() error {
 	return m.cleanChains()
+}
+
+func (m *aclManager) addPreroutingFilter(ipsetName string, protocol string, port string, ip net.IP) (*Rule, error) {
+	specs := []string{
+		"-m", "set", "--set", ipsetName, "src",
+		"-d", ip.String(),
+		"-p", protocol,
+		"--dport", port,
+		"-j", "MARK", "--set-mark", "0x000007e4",
+	}
+
+	ok, err := m.iptablesClient.Exists("mangle", "PREROUTING", specs...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check rule: %w", err)
+	}
+	if ok {
+		return nil, fmt.Errorf("rule already exists")
+	}
+
+	if err := m.iptablesClient.Insert("mangle", "PREROUTING", 1, specs...); err != nil {
+		return nil, err
+	}
+
+	rule := &Rule{
+		ruleID:    uuid.New().String(),
+		specs:     specs,
+		ipsetName: ipsetName,
+		ip:        ip.String(),
+		chain:     "PREROUTING",
+	}
+	return rule, nil
 }
 
 func (m *aclManager) cleanChains() error {
@@ -223,6 +263,13 @@ func (m *aclManager) cleanChains() error {
 		if err != nil {
 			log.Debugf("failed to clear and delete %s chain: %s", chainNameInputRules, err)
 			return err
+		}
+	}
+
+	for _, rule := range m.entries["PREROUTING"] {
+		err := m.iptablesClient.DeleteIfExists("mangle", "PREROUTING", rule...)
+		if err != nil {
+			log.Errorf("failed to delete rule: %v, %s", rule, err)
 		}
 	}
 
@@ -354,4 +401,19 @@ func transformIPsetName(ipsetName string, sPort, dPort string) string {
 		return ipsetName + "-dport"
 	}
 	return ipsetName
+}
+
+func shouldAddToPrerouting(proto firewall.Protocol, dPort *firewall.Port, direction firewall.RuleDirection) bool {
+	if proto == "all" {
+		return false
+	}
+
+	if direction != firewall.RuleDirectionIN {
+		return false
+	}
+
+	if dPort == nil {
+		return false
+	}
+	return true
 }
