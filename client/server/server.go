@@ -183,6 +183,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 
 	if msg.Hostname != "" {
+		// nolint
 		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, msg.Hostname)
 	}
 
@@ -281,6 +282,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	}
 
 	if msg.Hostname != "" {
+		// nolint
 		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, msg.Hostname)
 	}
 
