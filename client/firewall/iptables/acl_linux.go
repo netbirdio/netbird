@@ -179,7 +179,13 @@ func (m *aclManager) DeleteRule(rule firewall.Rule) error {
 		}
 	}
 
-	return m.iptablesClient.Delete("filter", r.chain, r.specs...)
+	var table string
+	if r.chain == "PREROUTING" {
+		table = "mangle"
+	} else {
+		table = "filter"
+	}
+	return m.iptablesClient.Delete(table, r.chain, r.specs...)
 }
 
 func (m *aclManager) Reset() error {
