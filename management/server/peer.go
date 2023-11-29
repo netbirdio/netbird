@@ -480,11 +480,6 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *Network
 		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
 	}
 
-	validatedPeers := additions.ValidatePeers([]*nbpeer.Peer{peer})
-	if len(validatedPeers) == 0 {
-		return nil, nil, status.Errorf(status.PermissionDenied, "peer validation failed")
-	}
-
 	err = checkIfPeerOwnerIsBlocked(peer, account)
 	if err != nil {
 		return nil, nil, err
