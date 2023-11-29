@@ -217,6 +217,7 @@ func (m *aclManager) addPreroutingFilter(ipsetName string, protocol string, port
 	return rule, nil
 }
 
+// todo write less destructive cleanup mechanism
 func (m *aclManager) cleanChains() error {
 	ok, err := m.iptablesClient.ChainExists(tableName, chainNameOutputRules)
 	if err != nil {
@@ -266,10 +267,22 @@ func (m *aclManager) cleanChains() error {
 		}
 	}
 
-	for _, rule := range m.entries["PREROUTING"] {
-		err := m.iptablesClient.DeleteIfExists("mangle", "PREROUTING", rule...)
+	ok, err = m.iptablesClient.ChainExists("mangle", "PREROUTING")
+	if err != nil {
+		log.Debugf("failed to list chains: %s", err)
+		return err
+	}
+	if ok {
+		for _, rule := range m.entries["PREROUTING"] {
+			err := m.iptablesClient.DeleteIfExists("mangle", "PREROUTING", rule...)
+			if err != nil {
+				log.Errorf("failed to delete rule: %v, %s", rule, err)
+			}
+		}
+		err = m.iptablesClient.ClearChain("mangle", "PREROUTING")
 		if err != nil {
-			log.Errorf("failed to delete rule: %v, %s", rule, err)
+			log.Debugf("failed to clear %s chain: %s", "PREROUTING", err)
+			return err
 		}
 	}
 
@@ -334,10 +347,10 @@ func (m *aclManager) seedInitialEntries() {
 	m.appendToEntries("FORWARD",
 		[]string{"-o", m.wgIface.Name(), "-m", "mark", "--mark", "0x000007e4", "-j", "ACCEPT"})
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", chainNameInputRules})
-	m.appendToEntries(
-		"FORWARD", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
+	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
 
-	m.appendToEntries("PREROUTING", []string{"-t", "mangle", "-i", m.wgIface.Name(), "!", "-s", m.wgIface.Address().String(), "-d", m.wgIface.Address().IP.String(), "-m", "mark", "--mark", "0x000007e4"})
+	m.appendToEntries("PREROUTING",
+		[]string{"-t", "mangle", "-i", m.wgIface.Name(), "!", "-s", m.wgIface.Address().String(), "-d", m.wgIface.Address().IP.String(), "-m", "mark", "--mark", "0x000007e4"})
 }
 
 func (m *aclManager) appendToEntries(chainName string, spec []string) {
