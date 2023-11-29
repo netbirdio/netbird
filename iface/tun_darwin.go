@@ -24,6 +24,14 @@ func (c *tunDevice) assignAddr() error {
 		return err
 	}
 
+	if c.address6 != nil {
+		cmd := exec.Command("ifconfig", c.name, "inet6", c.address6.IP.String(), c.address6.IP.String())
+		if out, err := cmd.CombinedOutput(); err != nil {
+			log.Infof(`adding IPv6 address command "%v" failed with output %s and error: `, cmd.String(), out)
+			return err
+		}
+	}
+
 	routeCmd := exec.Command("route", "add", "-net", c.address.Network.String(), "-interface", c.name)
 	if out, err := routeCmd.CombinedOutput(); err != nil {
 		log.Printf(`adding route command "%v" failed with output %s and error: `, routeCmd.String(), out)

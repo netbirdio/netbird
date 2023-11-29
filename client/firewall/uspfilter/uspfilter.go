@@ -20,6 +20,7 @@ const layerTypeAll = 0
 type IFaceMapper interface {
 	SetFilter(iface.PacketFilter) error
 	Address() iface.WGAddress
+	Address6() *iface.WGAddress
 }
 
 // RuleSet is a set of rules grouped by a string key

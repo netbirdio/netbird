@@ -29,14 +29,15 @@ func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Ac
 		Key:  "BhRPtynAAYRDy08+q4HTMsos8fs4plTP4NOSh7C1ry8=",
 		Name: "test-host@netbird.io",
 		Meta: PeerSystemMeta{
-			Hostname:  "test-host@netbird.io",
-			GoOS:      "linux",
-			Kernel:    "Linux",
-			Core:      "21.04",
-			Platform:  "x86_64",
-			OS:        "Ubuntu",
-			WtVersion: "development",
-			UIVersion: "development",
+			Hostname:      "test-host@netbird.io",
+			GoOS:          "linux",
+			Kernel:        "Linux",
+			Core:          "21.04",
+			Platform:      "x86_64",
+			OS:            "Ubuntu",
+			WtVersion:     "development",
+			UIVersion:     "development",
+			Ipv6Supported: false,
 		},
 	}
 

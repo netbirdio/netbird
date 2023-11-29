@@ -84,6 +84,11 @@ func (t *tunDevice) UpdateAddr(addr WGAddress) error {
 	return nil
 }
 
+func (t *tunDevice) UpdateAddr6(addr WGAddress) error {
+	// todo implement
+	return nil
+}
+
 func (t *tunDevice) Close() (err error) {
 	if t.device != nil {
 		t.device.Close()

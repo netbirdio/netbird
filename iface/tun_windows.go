@@ -19,6 +19,7 @@ import (
 type tunDevice struct {
 	name         string
 	address      WGAddress
+	address6     *WGAddress
 	netInterface NetInterface
 	iceBind      *bind.ICEBind
 	mtu          int
@@ -114,6 +115,11 @@ func (c *tunDevice) UpdateAddr(address WGAddress) error {
 	return c.assignAddr()
 }
 
+func (c *tunDevice) UpdateAddr6(address6 WGAddress) error {
+	c.address6 = address6
+	return c.assignAddr()
+}
+
 func (c *tunDevice) WgAddress() WGAddress {
 	return c.address
 }
@@ -161,8 +167,15 @@ func (c *tunDevice) getInterfaceGUIDString() (string, error) {
 func (c *tunDevice) assignAddr() error {
 	tunDev := c.netInterface.(*tun.NativeTun)
 	luid := winipcfg.LUID(tunDev.LUID())
+	addresses := []netip.Prefix{netip.MustParsePrefix(c.address.String())}
 	log.Debugf("adding address %s to interface: %s", c.address.IP, c.name)
-	return luid.SetIPAddresses([]netip.Prefix{netip.MustParsePrefix(c.address.String())})
+
+	if c.address6 != nil {
+		addresses = append(addresses, netip.MustParsePrefix(c.address6.String()))
+		log.Debugf("adding IPv6 address %s to interface: %s", c.address6.IP, c.name)
+	}
+
+	return luid.SetIPAddresses(addresses)
 }
 
 // getUAPI returns a Listener

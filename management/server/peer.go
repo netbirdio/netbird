@@ -18,14 +18,15 @@ import (
 
 // PeerSystemMeta is a metadata of a Peer machine system
 type PeerSystemMeta struct {
-	Hostname  string
-	GoOS      string
-	Kernel    string
-	Core      string
-	Platform  string
-	OS        string
-	WtVersion string
-	UIVersion string
+	Hostname      string
+	GoOS          string
+	Kernel        string
+	Core          string
+	Platform      string
+	OS            string
+	WtVersion     string
+	UIVersion     string
+	Ipv6Supported bool
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
@@ -36,7 +37,8 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		p.Platform == other.Platform &&
 		p.OS == other.OS &&
 		p.WtVersion == other.WtVersion &&
-		p.UIVersion == other.UIVersion
+		p.UIVersion == other.UIVersion &&
+		p.Ipv6Supported == other.Ipv6Supported
 }
 
 type PeerStatus struct {
@@ -539,7 +541,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		return nil, nil, err
 	}
 	var nextIp6 *net.IP = nil
-	if network.Net6 != nil {
+	if network.Net6 != nil && peer.Meta.Ipv6Supported {
 		nextIp6tmp, err := AllocatePeerIP6(*network.Net6, takenIps)
 		if err != nil {
 			return nil, nil, err

@@ -102,6 +102,7 @@ message PeerSystemMeta {
   string OS = 6;
   string wiretrusteeVersion = 7;
   string uiVersion = 8;
+  bool ipv6Supported = 9;
 }
 
 message LoginResponse {
