@@ -12,12 +12,24 @@ linters-settings:
     # Default: false
     check-type-assertions: false
 
+  gocritic:
+    disabled-checks:
+      - commentFormatting
+      - captLocal
+      - deprecatedComment
+
   govet:
     # Enable all analyzers.
     # Default: false
     enable-all: false
     enable:
       - nilness
+
+  tenv:
+    # The option `all` will run against whole test files (`_test.go`) regardless of method/function signatures.
+    # Otherwise, only methods that take `*testing.T`, `*testing.B`, and `testing.TB` as arguments are checked.
+    # Default: false
+    all: true
 
 linters:
   disable-all: true
@@ -28,6 +40,7 @@ linters:
     - govet # reports suspicious constructs, such as Printf calls whose arguments do not align with the format string
     - ineffassign # detects when assignments to existing variables are not used
     - staticcheck # is a go vet on steroids, applying a ton of static analysis checks
+    - tenv # Tenv is analyzer that detects using os.Setenv instead of t.Setenv since Go1.17.
     - typecheck # like the front-end of a Go compiler, parses and type-checks Go code
     - unused # checks for unused constants, variables, functions and types
     ## disable by default but the have interesting results so lets add them
@@ -35,6 +48,7 @@ linters:
     - dupword # dupword checks for duplicate words in the source code
     - durationcheck # durationcheck checks for two durations multiplied together
     - forbidigo # forbidigo forbids identifiers
+    - gocritic # provides diagnostics that check for bugs, performance and style issues
     - mirror # mirror reports wrong mirror patterns of bytes/strings usage
     - misspell # misspess finds commonly misspelled English words in comments
     - nilerr # finds the code that returns nil even if it checks that the error is not nil

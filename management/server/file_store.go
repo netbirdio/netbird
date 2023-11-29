@@ -352,6 +352,41 @@ func (s *FileStore) SaveAccount(account *Account) error {
 	return s.persist(s.storeFile)
 }
 
+func (s *FileStore) DeleteAccount(account *Account) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	if account.Id == "" {
+		return status.Errorf(status.InvalidArgument, "account id should not be empty")
+	}
+
+	for keyID := range account.SetupKeys {
+		delete(s.SetupKeyID2AccountID, strings.ToUpper(keyID))
+	}
+
+	// enforce peer to account index and delete peer to route indexes for rebuild
+	for _, peer := range account.Peers {
+		delete(s.PeerKeyID2AccountID, peer.Key)
+		delete(s.PeerID2AccountID, peer.ID)
+	}
+
+	for _, user := range account.Users {
+		for _, pat := range user.PATs {
+			delete(s.TokenID2UserID, pat.ID)
+			delete(s.HashedPAT2TokenID, pat.HashedToken)
+		}
+		delete(s.UserID2AccountID, user.Id)
+	}
+
+	if account.DomainCategory == PrivateCategory && account.IsDomainPrimaryAccount {
+		delete(s.PrivateDomain2AccountID, account.Domain)
+	}
+
+	delete(s.Accounts, account.Id)
+
+	return s.persist(s.storeFile)
+}
+
 // DeleteHashedPAT2TokenIDIndex removes an entry from the indexing map HashedPAT2TokenID
 func (s *FileStore) DeleteHashedPAT2TokenIDIndex(hashedToken string) error {
 	s.mux.Lock()

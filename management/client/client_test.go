@@ -285,7 +285,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 
 	testKey, err := wgtypes.GenerateKey()
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 
 	serverAddr := lis.Addr().String()
@@ -293,12 +293,12 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 
 	testClient, err := NewClient(ctx, serverAddr, testKey, false)
 	if err != nil {
-		log.Fatalf("error while creating testClient: %v", err)
+		t.Fatalf("error while creating testClient: %v", err)
 	}
 
 	key, err := testClient.GetServerPublicKey()
 	if err != nil {
-		log.Fatalf("error while getting server public key from testclient, %v", err)
+		t.Fatalf("error while getting server public key from testclient, %v", err)
 	}
 
 	var actualMeta *mgmtProto.PeerSystemMeta
@@ -364,7 +364,7 @@ func Test_GetDeviceAuthorizationFlow(t *testing.T) {
 
 	testKey, err := wgtypes.GenerateKey()
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 
 	serverAddr := lis.Addr().String()
@@ -372,7 +372,7 @@ func Test_GetDeviceAuthorizationFlow(t *testing.T) {
 
 	client, err := NewClient(ctx, serverAddr, testKey, false)
 	if err != nil {
-		log.Fatalf("error while creating testClient: %v", err)
+		t.Fatalf("error while creating testClient: %v", err)
 	}
 
 	expectedFlowInfo := &mgmtProto.DeviceAuthorizationFlow{
@@ -408,7 +408,7 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 
 	testKey, err := wgtypes.GenerateKey()
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 
 	serverAddr := lis.Addr().String()
@@ -416,7 +416,7 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 
 	client, err := NewClient(ctx, serverAddr, testKey, false)
 	if err != nil {
-		log.Fatalf("error while creating testClient: %v", err)
+		t.Fatalf("error while creating testClient: %v", err)
 	}
 
 	expectedFlowInfo := &mgmtProto.PKCEAuthorizationFlow{

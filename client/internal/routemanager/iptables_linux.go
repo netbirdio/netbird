@@ -173,7 +173,7 @@ func (i *iptablesManager) addJumpRules() error {
 		return err
 	}
 	if i.ipv4Client != nil {
-		rule := append(iptablesDefaultForwardingRule, ipv4Forwarding)
+		rule := append(iptablesDefaultForwardingRule, ipv4Forwarding) //nolint:gocritic
 
 		err = i.ipv4Client.Insert(iptablesFilterTable, iptablesForwardChain, 1, rule...)
 		if err != nil {
@@ -181,7 +181,7 @@ func (i *iptablesManager) addJumpRules() error {
 		}
 		i.rules[ipv4][ipv4Forwarding] = rule
 
-		rule = append(iptablesDefaultNatRule, ipv4Nat)
+		rule = append(iptablesDefaultNatRule, ipv4Nat) //nolint:gocritic
 		err = i.ipv4Client.Insert(iptablesNatTable, iptablesPostRoutingChain, 1, rule...)
 		if err != nil {
 			return err
@@ -190,14 +190,14 @@ func (i *iptablesManager) addJumpRules() error {
 	}
 
 	if i.ipv6Client != nil {
-		rule := append(iptablesDefaultForwardingRule, ipv6Forwarding)
+		rule := append(iptablesDefaultForwardingRule, ipv6Forwarding) //nolint:gocritic
 		err = i.ipv6Client.Insert(iptablesFilterTable, iptablesForwardChain, 1, rule...)
 		if err != nil {
 			return err
 		}
 		i.rules[ipv6][ipv6Forwarding] = rule
 
-		rule = append(iptablesDefaultNatRule, ipv6Nat)
+		rule = append(iptablesDefaultNatRule, ipv6Nat) //nolint:gocritic
 		err = i.ipv6Client.Insert(iptablesNatTable, iptablesPostRoutingChain, 1, rule...)
 		if err != nil {
 			return err

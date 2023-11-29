@@ -103,6 +103,30 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 	util.WriteJSONObject(w, &resp)
 }
 
+// DeleteAccount is a HTTP DELETE handler to delete an account
+func (h *AccountsHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
+	}
+
+	claims := h.claimsExtractor.FromRequestContext(r)
+	vars := mux.Vars(r)
+	targetAccountID := vars["accountId"]
+	if len(targetAccountID) == 0 {
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid account ID"), w)
+		return
+	}
+
+	err := h.accountManager.DeleteAccount(targetAccountID, claims.UserId)
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+
+	util.WriteJSONObject(w, emptyObject{})
+}
+
 func toAccountResponse(account *server.Account) *api.Account {
 	settings := api.AccountSettings{
 		PeerLoginExpiration:        int(account.Settings.PeerLoginExpiration.Seconds()),

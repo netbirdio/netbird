@@ -7,6 +7,7 @@ import (
 	"github.com/rs/cors"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -105,6 +106,7 @@ func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValid
 func (apiHandler *apiHandler) addAccountsEndpoint() {
 	accountsHandler := NewAccountsHandler(apiHandler.AccountManager, apiHandler.AuthCfg)
 	apiHandler.Router.HandleFunc("/accounts/{accountId}", accountsHandler.UpdateAccount).Methods("PUT", "OPTIONS")
+	apiHandler.Router.HandleFunc("/accounts/{accountId}", accountsHandler.DeleteAccount).Methods("DELETE", "OPTIONS")
 	apiHandler.Router.HandleFunc("/accounts", accountsHandler.GetAllAccounts).Methods("GET", "OPTIONS")
 }
 

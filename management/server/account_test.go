@@ -902,6 +902,31 @@ func TestAccountManager_GetAccount(t *testing.T) {
 	}
 }
 
+func TestAccountManager_DeleteAccount(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	expectedId := "test_account"
+	userId := "account_creator"
+	account, err := createAccount(manager, expectedId, userId, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = manager.DeleteAccount(account.Id, userId)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	getAccount, err := manager.Store.GetAccount(account.Id)
+	if err == nil {
+		t.Fatal(fmt.Errorf("expected to get an error when trying to get deleted account, got %v", getAccount))
+	}
+}
+
 func TestAccountManager_AddPeer(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {

@@ -60,8 +60,18 @@ func addToRouteTable(prefix netip.Prefix, addr string) error {
 	return nil
 }
 
-func removeFromRouteTable(prefix netip.Prefix) error {
+func removeFromRouteTable(prefix netip.Prefix, addr string) error {
 	_, ipNet, err := net.ParseCIDR(prefix.String())
+	if err != nil {
+		return err
+	}
+
+	addrMask := "/32"
+	if prefix.Addr().Unmap().Is6() {
+		addrMask = "/128"
+	}
+
+	ip, _, err := net.ParseCIDR(addr + addrMask)
 	if err != nil {
 		return err
 	}
@@ -69,6 +79,7 @@ func removeFromRouteTable(prefix netip.Prefix) error {
 	route := &netlink.Route{
 		Scope: netlink.SCOPE_UNIVERSE,
 		Dst:   ipNet,
+		Gw:    ip,
 	}
 
 	err = netlink.RouteDel(route)
@@ -79,15 +90,16 @@ func removeFromRouteTable(prefix netip.Prefix) error {
 	return nil
 }
 
-func existsInRouteTable(prefix netip.Prefix) (bool, error) {
+func getRoutesFromTable() ([]netip.Prefix, error) {
 	tab, err := syscall.NetlinkRIB(syscall.RTM_GETROUTE, syscall.AF_UNSPEC)
 	if err != nil {
-		return true, err
+		return nil, err
 	}
 	msgs, err := syscall.ParseNetlinkMessage(tab)
 	if err != nil {
-		return true, err
+		return nil, err
 	}
+	var prefixList []netip.Prefix
 loop:
 	for _, m := range msgs {
 		switch m.Header.Type {
@@ -97,7 +109,7 @@ loop:
 			rt := (*routeInfoInMemory)(unsafe.Pointer(&m.Data[0]))
 			attrs, err := syscall.ParseNetlinkRouteAttr(&m)
 			if err != nil {
-				return true, err
+				return nil, err
 			}
 			if rt.Family != syscall.AF_INET {
 				continue loop
@@ -105,17 +117,21 @@ loop:
 
 			for _, attr := range attrs {
 				if attr.Attr.Type == syscall.RTA_DST {
-					ip := net.IP(attr.Value)
+					addr, ok := netip.AddrFromSlice(attr.Value)
+					if !ok {
+						continue
+					}
 					mask := net.CIDRMask(int(rt.DstLen), len(attr.Value)*8)
 					cidr, _ := mask.Size()
-					if ip.String() == prefix.Addr().String() && cidr == prefix.Bits() {
-						return true, nil
+					routePrefix := netip.PrefixFrom(addr, cidr)
+					if routePrefix.IsValid() && routePrefix.Addr().Is4() {
+						prefixList = append(prefixList, routePrefix)
 					}
 				}
 			}
 		}
 	}
-	return false, nil
+	return prefixList, nil
 }
 
 func enableIPForwarding() error {

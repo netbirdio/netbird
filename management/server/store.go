@@ -15,6 +15,7 @@ import (
 type Store interface {
 	GetAllAccounts() []*Account
 	GetAccount(accountID string) (*Account, error)
+	DeleteAccount(account *Account) error
 	GetAccountByUser(userID string) (*Account, error)
 	GetAccountByPeerPubKey(peerKey string) (*Account, error)
 	GetAccountByPeerID(peerID string) (*Account, error)

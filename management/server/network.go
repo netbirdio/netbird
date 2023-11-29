@@ -67,7 +67,7 @@ func NewNetwork() *Network {
 func (n *Network) IncSerial() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	n.Serial = n.Serial + 1
+	n.Serial++
 }
 
 // CurrentSerial returns the Network.Serial of the network (latest state id)

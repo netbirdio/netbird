@@ -94,7 +94,7 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, toUserResponse(newUser, claims.UserId))
 }
 
-// DeleteUser is a DELETE request to delete a user (only works for service users right now)
+// DeleteUser is a DELETE request to delete a user
 func (h *UsersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
@@ -155,9 +155,14 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		email = *req.Email
 	}
 
+	name := ""
+	if req.Name != nil {
+		name = *req.Name
+	}
+
 	newUser, err := h.accountManager.CreateUser(account.Id, user.Id, &server.UserInfo{
 		Email:         email,
-		Name:          *req.Name,
+		Name:          name,
 		Role:          req.Role,
 		AutoGroups:    req.AutoGroups,
 		IsServiceUser: req.IsServiceUser,
