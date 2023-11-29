@@ -120,7 +120,7 @@ require (
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/mdlayher/genetlink v1.1.0 // indirect
 	github.com/mdlayher/netlink v1.7.1 // indirect
-	github.com/netbirdio/management-integrations/additions v0.0.0-20231128140355-566178608e97 // indirect
+	github.com/netbirdio/management-integrations/additions v0.0.0-20231129145353-f46b1dd842f2 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
 	github.com/pegasus-kv/thrift v0.13.0 // indirect
