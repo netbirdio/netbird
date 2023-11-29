@@ -87,7 +87,7 @@ linters:
     - durationcheck # durationcheck checks for two durations multiplied together
     - forbidigo # forbidigo forbids identifiers
     - gocritic # provides diagnostics that check for bugs, performance and style issues
-    - gosec # nspects source code for security problems
+    - gosec # inspects source code for security problems
     - mirror # mirror reports wrong mirror patterns of bytes/strings usage
     - misspell # misspess finds commonly misspelled English words in comments
     - nilerr # finds the code that returns nil even if it checks that the error is not nil
