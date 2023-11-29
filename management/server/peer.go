@@ -143,7 +143,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *nb
 		return nil, status.Errorf(status.NotFound, "peer %s not found", update.ID)
 	}
 
-	update, err = additions.ValidatePeersUpdateRequest(update, peer, userID, am.eventStore, am.GetDNSDomain())
+	update, err = additions.ValidatePeersUpdateRequest(update, peer, userID, accountID, am.eventStore, am.GetDNSDomain())
 	if err != nil {
 		return nil, err
 	}
