@@ -149,6 +149,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		CleanNATExternalIPs:  natExternalIPs != nil && len(natExternalIPs) == 0,
 		CustomDNSAddress:     customDNSAddressConverted,
 		IsLinuxDesktopClient: isLinuxRunningDesktop(),
+		Hostname:             hostName,
 	}
 
 	var loginErr error
@@ -179,7 +180,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 		openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode)
 
-		_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
+		_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
 		if err != nil {
 			return fmt.Errorf("waiting sso login failed with: %v", err)
 		}
