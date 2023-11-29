@@ -85,6 +85,7 @@ var loginCmd = &cobra.Command{
 			PreSharedKey:         preSharedKey,
 			ManagementUrl:        managementURL,
 			IsLinuxDesktopClient: isLinuxRunningDesktop(),
+			Hostname:             hostName,
 		}
 
 		var loginErr error
@@ -114,7 +115,7 @@ var loginCmd = &cobra.Command{
 		if loginResp.NeedsSSOLogin {
 			openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode)
 
-			_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
+			_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
 			if err != nil {
 				return fmt.Errorf("waiting sso login failed with: %v", err)
 			}
