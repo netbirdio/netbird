@@ -140,7 +140,6 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		return nil
 	}
 
-	log.Debugf("hostname is %s\n", hostName)
 	loginRequest := proto.LoginRequest{
 		SetupKey:             setupKey,
 		PreSharedKey:         preSharedKey,
