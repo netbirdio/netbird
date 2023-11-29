@@ -318,7 +318,7 @@ func filterRuleSpecs(
 	case firewall.RuleDirectionOUT:
 		if matchByIP {
 			if ipsetName != "" {
-				specs = append(specs, "-m", "set", "--set", ipsetName, "chain")
+				specs = append(specs, "-m", "set", "--set", ipsetName, "dst")
 			} else {
 				specs = append(specs, "-d", ip.String())
 			}
