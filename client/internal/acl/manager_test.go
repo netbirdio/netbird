@@ -189,31 +189,33 @@ func TestDefaultManagerSquashRules(t *testing.T) {
 	}
 
 	r := rules[0]
-	if r.PeerIP != "0.0.0.0" {
+	switch {
+	case r.PeerIP != "0.0.0.0":
 		t.Errorf("IP should be 0.0.0.0, got: %v", r.PeerIP)
 		return
-	} else if r.Direction != mgmProto.FirewallRule_IN {
+	case r.Direction != mgmProto.FirewallRule_IN:
 		t.Errorf("direction should be IN, got: %v", r.Direction)
 		return
-	} else if r.Protocol != mgmProto.FirewallRule_ALL {
+	case r.Protocol != mgmProto.FirewallRule_ALL:
 		t.Errorf("protocol should be ALL, got: %v", r.Protocol)
 		return
-	} else if r.Action != mgmProto.FirewallRule_ACCEPT {
+	case r.Action != mgmProto.FirewallRule_ACCEPT:
 		t.Errorf("action should be ACCEPT, got: %v", r.Action)
 		return
 	}
 
 	r = rules[1]
-	if r.PeerIP != "0.0.0.0" {
+	switch {
+	case r.PeerIP != "0.0.0.0":
 		t.Errorf("IP should be 0.0.0.0, got: %v", r.PeerIP)
 		return
-	} else if r.Direction != mgmProto.FirewallRule_OUT {
+	case r.Direction != mgmProto.FirewallRule_OUT:
 		t.Errorf("direction should be OUT, got: %v", r.Direction)
 		return
-	} else if r.Protocol != mgmProto.FirewallRule_ALL {
+	case r.Protocol != mgmProto.FirewallRule_ALL:
 		t.Errorf("protocol should be ALL, got: %v", r.Protocol)
 		return
-	} else if r.Action != mgmProto.FirewallRule_ACCEPT {
+	case r.Action != mgmProto.FirewallRule_ACCEPT:
 		t.Errorf("action should be ACCEPT, got: %v", r.Action)
 		return
 	}

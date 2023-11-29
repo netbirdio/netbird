@@ -68,6 +68,7 @@ type MockAccountManager struct {
 	ListNameServerGroupsFunc        func(accountID string) ([]*nbdns.NameServerGroup, error)
 	CreateUserFunc                  func(accountID, userID string, key *server.UserInfo) (*server.UserInfo, error)
 	GetAccountFromTokenFunc         func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error)
+	DeleteAccountFunc               func(accountID, userID string) error
 	GetDNSDomainFunc                func() string
 	StoreEventFunc                  func(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any)
 	GetEventsFunc                   func(accountID, userID string) ([]*activity.Event, error)
@@ -155,6 +156,14 @@ func (am *MockAccountManager) GetAccountFromPAT(pat string) (*server.Account, *s
 		return am.GetAccountFromPATFunc(pat)
 	}
 	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method GetAccountFromPAT is not implemented")
+}
+
+// DeleteAccount mock implementation of DeleteAccount from server.AccountManager interface
+func (am *MockAccountManager) DeleteAccount(accountID, userID string) error {
+	if am.DeleteAccountFunc != nil {
+		return am.DeleteAccountFunc(accountID, userID)
+	}
+	return status.Errorf(codes.Unimplemented, "method DeleteAccount is not implemented")
 }
 
 // MarkPATUsed mock implementation of MarkPATUsed from server.AccountManager interface

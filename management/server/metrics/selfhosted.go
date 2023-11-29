@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -201,14 +200,14 @@ func (w *Worker) generateProperties() properties {
 			expirationEnabled++
 		}
 
-		groups = groups + len(account.Groups)
-		routes = routes + len(account.Routes)
+		groups += len(account.Groups)
+		routes += len(account.Routes)
 		for _, route := range account.Routes {
 			if len(route.PeerGroups) > 0 {
 				routesWithRGGroups++
 			}
 		}
-		nameservers = nameservers + len(account.NameServerGroups)
+		nameservers += len(account.NameServerGroups)
 
 		for _, policy := range account.Policies {
 			for _, rule := range policy.Rules {
@@ -232,10 +231,10 @@ func (w *Worker) generateProperties() properties {
 		}
 
 		for _, key := range account.SetupKeys {
-			setupKeysUsage = setupKeysUsage + key.UsedTimes
+			setupKeysUsage += key.UsedTimes
 			if key.Ephemeral {
 				ephemeralPeersSKs++
-				ephemeralPeersSKUsage = ephemeralPeersSKUsage + key.UsedTimes
+				ephemeralPeersSKUsage += key.UsedTimes
 			}
 		}
 
@@ -381,15 +380,10 @@ func createPostRequest(ctx context.Context, endpoint string, payloadStr string) 
 }
 
 func getMinMaxVersion(inputList []string) (string, string) {
-	reg, err := regexp.Compile(version.SemverRegexpRaw)
-	if err != nil {
-		return "", ""
-	}
-
 	versions := make([]*version.Version, 0)
 
 	for _, raw := range inputList {
-		if raw != "" && reg.MatchString(raw) {
+		if raw != "" && nbversion.SemverRegexp.MatchString(raw) {
 			v, err := version.NewVersion(raw)
 			if err == nil {
 				versions = append(versions, v)

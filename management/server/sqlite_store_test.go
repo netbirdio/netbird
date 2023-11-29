@@ -100,6 +100,80 @@ func TestSqlite_SaveAccount(t *testing.T) {
 	}
 }
 
+func TestSqlite_DeleteAccount(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	store := newSqliteStore(t)
+
+	testUserID := "testuser"
+	user := NewAdminUser(testUserID)
+	user.PATs = map[string]*PersonalAccessToken{"testtoken": {
+		ID:   "testtoken",
+		Name: "test token",
+	}}
+
+	account := newAccountWithId("account_id", testUserID, "")
+	setupKey := GenerateDefaultSetupKey()
+	account.SetupKeys[setupKey.Key] = setupKey
+	account.Peers["testpeer"] = &Peer{
+		Key:      "peerkey",
+		SetupKey: "peerkeysetupkey",
+		IP:       net.IP{127, 0, 0, 1},
+		Meta:     PeerSystemMeta{},
+		Name:     "peer name",
+		Status:   &PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+	}
+	account.Users[testUserID] = user
+
+	err := store.SaveAccount(account)
+	require.NoError(t, err)
+
+	if len(store.GetAllAccounts()) != 1 {
+		t.Errorf("expecting 1 Accounts to be stored after SaveAccount()")
+	}
+
+	err = store.DeleteAccount(account)
+	require.NoError(t, err)
+
+	if len(store.GetAllAccounts()) != 0 {
+		t.Errorf("expecting 0 Accounts to be stored after DeleteAccount()")
+	}
+
+	_, err = store.GetAccountByPeerPubKey("peerkey")
+	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by peer public key")
+
+	_, err = store.GetAccountByUser("testuser")
+	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by user")
+
+	_, err = store.GetAccountByPeerID("testpeer")
+	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by peer id")
+
+	_, err = store.GetAccountBySetupKey(setupKey.Key)
+	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by setup key")
+
+	_, err = store.GetAccount(account.Id)
+	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by id")
+
+	for _, policy := range account.Policies {
+		var rules []*PolicyRule
+		err = store.db.Model(&PolicyRule{}).Find(&rules, "policy_id = ?", policy.ID).Error
+		require.NoError(t, err, "expecting no error after removing DeleteAccount when searching for policy rules")
+		require.Len(t, rules, 0, "expecting no policy rules to be found after removing DeleteAccount")
+
+	}
+
+	for _, accountUser := range account.Users {
+		var pats []*PersonalAccessToken
+		err = store.db.Model(&PersonalAccessToken{}).Find(&pats, "user_id = ?", accountUser.Id).Error
+		require.NoError(t, err, "expecting no error after removing DeleteAccount when searching for personal access token")
+		require.Len(t, pats, 0, "expecting no personal access token to be found after removing DeleteAccount")
+
+	}
+
+}
+
 func TestSqlite_SavePeerStatus(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")

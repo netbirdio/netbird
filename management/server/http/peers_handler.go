@@ -221,7 +221,7 @@ func toGroupsInfo(groups map[string]*server.Group, peerID string) []api.GroupMin
 		}
 		groupsChecked[group.ID] = struct{}{}
 		for _, pk := range group.Peers {
-			if pk != peerID {
+			if pk == peerID {
 				info := api.GroupMinimum{
 					Id:         group.ID,
 					Name:       group.Name,

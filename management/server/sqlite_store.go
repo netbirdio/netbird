@@ -204,6 +204,37 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 	return err
 }
 
+func (s *SqliteStore) DeleteAccount(account *Account) error {
+	start := time.Now()
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Select(clause.Associations).Delete(account.Policies, "account_id = ?", account.Id)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		result = tx.Select(clause.Associations).Delete(account.UsersG, "account_id = ?", account.Id)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		result = tx.Select(clause.Associations).Delete(account)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		return nil
+	})
+
+	took := time.Since(start)
+	if s.metrics != nil {
+		s.metrics.StoreMetrics().CountPersistenceDuration(took)
+	}
+	log.Debugf("took %d ms to delete an account to the SQLite", took.Milliseconds())
+
+	return err
+}
+
 func (s *SqliteStore) SaveInstallationID(ID string) error {
 	installation := installation{InstallationIDValue: ID}
 	installation.ID = uint(s.installationPK)
@@ -338,7 +369,7 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 		var rules []*PolicyRule
 		err := s.db.Model(&PolicyRule{}).Find(&rules, "policy_id = ?", policy.ID).Error
 		if err != nil {
-			return nil, status.Errorf(status.NotFound, "account not found")
+			return nil, status.Errorf(status.NotFound, "rule not found")
 		}
 		account.Policies[i].Rules = rules
 	}

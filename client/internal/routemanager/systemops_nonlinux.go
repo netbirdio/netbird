@@ -21,8 +21,12 @@ func addToRouteTable(prefix netip.Prefix, addr string) error {
 	return nil
 }
 
-func removeFromRouteTable(prefix netip.Prefix) error {
-	cmd := exec.Command("route", "delete", prefix.String())
+func removeFromRouteTable(prefix netip.Prefix, addr string) error {
+	args := []string{"delete", prefix.String()}
+	if runtime.GOOS == "darwin" {
+		args = append(args, addr)
+	}
+	cmd := exec.Command("route", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return err

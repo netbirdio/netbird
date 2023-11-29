@@ -7,12 +7,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net/netip"
-	"regexp"
 	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/hashicorp/go-version"
 	"github.com/miekg/dns"
+	nbversion "github.com/netbirdio/netbird/version"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -122,7 +122,7 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config hostDNSConfig) er
 		searchDomains = append(searchDomains, dns.Fqdn(dConf.domain))
 	}
 
-	newDomainList := append(searchDomains, matchDomains...)
+	newDomainList := append(searchDomains, matchDomains...) //nolint:gocritic
 
 	priority := networkManagerDbusSearchDomainOnlyPriority
 	switch {
@@ -289,12 +289,7 @@ func isNetworkManagerSupportedVersion() bool {
 }
 
 func parseVersion(inputVersion string) (*version.Version, error) {
-	reg, err := regexp.Compile(version.SemverRegexpRaw)
-	if err != nil {
-		return nil, err
-	}
-
-	if inputVersion == "" || !reg.MatchString(inputVersion) {
+	if inputVersion == "" || !nbversion.SemverRegexp.MatchString(inputVersion) {
 		return nil, fmt.Errorf("couldn't parse the provided version: Not SemVer")
 	}
 

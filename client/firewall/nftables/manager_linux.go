@@ -791,7 +791,7 @@ func (m *Manager) flushWithBackoff() (err error) {
 				return err
 			}
 			time.Sleep(backoffTime)
-			backoffTime = backoffTime * 2
+			backoffTime *= 2
 			continue
 		}
 		break
