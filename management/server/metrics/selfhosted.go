@@ -394,7 +394,7 @@ func getMinMaxVersion(inputList []string) (string, string) {
 	targetIndex := 1
 	l := len(versions)
 
-	switch len(versions) {
+	switch l {
 	case 0:
 		return "", ""
 	case targetIndex:
