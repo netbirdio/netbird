@@ -406,7 +406,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 		Ephemeral:              ephemeral,
 	}
 
-	if account.Settings.Extra.PeerApprovalEnabled {
+	if account.Settings.Extra != nil && account.Settings.Extra.PeerApprovalEnabled {
 		newPeer.Status.RequiresApproval = true
 	}
 
