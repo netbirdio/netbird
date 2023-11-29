@@ -767,8 +767,8 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 		return nil, status.Errorf(status.PermissionDenied, "admins can't change their role")
 	}
 
-	if initiatorUser.Role == UserRoleAdmin && initiatorUserID != update.Id && update.Role == UserRoleOwner {
-		return nil, status.Errorf(status.PermissionDenied, "only owners can assign owner role to other users")
+	if initiatorUser.Role == UserRoleAdmin && oldUser.Role == UserRoleOwner && update.Role != oldUser.Role {
+		return nil, status.Errorf(status.PermissionDenied, "only owners can remove owner role from their user")
 	}
 
 	transferedOwnerRole := false
