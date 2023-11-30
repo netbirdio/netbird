@@ -771,6 +771,10 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 		return nil, status.Errorf(status.PermissionDenied, "only owners can remove owner role from their user")
 	}
 
+	if oldUser.IsServiceUser && update.Role == UserRoleOwner {
+		return nil, status.Errorf(status.PermissionDenied, "can't update a service user with owner role")
+	}
+
 	transferedOwnerRole := false
 	if initiatorUser.Role == UserRoleOwner && initiatorUserID != update.Id && update.Role == UserRoleOwner {
 		newInitiatorUser := initiatorUser.Copy()
@@ -838,10 +842,10 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 		}
 
 		switch {
-		case oldUser.Role != newUser.Role:
-			am.StoreEvent(initiatorUserID, oldUser.Id, accountID, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
 		case transferedOwnerRole:
 			am.StoreEvent(initiatorUserID, oldUser.Id, accountID, activity.TransferredOwnerRole, nil)
+		case oldUser.Role != newUser.Role:
+			am.StoreEvent(initiatorUserID, oldUser.Id, accountID, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
 		default:
 		}
 
