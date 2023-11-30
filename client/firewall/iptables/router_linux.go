@@ -168,26 +168,25 @@ func (i *routerManager) cleanUpDefaultForwardRules() {
 	}
 
 	log.Debug("flushing routing related tables")
-	errMSGFormat := "failed cleaning chain %s,error: %v"
+	log.Infof("flush tables")
 	ok, err := i.iptablesClient.ChainExists(tableFilter, chainRTFWD)
+	log.Infof("flush result: %v", ok)
 	if err != nil {
 		log.Error(err)
-	}
-	if err == nil && ok {
+	} else if ok {
 		err = i.iptablesClient.ClearAndDeleteChain(tableFilter, chainRTFWD)
 		if err != nil {
-			log.Errorf(errMSGFormat, chainRTFWD, err)
+			log.Errorf("failed cleaning chain %s,error: %v", chainRTFWD, err)
 		}
 	}
 
 	ok, err = i.iptablesClient.ChainExists(tableFilter, chainRTNAT)
 	if err != nil {
 		log.Error(err)
-	}
-	if err == nil && ok {
+	} else if ok {
 		err = i.iptablesClient.ClearAndDeleteChain(tableNat, chainRTNAT)
 		if err != nil {
-			log.Errorf(errMSGFormat, chainRTNAT, err)
+			log.Errorf("failed cleaning chain %s,error: %v", chainRTNAT, err)
 		}
 	}
 }
