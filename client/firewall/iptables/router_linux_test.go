@@ -36,7 +36,7 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 
 	require.Len(t, manager.rules, 1, "should have created rules map")
 
-	exists, err := manager.iptablesClient.Exists(tableFilter, chainFORWARD, manager.rules[firewall.Ipv4Forwarding]...)
+	exists, err := manager.iptablesClient.Exists(tableFilter, chainFORWARD, manager.rules[Ipv4Forwarding]...)
 	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableFilter, chainFORWARD)
 	require.True(t, exists, "forwarding rule should exist")
 
@@ -86,22 +86,14 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 
 	for _, testCase := range test.InsertRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.TODO())
 			iptablesClient, _ := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 
-			manager := &routerManager{
-				ctx:            ctx,
-				stop:           cancel,
-				iptablesClient: iptablesClient,
-				rules:          make(map[string][]string),
-			}
+			manager, err := newRouterManager(context.TODO(), iptablesClient)
+			require.NoError(t, err, "shouldn't return error")
 
 			defer func() {
 				_ = manager.Reset()
 			}()
-
-			err := manager.RestoreOrCreateContainers()
-			require.NoError(t, err, "shouldn't return error")
 
 			err = manager.InsertRoutingRules(testCase.InputPair)
 			require.NoError(t, err, "forwarding pair should be inserted")
@@ -171,20 +163,14 @@ func TestIptablesManager_RemoveRoutingRules(t *testing.T) {
 
 	for _, testCase := range test.RemoveRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.TODO())
 			iptablesClient, _ := iptables.NewWithProtocol(iptables.ProtocolIPv4)
-			manager := &routerManager{
-				ctx:            ctx,
-				stop:           cancel,
-				iptablesClient: iptablesClient,
-				rules:          make(map[string][]string),
-			}
 
+			manager, err := newRouterManager(context.TODO(), iptablesClient)
+			require.NoError(t, err, "shouldn't return error")
 			defer func() {
 				_ = manager.Reset()
 			}()
 
-			err := manager.RestoreOrCreateContainers()
 			require.NoError(t, err, "shouldn't return error")
 
 			forwardRuleKey := firewall.GenKey(firewall.ForwardingFormat, testCase.InputPair.ID)
