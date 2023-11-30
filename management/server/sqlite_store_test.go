@@ -117,13 +117,13 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	account := newAccountWithId("account_id", testUserID, "")
 	setupKey := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
-	account.Peers["testpeer"] = &Peer{
+	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:      "peerkey",
 		SetupKey: "peerkeysetupkey",
 		IP:       net.IP{127, 0, 0, 1},
-		Meta:     PeerSystemMeta{},
+		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 	account.Users[testUserID] = user
 
