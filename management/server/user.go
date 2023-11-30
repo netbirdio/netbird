@@ -771,6 +771,10 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 		return nil, status.Errorf(status.PermissionDenied, "only owners can remove owner role from their user")
 	}
 
+	if initiatorUser.Role == UserRoleAdmin && update.Role == UserRoleOwner && update.Role != oldUser.Role {
+		return nil, status.Errorf(status.PermissionDenied, "only owners can add owner role to other users")
+	}
+
 	if oldUser.IsServiceUser && update.Role == UserRoleOwner {
 		return nil, status.Errorf(status.PermissionDenied, "can't update a service user with owner role")
 	}
