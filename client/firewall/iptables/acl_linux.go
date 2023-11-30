@@ -193,13 +193,20 @@ func (m *aclManager) Reset() error {
 }
 
 func (m *aclManager) addPreroutingFilter(ipsetName string, protocol string, port string, ip net.IP) (*Rule, error) {
+	var src []string
+	if ipsetName != "" {
+		src = []string{"-m", "set", "--set", ipsetName, "src"}
+	} else {
+		src = []string{"-s", ip.String()}
+	}
 	specs := []string{
-		"-m", "set", "--set", ipsetName, "src",
 		"-d", ip.String(),
 		"-p", protocol,
 		"--dport", port,
 		"-j", "MARK", "--set-mark", "0x000007e4",
 	}
+
+	specs = append(src, specs...)
 
 	ok, err := m.iptablesClient.Exists("mangle", "PREROUTING", specs...)
 	if err != nil {
@@ -369,7 +376,7 @@ func filterRuleSpecs(
 ) (specs []string) {
 	matchByIP := true
 	// don't use IP matching if IP is ip 0.0.0.0
-	if s := ip.String(); s == "0.0.0.0" || s == "::" {
+	if ip.String() == "0.0.0.0" {
 		matchByIP = false
 	}
 	switch direction {

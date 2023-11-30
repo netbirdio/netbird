@@ -180,7 +180,7 @@ func (i *routerManager) cleanUpDefaultForwardRules() {
 		}
 	}
 
-	ok, err = i.iptablesClient.ChainExists(tableFilter, chainRTFWD)
+	ok, err = i.iptablesClient.ChainExists(tableFilter, chainRTNAT)
 	if err != nil {
 		log.Error(err)
 	}
