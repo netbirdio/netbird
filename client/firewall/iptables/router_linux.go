@@ -278,43 +278,6 @@ func (i *routerManager) cleanJumpRules() error {
 	return nil
 }
 
-func (i *routerManager) restoreRules(iptablesClient *iptables.IPTables) error {
-	if i.rules == nil {
-		i.rules = make(map[string][]string)
-	}
-	table := tableFilter
-	for _, chain := range []string{chainFORWARD, chainRTFWD} {
-		rules, err := iptablesClient.List(table, chain)
-		if err != nil {
-			return err
-		}
-		for _, ruleString := range rules {
-			rule := strings.Fields(ruleString)
-			id := getRuleRouteID(rule)
-			if id != "" {
-				i.rules[id] = rule[2:]
-			}
-		}
-	}
-
-	table = tableNat
-	for _, chain := range []string{chainPOSTROUTING, chainRTNAT} {
-		rules, err := iptablesClient.List(table, chain)
-		if err != nil {
-			return err
-		}
-		for _, ruleString := range rules {
-			rule := strings.Fields(ruleString)
-			id := getRuleRouteID(rule)
-			if id != "" {
-				i.rules[id] = rule[2:]
-			}
-		}
-	}
-
-	return nil
-}
-
 func (i *routerManager) createChain(table, newChain string) error {
 	chains, err := i.iptablesClient.ListChains(table)
 	if err != nil {
@@ -346,19 +309,6 @@ func (i *routerManager) createChain(table, newChain string) error {
 // genRuleSpec generates rule specification with comment identifier
 func genRuleSpec(jump, id, source, destination string) []string {
 	return []string{"-s", source, "-d", destination, "-j", jump, "-m", "comment", "--comment", id}
-}
-
-// getRuleRouteID returns the rule ID if matches our prefix
-func getRuleRouteID(rule []string) string {
-	for i, flag := range rule {
-		if flag == "--comment" {
-			id := rule[i+1]
-			if strings.HasPrefix(id, "netbird-") {
-				return id
-			}
-		}
-	}
-	return ""
 }
 
 func getIptablesRuleType(table string) string {
