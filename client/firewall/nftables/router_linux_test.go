@@ -43,9 +43,7 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 
 			nftablesTestingClient := &nftables.Conn{}
 
-			defer func() {
-				_ = manager.ResetForwardRules()
-			}()
+			defer manager.ResetForwardRules()
 
 			require.NoError(t, err, "shouldn't return error")
 
@@ -57,7 +55,7 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 
 			sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
 			destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
-			testingExpression := append(sourceExp, destExp...)
+			testingExpression := append(sourceExp, destExp...) //nolint:gocritic
 			fwdRuleKey := firewall.GenKey(firewall.ForwardingFormat, testCase.InputPair.ID)
 
 			found := 0
@@ -92,7 +90,7 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 
 			sourceExp = generateCIDRMatcherExpressions(true, firewall.GetInPair(testCase.InputPair).Source)
 			destExp = generateCIDRMatcherExpressions(false, firewall.GetInPair(testCase.InputPair).Destination)
-			testingExpression = append(sourceExp, destExp...)
+			testingExpression = append(sourceExp, destExp...) //nolint:gocritic
 			inFwdRuleKey := firewall.GenKey(firewall.InForwardingFormat, testCase.InputPair.ID)
 
 			found = 0
@@ -147,14 +145,12 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 
 			nftablesTestingClient := &nftables.Conn{}
 
-			defer func(manager *router) {
-				_ = manager.ResetForwardRules()
-			}(manager)
+			defer manager.ResetForwardRules()
 
 			sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
 			destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
 
-			forwardExp := append(sourceExp, append(destExp, exprCounterAccept...)...)
+			forwardExp := append(sourceExp, append(destExp, exprCounterAccept...)...) //nolint:gocritic
 			forwardRuleKey := firewall.GenKey(firewall.ForwardingFormat, testCase.InputPair.ID)
 			insertedForwarding := nftablesTestingClient.InsertRule(&nftables.Rule{
 				Table:    manager.workTable,
@@ -163,7 +159,7 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 				UserData: []byte(forwardRuleKey),
 			})
 
-			natExp := append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...)
+			natExp := append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) //nolint:gocritic
 			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair.ID)
 
 			insertedNat := nftablesTestingClient.InsertRule(&nftables.Rule{
@@ -176,7 +172,7 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 			sourceExp = generateCIDRMatcherExpressions(true, firewall.GetInPair(testCase.InputPair).Source)
 			destExp = generateCIDRMatcherExpressions(false, firewall.GetInPair(testCase.InputPair).Destination)
 
-			forwardExp = append(sourceExp, append(destExp, exprCounterAccept...)...)
+			forwardExp = append(sourceExp, append(destExp, exprCounterAccept...)...) //nolint:gocritic
 			inForwardRuleKey := firewall.GenKey(firewall.InForwardingFormat, testCase.InputPair.ID)
 			insertedInForwarding := nftablesTestingClient.InsertRule(&nftables.Rule{
 				Table:    manager.workTable,
@@ -185,7 +181,7 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 				UserData: []byte(inForwardRuleKey),
 			})
 
-			natExp = append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...)
+			natExp = append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) //nolint:gocritic
 			inNatRuleKey := firewall.GenKey(firewall.InNatFormat, testCase.InputPair.ID)
 
 			insertedInNat := nftablesTestingClient.InsertRule(&nftables.Rule{
@@ -198,8 +194,7 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 			err = nftablesTestingClient.Flush()
 			require.NoError(t, err, "shouldn't return error")
 
-			err = manager.ResetForwardRules()
-			require.NoError(t, err, "shouldn't return error")
+			manager.ResetForwardRules()
 
 			err = manager.RemoveRoutingRules(testCase.InputPair)
 			require.NoError(t, err, "shouldn't return error")

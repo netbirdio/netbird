@@ -184,9 +184,9 @@ func (r *router) insertRoutingRule(format, chainName string, pair manager.Router
 
 	var expression []expr.Any
 	if isNat {
-		expression = append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...)
+		expression = append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) // nolint:gocritic
 	} else {
-		expression = append(sourceExp, append(destExp, exprCounterAccept...)...)
+		expression = append(sourceExp, append(destExp, exprCounterAccept...)...) // nolint:gocritic
 	}
 
 	ruleKey := manager.GenKey(format, pair.ID)
@@ -213,7 +213,7 @@ func (r *router) acceptForwardRule(sourceNetwork string) {
 	dst := generateCIDRMatcherExpressions(false, "0.0.0.0/0")
 
 	var exprs []expr.Any
-	exprs = append(src, append(dst, &expr.Verdict{
+	exprs = append(src, append(dst, &expr.Verdict{ // nolint:gocritic
 		Kind: expr.VerdictAccept,
 	})...)
 
@@ -235,7 +235,7 @@ func (r *router) acceptForwardRule(sourceNetwork string) {
 	src = generateCIDRMatcherExpressions(true, "0.0.0.0/0")
 	dst = generateCIDRMatcherExpressions(false, sourceNetwork)
 
-	exprs = append(src, append(dst, &expr.Verdict{
+	exprs = append(src, append(dst, &expr.Verdict{ //nolint:gocritic
 		Kind: expr.VerdictAccept,
 	})...)
 

@@ -966,7 +966,7 @@ func (m *AclManager) flushWithBackoff() (err error) {
 				return err
 			}
 			time.Sleep(backoffTime)
-			backoffTime = backoffTime * 2
+			backoffTime *= 2
 			continue
 		}
 		break

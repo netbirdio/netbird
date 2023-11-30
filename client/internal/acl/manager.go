@@ -418,11 +418,9 @@ func (d *DefaultManager) rollBack(newRulePairs map[string][]firewall.Rule) {
 		for _, rule := range rules {
 			if err := d.firewall.DeleteRule(rule); err != nil {
 				log.Errorf("failed to delete new firewall rule (id: %v) during rollback: %v", rule.GetRuleID(), err)
-				continue
 			}
 		}
 	}
-	return
 }
 
 func convertToFirewallProtocol(protocol mgmProto.FirewallRuleProtocol) (firewall.Protocol, error) {

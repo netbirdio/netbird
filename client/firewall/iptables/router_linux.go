@@ -334,11 +334,7 @@ func (i *routerManager) createChain(table, newChain string) error {
 			return fmt.Errorf("couldn't create chain %s in %s table, error: %v", newChain, table, err)
 		}
 
-		if table == tableNat {
-			err = i.iptablesClient.Append(table, newChain, "-j", "RETURN")
-		} else {
-			err = i.iptablesClient.Append(table, newChain, "-j", "RETURN")
-		}
+		err = i.iptablesClient.Append(table, newChain, "-j", "RETURN")
 		if err != nil {
 			return fmt.Errorf("couldn't create chain %s default rule, error: %v", newChain, err)
 		}

@@ -410,16 +410,18 @@ func actionToStr(action firewall.Action) string {
 }
 
 func transformIPsetName(ipsetName string, sPort, dPort string) string {
-	if ipsetName == "" {
+	switch {
+	case ipsetName == "":
 		return ""
-	} else if sPort != "" && dPort != "" {
+	case sPort != "" && dPort != "":
 		return ipsetName + "-sport-dport"
-	} else if sPort != "" {
+	case sPort != "":
 		return ipsetName + "-sport"
-	} else if dPort != "" {
+	case dPort != "":
 		return ipsetName + "-dport"
+	default:
+		return ipsetName
 	}
-	return ipsetName
 }
 
 func shouldAddToPrerouting(proto firewall.Protocol, dPort *firewall.Port, direction firewall.RuleDirection) bool {

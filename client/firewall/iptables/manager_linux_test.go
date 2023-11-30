@@ -224,7 +224,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 }
 
 func checkRuleSpecs(t *testing.T, ipv4Client *iptables.IPTables, chainName string, mustExists bool, rulespec ...string) {
-    t.Helper()
+	t.Helper()
 	exists, err := ipv4Client.Exists("filter", chainName, rulespec...)
 	require.NoError(t, err, "failed to check rule")
 	require.Falsef(t, !exists && mustExists, "rule '%v' does not exist", rulespec)
@@ -261,7 +261,6 @@ func TestIptablesCreatePerformance(t *testing.T) {
 				time.Sleep(time.Second)
 			}()
 
-			err = manager.initialize()
 			require.NoError(t, err)
 
 			ip := net.ParseIP("10.20.0.100")

@@ -45,12 +45,12 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 
 	m.router, err = newRouterManager(context, iptablesClient)
 	if err != nil {
-		log.Debugf("failed to initalize route related chains: %s", err)
+		log.Debugf("failed to initialize route related chains: %s", err)
 		return nil, err
 	}
 	m.aclMgr, err = newAclManager(iptablesClient, wgIface, m.router.RouteingFwChainName())
 	if err != nil {
-		log.Debugf("failed to initalize ACL manager: %s", err)
+		log.Debugf("failed to initialize ACL manager: %s", err)
 		return nil, err
 	}
 
