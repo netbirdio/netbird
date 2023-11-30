@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/coreos/go-iptables/iptables"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
@@ -34,7 +35,7 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 		_ = manager.Reset()
 	}()
 
-	require.Len(t, manager.rules, 1, "should have created rules map")
+	require.Len(t, manager.rules, 2, "should have created rules map")
 
 	exists, err := manager.iptablesClient.Exists(tableFilter, chainFORWARD, manager.rules[Ipv4Forwarding]...)
 	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableFilter, chainFORWARD)
@@ -62,20 +63,8 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	err = manager.iptablesClient.Insert(tableNat, chainRTNAT, 1, nat4Rule...)
 	require.NoError(t, err, "inserting rule should not return error")
 
-	manager.rules = make(map[string][]string)
-
 	err = manager.Reset()
 	require.NoError(t, err, "shouldn't return error")
-
-	require.Len(t, manager.rules, 4, "should have restored all rules for ipv4")
-
-	foundRule, found := manager.rules[forward4RuleKey]
-	require.True(t, found, "forwarding rule should exist in the map")
-	require.Equal(t, forward4Rule[:4], foundRule[:4], "stored forwarding rule should match")
-
-	foundRule, found = manager.rules[nat4RuleKey]
-	require.True(t, found, "nat rule should exist in the map")
-	require.Equal(t, nat4Rule[:4], foundRule[:4], "stored nat rule should match")
 }
 
 func TestIptablesManager_InsertRoutingRules(t *testing.T) {
@@ -86,13 +75,17 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 
 	for _, testCase := range test.InsertRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
-			iptablesClient, _ := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+			iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+			require.NoError(t, err, "failed to init iptables client")
 
 			manager, err := newRouterManager(context.TODO(), iptablesClient)
 			require.NoError(t, err, "shouldn't return error")
 
 			defer func() {
-				_ = manager.Reset()
+				err := manager.Reset()
+				if err != nil {
+					log.Errorf("failed to reset iptables manager: %s", err)
+				}
 			}()
 
 			err = manager.InsertRoutingRules(testCase.InputPair)
@@ -196,8 +189,6 @@ func TestIptablesManager_RemoveRoutingRules(t *testing.T) {
 
 			err = iptablesClient.Insert(tableNat, chainRTNAT, 1, inNatRule...)
 			require.NoError(t, err, "inserting rule should not return error")
-
-			manager.rules = make(map[string][]string)
 
 			err = manager.Reset()
 			require.NoError(t, err, "shouldn't return error")

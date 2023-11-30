@@ -46,8 +46,12 @@ func newRouterManager(parentCtx context.Context, iptablesClient *iptables.IPTabl
 		rules:          make(map[string][]string),
 	}
 
-	m.cleanUpDefaultForwardRules()
-	err := m.createContainers()
+	err := m.cleanUpDefaultForwardRules()
+	if err != nil {
+		log.Errorf("failed to cleanup routing rules: %s", err)
+		return nil, err
+	}
+	err = m.createContainers()
 	if err != nil {
 		log.Errorf("failed to create containers for route: %s", err)
 	}
@@ -157,38 +161,45 @@ func (i *routerManager) RouteingFwChainName() string {
 }
 
 func (i *routerManager) Reset() error {
-	i.cleanUpDefaultForwardRules()
+	err := i.cleanUpDefaultForwardRules()
+	if err != nil {
+		return err
+	}
+	i.rules = make(map[string][]string)
 	return nil
 }
 
-func (i *routerManager) cleanUpDefaultForwardRules() {
+func (i *routerManager) cleanUpDefaultForwardRules() error {
 	err := i.cleanJumpRules()
 	if err != nil {
-		log.Error(err)
+		return err
 	}
 
 	log.Debug("flushing routing related tables")
-	log.Infof("flush tables")
 	ok, err := i.iptablesClient.ChainExists(tableFilter, chainRTFWD)
-	log.Infof("flush result: %v", ok)
 	if err != nil {
-		log.Error(err)
+		log.Errorf("failed check chain %s,error: %v", chainRTFWD, err)
+		return err
 	} else if ok {
 		err = i.iptablesClient.ClearAndDeleteChain(tableFilter, chainRTFWD)
 		if err != nil {
 			log.Errorf("failed cleaning chain %s,error: %v", chainRTFWD, err)
+			return err
 		}
 	}
 
-	ok, err = i.iptablesClient.ChainExists(tableFilter, chainRTNAT)
+	ok, err = i.iptablesClient.ChainExists(tableNat, chainRTNAT)
 	if err != nil {
-		log.Error(err)
+		log.Errorf("failed check chain %s,error: %v", chainRTNAT, err)
+		return err
 	} else if ok {
 		err = i.iptablesClient.ClearAndDeleteChain(tableNat, chainRTNAT)
 		if err != nil {
 			log.Errorf("failed cleaning chain %s,error: %v", chainRTNAT, err)
+			return err
 		}
 	}
+	return nil
 }
 
 func (i *routerManager) createContainers() error {
@@ -265,14 +276,13 @@ func (i *routerManager) cleanJumpRules() error {
 		rule := strings.Fields(ruleString)
 		err := i.iptablesClient.DeleteIfExists("nat", "POSTROUTING", rule[2:]...)
 		if err != nil {
-			log.Errorf("failed to delete postrouting jump rule: %s", err)
-			return err
+			return fmt.Errorf("failed to delete postrouting jump rule: %s", err)
 		}
 	}
 
 	rules, err = i.iptablesClient.List(tableFilter, "FORWARD")
 	if err != nil {
-		return fmt.Errorf("failed to list rules: %s", err)
+		return fmt.Errorf("failed to list rules in FORWARD chain: %s", err)
 	}
 
 	for _, ruleString := range rules {
@@ -282,8 +292,7 @@ func (i *routerManager) cleanJumpRules() error {
 		rule := strings.Fields(ruleString)
 		err := i.iptablesClient.DeleteIfExists(tableFilter, "FORWARD", rule[2:]...)
 		if err != nil {
-			log.Errorf("failed to delete FORWARD jump rule: %s", err)
-			return err
+			return fmt.Errorf("failed to delete FORWARD jump rule: %s", err)
 		}
 	}
 	return nil
