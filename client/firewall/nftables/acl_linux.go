@@ -140,7 +140,15 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 		return fmt.Errorf("invalid rule type")
 	}
 
-	// todo handle if nfset is nil
+	if r.nftSet == nil {
+		err := m.rConn.DelRule(r.nftRule)
+		if err != nil {
+			log.Errorf("failed to delete rule: %v", err)
+		}
+		delete(m.rules, r.GetRuleID())
+		return m.rConn.Flush()
+	}
+
 	ips, ok := m.ipsetStore.ips(r.nftSet.Name)
 	if !ok {
 		err := m.rConn.DelRule(r.nftRule)
@@ -219,7 +227,7 @@ func (m *AclManager) Flush() error {
 }
 
 func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, direction firewall.RuleDirection, action firewall.Action, ipset *nftables.Set, comment string) (*Rule, error) {
-	ruleId := m.generateRuleId(ip, sPort, dPort, direction, action, ipset)
+	ruleId := generateRuleId(ip, sPort, dPort, direction, action, ipset)
 	if r, ok := m.rules[ruleId]; ok {
 		return r, nil
 	}
@@ -363,7 +371,9 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 		ip:      ip,
 	}
 	m.rules[ruleId] = rule
-	m.ipsetStore.AddReferenceToIpset(ipset.Name)
+	if ipset != nil {
+		m.ipsetStore.AddReferenceToIpset(ipset.Name)
+	}
 	return rule, nil
 }
 
@@ -380,7 +390,7 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 		return nil, fmt.Errorf("unsupported protocol: %s", proto)
 	}
 
-	ruleId := fmt.Sprintf("set:%s:%s:%v", ipset.Name, proto, port)
+	ruleId := generateRuleIdForMangle(ipset, ip, proto, port)
 	if r, ok := m.rules[ruleId]; ok {
 		return r, nil
 	}
@@ -483,7 +493,9 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 	log.Debugf("create new prerouting rule: %s", m.chainPrerouting.Name)
 
 	m.rules[ruleId] = rule
-	m.ipsetStore.AddReferenceToIpset(ipset.Name)
+	if ipset != nil {
+		m.ipsetStore.AddReferenceToIpset(ipset.Name)
+	}
 	return rule, nil
 }
 
@@ -908,30 +920,6 @@ func (m *AclManager) addIpToSet(ipsetName string, ip net.IP) (*nftables.Set, err
 	return ipset, nil
 }
 
-func (m *AclManager) generateRuleId(
-	ip net.IP,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
-	direction firewall.RuleDirection,
-	action firewall.Action,
-	ipset *nftables.Set,
-) string {
-	rulesetID := ":" + strconv.Itoa(int(direction)) + ":"
-	if sPort != nil {
-		rulesetID += sPort.String()
-	}
-	rulesetID += ":"
-	if dPort != nil {
-		rulesetID += dPort.String()
-	}
-	rulesetID += ":"
-	rulesetID += strconv.Itoa(int(action))
-	if ipset == nil {
-		return "ip:" + ip.String() + rulesetID
-	}
-	return "set:" + ipset.Name + rulesetID
-}
-
 // createSet in given table by name
 func (m *AclManager) createSet(table *nftables.Table, name string) (*nftables.Set, error) {
 	ipset := &nftables.Set{
@@ -996,6 +984,37 @@ func (m *AclManager) refreshRuleHandles(chain *nftables.Chain) error {
 	}
 
 	return nil
+}
+
+func generateRuleId(
+	ip net.IP,
+	sPort *firewall.Port,
+	dPort *firewall.Port,
+	direction firewall.RuleDirection,
+	action firewall.Action,
+	ipset *nftables.Set,
+) string {
+	rulesetID := ":" + strconv.Itoa(int(direction)) + ":"
+	if sPort != nil {
+		rulesetID += sPort.String()
+	}
+	rulesetID += ":"
+	if dPort != nil {
+		rulesetID += dPort.String()
+	}
+	rulesetID += ":"
+	rulesetID += strconv.Itoa(int(action))
+	if ipset == nil {
+		return "ip:" + ip.String() + rulesetID
+	}
+	return "set:" + ipset.Name + rulesetID
+}
+func generateRuleIdForMangle(ipset *nftables.Set, ip net.IP, proto firewall.Protocol, port *firewall.Port) string {
+	if ipset != nil {
+		return fmt.Sprintf("set:%s:%s:%v", ipset.Name, proto, port)
+	} else {
+		return fmt.Sprintf("ip:%s:%s:%v", ip.String(), proto, port)
+	}
 }
 
 func shouldAddToPrerouting(proto firewall.Protocol, dPort *firewall.Port, direction firewall.RuleDirection) bool {
