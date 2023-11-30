@@ -92,7 +92,8 @@ func TestIptablesManager(t *testing.T) {
 		require.NoError(t, err, "failed to add rule")
 
 		for _, r := range rule2 {
-			checkRuleSpecs(t, ipv4Client, chainNameOutputRules, true, r.(*Rule).specs...)
+			rr := r.(*Rule)
+			checkRuleSpecs(t, ipv4Client, rr.chain, true, rr.specs...)
 		}
 	})
 
