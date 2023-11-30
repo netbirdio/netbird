@@ -164,7 +164,7 @@ type Settings struct {
 	JWTGroupsClaimName string
 
 	// Extra is a dictionary of Account settings
-	Extra *account.ExtraSettings
+	Extra *account.ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
 }
 
 // Copy copies the Settings struct
