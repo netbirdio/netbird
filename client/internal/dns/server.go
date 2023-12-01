@@ -421,14 +421,7 @@ func (s *DefaultServer) updateLocalResolver(update map[string]nbdns.SimpleRecord
 }
 
 func getNSHostPort(ns nbdns.NameServer) string {
-	log.Debugf("getNSHostPort: %s : %d", ns.IP.String(), ns.Port)
-	if ns.IP.Is4() {
-		return fmt.Sprintf("%s:%d", ns.IP.String(), ns.Port)
-	}
-
-	n := fmt.Sprintf("[%s]:%d", ns.IP.String(), ns.Port)
-	log.Debugf("formated ns: %s", n)
-	return n
+	return fmt.Sprintf("%s:%d", ns.IP.String(), ns.Port)
 }
 
 // upstreamCallbacks returns two functions, the first one is used to deactivate
