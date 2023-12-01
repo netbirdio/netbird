@@ -85,6 +85,7 @@ func (m *aclManager) AddFiltering(
 	}
 
 	ipsetName = transformIPsetName(ipsetName, sPortVal, dPortVal)
+	specs := filterRuleSpecs(ip, string(protocol), sPortVal, dPortVal, direction, action, ipsetName)
 	if ipsetName != "" {
 		if ipList, ipsetExists := m.ipsetStore.ipset(ipsetName); ipsetExists {
 			if err := ipset.Add(ipsetName, ip.String()); err != nil {
@@ -98,6 +99,7 @@ func (m *aclManager) AddFiltering(
 				ipsetName: ipsetName,
 				ip:        ip.String(),
 				chain:     chain,
+				specs:     specs,
 			}}, nil
 		}
 
@@ -114,8 +116,6 @@ func (m *aclManager) AddFiltering(
 		ipList := newIpList(ip.String())
 		m.ipsetStore.addIpList(ipsetName, ipList)
 	}
-
-	specs := filterRuleSpecs(ip, string(protocol), sPortVal, dPortVal, direction, action, ipsetName)
 
 	ok, err := m.iptablesClient.Exists("filter", chain, specs...)
 	if err != nil {
@@ -155,6 +155,10 @@ func (m *aclManager) DeleteRule(rule firewall.Rule) error {
 		return fmt.Errorf("invalid rule type")
 	}
 
+	if r.chain == "PREROUTING" {
+		goto DELETERULE
+	}
+
 	if ipsetList, ok := m.ipsetStore.ipset(r.ipsetName); ok {
 		// delete IP from ruleset IPs list and ipset
 		if _, ok := ipsetList.ips[r.ip]; ok {
@@ -179,13 +183,18 @@ func (m *aclManager) DeleteRule(rule firewall.Rule) error {
 		}
 	}
 
+DELETERULE:
 	var table string
 	if r.chain == "PREROUTING" {
 		table = "mangle"
 	} else {
 		table = "filter"
 	}
-	return m.iptablesClient.Delete(table, r.chain, r.specs...)
+	err := m.iptablesClient.Delete(table, r.chain, r.specs...)
+	if err != nil {
+		log.Debugf("failed to delete rule, %s, %v: %s", r.chain, r.specs, err)
+	}
+	return err
 }
 
 func (m *aclManager) Reset() error {
