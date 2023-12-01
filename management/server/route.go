@@ -27,8 +27,8 @@ func (am *DefaultAccountManager) GetRoute(accountID, routeID, userID string) (*r
 		return nil, err
 	}
 
-	if !user.IsAdmin() {
-		return nil, status.Errorf(status.PermissionDenied, "Only administrators can view Network Routes")
+	if !user.HasAdminPower() {
+		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view Network Routes")
 	}
 
 	wantedRoute, found := account.Routes[routeID]
@@ -296,8 +296,8 @@ func (am *DefaultAccountManager) ListRoutes(accountID, userID string) ([]*route.
 		return nil, err
 	}
 
-	if !user.IsAdmin() {
-		return nil, status.Errorf(status.PermissionDenied, "Only administrators can view Network Routes")
+	if !user.HasAdminPower() {
+		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view Network Routes")
 	}
 
 	routes := make([]*route.Route, 0, len(account.Routes))

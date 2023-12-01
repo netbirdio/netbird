@@ -214,7 +214,7 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 	peers := make([]*Peer, 0)
 	peersMap := make(map[string]*Peer)
 	for _, peer := range account.Peers {
-		if !user.IsAdmin() && user.Id != peer.UserID {
+		if !user.HasAdminPower() && user.Id != peer.UserID {
 			// only display peers that belong to the current user if the current user is not an admin
 			continue
 		}
@@ -862,7 +862,7 @@ func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*Pee
 	}
 
 	// if admin or user owns this peer, return peer
-	if user.IsAdmin() || peer.UserID == userID {
+	if user.HasAdminPower() || peer.UserID == userID {
 		return peer, nil
 	}
 

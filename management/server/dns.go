@@ -47,8 +47,8 @@ func (am *DefaultAccountManager) GetDNSSettings(accountID string, userID string)
 		return nil, err
 	}
 
-	if !user.IsAdmin() {
-		return nil, status.Errorf(status.PermissionDenied, "only admins are allowed to view DNS settings")
+	if !user.HasAdminPower() {
+		return nil, status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view DNS settings")
 	}
 	dnsSettings := account.DNSSettings.Copy()
 	return &dnsSettings, nil
@@ -69,8 +69,8 @@ func (am *DefaultAccountManager) SaveDNSSettings(accountID string, userID string
 		return err
 	}
 
-	if !user.IsAdmin() {
-		return status.Errorf(status.PermissionDenied, "only admins are allowed to update DNS settings")
+	if !user.HasAdminPower() {
+		return status.Errorf(status.PermissionDenied, "only users with admin power are allowed to update DNS settings")
 	}
 
 	if dnsSettingsToSave == nil {
