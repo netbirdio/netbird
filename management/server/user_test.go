@@ -349,7 +349,7 @@ func TestUser_CreateServiceUser(t *testing.T) {
 	assert.True(t, user.IsServiceUser)
 	assert.Equal(t, "active", user.Status)
 
-	user, err = am.createServiceUser(mockAccountID, mockUserID, UserRoleOwner, mockServiceUserName, false, nil)
+	_, err = am.createServiceUser(mockAccountID, mockUserID, UserRoleOwner, mockServiceUserName, false, nil)
 	if err == nil {
 		t.Fatal("should return error when creating service user with owner role")
 	}
