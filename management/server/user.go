@@ -771,6 +771,10 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 		return nil, status.Errorf(status.PermissionDenied, "only owners can remove owner role from their user")
 	}
 
+	if initiatorUser.Role == UserRoleAdmin && oldUser.Role == UserRoleOwner && update.IsBlocked() && !oldUser.IsBlocked() {
+		return nil, status.Errorf(status.PermissionDenied, "unable to block owner user")
+	}
+
 	if initiatorUser.Role == UserRoleAdmin && update.Role == UserRoleOwner && update.Role != oldUser.Role {
 		return nil, status.Errorf(status.PermissionDenied, "only owners can add owner role to other users")
 	}

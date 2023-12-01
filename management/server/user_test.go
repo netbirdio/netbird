@@ -953,6 +953,16 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 				Blocked: false,
 			},
 		},
+		{
+			name:        "Should_Fail_To_Block_Owner_Role_By_Admin",
+			expectedErr: true,
+			initiatorID: adminUserID,
+			update: &User{
+				Id:      ownerUserID,
+				Role:    UserRoleOwner,
+				Blocked: true,
+			},
+		},
 	}
 
 	for _, tc := range tt {
