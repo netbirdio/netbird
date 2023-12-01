@@ -488,7 +488,18 @@ func (s *DefaultServer) addHostRootZone() {
 	handler := newUpstreamResolver(s.ctx)
 	handler.upstreamServers = make([]string, len(s.hostsDnsList))
 	for n, ua := range s.hostsDnsList {
-		handler.upstreamServers[n] = fmt.Sprintf("%s:53", ua)
+		a, err := netip.ParseAddr(ua)
+		if err != nil {
+			log.Errorf("invalid upstream IP address: %s, error: %s", ua, err)
+			continue
+		}
+
+		ipString := ua
+		if !a.Is4() {
+			ipString = fmt.Sprintf("[%s]", ua)
+		}
+
+		handler.upstreamServers[n] = fmt.Sprintf("%s:53", ipString)
 	}
 	handler.deactivate = func() {}
 	handler.reactivate = func() {}

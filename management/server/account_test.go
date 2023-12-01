@@ -462,7 +462,7 @@ func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
 		inputInitUserParams:         defaultInitAccount,
 		testingFunc:                 require.NotEqual,
 		expectedMSG:                 "account IDs shouldn't match",
-		expectedUserRole:            UserRoleAdmin,
+		expectedUserRole:            UserRoleOwner,
 		expectedDomainCategory:      "",
 		expectedDomain:              publicDomain,
 		expectedPrimaryDomainStatus: false,
@@ -484,7 +484,7 @@ func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
 		inputInitUserParams:         initUnknown,
 		testingFunc:                 require.NotEqual,
 		expectedMSG:                 "account IDs shouldn't match",
-		expectedUserRole:            UserRoleAdmin,
+		expectedUserRole:            UserRoleOwner,
 		expectedDomain:              unknownDomain,
 		expectedDomainCategory:      "",
 		expectedPrimaryDomainStatus: false,
@@ -502,7 +502,7 @@ func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
 		inputInitUserParams:         defaultInitAccount,
 		testingFunc:                 require.NotEqual,
 		expectedMSG:                 "account IDs shouldn't match",
-		expectedUserRole:            UserRoleAdmin,
+		expectedUserRole:            UserRoleOwner,
 		expectedDomain:              privateDomain,
 		expectedDomainCategory:      PrivateCategory,
 		expectedPrimaryDomainStatus: true,
@@ -543,7 +543,7 @@ func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
 		inputInitUserParams:         defaultInitAccount,
 		testingFunc:                 require.Equal,
 		expectedMSG:                 "account IDs should match",
-		expectedUserRole:            UserRoleAdmin,
+		expectedUserRole:            UserRoleOwner,
 		expectedDomain:              defaultInitAccount.Domain,
 		expectedDomainCategory:      PrivateCategory,
 		expectedPrimaryDomainStatus: true,
@@ -562,7 +562,7 @@ func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
 		inputInitUserParams:         defaultInitAccount,
 		testingFunc:                 require.Equal,
 		expectedMSG:                 "account IDs should match",
-		expectedUserRole:            UserRoleAdmin,
+		expectedUserRole:            UserRoleOwner,
 		expectedDomain:              defaultInitAccount.Domain,
 		expectedDomainCategory:      PrivateCategory,
 		expectedPrimaryDomainStatus: true,
@@ -580,7 +580,7 @@ func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
 		inputInitUserParams:         defaultInitAccount,
 		testingFunc:                 require.NotEqual,
 		expectedMSG:                 "account IDs shouldn't match",
-		expectedUserRole:            UserRoleAdmin,
+		expectedUserRole:            UserRoleOwner,
 		expectedDomain:              "",
 		expectedDomainCategory:      "",
 		expectedPrimaryDomainStatus: false,
@@ -1339,7 +1339,7 @@ func TestGetUsersFromAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	users := map[string]*User{"1": {Id: "1", Role: "admin"}, "2": {Id: "2", Role: "user"}, "3": {Id: "3", Role: "user"}}
+	users := map[string]*User{"1": {Id: "1", Role: UserRoleOwner}, "2": {Id: "2", Role: "user"}, "3": {Id: "3", Role: "user"}}
 	accountId := "test_account_id"
 
 	account, err := createAccount(manager, accountId, users["1"].Id, "")

@@ -905,7 +905,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 		return nil, err
 	}
 
-	if !user.IsAdmin() {
+	if !user.HasAdminPower() {
 		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
 	}
 
@@ -1047,7 +1047,7 @@ func (am *DefaultAccountManager) DeleteAccount(accountID, userID string) error {
 		return err
 	}
 
-	if !user.IsAdmin() {
+	if !user.HasAdminPower() {
 		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account")
 	}
 
@@ -1731,7 +1731,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 	routes := make(map[string]*route.Route)
 	setupKeys := map[string]*SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
-	users[userID] = NewAdminUser(userID)
+	users[userID] = NewOwnerUser(userID)
 	dnsSettings := DNSSettings{
 		DisabledManagementGroups: make([]string, 0),
 	}

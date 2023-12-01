@@ -128,6 +128,8 @@ const (
 	PeerApproved
 	// PeerApprovalRevoked indicates that the peer approval has been revoked
 	PeerApprovalRevoked
+	// TransferredOwnerRole indicates that the user transferred the owner role of the account
+	TransferredOwnerRole
 )
 
 var activityMap = map[Activity]Code{
@@ -190,6 +192,7 @@ var activityMap = map[Activity]Code{
 	AccountPeerApprovalDisabled:               {"Account peer approval disabled", "account.setting.peer.approval.disable"},
 	PeerApproved:                              {"Peer approved", "peer.approve"},
 	PeerApprovalRevoked:                       {"Peer approval revoked", "peer.approval.revoke"},
+	TransferredOwnerRole:                      {"Transferred owner role", "transferred.owner.role"},
 }
 
 // StringCode returns a string code of the activity
