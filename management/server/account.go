@@ -111,6 +111,7 @@ type AccountManager interface {
 	LoginPeer(login PeerLogin) (*Peer, *NetworkMap, error) // used by peer gRPC API
 	SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error)    // used by peer gRPC API
 	GetAllConnectedPeers() (map[string]struct{}, error)
+	HasConnectedChannel(peerID string) bool
 	GetExternalCacheManager() ExternalCacheManager
 }
 
@@ -1647,6 +1648,11 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 // GetAllConnectedPeers returns connected peers based on peersUpdateManager.GetAllConnectedPeers()
 func (am *DefaultAccountManager) GetAllConnectedPeers() (map[string]struct{}, error) {
 	return am.peersUpdateManager.GetAllConnectedPeers(), nil
+}
+
+// HasConnectedChannel returns true if peers has channel in update manager, otherwise false
+func (am *DefaultAccountManager) HasConnectedChannel(peerID string) bool {
+	return am.peersUpdateManager.HasChannel(peerID)
 }
 
 var invalidDomainRegexp = regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
