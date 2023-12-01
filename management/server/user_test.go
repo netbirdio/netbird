@@ -348,6 +348,11 @@ func TestUser_CreateServiceUser(t *testing.T) {
 	assert.Zero(t, user.Email)
 	assert.True(t, user.IsServiceUser)
 	assert.Equal(t, "active", user.Status)
+
+	_, err = am.createServiceUser(mockAccountID, mockUserID, UserRoleOwner, mockServiceUserName, false, nil)
+	if err == nil {
+		t.Fatal("should return error when creating service user with owner role")
+	}
 }
 
 func TestUser_CreateUser_ServiceUser(t *testing.T) {
@@ -410,6 +415,75 @@ func TestUser_CreateUser_RegularUser(t *testing.T) {
 	})
 
 	assert.Errorf(t, err, "Not configured IDP will throw error but right path used")
+}
+
+func TestUser_InviteNewUser(t *testing.T) {
+	store := newStore(t)
+	account := newAccountWithId(mockAccountID, mockUserID, "")
+
+	err := store.SaveAccount(account)
+	if err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
+
+	am := DefaultAccountManager{
+		Store:        store,
+		eventStore:   &activity.InMemoryEventStore{},
+		cacheLoading: map[string]chan struct{}{},
+	}
+
+	goCacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
+	goCacheStore := cacheStore.NewGoCache(goCacheClient)
+	am.cacheManager = cache.NewLoadable[[]*idp.UserData](am.loadAccount, cache.New[[]*idp.UserData](goCacheStore))
+
+	mockData := []*idp.UserData{
+		{
+			Email: "user@test.com",
+			Name:  "user",
+			ID:    mockUserID,
+		},
+	}
+
+	idpMock := idp.MockIDP{
+		CreateUserFunc: func(email, name, accountID, invitedByEmail string) (*idp.UserData, error) {
+			newData := &idp.UserData{
+				Email: email,
+				Name:  name,
+				ID:    "id",
+			}
+
+			mockData = append(mockData, newData)
+
+			return newData, nil
+		},
+		GetAccountFunc: func(accountId string) ([]*idp.UserData, error) {
+			return mockData, nil
+		},
+	}
+
+	am.idpManager = &idpMock
+
+	// test if new invite with regular role works
+	_, err = am.inviteNewUser(mockAccountID, mockUserID, &UserInfo{
+		Name:          mockServiceUserName,
+		Role:          mockRole,
+		Email:         "test@teste.com",
+		IsServiceUser: false,
+		AutoGroups:    []string{"group1", "group2"},
+	})
+
+	assert.NoErrorf(t, err, "Invite user should not throw error")
+
+	// test if new invite with owner role fails
+	_, err = am.inviteNewUser(mockAccountID, mockUserID, &UserInfo{
+		Name:          mockServiceUserName,
+		Role:          string(UserRoleOwner),
+		Email:         "test2@teste.com",
+		IsServiceUser: false,
+		AutoGroups:    []string{"group1", "group2"},
+	})
+
+	assert.Errorf(t, err, "Invite user with owner role should throw error")
 }
 
 func TestUser_DeleteUser_ServiceUser(t *testing.T) {
@@ -514,6 +588,14 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 		Issued:        UserIssuedIntegration,
 	}
 
+	targetId = "user5"
+	account.Users[targetId] = &User{
+		Id:            targetId,
+		IsServiceUser: false,
+		Issued:        UserIssuedAPI,
+		Role:          UserRoleOwner,
+	}
+
 	err := store.SaveAccount(account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -545,6 +627,12 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 			userID:           "user4",
 			assertErrFunc:    assert.Error,
 			assertErrMessage: "only admin service user can delete this user",
+		},
+		{
+			name:             "Delete user with owner role should return permission denied ",
+			userID:           "user5",
+			assertErrFunc:    assert.Error,
+			assertErrMessage: "unable to delete a user with owner role",
 		},
 	}
 
@@ -581,7 +669,7 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 	}
 
 	assert.Equal(t, mockUserID, user.Id)
-	assert.True(t, user.IsAdmin())
+	assert.True(t, user.HasAdminPower())
 	assert.False(t, user.IsBlocked())
 }
 
@@ -609,7 +697,7 @@ func TestDefaultAccountManager_ListUsers(t *testing.T) {
 	admins := 0
 	regular := 0
 	for _, user := range users {
-		if user.IsAdmin() {
+		if user.HasAdminPower() {
 			admins++
 			continue
 		}
@@ -677,10 +765,10 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 func TestUser_IsAdmin(t *testing.T) {
 
 	user := NewAdminUser(mockUserID)
-	assert.True(t, user.IsAdmin())
+	assert.True(t, user.HasAdminPower())
 
 	user = NewRegularUser(mockUserID)
-	assert.False(t, user.IsAdmin())
+	assert.False(t, user.HasAdminPower())
 }
 
 func TestUser_GetUsersFromAccount_ForAdmin(t *testing.T) {
@@ -746,26 +834,39 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 	}
 
 	regularUserID := "regularUser"
+	serviceUserID := "serviceUser"
+	adminUserID := "adminUser"
+	ownerUserID := "ownerUser"
 
 	tt := []struct {
-		name           string
-		adminInitiator bool
-		update         *User
-		expectedErr    bool
+		name        string
+		initiatorID string
+		update      *User
+		expectedErr bool
 	}{
 		{
-			name:           "Should_Fail_To_Update_Admin_Role",
-			expectedErr:    true,
-			adminInitiator: true,
+			name:        "Should_Fail_To_Update_Admin_Role",
+			expectedErr: true,
+			initiatorID: adminUserID,
 			update: &User{
-				Id:      userID,
+				Id:      adminUserID,
 				Role:    UserRoleUser,
 				Blocked: false,
 			},
 		}, {
-			name:           "Should_Fail_When_Admin_Blocks_Themselves",
-			expectedErr:    true,
-			adminInitiator: true,
+			name:        "Should_Fail_When_Admin_Blocks_Themselves",
+			expectedErr: true,
+			initiatorID: adminUserID,
+			update: &User{
+				Id:      adminUserID,
+				Role:    UserRoleAdmin,
+				Blocked: true,
+			},
+		},
+		{
+			name:        "Should_Fail_To_Update_Non_Existing_User",
+			expectedErr: true,
+			initiatorID: adminUserID,
 			update: &User{
 				Id:      userID,
 				Role:    UserRoleAdmin,
@@ -773,66 +874,125 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 			},
 		},
 		{
-			name:           "Should_Fail_To_Update_Non_Existing_User",
-			expectedErr:    true,
-			adminInitiator: true,
+			name:        "Should_Fail_To_Update_When_Initiator_Is_Not_An_Admin",
+			expectedErr: true,
+			initiatorID: regularUserID,
 			update: &User{
-				Id:      userID,
+				Id:      adminUserID,
 				Role:    UserRoleAdmin,
 				Blocked: true,
 			},
 		},
 		{
-			name:           "Should_Fail_To_Update_When_Initiator_Is_Not_An_Admin",
-			expectedErr:    true,
-			adminInitiator: false,
-			update: &User{
-				Id:      userID,
-				Role:    UserRoleAdmin,
-				Blocked: true,
-			},
-		},
-		{
-			name:           "Should_Update_User",
-			expectedErr:    false,
-			adminInitiator: true,
+			name:        "Should_Update_User",
+			expectedErr: false,
+			initiatorID: adminUserID,
 			update: &User{
 				Id:      regularUserID,
 				Role:    UserRoleAdmin,
 				Blocked: true,
 			},
 		},
+		{
+			name:        "Should_Transfer_Owner_Role_To_User",
+			expectedErr: false,
+			initiatorID: ownerUserID,
+			update: &User{
+				Id:      adminUserID,
+				Role:    UserRoleAdmin,
+				Blocked: false,
+			},
+		},
+		{
+			name:        "Should_Fail_To_Transfer_Owner_Role_To_Service_User",
+			expectedErr: true,
+			initiatorID: ownerUserID,
+			update: &User{
+				Id:      serviceUserID,
+				Role:    UserRoleOwner,
+				Blocked: false,
+			},
+		},
+		{
+			name:        "Should_Fail_To_Update_Owner_User_Role_By_Admin",
+			expectedErr: true,
+			initiatorID: adminUserID,
+			update: &User{
+				Id:      ownerUserID,
+				Role:    UserRoleAdmin,
+				Blocked: false,
+			},
+		},
+		{
+			name:        "Should_Fail_To_Update_Owner_User_Role_By_User",
+			expectedErr: true,
+			initiatorID: regularUserID,
+			update: &User{
+				Id:      ownerUserID,
+				Role:    UserRoleAdmin,
+				Blocked: false,
+			},
+		},
+		{
+			name:        "Should_Fail_To_Update_Owner_User_Role_By_Service_User",
+			expectedErr: true,
+			initiatorID: serviceUserID,
+			update: &User{
+				Id:      ownerUserID,
+				Role:    UserRoleAdmin,
+				Blocked: false,
+			},
+		},
+		{
+			name:        "Should_Fail_To_Update_Owner_Role_By_Admin",
+			expectedErr: true,
+			initiatorID: adminUserID,
+			update: &User{
+				Id:      regularUserID,
+				Role:    UserRoleOwner,
+				Blocked: false,
+			},
+		},
+		{
+			name:        "Should_Fail_To_Block_Owner_Role_By_Admin",
+			expectedErr: true,
+			initiatorID: adminUserID,
+			update: &User{
+				Id:      ownerUserID,
+				Role:    UserRoleOwner,
+				Blocked: true,
+			},
+		},
 	}
 
 	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
 
-		// create an account and an admin user
-		account, err := manager.GetOrCreateAccountByUser(userID, "netbird.io")
-		if err != nil {
-			t.Fatal(err)
-		}
+			// create an account and an admin user
+			account, err := manager.GetOrCreateAccountByUser(ownerUserID, "netbird.io")
+			if err != nil {
+				t.Fatal(err)
+			}
 
-		// create a regular user
-		account.Users[regularUserID] = NewRegularUser(regularUserID)
-		err = manager.Store.SaveAccount(account)
-		if err != nil {
-			t.Fatal(err)
-		}
+			// create other users
+			account.Users[regularUserID] = NewRegularUser(regularUserID)
+			account.Users[adminUserID] = NewAdminUser(adminUserID)
+			account.Users[serviceUserID] = &User{IsServiceUser: true, Id: serviceUserID, Role: UserRoleAdmin, ServiceUserName: "service"}
+			err = manager.Store.SaveAccount(account)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-		initiatorID := userID
-		if !tc.adminInitiator {
-			initiatorID = regularUserID
-		}
+			updated, err := manager.SaveUser(account.Id, tc.initiatorID, tc.update)
+			if tc.expectedErr {
+				require.Errorf(t, err, "expecting SaveUser to throw an error")
+			} else {
+				require.NoError(t, err, "expecting SaveUser not to throw an error")
+				assert.NotNil(t, updated)
 
-		updated, err := manager.SaveUser(account.Id, initiatorID, tc.update)
-		if tc.expectedErr {
-			require.Errorf(t, err, "expecting SaveUser to throw an error")
-		} else {
-			require.NoError(t, err, "expecting SaveUser not to throw an error")
-			assert.NotNil(t, updated)
-
-			assert.Equal(t, string(tc.update.Role), updated.Role)
-			assert.Equal(t, tc.update.IsBlocked(), updated.IsBlocked)
-		}
+				assert.Equal(t, string(tc.update.Role), updated.Role)
+				assert.Equal(t, tc.update.IsBlocked(), updated.IsBlocked)
+			}
+		})
 	}
 }

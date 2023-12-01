@@ -120,6 +120,8 @@ const (
 	IntegrationUpdated
 	// IntegrationDeleted indicates that the user deleted an integration
 	IntegrationDeleted
+	// TransferredOwnerRole indicates that the user transferred the owner role of the account
+	TransferredOwnerRole
 )
 
 var activityMap = map[Activity]Code{
@@ -178,6 +180,7 @@ var activityMap = map[Activity]Code{
 	IntegrationCreated:                        {"Integration created", "integration.create"},
 	IntegrationUpdated:                        {"Integration updated", "integration.update"},
 	IntegrationDeleted:                        {"Integration deleted", "integration.delete"},
+	TransferredOwnerRole:                      {"Transferred owner role", "transferred.owner.role"},
 }
 
 // StringCode returns a string code of the activity
