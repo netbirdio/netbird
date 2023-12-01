@@ -4,6 +4,7 @@ package firewall
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/coreos/go-iptables/iptables"
@@ -51,6 +52,7 @@ func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, 
 			log.Debugf("failed to create nftables manager: %s", err)
 		}
 	default:
+		err = fmt.Errorf("no firewall manager found")
 		log.Debug("no firewall manager found, try to use userspace packet filtering firewall")
 	}
 

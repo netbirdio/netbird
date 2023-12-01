@@ -277,8 +277,6 @@ func (e *Engine) Start() error {
 
 	if e.firewall != nil {
 		e.acl = acl.NewDefaultManager(e.firewall)
-	} else {
-		log.Errorf("failed creating firewall manager, ACL will not work")
 	}
 
 	err = e.dnsServer.Initialize()
