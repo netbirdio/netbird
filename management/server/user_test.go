@@ -588,6 +588,14 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 		Issued:        UserIssuedIntegration,
 	}
 
+	targetId = "user5"
+	account.Users[targetId] = &User{
+		Id:            targetId,
+		IsServiceUser: false,
+		Issued:        UserIssuedAPI,
+		Role:          UserRoleOwner,
+	}
+
 	err := store.SaveAccount(account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -619,6 +627,12 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 			userID:           "user4",
 			assertErrFunc:    assert.Error,
 			assertErrMessage: "only admin service user can delete this user",
+		},
+		{
+			name:             "Delete user with owner role should return permission denied ",
+			userID:           "user5",
+			assertErrFunc:    assert.Error,
+			assertErrMessage: "unable to delete a user with owner role",
 		},
 	}
 
