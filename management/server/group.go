@@ -170,7 +170,7 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 			return status.Errorf(status.NotFound, "user not found")
 		}
 		if executingUser.Role != UserRoleAdmin || !executingUser.IsServiceUser {
-			return status.Errorf(status.PermissionDenied, "only admins service user can delete integration group")
+			return status.Errorf(status.PermissionDenied, "only service users with admin power can delete integration group")
 		}
 	}
 
