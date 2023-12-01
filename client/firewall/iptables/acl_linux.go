@@ -209,7 +209,7 @@ func (m *aclManager) addPreroutingFilter(ipsetName string, protocol string, port
 		src = []string{"-s", ip.String()}
 	}
 	specs := []string{
-		"-d", ip.String(),
+		"-d", m.wgIface.Address().IP.String(),
 		"-p", protocol,
 		"--dport", port,
 		"-j", "MARK", "--set-mark", "0x000007e4",
@@ -336,12 +336,21 @@ func (m *aclManager) createDefaultChains() error {
 
 	for chainName, rules := range m.entries {
 		for _, rule := range rules {
-			if err := m.iptablesClient.AppendUnique(tableName, chainName, rule...); err != nil {
-				log.Errorf("failed to create input chain jump rule: %s", err)
-				return err
+			if chainName == "FORWARD" {
+				// position 2 because we add it after router's, jump rule
+				if err := m.iptablesClient.InsertUnique(tableName, "FORWARD", 2, rule...); err != nil {
+					log.Errorf("failed to create input chain jump rule: %s", err)
+					return err
+				}
+			} else {
+				if err := m.iptablesClient.AppendUnique(tableName, chainName, rule...); err != nil {
+					log.Errorf("failed to create input chain jump rule: %s", err)
+					return err
+				}
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -362,14 +371,14 @@ func (m *aclManager) seedInitialEntries() {
 
 	m.appendToEntries("OUTPUT", []string{"-o", m.wgIface.Name(), "-j", "DROP"})
 
-	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", m.routeingFwChainName})
-	m.appendToEntries("FORWARD", []string{"-o", m.wgIface.Name(), "-j", m.routeingFwChainName})
-	m.appendToEntries("FORWARD",
-		[]string{"-i", m.wgIface.Name(), "-m", "mark", "--mark", "0x000007e4", "-j", "ACCEPT"})
+	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
+	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", chainNameInputRules})
 	m.appendToEntries("FORWARD",
 		[]string{"-o", m.wgIface.Name(), "-m", "mark", "--mark", "0x000007e4", "-j", "ACCEPT"})
-	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", chainNameInputRules})
-	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
+	m.appendToEntries("FORWARD",
+		[]string{"-i", m.wgIface.Name(), "-m", "mark", "--mark", "0x000007e4", "-j", "ACCEPT"})
+	m.appendToEntries("FORWARD", []string{"-o", m.wgIface.Name(), "-j", m.routeingFwChainName})
+	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", m.routeingFwChainName})
 
 	m.appendToEntries("PREROUTING",
 		[]string{"-t", "mangle", "-i", m.wgIface.Name(), "!", "-s", m.wgIface.Address().String(), "-d", m.wgIface.Address().IP.String(), "-m", "mark", "--mark", "0x000007e4"})
