@@ -57,7 +57,7 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 		{
 			"integration",
 			"grp-for-integration",
-			"only admins service user can delete integration group",
+			"only service users with admin power can delete integration group",
 		},
 	}
 
