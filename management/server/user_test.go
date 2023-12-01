@@ -669,7 +669,7 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 	}
 
 	assert.Equal(t, mockUserID, user.Id)
-	assert.True(t, user.IsAdmin())
+	assert.True(t, user.HasAdminPower())
 	assert.False(t, user.IsBlocked())
 }
 
@@ -697,7 +697,7 @@ func TestDefaultAccountManager_ListUsers(t *testing.T) {
 	admins := 0
 	regular := 0
 	for _, user := range users {
-		if user.IsAdmin() {
+		if user.HasAdminPower() {
 			admins++
 			continue
 		}
@@ -765,10 +765,10 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 func TestUser_IsAdmin(t *testing.T) {
 
 	user := NewAdminUser(mockUserID)
-	assert.True(t, user.IsAdmin())
+	assert.True(t, user.HasAdminPower())
 
 	user = NewRegularUser(mockUserID)
-	assert.False(t, user.IsAdmin())
+	assert.False(t, user.HasAdminPower())
 }
 
 func TestUser_GetUsersFromAccount_ForAdmin(t *testing.T) {

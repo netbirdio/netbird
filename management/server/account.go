@@ -877,7 +877,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 		return nil, err
 	}
 
-	if !user.IsAdmin() {
+	if !user.HasAdminPower() {
 		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
 	}
 
@@ -1019,7 +1019,7 @@ func (am *DefaultAccountManager) DeleteAccount(accountID, userID string) error {
 		return err
 	}
 
-	if !user.IsAdmin() {
+	if !user.HasAdminPower() {
 		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account")
 	}
 

@@ -100,8 +100,8 @@ func (u *User) LastDashboardLoginChanged(LastLogin time.Time) bool {
 	return LastLogin.After(u.LastLogin) && !u.LastLogin.IsZero()
 }
 
-// IsAdmin returns true if the user is an admin, false otherwise
-func (u *User) IsAdmin() bool {
+// HasAdminPower returns true if the user has admin or owner roles, false otherwise
+func (u *User) HasAdminPower() bool {
 	return u.Role == UserRoleAdmin || u.Role == UserRoleOwner
 }
 
@@ -215,8 +215,8 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUs
 	if executingUser == nil {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
-	if !executingUser.IsAdmin() {
-		return nil, status.Errorf(status.PermissionDenied, "only admins can create service users")
+	if !executingUser.HasAdminPower() {
+		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can create service users")
 	}
 
 	if role == UserRoleOwner {
@@ -431,8 +431,8 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 	if executingUser == nil {
 		return status.Errorf(status.NotFound, "user not found")
 	}
-	if !executingUser.IsAdmin() {
-		return status.Errorf(status.PermissionDenied, "only admins can delete users")
+	if !executingUser.HasAdminPower() {
+		return status.Errorf(status.PermissionDenied, "only users with admin power can delete users")
 	}
 
 	targetUser := account.Users[targetUserID]
@@ -585,7 +585,7 @@ func (am *DefaultAccountManager) CreatePAT(accountID string, initiatorUserID str
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
-	if !(initiatorUserID == targetUserID || (executingUser.IsAdmin() && targetUser.IsServiceUser)) {
+	if !(initiatorUserID == targetUserID || (executingUser.HasAdminPower() && targetUser.IsServiceUser)) {
 		return nil, status.Errorf(status.PermissionDenied, "no permission to create PAT for this user")
 	}
 
@@ -627,7 +627,7 @@ func (am *DefaultAccountManager) DeletePAT(accountID string, initiatorUserID str
 		return status.Errorf(status.NotFound, "user not found")
 	}
 
-	if !(initiatorUserID == targetUserID || (executingUser.IsAdmin() && targetUser.IsServiceUser)) {
+	if !(initiatorUserID == targetUserID || (executingUser.HasAdminPower() && targetUser.IsServiceUser)) {
 		return status.Errorf(status.PermissionDenied, "no permission to delete PAT for this user")
 	}
 
@@ -677,7 +677,7 @@ func (am *DefaultAccountManager) GetPAT(accountID string, initiatorUserID string
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
-	if !(initiatorUserID == targetUserID || (executingUser.IsAdmin() && targetUser.IsServiceUser)) {
+	if !(initiatorUserID == targetUserID || (executingUser.HasAdminPower() && targetUser.IsServiceUser)) {
 		return nil, status.Errorf(status.PermissionDenied, "no permission to get PAT for this userser")
 	}
 
@@ -709,7 +709,7 @@ func (am *DefaultAccountManager) GetAllPATs(accountID string, initiatorUserID st
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
-	if !(initiatorUserID == targetUserID || (executingUser.IsAdmin() && targetUser.IsServiceUser)) {
+	if !(initiatorUserID == targetUserID || (executingUser.HasAdminPower() && targetUser.IsServiceUser)) {
 		return nil, status.Errorf(status.PermissionDenied, "no permission to get PAT for this user")
 	}
 
@@ -746,8 +746,8 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 		return nil, err
 	}
 
-	if !initiatorUser.IsAdmin() || initiatorUser.IsBlocked() {
-		return nil, status.Errorf(status.PermissionDenied, "only admins are authorized to perform user update operations")
+	if !initiatorUser.HasAdminPower() || initiatorUser.IsBlocked() {
+		return nil, status.Errorf(status.PermissionDenied, "only users with admin power are authorized to perform user update operations")
 	}
 
 	oldUser := account.Users[update.Id]
@@ -759,11 +759,11 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 		oldUser = update
 	}
 
-	if initiatorUser.IsAdmin() && initiatorUserID == update.Id && oldUser.Blocked != update.Blocked {
+	if initiatorUser.HasAdminPower() && initiatorUserID == update.Id && oldUser.Blocked != update.Blocked {
 		return nil, status.Errorf(status.PermissionDenied, "admins can't block or unblock themselves")
 	}
 
-	if initiatorUser.IsAdmin() && initiatorUserID == update.Id && update.Role != initiatorUser.Role {
+	if initiatorUser.HasAdminPower() && initiatorUserID == update.Id && update.Role != initiatorUser.Role {
 		return nil, status.Errorf(status.PermissionDenied, "admins can't change their role")
 	}
 
@@ -986,7 +986,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 	// in case of self-hosted, or IDP doesn't return anything, we will return the locally stored userInfo
 	if len(queriedUsers) == 0 {
 		for _, accountUser := range account.Users {
-			if !user.IsAdmin() && user.Id != accountUser.Id {
+			if !user.HasAdminPower() && user.Id != accountUser.Id {
 				// if user is not an admin then show only current user and do not show other users
 				continue
 			}
@@ -1000,7 +1000,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 	}
 
 	for _, localUser := range account.Users {
-		if !user.IsAdmin() && user.Id != localUser.Id {
+		if !user.HasAdminPower() && user.Id != localUser.Id {
 			// if user is not an admin then show only current user and do not show other users
 			continue
 		}
