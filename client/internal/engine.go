@@ -216,23 +216,6 @@ func (e *Engine) Start() error {
 		}
 	}
 
-	e.firewall, err = firewall.NewFirewall(e.ctx, e.wgInterface)
-	if err != nil {
-		log.Errorf("failed creating firewall manager: %s", err)
-	}
-
-	if e.firewall != nil {
-		if e.firewall.IsServerRouteSupported() {
-			e.routeManager, err = routemanager.NewManagerWithServerRouter(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, e.firewall)
-			if err != nil {
-				return err
-			}
-		}
-	} else {
-		e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
-		e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
-	}
-
 	if runtime.GOOS == "android" {
 		err = e.wgInterface.CreateOnMobile(iface.MobileIFaceArguments{
 			Routes:        e.routeManager.InitialRouteRange(),
@@ -246,6 +229,21 @@ func (e *Engine) Start() error {
 		log.Errorf("failed creating tunnel interface %s: [%s]", wgIFaceName, err.Error())
 		e.close()
 		return err
+	}
+
+	e.firewall, err = firewall.NewFirewall(e.ctx, e.wgInterface)
+	if err != nil {
+		log.Errorf("failed creating firewall manager: %s", err)
+	}
+
+	if e.firewall != nil && e.firewall.IsServerRouteSupported() {
+		e.routeManager, err = routemanager.NewManagerWithServerRouter(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, e.firewall)
+		if err != nil {
+			return err
+		}
+	} else {
+		e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
+		e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 	}
 
 	err = e.wgInterface.Configure(myPrivateKey.String(), e.config.WgPort)
