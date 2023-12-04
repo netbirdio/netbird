@@ -82,7 +82,8 @@ func newAclManager(table *nftables.Table, wgIface iFaceMapper, routeingFwChainNa
 		rules:      make(map[string]*Rule),
 	}
 
-	if err := m.createDefaultChains(); err != nil {
+	err = m.createDefaultChains()
+	if err != nil {
 		return nil, err
 	}
 
