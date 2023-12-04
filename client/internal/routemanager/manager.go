@@ -20,6 +20,7 @@ type Manager interface {
 	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
+	EnableServerRouter(firewall firewall.Manager) error
 	Stop()
 }
 
@@ -36,27 +37,7 @@ type DefaultManager struct {
 	notifier       *notifier
 }
 
-// NewManagerWithServerRouter returns a new route manager
-func NewManagerWithServerRouter(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, firewall firewall.Manager) (*DefaultManager, error) {
-	var err error
-	dm := newManager(ctx, pubKey, wgInterface, statusRecorder)
-	dm.serverRouter, err = newServerRouter(ctx, wgInterface, firewall)
-	if err != nil {
-		return nil, err
-	}
-	return dm, nil
-}
-
 func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, initialRoutes []*route.Route) *DefaultManager {
-	dm := newManager(ctx, pubKey, wgInterface, statusRecorder)
-	if runtime.GOOS == "android" {
-		cr := dm.clientRoutes(initialRoutes)
-		dm.notifier.setInitialClientRoutes(cr)
-	}
-	return dm
-}
-
-func newManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status) *DefaultManager {
 	mCTX, cancel := context.WithCancel(ctx)
 	dm := &DefaultManager{
 		ctx:            mCTX,
@@ -67,7 +48,21 @@ func newManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 		pubKey:         pubKey,
 		notifier:       newNotifier(),
 	}
+
+	if runtime.GOOS == "android" {
+		cr := dm.clientRoutes(initialRoutes)
+		dm.notifier.setInitialClientRoutes(cr)
+	}
 	return dm
+}
+
+func (m *DefaultManager) EnableServerRouter(firewall firewall.Manager) error {
+	var err error
+	m.serverRouter, err = newServerRouter(m.ctx, m.wgInterface, firewall)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // Stop stops the manager watchers and clean firewall rules

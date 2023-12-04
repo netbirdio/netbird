@@ -216,6 +216,9 @@ func (e *Engine) Start() error {
 		}
 	}
 
+	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
+	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
+
 	if runtime.GOOS == "android" {
 		err = e.wgInterface.CreateOnMobile(iface.MobileIFaceArguments{
 			Routes:        e.routeManager.InitialRouteRange(),
@@ -237,13 +240,11 @@ func (e *Engine) Start() error {
 	}
 
 	if e.firewall != nil && e.firewall.IsServerRouteSupported() {
-		e.routeManager, err = routemanager.NewManagerWithServerRouter(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, e.firewall)
+		err = e.routeManager.EnableServerRouter(e.firewall)
 		if err != nil {
+			e.close()
 			return err
 		}
-	} else {
-		e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
-		e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 	}
 
 	err = e.wgInterface.Configure(myPrivateKey.String(), e.config.WgPort)
