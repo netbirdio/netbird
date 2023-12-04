@@ -107,7 +107,8 @@ loop:
 			break loop
 		case syscall.RTM_NEWROUTE:
 			rt := (*routeInfoInMemory)(unsafe.Pointer(&m.Data[0]))
-			attrs, err := syscall.ParseNetlinkRouteAttr(&m)
+			msg := m
+			attrs, err := syscall.ParseNetlinkRouteAttr(&msg)
 			if err != nil {
 				return nil, err
 			}
@@ -146,5 +147,5 @@ func enableIPForwarding() error {
 		return nil
 	}
 
-	return os.WriteFile(ipv4ForwardingPath, []byte("1"), 0644)
+	return os.WriteFile(ipv4ForwardingPath, []byte("1"), 0644) //nolint:gosec
 }

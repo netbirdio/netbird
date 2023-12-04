@@ -634,5 +634,5 @@ func checkPIDFile() error {
 		}
 	}
 
-	return os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0o664)
+	return os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0o664) //nolint:gosec
 }

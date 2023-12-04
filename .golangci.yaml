@@ -12,6 +12,44 @@ linters-settings:
     # Default: false
     check-type-assertions: false
 
+  gosec:
+    includes:
+      - G101 # Look for hard coded credentials
+      #- G102 # Bind to all interfaces
+      - G103 # Audit the use of unsafe block
+      - G104 # Audit errors not checked
+      - G106 # Audit the use of ssh.InsecureIgnoreHostKey
+      #- G107 # Url provided to HTTP request as taint input
+      - G108 # Profiling endpoint automatically exposed on /debug/pprof
+      - G109 # Potential Integer overflow made by strconv.Atoi result conversion to int16/32
+      - G110 # Potential DoS vulnerability via decompression bomb
+      - G111 # Potential directory traversal
+      #- G112 # Potential slowloris attack
+      - G113 # Usage of Rat.SetString in math/big with an overflow (CVE-2022-23772)
+      #- G114 # Use of net/http serve function that has no support for setting timeouts
+      - G201 # SQL query construction using format string
+      - G202 # SQL query construction using string concatenation
+      - G203 # Use of unescaped data in HTML templates
+      #- G204 # Audit use of command execution
+      - G301 # Poor file permissions used when creating a directory
+      - G302 # Poor file permissions used with chmod
+      - G303 # Creating tempfile using a predictable path
+      - G304 # File path provided as taint input
+      - G305 # File traversal when extracting zip/tar archive
+      - G306 # Poor file permissions used when writing to a new file
+      - G307 # Poor file permissions used when creating a file with os.Create
+      #- G401 # Detect the usage of DES, RC4, MD5 or SHA1
+      #- G402 # Look for bad TLS connection settings
+      - G403 # Ensure minimum RSA key length of 2048 bits
+      #- G404 # Insecure random number source (rand)
+      #- G501 # Import blocklist: crypto/md5
+      - G502 # Import blocklist: crypto/des
+      - G503 # Import blocklist: crypto/rc4
+      - G504 # Import blocklist: net/http/cgi
+      #- G505 # Import blocklist: crypto/sha1
+      - G601 # Implicit memory aliasing of items from a range statement
+      - G602 # Slice access out of bounds
+
   gocritic:
     disabled-checks:
       - commentFormatting
@@ -49,6 +87,7 @@ linters:
     - durationcheck # durationcheck checks for two durations multiplied together
     - forbidigo # forbidigo forbids identifiers
     - gocritic # provides diagnostics that check for bugs, performance and style issues
+    - gosec # inspects source code for security problems
     - mirror # mirror reports wrong mirror patterns of bytes/strings usage
     - misspell # misspess finds commonly misspelled English words in comments
     - nilerr # finds the code that returns nil even if it checks that the error is not nil
@@ -65,19 +104,20 @@ issues:
 
   exclude-rules:
     # allow fmt
-    - path: management/cmd/root.go
+    - path: management/cmd/root\.go
       linters: forbidigo
-    - path: signal/cmd/root.go
+    - path: signal/cmd/root\.go
       linters: forbidigo
-    - path: sharedsock/filter.go
+    - path: sharedsock/filter\.go
       linters:
       - unused
-    - path: client/firewall/iptables/rule.go
+    - path: client/firewall/iptables/rule\.go
       linters:
       - unused
-    - path: test.go
+    - path: test\.go
       linters:
       - mirror
-    - path: mock.go
+      - gosec
+    - path: mock\.go
       linters:
       - nilnil
