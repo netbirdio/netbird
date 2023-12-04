@@ -505,7 +505,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	chain := m.createChain(chainNameInputRules)
 	err = m.rConn.Flush()
 	if err != nil {
-		log.Errorf("failed to create chain (%s): %s", chain.Name, err)
+		log.Debugf("failed to create chain (%s): %s", chain.Name, err)
 		return err
 	}
 	m.chainInputRules = chain
@@ -514,7 +514,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	chain = m.createChain(chainNameOutputRules)
 	err = m.rConn.Flush()
 	if err != nil {
-		log.Errorf("failed to create chain (%s): %s", chainNameOutputRules, err)
+		log.Debugf("failed to create chain (%s): %s", chainNameOutputRules, err)
 		return err
 	}
 	m.chainOutputRules = chain
@@ -527,7 +527,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	m.addDropExpressions(chain, expr.MetaKeyIIFNAME)
 	err = m.rConn.Flush()
 	if err != nil {
-		log.Errorf("failed to create chain (%s): %s", chain.Name, err)
+		log.Debugf("failed to create chain (%s): %s", chain.Name, err)
 		return err
 	}
 
@@ -539,7 +539,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	m.addDropExpressions(chain, expr.MetaKeyOIFNAME)
 	err = m.rConn.Flush()
 	if err != nil {
-		log.Errorf("failed to create chain (%s): %s", chainNameOutputFilter, err)
+		log.Debugf("failed to create chain (%s): %s", chainNameOutputFilter, err)
 		return err
 	}
 
@@ -551,7 +551,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	m.addDropExpressions(m.chainFwFilter, expr.MetaKeyIIFNAME)
 	err = m.rConn.Flush()
 	if err != nil {
-		log.Errorf("failed to create chain (%s): %s", chainNameForwardFilter, err)
+		log.Debugf("failed to create chain (%s): %s", chainNameForwardFilter, err)
 		return err
 	}
 
@@ -560,7 +560,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	m.chainPrerouting = m.createPreroutingMangle()
 	err = m.rConn.Flush()
 	if err != nil {
-		log.Errorf("failed to create chain (%s): %s", m.chainPrerouting.Name, err)
+		log.Debugf("failed to create chain (%s): %s", m.chainPrerouting.Name, err)
 		return err
 	}
 	return nil

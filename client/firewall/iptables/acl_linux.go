@@ -324,13 +324,13 @@ func (m *aclManager) cleanChains() error {
 func (m *aclManager) createDefaultChains() error {
 	// chain netbird-acl-input-rules
 	if err := m.iptablesClient.NewChain(tableName, chainNameInputRules); err != nil {
-		log.Errorf("failed to create '%s' chain: %s", chainNameInputRules, err)
+		log.Debugf("failed to create '%s' chain: %s", chainNameInputRules, err)
 		return err
 	}
 
 	// chain netbird-acl-output-rules
 	if err := m.iptablesClient.NewChain(tableName, chainNameOutputRules); err != nil {
-		log.Errorf("failed to create '%s' chain: %s", chainNameOutputRules, err)
+		log.Debugf("failed to create '%s' chain: %s", chainNameOutputRules, err)
 		return err
 	}
 
@@ -339,12 +339,12 @@ func (m *aclManager) createDefaultChains() error {
 			if chainName == "FORWARD" {
 				// position 2 because we add it after router's, jump rule
 				if err := m.iptablesClient.InsertUnique(tableName, "FORWARD", 2, rule...); err != nil {
-					log.Errorf("failed to create input chain jump rule: %s", err)
+					log.Debugf("failed to create input chain jump rule: %s", err)
 					return err
 				}
 			} else {
 				if err := m.iptablesClient.AppendUnique(tableName, chainName, rule...); err != nil {
-					log.Errorf("failed to create input chain jump rule: %s", err)
+					log.Debugf("failed to create input chain jump rule: %s", err)
 					return err
 				}
 			}
