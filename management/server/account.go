@@ -368,7 +368,6 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 		}
 	}
 	aclPeers, firewallRules := a.getPeerConnectionResources(peerID)
-	aclPeers = additions.ValidatePeers(aclPeers)
 	// exclude expired peers
 	var peersToConnect []*nbpeer.Peer
 	var expiredPeers []*nbpeer.Peer

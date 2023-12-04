@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/netbirdio/management-integrations/additions"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/proto"
@@ -220,6 +221,8 @@ func (a *Account) getPeerConnectionResources(peerID string) ([]*nbpeer.Peer, []*
 
 			sourcePeers, peerInSources := getAllPeersFromGroups(a, rule.Sources, peerID)
 			destinationPeers, peerInDestinations := getAllPeersFromGroups(a, rule.Destinations, peerID)
+			sourcePeers = additions.ValidatePeers(sourcePeers)
+			destinationPeers = additions.ValidatePeers(destinationPeers)
 
 			if rule.Bidirectional {
 				if peerInSources {
