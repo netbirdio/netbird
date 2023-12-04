@@ -354,6 +354,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 	}
 
 	var ephemeral bool
+	setupKeyName := ""
 	if !addedByUser {
 		// validate the setup key if adding with a key
 		sk, err := account.FindSetupKey(upperKey)
@@ -369,6 +370,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 		opEvent.InitiatorID = sk.Id
 		opEvent.Activity = activity.PeerAddedWithSetupKey
 		ephemeral = sk.Ephemeral
+		setupKeyName = sk.Name
 	} else {
 		opEvent.InitiatorID = userID
 		opEvent.Activity = activity.PeerAddedByUser
@@ -447,6 +449,9 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 
 	opEvent.TargetID = newPeer.ID
 	opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain())
+	if !addedByUser {
+		opEvent.Meta["setup_key_name"] = setupKeyName
+	}
 
 	am.StoreEvent(opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 

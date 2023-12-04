@@ -390,14 +390,18 @@ func getMinMaxVersion(inputList []string) (string, string) {
 			}
 		}
 	}
-	switch len(versions) {
+
+	targetIndex := 1
+	l := len(versions)
+
+	switch l {
 	case 0:
 		return "", ""
-	case 1:
-		v := versions[0].String()
+	case targetIndex:
+		v := versions[targetIndex-1].String()
 		return v, v
 	default:
 		sort.Sort(version.Collection(versions))
-		return versions[0].String(), versions[len(versions)-1].String()
+		return versions[targetIndex-1].String(), versions[l-1].String()
 	}
 }
