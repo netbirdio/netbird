@@ -178,7 +178,6 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 		return nil
 	}
 
-	log.Debugf("permanentli delete rule: %s", r.nftRule.UserData)
 	err := m.rConn.DelRule(r.nftRule)
 	if err != nil {
 		log.Errorf("failed to delete rule: %v", err)
@@ -197,7 +196,6 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 
 	// we delete last IP from the set, that means we need to delete
 	// set itself and associated firewall rule too
-	log.Debugf("destroy ip set because it is empty: %s", r.nftSet.Name)
 	m.rConn.FlushSet(r.nftSet)
 	m.rConn.DelSet(r.nftSet)
 	m.ipsetStore.deleteIpset(r.nftSet.Name)
