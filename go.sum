@@ -495,14 +495,6 @@ github.com/mwitkow/go-conntrack v0.0.0-20190716064945-2f068394615f/go.mod h1:qRW
 github.com/mxk/go-flowrate v0.0.0-20140419014527-cca7078d478f/go.mod h1:ZdcZmHo+o7JKHSa8/e818NopupXU1YMK5fe1lsApnBw=
 github.com/nadoo/ipset v0.5.0 h1:5GJUAuZ7ITQQQGne5J96AmFjRtI8Avlbk6CabzYWVUc=
 github.com/nadoo/ipset v0.5.0/go.mod h1:rYF5DQLRGGoQ8ZSWeK+6eX5amAuPqwFkWjhQlEITGJQ=
-github.com/netbirdio/management-integrations/additions v0.0.0-20231129145353-f46b1dd842f2 h1:fNGkwtLHz0U4bP3bPVSwbtfL4I0ZVNYNCpmGwl6TETE=
-github.com/netbirdio/management-integrations/additions v0.0.0-20231129145353-f46b1dd842f2/go.mod h1:31FhBNvQ+riHEIu6LSTmqr8IeuSIsGfQffqV4LFmbwA=
-github.com/netbirdio/management-integrations/additions v0.0.0-20231204103019-ac6dd5a9c91c h1:LerqmkLL6OG+1n+wzxgXOx6kJZETUJVAvU5fZokUn9Q=
-github.com/netbirdio/management-integrations/additions v0.0.0-20231204103019-ac6dd5a9c91c/go.mod h1:31FhBNvQ+riHEIu6LSTmqr8IeuSIsGfQffqV4LFmbwA=
-github.com/netbirdio/management-integrations/additions v0.0.0-20231204103351-c9d8082fc22f h1:yDNCzVwhgV05+D1sFmXCj9HEr2sob/MoWaGQLy3mKyY=
-github.com/netbirdio/management-integrations/additions v0.0.0-20231204103351-c9d8082fc22f/go.mod h1:31FhBNvQ+riHEIu6LSTmqr8IeuSIsGfQffqV4LFmbwA=
-github.com/netbirdio/management-integrations/additions v0.0.0-20231204151811-a5cf1000bdd4 h1:ApjFM/CU3My4lLL1HVb0j7q4+jmXdbYFVT8RJNLQjyc=
-github.com/netbirdio/management-integrations/additions v0.0.0-20231204151811-a5cf1000bdd4/go.mod h1:31FhBNvQ+riHEIu6LSTmqr8IeuSIsGfQffqV4LFmbwA=
 github.com/netbirdio/management-integrations/additions v0.0.0-20231204152258-2328ed53de48 h1:TEaiKhkxwIFA2AmIj/7x9X/6zlXjV68Vs6Wclew1oTs=
 github.com/netbirdio/management-integrations/additions v0.0.0-20231204152258-2328ed53de48/go.mod h1:31FhBNvQ+riHEIu6LSTmqr8IeuSIsGfQffqV4LFmbwA=
 github.com/netbirdio/management-integrations/integrations v0.0.0-20231128140355-566178608e97 h1:2VmrReIXt4W45l7O93kzoTq7Bpn3CDGKhBwnqih0eao=
