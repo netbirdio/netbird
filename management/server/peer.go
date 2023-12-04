@@ -525,6 +525,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		opEvent.InitiatorID = sk.Id
 		opEvent.Activity = activity.PeerAddedWithSetupKey
 		ephemeral = sk.Ephemeral
+		opEvent.Meta["setup_key_name"] = sk.Name
 	} else {
 		opEvent.InitiatorID = userID
 		opEvent.Activity = activity.PeerAddedByUser
@@ -598,7 +599,11 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	}
 
 	opEvent.TargetID = newPeer.ID
-	opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain())
+	peerMeta := newPeer.EventMeta(am.GetDNSDomain())
+	for k, v := range peerMeta {
+		opEvent.Meta[k] = v
+	}
+
 	am.StoreEvent(opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
 	am.updateAccountPeers(account)
