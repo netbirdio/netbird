@@ -406,16 +406,14 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 		Ephemeral:              ephemeral,
 	}
 
-	if account.Settings.Extra != nil && account.Settings.Extra.PeerApprovalEnabled {
-		newPeer.Status.RequiresApproval = true
-	}
+	peerToAdd := additions.PreparePeer(newPeer, account.Settings)
 
 	// add peer to 'All' group
 	group, err := account.GetGroupAll()
 	if err != nil {
 		return nil, nil, err
 	}
-	group.Peers = append(group.Peers, newPeer.ID)
+	group.Peers = append(group.Peers, peerToAdd.ID)
 
 	var groupsToAdd []string
 	if addedByUser {
@@ -433,26 +431,27 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 	if len(groupsToAdd) > 0 {
 		for _, s := range groupsToAdd {
 			if g, ok := account.Groups[s]; ok && g.Name != "All" {
-				g.Peers = append(g.Peers, newPeer.ID)
+				g.Peers = append(g.Peers, peerToAdd.ID)
 			}
 		}
 	}
 
-	account.Peers[newPeer.ID] = newPeer
+	account.Peers[peerToAdd.ID] = newPeer
 	account.Network.IncSerial()
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	opEvent.TargetID = newPeer.ID
-	opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain())
+	opEvent.TargetID = peerToAdd.ID
+	opEvent.Meta = peerToAdd.EventMeta(am.GetDNSDomain())
+
 	am.StoreEvent(opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
 	am.updateAccountPeers(account)
 
-	networkMap := account.GetPeerNetworkMap(newPeer.ID, am.dnsDomain)
-	return newPeer, networkMap, nil
+	networkMap := account.GetPeerNetworkMap(peerToAdd.ID, am.dnsDomain)
+	return peerToAdd, networkMap, nil
 }
 
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
