@@ -355,14 +355,16 @@ func (m *Manager) RemovePacketHook(hookID string) error {
 	for _, arr := range m.incomingRules {
 		for _, r := range arr {
 			if r.id == hookID {
-				return m.DeleteRule(&r)
+				rule := r
+				return m.DeleteRule(&rule)
 			}
 		}
 	}
 	for _, arr := range m.outgoingRules {
 		for _, r := range arr {
 			if r.id == hookID {
-				return m.DeleteRule(&r)
+				rule := r
+				return m.DeleteRule(&rule)
 			}
 		}
 	}
