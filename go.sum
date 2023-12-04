@@ -501,6 +501,10 @@ github.com/netbirdio/management-integrations/additions v0.0.0-20231204103019-ac6
 github.com/netbirdio/management-integrations/additions v0.0.0-20231204103019-ac6dd5a9c91c/go.mod h1:31FhBNvQ+riHEIu6LSTmqr8IeuSIsGfQffqV4LFmbwA=
 github.com/netbirdio/management-integrations/additions v0.0.0-20231204103351-c9d8082fc22f h1:yDNCzVwhgV05+D1sFmXCj9HEr2sob/MoWaGQLy3mKyY=
 github.com/netbirdio/management-integrations/additions v0.0.0-20231204103351-c9d8082fc22f/go.mod h1:31FhBNvQ+riHEIu6LSTmqr8IeuSIsGfQffqV4LFmbwA=
+github.com/netbirdio/management-integrations/additions v0.0.0-20231204151811-a5cf1000bdd4 h1:ApjFM/CU3My4lLL1HVb0j7q4+jmXdbYFVT8RJNLQjyc=
+github.com/netbirdio/management-integrations/additions v0.0.0-20231204151811-a5cf1000bdd4/go.mod h1:31FhBNvQ+riHEIu6LSTmqr8IeuSIsGfQffqV4LFmbwA=
+github.com/netbirdio/management-integrations/additions v0.0.0-20231204152258-2328ed53de48 h1:TEaiKhkxwIFA2AmIj/7x9X/6zlXjV68Vs6Wclew1oTs=
+github.com/netbirdio/management-integrations/additions v0.0.0-20231204152258-2328ed53de48/go.mod h1:31FhBNvQ+riHEIu6LSTmqr8IeuSIsGfQffqV4LFmbwA=
 github.com/netbirdio/management-integrations/integrations v0.0.0-20231128140355-566178608e97 h1:2VmrReIXt4W45l7O93kzoTq7Bpn3CDGKhBwnqih0eao=
 github.com/netbirdio/management-integrations/integrations v0.0.0-20231128140355-566178608e97/go.mod h1:eRv50kd3bXd2y59HK3OY4RI8YUL0JEN290D5dqW4llY=
 github.com/netbirdio/service v0.0.0-20230215170314-b923b89432b0 h1:hirFRfx3grVA/9eEyjME5/z3nxdJlN9kfQpvWWPk32g=
