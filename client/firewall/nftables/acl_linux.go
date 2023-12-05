@@ -1081,10 +1081,15 @@ func generateRuleId(
 	return "set:" + ipset.Name + rulesetID
 }
 func generateRuleIdForMangle(ipset *nftables.Set, ip net.IP, proto firewall.Protocol, port *firewall.Port) string {
+	// case of icmp port is empty
+	var p string
+	if port != nil {
+		p = port.String()
+	}
 	if ipset != nil {
-		return fmt.Sprintf("set:%s:%s:%v", ipset.Name, proto, port)
+		return fmt.Sprintf("p:set:%s:%s:%v", ipset.Name, proto, p)
 	} else {
-		return fmt.Sprintf("ip:%s:%s:%v", ip.String(), proto, port)
+		return fmt.Sprintf("p:ip:%s:%s:%v", ip.String(), proto, p)
 	}
 }
 
