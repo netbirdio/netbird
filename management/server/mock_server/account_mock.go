@@ -81,6 +81,7 @@ type MockAccountManager struct {
 	SyncPeerFunc                    func(sync server.PeerSync) (*nbpeer.Peer, *server.NetworkMap, error)
 	InviteUserFunc                  func(accountID string, initiatorUserID string, targetUserEmail string) error
 	GetAllConnectedPeersFunc        func() (map[string]struct{}, error)
+	HasConnectedChannelFunc         func(peerID string) bool
 	GetExternalCacheManagerFunc     func() server.ExternalCacheManager
 }
 
@@ -620,6 +621,14 @@ func (am *MockAccountManager) GetAllConnectedPeers() (map[string]struct{}, error
 		return am.GetAllConnectedPeersFunc()
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetAllConnectedPeers is not implemented")
+}
+
+// HasconnectedChannel mocks HasConnectedChannel of the AccountManager interface
+func (am *MockAccountManager) HasConnectedChannel(peerID string) bool {
+	if am.HasConnectedChannelFunc != nil {
+		return am.HasConnectedChannelFunc(peerID)
+	}
+	return false
 }
 
 // StoreEvent mocks StoreEvent of the AccountManager interface

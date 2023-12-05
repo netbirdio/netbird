@@ -35,14 +35,9 @@ func NewPeersHandler(accountManager server.AccountManager, authCfg AuthCfg) *Pee
 func (h *PeersHandler) checkPeerStatus(peer *nbpeer.Peer) (*nbpeer.Peer, error) {
 	peerToReturn := peer.Copy()
 	if peer.Status.Connected {
-		statuses, err := h.accountManager.GetAllConnectedPeers()
-		if err != nil {
-			return peerToReturn, err
-		}
-
 		// Although we have online status in store we do not yet have an updated channel so have to show it as disconnected
 		// This may happen after server restart when not all peers are yet connected
-		if _, connected := statuses[peerToReturn.ID]; !connected {
+		if !h.accountManager.HasConnectedChannel(peer.ID) {
 			peerToReturn.Status.Connected = false
 		}
 	}
