@@ -10,6 +10,7 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 
@@ -204,7 +205,7 @@ func restore(file string) (*FileStore, error) {
 		// Set the Peer.ID to the newly generated value.
 		// Replace all the mentions of Peer.Key as ID (groups and routes).
 		// Swap Peer.Key with Peer.ID in the Account.Peers map.
-		migrationPeers := make(map[string]*Peer) // key to Peer
+		migrationPeers := make(map[string]*nbpeer.Peer) // key to Peer
 		for key, peer := range account.Peers {
 			// set LastLogin for the peers that were onboarded before the peer login expiration feature
 			if peer.LastLogin.IsZero() {
@@ -606,7 +607,7 @@ func (s *FileStore) SaveInstallationID(ID string) error {
 
 // SavePeerStatus stores the PeerStatus in memory. It doesn't attempt to persist data to speed up things.
 // PeerStatus will be saved eventually when some other changes occur.
-func (s *FileStore) SavePeerStatus(accountID, peerID string, peerStatus PeerStatus) error {
+func (s *FileStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 

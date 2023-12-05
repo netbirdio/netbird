@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -35,7 +36,7 @@ func TestStalePeerIndices(t *testing.T) {
 
 	peerID := "some_peer"
 	peerKey := "some_peer_key"
-	account.Peers[peerID] = &Peer{
+	account.Peers[peerID] = &nbpeer.Peer{
 		ID:  peerID,
 		Key: peerKey,
 	}
@@ -89,13 +90,13 @@ func TestSaveAccount(t *testing.T) {
 	account := newAccountWithId("account_id", "testuser", "")
 	setupKey := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
-	account.Peers["testpeer"] = &Peer{
+	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:      "peerkey",
 		SetupKey: "peerkeysetupkey",
 		IP:       net.IP{127, 0, 0, 1},
-		Meta:     PeerSystemMeta{},
+		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	// SaveAccount should trigger persist
@@ -179,13 +180,13 @@ func TestStore(t *testing.T) {
 	store := newStore(t)
 
 	account := newAccountWithId("account_id", "testuser", "")
-	account.Peers["testpeer"] = &Peer{
+	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:      "peerkey",
 		SetupKey: "peerkeysetupkey",
 		IP:       net.IP{127, 0, 0, 1},
-		Meta:     PeerSystemMeta{},
+		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 	account.Groups["all"] = &Group{
 		ID:    "all",
@@ -600,19 +601,19 @@ func TestFileStore_SavePeerStatus(t *testing.T) {
 	}
 
 	// save status of non-existing peer
-	newStatus := PeerStatus{Connected: true, LastSeen: time.Now().UTC()}
+	newStatus := nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()}
 	err = store.SavePeerStatus(account.Id, "non-existing-peer", newStatus)
 	assert.Error(t, err)
 
 	// save new status of existing peer
-	account.Peers["testpeer"] = &Peer{
+	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:      "peerkey",
 		ID:       "testpeer",
 		SetupKey: "peerkeysetupkey",
 		IP:       net.IP{127, 0, 0, 1},
-		Meta:     PeerSystemMeta{},
+		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(account)

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/netbirdio/netbird/management/server/http/api"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 
@@ -55,12 +56,12 @@ var baseExistingRoute = &route.Route{
 var testingAccount = &server.Account{
 	Id:     testAccountID,
 	Domain: "hotmail.com",
-	Peers: map[string]*server.Peer{
+	Peers: map[string]*nbpeer.Peer{
 		existingPeerID: {
 			Key: existingPeerKey,
 			IP:  netip.MustParseAddr(existingPeerIP1).AsSlice(),
 			ID:  existingPeerID,
-			Meta: server.PeerSystemMeta{
+			Meta: nbpeer.PeerSystemMeta{
 				GoOS: "linux",
 			},
 		},
@@ -68,7 +69,7 @@ var testingAccount = &server.Account{
 			Key: nonLinuxExistingPeerID,
 			IP:  netip.MustParseAddr(existingPeerIP2).AsSlice(),
 			ID:  nonLinuxExistingPeerID,
-			Meta: server.PeerSystemMeta{
+			Meta: nbpeer.PeerSystemMeta{
 				GoOS: "darwin",
 			},
 		},

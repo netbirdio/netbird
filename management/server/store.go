@@ -8,6 +8,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
@@ -31,7 +32,7 @@ type Store interface {
 	AcquireAccountLock(accountID string) func()
 	// AcquireGlobalLock should attempt to acquire a global lock and return a function that releases the lock
 	AcquireGlobalLock() func()
-	SavePeerStatus(accountID, peerID string, status PeerStatus) error
+	SavePeerStatus(accountID, peerID string, status nbpeer.PeerStatus) error
 	SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error
 	// Close should close the store persisting all unsaved data.
 	Close() error
