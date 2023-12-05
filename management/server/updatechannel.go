@@ -151,3 +151,21 @@ func (p *PeersUpdateManager) GetAllConnectedPeers() map[string]struct{} {
 
 	return m
 }
+
+// HasChannel returns true if peers has channel in update manager, otherwise false
+func (p *PeersUpdateManager) HasChannel(peerID string) bool {
+	start := time.Now()
+
+	p.channelsMux.Lock()
+
+	defer func() {
+		p.channelsMux.Unlock()
+		if p.metrics != nil {
+			p.metrics.UpdateChannelMetrics().CountHasChannelDuration(time.Since(start))
+		}
+	}()
+
+	_, ok := p.peerChannels[peerID]
+
+	return ok
+}

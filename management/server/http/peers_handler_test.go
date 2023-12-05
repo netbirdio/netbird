@@ -81,8 +81,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 					},
 				}, user, nil
 			},
-
-			GetAllConnectedPeersFunc: func() (map[string]struct{}, error) {
+			HasConnectedChannelFunc: func(peerID string) bool {
 				statuses := make(map[string]struct{})
 				for _, peer := range peers {
 					if peer.ID == noUpdateChannelTestPeerID {
@@ -90,7 +89,8 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 					}
 					statuses[peer.ID] = struct{}{}
 				}
-				return statuses, nil
+				_, ok := statuses[peerID]
+				return ok
 			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
