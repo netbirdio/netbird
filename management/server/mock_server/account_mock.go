@@ -10,6 +10,7 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -21,12 +22,12 @@ type MockAccountManager struct {
 	GetAccountByUserOrAccountIdFunc func(userId, accountId, domain string) (*server.Account, error)
 	GetUserFunc                     func(claims jwtclaims.AuthorizationClaims) (*server.User, error)
 	ListUsersFunc                   func(accountID string) ([]*server.User, error)
-	GetPeersFunc                    func(accountID, userID string) ([]*server.Peer, error)
+	GetPeersFunc                    func(accountID, userID string) ([]*nbpeer.Peer, error)
 	MarkPeerConnectedFunc           func(peerKey string, connected bool) error
 	DeletePeerFunc                  func(accountID, peerKey, userID string) error
 	GetNetworkMapFunc               func(peerKey string) (*server.NetworkMap, error)
 	GetPeerNetworkFunc              func(peerKey string) (*server.Network, error)
-	AddPeerFunc                     func(setupKey string, userId string, peer *server.Peer) (*server.Peer, *server.NetworkMap, error)
+	AddPeerFunc                     func(setupKey string, userId string, peer *nbpeer.Peer) (*nbpeer.Peer, *server.NetworkMap, error)
 	GetGroupFunc                    func(accountID, groupID string) (*server.Group, error)
 	SaveGroupFunc                   func(accountID, userID string, group *server.Group) error
 	DeleteGroupFunc                 func(accountID, userId, groupID string) error
@@ -44,9 +45,9 @@ type MockAccountManager struct {
 	GetUsersFromAccountFunc         func(accountID, userID string) ([]*server.UserInfo, error)
 	GetAccountFromPATFunc           func(pat string) (*server.Account, *server.User, *server.PersonalAccessToken, error)
 	MarkPATUsedFunc                 func(pat string) error
-	UpdatePeerMetaFunc              func(peerID string, meta server.PeerSystemMeta) error
+	UpdatePeerMetaFunc              func(peerID string, meta nbpeer.PeerSystemMeta) error
 	UpdatePeerSSHKeyFunc            func(peerID string, sshKey string) error
-	UpdatePeerFunc                  func(accountID, userID string, peer *server.Peer) (*server.Peer, error)
+	UpdatePeerFunc                  func(accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
 	CreateRouteFunc                 func(accountID, prefix, peer string, peerGroups []string, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
 	GetRouteFunc                    func(accountID, routeID, userID string) (*route.Route, error)
 	SaveRouteFunc                   func(accountID, userID string, route *route.Route) error
@@ -74,10 +75,10 @@ type MockAccountManager struct {
 	GetEventsFunc                   func(accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettingsFunc              func(accountID, userID string) (*server.DNSSettings, error)
 	SaveDNSSettingsFunc             func(accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
-	GetPeerFunc                     func(accountID, peerID, userID string) (*server.Peer, error)
+	GetPeerFunc                     func(accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettingsFunc       func(accountID, userID string, newSettings *server.Settings) (*server.Account, error)
-	LoginPeerFunc                   func(login server.PeerLogin) (*server.Peer, *server.NetworkMap, error)
-	SyncPeerFunc                    func(sync server.PeerSync) (*server.Peer, *server.NetworkMap, error)
+	LoginPeerFunc                   func(login server.PeerLogin) (*nbpeer.Peer, *server.NetworkMap, error)
+	SyncPeerFunc                    func(sync server.PeerSync) (*nbpeer.Peer, *server.NetworkMap, error)
 	InviteUserFunc                  func(accountID string, initiatorUserID string, targetUserEmail string) error
 	GetAllConnectedPeersFunc        func() (map[string]struct{}, error)
 	GetExternalCacheManagerFunc     func() server.ExternalCacheManager
@@ -226,8 +227,8 @@ func (am *MockAccountManager) GetPeerNetwork(peerKey string) (*server.Network, e
 func (am *MockAccountManager) AddPeer(
 	setupKey string,
 	userId string,
-	peer *server.Peer,
-) (*server.Peer, *server.NetworkMap, error) {
+	peer *nbpeer.Peer,
+) (*nbpeer.Peer, *server.NetworkMap, error) {
 	if am.AddPeerFunc != nil {
 		return am.AddPeerFunc(setupKey, userId, peer)
 	}
@@ -347,7 +348,7 @@ func (am *MockAccountManager) ListPolicies(accountID, userID string) ([]*server.
 }
 
 // UpdatePeerMeta mock implementation of UpdatePeerMeta from server.AccountManager interface
-func (am *MockAccountManager) UpdatePeerMeta(peerID string, meta server.PeerSystemMeta) error {
+func (am *MockAccountManager) UpdatePeerMeta(peerID string, meta nbpeer.PeerSystemMeta) error {
 	if am.UpdatePeerMetaFunc != nil {
 		return am.UpdatePeerMetaFunc(peerID, meta)
 	}
@@ -378,7 +379,7 @@ func (am *MockAccountManager) UpdatePeerSSHKey(peerID string, sshKey string) err
 }
 
 // UpdatePeer mocks UpdatePeerFunc function of the account manager
-func (am *MockAccountManager) UpdatePeer(accountID, userID string, peer *server.Peer) (*server.Peer, error) {
+func (am *MockAccountManager) UpdatePeer(accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error) {
 	if am.UpdatePeerFunc != nil {
 		return am.UpdatePeerFunc(accountID, userID, peer)
 	}
@@ -542,7 +543,7 @@ func (am *MockAccountManager) GetAccountFromToken(claims jwtclaims.Authorization
 }
 
 // GetPeers mocks GetPeers of the AccountManager interface
-func (am *MockAccountManager) GetPeers(accountID, userID string) ([]*server.Peer, error) {
+func (am *MockAccountManager) GetPeers(accountID, userID string) ([]*nbpeer.Peer, error) {
 	if am.GetAccountFromTokenFunc != nil {
 		return am.GetPeersFunc(accountID, userID)
 	}
@@ -582,7 +583,7 @@ func (am *MockAccountManager) SaveDNSSettings(accountID string, userID string, d
 }
 
 // GetPeer mocks GetPeer of the AccountManager interface
-func (am *MockAccountManager) GetPeer(accountID, peerID, userID string) (*server.Peer, error) {
+func (am *MockAccountManager) GetPeer(accountID, peerID, userID string) (*nbpeer.Peer, error) {
 	if am.GetPeerFunc != nil {
 		return am.GetPeerFunc(accountID, peerID, userID)
 	}
@@ -598,7 +599,7 @@ func (am *MockAccountManager) UpdateAccountSettings(accountID, userID string, ne
 }
 
 // LoginPeer mocks LoginPeer of the AccountManager interface
-func (am *MockAccountManager) LoginPeer(login server.PeerLogin) (*server.Peer, *server.NetworkMap, error) {
+func (am *MockAccountManager) LoginPeer(login server.PeerLogin) (*nbpeer.Peer, *server.NetworkMap, error) {
 	if am.LoginPeerFunc != nil {
 		return am.LoginPeerFunc(login)
 	}
@@ -606,7 +607,7 @@ func (am *MockAccountManager) LoginPeer(login server.PeerLogin) (*server.Peer, *
 }
 
 // SyncPeer mocks SyncPeer of the AccountManager interface
-func (am *MockAccountManager) SyncPeer(sync server.PeerSync) (*server.Peer, *server.NetworkMap, error) {
+func (am *MockAccountManager) SyncPeer(sync server.PeerSync) (*nbpeer.Peer, *server.NetworkMap, error) {
 	if am.SyncPeerFunc != nil {
 		return am.SyncPeerFunc(sync)
 	}

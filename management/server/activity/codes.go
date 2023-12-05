@@ -120,6 +120,14 @@ const (
 	IntegrationUpdated
 	// IntegrationDeleted indicates that the user deleted an integration
 	IntegrationDeleted
+	// AccountPeerApprovalEnabled indicates that the user enabled peer approval for the account
+	AccountPeerApprovalEnabled
+	// AccountPeerApprovalDisabled indicates that the user disabled peer approval for the account
+	AccountPeerApprovalDisabled
+	// PeerApproved indicates that the peer has been approved
+	PeerApproved
+	// PeerApprovalRevoked indicates that the peer approval has been revoked
+	PeerApprovalRevoked
 	// TransferredOwnerRole indicates that the user transferred the owner role of the account
 	TransferredOwnerRole
 )
@@ -180,6 +188,10 @@ var activityMap = map[Activity]Code{
 	IntegrationCreated:                        {"Integration created", "integration.create"},
 	IntegrationUpdated:                        {"Integration updated", "integration.update"},
 	IntegrationDeleted:                        {"Integration deleted", "integration.delete"},
+	AccountPeerApprovalEnabled:                {"Account peer approval enabled", "account.setting.peer.approval.enable"},
+	AccountPeerApprovalDisabled:               {"Account peer approval disabled", "account.setting.peer.approval.disable"},
+	PeerApproved:                              {"Peer approved", "peer.approve"},
+	PeerApprovalRevoked:                       {"Peer approval revoked", "peer.approval.revoke"},
 	TransferredOwnerRole:                      {"Transferred owner role", "transferred.owner.role"},
 }
 

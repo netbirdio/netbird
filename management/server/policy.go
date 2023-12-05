@@ -5,10 +5,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/netbirdio/management-integrations/additions"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
@@ -205,7 +207,7 @@ type FirewallRule struct {
 // getPeerConnectionResources for a given peer
 //
 // This function returns the list of peers and firewall rules that are applicable to a given peer.
-func (a *Account) getPeerConnectionResources(peerID string) ([]*Peer, []*FirewallRule) {
+func (a *Account) getPeerConnectionResources(peerID string) ([]*nbpeer.Peer, []*FirewallRule) {
 	generateResources, getAccumulatedResources := a.connResourcesGenerator()
 	for _, policy := range a.Policies {
 		if !policy.Enabled {
@@ -219,6 +221,8 @@ func (a *Account) getPeerConnectionResources(peerID string) ([]*Peer, []*Firewal
 
 			sourcePeers, peerInSources := getAllPeersFromGroups(a, rule.Sources, peerID)
 			destinationPeers, peerInDestinations := getAllPeersFromGroups(a, rule.Destinations, peerID)
+			sourcePeers = additions.ValidatePeers(sourcePeers)
+			destinationPeers = additions.ValidatePeers(destinationPeers)
 
 			if rule.Bidirectional {
 				if peerInSources {
@@ -247,11 +251,11 @@ func (a *Account) getPeerConnectionResources(peerID string) ([]*Peer, []*Firewal
 // The generator function is used to generate the list of peers and firewall rules that are applicable to a given peer.
 // It safe to call the generator function multiple times for same peer and different rules no duplicates will be
 // generated. The accumulator function returns the result of all the generator calls.
-func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*Peer, int), func() ([]*Peer, []*FirewallRule)) {
+func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*nbpeer.Peer, int), func() ([]*nbpeer.Peer, []*FirewallRule)) {
 	rulesExists := make(map[string]struct{})
 	peersExists := make(map[string]struct{})
 	rules := make([]*FirewallRule, 0)
-	peers := make([]*Peer, 0)
+	peers := make([]*nbpeer.Peer, 0)
 
 	all, err := a.GetGroupAll()
 	if err != nil {
@@ -259,7 +263,7 @@ func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*Peer, int), fun
 		all = &Group{}
 	}
 
-	return func(rule *PolicyRule, groupPeers []*Peer, direction int) {
+	return func(rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) {
 			isAll := (len(all.Peers) - 1) == len(groupPeers)
 			for _, peer := range groupPeers {
 				if peer == nil {
@@ -299,7 +303,7 @@ func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*Peer, int), fun
 					rules = append(rules, &pr)
 				}
 			}
-		}, func() ([]*Peer, []*FirewallRule) {
+		}, func() ([]*nbpeer.Peer, []*FirewallRule) {
 			return peers, rules
 		}
 }
@@ -478,9 +482,9 @@ func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
 // getAllPeersFromGroups for given peer ID and list of groups
 //
 // Returns list of peers and boolean indicating if peer is in any of the groups
-func getAllPeersFromGroups(account *Account, groups []string, peerID string) ([]*Peer, bool) {
+func getAllPeersFromGroups(account *Account, groups []string, peerID string) ([]*nbpeer.Peer, bool) {
 	peerInGroups := false
-	filteredPeers := make([]*Peer, 0, len(groups))
+	filteredPeers := make([]*nbpeer.Peer, 0, len(groups))
 	for _, g := range groups {
 		group, ok := account.Groups[g]
 		if !ok {

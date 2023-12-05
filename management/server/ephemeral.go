@@ -7,6 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
 const (
@@ -72,7 +73,7 @@ func (e *EphemeralManager) Stop() {
 
 // OnPeerConnected remove the peer from the linked list of ephemeral peers. Because it has been called when the peer
 // is active the manager will not delete it while it is active.
-func (e *EphemeralManager) OnPeerConnected(peer *Peer) {
+func (e *EphemeralManager) OnPeerConnected(peer *nbpeer.Peer) {
 	if !peer.Ephemeral {
 		return
 	}
@@ -93,7 +94,7 @@ func (e *EphemeralManager) OnPeerConnected(peer *Peer) {
 
 // OnPeerDisconnected add the peer to the linked list of ephemeral peers. Because of the peer
 // is inactive it will be deleted after the ephemeralLifeTime period.
-func (e *EphemeralManager) OnPeerDisconnected(peer *Peer) {
+func (e *EphemeralManager) OnPeerDisconnected(peer *nbpeer.Peer) {
 	if !peer.Ephemeral {
 		return
 	}
