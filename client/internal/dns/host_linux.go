@@ -82,7 +82,6 @@ func getOSDNSManagerType() (osManagerType, error) {
 			return netbirdManager, nil
 		}
 		if strings.Contains(text, "NetworkManager") && isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) && isNetworkManagerSupported() {
-			log.Debugf("is nm running on supported v? %t", isNetworkManagerSupportedVersion())
 			return networkManager, nil
 		}
 		if strings.Contains(text, "systemd-resolved") && isDbusListenerRunning(systemdResolvedDest, systemdDbusObjectNode) {
