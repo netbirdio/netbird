@@ -12,7 +12,6 @@ import (
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
-	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
@@ -120,7 +119,6 @@ func (m *AclManager) AddFiltering(
 	}
 
 	newRules = append(newRules, ioRule)
-
 	if !shouldAddToPrerouting(proto, dPort, direction) {
 		return newRules, nil
 	}
@@ -131,7 +129,6 @@ func (m *AclManager) AddFiltering(
 	}
 	newRules = append(newRules, preroutingRule)
 	return newRules, nil
-
 }
 
 // DeleteRule from the firewall by rule definition
@@ -159,7 +156,6 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 		delete(m.rules, r.GetRuleID())
 		return m.rConn.Flush()
 	}
-
 	if _, ok := ips[r.ip.String()]; ok {
 		err := m.sConn.SetDeleteElements(r.nftSet, []nftables.SetElement{{Key: r.ip.To4()}})
 		if err != nil {
@@ -228,7 +224,12 @@ func (m *AclManager) Flush() error {
 func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, direction firewall.RuleDirection, action firewall.Action, ipset *nftables.Set, comment string) (*Rule, error) {
 	ruleId := generateRuleId(ip, sPort, dPort, direction, action, ipset)
 	if r, ok := m.rules[ruleId]; ok {
-		return r, nil
+		return &Rule{
+			r.nftRule,
+			r.nftSet,
+			r.ruleID,
+			ip,
+		}, nil
 	}
 
 	ifaceKey := expr.MetaKeyIIFNAME
@@ -366,7 +367,7 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 	rule := &Rule{
 		nftRule: nftRule,
 		nftSet:  ipset,
-		ruleID:  xid.New().String(),
+		ruleID:  ruleId,
 		ip:      ip,
 	}
 	m.rules[ruleId] = rule
@@ -391,7 +392,12 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 
 	ruleId := generateRuleIdForMangle(ipset, ip, proto, port)
 	if r, ok := m.rules[ruleId]; ok {
-		return r, nil
+		return &Rule{
+			r.nftRule,
+			r.nftSet,
+			r.ruleID,
+			ip,
+		}, nil
 	}
 
 	var ipExpression expr.Any
@@ -486,10 +492,9 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 	rule := &Rule{
 		nftRule: nftRule,
 		nftSet:  ipset,
-		ruleID:  xid.New().String(),
+		ruleID:  ruleId,
 		ip:      ip,
 	}
-	log.Debugf("create new prerouting rule: %s", m.chainPrerouting.Name)
 
 	m.rules[ruleId] = rule
 	if ipset != nil {
@@ -976,9 +981,9 @@ func (m *AclManager) refreshRuleHandles(chain *nftables.Chain) error {
 			continue
 		}
 		split := bytes.Split(rule.UserData, []byte(" "))
-		_, ok := m.rules[string(split[0])]
+		r, ok := m.rules[string(split[0])]
 		if ok {
-			m.rules[string(split[0])].nftRule = rule
+			*r.nftRule = *rule
 		}
 	}
 
