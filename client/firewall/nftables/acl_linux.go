@@ -1097,7 +1097,7 @@ func shouldAddToPrerouting(proto firewall.Protocol, dPort *firewall.Port, direct
 		return false
 	}
 
-	if dPort == nil {
+	if dPort == nil && proto != firewall.ProtocolICMP {
 		return false
 	}
 	return true
