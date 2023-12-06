@@ -5,6 +5,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
 jobs:
   trigger_sync_main:
     runs-on: ubuntu-latest
@@ -15,4 +19,4 @@ jobs:
           workflow: sync-main.yml
           repo: ${{ secrets.UPSTREAM_REPO }}
           token: ${{ secrets.SIGN_GITHUB_TOKEN }}
-          inputs: '{ "tag": "${{ github.ref }}" }'
+          inputs: '{ "sha": "${{ github.sha }}" }'
