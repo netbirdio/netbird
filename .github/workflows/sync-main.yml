@@ -1,0 +1,17 @@
+name: sync main
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  trigger_docs_api_update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger main branch sync
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: sync-main.yml
+          repo: ${{ secrets.UPSTREAM_REPO }}
+          token: ${{ secrets.SIGN_GITHUB_TOKEN }}
