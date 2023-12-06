@@ -58,24 +58,6 @@ func extractDeviceName(ctx context.Context, defaultName string) string {
 	return v
 }
 
-// extractOsVersion extracts operating system version from context or returns the default
-func extractOsVersion(ctx context.Context, defaultName string) string {
-	v, ok := ctx.Value(OsVersionCtxKey).(string)
-	if !ok {
-		return defaultName
-	}
-	return v
-}
-
-// extractOsName extracts operating system name from context or returns the default
-func extractOsName(ctx context.Context, defaultName string) string {
-	v, ok := ctx.Value(OsNameCtxKey).(string)
-	if !ok {
-		return defaultName
-	}
-	return v
-}
-
 // GetDesktopUIUserAgent returns the Desktop ui user agent
 func GetDesktopUIUserAgent() string {
 	return "netbird-desktop-ui/" + version.NetbirdVersion()

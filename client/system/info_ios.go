@@ -25,3 +25,21 @@ func GetInfo(ctx context.Context) *Info {
 
 	return gio
 }
+
+// extractOsVersion extracts operating system version from context or returns the default
+func extractOsVersion(ctx context.Context, defaultName string) string {
+	v, ok := ctx.Value(OsVersionCtxKey).(string)
+	if !ok {
+		return defaultName
+	}
+	return v
+}
+
+// extractOsName extracts operating system name from context or returns the default
+func extractOsName(ctx context.Context, defaultName string) string {
+	v, ok := ctx.Value(OsNameCtxKey).(string)
+	if !ok {
+		return defaultName
+	}
+	return v
+}

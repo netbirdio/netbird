@@ -12,7 +12,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/cmd"
 	"github.com/netbirdio/netbird/client/internal"
-	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/system"
 )
 
@@ -148,30 +147,6 @@ func (a *Auth) Login() error {
 	}
 
 	return nil
-}
-
-func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener) (*auth.TokenInfo, error) {
-	oAuthFlow, err := auth.NewOAuthFlow(a.ctx, a.config, false)
-	if err != nil {
-		return nil, err
-	}
-
-	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
-	if err != nil {
-		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
-	}
-
-	go urlOpener.Open(flowInfo.VerificationURIComplete)
-
-	waitTimeout := time.Duration(flowInfo.ExpiresIn)
-	waitCTX, cancel := context.WithTimeout(a.ctx, waitTimeout*time.Second)
-	defer cancel()
-	tokenInfo, err := oAuthFlow.WaitToken(waitCTX, flowInfo)
-	if err != nil {
-		return nil, fmt.Errorf("waiting for browser login failed: %v", err)
-	}
-
-	return &tokenInfo, nil
 }
 
 func (a *Auth) withBackOff(ctx context.Context, bf func() error) error {

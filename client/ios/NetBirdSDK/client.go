@@ -86,7 +86,9 @@ func (c *Client) Run(fd int32, interfaceName string) error {
 	var ctx context.Context
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
+	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsNameCtxKey, c.osName)
+	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsVersionCtxKey, c.osVersion)
 	c.ctxCancelLock.Lock()
 	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
@@ -151,8 +153,11 @@ func (c *Client) RemoveConnectionListener() {
 
 func (c *Client) IsLoginRequired() bool {
 	var ctx context.Context
+	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
+	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsNameCtxKey, c.osName)
+	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsVersionCtxKey, c.osVersion)
 	c.ctxCancelLock.Lock()
 	defer c.ctxCancelLock.Unlock()
@@ -168,8 +173,11 @@ func (c *Client) IsLoginRequired() bool {
 
 func (c *Client) LoginForMobile() string {
 	var ctx context.Context
+	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
+	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsNameCtxKey, c.osName)
+	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsVersionCtxKey, c.osVersion)
 	c.ctxCancelLock.Lock()
 	defer c.ctxCancelLock.Unlock()
