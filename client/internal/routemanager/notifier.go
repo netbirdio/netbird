@@ -5,8 +5,6 @@ import (
 	"strings"
 	"sync"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/route"
 )
@@ -64,7 +62,6 @@ func (n *notifier) notify() {
 	}
 
 	go func(l listener.NetworkChangeListener) {
-		log.Debugf("notifying route listener with route ranges: %s", strings.Join(n.routeRangers, ","))
 		l.OnNetworkChanged(strings.Join(n.routeRangers, ","))
 	}(n.listener)
 }
