@@ -8,6 +8,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -40,7 +41,7 @@ func (h *AccountsHandler) GetAllAccounts(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if !user.IsAdmin() {
+	if !user.HasAdminPower() {
 		util.WriteError(status.Errorf(status.PermissionDenied, "the user has no permission to access account data"), w)
 		return
 	}
@@ -75,6 +76,10 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 	settings := &server.Settings{
 		PeerLoginExpirationEnabled: req.Settings.PeerLoginExpirationEnabled,
 		PeerLoginExpiration:        time.Duration(float64(time.Second.Nanoseconds()) * float64(req.Settings.PeerLoginExpiration)),
+	}
+
+	if req.Settings.Extra != nil {
+		settings.Extra = &account.ExtraSettings{PeerApprovalEnabled: *req.Settings.Extra.PeerApprovalEnabled}
 	}
 
 	if req.Settings.JwtGroupsEnabled != nil {
@@ -123,14 +128,20 @@ func (h *AccountsHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) 
 }
 
 func toAccountResponse(account *server.Account) *api.Account {
+	settings := api.AccountSettings{
+		PeerLoginExpiration:        int(account.Settings.PeerLoginExpiration.Seconds()),
+		PeerLoginExpirationEnabled: account.Settings.PeerLoginExpirationEnabled,
+		GroupsPropagationEnabled:   &account.Settings.GroupsPropagationEnabled,
+		JwtGroupsEnabled:           &account.Settings.JWTGroupsEnabled,
+		JwtGroupsClaimName:         &account.Settings.JWTGroupsClaimName,
+	}
+
+	if account.Settings.Extra != nil {
+		settings.Extra = &api.AccountExtraSettings{PeerApprovalEnabled: &account.Settings.Extra.PeerApprovalEnabled}
+	}
+
 	return &api.Account{
-		Id: account.Id,
-		Settings: api.AccountSettings{
-			PeerLoginExpiration:        int(account.Settings.PeerLoginExpiration.Seconds()),
-			PeerLoginExpirationEnabled: account.Settings.PeerLoginExpirationEnabled,
-			GroupsPropagationEnabled:   &account.Settings.GroupsPropagationEnabled,
-			JwtGroupsEnabled:           &account.Settings.JWTGroupsEnabled,
-			JwtGroupsClaimName:         &account.Settings.JWTGroupsClaimName,
-		},
+		Id:       account.Id,
+		Settings: settings,
 	}
 }

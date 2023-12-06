@@ -5,6 +5,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -37,12 +38,12 @@ func (mockDatasource) GetAllAccounts() []*server.Account {
 			NameServerGroups: map[string]*nbdns.NameServerGroup{
 				"1": {},
 			},
-			Peers: map[string]*server.Peer{
+			Peers: map[string]*nbpeer.Peer{
 				"1": {
 					ID:         "1",
 					UserID:     "test",
 					SSHEnabled: true,
-					Meta:       server.PeerSystemMeta{GoOS: "linux", WtVersion: "0.0.1"},
+					Meta:       nbpeer.PeerSystemMeta{GoOS: "linux", WtVersion: "0.0.1"},
 				},
 			},
 			Policies: []*server.Policy{
@@ -101,12 +102,12 @@ func (mockDatasource) GetAllAccounts() []*server.Account {
 			NameServerGroups: map[string]*nbdns.NameServerGroup{
 				"1": {},
 			},
-			Peers: map[string]*server.Peer{
+			Peers: map[string]*nbpeer.Peer{
 				"1": {
 					ID:         "1",
 					UserID:     "test",
 					SSHEnabled: true,
-					Meta:       server.PeerSystemMeta{GoOS: "linux", WtVersion: "0.0.1"},
+					Meta:       nbpeer.PeerSystemMeta{GoOS: "linux", WtVersion: "0.0.1"},
 				},
 			},
 			Policies: []*server.Policy{

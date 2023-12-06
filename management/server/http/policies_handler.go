@@ -290,11 +290,13 @@ func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Polic
 		Enabled:     policy.Enabled,
 	}
 	for _, r := range policy.Rules {
+		rID := r.ID
+		rDescription := r.Description
 		rule := api.PolicyRule{
-			Id:            &r.ID,
+			Id:            &rID,
 			Name:          r.Name,
 			Enabled:       r.Enabled,
-			Description:   &r.Description,
+			Description:   &rDescription,
 			Bidirectional: r.Bidirectional,
 			Protocol:      api.PolicyRuleProtocol(r.Protocol),
 			Action:        api.PolicyRuleAction(r.Action),

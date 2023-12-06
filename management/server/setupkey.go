@@ -342,7 +342,7 @@ func (am *DefaultAccountManager) ListSetupKeys(accountID, userID string) ([]*Set
 	keys := make([]*SetupKey, 0, len(account.SetupKeys))
 	for _, key := range account.SetupKeys {
 		var k *SetupKey
-		if !user.IsAdmin() {
+		if !user.HasAdminPower() {
 			k = key.HiddenCopy(999)
 		} else {
 			k = key.Copy()
@@ -384,7 +384,7 @@ func (am *DefaultAccountManager) GetSetupKey(accountID, userID, keyID string) (*
 		foundKey.UpdatedAt = foundKey.CreatedAt
 	}
 
-	if !user.IsAdmin() {
+	if !user.HasAdminPower() {
 		foundKey = foundKey.HiddenCopy(999)
 	}
 
