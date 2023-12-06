@@ -64,7 +64,7 @@ func newUpstreamResolver(parentCTX context.Context, interfaceName string, wgAddr
 		log.Errorf("error while parsing CIDR: %s", err)
 	}
 	index, err := getInterfaceIndex(interfaceName)
-	log.Debugf("UpstreamResolver interface name: %s, index: %d, ip: %s", interfaceName, index, localIP)
+
 	if err != nil {
 		log.Debugf("unable to get interface index for %s: %s", interfaceName, err)
 	}
@@ -120,7 +120,6 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			}
 			upstreamIP := net.ParseIP(upstreamHost)
 			if u.lNet.Contains(upstreamIP) || net.IP.IsPrivate(upstreamIP) {
-				log.Debugf("using private client to query upstream: %s", upstream)
 				upstreamExchangeClient = u.getClientPrivate()
 			}
 			rm, t, exchangeErr = upstreamExchangeClient.Exchange(r, upstream)

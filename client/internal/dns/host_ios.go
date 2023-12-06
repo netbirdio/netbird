@@ -3,8 +3,6 @@ package dns
 import (
 	"strconv"
 	"strings"
-
-	log "github.com/sirupsen/logrus"
 )
 
 type iosHostManager struct {
@@ -34,7 +32,6 @@ func (a iosHostManager) applyDNSConfig(config hostDNSConfig) error {
 	domainConfig := strings.Join(domainConfigAsString, ";")
 	configAsString = append(configAsString, domainConfig)
 	outputString := strings.Join(configAsString, ",")
-	log.Debug("applyDNSConfig: " + outputString)
 	a.dnsManager.ApplyDns(outputString)
 	return nil
 }
