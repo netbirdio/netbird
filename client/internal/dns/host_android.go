@@ -7,7 +7,7 @@ func newHostManager(wgInterface WGIface, dnsManager IosDnsManager) (hostManager,
 	return &androidHostManager{}, nil
 }
 
-func (a androidHostManager) applyDNSConfig(config HostDNSConfig) error {
+func (a androidHostManager) applyDNSConfig(config hostDNSConfig) error {
 	return nil
 }
 

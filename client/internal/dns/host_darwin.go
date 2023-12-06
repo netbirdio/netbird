@@ -44,7 +44,7 @@ func (s *systemConfigurator) supportCustomPort() bool {
 	return true
 }
 
-func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig) error {
+func (s *systemConfigurator) applyDNSConfig(config hostDNSConfig) error {
 	var err error
 
 	if config.routeAll {

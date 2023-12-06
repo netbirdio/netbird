@@ -35,7 +35,7 @@ func (f *fileConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
+func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
 	backupFileExist := false
 	_, err := os.Stat(fileDefaultResolvConfBackupLocation)
 	if err == nil {
@@ -138,7 +138,7 @@ func prepareResolvConfContent(searchDomains, nameServers, others []string) bytes
 	return buf
 }
 
-func searchDomains(config HostDNSConfig) []string {
+func searchDomains(config hostDNSConfig) []string {
 	listOfDomains := make([]string, 0)
 	for _, dConf := range config.domains {
 		if dConf.matchOnly || dConf.disabled {

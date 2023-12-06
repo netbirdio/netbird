@@ -12,8 +12,9 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/hashicorp/go-version"
 	"github.com/miekg/dns"
-	nbversion "github.com/netbirdio/netbird/version"
 	log "github.com/sirupsen/logrus"
+
+	nbversion "github.com/netbirdio/netbird/version"
 )
 
 const (
@@ -93,7 +94,7 @@ func (n *networkManagerDbusConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig) error {
+func (n *networkManagerDbusConfigurator) applyDNSConfig(config hostDNSConfig) error {
 	connSettings, configVersion, err := n.getAppliedConnectionSettings()
 	if err != nil {
 		return fmt.Errorf("got an error while retrieving the applied connection settings, error: %s", err)

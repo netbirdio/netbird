@@ -9,7 +9,7 @@ import (
 
 type iosHostManager struct {
 	dnsManager IosDnsManager
-	config     HostDNSConfig
+	config     hostDNSConfig
 }
 
 func newHostManager(wgInterface WGIface, dnsManager IosDnsManager) (hostManager, error) {
@@ -18,7 +18,7 @@ func newHostManager(wgInterface WGIface, dnsManager IosDnsManager) (hostManager,
 	}, nil
 }
 
-func (a iosHostManager) applyDNSConfig(config HostDNSConfig) error {
+func (a iosHostManager) applyDNSConfig(config hostDNSConfig) error {
 	var configAsString []string
 	configAsString = append(configAsString, config.serverIP)
 	configAsString = append(configAsString, strconv.Itoa(config.serverPort))
