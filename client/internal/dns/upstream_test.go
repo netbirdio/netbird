@@ -49,15 +49,15 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 			timeout:             upstreamTimeout,
 			responseShouldBeNil: true,
 		},
-		//{
+		// {
 		//	name:        "Should Resolve CNAME Record",
 		//	inputMSG:    new(dns.Msg).SetQuestion("one.one.one.one", dns.TypeCNAME),
-		//},
-		//{
+		// },
+		// {
 		//	name:                "Should Not Write When Not Found A Record",
 		//	inputMSG:            new(dns.Msg).SetQuestion("not.found.com", dns.TypeA),
 		//	responseShouldBeNil: true,
-		//},
+		// },
 	}
 	// should resolve if first upstream times out
 	// should not write when both fails
@@ -66,7 +66,7 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.TODO())
-			resolver := newUpstreamResolver(ctx)
+			resolver := newUpstreamResolver(ctx, "", "")
 			resolver.upstreamServers = testCase.InputServers
 			resolver.upstreamTimeout = testCase.timeout
 			if testCase.cancelCTX {
