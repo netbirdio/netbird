@@ -181,10 +181,10 @@ func (u *upstreamResolver) checkUpstreamFails() {
 		return
 	default:
 		// todo test the deactivation logic, it seems to affect the client
-		// log.Warnf("upstream resolving is disabled for %v", reactivatePeriod)
-		// u.deactivate()
-		// u.disabled = true
-		// go u.waitUntilResponse()
+		log.Warnf("upstream resolving is disabled for %v", reactivatePeriod)
+		u.deactivate()
+		u.disabled = true
+		go u.waitUntilResponse()
 	}
 }
 
