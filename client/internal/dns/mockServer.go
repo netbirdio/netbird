@@ -14,7 +14,7 @@ type MockServer struct {
 }
 
 // Initialize mock implementation of Initialize from Server interface
-func (m *MockServer) Initialize() error {
+func (m *MockServer) Initialize(manager IosDnsManager) error {
 	if m.InitializeFunc != nil {
 		return m.InitializeFunc()
 	}
@@ -33,7 +33,7 @@ func (m *MockServer) DnsIP() string {
 }
 
 func (m *MockServer) OnUpdatedHostDNSServer(strings []string) {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 
