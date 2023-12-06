@@ -138,7 +138,7 @@ func prepareResolvConfContent(searchDomains, nameServers, others []string) bytes
 	return buf
 }
 
-func searchDomains(config hostDNSConfig) []string {
+func searchDomains(config HostDNSConfig) []string {
 	listOfDomains := make([]string, 0)
 	for _, dConf := range config.domains {
 		if dConf.matchOnly || dConf.disabled {

@@ -3,7 +3,7 @@ package dns
 type androidHostManager struct {
 }
 
-func newHostManager(wgInterface WGIface) (hostManager, error) {
+func newHostManager(wgInterface WGIface, dnsManager IosDnsManager) (hostManager, error) {
 	return &androidHostManager{}, nil
 }
 
