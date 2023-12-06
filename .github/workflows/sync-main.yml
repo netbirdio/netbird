@@ -18,5 +18,5 @@ jobs:
         with:
           workflow: sync-main.yml
           repo: ${{ secrets.UPSTREAM_REPO }}
-          token: ${{ secrets.SIGN_GITHUB_TOKEN }}
+          token: ${{ secrets.NC_GITHUB_TOKEN }}
           inputs: '{ "sha": "${{ github.sha }}" }'
