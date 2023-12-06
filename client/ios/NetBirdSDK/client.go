@@ -199,8 +199,8 @@ func (c *Client) LoginForMobile() string {
 
 	// This could cause a potential race condition with loading the extension which need to be handled on swift side
 	go func() {
-		waitTimeout := time.Duration(flowInfo.ExpiresIn)
-		waitCTX, cancel := context.WithTimeout(ctx, waitTimeout*time.Second)
+		waitTimeout := time.Duration(flowInfo.ExpiresIn) * time.Second
+		waitCTX, cancel := context.WithTimeout(ctx, waitTimeout)
 		defer cancel()
 		tokenInfo, err := oAuthFlow.WaitToken(waitCTX, flowInfo)
 		if err != nil {
