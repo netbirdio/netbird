@@ -205,15 +205,14 @@ func (e *Engine) Start() error {
 			go e.mobileDep.DnsReadyListener.OnReady()
 		}
 	} else if e.dnsServer == nil {
-			e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.mobileDep.InterfaceName, wgAddr)
-			if err != nil {
-				e.close()
-				return err
-			}
-  }
+		e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.mobileDep.InterfaceName, wgAddr)
+		if err != nil {
+			e.close()
+			return err
+		}
+	}
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
-	e.mobileDep.NetworkChangeListener.SetInterfaceIP(wgAddr)
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
 	switch runtime.GOOS {
@@ -224,6 +223,7 @@ func (e *Engine) Start() error {
 			SearchDomains: e.dnsServer.SearchDomains(),
 		})
 	case "ios":
+		e.mobileDep.NetworkChangeListener.SetInterfaceIP(wgAddr)
 		err = e.wgInterface.CreateOniOS(e.mobileDep.FileDescriptor)
 	default:
 		err = e.wgInterface.Create()
