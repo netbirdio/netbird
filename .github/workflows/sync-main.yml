@@ -6,7 +6,7 @@ on:
       - main
 
 jobs:
-  trigger_docs_api_update:
+  trigger_sync_main:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger main branch sync
