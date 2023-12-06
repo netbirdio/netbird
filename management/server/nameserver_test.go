@@ -8,6 +8,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
 const (
@@ -741,15 +742,17 @@ func TestGetNameServerGroup(t *testing.T) {
 }
 
 func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
+	t.Helper()
 	store, err := createNSStore(t)
 	if err != nil {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(), nil, "", "", eventStore, false)
+	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "", eventStore, false)
 }
 
 func createNSStore(t *testing.T) (Store, error) {
+	t.Helper()
 	dataDir := t.TempDir()
 	store, err := NewStoreFromJson(dataDir, nil)
 	if err != nil {
@@ -760,10 +763,11 @@ func createNSStore(t *testing.T) (Store, error) {
 }
 
 func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error) {
-	peer1 := &Peer{
+	t.Helper()
+	peer1 := &nbpeer.Peer{
 		Key:  nsGroupPeer1Key,
 		Name: "test-host1@netbird.io",
-		Meta: PeerSystemMeta{
+		Meta: nbpeer.PeerSystemMeta{
 			Hostname:  "test-host1@netbird.io",
 			GoOS:      "linux",
 			Kernel:    "Linux",
@@ -774,10 +778,10 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error
 			UIVersion: "development",
 		},
 	}
-	peer2 := &Peer{
+	peer2 := &nbpeer.Peer{
 		Key:  nsGroupPeer2Key,
 		Name: "test-host2@netbird.io",
-		Meta: PeerSystemMeta{
+		Meta: nbpeer.PeerSystemMeta{
 			Hostname:  "test-host2@netbird.io",
 			GoOS:      "linux",
 			Kernel:    "Linux",

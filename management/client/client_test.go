@@ -31,6 +31,7 @@ import (
 const ValidKey = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
 
 func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
+	t.Helper()
 	level, _ := log.ParseLevel("debug")
 	log.SetLevel(level)
 
@@ -57,7 +58,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 
-	peersUpdateManager := mgmt.NewPeersUpdateManager()
+	peersUpdateManager := mgmt.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "",
 		eventStore, false)
@@ -81,6 +82,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 }
 
 func startMockManagement(t *testing.T) (*grpc.Server, net.Listener, *mock_server.ManagementServiceServerMock, wgtypes.Key) {
+	t.Helper()
 	lis, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +170,7 @@ func TestClient_LoginUnregistered_ShouldThrow_401(t *testing.T) {
 		t.Error("expecting err on unregistered login, got nil")
 	}
 	if s, ok := status.FromError(err); !ok || s.Code() != codes.PermissionDenied {
-		t.Errorf("expecting err code %d denied on on unregistered login got %d", codes.PermissionDenied, s.Code())
+		t.Errorf("expecting err code %d denied on unregistered login got %d", codes.PermissionDenied, s.Code())
 	}
 }
 
@@ -283,7 +285,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 
 	testKey, err := wgtypes.GenerateKey()
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 
 	serverAddr := lis.Addr().String()
@@ -291,12 +293,12 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 
 	testClient, err := NewClient(ctx, serverAddr, testKey, false)
 	if err != nil {
-		log.Fatalf("error while creating testClient: %v", err)
+		t.Fatalf("error while creating testClient: %v", err)
 	}
 
 	key, err := testClient.GetServerPublicKey()
 	if err != nil {
-		log.Fatalf("error while getting server public key from testclient, %v", err)
+		t.Fatalf("error while getting server public key from testclient, %v", err)
 	}
 
 	var actualMeta *mgmtProto.PeerSystemMeta
@@ -362,7 +364,7 @@ func Test_GetDeviceAuthorizationFlow(t *testing.T) {
 
 	testKey, err := wgtypes.GenerateKey()
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 
 	serverAddr := lis.Addr().String()
@@ -370,7 +372,7 @@ func Test_GetDeviceAuthorizationFlow(t *testing.T) {
 
 	client, err := NewClient(ctx, serverAddr, testKey, false)
 	if err != nil {
-		log.Fatalf("error while creating testClient: %v", err)
+		t.Fatalf("error while creating testClient: %v", err)
 	}
 
 	expectedFlowInfo := &mgmtProto.DeviceAuthorizationFlow{
@@ -406,7 +408,7 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 
 	testKey, err := wgtypes.GenerateKey()
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 
 	serverAddr := lis.Addr().String()
@@ -414,7 +416,7 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 
 	client, err := NewClient(ctx, serverAddr, testKey, false)
 	if err != nil {
-		log.Fatalf("error while creating testClient: %v", err)
+		t.Fatalf("error while creating testClient: %v", err)
 	}
 
 	expectedFlowInfo := &mgmtProto.PKCEAuthorizationFlow{

@@ -10,6 +10,7 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -20,12 +21,13 @@ type MockAccountManager struct {
 	GetSetupKeyFunc                 func(accountID, userID, keyID string) (*server.SetupKey, error)
 	GetAccountByUserOrAccountIdFunc func(userId, accountId, domain string) (*server.Account, error)
 	GetUserFunc                     func(claims jwtclaims.AuthorizationClaims) (*server.User, error)
-	GetPeersFunc                    func(accountID, userID string) ([]*server.Peer, error)
+	ListUsersFunc                   func(accountID string) ([]*server.User, error)
+	GetPeersFunc                    func(accountID, userID string) ([]*nbpeer.Peer, error)
 	MarkPeerConnectedFunc           func(peerKey string, connected bool) error
 	DeletePeerFunc                  func(accountID, peerKey, userID string) error
 	GetNetworkMapFunc               func(peerKey string) (*server.NetworkMap, error)
 	GetPeerNetworkFunc              func(peerKey string) (*server.Network, error)
-	AddPeerFunc                     func(setupKey string, userId string, peer *server.Peer) (*server.Peer, *server.NetworkMap, error)
+	AddPeerFunc                     func(setupKey string, userId string, peer *nbpeer.Peer) (*nbpeer.Peer, *server.NetworkMap, error)
 	GetGroupFunc                    func(accountID, groupID string) (*server.Group, error)
 	SaveGroupFunc                   func(accountID, userID string, group *server.Group) error
 	DeleteGroupFunc                 func(accountID, userId, groupID string) error
@@ -43,9 +45,9 @@ type MockAccountManager struct {
 	GetUsersFromAccountFunc         func(accountID, userID string) ([]*server.UserInfo, error)
 	GetAccountFromPATFunc           func(pat string) (*server.Account, *server.User, *server.PersonalAccessToken, error)
 	MarkPATUsedFunc                 func(pat string) error
-	UpdatePeerMetaFunc              func(peerID string, meta server.PeerSystemMeta) error
+	UpdatePeerMetaFunc              func(peerID string, meta nbpeer.PeerSystemMeta) error
 	UpdatePeerSSHKeyFunc            func(peerID string, sshKey string) error
-	UpdatePeerFunc                  func(accountID, userID string, peer *server.Peer) (*server.Peer, error)
+	UpdatePeerFunc                  func(accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
 	CreateRouteFunc                 func(accountID, prefix, peer string, peerGroups []string, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
 	GetRouteFunc                    func(accountID, routeID, userID string) (*route.Route, error)
 	SaveRouteFunc                   func(accountID, userID string, route *route.Route) error
@@ -54,6 +56,7 @@ type MockAccountManager struct {
 	SaveSetupKeyFunc                func(accountID string, key *server.SetupKey, userID string) (*server.SetupKey, error)
 	ListSetupKeysFunc               func(accountID, userID string) ([]*server.SetupKey, error)
 	SaveUserFunc                    func(accountID, userID string, user *server.User) (*server.UserInfo, error)
+	SaveOrAddUserFunc               func(accountID, userID string, user *server.User, addIfNotExists bool) (*server.UserInfo, error)
 	DeleteUserFunc                  func(accountID string, initiatorUserID string, targetUserID string) error
 	CreatePATFunc                   func(accountID string, initiatorUserID string, targetUserId string, tokenName string, expiresIn int) (*server.PersonalAccessTokenGenerated, error)
 	DeletePATFunc                   func(accountID string, initiatorUserID string, targetUserId string, tokenID string) error
@@ -66,16 +69,20 @@ type MockAccountManager struct {
 	ListNameServerGroupsFunc        func(accountID string) ([]*nbdns.NameServerGroup, error)
 	CreateUserFunc                  func(accountID, userID string, key *server.UserInfo) (*server.UserInfo, error)
 	GetAccountFromTokenFunc         func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error)
+	DeleteAccountFunc               func(accountID, userID string) error
 	GetDNSDomainFunc                func() string
+	StoreEventFunc                  func(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any)
 	GetEventsFunc                   func(accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettingsFunc              func(accountID, userID string) (*server.DNSSettings, error)
 	SaveDNSSettingsFunc             func(accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
-	GetPeerFunc                     func(accountID, peerID, userID string) (*server.Peer, error)
+	GetPeerFunc                     func(accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettingsFunc       func(accountID, userID string, newSettings *server.Settings) (*server.Account, error)
-	LoginPeerFunc                   func(login server.PeerLogin) (*server.Peer, *server.NetworkMap, error)
-	SyncPeerFunc                    func(sync server.PeerSync) (*server.Peer, *server.NetworkMap, error)
+	LoginPeerFunc                   func(login server.PeerLogin) (*nbpeer.Peer, *server.NetworkMap, error)
+	SyncPeerFunc                    func(sync server.PeerSync) (*nbpeer.Peer, *server.NetworkMap, error)
 	InviteUserFunc                  func(accountID string, initiatorUserID string, targetUserEmail string) error
 	GetAllConnectedPeersFunc        func() (map[string]struct{}, error)
+	HasConnectedChannelFunc         func(peerID string) bool
+	GetExternalCacheManagerFunc     func() server.ExternalCacheManager
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -153,6 +160,14 @@ func (am *MockAccountManager) GetAccountFromPAT(pat string) (*server.Account, *s
 	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method GetAccountFromPAT is not implemented")
 }
 
+// DeleteAccount mock implementation of DeleteAccount from server.AccountManager interface
+func (am *MockAccountManager) DeleteAccount(accountID, userID string) error {
+	if am.DeleteAccountFunc != nil {
+		return am.DeleteAccountFunc(accountID, userID)
+	}
+	return status.Errorf(codes.Unimplemented, "method DeleteAccount is not implemented")
+}
+
 // MarkPATUsed mock implementation of MarkPATUsed from server.AccountManager interface
 func (am *MockAccountManager) MarkPATUsed(pat string) error {
 	if am.MarkPATUsedFunc != nil {
@@ -213,8 +228,8 @@ func (am *MockAccountManager) GetPeerNetwork(peerKey string) (*server.Network, e
 func (am *MockAccountManager) AddPeer(
 	setupKey string,
 	userId string,
-	peer *server.Peer,
-) (*server.Peer, *server.NetworkMap, error) {
+	peer *nbpeer.Peer,
+) (*nbpeer.Peer, *server.NetworkMap, error) {
 	if am.AddPeerFunc != nil {
 		return am.AddPeerFunc(setupKey, userId, peer)
 	}
@@ -334,11 +349,11 @@ func (am *MockAccountManager) ListPolicies(accountID, userID string) ([]*server.
 }
 
 // UpdatePeerMeta mock implementation of UpdatePeerMeta from server.AccountManager interface
-func (am *MockAccountManager) UpdatePeerMeta(peerID string, meta server.PeerSystemMeta) error {
+func (am *MockAccountManager) UpdatePeerMeta(peerID string, meta nbpeer.PeerSystemMeta) error {
 	if am.UpdatePeerMetaFunc != nil {
 		return am.UpdatePeerMetaFunc(peerID, meta)
 	}
-	return status.Errorf(codes.Unimplemented, "method UpdatePeerMetaFunc is not implemented")
+	return status.Errorf(codes.Unimplemented, "method UpdatePeerMeta is not implemented")
 }
 
 // GetUser mock implementation of GetUser from server.AccountManager interface
@@ -346,7 +361,14 @@ func (am *MockAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (*se
 	if am.GetUserFunc != nil {
 		return am.GetUserFunc(claims)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method IsUserGetUserAdmin is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method GetUser is not implemented")
+}
+
+func (am *MockAccountManager) ListUsers(accountID string) ([]*server.User, error) {
+	if am.ListUsersFunc != nil {
+		return am.ListUsers(accountID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method ListUsers is not implemented")
 }
 
 // UpdatePeerSSHKey mocks UpdatePeerSSHKey function of the account manager
@@ -354,15 +376,15 @@ func (am *MockAccountManager) UpdatePeerSSHKey(peerID string, sshKey string) err
 	if am.UpdatePeerSSHKeyFunc != nil {
 		return am.UpdatePeerSSHKeyFunc(peerID, sshKey)
 	}
-	return status.Errorf(codes.Unimplemented, "method UpdatePeerSSHKey is is not implemented")
+	return status.Errorf(codes.Unimplemented, "method UpdatePeerSSHKey is not implemented")
 }
 
 // UpdatePeer mocks UpdatePeerFunc function of the account manager
-func (am *MockAccountManager) UpdatePeer(accountID, userID string, peer *server.Peer) (*server.Peer, error) {
+func (am *MockAccountManager) UpdatePeer(accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error) {
 	if am.UpdatePeerFunc != nil {
 		return am.UpdatePeerFunc(accountID, userID, peer)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method UpdatePeerFunc is is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method UpdatePeer is not implemented")
 }
 
 // CreateRoute mock implementation of CreateRoute from server.AccountManager interface
@@ -440,6 +462,14 @@ func (am *MockAccountManager) SaveUser(accountID, userID string, user *server.Us
 	return nil, status.Errorf(codes.Unimplemented, "method SaveUser is not implemented")
 }
 
+// SaveOrAddUser mocks SaveOrAddUser of the AccountManager interface
+func (am *MockAccountManager) SaveOrAddUser(accountID, userID string, user *server.User, addIfNotExists bool) (*server.UserInfo, error) {
+	if am.SaveUserFunc != nil {
+		return am.SaveOrAddUserFunc(accountID, userID, user, addIfNotExists)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method SaveOrAddUser is not implemented")
+}
+
 // DeleteUser mocks DeleteUser of the AccountManager interface
 func (am *MockAccountManager) DeleteUser(accountID string, initiatorUserID string, targetUserID string) error {
 	if am.DeleteUserFunc != nil {
@@ -514,11 +544,11 @@ func (am *MockAccountManager) GetAccountFromToken(claims jwtclaims.Authorization
 }
 
 // GetPeers mocks GetPeers of the AccountManager interface
-func (am *MockAccountManager) GetPeers(accountID, userID string) ([]*server.Peer, error) {
+func (am *MockAccountManager) GetPeers(accountID, userID string) ([]*nbpeer.Peer, error) {
 	if am.GetAccountFromTokenFunc != nil {
 		return am.GetPeersFunc(accountID, userID)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetAllPeers is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method GetPeers is not implemented")
 }
 
 // GetDNSDomain mocks GetDNSDomain of the AccountManager interface
@@ -534,7 +564,7 @@ func (am *MockAccountManager) GetEvents(accountID, userID string) ([]*activity.E
 	if am.GetEventsFunc != nil {
 		return am.GetEventsFunc(accountID, userID)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetAllEvents is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method GetEvents is not implemented")
 }
 
 // GetDNSSettings mocks GetDNSSettings of the AccountManager interface
@@ -554,7 +584,7 @@ func (am *MockAccountManager) SaveDNSSettings(accountID string, userID string, d
 }
 
 // GetPeer mocks GetPeer of the AccountManager interface
-func (am *MockAccountManager) GetPeer(accountID, peerID, userID string) (*server.Peer, error) {
+func (am *MockAccountManager) GetPeer(accountID, peerID, userID string) (*nbpeer.Peer, error) {
 	if am.GetPeerFunc != nil {
 		return am.GetPeerFunc(accountID, peerID, userID)
 	}
@@ -570,7 +600,7 @@ func (am *MockAccountManager) UpdateAccountSettings(accountID, userID string, ne
 }
 
 // LoginPeer mocks LoginPeer of the AccountManager interface
-func (am *MockAccountManager) LoginPeer(login server.PeerLogin) (*server.Peer, *server.NetworkMap, error) {
+func (am *MockAccountManager) LoginPeer(login server.PeerLogin) (*nbpeer.Peer, *server.NetworkMap, error) {
 	if am.LoginPeerFunc != nil {
 		return am.LoginPeerFunc(login)
 	}
@@ -578,7 +608,7 @@ func (am *MockAccountManager) LoginPeer(login server.PeerLogin) (*server.Peer, *
 }
 
 // SyncPeer mocks SyncPeer of the AccountManager interface
-func (am *MockAccountManager) SyncPeer(sync server.PeerSync) (*server.Peer, *server.NetworkMap, error) {
+func (am *MockAccountManager) SyncPeer(sync server.PeerSync) (*nbpeer.Peer, *server.NetworkMap, error) {
 	if am.SyncPeerFunc != nil {
 		return am.SyncPeerFunc(sync)
 	}
@@ -591,4 +621,27 @@ func (am *MockAccountManager) GetAllConnectedPeers() (map[string]struct{}, error
 		return am.GetAllConnectedPeersFunc()
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetAllConnectedPeers is not implemented")
+}
+
+// HasconnectedChannel mocks HasConnectedChannel of the AccountManager interface
+func (am *MockAccountManager) HasConnectedChannel(peerID string) bool {
+	if am.HasConnectedChannelFunc != nil {
+		return am.HasConnectedChannelFunc(peerID)
+	}
+	return false
+}
+
+// StoreEvent mocks StoreEvent of the AccountManager interface
+func (am *MockAccountManager) StoreEvent(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any) {
+	if am.StoreEventFunc != nil {
+		am.StoreEventFunc(initiatorID, targetID, accountID, activityID, meta)
+	}
+}
+
+// GetExternalCacheManager mocks GetExternalCacheManager of the AccountManager interface
+func (am *MockAccountManager) GetExternalCacheManager() server.ExternalCacheManager {
+	if am.GetExternalCacheManagerFunc() != nil {
+		return am.GetExternalCacheManagerFunc()
+	}
+	return nil
 }

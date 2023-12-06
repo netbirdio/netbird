@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/system"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
@@ -181,6 +182,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		s.latestConfigInput.CustomDNSAddress = []byte{}
 	}
 
+	if msg.Hostname != "" {
+		// nolint
+		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, msg.Hostname)
+	}
+
 	s.mutex.Unlock()
 
 	inputConfig.PreSharedKey = &msg.PreSharedKey
@@ -273,6 +279,11 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	md, ok := metadata.FromIncomingContext(callerCtx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
+	}
+
+	if msg.Hostname != "" {
+		// nolint
+		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, msg.Hostname)
 	}
 
 	s.actCancel = cancel

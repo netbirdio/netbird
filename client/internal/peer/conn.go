@@ -247,7 +247,7 @@ func (conn *Conn) Open() error {
 	}
 	err := conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
-		log.Warnf("erro while updating the state of peer %s,err: %v", conn.config.Key, err)
+		log.Warnf("error while updating the state of peer %s,err: %v", conn.config.Key, err)
 	}
 
 	defer func() {
@@ -306,7 +306,7 @@ func (conn *Conn) Open() error {
 	}
 	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
-		log.Warnf("erro while updating the state of peer %s,err: %v", conn.config.Key, err)
+		log.Warnf("error while updating the state of peer %s,err: %v", conn.config.Key, err)
 	}
 
 	err = conn.agent.GatherCandidates()

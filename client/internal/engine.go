@@ -204,16 +204,13 @@ func (e *Engine) Start() error {
 			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, *dnsConfig, e.mobileDep.NetworkChangeListener)
 			go e.mobileDep.DnsReadyListener.OnReady()
 		}
-	} else {
-		// todo fix custom address
-		if e.dnsServer == nil {
+	} else if e.dnsServer == nil {
 			e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.mobileDep.InterfaceName, wgAddr)
 			if err != nil {
 				e.close()
 				return err
 			}
-		}
-	}
+  }
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
 	e.mobileDep.NetworkChangeListener.SetInterfaceIP(wgAddr)
@@ -498,15 +495,13 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 		} else {
 			log.Debugf("SSH server is already running")
 		}
-	} else {
+	} else if !isNil(e.sshServer) {
 		// Disable SSH server request, so stop it if it was running
-		if !isNil(e.sshServer) {
-			err := e.sshServer.Stop()
-			if err != nil {
-				log.Warnf("failed to stop SSH server %v", err)
-			}
-			e.sshServer = nil
+		err := e.sshServer.Stop()
+		if err != nil {
+			log.Warnf("failed to stop SSH server %v", err)
 		}
+		e.sshServer = nil
 	}
 	return nil
 }
@@ -648,7 +643,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 				if config.GetSshConfig() != nil && config.GetSshConfig().GetSshPubKey() != nil {
 					err := e.sshServer.AddAuthorizedKey(config.WgPubKey, string(config.GetSshConfig().GetSshPubKey()))
 					if err != nil {
-						log.Warnf("failed adding authroized key to SSH DefaultServer %v", err)
+						log.Warnf("failed adding authorized key to SSH DefaultServer %v", err)
 					}
 				}
 			}

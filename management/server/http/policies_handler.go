@@ -290,17 +290,19 @@ func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Polic
 		Enabled:     policy.Enabled,
 	}
 	for _, r := range policy.Rules {
+		rID := r.ID
+		rDescription := r.Description
 		rule := api.PolicyRule{
-			Id:            &r.ID,
+			Id:            &rID,
 			Name:          r.Name,
 			Enabled:       r.Enabled,
-			Description:   &r.Description,
+			Description:   &rDescription,
 			Bidirectional: r.Bidirectional,
 			Protocol:      api.PolicyRuleProtocol(r.Protocol),
 			Action:        api.PolicyRuleAction(r.Action),
 		}
 		if len(r.Ports) != 0 {
-			portsCopy := r.Ports[:]
+			portsCopy := r.Ports
 			rule.Ports = &portsCopy
 		}
 		for _, gid := range r.Sources {

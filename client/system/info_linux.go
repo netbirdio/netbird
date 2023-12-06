@@ -6,12 +6,13 @@ package system
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/version"
 )
@@ -43,8 +44,8 @@ func GetInfo(ctx context.Context) *Info {
 		}
 	}
 
-	osStr := strings.Replace(info, "\n", "", -1)
-	osStr = strings.Replace(osStr, "\r\n", "", -1)
+	osStr := strings.ReplaceAll(info, "\n", "")
+	osStr = strings.ReplaceAll(osStr, "\r\n", "")
 	osInfo := strings.Split(osStr, " ")
 	if osName == "" {
 		osName = osInfo[3]
@@ -67,7 +68,7 @@ func _getInfo() string {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		fmt.Println("getInfo:", err)
+		log.Warnf("getInfo: %s", err)
 	}
 	return out.String()
 }
@@ -81,7 +82,7 @@ func _getReleaseInfo() string {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		fmt.Println("getReleaseInfo:", err)
+		log.Warnf("geucwReleaseInfo: %s", err)
 	}
 	return out.String()
 }

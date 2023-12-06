@@ -6,7 +6,6 @@ package system
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -24,7 +23,7 @@ func GetInfo(ctx context.Context) *Info {
 	utsname := unix.Utsname{}
 	err := unix.Uname(&utsname)
 	if err != nil {
-		fmt.Println("getInfo:", err)
+		log.Warnf("getInfo: %s", err)
 	}
 	sysName := string(bytes.Split(utsname.Sysname[:], []byte{0})[0])
 	machine := string(bytes.Split(utsname.Machine[:], []byte{0})[0])

@@ -174,13 +174,13 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 	return nil
 }
 
-func shouldSkipNotify(new, curr State) bool {
+func shouldSkipNotify(received, curr State) bool {
 	switch {
-	case new.ConnStatus == StatusConnecting:
+	case received.ConnStatus == StatusConnecting:
 		return true
-	case new.ConnStatus == StatusDisconnected && curr.ConnStatus == StatusConnecting:
+	case received.ConnStatus == StatusDisconnected && curr.ConnStatus == StatusConnecting:
 		return true
-	case new.ConnStatus == StatusDisconnected && curr.ConnStatus == StatusDisconnected:
+	case received.ConnStatus == StatusDisconnected && curr.ConnStatus == StatusDisconnected:
 		return curr.IP != ""
 	default:
 		return false

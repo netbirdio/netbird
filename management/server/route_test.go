@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -1007,15 +1008,17 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 }
 
 func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
+	t.Helper()
 	store, err := createRouterStore(t)
 	if err != nil {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(), nil, "", "", eventStore, false)
+	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "", eventStore, false)
 }
 
 func createRouterStore(t *testing.T) (Store, error) {
+	t.Helper()
 	dataDir := t.TempDir()
 	store, err := NewStoreFromJson(dataDir, nil)
 	if err != nil {
@@ -1043,13 +1046,13 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		return nil, err
 	}
 
-	peer1 := &Peer{
+	peer1 := &nbpeer.Peer{
 		IP:     peer1IP,
 		ID:     peer1ID,
 		Key:    peer1Key,
 		Name:   "test-host1@netbird.io",
 		UserID: userID,
-		Meta: PeerSystemMeta{
+		Meta: nbpeer.PeerSystemMeta{
 			Hostname:  "test-host1@netbird.io",
 			GoOS:      "linux",
 			Kernel:    "Linux",
@@ -1068,13 +1071,13 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		return nil, err
 	}
 
-	peer2 := &Peer{
+	peer2 := &nbpeer.Peer{
 		IP:     peer2IP,
 		ID:     peer2ID,
 		Key:    peer2Key,
 		Name:   "test-host2@netbird.io",
 		UserID: userID,
-		Meta: PeerSystemMeta{
+		Meta: nbpeer.PeerSystemMeta{
 			Hostname:  "test-host2@netbird.io",
 			GoOS:      "linux",
 			Kernel:    "Linux",
@@ -1093,13 +1096,13 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		return nil, err
 	}
 
-	peer3 := &Peer{
+	peer3 := &nbpeer.Peer{
 		IP:     peer3IP,
 		ID:     peer3ID,
 		Key:    peer3Key,
 		Name:   "test-host3@netbird.io",
 		UserID: userID,
-		Meta: PeerSystemMeta{
+		Meta: nbpeer.PeerSystemMeta{
 			Hostname:  "test-host3@netbird.io",
 			GoOS:      "darwin",
 			Kernel:    "Darwin",
@@ -1118,13 +1121,13 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		return nil, err
 	}
 
-	peer4 := &Peer{
+	peer4 := &nbpeer.Peer{
 		IP:     peer4IP,
 		ID:     peer4ID,
 		Key:    peer4Key,
 		Name:   "test-host4@netbird.io",
 		UserID: userID,
-		Meta: PeerSystemMeta{
+		Meta: nbpeer.PeerSystemMeta{
 			Hostname:  "test-host4@netbird.io",
 			GoOS:      "linux",
 			Kernel:    "Linux",
@@ -1143,13 +1146,13 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		return nil, err
 	}
 
-	peer5 := &Peer{
+	peer5 := &nbpeer.Peer{
 		IP:     peer5IP,
 		ID:     peer5ID,
 		Key:    peer5Key,
 		Name:   "test-host4@netbird.io",
 		UserID: userID,
-		Meta: PeerSystemMeta{
+		Meta: nbpeer.PeerSystemMeta{
 			Hostname:  "test-host4@netbird.io",
 			GoOS:      "linux",
 			Kernel:    "Linux",

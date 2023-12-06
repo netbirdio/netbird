@@ -20,13 +20,14 @@ const defaultEndpoint = "/metrics"
 
 // MockAppMetrics mocks the AppMetrics interface
 type MockAppMetrics struct {
-	GetMeterFunc       func() metric2.Meter
-	CloseFunc          func() error
-	ExposeFunc         func(port int, endpoint string) error
-	IDPMetricsFunc     func() *IDPMetrics
-	HTTPMiddlewareFunc func() *HTTPMiddleware
-	GRPCMetricsFunc    func() *GRPCMetrics
-	StoreMetricsFunc   func() *StoreMetrics
+	GetMeterFunc             func() metric2.Meter
+	CloseFunc                func() error
+	ExposeFunc               func(port int, endpoint string) error
+	IDPMetricsFunc           func() *IDPMetrics
+	HTTPMiddlewareFunc       func() *HTTPMiddleware
+	GRPCMetricsFunc          func() *GRPCMetrics
+	StoreMetricsFunc         func() *StoreMetrics
+	UpdateChannelMetricsFunc func() *UpdateChannelMetrics
 }
 
 // GetMeter mocks the GetMeter function of the AppMetrics interface
@@ -85,6 +86,14 @@ func (mock *MockAppMetrics) StoreMetrics() *StoreMetrics {
 	return nil
 }
 
+// UpdateChannelMetrics mocks the MockAppMetrics function of the UpdateChannelMetrics interface
+func (mock *MockAppMetrics) UpdateChannelMetrics() *UpdateChannelMetrics {
+	if mock.UpdateChannelMetricsFunc != nil {
+		return mock.UpdateChannelMetricsFunc()
+	}
+	return nil
+}
+
 // AppMetrics is metrics interface
 type AppMetrics interface {
 	GetMeter() metric2.Meter
@@ -94,18 +103,20 @@ type AppMetrics interface {
 	HTTPMiddleware() *HTTPMiddleware
 	GRPCMetrics() *GRPCMetrics
 	StoreMetrics() *StoreMetrics
+	UpdateChannelMetrics() *UpdateChannelMetrics
 }
 
 // defaultAppMetrics are core application metrics based on OpenTelemetry https://opentelemetry.io/
 type defaultAppMetrics struct {
 	// Meter can be used by different application parts to create counters and measure things
-	Meter          metric2.Meter
-	listener       net.Listener
-	ctx            context.Context
-	idpMetrics     *IDPMetrics
-	httpMiddleware *HTTPMiddleware
-	grpcMetrics    *GRPCMetrics
-	storeMetrics   *StoreMetrics
+	Meter                metric2.Meter
+	listener             net.Listener
+	ctx                  context.Context
+	idpMetrics           *IDPMetrics
+	httpMiddleware       *HTTPMiddleware
+	grpcMetrics          *GRPCMetrics
+	storeMetrics         *StoreMetrics
+	updateChannelMetrics *UpdateChannelMetrics
 }
 
 // IDPMetrics returns metrics for the idp package
@@ -126,6 +137,11 @@ func (appMetrics *defaultAppMetrics) GRPCMetrics() *GRPCMetrics {
 // StoreMetrics returns metrics for the store
 func (appMetrics *defaultAppMetrics) StoreMetrics() *StoreMetrics {
 	return appMetrics.storeMetrics
+}
+
+// UpdateChannelMetrics returns metrics for the updatechannel
+func (appMetrics *defaultAppMetrics) UpdateChannelMetrics() *UpdateChannelMetrics {
+	return appMetrics.updateChannelMetrics
 }
 
 // Close stop application metrics HTTP handler and closes listener.
@@ -199,6 +215,18 @@ func NewDefaultAppMetrics(ctx context.Context) (AppMetrics, error) {
 		return nil, err
 	}
 
-	return &defaultAppMetrics{Meter: meter, ctx: ctx, idpMetrics: idpMetrics, httpMiddleware: middleware,
-		grpcMetrics: grpcMetrics, storeMetrics: storeMetrics}, nil
+	updateChannelMetrics, err := NewUpdateChannelMetrics(ctx, meter)
+	if err != nil {
+		return nil, err
+	}
+
+	return &defaultAppMetrics{
+		Meter:                meter,
+		ctx:                  ctx,
+		idpMetrics:           idpMetrics,
+		httpMiddleware:       middleware,
+		grpcMetrics:          grpcMetrics,
+		storeMetrics:         storeMetrics,
+		updateChannelMetrics: updateChannelMetrics,
+	}, nil
 }

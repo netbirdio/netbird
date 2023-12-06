@@ -248,7 +248,7 @@ func (s *SharedSocket) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 
 	decodedLayers := make([]gopacket.LayerType, 0, 3)
 
-	err = parser.DecodeLayers(pkt.buf[:], &decodedLayers)
+	err = parser.DecodeLayers(pkt.buf, &decodedLayers)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -262,7 +262,7 @@ func (s *SharedSocket) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 	return int(udp.Length), remoteAddr, nil
 }
 
-// WriteTo builds a UDP packet and writes it using the specific IP version writter
+// WriteTo builds a UDP packet and writes it using the specific IP version writer
 func (s *SharedSocket) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 	rUDPAddr, ok := rAddr.(*net.UDPAddr)
 	if !ok {

@@ -141,7 +141,7 @@ func (c *wGConfigurer) removeAllowedIP(peerKey string, allowedIP string) error {
 
 	for i, existingAllowedIP := range existingPeer.AllowedIPs {
 		if existingAllowedIP.String() == ipNet.String() {
-			newAllowedIPs = append(existingPeer.AllowedIPs[:i], existingPeer.AllowedIPs[i+1:]...)
+			newAllowedIPs = append(existingPeer.AllowedIPs[:i], existingPeer.AllowedIPs[i+1:]...) //nolint:gocritic
 			break
 		}
 	}

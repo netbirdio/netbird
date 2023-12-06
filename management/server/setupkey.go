@@ -137,7 +137,7 @@ func (key *SetupKey) HiddenCopy(length int) *SetupKey {
 // IncrementUsage makes a copy of a key, increments the UsedTimes by 1 and sets LastUsed to now
 func (key *SetupKey) IncrementUsage() *SetupKey {
 	c := key.Copy()
-	c.UsedTimes = c.UsedTimes + 1
+	c.UsedTimes++
 	c.LastUsed = time.Now().UTC()
 	return c
 }
@@ -235,12 +235,12 @@ func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string
 		return nil, status.Errorf(status.Internal, "failed adding account key")
 	}
 
-	am.storeEvent(userID, setupKey.Id, accountID, activity.SetupKeyCreated, setupKey.EventMeta())
+	am.StoreEvent(userID, setupKey.Id, accountID, activity.SetupKeyCreated, setupKey.EventMeta())
 
 	for _, g := range setupKey.AutoGroups {
 		group := account.GetGroup(g)
 		if group != nil {
-			am.storeEvent(userID, setupKey.Id, accountID, activity.GroupAddedToSetupKey,
+			am.StoreEvent(userID, setupKey.Id, accountID, activity.GroupAddedToSetupKey,
 				map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": setupKey.Name})
 		} else {
 			log.Errorf("group %s not found while saving setup key activity event of account %s", g, account.Id)
@@ -292,7 +292,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 	}
 
 	if !oldKey.Revoked && newKey.Revoked {
-		am.storeEvent(userID, newKey.Id, accountID, activity.SetupKeyRevoked, newKey.EventMeta())
+		am.StoreEvent(userID, newKey.Id, accountID, activity.SetupKeyRevoked, newKey.EventMeta())
 	}
 
 	defer func() {
@@ -301,7 +301,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 		for _, g := range removedGroups {
 			group := account.GetGroup(g)
 			if group != nil {
-				am.storeEvent(userID, oldKey.Id, accountID, activity.GroupRemovedFromSetupKey,
+				am.StoreEvent(userID, oldKey.Id, accountID, activity.GroupRemovedFromSetupKey,
 					map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": newKey.Name})
 			} else {
 				log.Errorf("group %s not found while saving setup key activity event of account %s", g, account.Id)
@@ -312,7 +312,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 		for _, g := range addedGroups {
 			group := account.GetGroup(g)
 			if group != nil {
-				am.storeEvent(userID, oldKey.Id, accountID, activity.GroupAddedToSetupKey,
+				am.StoreEvent(userID, oldKey.Id, accountID, activity.GroupAddedToSetupKey,
 					map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": newKey.Name})
 			} else {
 				log.Errorf("group %s not found while saving setup key activity event of account %s", g, account.Id)
@@ -342,7 +342,7 @@ func (am *DefaultAccountManager) ListSetupKeys(accountID, userID string) ([]*Set
 	keys := make([]*SetupKey, 0, len(account.SetupKeys))
 	for _, key := range account.SetupKeys {
 		var k *SetupKey
-		if !user.IsAdmin() {
+		if !user.HasAdminPower() {
 			k = key.HiddenCopy(999)
 		} else {
 			k = key.Copy()
@@ -384,7 +384,7 @@ func (am *DefaultAccountManager) GetSetupKey(accountID, userID, keyID string) (*
 		foundKey.UpdatedAt = foundKey.CreatedAt
 	}
 
-	if !user.IsAdmin() {
+	if !user.HasAdminPower() {
 		foundKey = foundKey.HiddenCopy(999)
 	}
 

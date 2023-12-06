@@ -66,9 +66,18 @@ components:
           description: Name of the claim from which we extract groups names to add it to account groups.
           type: string
           example: "roles"
+        extra:
+          $ref: '#/components/schemas/AccountExtraSettings'
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
+    AccountExtraSettings:
+      type: object
+      properties:
+        peer_approval_enabled:
+          description: (Cloud only) Enables or disables peer approval globally. If enabled, all peers added will be in pending state until approved by an admin.
+          type: boolean
+          example: true
     AccountRequest:
       type: object
       properties:
@@ -213,11 +222,15 @@ components:
         login_expiration_enabled:
           type: boolean
           example: false
+        approval_required:
+          description: (Cloud only) Indicates whether peer needs approval
+          type: boolean
+          example: true
       required:
         - name
         - ssh_enabled
         - login_expiration_enabled
-    Peer:
+    PeerBase:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
         - type: object
@@ -281,6 +294,10 @@ components:
               type: string
               format: date-time
               example: 2023-05-05T09:00:35.477782Z
+            approval_required:
+              description: (Cloud only) Indicates whether peer needs approval
+              type: boolean
+              example: true
           required:
             - ip
             - connected
@@ -294,6 +311,50 @@ components:
             - login_expiration_enabled
             - login_expired
             - last_login
+    AccessiblePeer:
+      allOf:
+        - $ref: '#/components/schemas/PeerMinimum'
+        - type: object
+          properties:
+            ip:
+              description: Peer's IP address
+              type: string
+              example: 10.64.0.1
+            dns_label:
+              description: Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
+              type: string
+              example: stage-host-1.netbird.cloud
+            user_id:
+              description: User ID of the user that enrolled this peer
+              type: string
+              example: google-oauth2|277474792786460067937
+          required:
+            - ip
+            - dns_label
+            - user_id
+    Peer:
+      allOf:
+        - $ref: '#/components/schemas/PeerBase'
+        - type: object
+          properties:
+            accessible_peers:
+              description: List of accessible peers
+              type: array
+              items:
+                $ref: '#/components/schemas/AccessiblePeer'
+          required:
+            - accessible_peers
+    PeerBatch:
+      allOf:
+        - $ref: '#/components/schemas/PeerBase'
+        - type: object
+          properties:
+            accessible_peers_count:
+              description: Number of accessible peers
+              type: integer
+              example: 5
+          required:
+            - accessible_peers_count
     SetupKey:
       type: object
       properties:
@@ -1030,6 +1091,32 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/accounts/{accountId}:
+    delete:
+      summary: Delete an Account
+      description: Deletes an account and all its resources. Only administrators and account owners can delete accounts.
+      tags: [ Accounts ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: accountId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an account
+      responses:
+        '200':
+          description: Delete account status code
+          content: { }
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     put:
       summary: Update an Account
       description: Update information about an account
@@ -1364,7 +1451,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Peer'
+                  $ref: '#/components/schemas/PeerBatch'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
