@@ -576,6 +576,31 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
 }
 
+// LogoutPeer logs out registered peer by delete it and send updates to the remote peers.
+func (am *DefaultAccountManager) LogoutPeer(peerPubKey string) error {
+	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
+	if err != nil {
+		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
+			return status.Errorf(status.Unauthenticated, "peer is not registered")
+		}
+
+		log.Errorf("failed while logging out peer %s: %v", peerPubKey, err)
+		return status.Errorf(status.Internal, "failed while logging out peer")
+	}
+
+	peer, err := account.FindPeerByPubKey(peerPubKey)
+	if err != nil {
+		return status.Errorf(status.Unauthenticated, "peer is not registered")
+	}
+
+	// prevent logging out peer added by setup key
+	if peer.UserID == "" {
+		return status.Errorf(status.PermissionDenied, "peer was added by setup key")
+	}
+
+	return am.DeletePeer(account.Id, peer.ID, peer.UserID)
+}
+
 func checkIfPeerOwnerIsBlocked(peer *nbpeer.Peer, account *Account) error {
 	if peer.AddedWithSSOLogin() {
 		user, err := account.FindUser(peer.UserID)

@@ -112,6 +112,7 @@ type AccountManager interface {
 	GetPeer(accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error)
 	LoginPeer(login PeerLogin) (*nbpeer.Peer, *NetworkMap, error) // used by peer gRPC API
+	LogoutPeer(peerPubKey string) error                           // used by peer gRPC API
 	SyncPeer(sync PeerSync) (*nbpeer.Peer, *NetworkMap, error)    // used by peer gRPC API
 	GetAllConnectedPeers() (map[string]struct{}, error)
 	HasConnectedChannel(peerID string) bool

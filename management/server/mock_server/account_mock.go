@@ -78,6 +78,7 @@ type MockAccountManager struct {
 	GetPeerFunc                     func(accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettingsFunc       func(accountID, userID string, newSettings *server.Settings) (*server.Account, error)
 	LoginPeerFunc                   func(login server.PeerLogin) (*nbpeer.Peer, *server.NetworkMap, error)
+	LogoutPeerFunc                  func(peerPubKey string) error
 	SyncPeerFunc                    func(sync server.PeerSync) (*nbpeer.Peer, *server.NetworkMap, error)
 	InviteUserFunc                  func(accountID string, initiatorUserID string, targetUserEmail string) error
 	GetAllConnectedPeersFunc        func() (map[string]struct{}, error)
@@ -605,6 +606,14 @@ func (am *MockAccountManager) LoginPeer(login server.PeerLogin) (*nbpeer.Peer, *
 		return am.LoginPeerFunc(login)
 	}
 	return nil, nil, status.Errorf(codes.Unimplemented, "method LoginPeer is not implemented")
+}
+
+// LogoutPeer mocks LogoutPeer of the AccountManager interface
+func (am *MockAccountManager) LogoutPeer(peerPubKey string) error {
+	if am.LogoutPeerFunc != nil {
+		return am.LogoutPeerFunc(peerPubKey)
+	}
+	return status.Errorf(codes.Unimplemented, "method LogoutPeer is not implemented")
 }
 
 // SyncPeer mocks SyncPeer of the AccountManager interface
