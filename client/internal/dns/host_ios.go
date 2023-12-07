@@ -10,7 +10,7 @@ type iosHostManager struct {
 	config     hostDNSConfig
 }
 
-func newHostManager(wgInterface WGIface, dnsManager IosDnsManager) (hostManager, error) {
+func newHostManager(dnsManager IosDnsManager) (hostManager, error) {
 	return &iosHostManager{
 		dnsManager: dnsManager,
 	}, nil

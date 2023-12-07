@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
-	"runtime"
 	"sync"
 
 	"github.com/miekg/dns"
@@ -127,7 +126,7 @@ func newDefaultServer(ctx context.Context, wgInterface WGIface, dnsService servi
 }
 
 // Initialize instantiate host manager and the dns service
-func (s *DefaultServer) Initialize(manager IosDnsManager) (err error) {
+func (s *DefaultServer) Initialize() (err error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -135,19 +134,8 @@ func (s *DefaultServer) Initialize(manager IosDnsManager) (err error) {
 		return nil
 	}
 
-	if s.permanent {
-		err = s.service.Listen()
-		if err != nil {
-			return err
-		}
-	}
-
-	if runtime.GOOS == "ios" {
-		s.hostManager, err = newHostManager(nil, manager)
-	} else {
-		s.hostManager, err = newHostManager(s.wgInterface, nil)
-	}
-	return
+	s.hostManager, err = s.initialize()
+	return err
 }
 
 // DnsIP returns the DNS resolver server IP address

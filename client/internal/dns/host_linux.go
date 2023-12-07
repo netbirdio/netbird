@@ -25,7 +25,7 @@ const (
 
 type osManagerType int
 
-func newHostManager(wgInterface WGIface, dnsManager IosDnsManager) (hostManager, error) {
+func newHostManager(wgInterface WGIface) (hostManager, error) {
 	osManager, err := getOSDNSManagerType()
 	if err != nil {
 		return nil, err

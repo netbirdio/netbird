@@ -29,7 +29,7 @@ type registryConfigurator struct {
 	routingAll bool
 }
 
-func newHostManager(wgInterface WGIface, dnsManager IosDnsManager) (hostManager, error) {
+func newHostManager(wgInterface WGIface) (hostManager, error) {
 	guid, err := wgInterface.GetInterfaceGUIDString()
 	if err != nil {
 		return nil, err
