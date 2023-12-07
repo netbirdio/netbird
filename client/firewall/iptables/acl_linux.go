@@ -19,6 +19,8 @@ const (
 	// rules chains contains the effective ACL rules
 	chainNameInputRules  = "NETBIRD-ACL-INPUT"
 	chainNameOutputRules = "NETBIRD-ACL-OUTPUT"
+
+	postRoutingMark = "0x000007e4"
 )
 
 type aclManager struct {
@@ -42,7 +44,7 @@ func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper, route
 
 	err := ipset.Init()
 	if err != nil {
-		return nil, fmt.Errorf("faild to init ipset: %w", err)
+		return nil, fmt.Errorf("failed to init ipset: %w", err)
 	}
 
 	m.seedInitialEntries()
@@ -212,7 +214,7 @@ func (m *aclManager) addPreroutingFilter(ipsetName string, protocol string, port
 		"-d", m.wgIface.Address().IP.String(),
 		"-p", protocol,
 		"--dport", port,
-		"-j", "MARK", "--set-mark", "0x000007e4",
+		"-j", "MARK", "--set-mark", postRoutingMark,
 	}
 
 	specs = append(src, specs...)
@@ -380,14 +382,14 @@ func (m *aclManager) seedInitialEntries() {
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", chainNameInputRules})
 	m.appendToEntries("FORWARD",
-		[]string{"-o", m.wgIface.Name(), "-m", "mark", "--mark", "0x000007e4", "-j", "ACCEPT"})
+		[]string{"-o", m.wgIface.Name(), "-m", "mark", "--mark", postRoutingMark, "-j", "ACCEPT"})
 	m.appendToEntries("FORWARD",
-		[]string{"-i", m.wgIface.Name(), "-m", "mark", "--mark", "0x000007e4", "-j", "ACCEPT"})
+		[]string{"-i", m.wgIface.Name(), "-m", "mark", "--mark", postRoutingMark, "-j", "ACCEPT"})
 	m.appendToEntries("FORWARD", []string{"-o", m.wgIface.Name(), "-j", m.routeingFwChainName})
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", m.routeingFwChainName})
 
 	m.appendToEntries("PREROUTING",
-		[]string{"-t", "mangle", "-i", m.wgIface.Name(), "!", "-s", m.wgIface.Address().String(), "-d", m.wgIface.Address().IP.String(), "-m", "mark", "--mark", "0x000007e4"})
+		[]string{"-t", "mangle", "-i", m.wgIface.Name(), "!", "-s", m.wgIface.Address().String(), "-d", m.wgIface.Address().IP.String(), "-m", "mark", "--mark", postRoutingMark})
 }
 
 func (m *aclManager) appendToEntries(chainName string, spec []string) {
