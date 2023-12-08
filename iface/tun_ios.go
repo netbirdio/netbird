@@ -5,7 +5,6 @@ package iface
 
 import (
 	"os"
-	"strings"
 
 	"github.com/pion/transport/v2"
 	log "github.com/sirupsen/logrus"
@@ -99,8 +98,4 @@ func (t *tunDevice) Close() (err error) {
 	}
 
 	return
-}
-
-func (t *tunDevice) routesToString(routes []string) string {
-	return strings.Join(routes, ";")
 }

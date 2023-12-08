@@ -19,7 +19,7 @@ type ReadyListener interface {
 	OnReady()
 }
 
-// IosDnsManager is a dns manager interface for iosß
+// IosDnsManager is a dns manager interface for iOS
 type IosDnsManager interface {
 	ApplyDns(string)
 }
