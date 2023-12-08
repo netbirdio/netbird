@@ -14,7 +14,7 @@ type MockServer struct {
 }
 
 // Initialize mock implementation of Initialize from Server interface
-func (m *MockServer) Initialize(manager IosDnsManager) error {
+func (m *MockServer) Initialize() error {
 	if m.InitializeFunc != nil {
 		return m.InitializeFunc()
 	}
