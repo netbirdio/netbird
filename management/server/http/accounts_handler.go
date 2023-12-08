@@ -91,6 +91,9 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 	if req.Settings.JwtGroupsClaimName != nil {
 		settings.JWTGroupsClaimName = *req.Settings.JwtGroupsClaimName
 	}
+	if req.Settings.JwtAllowGroups != nil {
+		settings.JWTAllowGroups = *req.Settings.JwtAllowGroups
+	}
 
 	updatedAccount, err := h.accountManager.UpdateAccountSettings(accountID, user.Id, settings)
 	if err != nil {
@@ -134,6 +137,7 @@ func toAccountResponse(account *server.Account) *api.Account {
 		GroupsPropagationEnabled:   &account.Settings.GroupsPropagationEnabled,
 		JwtGroupsEnabled:           &account.Settings.JWTGroupsEnabled,
 		JwtGroupsClaimName:         &account.Settings.JWTGroupsClaimName,
+		JwtAllowGroups:             &account.Settings.JWTAllowGroups,
 	}
 
 	if account.Settings.Extra != nil {

@@ -164,6 +164,9 @@ type Settings struct {
 	// JWTGroupsClaimName from which we extract groups name to add it to account groups
 	JWTGroupsClaimName string
 
+	// JWTAllowGroups list of groups to which users are allowed access
+	JWTAllowGroups []string `gorm:"serializer:json"`
+
 	// Extra is a dictionary of Account settings
 	Extra *account.ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
 }
@@ -176,6 +179,7 @@ func (s *Settings) Copy() *Settings {
 		JWTGroupsEnabled:           s.JWTGroupsEnabled,
 		JWTGroupsClaimName:         s.JWTGroupsClaimName,
 		GroupsPropagationEnabled:   s.GroupsPropagationEnabled,
+		JWTAllowGroups:             s.JWTAllowGroups,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()
