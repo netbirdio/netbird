@@ -131,13 +131,18 @@ func (h *AccountsHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) 
 }
 
 func toAccountResponse(account *server.Account) *api.Account {
+	jwtAllowGroups := account.Settings.JWTAllowGroups
+	if jwtAllowGroups == nil {
+		jwtAllowGroups = []string{}
+	}
+
 	settings := api.AccountSettings{
 		PeerLoginExpiration:        int(account.Settings.PeerLoginExpiration.Seconds()),
 		PeerLoginExpirationEnabled: account.Settings.PeerLoginExpirationEnabled,
 		GroupsPropagationEnabled:   &account.Settings.GroupsPropagationEnabled,
 		JwtGroupsEnabled:           &account.Settings.JWTGroupsEnabled,
 		JwtGroupsClaimName:         &account.Settings.JWTGroupsClaimName,
-		JwtAllowGroups:             &account.Settings.JWTAllowGroups,
+		JwtAllowGroups:             &jwtAllowGroups,
 	}
 
 	if account.Settings.Extra != nil {
