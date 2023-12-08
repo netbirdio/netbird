@@ -17,6 +17,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/client/firewall"
+	"github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -115,6 +117,7 @@ type Engine struct {
 
 	statusRecorder *peer.Status
 
+	firewall     manager.Manager
 	routeManager routemanager.Manager
 	acl          acl.Manager
 
@@ -231,6 +234,19 @@ func (e *Engine) Start() error {
 		return err
 	}
 
+	e.firewall, err = firewall.NewFirewall(e.ctx, e.wgInterface)
+	if err != nil {
+		log.Errorf("failed creating firewall manager: %s", err)
+	}
+
+	if e.firewall != nil && e.firewall.IsServerRouteSupported() {
+		err = e.routeManager.EnableServerRouter(e.firewall)
+		if err != nil {
+			e.close()
+			return err
+		}
+	}
+
 	err = e.wgInterface.Configure(myPrivateKey.String(), e.config.WgPort)
 	if err != nil {
 		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIFaceName, err.Error())
@@ -258,10 +274,8 @@ func (e *Engine) Start() error {
 		e.udpMux = mux
 	}
 
-	if acl, err := acl.Create(e.wgInterface); err != nil {
-		log.Errorf("failed to create ACL manager, policy will not work: %s", err.Error())
-	} else {
-		e.acl = acl
+	if e.firewall != nil {
+		e.acl = acl.NewDefaultManager(e.firewall)
 	}
 
 	err = e.dnsServer.Initialize()
@@ -1044,8 +1058,11 @@ func (e *Engine) close() {
 		e.dnsServer.Stop()
 	}
 
-	if e.acl != nil {
-		e.acl.Stop()
+	if e.firewall != nil {
+		err := e.firewall.Reset()
+		if err != nil {
+			log.Warnf("failed to reset firewall: %s", err)
+		}
 	}
 }
 
