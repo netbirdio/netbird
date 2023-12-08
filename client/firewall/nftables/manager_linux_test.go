@@ -1,6 +1,7 @@
 package nftables
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/netip"
@@ -12,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 
-	fw "github.com/netbirdio/netbird/client/firewall"
+	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/iface"
 )
 
@@ -53,7 +54,7 @@ func TestNftablesManager(t *testing.T) {
 	}
 
 	// just check on the local interface
-	manager, err := Create(mock)
+	manager, err := Create(context.Background(), mock)
 	require.NoError(t, err)
 	time.Sleep(time.Second * 3)
 
@@ -82,14 +83,10 @@ func TestNftablesManager(t *testing.T) {
 	err = manager.Flush()
 	require.NoError(t, err, "failed to flush")
 
-	rules, err := testClient.GetRules(manager.tableIPv4, manager.filterInputChainIPv4)
+	rules, err := testClient.GetRules(manager.aclManager.workTable, manager.aclManager.chainInputRules)
 	require.NoError(t, err, "failed to get rules")
 
-	// test expectations:
-	// 1) regular rule
-	// 2) "accept extra routed traffic rule" for the interface
-	// 3) "drop all rule" for the interface
-	require.Len(t, rules, 3, "expected 3 rules")
+	require.Len(t, rules, 1, "expected 1 rules")
 
 	ipToAdd, _ := netip.AddrFromSlice(ip)
 	add := ipToAdd.Unmap()
@@ -137,18 +134,17 @@ func TestNftablesManager(t *testing.T) {
 	}
 	require.ElementsMatch(t, rules[0].Exprs, expectedExprs, "expected the same expressions")
 
-	err = manager.DeleteRule(rule)
-	require.NoError(t, err, "failed to delete rule")
+	for _, r := range rule {
+		err = manager.DeleteRule(r)
+		require.NoError(t, err, "failed to delete rule")
+	}
 
 	err = manager.Flush()
 	require.NoError(t, err, "failed to flush")
 
-	rules, err = testClient.GetRules(manager.tableIPv4, manager.filterInputChainIPv4)
+	rules, err = testClient.GetRules(manager.aclManager.workTable, manager.aclManager.chainInputRules)
 	require.NoError(t, err, "failed to get rules")
-	// test expectations:
-	// 1) "accept extra routed traffic rule" for the interface
-	// 2) "drop all rule" for the interface
-	require.Len(t, rules, 2, "expected 2 rules after deletion")
+	require.Len(t, rules, 0, "expected 0 rules after deletion")
 
 	err = manager.Reset()
 	require.NoError(t, err, "failed to reset")
@@ -173,7 +169,7 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 	for _, testMax := range []int{10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000} {
 		t.Run(fmt.Sprintf("Testing %d rules", testMax), func(t *testing.T) {
 			// just check on the local interface
-			manager, err := Create(mock)
+			manager, err := Create(context.Background(), mock)
 			require.NoError(t, err)
 			time.Sleep(time.Second * 3)
 
