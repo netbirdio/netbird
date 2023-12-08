@@ -115,11 +115,11 @@ components:
           format: date-time
           example: 2023-05-05T09:00:35.477782Z
         auto_groups:
-          description: Groups to auto-assign to peers registered by this user
+          description: Group IDs to auto-assign to peers registered by this user
           type: array
           items:
             type: string
-            example: devs
+            example: ch8i4ug6lnn4g9hqv7m0
         is_current:
           description: Is true if authenticated user is the same as this user
           type: boolean
@@ -154,11 +154,11 @@ components:
           type: string
           example: admin
         auto_groups:
-          description: Groups to auto-assign to peers registered by this user
+          description: Group IDs to auto-assign to peers registered by this user
           type: array
           items:
             type: string
-            example: devs
+            example: ch8i4ug6lnn4g9hqv7m0
         is_blocked:
           description: If set to true then user is blocked and can't use the system
           type: boolean
@@ -183,11 +183,11 @@ components:
           type: string
           example: admin
         auto_groups:
-          description: Groups to auto-assign to peers registered by this user
+          description: Group IDs to auto-assign to peers registered by this user
           type: array
           items:
             type: string
-            example: devs
+            example: ch8i4ug6lnn4g9hqv7m0
         is_service_user:
           description: Is true if this user is a service user
           type: boolean
@@ -405,7 +405,7 @@ components:
           type: array
           items:
             type: string
-            example: "devs"
+            example: "ch8i4ug6lnn4g9hqv7m0"
         updated_at:
           description: Setup key last update date
           type: string
@@ -460,7 +460,7 @@ components:
           type: array
           items:
             type: string
-            example: "devs"
+            example: "ch8i4ug6lnn4g9hqv7m0"
         usage_limit:
           description: A number of times this key can be used. The value of 0 indicates the unlimited usage.
           type: integer
@@ -621,13 +621,13 @@ components:
           properties:
             sources:
               type: array
-              description: List of source groups
+              description: List of source group IDs
               items:
                 type: string
                 example: "ch8i4ug6lnn4g9hqv7m1"
             destinations:
               type: array
-              description: List of destination groups
+              description: List of destination group IDs
               items:
                 type: string
                 example: "ch8i4ug6lnn4g9hqv7m0"
@@ -645,12 +645,12 @@ components:
         - type: object
           properties:
             sources:
-              description: Rule source groups
+              description: Rule source group IDs
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
             destinations:
-              description: Rule destination groups
+              description: Rule destination group IDs
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
@@ -708,13 +708,13 @@ components:
         - type: object
           properties:
             sources:
-              description: Policy rule source groups
+              description: Policy rule source group IDs
               type: array
               items:
                 type: string
                 example: "ch8i4ug6lnn4g9hqv797"
             destinations:
-              description: Policy rule destination groups
+              description: Policy rule destination group IDs
               type: array
               items:
                 type: string
@@ -728,12 +728,12 @@ components:
         - type: object
           properties:
             sources:
-              description: Policy rule source groups
+              description: Policy rule source group IDs
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
             destinations:
-              description: Policy rule destination groups
+              description: Policy rule destination group IDs
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
@@ -834,7 +834,7 @@ components:
           type: boolean
           example: true
         groups:
-          description: Route group tag groups
+          description: Group IDs containing routing peers
           type: array
           items:
             type: string
@@ -891,17 +891,17 @@ components:
       type: object
       properties:
         name:
-          description: Nameserver group name
+          description: Name of nameserver group name
           type: string
           maxLength: 40
           minLength: 1
           example: Google DNS
         description:
-          description: Nameserver group  description
+          description: Description of the nameserver group
           type: string
           example: Google DNS servers
         nameservers:
-          description: Nameserver group
+          description: Nameserver list
           minLength: 1
           maxLength: 2
           type: array
@@ -912,17 +912,17 @@ components:
           type: boolean
           example: true
         groups:
-          description: Nameserver group tag groups
+          description: Distribution group IDs that defines group of peers that will use this nameserver group
           type: array
           items:
             type: string
             example: ch8i4ug6lnn4g9hqv7m0
         primary:
-          description: Nameserver group primary status
+          description: Defines if a nameserver group is primary that resolves all domains. It should be true only if domains list is empty.
           type: boolean
           example: true
         domains:
-          description: Nameserver group match domain list
+          description: Match domain list. It should be empty only if primary is true.
           type: array
           items:
             type: string
@@ -930,7 +930,7 @@ components:
             maxLength: 255
             example: "example.com"
         search_domains_enabled:
-          description: Nameserver group search domain status for match domains. It should be true only if domains list is not empty.
+          description: Search domain status for match domains. It should be true only if domains list is not empty.
           type: boolean
           example: true
       required:
