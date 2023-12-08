@@ -101,29 +101,8 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	for _, upstream := range u.upstreamServers {
-		var (
-			err          error
-			t            time.Duration
-			rm           *dns.Msg
-			upstreamHost string
-		)
 
-		upstreamExchangeClient := &dns.Client{}
-		if runtime.GOOS != "ios" {
-			ctx, cancel := context.WithTimeout(u.ctx, u.upstreamTimeout)
-			rm, t, err = upstreamExchangeClient.ExchangeContext(ctx, r, upstream)
-			cancel()
-		} else {
-			upstreamHost, _, err = net.SplitHostPort(upstream)
-			if err != nil {
-				log.Errorf("error while parsing upstream host: %s", err)
-			}
-			upstreamIP := net.ParseIP(upstreamHost)
-			if u.lNet.Contains(upstreamIP) || net.IP.IsPrivate(upstreamIP) {
-				upstreamExchangeClient = u.getClientPrivate()
-			}
-			rm, t, err = upstreamExchangeClient.Exchange(r, upstream)
-		}
+		rm, t, err := u.upstreamExchange(upstream, r)
 
 		if err != nil {
 			if err == context.DeadlineExceeded || isTimeout(err) {

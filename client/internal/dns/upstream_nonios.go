@@ -3,17 +3,16 @@
 package dns
 
 import (
-	"net"
+	"context"
+	"time"
 
 	"github.com/miekg/dns"
 )
 
-// getClientPrivate returns a new DNS client bound to the local IP address of the Netbird interface
-// This method is needed for iOS
-func (u *upstreamResolver) getClientPrivate() *dns.Client {
-	dialer := &net.Dialer{}
-	client := &dns.Client{
-		Dialer: dialer,
-	}
-	return client
+func (u *upstreamResolver) upstreamExchange(upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
+	upstreamExchangeClient := &dns.Client{}
+	ctx, cancel := context.WithTimeout(u.ctx, u.upstreamTimeout)
+	rm, t, err = upstreamExchangeClient.ExchangeContext(ctx, r, upstream)
+	cancel()
+	return rm, t, err
 }

@@ -5,11 +5,18 @@ package dns
 import (
 	"net"
 	"syscall"
+	"time"
 
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
+
+func (u *upstreamResolver) upstreamExchange(upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
+	client := u.getClientPrivate()
+	return client.Exchange(r, upstream)
+
+}
 
 // getClientPrivate returns a new DNS client bound to the local IP address of the Netbird interface
 // This method is needed for iOS
