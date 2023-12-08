@@ -21,7 +21,7 @@ func NewWGIFace(ifaceName string, address string, mtu int, tunAdapter TunAdapter
 		return wgIFace, err
 	}
 
-	tun := newTunDevice(wgAddress, mtu, tunAdapter, transportNet)
+	tun := newTunDevice(ifaceName, wgAddress, mtu, tunAdapter, transportNet)
 	wgIFace.tun = tun
 
 	wgIFace.configurer = newWGConfigurer(tun)

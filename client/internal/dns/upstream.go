@@ -102,56 +102,56 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 	for _, upstream := range u.upstreamServers {
 		var (
-			exchangeErr error
-			t           time.Duration
-			rm          *dns.Msg
+			err          error
+			t            time.Duration
+			rm           *dns.Msg
+			upstreamHost string
 		)
 
 		upstreamExchangeClient := &dns.Client{}
 		if runtime.GOOS != "ios" {
 			ctx, cancel := context.WithTimeout(u.ctx, u.upstreamTimeout)
-			rm, t, exchangeErr = upstreamExchangeClient.ExchangeContext(ctx, r, upstream)
+			rm, t, err = upstreamExchangeClient.ExchangeContext(ctx, r, upstream)
 			cancel()
 		} else {
-			upstreamHost, _, err := net.SplitHostPort(upstream)
+			upstreamHost, _, err = net.SplitHostPort(upstream)
 			if err != nil {
 				log.Errorf("error while parsing upstream host: %s", err)
-				return
 			}
 			upstreamIP := net.ParseIP(upstreamHost)
 			if u.lNet.Contains(upstreamIP) || net.IP.IsPrivate(upstreamIP) {
 				upstreamExchangeClient = u.getClientPrivate()
 			}
-			rm, t, exchangeErr = upstreamExchangeClient.Exchange(r, upstream)
+			rm, t, err = upstreamExchangeClient.Exchange(r, upstream)
 		}
 
-		if exchangeErr != nil {
-			if exchangeErr == context.DeadlineExceeded || isTimeout(exchangeErr) {
-				log.WithError(exchangeErr).WithField("upstream", upstream).
+		if err != nil {
+			if err == context.DeadlineExceeded || isTimeout(err) {
+				log.WithError(err).WithField("upstream", upstream).
 					Warn("got an error while connecting to upstream")
 				continue
 			}
 			u.failsCount.Add(1)
-			log.WithError(exchangeErr).WithField("upstream", upstream).
+			log.WithError(err).WithField("upstream", upstream).
 				Error("got other error while querying the upstream")
 			return
 		}
 
 		if rm == nil {
-			log.WithError(exchangeErr).WithField("upstream", upstream).
+			log.WithError(err).WithField("upstream", upstream).
 				Warn("no response from upstream")
 			return
 		}
 		// those checks need to be independent of each other due to memory address issues
 		if !rm.Response {
-			log.WithError(exchangeErr).WithField("upstream", upstream).
+			log.WithError(err).WithField("upstream", upstream).
 				Warn("no response from upstream")
 			return
 		}
 
 		log.Tracef("took %s to query the upstream %s", t, upstream)
 
-		err := w.WriteMsg(rm)
+		err = w.WriteMsg(rm)
 		if err != nil {
 			log.WithError(err).Error("got an error while writing the upstream resolver response")
 		}

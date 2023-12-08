@@ -16,5 +16,4 @@ type MobileDependency struct {
 	DnsReadyListener      dns.ReadyListener
 	DnsManager            dns.IosDnsManager
 	FileDescriptor        int32
-	InterfaceName         string
 }

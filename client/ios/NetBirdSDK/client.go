@@ -105,7 +105,8 @@ func (c *Client) Run(fd int32, interfaceName string) error {
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.onHostDnsFn = func([]string) {}
-	return internal.RunClientiOS(ctx, cfg, c.recorder, fd, c.networkChangeListener, c.dnsManager, interfaceName)
+	cfg.WgIface = interfaceName
+	return internal.RunClientiOS(ctx, cfg, c.recorder, fd, c.networkChangeListener, c.dnsManager)
 }
 
 // Stop the internal client and free the resources

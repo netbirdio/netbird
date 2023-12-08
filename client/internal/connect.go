@@ -43,10 +43,9 @@ func RunClientMobile(ctx context.Context, config *Config, statusRecorder *peer.S
 	return runClient(ctx, config, statusRecorder, mobileDependency)
 }
 
-func RunClientiOS(ctx context.Context, config *Config, statusRecorder *peer.Status, fileDescriptor int32, networkChangeListener listener.NetworkChangeListener, dnsManager dns.IosDnsManager, interfaceName string) error {
+func RunClientiOS(ctx context.Context, config *Config, statusRecorder *peer.Status, fileDescriptor int32, networkChangeListener listener.NetworkChangeListener, dnsManager dns.IosDnsManager) error {
 	mobileDependency := MobileDependency{
 		FileDescriptor:        fileDescriptor,
-		InterfaceName:         interfaceName,
 		NetworkChangeListener: networkChangeListener,
 		DnsManager:            dnsManager,
 	}

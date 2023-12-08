@@ -194,7 +194,8 @@ func (e *Engine) Start() error {
 
 	var routes []*route.Route
 
-	if runtime.GOOS == "android" {
+	switch runtime.GOOS {
+	case "android":
 		var dnsConfig *nbdns.Config
 		routes, dnsConfig, err = e.readInitialSettings()
 		if err != nil {
@@ -204,11 +205,17 @@ func (e *Engine) Start() error {
 			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, *dnsConfig, e.mobileDep.NetworkChangeListener)
 			go e.mobileDep.DnsReadyListener.OnReady()
 		}
-	} else if e.dnsServer == nil {
-		e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.mobileDep.InterfaceName, wgAddr)
-		if err != nil {
-			e.close()
-			return err
+	case "ios":
+		if e.dnsServer == nil {
+			e.dnsServer = dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager)
+		}
+	default:
+		if e.dnsServer == nil {
+			e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
+			if err != nil {
+				e.close()
+				return err
+			}
 		}
 	}
 
@@ -267,11 +274,7 @@ func (e *Engine) Start() error {
 		e.acl = acl
 	}
 
-	if runtime.GOOS == "ios" {
-		err = e.dnsServer.Initialize(e.mobileDep.DnsManager)
-	} else {
-		err = e.dnsServer.Initialize(nil)
-	}
+	err = e.dnsServer.Initialize()
 	if err != nil {
 		e.close()
 		return err

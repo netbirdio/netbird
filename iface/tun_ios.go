@@ -28,8 +28,9 @@ type tunDevice struct {
 	wrapper *DeviceWrapper
 }
 
-func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter, transportNet transport.Net) *tunDevice {
+func newTunDevice(name string, address WGAddress, mtu int, tunAdapter TunAdapter, transportNet transport.Net) *tunDevice {
 	return &tunDevice{
+		name:       name,
 		address:    address,
 		mtu:        mtu,
 		tunAdapter: tunAdapter,
