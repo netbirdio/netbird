@@ -91,6 +91,9 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 	if req.Settings.JwtGroupsClaimName != nil {
 		settings.JWTGroupsClaimName = *req.Settings.JwtGroupsClaimName
 	}
+	if req.Settings.JwtAllowGroups != nil {
+		settings.JWTAllowGroups = *req.Settings.JwtAllowGroups
+	}
 
 	updatedAccount, err := h.accountManager.UpdateAccountSettings(accountID, user.Id, settings)
 	if err != nil {
@@ -128,12 +131,18 @@ func (h *AccountsHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) 
 }
 
 func toAccountResponse(account *server.Account) *api.Account {
+	jwtAllowGroups := account.Settings.JWTAllowGroups
+	if jwtAllowGroups == nil {
+		jwtAllowGroups = []string{}
+	}
+
 	settings := api.AccountSettings{
 		PeerLoginExpiration:        int(account.Settings.PeerLoginExpiration.Seconds()),
 		PeerLoginExpirationEnabled: account.Settings.PeerLoginExpirationEnabled,
 		GroupsPropagationEnabled:   &account.Settings.GroupsPropagationEnabled,
 		JwtGroupsEnabled:           &account.Settings.JWTGroupsEnabled,
 		JwtGroupsClaimName:         &account.Settings.JWTGroupsClaimName,
+		JwtAllowGroups:             &jwtAllowGroups,
 	}
 
 	if account.Settings.Extra != nil {
