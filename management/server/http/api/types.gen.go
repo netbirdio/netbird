@@ -271,58 +271,58 @@ type NameserverNsType string
 
 // NameserverGroup defines model for NameserverGroup.
 type NameserverGroup struct {
-	// Description Nameserver group  description
+	// Description Description of the nameserver group
 	Description string `json:"description"`
 
-	// Domains Nameserver group match domain list
+	// Domains Match domain list. It should be empty only if primary is true.
 	Domains []string `json:"domains"`
 
 	// Enabled Nameserver group status
 	Enabled bool `json:"enabled"`
 
-	// Groups Nameserver group tag groups
+	// Groups Distribution group IDs that defines group of peers that will use this nameserver group
 	Groups []string `json:"groups"`
 
 	// Id Nameserver group ID
 	Id string `json:"id"`
 
-	// Name Nameserver group name
+	// Name Name of nameserver group name
 	Name string `json:"name"`
 
-	// Nameservers Nameserver group
+	// Nameservers Nameserver list
 	Nameservers []Nameserver `json:"nameservers"`
 
-	// Primary Nameserver group primary status
+	// Primary Defines if a nameserver group is primary that resolves all domains. It should be true only if domains list is empty.
 	Primary bool `json:"primary"`
 
-	// SearchDomainsEnabled Nameserver group search domain status for match domains. It should be true only if domains list is not empty.
+	// SearchDomainsEnabled Search domain status for match domains. It should be true only if domains list is not empty.
 	SearchDomainsEnabled bool `json:"search_domains_enabled"`
 }
 
 // NameserverGroupRequest defines model for NameserverGroupRequest.
 type NameserverGroupRequest struct {
-	// Description Nameserver group  description
+	// Description Description of the nameserver group
 	Description string `json:"description"`
 
-	// Domains Nameserver group match domain list
+	// Domains Match domain list. It should be empty only if primary is true.
 	Domains []string `json:"domains"`
 
 	// Enabled Nameserver group status
 	Enabled bool `json:"enabled"`
 
-	// Groups Nameserver group tag groups
+	// Groups Distribution group IDs that defines group of peers that will use this nameserver group
 	Groups []string `json:"groups"`
 
-	// Name Nameserver group name
+	// Name Name of nameserver group name
 	Name string `json:"name"`
 
-	// Nameservers Nameserver group
+	// Nameservers Nameserver list
 	Nameservers []Nameserver `json:"nameservers"`
 
-	// Primary Nameserver group primary status
+	// Primary Defines if a nameserver group is primary that resolves all domains. It should be true only if domains list is empty.
 	Primary bool `json:"primary"`
 
-	// SearchDomainsEnabled Nameserver group search domain status for match domains. It should be true only if domains list is not empty.
+	// SearchDomainsEnabled Search domain status for match domains. It should be true only if domains list is not empty.
 	SearchDomainsEnabled bool `json:"search_domains_enabled"`
 }
 
@@ -600,7 +600,7 @@ type PolicyRule struct {
 	// Description Policy rule friendly description
 	Description *string `json:"description,omitempty"`
 
-	// Destinations Policy rule destination groups
+	// Destinations Policy rule destination group IDs
 	Destinations []GroupMinimum `json:"destinations"`
 
 	// Enabled Policy rule status
@@ -618,7 +618,7 @@ type PolicyRule struct {
 	// Protocol Policy rule type of the traffic
 	Protocol PolicyRuleProtocol `json:"protocol"`
 
-	// Sources Policy rule source groups
+	// Sources Policy rule source group IDs
 	Sources []GroupMinimum `json:"sources"`
 }
 
@@ -672,7 +672,7 @@ type PolicyRuleUpdate struct {
 	// Description Policy rule friendly description
 	Description *string `json:"description,omitempty"`
 
-	// Destinations Policy rule destination groups
+	// Destinations Policy rule destination group IDs
 	Destinations []string `json:"destinations"`
 
 	// Enabled Policy rule status
@@ -690,7 +690,7 @@ type PolicyRuleUpdate struct {
 	// Protocol Policy rule type of the traffic
 	Protocol PolicyRuleUpdateProtocol `json:"protocol"`
 
-	// Sources Policy rule source groups
+	// Sources Policy rule source group IDs
 	Sources []string `json:"sources"`
 }
 
@@ -729,7 +729,7 @@ type Route struct {
 	// Enabled Route status
 	Enabled bool `json:"enabled"`
 
-	// Groups Route group tag groups
+	// Groups Group IDs containing routing peers
 	Groups []string `json:"groups"`
 
 	// Id Route Id
@@ -765,7 +765,7 @@ type RouteRequest struct {
 	// Enabled Route status
 	Enabled bool `json:"enabled"`
 
-	// Groups Route group tag groups
+	// Groups Group IDs containing routing peers
 	Groups []string `json:"groups"`
 
 	// Masquerade Indicate if peer should masquerade traffic to this route's prefix
@@ -792,7 +792,7 @@ type Rule struct {
 	// Description Rule friendly description
 	Description string `json:"description"`
 
-	// Destinations Rule destination groups
+	// Destinations Rule destination group IDs
 	Destinations []GroupMinimum `json:"destinations"`
 
 	// Disabled Rules status
@@ -807,7 +807,7 @@ type Rule struct {
 	// Name Rule name identifier
 	Name string `json:"name"`
 
-	// Sources Rule source groups
+	// Sources Rule source group IDs
 	Sources []GroupMinimum `json:"sources"`
 }
 
@@ -831,7 +831,7 @@ type RuleRequest struct {
 	// Description Rule friendly description
 	Description string `json:"description"`
 
-	// Destinations List of destination groups
+	// Destinations List of destination group IDs
 	Destinations *[]string `json:"destinations,omitempty"`
 
 	// Disabled Rules status
@@ -843,7 +843,7 @@ type RuleRequest struct {
 	// Name Rule name identifier
 	Name string `json:"name"`
 
-	// Sources List of source groups
+	// Sources List of source group IDs
 	Sources *[]string `json:"sources,omitempty"`
 }
 
@@ -918,7 +918,7 @@ type SetupKeyRequest struct {
 
 // User defines model for User.
 type User struct {
-	// AutoGroups Groups to auto-assign to peers registered by this user
+	// AutoGroups Group IDs to auto-assign to peers registered by this user
 	AutoGroups []string `json:"auto_groups"`
 
 	// Email User's email address
@@ -957,7 +957,7 @@ type UserStatus string
 
 // UserCreateRequest defines model for UserCreateRequest.
 type UserCreateRequest struct {
-	// AutoGroups Groups to auto-assign to peers registered by this user
+	// AutoGroups Group IDs to auto-assign to peers registered by this user
 	AutoGroups []string `json:"auto_groups"`
 
 	// Email User's Email to send invite to
@@ -975,7 +975,7 @@ type UserCreateRequest struct {
 
 // UserRequest defines model for UserRequest.
 type UserRequest struct {
-	// AutoGroups Groups to auto-assign to peers registered by this user
+	// AutoGroups Group IDs to auto-assign to peers registered by this user
 	AutoGroups []string `json:"auto_groups"`
 
 	// IsBlocked If set to true then user is blocked and can't use the system
