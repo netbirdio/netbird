@@ -137,6 +137,13 @@ func (s *DefaultServer) Initialize() (err error) {
 		return nil
 	}
 
+	if s.permanent {
+		err = s.service.Listen()
+		if err != nil {
+			return err
+		}
+	}
+
 	s.hostManager, err = s.initialize()
 	return err
 }
