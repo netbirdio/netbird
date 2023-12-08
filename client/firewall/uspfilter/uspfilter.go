@@ -10,11 +10,15 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
-	fw "github.com/netbirdio/netbird/client/firewall"
+	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/iface"
 )
 
 const layerTypeAll = 0
+
+var (
+	errRouteNotSupported = fmt.Errorf("route not supported with userspace firewall")
+)
 
 // IFaceMapper defines subset methods of interface required for manager
 type IFaceMapper interface {
@@ -27,12 +31,12 @@ type RuleSet map[string]Rule
 
 // Manager userspace firewall manager
 type Manager struct {
-	outgoingRules map[string]RuleSet
-	incomingRules map[string]RuleSet
-	wgNetwork     *net.IPNet
-	decoders      sync.Pool
-	wgIface       IFaceMapper
-	resetHook     func() error
+	outgoingRules  map[string]RuleSet
+	incomingRules  map[string]RuleSet
+	wgNetwork      *net.IPNet
+	decoders       sync.Pool
+	wgIface        IFaceMapper
+	nativeFirewall firewall.Manager
 
 	mutex sync.RWMutex
 }
@@ -52,6 +56,20 @@ type decoder struct {
 
 // Create userspace firewall manager constructor
 func Create(iface IFaceMapper) (*Manager, error) {
+	return create(iface)
+}
+
+func CreateWithNativeFirewall(iface IFaceMapper, nativeFirewall firewall.Manager) (*Manager, error) {
+	mgr, err := create(iface)
+	if err != nil {
+		return nil, err
+	}
+
+	mgr.nativeFirewall = nativeFirewall
+	return mgr, nil
+}
+
+func create(iface IFaceMapper) (*Manager, error) {
 	m := &Manager{
 		decoders: sync.Pool{
 			New: func() any {
@@ -77,27 +95,50 @@ func Create(iface IFaceMapper) (*Manager, error) {
 	return m, nil
 }
 
+func (m *Manager) IsServerRouteSupported() bool {
+	if m.nativeFirewall == nil {
+		return false
+	} else {
+		return true
+	}
+}
+
+func (m *Manager) InsertRoutingRules(pair firewall.RouterPair) error {
+	if m.nativeFirewall == nil {
+		return errRouteNotSupported
+	}
+	return m.nativeFirewall.InsertRoutingRules(pair)
+}
+
+// RemoveRoutingRules removes a routing firewall rule
+func (m *Manager) RemoveRoutingRules(pair firewall.RouterPair) error {
+	if m.nativeFirewall == nil {
+		return errRouteNotSupported
+	}
+	return m.nativeFirewall.RemoveRoutingRules(pair)
+}
+
 // AddFiltering rule to the firewall
 //
 // If comment argument is empty firewall manager should set
 // rule ID as comment for the rule
 func (m *Manager) AddFiltering(
 	ip net.IP,
-	proto fw.Protocol,
-	sPort *fw.Port,
-	dPort *fw.Port,
-	direction fw.RuleDirection,
-	action fw.Action,
+	proto firewall.Protocol,
+	sPort *firewall.Port,
+	dPort *firewall.Port,
+	direction firewall.RuleDirection,
+	action firewall.Action,
 	ipsetName string,
 	comment string,
-) (fw.Rule, error) {
+) ([]firewall.Rule, error) {
 	r := Rule{
 		id:        uuid.New().String(),
 		ip:        ip,
 		ipLayer:   layers.LayerTypeIPv6,
 		matchByIP: true,
 		direction: direction,
-		drop:      action == fw.ActionDrop,
+		drop:      action == firewall.ActionDrop,
 		comment:   comment,
 	}
 	if ipNormalized := ip.To4(); ipNormalized != nil {
@@ -118,21 +159,21 @@ func (m *Manager) AddFiltering(
 	}
 
 	switch proto {
-	case fw.ProtocolTCP:
+	case firewall.ProtocolTCP:
 		r.protoLayer = layers.LayerTypeTCP
-	case fw.ProtocolUDP:
+	case firewall.ProtocolUDP:
 		r.protoLayer = layers.LayerTypeUDP
-	case fw.ProtocolICMP:
+	case firewall.ProtocolICMP:
 		r.protoLayer = layers.LayerTypeICMPv4
 		if r.ipLayer == layers.LayerTypeIPv6 {
 			r.protoLayer = layers.LayerTypeICMPv6
 		}
-	case fw.ProtocolALL:
+	case firewall.ProtocolALL:
 		r.protoLayer = layerTypeAll
 	}
 
 	m.mutex.Lock()
-	if direction == fw.RuleDirectionIN {
+	if direction == firewall.RuleDirectionIN {
 		if _, ok := m.incomingRules[r.ip.String()]; !ok {
 			m.incomingRules[r.ip.String()] = make(RuleSet)
 		}
@@ -144,12 +185,11 @@ func (m *Manager) AddFiltering(
 		m.outgoingRules[r.ip.String()][r.id] = r
 	}
 	m.mutex.Unlock()
-
-	return &r, nil
+	return []firewall.Rule{&r}, nil
 }
 
 // DeleteRule from the firewall by rule definition
-func (m *Manager) DeleteRule(rule fw.Rule) error {
+func (m *Manager) DeleteRule(rule firewall.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -158,7 +198,7 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 		return fmt.Errorf("delete rule: invalid rule type: %T", rule)
 	}
 
-	if r.direction == fw.RuleDirectionIN {
+	if r.direction == firewall.RuleDirectionIN {
 		_, ok := m.incomingRules[r.ip.String()][r.id]
 		if !ok {
 			return fmt.Errorf("delete rule: no rule with such id: %v", r.id)
@@ -322,7 +362,7 @@ func (m *Manager) AddUDPPacketHook(
 		protoLayer: layers.LayerTypeUDP,
 		dPort:      dPort,
 		ipLayer:    layers.LayerTypeIPv6,
-		direction:  fw.RuleDirectionOUT,
+		direction:  firewall.RuleDirectionOUT,
 		comment:    fmt.Sprintf("UDP Hook direction: %v, ip:%v, dport:%d", in, ip, dPort),
 		udpHook:    hook,
 	}
@@ -333,7 +373,7 @@ func (m *Manager) AddUDPPacketHook(
 
 	m.mutex.Lock()
 	if in {
-		r.direction = fw.RuleDirectionIN
+		r.direction = firewall.RuleDirectionIN
 		if _, ok := m.incomingRules[r.ip.String()]; !ok {
 			m.incomingRules[r.ip.String()] = make(map[string]Rule)
 		}
@@ -369,9 +409,4 @@ func (m *Manager) RemovePacketHook(hookID string) error {
 		}
 	}
 	return fmt.Errorf("hook with given id not found")
-}
-
-// SetResetHook which will be executed in the end of Reset method
-func (m *Manager) SetResetHook(hook func() error) {
-	m.resetHook = hook
 }
