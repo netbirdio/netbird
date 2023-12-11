@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
@@ -208,10 +209,10 @@ func createDNSStore(t *testing.T) (Store, error) {
 
 func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error) {
 	t.Helper()
-	peer1 := &Peer{
+	peer1 := &nbpeer.Peer{
 		Key:  dnsPeer1Key,
 		Name: "test-host1@netbird.io",
-		Meta: PeerSystemMeta{
+		Meta: nbpeer.PeerSystemMeta{
 			Hostname:  "test-host1@netbird.io",
 			GoOS:      "linux",
 			Kernel:    "Linux",
@@ -223,10 +224,10 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 		},
 		DNSLabel: dnsPeer1Key,
 	}
-	peer2 := &Peer{
+	peer2 := &nbpeer.Peer{
 		Key:  dnsPeer2Key,
 		Name: "test-host2@netbird.io",
-		Meta: PeerSystemMeta{
+		Meta: nbpeer.PeerSystemMeta{
 			Hostname:  "test-host2@netbird.io",
 			GoOS:      "linux",
 			Kernel:    "Linux",

@@ -10,7 +10,7 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/stretchr/testify/require"
 
-	fw "github.com/netbirdio/netbird/client/firewall"
+	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/iface"
 )
 
@@ -125,24 +125,32 @@ func TestManagerDeleteRule(t *testing.T) {
 		return
 	}
 
-	err = m.DeleteRule(rule)
-	if err != nil {
-		t.Errorf("failed to delete rule: %v", err)
-		return
+	for _, r := range rule {
+		err = m.DeleteRule(r)
+		if err != nil {
+			t.Errorf("failed to delete rule: %v", err)
+			return
+		}
 	}
 
-	if _, ok := m.incomingRules[ip.String()][rule2.GetRuleID()]; !ok {
-		t.Errorf("rule2 is not in the incomingRules")
+	for _, r := range rule2 {
+		if _, ok := m.incomingRules[ip.String()][r.GetRuleID()]; !ok {
+			t.Errorf("rule2 is not in the incomingRules")
+		}
 	}
 
-	err = m.DeleteRule(rule2)
-	if err != nil {
-		t.Errorf("failed to delete rule: %v", err)
-		return
+	for _, r := range rule2 {
+		err = m.DeleteRule(r)
+		if err != nil {
+			t.Errorf("failed to delete rule: %v", err)
+			return
+		}
 	}
 
-	if _, ok := m.incomingRules[ip.String()][rule2.GetRuleID()]; ok {
-		t.Errorf("rule2 is not in the incomingRules")
+	for _, r := range rule2 {
+		if _, ok := m.incomingRules[ip.String()][r.GetRuleID()]; ok {
+			t.Errorf("rule2 is not in the incomingRules")
+		}
 	}
 }
 

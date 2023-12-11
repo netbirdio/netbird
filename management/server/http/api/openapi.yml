@@ -66,9 +66,24 @@ components:
           description: Name of the claim from which we extract groups names to add it to account groups.
           type: string
           example: "roles"
+        jwt_allow_groups:
+          description: List of groups to which users are allowed access
+          type: array
+          items:
+            type: string
+            example: Administrators
+        extra:
+          $ref: '#/components/schemas/AccountExtraSettings'
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
+    AccountExtraSettings:
+      type: object
+      properties:
+        peer_approval_enabled:
+          description: (Cloud only) Enables or disables peer approval globally. If enabled, all peers added will be in pending state until approved by an admin.
+          type: boolean
+          example: true
     AccountRequest:
       type: object
       properties:
@@ -106,11 +121,11 @@ components:
           format: date-time
           example: 2023-05-05T09:00:35.477782Z
         auto_groups:
-          description: Groups to auto-assign to peers registered by this user
+          description: Group IDs to auto-assign to peers registered by this user
           type: array
           items:
             type: string
-            example: devs
+            example: ch8i4ug6lnn4g9hqv7m0
         is_current:
           description: Is true if authenticated user is the same as this user
           type: boolean
@@ -145,11 +160,11 @@ components:
           type: string
           example: admin
         auto_groups:
-          description: Groups to auto-assign to peers registered by this user
+          description: Group IDs to auto-assign to peers registered by this user
           type: array
           items:
             type: string
-            example: devs
+            example: ch8i4ug6lnn4g9hqv7m0
         is_blocked:
           description: If set to true then user is blocked and can't use the system
           type: boolean
@@ -174,11 +189,11 @@ components:
           type: string
           example: admin
         auto_groups:
-          description: Groups to auto-assign to peers registered by this user
+          description: Group IDs to auto-assign to peers registered by this user
           type: array
           items:
             type: string
-            example: devs
+            example: ch8i4ug6lnn4g9hqv7m0
         is_service_user:
           description: Is true if this user is a service user
           type: boolean
@@ -213,6 +228,10 @@ components:
         login_expiration_enabled:
           type: boolean
           example: false
+        approval_required:
+          description: (Cloud only) Indicates whether peer needs approval
+          type: boolean
+          example: true
       required:
         - name
         - ssh_enabled
@@ -281,6 +300,10 @@ components:
               type: string
               format: date-time
               example: 2023-05-05T09:00:35.477782Z
+            approval_required:
+              description: (Cloud only) Indicates whether peer needs approval
+              type: boolean
+              example: true
           required:
             - ip
             - connected
@@ -388,7 +411,7 @@ components:
           type: array
           items:
             type: string
-            example: "devs"
+            example: "ch8i4ug6lnn4g9hqv7m0"
         updated_at:
           description: Setup key last update date
           type: string
@@ -443,7 +466,7 @@ components:
           type: array
           items:
             type: string
-            example: "devs"
+            example: "ch8i4ug6lnn4g9hqv7m0"
         usage_limit:
           description: A number of times this key can be used. The value of 0 indicates the unlimited usage.
           type: integer
@@ -604,13 +627,13 @@ components:
           properties:
             sources:
               type: array
-              description: List of source groups
+              description: List of source group IDs
               items:
                 type: string
                 example: "ch8i4ug6lnn4g9hqv7m1"
             destinations:
               type: array
-              description: List of destination groups
+              description: List of destination group IDs
               items:
                 type: string
                 example: "ch8i4ug6lnn4g9hqv7m0"
@@ -628,12 +651,12 @@ components:
         - type: object
           properties:
             sources:
-              description: Rule source groups
+              description: Rule source group IDs
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
             destinations:
-              description: Rule destination groups
+              description: Rule destination group IDs
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
@@ -691,13 +714,13 @@ components:
         - type: object
           properties:
             sources:
-              description: Policy rule source groups
+              description: Policy rule source group IDs
               type: array
               items:
                 type: string
                 example: "ch8i4ug6lnn4g9hqv797"
             destinations:
-              description: Policy rule destination groups
+              description: Policy rule destination group IDs
               type: array
               items:
                 type: string
@@ -711,12 +734,12 @@ components:
         - type: object
           properties:
             sources:
-              description: Policy rule source groups
+              description: Policy rule source group IDs
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
             destinations:
-              description: Policy rule destination groups
+              description: Policy rule destination group IDs
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
@@ -817,7 +840,7 @@ components:
           type: boolean
           example: true
         groups:
-          description: Route group tag groups
+          description: Group IDs containing routing peers
           type: array
           items:
             type: string
@@ -874,17 +897,17 @@ components:
       type: object
       properties:
         name:
-          description: Nameserver group name
+          description: Name of nameserver group name
           type: string
           maxLength: 40
           minLength: 1
           example: Google DNS
         description:
-          description: Nameserver group  description
+          description: Description of the nameserver group
           type: string
           example: Google DNS servers
         nameservers:
-          description: Nameserver group
+          description: Nameserver list
           minLength: 1
           maxLength: 2
           type: array
@@ -895,17 +918,17 @@ components:
           type: boolean
           example: true
         groups:
-          description: Nameserver group tag groups
+          description: Distribution group IDs that defines group of peers that will use this nameserver group
           type: array
           items:
             type: string
             example: ch8i4ug6lnn4g9hqv7m0
         primary:
-          description: Nameserver group primary status
+          description: Defines if a nameserver group is primary that resolves all domains. It should be true only if domains list is empty.
           type: boolean
           example: true
         domains:
-          description: Nameserver group match domain list
+          description: Match domain list. It should be empty only if primary is true.
           type: array
           items:
             type: string
@@ -913,7 +936,7 @@ components:
             maxLength: 255
             example: "example.com"
         search_domains_enabled:
-          description: Nameserver group search domain status for match domains. It should be true only if domains list is not empty.
+          description: Search domain status for match domains. It should be true only if domains list is not empty.
           type: boolean
           example: true
       required:
@@ -1074,6 +1097,32 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/accounts/{accountId}:
+    delete:
+      summary: Delete an Account
+      description: Deletes an account and all its resources. Only administrators and account owners can delete accounts.
+      tags: [ Accounts ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: accountId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an account
+      responses:
+        '200':
+          description: Delete account status code
+          content: { }
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     put:
       summary: Update an Account
       description: Update information about an account

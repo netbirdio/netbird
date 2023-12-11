@@ -248,7 +248,7 @@ func (s *SharedSocket) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 
 	decodedLayers := make([]gopacket.LayerType, 0, 3)
 
-	err = parser.DecodeLayers(pkt.buf[:], &decodedLayers)
+	err = parser.DecodeLayers(pkt.buf, &decodedLayers)
 	if err != nil {
 		return 0, nil, err
 	}

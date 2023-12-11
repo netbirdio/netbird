@@ -53,7 +53,9 @@ message LoginRequest {
 
   bool isLinuxDesktopClient = 8;
 
-  bool rosenpassEnabled = 9;
+  string hostname = 9;
+
+  bool rosenpassEnabled = 10;
 }
 
 message LoginResponse {
@@ -65,6 +67,7 @@ message LoginResponse {
 
 message WaitSSOLoginRequest {
   string userCode = 1;
+  string hostname = 2;
 }
 
 message WaitSSOLoginResponse {}

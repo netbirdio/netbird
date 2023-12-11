@@ -17,6 +17,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/client/firewall"
+	"github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -120,6 +122,7 @@ type Engine struct {
 
 	statusRecorder *peer.Status
 
+	firewall     manager.Manager
 	routeManager routemanager.Manager
 	acl          acl.Manager
 
@@ -221,14 +224,12 @@ func (e *Engine) Start() error {
 			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, *dnsConfig, e.mobileDep.NetworkChangeListener)
 			go e.mobileDep.DnsReadyListener.OnReady()
 		}
-	} else {
+	} else if e.dnsServer == nil {
 		// todo fix custom address
-		if e.dnsServer == nil {
-			e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
-			if err != nil {
-				e.close()
-				return err
-			}
+		e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
+		if err != nil {
+			e.close()
+			return err
 		}
 	}
 
@@ -248,6 +249,19 @@ func (e *Engine) Start() error {
 		log.Errorf("failed creating tunnel interface %s: [%s]", wgIFaceName, err.Error())
 		e.close()
 		return err
+	}
+
+	e.firewall, err = firewall.NewFirewall(e.ctx, e.wgInterface)
+	if err != nil {
+		log.Errorf("failed creating firewall manager: %s", err)
+	}
+
+	if e.firewall != nil && e.firewall.IsServerRouteSupported() {
+		err = e.routeManager.EnableServerRouter(e.firewall)
+		if err != nil {
+			e.close()
+			return err
+		}
 	}
 
 	err = e.wgInterface.Configure(myPrivateKey.String(), e.config.WgPort)
@@ -277,10 +291,8 @@ func (e *Engine) Start() error {
 		e.udpMux = mux
 	}
 
-	if acl, err := acl.Create(e.wgInterface); err != nil {
-		log.Errorf("failed to create ACL manager, policy will not work: %s", err.Error())
-	} else {
-		e.acl = acl
+	if e.firewall != nil {
+		e.acl = acl.NewDefaultManager(e.firewall)
 	}
 
 	err = e.dnsServer.Initialize()
@@ -508,15 +520,13 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 		} else {
 			log.Debugf("SSH server is already running")
 		}
-	} else {
+	} else if !isNil(e.sshServer) {
 		// Disable SSH server request, so stop it if it was running
-		if !isNil(e.sshServer) {
-			err := e.sshServer.Stop()
-			if err != nil {
-				log.Warnf("failed to stop SSH server %v", err)
-			}
-			e.sshServer = nil
+		err := e.sshServer.Stop()
+		if err != nil {
+			log.Warnf("failed to stop SSH server %v", err)
 		}
+		e.sshServer = nil
 	}
 	return nil
 }
@@ -1087,8 +1097,11 @@ func (e *Engine) close() {
 		e.dnsServer.Stop()
 	}
 
-	if e.acl != nil {
-		e.acl.Stop()
+	if e.firewall != nil {
+		err := e.firewall.Reset()
+		if err != nil {
+			log.Warnf("failed to reset firewall: %s", err)
+		}
 	}
 
 	if e.rpManager != nil {

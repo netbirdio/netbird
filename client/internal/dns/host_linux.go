@@ -25,13 +25,30 @@ const (
 
 type osManagerType int
 
+func (t osManagerType) String() string {
+	switch t {
+	case netbirdManager:
+		return "netbird"
+	case fileManager:
+		return "file"
+	case networkManager:
+		return "networkManager"
+	case systemdManager:
+		return "systemd"
+	case resolvConfManager:
+		return "resolvconf"
+	default:
+		return "unknown"
+	}
+}
+
 func newHostManager(wgInterface WGIface) (hostManager, error) {
 	osManager, err := getOSDNSManagerType()
 	if err != nil {
 		return nil, err
 	}
 
-	log.Debugf("discovered mode is: %d", osManager)
+	log.Debugf("discovered mode is: %s", osManager)
 	switch osManager {
 	case networkManager:
 		return newNetworkManagerDbusConfigurator(wgInterface)
@@ -65,7 +82,6 @@ func getOSDNSManagerType() (osManagerType, error) {
 			return netbirdManager, nil
 		}
 		if strings.Contains(text, "NetworkManager") && isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) && isNetworkManagerSupported() {
-			log.Debugf("is nm running on supported v? %t", isNetworkManagerSupportedVersion())
 			return networkManager, nil
 		}
 		if strings.Contains(text, "systemd-resolved") && isDbusListenerRunning(systemdResolvedDest, systemdDbusObjectNode) {

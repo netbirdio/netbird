@@ -192,13 +192,14 @@ func writeSuccess(w http.ResponseWriter, key *server.SetupKey) {
 
 func toResponseBody(key *server.SetupKey) *api.SetupKey {
 	var state string
-	if key.IsExpired() {
+	switch {
+	case key.IsExpired():
 		state = "expired"
-	} else if key.IsRevoked() {
+	case key.IsRevoked():
 		state = "revoked"
-	} else if key.IsOverUsed() {
+	case key.IsOverUsed():
 		state = "overused"
-	} else {
+	default:
 		state = "valid"
 	}
 

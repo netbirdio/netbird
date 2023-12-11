@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -35,7 +36,7 @@ func TestStalePeerIndices(t *testing.T) {
 
 	peerID := "some_peer"
 	peerKey := "some_peer_key"
-	account.Peers[peerID] = &Peer{
+	account.Peers[peerID] = &nbpeer.Peer{
 		ID:  peerID,
 		Key: peerKey,
 	}
@@ -89,13 +90,13 @@ func TestSaveAccount(t *testing.T) {
 	account := newAccountWithId("account_id", "testuser", "")
 	setupKey := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
-	account.Peers["testpeer"] = &Peer{
+	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:      "peerkey",
 		SetupKey: "peerkeysetupkey",
 		IP:       net.IP{127, 0, 0, 1},
-		Meta:     PeerSystemMeta{},
+		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	// SaveAccount should trigger persist
@@ -121,17 +122,71 @@ func TestSaveAccount(t *testing.T) {
 	}
 }
 
+func TestDeleteAccount(t *testing.T) {
+	storeDir := t.TempDir()
+	storeFile := filepath.Join(storeDir, "store.json")
+	err := util.CopyFileContents("testdata/store.json", storeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewFileStore(storeDir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var account *Account
+	for _, a := range store.Accounts {
+		account = a
+		break
+	}
+
+	require.NotNil(t, account, "failed to restore a FileStore file and get at least one account")
+
+	err = store.DeleteAccount(account)
+	require.NoError(t, err, "failed to delete account, error: %v", err)
+
+	_, ok := store.Accounts[account.Id]
+	require.False(t, ok, "failed to delete account")
+
+	for id := range account.Users {
+		_, ok := store.UserID2AccountID[id]
+		assert.False(t, ok, "failed to delete UserID2AccountID index")
+		for _, pat := range account.Users[id].PATs {
+			_, ok := store.HashedPAT2TokenID[pat.HashedToken]
+			assert.False(t, ok, "failed to delete HashedPAT2TokenID index")
+			_, ok = store.TokenID2UserID[pat.ID]
+			assert.False(t, ok, "failed to delete TokenID2UserID index")
+		}
+	}
+
+	for _, p := range account.Peers {
+		_, ok := store.PeerKeyID2AccountID[p.Key]
+		assert.False(t, ok, "failed to delete PeerKeyID2AccountID index")
+		_, ok = store.PeerID2AccountID[p.ID]
+		assert.False(t, ok, "failed to delete PeerID2AccountID index")
+	}
+
+	for id := range account.SetupKeys {
+		_, ok := store.SetupKeyID2AccountID[id]
+		assert.False(t, ok, "failed to delete SetupKeyID2AccountID index")
+	}
+
+	_, ok = store.PrivateDomain2AccountID[account.Domain]
+	assert.False(t, ok, "failed to delete PrivateDomain2AccountID index")
+
+}
+
 func TestStore(t *testing.T) {
 	store := newStore(t)
 
 	account := newAccountWithId("account_id", "testuser", "")
-	account.Peers["testpeer"] = &Peer{
+	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:      "peerkey",
 		SetupKey: "peerkeysetupkey",
 		IP:       net.IP{127, 0, 0, 1},
-		Meta:     PeerSystemMeta{},
+		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 	account.Groups["all"] = &Group{
 		ID:    "all",
@@ -546,19 +601,19 @@ func TestFileStore_SavePeerStatus(t *testing.T) {
 	}
 
 	// save status of non-existing peer
-	newStatus := PeerStatus{Connected: true, LastSeen: time.Now().UTC()}
+	newStatus := nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()}
 	err = store.SavePeerStatus(account.Id, "non-existing-peer", newStatus)
 	assert.Error(t, err)
 
 	// save new status of existing peer
-	account.Peers["testpeer"] = &Peer{
+	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:      "peerkey",
 		ID:       "testpeer",
 		SetupKey: "peerkeysetupkey",
 		IP:       net.IP{127, 0, 0, 1},
-		Meta:     PeerSystemMeta{},
+		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(account)

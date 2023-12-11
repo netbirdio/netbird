@@ -7,6 +7,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/iface"
@@ -19,6 +20,7 @@ type Manager interface {
 	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
+	EnableServerRouter(firewall firewall.Manager) error
 	Stop()
 }
 
@@ -35,19 +37,12 @@ type DefaultManager struct {
 	notifier       *notifier
 }
 
-// NewManager returns a new route manager
 func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, initialRoutes []*route.Route) *DefaultManager {
-	srvRouter, err := newServerRouter(ctx, wgInterface)
-	if err != nil {
-		log.Errorf("server router is not supported: %s", err)
-	}
-
 	mCTX, cancel := context.WithCancel(ctx)
 	dm := &DefaultManager{
 		ctx:            mCTX,
 		stop:           cancel,
 		clientNetworks: make(map[string]*clientNetwork),
-		serverRouter:   srvRouter,
 		statusRecorder: statusRecorder,
 		wgInterface:    wgInterface,
 		pubKey:         pubKey,
@@ -59,6 +54,15 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 		dm.notifier.setInitialClientRoutes(cr)
 	}
 	return dm
+}
+
+func (m *DefaultManager) EnableServerRouter(firewall firewall.Manager) error {
+	var err error
+	m.serverRouter, err = newServerRouter(m.ctx, m.wgInterface, firewall)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // Stop stops the manager watchers and clean firewall rules
@@ -155,7 +159,7 @@ func (m *DefaultManager) classifiesRoutes(newRoutes []*route.Route) (map[string]
 		if !ownNetworkIDs[networkID] {
 			// if prefix is too small, lets assume is a possible default route which is not yet supported
 			// we skip this route management
-			if newRoute.Network.Bits() < 7 {
+			if newRoute.Network.Bits() < minRangeBits {
 				log.Errorf("this agent version: %s, doesn't support default routes, received %s, skipping this route",
 					version.NetbirdVersion(), newRoute.Network)
 				continue

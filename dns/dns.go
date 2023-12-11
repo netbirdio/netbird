@@ -86,6 +86,8 @@ func (s SimpleRecord) Len() uint16 {
 	}
 }
 
+var invalidHostMatcher = regexp.MustCompile(invalidHostLabel)
+
 // GetParsedDomainLabel returns a domain label with max 59 characters,
 // parsed for old Hosts.txt requirements, and converted to ASCII and lowercase
 func GetParsedDomainLabel(name string) (string, error) {
@@ -98,8 +100,6 @@ func GetParsedDomainLabel(name string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("unable to convert host label to ASCII, error: %v", err)
 	}
-
-	invalidHostMatcher := regexp.MustCompile(invalidHostLabel)
 
 	validHost := strings.ToLower(invalidHostMatcher.ReplaceAllString(ascii, "-"))
 	if len(validHost) > 58 {

@@ -137,7 +137,7 @@ func (key *SetupKey) HiddenCopy(length int) *SetupKey {
 // IncrementUsage makes a copy of a key, increments the UsedTimes by 1 and sets LastUsed to now
 func (key *SetupKey) IncrementUsage() *SetupKey {
 	c := key.Copy()
-	c.UsedTimes = c.UsedTimes + 1
+	c.UsedTimes++
 	c.LastUsed = time.Now().UTC()
 	return c
 }
@@ -342,7 +342,7 @@ func (am *DefaultAccountManager) ListSetupKeys(accountID, userID string) ([]*Set
 	keys := make([]*SetupKey, 0, len(account.SetupKeys))
 	for _, key := range account.SetupKeys {
 		var k *SetupKey
-		if !user.IsAdmin() {
+		if !user.HasAdminPower() {
 			k = key.HiddenCopy(999)
 		} else {
 			k = key.Copy()
@@ -384,7 +384,7 @@ func (am *DefaultAccountManager) GetSetupKey(accountID, userID, keyID string) (*
 		foundKey.UpdatedAt = foundKey.CreatedAt
 	}
 
-	if !user.IsAdmin() {
+	if !user.HasAdminPower() {
 		foundKey = foundKey.HiddenCopy(999)
 	}
 

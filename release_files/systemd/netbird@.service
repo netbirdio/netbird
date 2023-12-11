@@ -1,0 +1,41 @@
+[Unit]
+Description=Netbird Client (%i)
+Documentation=https://netbird.io/docs
+After=network-online.target syslog.target NetworkManager.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/netbird
+ExecStart=/usr/bin/netbird service run --log-file /var/log/netbird/client-%i.log --config /etc/netbird/%i.json --daemon-addr unix:///var/run/netbird/%i.sock $FLAGS
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+CacheDirectory=netbird
+ConfigurationDirectory=netbird
+LogDirectory=netbird
+RuntimeDirectory=netbird
+StateDirectory=netbird
+
+# sandboxing
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+NoNewPrivileges=yes
+PrivateMounts=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=no  # needed to load wg module for kernel-mode WireGuard
+ProtectKernelTunables=no
+ProtectSystem=yes
+RemoveIPC=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target
+

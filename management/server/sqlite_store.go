@@ -7,15 +7,18 @@ import (
 	"sync"
 	"time"
 
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/netbirdio/netbird/route"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
+
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/account"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/route"
 )
 
 // SqliteStore represents an account storage backed by a Sqlite DB persisted to disk
@@ -58,9 +61,9 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 	sql.SetMaxOpenConns(conns) // TODO: make it configurable
 
 	err = db.AutoMigrate(
-		&SetupKey{}, &Peer{}, &User{}, &PersonalAccessToken{}, &Group{}, &Rule{},
+		&SetupKey{}, &nbpeer.Peer{}, &User{}, &PersonalAccessToken{}, &Group{}, &Rule{},
 		&Account{}, &Policy{}, &PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
-		&installation{},
+		&installation{}, &account.ExtraSettings{},
 	)
 	if err != nil {
 		return nil, err
@@ -202,6 +205,37 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 	return err
 }
 
+func (s *SqliteStore) DeleteAccount(account *Account) error {
+	start := time.Now()
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Select(clause.Associations).Delete(account.Policies, "account_id = ?", account.Id)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		result = tx.Select(clause.Associations).Delete(account.UsersG, "account_id = ?", account.Id)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		result = tx.Select(clause.Associations).Delete(account)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		return nil
+	})
+
+	took := time.Since(start)
+	if s.metrics != nil {
+		s.metrics.StoreMetrics().CountPersistenceDuration(took)
+	}
+	log.Debugf("took %d ms to delete an account to the SQLite", took.Milliseconds())
+
+	return err
+}
+
 func (s *SqliteStore) SaveInstallationID(ID string) error {
 	installation := installation{InstallationIDValue: ID}
 	installation.ID = uint(s.installationPK)
@@ -219,8 +253,8 @@ func (s *SqliteStore) GetInstallationID() string {
 	return installation.InstallationIDValue
 }
 
-func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus PeerStatus) error {
-	var peer Peer
+func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
+	var peer nbpeer.Peer
 
 	result := s.db.First(&peer, "account_id = ? and id = ?", accountID, peerID)
 	if result.Error != nil {
@@ -336,7 +370,7 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 		var rules []*PolicyRule
 		err := s.db.Model(&PolicyRule{}).Find(&rules, "policy_id = ?", policy.ID).Error
 		if err != nil {
-			return nil, status.Errorf(status.NotFound, "account not found")
+			return nil, status.Errorf(status.NotFound, "rule not found")
 		}
 		account.Policies[i].Rules = rules
 	}
@@ -347,7 +381,7 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 	}
 	account.SetupKeysG = nil
 
-	account.Peers = make(map[string]*Peer, len(account.PeersG))
+	account.Peers = make(map[string]*nbpeer.Peer, len(account.PeersG))
 	for _, peer := range account.PeersG {
 		account.Peers[peer.ID] = peer.Copy()
 	}
@@ -405,7 +439,7 @@ func (s *SqliteStore) GetAccountByUser(userID string) (*Account, error) {
 }
 
 func (s *SqliteStore) GetAccountByPeerID(peerID string) (*Account, error) {
-	var peer Peer
+	var peer nbpeer.Peer
 	result := s.db.Select("account_id").First(&peer, "id = ?", peerID)
 	if result.Error != nil {
 		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -419,7 +453,7 @@ func (s *SqliteStore) GetAccountByPeerID(peerID string) (*Account, error) {
 }
 
 func (s *SqliteStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
-	var peer Peer
+	var peer nbpeer.Peer
 
 	result := s.db.Select("account_id").First(&peer, "key = ?", peerKey)
 	if result.Error != nil {
