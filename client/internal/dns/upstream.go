@@ -119,10 +119,6 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	log.Error("all queries to the upstream nameservers failed with timeout")
 }
 
-func (u *upstreamResolverBase) upstreamExchange(upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
-	return nil, 0, fmt.Errorf("not implemented")
-}
-
 // checkUpstreamFails counts fails and disables or enables upstream resolving
 //
 // If fails count is greater that failsTillDeact, upstream resolving
