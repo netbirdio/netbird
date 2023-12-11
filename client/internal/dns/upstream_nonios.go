@@ -16,13 +16,14 @@ type upstreamResolverNonIOS struct {
 
 func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net.IP) (*upstreamResolverNonIOS, error) {
 	upstreamResolverBase := newUpstreamResolverBase(parentCTX)
-
-	return &upstreamResolverNonIOS{
+	nonIOS := &upstreamResolverNonIOS{
 		upstreamResolverBase: upstreamResolverBase,
-	}, nil
+	}
+	upstreamResolverBase.upstreamClient = nonIOS
+	return nonIOS, nil
 }
 
-func (u *upstreamResolverNonIOS) upstreamExchange(upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
+func (u *upstreamResolverNonIOS) exchange(upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
 	upstreamExchangeClient := &dns.Client{}
 	ctx, cancel := context.WithTimeout(u.ctx, u.upstreamTimeout)
 	rm, t, err = upstreamExchangeClient.ExchangeContext(ctx, r, upstream)

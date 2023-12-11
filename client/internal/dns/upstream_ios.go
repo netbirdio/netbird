@@ -28,14 +28,17 @@ func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net
 		return nil, err
 	}
 
-	return &upstreamResolverIOS{
+	ios := &upstreamResolverIOS{
 		upstreamResolverBase: upstreamResolverBase,
 		lIP:                  ip,
 		iIndex:               index,
-	}, nil
+	}
+	ios.upstreamClient = ios
+
+	return ios, nil
 }
 
-func (u *upstreamResolverIOS) upstreamExchange(upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
+func (u *upstreamResolverIOS) exchange(upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
 	client := u.getClientPrivate()
 	return client.Exchange(r, upstream)
 }

@@ -22,7 +22,7 @@ const (
 )
 
 type upstreamClient interface {
-	ExchangeContext(ctx context.Context, m *dns.Msg, a string) (r *dns.Msg, rtt time.Duration, err error)
+	exchange(upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
 }
 
 type UpstreamResolver interface {
@@ -79,7 +79,7 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 	for _, upstream := range u.upstreamServers {
 
-		rm, t, err := u.upstreamExchange(upstream, r)
+		rm, t, err := u.upstreamClient.exchange(upstream, r)
 
 		if err != nil {
 			if err == context.DeadlineExceeded || isTimeout(err) {
@@ -173,10 +173,7 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 
 		var err error
 		for _, upstream := range u.upstreamServers {
-			ctx, cancel := context.WithTimeout(u.ctx, u.upstreamTimeout)
-			_, _, err = u.upstreamClient.ExchangeContext(ctx, r, upstream)
-
-			cancel()
+			_, _, err = u.upstreamClient.exchange(upstream, r)
 
 			if err == nil {
 				return nil
