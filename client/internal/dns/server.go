@@ -98,7 +98,7 @@ func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface,
 	ds.permanent = true
 	ds.hostsDnsList = hostsDnsList
 	ds.addHostRootZone()
-	ds.currentConfig = dnsConfigTohostDNSConfig(config, ds.service.RuntimeIP(), ds.service.RuntimePort())
+	ds.currentConfig = dnsConfigToHostDNSConfig(config, ds.service.RuntimeIP(), ds.service.RuntimePort())
 	ds.searchDomainNotifier = newNotifier(ds.SearchDomains())
 	ds.searchDomainNotifier.setListener(listener)
 	setServerDns(ds)
@@ -269,7 +269,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 
 	s.updateMux(muxUpdates)
 	s.updateLocalResolver(localRecords)
-	s.currentConfig = dnsConfigTohostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort())
+	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort())
 
 	hostUpdate := s.currentConfig
 	if s.service.RuntimePort() != defaultPort && !s.hostManager.supportCustomPort() {

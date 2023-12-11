@@ -61,7 +61,7 @@ func newNoopHostMocker() hostManager {
 	}
 }
 
-func dnsConfigTohostDNSConfig(dnsConfig nbdns.Config, ip string, port int) hostDNSConfig {
+func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) hostDNSConfig {
 	config := hostDNSConfig{
 		routeAll:   false,
 		serverIP:   ip,
