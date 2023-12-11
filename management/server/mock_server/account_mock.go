@@ -545,7 +545,7 @@ func (am *MockAccountManager) GetAccountFromToken(claims jwtclaims.Authorization
 
 // GetPeers mocks GetPeers of the AccountManager interface
 func (am *MockAccountManager) GetPeers(accountID, userID string) ([]*nbpeer.Peer, error) {
-	if am.GetAccountFromTokenFunc != nil {
+	if am.GetPeersFunc != nil {
 		return am.GetPeersFunc(accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeers is not implemented")
