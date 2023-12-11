@@ -464,7 +464,7 @@ func (am *MockAccountManager) SaveUser(accountID, userID string, user *server.Us
 
 // SaveOrAddUser mocks SaveOrAddUser of the AccountManager interface
 func (am *MockAccountManager) SaveOrAddUser(accountID, userID string, user *server.User, addIfNotExists bool) (*server.UserInfo, error) {
-	if am.SaveUserFunc != nil {
+	if am.SaveOrAddUserFunc != nil {
 		return am.SaveOrAddUserFunc(accountID, userID, user, addIfNotExists)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method SaveOrAddUser is not implemented")
