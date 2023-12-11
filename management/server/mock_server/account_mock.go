@@ -464,7 +464,7 @@ func (am *MockAccountManager) SaveUser(accountID, userID string, user *server.Us
 
 // SaveOrAddUser mocks SaveOrAddUser of the AccountManager interface
 func (am *MockAccountManager) SaveOrAddUser(accountID, userID string, user *server.User, addIfNotExists bool) (*server.UserInfo, error) {
-	if am.SaveUserFunc != nil {
+	if am.SaveOrAddUserFunc != nil {
 		return am.SaveOrAddUserFunc(accountID, userID, user, addIfNotExists)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method SaveOrAddUser is not implemented")
@@ -545,7 +545,7 @@ func (am *MockAccountManager) GetAccountFromToken(claims jwtclaims.Authorization
 
 // GetPeers mocks GetPeers of the AccountManager interface
 func (am *MockAccountManager) GetPeers(accountID, userID string) ([]*nbpeer.Peer, error) {
-	if am.GetAccountFromTokenFunc != nil {
+	if am.GetPeersFunc != nil {
 		return am.GetPeersFunc(accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeers is not implemented")
