@@ -142,7 +142,7 @@ func (m *AuthMiddleware) verifyUserAccess(validatedToken *jwt.Token) error {
 	// Ensures JWT group synchronization to the management is enabled before,
 	// filtering access based on the allowed groups.
 	if account.Settings != nil && account.Settings.JWTGroupsEnabled {
-		if allowedGroups := account.Settings.JWTAllowGroups; allowedGroups != nil {
+		if allowedGroups := account.Settings.JWTAllowGroups; len(allowedGroups) > 0 {
 			userJWTGroups := make([]string, 0)
 
 			if claim, ok := authClaims.Raw[account.Settings.JWTGroupsClaimName]; ok {
