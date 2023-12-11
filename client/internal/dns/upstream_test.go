@@ -2,6 +2,7 @@ package dns
 
 import (
 	"context"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -57,7 +58,7 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.TODO())
-			resolver := newUpstreamResolver(ctx, "", "")
+			resolver, _ := newUpstreamResolver(ctx, "", net.IP{})
 			resolver.upstreamServers = testCase.InputServers
 			resolver.upstreamTimeout = testCase.timeout
 			if testCase.cancelCTX {
