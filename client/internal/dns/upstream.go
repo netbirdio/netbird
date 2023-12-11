@@ -41,8 +41,6 @@ type upstreamResolverBase struct {
 	mutex            sync.Mutex
 	reactivatePeriod time.Duration
 	upstreamTimeout  time.Duration
-	lIP              net.IP
-	iIndex           int
 
 	deactivate func()
 	reactivate func()
