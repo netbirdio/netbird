@@ -325,7 +325,10 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			continue
 		}
 
-		handler := newUpstreamResolver(s.ctx, s.wgInterface.Name(), s.wgInterface.Address().String())
+		handler, err := newUpstreamResolver(s.ctx, s.wgInterface.Name(), s.wgInterface.Address().IP)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create a new upstream resolver, error: %v", err)
+		}
 		for _, ns := range nsGroup.NameServers {
 			if ns.NSType != nbdns.UDPNameServerType {
 				log.Warnf("skipping nameserver %s with type %s, this peer supports only %s",
@@ -498,7 +501,11 @@ func (s *DefaultServer) upstreamCallbacks(
 }
 
 func (s *DefaultServer) addHostRootZone() {
-	handler := newUpstreamResolver(s.ctx, s.wgInterface.Name(), s.wgInterface.Address().String())
+	handler, err := newUpstreamResolver(s.ctx, s.wgInterface.Name(), s.wgInterface.Address().IP)
+	if err != nil {
+		log.Errorf("unable to create a new upstream resolver, error: %v", err)
+		return
+	}
 	handler.upstreamServers = make([]string, len(s.hostsDnsList))
 	for n, ua := range s.hostsDnsList {
 		a, err := netip.ParseAddr(ua)

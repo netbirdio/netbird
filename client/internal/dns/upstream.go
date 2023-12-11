@@ -37,50 +37,10 @@ type upstreamResolver struct {
 	reactivatePeriod time.Duration
 	upstreamTimeout  time.Duration
 	lIP              net.IP
-	lNet             *net.IPNet
-	lName            string
 	iIndex           int
 
 	deactivate func()
 	reactivate func()
-}
-
-func getInterfaceIndex(interfaceName string) (int, error) {
-	iface, err := net.InterfaceByName(interfaceName)
-	if err != nil {
-		log.Errorf("unable to get interface by name error: %s", err)
-		return 0, err
-	}
-
-	return iface.Index, nil
-}
-
-func newUpstreamResolver(parentCTX context.Context, interfaceName string, wgAddr string) *upstreamResolver {
-	ctx, cancel := context.WithCancel(parentCTX)
-
-	// Specify the local IP address you want to bind to
-	localIP, localNet, err := net.ParseCIDR(wgAddr) // Should be our interface IP
-	if err != nil {
-		log.Errorf("error while parsing CIDR: %s", err)
-	}
-	index, err := getInterfaceIndex(interfaceName)
-
-	if err != nil {
-		log.Debugf("unable to get interface index for %s: %s", interfaceName, err)
-	}
-	localIFaceIndex := index // Should be our interface index
-
-	return &upstreamResolver{
-		ctx:              ctx,
-		cancel:           cancel,
-		upstreamTimeout:  upstreamTimeout,
-		reactivatePeriod: reactivatePeriod,
-		failsTillDeact:   failsTillDeact,
-		lIP:              localIP,
-		lNet:             localNet,
-		iIndex:           localIFaceIndex,
-		lName:            interfaceName,
-	}
 }
 
 func (u *upstreamResolver) stop() {

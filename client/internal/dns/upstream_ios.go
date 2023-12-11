@@ -12,10 +12,29 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net.IP) (*upstreamResolver, error) {
+	ctx, cancel := context.WithCancel(parentCTX)
+
+	index, err := getInterfaceIndex(interfaceName)
+	if err != nil {
+		log.Debugf("unable to get interface index for %s: %s", interfaceName, err)
+		return nil, err
+	}
+
+	return &upstreamResolver{
+		ctx:              ctx,
+		cancel:           cancel,
+		upstreamTimeout:  upstreamTimeout,
+		reactivatePeriod: reactivatePeriod,
+		failsTillDeact:   failsTillDeact,
+		lIP:              ip,
+		iIndex:           index,
+	}, nil
+}
+
 func (u *upstreamResolver) upstreamExchange(upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
 	client := u.getClientPrivate()
 	return client.Exchange(r, upstream)
-
 }
 
 // getClientPrivate returns a new DNS client bound to the local IP address of the Netbird interface
@@ -48,4 +67,9 @@ func (u *upstreamResolver) getClientPrivate() *dns.Client {
 		Dialer: dialer,
 	}
 	return client
+}
+
+func getInterfaceIndex(interfaceName string) (int, error) {
+	iface, err := net.InterfaceByName(interfaceName)
+	return iface.Index, err
 }
