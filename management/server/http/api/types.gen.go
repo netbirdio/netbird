@@ -160,6 +160,9 @@ type AccountSettings struct {
 	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
 	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`
 
+	// JwtAllowGroups List of groups to which users are allowed access
+	JwtAllowGroups *[]string `json:"jwt_allow_groups,omitempty"`
+
 	// JwtGroupsClaimName Name of the claim from which we extract groups names to add it to account groups.
 	JwtGroupsClaimName *string `json:"jwt_groups_claim_name,omitempty"`
 
