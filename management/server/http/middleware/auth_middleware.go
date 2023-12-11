@@ -46,15 +46,11 @@ const (
 
 // NewAuthMiddleware instance constructor
 func NewAuthMiddleware(getAccountFromPAT GetAccountFromPATFunc, validateAndParseToken ValidateAndParseTokenFunc,
-	markPATUsed MarkPATUsedFunc, getAccountFromToken GetAccountFromTokenFunc, audience string, userIdClaim string) *AuthMiddleware {
+	markPATUsed MarkPATUsedFunc, getAccountFromToken GetAccountFromTokenFunc, claimsExtractor *jwtclaims.ClaimsExtractor,
+	audience string, userIdClaim string) *AuthMiddleware {
 	if userIdClaim == "" {
 		userIdClaim = jwtclaims.UserIDClaim
 	}
-
-	claimsExtractor := jwtclaims.NewClaimsExtractor(
-		jwtclaims.WithAudience(audience),
-		jwtclaims.WithUserIDClaim(userIdClaim),
-	)
 
 	return &AuthMiddleware{
 		getAccountFromPAT:     getAccountFromPAT,

@@ -55,7 +55,13 @@ func mockGetAccountFromPAT(token string) (*server.Account, *server.User, *server
 
 func mockValidateAndParseToken(token string) (*jwt.Token, error) {
 	if token == JWT {
-		return &jwt.Token{}, nil
+		return &jwt.Token{
+			Claims: jwt.MapClaims{
+				userIDClaim:                          userID,
+				audience + jwtclaims.AccountIDSuffix: accountID,
+			},
+			Valid: true,
+		}, nil
 	}
 	return nil, fmt.Errorf("JWT invalid")
 }
@@ -122,11 +128,17 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		// do nothing
 	})
 
+	claimsExtractor := jwtclaims.NewClaimsExtractor(
+		jwtclaims.WithAudience(audience),
+		jwtclaims.WithUserIDClaim(userIDClaim),
+	)
+
 	authMiddleware := NewAuthMiddleware(
 		mockGetAccountFromPAT,
 		mockValidateAndParseToken,
 		mockMarkPATUsed,
 		mockGetAccountFromToken,
+		claimsExtractor,
 		audience,
 		userIDClaim,
 	)
