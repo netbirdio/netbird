@@ -25,7 +25,12 @@ type upstreamClient interface {
 	ExchangeContext(ctx context.Context, m *dns.Msg, a string) (r *dns.Msg, rtt time.Duration, err error)
 }
 
-type upstreamResolver struct {
+type UpstreamResolver interface {
+	serveDNS(r *dns.Msg) (*dns.Msg, time.Duration, error)
+	upstreamExchange(upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
+}
+
+type upstreamResolverBase struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	upstreamClient   upstreamClient
@@ -43,13 +48,25 @@ type upstreamResolver struct {
 	reactivate func()
 }
 
-func (u *upstreamResolver) stop() {
+func newUpstreamResolverBase(parentCTX context.Context) *upstreamResolverBase {
+	ctx, cancel := context.WithCancel(parentCTX)
+
+	return &upstreamResolverBase{
+		ctx:              ctx,
+		cancel:           cancel,
+		upstreamTimeout:  upstreamTimeout,
+		reactivatePeriod: reactivatePeriod,
+		failsTillDeact:   failsTillDeact,
+	}
+}
+
+func (u *upstreamResolverBase) stop() {
 	log.Debugf("stopping serving DNS for upstreams %s", u.upstreamServers)
 	u.cancel()
 }
 
 // ServeDNS handles a DNS request
-func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	defer u.checkUpstreamFails()
 
 	log.WithField("question", r.Question[0]).Trace("received an upstream question")
@@ -102,12 +119,16 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	log.Error("all queries to the upstream nameservers failed with timeout")
 }
 
+func (u *upstreamResolverBase) upstreamExchange(upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
+	return nil, 0, fmt.Errorf("not implemented")
+}
+
 // checkUpstreamFails counts fails and disables or enables upstream resolving
 //
 // If fails count is greater that failsTillDeact, upstream resolving
 // will be disabled for reactivatePeriod, after that time period fails counter
 // will be reset and upstream will be reactivated.
-func (u *upstreamResolver) checkUpstreamFails() {
+func (u *upstreamResolverBase) checkUpstreamFails() {
 	u.mutex.Lock()
 	defer u.mutex.Unlock()
 
@@ -130,7 +151,7 @@ func (u *upstreamResolver) checkUpstreamFails() {
 }
 
 // waitUntilResponse retries, in an exponential interval, querying the upstream servers until it gets a positive response
-func (u *upstreamResolver) waitUntilResponse() {
+func (u *upstreamResolverBase) waitUntilResponse() {
 	exponentialBackOff := &backoff.ExponentialBackOff{
 		InitialInterval:     500 * time.Millisecond,
 		RandomizationFactor: 0.5,
