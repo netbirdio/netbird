@@ -38,6 +38,7 @@ func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValid
 		accountManager.GetAccountFromPAT,
 		jwtValidator.ValidateAndParse,
 		accountManager.MarkPATUsed,
+		accountManager.GetAccountFromToken,
 		authCfg.Audience,
 		authCfg.UserIDClaim)
 

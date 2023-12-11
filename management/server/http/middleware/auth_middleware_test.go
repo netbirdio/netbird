@@ -10,6 +10,7 @@ import (
 	"github.com/golang-jwt/jwt"
 
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
 const (
@@ -66,6 +67,19 @@ func mockMarkPATUsed(token string) error {
 	return fmt.Errorf("Should never get reached")
 }
 
+func mockGetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+	if testAccount.Id != claims.AccountId {
+		return nil, nil, fmt.Errorf("account with id %s does not exist", claims.AccountId)
+	}
+
+	user, ok := testAccount.Users[claims.UserId]
+	if !ok {
+		return nil, nil, fmt.Errorf("user with id %s does not exist", claims.UserId)
+	}
+
+	return testAccount, user, nil
+}
+
 func TestAuthMiddleware_Handler(t *testing.T) {
 	tt := []struct {
 		name               string
@@ -108,7 +122,14 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		// do nothing
 	})
 
-	authMiddleware := NewAuthMiddleware(mockGetAccountFromPAT, mockValidateAndParseToken, mockMarkPATUsed, audience, userIDClaim)
+	authMiddleware := NewAuthMiddleware(
+		mockGetAccountFromPAT,
+		mockValidateAndParseToken,
+		mockMarkPATUsed,
+		mockGetAccountFromToken,
+		audience,
+		userIDClaim,
+	)
 
 	handlerToTest := authMiddleware.Handler(nextHandler)
 
