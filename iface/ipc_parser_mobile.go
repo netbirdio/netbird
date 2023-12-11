@@ -1,5 +1,5 @@
-//go:build android && ios
-// +build android,ios
+//go:build android || ios
+// +build android ios
 
 package iface
 
