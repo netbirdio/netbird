@@ -106,12 +106,12 @@ type mockUpstreamResolver struct {
 }
 
 // ExchangeContext mock implementation of ExchangeContext from upstreamResolver
-func (c mockUpstreamResolver) ExchangeContext(_ context.Context, _ *dns.Msg, _ string) (r *dns.Msg, rtt time.Duration, err error) {
+func (c mockUpstreamResolver) exchange(upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error) {
 	return c.r, c.rtt, c.err
 }
 
 func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
-	resolver := &upstreamResolver{
+	resolver := &upstreamResolverBase{
 		ctx: context.TODO(),
 		upstreamClient: &mockUpstreamResolver{
 			err: nil,

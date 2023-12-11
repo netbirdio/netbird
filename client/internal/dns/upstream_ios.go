@@ -3,6 +3,7 @@
 package dns
 
 import (
+	"context"
 	"net"
 	"syscall"
 	"time"
@@ -12,8 +13,14 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net.IP) (*upstreamResolver, error) {
-	ctx, cancel := context.WithCancel(parentCTX)
+type upstreamResolverIOS struct {
+	*upstreamResolverBase
+	lIP    net.IP
+	iIndex int
+}
+
+func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net.IP) (*upstreamResolverIOS, error) {
+	upstreamResolverBase := newUpstreamResolverBase(parentCTX)
 
 	index, err := getInterfaceIndex(interfaceName)
 	if err != nil {
@@ -21,25 +28,24 @@ func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net
 		return nil, err
 	}
 
-	return &upstreamResolver{
-		ctx:              ctx,
-		cancel:           cancel,
-		upstreamTimeout:  upstreamTimeout,
-		reactivatePeriod: reactivatePeriod,
-		failsTillDeact:   failsTillDeact,
-		lIP:              ip,
-		iIndex:           index,
-	}, nil
+	ios := &upstreamResolverIOS{
+		upstreamResolverBase: upstreamResolverBase,
+		lIP:                  ip,
+		iIndex:               index,
+	}
+	ios.upstreamClient = ios
+
+	return ios, nil
 }
 
-func (u *upstreamResolver) upstreamExchange(upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
+func (u *upstreamResolverIOS) exchange(upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
 	client := u.getClientPrivate()
 	return client.Exchange(r, upstream)
 }
 
 // getClientPrivate returns a new DNS client bound to the local IP address of the Netbird interface
 // This method is needed for iOS
-func (u *upstreamResolver) getClientPrivate() *dns.Client {
+func (u *upstreamResolverIOS) getClientPrivate() *dns.Client {
 	dialer := &net.Dialer{
 		LocalAddr: &net.UDPAddr{
 			IP:   u.lIP,

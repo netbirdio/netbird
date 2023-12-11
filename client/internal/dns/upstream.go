@@ -22,10 +22,15 @@ const (
 )
 
 type upstreamClient interface {
-	ExchangeContext(ctx context.Context, m *dns.Msg, a string) (r *dns.Msg, rtt time.Duration, err error)
+	exchange(upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
 }
 
-type upstreamResolver struct {
+type UpstreamResolver interface {
+	serveDNS(r *dns.Msg) (*dns.Msg, time.Duration, error)
+	upstreamExchange(upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
+}
+
+type upstreamResolverBase struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	upstreamClient   upstreamClient
@@ -36,20 +41,30 @@ type upstreamResolver struct {
 	mutex            sync.Mutex
 	reactivatePeriod time.Duration
 	upstreamTimeout  time.Duration
-	lIP              net.IP
-	iIndex           int
 
 	deactivate func()
 	reactivate func()
 }
 
-func (u *upstreamResolver) stop() {
+func newUpstreamResolverBase(parentCTX context.Context) *upstreamResolverBase {
+	ctx, cancel := context.WithCancel(parentCTX)
+
+	return &upstreamResolverBase{
+		ctx:              ctx,
+		cancel:           cancel,
+		upstreamTimeout:  upstreamTimeout,
+		reactivatePeriod: reactivatePeriod,
+		failsTillDeact:   failsTillDeact,
+	}
+}
+
+func (u *upstreamResolverBase) stop() {
 	log.Debugf("stopping serving DNS for upstreams %s", u.upstreamServers)
 	u.cancel()
 }
 
 // ServeDNS handles a DNS request
-func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	defer u.checkUpstreamFails()
 
 	log.WithField("question", r.Question[0]).Trace("received an upstream question")
@@ -62,7 +77,7 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 	for _, upstream := range u.upstreamServers {
 
-		rm, t, err := u.upstreamExchange(upstream, r)
+		rm, t, err := u.upstreamClient.exchange(upstream, r)
 
 		if err != nil {
 			if err == context.DeadlineExceeded || isTimeout(err) {
@@ -107,7 +122,7 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 // If fails count is greater that failsTillDeact, upstream resolving
 // will be disabled for reactivatePeriod, after that time period fails counter
 // will be reset and upstream will be reactivated.
-func (u *upstreamResolver) checkUpstreamFails() {
+func (u *upstreamResolverBase) checkUpstreamFails() {
 	u.mutex.Lock()
 	defer u.mutex.Unlock()
 
@@ -130,7 +145,7 @@ func (u *upstreamResolver) checkUpstreamFails() {
 }
 
 // waitUntilResponse retries, in an exponential interval, querying the upstream servers until it gets a positive response
-func (u *upstreamResolver) waitUntilResponse() {
+func (u *upstreamResolverBase) waitUntilResponse() {
 	exponentialBackOff := &backoff.ExponentialBackOff{
 		InitialInterval:     500 * time.Millisecond,
 		RandomizationFactor: 0.5,
@@ -152,10 +167,7 @@ func (u *upstreamResolver) waitUntilResponse() {
 
 		var err error
 		for _, upstream := range u.upstreamServers {
-			ctx, cancel := context.WithTimeout(u.ctx, u.upstreamTimeout)
-			_, _, err = u.upstreamClient.ExchangeContext(ctx, r, upstream)
-
-			cancel()
+			_, _, err = u.upstreamClient.exchange(upstream, r)
 
 			if err == nil {
 				return nil
