@@ -366,7 +366,7 @@ func (am *MockAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (*se
 
 func (am *MockAccountManager) ListUsers(accountID string) ([]*server.User, error) {
 	if am.ListUsersFunc != nil {
-		return am.ListUsers(accountID)
+		return am.ListUsersFunc(accountID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method ListUsers is not implemented")
 }
