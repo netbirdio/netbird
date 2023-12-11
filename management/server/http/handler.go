@@ -34,12 +34,20 @@ type emptyObject struct {
 
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
 func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg AuthCfg) (http.Handler, error) {
+	claimsExtractor := jwtclaims.NewClaimsExtractor(
+		jwtclaims.WithAudience(authCfg.Audience),
+		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
+	)
+
 	authMiddleware := middleware.NewAuthMiddleware(
 		accountManager.GetAccountFromPAT,
 		jwtValidator.ValidateAndParse,
 		accountManager.MarkPATUsed,
+		accountManager.GetAccountFromToken,
+		claimsExtractor,
 		authCfg.Audience,
-		authCfg.UserIDClaim)
+		authCfg.UserIDClaim,
+	)
 
 	corsMiddleware := cors.AllowAll()
 
@@ -59,11 +67,6 @@ func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValid
 		AccountManager: accountManager,
 		AuthCfg:        authCfg,
 	}
-
-	claimsExtractor := jwtclaims.NewClaimsExtractor(
-		jwtclaims.WithAudience(authCfg.Audience),
-		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
-	)
 
 	integrations.RegisterHandlers(api.Router, accountManager, claimsExtractor)
 	api.addAccountsEndpoint()
