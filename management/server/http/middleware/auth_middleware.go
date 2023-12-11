@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
@@ -226,8 +225,10 @@ func getTokenFromPATRequest(authHeaderParts []string) (string, error) {
 // userHasAllowedGroup checks if a user belongs to any of the allowed groups.
 func userHasAllowedGroup(allowedGroups []string, userGroups []string) bool {
 	for _, userGroup := range userGroups {
-		if slices.Contains(allowedGroups, userGroup) {
-			return true
+		for _, allowedGroup := range allowedGroups {
+			if userGroup == allowedGroup {
+				return true
+			}
 		}
 	}
 	return false
