@@ -73,17 +73,16 @@ func mockMarkPATUsed(token string) error {
 	return fmt.Errorf("Should never get reached")
 }
 
-func mockGetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+func mockCheckUserAccessByJWTGroups(claims jwtclaims.AuthorizationClaims) error {
 	if testAccount.Id != claims.AccountId {
-		return nil, nil, fmt.Errorf("account with id %s does not exist", claims.AccountId)
+		return fmt.Errorf("account with id %s does not exist", claims.AccountId)
 	}
 
-	user, ok := testAccount.Users[claims.UserId]
-	if !ok {
-		return nil, nil, fmt.Errorf("user with id %s does not exist", claims.UserId)
+	if _, ok := testAccount.Users[claims.UserId]; !ok {
+		return fmt.Errorf("user with id %s does not exist", claims.UserId)
 	}
 
-	return testAccount, user, nil
+	return nil
 }
 
 func TestAuthMiddleware_Handler(t *testing.T) {
@@ -137,7 +136,7 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		mockGetAccountFromPAT,
 		mockValidateAndParseToken,
 		mockMarkPATUsed,
-		mockGetAccountFromToken,
+		mockCheckUserAccessByJWTGroups,
 		claimsExtractor,
 		audience,
 		userIDClaim,
