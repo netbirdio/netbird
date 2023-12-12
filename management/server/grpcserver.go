@@ -220,6 +220,10 @@ func (s *GRPCServer) validateToken(jwtToken string) (string, error) {
 		return "", status.Errorf(codes.Internal, "unable to fetch account with claims, err: %v", err)
 	}
 
+	if err := s.accountManager.CheckUserAccessByJWTGroups(claims); err != nil {
+		return "", status.Errorf(codes.PermissionDenied, err.Error())
+	}
+
 	return claims.UserId, nil
 }
 
