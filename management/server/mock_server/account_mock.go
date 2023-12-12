@@ -69,6 +69,7 @@ type MockAccountManager struct {
 	ListNameServerGroupsFunc        func(accountID string) ([]*nbdns.NameServerGroup, error)
 	CreateUserFunc                  func(accountID, userID string, key *server.UserInfo) (*server.UserInfo, error)
 	GetAccountFromTokenFunc         func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error)
+	CheckUserAccessByJWTGroupsFunc  func(claims jwtclaims.AuthorizationClaims) error
 	DeleteAccountFunc               func(accountID, userID string) error
 	GetDNSDomainFunc                func() string
 	StoreEventFunc                  func(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any)
@@ -541,6 +542,13 @@ func (am *MockAccountManager) GetAccountFromToken(claims jwtclaims.Authorization
 		return am.GetAccountFromTokenFunc(claims)
 	}
 	return nil, nil, status.Errorf(codes.Unimplemented, "method GetAccountFromToken is not implemented")
+}
+
+func (am *MockAccountManager) CheckUserAccessByJWTGroups(claims jwtclaims.AuthorizationClaims) error {
+	if am.CheckUserAccessByJWTGroupsFunc != nil {
+		return am.CheckUserAccessByJWTGroupsFunc(claims)
+	}
+	return status.Errorf(codes.Unimplemented, "method CheckUserAccessByJWTGroups is not implemented")
 }
 
 // GetPeers mocks GetPeers of the AccountManager interface

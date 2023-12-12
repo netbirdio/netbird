@@ -66,6 +66,7 @@ type AccountManager interface {
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
+	CheckUserAccessByJWTGroups(claims jwtclaims.AuthorizationClaims) error
 	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
 	DeleteAccount(accountID, userID string) error
 	MarkPATUsed(tokenID string) error
@@ -1697,6 +1698,39 @@ func (am *DefaultAccountManager) GetDNSDomain() string {
 	return am.dnsDomain
 }
 
+// CheckUserAccessByJWTGroups checks if the user has access, particularly in cases where the admin enabled JWT
+// group propagation and set the list of groups with access permissions.
+func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(claims jwtclaims.AuthorizationClaims) error {
+	account, err := am.getAccountWithAuthorizationClaims(claims)
+	if err != nil {
+		return err
+	}
+
+	// Ensures JWT group synchronization to the management is enabled before,
+	// filtering access based on the allowed groups.
+	if account.Settings != nil && account.Settings.JWTGroupsEnabled {
+		if allowedGroups := account.Settings.JWTAllowGroups; len(allowedGroups) > 0 {
+			userJWTGroups := make([]string, 0)
+
+			if claim, ok := claims.Raw[account.Settings.JWTGroupsClaimName]; ok {
+				if claimGroups, ok := claim.([]interface{}); ok {
+					for _, g := range claimGroups {
+						if group, ok := g.(string); ok {
+							userJWTGroups = append(userJWTGroups, group)
+						}
+					}
+				}
+			}
+
+			if !userHasAllowedGroup(allowedGroups, userJWTGroups) {
+				return fmt.Errorf("user does not belong to any of the allowed JWT groups")
+			}
+		}
+	}
+
+	return nil
+}
+
 // addAllGroup to account object if it doesn't exists
 func addAllGroup(account *Account) error {
 	if len(account.Groups) == 0 {
@@ -1767,4 +1801,16 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 		log.Errorf("error adding all group to account %s: %v", acc.Id, err)
 	}
 	return acc
+}
+
+// userHasAllowedGroup checks if a user belongs to any of the allowed groups.
+func userHasAllowedGroup(allowedGroups []string, userGroups []string) bool {
+	for _, userGroup := range userGroups {
+		for _, allowedGroup := range allowedGroups {
+			if userGroup == allowedGroup {
+				return true
+			}
+		}
+	}
+	return false
 }
