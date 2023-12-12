@@ -316,7 +316,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		userID, err = s.validateToken(loginReq.GetJwtToken())
 		if err != nil {
 			log.Warnf("failed validating JWT token sent from peer %s", peerKey)
-			return nil, mapError(err)
+			return nil, err
 		}
 	}
 	var sshKey []byte
