@@ -4,16 +4,17 @@ package iface
 
 import (
 	"net"
+	"net/netip"
 	"os"
 
 	"github.com/pion/transport/v2"
 	"golang.zx2c4.com/wireguard/ipc"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/iface/bind"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun"
 )
 
 type tunDevice struct {
@@ -25,6 +26,7 @@ type tunDevice struct {
 	uapi         net.Listener
 	wrapper      *DeviceWrapper
 	close        chan struct{}
+	tunDevice    *device.Device
 }
 
 func newTunDevice(name string, address WGAddress, mtu int, transportNet transport.Net) *tunDevice {
@@ -44,6 +46,10 @@ func (c *tunDevice) UpdateAddr(address WGAddress) error {
 
 func (c *tunDevice) WgAddress() WGAddress {
 	return c.address
+}
+
+func (t *tunDevice) Device() *device.Device {
+	return t.tunDevice
 }
 
 func (c *tunDevice) DeviceName() string {
@@ -87,8 +93,12 @@ func (c *tunDevice) Close() error {
 
 // createWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
 func (c *tunDevice) createWithUserspace() (NetInterface, error) {
-	tunIface, err := tun.CreateTUN(c.name, c.mtu)
+	tunIface, _, err := netstack.CreateNetTUN(
+		[]netip.Addr{netip.MustParseAddr(c.address.IP.String())},
+		[]netip.Addr{netip.MustParseAddr("8.8.8.8")},
+		1420)
 	if err != nil {
+		log.Debugf("createWithUserspace failed with error: %v", err)
 		return nil, err
 	}
 	c.wrapper = newDeviceWrapper(tunIface)
@@ -101,37 +111,12 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 	)
 	err = tunDev.Up()
 	if err != nil {
+		log.Debugf("tunDev.Up() failed with error: %v", err)
 		_ = tunIface.Close()
 		return nil, err
 	}
 
-	c.uapi, err = c.getUAPI(c.name)
-	if err != nil {
-		_ = tunIface.Close()
-		return nil, err
-	}
-
-	go func() {
-		for {
-			select {
-			case <-c.close:
-				log.Debugf("exit uapi.Accept()")
-				return
-			default:
-			}
-			uapiConn, uapiErr := c.uapi.Accept()
-			if uapiErr != nil {
-				log.Traceln("uapi Accept failed with error: ", uapiErr)
-				continue
-			}
-			go func() {
-				tunDev.IpcHandle(uapiConn)
-				log.Debugf("exit tunDevice.IpcHandle")
-			}()
-		}
-	}()
-
-	log.Debugln("UAPI listener started")
+	c.tunDevice = tunDev
 	return tunIface, nil
 }
 

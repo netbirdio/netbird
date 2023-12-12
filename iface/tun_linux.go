@@ -3,7 +3,6 @@
 package iface
 
 import (
-	"fmt"
 	"os"
 
 	log "github.com/sirupsen/logrus"
@@ -11,14 +10,6 @@ import (
 )
 
 func (c *tunDevice) Create() error {
-	if WireGuardModuleIsLoaded() {
-		log.Infof("create tun interface with kernel WireGuard support: %s", c.DeviceName())
-		return c.createWithKernel()
-	}
-
-	if !tunModuleIsLoaded() {
-		return fmt.Errorf("couldn't check or load tun module")
-	}
 	log.Infof("create tun interface with userspace WireGuard support: %s", c.DeviceName())
 	var err error
 	c.netInterface, err = c.createWithUserspace()
@@ -27,7 +18,6 @@ func (c *tunDevice) Create() error {
 	}
 
 	return c.assignAddr()
-
 }
 
 // createWithKernel Creates a new WireGuard interface using kernel WireGuard module.
@@ -90,34 +80,7 @@ func (c *tunDevice) createWithKernel() error {
 
 // assignAddr Adds IP address to the tunnel interface
 func (c *tunDevice) assignAddr() error {
-	link := newWGLink(c.name)
-
-	//delete existing addresses
-	list, err := netlink.AddrList(link, 0)
-	if err != nil {
-		return err
-	}
-	if len(list) > 0 {
-		for _, a := range list {
-			addr := a
-			err = netlink.AddrDel(link, &addr)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	log.Debugf("adding address %s to interface: %s", c.address.String(), c.name)
-	addr, _ := netlink.ParseAddr(c.address.String())
-	err = netlink.AddrAdd(link, addr)
-	if os.IsExist(err) {
-		log.Infof("interface %s already has the address: %s", c.name, c.address.String())
-	} else if err != nil {
-		return err
-	}
-	// On linux, the link must be brought up
-	err = netlink.LinkSetUp(link)
-	return err
+	return nil
 }
 
 type wgLink struct {
