@@ -493,7 +493,15 @@ func getAllPeersFromGroups(account *Account, groups []string, peerID string) ([]
 
 		for _, p := range group.Peers {
 			peer, ok := account.Peers[p]
-			if ok && peer != nil && peer.ID == peerID {
+			if !ok {
+				continue
+			}
+
+			if peer == nil {
+				continue
+			}
+
+			if peer.ID == peerID {
 				peerInGroups = true
 				continue
 			}
