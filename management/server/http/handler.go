@@ -43,7 +43,7 @@ func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValid
 		accountManager.GetAccountFromPAT,
 		jwtValidator.ValidateAndParse,
 		accountManager.MarkPATUsed,
-		accountManager.GetAccountFromToken,
+		accountManager.CheckUserAccessByJWTGroups,
 		claimsExtractor,
 		authCfg.Audience,
 		authCfg.UserIDClaim,
