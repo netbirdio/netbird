@@ -51,7 +51,7 @@ var loginCmd = &cobra.Command{
 				AdminURL:      adminURL,
 				ConfigPath:    configPath,
 			}
-			if preSharedKey != "" {
+			if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
 				ic.PreSharedKey = &preSharedKey
 			}
 
