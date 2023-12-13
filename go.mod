@@ -30,6 +30,7 @@ require (
 require (
 	fyne.io/fyne/v2 v2.1.4
 	github.com/TheJumpCloud/jcapi-go v3.0.0+incompatible
+	github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5
 	github.com/c-robinson/iplib v1.0.3
 	github.com/cilium/ebpf v0.10.0
 	github.com/coreos/go-iptables v0.7.0

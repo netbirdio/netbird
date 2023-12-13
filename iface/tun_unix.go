@@ -4,16 +4,14 @@ package iface
 
 import (
 	"net"
-	"net/netip"
 	"os"
 
 	"github.com/pion/transport/v2"
 	"golang.zx2c4.com/wireguard/ipc"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/netbirdio/netbird/iface/uspproxy"
 
-	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/device"
 )
 
@@ -49,6 +47,7 @@ func (c *tunDevice) WgAddress() WGAddress {
 }
 
 func (t *tunDevice) Device() *device.Device {
+	// todo: potential nil pointer exception
 	return t.tunDevice
 }
 
@@ -91,19 +90,14 @@ func (c *tunDevice) Close() error {
 	return err3
 }
 
-// createWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
 func (c *tunDevice) createWithUserspace() (NetInterface, error) {
-	tunIface, _, err := netstack.CreateNetTUN(
-		[]netip.Addr{netip.MustParseAddr(c.address.IP.String())},
-		[]netip.Addr{netip.MustParseAddr("8.8.8.8")},
-		1420)
+	nsTun := uspproxy.NewNetStackTun(c.address.IP.String())
+	tunIface, err := nsTun.Create()
 	if err != nil {
-		log.Debugf("createWithUserspace failed with error: %v", err)
 		return nil, err
 	}
 	c.wrapper = newDeviceWrapper(tunIface)
 
-	// We need to create a wireguard-go device and listen to configuration requests
 	tunDev := device.NewDevice(
 		c.wrapper,
 		c.iceBind,
@@ -111,7 +105,6 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 	)
 	err = tunDev.Up()
 	if err != nil {
-		log.Debugf("tunDev.Up() failed with error: %v", err)
 		_ = tunIface.Close()
 		return nil, err
 	}
