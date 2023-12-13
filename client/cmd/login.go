@@ -151,13 +151,21 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.C
 		jwtToken = tokenInfo.GetTokenToUse()
 	}
 
+	var lastError error
+
 	err = WithBackOff(func() error {
 		err := internal.Login(ctx, config, setupKey, jwtToken)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
+			lastError = err
 			return nil
 		}
 		return err
 	})
+
+	if lastError != nil {
+		return fmt.Errorf("login failed: %v", lastError)
+	}
+
 	if err != nil {
 		return fmt.Errorf("backoff cycle failed: %v", err)
 	}
