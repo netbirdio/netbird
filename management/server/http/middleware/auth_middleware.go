@@ -26,18 +26,18 @@ type ValidateAndParseTokenFunc func(token string) (*jwt.Token, error)
 // MarkPATUsedFunc function
 type MarkPATUsedFunc func(token string) error
 
-// GetAccountFromTokenFunc function
-type GetAccountFromTokenFunc func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error)
+// CheckUserAccessByJWTGroupsFunc function
+type CheckUserAccessByJWTGroupsFunc func(claims jwtclaims.AuthorizationClaims) error
 
 // AuthMiddleware middleware to verify personal access tokens (PAT) and JWT tokens
 type AuthMiddleware struct {
-	getAccountFromPAT     GetAccountFromPATFunc
-	validateAndParseToken ValidateAndParseTokenFunc
-	markPATUsed           MarkPATUsedFunc
-	getAccountFromToken   GetAccountFromTokenFunc
-	claimsExtractor       *jwtclaims.ClaimsExtractor
-	audience              string
-	userIDClaim           string
+	getAccountFromPAT          GetAccountFromPATFunc
+	validateAndParseToken      ValidateAndParseTokenFunc
+	markPATUsed                MarkPATUsedFunc
+	checkUserAccessByJWTGroups CheckUserAccessByJWTGroupsFunc
+	claimsExtractor            *jwtclaims.ClaimsExtractor
+	audience                   string
+	userIDClaim                string
 }
 
 const (
@@ -46,20 +46,20 @@ const (
 
 // NewAuthMiddleware instance constructor
 func NewAuthMiddleware(getAccountFromPAT GetAccountFromPATFunc, validateAndParseToken ValidateAndParseTokenFunc,
-	markPATUsed MarkPATUsedFunc, getAccountFromToken GetAccountFromTokenFunc, claimsExtractor *jwtclaims.ClaimsExtractor,
+	markPATUsed MarkPATUsedFunc, checkUserAccessByJWTGroups CheckUserAccessByJWTGroupsFunc, claimsExtractor *jwtclaims.ClaimsExtractor,
 	audience string, userIdClaim string) *AuthMiddleware {
 	if userIdClaim == "" {
 		userIdClaim = jwtclaims.UserIDClaim
 	}
 
 	return &AuthMiddleware{
-		getAccountFromPAT:     getAccountFromPAT,
-		validateAndParseToken: validateAndParseToken,
-		markPATUsed:           markPATUsed,
-		getAccountFromToken:   getAccountFromToken,
-		claimsExtractor:       claimsExtractor,
-		audience:              audience,
-		userIDClaim:           userIdClaim,
+		getAccountFromPAT:          getAccountFromPAT,
+		validateAndParseToken:      validateAndParseToken,
+		markPATUsed:                markPATUsed,
+		checkUserAccessByJWTGroups: checkUserAccessByJWTGroups,
+		claimsExtractor:            claimsExtractor,
+		audience:                   audience,
+		userIDClaim:                userIdClaim,
 	}
 }
 
@@ -134,34 +134,7 @@ func (m *AuthMiddleware) checkJWTFromRequest(w http.ResponseWriter, r *http.Requ
 // group propagation and designated certain groups with access permissions.
 func (m *AuthMiddleware) verifyUserAccess(validatedToken *jwt.Token) error {
 	authClaims := m.claimsExtractor.FromToken(validatedToken)
-	account, _, err := m.getAccountFromToken(authClaims)
-	if err != nil {
-		return fmt.Errorf("failed to get the account from token: %w", err)
-	}
-
-	// Ensures JWT group synchronization to the management is enabled before,
-	// filtering access based on the allowed groups.
-	if account.Settings != nil && account.Settings.JWTGroupsEnabled {
-		if allowedGroups := account.Settings.JWTAllowGroups; len(allowedGroups) > 0 {
-			userJWTGroups := make([]string, 0)
-
-			if claim, ok := authClaims.Raw[account.Settings.JWTGroupsClaimName]; ok {
-				if claimGroups, ok := claim.([]interface{}); ok {
-					for _, g := range claimGroups {
-						if group, ok := g.(string); ok {
-							userJWTGroups = append(userJWTGroups, group)
-						}
-					}
-				}
-			}
-
-			if !userHasAllowedGroup(allowedGroups, userJWTGroups) {
-				return fmt.Errorf("user does not belong to any of the allowed JWT groups")
-			}
-		}
-	}
-
-	return nil
+	return m.checkUserAccessByJWTGroups(authClaims)
 }
 
 // CheckPATFromRequest checks if the PAT is valid
@@ -216,16 +189,4 @@ func getTokenFromPATRequest(authHeaderParts []string) (string, error) {
 	}
 
 	return authHeaderParts[1], nil
-}
-
-// userHasAllowedGroup checks if a user belongs to any of the allowed groups.
-func userHasAllowedGroup(allowedGroups []string, userGroups []string) bool {
-	for _, userGroup := range userGroups {
-		for _, allowedGroup := range allowedGroups {
-			if userGroup == allowedGroup {
-				return true
-			}
-		}
-	}
-	return false
 }
