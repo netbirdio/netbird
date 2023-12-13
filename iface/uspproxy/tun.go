@@ -50,6 +50,6 @@ func (t *NetStackTun) Create() (tun.Device, error) {
 		return nil, err
 	}
 
-	err = t.proxy.ListenAndServe("127.0.0.1:1234")
+	err = t.proxy.ListenAndServe("0.0.0.0:1234")
 	return nsTunDev, nil
 }
