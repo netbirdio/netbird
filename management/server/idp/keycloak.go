@@ -354,13 +354,13 @@ func (km *KeycloakManager) DeleteUser(userID string) error {
 }
 
 func (km *KeycloakManager) fetchAllUserProfiles() ([]keycloakProfile, error) {
-	totalUsers, err := km.totalUsersCount()
-	if err != nil {
-		return nil, err
-	}
+	//totalUsers, err := km.totalUsersCount()
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	q := url.Values{}
-	q.Add("max", fmt.Sprint(*totalUsers))
+	q.Add("max", fmt.Sprint(200))
 
 	body, err := km.get("users", q)
 	if err != nil {
@@ -408,6 +408,8 @@ func (km *KeycloakManager) get(resource string, q url.Values) ([]byte, error) {
 
 		return nil, fmt.Errorf("unable to get %s, statusCode %d", reqURL, resp.StatusCode)
 	}
+
+	log.Infof("Link header: %v", resp.Header.Get("Link"))
 
 	return io.ReadAll(resp.Body)
 }
