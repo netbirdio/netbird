@@ -66,15 +66,15 @@ type statusOutputOverview struct {
 }
 
 var (
-	detailFlag     bool
-	ipv4Flag       bool
-	jsonFlag       bool
-	yamlFlag       bool
-	ipsFilter      []string
-	namesFilter    []string
-	statusFilter   string
-	ipsFilterMap   map[string]struct{}
-	namesFilterMap map[string]struct{}
+	detailFlag           bool
+	ipv4Flag             bool
+	jsonFlag             bool
+	yamlFlag             bool
+	ipsFilter            []string
+	prefixNamesFilter    []string
+	statusFilter         string
+	ipsFilterMap         map[string]struct{}
+	prefixNamesFilterMap map[string]struct{}
 )
 
 var statusCmd = &cobra.Command{
@@ -85,14 +85,14 @@ var statusCmd = &cobra.Command{
 
 func init() {
 	ipsFilterMap = make(map[string]struct{})
-	namesFilterMap = make(map[string]struct{})
+	prefixNamesFilterMap = make(map[string]struct{})
 	statusCmd.PersistentFlags().BoolVarP(&detailFlag, "detail", "d", false, "display detailed status information in human-readable format")
 	statusCmd.PersistentFlags().BoolVar(&jsonFlag, "json", false, "display detailed status information in json format")
 	statusCmd.PersistentFlags().BoolVar(&yamlFlag, "yaml", false, "display detailed status information in yaml format")
 	statusCmd.PersistentFlags().BoolVar(&ipv4Flag, "ipv4", false, "display only NetBird IPv4 of this peer, e.g., --ipv4 will output 100.64.0.33")
 	statusCmd.MarkFlagsMutuallyExclusive("detail", "json", "yaml", "ipv4")
 	statusCmd.PersistentFlags().StringSliceVar(&ipsFilter, "filter-by-ips", []string{}, "filters the detailed output by a list of one or more IPs, e.g., --filter-by-ips 100.64.0.100,100.64.0.200")
-	statusCmd.PersistentFlags().StringSliceVar(&namesFilter, "filter-by-names", []string{}, "filters the detailed output by a list of one or more peer names, e.g., --filter-by-names peer-a.netbird.cloud,peer-b.netbird.cloud")
+	statusCmd.PersistentFlags().StringSliceVar(&prefixNamesFilter, "filter-by-names", []string{}, "filters the detailed output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud")
 	statusCmd.PersistentFlags().StringVar(&statusFilter, "filter-by-status", "", "filters the detailed output by connection status(connected|disconnected), e.g., --filter-by-status connected")
 }
 
@@ -197,9 +197,9 @@ func parseFilters() error {
 		}
 	}
 
-	if len(namesFilter) > 0 {
-		for _, name := range namesFilter {
-			namesFilterMap[name] = struct{}{}
+	if len(prefixNamesFilter) > 0 {
+		for _, name := range prefixNamesFilter {
+			prefixNamesFilterMap[strings.ToLower(name)] = struct{}{}
 		}
 		enableDetailFlagWhenFilterFlag()
 	}
@@ -456,10 +456,12 @@ func skipDetailByFilters(peerState *proto.PeerState, isConnected bool) bool {
 		}
 	}
 
-	if len(namesFilter) > 0 {
-		_, ok := namesFilterMap[peerState.Fqdn]
-		if !ok {
-			nameEval = true
+	if len(prefixNamesFilter) > 0 {
+		for prefixNameFilter := range prefixNamesFilterMap {
+			if !strings.HasPrefix(peerState.Fqdn, prefixNameFilter) {
+				nameEval = true
+				break
+			}
 		}
 	}
 
