@@ -62,7 +62,7 @@ func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMet
 	httpTransport.MaxIdleConns = 5
 
 	httpClient := &http.Client{
-		Timeout:   60 * time.Second,
+		Timeout:   120 * time.Second,
 		Transport: httpTransport,
 	}
 	helper := JsonParser{}
@@ -417,7 +417,7 @@ func (km *KeycloakManager) get(resource string, q url.Values) ([]byte, error) {
 func (km *KeycloakManager) totalUsersCount() (*int, error) {
 	start := time.Now()
 	defer func() {
-		log.Debugf("Keycloak totalUsersCount took %d ms to handle", time.Since(start).Milliseconds())
+		log.Infof("Keycloak totalUsersCount took %d ms to handle", time.Since(start).Milliseconds())
 	}()
 
 	body, err := km.get("users/count", nil)
