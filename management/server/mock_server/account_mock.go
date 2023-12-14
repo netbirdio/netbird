@@ -69,6 +69,7 @@ type MockAccountManager struct {
 	ListNameServerGroupsFunc        func(accountID string) ([]*nbdns.NameServerGroup, error)
 	CreateUserFunc                  func(accountID, userID string, key *server.UserInfo) (*server.UserInfo, error)
 	GetAccountFromTokenFunc         func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error)
+	CheckUserAccessByJWTGroupsFunc  func(claims jwtclaims.AuthorizationClaims) error
 	DeleteAccountFunc               func(accountID, userID string) error
 	GetDNSDomainFunc                func() string
 	StoreEventFunc                  func(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any)
@@ -366,7 +367,7 @@ func (am *MockAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (*se
 
 func (am *MockAccountManager) ListUsers(accountID string) ([]*server.User, error) {
 	if am.ListUsersFunc != nil {
-		return am.ListUsers(accountID)
+		return am.ListUsersFunc(accountID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method ListUsers is not implemented")
 }
@@ -464,7 +465,7 @@ func (am *MockAccountManager) SaveUser(accountID, userID string, user *server.Us
 
 // SaveOrAddUser mocks SaveOrAddUser of the AccountManager interface
 func (am *MockAccountManager) SaveOrAddUser(accountID, userID string, user *server.User, addIfNotExists bool) (*server.UserInfo, error) {
-	if am.SaveUserFunc != nil {
+	if am.SaveOrAddUserFunc != nil {
 		return am.SaveOrAddUserFunc(accountID, userID, user, addIfNotExists)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method SaveOrAddUser is not implemented")
@@ -543,9 +544,16 @@ func (am *MockAccountManager) GetAccountFromToken(claims jwtclaims.Authorization
 	return nil, nil, status.Errorf(codes.Unimplemented, "method GetAccountFromToken is not implemented")
 }
 
+func (am *MockAccountManager) CheckUserAccessByJWTGroups(claims jwtclaims.AuthorizationClaims) error {
+	if am.CheckUserAccessByJWTGroupsFunc != nil {
+		return am.CheckUserAccessByJWTGroupsFunc(claims)
+	}
+	return status.Errorf(codes.Unimplemented, "method CheckUserAccessByJWTGroups is not implemented")
+}
+
 // GetPeers mocks GetPeers of the AccountManager interface
 func (am *MockAccountManager) GetPeers(accountID, userID string) ([]*nbpeer.Peer, error) {
-	if am.GetAccountFromTokenFunc != nil {
+	if am.GetPeersFunc != nil {
 		return am.GetPeersFunc(accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeers is not implemented")

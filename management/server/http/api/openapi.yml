@@ -66,6 +66,12 @@ components:
           description: Name of the claim from which we extract groups names to add it to account groups.
           type: string
           example: "roles"
+        jwt_allow_groups:
+          description: List of groups to which users are allowed access
+          type: array
+          items:
+            type: string
+            example: Administrators
         extra:
           $ref: '#/components/schemas/AccountExtraSettings'
       required:
