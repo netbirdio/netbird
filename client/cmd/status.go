@@ -66,13 +66,15 @@ type statusOutputOverview struct {
 }
 
 var (
-	detailFlag   bool
-	ipv4Flag     bool
-	jsonFlag     bool
-	yamlFlag     bool
-	ipsFilter    []string
-	statusFilter string
-	ipsFilterMap map[string]struct{}
+	detailFlag           bool
+	ipv4Flag             bool
+	jsonFlag             bool
+	yamlFlag             bool
+	ipsFilter            []string
+	prefixNamesFilter    []string
+	statusFilter         string
+	ipsFilterMap         map[string]struct{}
+	prefixNamesFilterMap map[string]struct{}
 )
 
 var statusCmd = &cobra.Command{
@@ -83,12 +85,14 @@ var statusCmd = &cobra.Command{
 
 func init() {
 	ipsFilterMap = make(map[string]struct{})
+	prefixNamesFilterMap = make(map[string]struct{})
 	statusCmd.PersistentFlags().BoolVarP(&detailFlag, "detail", "d", false, "display detailed status information in human-readable format")
 	statusCmd.PersistentFlags().BoolVar(&jsonFlag, "json", false, "display detailed status information in json format")
 	statusCmd.PersistentFlags().BoolVar(&yamlFlag, "yaml", false, "display detailed status information in yaml format")
 	statusCmd.PersistentFlags().BoolVar(&ipv4Flag, "ipv4", false, "display only NetBird IPv4 of this peer, e.g., --ipv4 will output 100.64.0.33")
 	statusCmd.MarkFlagsMutuallyExclusive("detail", "json", "yaml", "ipv4")
 	statusCmd.PersistentFlags().StringSliceVar(&ipsFilter, "filter-by-ips", []string{}, "filters the detailed output by a list of one or more IPs, e.g., --filter-by-ips 100.64.0.100,100.64.0.200")
+	statusCmd.PersistentFlags().StringSliceVar(&prefixNamesFilter, "filter-by-names", []string{}, "filters the detailed output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud")
 	statusCmd.PersistentFlags().StringVar(&statusFilter, "filter-by-status", "", "filters the detailed output by connection status(connected|disconnected), e.g., --filter-by-status connected")
 }
 
@@ -172,8 +176,12 @@ func getStatus(ctx context.Context, cmd *cobra.Command) (*proto.StatusResponse, 
 }
 
 func parseFilters() error {
+
 	switch strings.ToLower(statusFilter) {
 	case "", "disconnected", "connected":
+		if strings.ToLower(statusFilter) != "" {
+			enableDetailFlagWhenFilterFlag()
+		}
 	default:
 		return fmt.Errorf("wrong status filter, should be one of connected|disconnected, got: %s", statusFilter)
 	}
@@ -185,9 +193,24 @@ func parseFilters() error {
 				return fmt.Errorf("got an invalid IP address in the filter: address %s, error %s", addr, err)
 			}
 			ipsFilterMap[addr] = struct{}{}
+			enableDetailFlagWhenFilterFlag()
 		}
 	}
+
+	if len(prefixNamesFilter) > 0 {
+		for _, name := range prefixNamesFilter {
+			prefixNamesFilterMap[strings.ToLower(name)] = struct{}{}
+		}
+		enableDetailFlagWhenFilterFlag()
+	}
+
 	return nil
+}
+
+func enableDetailFlagWhenFilterFlag() {
+	if !detailFlag && !jsonFlag && !yamlFlag {
+		detailFlag = true
+	}
 }
 
 func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverview {
@@ -415,6 +438,7 @@ func parsePeers(peers peersStateOutput) string {
 func skipDetailByFilters(peerState *proto.PeerState, isConnected bool) bool {
 	statusEval := false
 	ipEval := false
+	nameEval := false
 
 	if statusFilter != "" {
 		lowerStatusFilter := strings.ToLower(statusFilter)
@@ -431,5 +455,15 @@ func skipDetailByFilters(peerState *proto.PeerState, isConnected bool) bool {
 			ipEval = true
 		}
 	}
-	return statusEval || ipEval
+
+	if len(prefixNamesFilter) > 0 {
+		for prefixNameFilter := range prefixNamesFilterMap {
+			if !strings.HasPrefix(peerState.Fqdn, prefixNameFilter) {
+				nameEval = true
+				break
+			}
+		}
+	}
+
+	return statusEval || ipEval || nameEval
 }
