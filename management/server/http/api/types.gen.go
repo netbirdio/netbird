@@ -131,6 +131,9 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
+	// AssignIpv6ByDefault Whether to enable IPv6 for new hosts added to the system
+	AssignIpv6ByDefault bool `json:"assign_ipv6_by_default"`
+
 	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
 	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`
 
@@ -320,6 +323,15 @@ type Peer struct {
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
 
+	// Ip6 Peer's IPv6 address
+	Ip6 *string `json:"ip6,omitempty"`
+
+	// Ipv6Enabled Whether IPv6 is enabled for this peer.
+	Ipv6Enabled bool `json:"ipv6_enabled"`
+
+	// Ipv6Supported Whether this peer supports IPv6
+	Ipv6Supported bool `json:"ipv6_supported"`
+
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
 
@@ -362,6 +374,7 @@ type PeerMinimum struct {
 
 // PeerRequest defines model for PeerRequest.
 type PeerRequest struct {
+	Ipv6Enabled            bool   `json:"ipv6_enabled"`
 	LoginExpirationEnabled bool   `json:"login_expiration_enabled"`
 	Name                   string `json:"name"`
 	SshEnabled             bool   `json:"ssh_enabled"`

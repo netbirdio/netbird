@@ -66,7 +66,7 @@ type AccountManager interface {
 	GetPeers(accountID, userID string) ([]*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
 	DeletePeer(accountID, peerID, userID string) error
-	UpdatePeer(accountID, userID string, peer *Peer) (*Peer, error)
+	UpdatePeer(accountID, userID string, peer *Peer, enableV6 bool) (*Peer, error)
 	GetNetworkMap(peerID string) (*NetworkMap, error)
 	GetPeerNetwork(peerID string) (*Network, error)
 	AddPeer(setupKey, userID string, peer *Peer) (*Peer, *NetworkMap, error)
@@ -151,6 +151,9 @@ type Settings struct {
 
 	// JWTGroupsClaimName from which we extract groups name to add it to account groups
 	JWTGroupsClaimName string
+
+	// AssignIPv6ByDefault determines whether hosts added to the network get assigned an IPv6 address by default.
+	AssignIPv6ByDefault bool
 }
 
 // Copy copies the Settings struct
@@ -161,6 +164,7 @@ func (s *Settings) Copy() *Settings {
 		JWTGroupsEnabled:           s.JWTGroupsEnabled,
 		JWTGroupsClaimName:         s.JWTGroupsClaimName,
 		GroupsPropagationEnabled:   s.GroupsPropagationEnabled,
+		AssignIPv6ByDefault:        s.AssignIPv6ByDefault,
 	}
 }
 
@@ -222,7 +226,8 @@ func (a *Account) getRoutesToSync(peerID string, aclPeers []*Peer) []*route.Rout
 	groupListMap := a.getPeerGroups(peerID)
 	for _, peer := range aclPeers {
 		activeRoutes, _ := a.getRoutingPeerRoutes(peer.ID)
-		groupFilteredRoutes := a.filterRoutesByGroups(activeRoutes, groupListMap)
+		addressFamilyFilteredRoutes := a.filterRoutesByIPv6Enabled(activeRoutes, a.GetPeer(peerID).IP6 != nil && peer.IP6 != nil)
+		groupFilteredRoutes := a.filterRoutesByGroups(addressFamilyFilteredRoutes, groupListMap)
 		filteredRoutes := a.filterRoutesFromPeersOfSameHAGroup(groupFilteredRoutes, peerRoutesMembership)
 		routes = append(routes, filteredRoutes...)
 	}
@@ -252,6 +257,20 @@ func (a *Account) filterRoutesByGroups(routes []*route.Route, groupListMap looku
 				filteredRoutes = append(filteredRoutes, r)
 				break
 			}
+		}
+	}
+	return filteredRoutes
+}
+
+// Filters out IPv6 routes if the peer does not support them.
+func (a *Account) filterRoutesByIPv6Enabled(routes []*route.Route, v6Supported bool) []*route.Route {
+	if v6Supported {
+		return routes
+	}
+	var filteredRoutes []*route.Route
+	for _, route := range routes {
+		if route.Network.Addr().Is4() {
+			filteredRoutes = append(filteredRoutes, route)
 		}
 	}
 	return filteredRoutes
@@ -560,6 +579,17 @@ func (a *Account) getTakenIPs() []net.IP {
 	var takenIps []net.IP
 	for _, existingPeer := range a.Peers {
 		takenIps = append(takenIps, existingPeer.IP)
+	}
+
+	return takenIps
+}
+
+func (a *Account) getTakenIP6s() []net.IP {
+	var takenIps []net.IP
+	for _, existingPeer := range a.Peers {
+		if existingPeer.IP6 != nil {
+			takenIps = append(takenIps, *existingPeer.IP6)
+		}
 	}
 
 	return takenIps
@@ -881,8 +911,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 		am.checkAndSchedulePeerLoginExpiration(account)
 	}
 
-	updatedAccount := account.UpdateSettings(newSettings)
+	if oldSettings.AssignIPv6ByDefault != newSettings.AssignIPv6ByDefault {
+		am.storeEvent(userID, accountID, accountID, activity.AccountAssignIPv6ByDefaultUpdated, nil)
+	}
 
+	updatedAccount := account.UpdateSettings(newSettings)
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, err

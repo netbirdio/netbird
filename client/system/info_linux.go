@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal/checkfw"
+	"github.com/netbirdio/netbird/iface"
 	"os"
 	"os/exec"
 	"runtime"
@@ -49,7 +51,7 @@ func GetInfo(ctx context.Context) *Info {
 	if osName == "" {
 		osName = osInfo[3]
 	}
-	gio := &Info{Kernel: osInfo[0], Core: osInfo[1], Platform: osInfo[2], OS: osName, OSVersion: osVer, GoOS: runtime.GOOS, CPUs: runtime.NumCPU(), Ipv6Supported: true}
+	gio := &Info{Kernel: osInfo[0], Core: osInfo[1], Platform: osInfo[2], OS: osName, OSVersion: osVer, GoOS: runtime.GOOS, CPUs: runtime.NumCPU(), Ipv6Supported: _checkIPv6Support()}
 	systemHostname, _ := os.Hostname()
 	gio.Hostname = extractDeviceName(ctx, systemHostname)
 	gio.WiretrusteeVersion = version.NetbirdVersion()
@@ -84,4 +86,9 @@ func _getReleaseInfo() string {
 		fmt.Println("getReleaseInfo:", err)
 	}
 	return out.String()
+}
+
+func _checkIPv6Support() bool {
+	return checkfw.Check() == checkfw.NFTABLES &&
+		iface.WireGuardModuleIsLoaded()
 }

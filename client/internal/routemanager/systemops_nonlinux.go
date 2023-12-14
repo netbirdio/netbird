@@ -13,6 +13,7 @@ import (
 
 func addToRouteTable(prefix netip.Prefix, addr string, devName string) error {
 	// devName is ignored here, the route interface is automatically determined based on the gateway address.
+	// TODO connecting via IPv6 to other peers on windows doesn't work - route configuration issue?
 	cmd := exec.Command("route", "add", prefix.String(), addr)
 	out, err := cmd.Output()
 	if err != nil {

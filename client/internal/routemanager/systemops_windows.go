@@ -6,6 +6,8 @@ package routemanager
 import (
 	"net"
 	"net/netip"
+
+	"github.com/yusufpapurcu/wmi"
 )
 
 type Win32_IP4RouteTable struct {

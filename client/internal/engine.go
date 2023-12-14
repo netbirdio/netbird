@@ -516,10 +516,19 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		e.config.WgAddr = conf.Address
 		log.Infof("updated peer address from %s to %s", oldAddr, conf.Address)
 	}
-	if e.wgInterface.Address6() != nil && e.wgInterface.Address6().String() != conf.Address6 {
-		oldAddr := e.wgInterface.Address6().String()
-		log.Debugf("updating peer IPv6 address from %s to %s", oldAddr, conf.Address6)
-		err := e.wgInterface.UpdateAddr6(conf.Address)
+
+	if e.wgInterface.Address6() == nil && conf.Address6 != "" ||
+		e.wgInterface.Address6() != nil && e.wgInterface.Address6().String() != conf.Address6 {
+		oldAddr := "none"
+		if e.wgInterface.Address6() != nil {
+			oldAddr = e.wgInterface.Address6().String()
+		}
+		newAddr := "none"
+		if conf.Address6 != "" {
+			newAddr = conf.Address6
+		}
+		log.Debugf("updating peer IPv6 address from %s to %s", oldAddr, newAddr)
+		err := e.wgInterface.UpdateAddr6(conf.Address6)
 		if err != nil {
 			return err
 		}

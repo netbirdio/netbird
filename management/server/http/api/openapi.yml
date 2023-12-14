@@ -54,6 +54,10 @@ components:
           description: Period of time after which peer login expires (seconds).
           type: integer
           example: 43200
+        assign_ipv6_by_default:
+          description: Whether to enable IPv6 for new hosts added to the system
+          type: boolean
+          example: false
         groups_propagation_enabled:
           description: Allows propagate the new user auto groups to peers that belongs to the user
           type: boolean
@@ -69,6 +73,7 @@ components:
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
+        - assign_ipv6_by_default
     AccountRequest:
       type: object
       properties:
@@ -213,10 +218,14 @@ components:
         login_expiration_enabled:
           type: boolean
           example: false
+        ipv6_enabled:
+          type: boolean
+          example: false
       required:
         - name
         - ssh_enabled
         - login_expiration_enabled
+        - ipv6_enabled
     Peer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -226,6 +235,10 @@ components:
               description: Peer's IP address
               type: string
               example: 10.64.0.1
+            ip6:
+              description: Peer's IPv6 address
+              type: string
+              example: 2001:db8::0123:4567:890a:bcde
             connected:
               description: Peer to Management connection status
               type: boolean
@@ -264,6 +277,14 @@ components:
               description: Peer's desktop UI version
               type: string
               example: 0.14.0
+            ipv6_supported:
+              description: Whether this peer supports IPv6
+              type: boolean
+              example: true
+            ipv6_enabled:
+              description: Whether IPv6 is enabled for this peer.
+              type: boolean
+              example: true
             dns_label:
               description: Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
               type: string
@@ -291,6 +312,8 @@ components:
             - ssh_enabled
             - hostname
             - dns_label
+            - ipv6_supported
+            - ipv6_enabled
             - login_expiration_enabled
             - login_expired
             - last_login

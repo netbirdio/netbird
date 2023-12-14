@@ -294,8 +294,8 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 	return nil
 }
 
-// UpdatePeer updates peer. Only Peer.Name, Peer.SSHEnabled, and Peer.LoginExpirationEnabled can be updated.
-func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Peer) (*Peer, error) {
+// UpdatePeer updates peer. Only Peer.Name, Peer.SSHEnabled and Peer.LoginExpirationEnabled can be updated.
+func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Peer, enableV6 bool) (*Peer, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -307,6 +307,24 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 	peer := account.GetPeer(update.ID)
 	if peer == nil {
 		return nil, status.Errorf(status.NotFound, "peer %s not found", update.ID)
+	}
+
+	if enableV6 && peer.IP6 == nil {
+		if !peer.Meta.Ipv6Supported {
+			return nil, status.Errorf(status.PreconditionFailed, "failed allocating new IPv6 for peer %s - peer does not support IPv6", peer.Name)
+		}
+		if account.Network.Net6 == nil {
+			account.Network.Net6 = GenerateNetwork6()
+		}
+		v6tmp, err := AllocatePeerIP6(*account.Network.Net6, account.getTakenIP6s())
+		if err != nil {
+			return nil, err
+		}
+		peer.IP6 = &v6tmp
+		am.storeEvent(userID, peer.IP6.String(), accountID, activity.PeerIPv6Enabled, peer.EventMeta(am.GetDNSDomain()))
+	} else if !enableV6 && peer.IP6 != nil {
+		am.storeEvent(userID, peer.IP6.String(), accountID, activity.PeerIPv6Disabled, peer.EventMeta(am.GetDNSDomain()))
+		peer.IP6 = nil
 	}
 
 	if peer.SSHEnabled != update.SSHEnabled {
@@ -540,8 +558,12 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	if err != nil {
 		return nil, nil, err
 	}
+
 	var nextIp6 *net.IP = nil
-	if network.Net6 != nil && peer.Meta.Ipv6Supported {
+	if account.Settings.AssignIPv6ByDefault && peer.Meta.Ipv6Supported {
+		if network.Net6 == nil {
+			network.Net6 = GenerateNetwork6()
+		}
 		nextIp6tmp, err := AllocatePeerIP6(*network.Net6, takenIps)
 		if err != nil {
 			return nil, nil, err
@@ -708,6 +730,11 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		shouldStoreAccount = true
 	}
 
+	updated = disableNoLongerSupportedFeatures(peer)
+	if updated {
+		shouldStoreAccount = true
+	}
+
 	peer, err = am.checkAndUpdatePeerSSHKey(peer, account, login.SSHKey)
 	if err != nil {
 		return nil, nil, err
@@ -724,6 +751,14 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		am.updateAccountPeers(account)
 	}
 	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
+}
+
+func disableNoLongerSupportedFeatures(peer *Peer) bool {
+	if !peer.Meta.Ipv6Supported && peer.IP6 != nil {
+		peer.IP6 = nil
+		return true
+	}
+	return false
 }
 
 func checkIfPeerOwnerIsBlocked(peer *Peer, account *Account) error {

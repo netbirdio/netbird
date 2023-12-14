@@ -63,13 +63,7 @@ func NewNetwork(enableV6 bool) *Network {
 
 	var n6 *net.IPNet = nil
 	if enableV6 {
-		addrbuf := make([]byte, 16)
-		addrbuf[0] = 0xfd
-		addrbuf[1] = 0x00
-		_, _ = r.Read(addrbuf[2:Subnet6Size])
-
-		n6tmp := iplib.NewNet6(addrbuf, Subnet6Size*8, 0).IPNet
-		n6 = &n6tmp
+		n6 = GenerateNetwork6()
 	}
 
 	return &Network{
@@ -78,6 +72,18 @@ func NewNetwork(enableV6 bool) *Network {
 		Net6:       n6,
 		Dns:        "",
 		Serial:     0}
+}
+
+func GenerateNetwork6() *net.IPNet {
+	s := rand.NewSource(time.Now().Unix())
+	r := rand.New(s)
+	addrbuf := make([]byte, 16)
+	addrbuf[0] = 0xfd
+	addrbuf[1] = 0x00
+	_, _ = r.Read(addrbuf[2:Subnet6Size])
+
+	n6 := iplib.NewNet6(addrbuf, Subnet6Size*8, 0).IPNet
+	return &n6
 }
 
 // IncSerial increments Serial by 1 reflecting that the network state has been changed
@@ -129,9 +135,7 @@ func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 }
 
 // AllocatePeerIP6 pics an available IPv6 from an net.IPNet.
-// This method considers already taken IPs and reuses IPs if there are gaps in takenIps
-// E.g. if ipNet=100.30.0.0/16 and takenIps=[100.30.0.1, 100.30.0.4] then the result would be 100.30.0.2 or 100.30.0.3
-// TODO docs, and recheck if there might be a duplicate issue here?
+// This method considers already taken IPs and reuses IPs if there are gaps in takenIps.
 func AllocatePeerIP6(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 
 	takenIPMap := make(map[string]struct{})
@@ -148,11 +152,11 @@ func AllocatePeerIP6(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 	// TODO for small subnet sizes, randomly generating values until we don't get a duplicate is inefficient and could
 	// 		lead to many loop iterations, using a method similar to IPv4 would be preferable here.
 
-	addrbuf := ipNet.IP.To16()
+	addrbuf := make(net.IP, 16)
+	copy(addrbuf, ipNet.IP.To16())
 	for duplicate := true; duplicate; _, duplicate = takenIPMap[addrbuf.String()] {
 		_, _ = r.Read(addrbuf[(maskSize / 8):16])
 	}
-
 	return addrbuf, nil
 }
 

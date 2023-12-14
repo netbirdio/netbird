@@ -75,7 +75,7 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 
 	update := &server.Peer{ID: peerID, SSHEnabled: req.SshEnabled, Name: req.Name,
 		LoginExpirationEnabled: req.LoginExpirationEnabled}
-	peer, err := h.accountManager.UpdatePeer(account.Id, user.Id, update)
+	peer, err := h.accountManager.UpdatePeer(account.Id, user.Id, update, req.Ipv6Enabled)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -185,10 +185,17 @@ func toPeerResponse(peer *server.Peer, account *server.Account, dnsDomain string
 		fqdn = peer.DNSLabel
 	}
 
+	var ip6 *string
+	if peer.IP6 != nil {
+		ip6string := peer.IP6.String()
+		ip6 = &ip6string
+	}
+
 	return &api.Peer{
 		Id:                     peer.ID,
 		Name:                   peer.Name,
 		Ip:                     peer.IP.String(),
+		Ip6:                    ip6,
 		Connected:              peer.Status.Connected,
 		LastSeen:               peer.Status.LastSeen,
 		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, peer.Meta.Core),
@@ -198,6 +205,8 @@ func toPeerResponse(peer *server.Peer, account *server.Account, dnsDomain string
 		Hostname:               peer.Meta.Hostname,
 		UserId:                 &peer.UserID,
 		UiVersion:              &peer.Meta.UIVersion,
+		Ipv6Supported:          peer.Meta.Ipv6Supported,
+		Ipv6Enabled:            peer.IP6 != nil,
 		DnsLabel:               fqdn,
 		LoginExpirationEnabled: peer.LoginExpirationEnabled,
 		LastLogin:              peer.LastLogin,

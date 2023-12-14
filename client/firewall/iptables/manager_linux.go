@@ -59,10 +59,10 @@ func Create(wgIface iFaceMapper, ipv6Supported bool) (*Manager, error) {
 		wgIface: wgIface,
 		inputDefaultRuleSpecs: []string{
 			"-i", wgIface.Name(), "-j", ChainInputFilterName, "-s", wgIface.Address().String(),
-			"-i", wgIface.Name(), "-j", ChainInputFilterName, "-s", wgIface.Address6().String()},
+			"-j", ChainInputFilterName, "-s", wgIface.Address6().String()},
 		outputDefaultRuleSpecs: []string{
 			"-o", wgIface.Name(), "-j", ChainOutputFilterName, "-d", wgIface.Address().String(),
-			"-o", wgIface.Name(), "-j", ChainInputFilterName, "-s", wgIface.Address6().String()},
+			"-j", ChainInputFilterName, "-s", wgIface.Address6().String()},
 		rulesets: make(map[string]ruleset),
 	}
 

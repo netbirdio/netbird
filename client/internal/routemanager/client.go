@@ -108,8 +108,6 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 			chosen = r.ID
 			chosenScore = tempScore
 		}
-		// TODO IPv6 consider IPv6 connectivity for route selection?
-		// 		Depends on how we want to handle non-ipv6-compatible clients
 	}
 
 	if chosen == "" {
@@ -223,6 +221,10 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 	} else {
 		gwAddr := c.wgInterface.Address().IP.String()
 		if c.network.Addr().Is6() {
+			if c.wgInterface.Address6() == nil {
+				return fmt.Errorf("Could not assign IPv6 route %s for peer %s because no IPv6 address is assigned",
+					c.network.String(), c.wgInterface.Address().IP.String())
+			}
 			gwAddr = c.wgInterface.Address6().IP.String()
 		}
 

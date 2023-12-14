@@ -15,7 +15,7 @@ import (
 // GetInfo retrieves and parses the system information
 func GetInfo(ctx context.Context) *Info {
 	ver := getOSVersion()
-	gio := &Info{Kernel: "windows", OSVersion: ver, Core: ver, Platform: "unknown", OS: "windows", GoOS: runtime.GOOS, CPUs: runtime.NumCPU(), Ipv6Supported: true}
+	gio := &Info{Kernel: "windows", OSVersion: ver, Core: ver, Platform: "unknown", OS: "windows", GoOS: runtime.GOOS, CPUs: runtime.NumCPU(), Ipv6Supported: false}
 	systemHostname, _ := os.Hostname()
 	gio.Hostname = extractDeviceName(ctx, systemHostname)
 	gio.WiretrusteeVersion = version.NetbirdVersion()

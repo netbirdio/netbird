@@ -78,12 +78,16 @@ func (w *WGIface) UpdateAddr6(newAddr6 string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	addr, err := parseWGAddress(newAddr6)
-	if err != nil {
-		return err
+	var addr *WGAddress
+	if newAddr6 != "" {
+		parsedAddr, err := parseWGAddress(newAddr6)
+		if err != nil {
+			return err
+		}
+		addr = &parsedAddr
 	}
 
-	return w.tun.UpdateAddr6(&addr)
+	return w.tun.UpdateAddr6(addr)
 }
 
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
