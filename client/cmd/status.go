@@ -176,8 +176,12 @@ func getStatus(ctx context.Context, cmd *cobra.Command) (*proto.StatusResponse, 
 }
 
 func parseFilters() error {
+
 	switch strings.ToLower(statusFilter) {
 	case "", "disconnected", "connected":
+		if strings.ToLower(statusFilter) != "" {
+			enableDetailFlagWhenFilterFlag()
+		}
 	default:
 		return fmt.Errorf("wrong status filter, should be one of connected|disconnected, got: %s", statusFilter)
 	}
@@ -189,6 +193,7 @@ func parseFilters() error {
 				return fmt.Errorf("got an invalid IP address in the filter: address %s, error %s", addr, err)
 			}
 			ipsFilterMap[addr] = struct{}{}
+			enableDetailFlagWhenFilterFlag()
 		}
 	}
 
@@ -196,9 +201,16 @@ func parseFilters() error {
 		for _, name := range namesFilter {
 			namesFilterMap[name] = struct{}{}
 		}
+		enableDetailFlagWhenFilterFlag()
 	}
 
 	return nil
+}
+
+func enableDetailFlagWhenFilterFlag() {
+	if !detailFlag && !jsonFlag && !yamlFlag {
+		detailFlag = true
+	}
 }
 
 func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverview {
