@@ -1,10 +1,12 @@
 package dns
 
 import (
-	"github.com/miekg/dns"
-	nbdns "github.com/netbirdio/netbird/dns"
 	"strings"
 	"testing"
+
+	"github.com/miekg/dns"
+
+	nbdns "github.com/netbirdio/netbird/dns"
 )
 
 func TestLocalResolver_ServeDNS(t *testing.T) {
@@ -73,7 +75,7 @@ func TestLocalResolver_ServeDNS(t *testing.T) {
 
 			answerString := responseMSG.Answer[0].String()
 			if !strings.Contains(answerString, testCase.inputRecord.Name) {
-				t.Fatalf("answer doesn't contain the same domain name: \nWant: %s\nGot:%s", testCase.name, answerString)
+				t.Fatalf("answer doesn't contain the same Domain name: \nWant: %s\nGot:%s", testCase.name, answerString)
 			}
 			if !strings.Contains(answerString, dns.Type(testCase.inputRecord.Type).String()) {
 				t.Fatalf("answer doesn't contain the correct type: \nWant: %s\nGot:%s", dns.Type(testCase.inputRecord.Type).String(), answerString)

@@ -44,11 +44,11 @@ func (s *systemConfigurator) supportCustomPort() bool {
 	return true
 }
 
-func (s *systemConfigurator) applyDNSConfig(config hostDNSConfig) error {
+func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	var err error
 
-	if config.routeAll {
-		err = s.addDNSSetupForAll(config.serverIP, config.serverPort)
+	if config.RouteAll {
+		err = s.addDNSSetupForAll(config.ServerIP, config.ServerPort)
 		if err != nil {
 			return err
 		}
@@ -58,7 +58,7 @@ func (s *systemConfigurator) applyDNSConfig(config hostDNSConfig) error {
 			return err
 		}
 		s.primaryServiceID = ""
-		log.Infof("removed %s:%d as main DNS resolver for this peer", config.serverIP, config.serverPort)
+		log.Infof("removed %s:%d as main DNS resolver for this peer", config.ServerIP, config.ServerPort)
 	}
 
 	var (
@@ -66,22 +66,22 @@ func (s *systemConfigurator) applyDNSConfig(config hostDNSConfig) error {
 		matchDomains  []string
 	)
 
-	for _, dConf := range config.domains {
-		if dConf.disabled {
+	for _, dConf := range config.Domains {
+		if dConf.Disabled {
 			continue
 		}
-		if dConf.matchOnly {
-			matchDomains = append(matchDomains, dConf.domain)
+		if dConf.MatchOnly {
+			matchDomains = append(matchDomains, dConf.Domain)
 			continue
 		}
-		searchDomains = append(searchDomains, dConf.domain)
+		searchDomains = append(searchDomains, dConf.Domain)
 	}
 
 	matchKey := getKeyWithInput(netbirdDNSStateKeyFormat, matchSuffix)
 	if len(matchDomains) != 0 {
-		err = s.addMatchDomains(matchKey, strings.Join(matchDomains, " "), config.serverIP, config.serverPort)
+		err = s.addMatchDomains(matchKey, strings.Join(matchDomains, " "), config.ServerIP, config.ServerPort)
 	} else {
-		log.Infof("removing match domains from the system")
+		log.Infof("removing match Domains from the system")
 		err = s.removeKeyFromSystemConfig(matchKey)
 	}
 	if err != nil {
@@ -90,9 +90,9 @@ func (s *systemConfigurator) applyDNSConfig(config hostDNSConfig) error {
 
 	searchKey := getKeyWithInput(netbirdDNSStateKeyFormat, searchSuffix)
 	if len(searchDomains) != 0 {
-		err = s.addSearchDomains(searchKey, strings.Join(searchDomains, " "), config.serverIP, config.serverPort)
+		err = s.addSearchDomains(searchKey, strings.Join(searchDomains, " "), config.ServerIP, config.ServerPort)
 	} else {
-		log.Infof("removing search domains from the system")
+		log.Infof("removing search Domains from the system")
 		err = s.removeKeyFromSystemConfig(searchKey)
 	}
 	if err != nil {
@@ -110,7 +110,7 @@ func (s *systemConfigurator) restoreHostDNS() error {
 		if strings.Contains(key, matchSuffix) {
 			keyType = "match"
 		}
-		log.Infof("removing %s domains from system", keyType)
+		log.Infof("removing %s Domains from system", keyType)
 	}
 	if s.primaryServiceID != "" {
 		lines += buildRemoveKeyOperation(getKeyWithInput(primaryServiceSetupKeyFormat, s.primaryServiceID))
@@ -143,7 +143,7 @@ func (s *systemConfigurator) addSearchDomains(key, domains string, ip string, po
 		return err
 	}
 
-	log.Infof("added %d search domains to the state. Domain list: %s", len(strings.Split(domains, " ")), domains)
+	log.Infof("added %d search Domains to the state. Domain list: %s", len(strings.Split(domains, " ")), domains)
 
 	s.createdKeys[key] = struct{}{}
 
@@ -156,7 +156,7 @@ func (s *systemConfigurator) addMatchDomains(key, domains, dnsServer string, por
 		return err
 	}
 
-	log.Infof("added %d match domains to the state. Domain list: %s", len(strings.Split(domains, " ")), domains)
+	log.Infof("added %d match Domains to the state. Domain list: %s", len(strings.Split(domains, " ")), domains)
 
 	s.createdKeys[key] = struct{}{}
 
@@ -178,7 +178,7 @@ func (s *systemConfigurator) addDNSState(state, domains, dnsServer string, port 
 
 	_, err := runSystemConfigCommand(stdinCommands)
 	if err != nil {
-		return fmt.Errorf("got error while applying state for domains %s, error: %s", domains, err)
+		return fmt.Errorf("got error while applying state for Domains %s, error: %s", domains, err)
 	}
 	return nil
 }

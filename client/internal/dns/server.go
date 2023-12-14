@@ -48,7 +48,7 @@ type DefaultServer struct {
 	hostManager        hostManager
 	updateSerial       uint64
 	previousConfigHash uint64
-	currentConfig      hostDNSConfig
+	currentConfig      HostDNSConfig
 
 	// permanent related properties
 	permanent        bool
@@ -236,20 +236,20 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 func (s *DefaultServer) SearchDomains() []string {
 	var searchDomains []string
 
-	for _, dConf := range s.currentConfig.domains {
-		if dConf.disabled {
+	for _, dConf := range s.currentConfig.Domains {
+		if dConf.Disabled {
 			continue
 		}
-		if dConf.matchOnly {
+		if dConf.MatchOnly {
 			continue
 		}
-		searchDomains = append(searchDomains, dConf.domain)
+		searchDomains = append(searchDomains, dConf.Domain)
 	}
 	return searchDomains
 }
 
 func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
-	// is the service should be disabled, we stop the listener or fake resolver
+	// is the service should be Disabled, we stop the listener or fake resolver
 	// and proceed with a regular update to clean up the handlers and records
 	if update.ServiceEnable {
 		_ = s.service.Listen()
@@ -275,7 +275,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	if s.service.RuntimePort() != defaultPort && !s.hostManager.supportCustomPort() {
 		log.Warnf("the DNS manager of this peer doesn't support custom port. Disabling primary DNS setup. " +
 			"Learn more at: https://docs.netbird.io/how-to/manage-dns-in-your-network#local-resolver")
-		hostUpdate.routeAll = false
+		hostUpdate.RouteAll = false
 	}
 
 	if err = s.hostManager.applyDNSConfig(hostUpdate); err != nil {
@@ -344,7 +344,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			continue
 		}
 
-		// when upstream fails to resolve domain several times over all it servers
+		// when upstream fails to resolve Domain several times over all it servers
 		// it will calls this hook to exclude self from the configuration and
 		// reapply DNS settings, but it not touch the original configuration and serial number
 		// because it is temporal deactivation until next try
@@ -364,13 +364,13 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 
 		if len(nsGroup.Domains) == 0 {
 			handler.stop()
-			return nil, fmt.Errorf("received a non primary nameserver group with an empty domain list")
+			return nil, fmt.Errorf("received a non primary nameserver group with an empty Domain list")
 		}
 
 		for _, domain := range nsGroup.Domains {
 			if domain == "" {
 				handler.stop()
-				return nil, fmt.Errorf("received a nameserver group with an empty domain element")
+				return nil, fmt.Errorf("received a nameserver group with an empty Domain element")
 			}
 			muxUpdates = append(muxUpdates, muxUpdate{
 				domain:  domain,
@@ -461,14 +461,14 @@ func (s *DefaultServer) upstreamCallbacks(
 		}
 		if nsGroup.Primary {
 			removeIndex[nbdns.RootZone] = -1
-			s.currentConfig.routeAll = false
+			s.currentConfig.RouteAll = false
 		}
 
-		for i, item := range s.currentConfig.domains {
-			if _, found := removeIndex[item.domain]; found {
-				s.currentConfig.domains[i].disabled = true
-				s.service.DeregisterMux(item.domain)
-				removeIndex[item.domain] = i
+		for i, item := range s.currentConfig.Domains {
+			if _, found := removeIndex[item.Domain]; found {
+				s.currentConfig.Domains[i].Disabled = true
+				s.service.DeregisterMux(item.Domain)
+				removeIndex[item.Domain] = i
 			}
 		}
 		if err := s.hostManager.applyDNSConfig(s.currentConfig); err != nil {
@@ -480,21 +480,21 @@ func (s *DefaultServer) upstreamCallbacks(
 		defer s.mux.Unlock()
 
 		for domain, i := range removeIndex {
-			if i == -1 || i >= len(s.currentConfig.domains) || s.currentConfig.domains[i].domain != domain {
+			if i == -1 || i >= len(s.currentConfig.Domains) || s.currentConfig.Domains[i].Domain != domain {
 				continue
 			}
-			s.currentConfig.domains[i].disabled = false
+			s.currentConfig.Domains[i].Disabled = false
 			s.service.RegisterMux(domain, handler)
 		}
 
 		l := log.WithField("nameservers", nsGroup.NameServers)
-		l.Debug("reactivate temporary disabled nameserver group")
+		l.Debug("reactivate temporary Disabled nameserver group")
 
 		if nsGroup.Primary {
-			s.currentConfig.routeAll = true
+			s.currentConfig.RouteAll = true
 		}
 		if err := s.hostManager.applyDNSConfig(s.currentConfig); err != nil {
-			l.WithError(err).Error("reactivate temporary disabled nameserver group, DNS update apply")
+			l.WithError(err).Error("reactivate temporary Disabled nameserver group, DNS update apply")
 		}
 	}
 	return

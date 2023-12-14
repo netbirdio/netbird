@@ -1,13 +1,13 @@
 package dns
 
 import (
-	"strconv"
-	"strings"
+	"encoding/json"
+	"fmt"
 )
 
 type iosHostManager struct {
 	dnsManager IosDnsManager
-	config     hostDNSConfig
+	config     HostDNSConfig
 }
 
 func newHostManager(dnsManager IosDnsManager) (hostManager, error) {
@@ -16,23 +16,12 @@ func newHostManager(dnsManager IosDnsManager) (hostManager, error) {
 	}, nil
 }
 
-func (a iosHostManager) applyDNSConfig(config hostDNSConfig) error {
-	var configAsString []string
-	configAsString = append(configAsString, config.serverIP)
-	configAsString = append(configAsString, strconv.Itoa(config.serverPort))
-	configAsString = append(configAsString, strconv.FormatBool(config.routeAll))
-	var domainConfigAsString []string
-	for _, domain := range config.domains {
-		var domainAsString []string
-		domainAsString = append(domainAsString, strconv.FormatBool(domain.disabled))
-		domainAsString = append(domainAsString, domain.domain)
-		domainAsString = append(domainAsString, strconv.FormatBool(domain.matchOnly))
-		domainConfigAsString = append(domainConfigAsString, strings.Join(domainAsString, "|"))
+func (a iosHostManager) applyDNSConfig(config HostDNSConfig) error {
+	jsonData, err := json.Marshal(config)
+	if err != nil {
+		return err
 	}
-	domainConfig := strings.Join(domainConfigAsString, ";")
-	configAsString = append(configAsString, domainConfig)
-	outputString := strings.Join(configAsString, ",")
-	a.dnsManager.ApplyDns(outputString)
+	a.dnsManager.ApplyDns(fmt.Sprint(jsonData))
 	return nil
 }
 

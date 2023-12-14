@@ -173,7 +173,7 @@ func (s *serviceViaListener) evalListenAddress() (string, int, error) {
 }
 
 // shouldApplyPortFwd decides whether to apply eBPF program to capture DNS traffic on port 53.
-// This is needed because on some operating systems if we start a DNS server not on a default port 53, the domain name
+// This is needed because on some operating systems if we start a DNS server not on a default port 53, the Domain name
 // resolution won't work.
 // So, in case we are running on Linux and picked a non-default port (53) we should fall back to the eBPF solution that will capture
 // traffic on port 53 and forward it to a local DNS server running on 5053.

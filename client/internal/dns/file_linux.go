@@ -35,21 +35,21 @@ func (f *fileConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
+func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	backupFileExist := false
 	_, err := os.Stat(fileDefaultResolvConfBackupLocation)
 	if err == nil {
 		backupFileExist = true
 	}
 
-	if !config.routeAll {
+	if !config.RouteAll {
 		if backupFileExist {
 			err = f.restore()
 			if err != nil {
 				return fmt.Errorf("unable to configure DNS for this peer using file manager without a Primary nameserver group. Restoring the original file return err: %s", err)
 			}
 		}
-		return fmt.Errorf("unable to configure DNS for this peer using file manager without a nameserver group with all domains configured")
+		return fmt.Errorf("unable to configure DNS for this peer using file manager without a nameserver group with all Domains configured")
 	}
 
 	if !backupFileExist {
@@ -70,7 +70,7 @@ func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
 
 	buf := prepareResolvConfContent(
 		searchDomainList,
-		append([]string{config.serverIP}, nameServers...),
+		append([]string{config.ServerIP}, nameServers...),
 		others)
 
 	log.Debugf("creating managed file %s", defaultResolvConfPath)
@@ -83,7 +83,7 @@ func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
 		return fmt.Errorf("got an creating resolver file %s. Error: %s", defaultResolvConfPath, err)
 	}
 
-	log.Infof("created a NetBird managed %s file with your DNS settings. Added %d search domains. Search list: %s", defaultResolvConfPath, len(searchDomainList), searchDomainList)
+	log.Infof("created a NetBird managed %s file with your DNS settings. Added %d search Domains. Search list: %s", defaultResolvConfPath, len(searchDomainList), searchDomainList)
 	return nil
 }
 
@@ -138,14 +138,14 @@ func prepareResolvConfContent(searchDomains, nameServers, others []string) bytes
 	return buf
 }
 
-func searchDomains(config hostDNSConfig) []string {
+func searchDomains(config HostDNSConfig) []string {
 	listOfDomains := make([]string, 0)
-	for _, dConf := range config.domains {
-		if dConf.matchOnly || dConf.disabled {
+	for _, dConf := range config.Domains {
+		if dConf.MatchOnly || dConf.Disabled {
 			continue
 		}
 
-		listOfDomains = append(listOfDomains, dConf.domain)
+		listOfDomains = append(listOfDomains, dConf.Domain)
 	}
 	return listOfDomains
 }
@@ -177,7 +177,7 @@ func originalDNSConfigs(resolvconfFile string) (searchDomains, nameServers, othe
 			continue
 		}
 
-		if strings.HasPrefix(line, "domain") {
+		if strings.HasPrefix(line, "Domain") {
 			continue
 		}
 
@@ -214,7 +214,7 @@ func originalDNSConfigs(resolvconfFile string) (searchDomains, nameServers, othe
 	return
 }
 
-// merge search domains lists and cut off the list if it is too long
+// merge search Domains lists and cut off the list if it is too long
 func mergeSearchDomains(searchDomains []string, originalSearchDomains []string) []string {
 	lineSize := len("search")
 	searchDomainsList := make([]string, 0, len(searchDomains)+len(originalSearchDomains))
@@ -225,23 +225,23 @@ func mergeSearchDomains(searchDomains []string, originalSearchDomains []string) 
 	return searchDomainsList
 }
 
-// validateAndFillSearchDomains checks if the search domains list is not too long and if the line is not too long
+// validateAndFillSearchDomains checks if the search Domains list is not too long and if the line is not too long
 // extend s slice with vs elements
 // return with the number of characters in the searchDomains line
 func validateAndFillSearchDomains(initialLineChars int, s *[]string, vs []string) int {
 	for _, sd := range vs {
 		tmpCharsNumber := initialLineChars + 1 + len(sd)
 		if tmpCharsNumber > fileMaxLineCharsLimit {
-			// lets log all skipped domains
-			log.Infof("search list line is larger than %d characters. Skipping append of %s domain", fileMaxLineCharsLimit, sd)
+			// lets log all skipped Domains
+			log.Infof("search list line is larger than %d characters. Skipping append of %s Domain", fileMaxLineCharsLimit, sd)
 			continue
 		}
 
 		initialLineChars = tmpCharsNumber
 
 		if len(*s) >= fileMaxNumberOfSearchDomains {
-			// lets log all skipped domains
-			log.Infof("already appended %d domains to search list. Skipping append of %s domain", fileMaxNumberOfSearchDomains, sd)
+			// lets log all skipped Domains
+			log.Infof("already appended %d Domains to search list. Skipping append of %s Domain", fileMaxNumberOfSearchDomains, sd)
 			continue
 		}
 		*s = append(*s, sd)

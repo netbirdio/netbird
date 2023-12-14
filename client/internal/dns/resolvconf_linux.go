@@ -39,14 +39,14 @@ func (r *resolvconf) supportCustomPort() bool {
 	return false
 }
 
-func (r *resolvconf) applyDNSConfig(config hostDNSConfig) error {
+func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
 	var err error
-	if !config.routeAll {
+	if !config.RouteAll {
 		err = r.restoreHostDNS()
 		if err != nil {
 			log.Error(err)
 		}
-		return fmt.Errorf("unable to configure DNS for this peer using resolvconf manager without a nameserver group with all domains configured")
+		return fmt.Errorf("unable to configure DNS for this peer using resolvconf manager without a nameserver group with all Domains configured")
 	}
 
 	searchDomainList := searchDomains(config)
@@ -54,7 +54,7 @@ func (r *resolvconf) applyDNSConfig(config hostDNSConfig) error {
 
 	buf := prepareResolvConfContent(
 		searchDomainList,
-		append([]string{config.serverIP}, r.originalNameServers...),
+		append([]string{config.ServerIP}, r.originalNameServers...),
 		r.othersConfigs)
 
 	err = r.applyConfig(buf)
@@ -62,7 +62,7 @@ func (r *resolvconf) applyDNSConfig(config hostDNSConfig) error {
 		return err
 	}
 
-	log.Infof("added %d search domains. Search list: %s", len(searchDomainList), searchDomainList)
+	log.Infof("added %d search Domains. Search list: %s", len(searchDomainList), searchDomainList)
 	return nil
 }
 

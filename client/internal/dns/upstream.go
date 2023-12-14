@@ -136,7 +136,7 @@ func (u *upstreamResolverBase) checkUpstreamFails() {
 	default:
 		// todo test the deactivation logic, it seems to affect the client
 		if runtime.GOOS != "ios" {
-			log.Warnf("upstream resolving is disabled for %v", reactivatePeriod)
+			log.Warnf("upstream resolving is Disabled for %v", reactivatePeriod)
 			u.deactivate()
 			u.disabled = true
 			go u.waitUntilResponse()

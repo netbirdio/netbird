@@ -43,10 +43,10 @@ func (s *registryConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (r *registryConfigurator) applyDNSConfig(config hostDNSConfig) error {
+func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	var err error
-	if config.routeAll {
-		err = r.addDNSSetupForAll(config.serverIP)
+	if config.RouteAll {
+		err = r.addDNSSetupForAll(config.ServerIP)
 		if err != nil {
 			return err
 		}
@@ -56,7 +56,7 @@ func (r *registryConfigurator) applyDNSConfig(config hostDNSConfig) error {
 			return err
 		}
 		r.routingAll = false
-		log.Infof("removed %s as main DNS forwarder for this peer", config.serverIP)
+		log.Infof("removed %s as main DNS forwarder for this peer", config.ServerIP)
 	}
 
 	var (
@@ -64,18 +64,18 @@ func (r *registryConfigurator) applyDNSConfig(config hostDNSConfig) error {
 		matchDomains  []string
 	)
 
-	for _, dConf := range config.domains {
-		if dConf.disabled {
+	for _, dConf := range config.Domains {
+		if dConf.Disabled {
 			continue
 		}
-		if !dConf.matchOnly {
-			searchDomains = append(searchDomains, dConf.domain)
+		if !dConf.MatchOnly {
+			searchDomains = append(searchDomains, dConf.Domain)
 		}
-		matchDomains = append(matchDomains, "."+dConf.domain)
+		matchDomains = append(matchDomains, "."+dConf.Domain)
 	}
 
 	if len(matchDomains) != 0 {
-		err = r.addDNSMatchPolicy(matchDomains, config.serverIP)
+		err = r.addDNSMatchPolicy(matchDomains, config.ServerIP)
 	} else {
 		err = removeRegistryKeyFromDNSPolicyConfig(dnsPolicyConfigMatchPath)
 	}
@@ -135,7 +135,7 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip string) er
 		return fmt.Errorf("unable to set registry value for %s, error: %s", dnsPolicyConfigConfigOptionsKey, err)
 	}
 
-	log.Infof("added %d match domains to the state. Domain list: %s", len(domains), domains)
+	log.Infof("added %d match Domains to the state. Domain list: %s", len(domains), domains)
 
 	return nil
 }
@@ -152,10 +152,10 @@ func (r *registryConfigurator) restoreHostDNS() error {
 func (r *registryConfigurator) updateSearchDomains(domains []string) error {
 	err := r.setInterfaceRegistryKeyStringValue(interfaceConfigSearchListKey, strings.Join(domains, ","))
 	if err != nil {
-		return fmt.Errorf("adding search domain failed with error: %s", err)
+		return fmt.Errorf("adding search Domain failed with error: %s", err)
 	}
 
-	log.Infof("updated the search domains in the registry with %d domains. Domain list: %s", len(domains), domains)
+	log.Infof("updated the search Domains in the registry with %d Domains. Domain list: %s", len(domains), domains)
 
 	return nil
 }
