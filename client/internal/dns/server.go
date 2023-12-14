@@ -325,7 +325,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			continue
 		}
 
-		handler, err := newUpstreamResolver(s.ctx, s.wgInterface.Name(), s.wgInterface.Address().IP)
+		handler, err := newUpstreamResolver(s.ctx, s.wgInterface.Name(), s.wgInterface.Address().IP, s.wgInterface.Address().Network)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create a new upstream resolver, error: %v", err)
 		}
@@ -501,7 +501,7 @@ func (s *DefaultServer) upstreamCallbacks(
 }
 
 func (s *DefaultServer) addHostRootZone() {
-	handler, err := newUpstreamResolver(s.ctx, s.wgInterface.Name(), s.wgInterface.Address().IP)
+	handler, err := newUpstreamResolver(s.ctx, s.wgInterface.Name(), s.wgInterface.Address().IP, s.wgInterface.Address().Network)
 	if err != nil {
 		log.Errorf("unable to create a new upstream resolver, error: %v", err)
 		return

@@ -14,7 +14,7 @@ type upstreamResolverNonIOS struct {
 	*upstreamResolverBase
 }
 
-func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net.IP) (*upstreamResolverNonIOS, error) {
+func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net.IP, net *net.IPNet) (*upstreamResolverNonIOS, error) {
 	upstreamResolverBase := newUpstreamResolverBase(parentCTX)
 	nonIOS := &upstreamResolverNonIOS{
 		upstreamResolverBase: upstreamResolverBase,

@@ -16,10 +16,11 @@ import (
 type upstreamResolverIOS struct {
 	*upstreamResolverBase
 	lIP    net.IP
+	lNet   *net.IPNet
 	iIndex int
 }
 
-func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net.IP) (*upstreamResolverIOS, error) {
+func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net.IP, net *net.IPNet) (*upstreamResolverIOS, error) {
 	upstreamResolverBase := newUpstreamResolverBase(parentCTX)
 
 	index, err := getInterfaceIndex(interfaceName)
@@ -31,6 +32,7 @@ func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net
 	ios := &upstreamResolverIOS{
 		upstreamResolverBase: upstreamResolverBase,
 		lIP:                  ip,
+		lNet:                 net,
 		iIndex:               index,
 	}
 	ios.upstreamClient = ios
@@ -39,7 +41,17 @@ func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net
 }
 
 func (u *upstreamResolverIOS) exchange(upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
-	client := u.getClientPrivate()
+	client := &dns.Client{}
+	upstreamHost, _, err := net.SplitHostPort(upstream)
+	if err != nil {
+		log.Errorf("error while parsing upstream host: %s", err)
+	}
+	upstreamIP := net.ParseIP(upstreamHost)
+	if u.lNet.Contains(upstreamIP) || net.IP.IsPrivate(upstreamIP) {
+		log.Debugf("using private client to query upstream: %s", upstream)
+		client = u.getClientPrivate()
+	}
+	u.getClientPrivate()
 	return client.Exchange(r, upstream)
 }
 
