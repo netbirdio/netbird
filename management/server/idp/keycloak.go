@@ -62,7 +62,7 @@ func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMet
 	httpTransport.MaxIdleConns = 5
 
 	httpClient := &http.Client{
-		Timeout:   10 * time.Second,
+		Timeout:   60 * time.Second,
 		Transport: httpTransport,
 	}
 	helper := JsonParser{}
@@ -415,6 +415,11 @@ func (km *KeycloakManager) get(resource string, q url.Values) ([]byte, error) {
 // totalUsersCount returns the total count of all user created.
 // Used when fetching all registered accounts with pagination.
 func (km *KeycloakManager) totalUsersCount() (*int, error) {
+	start := time.Now()
+	defer func() {
+		log.Debugf("Keycloak totalUsersCount took %d ms to handle", time.Since(start).Milliseconds())
+	}()
+
 	body, err := km.get("users/count", nil)
 	if err != nil {
 		return nil, err
