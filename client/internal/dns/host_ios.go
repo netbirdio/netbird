@@ -2,7 +2,8 @@ package dns
 
 import (
 	"encoding/json"
-	"fmt"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type iosHostManager struct {
@@ -21,7 +22,9 @@ func (a iosHostManager) applyDNSConfig(config HostDNSConfig) error {
 	if err != nil {
 		return err
 	}
-	a.dnsManager.ApplyDns(fmt.Sprint(jsonData))
+	jsonString := string(jsonData)
+	log.Debugf("Applying DNS settings: %s", jsonString)
+	a.dnsManager.ApplyDns(jsonString)
 	return nil
 }
 
