@@ -49,7 +49,7 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 				return fmt.Errorf("unable to configure DNS for this peer using file manager without a Primary nameserver group. Restoring the original file return err: %s", err)
 			}
 		}
-		return fmt.Errorf("unable to configure DNS for this peer using file manager without a nameserver group with all Domains configured")
+		return fmt.Errorf("unable to configure DNS for this peer using file manager without a nameserver group with all domains configured")
 	}
 
 	if !backupFileExist {
@@ -83,7 +83,7 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 		return fmt.Errorf("got an creating resolver file %s. Error: %s", defaultResolvConfPath, err)
 	}
 
-	log.Infof("created a NetBird managed %s file with your DNS settings. Added %d search Domains. Search list: %s", defaultResolvConfPath, len(searchDomainList), searchDomainList)
+	log.Infof("created a NetBird managed %s file with your DNS settings. Added %d search domains. Search list: %s", defaultResolvConfPath, len(searchDomainList), searchDomainList)
 	return nil
 }
 
@@ -177,7 +177,7 @@ func originalDNSConfigs(resolvconfFile string) (searchDomains, nameServers, othe
 			continue
 		}
 
-		if strings.HasPrefix(line, "Domain") {
+		if strings.HasPrefix(line, "domain") {
 			continue
 		}
 
@@ -233,7 +233,7 @@ func validateAndFillSearchDomains(initialLineChars int, s *[]string, vs []string
 		tmpCharsNumber := initialLineChars + 1 + len(sd)
 		if tmpCharsNumber > fileMaxLineCharsLimit {
 			// lets log all skipped Domains
-			log.Infof("search list line is larger than %d characters. Skipping append of %s Domain", fileMaxLineCharsLimit, sd)
+			log.Infof("search list line is larger than %d characters. Skipping append of %s domain", fileMaxLineCharsLimit, sd)
 			continue
 		}
 
@@ -241,7 +241,7 @@ func validateAndFillSearchDomains(initialLineChars int, s *[]string, vs []string
 
 		if len(*s) >= fileMaxNumberOfSearchDomains {
 			// lets log all skipped Domains
-			log.Infof("already appended %d Domains to search list. Skipping append of %s Domain", fileMaxNumberOfSearchDomains, sd)
+			log.Infof("already appended %d domains to search list. Skipping append of %s domain", fileMaxNumberOfSearchDomains, sd)
 			continue
 		}
 		*s = append(*s, sd)

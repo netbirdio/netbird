@@ -10,7 +10,7 @@ func Test_mergeSearchDomains(t *testing.T) {
 	originDomains := []string{"a", "b"}
 	mergedDomains := mergeSearchDomains(searchDomains, originDomains)
 	if len(mergedDomains) != 4 {
-		t.Errorf("invalid len of result Domains: %d, want: %d", len(mergedDomains), 4)
+		t.Errorf("invalid len of result domains: %d, want: %d", len(mergedDomains), 4)
 	}
 }
 
@@ -19,7 +19,7 @@ func Test_mergeSearchTooMuchDomains(t *testing.T) {
 	originDomains := []string{"h", "i"}
 	mergedDomains := mergeSearchDomains(searchDomains, originDomains)
 	if len(mergedDomains) != 6 {
-		t.Errorf("invalid len of result Domains: %d, want: %d", len(mergedDomains), 6)
+		t.Errorf("invalid len of result domains: %d, want: %d", len(mergedDomains), 6)
 	}
 }
 
@@ -28,7 +28,7 @@ func Test_mergeSearchTooMuchDomainsInOrigin(t *testing.T) {
 	originDomains := []string{"c", "d", "e", "f", "g"}
 	mergedDomains := mergeSearchDomains(searchDomains, originDomains)
 	if len(mergedDomains) != 6 {
-		t.Errorf("invalid len of result Domains: %d, want: %d", len(mergedDomains), 6)
+		t.Errorf("invalid len of result domains: %d, want: %d", len(mergedDomains), 6)
 	}
 }
 
@@ -37,7 +37,7 @@ func Test_mergeSearchTooLongDomain(t *testing.T) {
 	originDomains := []string{"b"}
 	mergedDomains := mergeSearchDomains(searchDomains, originDomains)
 	if len(mergedDomains) != 1 {
-		t.Errorf("invalid len of result Domains: %d, want: %d", len(mergedDomains), 1)
+		t.Errorf("invalid len of result domains: %d, want: %d", len(mergedDomains), 1)
 	}
 
 	searchDomains = []string{"b"}
@@ -45,7 +45,7 @@ func Test_mergeSearchTooLongDomain(t *testing.T) {
 
 	mergedDomains = mergeSearchDomains(searchDomains, originDomains)
 	if len(mergedDomains) != 1 {
-		t.Errorf("invalid len of result Domains: %d, want: %d", len(mergedDomains), 1)
+		t.Errorf("invalid len of result domains: %d, want: %d", len(mergedDomains), 1)
 	}
 }
 

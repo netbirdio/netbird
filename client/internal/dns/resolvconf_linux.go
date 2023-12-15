@@ -46,7 +46,7 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
 		if err != nil {
 			log.Error(err)
 		}
-		return fmt.Errorf("unable to configure DNS for this peer using resolvconf manager without a nameserver group with all Domains configured")
+		return fmt.Errorf("unable to configure DNS for this peer using resolvconf manager without a nameserver group with all domains configured")
 	}
 
 	searchDomainList := searchDomains(config)
@@ -62,7 +62,7 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
 		return err
 	}
 
-	log.Infof("added %d search Domains. Search list: %s", len(searchDomainList), searchDomainList)
+	log.Infof("added %d search domains. Search list: %s", len(searchDomainList), searchDomainList)
 	return nil
 }
 

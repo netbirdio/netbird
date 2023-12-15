@@ -145,7 +145,7 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig) er
 	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSPriorityKey] = dbus.MakeVariant(priority)
 	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSSearchKey] = dbus.MakeVariant(newDomainList)
 
-	log.Infof("adding %d search Domains and %d match Domains. Search list: %s , Match list: %s", len(searchDomains), len(matchDomains), searchDomains, matchDomains)
+	log.Infof("adding %d search domains and %d match domains. Search list: %s , Match list: %s", len(searchDomains), len(matchDomains), searchDomains, matchDomains)
 	err = n.reApplyConnectionSettings(connSettings, configVersion)
 	if err != nil {
 		return fmt.Errorf("got an error while reapplying the connection with new settings, error: %s", err)

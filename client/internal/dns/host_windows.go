@@ -135,7 +135,7 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip string) er
 		return fmt.Errorf("unable to set registry value for %s, error: %s", dnsPolicyConfigConfigOptionsKey, err)
 	}
 
-	log.Infof("added %d match Domains to the state. Domain list: %s", len(domains), domains)
+	log.Infof("added %d match domains to the state. Domain list: %s", len(domains), domains)
 
 	return nil
 }
@@ -152,10 +152,10 @@ func (r *registryConfigurator) restoreHostDNS() error {
 func (r *registryConfigurator) updateSearchDomains(domains []string) error {
 	err := r.setInterfaceRegistryKeyStringValue(interfaceConfigSearchListKey, strings.Join(domains, ","))
 	if err != nil {
-		return fmt.Errorf("adding search Domain failed with error: %s", err)
+		return fmt.Errorf("adding search domain failed with error: %s", err)
 	}
 
-	log.Infof("updated the search Domains in the registry with %d Domains. Domain list: %s", len(domains), domains)
+	log.Infof("updated the search domains in the registry with %d domains. Domain list: %s", len(domains), domains)
 
 	return nil
 }

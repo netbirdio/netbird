@@ -132,7 +132,7 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig) error {
 		log.Infof("removing %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
 	}
 
-	log.Infof("adding %d search Domains and %d match Domains. Search list: %s , Match list: %s", len(searchDomains), len(matchDomains), searchDomains, matchDomains)
+	log.Infof("adding %d search domains and %d match domains. Search list: %s , Match list: %s", len(searchDomains), len(matchDomains), searchDomains, matchDomains)
 	err = s.setDomainsForInterface(domainsInput)
 	if err != nil {
 		log.Error(err)
@@ -143,7 +143,7 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig) error {
 func (s *systemdDbusConfigurator) setDomainsForInterface(domainsInput []systemdDbusLinkDomainsInput) error {
 	err := s.callLinkMethod(systemdDbusSetDomainsMethodSuffix, domainsInput)
 	if err != nil {
-		return fmt.Errorf("setting Domains configuration failed with error: %s", err)
+		return fmt.Errorf("setting domains configuration failed with error: %s", err)
 	}
 	return s.flushCaches()
 }

@@ -344,7 +344,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			continue
 		}
 
-		// when upstream fails to resolve Domain several times over all it servers
+		// when upstream fails to resolve domain several times over all it servers
 		// it will calls this hook to exclude self from the configuration and
 		// reapply DNS settings, but it not touch the original configuration and serial number
 		// because it is temporal deactivation until next try
@@ -364,13 +364,13 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 
 		if len(nsGroup.Domains) == 0 {
 			handler.stop()
-			return nil, fmt.Errorf("received a non primary nameserver group with an empty Domain list")
+			return nil, fmt.Errorf("received a non primary nameserver group with an empty domain list")
 		}
 
 		for _, domain := range nsGroup.Domains {
 			if domain == "" {
 				handler.stop()
-				return nil, fmt.Errorf("received a nameserver group with an empty Domain element")
+				return nil, fmt.Errorf("received a nameserver group with an empty domain element")
 			}
 			muxUpdates = append(muxUpdates, muxUpdate{
 				domain:  domain,

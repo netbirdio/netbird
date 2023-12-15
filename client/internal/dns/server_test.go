@@ -567,7 +567,7 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	}
 	got := strings.Join(domains, ",")
 	if expected != got {
-		t.Errorf("expected Domains list: %q, got %q", expected, got)
+		t.Errorf("expected domains list: %q, got %q", expected, got)
 	}
 
 	reactivate()
@@ -581,7 +581,7 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	}
 	got = strings.Join(domains, ",")
 	if expected != got {
-		t.Errorf("expected Domains list: %q, got %q", expected, domainsUpdate)
+		t.Errorf("expected domains list: %q, got %q", expected, domainsUpdate)
 	}
 }
 
