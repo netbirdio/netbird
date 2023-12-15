@@ -51,7 +51,7 @@ func (u *upstreamResolverIOS) exchange(upstream string, r *dns.Msg) (rm *dns.Msg
 		log.Debugf("using private client to query upstream: %s", upstream)
 		client = u.getClientPrivate()
 	}
-	u.getClientPrivate()
+
 	return client.Exchange(r, upstream)
 }
 
