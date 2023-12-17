@@ -55,7 +55,7 @@ message LoginRequest {
 
   string hostname = 9;
 
-  bool rosenpassEnabled = 10;
+  optional bool rosenpassEnabled = 10;
 }
 
 message LoginResponse {

@@ -84,7 +84,10 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		ConfigPath:       configPath,
 		NATExternalIPs:   natExternalIPs,
 		CustomDNSAddress: customDNSAddressConverted,
-		RosenpassEnabled: &rosenpassEnabled,
+	}
+
+	if rootCmd.PersistentFlags().Changed(enableRosenpassFlag) {
+		ic.RosenpassEnabled = &rosenpassEnabled
 	}
 
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
@@ -143,16 +146,19 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 	}
 
 	loginRequest := proto.LoginRequest{
-		SetupKey:            setupKey,
-		PreSharedKey:        preSharedKey,
-		ManagementUrl:       managementURL,
-		AdminURL:            adminURL,
-		NatExternalIPs:      natExternalIPs,
-		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
-		CustomDNSAddress:    customDNSAddressConverted,
-		RosenpassEnabled:    rosenpassEnabled,
+		SetupKey:             setupKey,
+		PreSharedKey:         preSharedKey,
+		ManagementUrl:        managementURL,
+		AdminURL:             adminURL,
+		NatExternalIPs:       natExternalIPs,
+		CleanNATExternalIPs:  natExternalIPs != nil && len(natExternalIPs) == 0,
+		CustomDNSAddress:     customDNSAddressConverted,
 		IsLinuxDesktopClient: isLinuxRunningDesktop(),
 		Hostname:             hostName,
+	}
+
+	if rootCmd.PersistentFlags().Changed(enableRosenpassFlag) {
+		loginRequest.RosenpassEnabled = &rosenpassEnabled
 	}
 
 	var loginErr error

@@ -187,8 +187,10 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, msg.Hostname)
 	}
 
-	inputConfig.RosenpassEnabled = &msg.RosenpassEnabled
-	s.latestConfigInput.RosenpassEnabled = &msg.RosenpassEnabled
+	if msg.RosenpassEnabled != nil {
+		inputConfig.RosenpassEnabled = msg.RosenpassEnabled
+		s.latestConfigInput.RosenpassEnabled = msg.RosenpassEnabled
+	}
 
 	s.mutex.Unlock()
 
