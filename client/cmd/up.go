@@ -86,7 +86,8 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		CustomDNSAddress: customDNSAddressConverted,
 		RosenpassEnabled: &rosenpassEnabled,
 	}
-	if preSharedKey != "" {
+
+	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
 		ic.PreSharedKey = &preSharedKey
 	}
 

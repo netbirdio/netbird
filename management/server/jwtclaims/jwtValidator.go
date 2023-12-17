@@ -108,6 +108,8 @@ func NewJWTValidator(issuer string, audienceList []string, keysLocation string, 
 						refreshedKeys = keys
 					}
 
+					log.Debugf("keys refreshed, new UTC expiration time: %s", refreshedKeys.expiresInTime.UTC())
+
 					keys = refreshedKeys
 				}
 			}
@@ -179,7 +181,7 @@ func (m *JWTValidator) ValidateAndParse(token string) (*jwt.Token, error) {
 
 // stillValid returns true if the JSONWebKey still valid and have enough time to be used
 func (jwks *Jwks) stillValid() bool {
-	return jwks.expiresInTime.IsZero() && time.Now().Add(5*time.Second).Before(jwks.expiresInTime)
+	return !jwks.expiresInTime.IsZero() && time.Now().Add(5*time.Second).Before(jwks.expiresInTime)
 }
 
 func getPemKeys(keysLocation string) (*Jwks, error) {

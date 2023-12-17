@@ -220,6 +220,10 @@ func (s *GRPCServer) validateToken(jwtToken string) (string, error) {
 		return "", status.Errorf(codes.Internal, "unable to fetch account with claims, err: %v", err)
 	}
 
+	if err := s.accountManager.CheckUserAccessByJWTGroups(claims); err != nil {
+		return "", status.Errorf(codes.PermissionDenied, err.Error())
+	}
+
 	return claims.UserId, nil
 }
 
@@ -312,7 +316,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		userID, err = s.validateToken(loginReq.GetJwtToken())
 		if err != nil {
 			log.Warnf("failed validating JWT token sent from peer %s", peerKey)
-			return nil, mapError(err)
+			return nil, err
 		}
 	}
 	var sshKey []byte
