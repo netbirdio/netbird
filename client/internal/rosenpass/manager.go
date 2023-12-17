@@ -6,10 +6,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"net"
 	"os"
-	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 
 	rp "cunicu.li/go-rosenpass"
@@ -17,13 +17,14 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
-func HashRosenpassKey(key []byte) string {
+func hashRosenpassKey(key []byte) string {
 	hasher := sha256.New()
 	hasher.Write(key)
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
 type Manager struct {
+	ifaceName    string
 	spk          []byte
 	ssk          []byte
 	rpKeyHash    string
@@ -36,15 +37,15 @@ type Manager struct {
 }
 
 // NewManager creates a new Rosenpass manager
-func NewManager(preSharedKey *wgtypes.Key) (*Manager, error) {
+func NewManager(preSharedKey *wgtypes.Key, wgIfaceName string) (*Manager, error) {
 	public, secret, err := rp.GenerateKeyPair()
 	if err != nil {
 		return nil, err
 	}
 
-	rpKeyHash := HashRosenpassKey(public)
-	log.Infof("generated new rosenpass key pair with public key %s", rpKeyHash)
-	return &Manager{rpKeyHash: rpKeyHash, spk: public, ssk: secret, preSharedKey: (*[32]byte)(preSharedKey), rpPeerIDs: make(map[string]*rp.PeerID), lock: sync.Mutex{}}, nil
+	rpKeyHash := hashRosenpassKey(public)
+	log.Debugf("generated new rosenpass key pair with public key %s", rpKeyHash)
+	return &Manager{ifaceName: wgIfaceName, rpKeyHash: rpKeyHash, spk: public, ssk: secret, preSharedKey: (*[32]byte)(preSharedKey), rpPeerIDs: make(map[string]*rp.PeerID), lock: sync.Mutex{}}, nil
 }
 
 func (m *Manager) GetPubKey() []byte {
@@ -77,18 +78,12 @@ func (m *Manager) addPeer(rosenpassPubKey []byte, rosenpassAddr string, wireGuar
 	if err != nil {
 		return err
 	}
-	var ifaceName string
-	switch runtime.GOOS {
-	case "darwin":
-		ifaceName = "utun100"
-	default:
-		ifaceName = "wt0"
-	}
+
 	key, err := wgtypes.ParseKey(wireGuardPubKey)
 	if err != nil {
 		return err
 	}
-	m.rpWgHandler.AddPeer(peerID, ifaceName, rp.Key(key))
+	m.rpWgHandler.AddPeer(peerID, m.ifaceName, rp.Key(key))
 	m.rpPeerIDs[wireGuardPubKey] = &peerID
 	return nil
 }
@@ -120,9 +115,10 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 
 	port, err := findRandomAvailableUDPPort()
 	if err != nil {
-		log.Error("could not determine a random port for rosenpass server")
+		log.Errorf("could not determine a random port for rosenpass server. Error: %s", err)
 		return rp.Config{}, err
 	}
+
 	m.port = port
 
 	cfg.ListenAddrs = []*net.UDPAddr{m.GetAddress()}
@@ -131,9 +127,6 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 }
 
 func (m *Manager) OnDisconnected(peerKey string, wgIP string) {
-	if m == nil {
-		return
-	}
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
@@ -181,18 +174,15 @@ func (m *Manager) Close() error {
 
 // OnConnected is a handler function that is triggered when a connection to a remote peer establishes
 func (m *Manager) OnConnected(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string) {
-	if m == nil {
-		return
-	}
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
 	if remoteRosenpassPubKey == nil {
-		log.Debugf("remote peer does not support rosenpass")
+		log.Warnf("remote peer with public key %s does not support rosenpass", remoteWireGuardKey)
 		return
 	}
 
-	rpKeyHash := HashRosenpassKey(remoteRosenpassPubKey)
+	rpKeyHash := hashRosenpassKey(remoteRosenpassPubKey)
 	log.Debugf("received remote rosenpass key %s, my key %s", rpKeyHash, m.rpKeyHash)
 
 	err := m.addPeer(remoteRosenpassPubKey, remoteRosenpassAddr, wireGuardIP, remoteWireGuardKey)
@@ -203,16 +193,12 @@ func (m *Manager) OnConnected(remoteWireGuardKey string, remoteRosenpassPubKey [
 }
 
 func findRandomAvailableUDPPort() (int, error) {
-	const maxAttempts = 1000 // Max attempts to find an available port
-
-	for i := 0; i < maxAttempts; i++ {
-		port := rand.Intn(65535-1024) + 1024 // Random port between 1024 and 65535
-		address := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: port}
-		conn, err := net.ListenUDP("udp", address)
-		if err == nil {
-			conn.Close()
-			return port, nil
-		}
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+	if err != nil {
+		return 0, fmt.Errorf("could not find an available UDP port: %w", err)
 	}
-	return 0, fmt.Errorf("could not find an available UDP port after %d attempts", maxAttempts)
+	defer conn.Close()
+
+	splitAddress := strings.Split(conn.LocalAddr().String(), ":")
+	return strconv.Atoi(splitAddress[len(splitAddress)-1])
 }

@@ -196,7 +196,7 @@ func (e *Engine) Start() error {
 
 	if e.config.RosenpassEnabled {
 		log.Infof("rosenpass is enabled")
-		e.rpManager, err = rosenpass.NewManager(e.config.PreSharedKey)
+		e.rpManager, err = rosenpass.NewManager(e.config.PreSharedKey, e.config.WgIfaceName)
 		if err != nil {
 			return err
 		}
