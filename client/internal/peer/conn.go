@@ -423,7 +423,10 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 		return nil, err
 	}
 
-	conn.onConnected(conn.config.Key, remoteRosenpassPubKey, ipNet.IP.String(), remoteRosenpassAddr)
+	if conn.onConnected != nil {
+		conn.onConnected(conn.config.Key, remoteRosenpassPubKey, ipNet.IP.String(), remoteRosenpassAddr)
+	}
+
 	return endpoint, nil
 }
 
@@ -474,7 +477,7 @@ func (conn *Conn) cleanup() error {
 		conn.notifyDisconnected = nil
 	}
 
-	if conn.status == StatusConnected {
+	if conn.status == StatusConnected && conn.onDisconnected != nil {
 		conn.onDisconnected(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps)
 	}
 

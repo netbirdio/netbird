@@ -914,8 +914,11 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 	peerConn.SetSendSignalMessage(func(message *sProto.Message) error {
 		return sendSignal(message, e.signal)
 	})
-	peerConn.SetOnConnected(e.rpManager.OnConnected)
-	peerConn.SetOnDisconnected(e.rpManager.OnDisconnected)
+
+	if e.rpManager != nil {
+		peerConn.SetOnConnected(e.rpManager.OnConnected)
+		peerConn.SetOnDisconnected(e.rpManager.OnDisconnected)
+	}
 
 	return peerConn, nil
 }
