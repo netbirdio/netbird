@@ -17,14 +17,16 @@ type wireGuardPeer struct {
 }
 
 type NetbirdHandler struct {
+	ifaceName    string
 	client       *wgctrl.Client
 	peers        map[rp.PeerID]wireGuardPeer
 	presharedKey [32]byte
 }
 
-func NewNetbirdHandler(preSharedKey *[32]byte) (hdlr *NetbirdHandler, err error) {
+func NewNetbirdHandler(preSharedKey *[32]byte, wgIfaceName string) (hdlr *NetbirdHandler, err error) {
 	hdlr = &NetbirdHandler{
-		peers: map[rp.PeerID]wireGuardPeer{},
+		ifaceName: wgIfaceName,
+		peers:     map[rp.PeerID]wireGuardPeer{},
 	}
 
 	if preSharedKey != nil {
@@ -66,9 +68,9 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 		return
 	}
 
-	devices, err := h.client.Devices()
+	device, err := h.client.Device(h.ifaceName)
 	if err != nil {
-		log.Errorf("Failed to get WireGuard devices: %v", err)
+		log.Errorf("Failed to get WireGuard device: %v", err)
 		return
 	}
 	config := []wgtypes.PeerConfig{
@@ -78,34 +80,32 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 			PresharedKey: (*wgtypes.Key)(&psk),
 		},
 	}
-	for _, device := range devices {
-		for _, peer := range device.Peers {
-			if peer.PublicKey == wgtypes.Key(wg.PublicKey) {
-				if publicKeyEmpty(peer.PresharedKey) || peer.PresharedKey == h.presharedKey {
-					log.Debugf("Restart wireguard connection to peer %s", peer.PublicKey)
-					config = []wgtypes.PeerConfig{
-						{
-							PublicKey:    wgtypes.Key(wg.PublicKey),
-							PresharedKey: (*wgtypes.Key)(&psk),
-							Endpoint:     peer.Endpoint,
-							AllowedIPs:   peer.AllowedIPs,
-						},
-					}
-					err := h.client.ConfigureDevice(wg.Interface, wgtypes.Config{
-						Peers: []wgtypes.PeerConfig{
-							{
-								Remove:    true,
-								PublicKey: wgtypes.Key(wg.PublicKey),
-							},
-						},
-					})
-					if err != nil {
-						slog.Debug("Failed to remove peer")
-						return
-					}
+	for _, peer := range device.Peers {
+		if peer.PublicKey == wgtypes.Key(wg.PublicKey) {
+			if publicKeyEmpty(peer.PresharedKey) || peer.PresharedKey == h.presharedKey {
+				log.Debugf("Restart wireguard connection to peer %s", peer.PublicKey)
+				config = []wgtypes.PeerConfig{
+					{
+						PublicKey:    wgtypes.Key(wg.PublicKey),
+						PresharedKey: (*wgtypes.Key)(&psk),
+						Endpoint:     peer.Endpoint,
+						AllowedIPs:   peer.AllowedIPs,
+					},
 				}
-
+				err := h.client.ConfigureDevice(wg.Interface, wgtypes.Config{
+					Peers: []wgtypes.PeerConfig{
+						{
+							Remove:    true,
+							PublicKey: wgtypes.Key(wg.PublicKey),
+						},
+					},
+				})
+				if err != nil {
+					slog.Debug("Failed to remove peer")
+					return
+				}
 			}
+
 		}
 	}
 
