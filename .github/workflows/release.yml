@@ -6,6 +6,7 @@ on:
       - 'v*'
     branches:
       - main
+      - fix/improve-goreleaser-speed
   pull_request:
     paths:
       - 'go.mod'
@@ -50,9 +51,9 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-releaser-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-
+            ${{ runner.os }}-go-releaser-
       -
         name: Install modules
         run: go mod tidy
