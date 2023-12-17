@@ -157,7 +157,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		Hostname:             hostName,
 	}
 
-	if rootCmd.PersistentFlags().Changed(enableRosenpassFlag) {
+	if cmd.Flag(enableRosenpassFlag).Changed {
 		loginRequest.RosenpassEnabled = &rosenpassEnabled
 	}
 
