@@ -944,9 +944,9 @@ func (e *Engine) receiveSignalEvents() {
 
 				var rosenpassPubKey []byte
 				rosenpassAddr := ""
-				if msg.GetBody().RosenpassConfig != nil {
-					rosenpassPubKey = msg.GetBody().RosenpassConfig.RosenpassPubKey
-					rosenpassAddr = msg.GetBody().RosenpassConfig.GetRosenpassServerAddr()
+				if msg.GetBody().GetRosenpassConfig() != nil {
+					rosenpassPubKey = msg.GetBody().GetRosenpassConfig().GetRosenpassPubKey()
+					rosenpassAddr = msg.GetBody().GetRosenpassConfig().GetRosenpassServerAddr()
 				}
 				conn.OnRemoteOffer(peer.OfferAnswer{
 					IceCredentials: peer.IceCredentials{
@@ -964,13 +964,13 @@ func (e *Engine) receiveSignalEvents() {
 					return err
 				}
 
-				conn.RegisterProtoSupportMeta(msg.Body.GetFeaturesSupported())
+				conn.RegisterProtoSupportMeta(msg.GetBody().GetFeaturesSupported())
 
 				var rosenpassPubKey []byte
 				rosenpassAddr := ""
-				if msg.GetBody().RosenpassConfig != nil {
-					rosenpassPubKey = msg.GetBody().RosenpassConfig.RosenpassPubKey
-					rosenpassAddr = msg.GetBody().RosenpassConfig.GetRosenpassServerAddr()
+				if msg.GetBody().GetRosenpassConfig() != nil {
+					rosenpassPubKey = msg.GetBody().GetRosenpassConfig().GetRosenpassPubKey()
+					rosenpassAddr = msg.GetBody().GetRosenpassConfig().GetRosenpassServerAddr()
 				}
 				conn.OnRemoteAnswer(peer.OfferAnswer{
 					IceCredentials: peer.IceCredentials{
