@@ -197,7 +197,7 @@ if test -f "${artifacts_path}/management.json"; then
 fi
 
 if test -f "${artifacts_path}/turnserver.conf"; then
-    cp ${artifacts_path}/turnserver.conf "${artifacts_path}/turnserver.conf.bpk.${bkp_postfix}"
+    cp ${artifacts_path}/turnserver.conf "${artifacts_path}/turnserver.conf.bkp.${bkp_postfix}"
 fi
 envsubst <docker-compose.yml.tmpl >$artifacts_path/docker-compose.yml
 envsubst <management.json.tmpl | jq . >$artifacts_path/management.json
