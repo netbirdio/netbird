@@ -6,11 +6,11 @@ bin/
 .env
 conf.json
 http-cmds.sh
-infrastructure_files/management.json
-infrastructure_files/management-*.json
-infrastructure_files/docker-compose.yml
-infrastructure_files/openid-configuration.json
-infrastructure_files/turnserver.conf
+infrastructure_files/artifacts/management.json
+infrastructure_files/artifacts/management-*.json
+infrastructure_files/artifacts/docker-compose.yml
+infrastructure_files/artifacts/openid-configuration.json
+infrastructure_files/artifacts/turnserver.conf
 management/management
 client/client
 client/client.exe

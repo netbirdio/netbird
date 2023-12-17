@@ -2,7 +2,7 @@ version: "3"
 services:
   #UI dashboard
   dashboard:
-    image: wiretrustee/dashboard:latest
+    image: wiretrustee/dashboard:$NETBIRD_DASHBOARD_TAG
     restart: unless-stopped
     #ports:
     #  - 80:80
@@ -35,7 +35,7 @@ services:
 
   # Signal
   signal:
-    image: netbirdio/signal:latest
+    image: netbirdio/signal:$NETBIRD_SIGNAL_TAG
     restart: unless-stopped
     volumes:
       - $SIGNAL_VOLUMENAME:/var/lib/netbird
@@ -52,7 +52,7 @@ services:
 
   # Management
   management:
-    image: netbirdio/management:latest
+    image: netbirdio/management:$NETBIRD_MANAGEMENT_TAG
     restart: unless-stopped
     depends_on:
       - dashboard
@@ -84,9 +84,9 @@ services:
 
   # Coturn
   coturn:
-    image: coturn/coturn
+    image: coturn/coturn:$COTURN_TAG
     restart: unless-stopped
-    domainname: $NETBIRD_DOMAIN
+    domainname: $TURN_DOMAIN
     volumes:
       - ./turnserver.conf:/etc/turnserver.conf:ro
     #      - ./privkey.pem:/etc/coturn/private/privkey.pem:ro
