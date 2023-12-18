@@ -92,7 +92,7 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 						AllowedIPs:   peer.AllowedIPs,
 					},
 				}
-				err := h.client.ConfigureDevice(wg.Interface, wgtypes.Config{
+				err = h.client.ConfigureDevice(wg.Interface, wgtypes.Config{
 					Peers: []wgtypes.PeerConfig{
 						{
 							Remove:    true,
@@ -109,7 +109,7 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 		}
 	}
 
-	if err := h.client.ConfigureDevice(wg.Interface, wgtypes.Config{
+	if err = h.client.ConfigureDevice(wg.Interface, wgtypes.Config{
 		Peers: config,
 	}); err != nil {
 		log.Errorf("Failed to apply rosenpass key: %v", err)

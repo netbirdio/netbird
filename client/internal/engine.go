@@ -867,6 +867,24 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		PreSharedKey: e.config.PreSharedKey,
 	}
 
+	if e.config.RosenpassEnabled {
+		lk := []byte(e.config.WgPrivateKey.PublicKey().String())
+		rk := []byte(wgConfig.RemoteKey)
+		var keyInput []byte
+		if string(lk) > string(rk) {
+			keyInput = append(lk[:16], rk[:16]...)
+		} else {
+			keyInput = append(rk[:16], lk[:16]...)
+		}
+
+		key, err := wgtypes.NewKey(keyInput)
+		if err != nil {
+			return nil, err
+		}
+
+		wgConfig.PreSharedKey = &key
+	}
+
 	// randomize connection timeout
 	timeout := time.Duration(rand.Intn(PeerConnectionTimeoutMax-PeerConnectionTimeoutMin)+PeerConnectionTimeoutMin) * time.Millisecond
 	config := peer.ConnConfig{
@@ -916,6 +934,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 	})
 
 	if e.rpManager != nil {
+
 		peerConn.SetOnConnected(e.rpManager.OnConnected)
 		peerConn.SetOnDisconnected(e.rpManager.OnDisconnected)
 	}
