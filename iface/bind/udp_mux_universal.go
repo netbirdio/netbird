@@ -80,13 +80,13 @@ func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
 			log.Debugf("stopped reading from the UDPConn due to finished context")
 			return
 		default:
-			_, a, err := m.params.UDPConn.ReadFrom(buf)
+			n, a, err := m.params.UDPConn.ReadFrom(buf)
 			if err != nil {
 				log.Errorf("error while reading packet: %s", err)
 				continue
 			}
 			msg := &stun.Message{
-				Raw: buf,
+				Raw: append([]byte{}, buf[:n]...),
 			}
 			err = msg.Decode()
 			if err != nil {
