@@ -129,9 +129,9 @@ jobs:
           path: | 
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: ${{ runner.os }}-ui-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-ui-go-releaser-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-ui-go-
+            ${{ runner.os }}-ui-go-releaser-
 
       - name: Install modules
         run: go mod tidy
@@ -185,9 +185,9 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: ${{ runner.os }}-ui-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-ui-go-releaser-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-ui-go-
+            ${{ runner.os }}-ui-go-releaser-
       -
         name: Install modules
         run: go mod tidy
