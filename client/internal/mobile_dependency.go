@@ -14,4 +14,6 @@ type MobileDependency struct {
 	NetworkChangeListener listener.NetworkChangeListener
 	HostDNSAddresses      []string
 	DnsReadyListener      dns.ReadyListener
+	DnsManager            dns.IosDnsManager
+	FileDescriptor        int32
 }

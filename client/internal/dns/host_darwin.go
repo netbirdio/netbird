@@ -1,3 +1,5 @@
+//go:build !ios
+
 package dns
 
 import (
@@ -42,11 +44,11 @@ func (s *systemConfigurator) supportCustomPort() bool {
 	return true
 }
 
-func (s *systemConfigurator) applyDNSConfig(config hostDNSConfig) error {
+func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	var err error
 
-	if config.routeAll {
-		err = s.addDNSSetupForAll(config.serverIP, config.serverPort)
+	if config.RouteAll {
+		err = s.addDNSSetupForAll(config.ServerIP, config.ServerPort)
 		if err != nil {
 			return err
 		}
@@ -56,7 +58,7 @@ func (s *systemConfigurator) applyDNSConfig(config hostDNSConfig) error {
 			return err
 		}
 		s.primaryServiceID = ""
-		log.Infof("removed %s:%d as main DNS resolver for this peer", config.serverIP, config.serverPort)
+		log.Infof("removed %s:%d as main DNS resolver for this peer", config.ServerIP, config.ServerPort)
 	}
 
 	var (
@@ -64,20 +66,20 @@ func (s *systemConfigurator) applyDNSConfig(config hostDNSConfig) error {
 		matchDomains  []string
 	)
 
-	for _, dConf := range config.domains {
-		if dConf.disabled {
+	for _, dConf := range config.Domains {
+		if dConf.Disabled {
 			continue
 		}
-		if dConf.matchOnly {
-			matchDomains = append(matchDomains, dConf.domain)
+		if dConf.MatchOnly {
+			matchDomains = append(matchDomains, dConf.Domain)
 			continue
 		}
-		searchDomains = append(searchDomains, dConf.domain)
+		searchDomains = append(searchDomains, dConf.Domain)
 	}
 
 	matchKey := getKeyWithInput(netbirdDNSStateKeyFormat, matchSuffix)
 	if len(matchDomains) != 0 {
-		err = s.addMatchDomains(matchKey, strings.Join(matchDomains, " "), config.serverIP, config.serverPort)
+		err = s.addMatchDomains(matchKey, strings.Join(matchDomains, " "), config.ServerIP, config.ServerPort)
 	} else {
 		log.Infof("removing match domains from the system")
 		err = s.removeKeyFromSystemConfig(matchKey)
@@ -88,7 +90,7 @@ func (s *systemConfigurator) applyDNSConfig(config hostDNSConfig) error {
 
 	searchKey := getKeyWithInput(netbirdDNSStateKeyFormat, searchSuffix)
 	if len(searchDomains) != 0 {
-		err = s.addSearchDomains(searchKey, strings.Join(searchDomains, " "), config.serverIP, config.serverPort)
+		err = s.addSearchDomains(searchKey, strings.Join(searchDomains, " "), config.ServerIP, config.ServerPort)
 	} else {
 		log.Infof("removing search domains from the system")
 		err = s.removeKeyFromSystemConfig(searchKey)

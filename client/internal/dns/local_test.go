@@ -1,10 +1,12 @@
 package dns
 
 import (
-	"github.com/miekg/dns"
-	nbdns "github.com/netbirdio/netbird/dns"
 	"strings"
 	"testing"
+
+	"github.com/miekg/dns"
+
+	nbdns "github.com/netbirdio/netbird/dns"
 )
 
 func TestLocalResolver_ServeDNS(t *testing.T) {

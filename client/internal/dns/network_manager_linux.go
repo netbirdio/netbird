@@ -12,8 +12,9 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/hashicorp/go-version"
 	"github.com/miekg/dns"
-	nbversion "github.com/netbirdio/netbird/version"
 	log "github.com/sirupsen/logrus"
+
+	nbversion "github.com/netbirdio/netbird/version"
 )
 
 const (
@@ -93,7 +94,7 @@ func (n *networkManagerDbusConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (n *networkManagerDbusConfigurator) applyDNSConfig(config hostDNSConfig) error {
+func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	connSettings, configVersion, err := n.getAppliedConnectionSettings()
 	if err != nil {
 		return fmt.Errorf("got an error while retrieving the applied connection settings, error: %s", err)
@@ -101,7 +102,7 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config hostDNSConfig) er
 
 	connSettings.cleanDeprecatedSettings()
 
-	dnsIP, err := netip.ParseAddr(config.serverIP)
+	dnsIP, err := netip.ParseAddr(config.ServerIP)
 	if err != nil {
 		return fmt.Errorf("unable to parse ip address, error: %s", err)
 	}
@@ -111,33 +112,33 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config hostDNSConfig) er
 		searchDomains []string
 		matchDomains  []string
 	)
-	for _, dConf := range config.domains {
-		if dConf.disabled {
+	for _, dConf := range config.Domains {
+		if dConf.Disabled {
 			continue
 		}
-		if dConf.matchOnly {
-			matchDomains = append(matchDomains, "~."+dns.Fqdn(dConf.domain))
+		if dConf.MatchOnly {
+			matchDomains = append(matchDomains, "~."+dns.Fqdn(dConf.Domain))
 			continue
 		}
-		searchDomains = append(searchDomains, dns.Fqdn(dConf.domain))
+		searchDomains = append(searchDomains, dns.Fqdn(dConf.Domain))
 	}
 
 	newDomainList := append(searchDomains, matchDomains...) //nolint:gocritic
 
 	priority := networkManagerDbusSearchDomainOnlyPriority
 	switch {
-	case config.routeAll:
+	case config.RouteAll:
 		priority = networkManagerDbusPrimaryDNSPriority
 		newDomainList = append(newDomainList, "~.")
 		if !n.routingAll {
-			log.Infof("configured %s:%d as main DNS forwarder for this peer", config.serverIP, config.serverPort)
+			log.Infof("configured %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
 		}
 	case len(matchDomains) > 0:
 		priority = networkManagerDbusWithMatchDomainPriority
 	}
 
 	if priority != networkManagerDbusPrimaryDNSPriority && n.routingAll {
-		log.Infof("removing %s:%d as main DNS forwarder for this peer", config.serverIP, config.serverPort)
+		log.Infof("removing %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
 		n.routingAll = false
 	}
 

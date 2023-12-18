@@ -2,6 +2,7 @@ package dns
 
 import (
 	"context"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -49,15 +50,6 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 			timeout:             upstreamTimeout,
 			responseShouldBeNil: true,
 		},
-		//{
-		//	name:        "Should Resolve CNAME Record",
-		//	inputMSG:    new(dns.Msg).SetQuestion("one.one.one.one", dns.TypeCNAME),
-		//},
-		//{
-		//	name:                "Should Not Write When Not Found A Record",
-		//	inputMSG:            new(dns.Msg).SetQuestion("not.found.com", dns.TypeA),
-		//	responseShouldBeNil: true,
-		//},
 	}
 	// should resolve if first upstream times out
 	// should not write when both fails
@@ -66,7 +58,7 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.TODO())
-			resolver := newUpstreamResolver(ctx)
+			resolver, _ := newUpstreamResolver(ctx, "", net.IP{}, &net.IPNet{})
 			resolver.upstreamServers = testCase.InputServers
 			resolver.upstreamTimeout = testCase.timeout
 			if testCase.cancelCTX {
@@ -114,12 +106,12 @@ type mockUpstreamResolver struct {
 }
 
 // ExchangeContext mock implementation of ExchangeContext from upstreamResolver
-func (c mockUpstreamResolver) ExchangeContext(_ context.Context, _ *dns.Msg, _ string) (r *dns.Msg, rtt time.Duration, err error) {
+func (c mockUpstreamResolver) exchange(upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error) {
 	return c.r, c.rtt, c.err
 }
 
 func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
-	resolver := &upstreamResolver{
+	resolver := &upstreamResolverBase{
 		ctx: context.TODO(),
 		upstreamClient: &mockUpstreamResolver{
 			err: nil,
@@ -156,7 +148,7 @@ func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
 	}
 
 	if !resolver.disabled {
-		t.Errorf("resolver should be disabled")
+		t.Errorf("resolver should be Disabled")
 		return
 	}
 

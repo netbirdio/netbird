@@ -197,7 +197,8 @@ func (e *Engine) Start() error {
 
 	var routes []*route.Route
 
-	if runtime.GOOS == "android" {
+	switch runtime.GOOS {
+	case "android":
 		var dnsConfig *nbdns.Config
 		routes, dnsConfig, err = e.readInitialSettings()
 		if err != nil {
@@ -207,25 +208,34 @@ func (e *Engine) Start() error {
 			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, *dnsConfig, e.mobileDep.NetworkChangeListener)
 			go e.mobileDep.DnsReadyListener.OnReady()
 		}
-	} else if e.dnsServer == nil {
-		// todo fix custom address
-		e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
-		if err != nil {
-			e.close()
-			return err
+	case "ios":
+		if e.dnsServer == nil {
+			e.dnsServer = dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager)
+		}
+	default:
+		if e.dnsServer == nil {
+			e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
+			if err != nil {
+				e.close()
+				return err
+			}
 		}
 	}
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
-	if runtime.GOOS == "android" {
-		err = e.wgInterface.CreateOnMobile(iface.MobileIFaceArguments{
+	switch runtime.GOOS {
+	case "android":
+		err = e.wgInterface.CreateOnAndroid(iface.MobileIFaceArguments{
 			Routes:        e.routeManager.InitialRouteRange(),
 			Dns:           e.dnsServer.DnsIP(),
 			SearchDomains: e.dnsServer.SearchDomains(),
 		})
-	} else {
+	case "ios":
+		e.mobileDep.NetworkChangeListener.SetInterfaceIP(wgAddr)
+		err = e.wgInterface.CreateOniOS(e.mobileDep.FileDescriptor)
+	default:
 		err = e.wgInterface.Create()
 	}
 	if err != nil {
@@ -480,7 +490,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 		}
 		// start SSH server if it wasn't running
 		if isNil(e.sshServer) {
-			//nil sshServer means it has not yet been started
+			// nil sshServer means it has not yet been started
 			var err error
 			e.sshServer, err = e.sshServerFunc(e.config.SSHKey,
 				fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort))
