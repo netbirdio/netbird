@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/stun"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"

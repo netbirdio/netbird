@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/magiconair/properties/assert"
-	"github.com/pion/ice/v2"
+	"github.com/pion/ice/v3"
 
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/internal/wgproxy"

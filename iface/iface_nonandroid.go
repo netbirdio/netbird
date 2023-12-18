@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/pion/transport/v2"
+	"github.com/pion/transport/v3"
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
