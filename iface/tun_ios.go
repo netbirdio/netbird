@@ -1,10 +1,10 @@
-//go:build android
-// +build android
+//go:build ios
+// +build ios
 
 package iface
 
 import (
-	"strings"
+	"os"
 
 	"github.com/pion/transport/v2"
 	log "github.com/sirupsen/logrus"
@@ -27,8 +27,9 @@ type tunDevice struct {
 	wrapper *DeviceWrapper
 }
 
-func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter, transportNet transport.Net) *tunDevice {
+func newTunDevice(name string, address WGAddress, mtu int, tunAdapter TunAdapter, transportNet transport.Net) *tunDevice {
 	return &tunDevice{
+		name:       name,
 		address:    address,
 		mtu:        mtu,
 		tunAdapter: tunAdapter,
@@ -36,26 +37,30 @@ func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter, transportNe
 	}
 }
 
-func (t *tunDevice) Create(mIFaceArgs MobileIFaceArguments) error {
-	log.Info("create tun interface")
-	var err error
-	routesString := t.routesToString(mIFaceArgs.Routes)
-	searchDomainsToString := t.searchDomainsToString(mIFaceArgs.SearchDomains)
-	t.fd, err = t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, mIFaceArgs.Dns, searchDomainsToString, routesString)
+func (t *tunDevice) Create(tunFd int32) error {
+	log.Infof("create tun interface")
+
+	dupTunFd, err := unix.Dup(int(tunFd))
 	if err != nil {
-		log.Errorf("failed to create Android interface: %s", err)
+		log.Errorf("Unable to dup tun fd: %v", err)
 		return err
 	}
 
-	tunDevice, name, err := tun.CreateUnmonitoredTUNFromFD(t.fd)
+	err = unix.SetNonblock(dupTunFd, true)
 	if err != nil {
-		unix.Close(t.fd)
+		log.Errorf("Unable to set tun fd as non blocking: %v", err)
+		unix.Close(dupTunFd)
 		return err
 	}
-	t.name = name
-	t.wrapper = newDeviceWrapper(tunDevice)
+	tun, err := tun.CreateTUNFromFile(os.NewFile(uintptr(dupTunFd), "/dev/tun"), 0)
+	if err != nil {
+		log.Errorf("Unable to create new tun device from fd: %v", err)
+		unix.Close(dupTunFd)
+		return err
+	}
 
-	log.Debugf("attaching to interface %v", name)
+	t.wrapper = newDeviceWrapper(tun)
+	log.Debug("Attaching to interface")
 	t.device = device.NewDevice(t.wrapper, t.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
 	// without this property mobile devices can discover remote endpoints if the configured one was wrong.
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
@@ -66,7 +71,7 @@ func (t *tunDevice) Create(mIFaceArgs MobileIFaceArguments) error {
 		t.device.Close()
 		return err
 	}
-	log.Debugf("device is ready to use: %s", name)
+	log.Debugf("device is ready to use: %s", t.name)
 	return nil
 }
 
@@ -93,12 +98,4 @@ func (t *tunDevice) Close() (err error) {
 	}
 
 	return
-}
-
-func (t *tunDevice) routesToString(routes []string) string {
-	return strings.Join(routes, ";")
-}
-
-func (t *tunDevice) searchDomainsToString(searchDomains []string) string {
-	return strings.Join(searchDomains, ";")
 }

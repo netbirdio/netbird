@@ -81,8 +81,8 @@ func (s *systemdDbusConfigurator) supportCustomPort() bool {
 	return true
 }
 
-func (s *systemdDbusConfigurator) applyDNSConfig(config hostDNSConfig) error {
-	parsedIP, err := netip.ParseAddr(config.serverIP)
+func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig) error {
+	parsedIP, err := netip.ParseAddr(config.ServerIP)
 	if err != nil {
 		return fmt.Errorf("unable to parse ip address, error: %s", err)
 	}
@@ -93,7 +93,7 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config hostDNSConfig) error {
 	}
 	err = s.callLinkMethod(systemdDbusSetDNSMethodSuffix, []systemdDbusDNSInput{defaultLinkInput})
 	if err != nil {
-		return fmt.Errorf("setting the interface DNS server %s:%d failed with error: %s", config.serverIP, config.serverPort, err)
+		return fmt.Errorf("setting the interface DNS server %s:%d failed with error: %s", config.ServerIP, config.ServerPort, err)
 	}
 
 	var (
@@ -101,24 +101,24 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config hostDNSConfig) error {
 		matchDomains  []string
 		domainsInput  []systemdDbusLinkDomainsInput
 	)
-	for _, dConf := range config.domains {
-		if dConf.disabled {
+	for _, dConf := range config.Domains {
+		if dConf.Disabled {
 			continue
 		}
 		domainsInput = append(domainsInput, systemdDbusLinkDomainsInput{
-			Domain:    dns.Fqdn(dConf.domain),
-			MatchOnly: dConf.matchOnly,
+			Domain:    dns.Fqdn(dConf.Domain),
+			MatchOnly: dConf.MatchOnly,
 		})
 
-		if dConf.matchOnly {
-			matchDomains = append(matchDomains, dConf.domain)
+		if dConf.MatchOnly {
+			matchDomains = append(matchDomains, dConf.Domain)
 			continue
 		}
-		searchDomains = append(searchDomains, dConf.domain)
+		searchDomains = append(searchDomains, dConf.Domain)
 	}
 
-	if config.routeAll {
-		log.Infof("configured %s:%d as main DNS forwarder for this peer", config.serverIP, config.serverPort)
+	if config.RouteAll {
+		log.Infof("configured %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
 		err = s.callLinkMethod(systemdDbusSetDefaultRouteMethodSuffix, true)
 		if err != nil {
 			return fmt.Errorf("setting link as default dns router, failed with error: %s", err)
@@ -129,7 +129,7 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config hostDNSConfig) error {
 		})
 		s.routingAll = true
 	} else if s.routingAll {
-		log.Infof("removing %s:%d as main DNS forwarder for this peer", config.serverIP, config.serverPort)
+		log.Infof("removing %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
 	}
 
 	log.Infof("adding %d search domains and %d match domains. Search list: %s , Match list: %s", len(searchDomains), len(matchDomains), searchDomains, matchDomains)

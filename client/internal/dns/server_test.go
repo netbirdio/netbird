@@ -527,8 +527,8 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 			registeredMap: make(registrationMap),
 		},
 		hostManager: hostManager,
-		currentConfig: hostDNSConfig{
-			domains: []domainConfig{
+		currentConfig: HostDNSConfig{
+			Domains: []DomainConfig{
 				{false, "domain0", false},
 				{false, "domain1", false},
 				{false, "domain2", false},
@@ -537,13 +537,13 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	}
 
 	var domainsUpdate string
-	hostManager.applyDNSConfigFunc = func(config hostDNSConfig) error {
+	hostManager.applyDNSConfigFunc = func(config HostDNSConfig) error {
 		domains := []string{}
-		for _, item := range config.domains {
-			if item.disabled {
+		for _, item := range config.Domains {
+			if item.Disabled {
 				continue
 			}
-			domains = append(domains, item.domain)
+			domains = append(domains, item.Domain)
 		}
 		domainsUpdate = strings.Join(domains, ",")
 		return nil
@@ -559,11 +559,11 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	deactivate()
 	expected := "domain0,domain2"
 	domains := []string{}
-	for _, item := range server.currentConfig.domains {
-		if item.disabled {
+	for _, item := range server.currentConfig.Domains {
+		if item.Disabled {
 			continue
 		}
-		domains = append(domains, item.domain)
+		domains = append(domains, item.Domain)
 	}
 	got := strings.Join(domains, ",")
 	if expected != got {
@@ -573,11 +573,11 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	reactivate()
 	expected = "domain0,domain1,domain2"
 	domains = []string{}
-	for _, item := range server.currentConfig.domains {
-		if item.disabled {
+	for _, item := range server.currentConfig.Domains {
+		if item.Disabled {
 			continue
 		}
-		domains = append(domains, item.domain)
+		domains = append(domains, item.Domain)
 	}
 	got = strings.Join(domains, ",")
 	if expected != got {

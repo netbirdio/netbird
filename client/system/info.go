@@ -12,6 +12,12 @@ import (
 // DeviceNameCtxKey context key for device name
 const DeviceNameCtxKey = "deviceName"
 
+// OsVersionCtxKey context key for operating system version
+const OsVersionCtxKey = "OsVersion"
+
+// OsNameCtxKey context key for operating system name
+const OsNameCtxKey = "OsName"
+
 // Info is an object that contains machine information
 // Most of the code is taken from https://github.com/matishsiao/goInfo
 type Info struct {

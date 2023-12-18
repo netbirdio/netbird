@@ -43,6 +43,15 @@ func RunClientMobile(ctx context.Context, config *Config, statusRecorder *peer.S
 	return runClient(ctx, config, statusRecorder, mobileDependency)
 }
 
+func RunClientiOS(ctx context.Context, config *Config, statusRecorder *peer.Status, fileDescriptor int32, networkChangeListener listener.NetworkChangeListener, dnsManager dns.IosDnsManager) error {
+	mobileDependency := MobileDependency{
+		FileDescriptor:        fileDescriptor,
+		NetworkChangeListener: networkChangeListener,
+		DnsManager:            dnsManager,
+	}
+	return runClient(ctx, config, statusRecorder, mobileDependency)
+}
+
 func runClient(ctx context.Context, config *Config, statusRecorder *peer.Status, mobileDependency MobileDependency) error {
 	log.Infof("starting NetBird client version %s", version.NetbirdVersion())
 
