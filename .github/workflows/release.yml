@@ -6,7 +6,6 @@ on:
       - 'v*'
     branches:
       - main
-      - fix/improve-goreleaser-speed
   pull_request:
     paths:
       - 'go.mod'
