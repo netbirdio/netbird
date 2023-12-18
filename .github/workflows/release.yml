@@ -185,9 +185,9 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: ${{ runner.os }}-ui-go-releaser-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-ui-go-releaser-darwin-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-ui-go-releaser-
+            ${{ runner.os }}-ui-go-releaser-darwin-
       -
         name: Install modules
         run: go mod tidy
