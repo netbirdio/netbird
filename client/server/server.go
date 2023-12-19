@@ -94,7 +94,7 @@ func (s *Server) Start() error {
 	}
 
 	// if configuration exists, we just start connections.
-	config, _ = internal.UpdateOldManagementPort(ctx, config, s.latestConfigInput.ConfigPath)
+	config, _ = internal.UpdateOldManagementURL(ctx, config, s.latestConfigInput.ConfigPath)
 
 	s.config = config
 
@@ -197,7 +197,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 
 	if msg.ManagementUrl == "" {
-		config, _ = internal.UpdateOldManagementPort(ctx, config, s.latestConfigInput.ConfigPath)
+		config, _ = internal.UpdateOldManagementURL(ctx, config, s.latestConfigInput.ConfigPath)
 		s.config = config
 		s.latestConfigInput.ManagementURL = config.ManagementURL.String()
 	}
