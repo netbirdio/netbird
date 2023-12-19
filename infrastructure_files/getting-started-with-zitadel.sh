@@ -598,7 +598,7 @@ renderManagementJson() {
     },
     "Signal": {
         "Proto": "$NETBIRD_HTTP_PROTOCOL",
-        "URI": "$NETBIRD_DOMAIN"
+        "URI": "$NETBIRD_DOMAIN:$NETBIRD_PORT"
     },
     "HttpConfig": {
         "AuthIssuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN",
