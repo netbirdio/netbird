@@ -1,12 +1,9 @@
-//go:build ios || android
-// +build ios android
-
 package iface
 
 import (
 	"encoding/hex"
-	"errors"
 	"fmt"
+	"golang.zx2c4.com/wireguard/device"
 	"net"
 	"strings"
 	"time"
@@ -15,21 +12,17 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
-var (
-	errFuncNotImplemented = errors.New("function not implemented")
-)
-
-type wGConfigurer struct {
-	tunDevice *tunDevice
+type wgUSPConfigurer struct {
+	device *device.Device
 }
 
-func newWGConfigurer(tunDevice *tunDevice) wGConfigurer {
-	return wGConfigurer{
-		tunDevice: tunDevice,
+func newWGUSPConfigurer(device *device.Device) wgConfigurer {
+	return &wgUSPConfigurer{
+		device: device,
 	}
 }
 
-func (c *wGConfigurer) configureInterface(privateKey string, port int) error {
+func (c *wgUSPConfigurer) configureInterface(privateKey string, port int) error {
 	log.Debugf("adding Wireguard private key")
 	key, err := wgtypes.ParseKey(privateKey)
 	if err != nil {
@@ -43,10 +36,10 @@ func (c *wGConfigurer) configureInterface(privateKey string, port int) error {
 		ListenPort:   &port,
 	}
 
-	return c.tunDevice.Device().IpcSet(toWgUserspaceString(config))
+	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
-func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+func (c *wgUSPConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	// parse allowed ips
 	_, ipNet, err := net.ParseCIDR(allowedIps)
 	if err != nil {
@@ -70,10 +63,10 @@ func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive t
 		Peers: []wgtypes.PeerConfig{peer},
 	}
 
-	return c.tunDevice.Device().IpcSet(toWgUserspaceString(config))
+	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
-func (c *wGConfigurer) removePeer(peerKey string) error {
+func (c *wgUSPConfigurer) removePeer(peerKey string) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return err
@@ -87,10 +80,10 @@ func (c *wGConfigurer) removePeer(peerKey string) error {
 	config := wgtypes.Config{
 		Peers: []wgtypes.PeerConfig{peer},
 	}
-	return c.tunDevice.Device().IpcSet(toWgUserspaceString(config))
+	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
-func (c *wGConfigurer) addAllowedIP(peerKey string, allowedIP string) error {
+func (c *wgUSPConfigurer) addAllowedIP(peerKey string, allowedIP string) error {
 	_, ipNet, err := net.ParseCIDR(allowedIP)
 	if err != nil {
 		return err
@@ -111,11 +104,11 @@ func (c *wGConfigurer) addAllowedIP(peerKey string, allowedIP string) error {
 		Peers: []wgtypes.PeerConfig{peer},
 	}
 
-	return c.tunDevice.Device().IpcSet(toWgUserspaceString(config))
+	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
-func (c *wGConfigurer) removeAllowedIP(peerKey string, ip string) error {
-	ipc, err := c.tunDevice.Device().IpcGet()
+func (c *wgUSPConfigurer) removeAllowedIP(peerKey string, ip string) error {
+	ipc, err := c.device.IpcGet()
 	if err != nil {
 		return err
 	}
@@ -160,6 +153,57 @@ func (c *wGConfigurer) removeAllowedIP(peerKey string, ip string) error {
 	if !removedAllowedIP {
 		return fmt.Errorf("allowedIP not found")
 	} else {
-		return c.tunDevice.Device().IpcSet(output)
+		return c.device.IpcSet(output)
 	}
+}
+
+func toWgUserspaceString(wgCfg wgtypes.Config) string {
+	var sb strings.Builder
+	if wgCfg.PrivateKey != nil {
+		hexKey := hex.EncodeToString(wgCfg.PrivateKey[:])
+		sb.WriteString(fmt.Sprintf("private_key=%s\n", hexKey))
+	}
+
+	if wgCfg.ListenPort != nil {
+		sb.WriteString(fmt.Sprintf("listen_port=%d\n", *wgCfg.ListenPort))
+	}
+
+	if wgCfg.ReplacePeers {
+		sb.WriteString("replace_peers=true\n")
+	}
+
+	if wgCfg.FirewallMark != nil {
+		sb.WriteString(fmt.Sprintf("fwmark=%d\n", *wgCfg.FirewallMark))
+	}
+
+	for _, p := range wgCfg.Peers {
+		hexKey := hex.EncodeToString(p.PublicKey[:])
+		sb.WriteString(fmt.Sprintf("public_key=%s\n", hexKey))
+
+		if p.PresharedKey != nil {
+			preSharedHexKey := hex.EncodeToString(p.PresharedKey[:])
+			sb.WriteString(fmt.Sprintf("preshared_key=%s\n", preSharedHexKey))
+		}
+
+		if p.Remove {
+			sb.WriteString("remove=true")
+		}
+
+		if p.ReplaceAllowedIPs {
+			sb.WriteString("replace_allowed_ips=true\n")
+		}
+
+		for _, aip := range p.AllowedIPs {
+			sb.WriteString(fmt.Sprintf("allowed_ip=%s\n", aip.String()))
+		}
+
+		if p.Endpoint != nil {
+			sb.WriteString(fmt.Sprintf("endpoint=%s\n", p.Endpoint.String()))
+		}
+
+		if p.PersistentKeepaliveInterval != nil {
+			sb.WriteString(fmt.Sprintf("persistent_keepalive_interval=%d\n", int(p.PersistentKeepaliveInterval.Seconds())))
+		}
+	}
+	return sb.String()
 }

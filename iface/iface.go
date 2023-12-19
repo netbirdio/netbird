@@ -19,8 +19,8 @@ const (
 
 // WGIface represents a interface instance
 type WGIface struct {
-	tun           *tunDevice
-	configurer    wGConfigurer
+	tun           wgTunDevice
+	configurer    wgConfigurer
 	mu            sync.Mutex
 	userspaceBind bool
 	filter        PacketFilter
@@ -33,7 +33,10 @@ func (w *WGIface) IsUserspaceBind() bool {
 
 // GetBind returns a userspace implementation of WireGuard Bind interface
 func (w *WGIface) GetBind() *bind.ICEBind {
-	return w.tun.iceBind
+	if !w.userspaceBind {
+		return nil
+	}
+	return w.tun.IceBind()
 }
 
 // Name returns the interface name
@@ -117,14 +120,14 @@ func (w *WGIface) SetFilter(filter PacketFilter) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if w.tun.wrapper == nil {
+	if w.tun.Wrapper() == nil {
 		return fmt.Errorf("userspace packet filtering not handled on this device")
 	}
 
 	w.filter = filter
-	w.filter.SetNetwork(w.tun.address.Network)
+	w.filter.SetNetwork(w.tun.WgAddress().Network)
 
-	w.tun.wrapper.SetFilter(filter)
+	w.tun.Wrapper().SetFilter(filter)
 	return nil
 }
 
@@ -141,5 +144,5 @@ func (w *WGIface) GetDevice() *DeviceWrapper {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	return w.tun.wrapper
+	return w.tun.Wrapper()
 }

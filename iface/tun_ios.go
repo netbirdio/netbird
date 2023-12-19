@@ -16,50 +16,45 @@ import (
 )
 
 type tunDevice struct {
-	address    WGAddress
-	mtu        int
-	tunAdapter TunAdapter
-	iceBind    *bind.ICEBind
-
-	fd      int
 	name    string
+	address WGAddress
+	iceBind *bind.ICEBind
+
 	device  *device.Device
 	wrapper *DeviceWrapper
 }
 
-func newTunDevice(name string, address WGAddress, mtu int, tunAdapter TunAdapter, transportNet transport.Net) *tunDevice {
+func newTunDevice(name string, address WGAddress, transportNet transport.Net) *tunDevice {
 	return &tunDevice{
-		name:       name,
-		address:    address,
-		mtu:        mtu,
-		tunAdapter: tunAdapter,
-		iceBind:    bind.NewICEBind(transportNet),
+		name:    name,
+		address: address,
+		iceBind: bind.NewICEBind(transportNet),
 	}
 }
 
-func (t *tunDevice) Create(tunFd int32) error {
+func (t *tunDevice) Create(tunFd int32) (wgConfigurer, error) {
 	log.Infof("create tun interface")
 
 	dupTunFd, err := unix.Dup(int(tunFd))
 	if err != nil {
 		log.Errorf("Unable to dup tun fd: %v", err)
-		return err
+		return nil, err
 	}
 
 	err = unix.SetNonblock(dupTunFd, true)
 	if err != nil {
 		log.Errorf("Unable to set tun fd as non blocking: %v", err)
-		unix.Close(dupTunFd)
-		return err
+		_ = unix.Close(dupTunFd)
+		return nil, err
 	}
-	tun, err := tun.CreateTUNFromFile(os.NewFile(uintptr(dupTunFd), "/dev/tun"), 0)
+	tunDevice, err := tun.CreateTUNFromFile(os.NewFile(uintptr(dupTunFd), "/dev/tun"), 0)
 	if err != nil {
 		log.Errorf("Unable to create new tun device from fd: %v", err)
-		unix.Close(dupTunFd)
-		return err
+		_ = unix.Close(dupTunFd)
+		return nil, err
 	}
 
-	t.wrapper = newDeviceWrapper(tun)
+	t.wrapper = newDeviceWrapper(tunDevice)
 	log.Debug("Attaching to interface")
 	t.device = device.NewDevice(t.wrapper, t.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
 	// without this property mobile devices can discover remote endpoints if the configured one was wrong.
@@ -69,10 +64,12 @@ func (t *tunDevice) Create(tunFd int32) error {
 	err = t.device.Up()
 	if err != nil {
 		t.device.Close()
-		return err
+		return nil, err
 	}
+	configurer := newWGUSPConfigurer(t.device)
+
 	log.Debugf("device is ready to use: %s", t.name)
-	return nil
+	return configurer, nil
 }
 
 func (t *tunDevice) Device() *device.Device {

@@ -2,29 +2,21 @@ package iface
 
 import (
 	"fmt"
-	"sync"
 
 	"github.com/pion/transport/v3"
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
 func NewWGIFace(ifaceName string, address string, mtu int, tunAdapter TunAdapter, transportNet transport.Net) (*WGIface, error) {
-	wgIFace := &WGIface{
-		mu: sync.Mutex{},
-	}
-
 	wgAddress, err := parseWGAddress(address)
 	if err != nil {
-		return wgIFace, err
+		return nil, err
 	}
 
-	tun := newTunDevice(wgAddress, mtu, tunAdapter, transportNet)
-	wgIFace.tun = tun
-
-	wgIFace.configurer = newWGConfigurer(tun)
-
-	wgIFace.userspaceBind = !WireGuardModuleIsLoaded()
-
+	wgIFace := &WGIface{
+		tun:           newTunDevice(wgAddress, mtu, tunAdapter, transportNet),
+		userspaceBind: false,
+	}
 	return wgIFace, nil
 }
 
@@ -33,7 +25,12 @@ func NewWGIFace(ifaceName string, address string, mtu int, tunAdapter TunAdapter
 func (w *WGIface) CreateOnAndroid(mIFaceArgs MobileIFaceArguments) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.tun.Create(mIFaceArgs)
+	cfgr, err := w.tun.Create(mIFaceArgs)
+	if err != nil {
+		return err
+	}
+	w.configurer = cfgr
+	return nil
 }
 
 // CreateOniOS creates a new Wireguard interface, sets a given IP and brings it up.

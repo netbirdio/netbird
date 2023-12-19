@@ -21,7 +21,6 @@ type tunDevice struct {
 	tunAdapter TunAdapter
 	iceBind    *bind.ICEBind
 
-	fd      int
 	name    string
 	device  *device.Device
 	wrapper *DeviceWrapper
@@ -36,21 +35,23 @@ func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter, transportNe
 	}
 }
 
-func (t *tunDevice) Create(mIFaceArgs MobileIFaceArguments) error {
+func (t *tunDevice) Create(mIFaceArgs MobileIFaceArguments) (wgConfigurer, error) {
 	log.Info("create tun interface")
-	var err error
-	routesString := t.routesToString(mIFaceArgs.Routes)
-	searchDomainsToString := t.searchDomainsToString(mIFaceArgs.SearchDomains)
-	t.fd, err = t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, mIFaceArgs.Dns, searchDomainsToString, routesString)
+
+	routesString := routesToString(mIFaceArgs.Routes)
+	searchDomainsToString := searchDomainsToString(mIFaceArgs.SearchDomains)
+
+	fd, err := t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, mIFaceArgs.Dns, searchDomainsToString, routesString)
 	if err != nil {
 		log.Errorf("failed to create Android interface: %s", err)
-		return err
+		return nil, err
 	}
 
-	tunDevice, name, err := tun.CreateUnmonitoredTUNFromFD(t.fd)
+	tunDevice, name, err := tun.CreateUnmonitoredTUNFromFD(fd)
 	if err != nil {
-		unix.Close(t.fd)
-		return err
+		_ = unix.Close(fd)
+		log.Errorf("failed to create Android interface: %s", err)
+		return nil, err
 	}
 	t.name = name
 	t.wrapper = newDeviceWrapper(tunDevice)
@@ -64,10 +65,25 @@ func (t *tunDevice) Create(mIFaceArgs MobileIFaceArguments) error {
 	err = t.device.Up()
 	if err != nil {
 		t.device.Close()
-		return err
+		return nil, err
 	}
+
+	configurer := newWGUSPConfigurer(t.device)
+
 	log.Debugf("device is ready to use: %s", name)
+	return configurer, nil
+}
+
+func (t *tunDevice) UpdateAddr(addr WGAddress) error {
+	// todo implement
 	return nil
+}
+
+func (t *tunDevice) Close() (err error) {
+	if t.device != nil {
+		t.device.Close()
+	}
+	return
 }
 
 func (t *tunDevice) Device() *device.Device {
@@ -82,23 +98,10 @@ func (t *tunDevice) WgAddress() WGAddress {
 	return t.address
 }
 
-func (t *tunDevice) UpdateAddr(addr WGAddress) error {
-	// todo implement
-	return nil
-}
-
-func (t *tunDevice) Close() (err error) {
-	if t.device != nil {
-		t.device.Close()
-	}
-
-	return
-}
-
-func (t *tunDevice) routesToString(routes []string) string {
+func routesToString(routes []string) string {
 	return strings.Join(routes, ";")
 }
 
-func (t *tunDevice) searchDomainsToString(searchDomains []string) string {
+func searchDomainsToString(searchDomains []string) string {
 	return strings.Join(searchDomains, ";")
 }

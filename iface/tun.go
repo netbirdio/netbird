@@ -1,12 +1,19 @@
 package iface
 
+import "github.com/netbirdio/netbird/iface/bind"
+
 type MobileIFaceArguments struct {
 	Routes        []string
 	Dns           string
 	SearchDomains []string
 }
 
-// NetInterface represents a generic network tunnel interface
-type NetInterface interface {
+type wgTunDevice interface {
+	Create() (wgConfigurer, error)
+	UpdateAddr(address WGAddress) error
+	WgAddress() WGAddress
+	DeviceName() string
 	Close() error
+	IceBind() *bind.ICEBind  // todo eliminate this function
+	Wrapper() *DeviceWrapper // todo eliminate this function
 }

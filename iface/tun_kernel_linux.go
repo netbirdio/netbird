@@ -3,37 +3,31 @@
 package iface
 
 import (
-	"fmt"
 	"os"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
+
+	"github.com/netbirdio/netbird/iface/bind"
 )
 
-func (c *tunDevice) Create() error {
-	if WireGuardModuleIsLoaded() {
-		log.Infof("create tun interface with kernel WireGuard support: %s", c.DeviceName())
-		return c.createWithKernel()
-	}
+type tunKernelDevice struct {
+	name    string
+	address WGAddress
+	mtu     int
 
-	if !tunModuleIsLoaded() {
-		return fmt.Errorf("couldn't check or load tun module")
-	}
-	log.Infof("create tun interface with userspace WireGuard support: %s", c.DeviceName())
-	var err error
-	c.netInterface, err = c.createWithUserspace()
-	if err != nil {
-		return err
-	}
-
-	return c.assignAddr()
-
+	link *wgLink
 }
 
-// createWithKernel Creates a new WireGuard interface using kernel WireGuard module.
-// Works for Linux and offers much better network performance
-func (c *tunDevice) createWithKernel() error {
+func newTunDevice(name string, address WGAddress, mtu int) wgTunDevice {
+	return &tunKernelDevice{
+		name:    name,
+		address: address,
+		mtu:     mtu,
+	}
+}
 
+func (c *tunKernelDevice) Create() (wgConfigurer, error) {
 	link := newWGLink(c.name)
 
 	// check if interface exists
@@ -43,7 +37,7 @@ func (c *tunDevice) createWithKernel() error {
 		case netlink.LinkNotFoundError:
 			break
 		default:
-			return err
+			return nil, err
 		}
 	}
 
@@ -51,7 +45,7 @@ func (c *tunDevice) createWithKernel() error {
 	if l != nil {
 		err = netlink.LinkDel(link)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -60,14 +54,14 @@ func (c *tunDevice) createWithKernel() error {
 	if os.IsExist(err) {
 		log.Infof("interface %s already exists. Will reuse.", c.name)
 	} else if err != nil {
-		return err
+		return nil, err
 	}
 
-	c.netInterface = link
+	c.link = link
 
 	err = c.assignAddr()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// todo do a discovery
@@ -75,21 +69,50 @@ func (c *tunDevice) createWithKernel() error {
 	err = netlink.LinkSetMTU(link, c.mtu)
 	if err != nil {
 		log.Errorf("error setting MTU on interface: %s", c.name)
-		return err
+		return nil, err
 	}
 
 	log.Debugf("bringing up interface: %s", c.name)
 	err = netlink.LinkSetUp(link)
 	if err != nil {
 		log.Errorf("error bringing up interface: %s", c.name)
-		return err
+		return nil, err
 	}
 
+	configurer := newWGConfigurer(c.name)
+	return configurer, nil
+}
+
+func (c *tunKernelDevice) UpdateAddr(address WGAddress) error {
+	c.address = address
+	return c.assignAddr()
+}
+
+func (c *tunKernelDevice) WgAddress() WGAddress {
+	return c.address
+}
+
+func (c *tunKernelDevice) DeviceName() string {
+	return c.name
+}
+
+func (c *tunKernelDevice) IceBind() *bind.ICEBind {
+	return nil
+}
+
+func (c *tunKernelDevice) Wrapper() *DeviceWrapper {
+	return nil
+}
+
+func (c *tunKernelDevice) Close() error {
+	if c.link != nil {
+		_ = c.link.Close()
+	}
 	return nil
 }
 
 // assignAddr Adds IP address to the tunnel interface
-func (c *tunDevice) assignAddr() error {
+func (c *tunKernelDevice) assignAddr() error {
 	link := newWGLink(c.name)
 
 	//delete existing addresses
@@ -118,32 +141,4 @@ func (c *tunDevice) assignAddr() error {
 	// On linux, the link must be brought up
 	err = netlink.LinkSetUp(link)
 	return err
-}
-
-type wgLink struct {
-	attrs *netlink.LinkAttrs
-}
-
-func newWGLink(name string) *wgLink {
-	attrs := netlink.NewLinkAttrs()
-	attrs.Name = name
-
-	return &wgLink{
-		attrs: &attrs,
-	}
-}
-
-// Attrs returns the Wireguard's default attributes
-func (l *wgLink) Attrs() *netlink.LinkAttrs {
-	return l.attrs
-}
-
-// Type returns the interface type
-func (l *wgLink) Type() string {
-	return "wireguard"
-}
-
-// Close deletes the link interface
-func (l *wgLink) Close() error {
-	return netlink.LinkDel(l)
 }
