@@ -36,5 +36,5 @@ func (w *WGIface) CreateOnAndroid(routes []string, dns string, searchDomains []s
 
 // Create this function make sense on mobile only
 func (w *WGIface) Create() error {
-	return fmt.Errorf("this function has not implemented on mobile")
+	return fmt.Errorf("this function has not implemented on this platform")
 }

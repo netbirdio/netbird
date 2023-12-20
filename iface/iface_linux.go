@@ -33,5 +33,5 @@ func NewWGIFace(iFaceName string, address string, mtu int, transportNet transpor
 
 // CreateOnAndroid this function make sense on mobile only
 func (w *WGIface) CreateOnAndroid([]string, string, []string) error {
-	return fmt.Errorf("this function has not implemented on non mobile")
+	return fmt.Errorf("this function has not implemented on this platform")
 }

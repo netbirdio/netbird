@@ -26,5 +26,5 @@ func NewWGIFace(ifaceName string, address string, mtu int, transportNet transpor
 // CreateOnAndroid creates a new Wireguard interface, sets a given IP and brings it up.
 // Will reuse an existing one.
 func (w *WGIface) CreateOnAndroid([]string, string, []string) error {
-	return fmt.Errorf("this function has not implemented on mobile")
+	return fmt.Errorf("this function has not implemented on this platform")
 }
