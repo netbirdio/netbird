@@ -3,10 +3,11 @@ package iface
 import (
 	"encoding/hex"
 	"fmt"
-	"golang.zx2c4.com/wireguard/device"
 	"net"
 	"strings"
 	"time"
+
+	"golang.zx2c4.com/wireguard/device"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -114,6 +115,9 @@ func (c *wgUSPConfigurer) removeAllowedIP(peerKey string, ip string) error {
 	}
 
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
 	hexKey := hex.EncodeToString(peerKeyParsed[:])
 
 	lines := strings.Split(ipc, "\n")
