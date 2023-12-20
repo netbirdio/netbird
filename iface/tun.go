@@ -9,7 +9,6 @@ type MobileIFaceArguments struct {
 }
 
 type wgTunDevice interface {
-	Create() (wgConfigurer, error)
 	UpdateAddr(address WGAddress) error
 	WgAddress() WGAddress
 	DeviceName() string

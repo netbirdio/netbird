@@ -27,7 +27,7 @@ type tunDevice struct {
 	wrapper         *DeviceWrapper
 }
 
-func newTunDevice(name string, address WGAddress, mtu int, transportNet transport.Net) *tunDevice {
+func newTunDevice(name string, address WGAddress, mtu int, transportNet transport.Net) wgTunDevice {
 	return &tunDevice{
 		name:    name,
 		address: address,
@@ -36,78 +36,86 @@ func newTunDevice(name string, address WGAddress, mtu int, transportNet transpor
 	}
 }
 
-func (c *tunDevice) Create() (wgConfigurer, error) {
-	tunDevice, err := tun.CreateTUN(c.name, c.mtu)
+func (t *tunDevice) Create() (wgConfigurer, error) {
+	tunDevice, err := tun.CreateTUN(t.name, t.mtu)
 	if err != nil {
 		return nil, err
 	}
-	c.nativeTunDevice = tunDevice.(*tun.NativeTun)
-	c.wrapper = newDeviceWrapper(tunDevice)
+	t.nativeTunDevice = tunDevice.(*tun.NativeTun)
+	t.wrapper = newDeviceWrapper(tunDevice)
 
 	// We need to create a wireguard-go device and listen to configuration requests
-	c.device = device.NewDevice(
-		c.wrapper,
-		c.iceBind,
+	t.device = device.NewDevice(
+		t.wrapper,
+		t.iceBind,
 		device.NewLogger(device.LogLevelSilent, "[netbird] "),
 	)
-	err = c.device.Up()
+	err = t.device.Up()
 	if err != nil {
-		c.device.Close()
+		t.device.Close()
 		return nil, err
 	}
 
-	luid := winipcfg.LUID(c.nativeTunDevice.LUID())
+	luid := winipcfg.LUID(t.nativeTunDevice.LUID())
 
 	nbiface, err := luid.IPInterface(windows.AF_INET)
 	if err != nil {
-		c.device.Close()
+		t.device.Close()
 		return nil, fmt.Errorf("got error when getting ip interface %s", err)
 	}
 
-	nbiface.NLMTU = uint32(c.mtu)
+	nbiface.NLMTU = uint32(t.mtu)
 
 	err = nbiface.Set()
 	if err != nil {
-		c.device.Close()
+		t.device.Close()
 		return nil, fmt.Errorf("got error when getting setting the interface mtu: %s", err)
 	}
-	err = c.assignAddr()
+	err = t.assignAddr()
 	if err != nil {
-		c.device.Close()
+		t.device.Close()
 		return nil, err
 	}
 
-	log.Debugf("device is ready to use: %s", c.name)
-	configurer := newWGUSPConfigurer(c.device)
+	log.Debugf("device is ready to use: %s", t.name)
+	configurer := newWGUSPConfigurer(t.device)
 	return configurer, nil
 }
 
-func (c *tunDevice) UpdateAddr(address WGAddress) error {
-	c.address = address
-	return c.assignAddr()
+func (t *tunDevice) UpdateAddr(address WGAddress) error {
+	t.address = address
+	return t.assignAddr()
 }
 
-func (c *tunDevice) WgAddress() WGAddress {
-	return c.address
-}
-
-func (c *tunDevice) DeviceName() string {
-	return c.name
-}
-
-func (c *tunDevice) Close() error {
-	if c.device != nil {
-		c.device.Close()
+func (t *tunDevice) Close() error {
+	if t.device != nil {
+		t.device.Close()
 	}
 	return nil
 }
 
-func (c *tunDevice) getInterfaceGUIDString() (string, error) {
-	if c.nativeTunDevice == nil {
+func (t *tunDevice) WgAddress() WGAddress {
+	return t.address
+}
+
+func (t *tunDevice) DeviceName() string {
+	return t.name
+}
+
+func (t *tunDevice) IceBind() *bind.ICEBind {
+	return t.iceBind
+}
+
+func (t *tunDevice) Wrapper() *DeviceWrapper {
+	return t.wrapper
+}
+
+func (t *tunDevice) getInterfaceGUIDString() (string, error) {
+	if t.nativeTunDevice == nil {
 		return "", fmt.Errorf("interface has not been initialized yet")
 	}
 
-	luid := winipcfg.LUID(c.nativeTunDevice.LUID())
+	luid := winipcfg.LUID(t.nativeTunDevice.LUID())
 	guid, err := luid.GUID()
 	if err != nil {
 		return "", err
@@ -116,13 +124,13 @@ func (c *tunDevice) getInterfaceGUIDString() (string, error) {
 }
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
-func (c *tunDevice) assignAddr() error {
-	luid := winipcfg.LUID(c.nativeTunDevice.LUID())
-	log.Debugf("adding address %s to interface: %s", c.address.IP, c.name)
-	return luid.SetIPAddresses([]netip.Prefix{netip.MustParsePrefix(c.address.String())})
+func (t *tunDevice) assignAddr() error {
+	luid := winipcfg.LUID(t.nativeTunDevice.LUID())
+	log.Debugf("adding address %s to interface: %s", t.address.IP, t.name)
+	return luid.SetIPAddresses([]netip.Prefix{netip.MustParsePrefix(t.address.String())})
 }
 
 // getUAPI returns a Listener
-func (c *tunDevice) getUAPI(iface string) (net.Listener, error) {
+func (t *tunDevice) getUAPI(iface string) (net.Listener, error) {
 	return ipc.UAPIListen(iface)
 }

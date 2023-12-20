@@ -22,10 +22,12 @@ func NewWGIFace(ifaceName string, address string, mtu int, tunAdapter TunAdapter
 
 // CreateOnAndroid creates a new Wireguard interface, sets a given IP and brings it up.
 // Will reuse an existing one.
-func (w *WGIface) CreateOnAndroid(mIFaceArgs MobileIFaceArguments) error {
+func (w *WGIface) CreateOnAndroid(mobileIFaceArgs MobileIFaceArguments) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	cfgr, err := w.tun.Create(mIFaceArgs)
+
+	androidTun := w.tun.(*tunDevice)
+	cfgr, err := androidTun.Create(mobileIFaceArgs)
 	if err != nil {
 		return err
 	}

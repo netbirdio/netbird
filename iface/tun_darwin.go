@@ -24,7 +24,7 @@ type tunDevice struct {
 	wrapper *DeviceWrapper
 }
 
-func newTunDevice(name string, address WGAddress, mtu int, transportNet transport.Net) *tunDevice {
+func newTunDevice(name string, address WGAddress, mtu int, transportNet transport.Net) wgTunDevice {
 	return &tunDevice{
 		name:    name,
 		address: address,
@@ -81,6 +81,14 @@ func (c *tunDevice) WgAddress() WGAddress {
 
 func (c *tunDevice) DeviceName() string {
 	return c.name
+}
+
+func (c *tunDevice) IceBind() *bind.ICEBind {
+	return c.iceBind
+}
+
+func (c *tunDevice) Wrapper() *DeviceWrapper {
+	return c.wrapper
 }
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided

@@ -24,7 +24,7 @@ type tunDevice struct {
 	wrapper *DeviceWrapper
 }
 
-func newTunDevice(name string, address WGAddress, transportNet transport.Net) *tunDevice {
+func newTunDevice(name string, address WGAddress, transportNet transport.Net) wgTunDevice {
 	return &tunDevice{
 		name:    name,
 		address: address,
@@ -87,6 +87,14 @@ func (t *tunDevice) WgAddress() WGAddress {
 func (t *tunDevice) UpdateAddr(addr WGAddress) error {
 	// todo implement
 	return nil
+}
+
+func (t *tunDevice) IceBind() *bind.ICEBind {
+	return t.iceBind
+}
+
+func (t *tunDevice) Wrapper() *DeviceWrapper {
+	return t.wrapper
 }
 
 func (t *tunDevice) Close() (err error) {

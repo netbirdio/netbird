@@ -27,11 +27,11 @@ func newTunDevice(name string, address WGAddress, mtu int) wgTunDevice {
 	}
 }
 
-func (c *tunKernelDevice) Create() (wgConfigurer, error) {
-	link := newWGLink(c.name)
+func (t *tunKernelDevice) Create() (wgConfigurer, error) {
+	link := newWGLink(t.name)
 
 	// check if interface exists
-	l, err := netlink.LinkByName(c.name)
+	l, err := netlink.LinkByName(t.name)
 	if err != nil {
 		switch err.(type) {
 		case netlink.LinkNotFoundError:
@@ -49,71 +49,71 @@ func (c *tunKernelDevice) Create() (wgConfigurer, error) {
 		}
 	}
 
-	log.Debugf("adding device: %s", c.name)
+	log.Debugf("adding device: %s", t.name)
 	err = netlink.LinkAdd(link)
 	if os.IsExist(err) {
-		log.Infof("interface %s already exists. Will reuse.", c.name)
+		log.Infof("interface %s already exists. Will reuse.", t.name)
 	} else if err != nil {
 		return nil, err
 	}
 
-	c.link = link
+	t.link = link
 
-	err = c.assignAddr()
+	err = t.assignAddr()
 	if err != nil {
 		return nil, err
 	}
 
 	// todo do a discovery
-	log.Debugf("setting MTU: %d interface: %s", c.mtu, c.name)
-	err = netlink.LinkSetMTU(link, c.mtu)
+	log.Debugf("setting MTU: %d interface: %s", t.mtu, t.name)
+	err = netlink.LinkSetMTU(link, t.mtu)
 	if err != nil {
-		log.Errorf("error setting MTU on interface: %s", c.name)
+		log.Errorf("error setting MTU on interface: %s", t.name)
 		return nil, err
 	}
 
-	log.Debugf("bringing up interface: %s", c.name)
+	log.Debugf("bringing up interface: %s", t.name)
 	err = netlink.LinkSetUp(link)
 	if err != nil {
-		log.Errorf("error bringing up interface: %s", c.name)
+		log.Errorf("error bringing up interface: %s", t.name)
 		return nil, err
 	}
 
-	configurer := newWGConfigurer(c.name)
+	configurer := newWGConfigurer(t.name)
 	return configurer, nil
 }
 
-func (c *tunKernelDevice) UpdateAddr(address WGAddress) error {
-	c.address = address
-	return c.assignAddr()
+func (t *tunKernelDevice) UpdateAddr(address WGAddress) error {
+	t.address = address
+	return t.assignAddr()
 }
 
-func (c *tunKernelDevice) WgAddress() WGAddress {
-	return c.address
+func (t *tunKernelDevice) WgAddress() WGAddress {
+	return t.address
 }
 
-func (c *tunKernelDevice) DeviceName() string {
-	return c.name
+func (t *tunKernelDevice) DeviceName() string {
+	return t.name
 }
 
-func (c *tunKernelDevice) IceBind() *bind.ICEBind {
+func (t *tunKernelDevice) IceBind() *bind.ICEBind {
 	return nil
 }
 
-func (c *tunKernelDevice) Wrapper() *DeviceWrapper {
+func (t *tunKernelDevice) Wrapper() *DeviceWrapper {
 	return nil
 }
 
-func (c *tunKernelDevice) Close() error {
-	if c.link != nil {
-		_ = c.link.Close()
+func (t *tunKernelDevice) Close() error {
+	if t.link != nil {
+		_ = t.link.Close()
 	}
 	return nil
 }
 
 // assignAddr Adds IP address to the tunnel interface
-func (c *tunKernelDevice) assignAddr() error {
-	link := newWGLink(c.name)
+func (t *tunKernelDevice) assignAddr() error {
+	link := newWGLink(t.name)
 
 	//delete existing addresses
 	list, err := netlink.AddrList(link, 0)
@@ -130,11 +130,11 @@ func (c *tunKernelDevice) assignAddr() error {
 		}
 	}
 
-	log.Debugf("adding address %s to interface: %s", c.address.String(), c.name)
-	addr, _ := netlink.ParseAddr(c.address.String())
+	log.Debugf("adding address %s to interface: %s", t.address.String(), t.name)
+	addr, _ := netlink.ParseAddr(t.address.String())
 	err = netlink.AddrAdd(link, addr)
 	if os.IsExist(err) {
-		log.Infof("interface %s already has the address: %s", c.name, c.address.String())
+		log.Infof("interface %s already has the address: %s", t.name, t.address.String())
 	} else if err != nil {
 		return err
 	}

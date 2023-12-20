@@ -26,7 +26,7 @@ type tunDevice struct {
 	wrapper *DeviceWrapper
 }
 
-func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter, transportNet transport.Net) *tunDevice {
+func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter, transportNet transport.Net) wgTunDevice {
 	return &tunDevice{
 		address:    address,
 		mtu:        mtu,
@@ -96,6 +96,14 @@ func (t *tunDevice) DeviceName() string {
 
 func (t *tunDevice) WgAddress() WGAddress {
 	return t.address
+}
+
+func (t *tunDevice) IceBind() *bind.ICEBind {
+	return t.iceBind
+}
+
+func (t *tunDevice) Wrapper() *DeviceWrapper {
+	return t.wrapper
 }
 
 func routesToString(routes []string) string {
