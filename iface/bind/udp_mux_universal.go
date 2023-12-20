@@ -13,8 +13,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/pion/logging"
-	"github.com/pion/stun"
-	"github.com/pion/transport/v2"
+	"github.com/pion/stun/v2"
+	"github.com/pion/transport/v3"
 )
 
 // UniversalUDPMuxDefault handles STUN and TURN servers packets by wrapping the original UDPConn
@@ -80,13 +80,13 @@ func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
 			log.Debugf("stopped reading from the UDPConn due to finished context")
 			return
 		default:
-			_, a, err := m.params.UDPConn.ReadFrom(buf)
+			n, a, err := m.params.UDPConn.ReadFrom(buf)
 			if err != nil {
 				log.Errorf("error while reading packet: %s", err)
 				continue
 			}
 			msg := &stun.Message{
-				Raw: buf,
+				Raw: append([]byte{}, buf[:n]...),
 			}
 			err = msg.Decode()
 			if err != nil {

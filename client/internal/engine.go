@@ -13,7 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/ice/v2"
+	"github.com/pion/ice/v3"
+	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -95,9 +96,9 @@ type Engine struct {
 	mobileDep MobileDependency
 
 	// STUNs is a list of STUN servers used by ICE
-	STUNs []*ice.URL
+	STUNs []*stun.URI
 	// TURNs is a list of STUN servers used by ICE
-	TURNs []*ice.URL
+	TURNs []*stun.URI
 
 	cancel context.CancelFunc
 
@@ -146,8 +147,8 @@ func NewEngine(
 		syncMsgMux:     &sync.Mutex{},
 		config:         config,
 		mobileDep:      mobileDep,
-		STUNs:          []*ice.URL{},
-		TURNs:          []*ice.URL{},
+		STUNs:          []*stun.URI{},
+		TURNs:          []*stun.URI{},
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
@@ -575,10 +576,10 @@ func (e *Engine) updateSTUNs(stuns []*mgmProto.HostConfig) error {
 	if len(stuns) == 0 {
 		return nil
 	}
-	var newSTUNs []*ice.URL
+	var newSTUNs []*stun.URI
 	log.Debugf("got STUNs update from Management Service, updating")
-	for _, stun := range stuns {
-		url, err := ice.ParseURL(stun.Uri)
+	for _, s := range stuns {
+		url, err := stun.ParseURI(s.Uri)
 		if err != nil {
 			return err
 		}
@@ -593,10 +594,10 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 	if len(turns) == 0 {
 		return nil
 	}
-	var newTURNs []*ice.URL
+	var newTURNs []*stun.URI
 	log.Debugf("got TURNs update from Management Service, updating")
 	for _, turn := range turns {
-		url, err := ice.ParseURL(turn.HostConfig.Uri)
+		url, err := stun.ParseURI(turn.HostConfig.Uri)
 		if err != nil {
 			return err
 		}
@@ -846,7 +847,7 @@ func (e *Engine) peerExists(peerKey string) bool {
 
 func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error) {
 	log.Debugf("creating peer connection %s", pubKey)
-	var stunTurn []*ice.URL
+	var stunTurn []*stun.URI
 	stunTurn = append(stunTurn, e.STUNs...)
 	stunTurn = append(stunTurn, e.TURNs...)
 

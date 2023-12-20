@@ -7,13 +7,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pion/ice/v2"
-	"github.com/pion/stun"
-	"github.com/pion/transport/v2/stdnet"
-	log "github.com/sirupsen/logrus"
-
+	"github.com/pion/ice/v3"
 	"github.com/pion/logging"
-	"github.com/pion/transport/v2"
+	"github.com/pion/stun/v2"
+	"github.com/pion/transport/v3"
+	"github.com/pion/transport/v3/stdnet"
+	log "github.com/sirupsen/logrus"
 )
 
 /*
@@ -224,6 +223,10 @@ func (m *UDPMuxDefault) GetListenAddresses() []net.Addr {
 // GetConn returns a PacketConn given the connection's ufrag and network address
 // creates the connection if an existing one can't be found
 func (m *UDPMuxDefault) GetConn(ufrag string, addr net.Addr) (net.PacketConn, error) {
+	// don't check addr for mux using unspecified address
+	if len(m.localAddrsForUnspecified) == 0 && m.params.UDPConn.LocalAddr().String() != addr.String() {
+		return nil, fmt.Errorf("invalid address %s", addr.String())
+	}
 
 	var isIPv6 bool
 	if udpAddr, _ := addr.(*net.UDPAddr); udpAddr != nil && udpAddr.IP.To4() == nil {
@@ -282,15 +285,7 @@ func (m *UDPMuxDefault) RemoveConnByUfrag(ufrag string) {
 	for _, c := range removedConns {
 		addresses := c.getAddresses()
 		for _, addr := range addresses {
-			if connList, ok := m.addressMap[addr]; ok {
-				var newList []*udpMuxedConn
-				for _, conn := range connList {
-					if conn.params.Key != ufrag {
-						newList = append(newList, conn)
-					}
-				}
-				m.addressMap[addr] = newList
-			}
+			delete(m.addressMap, addr)
 		}
 	}
 }
