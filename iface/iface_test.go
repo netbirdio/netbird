@@ -251,7 +251,8 @@ func Test_UpdatePeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	peer, err := iface.configurer.getPeer(ifaceName, peerPubKey)
+	kernelConfigurer := iface.configurer.(*wgKernelConfigurer)
+	peer, err := kernelConfigurer.getPeer(ifaceName, peerPubKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +316,9 @@ func Test_RemovePeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = iface.configurer.getPeer(ifaceName, peerPubKey)
+
+	kernelConfigurer := iface.configurer.(*wgKernelConfigurer)
+	_, err = kernelConfigurer.getPeer(ifaceName, peerPubKey)
 	if err.Error() != "peer not found" {
 		t.Fatal(err)
 	}
@@ -403,13 +406,15 @@ func Test_ConnectPeers(t *testing.T) {
 	// todo: investigate why in some tests execution we need 30s
 	timeout := 30 * time.Second
 	timeoutChannel := time.After(timeout)
+	kernelConfigurer1 := iface1.configurer.(*wgKernelConfigurer)
 	for {
 		select {
 		case <-timeoutChannel:
 			t.Fatalf("waiting for peer handshake timeout after %s", timeout.String())
 		default:
 		}
-		peer, gpErr := iface1.configurer.getPeer(peer1ifaceName, peer2Key.PublicKey().String())
+
+		peer, gpErr := kernelConfigurer1.getPeer(peer1ifaceName, peer2Key.PublicKey().String())
 		if gpErr != nil {
 			t.Fatal(gpErr)
 		}
