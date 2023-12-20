@@ -9,7 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/ice/v2"
+	"github.com/pion/ice/v3"
+	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -46,7 +47,7 @@ type ConnConfig struct {
 	LocalKey string
 
 	// StunTurn is a list of STUN and TURN URLs
-	StunTurn []*ice.URL
+	StunTurn []*stun.URI
 
 	// InterfaceBlackList is a list of machine interfaces that should be filtered out by ICE Candidate gathering
 	// (e.g. if eth0 is in the list, host candidate of this interface won't be used)
@@ -142,7 +143,7 @@ func (conn *Conn) WgConfig() WgConfig {
 }
 
 // UpdateStunTurn update the turn and stun addresses
-func (conn *Conn) UpdateStunTurn(turnStun []*ice.URL) {
+func (conn *Conn) UpdateStunTurn(turnStun []*stun.URI) {
 	conn.config.StunTurn = turnStun
 }
 

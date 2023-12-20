@@ -5,7 +5,7 @@ import (
 	"net"
 	"net/netip"
 
-	"github.com/pion/transport/v2"
+	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/device"

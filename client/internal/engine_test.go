@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/transport/v2/stdnet"
+	"github.com/pion/transport/v3/stdnet"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

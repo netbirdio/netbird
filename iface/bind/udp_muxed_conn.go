@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/pion/logging"
-	"github.com/pion/transport/v2/packetio"
+	"github.com/pion/transport/v3/packetio"
 )
 
 type udpMuxedConnParams struct {

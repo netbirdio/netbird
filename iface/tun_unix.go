@@ -6,7 +6,7 @@ import (
 	"net"
 	"os"
 
-	"github.com/pion/transport/v2"
+	"github.com/pion/transport/v3"
 	"golang.zx2c4.com/wireguard/ipc"
 
 	"github.com/netbirdio/netbird/iface/bind"

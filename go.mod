@@ -6,12 +6,12 @@ require (
 	github.com/cenkalti/backoff/v4 v4.1.3
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/golang/protobuf v1.5.3
-	github.com/google/uuid v1.3.0
+	github.com/google/uuid v1.3.1
 	github.com/gorilla/mux v1.8.0
 	github.com/kardianos/service v1.2.1-0.20210728001519-a323c3813bc7
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.18.1
-	github.com/pion/ice/v2 v2.3.1
+	github.com/pion/ice/v3 v3.0.2
 	github.com/rs/cors v1.8.0
 	github.com/sirupsen/logrus v1.9.0
 	github.com/spf13/cobra v1.6.1
@@ -56,12 +56,13 @@ require (
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pion/logging v0.2.2
-	github.com/pion/stun v0.4.0
-	github.com/pion/transport/v2 v2.0.2
+	github.com/pion/stun/v2 v2.0.0
+	github.com/pion/transport/v2 v2.2.1
+	github.com/pion/transport/v3 v3.0.1
 	github.com/prometheus/client_golang v1.14.0
 	github.com/rs/xid v1.3.0
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
-	github.com/stretchr/testify v1.8.1
+	github.com/stretchr/testify v1.8.4
 	github.com/yusufpapurcu/wmi v1.2.3
 	go.opentelemetry.io/otel v1.11.1
 	go.opentelemetry.io/otel/exporters/prometheus v0.33.0
@@ -124,11 +125,10 @@ require (
 	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
 	github.com/pegasus-kv/thrift v0.13.0 // indirect
-	github.com/pion/dtls/v2 v2.2.6 // indirect
-	github.com/pion/mdns v0.0.7 // indirect
+	github.com/pion/dtls/v2 v2.2.7 // indirect
+	github.com/pion/mdns v0.0.9 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
-	github.com/pion/turn/v2 v2.1.0 // indirect
-	github.com/pion/udp/v2 v2.0.1 // indirect
+	github.com/pion/turn/v3 v3.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.37.0 // indirect
