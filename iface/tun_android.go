@@ -15,33 +15,34 @@ import (
 	"github.com/netbirdio/netbird/iface/bind"
 )
 
-type tunDevice struct {
+// ignore the wgTunDevice interface on Android because the creation of the tun device is different on this platform
+type wgTunDevice struct {
 	address    WGAddress
 	mtu        int
-	tunAdapter TunAdapter
 	iceBind    *bind.ICEBind
+	tunAdapter TunAdapter
 
 	name    string
 	device  *device.Device
 	wrapper *DeviceWrapper
 }
 
-func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter, transportNet transport.Net) wgTunDevice {
-	return &tunDevice{
+func newTunDevice(address WGAddress, mtu int, transportNet transport.Net, tunAdapter TunAdapter) wgTunDevice {
+	return wgTunDevice{
 		address:    address,
 		mtu:        mtu,
-		tunAdapter: tunAdapter,
 		iceBind:    bind.NewICEBind(transportNet),
+		tunAdapter: tunAdapter,
 	}
 }
 
-func (t *tunDevice) Create(mIFaceArgs MobileIFaceArguments) (wgConfigurer, error) {
+func (t *wgTunDevice) Create(routes []string, dns string, searchDomains []string) (wgConfigurer, error) {
 	log.Info("create tun interface")
 
-	routesString := routesToString(mIFaceArgs.Routes)
-	searchDomainsToString := searchDomainsToString(mIFaceArgs.SearchDomains)
+	routesString := routesToString(routes)
+	searchDomainsToString := searchDomainsToString(searchDomains)
 
-	fd, err := t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, mIFaceArgs.Dns, searchDomainsToString, routesString)
+	fd, err := t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, dns, searchDomainsToString, routesString)
 	if err != nil {
 		log.Errorf("failed to create Android interface: %s", err)
 		return nil, err
@@ -74,35 +75,35 @@ func (t *tunDevice) Create(mIFaceArgs MobileIFaceArguments) (wgConfigurer, error
 	return configurer, nil
 }
 
-func (t *tunDevice) UpdateAddr(addr WGAddress) error {
+func (t *wgTunDevice) UpdateAddr(addr WGAddress) error {
 	// todo implement
 	return nil
 }
 
-func (t *tunDevice) Close() (err error) {
+func (t *wgTunDevice) Close() (err error) {
 	if t.device != nil {
 		t.device.Close()
 	}
 	return
 }
 
-func (t *tunDevice) Device() *device.Device {
+func (t *wgTunDevice) Device() *device.Device {
 	return t.device
 }
 
-func (t *tunDevice) DeviceName() string {
+func (t *wgTunDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *tunDevice) WgAddress() WGAddress {
+func (t *wgTunDevice) WgAddress() WGAddress {
 	return t.address
 }
 
-func (t *tunDevice) IceBind() *bind.ICEBind {
+func (t *wgTunDevice) IceBind() *bind.ICEBind {
 	return t.iceBind
 }
 
-func (t *tunDevice) Wrapper() *DeviceWrapper {
+func (t *wgTunDevice) Wrapper() *DeviceWrapper {
 	return t.wrapper
 }
 

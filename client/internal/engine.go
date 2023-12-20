@@ -190,7 +190,21 @@ func (e *Engine) Start() error {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 
-	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.TunAdapter, transportNet)
+	var mArgs *iface.MobileIFaceArguments
+	switch runtime.GOOS {
+	case "android":
+		mArgs = &iface.MobileIFaceArguments{
+			TunAdapter: e.mobileDep.TunAdapter,
+			TunFd:      int(e.mobileDep.FileDescriptor),
+		}
+	case "ios":
+		mArgs = &iface.MobileIFaceArguments{
+			TunFd: int(e.mobileDep.FileDescriptor),
+		}
+	default:
+	}
+
+	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, transportNet, mArgs)
 	if err != nil {
 		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIFaceName, err.Error())
 		return err
@@ -228,14 +242,10 @@ func (e *Engine) Start() error {
 
 	switch runtime.GOOS {
 	case "android":
-		err = e.wgInterface.CreateOnAndroid(iface.MobileIFaceArguments{
-			Routes:        e.routeManager.InitialRouteRange(),
-			Dns:           e.dnsServer.DnsIP(),
-			SearchDomains: e.dnsServer.SearchDomains(),
-		})
+		err = e.wgInterface.CreateOnAndroid(e.routeManager.InitialRouteRange(), e.dnsServer.DnsIP(), e.dnsServer.SearchDomains())
 	case "ios":
 		e.mobileDep.NetworkChangeListener.SetInterfaceIP(wgAddr)
-		err = e.wgInterface.CreateOniOS(e.mobileDep.FileDescriptor)
+		err = e.wgInterface.Create()
 	default:
 		err = e.wgInterface.Create()
 	}

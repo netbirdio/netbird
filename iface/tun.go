@@ -1,14 +1,12 @@
+//go:build !android
+// +build !android
+
 package iface
 
 import "github.com/netbirdio/netbird/iface/bind"
 
-type MobileIFaceArguments struct {
-	Routes        []string
-	Dns           string
-	SearchDomains []string
-}
-
 type wgTunDevice interface {
+	Create() (wgConfigurer, error)
 	UpdateAddr(address WGAddress) error
 	WgAddress() WGAddress
 	DeviceName() string

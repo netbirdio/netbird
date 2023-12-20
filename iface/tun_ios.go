@@ -19,23 +19,25 @@ type tunDevice struct {
 	name    string
 	address WGAddress
 	iceBind *bind.ICEBind
+	tunFd   int
 
 	device  *device.Device
 	wrapper *DeviceWrapper
 }
 
-func newTunDevice(name string, address WGAddress, transportNet transport.Net) wgTunDevice {
+func newTunDevice(name string, address WGAddress, transportNet transport.Net, tunFd int) *tunDevice {
 	return &tunDevice{
 		name:    name,
 		address: address,
 		iceBind: bind.NewICEBind(transportNet),
+		tunFd:   tunFd,
 	}
 }
 
-func (t *tunDevice) Create(tunFd int32) (wgConfigurer, error) {
+func (t *tunDevice) Create() (wgConfigurer, error) {
 	log.Infof("create tun interface")
 
-	dupTunFd, err := unix.Dup(int(tunFd))
+	dupTunFd, err := unix.Dup(t.tunFd)
 	if err != nil {
 		log.Errorf("Unable to dup tun fd: %v", err)
 		return nil, err
