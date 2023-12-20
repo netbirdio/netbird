@@ -404,7 +404,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun43%d", n), "100.65.65.2/24", iface.DefaultMTU, nil, newNet)
+			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun43%d", n), "100.65.65.2/24", iface.DefaultMTU, newNet, nil)
 			require.NoError(t, err, "should create testing WGIface interface")
 			defer wgInterface.Close()
 
