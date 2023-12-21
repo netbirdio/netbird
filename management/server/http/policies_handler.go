@@ -9,6 +9,7 @@ import (
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/checks"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -117,13 +118,8 @@ func (h *Policies) savePolicy(
 		return
 	}
 
-	if req.Name == "" {
-		util.WriteError(status.Errorf(status.InvalidArgument, "policy name shouldn't be empty"), w)
-		return
-	}
-
-	if len(req.Rules) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "policy rules shouldn't be empty"), w)
+	if err := validatePolicyUpdateReq(req); err != nil {
+		util.WriteError(err, w)
 		return
 	}
 
@@ -204,6 +200,35 @@ func (h *Policies) savePolicy(
 		}
 
 		policy.Rules = append(policy.Rules, &pr)
+	}
+
+	if req.PostureCheck != nil {
+		var (
+			osVersionPostureCheck checks.OSVersionPostureCheck
+			nbVersionPostureCheck checks.NBVersionPostureCheck
+		)
+
+		osVersionPostureCheckReq := req.PostureCheck.OsVersionPostureCheck
+		if enabled := osVersionPostureCheckReq.Enabled; enabled != nil {
+			osVersionPostureCheck.Enabled = *enabled
+		}
+		if minAllowedVersionReq := osVersionPostureCheckReq.MinimumVersionAllowed; minAllowedVersionReq != nil {
+			osVersionPostureCheck.MinimumVersionAllowed = *minAllowedVersionReq
+		}
+
+		nbVersionPostureCheckReq := req.PostureCheck.NbVersionPostureCheck
+		if enabled := nbVersionPostureCheckReq.Enabled; enabled != nil {
+			nbVersionPostureCheck.Enabled = *enabled
+		}
+		if minAllowedVersionReq := nbVersionPostureCheckReq.MinimumVersionAllowed; minAllowedVersionReq != nil {
+			nbVersionPostureCheck.MinimumVersionAllowed = *minAllowedVersionReq
+		}
+
+		policy.PostureCheck = checks.PostureCheck{
+			ID:             policyID,
+			NBVersionCheck: nbVersionPostureCheck,
+			OSVersionCheck: osVersionPostureCheck,
+		}
 	}
 
 	if err := h.accountManager.SavePolicy(account.Id, user.Id, &policy); err != nil {
@@ -364,4 +389,32 @@ func groupMinimumsToStrings(account *server.Account, gm []string) []string {
 		result = append(result, g)
 	}
 	return result
+}
+
+func validatePolicyUpdateReq(req api.PutApiPoliciesPolicyIdJSONRequestBody) error {
+	if req.Name == "" {
+		return status.Errorf(status.InvalidArgument, "policy name shouldn't be empty")
+	}
+
+	if len(req.Rules) == 0 {
+		return status.Errorf(status.InvalidArgument, "policy rules shouldn't be empty")
+	}
+
+	if req.PostureCheck == nil {
+		return status.Errorf(status.InvalidArgument, "policy posture checks shouldn't be empty")
+	}
+
+	if enabled := req.PostureCheck.NbVersionPostureCheck.Enabled; enabled != nil && *enabled {
+		if minVersion := req.PostureCheck.NbVersionPostureCheck.MinimumVersionAllowed; minVersion == nil || *minVersion == "" {
+			return status.Errorf(status.InvalidArgument, "netbird version posture check is enabled, minimum version allowed shouldn't be empty")
+		}
+	}
+
+	if enabled := req.PostureCheck.OsVersionPostureCheck.Enabled; enabled != nil && *enabled {
+		if minVersion := req.PostureCheck.OsVersionPostureCheck.MinimumVersionAllowed; minVersion == nil || *minVersion == "" {
+			return status.Errorf(status.InvalidArgument, "os version posture check is enabled, minimum version allowed shouldn't be empty")
+		}
+	}
+
+	return nil
 }

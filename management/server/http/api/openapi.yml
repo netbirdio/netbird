@@ -784,8 +784,11 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/PolicyRuleUpdate'
+            postureCheck:
+              $ref: '#/components/schemas/PostureCheck'
           required:
             - rules
+            - PostureCheck
     Policy:
       allOf:
         - $ref: '#/components/schemas/PolicyMinimum'
@@ -796,11 +799,11 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/PolicyRule'
-            PostureCheck:
+            postureCheck:
               $ref: '#/components/schemas/PostureCheck'
           required:
             - rules
-            - PostureCheck
+            - postureCheck
     RouteRequest:
       type: object
       properties:

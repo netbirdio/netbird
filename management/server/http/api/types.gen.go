@@ -567,9 +567,6 @@ type PersonalAccessTokenRequest struct {
 
 // Policy defines model for Policy.
 type Policy struct {
-	// PostureCheck Policy poster check
-	PostureCheck PostureCheck `json:"PostureCheck"`
-
 	// Description Policy friendly description
 	Description string `json:"description"`
 
@@ -581,6 +578,9 @@ type Policy struct {
 
 	// Name Policy name identifier
 	Name string `json:"name"`
+
+	// PostureCheck Policy poster check
+	PostureCheck PostureCheck `json:"postureCheck"`
 
 	// Query Policy Rego query
 	Query string `json:"query"`
@@ -731,6 +731,9 @@ type PolicyUpdate struct {
 
 	// Name Policy name identifier
 	Name string `json:"name"`
+
+	// PostureCheck Policy poster check
+	PostureCheck *PostureCheck `json:"postureCheck,omitempty"`
 
 	// Query Policy Rego query
 	Query string `json:"query"`
