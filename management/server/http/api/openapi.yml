@@ -796,8 +796,11 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/PolicyRule'
+            PostureCheck:
+              $ref: '#/components/schemas/PostureCheck'
           required:
             - rules
+            - PostureCheck
     RouteRequest:
       type: object
       properties:
@@ -1034,6 +1037,35 @@ components:
         - initiator_email
         - target_id
         - meta
+    PostureCheck:
+      description: Policy poster check
+      type: object
+      properties:
+        osVersionPostureCheck:
+          $ref: '#/components/schemas/OSVersionPostureCheck'
+        nbVersionPostureCheck:
+          $ref: '#/components/schemas/NBVersionPostureCheck'
+      required:
+        - osVersionPostureCheck
+        - nbVersionPostureCheck
+    NBVersionPostureCheck:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          example: false
+        minimumVersionAllowed:
+          type: string
+          example: "1.2.3"
+    OSVersionPostureCheck:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          example: false
+        minimumVersionAllowed:
+          type: string
+          example: "1.2.3"
   responses:
     not_found:
       description: Resource not found

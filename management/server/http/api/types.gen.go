@@ -257,6 +257,12 @@ type GroupRequest struct {
 	Peers *[]string `json:"peers,omitempty"`
 }
 
+// NBVersionPostureCheck defines model for NBVersionPostureCheck.
+type NBVersionPostureCheck struct {
+	Enabled               *bool   `json:"enabled,omitempty"`
+	MinimumVersionAllowed *string `json:"minimumVersionAllowed,omitempty"`
+}
+
 // Nameserver defines model for Nameserver.
 type Nameserver struct {
 	// Ip Nameserver IP
@@ -327,6 +333,12 @@ type NameserverGroupRequest struct {
 
 	// SearchDomainsEnabled Search domain status for match domains. It should be true only if domains list is not empty.
 	SearchDomainsEnabled bool `json:"search_domains_enabled"`
+}
+
+// OSVersionPostureCheck defines model for OSVersionPostureCheck.
+type OSVersionPostureCheck struct {
+	Enabled               *bool   `json:"enabled,omitempty"`
+	MinimumVersionAllowed *string `json:"minimumVersionAllowed,omitempty"`
 }
 
 // Peer defines model for Peer.
@@ -555,6 +567,9 @@ type PersonalAccessTokenRequest struct {
 
 // Policy defines model for Policy.
 type Policy struct {
+	// PostureCheck Policy poster check
+	PostureCheck PostureCheck `json:"PostureCheck"`
+
 	// Description Policy friendly description
 	Description string `json:"description"`
 
@@ -722,6 +737,12 @@ type PolicyUpdate struct {
 
 	// Rules Policy rule object for policy UI editor
 	Rules []PolicyRuleUpdate `json:"rules"`
+}
+
+// PostureCheck Policy poster check
+type PostureCheck struct {
+	NbVersionPostureCheck NBVersionPostureCheck `json:"nbVersionPostureCheck"`
+	OsVersionPostureCheck OSVersionPostureCheck `json:"osVersionPostureCheck"`
 }
 
 // Route defines model for Route.
