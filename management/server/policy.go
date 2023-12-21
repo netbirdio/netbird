@@ -10,6 +10,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/checks"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 )
@@ -150,6 +151,9 @@ type Policy struct {
 
 	// Rules of the policy
 	Rules []*PolicyRule `gorm:"foreignKey:PolicyID;references:id"`
+
+	// PostureCheck of the policy
+	PostureCheck checks.PostureCheck `gorm:"foreignKey:PolicyID;references:id"`
 }
 
 // Copy returns a copy of the policy.
