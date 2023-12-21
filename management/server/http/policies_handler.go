@@ -338,6 +338,20 @@ func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Polic
 		}
 		ap.Rules = append(ap.Rules, rule)
 	}
+
+	nbVersionCheck := policy.PostureCheck.NBVersionCheck
+	osVersionCheck := policy.PostureCheck.OSVersionCheck
+	ap.PostureCheck = api.PostureCheck{
+		NbVersionPostureCheck: api.NBVersionPostureCheck{
+			Enabled:               &nbVersionCheck.Enabled,
+			MinimumVersionAllowed: &nbVersionCheck.MinimumVersionAllowed,
+		},
+		OsVersionPostureCheck: api.OSVersionPostureCheck{
+			Enabled:               &osVersionCheck.Enabled,
+			MinimumVersionAllowed: &osVersionCheck.MinimumVersionAllowed,
+		},
+	}
+
 	return ap
 }
 
