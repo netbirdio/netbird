@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/pion/transport/v2/stdnet"
+	"github.com/pion/transport/v3/stdnet"
 
 	"github.com/stretchr/testify/require"
 

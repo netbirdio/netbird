@@ -6,7 +6,7 @@ package iface
 import (
 	"strings"
 
-	"github.com/pion/transport/v2"
+	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/device"

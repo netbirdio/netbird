@@ -6,8 +6,8 @@ package stdnet
 import (
 	"fmt"
 
-	"github.com/pion/transport/v2"
-	"github.com/pion/transport/v2/stdnet"
+	"github.com/pion/transport/v3"
+	"github.com/pion/transport/v3/stdnet"
 )
 
 // Net is an implementation of the net.Net interface

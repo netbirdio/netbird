@@ -6,8 +6,8 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/pion/stun"
-	"github.com/pion/transport/v2"
+	"github.com/pion/stun/v2"
+	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/ipv4"
 	wgConn "golang.zx2c4.com/wireguard/conn"
