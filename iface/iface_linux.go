@@ -7,6 +7,8 @@ import (
 	"fmt"
 
 	"github.com/pion/transport/v3"
+
+	"github.com/netbirdio/netbird/iface/netstack"
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
@@ -17,6 +19,13 @@ func NewWGIFace(iFaceName string, address string, mtu int, transportNet transpor
 	}
 
 	wgIFace := &WGIface{}
+
+	if netstack.IsEnabled() {
+		wgIFace.tun = newTunNetstackDevice(iFaceName, wgAddress, mtu, transportNet, netstack.ListenAddr())
+		wgIFace.userspaceBind = true
+		return wgIFace, nil
+	}
+
 	if WireGuardModuleIsLoaded() {
 		wgIFace.tun = newTunDevice(iFaceName, wgAddress, mtu)
 		wgIFace.userspaceBind = false
@@ -29,6 +38,7 @@ func NewWGIFace(iFaceName string, address string, mtu int, transportNet transpor
 	wgIFace.tun = newTunUSPDevice(iFaceName, wgAddress, mtu, transportNet)
 	wgIFace.userspaceBind = true
 	return wgIFace, nil
+
 }
 
 // CreateOnAndroid this function make sense on mobile only
