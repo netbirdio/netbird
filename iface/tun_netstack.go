@@ -1,5 +1,3 @@
-//go:build linux && !android
-
 package iface
 
 import (
@@ -34,7 +32,7 @@ func newTunNetstackDevice(name string, address WGAddress, mtu int, transportNet 
 }
 
 func (t *tunNetstackDevice) Create() (wgConfigurer, error) {
-	log.Info("create tun interface")
+	log.Info("create netstack tun interface")
 	t.nsTun = netstack.NewNetStackTun(t.listenAddress, t.address.IP.String(), t.mtu)
 	tunIface, err := t.nsTun.Create()
 	if err != nil {

@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/pion/transport/v2"
+
+	"github.com/netbirdio/netbird/iface/netstack"
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
@@ -13,10 +15,17 @@ func NewWGIFace(iFaceName string, address string, mtu int, transportNet transpor
 		return nil, err
 	}
 
-	wgIFace := &WGIface{
-		tun:           newTunDevice(iFaceName, wgAddress, mtu, transportNet),
-		userspaceBind: false,
+	wgIFace := &WGIface{}
+
+	if netstack.IsEnabled() {
+		wgIFace.tun = newTunNetstackDevice(iFaceName, wgAddress, mtu, transportNet, netstack.ListenAddr())
+		wgIFace.userspaceBind = true
+		return wgIFace, nil
 	}
+
+	wgIFace.tun = newTunDevice(iFaceName, wgAddress, mtu, transportNet)
+	wgIFace.userspaceBind = false
+
 	return wgIFace, nil
 }
 
