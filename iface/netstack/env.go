@@ -12,7 +12,7 @@ func IsEnabled() bool {
 }
 
 func ListenAddr() string {
-	sPort := os.Getenv("NB_SOCK5_LISTENER_PORT")
+	sPort := os.Getenv("NB_SOCKS5_LISTENER_PORT")
 	port, err := strconv.Atoi(sPort)
 	if err != nil {
 		return DEFAULT_SOCKS5_ADDR
