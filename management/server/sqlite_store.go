@@ -15,6 +15,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/checks"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -63,7 +64,7 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 	err = db.AutoMigrate(
 		&SetupKey{}, &nbpeer.Peer{}, &User{}, &PersonalAccessToken{}, &Group{}, &Rule{},
 		&Account{}, &Policy{}, &PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
-		&installation{}, &account.ExtraSettings{},
+		&installation{}, &account.ExtraSettings{}, &checks.PostureCheck{},
 	)
 	if err != nil {
 		return nil, err

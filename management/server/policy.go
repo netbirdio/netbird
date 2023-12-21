@@ -159,11 +159,12 @@ type Policy struct {
 // Copy returns a copy of the policy.
 func (p *Policy) Copy() *Policy {
 	c := &Policy{
-		ID:          p.ID,
-		Name:        p.Name,
-		Description: p.Description,
-		Enabled:     p.Enabled,
-		Rules:       make([]*PolicyRule, len(p.Rules)),
+		ID:           p.ID,
+		Name:         p.Name,
+		Description:  p.Description,
+		Enabled:      p.Enabled,
+		Rules:        make([]*PolicyRule, len(p.Rules)),
+		PostureCheck: p.PostureCheck,
 	}
 	for i, r := range p.Rules {
 		c.Rules[i] = r.Copy()
