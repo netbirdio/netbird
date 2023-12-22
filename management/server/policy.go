@@ -219,6 +219,21 @@ func (a *Account) getPeerConnectionResources(peerID string) ([]*nbpeer.Peer, []*
 			continue
 		}
 
+		// TODO: implement posture checks executions based on policy
+
+		peer, ok := a.Peers[peerID]
+		if !ok && peer == nil {
+			continue
+		}
+
+		if policy.PostureCheck.OSVersionCheck.Enabled {
+			err := policy.PostureCheck.OSVersionCheck.Check(*peer)
+			if err != nil {
+				log.Debugf(err.Error())
+				continue
+			}
+		}
+
 		for _, rule := range policy.Rules {
 			if !rule.Enabled {
 				continue
