@@ -329,9 +329,9 @@ func TestUpdateDNSServer(t *testing.T) {
 
 func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 	ov := os.Getenv("NB_WG_KERNEL_DISABLED")
-	defer os.Setenv("NB_WG_KERNEL_DISABLED", ov)
+	defer t.Setenv("NB_WG_KERNEL_DISABLED", ov)
 
-	_ = os.Setenv("NB_WG_KERNEL_DISABLED", "true")
+	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
 	newNet, err := stdnet.NewNet(nil)
 	if err != nil {
 		t.Errorf("create stdnet: %v", err)
@@ -346,7 +346,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 
 	err = wgIface.Create()
 	if err != nil {
-		t.Errorf("crate and init wireguard interface: %v", err)
+		t.Errorf("create and init wireguard interface: %v", err)
 		return
 	}
 	defer func() {
@@ -778,10 +778,11 @@ func TestDNSPermanent_matchOnly(t *testing.T) {
 }
 
 func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
+	t.Helper()
 	ov := os.Getenv("NB_WG_KERNEL_DISABLED")
-	defer os.Setenv("NB_WG_KERNEL_DISABLED", ov)
+	defer t.Setenv("NB_WG_KERNEL_DISABLED", ov)
 
-	_ = os.Setenv("NB_WG_KERNEL_DISABLED", "true")
+	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
 	newNet, err := stdnet.NewNet(nil)
 	if err != nil {
 		t.Fatalf("create stdnet: %v", err)
@@ -796,7 +797,7 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 
 	err = wgIface.Create()
 	if err != nil {
-		t.Fatalf("crate and init wireguard interface: %v", err)
+		t.Fatalf("create and init wireguard interface: %v", err)
 		return nil, err
 	}
 

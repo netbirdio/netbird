@@ -6,49 +6,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netbirdio/management-integrations/additions"
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/proto"
 )
-
-// PeerSystemMeta is a metadata of a Peer machine system
-type PeerSystemMeta struct {
-	Hostname      string
-	GoOS          string
-	Kernel        string
-	Core          string
-	Platform      string
-	OS            string
-	WtVersion     string
-	UIVersion     string
-	Ipv6Supported bool
-}
-
-func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
-	return p.Hostname == other.Hostname &&
-		p.GoOS == other.GoOS &&
-		p.Kernel == other.Kernel &&
-		p.Core == other.Core &&
-		p.Platform == other.Platform &&
-		p.OS == other.OS &&
-		p.WtVersion == other.WtVersion &&
-		p.UIVersion == other.UIVersion &&
-		p.Ipv6Supported == other.Ipv6Supported
-}
-
-type PeerStatus struct {
-	// LastSeen is the last time peer was connected to the management service
-	LastSeen time.Time
-	// Connected indicates whether peer is connected to the management service or not
-	Connected bool
-	// LoginExpired
-	LoginExpired bool
-}
 
 // PeerSync used as a data object between the gRPC API and AccountManager on Sync request.
 type PeerSync struct {
@@ -63,149 +31,16 @@ type PeerLogin struct {
 	// SSHKey is a peer's ssh key. Can be empty (e.g., old version do not provide it, or this feature is disabled)
 	SSHKey string
 	// Meta is the system information passed by peer, must be always present.
-	Meta PeerSystemMeta
+	Meta nbpeer.PeerSystemMeta
 	// UserID indicates that JWT was used to log in, and it was valid. Can be empty when SetupKey is used or auth is not required.
 	UserID string
 	// SetupKey references to a server.SetupKey to log in. Can be empty when UserID is used or auth is not required.
 	SetupKey string
 }
 
-// Peer represents a machine connected to the network.
-// The Peer is a WireGuard peer identified by a public key
-type Peer struct {
-	// ID is an internal ID of the peer
-	ID string `gorm:"primaryKey"`
-	// AccountID is a reference to Account that this object belongs
-	AccountID string `json:"-" gorm:"index;uniqueIndex:idx_peers_account_id_ip"`
-	// WireGuard public key
-	Key string `gorm:"index"`
-	// A setup key this peer was registered with
-	SetupKey string
-	// IP address of the Peer
-	IP net.IP `gorm:"uniqueIndex:idx_peers_account_id_ip"`
-	// IPv6 address of the Peer
-	IP6 *net.IP
-	// Meta is a Peer system meta data
-	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
-	// Name is peer's name (machine name)
-	Name string
-	// DNSLabel is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's
-	// domain to the peer label. e.g. peer-dns-label.netbird.cloud
-	DNSLabel string
-	// Status peer's management connection status
-	Status *PeerStatus `gorm:"embedded;embeddedPrefix:peer_status_"`
-	// The user ID that registered the peer
-	UserID string
-	// SSHKey is a public SSH key of the peer
-	SSHKey string
-	// SSHEnabled indicates whether SSH server is enabled on the peer
-	SSHEnabled bool
-	// LoginExpirationEnabled indicates whether peer's login expiration is enabled and once expired the peer has to re-login.
-	// Works with LastLogin
-	LoginExpirationEnabled bool
-	// LastLogin the time when peer performed last login operation
-	LastLogin time.Time
-	// Indicate ephemeral peer attribute
-	Ephemeral bool
-}
-
-// AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
-func (p *Peer) AddedWithSSOLogin() bool {
-	return p.UserID != ""
-}
-
-// Copy copies Peer object
-func (p *Peer) Copy() *Peer {
-	peerStatus := p.Status
-	if peerStatus != nil {
-		peerStatus = p.Status.Copy()
-	}
-	return &Peer{
-		ID:                     p.ID,
-		AccountID:              p.AccountID,
-		Key:                    p.Key,
-		SetupKey:               p.SetupKey,
-		IP:                     p.IP,
-		IP6:                    p.IP6,
-		Meta:                   p.Meta,
-		Name:                   p.Name,
-		DNSLabel:               p.DNSLabel,
-		Status:                 peerStatus,
-		UserID:                 p.UserID,
-		SSHKey:                 p.SSHKey,
-		SSHEnabled:             p.SSHEnabled,
-		LoginExpirationEnabled: p.LoginExpirationEnabled,
-		LastLogin:              p.LastLogin,
-		Ephemeral:              p.Ephemeral,
-	}
-}
-
-// UpdateMetaIfNew updates peer's system metadata if new information is provided
-// returns true if meta was updated, false otherwise
-func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) bool {
-	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
-	if meta.UIVersion == "" {
-		meta.UIVersion = p.Meta.UIVersion
-	}
-
-	if p.Meta.isEqual(meta) {
-		return false
-	}
-	p.Meta = meta
-	return true
-}
-
-// MarkLoginExpired marks peer's status expired or not
-func (p *Peer) MarkLoginExpired(expired bool) {
-	newStatus := p.Status.Copy()
-	newStatus.LoginExpired = expired
-	if expired {
-		newStatus.Connected = false
-	}
-	p.Status = newStatus
-}
-
-// LoginExpired indicates whether the peer's login has expired or not.
-// If Peer.LastLogin plus the expiresIn duration has happened already; then login has expired.
-// Return true if a login has expired, false otherwise, and time left to expiration (negative when expired).
-// Login expiration can be disabled/enabled on a Peer level via Peer.LoginExpirationEnabled property.
-// Login expiration can also be disabled/enabled globally on the Account level via Settings.PeerLoginExpirationEnabled.
-// Only peers added by interactive SSO login can be expired.
-func (p *Peer) LoginExpired(expiresIn time.Duration) (bool, time.Duration) {
-	if !p.AddedWithSSOLogin() || !p.LoginExpirationEnabled {
-		return false, 0
-	}
-	expiresAt := p.LastLogin.Add(expiresIn)
-	now := time.Now()
-	timeLeft := expiresAt.Sub(now)
-	return timeLeft <= 0, timeLeft
-}
-
-// FQDN returns peers FQDN combined of the peer's DNS label and the system's DNS domain
-func (p *Peer) FQDN(dnsDomain string) string {
-	if dnsDomain == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s.%s", p.DNSLabel, dnsDomain)
-}
-
-// EventMeta returns activity event meta related to the peer
-func (p *Peer) EventMeta(dnsDomain string) map[string]any {
-	return map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP}
-}
-
-// Copy PeerStatus
-func (p *PeerStatus) Copy() *PeerStatus {
-	return &PeerStatus{
-		LastSeen:     p.LastSeen,
-		Connected:    p.Connected,
-		LoginExpired: p.LoginExpired,
-	}
-}
-
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
 // the current user is not an admin.
-func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, error) {
+func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*nbpeer.Peer, error) {
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, err
@@ -216,10 +51,10 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 		return nil, err
 	}
 
-	peers := make([]*Peer, 0)
-	peersMap := make(map[string]*Peer)
+	peers := make([]*nbpeer.Peer, 0)
+	peersMap := make(map[string]*nbpeer.Peer)
 	for _, peer := range account.Peers {
-		if !user.IsAdmin() && user.Id != peer.UserID {
+		if !user.HasAdminPower() && user.Id != peer.UserID {
 			// only display peers that belong to the current user if the current user is not an admin
 			continue
 		}
@@ -236,7 +71,7 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 		}
 	}
 
-	peers = make([]*Peer, 0, len(peersMap))
+	peers = make([]*nbpeer.Peer, 0, len(peersMap))
 	for _, peer := range peersMap {
 		peers = append(peers, peer)
 	}
@@ -294,8 +129,8 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 	return nil
 }
 
-// UpdatePeer updates peer. Only Peer.Name, Peer.SSHEnabled and Peer.LoginExpirationEnabled can be updated.
-func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Peer, enableV6 bool) (*Peer, error) {
+// UpdatePeer updates peer. Only Peer.Name, Peer.SSHEnabled, and Peer.LoginExpirationEnabled can be updated.
+func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *nbpeer.Peer, enableV6 bool) (*nbpeer.Peer, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -307,6 +142,11 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 	peer := account.GetPeer(update.ID)
 	if peer == nil {
 		return nil, status.Errorf(status.NotFound, "peer %s not found", update.ID)
+	}
+
+	update, err = additions.ValidatePeersUpdateRequest(update, peer, userID, accountID, am.eventStore, am.GetDNSDomain())
+	if err != nil {
+		return nil, err
 	}
 
 	if enableV6 && peer.IP6 == nil {
@@ -321,9 +161,9 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 			return nil, err
 		}
 		peer.IP6 = &v6tmp
-		am.storeEvent(userID, peer.IP6.String(), accountID, activity.PeerIPv6Enabled, peer.EventMeta(am.GetDNSDomain()))
+		am.StoreEvent(userID, peer.IP6.String(), accountID, activity.PeerIPv6Enabled, peer.EventMeta(am.GetDNSDomain()))
 	} else if !enableV6 && peer.IP6 != nil {
-		am.storeEvent(userID, peer.IP6.String(), accountID, activity.PeerIPv6Disabled, peer.EventMeta(am.GetDNSDomain()))
+		am.StoreEvent(userID, peer.IP6.String(), accountID, activity.PeerIPv6Disabled, peer.EventMeta(am.GetDNSDomain()))
 		peer.IP6 = nil
 	}
 
@@ -333,7 +173,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 		if !update.SSHEnabled {
 			event = activity.PeerSSHDisabled
 		}
-		am.storeEvent(userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
+		am.StoreEvent(userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
 	}
 
 	if peer.Name != update.Name {
@@ -348,7 +188,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 
 		peer.DNSLabel = newLabel
 
-		am.storeEvent(userID, peer.ID, accountID, activity.PeerRenamed, peer.EventMeta(am.GetDNSDomain()))
+		am.StoreEvent(userID, peer.ID, accountID, activity.PeerRenamed, peer.EventMeta(am.GetDNSDomain()))
 	}
 
 	if peer.LoginExpirationEnabled != update.LoginExpirationEnabled {
@@ -363,7 +203,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 		if !update.LoginExpirationEnabled {
 			event = activity.PeerLoginExpirationDisabled
 		}
-		am.storeEvent(userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
+		am.StoreEvent(userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
 
 		if peer.AddedWithSSOLogin() && peer.LoginExpirationEnabled && account.Settings.PeerLoginExpirationEnabled {
 			am.checkAndSchedulePeerLoginExpiration(account)
@@ -387,7 +227,7 @@ func (am *DefaultAccountManager) deletePeers(account *Account, peerIDs []string,
 
 	// the first loop is needed to ensure all peers present under the account before modifying, otherwise
 	// we might have some inconsistencies
-	peers := make([]*Peer, 0, len(peerIDs))
+	peers := make([]*nbpeer.Peer, 0, len(peerIDs))
 	for _, peerID := range peerIDs {
 
 		peer := account.GetPeer(peerID)
@@ -417,7 +257,7 @@ func (am *DefaultAccountManager) deletePeers(account *Account, peerIDs []string,
 				},
 			})
 		am.peersUpdateManager.CloseChannel(peer.ID)
-		am.storeEvent(userID, peer.ID, account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
+		am.StoreEvent(userID, peer.ID, account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
 	}
 
 	return nil
@@ -479,7 +319,7 @@ func (am *DefaultAccountManager) GetPeerNetwork(peerID string) (*Network, error)
 // to it. We also add the User ID to the peer metadata to identify registrant. If no userID provided, then fail with status.PermissionDenied
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
-func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*Peer, *NetworkMap, error) {
+func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, *NetworkMap, error) {
 	if setupKey == "" && userID == "" {
 		// no auth method provided => reject access
 		return nil, nil, status.Errorf(status.Unauthenticated, "no peer auth method provided, please use a setup key or interactive SSO login")
@@ -508,6 +348,15 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		return nil, nil, err
 	}
 
+	if strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad" && userID != "" {
+		if am.idpManager != nil {
+			userdata, err := am.lookupUserInCache(userID, account)
+			if err == nil {
+				peer.Meta.Hostname = fmt.Sprintf("%s-%s", peer.Meta.Hostname, strings.Split(userdata.Email, "@")[0])
+			}
+		}
+	}
+
 	// This is a handling for the case when the same machine (with the same WireGuard pub key) tries to register twice.
 	// Such case is possible when AddPeer function takes long time to finish after AcquireAccountLock (e.g., database is slow)
 	// and the peer disconnects with a timeout and tries to register again.
@@ -524,6 +373,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	}
 
 	var ephemeral bool
+	setupKeyName := ""
 	if !addedByUser {
 		// validate the setup key if adding with a key
 		sk, err := account.FindSetupKey(upperKey)
@@ -539,6 +389,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		opEvent.InitiatorID = sk.Id
 		opEvent.Activity = activity.PeerAddedWithSetupKey
 		ephemeral = sk.Ephemeral
+		setupKeyName = sk.Name
 	} else {
 		opEvent.InitiatorID = userID
 		opEvent.Activity = activity.PeerAddedByUser
@@ -571,7 +422,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		nextIp6 = &nextIp6tmp
 	}
 
-	newPeer := &Peer{
+	newPeer := &nbpeer.Peer{
 		ID:                     xid.New().String(),
 		Key:                    peer.Key,
 		SetupKey:               upperKey,
@@ -581,12 +432,16 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		Name:                   peer.Meta.Hostname,
 		DNSLabel:               newLabel,
 		UserID:                 userID,
-		Status:                 &PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
+		Status:                 &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
 		SSHEnabled:             false,
 		SSHKey:                 peer.SSHKey,
 		LastLogin:              time.Now().UTC(),
 		LoginExpirationEnabled: addedByUser,
 		Ephemeral:              ephemeral,
+	}
+
+	if account.Settings.Extra != nil {
+		newPeer = additions.PreparePeer(newPeer, account.Settings.Extra)
 	}
 
 	// add peer to 'All' group
@@ -626,7 +481,11 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 
 	opEvent.TargetID = newPeer.ID
 	opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain())
-	am.storeEvent(opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
+	if !addedByUser {
+		opEvent.Meta["setup_key_name"] = setupKeyName
+	}
+
+	am.StoreEvent(opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
 	am.updateAccountPeers(account)
 
@@ -635,7 +494,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 }
 
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
-func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error) {
+func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *NetworkMap, error) {
 	account, err := am.Store.GetAccountByPeerPubKey(sync.WireGuardPubKey)
 	if err != nil {
 		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
@@ -672,13 +531,14 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*Peer, *NetworkMap, er
 
 // LoginPeer logs in or registers a peer.
 // If peer doesn't exist the function checks whether a setup key or a user is present and registers a new peer if so.
-func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap, error) {
+func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *NetworkMap, error) {
 	account, err := am.Store.GetAccountByPeerPubKey(login.WireGuardPubKey)
+
 	if err != nil {
 		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
 			// we couldn't find this peer by its public key which can mean that peer hasn't been registered yet.
 			// Try registering it.
-			return am.AddPeer(login.SetupKey, login.UserID, &Peer{
+			return am.AddPeer(login.SetupKey, login.UserID, &nbpeer.Peer{
 				Key:    login.WireGuardPubKey,
 				Meta:   login.Meta,
 				SSHKey: login.SSHKey,
@@ -722,7 +582,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		updateRemotePeers = true
 		shouldStoreAccount = true
 
-		am.storeEvent(login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
+		am.StoreEvent(login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
 	}
 
 	peer, updated := updatePeerMeta(peer, login.Meta, account)
@@ -753,7 +613,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
 }
 
-func disableNoLongerSupportedFeatures(peer *Peer) bool {
+func disableNoLongerSupportedFeatures(peer *nbpeer.Peer) bool {
 	if !peer.Meta.Ipv6Supported && peer.IP6 != nil {
 		peer.IP6 = nil
 		return true
@@ -761,7 +621,7 @@ func disableNoLongerSupportedFeatures(peer *Peer) bool {
 	return false
 }
 
-func checkIfPeerOwnerIsBlocked(peer *Peer, account *Account) error {
+func checkIfPeerOwnerIsBlocked(peer *nbpeer.Peer, account *Account) error {
 	if peer.AddedWithSSOLogin() {
 		user, err := account.FindUser(peer.UserID)
 		if err != nil {
@@ -774,7 +634,7 @@ func checkIfPeerOwnerIsBlocked(peer *Peer, account *Account) error {
 	return nil
 }
 
-func checkAuth(loginUserID string, peer *Peer) error {
+func checkAuth(loginUserID string, peer *nbpeer.Peer) error {
 	if loginUserID == "" {
 		// absence of a user ID indicates that JWT wasn't provided.
 		return status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
@@ -786,7 +646,7 @@ func checkAuth(loginUserID string, peer *Peer) error {
 	return nil
 }
 
-func peerLoginExpired(peer *Peer, account *Account) bool {
+func peerLoginExpired(peer *nbpeer.Peer, account *Account) bool {
 	expired, expiresIn := peer.LoginExpired(account.Settings.PeerLoginExpiration)
 	expired = account.Settings.PeerLoginExpirationEnabled && expired
 	if expired || peer.Status.LoginExpired {
@@ -796,21 +656,12 @@ func peerLoginExpired(peer *Peer, account *Account) bool {
 	return false
 }
 
-func updatePeerLastLogin(peer *Peer, account *Account) {
+func updatePeerLastLogin(peer *nbpeer.Peer, account *Account) {
 	peer.UpdateLastLogin()
 	account.UpdatePeer(peer)
 }
 
-// UpdateLastLogin and set login expired false
-func (p *Peer) UpdateLastLogin() *Peer {
-	p.LastLogin = time.Now().UTC()
-	newStatus := p.Status.Copy()
-	newStatus.LoginExpired = false
-	p.Status = newStatus
-	return p
-}
-
-func (am *DefaultAccountManager) checkAndUpdatePeerSSHKey(peer *Peer, account *Account, newSSHKey string) (*Peer, error) {
+func (am *DefaultAccountManager) checkAndUpdatePeerSSHKey(peer *nbpeer.Peer, account *Account, newSSHKey string) (*nbpeer.Peer, error) {
 	if len(newSSHKey) == 0 {
 		log.Debugf("no new SSH key provided for peer %s, skipping update", peer.ID)
 		return peer, nil
@@ -881,7 +732,7 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerID string, sshKey string) 
 }
 
 // GetPeer for a given accountID, peerID and userID error if not found.
-func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*Peer, error) {
+func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*nbpeer.Peer, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -901,7 +752,7 @@ func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*Pee
 	}
 
 	// if admin or user owns this peer, return peer
-	if user.IsAdmin() || peer.UserID == userID {
+	if user.HasAdminPower() || peer.UserID == userID {
 		return peer, nil
 	}
 
@@ -924,7 +775,7 @@ func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*Pee
 	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peerID, accountID)
 }
 
-func updatePeerMeta(peer *Peer, meta PeerSystemMeta, account *Account) (*Peer, bool) {
+func updatePeerMeta(peer *nbpeer.Peer, meta nbpeer.PeerSystemMeta, account *Account) (*nbpeer.Peer, bool) {
 	if peer.UpdateMetaIfNew(meta) {
 		account.UpdatePeer(peer)
 		return peer, true

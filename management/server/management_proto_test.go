@@ -400,6 +400,7 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 }
 
 func startManagement(t *testing.T, config *Config) (*grpc.Server, string, error) {
+	t.Helper()
 	lis, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
 		return nil, "", err
@@ -409,7 +410,7 @@ func startManagement(t *testing.T, config *Config) (*grpc.Server, string, error)
 	if err != nil {
 		return nil, "", err
 	}
-	peersUpdateManager := NewPeersUpdateManager()
+	peersUpdateManager := NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 	accountManager, err := BuildManager(store, peersUpdateManager, nil, "", "",
 		eventStore, false)

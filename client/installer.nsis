@@ -166,10 +166,9 @@ WriteRegStr ${REG_ROOT} "${UI_REG_APP_PATH}" "" "$INSTDIR\${UI_APP_EXE}"
 EnVar::SetHKLM
 EnVar::AddValueEx "path" "$INSTDIR"
 
-SetShellVarContext current
+SetShellVarContext all
 CreateShortCut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
 CreateShortCut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
-SetShellVarContext all
 SectionEnd
 
 Section -Post
@@ -196,10 +195,9 @@ Delete "$INSTDIR\${MAIN_APP_EXE}"
 Delete "$INSTDIR\wintun.dll"
 RmDir /r "$INSTDIR"
 
-SetShellVarContext current
+SetShellVarContext all
 Delete "$DESKTOP\${APP_NAME}.lnk"
 Delete "$SMPROGRAMS\${APP_NAME}.lnk"
-SetShellVarContext all
 
 DeleteRegKey ${REG_ROOT} "${REG_APP_PATH}"
 DeleteRegKey ${REG_ROOT} "${UNINSTALL_PATH}"
@@ -209,8 +207,7 @@ SectionEnd
 
 
 Function LaunchLink
-SetShellVarContext current
+SetShellVarContext all
    SetOutPath $INSTDIR
    ShellExecAsUser::ShellExecAsUser "" "$DESKTOP\${APP_NAME}.lnk"
-SetShellVarContext all
 FunctionEnd

@@ -99,7 +99,8 @@ func (c *tunDevice) assignAddr() error {
 	}
 	if len(list) > 0 {
 		for _, a := range list {
-			err = netlink.AddrDel(link, &a)
+			addr := a
+			err = netlink.AddrDel(link, &addr)
 			if err != nil {
 				return err
 			}

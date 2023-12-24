@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
 type MockStore struct {
@@ -124,7 +126,7 @@ func seedPeers(store *MockStore, numberOfPeers int, numberOfEphemeralPeers int) 
 
 	for i := 0; i < numberOfPeers; i++ {
 		peerId := fmt.Sprintf("peer_%d", i)
-		p := &Peer{
+		p := &nbpeer.Peer{
 			ID:        peerId,
 			Ephemeral: false,
 		}
@@ -133,7 +135,7 @@ func seedPeers(store *MockStore, numberOfPeers int, numberOfEphemeralPeers int) 
 
 	for i := 0; i < numberOfEphemeralPeers; i++ {
 		peerId := fmt.Sprintf("ephemeral_peer_%d", i)
-		p := &Peer{
+		p := &nbpeer.Peer{
 			ID:        peerId,
 			Ephemeral: true,
 		}

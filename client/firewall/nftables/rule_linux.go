@@ -1,6 +1,8 @@
 package nftables
 
 import (
+	"net"
+
 	"github.com/google/nftables"
 )
 
@@ -8,9 +10,8 @@ import (
 type Rule struct {
 	nftRule *nftables.Rule
 	nftSet  *nftables.Set
-
-	ruleID string
-	ip     []byte
+	ruleID  string
+	ip      net.IP
 }
 
 // GetRuleID returns the rule id

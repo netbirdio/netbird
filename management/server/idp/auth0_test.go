@@ -65,6 +65,7 @@ func (mc *mockAuth0Credentials) Authenticate() (JWTToken, error) {
 }
 
 func newTestJWT(t *testing.T, expInt int) string {
+	t.Helper()
 	now := time.Now()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"iat": now.Unix(),

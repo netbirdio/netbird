@@ -83,7 +83,10 @@ var (
 			if err != nil {
 				return fmt.Errorf("failed reading provided config file: %s: %v", mgmtConfig, err)
 			}
-			config.HttpConfig.IdpSignKeyRefreshEnabled = idpSignKeyRefreshEnabled
+
+			if cmd.Flag(idpSignKeyRefreshEnabledFlagName).Changed {
+				config.HttpConfig.IdpSignKeyRefreshEnabled = idpSignKeyRefreshEnabled
+			}
 
 			tlsEnabled := false
 			if mgmtLetsencryptDomain != "" || (config.HttpConfig.CertFile != "" && config.HttpConfig.CertKey != "") {
@@ -130,7 +133,7 @@ var (
 			if err != nil {
 				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
 			}
-			peersUpdateManager := server.NewPeersUpdateManager()
+			peersUpdateManager := server.NewPeersUpdateManager(appMetrics)
 
 			var idpManager idp.Manager
 			if config.IdpManagerConfig != nil {

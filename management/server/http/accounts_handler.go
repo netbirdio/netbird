@@ -8,6 +8,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -40,7 +41,7 @@ func (h *AccountsHandler) GetAllAccounts(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if !user.IsAdmin() {
+	if !user.HasAdminPower() {
 		util.WriteError(status.Errorf(status.PermissionDenied, "the user has no permission to access account data"), w)
 		return
 	}
@@ -78,6 +79,10 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 		AssignIPv6ByDefault:        req.Settings.AssignIpv6ByDefault,
 	}
 
+	if req.Settings.Extra != nil {
+		settings.Extra = &account.ExtraSettings{PeerApprovalEnabled: *req.Settings.Extra.PeerApprovalEnabled}
+	}
+
 	if req.Settings.JwtGroupsEnabled != nil {
 		settings.JWTGroupsEnabled = *req.Settings.JwtGroupsEnabled
 	}
@@ -86,6 +91,9 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 	}
 	if req.Settings.JwtGroupsClaimName != nil {
 		settings.JWTGroupsClaimName = *req.Settings.JwtGroupsClaimName
+	}
+	if req.Settings.JwtAllowGroups != nil {
+		settings.JWTAllowGroups = *req.Settings.JwtAllowGroups
 	}
 
 	updatedAccount, err := h.accountManager.UpdateAccountSettings(accountID, user.Id, settings)
@@ -99,16 +107,52 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 	util.WriteJSONObject(w, &resp)
 }
 
+// DeleteAccount is a HTTP DELETE handler to delete an account
+func (h *AccountsHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
+	}
+
+	claims := h.claimsExtractor.FromRequestContext(r)
+	vars := mux.Vars(r)
+	targetAccountID := vars["accountId"]
+	if len(targetAccountID) == 0 {
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid account ID"), w)
+		return
+	}
+
+	err := h.accountManager.DeleteAccount(targetAccountID, claims.UserId)
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+
+	util.WriteJSONObject(w, emptyObject{})
+}
+
 func toAccountResponse(account *server.Account) *api.Account {
+	jwtAllowGroups := account.Settings.JWTAllowGroups
+	if jwtAllowGroups == nil {
+		jwtAllowGroups = []string{}
+	}
+
+	settings := api.AccountSettings{
+		PeerLoginExpiration:        int(account.Settings.PeerLoginExpiration.Seconds()),
+		PeerLoginExpirationEnabled: account.Settings.PeerLoginExpirationEnabled,
+		GroupsPropagationEnabled:   &account.Settings.GroupsPropagationEnabled,
+		JwtGroupsEnabled:           &account.Settings.JWTGroupsEnabled,
+		JwtGroupsClaimName:         &account.Settings.JWTGroupsClaimName,
+		JwtAllowGroups:             &jwtAllowGroups,
+		AssignIpv6ByDefault:        account.Settings.AssignIPv6ByDefault,
+	}
+
+	if account.Settings.Extra != nil {
+		settings.Extra = &api.AccountExtraSettings{PeerApprovalEnabled: &account.Settings.Extra.PeerApprovalEnabled}
+	}
+
 	return &api.Account{
-		Id: account.Id,
-		Settings: api.AccountSettings{
-			PeerLoginExpiration:        int(account.Settings.PeerLoginExpiration.Seconds()),
-			PeerLoginExpirationEnabled: account.Settings.PeerLoginExpirationEnabled,
-			GroupsPropagationEnabled:   &account.Settings.GroupsPropagationEnabled,
-			JwtGroupsEnabled:           &account.Settings.JWTGroupsEnabled,
-			JwtGroupsClaimName:         &account.Settings.JWTGroupsClaimName,
-			AssignIpv6ByDefault:        account.Settings.AssignIPv6ByDefault,
-		},
+		Id:       account.Id,
+		Settings: settings,
 	}
 }

@@ -1,4 +1,4 @@
-//go:build !windows && !linux
+//go:build !windows
 
 package uspfilter
 
@@ -10,10 +10,16 @@ func (m *Manager) Reset() error {
 	m.outgoingRules = make(map[string]RuleSet)
 	m.incomingRules = make(map[string]RuleSet)
 
+	if m.nativeFirewall != nil {
+		return m.nativeFirewall.Reset()
+	}
 	return nil
 }
 
 // AllowNetbird allows netbird interface traffic
 func (m *Manager) AllowNetbird() error {
+	if m.nativeFirewall != nil {
+		return m.nativeFirewall.AllowNetbird()
+	}
 	return nil
 }

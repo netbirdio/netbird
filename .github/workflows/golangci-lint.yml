@@ -10,6 +10,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  codespell:
+    name: codespell
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: codespell
+        uses: codespell-project/actions-codespell@v2
+        with:
+          ignore_words_list: erro,clienta
+          skip: go.mod,go.sum
+          only_warn: 1
   golangci:
     strategy:
       fail-fast: false

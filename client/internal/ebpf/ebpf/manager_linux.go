@@ -50,7 +50,7 @@ func GetEbpfManagerInstance() manager.Manager {
 }
 
 func (tf *GeneralManager) setFeatureFlag(feature uint16) {
-	tf.featureFlags = tf.featureFlags | feature
+	tf.featureFlags |= feature
 }
 
 func (tf *GeneralManager) loadXdp() error {

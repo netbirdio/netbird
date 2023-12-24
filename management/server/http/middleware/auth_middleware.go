@@ -26,13 +26,18 @@ type ValidateAndParseTokenFunc func(token string) (*jwt.Token, error)
 // MarkPATUsedFunc function
 type MarkPATUsedFunc func(token string) error
 
+// CheckUserAccessByJWTGroupsFunc function
+type CheckUserAccessByJWTGroupsFunc func(claims jwtclaims.AuthorizationClaims) error
+
 // AuthMiddleware middleware to verify personal access tokens (PAT) and JWT tokens
 type AuthMiddleware struct {
-	getAccountFromPAT     GetAccountFromPATFunc
-	validateAndParseToken ValidateAndParseTokenFunc
-	markPATUsed           MarkPATUsedFunc
-	audience              string
-	userIDClaim           string
+	getAccountFromPAT          GetAccountFromPATFunc
+	validateAndParseToken      ValidateAndParseTokenFunc
+	markPATUsed                MarkPATUsedFunc
+	checkUserAccessByJWTGroups CheckUserAccessByJWTGroupsFunc
+	claimsExtractor            *jwtclaims.ClaimsExtractor
+	audience                   string
+	userIDClaim                string
 }
 
 const (
@@ -40,16 +45,21 @@ const (
 )
 
 // NewAuthMiddleware instance constructor
-func NewAuthMiddleware(getAccountFromPAT GetAccountFromPATFunc, validateAndParseToken ValidateAndParseTokenFunc, markPATUsed MarkPATUsedFunc, audience string, userIdClaim string) *AuthMiddleware {
+func NewAuthMiddleware(getAccountFromPAT GetAccountFromPATFunc, validateAndParseToken ValidateAndParseTokenFunc,
+	markPATUsed MarkPATUsedFunc, checkUserAccessByJWTGroups CheckUserAccessByJWTGroupsFunc, claimsExtractor *jwtclaims.ClaimsExtractor,
+	audience string, userIdClaim string) *AuthMiddleware {
 	if userIdClaim == "" {
 		userIdClaim = jwtclaims.UserIDClaim
 	}
+
 	return &AuthMiddleware{
-		getAccountFromPAT:     getAccountFromPAT,
-		validateAndParseToken: validateAndParseToken,
-		markPATUsed:           markPATUsed,
-		audience:              audience,
-		userIDClaim:           userIdClaim,
+		getAccountFromPAT:          getAccountFromPAT,
+		validateAndParseToken:      validateAndParseToken,
+		markPATUsed:                markPATUsed,
+		checkUserAccessByJWTGroups: checkUserAccessByJWTGroups,
+		claimsExtractor:            claimsExtractor,
+		audience:                   audience,
+		userIDClaim:                userIdClaim,
 	}
 }
 
@@ -107,12 +117,24 @@ func (m *AuthMiddleware) checkJWTFromRequest(w http.ResponseWriter, r *http.Requ
 		return nil
 	}
 
+	if err := m.verifyUserAccess(validatedToken); err != nil {
+		return err
+	}
+
 	// If we get here, everything worked and we can set the
 	// user property in context.
 	newRequest := r.WithContext(context.WithValue(r.Context(), userProperty, validatedToken)) //nolint
 	// Update the current request with the new context information.
 	*r = *newRequest
 	return nil
+}
+
+// verifyUserAccess checks if a user, based on a validated JWT token,
+// is allowed access, particularly in cases where the admin enabled JWT
+// group propagation and designated certain groups with access permissions.
+func (m *AuthMiddleware) verifyUserAccess(validatedToken *jwt.Token) error {
+	authClaims := m.claimsExtractor.FromToken(validatedToken)
+	return m.checkUserAccessByJWTGroups(authClaims)
 }
 
 // CheckPATFromRequest checks if the PAT is valid

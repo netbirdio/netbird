@@ -220,6 +220,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 }
 
 func assertKeys(t *testing.T, got *api.SetupKey, expected *api.SetupKey) {
+	t.Helper()
 	// this comparison is done manually because when converting to JSON dates formatted differently
 	// assert.Equal(t, got.UpdatedAt, tc.expectedSetupKey.UpdatedAt) //doesn't work
 	assert.WithinDurationf(t, got.UpdatedAt, expected.UpdatedAt, 0, "")

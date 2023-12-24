@@ -117,11 +117,35 @@ const (
 	UserStatusInvited UserStatus = "invited"
 )
 
+// AccessiblePeer defines model for AccessiblePeer.
+type AccessiblePeer struct {
+	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
+	DnsLabel string `json:"dns_label"`
+
+	// Id Peer ID
+	Id string `json:"id"`
+
+	// Ip Peer's IP address
+	Ip string `json:"ip"`
+
+	// Name Peer's hostname
+	Name string `json:"name"`
+
+	// UserId User ID of the user that enrolled this peer
+	UserId string `json:"user_id"`
+}
+
 // Account defines model for Account.
 type Account struct {
 	// Id Account ID
 	Id       string          `json:"id"`
 	Settings AccountSettings `json:"settings"`
+}
+
+// AccountExtraSettings defines model for AccountExtraSettings.
+type AccountExtraSettings struct {
+	// PeerApprovalEnabled (Cloud only) Enables or disables peer approval globally. If enabled, all peers added will be in pending state until approved by an admin.
+	PeerApprovalEnabled *bool `json:"peer_approval_enabled,omitempty"`
 }
 
 // AccountRequest defines model for AccountRequest.
@@ -132,10 +156,14 @@ type AccountRequest struct {
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
 	// AssignIpv6ByDefault Whether to enable IPv6 for new hosts added to the system
-	AssignIpv6ByDefault bool `json:"assign_ipv6_by_default"`
+	AssignIpv6ByDefault bool                  `json:"assign_ipv6_by_default"`
+	Extra               *AccountExtraSettings `json:"extra,omitempty"`
 
 	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
 	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`
+
+	// JwtAllowGroups List of groups to which users are allowed access
+	JwtAllowGroups *[]string `json:"jwt_allow_groups,omitempty"`
 
 	// JwtGroupsClaimName Name of the claim from which we extract groups names to add it to account groups.
 	JwtGroupsClaimName *string `json:"jwt_groups_claim_name,omitempty"`
@@ -248,63 +276,198 @@ type NameserverNsType string
 
 // NameserverGroup defines model for NameserverGroup.
 type NameserverGroup struct {
-	// Description Nameserver group  description
+	// Description Description of the nameserver group
 	Description string `json:"description"`
 
-	// Domains Nameserver group match domain list
+	// Domains Match domain list. It should be empty only if primary is true.
 	Domains []string `json:"domains"`
 
 	// Enabled Nameserver group status
 	Enabled bool `json:"enabled"`
 
-	// Groups Nameserver group tag groups
+	// Groups Distribution group IDs that defines group of peers that will use this nameserver group
 	Groups []string `json:"groups"`
 
 	// Id Nameserver group ID
 	Id string `json:"id"`
 
-	// Name Nameserver group name
+	// Name Name of nameserver group name
 	Name string `json:"name"`
 
-	// Nameservers Nameserver group
+	// Nameservers Nameserver list
 	Nameservers []Nameserver `json:"nameservers"`
 
-	// Primary Nameserver group primary status
+	// Primary Defines if a nameserver group is primary that resolves all domains. It should be true only if domains list is empty.
 	Primary bool `json:"primary"`
 
-	// SearchDomainsEnabled Nameserver group search domain status for match domains. It should be true only if domains list is not empty.
+	// SearchDomainsEnabled Search domain status for match domains. It should be true only if domains list is not empty.
 	SearchDomainsEnabled bool `json:"search_domains_enabled"`
 }
 
 // NameserverGroupRequest defines model for NameserverGroupRequest.
 type NameserverGroupRequest struct {
-	// Description Nameserver group  description
+	// Description Description of the nameserver group
 	Description string `json:"description"`
 
-	// Domains Nameserver group match domain list
+	// Domains Match domain list. It should be empty only if primary is true.
 	Domains []string `json:"domains"`
 
 	// Enabled Nameserver group status
 	Enabled bool `json:"enabled"`
 
-	// Groups Nameserver group tag groups
+	// Groups Distribution group IDs that defines group of peers that will use this nameserver group
 	Groups []string `json:"groups"`
 
-	// Name Nameserver group name
+	// Name Name of nameserver group name
 	Name string `json:"name"`
 
-	// Nameservers Nameserver group
+	// Nameservers Nameserver list
 	Nameservers []Nameserver `json:"nameservers"`
 
-	// Primary Nameserver group primary status
+	// Primary Defines if a nameserver group is primary that resolves all domains. It should be true only if domains list is empty.
 	Primary bool `json:"primary"`
 
-	// SearchDomainsEnabled Nameserver group search domain status for match domains. It should be true only if domains list is not empty.
+	// SearchDomainsEnabled Search domain status for match domains. It should be true only if domains list is not empty.
 	SearchDomainsEnabled bool `json:"search_domains_enabled"`
 }
 
 // Peer defines model for Peer.
 type Peer struct {
+	// AccessiblePeers List of accessible peers
+	AccessiblePeers []AccessiblePeer `json:"accessible_peers"`
+
+	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
+	ApprovalRequired *bool `json:"approval_required,omitempty"`
+
+	// Connected Peer to Management connection status
+	Connected bool `json:"connected"`
+
+	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
+	DnsLabel string `json:"dns_label"`
+
+	// Groups Groups that the peer belongs to
+	Groups []GroupMinimum `json:"groups"`
+
+	// Hostname Hostname of the machine
+	Hostname string `json:"hostname"`
+
+	// Id Peer ID
+	Id string `json:"id"`
+
+	// Ip Peer's IP address
+	Ip string `json:"ip"`
+
+	// Ip6 Peer's IPv6 address
+	Ip6 *string `json:"ip6,omitempty"`
+
+	// Ipv6Enabled Whether IPv6 is enabled for this peer.
+	Ipv6Enabled bool `json:"ipv6_enabled"`
+
+	// Ipv6Supported Whether this peer supports IPv6
+	Ipv6Supported bool `json:"ipv6_supported"`
+
+	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
+	LastLogin time.Time `json:"last_login"`
+
+	// LastSeen Last time peer connected to Netbird's management service
+	LastSeen time.Time `json:"last_seen"`
+
+	// LoginExpirationEnabled Indicates whether peer login expiration has been enabled or not
+	LoginExpirationEnabled bool `json:"login_expiration_enabled"`
+
+	// LoginExpired Indicates whether peer's login expired or not
+	LoginExpired bool `json:"login_expired"`
+
+	// Name Peer's hostname
+	Name string `json:"name"`
+
+	// Os Peer's operating system and version
+	Os string `json:"os"`
+
+	// SshEnabled Indicates whether SSH server is enabled on this peer
+	SshEnabled bool `json:"ssh_enabled"`
+
+	// UiVersion Peer's desktop UI version
+	UiVersion *string `json:"ui_version,omitempty"`
+
+	// UserId User ID of the user that enrolled this peer
+	UserId *string `json:"user_id,omitempty"`
+
+	// Version Peer's daemon or cli version
+	Version string `json:"version"`
+}
+
+// PeerBase defines model for PeerBase.
+type PeerBase struct {
+	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
+	ApprovalRequired *bool `json:"approval_required,omitempty"`
+
+	// Connected Peer to Management connection status
+	Connected bool `json:"connected"`
+
+	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
+	DnsLabel string `json:"dns_label"`
+
+	// Groups Groups that the peer belongs to
+	Groups []GroupMinimum `json:"groups"`
+
+	// Hostname Hostname of the machine
+	Hostname string `json:"hostname"`
+
+	// Id Peer ID
+	Id string `json:"id"`
+
+	// Ip Peer's IP address
+	Ip string `json:"ip"`
+
+	// Ip6 Peer's IPv6 address
+	Ip6 *string `json:"ip6,omitempty"`
+
+	// Ipv6Enabled Whether IPv6 is enabled for this peer.
+	Ipv6Enabled bool `json:"ipv6_enabled"`
+
+	// Ipv6Supported Whether this peer supports IPv6
+	Ipv6Supported bool `json:"ipv6_supported"`
+
+	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
+	LastLogin time.Time `json:"last_login"`
+
+	// LastSeen Last time peer connected to Netbird's management service
+	LastSeen time.Time `json:"last_seen"`
+
+	// LoginExpirationEnabled Indicates whether peer login expiration has been enabled or not
+	LoginExpirationEnabled bool `json:"login_expiration_enabled"`
+
+	// LoginExpired Indicates whether peer's login expired or not
+	LoginExpired bool `json:"login_expired"`
+
+	// Name Peer's hostname
+	Name string `json:"name"`
+
+	// Os Peer's operating system and version
+	Os string `json:"os"`
+
+	// SshEnabled Indicates whether SSH server is enabled on this peer
+	SshEnabled bool `json:"ssh_enabled"`
+
+	// UiVersion Peer's desktop UI version
+	UiVersion *string `json:"ui_version,omitempty"`
+
+	// UserId User ID of the user that enrolled this peer
+	UserId *string `json:"user_id,omitempty"`
+
+	// Version Peer's daemon or cli version
+	Version string `json:"version"`
+}
+
+// PeerBatch defines model for PeerBatch.
+type PeerBatch struct {
+	// AccessiblePeersCount Number of accessible peers
+	AccessiblePeersCount int `json:"accessible_peers_count"`
+
+	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
+	ApprovalRequired *bool `json:"approval_required,omitempty"`
+
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
@@ -374,6 +537,8 @@ type PeerMinimum struct {
 
 // PeerRequest defines model for PeerRequest.
 type PeerRequest struct {
+	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
+	ApprovalRequired       *bool  `json:"approval_required,omitempty"`
 	Ipv6Enabled            bool   `json:"ipv6_enabled"`
 	LoginExpirationEnabled bool   `json:"login_expiration_enabled"`
 	Name                   string `json:"name"`
@@ -468,7 +633,7 @@ type PolicyRule struct {
 	// Description Policy rule friendly description
 	Description *string `json:"description,omitempty"`
 
-	// Destinations Policy rule destination groups
+	// Destinations Policy rule destination group IDs
 	Destinations []GroupMinimum `json:"destinations"`
 
 	// Enabled Policy rule status
@@ -486,7 +651,7 @@ type PolicyRule struct {
 	// Protocol Policy rule type of the traffic
 	Protocol PolicyRuleProtocol `json:"protocol"`
 
-	// Sources Policy rule source groups
+	// Sources Policy rule source group IDs
 	Sources []GroupMinimum `json:"sources"`
 }
 
@@ -540,7 +705,7 @@ type PolicyRuleUpdate struct {
 	// Description Policy rule friendly description
 	Description *string `json:"description,omitempty"`
 
-	// Destinations Policy rule destination groups
+	// Destinations Policy rule destination group IDs
 	Destinations []string `json:"destinations"`
 
 	// Enabled Policy rule status
@@ -558,7 +723,7 @@ type PolicyRuleUpdate struct {
 	// Protocol Policy rule type of the traffic
 	Protocol PolicyRuleUpdateProtocol `json:"protocol"`
 
-	// Sources Policy rule source groups
+	// Sources Policy rule source group IDs
 	Sources []string `json:"sources"`
 }
 
@@ -597,7 +762,7 @@ type Route struct {
 	// Enabled Route status
 	Enabled bool `json:"enabled"`
 
-	// Groups Route group tag groups
+	// Groups Group IDs containing routing peers
 	Groups []string `json:"groups"`
 
 	// Id Route Id
@@ -633,7 +798,7 @@ type RouteRequest struct {
 	// Enabled Route status
 	Enabled bool `json:"enabled"`
 
-	// Groups Route group tag groups
+	// Groups Group IDs containing routing peers
 	Groups []string `json:"groups"`
 
 	// Masquerade Indicate if peer should masquerade traffic to this route's prefix
@@ -660,7 +825,7 @@ type Rule struct {
 	// Description Rule friendly description
 	Description string `json:"description"`
 
-	// Destinations Rule destination groups
+	// Destinations Rule destination group IDs
 	Destinations []GroupMinimum `json:"destinations"`
 
 	// Disabled Rules status
@@ -675,7 +840,7 @@ type Rule struct {
 	// Name Rule name identifier
 	Name string `json:"name"`
 
-	// Sources Rule source groups
+	// Sources Rule source group IDs
 	Sources []GroupMinimum `json:"sources"`
 }
 
@@ -699,7 +864,7 @@ type RuleRequest struct {
 	// Description Rule friendly description
 	Description string `json:"description"`
 
-	// Destinations List of destination groups
+	// Destinations List of destination group IDs
 	Destinations *[]string `json:"destinations,omitempty"`
 
 	// Disabled Rules status
@@ -711,7 +876,7 @@ type RuleRequest struct {
 	// Name Rule name identifier
 	Name string `json:"name"`
 
-	// Sources List of source groups
+	// Sources List of source group IDs
 	Sources *[]string `json:"sources,omitempty"`
 }
 
@@ -786,7 +951,7 @@ type SetupKeyRequest struct {
 
 // User defines model for User.
 type User struct {
-	// AutoGroups Groups to auto-assign to peers registered by this user
+	// AutoGroups Group IDs to auto-assign to peers registered by this user
 	AutoGroups []string `json:"auto_groups"`
 
 	// Email User's email address
@@ -825,7 +990,7 @@ type UserStatus string
 
 // UserCreateRequest defines model for UserCreateRequest.
 type UserCreateRequest struct {
-	// AutoGroups Groups to auto-assign to peers registered by this user
+	// AutoGroups Group IDs to auto-assign to peers registered by this user
 	AutoGroups []string `json:"auto_groups"`
 
 	// Email User's Email to send invite to
@@ -843,7 +1008,7 @@ type UserCreateRequest struct {
 
 // UserRequest defines model for UserRequest.
 type UserRequest struct {
-	// AutoGroups Groups to auto-assign to peers registered by this user
+	// AutoGroups Group IDs to auto-assign to peers registered by this user
 	AutoGroups []string `json:"auto_groups"`
 
 	// IsBlocked If set to true then user is blocked and can't use the system

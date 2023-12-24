@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"github.com/netbirdio/netbird/sharedsock"
-	log "github.com/sirupsen/logrus"
 	"os"
 	"os/signal"
+
+	"github.com/netbirdio/netbird/sharedsock"
+	log "github.com/sirupsen/logrus"
 )
 
 func main() {
@@ -16,7 +17,7 @@ func main() {
 		panic(err)
 	}
 
-	log.Infof("attached to to the raw socket on port %d", port)
+	log.Infof("attached to the raw socket on port %d", port)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	// read packets

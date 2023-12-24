@@ -15,7 +15,7 @@ func Retry(attempts int, sleep time.Duration, toExec func() error, onError func(
 
 		if attempts--; attempts > 0 {
 			jitter := time.Duration(rand.Int63n(int64(sleep)))
-			sleep = sleep + jitter/2
+			sleep += jitter / 2
 
 			onError(err)
 			time.Sleep(sleep)

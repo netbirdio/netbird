@@ -69,7 +69,7 @@ func main() {
 		a.Run()
 	} else {
 		if err := checkPIDFile(); err != nil {
-			fmt.Println(err)
+			log.Errorf("check PID file: %v", err)
 			return
 		}
 		systray.Run(client.onTrayReady, client.onTrayExit)
@@ -634,5 +634,5 @@ func checkPIDFile() error {
 		}
 	}
 
-	return os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0o664)
+	return os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0o664) //nolint:gosec
 }

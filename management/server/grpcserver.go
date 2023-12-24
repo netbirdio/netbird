@@ -17,6 +17,7 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	internalStatus "github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
@@ -196,7 +197,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	}
 }
 
-func (s *GRPCServer) cancelPeerRoutines(peer *Peer) {
+func (s *GRPCServer) cancelPeerRoutines(peer *nbpeer.Peer) {
 	s.peersUpdateManager.CloseChannel(peer.ID)
 	s.turnCredentialsManager.CancelRefresh(peer.ID)
 	_ = s.accountManager.MarkPeerConnected(peer.Key, false)
@@ -217,6 +218,10 @@ func (s *GRPCServer) validateToken(jwtToken string) (string, error) {
 	_, _, err = s.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		return "", status.Errorf(codes.Internal, "unable to fetch account with claims, err: %v", err)
+	}
+
+	if err := s.accountManager.CheckUserAccessByJWTGroups(claims); err != nil {
+		return "", status.Errorf(codes.PermissionDenied, err.Error())
 	}
 
 	return claims.UserId, nil
@@ -243,16 +248,16 @@ func mapError(err error) error {
 	return status.Errorf(codes.Internal, "failed handling request")
 }
 
-func extractPeerMeta(loginReq *proto.LoginRequest) PeerSystemMeta {
-	return PeerSystemMeta{
-		Hostname:      loginReq.GetMeta().GetHostname(),
-		GoOS:          loginReq.GetMeta().GetGoOS(),
-		Kernel:        loginReq.GetMeta().GetKernel(),
-		Core:          loginReq.GetMeta().GetCore(),
-		Platform:      loginReq.GetMeta().GetPlatform(),
-		OS:            loginReq.GetMeta().GetOS(),
-		WtVersion:     loginReq.GetMeta().GetWiretrusteeVersion(),
-		UIVersion:     loginReq.GetMeta().GetUiVersion(),
+func extractPeerMeta(loginReq *proto.LoginRequest) nbpeer.PeerSystemMeta {
+	return nbpeer.PeerSystemMeta{
+		Hostname:  loginReq.GetMeta().GetHostname(),
+		GoOS:      loginReq.GetMeta().GetGoOS(),
+		Kernel:    loginReq.GetMeta().GetKernel(),
+		Core:      loginReq.GetMeta().GetCore(),
+		Platform:  loginReq.GetMeta().GetPlatform(),
+		OS:        loginReq.GetMeta().GetOS(),
+		WtVersion: loginReq.GetMeta().GetWiretrusteeVersion(),
+		UIVersion: loginReq.GetMeta().GetUiVersion(),
 		Ipv6Supported: loginReq.GetMeta().GetIpv6Supported(),
 	}
 }
@@ -312,7 +317,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		userID, err = s.validateToken(loginReq.GetJwtToken())
 		if err != nil {
 			log.Warnf("failed validating JWT token sent from peer %s", peerKey)
-			return nil, mapError(err)
+			return nil, err
 		}
 	}
 	var sshKey []byte
@@ -414,7 +419,7 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *prot
 	}
 }
 
-func toPeerConfig(peer *Peer, network *Network, dnsName string) *proto.PeerConfig {
+func toPeerConfig(peer *nbpeer.Peer, network *Network, dnsName string) *proto.PeerConfig {
 	netmask, _ := network.Net.Mask.Size()
 	address6 := ""
 	if network.Net6 != nil && peer.IP6 != nil {
@@ -430,7 +435,7 @@ func toPeerConfig(peer *Peer, network *Network, dnsName string) *proto.PeerConfi
 	}
 }
 
-func toRemotePeerConfig(peers []*Peer, dnsName string) []*proto.RemotePeerConfig {
+func toRemotePeerConfig(peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
 	remotePeers := []*proto.RemotePeerConfig{}
 	for _, rPeer := range peers {
 		fqdn := rPeer.FQDN(dnsName)
@@ -448,7 +453,7 @@ func toRemotePeerConfig(peers []*Peer, dnsName string) []*proto.RemotePeerConfig
 	return remotePeers
 }
 
-func toSyncResponse(config *Config, peer *Peer, turnCredentials *TURNCredentials, networkMap *NetworkMap, dnsName string) *proto.SyncResponse {
+func toSyncResponse(config *Config, peer *nbpeer.Peer, turnCredentials *TURNCredentials, networkMap *NetworkMap, dnsName string) *proto.SyncResponse {
 	wtConfig := toWiretrusteeConfig(config, turnCredentials)
 
 	pConfig := toPeerConfig(peer, networkMap.Network, dnsName)
@@ -488,7 +493,7 @@ func (s *GRPCServer) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Em
 }
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
-func (s *GRPCServer) sendInitialSync(peerKey wgtypes.Key, peer *Peer, networkMap *NetworkMap, srv proto.ManagementService_SyncServer) error {
+func (s *GRPCServer) sendInitialSync(peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *NetworkMap, srv proto.ManagementService_SyncServer) error {
 	// make secret time based TURN credentials optional
 	var turnCredentials *TURNCredentials
 	if s.config.TURNConfig.TimeBasedCredentials {

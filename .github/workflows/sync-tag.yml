@@ -1,0 +1,23 @@
+name: sync tag
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
+jobs:
+  trigger_sync_tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger release tag sync
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: sync-tag.yml
+          ref: main
+          repo: ${{ secrets.UPSTREAM_REPO }}
+          token: ${{ secrets.NC_GITHUB_TOKEN }}
+          inputs: '{ "tag": "${{ github.ref_name }}" }'

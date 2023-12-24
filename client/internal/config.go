@@ -273,9 +273,9 @@ func parseURL(serviceName, serviceURL string) (*url.URL, error) {
 	if parsedMgmtURL.Port() == "" {
 		switch parsedMgmtURL.Scheme {
 		case "https":
-			parsedMgmtURL.Host = parsedMgmtURL.Host + ":443"
+			parsedMgmtURL.Host += ":443"
 		case "http":
-			parsedMgmtURL.Host = parsedMgmtURL.Host + ":80"
+			parsedMgmtURL.Host += ":80"
 		default:
 			log.Infof("unable to determine a default port for schema %s in URL %s", parsedMgmtURL.Scheme, serviceURL)
 		}

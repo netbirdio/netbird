@@ -256,7 +256,6 @@ func (om *OktaManager) InviteUserByID(_ string) error {
 func (om *OktaManager) DeleteUser(userID string) error {
 	resp, err := om.client.User.DeactivateOrDeleteUser(context.Background(), userID, nil)
 	if err != nil {
-		fmt.Println(err.Error())
 		return err
 	}
 

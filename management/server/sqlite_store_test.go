@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/netbirdio/netbird/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/util"
 )
 
 func TestSqlite_NewStore(t *testing.T) {
@@ -36,13 +38,13 @@ func TestSqlite_SaveAccount(t *testing.T) {
 	account := newAccountWithId("account_id", "testuser", "")
 	setupKey := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
-	account.Peers["testpeer"] = &Peer{
+	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:      "peerkey",
 		SetupKey: "peerkeysetupkey",
 		IP:       net.IP{127, 0, 0, 1},
-		Meta:     PeerSystemMeta{},
+		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	err := store.SaveAccount(account)
@@ -51,13 +53,13 @@ func TestSqlite_SaveAccount(t *testing.T) {
 	account2 := newAccountWithId("account_id2", "testuser2", "")
 	setupKey = GenerateDefaultSetupKey()
 	account2.SetupKeys[setupKey.Key] = setupKey
-	account2.Peers["testpeer2"] = &Peer{
+	account2.Peers["testpeer2"] = &nbpeer.Peer{
 		Key:      "peerkey2",
 		SetupKey: "peerkeysetupkey2",
 		IP:       net.IP{127, 0, 0, 2},
-		Meta:     PeerSystemMeta{},
+		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name 2",
-		Status:   &PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(account2)
@@ -98,6 +100,80 @@ func TestSqlite_SaveAccount(t *testing.T) {
 	}
 }
 
+func TestSqlite_DeleteAccount(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	store := newSqliteStore(t)
+
+	testUserID := "testuser"
+	user := NewAdminUser(testUserID)
+	user.PATs = map[string]*PersonalAccessToken{"testtoken": {
+		ID:   "testtoken",
+		Name: "test token",
+	}}
+
+	account := newAccountWithId("account_id", testUserID, "")
+	setupKey := GenerateDefaultSetupKey()
+	account.SetupKeys[setupKey.Key] = setupKey
+	account.Peers["testpeer"] = &nbpeer.Peer{
+		Key:      "peerkey",
+		SetupKey: "peerkeysetupkey",
+		IP:       net.IP{127, 0, 0, 1},
+		Meta:     nbpeer.PeerSystemMeta{},
+		Name:     "peer name",
+		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+	}
+	account.Users[testUserID] = user
+
+	err := store.SaveAccount(account)
+	require.NoError(t, err)
+
+	if len(store.GetAllAccounts()) != 1 {
+		t.Errorf("expecting 1 Accounts to be stored after SaveAccount()")
+	}
+
+	err = store.DeleteAccount(account)
+	require.NoError(t, err)
+
+	if len(store.GetAllAccounts()) != 0 {
+		t.Errorf("expecting 0 Accounts to be stored after DeleteAccount()")
+	}
+
+	_, err = store.GetAccountByPeerPubKey("peerkey")
+	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by peer public key")
+
+	_, err = store.GetAccountByUser("testuser")
+	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by user")
+
+	_, err = store.GetAccountByPeerID("testpeer")
+	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by peer id")
+
+	_, err = store.GetAccountBySetupKey(setupKey.Key)
+	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by setup key")
+
+	_, err = store.GetAccount(account.Id)
+	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by id")
+
+	for _, policy := range account.Policies {
+		var rules []*PolicyRule
+		err = store.db.Model(&PolicyRule{}).Find(&rules, "policy_id = ?", policy.ID).Error
+		require.NoError(t, err, "expecting no error after removing DeleteAccount when searching for policy rules")
+		require.Len(t, rules, 0, "expecting no policy rules to be found after removing DeleteAccount")
+
+	}
+
+	for _, accountUser := range account.Users {
+		var pats []*PersonalAccessToken
+		err = store.db.Model(&PersonalAccessToken{}).Find(&pats, "user_id = ?", accountUser.Id).Error
+		require.NoError(t, err, "expecting no error after removing DeleteAccount when searching for personal access token")
+		require.Len(t, pats, 0, "expecting no personal access token to be found after removing DeleteAccount")
+
+	}
+
+}
+
 func TestSqlite_SavePeerStatus(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
@@ -109,19 +185,19 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	// save status of non-existing peer
-	newStatus := PeerStatus{Connected: true, LastSeen: time.Now().UTC()}
+	newStatus := nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()}
 	err = store.SavePeerStatus(account.Id, "non-existing-peer", newStatus)
 	assert.Error(t, err)
 
 	// save new status of existing peer
-	account.Peers["testpeer"] = &Peer{
+	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:      "peerkey",
 		ID:       "testpeer",
 		SetupKey: "peerkeysetupkey",
 		IP:       net.IP{127, 0, 0, 1},
-		Meta:     PeerSystemMeta{},
+		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(account)
@@ -216,13 +292,13 @@ func newAccount(store Store, id int) error {
 	account := newAccountWithId(str, str+"-testuser", "example.com")
 	setupKey := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
-	account.Peers["p"+str] = &Peer{
+	account.Peers["p"+str] = &nbpeer.Peer{
 		Key:      "peerkey" + str,
 		SetupKey: "peerkeysetupkey",
 		IP:       net.IP{127, 0, 0, 1},
-		Meta:     PeerSystemMeta{},
+		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	return store.SaveAccount(account)

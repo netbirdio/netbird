@@ -260,7 +260,7 @@ func (c *GrpcClient) SendToStream(msg *proto.EncryptedMessage) error {
 		return fmt.Errorf("no connection to signal")
 	}
 	if c.stream == nil {
-		return fmt.Errorf("connection to the Signal Exchnage has not been established yet. Please call GrpcClient.Receive before sending messages")
+		return fmt.Errorf("connection to the Signal Exchange has not been established yet. Please call GrpcClient.Receive before sending messages")
 	}
 
 	err := c.stream.Send(msg)
@@ -354,16 +354,17 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient,
 
 	for {
 		msg, err := stream.Recv()
-		if s, ok := status.FromError(err); ok && s.Code() == codes.Canceled {
+		switch s, ok := status.FromError(err); {
+		case ok && s.Code() == codes.Canceled:
 			log.Debugf("stream canceled (usually indicates shutdown)")
 			return err
-		} else if s.Code() == codes.Unavailable {
+		case s.Code() == codes.Unavailable:
 			log.Debugf("Signal Service is unavailable")
 			return err
-		} else if err == io.EOF {
+		case err == io.EOF:
 			log.Debugf("Signal Service stream closed by server")
 			return err
-		} else if err != nil {
+		case err != nil:
 			return err
 		}
 		log.Tracef("received a new message from Peer [fingerprint: %s]", msg.Key)

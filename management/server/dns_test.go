@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
@@ -186,15 +187,17 @@ func TestGetNetworkMap_DNSConfigSync(t *testing.T) {
 }
 
 func createDNSManager(t *testing.T) (*DefaultAccountManager, error) {
+	t.Helper()
 	store, err := createDNSStore(t)
 	if err != nil {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(), nil, "", "netbird.test", eventStore, false)
+	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.test", eventStore, false)
 }
 
 func createDNSStore(t *testing.T) (Store, error) {
+	t.Helper()
 	dataDir := t.TempDir()
 	store, err := NewStoreFromJson(dataDir, nil)
 	if err != nil {
@@ -205,34 +208,35 @@ func createDNSStore(t *testing.T) (Store, error) {
 }
 
 func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error) {
-	peer1 := &Peer{
+	t.Helper()
+	peer1 := &nbpeer.Peer{
 		Key:  dnsPeer1Key,
 		Name: "test-host1@netbird.io",
-		Meta: PeerSystemMeta{
-			Hostname:      "test-host1@netbird.io",
-			GoOS:          "linux",
-			Kernel:        "Linux",
-			Core:          "21.04",
-			Platform:      "x86_64",
-			OS:            "Ubuntu",
-			WtVersion:     "development",
-			UIVersion:     "development",
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname:  "test-host1@netbird.io",
+			GoOS:      "linux",
+			Kernel:    "Linux",
+			Core:      "21.04",
+			Platform:  "x86_64",
+			OS:        "Ubuntu",
+			WtVersion: "development",
+			UIVersion: "development",
 			Ipv6Supported: false,
 		},
 		DNSLabel: dnsPeer1Key,
 	}
-	peer2 := &Peer{
+	peer2 := &nbpeer.Peer{
 		Key:  dnsPeer2Key,
 		Name: "test-host2@netbird.io",
-		Meta: PeerSystemMeta{
-			Hostname:      "test-host2@netbird.io",
-			GoOS:          "linux",
-			Kernel:        "Linux",
-			Core:          "21.04",
-			Platform:      "x86_64",
-			OS:            "Ubuntu",
-			WtVersion:     "development",
-			UIVersion:     "development",
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname:  "test-host2@netbird.io",
+			GoOS:      "linux",
+			Kernel:    "Linux",
+			Core:      "21.04",
+			Platform:  "x86_64",
+			OS:        "Ubuntu",
+			WtVersion: "development",
+			UIVersion: "development",
 			Ipv6Supported: false,
 		},
 		DNSLabel: dnsPeer2Key,

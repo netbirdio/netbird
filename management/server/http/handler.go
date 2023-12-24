@@ -7,6 +7,7 @@ import (
 	"github.com/rs/cors"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -33,12 +34,20 @@ type emptyObject struct {
 
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
 func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg AuthCfg) (http.Handler, error) {
+	claimsExtractor := jwtclaims.NewClaimsExtractor(
+		jwtclaims.WithAudience(authCfg.Audience),
+		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
+	)
+
 	authMiddleware := middleware.NewAuthMiddleware(
 		accountManager.GetAccountFromPAT,
 		jwtValidator.ValidateAndParse,
 		accountManager.MarkPATUsed,
+		accountManager.CheckUserAccessByJWTGroups,
+		claimsExtractor,
 		authCfg.Audience,
-		authCfg.UserIDClaim)
+		authCfg.UserIDClaim,
+	)
 
 	corsMiddleware := cors.AllowAll()
 
@@ -58,11 +67,6 @@ func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValid
 		AccountManager: accountManager,
 		AuthCfg:        authCfg,
 	}
-
-	claimsExtractor := jwtclaims.NewClaimsExtractor(
-		jwtclaims.WithAudience(authCfg.Audience),
-		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
-	)
 
 	integrations.RegisterHandlers(api.Router, accountManager, claimsExtractor)
 	api.addAccountsEndpoint()
@@ -105,6 +109,7 @@ func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValid
 func (apiHandler *apiHandler) addAccountsEndpoint() {
 	accountsHandler := NewAccountsHandler(apiHandler.AccountManager, apiHandler.AuthCfg)
 	apiHandler.Router.HandleFunc("/accounts/{accountId}", accountsHandler.UpdateAccount).Methods("PUT", "OPTIONS")
+	apiHandler.Router.HandleFunc("/accounts/{accountId}", accountsHandler.DeleteAccount).Methods("DELETE", "OPTIONS")
 	apiHandler.Router.HandleFunc("/accounts", accountsHandler.GetAllAccounts).Methods("GET", "OPTIONS")
 }
 

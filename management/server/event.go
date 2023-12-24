@@ -36,7 +36,7 @@ func (am *DefaultAccountManager) GetEvents(accountID, userID string) ([]*activit
 	return filtered, nil
 }
 
-func (am *DefaultAccountManager) storeEvent(initiatorID, targetID, accountID string, activityID activity.Activity,
+func (am *DefaultAccountManager) StoreEvent(initiatorID, targetID, accountID string, activityID activity.Activity,
 	meta map[string]any) {
 
 	go func() {
