@@ -1,6 +1,6 @@
 package stdnet
 
-import "github.com/pion/transport/v2"
+import "github.com/pion/transport/v3"
 
 // ExternalIFaceDiscover provide an option for external services (mobile)
 // to collect network interface information

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,10 +22,15 @@ const (
 )
 
 type upstreamClient interface {
-	ExchangeContext(ctx context.Context, m *dns.Msg, a string) (r *dns.Msg, rtt time.Duration, err error)
+	exchange(upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
 }
 
-type upstreamResolver struct {
+type UpstreamResolver interface {
+	serveDNS(r *dns.Msg) (*dns.Msg, time.Duration, error)
+	upstreamExchange(upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
+}
+
+type upstreamResolverBase struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	upstreamClient   upstreamClient
@@ -40,25 +46,25 @@ type upstreamResolver struct {
 	reactivate func()
 }
 
-func newUpstreamResolver(parentCTX context.Context) *upstreamResolver {
+func newUpstreamResolverBase(parentCTX context.Context) *upstreamResolverBase {
 	ctx, cancel := context.WithCancel(parentCTX)
-	return &upstreamResolver{
+
+	return &upstreamResolverBase{
 		ctx:              ctx,
 		cancel:           cancel,
-		upstreamClient:   &dns.Client{},
 		upstreamTimeout:  upstreamTimeout,
 		reactivatePeriod: reactivatePeriod,
 		failsTillDeact:   failsTillDeact,
 	}
 }
 
-func (u *upstreamResolver) stop() {
+func (u *upstreamResolverBase) stop() {
 	log.Debugf("stopping serving DNS for upstreams %s", u.upstreamServers)
 	u.cancel()
 }
 
 // ServeDNS handles a DNS request
-func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	defer u.checkUpstreamFails()
 
 	log.WithField("question", r.Question[0]).Trace("received an upstream question")
@@ -70,10 +76,8 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	for _, upstream := range u.upstreamServers {
-		ctx, cancel := context.WithTimeout(u.ctx, u.upstreamTimeout)
-		rm, t, err := u.upstreamClient.ExchangeContext(ctx, r, upstream)
 
-		cancel()
+		rm, t, err := u.upstreamClient.exchange(upstream, r)
 
 		if err != nil {
 			if err == context.DeadlineExceeded || isTimeout(err) {
@@ -83,7 +87,19 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			}
 			u.failsCount.Add(1)
 			log.WithError(err).WithField("upstream", upstream).
-				Error("got an error while querying the upstream")
+				Error("got other error while querying the upstream")
+			return
+		}
+
+		if rm == nil {
+			log.WithError(err).WithField("upstream", upstream).
+				Warn("no response from upstream")
+			return
+		}
+		// those checks need to be independent of each other due to memory address issues
+		if !rm.Response {
+			log.WithError(err).WithField("upstream", upstream).
+				Warn("no response from upstream")
 			return
 		}
 
@@ -106,7 +122,7 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 // If fails count is greater that failsTillDeact, upstream resolving
 // will be disabled for reactivatePeriod, after that time period fails counter
 // will be reset and upstream will be reactivated.
-func (u *upstreamResolver) checkUpstreamFails() {
+func (u *upstreamResolverBase) checkUpstreamFails() {
 	u.mutex.Lock()
 	defer u.mutex.Unlock()
 
@@ -118,15 +134,18 @@ func (u *upstreamResolver) checkUpstreamFails() {
 	case <-u.ctx.Done():
 		return
 	default:
-		log.Warnf("upstream resolving is disabled for %v", reactivatePeriod)
-		u.deactivate()
-		u.disabled = true
-		go u.waitUntilResponse()
+		// todo test the deactivation logic, it seems to affect the client
+		if runtime.GOOS != "ios" {
+			log.Warnf("upstream resolving is Disabled for %v", reactivatePeriod)
+			u.deactivate()
+			u.disabled = true
+			go u.waitUntilResponse()
+		}
 	}
 }
 
 // waitUntilResponse retries, in an exponential interval, querying the upstream servers until it gets a positive response
-func (u *upstreamResolver) waitUntilResponse() {
+func (u *upstreamResolverBase) waitUntilResponse() {
 	exponentialBackOff := &backoff.ExponentialBackOff{
 		InitialInterval:     500 * time.Millisecond,
 		RandomizationFactor: 0.5,
@@ -148,10 +167,7 @@ func (u *upstreamResolver) waitUntilResponse() {
 
 		var err error
 		for _, upstream := range u.upstreamServers {
-			ctx, cancel := context.WithTimeout(u.ctx, u.upstreamTimeout)
-			_, _, err = u.upstreamClient.ExchangeContext(ctx, r, upstream)
-
-			cancel()
+			_, _, err = u.upstreamClient.exchange(upstream, r)
 
 			if err == nil {
 				return nil

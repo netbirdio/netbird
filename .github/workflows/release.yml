@@ -45,14 +45,17 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: "1.20"
+          cache: false
       -
         name: Cache Go modules
         uses: actions/cache@v3
         with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-releaser-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-
+            ${{ runner.os }}-go-releaser-
       -
         name: Install modules
         run: go mod tidy
@@ -118,13 +121,16 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: "1.20"
+          cache: false
       - name: Cache Go modules
         uses: actions/cache@v3
         with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-ui-go-${{ hashFiles('**/go.sum') }}
+          path: | 
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-ui-go-releaser-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-ui-go-
+            ${{ runner.os }}-ui-go-releaser-
 
       - name: Install modules
         run: go mod tidy
@@ -170,14 +176,17 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: "1.20"
+          cache: false
       -
         name: Cache Go modules
         uses: actions/cache@v3
         with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-ui-go-${{ hashFiles('**/go.sum') }}
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-ui-go-releaser-darwin-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-ui-go-
+            ${{ runner.os }}-ui-go-releaser-darwin-
       -
         name: Install modules
         run: go mod tidy

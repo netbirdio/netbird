@@ -1,9 +1,12 @@
+//go:build android
+// +build android
+
 package iface
 
 import (
 	"strings"
 
-	"github.com/pion/transport/v2"
+	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/device"
@@ -56,7 +59,7 @@ func (t *tunDevice) Create(mIFaceArgs MobileIFaceArguments) error {
 	t.device = device.NewDevice(t.wrapper, t.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
 	// without this property mobile devices can discover remote endpoints if the configured one was wrong.
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
-	//t.device.DisableSomeRoamingForBrokenMobileSemantics()
+	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
 	err = t.device.Up()
 	if err != nil {

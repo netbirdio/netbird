@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/magiconair/properties/assert"
-	"github.com/pion/ice/v2"
+	"github.com/pion/stun/v2"
 
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
@@ -16,7 +16,7 @@ import (
 var connConf = ConnConfig{
 	Key:                "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
 	LocalKey:           "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
-	StunTurn:           []*ice.URL{},
+	StunTurn:           []*stun.URI{},
 	InterfaceBlackList: nil,
 	Timeout:            time.Second,
 	LocalWgPort:        51820,

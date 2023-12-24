@@ -13,7 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/ice/v2"
+	"github.com/pion/ice/v3"
+	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -96,9 +97,9 @@ type Engine struct {
 	mobileDep MobileDependency
 
 	// STUNs is a list of STUN servers used by ICE
-	STUNs []*ice.URL
+	STUNs []*stun.URI
 	// TURNs is a list of STUN servers used by ICE
-	TURNs []*ice.URL
+	TURNs []*stun.URI
 
 	cancel context.CancelFunc
 
@@ -147,8 +148,8 @@ func NewEngine(
 		syncMsgMux:     &sync.Mutex{},
 		config:         config,
 		mobileDep:      mobileDep,
-		STUNs:          []*ice.URL{},
-		TURNs:          []*ice.URL{},
+		STUNs:          []*stun.URI{},
+		TURNs:          []*stun.URI{},
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
@@ -199,7 +200,8 @@ func (e *Engine) Start() error {
 
 	var routes []*route.Route
 
-	if runtime.GOOS == "android" {
+	switch runtime.GOOS {
+	case "android":
 		var dnsConfig *nbdns.Config
 		routes, dnsConfig, err = e.readInitialSettings()
 		if err != nil {
@@ -209,25 +211,34 @@ func (e *Engine) Start() error {
 			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, *dnsConfig, e.mobileDep.NetworkChangeListener)
 			go e.mobileDep.DnsReadyListener.OnReady()
 		}
-	} else if e.dnsServer == nil {
-		// todo fix custom address
-		e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
-		if err != nil {
-			e.close()
-			return err
+	case "ios":
+		if e.dnsServer == nil {
+			e.dnsServer = dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager)
+		}
+	default:
+		if e.dnsServer == nil {
+			e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
+			if err != nil {
+				e.close()
+				return err
+			}
 		}
 	}
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
-	if runtime.GOOS == "android" {
-		err = e.wgInterface.CreateOnMobile(iface.MobileIFaceArguments{
+	switch runtime.GOOS {
+	case "android":
+		err = e.wgInterface.CreateOnAndroid(iface.MobileIFaceArguments{
 			Routes:        e.routeManager.InitialRouteRange(),
 			Dns:           e.dnsServer.DnsIP(),
 			SearchDomains: e.dnsServer.SearchDomains(),
 		})
-	} else {
+	case "ios":
+		e.mobileDep.NetworkChangeListener.SetInterfaceIP(wgAddr)
+		err = e.wgInterface.CreateOniOS(e.mobileDep.FileDescriptor)
+	default:
 		err = e.wgInterface.Create()
 	}
 	if err != nil {
@@ -482,7 +493,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 		}
 		// start SSH server if it wasn't running
 		if isNil(e.sshServer) {
-			//nil sshServer means it has not yet been started
+			// nil sshServer means it has not yet been started
 			var err error
 			e.sshServer, err = e.sshServerFunc(e.config.SSHKey,
 				fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort))
@@ -587,10 +598,10 @@ func (e *Engine) updateSTUNs(stuns []*mgmProto.HostConfig) error {
 	if len(stuns) == 0 {
 		return nil
 	}
-	var newSTUNs []*ice.URL
+	var newSTUNs []*stun.URI
 	log.Debugf("got STUNs update from Management Service, updating")
-	for _, stun := range stuns {
-		url, err := ice.ParseURL(stun.Uri)
+	for _, s := range stuns {
+		url, err := stun.ParseURI(s.Uri)
 		if err != nil {
 			return err
 		}
@@ -605,10 +616,10 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 	if len(turns) == 0 {
 		return nil
 	}
-	var newTURNs []*ice.URL
+	var newTURNs []*stun.URI
 	log.Debugf("got TURNs update from Management Service, updating")
 	for _, turn := range turns {
-		url, err := ice.ParseURL(turn.HostConfig.Uri)
+		url, err := stun.ParseURI(turn.HostConfig.Uri)
 		if err != nil {
 			return err
 		}
@@ -858,7 +869,7 @@ func (e *Engine) peerExists(peerKey string) bool {
 
 func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error) {
 	log.Debugf("creating peer connection %s", pubKey)
-	var stunTurn []*ice.URL
+	var stunTurn []*stun.URI
 	stunTurn = append(stunTurn, e.STUNs...)
 	stunTurn = append(stunTurn, e.TURNs...)
 

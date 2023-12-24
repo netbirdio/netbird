@@ -2,6 +2,7 @@ package routemanager
 
 import (
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/netbirdio/netbird/client/internal/listener"
@@ -50,9 +51,6 @@ func (n *notifier) onNewRoutes(idMap map[string][]*route.Route) {
 
 	n.routeRangers = newNets
 
-	if !n.hasDiff(n.initialRouteRangers, newNets) {
-		return
-	}
 	n.notify()
 }
 
@@ -64,7 +62,7 @@ func (n *notifier) notify() {
 	}
 
 	go func(l listener.NetworkChangeListener) {
-		l.OnNetworkChanged()
+		l.OnNetworkChanged(strings.Join(n.routeRangers, ","))
 	}(n.listener)
 }
 

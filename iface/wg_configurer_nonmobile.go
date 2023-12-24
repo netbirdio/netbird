@@ -1,4 +1,4 @@
-//go:build !android
+//go:build !android && !ios
 
 package iface
 
@@ -45,7 +45,7 @@ func (c *wGConfigurer) configureInterface(privateKey string, port int) error {
 }
 
 func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
-	//parse allowed ips
+	// parse allowed ips
 	var allowedIpNets []net.IPNet
 	for _, allowedIp := range strings.Split(allowedIps, ",") {
 		_, ipNet, err := net.ParseCIDR(allowedIp)
