@@ -36,17 +36,17 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 		wgIface: wgIface,
 	}
 
-	workTable, err := m.createWorkTable()
+	workTable, workTable6, err := m.createWorkTables()
 	if err != nil {
 		return nil, err
 	}
 
-	m.router, err = newRouter(context, workTable)
+	m.router, err = newRouter(context, workTable, workTable6)
 	if err != nil {
 		return nil, err
 	}
 
-	m.aclManager, err = newAclManager(workTable, wgIface, m.router.RouteingFwChainName())
+	m.aclManager, err = newAclManager(workTable, workTable6, wgIface, m.router.RouteingFwChainName())
 	if err != nil {
 		return nil, err
 	}
@@ -71,10 +71,10 @@ func (m *Manager) AddFiltering(
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	rawIP := ip.To4()
-	if rawIP == nil {
-		return nil, fmt.Errorf("unsupported IP version: %s", ip.String())
-	}
+	//rawIP := ip.To4()
+	//if rawIP == nil {
+	//	return nil, fmt.Errorf("unsupported IP version: %s", ip.String())
+	//}
 
 	return m.aclManager.AddFiltering(ip, proto, sPort, dPort, direction, action, ipsetName, comment)
 }
@@ -202,21 +202,26 @@ func (m *Manager) Flush() error {
 	return m.aclManager.Flush()
 }
 
-func (m *Manager) createWorkTable() (*nftables.Table, error) {
+func (m *Manager) createWorkTables() (*nftables.Table, *nftables.Table, error) {
 	tables, err := m.rConn.ListTablesOfFamily(nftables.TableFamilyIPv4)
 	if err != nil {
-		return nil, fmt.Errorf("list of tables: %w", err)
+		return nil, nil, fmt.Errorf("list of tables: %w", err)
+	}
+	tables6, err := m.rConn.ListTablesOfFamily(nftables.TableFamilyIPv6)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list of v6 tables: %w", err)
 	}
 
-	for _, t := range tables {
+	for _, t := range append(tables, tables6...) {
 		if t.Name == tableName {
 			m.rConn.DelTable(t)
 		}
 	}
 
 	table := m.rConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv4})
+	table6 := m.rConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv6})
 	err = m.rConn.Flush()
-	return table, err
+	return table, table6, err
 }
 
 func (m *Manager) applyAllowNetbirdRules(chain *nftables.Chain) {

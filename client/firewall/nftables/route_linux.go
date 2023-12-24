@@ -24,9 +24,12 @@ const (
 	userDataAcceptForwardRuleDst = "frwacceptdst"
 )
 
+// TODO ipv6 everywhere here.
+
 // some presets for building nftable rules
 var (
-	zeroXor = binaryutil.NativeEndian.PutUint32(0)
+	zeroXor  = binaryutil.NativeEndian.PutUint32(0)
+	zeroXor6 = []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
 
 	exprCounterAccept = []expr.Any{
 		&expr.Counter{},
@@ -39,34 +42,39 @@ var (
 )
 
 type router struct {
-	ctx         context.Context
-	stop        context.CancelFunc
-	conn        *nftables.Conn
-	workTable   *nftables.Table
-	filterTable *nftables.Table
-	chains      map[string]*nftables.Chain
+	ctx          context.Context
+	stop         context.CancelFunc
+	conn         *nftables.Conn
+	workTable    *nftables.Table
+	workTable6   *nftables.Table
+	filterTable  *nftables.Table
+	filterTable6 *nftables.Table
+	chains       map[string]*nftables.Chain
+	chains6      map[string]*nftables.Chain
 	// rules is useful to avoid duplicates and to get missing attributes that we don't have when adding new rules
 	rules                    map[string]*nftables.Rule
 	isDefaultFwdRulesEnabled bool
 }
 
-func newRouter(parentCtx context.Context, workTable *nftables.Table) (*router, error) {
+func newRouter(parentCtx context.Context, workTable *nftables.Table, workTable6 *nftables.Table) (*router, error) {
 	ctx, cancel := context.WithCancel(parentCtx)
 
 	r := &router{
-		ctx:       ctx,
-		stop:      cancel,
-		conn:      &nftables.Conn{},
-		workTable: workTable,
-		chains:    make(map[string]*nftables.Chain),
-		rules:     make(map[string]*nftables.Rule),
+		ctx:        ctx,
+		stop:       cancel,
+		conn:       &nftables.Conn{},
+		workTable:  workTable,
+		workTable6: workTable6,
+		chains:     make(map[string]*nftables.Chain),
+		chains6:    make(map[string]*nftables.Chain),
+		rules:      make(map[string]*nftables.Rule),
 	}
 
 	var err error
-	r.filterTable, err = r.loadFilterTable()
+	r.filterTable, r.filterTable6, err = r.loadFilterTables(workTable6 != nil)
 	if err != nil {
 		if errors.Is(err, errFilterTableNotFound) {
-			log.Warnf("table 'filter' not found for forward rules")
+			log.Warnf("table 'filter' not found for forward rules for one of the supported address families-")
 		} else {
 			return nil, err
 		}
@@ -96,19 +104,40 @@ func (r *router) ResetForwardRules() {
 	}
 }
 
-func (r *router) loadFilterTable() (*nftables.Table, error) {
+func (r *router) loadFilterTables(include6 bool) (*nftables.Table, *nftables.Table, error) {
 	tables, err := r.conn.ListTablesOfFamily(nftables.TableFamilyIPv4)
 	if err != nil {
-		return nil, fmt.Errorf("nftables: unable to list tables: %v", err)
+		return nil, nil, fmt.Errorf("nftables: unable to list tables: %v", err)
 	}
 
+	var table4 *nftables.Table = nil
 	for _, table := range tables {
 		if table.Name == "filter" {
-			return table, nil
+			table4 = table
+			break
 		}
 	}
 
-	return nil, errFilterTableNotFound
+	var table6 *nftables.Table = nil
+	if include6 {
+		tables, err = r.conn.ListTablesOfFamily(nftables.TableFamilyIPv6)
+		if err != nil {
+			return nil, nil, fmt.Errorf("nftables: unable to list tables: %v", err)
+		}
+		for _, table := range tables {
+			if table.Name == "filter" {
+				table6 = table
+				break
+			}
+		}
+	}
+
+	err = nil
+	if table4 == nil || table6 == nil {
+		err = errFilterTableNotFound
+	}
+
+	return table4, table6, errFilterTableNotFound
 }
 
 func (r *router) createContainers() error {
@@ -125,6 +154,21 @@ func (r *router) createContainers() error {
 		Priority: nftables.ChainPriorityNATSource - 1,
 		Type:     nftables.ChainTypeNAT,
 	})
+
+	if r.workTable6 != nil {
+		r.chains6[chainNameRouteingFw] = r.conn.AddChain(&nftables.Chain{
+			Name:  chainNameRouteingFw,
+			Table: r.workTable6,
+		})
+
+		r.chains6[chainNameRoutingNat] = r.conn.AddChain(&nftables.Chain{
+			Name:     chainNameRoutingNat,
+			Table:    r.workTable6,
+			Hooknum:  nftables.ChainHookPostrouting,
+			Priority: nftables.ChainPriorityNATSource - 1,
+			Type:     nftables.ChainTypeNAT,
+		})
+	}
 
 	err := r.refreshRulesMap()
 	if err != nil {
@@ -165,7 +209,12 @@ func (r *router) InsertRoutingRules(pair manager.RouterPair) error {
 		}
 	}
 
-	if r.filterTable != nil && !r.isDefaultFwdRulesEnabled {
+	filterTable := r.filterTable
+	parsedIp, _, _ := net.ParseCIDR(pair.Source)
+	if parsedIp.To4() == nil {
+		filterTable = r.filterTable6
+	}
+	if filterTable != nil && !r.isDefaultFwdRulesEnabled {
 		log.Debugf("add default accept forward rule")
 		r.acceptForwardRule(pair.Source)
 	}
@@ -199,9 +248,15 @@ func (r *router) insertRoutingRule(format, chainName string, pair manager.Router
 		}
 	}
 
+	table, chain := r.workTable, r.chains[chainName]
+	parsedIp, _, _ := net.ParseCIDR(pair.Source)
+	if parsedIp.To4() == nil {
+		table, chain = r.workTable6, r.chains6[chainName]
+	}
+
 	r.rules[ruleKey] = r.conn.InsertRule(&nftables.Rule{
-		Table:    r.workTable,
-		Chain:    r.chains[chainName],
+		Table:    table,
+		Chain:    chain,
 		Exprs:    expression,
 		UserData: []byte(ruleKey),
 	})
@@ -211,6 +266,12 @@ func (r *router) insertRoutingRule(format, chainName string, pair manager.Router
 func (r *router) acceptForwardRule(sourceNetwork string) {
 	src := generateCIDRMatcherExpressions(true, sourceNetwork)
 	dst := generateCIDRMatcherExpressions(false, "0.0.0.0/0")
+	table := r.filterTable
+	parsedIp, _, _ := net.ParseCIDR(sourceNetwork)
+	if parsedIp.To4() == nil {
+		dst = generateCIDRMatcherExpressions(false, "::/0")
+		table = r.filterTable6
+	}
 
 	var exprs []expr.Any
 	exprs = append(src, append(dst, &expr.Verdict{ // nolint:gocritic
@@ -221,7 +282,7 @@ func (r *router) acceptForwardRule(sourceNetwork string) {
 		Table: r.filterTable,
 		Chain: &nftables.Chain{
 			Name:     "FORWARD",
-			Table:    r.filterTable,
+			Table:    table,
 			Type:     nftables.ChainTypeFilter,
 			Hooknum:  nftables.ChainHookForward,
 			Priority: nftables.ChainPriorityFilter,
@@ -233,6 +294,9 @@ func (r *router) acceptForwardRule(sourceNetwork string) {
 	r.conn.AddRule(rule)
 
 	src = generateCIDRMatcherExpressions(true, "0.0.0.0/0")
+	if parsedIp.To4() == nil {
+		src = generateCIDRMatcherExpressions(true, "::/0")
+	}
 	dst = generateCIDRMatcherExpressions(false, sourceNetwork)
 
 	exprs = append(src, append(dst, &expr.Verdict{ //nolint:gocritic
@@ -243,7 +307,7 @@ func (r *router) acceptForwardRule(sourceNetwork string) {
 		Table: r.filterTable,
 		Chain: &nftables.Chain{
 			Name:     "FORWARD",
-			Table:    r.filterTable,
+			Table:    table,
 			Type:     nftables.ChainTypeFilter,
 			Hooknum:  nftables.ChainHookForward,
 			Priority: nftables.ChainPriorityFilter,
@@ -363,6 +427,29 @@ func (r *router) cleanUpDefaultForwardRules() error {
 		}
 	}
 
+	if r.filterTable6 != nil {
+
+		chains, err = r.conn.ListChainsOfTableFamily(nftables.TableFamilyIPv6)
+		if err != nil {
+			return err
+		}
+
+		for _, chain := range chains {
+			if chain.Table.Name != r.filterTable6.Name {
+				continue
+			}
+			if chain.Name != "FORWARD" {
+				continue
+			}
+
+			rules6, err := r.conn.GetRules(r.filterTable, chain)
+			if err != nil {
+				return err
+			}
+			rules6 = append(rules, rules6...)
+		}
+	}
+
 	for _, rule := range rules {
 		if bytes.Equal(rule.UserData, []byte(userDataAcceptForwardRuleSrc)) || bytes.Equal(rule.UserData, []byte(userDataAcceptForwardRuleDst)) {
 			err := r.conn.DelRule(rule)
@@ -387,6 +474,18 @@ func generateCIDRMatcherExpressions(source bool, cidr string) []expr.Any {
 	} else {
 		offSet = 16 // dst offset
 	}
+	addrLen := uint32(4)
+	zeroXor := zeroXor
+
+	if ip.To4() == nil {
+		if source {
+			offSet = 8 // src offset
+		} else {
+			offSet = 24 // dst offset
+		}
+		addrLen = 16
+		zeroXor = zeroXor6
+	}
 
 	return []expr.Any{
 		// fetch src add
@@ -394,13 +493,13 @@ func generateCIDRMatcherExpressions(source bool, cidr string) []expr.Any {
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
 			Offset:       offSet,
-			Len:          4,
+			Len:          addrLen,
 		},
 		// net mask
 		&expr.Bitwise{
 			DestRegister:   1,
 			SourceRegister: 1,
-			Len:            4,
+			Len:            addrLen,
 			Mask:           network.Mask,
 			Xor:            zeroXor,
 		},

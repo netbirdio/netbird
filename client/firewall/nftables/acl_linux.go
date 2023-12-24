@@ -44,14 +44,20 @@ type AclManager struct {
 	wgIface             iFaceMapper
 	routeingFwChainName string
 
-	workTable        *nftables.Table
-	chainInputRules  *nftables.Chain
-	chainOutputRules *nftables.Chain
-	chainFwFilter    *nftables.Chain
-	chainPrerouting  *nftables.Chain
+	workTable         *nftables.Table
+	workTable6        *nftables.Table
+	chainInputRules   *nftables.Chain
+	chainOutputRules  *nftables.Chain
+	chainFwFilter     *nftables.Chain
+	chainPrerouting   *nftables.Chain
+	chainInputRules6  *nftables.Chain
+	chainOutputRules6 *nftables.Chain
+	chainFwFilter6    *nftables.Chain
+	chainPrerouting6  *nftables.Chain
 
-	ipsetStore *ipsetStore
-	rules      map[string]*Rule
+	ipsetStore  *ipsetStore
+	ipsetStore6 *ipsetStore
+	rules       map[string]*Rule
 }
 
 // iFaceMapper defines subset methods of interface required for manager
@@ -61,7 +67,7 @@ type iFaceMapper interface {
 	Address6() *iface.WGAddress
 }
 
-func newAclManager(table *nftables.Table, wgIface iFaceMapper, routeingFwChainName string) (*AclManager, error) {
+func newAclManager(table *nftables.Table, table6 *nftables.Table, wgIface iFaceMapper, routeingFwChainName string) (*AclManager, error) {
 	// sConn is used for creating sets and adding/removing elements from them
 	// it's differ then rConn (which does create new conn for each flush operation)
 	// and is permanent. Using same connection for booth type of operations
@@ -76,10 +82,12 @@ func newAclManager(table *nftables.Table, wgIface iFaceMapper, routeingFwChainNa
 		sConn:               sConn,
 		wgIface:             wgIface,
 		workTable:           table,
+		workTable6:          table6,
 		routeingFwChainName: routeingFwChainName,
 
-		ipsetStore: newIpsetStore(),
-		rules:      make(map[string]*Rule),
+		ipsetStore:  newIpsetStore(),
+		ipsetStore6: newIpsetStore(),
+		rules:       make(map[string]*Rule),
 	}
 
 	err = m.createDefaultChains()
@@ -158,7 +166,11 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 		return m.rConn.Flush()
 	}
 	if _, ok := ips[r.ip.String()]; ok {
-		err := m.sConn.SetDeleteElements(r.nftSet, []nftables.SetElement{{Key: r.ip.To4()}})
+		rawIP := r.ip.To4()
+		if rawIP == nil {
+			rawIP = r.ip.To16()
+		}
+		err := m.sConn.SetDeleteElements(r.nftSet, []nftables.SetElement{{Key: rawIP}})
 		if err != nil {
 			log.Errorf("delete elements for set %q: %v", r.nftSet.Name, err)
 		}
@@ -384,8 +396,6 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 	return rule, nil
 }
 
-// TODO IPv6, like, everywhere here...
-
 func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.Protocol, port *firewall.Port, ip net.IP) (*Rule, error) {
 	var protoData []byte
 	switch proto {
@@ -412,6 +422,18 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 	var ipExpression expr.Any
 	// add individual IP for match if no ipset defined
 	rawIP := ip.To4()
+	if rawIP == nil {
+		rawIP = ip.To16()
+	}
+	addrLen := uint32(len(rawIP))
+	// source address position
+	srcAddrOffset := uint32(12)
+	dstAddrOffset := uint32(16)
+	if addrLen == 16 {
+		srcAddrOffset = uint32(8)
+		dstAddrOffset = uint32(24)
+	}
+
 	if ipset == nil {
 		ipExpression = &expr.Cmp{
 			Op:       expr.CmpOpEq,
@@ -426,30 +448,33 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 		}
 	}
 
+	ifaceRawIP := m.wgIface.Address().IP.To4()
+	if addrLen == 16 {
+		ifaceRawIP = m.wgIface.Address6().IP.To16()
+	}
+
 	expressions := []expr.Any{
 		&expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       12,
-			Len:          4,
+			Offset:       srcAddrOffset,
+			Len:          addrLen,
 		},
 		ipExpression,
 		&expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       16,
-			Len:          4,
+			Offset:       dstAddrOffset,
+			Len:          addrLen,
 		},
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
 			Register: 1,
-			Data:     m.wgIface.Address().IP.To4(),
+			Data:     ifaceRawIP,
 		},
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       uint32(9),
-			Len:          uint32(1),
+		&expr.Meta{
+			Key:      expr.MetaKeyL4PROTO,
+			Register: 1,
 		},
 		&expr.Cmp{
 			Register: 1,
@@ -514,44 +539,53 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 
 func (m *AclManager) createDefaultChains() (err error) {
 	// chainNameInputRules
-	chain := m.createChain(chainNameInputRules)
+	chain, chain6 := m.createChain(chainNameInputRules)
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", chain.Name, err)
 		return err
 	}
 	m.chainInputRules = chain
+	m.chainInputRules6 = chain6
 
 	// chainNameOutputRules
-	chain = m.createChain(chainNameOutputRules)
+	chain, chain6 = m.createChain(chainNameOutputRules)
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", chainNameOutputRules, err)
 		return err
 	}
 	m.chainOutputRules = chain
+	m.chainOutputRules6 = chain6
 
 	// netbird-acl-input-filter
 	// type filter hook input priority filter; policy accept;
-	chain = m.createFilterChainWithHook(chainNameInputFilter, nftables.ChainHookInput)
+	chain, chain6 = m.createFilterChainWithHook(chainNameInputFilter, nftables.ChainHookInput)
 	//netbird-acl-input-filter iifname "wt0" ip saddr 100.72.0.0/16 ip daddr != 100.72.0.0/16 accept
 	m.addRouteAllowRule(chain, expr.MetaKeyIIFNAME)
 	m.addFwdAllow(chain, expr.MetaKeyIIFNAME)
 	m.addJumpRule(chain, m.chainInputRules.Name, expr.MetaKeyIIFNAME) // to netbird-acl-input-rules
 	m.addDropExpressions(chain, expr.MetaKeyIIFNAME)
-	err = m.rConn.Flush()
-	if err != nil {
-		log.Debugf("failed to create chain (%s): %s", chain.Name, err)
-		return err
+	if chain6 != nil {
+		m.addRouteAllowRule(chain6, expr.MetaKeyIIFNAME)
+		m.addFwdAllow(chain6, expr.MetaKeyIIFNAME)
+		m.addJumpRule(chain6, m.chainInputRules6.Name, expr.MetaKeyIIFNAME) // to netbird-acl-input-rules
+		m.addDropExpressions(chain6, expr.MetaKeyIIFNAME)
 	}
 
 	// netbird-acl-output-filter
 	// type filter hook output priority filter; policy accept;
-	chain = m.createFilterChainWithHook(chainNameOutputFilter, nftables.ChainHookOutput)
+	chain, chain6 = m.createFilterChainWithHook(chainNameOutputFilter, nftables.ChainHookOutput)
 	m.addRouteAllowRule(chain, expr.MetaKeyOIFNAME)
 	m.addFwdAllow(chain, expr.MetaKeyOIFNAME)
 	m.addJumpRule(chain, m.chainOutputRules.Name, expr.MetaKeyOIFNAME) // to netbird-acl-output-rules
 	m.addDropExpressions(chain, expr.MetaKeyOIFNAME)
+	if chain6 != nil {
+		m.addRouteAllowRule(chain6, expr.MetaKeyOIFNAME)
+		m.addFwdAllow(chain6, expr.MetaKeyOIFNAME)
+		m.addJumpRule(chain6, m.chainOutputRules6.Name, expr.MetaKeyOIFNAME) // to netbird-acl-output-rules
+		m.addDropExpressions(chain6, expr.MetaKeyOIFNAME)
+	}
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", chainNameOutputFilter, err)
@@ -559,7 +593,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	}
 
 	// netbird-acl-forward-filter
-	m.chainFwFilter = m.createFilterChainWithHook(chainNameForwardFilter, nftables.ChainHookForward)
+	m.chainFwFilter, m.chainFwFilter6 = m.createFilterChainWithHook(chainNameForwardFilter, nftables.ChainHookForward)
 	m.addJumpRulesToRtForward() // to
 	m.addMarkAccept()
 	m.addJumpRuleToInputChain() // to netbird-acl-input-rules
@@ -572,7 +606,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 
 	// netbird-acl-output-filter
 	// type filter hook output priority filter; policy accept;
-	m.chainPrerouting = m.createPreroutingMangle()
+	m.chainPrerouting, m.chainPrerouting6 = m.createPreroutingMangle()
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", m.chainPrerouting.Name, err)
@@ -601,6 +635,15 @@ func (m *AclManager) addJumpRulesToRtForward() {
 		Exprs: expressions,
 	})
 
+	if m.workTable6 != nil {
+
+		_ = m.rConn.AddRule(&nftables.Rule{
+			Table: m.workTable6,
+			Chain: m.chainFwFilter6,
+			Exprs: expressions,
+		})
+	}
+
 	expressions = []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
 		&expr.Cmp{
@@ -619,6 +662,14 @@ func (m *AclManager) addJumpRulesToRtForward() {
 		Chain: m.chainFwFilter,
 		Exprs: expressions,
 	})
+
+	if m.workTable6 != nil {
+		_ = m.rConn.AddRule(&nftables.Rule{
+			Table: m.workTable6,
+			Chain: m.chainFwFilter6,
+			Exprs: expressions,
+		})
+	}
 }
 
 func (m *AclManager) addMarkAccept() {
@@ -652,20 +703,38 @@ func (m *AclManager) addMarkAccept() {
 			Chain: m.chainFwFilter,
 			Exprs: expressions,
 		})
+
+		if m.workTable6 != nil {
+			_ = m.rConn.AddRule(&nftables.Rule{
+				Table: m.workTable6,
+				Chain: m.chainFwFilter6,
+				Exprs: expressions,
+			})
+		}
 	}
 }
 
-func (m *AclManager) createChain(name string) *nftables.Chain {
+func (m *AclManager) createChain(name string) (*nftables.Chain, *nftables.Chain) {
 	chain := &nftables.Chain{
 		Name:  name,
 		Table: m.workTable,
 	}
 
 	chain = m.rConn.AddChain(chain)
-	return chain
+
+	var chain6 *nftables.Chain = nil
+	if m.workTable6 != nil {
+		chain6 = &nftables.Chain{
+			Name:  name,
+			Table: m.workTable6,
+		}
+		chain6 = m.rConn.AddChain(chain6)
+	}
+
+	return chain, chain6
 }
 
-func (m *AclManager) createFilterChainWithHook(name string, hookNum nftables.ChainHook) *nftables.Chain {
+func (m *AclManager) createFilterChainWithHook(name string, hookNum nftables.ChainHook) (*nftables.Chain, *nftables.Chain) {
 	polAccept := nftables.ChainPolicyAccept
 	chain := &nftables.Chain{
 		Name:     name,
@@ -676,10 +745,23 @@ func (m *AclManager) createFilterChainWithHook(name string, hookNum nftables.Cha
 		Policy:   &polAccept,
 	}
 
-	return m.rConn.AddChain(chain)
+	var chain6 *nftables.Chain = nil
+	if m.workTable6 != nil {
+		chain6 = &nftables.Chain{
+			Name:     name,
+			Table:    m.workTable6,
+			Hooknum:  hookNum,
+			Priority: nftables.ChainPriorityFilter,
+			Type:     nftables.ChainTypeFilter,
+			Policy:   &polAccept,
+		}
+		chain6 = m.rConn.AddChain(chain6)
+	}
+
+	return m.rConn.AddChain(chain), chain6
 }
 
-func (m *AclManager) createPreroutingMangle() *nftables.Chain {
+func (m *AclManager) createPreroutingMangle() (*nftables.Chain, *nftables.Chain) {
 	polAccept := nftables.ChainPolicyAccept
 	chain := &nftables.Chain{
 		Name:     "netbird-acl-prerouting-filter",
@@ -745,7 +827,76 @@ func (m *AclManager) createPreroutingMangle() *nftables.Chain {
 		Exprs: expressions,
 	})
 	chain = m.rConn.AddChain(chain)
-	return chain
+
+	var chain6 *nftables.Chain = nil
+	if m.workTable6 != nil {
+		chain6 = &nftables.Chain{
+			Name:     "netbird-acl-prerouting-filter",
+			Table:    m.workTable,
+			Hooknum:  nftables.ChainHookPrerouting,
+			Priority: nftables.ChainPriorityMangle,
+			Type:     nftables.ChainTypeFilter,
+			Policy:   &polAccept,
+		}
+
+		chain6 = m.rConn.AddChain(chain)
+
+		ip, _ := netip.AddrFromSlice(m.wgIface.Address6().Network.IP.To16())
+		expressions := []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     ifname(m.wgIface.Name()),
+			},
+			&expr.Payload{
+				DestRegister: 2,
+				Base:         expr.PayloadBaseNetworkHeader,
+				Offset:       8,
+				Len:          16,
+			},
+			&expr.Bitwise{
+				SourceRegister: 2,
+				DestRegister:   2,
+				Len:            16,
+				Xor:            []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+				Mask:           m.wgIface.Address6().Network.Mask,
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpNeq,
+				Register: 2,
+				Data:     ip.Unmap().AsSlice(),
+			},
+			&expr.Payload{
+				DestRegister: 1,
+				Base:         expr.PayloadBaseNetworkHeader,
+				Offset:       24,
+				Len:          16,
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     m.wgIface.Address6().IP.To16(),
+			},
+			&expr.Immediate{
+				Register: 1,
+				Data:     postroutingMark,
+			},
+			&expr.Meta{
+				Key:            expr.MetaKeyMARK,
+				SourceRegister: true,
+				Register:       1,
+			},
+		}
+		_ = m.rConn.AddRule(&nftables.Rule{
+			Table: m.workTable6,
+			Chain: chain,
+			Exprs: expressions,
+		})
+		chain6 = m.rConn.AddChain(chain6)
+	}
+
+	return chain, chain6
 }
 
 func (m *AclManager) addDropExpressions(chain *nftables.Chain, ifaceKey expr.MetaKey) []expr.Any {
@@ -759,7 +910,7 @@ func (m *AclManager) addDropExpressions(chain *nftables.Chain, ifaceKey expr.Met
 		&expr.Verdict{Kind: expr.VerdictDrop},
 	}
 	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: m.workTable,
+		Table: chain.Table,
 		Chain: chain,
 		Exprs: expressions,
 	})
@@ -785,10 +936,45 @@ func (m *AclManager) addJumpRuleToInputChain() {
 		Chain: m.chainFwFilter,
 		Exprs: expressions,
 	})
+
+	if m.workTable6 != nil {
+		expressions = []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     ifname(m.wgIface.Name()),
+			},
+			&expr.Verdict{
+				Kind:  expr.VerdictJump,
+				Chain: m.chainInputRules6.Name,
+			},
+		}
+
+		_ = m.rConn.AddRule(&nftables.Rule{
+			Table: m.workTable6,
+			Chain: m.chainFwFilter6,
+			Exprs: expressions,
+		})
+	}
 }
 
 func (m *AclManager) addRouteAllowRule(chain *nftables.Chain, netIfName expr.MetaKey) {
 	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
+	addrLen := uint32(4)
+	srcAddrOffset := uint32(12)
+	dstAddrOffset := uint32(16)
+	mask := m.wgIface.Address().Network.Mask
+	nullArray := []byte{0x0, 0x0, 0x0, 0x0}
+	if chain.Table.Family == nftables.TableFamilyIPv6 {
+		ip, _ = netip.AddrFromSlice(m.wgIface.Address6().Network.IP.To16())
+		addrLen = 16
+		srcAddrOffset = 8
+		dstAddrOffset = 24
+		mask = m.wgIface.Address6().Network.Mask
+		nullArray = []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
+	}
+
 	var srcOp, dstOp expr.CmpOp
 	if netIfName == expr.MetaKeyIIFNAME {
 		srcOp = expr.CmpOpEq
@@ -807,15 +993,15 @@ func (m *AclManager) addRouteAllowRule(chain *nftables.Chain, netIfName expr.Met
 		&expr.Payload{
 			DestRegister: 2,
 			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       12,
-			Len:          4,
+			Offset:       srcAddrOffset,
+			Len:          addrLen,
 		},
 		&expr.Bitwise{
 			SourceRegister: 2,
 			DestRegister:   2,
-			Len:            4,
-			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-			Mask:           m.wgIface.Address().Network.Mask,
+			Len:            addrLen,
+			Xor:            nullArray,
+			Mask:           mask,
 		},
 		&expr.Cmp{
 			Op:       srcOp,
@@ -825,15 +1011,15 @@ func (m *AclManager) addRouteAllowRule(chain *nftables.Chain, netIfName expr.Met
 		&expr.Payload{
 			DestRegister: 2,
 			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       16,
-			Len:          4,
+			Offset:       dstAddrOffset,
+			Len:          addrLen,
 		},
 		&expr.Bitwise{
 			SourceRegister: 2,
 			DestRegister:   2,
-			Len:            4,
-			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-			Mask:           m.wgIface.Address().Network.Mask,
+			Len:            addrLen,
+			Xor:            nullArray,
+			Mask:           mask,
 		},
 		&expr.Cmp{
 			Op:       dstOp,
@@ -853,6 +1039,20 @@ func (m *AclManager) addRouteAllowRule(chain *nftables.Chain, netIfName expr.Met
 
 func (m *AclManager) addFwdAllow(chain *nftables.Chain, iifname expr.MetaKey) {
 	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
+	addrLen := uint32(4)
+	srcAddrOffset := uint32(12)
+	dstAddrOffset := uint32(16)
+	mask := m.wgIface.Address().Network.Mask
+	nullArray := []byte{0x0, 0x0, 0x0, 0x0}
+	if chain.Table.Family == nftables.TableFamilyIPv6 {
+		ip, _ = netip.AddrFromSlice(m.wgIface.Address6().Network.IP.To16())
+		addrLen = 16
+		srcAddrOffset = 8
+		dstAddrOffset = 24
+		mask = m.wgIface.Address6().Network.Mask
+		nullArray = []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
+	}
+
 	var srcOp, dstOp expr.CmpOp
 	if iifname == expr.MetaKeyIIFNAME {
 		srcOp = expr.CmpOpNeq
@@ -871,15 +1071,15 @@ func (m *AclManager) addFwdAllow(chain *nftables.Chain, iifname expr.MetaKey) {
 		&expr.Payload{
 			DestRegister: 2,
 			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       12,
-			Len:          4,
+			Offset:       srcAddrOffset,
+			Len:          addrLen,
 		},
 		&expr.Bitwise{
 			SourceRegister: 2,
 			DestRegister:   2,
-			Len:            4,
-			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-			Mask:           m.wgIface.Address().Network.Mask,
+			Len:            addrLen,
+			Xor:            nullArray,
+			Mask:           mask,
 		},
 		&expr.Cmp{
 			Op:       srcOp,
@@ -889,15 +1089,15 @@ func (m *AclManager) addFwdAllow(chain *nftables.Chain, iifname expr.MetaKey) {
 		&expr.Payload{
 			DestRegister: 2,
 			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       16,
-			Len:          4,
+			Offset:       dstAddrOffset,
+			Len:          addrLen,
 		},
 		&expr.Bitwise{
 			SourceRegister: 2,
 			DestRegister:   2,
-			Len:            4,
-			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-			Mask:           m.wgIface.Address().Network.Mask,
+			Len:            addrLen,
+			Xor:            nullArray,
+			Mask:           mask,
 		},
 		&expr.Cmp{
 			Op:       dstOp,
@@ -917,6 +1117,20 @@ func (m *AclManager) addFwdAllow(chain *nftables.Chain, iifname expr.MetaKey) {
 
 func (m *AclManager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr.MetaKey) {
 	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
+	addrLen := uint32(4)
+	srcAddrOffset := uint32(12)
+	dstAddrOffset := uint32(16)
+	mask := m.wgIface.Address().Network.Mask
+	nullArray := []byte{0x0, 0x0, 0x0, 0x0}
+	if chain.Table.Family == nftables.TableFamilyIPv6 {
+		ip, _ = netip.AddrFromSlice(m.wgIface.Address6().Network.IP.To16())
+		addrLen = 16
+		srcAddrOffset = 8
+		dstAddrOffset = 24
+		mask = m.wgIface.Address6().Network.Mask
+		nullArray = []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
+	}
+
 	expressions := []expr.Any{
 		&expr.Meta{Key: ifaceKey, Register: 1},
 		&expr.Cmp{
@@ -927,15 +1141,15 @@ func (m *AclManager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr
 		&expr.Payload{
 			DestRegister: 2,
 			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       12,
-			Len:          4,
+			Offset:       srcAddrOffset,
+			Len:          addrLen,
 		},
 		&expr.Bitwise{
 			SourceRegister: 2,
 			DestRegister:   2,
-			Len:            4,
-			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-			Mask:           m.wgIface.Address().Network.Mask,
+			Len:            addrLen,
+			Xor:            nullArray,
+			Mask:           mask,
 		},
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
@@ -945,15 +1159,15 @@ func (m *AclManager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr
 		&expr.Payload{
 			DestRegister: 2,
 			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       16,
-			Len:          4,
+			Offset:       dstAddrOffset,
+			Len:          addrLen,
 		},
 		&expr.Bitwise{
 			SourceRegister: 2,
 			DestRegister:   2,
-			Len:            4,
-			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-			Mask:           m.wgIface.Address().Network.Mask,
+			Len:            addrLen,
+			Xor:            nullArray,
+			Mask:           mask,
 		},
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
@@ -975,38 +1189,67 @@ func (m *AclManager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr
 func (m *AclManager) addIpToSet(ipsetName string, ip net.IP) (*nftables.Set, error) {
 	ipset, err := m.rConn.GetSetByName(m.workTable, ipsetName)
 	rawIP := ip.To4()
-	if err != nil {
-		if ipset, err = m.createSet(m.workTable, ipsetName); err != nil {
-			return nil, fmt.Errorf("get set name: %v", err)
+	ipsetType := nftables.TypeIPAddr
+	if rawIP == nil {
+		rawIP = ip.To16()
+		ipsetType = nftables.TypeIP6Addr
+	}
+	if ipsetType == nftables.TypeIPAddr {
+		if err != nil {
+			if ipset, err = m.createSet(m.workTable, ipsetName, ipsetType); err != nil {
+				return nil, fmt.Errorf("get set name: %v", err)
+			}
+
+			m.ipsetStore.newIpset(ipset.Name)
 		}
 
-		m.ipsetStore.newIpset(ipset.Name)
-	}
+		if m.ipsetStore.IsIpInSet(ipset.Name, ip) {
+			return ipset, nil
+		}
 
-	if m.ipsetStore.IsIpInSet(ipset.Name, ip) {
-		return ipset, nil
-	}
+		if err := m.sConn.SetAddElements(ipset, []nftables.SetElement{{Key: rawIP}}); err != nil {
+			return nil, fmt.Errorf("add set element for the first time: %v", err)
+		}
 
-	if err := m.sConn.SetAddElements(ipset, []nftables.SetElement{{Key: rawIP}}); err != nil {
-		return nil, fmt.Errorf("add set element for the first time: %v", err)
-	}
+		m.ipsetStore.AddIpToSet(ipset.Name, ip)
 
-	m.ipsetStore.AddIpToSet(ipset.Name, ip)
+		if err := m.sConn.Flush(); err != nil {
+			return nil, fmt.Errorf("flush add elements: %v", err)
+		}
+	} else {
+		if err != nil {
+			if ipset, err = m.createSet(m.workTable6, ipsetName, ipsetType); err != nil {
+				return nil, fmt.Errorf("get set name: %v", err)
+			}
 
-	if err := m.sConn.Flush(); err != nil {
-		return nil, fmt.Errorf("flush add elements: %v", err)
+			m.ipsetStore6.newIpset(ipset.Name)
+		}
+
+		if m.ipsetStore6.IsIpInSet(ipset.Name, ip) {
+			return ipset, nil
+		}
+
+		if err := m.sConn.SetAddElements(ipset, []nftables.SetElement{{Key: rawIP}}); err != nil {
+			return nil, fmt.Errorf("add set element for the first time: %v", err)
+		}
+
+		m.ipsetStore6.AddIpToSet(ipset.Name, ip)
+
+		if err := m.sConn.Flush(); err != nil {
+			return nil, fmt.Errorf("flush add elements: %v", err)
+		}
 	}
 
 	return ipset, nil
 }
 
 // createSet in given table by name
-func (m *AclManager) createSet(table *nftables.Table, name string) (*nftables.Set, error) {
+func (m *AclManager) createSet(table *nftables.Table, name string, ipsetType nftables.SetDatatype) (*nftables.Set, error) {
 	ipset := &nftables.Set{
 		Name:    name,
 		Table:   table,
 		Dynamic: true,
-		KeyType: nftables.TypeIPAddr,
+		KeyType: ipsetType,
 	}
 
 	if err := m.rConn.AddSet(ipset, nil); err != nil {

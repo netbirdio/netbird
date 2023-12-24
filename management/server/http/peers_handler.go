@@ -276,6 +276,8 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		Hostname:               peer.Meta.Hostname,
 		UserId:                 &peer.UserID,
 		UiVersion:              &peer.Meta.UIVersion,
+		Ipv6Supported:          peer.Meta.Ipv6Supported,
+		Ipv6Enabled:            peer.IP6 != nil,
 		DnsLabel:               fqdn(peer, dnsDomain),
 		LoginExpirationEnabled: peer.LoginExpirationEnabled,
 		LastLogin:              peer.LastLogin,
