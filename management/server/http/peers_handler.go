@@ -263,10 +263,16 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 }
 
 func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeersCount int) *api.PeerBatch {
+	var ip6 *string
+	if peer.IP6 != nil {
+		ip6string := peer.IP6.String()
+		ip6 = &ip6string
+	}
 	return &api.PeerBatch{
 		Id:                     peer.ID,
 		Name:                   peer.Name,
 		Ip:                     peer.IP.String(),
+		Ip6:                    ip6,
 		Connected:              peer.Status.Connected,
 		LastSeen:               peer.Status.LastSeen,
 		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, peer.Meta.Core),
