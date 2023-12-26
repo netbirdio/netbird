@@ -333,7 +333,7 @@ init_zitadel() {
   PROJECT_ID=$(create_new_project "$INSTANCE_URL" "$PAT")
 
   ZITADEL_DEV_MODE=false
-  BASE_REDIRECT_URL=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
+  BASE_REDIRECT_URL=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT
   if [[ $NETBIRD_HTTP_PROTOCOL == "http" ]]; then
     ZITADEL_DEV_MODE=true
   fi
@@ -402,29 +402,126 @@ read_nb_domain() {
   echo "$READ_NETBIRD_DOMAIN"
 }
 
+check_nb_port() {
+  HTTPS_PORT=$1
+  if [ "$HTTPS_PORT-x" == "-x" ]; then
+    echo "The NETBIRD_PORT variable cannot be empty." > /dev/stderr
+    return 1
+  fi
+  return 0
+}
+
+read_nb_port() {
+  READ_NETBIRD_PORT=""
+  echo -n "Enter the https port you want to use for NetBird (e.g. 443): " > /dev/stderr
+  read -r READ_NETBIRD_PORT < /dev/tty
+  if ! check_nb_port "$READ_NETBIRD_PORT"; then
+    read_nb_port
+  fi
+  echo "$READ_NETBIRD_PORT"
+}
+
+
+check_nb_http_port() {
+  HTTP_PORT=$1
+  if [ "$HTTP_PORT-x" == "-x" ]; then
+    echo "The NETBIRD_HTTP_PORT variable cannot be empty." > /dev/stderr
+    return 1
+  fi
+  return 0
+}
+
+read_nb_http_port() {
+  READ_NETBIRD_HTTP_PORT=""
+  echo -n "Enter the http port you want to use for NetBird (e.g. 80): " > /dev/stderr
+  read -r READ_NETBIRD_HTTP_PORT < /dev/tty
+  if ! check_nb_http_port "$READ_NETBIRD_HTTP_PORT"; then
+    read_nb_http_port
+  fi
+  echo "$READ_NETBIRD_HTTP_PORT"
+}
+
+check_nb_8080_port() {
+  PORT_8080=$1
+  if [ "$PORT_8080-x" == "-x" ]; then
+    echo "The NETBIRD_8080_PORT variable cannot be empty." > /dev/stderr
+    return 1
+  fi
+  return 0
+}
+
+read_nb_8080_port() {
+  READ_NETBIRD_8080_PORT=""
+  echo -n "Enter the NETBIRD_8080_PORT you want to use for NetBird (e.g. 8080): " > /dev/stderr
+  read -r READ_NETBIRD_8080_PORT < /dev/tty
+  if ! check_nb_8080_port "$READ_NETBIRD_8080_PORT"; then
+    read_nb_8080_port
+  fi
+  echo "$READ_NETBIRD_8080_PORT"
+}
+
+
+check_nb_3478_port() {
+  PORT_3478=$1
+  if [ "$PORT_3478-x" == "-x" ]; then
+    echo "The NETBIRD_3478_PORT variable cannot be empty." > /dev/stderr
+    return 1
+  fi
+  return 0
+}
+
+read_nb_3478_port() {
+  READ_NETBIRD_3478_PORT=""
+  echo -n "Enter the TURN_LISTENING_PORT you want to use for NetBird (e.g. 3478): " > /dev/stderr
+  read -r READ_NETBIRD_3478_PORT < /dev/tty
+  if ! check_nb_3478_port "$READ_NETBIRD_3478_PORT"; then
+    read_nb_3478_port
+  fi
+  echo "$READ_NETBIRD_3478_PORT"
+}
+
 initEnvironment() {
   CADDY_SECURE_DOMAIN=""
   ZITADEL_EXTERNALSECURE="false"
   ZITADEL_TLS_MODE="disabled"
   ZITADEL_MASTERKEY="$(openssl rand -base64 32 | head -c 32)"
-  NETBIRD_PORT=80
+  #NETBIRD_PORT=80
   NETBIRD_HTTP_PROTOCOL="http"
   TURN_USER="self"
   TURN_PASSWORD=$(openssl rand -base64 32 | sed 's/=//g')
   TURN_MIN_PORT=49152
   TURN_MAX_PORT=65535
+  #TURN_LISTENING_PORT=3478
 
   if ! check_nb_domain "$NETBIRD_DOMAIN"; then
     NETBIRD_DOMAIN=$(read_nb_domain)
   fi
 
+  if ! check_nb_http_port "$NETBIRD_HTTP_PORT"; then
+    NETBIRD_HTTP_PORT=$(read_nb_http_port)
+  fi
+
+  if ! check_nb_http_port "$NETBIRD_8080_PORT"; then
+    NETBIRD_8080_PORT=$(read_nb_8080_port)
+  fi
+
+  if ! check_nb_3478_port "$TURN_LISTENING_PORT"; then
+    TURN_LISTENING_PORT=$(read_nb_3478_port)
+  fi
+
   if [ "$NETBIRD_DOMAIN" == "use-ip" ]; then
     NETBIRD_DOMAIN=$(get_main_ip_address)
+	  NETBIRD_PORT=$NETBIRD_HTTP_PORT
   else
     ZITADEL_EXTERNALSECURE="true"
     ZITADEL_TLS_MODE="external"
-    NETBIRD_PORT=443
-    CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:$NETBIRD_PORT"
+    #NETBIRD_PORT=443
+
+    if ! check_nb_port "$NETBIRD_PORT"; then
+      NETBIRD_PORT=$(read_nb_port)
+    fi
+
+    CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:443"
     NETBIRD_HTTP_PROTOCOL="https"
   fi
 
@@ -527,6 +624,10 @@ renderCaddyfile() {
     }
 }
 
+$NETBIRD_DOMAIN {
+  tls /etc/caddy/ccerts/$NETBIRD_DOMAIN.pem /etc/caddy/ccerts/$NETBIRD_DOMAIN.key
+}
+
 :80${CADDY_SECURE_DOMAIN} {
     import security_headers
     # Signal
@@ -559,7 +660,7 @@ EOF
 
 renderTurnServerConf() {
   cat <<EOF
-listening-port=3478
+listening-port=$TURN_LISTENING_PORT
 tls-listening-port=5349
 min-port=$TURN_MIN_PORT
 max-port=$TURN_MAX_PORT
@@ -582,14 +683,14 @@ renderManagementJson() {
     "Stuns": [
         {
             "Proto": "udp",
-            "URI": "stun:$NETBIRD_DOMAIN:3478"
+            "URI": "stun:$NETBIRD_DOMAIN:$TURN_LISTENING_PORT"
         }
     ],
     "TURNConfig": {
         "Turns": [
             {
                 "Proto": "udp",
-                "URI": "turn:$NETBIRD_DOMAIN:3478",
+                "URI": "turn:$NETBIRD_DOMAIN:$TURN_LISTENING_PORT",
                 "Username": "$TURN_USER",
                 "Password": "$TURN_PASSWORD"
             }
@@ -603,7 +704,7 @@ renderManagementJson() {
     "HttpConfig": {
         "AuthIssuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN",
         "AuthAudience": "$NETBIRD_AUTH_CLIENT_ID",
-        "OIDCConfigEndpoint":"$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/.well-known/openid-configuration"
+        "OIDCConfigEndpoint":"$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT/.well-known/openid-configuration"
     },
     "IdpManagerConfig": {
         "ManagerType": "zitadel",
@@ -644,7 +745,7 @@ AUTH_SUPPORTED_SCOPES="openid profile email offline_access"
 AUTH_REDIRECT_URI=/nb-auth
 AUTH_SILENT_REDIRECT_URI=/nb-silent-auth
 # SSL
-NGINX_SSL_PORT=443
+NGINX_SSL_PORT=$NETBIRD_PORT
 # Letsencrypt
 LETSENCRYPT_DOMAIN=none
 EOF
@@ -686,12 +787,13 @@ services:
     restart: unless-stopped
     networks: [ netbird ]
     ports:
-      - '443:443'
-      - '80:80'
-      - '8080:8080'
+      - '$NETBIRD_PORT:443'
+      - '$NETBIRD_HTTP_PORT:80'
+      - '$NETBIRD_8080_PORT:8080'
     volumes:
       - netbird_caddy_data:/data
       - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./certs:/etc/caddy/ccerts
   #UI dashboard
   dashboard:
     image: wiretrustee/dashboard:latest
