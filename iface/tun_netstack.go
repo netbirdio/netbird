@@ -23,10 +23,11 @@ type tunNetstackDevice struct {
 	listenAddress string
 	iceBind       *bind.ICEBind
 
-	device  *device.Device
-	wrapper *DeviceWrapper
-	nsTun   *netstack.NetStackTun
-	udpMux  *bind.UniversalUDPMuxDefault
+	device     *device.Device
+	wrapper    *DeviceWrapper
+	nsTun      *netstack.NetStackTun
+	udpMux     *bind.UniversalUDPMuxDefault
+	configurer wgConfigurer
 }
 
 func newTunNetstackDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net, listenAddress string) wgTunDevice {
@@ -56,15 +57,15 @@ func (t *tunNetstackDevice) Create() (wgConfigurer, error) {
 		device.NewLogger(device.LogLevelSilent, "[netbird] "),
 	)
 
-	configurer := newWGUSPConfigurer(t.device)
-	err = configurer.configureInterface(t.key, t.port)
+	t.configurer = newWGUSPConfigurer(t.device, t.name)
+	err = t.configurer.configureInterface(t.key, t.port)
 	if err != nil {
 		_ = tunIface.Close()
 		return nil, err
 	}
 
 	log.Debugf("device has been created: %s", t.name)
-	return configurer, nil
+	return t.configurer, nil
 }
 
 func (t *tunNetstackDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
@@ -92,11 +93,15 @@ func (t *tunNetstackDevice) UpdateAddr(WGAddress) error {
 
 func (t *tunNetstackDevice) Close() error {
 	log.Debugf("close interface")
-	if t.nsTun == nil {
-		return nil
+	if t.configurer != nil {
+		t.configurer.close()
 	}
 
-	return t.nsTun.Close()
+	if t.nsTun != nil {
+		return t.nsTun.Close()
+	}
+
+	return nil
 }
 
 func (t *tunNetstackDevice) WgAddress() WGAddress {

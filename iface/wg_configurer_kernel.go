@@ -203,3 +203,6 @@ func (c *wgKernelConfigurer) configure(config wgtypes.Config) error {
 
 	return wg.ConfigureDevice(c.deviceName, config)
 }
+
+func (c *wgKernelConfigurer) close() {
+}

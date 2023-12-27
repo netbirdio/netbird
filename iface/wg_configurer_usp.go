@@ -4,23 +4,31 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"os"
+	"runtime"
 	"strings"
 	"time"
 
-	"golang.zx2c4.com/wireguard/device"
-
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 type wgUSPConfigurer struct {
-	device *device.Device
+	device     *device.Device
+	deviceName string
+
+	uapiListener net.Listener
 }
 
-func newWGUSPConfigurer(device *device.Device) wgConfigurer {
-	return &wgUSPConfigurer{
-		device: device,
+func newWGUSPConfigurer(device *device.Device, deviceName string) wgConfigurer {
+	wgCfg := &wgUSPConfigurer{
+		device:     device,
+		deviceName: deviceName,
 	}
+	wgCfg.startUAPI()
+	return wgCfg
 }
 
 func (c *wgUSPConfigurer) configureInterface(privateKey string, port int) error {
@@ -158,6 +166,50 @@ func (c *wgUSPConfigurer) removeAllowedIP(peerKey string, ip string) error {
 		return fmt.Errorf("allowedIP not found")
 	} else {
 		return c.device.IpcSet(output)
+	}
+}
+
+// startUAPI starts the UAPI listener for managing the WireGuard interface via external tool
+func (t *wgUSPConfigurer) startUAPI() {
+	uapiSock, err := ipc.UAPIOpen(t.deviceName)
+	if err != nil {
+		log.Errorf("failed to open uapi socket: %v", err)
+		return
+	}
+	log.Debugf("RUUNNN LISTEN API: %s", t.deviceName)
+
+	t.uapiListener, err = ipc.UAPIListen(t.deviceName, uapiSock)
+	if err != nil {
+		log.Errorf("failed to listen on uapi socket: %v", err)
+		return
+	}
+	go func(uapi net.Listener) {
+		for {
+			uapiConn, uapiErr := uapi.Accept()
+			if uapiErr != nil {
+				log.Traceln("uapi Accept failed with error: ", uapiErr)
+				return
+			}
+			go func() {
+				t.device.IpcHandle(uapiConn)
+			}()
+		}
+	}(t.uapiListener)
+}
+
+func (t *wgUSPConfigurer) close() {
+	if t.uapiListener != nil {
+		err := t.uapiListener.Close()
+		if err != nil {
+			log.Errorf("failed to close uapi listener: %v", err)
+		}
+	}
+
+	if runtime.GOOS == "linux" {
+		sockPath := "/var/run/wireguard/" + t.deviceName + ".sock"
+		if _, statErr := os.Stat(sockPath); statErr == nil {
+			_ = os.Remove(sockPath)
+		}
 	}
 }
 

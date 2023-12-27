@@ -22,9 +22,10 @@ type tunDevice struct {
 	mtu     int
 	iceBind *bind.ICEBind
 
-	device  *device.Device
-	wrapper *DeviceWrapper
-	udpMux  *bind.UniversalUDPMuxDefault
+	device     *device.Device
+	wrapper    *DeviceWrapper
+	udpMux     *bind.UniversalUDPMuxDefault
+	configurer wgConfigurer
 }
 
 func newTunDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net) wgTunDevice {
@@ -58,13 +59,14 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 		return nil, err
 	}
 
-	configurer := newWGUSPConfigurer(t.device)
-	err = configurer.configureInterface(t.key, t.port)
+	t.configurer = newWGUSPConfigurer(t.device, t.name)
+	err = t.configurer.configureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
+		t.configurer.close()
 		return nil, err
 	}
-	return configurer, nil
+	return t.configurer, nil
 }
 
 func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
@@ -88,6 +90,10 @@ func (t *tunDevice) UpdateAddr(address WGAddress) error {
 }
 
 func (t *tunDevice) Close() error {
+	if t.configurer != nil {
+		t.configurer.close()
+	}
+
 	if t.device != nil {
 		t.device.Close()
 		t.device = nil

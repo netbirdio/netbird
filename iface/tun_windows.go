@@ -26,6 +26,7 @@ type tunDevice struct {
 	nativeTunDevice *tun.NativeTun
 	wrapper         *DeviceWrapper
 	udpMux          *bind.UniversalUDPMuxDefault
+	configurer      wgConfigurer
 }
 
 func newTunDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net) wgTunDevice {
@@ -75,17 +76,21 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 		return nil, err
 	}
 
-	configurer := newWGUSPConfigurer(t.device)
-	err = configurer.configureInterface(t.key, t.port)
+	t.configurer = newWGUSPConfigurer(t.device, t.name)
+	err = t.configurer.configureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
+		t.configurer.close()
 		return nil, err
 	}
-
-	return configurer, nil
+	return t.configurer, nil
 }
 
 func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+	if t.configurer != nil {
+		t.configurer.close()
+	}
+
 	err := t.device.Up()
 	if err != nil {
 		return nil, err

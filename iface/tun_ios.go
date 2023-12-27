@@ -68,13 +68,14 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
-	configurer := newWGUSPConfigurer(t.device)
-	err = configurer.configureInterface(t.key, t.port)
+	t.configurer = newWGUSPConfigurer(t.device, t.name)
+	err = t.configurer.configureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
+		t.configurer.close()
 		return nil, err
 	}
-	return configurer, nil
+	return t.configurer, nil
 }
 
 func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
@@ -101,6 +102,10 @@ func (t *tunDevice) DeviceName() string {
 }
 
 func (t *tunDevice) Close() error {
+	if t.configurer != nil {
+		t.configurer.close()
+	}
+
 	if t.device != nil {
 		t.device.Close()
 		t.device = nil
