@@ -19,7 +19,6 @@ const (
 
 // WGIface represents a interface instance
 type WGIface struct {
-	wgPort        int
 	tun           wgTunDevice
 	userspaceBind bool
 	mu            sync.Mutex

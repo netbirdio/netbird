@@ -2,14 +2,12 @@ package iface
 
 import (
 	"fmt"
-	"net"
 	"net/netip"
 
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 
@@ -138,9 +136,4 @@ func (t *tunDevice) assignAddr() error {
 	luid := winipcfg.LUID(t.nativeTunDevice.LUID())
 	log.Debugf("adding address %s to interface: %s", t.address.IP, t.name)
 	return luid.SetIPAddresses([]netip.Prefix{netip.MustParsePrefix(t.address.String())})
-}
-
-// getUAPI returns a Listener
-func (t *tunDevice) getUAPI(iface string) (net.Listener, error) {
-	return ipc.UAPIListen(iface)
 }

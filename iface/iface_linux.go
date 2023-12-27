@@ -19,9 +19,7 @@ func NewWGIFace(ctx context.Context, iFaceName string, address string, wgPort in
 		return nil, err
 	}
 
-	wgIFace := &WGIface{
-		wgPort: wgPort,
-	}
+	wgIFace := &WGIface{}
 
 	// move the kernel/usp/netstack preference evaluation to upper layer
 	if netstack.IsEnabled() {
