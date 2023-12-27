@@ -22,6 +22,7 @@ type tunUSPDevice struct {
 
 	device  *device.Device
 	wrapper *DeviceWrapper
+	udpMux  *bind.UniversalUDPMuxDefault
 }
 
 func newTunUSPDevice(name string, address WGAddress, mtu int, transportNet transport.Net) wgTunDevice {
@@ -59,6 +60,13 @@ func (t *tunUSPDevice) Create() (wgConfigurer, error) {
 		return nil, err
 	}
 
+	udpMux, err := t.iceBind.GetICEMux()
+	if err != nil {
+		_ = tunIface.Close()
+		return nil, err
+	}
+	t.udpMux = udpMux
+
 	configurer := newWGUSPConfigurer(t.device)
 
 	log.Debugf("device is ready to use: %s", t.name)
@@ -70,6 +78,15 @@ func (t *tunUSPDevice) UpdateAddr(address WGAddress) error {
 	return t.assignAddr()
 }
 
+func (t *tunUSPDevice) Close() error {
+	if t.device == nil {
+		return nil
+	}
+
+	t.device.Close()
+	return t.udpMux.Close()
+}
+
 func (t *tunUSPDevice) WgAddress() WGAddress {
 	return t.address
 }
@@ -78,19 +95,12 @@ func (t *tunUSPDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *tunUSPDevice) IceBind() *bind.ICEBind {
-	return t.iceBind
-}
-
 func (t *tunUSPDevice) Wrapper() *DeviceWrapper {
 	return t.wrapper
 }
 
-func (t *tunUSPDevice) Close() error {
-	if t.device != nil {
-		t.device.Close()
-	}
-	return nil
+func (t *tunUSPDevice) UdpMux() *bind.UniversalUDPMuxDefault {
+	return t.udpMux
 }
 
 // assignAddr Adds IP address to the tunnel interface

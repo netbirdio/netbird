@@ -22,6 +22,7 @@ type tunDevice struct {
 
 	device  *device.Device
 	wrapper *DeviceWrapper
+	udpMux  *bind.UniversalUDPMuxDefault
 }
 
 func newTunDevice(name string, address WGAddress, mtu int, transportNet transport.Net) wgTunDevice {
@@ -58,6 +59,13 @@ func (c *tunDevice) Create() (wgConfigurer, error) {
 		return nil, err
 	}
 
+	udpMux, err := c.iceBind.GetICEMux()
+	if err != nil {
+		c.device.Close()
+		return nil, err
+	}
+	c.udpMux = udpMux
+
 	log.Debugf("device is ready to use: %s", c.name)
 	configurer := newWGUSPConfigurer(c.device)
 	return configurer, nil
@@ -68,11 +76,13 @@ func (c *tunDevice) UpdateAddr(address WGAddress) error {
 	return c.assignAddr()
 }
 
-func (c *tunDevice) Close() error {
-	if c.device != nil {
-		c.device.Close()
+func (t *tunDevice) Close() error {
+	if t.device == nil {
+		return nil
 	}
-	return nil
+
+	t.device.Close()
+	return t.udpMux.Close()
 }
 
 func (c *tunDevice) WgAddress() WGAddress {
@@ -83,12 +93,12 @@ func (c *tunDevice) DeviceName() string {
 	return c.name
 }
 
-func (c *tunDevice) IceBind() *bind.ICEBind {
-	return c.iceBind
-}
-
 func (c *tunDevice) Wrapper() *DeviceWrapper {
 	return c.wrapper
+}
+
+func (t *tunDevice) UdpMux() *bind.UniversalUDPMuxDefault {
+	return t.udpMux
 }
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided

@@ -1,6 +1,7 @@
 package iface
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/pion/transport/v2"
@@ -9,7 +10,7 @@ import (
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
-func NewWGIFace(iFaceName string, address string, mtu int, transportNet transport.Net, args *MobileIFaceArguments) (*WGIface, error) {
+func NewWGIFace(ctx context.Context, iFaceName string, address string, wgPort int, mtu int, transportNet transport.Net, args *MobileIFaceArguments) (*WGIface, error) {
 	wgAddress, err := parseWGAddress(address)
 	if err != nil {
 		return nil, err

@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/iface/bind"
-
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/iface/bind"
 )
 
 const (
@@ -19,24 +19,18 @@ const (
 
 // WGIface represents a interface instance
 type WGIface struct {
+	wgPort        int
 	tun           wgTunDevice
-	configurer    wgConfigurer
-	mu            sync.Mutex
 	userspaceBind bool
-	filter        PacketFilter
+	mu            sync.Mutex
+
+	configurer wgConfigurer
+	filter     PacketFilter
 }
 
 // IsUserspaceBind indicates whether this interfaces is userspace with bind.ICEBind
 func (w *WGIface) IsUserspaceBind() bool {
 	return w.userspaceBind
-}
-
-// GetBind returns a userspace implementation of WireGuard Bind interface
-func (w *WGIface) GetBind() *bind.ICEBind {
-	if !w.userspaceBind {
-		return nil
-	}
-	return w.tun.IceBind()
 }
 
 // Name returns the interface name
@@ -145,4 +139,8 @@ func (w *WGIface) GetDevice() *DeviceWrapper {
 	defer w.mu.Unlock()
 
 	return w.tun.Wrapper()
+}
+
+func (w *WGIface) GetUdpMux() *bind.UniversalUDPMuxDefault {
+	return w.tun.UdpMux()
 }

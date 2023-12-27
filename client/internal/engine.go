@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"io"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -32,7 +31,6 @@ import (
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/route"
-	"github.com/netbirdio/netbird/sharedsock"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/util"
@@ -107,8 +105,7 @@ type Engine struct {
 	wgInterface    *iface.WGIface
 	wgProxyFactory *wgproxy.Factory
 
-	udpMux     *bind.UniversalUDPMuxDefault
-	udpMuxConn io.Closer
+	udpMux *bind.UniversalUDPMuxDefault
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
@@ -204,7 +201,7 @@ func (e *Engine) Start() error {
 	default:
 	}
 
-	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, transportNet, mArgs)
+	e.wgInterface, err = iface.NewWGIFace(e.ctx, wgIFaceName, wgAddr, e.config.WgPort, iface.DefaultMTU, transportNet, mArgs)
 	if err != nil {
 		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIFaceName, err.Error())
 		return err
@@ -274,26 +271,7 @@ func (e *Engine) Start() error {
 		e.close()
 		return err
 	}
-
-	if e.wgInterface.IsUserspaceBind() {
-		iceBind := e.wgInterface.GetBind()
-		udpMux, err := iceBind.GetICEMux()
-		if err != nil {
-			e.close()
-			return err
-		}
-		e.udpMux = udpMux
-		log.Infof("using userspace bind mode %s", udpMux.LocalAddr().String())
-	} else {
-		rawSock, err := sharedsock.Listen(e.config.WgPort, sharedsock.NewIncomingSTUNFilter())
-		if err != nil {
-			return err
-		}
-		mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: rawSock, Net: transportNet})
-		go mux.ReadFromConn(e.ctx)
-		e.udpMuxConn = rawSock
-		e.udpMux = mux
-	}
+	e.udpMux = e.wgInterface.GetUdpMux()
 
 	if e.firewall != nil {
 		e.acl = acl.NewDefaultManager(e.firewall)
@@ -1049,18 +1027,6 @@ func (e *Engine) close() {
 	if e.wgInterface != nil {
 		if err := e.wgInterface.Close(); err != nil {
 			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
-		}
-	}
-
-	if e.udpMux != nil {
-		if err := e.udpMux.Close(); err != nil {
-			log.Debugf("close udp mux: %v", err)
-		}
-	}
-
-	if e.udpMuxConn != nil {
-		if err := e.udpMuxConn.Close(); err != nil {
-			log.Debugf("close udp mux connection: %v", err)
 		}
 	}
 

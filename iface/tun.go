@@ -3,7 +3,9 @@
 
 package iface
 
-import "github.com/netbirdio/netbird/iface/bind"
+import (
+	"github.com/netbirdio/netbird/iface/bind"
+)
 
 type wgTunDevice interface {
 	Create() (wgConfigurer, error)
@@ -11,6 +13,6 @@ type wgTunDevice interface {
 	WgAddress() WGAddress
 	DeviceName() string
 	Close() error
-	IceBind() *bind.ICEBind  // todo eliminate this function
 	Wrapper() *DeviceWrapper // todo eliminate this function
+	UdpMux() *bind.UniversalUDPMuxDefault
 }

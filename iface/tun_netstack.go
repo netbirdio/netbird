@@ -1,3 +1,6 @@
+//go:build !android
+// +build !android
+
 package iface
 
 import (
@@ -19,6 +22,7 @@ type tunNetstackDevice struct {
 	device  *device.Device
 	wrapper *DeviceWrapper
 	nsTun   *netstack.NetStackTun
+	udpMux  *bind.UniversalUDPMuxDefault
 }
 
 func newTunNetstackDevice(name string, address WGAddress, mtu int, transportNet transport.Net, listenAddress string) wgTunDevice {
@@ -46,6 +50,13 @@ func (t *tunNetstackDevice) Create() (wgConfigurer, error) {
 		device.NewLogger(device.LogLevelSilent, "[netbird] "),
 	)
 
+	udpMux, err := t.iceBind.GetICEMux()
+	if err != nil {
+		_ = tunIface.Close()
+		return nil, err
+	}
+	t.udpMux = udpMux
+
 	configurer := newWGUSPConfigurer(t.device)
 
 	log.Debugf("device is ready to use: %s", t.name)
@@ -57,10 +68,12 @@ func (t *tunNetstackDevice) UpdateAddr(WGAddress) error {
 }
 
 func (t *tunNetstackDevice) Close() error {
-	if t.device != nil {
-		t.device.Close()
+	if t.device == nil {
+		return nil
 	}
-	return nil
+
+	t.device.Close()
+	return t.udpMux.Close()
 }
 
 func (t *tunNetstackDevice) WgAddress() WGAddress {
@@ -77,4 +90,8 @@ func (t *tunNetstackDevice) IceBind() *bind.ICEBind {
 
 func (t *tunNetstackDevice) Wrapper() *DeviceWrapper {
 	return t.wrapper
+}
+
+func (t *tunNetstackDevice) UdpMux() *bind.UniversalUDPMuxDefault {
+	return t.udpMux
 }

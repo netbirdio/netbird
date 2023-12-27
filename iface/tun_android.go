@@ -25,6 +25,7 @@ type wgTunDevice struct {
 	name    string
 	device  *device.Device
 	wrapper *DeviceWrapper
+	udpMux  *bind.UniversalUDPMuxDefault
 }
 
 func newTunDevice(address WGAddress, mtu int, transportNet transport.Net, tunAdapter TunAdapter) wgTunDevice {
@@ -69,6 +70,13 @@ func (t *wgTunDevice) Create(routes []string, dns string, searchDomains []string
 		return nil, err
 	}
 
+	udpMux, err := t.iceBind.GetICEMux()
+	if err != nil {
+		t.device.Close()
+		return nil, err
+	}
+	t.udpMux = udpMux
+
 	configurer := newWGUSPConfigurer(t.device)
 
 	log.Debugf("device is ready to use: %s", name)
@@ -80,11 +88,13 @@ func (t *wgTunDevice) UpdateAddr(addr WGAddress) error {
 	return nil
 }
 
-func (t *wgTunDevice) Close() (err error) {
-	if t.device != nil {
-		t.device.Close()
+func (t *wgTunDevice) Close() error {
+	if t.device == nil {
+		return nil
 	}
-	return
+
+	t.device.Close()
+	return t.udpMux.Close()
 }
 
 func (t *wgTunDevice) Device() *device.Device {
@@ -99,12 +109,12 @@ func (t *wgTunDevice) WgAddress() WGAddress {
 	return t.address
 }
 
-func (t *wgTunDevice) IceBind() *bind.ICEBind {
-	return t.iceBind
-}
-
 func (t *wgTunDevice) Wrapper() *DeviceWrapper {
 	return t.wrapper
+}
+
+func (t *wgTunDevice) UdpMux() *bind.UniversalUDPMuxDefault {
+	return t.udpMux
 }
 
 func routesToString(routes []string) string {

@@ -3,6 +3,8 @@
 
 package iface
 
+import log "github.com/sirupsen/logrus"
+
 // Create creates a new Wireguard interface, sets a given IP and brings it up.
 // Will reuse an existing one.
 // this function is different on Android
@@ -14,6 +16,8 @@ func (w *WGIface) Create() error {
 	if err != nil {
 		return err
 	}
+	log.Infof("using userspace bind mode: %s", w.tun.UdpMux().LocalAddr().String())
+
 	w.configurer = cfgr
 	return nil
 }
