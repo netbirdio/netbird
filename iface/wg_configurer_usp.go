@@ -176,7 +176,6 @@ func (t *wgUSPConfigurer) startUAPI() {
 		log.Errorf("failed to open uapi socket: %v", err)
 		return
 	}
-	log.Debugf("RUUNNN LISTEN API: %s", t.deviceName)
 
 	t.uapiListener, err = ipc.UAPIListen(t.deviceName, uapiSock)
 	if err != nil {
