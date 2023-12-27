@@ -26,7 +26,7 @@ func NewNetStackTun(listenAddress string, address string, mtu int) *NetStackTun 
 func (t *NetStackTun) Create() (tun.Device, error) {
 	nsTunDev, tunNet, err := netstack.CreateNetTUN(
 		[]netip.Addr{netip.MustParseAddr(t.address)},
-		[]netip.Addr{netip.MustParseAddr("100.72.255.254")}, // todo remove hardcoded address
+		[]netip.Addr{},
 		t.mtu)
 	if err != nil {
 		return nil, err
@@ -35,7 +35,7 @@ func (t *NetStackTun) Create() (tun.Device, error) {
 	dialer := NewNSDialer(tunNet)
 	t.proxy, err = NewSocks5(dialer)
 	if err != nil {
-		// close nsTunDev
+		// todo close nsTunDev
 		return nil, err
 	}
 
