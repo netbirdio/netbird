@@ -17,6 +17,8 @@ import (
 type tunDevice struct {
 	name    string
 	address WGAddress
+	port    int
+	key     string
 	mtu     int
 	iceBind *bind.ICEBind
 
@@ -26,10 +28,12 @@ type tunDevice struct {
 	udpMux          *bind.UniversalUDPMuxDefault
 }
 
-func newTunDevice(name string, address WGAddress, mtu int, transportNet transport.Net) wgTunDevice {
+func newTunDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net) wgTunDevice {
 	return &tunDevice{
 		name:    name,
 		address: address,
+		port:    port,
+		key:     key,
 		mtu:     mtu,
 		iceBind: bind.NewICEBind(transportNet),
 	}
@@ -49,11 +53,6 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 		t.iceBind,
 		device.NewLogger(device.LogLevelSilent, "[netbird] "),
 	)
-	err = t.device.Up()
-	if err != nil {
-		t.device.Close()
-		return nil, err
-	}
 
 	luid := winipcfg.LUID(t.nativeTunDevice.LUID())
 
@@ -76,16 +75,29 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 		return nil, err
 	}
 
-	udpMux, err := t.iceBind.GetICEMux()
+	configurer := newWGUSPConfigurer(t.device)
+	err = configurer.configureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
 		return nil, err
 	}
-	t.udpMux = udpMux
 
-	log.Debugf("device is ready to use: %s", t.name)
-	configurer := newWGUSPConfigurer(t.device)
 	return configurer, nil
+}
+
+func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+	err := t.device.Up()
+	if err != nil {
+		return nil, err
+	}
+
+	udpMux, err := t.iceBind.GetICEMux()
+	if err != nil {
+		return nil, err
+	}
+	t.udpMux = udpMux
+	log.Debugf("device is ready to use: %s", t.name)
+	return udpMux, nil
 }
 
 func (t *tunDevice) UpdateAddr(address WGAddress) error {
@@ -99,6 +111,7 @@ func (t *tunDevice) Close() error {
 	}
 
 	t.device.Close()
+	t.device = nil
 	return t.udpMux.Close()
 }
 
@@ -112,10 +125,6 @@ func (t *tunDevice) DeviceName() string {
 
 func (t *tunDevice) Wrapper() *DeviceWrapper {
 	return t.wrapper
-}
-
-func (t *tunDevice) UdpMux() *bind.UniversalUDPMuxDefault {
-	return t.udpMux
 }
 
 func (t *tunDevice) getInterfaceGUIDString() (string, error) {

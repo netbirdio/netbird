@@ -4,6 +4,7 @@ package iface
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 
@@ -19,8 +20,10 @@ type tunKernelDevice struct {
 	name         string
 	address      WGAddress
 	wgPort       int
+	key          string
 	mtu          int
 	ctx          context.Context
+	ctxCancel    context.CancelFunc
 	transportNet transport.Net
 
 	link       *wgLink
@@ -28,12 +31,15 @@ type tunKernelDevice struct {
 	udpMux     *bind.UniversalUDPMuxDefault
 }
 
-func newTunDevice(ctx context.Context, name string, address WGAddress, wgPort int, mtu int, transportNet transport.Net) wgTunDevice {
+func newTunDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net) wgTunDevice {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &tunKernelDevice{
 		ctx:          ctx,
+		ctxCancel:    cancel,
 		name:         name,
 		address:      address,
 		wgPort:       wgPort,
+		key:          key,
 		mtu:          mtu,
 		transportNet: transportNet,
 	}
@@ -84,17 +90,32 @@ func (t *tunKernelDevice) Create() (wgConfigurer, error) {
 		return nil, err
 	}
 
-	log.Debugf("bringing up interface: %s", t.name)
-	err = netlink.LinkSetUp(link)
+	configurer := newWGConfigurer(t.name)
+	err = configurer.configureInterface(t.key, t.wgPort)
 	if err != nil {
-		_ = link.Close()
+		return nil, err
+	}
+	return configurer, nil
+}
+
+func (t *tunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+	if t.udpMux != nil {
+		return t.udpMux, nil
+	}
+
+	if t.link == nil {
+		return nil, fmt.Errorf("device is not ready yet")
+	}
+
+	log.Debugf("bringing up interface: %s", t.name)
+	err := netlink.LinkSetUp(t.link)
+	if err != nil {
 		log.Errorf("error bringing up interface: %s", t.name)
 		return nil, err
 	}
 
 	rawSock, err := sharedsock.Listen(t.wgPort, sharedsock.NewIncomingSTUNFilter())
 	if err != nil {
-		_ = link.Close()
 		return nil, err
 	}
 	bindParams := bind.UniversalUDPMuxParams{
@@ -106,8 +127,8 @@ func (t *tunKernelDevice) Create() (wgConfigurer, error) {
 	t.udpMuxConn = rawSock
 	t.udpMux = mux
 
-	configurer := newWGConfigurer(t.name)
-	return configurer, nil
+	log.Debugf("device is ready to use: %s", t.name)
+	return t.udpMux, nil
 }
 
 func (t *tunKernelDevice) UpdateAddr(address WGAddress) error {
@@ -120,20 +141,24 @@ func (t *tunKernelDevice) Close() error {
 		return nil
 	}
 
+	t.ctxCancel()
+
 	var closErr error
 	if err := t.link.Close(); err != nil {
 		log.Debugf("failed to close link: %s", err)
 		closErr = err
 	}
 
-	if err := t.udpMux.Close(); err != nil {
-		log.Debugf("failed to close udp mux: %s", err)
-		closErr = err
-	}
+	if t.udpMux != nil {
+		if err := t.udpMux.Close(); err != nil {
+			log.Debugf("failed to close udp mux: %s", err)
+			closErr = err
+		}
 
-	if err := t.udpMuxConn.Close(); err != nil {
-		log.Debugf("failed to close udp mux connection: %s", err)
-		closErr = err
+		if err := t.udpMuxConn.Close(); err != nil {
+			log.Debugf("failed to close udp mux connection: %s", err)
+			closErr = err
+		}
 	}
 
 	return closErr
@@ -153,10 +178,6 @@ func (t *tunKernelDevice) IceBind() *bind.ICEBind {
 
 func (t *tunKernelDevice) Wrapper() *DeviceWrapper {
 	return nil
-}
-
-func (t *tunKernelDevice) UdpMux() *bind.UniversalUDPMuxDefault {
-	return t.udpMux
 }
 
 // assignAddr Adds IP address to the tunnel interface

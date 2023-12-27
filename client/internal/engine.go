@@ -201,7 +201,7 @@ func (e *Engine) Start() error {
 	default:
 	}
 
-	e.wgInterface, err = iface.NewWGIFace(e.ctx, wgIFaceName, wgAddr, e.config.WgPort, iface.DefaultMTU, transportNet, mArgs)
+	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, e.config.WgPort, myPrivateKey.String(), iface.DefaultMTU, transportNet, mArgs)
 	if err != nil {
 		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIFaceName, err.Error())
 		return err
@@ -265,13 +265,12 @@ func (e *Engine) Start() error {
 		}
 	}
 
-	err = e.wgInterface.Configure(myPrivateKey.String(), e.config.WgPort)
+	e.udpMux, err = e.wgInterface.Up()
 	if err != nil {
-		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIFaceName, err.Error())
+		log.Errorf("failed to pull up wgInterface [%s]: %s", wgIFaceName, err.Error())
 		e.close()
 		return err
 	}
-	e.udpMux = e.wgInterface.GetUdpMux()
 
 	if e.firewall != nil {
 		e.acl = acl.NewDefaultManager(e.firewall)

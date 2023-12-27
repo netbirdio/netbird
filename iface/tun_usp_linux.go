@@ -3,6 +3,7 @@
 package iface
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/pion/transport/v3"
@@ -17,6 +18,8 @@ import (
 type tunUSPDevice struct {
 	name    string
 	address WGAddress
+	port    int
+	key     string
 	mtu     int
 	iceBind *bind.ICEBind
 
@@ -25,10 +28,13 @@ type tunUSPDevice struct {
 	udpMux  *bind.UniversalUDPMuxDefault
 }
 
-func newTunUSPDevice(name string, address WGAddress, mtu int, transportNet transport.Net) wgTunDevice {
+func newTunUSPDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net) wgTunDevice {
+	log.Infof("using userspace bind mode")
 	return &tunUSPDevice{
 		name:    name,
 		address: address,
+		port:    port,
+		key:     key,
 		mtu:     mtu,
 		iceBind: bind.NewICEBind(transportNet),
 	}
@@ -48,11 +54,6 @@ func (t *tunUSPDevice) Create() (wgConfigurer, error) {
 		t.iceBind,
 		device.NewLogger(device.LogLevelSilent, "[netbird] "),
 	)
-	err = t.device.Up()
-	if err != nil {
-		_ = tunIface.Close()
-		return nil, err
-	}
 
 	err = t.assignAddr()
 	if err != nil {
@@ -60,17 +61,34 @@ func (t *tunUSPDevice) Create() (wgConfigurer, error) {
 		return nil, err
 	}
 
+	configurer := newWGUSPConfigurer(t.device)
+	err = configurer.configureInterface(t.key, t.port)
+	if err != nil {
+		t.device.Close()
+		return nil, err
+	}
+
+	return configurer, nil
+}
+
+func (t *tunUSPDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+	if t.device == nil {
+		return nil, fmt.Errorf("device is not ready yet")
+	}
+
+	err := t.device.Up()
+	if err != nil {
+		return nil, err
+	}
+
 	udpMux, err := t.iceBind.GetICEMux()
 	if err != nil {
-		_ = tunIface.Close()
 		return nil, err
 	}
 	t.udpMux = udpMux
 
-	configurer := newWGUSPConfigurer(t.device)
-
 	log.Debugf("device is ready to use: %s", t.name)
-	return configurer, nil
+	return udpMux, nil
 }
 
 func (t *tunUSPDevice) UpdateAddr(address WGAddress) error {
@@ -79,12 +97,14 @@ func (t *tunUSPDevice) UpdateAddr(address WGAddress) error {
 }
 
 func (t *tunUSPDevice) Close() error {
-	if t.device == nil {
-		return nil
+	if t.device != nil {
+		t.device.Close()
 	}
 
-	t.device.Close()
-	return t.udpMux.Close()
+	if t.udpMux != nil {
+		return t.udpMux.Close()
+	}
+	return nil
 }
 
 func (t *tunUSPDevice) WgAddress() WGAddress {
@@ -97,10 +117,6 @@ func (t *tunUSPDevice) DeviceName() string {
 
 func (t *tunUSPDevice) Wrapper() *DeviceWrapper {
 	return t.wrapper
-}
-
-func (t *tunUSPDevice) UdpMux() *bind.UniversalUDPMuxDefault {
-	return t.udpMux
 }
 
 // assignAddr Adds IP address to the tunnel interface

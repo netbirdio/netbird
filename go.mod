@@ -30,7 +30,6 @@ require (
 require (
 	fyne.io/fyne/v2 v2.1.4
 	github.com/TheJumpCloud/jcapi-go v3.0.0+incompatible
-	github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5
 	github.com/c-robinson/iplib v1.0.3
 	github.com/cilium/ebpf v0.10.0
 	github.com/coreos/go-iptables v0.7.0
@@ -63,6 +62,7 @@ require (
 	github.com/rs/xid v1.3.0
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/stretchr/testify v1.8.4
+	github.com/things-go/go-socks5 v0.0.4
 	github.com/yusufpapurcu/wmi v1.2.3
 	go.opentelemetry.io/otel v1.11.1
 	go.opentelemetry.io/otel/exporters/prometheus v0.33.0

@@ -18,6 +18,8 @@ import (
 // ignore the wgTunDevice interface on Android because the creation of the tun device is different on this platform
 type wgTunDevice struct {
 	address    WGAddress
+	port       int
+	key        string
 	mtu        int
 	iceBind    *bind.ICEBind
 	tunAdapter TunAdapter
@@ -28,9 +30,11 @@ type wgTunDevice struct {
 	udpMux  *bind.UniversalUDPMuxDefault
 }
 
-func newTunDevice(address WGAddress, mtu int, transportNet transport.Net, tunAdapter TunAdapter) wgTunDevice {
+func newTunDevice(address WGAddress, port int, key string, mtu int, transportNet transport.Net, tunAdapter TunAdapter) wgTunDevice {
 	return wgTunDevice{
 		address:    address,
+		port:       port,
+		key:        key,
 		mtu:        mtu,
 		iceBind:    bind.NewICEBind(transportNet),
 		tunAdapter: tunAdapter,
@@ -64,23 +68,27 @@ func (t *wgTunDevice) Create(routes []string, dns string, searchDomains []string
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
-	err = t.device.Up()
+	configurer := newWGUSPConfigurer(t.device)
+	err = configurer.configureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
+		return nil, err
+	}
+	return configurer, nil
+}
+func (t *wgTunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+	err := t.device.Up()
+	if err != nil {
 		return nil, err
 	}
 
 	udpMux, err := t.iceBind.GetICEMux()
 	if err != nil {
-		t.device.Close()
 		return nil, err
 	}
 	t.udpMux = udpMux
-
-	configurer := newWGUSPConfigurer(t.device)
-
-	log.Debugf("device is ready to use: %s", name)
-	return configurer, nil
+	log.Debugf("device is ready to use: %s", t.name)
+	return udpMux, nil
 }
 
 func (t *wgTunDevice) UpdateAddr(addr WGAddress) error {
@@ -94,6 +102,7 @@ func (t *wgTunDevice) Close() error {
 	}
 
 	t.device.Close()
+	t.device = nil
 	return t.udpMux.Close()
 }
 
@@ -111,10 +120,6 @@ func (t *wgTunDevice) WgAddress() WGAddress {
 
 func (t *wgTunDevice) Wrapper() *DeviceWrapper {
 	return t.wrapper
-}
-
-func (t *wgTunDevice) UdpMux() *bind.UniversalUDPMuxDefault {
-	return t.udpMux
 }
 
 func routesToString(routes []string) string {

@@ -4,7 +4,6 @@
 package iface
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/pion/transport/v3"
@@ -13,7 +12,7 @@ import (
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
-func NewWGIFace(ctx context.Context, iFaceName string, address string, wgPort int, mtu int, transportNet transport.Net, args *MobileIFaceArguments) (*WGIface, error) {
+func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, mtu int, transportNet transport.Net, args *MobileIFaceArguments) (*WGIface, error) {
 	wgAddress, err := parseWGAddress(address)
 	if err != nil {
 		return nil, err
@@ -22,12 +21,12 @@ func NewWGIFace(ctx context.Context, iFaceName string, address string, wgPort in
 	wgIFace := &WGIface{}
 
 	if netstack.IsEnabled() {
-		wgIFace.tun = newTunNetstackDevice(iFaceName, wgAddress, wgPort, transportNet, netstack.ListenAddr())
+		wgIFace.tun = newTunNetstackDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, transportNet, netstack.ListenAddr())
 		wgIFace.userspaceBind = true
 		return wgIFace, nil
 	}
 
-	wgIFace.tun = newTunDevice(iFaceName, wgAddress, wgPort, transportNet)
+	wgIFace.tun = newTunDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, transportNet)
 	wgIFace.userspaceBind = false
 
 	return wgIFace, nil

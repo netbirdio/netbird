@@ -4,6 +4,8 @@
 package iface
 
 import (
+	"fmt"
+
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/device"
@@ -15,6 +17,8 @@ import (
 type tunNetstackDevice struct {
 	name          string
 	address       WGAddress
+	port          int
+	key           string
 	mtu           int
 	listenAddress string
 	iceBind       *bind.ICEBind
@@ -25,10 +29,12 @@ type tunNetstackDevice struct {
 	udpMux  *bind.UniversalUDPMuxDefault
 }
 
-func newTunNetstackDevice(name string, address WGAddress, mtu int, transportNet transport.Net, listenAddress string) wgTunDevice {
+func newTunNetstackDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net, listenAddress string) wgTunDevice {
 	return &tunNetstackDevice{
 		name:          name,
 		address:       address,
+		port:          wgPort,
+		key:           key,
 		mtu:           mtu,
 		listenAddress: listenAddress,
 		iceBind:       bind.NewICEBind(transportNet),
@@ -50,17 +56,34 @@ func (t *tunNetstackDevice) Create() (wgConfigurer, error) {
 		device.NewLogger(device.LogLevelSilent, "[netbird] "),
 	)
 
-	udpMux, err := t.iceBind.GetICEMux()
+	configurer := newWGUSPConfigurer(t.device)
+	err = configurer.configureInterface(t.key, t.port)
 	if err != nil {
 		_ = tunIface.Close()
 		return nil, err
 	}
-	t.udpMux = udpMux
 
-	configurer := newWGUSPConfigurer(t.device)
-
-	log.Debugf("device is ready to use: %s", t.name)
+	log.Debugf("device has been created: %s", t.name)
 	return configurer, nil
+}
+
+func (t *tunNetstackDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+	if t.device == nil {
+		return nil, fmt.Errorf("device is not ready yet")
+	}
+
+	err := t.device.Up()
+	if err != nil {
+		return nil, err
+	}
+
+	udpMux, err := t.iceBind.GetICEMux()
+	if err != nil {
+		return nil, err
+	}
+	t.udpMux = udpMux
+	log.Debugf("netstack device is ready to use")
+	return udpMux, nil
 }
 
 func (t *tunNetstackDevice) UpdateAddr(WGAddress) error {
@@ -68,12 +91,12 @@ func (t *tunNetstackDevice) UpdateAddr(WGAddress) error {
 }
 
 func (t *tunNetstackDevice) Close() error {
-	if t.device == nil {
+	log.Debugf("close interface")
+	if t.nsTun == nil {
 		return nil
 	}
 
-	t.device.Close()
-	return t.udpMux.Close()
+	return t.nsTun.Close()
 }
 
 func (t *tunNetstackDevice) WgAddress() WGAddress {
@@ -84,14 +107,6 @@ func (t *tunNetstackDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *tunNetstackDevice) IceBind() *bind.ICEBind {
-	return t.iceBind
-}
-
 func (t *tunNetstackDevice) Wrapper() *DeviceWrapper {
 	return t.wrapper
-}
-
-func (t *tunNetstackDevice) UdpMux() *bind.UniversalUDPMuxDefault {
-	return t.udpMux
 }

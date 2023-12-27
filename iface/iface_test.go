@@ -1,7 +1,6 @@
 package iface
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"testing"
@@ -41,7 +40,7 @@ func TestWGIface_UpdateAddr(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	iface, err := NewWGIFace(context.Background(), ifaceName, addr, wgPort, DefaultMTU, newNet, nil)
+	iface, err := NewWGIFace(ifaceName, addr, wgPort, key, DefaultMTU, newNet, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,12 +53,10 @@ func TestWGIface_UpdateAddr(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+
 	}()
-	port, err := getListenPortByName(ifaceName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = iface.Configure(key, port)
+
+	_, err = iface.Up()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +102,7 @@ func Test_CreateInterface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	iface, err := NewWGIFace(context.Background(), ifaceName, wgIP, 33100, DefaultMTU, newNet, nil)
+	iface, err := NewWGIFace(ifaceName, wgIP, 33100, key, DefaultMTU, newNet, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +136,8 @@ func Test_Close(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	iface, err := NewWGIFace(context.Background(), ifaceName, wgIP, wgPort, DefaultMTU, newNet, nil)
+
+	iface, err := NewWGIFace(ifaceName, wgIP, wgPort, key, DefaultMTU, newNet, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +170,7 @@ func Test_ConfigureInterface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	iface, err := NewWGIFace(context.Background(), ifaceName, wgIP, wgPort, DefaultMTU, newNet, nil)
+	iface, err := NewWGIFace(ifaceName, wgIP, wgPort, key, DefaultMTU, newNet, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,11 +185,7 @@ func Test_ConfigureInterface(t *testing.T) {
 		}
 	}()
 
-	port, err := getListenPortByName(ifaceName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = iface.Configure(key, port)
+	_, err = iface.Up()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +217,8 @@ func Test_UpdatePeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	iface, err := NewWGIFace(context.Background(), ifaceName, wgIP, 33100, DefaultMTU, newNet, nil)
+
+	iface, err := NewWGIFace(ifaceName, wgIP, 33100, key, DefaultMTU, newNet, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,11 +232,8 @@ func Test_UpdatePeer(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	port, err := getListenPortByName(ifaceName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = iface.Configure(key, port)
+
+	_, err = iface.Up()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +278,8 @@ func Test_RemovePeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	iface, err := NewWGIFace(context.Background(), ifaceName, wgIP, 33100, DefaultMTU, newNet, nil)
+
+	iface, err := NewWGIFace(ifaceName, wgIP, 33100, key, DefaultMTU, newNet, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,11 +293,8 @@ func Test_RemovePeer(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	port, err := getListenPortByName(ifaceName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = iface.Configure(key, port)
+
+	_, err = iface.Up()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,17 +320,20 @@ func Test_ConnectPeers(t *testing.T) {
 	peer1ifaceName := fmt.Sprintf("utun%d", WgIntNumber+400)
 	peer1wgIP := "10.99.99.17/30"
 	peer1Key, _ := wgtypes.GeneratePrivateKey()
+	peer1wgPort := 33100
 
 	peer2ifaceName := "utun500"
 	peer2wgIP := "10.99.99.18/30"
 	peer2Key, _ := wgtypes.GeneratePrivateKey()
+	peer2wgPort := 33200
 
 	keepAlive := 1 * time.Second
 	newNet, err := stdnet.NewNet()
 	if err != nil {
 		t.Fatal(err)
 	}
-	iface1, err := NewWGIFace(context.Background(), peer1ifaceName, peer1wgIP, 33100, DefaultMTU, newNet, nil)
+
+	iface1, err := NewWGIFace(peer1ifaceName, peer1wgIP, peer1wgPort, peer1Key.String(), DefaultMTU, newNet, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,11 +341,13 @@ func Test_ConnectPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	peer1Port, err := getListenPortByName(peer1ifaceName)
+
+	_, err = iface1.Up()
 	if err != nil {
 		t.Fatal(err)
 	}
-	peer1endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", peer1Port))
+
+	peer1endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", peer1wgPort))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +356,7 @@ func Test_ConnectPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	iface2, err := NewWGIFace(context.Background(), peer2ifaceName, peer2wgIP, 33100, DefaultMTU, newNet, nil)
+	iface2, err := NewWGIFace(peer2ifaceName, peer2wgIP, peer2wgPort, peer2Key.String(), DefaultMTU, newNet, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,11 +364,13 @@ func Test_ConnectPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	peer2Port, err := getListenPortByName(peer2ifaceName)
+
+	_, err = iface2.Up()
 	if err != nil {
 		t.Fatal(err)
 	}
-	peer2endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", peer2Port))
+
+	peer2endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", peer2wgPort))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,15 +384,6 @@ func Test_ConnectPeers(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-
-	err = iface1.Configure(peer1Key.String(), peer1Port)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = iface2.Configure(peer2Key.String(), peer2Port)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	err = iface1.UpdatePeer(peer2Key.PublicKey().String(), peer2wgIP, keepAlive, peer2endpoint, nil)
 	if err != nil {
@@ -426,21 +414,6 @@ func Test_ConnectPeers(t *testing.T) {
 		}
 	}
 
-}
-
-func getListenPortByName(name string) (int, error) {
-	wg, err := wgctrl.New()
-	if err != nil {
-		return 0, err
-	}
-	defer wg.Close()
-
-	d, err := wg.Device(name)
-	if err != nil {
-		return 0, err
-	}
-
-	return d.ListenPort, nil
 }
 
 func getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {

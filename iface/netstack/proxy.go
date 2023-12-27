@@ -1,39 +1,64 @@
 package netstack
 
 import (
-	"github.com/armon/go-socks5"
+	"net"
+
+	"github.com/things-go/go-socks5"
+
 	log "github.com/sirupsen/logrus"
 )
 
 const (
-	DEFAULT_SOCKS5_ADDR = "0.0.0.0:1080"
+	DefaultSocks5Addr = "0.0.0.0:1080"
 )
 
 // Proxy todo close server
 type Proxy struct {
 	server *socks5.Server
+
+	listener net.Listener
+	closed   bool
 }
 
 func NewSocks5(dialer Dialer) (*Proxy, error) {
-	conf := &socks5.Config{
-		Dial: dialer.Dial,
-	}
-	server, err := socks5.New(conf)
-	if err != nil {
-		log.Debugf("failed to init socks5 proxy: %s", err)
-		return nil, err
-	}
+	server := socks5.NewServer(
+		socks5.WithDial(dialer.Dial),
+	)
 
 	return &Proxy{
 		server: server,
 	}, nil
 }
 
-func (s *Proxy) ListenAndServe(addr string) {
-	go func() {
-		err := s.server.ListenAndServe("tcp", addr)
+func (s *Proxy) ListenAndServe(addr string) error {
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	s.listener = listener
+
+	for {
+		conn, err := listener.Accept()
 		if err != nil {
-			log.Debugf("failed to start socks5 proxy: %s", err)
+			if s.closed {
+				return nil
+			}
+			return err
 		}
-	}()
+
+		go func() {
+			if err := s.server.ServeConn(conn); err != nil {
+				log.Errorf("failed to serve a connection: %s", err)
+			}
+		}()
+	}
+}
+
+func (s *Proxy) Close() error {
+	s.closed = true
+	if s.listener == nil {
+		return nil
+	}
+
+	return s.listener.Close()
 }

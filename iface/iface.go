@@ -42,13 +42,13 @@ func (w *WGIface) Address() WGAddress {
 	return w.tun.WgAddress()
 }
 
-// Configure configures a Wireguard interface
+// Up configures a Wireguard interface
 // The interface must exist before calling this method (e.g. call interface.Create() before)
-func (w *WGIface) Configure(privateKey string, port int) error {
+func (w *WGIface) Up() (*bind.UniversalUDPMuxDefault, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	log.Debugf("configuring Wireguard interface %s", w.tun.DeviceName())
-	return w.configurer.configureInterface(privateKey, port)
+
+	return w.tun.Up()
 }
 
 // UpdateAddr updates address of the interface
@@ -70,7 +70,7 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.D
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Debugf("updating interface %s peer %s, endpoint %s ", w.tun.DeviceName(), peerKey, endpoint)
+	log.Debugf("updating interface %s peer %s, endpoint %s", w.tun.DeviceName(), peerKey, endpoint)
 	return w.configurer.updatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
 }
 
@@ -138,8 +138,4 @@ func (w *WGIface) GetDevice() *DeviceWrapper {
 	defer w.mu.Unlock()
 
 	return w.tun.Wrapper()
-}
-
-func (w *WGIface) GetUdpMux() *bind.UniversalUDPMuxDefault {
-	return w.tun.UdpMux()
 }

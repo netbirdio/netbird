@@ -18,6 +18,8 @@ import (
 type tunDevice struct {
 	name    string
 	address WGAddress
+	port    int
+	key     string
 	iceBind *bind.ICEBind
 	tunFd   int
 
@@ -26,10 +28,12 @@ type tunDevice struct {
 	udpMux  *bind.UniversalUDPMuxDefault
 }
 
-func newTunDevice(name string, address WGAddress, transportNet transport.Net, tunFd int) *tunDevice {
+func newTunDevice(name string, address WGAddress, port int, key string, transportNet transport.Net, tunFd int) *tunDevice {
 	return &tunDevice{
 		name:    name,
 		address: address,
+		port:    port,
+		key:     key,
 		iceBind: bind.NewICEBind(transportNet),
 		tunFd:   tunFd,
 	}
@@ -64,22 +68,28 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
-	err = t.device.Up()
+	configurer := newWGUSPConfigurer(t.device)
+	err = configurer.configureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
+		return nil, err
+	}
+	return configurer, nil
+}
+
+func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+	err := t.device.Up()
+	if err != nil {
 		return nil, err
 	}
 
 	udpMux, err := t.iceBind.GetICEMux()
 	if err != nil {
-		t.device.Close()
 		return nil, err
 	}
 	t.udpMux = udpMux
-
-	configurer := newWGUSPConfigurer(t.device)
 	log.Debugf("device is ready to use: %s", t.name)
-	return configurer, nil
+	return udpMux, nil
 }
 
 func (t *tunDevice) Device() *device.Device {
@@ -96,6 +106,7 @@ func (t *tunDevice) Close() error {
 	}
 
 	t.device.Close()
+	t.device = nil
 	return t.udpMux.Close()
 }
 
@@ -110,8 +121,4 @@ func (t *tunDevice) UpdateAddr(addr WGAddress) error {
 
 func (t *tunDevice) Wrapper() *DeviceWrapper {
 	return t.wrapper
-}
-
-func (t *tunDevice) UdpMux() *bind.UniversalUDPMuxDefault {
-	return t.udpMux
 }
