@@ -97,13 +97,16 @@ func (t *wgTunDevice) UpdateAddr(addr WGAddress) error {
 }
 
 func (t *wgTunDevice) Close() error {
-	if t.device == nil {
-		return nil
+	if t.device != nil {
+		t.device.Close()
+		t.device = nil
 	}
 
-	t.device.Close()
-	t.device = nil
-	return t.udpMux.Close()
+	if t.udpMux != nil {
+		return t.udpMux.Close()
+
+	}
+	return nil
 }
 
 func (t *wgTunDevice) Device() *device.Device {

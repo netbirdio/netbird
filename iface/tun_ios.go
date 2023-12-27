@@ -101,13 +101,16 @@ func (t *tunDevice) DeviceName() string {
 }
 
 func (t *tunDevice) Close() error {
-	if t.device == nil {
-		return nil
+	if t.device != nil {
+		t.device.Close()
+		t.device = nil
 	}
 
-	t.device.Close()
-	t.device = nil
-	return t.udpMux.Close()
+	if t.udpMux != nil {
+		return t.udpMux.Close()
+
+	}
+	return nil
 }
 
 func (t *tunDevice) WgAddress() WGAddress {
