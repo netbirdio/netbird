@@ -96,8 +96,8 @@ func (t *tunNetstackDevice) Close() error {
 		t.configurer.close()
 	}
 
-	if t.nsTun != nil {
-		return t.nsTun.Close()
+	if t.device != nil {
+		t.device.Close()
 	}
 
 	return nil
