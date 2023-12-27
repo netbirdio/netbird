@@ -167,5 +167,7 @@ func (c *tunDevice) assignAddr() error {
 
 // getUAPI returns a Listener
 func (c *tunDevice) getUAPI(iface string) (net.Listener, error) {
-	return ipc.UAPIListen(iface)
+	l, err := ipc.UAPIListen(iface)
+	log.Infof("UAPI LISTEN RESULT: %v", err)
+	return l, err
 }
