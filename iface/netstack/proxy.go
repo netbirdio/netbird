@@ -29,12 +29,12 @@ func NewSocks5(dialer Dialer) (*Proxy, error) {
 	}, nil
 }
 
-func (s *Proxy) ListenAndServe(addr string) error {
+func (s *Proxy) ListenAndServe(addr string) {
 	go func() {
 		err := s.server.ListenAndServe("tcp", addr)
 		if err != nil {
 			log.Debugf("failed to start socks5 proxy: %s", err)
 		}
 	}()
-	return nil
+	return
 }

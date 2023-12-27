@@ -39,6 +39,6 @@ func (t *NetStackTun) Create() (tun.Device, error) {
 		return nil, err
 	}
 
-	err = t.proxy.ListenAndServe(t.listenAddress)
+	t.proxy.ListenAndServe(t.listenAddress)
 	return nsTunDev, nil
 }
