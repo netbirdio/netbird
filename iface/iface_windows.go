@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pion/transport/v2"
+	"github.com/pion/transport/v3"
 
 	"github.com/netbirdio/netbird/iface/netstack"
 )

@@ -6,7 +6,7 @@ package iface
 import (
 	"os/exec"
 
-	"github.com/pion/transport/v2"
+	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
