@@ -173,6 +173,7 @@ func (t *wgUSPConfigurer) startUAPI() {
 	var err error
 	t.uapiListener, err = openUAPI(t.deviceName)
 	if err != nil {
+		log.Errorf("failed to open uapi listener: %v", err)
 		return
 	}
 
