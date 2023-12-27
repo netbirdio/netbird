@@ -11,7 +11,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
@@ -171,17 +170,13 @@ func (c *wgUSPConfigurer) removeAllowedIP(peerKey string, ip string) error {
 
 // startUAPI starts the UAPI listener for managing the WireGuard interface via external tool
 func (t *wgUSPConfigurer) startUAPI() {
-	uapiSock, err := ipc.UAPIOpen(t.deviceName)
+	var err error
+	t.uapiListener, err = openUAPI(t.deviceName)
 	if err != nil {
-		log.Errorf("failed to open uapi socket: %v", err)
+		log.Errorf("failed to open uapi socket: %s", err)
 		return
 	}
 
-	t.uapiListener, err = ipc.UAPIListen(t.deviceName, uapiSock)
-	if err != nil {
-		log.Errorf("failed to listen on uapi socket: %v", err)
-		return
-	}
 	go func(uapi net.Listener) {
 		for {
 			uapiConn, uapiErr := uapi.Accept()

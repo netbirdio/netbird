@@ -92,7 +92,6 @@ func (t *tunNetstackDevice) UpdateAddr(WGAddress) error {
 }
 
 func (t *tunNetstackDevice) Close() error {
-	log.Debugf("close interface")
 	if t.configurer != nil {
 		t.configurer.close()
 	}

@@ -33,6 +33,7 @@ func NewSocks5(dialer Dialer) (*Proxy, error) {
 func (s *Proxy) ListenAndServe(addr string) error {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
+		log.Errorf("failed to create listener for socks5 proxy: %s", err)
 		return err
 	}
 	s.listener = listener
@@ -55,10 +56,10 @@ func (s *Proxy) ListenAndServe(addr string) error {
 }
 
 func (s *Proxy) Close() error {
-	s.closed = true
 	if s.listener == nil {
 		return nil
 	}
 
+	s.closed = true
 	return s.listener.Close()
 }
