@@ -255,8 +255,7 @@ func Test_UpdatePeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	kernelConfigurer := iface.configurer.(*wgKernelConfigurer)
-	peer, err := kernelConfigurer.getPeer(ifaceName, peerPubKey)
+	peer, err := getPeer(ifaceName, peerPubKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,8 +320,7 @@ func Test_RemovePeer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	kernelConfigurer := iface.configurer.(*wgKernelConfigurer)
-	_, err = kernelConfigurer.getPeer(ifaceName, peerPubKey)
+	_, err = getPeer(ifaceName, peerPubKey)
 	if err.Error() != "peer not found" {
 		t.Fatal(err)
 	}
@@ -410,7 +408,7 @@ func Test_ConnectPeers(t *testing.T) {
 	// todo: investigate why in some tests execution we need 30s
 	timeout := 30 * time.Second
 	timeoutChannel := time.After(timeout)
-	kernelConfigurer1 := iface1.configurer.(*wgKernelConfigurer)
+
 	for {
 		select {
 		case <-timeoutChannel:
@@ -418,7 +416,7 @@ func Test_ConnectPeers(t *testing.T) {
 		default:
 		}
 
-		peer, gpErr := kernelConfigurer1.getPeer(peer1ifaceName, peer2Key.PublicKey().String())
+		peer, gpErr := getPeer(peer1ifaceName, peer2Key.PublicKey().String())
 		if gpErr != nil {
 			t.Fatal(gpErr)
 		}
@@ -443,4 +441,28 @@ func getListenPortByName(name string) (int, error) {
 	}
 
 	return d.ListenPort, nil
+}
+
+func getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
+	wg, err := wgctrl.New()
+	if err != nil {
+		return wgtypes.Peer{}, err
+	}
+	defer func() {
+		err = wg.Close()
+		if err != nil {
+			log.Errorf("got error while closing wgctl: %v", err)
+		}
+	}()
+
+	wgDevice, err := wg.Device(ifaceName)
+	if err != nil {
+		return wgtypes.Peer{}, err
+	}
+	for _, peer := range wgDevice.Peers {
+		if peer.PublicKey.String() == peerPubKey {
+			return peer, nil
+		}
+	}
+	return wgtypes.Peer{}, fmt.Errorf("peer not found")
 }
