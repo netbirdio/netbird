@@ -36,5 +36,4 @@ func (s *Proxy) ListenAndServe(addr string) {
 			log.Debugf("failed to start socks5 proxy: %s", err)
 		}
 	}()
-	return
 }
