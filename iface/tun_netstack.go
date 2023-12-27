@@ -100,6 +100,9 @@ func (t *tunNetstackDevice) Close() error {
 		t.device.Close()
 	}
 
+	if t.udpMux != nil {
+		return t.udpMux.Close()
+	}
 	return nil
 }
 

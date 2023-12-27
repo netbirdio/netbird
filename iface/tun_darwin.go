@@ -101,7 +101,6 @@ func (t *tunDevice) Close() error {
 
 	if t.udpMux != nil {
 		return t.udpMux.Close()
-
 	}
 	return nil
 }
