@@ -1,7 +1,11 @@
 package posturechecks
 
+import (
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+)
+
 type PostureChecker interface {
-	Run() (bool, error)
+	Check(peer nbpeer.Peer) error
 }
 
 type PostureCheck struct {
