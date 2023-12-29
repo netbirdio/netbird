@@ -15,7 +15,7 @@ func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, 
 
 	wgIFace := &WGIface{
 		tun:           newTunDevice(wgAddress, wgPort, wgPrivKey, mtu, transportNet, args.TunAdapter),
-		userspaceBind: false,
+		userspaceBind: true,
 	}
 	return wgIFace, nil
 }

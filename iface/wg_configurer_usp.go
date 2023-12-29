@@ -181,7 +181,7 @@ func (t *wgUSPConfigurer) startUAPI() {
 		for {
 			uapiConn, uapiErr := uapi.Accept()
 			if uapiErr != nil {
-				log.Traceln("uapi Accept failed with error: ", uapiErr)
+				log.Tracef("%s", uapiErr)
 				return
 			}
 			go func() {

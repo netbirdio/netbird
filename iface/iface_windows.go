@@ -15,17 +15,16 @@ func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, 
 		return nil, err
 	}
 
-	wgIFace := &WGIface{}
+	wgIFace := &WGIface{
+		userspaceBind: true,
+	}
 
 	if netstack.IsEnabled() {
 		wgIFace.tun = newTunNetstackDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, transportNet, netstack.ListenAddr())
-		wgIFace.userspaceBind = true
 		return wgIFace, nil
 	}
 
 	wgIFace.tun = newTunDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, transportNet)
-	wgIFace.userspaceBind = true
-
 	return wgIFace, nil
 }
 
