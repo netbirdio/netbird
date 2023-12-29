@@ -87,10 +87,6 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 }
 
 func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
-	if t.configurer != nil {
-		t.configurer.close()
-	}
-
 	err := t.device.Up()
 	if err != nil {
 		return nil, err
