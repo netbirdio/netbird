@@ -172,10 +172,6 @@ func (t *tunKernelDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *tunKernelDevice) IceBind() *bind.ICEBind {
-	return nil
-}
-
 func (t *tunKernelDevice) Wrapper() *DeviceWrapper {
 	return nil
 }

@@ -1,10 +1,9 @@
-//go:build (linux && !android) || windows
+//go:build linux && !android
 
 package iface
 
 import (
 	"fmt"
-	"golang.zx2c4.com/wireguard/device"
 	"net"
 	"time"
 
@@ -14,41 +13,16 @@ import (
 )
 
 type wgKernelConfigurer struct {
-	device     *device.Device
 	deviceName string
 
 	uapiListener net.Listener
 }
 
-func newWGConfigurer(device *device.Device, deviceName string) wgConfigurer {
+func newWGConfigurer(deviceName string) wgConfigurer {
 	wgc := &wgKernelConfigurer{
-		device:     device,
 		deviceName: deviceName,
 	}
-	wgc.startUAPI()
 	return wgc
-}
-
-func (t *wgKernelConfigurer) startUAPI() {
-	var err error
-	t.uapiListener, err = openUAPI(t.deviceName)
-	if err != nil {
-		log.Errorf("failed to open uapi listener: %v", err)
-		return
-	}
-
-	go func(uapi net.Listener) {
-		for {
-			uapiConn, uapiErr := uapi.Accept()
-			if uapiErr != nil {
-				log.Traceln("uapi Accept failed with error: ", uapiErr)
-				return
-			}
-			go func() {
-				t.device.IpcHandle(uapiConn)
-			}()
-		}
-	}(t.uapiListener)
 }
 
 func (c *wgKernelConfigurer) configureInterface(privateKey string, port int) error {
