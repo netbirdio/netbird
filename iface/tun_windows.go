@@ -76,7 +76,7 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 		return nil, err
 	}
 
-	t.configurer = newWGConfigurer(t.device, t.name)
+	t.configurer = newWGUSPConfigurer(t.device, t.name)
 	err = t.configurer.configureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
