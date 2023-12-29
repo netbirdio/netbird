@@ -107,6 +107,10 @@ func (t *tunDevice) UpdateAddr(address WGAddress) error {
 }
 
 func (t *tunDevice) Close() error {
+	if t.configurer != nil {
+		t.configurer.close()
+	}
+
 	if t.device != nil {
 		t.device.Close()
 		t.device = nil
