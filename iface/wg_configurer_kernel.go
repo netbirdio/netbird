@@ -14,8 +14,6 @@ import (
 
 type wgKernelConfigurer struct {
 	deviceName string
-
-	uapiListener net.Listener
 }
 
 func newWGConfigurer(deviceName string) wgConfigurer {
