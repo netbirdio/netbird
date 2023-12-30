@@ -1299,6 +1299,22 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, a
 	return data, err
 }
 
+func (am *DefaultAccountManager) removeUserFromCache(accountID, userID string) error {
+	data, err := am.getAccountFromCache(accountID, false)
+	if err != nil {
+		return err
+	}
+
+	for i, datum := range data {
+		if datum.ID == userID {
+			data = append(data[:i], data[i+1:]...)
+			break
+		}
+	}
+
+	return am.cacheManager.Set(am.ctx, accountID, data, cacheStore.WithExpiration(cacheEntryExpiration()))
+}
+
 // updateAccountDomainAttributes updates the account domain attributes and then, saves the account
 func (am *DefaultAccountManager) updateAccountDomainAttributes(account *Account, claims jwtclaims.AuthorizationClaims,
 	primaryDomain bool,
