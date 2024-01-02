@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	DefaultSocks5Addr = "0.0.0.0:1080"
+	DefaultSocks5Port = 1080
 )
 
 // Proxy todo close server

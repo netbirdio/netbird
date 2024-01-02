@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+
+	log "github.com/sirupsen/logrus"
 )
 
 // IsEnabled todo: move these function to cmd layer
@@ -15,11 +17,17 @@ func ListenAddr() string {
 	sPort := os.Getenv("NB_SOCKS5_LISTENER_PORT")
 	port, err := strconv.Atoi(sPort)
 	if err != nil {
-		return DefaultSocks5Addr
+		log.Warnf("invalid socks5 listener port, fallback to default: %d", DefaultSocks5Port)
+		return listenAddr(DefaultSocks5Port)
 	}
 	if port < 1 || port > 65535 {
-		return DefaultSocks5Addr
+		log.Warnf("invalid socks5 listener port, fallback to default: %d", DefaultSocks5Port)
+		return listenAddr(DefaultSocks5Port)
 	}
 
+	return listenAddr(port)
+}
+
+func listenAddr(port int) string {
 	return fmt.Sprintf("0.0.0.0:%d", port)
 }
