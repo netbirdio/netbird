@@ -6,7 +6,7 @@ package iface
 import (
 	"os"
 
-	"github.com/pion/transport/v2"
+	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/device"
@@ -16,63 +16,82 @@ import (
 )
 
 type tunDevice struct {
-	address    WGAddress
-	mtu        int
-	tunAdapter TunAdapter
-	iceBind    *bind.ICEBind
-
-	fd      int
 	name    string
-	device  *device.Device
-	wrapper *DeviceWrapper
+	address WGAddress
+	port    int
+	key     string
+	iceBind *bind.ICEBind
+	tunFd   int
+
+	device     *device.Device
+	wrapper    *DeviceWrapper
+	udpMux     *bind.UniversalUDPMuxDefault
+	configurer wgConfigurer
 }
 
-func newTunDevice(name string, address WGAddress, mtu int, tunAdapter TunAdapter, transportNet transport.Net) *tunDevice {
+func newTunDevice(name string, address WGAddress, port int, key string, transportNet transport.Net, tunFd int) *tunDevice {
 	return &tunDevice{
-		name:       name,
-		address:    address,
-		mtu:        mtu,
-		tunAdapter: tunAdapter,
-		iceBind:    bind.NewICEBind(transportNet),
+		name:    name,
+		address: address,
+		port:    port,
+		key:     key,
+		iceBind: bind.NewICEBind(transportNet),
+		tunFd:   tunFd,
 	}
 }
 
-func (t *tunDevice) Create(tunFd int32) error {
+func (t *tunDevice) Create() (wgConfigurer, error) {
 	log.Infof("create tun interface")
 
-	dupTunFd, err := unix.Dup(int(tunFd))
+	dupTunFd, err := unix.Dup(t.tunFd)
 	if err != nil {
 		log.Errorf("Unable to dup tun fd: %v", err)
-		return err
+		return nil, err
 	}
 
 	err = unix.SetNonblock(dupTunFd, true)
 	if err != nil {
 		log.Errorf("Unable to set tun fd as non blocking: %v", err)
-		unix.Close(dupTunFd)
-		return err
+		_ = unix.Close(dupTunFd)
+		return nil, err
 	}
-	tun, err := tun.CreateTUNFromFile(os.NewFile(uintptr(dupTunFd), "/dev/tun"), 0)
+	tunDevice, err := tun.CreateTUNFromFile(os.NewFile(uintptr(dupTunFd), "/dev/tun"), 0)
 	if err != nil {
 		log.Errorf("Unable to create new tun device from fd: %v", err)
-		unix.Close(dupTunFd)
-		return err
+		_ = unix.Close(dupTunFd)
+		return nil, err
 	}
 
-	t.wrapper = newDeviceWrapper(tun)
+	t.wrapper = newDeviceWrapper(tunDevice)
 	log.Debug("Attaching to interface")
 	t.device = device.NewDevice(t.wrapper, t.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
 	// without this property mobile devices can discover remote endpoints if the configured one was wrong.
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
-	err = t.device.Up()
+	t.configurer = newWGUSPConfigurer(t.device, t.name)
+	err = t.configurer.configureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
-		return err
+		t.configurer.close()
+		return nil, err
 	}
+	return t.configurer, nil
+}
+
+func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+	err := t.device.Up()
+	if err != nil {
+		return nil, err
+	}
+
+	udpMux, err := t.iceBind.GetICEMux()
+	if err != nil {
+		return nil, err
+	}
+	t.udpMux = udpMux
 	log.Debugf("device is ready to use: %s", t.name)
-	return nil
+	return udpMux, nil
 }
 
 func (t *tunDevice) Device() *device.Device {
@@ -81,6 +100,23 @@ func (t *tunDevice) Device() *device.Device {
 
 func (t *tunDevice) DeviceName() string {
 	return t.name
+}
+
+func (t *tunDevice) Close() error {
+	if t.configurer != nil {
+		t.configurer.close()
+	}
+
+	if t.device != nil {
+		t.device.Close()
+		t.device = nil
+	}
+
+	if t.udpMux != nil {
+		return t.udpMux.Close()
+
+	}
+	return nil
 }
 
 func (t *tunDevice) WgAddress() WGAddress {
@@ -92,10 +128,6 @@ func (t *tunDevice) UpdateAddr(addr WGAddress) error {
 	return nil
 }
 
-func (t *tunDevice) Close() (err error) {
-	if t.device != nil {
-		t.device.Close()
-	}
-
-	return
+func (t *tunDevice) Wrapper() *DeviceWrapper {
+	return t.wrapper
 }
