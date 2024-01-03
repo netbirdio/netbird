@@ -1,4 +1,4 @@
-package posturechecks
+package posture
 
 import (
 	"fmt"
@@ -14,7 +14,7 @@ type NBVersionCheck struct {
 	MaxVersion string
 }
 
-var _ PostureChecker = (*NBVersionCheck)(nil)
+var _ Check = (*NBVersionCheck)(nil)
 
 func (n *NBVersionCheck) Check(peer nbpeer.Peer) error {
 	peerNBVersion, err := version.NewVersion(peer.Meta.UIVersion)
@@ -32,5 +32,9 @@ func (n *NBVersionCheck) Check(peer nbpeer.Peer) error {
 		return nil
 	}
 
-	return fmt.Errorf("peer nb version is older than minimum allowed version %s", n.MinVersion)
+	return fmt.Errorf("peer NB version %s is not within the allowed version range %s to %s",
+		peer.Meta.UIVersion,
+		n.MinVersion,
+		n.MaxVersion,
+	)
 }
