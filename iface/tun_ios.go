@@ -23,9 +23,10 @@ type tunDevice struct {
 	iceBind *bind.ICEBind
 	tunFd   int
 
-	device  *device.Device
-	wrapper *DeviceWrapper
-	udpMux  *bind.UniversalUDPMuxDefault
+	device     *device.Device
+	wrapper    *DeviceWrapper
+	udpMux     *bind.UniversalUDPMuxDefault
+	configurer wgConfigurer
 }
 
 func newTunDevice(name string, address WGAddress, port int, key string, transportNet transport.Net, tunFd int) *tunDevice {
