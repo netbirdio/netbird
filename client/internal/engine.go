@@ -1048,8 +1048,8 @@ func (e *Engine) wgInterfaceCreate() (err error) {
 	return err
 }
 
-// todo review to make sense to check e.dnsServer == nil
 func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
+	// due to tests where we are using a mocked version of the DNS server
 	if e.dnsServer != nil {
 		return nil, e.dnsServer, nil
 	}

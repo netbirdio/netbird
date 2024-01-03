@@ -17,11 +17,11 @@ func ListenAddr() string {
 	sPort := os.Getenv("NB_SOCKS5_LISTENER_PORT")
 	port, err := strconv.Atoi(sPort)
 	if err != nil {
-		log.Warnf("invalid socks5 listener port, fallback to default: %d", DefaultSocks5Port)
+		log.Warnf("invalid socks5 listener port, unable to convert it to int, falling back to default: %d", DefaultSocks5Port)
 		return listenAddr(DefaultSocks5Port)
 	}
 	if port < 1 || port > 65535 {
-		log.Warnf("invalid socks5 listener port, fallback to default: %d", DefaultSocks5Port)
+		log.Warnf("invalid socks5 listener port, it should be in the range 1-65535, falling back to default: %d", DefaultSocks5Port)
 		return listenAddr(DefaultSocks5Port)
 	}
 
