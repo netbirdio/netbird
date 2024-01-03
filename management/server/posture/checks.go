@@ -20,7 +20,7 @@ type Checks struct {
 	Description string
 
 	// AccountID is a reference to the Account that this object belongs
-	AccountID string `gorm:"index"`
+	AccountID string `json:"-" gorm:"index"`
 
 	// Checks is a list of objects that perform the actual checks
 	Checks []Check `gorm:"serializer:json"`
