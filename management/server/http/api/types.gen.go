@@ -271,10 +271,10 @@ type NBVersionCheck struct {
 	Enabled bool `json:"enabled"`
 
 	// MaxVersion Maximum acceptable NetBird version
-	MaxVersion *string `json:"maxVersion,omitempty"`
+	MaxVersion *string `json:"max_version,omitempty"`
 
 	// MinVersion Minimum acceptable NetBird version
-	MinVersion string `json:"minVersion"`
+	MinVersion string `json:"min_version"`
 }
 
 // Nameserver defines model for Nameserver.
@@ -768,7 +768,7 @@ type PostureCheckUpdate struct {
 	Name string `json:"name"`
 
 	// NbVersionCheck Posture check for the version of NetBird
-	NbVersionCheck NBVersionCheck `json:"nbVersionCheck"`
+	NbVersionCheck NBVersionCheck `json:"nb_version_check"`
 }
 
 // Route defines model for Route.
@@ -1070,6 +1070,9 @@ type PutApiPoliciesPolicyIdJSONRequestBody = PolicyUpdate
 
 // PostApiPostureChecksJSONRequestBody defines body for PostApiPostureChecks for application/json ContentType.
 type PostApiPostureChecksJSONRequestBody = PostureCheckUpdate
+
+// PutApiPostureChecksPostureCheckIdJSONRequestBody defines body for PutApiPostureChecksPostureCheckId for application/json ContentType.
+type PutApiPostureChecksPostureCheckIdJSONRequestBody = PostureCheckUpdate
 
 // PostApiRoutesJSONRequestBody defines body for PostApiRoutes for application/json ContentType.
 type PostApiRoutesJSONRequestBody = RouteRequest

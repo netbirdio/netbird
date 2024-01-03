@@ -829,17 +829,17 @@ components:
           description: NetBird's version check status
           type: boolean
           example: false
-        minVersion:
+        min_version:
           description: Minimum acceptable NetBird version
           type: string
           example: "1.2.3"
-        maxVersion:
+        max_version:
           description: Maximum acceptable NetBird version
           type: string
           example: "1.3.5"
       required:
         - enabled
-        - minVersion
+        - min_version
     PostureCheckUpdate:
       type: object
       properties:
@@ -851,11 +851,11 @@ components:
           description: Posture check friendly description
           type: string
           example: This checks if the peer is running required NetBird's version
-        nbVersionCheck:
+        nb_version_check:
           $ref: '#/components/schemas/NBVersionCheck'
       required:
         - name
-        - nbVersionCheck
+        - nb_version_check
     RouteRequest:
       type: object
       properties:
@@ -2519,7 +2519,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/posture-checks:
     get:
-      summary: List all posture checks
+      summary: List all Posture Checks
       description: Returns a list of all posture checks
       tags: [ Posture Checks ]
       security:
@@ -2543,9 +2543,9 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Create a posture check
+      summary: Create a Posture Check
       description: Creates a posture check
-      tags: [ Rules ]
+      tags: [ Posture Checks ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -2562,3 +2562,94 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PostureCheck'
+  /api/posture-checks/{postureCheckId}:
+    get:
+      summary: Retrieve a Posture Check
+      description: Get information about a posture check
+      tags: [ Posture Checks ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: postureCheckId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a posture check
+      responses:
+        '200':
+          description: A posture check object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostureCheck'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update a Posture Check
+      description: Update/Replace a posture check
+      tags: [ Posture Checks ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: postureCheckId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a posture check
+      requestBody:
+        description: Update Rule request
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/PostureCheckUpdate'
+      responses:
+        '200':
+          description: A posture check object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostureCheck'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a Posture Check
+      description: Delete a posture check
+      tags: [ Posture Checks ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: postureCheckId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a posture check
+      responses:
+        '200':
+          description: Delete status code
+          content: { }
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
