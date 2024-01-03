@@ -1,5 +1,5 @@
-//go:build ios
-// +build ios
+//go:build !ios
+// +build !ios
 
 package iface
 
@@ -7,6 +7,8 @@ import (
 	"fmt"
 
 	"github.com/pion/transport/v3"
+
+	"github.com/netbirdio/netbird/iface/netstack"
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
@@ -15,15 +17,22 @@ func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, 
 	if err != nil {
 		return nil, err
 	}
+
 	wgIFace := &WGIface{
-		tun:           newTunDevice(iFaceName, wgAddress, wgPort, wgPrivKey, transportNet, args.TunFd),
 		userspaceBind: true,
 	}
+
+	if netstack.IsEnabled() {
+		wgIFace.tun = newTunNetstackDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, transportNet, netstack.ListenAddr())
+		return wgIFace, nil
+	}
+
+	wgIFace.tun = newTunDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, transportNet)
+
 	return wgIFace, nil
 }
 
-// CreateOnAndroid creates a new Wireguard interface, sets a given IP and brings it up.
-// Will reuse an existing one.
+// CreateOnAndroid this function make sense on mobile only
 func (w *WGIface) CreateOnAndroid([]string, string, []string) error {
 	return fmt.Errorf("this function has not implemented on this platform")
 }

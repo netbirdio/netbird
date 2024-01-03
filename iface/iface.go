@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/iface/bind"
-
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/iface/bind"
 )
 
 const (
@@ -19,21 +19,17 @@ const (
 
 // WGIface represents a interface instance
 type WGIface struct {
-	tun           *tunDevice
-	configurer    wGConfigurer
-	mu            sync.Mutex
+	tun           wgTunDevice
 	userspaceBind bool
-	filter        PacketFilter
+	mu            sync.Mutex
+
+	configurer wgConfigurer
+	filter     PacketFilter
 }
 
 // IsUserspaceBind indicates whether this interfaces is userspace with bind.ICEBind
 func (w *WGIface) IsUserspaceBind() bool {
 	return w.userspaceBind
-}
-
-// GetBind returns a userspace implementation of WireGuard Bind interface
-func (w *WGIface) GetBind() *bind.ICEBind {
-	return w.tun.iceBind
 }
 
 // Name returns the interface name
@@ -46,13 +42,13 @@ func (w *WGIface) Address() WGAddress {
 	return w.tun.WgAddress()
 }
 
-// Configure configures a Wireguard interface
+// Up configures a Wireguard interface
 // The interface must exist before calling this method (e.g. call interface.Create() before)
-func (w *WGIface) Configure(privateKey string, port int) error {
+func (w *WGIface) Up() (*bind.UniversalUDPMuxDefault, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	log.Debugf("configuring Wireguard interface %s", w.tun.DeviceName())
-	return w.configurer.configureInterface(privateKey, port)
+
+	return w.tun.Up()
 }
 
 // UpdateAddr updates address of the interface
@@ -74,7 +70,7 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.D
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Debugf("updating interface %s peer %s, endpoint %s ", w.tun.DeviceName(), peerKey, endpoint)
+	log.Debugf("updating interface %s peer %s, endpoint %s", w.tun.DeviceName(), peerKey, endpoint)
 	return w.configurer.updatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
 }
 
@@ -117,14 +113,14 @@ func (w *WGIface) SetFilter(filter PacketFilter) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if w.tun.wrapper == nil {
+	if w.tun.Wrapper() == nil {
 		return fmt.Errorf("userspace packet filtering not handled on this device")
 	}
 
 	w.filter = filter
-	w.filter.SetNetwork(w.tun.address.Network)
+	w.filter.SetNetwork(w.tun.WgAddress().Network)
 
-	w.tun.wrapper.SetFilter(filter)
+	w.tun.Wrapper().SetFilter(filter)
 	return nil
 }
 
@@ -141,5 +137,5 @@ func (w *WGIface) GetDevice() *DeviceWrapper {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	return w.tun.wrapper
+	return w.tun.Wrapper()
 }
