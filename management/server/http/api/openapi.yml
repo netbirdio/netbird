@@ -791,12 +791,6 @@ components:
         - $ref: '#/components/schemas/PolicyMinimum'
         - type: object
           properties:
-            source_posture_checks:
-              description: Posture checks ID's applied to policy source groups
-              type: array
-              items:
-                type: string
-                example: "chacdk86lnnboviihd70"
             rules:
               description: Policy rule object for policy UI editor
               type: array
@@ -804,7 +798,6 @@ components:
                 $ref: '#/components/schemas/PolicyRule'
           required:
             - rules
-            - source_posture_checks
     PostureCheck:
       type: object
       properties:
@@ -821,17 +814,13 @@ components:
           type: string
           example: This checks if the peer is running required NetBird's version
         checks:
-          $ref: '#/components/schemas/Checks'
-      required:
-        - id
-        - name
-        - check
+          description: List of objects that perform the actual checks
+          type: array
+          items:
+            $ref: '#/components/schemas/Checks'
     Checks:
-      description: List of objects that perform the actual checks
-      type: object
-      properties:
-        nb_version_check:
-          $ref: '#/components/schemas/NBVersionCheck'
+      anyOf:
+        - $ref: '#/components/schemas/NBVersionCheck'
     NBVersionCheck:
       description: Posture check for the version of NetBird
       type: object
@@ -840,13 +829,17 @@ components:
           description: NetBird's version check status
           type: boolean
           example: false
-        min_version:
+        minVersion:
           description: Minimum acceptable NetBird version
           type: string
           example: "1.2.3"
+        maxVersion:
+          description: Maximum acceptable NetBird version
+          type: string
+          example: "1.3.5"
       required:
         - enabled
-        - min_version
+        - minVersion
     PostureCheckUpdate:
       type: object
       properties:
@@ -858,11 +851,11 @@ components:
           description: Posture check friendly description
           type: string
           example: This checks if the peer is running required NetBird's version
-        checks:
-          $ref: '#/components/schemas/Checks'
+        nbVersionCheck:
+          $ref: '#/components/schemas/NBVersionCheck'
       required:
         - name
-        - description
+        - nbVersionCheck
     RouteRequest:
       type: object
       properties:
@@ -2526,7 +2519,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/posture-checks:
     get:
-      summary: List all Posture Checks
+      summary: List all posture checks
       description: Returns a list of all posture checks
       tags: [ Posture Checks ]
       security:
@@ -2550,9 +2543,9 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Create a Posture Check
+      summary: Create a posture check
       description: Creates a posture check
-      tags: [ Posture Checks ]
+      tags: [ Rules ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -2569,94 +2562,3 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PostureCheck'
-  /api/posture-checks/{postureCheckId}:
-    get:
-      summary: Retrieve a Posture Check
-      description: Get information about a posture check
-      tags: [ Posture Checks ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: postureCheckId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a posture check
-      responses:
-        '200':
-          description: A posture check object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PostureCheck'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    put:
-      summary: Update a Posture Check
-      description: Update/Replace a posture check
-      tags: [ Posture Checks ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: postureCheckId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a posture check
-      requestBody:
-        description: Update Rule request
-        content:
-          'application/json':
-            schema:
-              $ref: '#/components/schemas/PostureCheckUpdate'
-      responses:
-        '200':
-          description: A posture check object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PostureCheck'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    delete:
-      summary: Delete a Posture Check
-      description: Delete a posture check
-      tags: [ Posture Checks ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: postureCheckId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a posture check
-      responses:
-        '200':
-          description: Delete status code
-          content: { }
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"

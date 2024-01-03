@@ -4,7 +4,10 @@
 package api
 
 import (
+	"encoding/json"
 	"time"
+
+	"github.com/deepmap/oapi-codegen/pkg/runtime"
 )
 
 const (
@@ -176,10 +179,9 @@ type AccountSettings struct {
 	PeerLoginExpirationEnabled bool `json:"peer_login_expiration_enabled"`
 }
 
-// Checks List of objects that perform the actual checks
+// Checks defines model for Checks.
 type Checks struct {
-	// NbVersionCheck Posture check for the version of NetBird
-	NbVersionCheck *NBVersionCheck `json:"nb_version_check,omitempty"`
+	union json.RawMessage
 }
 
 // DNSSettings defines model for DNSSettings.
@@ -268,8 +270,11 @@ type NBVersionCheck struct {
 	// Enabled NetBird's version check status
 	Enabled bool `json:"enabled"`
 
+	// MaxVersion Maximum acceptable NetBird version
+	MaxVersion *string `json:"maxVersion,omitempty"`
+
 	// MinVersion Minimum acceptable NetBird version
-	MinVersion string `json:"min_version"`
+	MinVersion string `json:"minVersion"`
 }
 
 // Nameserver defines model for Nameserver.
@@ -587,9 +592,6 @@ type Policy struct {
 
 	// Rules Policy rule object for policy UI editor
 	Rules []PolicyRule `json:"rules"`
-
-	// SourcePostureChecks Posture checks ID's applied to policy source groups
-	SourcePostureChecks []string `json:"source_posture_checks"`
 }
 
 // PolicyMinimum defines model for PolicyMinimum.
@@ -745,28 +747,28 @@ type PolicyUpdate struct {
 // PostureCheck defines model for PostureCheck.
 type PostureCheck struct {
 	// Checks List of objects that perform the actual checks
-	Checks *Checks `json:"checks,omitempty"`
+	Checks *[]Checks `json:"checks,omitempty"`
 
 	// Description Posture check friendly description
 	Description *string `json:"description,omitempty"`
 
 	// Id Posture check ID
-	Id string `json:"id"`
+	Id *string `json:"id,omitempty"`
 
 	// Name Posture check name identifier
-	Name string `json:"name"`
+	Name *string `json:"name,omitempty"`
 }
 
 // PostureCheckUpdate defines model for PostureCheckUpdate.
 type PostureCheckUpdate struct {
-	// Checks List of objects that perform the actual checks
-	Checks *Checks `json:"checks,omitempty"`
-
 	// Description Posture check friendly description
-	Description string `json:"description"`
+	Description *string `json:"description,omitempty"`
 
 	// Name Posture check name identifier
 	Name string `json:"name"`
+
+	// NbVersionCheck Posture check for the version of NetBird
+	NbVersionCheck NBVersionCheck `json:"nbVersionCheck"`
 }
 
 // Route defines model for Route.
@@ -1069,9 +1071,6 @@ type PutApiPoliciesPolicyIdJSONRequestBody = PolicyUpdate
 // PostApiPostureChecksJSONRequestBody defines body for PostApiPostureChecks for application/json ContentType.
 type PostApiPostureChecksJSONRequestBody = PostureCheckUpdate
 
-// PutApiPostureChecksPostureCheckIdJSONRequestBody defines body for PutApiPostureChecksPostureCheckId for application/json ContentType.
-type PutApiPostureChecksPostureCheckIdJSONRequestBody = PostureCheckUpdate
-
 // PostApiRoutesJSONRequestBody defines body for PostApiRoutes for application/json ContentType.
 type PostApiRoutesJSONRequestBody = RouteRequest
 
@@ -1098,3 +1097,39 @@ type PutApiUsersUserIdJSONRequestBody = UserRequest
 
 // PostApiUsersUserIdTokensJSONRequestBody defines body for PostApiUsersUserIdTokens for application/json ContentType.
 type PostApiUsersUserIdTokensJSONRequestBody = PersonalAccessTokenRequest
+
+// AsNBVersionCheck returns the union data inside the Checks as a NBVersionCheck
+func (t Checks) AsNBVersionCheck() (NBVersionCheck, error) {
+	var body NBVersionCheck
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromNBVersionCheck overwrites any union data inside the Checks as the provided NBVersionCheck
+func (t *Checks) FromNBVersionCheck(v NBVersionCheck) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeNBVersionCheck performs a merge with any union data inside the Checks, using the provided NBVersionCheck
+func (t *Checks) MergeNBVersionCheck(v NBVersionCheck) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JsonMerge(b, t.union)
+	t.union = merged
+	return err
+}
+
+func (t Checks) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *Checks) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
