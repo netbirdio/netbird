@@ -592,6 +592,9 @@ type Policy struct {
 
 	// Rules Policy rule object for policy UI editor
 	Rules []PolicyRule `json:"rules"`
+
+	// SourcePostureChecks Posture checks ID's applied to policy source groups
+	SourcePostureChecks []string `json:"source_posture_checks"`
 }
 
 // PolicyMinimum defines model for PolicyMinimum.

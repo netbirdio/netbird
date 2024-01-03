@@ -284,10 +284,11 @@ func (h *Policies) GetPolicy(w http.ResponseWriter, r *http.Request) {
 func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Policy {
 	cache := make(map[string]api.GroupMinimum)
 	ap := &api.Policy{
-		Id:          &policy.ID,
-		Name:        policy.Name,
-		Description: policy.Description,
-		Enabled:     policy.Enabled,
+		Id:                  &policy.ID,
+		Name:                policy.Name,
+		Description:         policy.Description,
+		Enabled:             policy.Enabled,
+		SourcePostureChecks: policy.SourcePostureChecks,
 	}
 	for _, r := range policy.Rules {
 		rID := r.ID
