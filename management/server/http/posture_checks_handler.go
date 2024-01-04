@@ -145,13 +145,8 @@ func (p *PostureChecksHandler) savePostureChecks(
 		return
 	}
 
-	if req.Name == "" {
-		util.WriteError(status.Errorf(status.InvalidArgument, "posture checks name shouldn't be empty"), w)
-		return
-	}
-
-	if req.NbVersionCheck == nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "posture checks list shouldn't be empty"), w)
+	if err := validatePostureChecksUpdate(req); err != nil {
+		util.WriteErrorResponse(err.Error(), http.StatusBadRequest, w)
 		return
 	}
 
@@ -185,4 +180,20 @@ func (p *PostureChecksHandler) savePostureChecks(
 	}
 
 	util.WriteJSONObject(w, postureChecks)
+}
+
+func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
+	if req.Name == "" {
+		return status.Errorf(status.InvalidArgument, "posture checks name shouldn't be empty")
+	}
+
+	if req.NbVersionCheck == nil {
+		return status.Errorf(status.InvalidArgument, "posture checks list shouldn't be empty")
+	}
+
+	if req.NbVersionCheck != nil && req.NbVersionCheck.MinVersion == "" {
+		return status.Errorf(status.InvalidArgument, "minimum version for NetBird's version check shouldn't be empty")
+	}
+
+	return nil
 }
