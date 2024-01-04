@@ -44,8 +44,9 @@ type Store interface {
 type StoreEngine string
 
 const (
-	FileStoreEngine   StoreEngine = "jsonfile"
-	SqliteStoreEngine StoreEngine = "sqlite"
+	FileStoreEngine       StoreEngine = "jsonfile"
+	SqliteStoreEngine     StoreEngine = "sqlite"
+	PostgresqlStoreEngine StoreEngine = "postgresql"
 )
 
 func getStoreEngineFromEnv() StoreEngine {
@@ -76,6 +77,9 @@ func NewStore(kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (S
 	case SqliteStoreEngine:
 		log.Info("using SQLite store engine")
 		return NewSqliteStore(dataDir, metrics)
+	case PostgresqlStoreEngine:
+		log.Info("using PostgreSQL store engine")
+		return NewPostgresqlStore(dataDir, metrics) // dataDir is dsn
 	default:
 		return nil, fmt.Errorf("unsupported kind of store %s", kind)
 	}
@@ -94,6 +98,8 @@ func NewStoreFromJson(dataDir string, metrics telemetry.AppMetrics) (Store, erro
 		return fstore, nil
 	case SqliteStoreEngine:
 		return NewSqliteStoreFromFileStore(fstore, dataDir, metrics)
+	case PostgresqlStoreEngine:
+		return NewPostgresqlStoreFromFileStore(fstore, dataDir, metrics) // dataDir is dsn
 	default:
 		return nil, fmt.Errorf("unsupported store engine %s", kind)
 	}
