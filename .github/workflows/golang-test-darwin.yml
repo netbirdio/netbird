@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - yury/add-postgresql-store
   pull_request:
 
 concurrency:
