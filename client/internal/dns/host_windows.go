@@ -43,10 +43,10 @@ func (s *registryConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (r *registryConfigurator) applyDNSConfig(config hostDNSConfig) error {
+func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	var err error
-	if config.routeAll {
-		err = r.addDNSSetupForAll(config.serverIP)
+	if config.RouteAll {
+		err = r.addDNSSetupForAll(config.ServerIP)
 		if err != nil {
 			return err
 		}
@@ -56,7 +56,7 @@ func (r *registryConfigurator) applyDNSConfig(config hostDNSConfig) error {
 			return err
 		}
 		r.routingAll = false
-		log.Infof("removed %s as main DNS forwarder for this peer", config.serverIP)
+		log.Infof("removed %s as main DNS forwarder for this peer", config.ServerIP)
 	}
 
 	var (
@@ -64,18 +64,18 @@ func (r *registryConfigurator) applyDNSConfig(config hostDNSConfig) error {
 		matchDomains  []string
 	)
 
-	for _, dConf := range config.domains {
-		if dConf.disabled {
+	for _, dConf := range config.Domains {
+		if dConf.Disabled {
 			continue
 		}
-		if !dConf.matchOnly {
-			searchDomains = append(searchDomains, dConf.domain)
+		if !dConf.MatchOnly {
+			searchDomains = append(searchDomains, dConf.Domain)
 		}
-		matchDomains = append(matchDomains, "."+dConf.domain)
+		matchDomains = append(matchDomains, "."+dConf.Domain)
 	}
 
 	if len(matchDomains) != 0 {
-		err = r.addDNSMatchPolicy(matchDomains, config.serverIP)
+		err = r.addDNSMatchPolicy(matchDomains, config.ServerIP)
 	} else {
 		err = removeRegistryKeyFromDNSPolicyConfig(dnsPolicyConfigMatchPath)
 	}

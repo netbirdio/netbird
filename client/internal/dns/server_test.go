@@ -12,6 +12,7 @@ import (
 
 	"github.com/golang/mock/gomock"
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
@@ -250,11 +251,12 @@ func TestUpdateDNSServer(t *testing.T) {
 
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			privKey, _ := wgtypes.GenerateKey()
 			newNet, err := stdnet.NewNet(nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgIface, err := iface.NewWGIFace(fmt.Sprintf("utun230%d", n), fmt.Sprintf("100.66.100.%d/32", n+1), iface.DefaultMTU, nil, newNet)
+			wgIface, err := iface.NewWGIFace(fmt.Sprintf("utun230%d", n), fmt.Sprintf("100.66.100.%d/32", n+1), 33100, privKey.String(), iface.DefaultMTU, newNet, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -331,7 +333,8 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 		return
 	}
 
-	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.1/32", iface.DefaultMTU, nil, newNet)
+	privKey, _ := wgtypes.GeneratePrivateKey()
+	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.1/32", 33100, privKey.String(), iface.DefaultMTU, newNet, nil)
 	if err != nil {
 		t.Errorf("build interface wireguard: %v", err)
 		return
@@ -527,8 +530,8 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 			registeredMap: make(registrationMap),
 		},
 		hostManager: hostManager,
-		currentConfig: hostDNSConfig{
-			domains: []domainConfig{
+		currentConfig: HostDNSConfig{
+			Domains: []DomainConfig{
 				{false, "domain0", false},
 				{false, "domain1", false},
 				{false, "domain2", false},
@@ -537,13 +540,13 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	}
 
 	var domainsUpdate string
-	hostManager.applyDNSConfigFunc = func(config hostDNSConfig) error {
+	hostManager.applyDNSConfigFunc = func(config HostDNSConfig) error {
 		domains := []string{}
-		for _, item := range config.domains {
-			if item.disabled {
+		for _, item := range config.Domains {
+			if item.Disabled {
 				continue
 			}
-			domains = append(domains, item.domain)
+			domains = append(domains, item.Domain)
 		}
 		domainsUpdate = strings.Join(domains, ",")
 		return nil
@@ -559,11 +562,11 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	deactivate()
 	expected := "domain0,domain2"
 	domains := []string{}
-	for _, item := range server.currentConfig.domains {
-		if item.disabled {
+	for _, item := range server.currentConfig.Domains {
+		if item.Disabled {
 			continue
 		}
-		domains = append(domains, item.domain)
+		domains = append(domains, item.Domain)
 	}
 	got := strings.Join(domains, ",")
 	if expected != got {
@@ -573,11 +576,11 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	reactivate()
 	expected = "domain0,domain1,domain2"
 	domains = []string{}
-	for _, item := range server.currentConfig.domains {
-		if item.disabled {
+	for _, item := range server.currentConfig.Domains {
+		if item.Disabled {
 			continue
 		}
-		domains = append(domains, item.domain)
+		domains = append(domains, item.Domain)
 	}
 	got = strings.Join(domains, ",")
 	if expected != got {
@@ -782,7 +785,8 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 		return nil, err
 	}
 
-	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.2/24", iface.DefaultMTU, nil, newNet)
+	privKey, _ := wgtypes.GeneratePrivateKey()
+	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.2/24", 33100, privKey.String(), iface.DefaultMTU, newNet, nil)
 	if err != nil {
 		t.Fatalf("build interface wireguard: %v", err)
 		return nil, err

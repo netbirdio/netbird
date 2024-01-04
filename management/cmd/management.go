@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/netbirdio/management-integrations/integrations"
 	"io"
 	"io/fs"
 	"net"
@@ -31,8 +32,6 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/activity/sqlite"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -146,7 +145,7 @@ var (
 			if disableSingleAccMode {
 				mgmtSingleAccModeDomain = ""
 			}
-			eventStore, key, err := initEventStore(config.Datadir, config.DataStoreEncryptionKey)
+			eventStore, key, err := integrations.InitEventStore(config.Datadir, config.DataStoreEncryptionKey)
 			if err != nil {
 				return fmt.Errorf("failed to initialize database: %s", err)
 			}
@@ -300,20 +299,6 @@ var (
 		},
 	}
 )
-
-func initEventStore(dataDir string, key string) (activity.Store, string, error) {
-	var err error
-	if key == "" {
-		log.Debugf("generate new activity store encryption key")
-		key, err = sqlite.GenerateKey()
-		if err != nil {
-			return nil, "", err
-		}
-	}
-	store, err := sqlite.NewSQLiteStore(dataDir, key)
-	return store, key, err
-
-}
 
 func notifyStop(msg string) {
 	select {

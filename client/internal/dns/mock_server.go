@@ -33,7 +33,7 @@ func (m *MockServer) DnsIP() string {
 }
 
 func (m *MockServer) OnUpdatedHostDNSServer(strings []string) {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 

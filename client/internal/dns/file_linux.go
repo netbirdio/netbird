@@ -35,14 +35,14 @@ func (f *fileConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
+func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	backupFileExist := false
 	_, err := os.Stat(fileDefaultResolvConfBackupLocation)
 	if err == nil {
 		backupFileExist = true
 	}
 
-	if !config.routeAll {
+	if !config.RouteAll {
 		if backupFileExist {
 			err = f.restore()
 			if err != nil {
@@ -70,7 +70,7 @@ func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
 
 	buf := prepareResolvConfContent(
 		searchDomainList,
-		append([]string{config.serverIP}, nameServers...),
+		append([]string{config.ServerIP}, nameServers...),
 		others)
 
 	log.Debugf("creating managed file %s", defaultResolvConfPath)
@@ -138,14 +138,14 @@ func prepareResolvConfContent(searchDomains, nameServers, others []string) bytes
 	return buf
 }
 
-func searchDomains(config hostDNSConfig) []string {
+func searchDomains(config HostDNSConfig) []string {
 	listOfDomains := make([]string, 0)
-	for _, dConf := range config.domains {
-		if dConf.matchOnly || dConf.disabled {
+	for _, dConf := range config.Domains {
+		if dConf.MatchOnly || dConf.Disabled {
 			continue
 		}
 
-		listOfDomains = append(listOfDomains, dConf.domain)
+		listOfDomains = append(listOfDomains, dConf.Domain)
 	}
 	return listOfDomains
 }
@@ -214,7 +214,7 @@ func originalDNSConfigs(resolvconfFile string) (searchDomains, nameServers, othe
 	return
 }
 
-// merge search domains lists and cut off the list if it is too long
+// merge search Domains lists and cut off the list if it is too long
 func mergeSearchDomains(searchDomains []string, originalSearchDomains []string) []string {
 	lineSize := len("search")
 	searchDomainsList := make([]string, 0, len(searchDomains)+len(originalSearchDomains))
@@ -225,14 +225,14 @@ func mergeSearchDomains(searchDomains []string, originalSearchDomains []string) 
 	return searchDomainsList
 }
 
-// validateAndFillSearchDomains checks if the search domains list is not too long and if the line is not too long
+// validateAndFillSearchDomains checks if the search Domains list is not too long and if the line is not too long
 // extend s slice with vs elements
 // return with the number of characters in the searchDomains line
 func validateAndFillSearchDomains(initialLineChars int, s *[]string, vs []string) int {
 	for _, sd := range vs {
 		tmpCharsNumber := initialLineChars + 1 + len(sd)
 		if tmpCharsNumber > fileMaxLineCharsLimit {
-			// lets log all skipped domains
+			// lets log all skipped Domains
 			log.Infof("search list line is larger than %d characters. Skipping append of %s domain", fileMaxLineCharsLimit, sd)
 			continue
 		}
@@ -240,7 +240,7 @@ func validateAndFillSearchDomains(initialLineChars int, s *[]string, vs []string
 		initialLineChars = tmpCharsNumber
 
 		if len(*s) >= fileMaxNumberOfSearchDomains {
-			// lets log all skipped domains
+			// lets log all skipped Domains
 			log.Infof("already appended %d domains to search list. Skipping append of %s domain", fileMaxNumberOfSearchDomains, sd)
 			continue
 		}

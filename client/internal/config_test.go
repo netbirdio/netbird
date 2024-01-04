@@ -1,12 +1,14 @@
 package internal
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/util"
 )
@@ -116,6 +118,63 @@ func TestHiddenPreSharedKey(t *testing.T) {
 
 			if cfg.PreSharedKey != tt.want {
 				t.Fatalf("invalid preshared key: '%s', expected: '%s' ", cfg.PreSharedKey, tt.want)
+			}
+		})
+	}
+}
+
+func TestUpdateOldManagementURL(t *testing.T) {
+	tests := []struct {
+		name                  string
+		previousManagementURL string
+		expectedManagementURL string
+		fileShouldNotChange   bool
+	}{
+		{
+			name:                  "Update old management URL with legacy port",
+			previousManagementURL: "https://api.wiretrustee.com:33073",
+			expectedManagementURL: DefaultManagementURL,
+		},
+		{
+			name:                  "Update old management URL",
+			previousManagementURL: oldDefaultManagementURL,
+			expectedManagementURL: DefaultManagementURL,
+		},
+		{
+			name:                  "No update needed when management URL is up to date",
+			previousManagementURL: DefaultManagementURL,
+			expectedManagementURL: DefaultManagementURL,
+			fileShouldNotChange:   true,
+		},
+		{
+			name:                  "No update needed when not using cloud management",
+			previousManagementURL: "https://netbird.example.com:33073",
+			expectedManagementURL: "https://netbird.example.com:33073",
+			fileShouldNotChange:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			configPath := filepath.Join(tempDir, "config.json")
+			config, err := UpdateOrCreateConfig(ConfigInput{
+				ManagementURL: tt.previousManagementURL,
+				ConfigPath:    configPath,
+			})
+			require.NoError(t, err, "failed to create testing config")
+			previousStats, err := os.Stat(configPath)
+			require.NoError(t, err, "failed to create testing config stats")
+			resultConfig, err := UpdateOldManagementURL(context.TODO(), config, configPath)
+			require.NoError(t, err, "got error when updating old management url")
+			require.Equal(t, tt.expectedManagementURL, resultConfig.ManagementURL.String())
+			newStats, err := os.Stat(configPath)
+			require.NoError(t, err, "failed to create testing config stats")
+			switch tt.fileShouldNotChange {
+			case true:
+				require.Equal(t, previousStats.ModTime(), newStats.ModTime(), "file should not change")
+			case false:
+				require.NotEqual(t, previousStats.ModTime(), newStats.ModTime(), "file should have changed")
 			}
 		})
 	}

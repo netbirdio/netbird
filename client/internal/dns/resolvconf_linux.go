@@ -39,9 +39,9 @@ func (r *resolvconf) supportCustomPort() bool {
 	return false
 }
 
-func (r *resolvconf) applyDNSConfig(config hostDNSConfig) error {
+func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
 	var err error
-	if !config.routeAll {
+	if !config.RouteAll {
 		err = r.restoreHostDNS()
 		if err != nil {
 			log.Error(err)
@@ -54,7 +54,7 @@ func (r *resolvconf) applyDNSConfig(config hostDNSConfig) error {
 
 	buf := prepareResolvConfContent(
 		searchDomainList,
-		append([]string{config.serverIP}, r.originalNameServers...),
+		append([]string{config.ServerIP}, r.originalNameServers...),
 		r.othersConfigs)
 
 	err = r.applyConfig(buf)
