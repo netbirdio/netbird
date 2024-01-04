@@ -16,6 +16,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/route"
 
 	"github.com/stretchr/testify/assert"
@@ -1558,7 +1559,13 @@ func TestAccount_Copy(t *testing.T) {
 			},
 		},
 		DNSSettings: DNSSettings{DisabledManagementGroups: []string{}},
-		Settings:    &Settings{},
+		PostureChecks: []*posture.Checks{
+			{
+				ID:     "posture Checks1",
+				Checks: make([]posture.Check, 0),
+			},
+		},
+		Settings: &Settings{},
 	}
 	err := hasNilField(account)
 	if err != nil {

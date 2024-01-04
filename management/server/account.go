@@ -667,6 +667,11 @@ func (a *Account) Copy() *Account {
 		settings = a.Settings.Copy()
 	}
 
+	postureChecks := []*posture.Checks{}
+	for _, postureCheck := range a.PostureChecks {
+		postureChecks = append(postureChecks, postureCheck.Copy())
+	}
+
 	return &Account{
 		Id:                     a.Id,
 		CreatedBy:              a.CreatedBy,
@@ -683,6 +688,7 @@ func (a *Account) Copy() *Account {
 		Routes:                 routes,
 		NameServerGroups:       nsGroups,
 		DNSSettings:            dnsSettings,
+		PostureChecks:          postureChecks,
 		Settings:               settings,
 	}
 }
