@@ -11,6 +11,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -84,6 +85,10 @@ type MockAccountManager struct {
 	GetAllConnectedPeersFunc        func() (map[string]struct{}, error)
 	HasConnectedChannelFunc         func(peerID string) bool
 	GetExternalCacheManagerFunc     func() server.ExternalCacheManager
+	GetPostureChecksFunc            func(accountID, postureChecksID, userID string) (*posture.Checks, error)
+	SavePostureChecksFunc           func(accountID, userID string, postureChecks *posture.Checks) error
+	DeletePostureChecksFunc         func(accountID, postureChecksID, userID string) error
+	ListPostureChecksFunc           func(accountID, userID string) ([]*posture.Checks, error)
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -652,4 +657,38 @@ func (am *MockAccountManager) GetExternalCacheManager() server.ExternalCacheMana
 		return am.GetExternalCacheManagerFunc()
 	}
 	return nil
+}
+
+// GetPostureChecks mocks GetPostureChecks of the AccountManager interface
+func (am *MockAccountManager) GetPostureChecks(accountID, postureChecksID, userID string) (*posture.Checks, error) {
+	if am.GetPostureChecksFunc != nil {
+		return am.GetPostureChecksFunc(accountID, postureChecksID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetPostureChecks is not implemented")
+
+}
+
+// SavePostureChecks mocks SavePostureChecks of the AccountManager interface
+func (am *MockAccountManager) SavePostureChecks(accountID, userID string, postureChecks *posture.Checks) error {
+	if am.SavePostureChecksFunc != nil {
+		return am.SavePostureChecksFunc(accountID, userID, postureChecks)
+	}
+	return status.Errorf(codes.Unimplemented, "method SavePostureChecks is not implemented")
+}
+
+// DeletePostureChecks mocks DeletePostureChecks of the AccountManager interface
+func (am *MockAccountManager) DeletePostureChecks(accountID, postureChecksID, userID string) error {
+	if am.DeletePostureChecksFunc != nil {
+		return am.DeletePostureChecksFunc(accountID, postureChecksID, userID)
+	}
+	return status.Errorf(codes.Unimplemented, "method DeletePostureChecks is not implemented")
+
+}
+
+// ListPostureChecks mocks ListPostureChecks of the AccountManager interface
+func (am *MockAccountManager) ListPostureChecks(accountID, userID string) ([]*posture.Checks, error) {
+	if am.ListPostureChecksFunc != nil {
+		return am.ListPostureChecksFunc(accountID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method ListPostureChecks is not implemented")
 }
