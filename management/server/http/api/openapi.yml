@@ -862,7 +862,7 @@ components:
           $ref: '#/components/schemas/NBVersionCheck'
       required:
         - name
-        - nb_version_check
+        - description
     RouteRequest:
       type: object
       properties:
