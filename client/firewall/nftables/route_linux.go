@@ -179,14 +179,11 @@ func (r *router) InsertRoutingRules(pair manager.RouterPair) error {
 
 // insertRoutingRule inserts a nftable rule to the conn client flush queue
 func (r *router) insertRoutingRule(format, chainName string, pair manager.RouterPair, isNat bool) error {
-	sourceExp := generateCIDRMatcherExpressions(true, pair.Source)
-	destExp := generateCIDRMatcherExpressions(false, pair.Destination)
-
-	var expression []expr.Any
+	expression := generateCIDRMatcherExpressions(true, pair.Source)
 	if isNat {
-		expression = append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) // nolint:gocritic
+		expression = append(expression, &expr.Counter{}, &expr.Masq{}) // nolint:gocritic
 	} else {
-		expression = append(sourceExp, append(destExp, exprCounterAccept...)...) // nolint:gocritic
+		expression = append(expression, exprCounterAccept...) // nolint:gocritic
 	}
 
 	ruleKey := manager.GenKey(format, pair.ID)
