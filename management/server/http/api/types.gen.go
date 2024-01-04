@@ -750,16 +750,16 @@ type PolicyUpdate struct {
 // PostureCheck defines model for PostureCheck.
 type PostureCheck struct {
 	// Checks List of objects that perform the actual checks
-	Checks *[]Checks `json:"checks,omitempty"`
+	Checks []Checks `json:"checks"`
 
 	// Description Posture check friendly description
 	Description *string `json:"description,omitempty"`
 
 	// Id Posture check ID
-	Id *string `json:"id,omitempty"`
+	Id string `json:"id"`
 
 	// Name Posture check name identifier
-	Name *string `json:"name,omitempty"`
+	Name string `json:"name"`
 }
 
 // PostureCheckUpdate defines model for PostureCheckUpdate.

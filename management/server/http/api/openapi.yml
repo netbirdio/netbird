@@ -825,6 +825,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Checks'
+      required:
+        - id
+        - name
+        - checks
     Checks:
       anyOf:
         - $ref: '#/components/schemas/NBVersionCheck'

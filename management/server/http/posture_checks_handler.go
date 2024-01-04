@@ -145,7 +145,8 @@ func (p *PostureChecksHandler) savePostureChecks(
 		return
 	}
 
-	if err := validatePostureChecksUpdate(req); err != nil {
+	err := validatePostureChecksUpdate(req)
+	if err != nil {
 		util.WriteErrorResponse(err.Error(), http.StatusBadRequest, w)
 		return
 	}
