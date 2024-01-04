@@ -1,20 +1,21 @@
-//go:build !ios
-// +build !ios
+//go:build linux && !android
 
 package iface
 
 import (
-	"os/exec"
+	"fmt"
+	"os"
 
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
+	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
 
 	"github.com/netbirdio/netbird/iface/bind"
 )
 
-type tunDevice struct {
+type tunUSPDevice struct {
 	name    string
 	address WGAddress
 	port    int
@@ -28,8 +29,9 @@ type tunDevice struct {
 	configurer wgConfigurer
 }
 
-func newTunDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net) wgTunDevice {
-	return &tunDevice{
+func newTunUSPDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net) wgTunDevice {
+	log.Infof("using userspace bind mode")
+	return &tunUSPDevice{
 		name:    name,
 		address: address,
 		port:    port,
@@ -39,12 +41,13 @@ func newTunDevice(name string, address WGAddress, port int, key string, mtu int,
 	}
 }
 
-func (t *tunDevice) Create() (wgConfigurer, error) {
-	tunDevice, err := tun.CreateTUN(t.name, t.mtu)
+func (t *tunUSPDevice) Create() (wgConfigurer, error) {
+	log.Info("create tun interface")
+	tunIface, err := tun.CreateTUN(t.name, t.mtu)
 	if err != nil {
 		return nil, err
 	}
-	t.wrapper = newDeviceWrapper(tunDevice)
+	t.wrapper = newDeviceWrapper(tunIface)
 
 	// We need to create a wireguard-go device and listen to configuration requests
 	t.device = device.NewDevice(
@@ -69,7 +72,11 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 	return t.configurer, nil
 }
 
-func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *tunUSPDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+	if t.device == nil {
+		return nil, fmt.Errorf("device is not ready yet")
+	}
+
 	err := t.device.Up()
 	if err != nil {
 		return nil, err
@@ -80,23 +87,23 @@ func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		return nil, err
 	}
 	t.udpMux = udpMux
+
 	log.Debugf("device is ready to use: %s", t.name)
 	return udpMux, nil
 }
 
-func (t *tunDevice) UpdateAddr(address WGAddress) error {
+func (t *tunUSPDevice) UpdateAddr(address WGAddress) error {
 	t.address = address
 	return t.assignAddr()
 }
 
-func (t *tunDevice) Close() error {
+func (t *tunUSPDevice) Close() error {
 	if t.configurer != nil {
 		t.configurer.close()
 	}
 
 	if t.device != nil {
 		t.device.Close()
-		t.device = nil
 	}
 
 	if t.udpMux != nil {
@@ -105,30 +112,46 @@ func (t *tunDevice) Close() error {
 	return nil
 }
 
-func (t *tunDevice) WgAddress() WGAddress {
+func (t *tunUSPDevice) WgAddress() WGAddress {
 	return t.address
 }
 
-func (t *tunDevice) DeviceName() string {
+func (t *tunUSPDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *tunDevice) Wrapper() *DeviceWrapper {
+func (t *tunUSPDevice) Wrapper() *DeviceWrapper {
 	return t.wrapper
 }
 
-// assignAddr Adds IP address to the tunnel interface and network route based on the range provided
-func (t *tunDevice) assignAddr() error {
-	cmd := exec.Command("ifconfig", t.name, "inet", t.address.IP.String(), t.address.IP.String())
-	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Infof(`adding address command "%v" failed with output %s and error: `, cmd.String(), out)
+// assignAddr Adds IP address to the tunnel interface
+func (t *tunUSPDevice) assignAddr() error {
+	link := newWGLink(t.name)
+
+	//delete existing addresses
+	list, err := netlink.AddrList(link, 0)
+	if err != nil {
 		return err
+	}
+	if len(list) > 0 {
+		for _, a := range list {
+			addr := a
+			err = netlink.AddrDel(link, &addr)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
-	routeCmd := exec.Command("route", "add", "-net", t.address.Network.String(), "-interface", t.name)
-	if out, err := routeCmd.CombinedOutput(); err != nil {
-		log.Printf(`adding route command "%v" failed with output %s and error: `, routeCmd.String(), out)
+	log.Debugf("adding address %s to interface: %s", t.address.String(), t.name)
+	addr, _ := netlink.ParseAddr(t.address.String())
+	err = netlink.AddrAdd(link, addr)
+	if os.IsExist(err) {
+		log.Infof("interface %s already has the address: %s", t.name, t.address.String())
+	} else if err != nil {
 		return err
 	}
-	return nil
+	// On linux, the link must be brought up
+	err = netlink.LinkSetUp(link)
+	return err
 }

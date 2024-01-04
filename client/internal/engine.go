@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"io"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -32,7 +31,6 @@ import (
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/route"
-	"github.com/netbirdio/netbird/sharedsock"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/util"
@@ -107,8 +105,7 @@ type Engine struct {
 	wgInterface    *iface.WGIface
 	wgProxyFactory *wgproxy.Factory
 
-	udpMux     *bind.UniversalUDPMuxDefault
-	udpMuxConn io.Closer
+	udpMux *bind.UniversalUDPMuxDefault
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
@@ -181,66 +178,26 @@ func (e *Engine) Start() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	wgIFaceName := e.config.WgIfaceName
-	wgAddr := e.config.WgAddr
-	myPrivateKey := e.config.WgPrivateKey
-	var err error
-	transportNet, err := e.newStdNet()
+	wgIface, err := e.newWgIface()
 	if err != nil {
-		log.Errorf("failed to create pion's stdnet: %s", err)
-	}
-
-	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.TunAdapter, transportNet)
-	if err != nil {
-		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIFaceName, err.Error())
+		log.Errorf("failed creating wireguard interface instance %s: [%s]", e.config.WgIfaceName, err.Error())
 		return err
 	}
+	e.wgInterface = wgIface
 
-	var routes []*route.Route
-
-	switch runtime.GOOS {
-	case "android":
-		var dnsConfig *nbdns.Config
-		routes, dnsConfig, err = e.readInitialSettings()
-		if err != nil {
-			return err
-		}
-		if e.dnsServer == nil {
-			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, *dnsConfig, e.mobileDep.NetworkChangeListener)
-			go e.mobileDep.DnsReadyListener.OnReady()
-		}
-	case "ios":
-		if e.dnsServer == nil {
-			e.dnsServer = dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager)
-		}
-	default:
-		if e.dnsServer == nil {
-			e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
-			if err != nil {
-				e.close()
-				return err
-			}
-		}
+	initialRoutes, dnsServer, err := e.newDnsServer()
+	if err != nil {
+		e.close()
+		return err
 	}
+	e.dnsServer = dnsServer
 
-	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
+	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, initialRoutes)
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
-	switch runtime.GOOS {
-	case "android":
-		err = e.wgInterface.CreateOnAndroid(iface.MobileIFaceArguments{
-			Routes:        e.routeManager.InitialRouteRange(),
-			Dns:           e.dnsServer.DnsIP(),
-			SearchDomains: e.dnsServer.SearchDomains(),
-		})
-	case "ios":
-		e.mobileDep.NetworkChangeListener.SetInterfaceIP(wgAddr)
-		err = e.wgInterface.CreateOniOS(e.mobileDep.FileDescriptor)
-	default:
-		err = e.wgInterface.Create()
-	}
+	err = e.wgInterfaceCreate()
 	if err != nil {
-		log.Errorf("failed creating tunnel interface %s: [%s]", wgIFaceName, err.Error())
+		log.Errorf("failed creating tunnel interface %s: [%s]", e.config.WgIfaceName, err.Error())
 		e.close()
 		return err
 	}
@@ -258,31 +215,11 @@ func (e *Engine) Start() error {
 		}
 	}
 
-	err = e.wgInterface.Configure(myPrivateKey.String(), e.config.WgPort)
+	e.udpMux, err = e.wgInterface.Up()
 	if err != nil {
-		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIFaceName, err.Error())
+		log.Errorf("failed to pull up wgInterface [%s]: %s", e.wgInterface.Name(), err.Error())
 		e.close()
 		return err
-	}
-
-	if e.wgInterface.IsUserspaceBind() {
-		iceBind := e.wgInterface.GetBind()
-		udpMux, err := iceBind.GetICEMux()
-		if err != nil {
-			e.close()
-			return err
-		}
-		e.udpMux = udpMux
-		log.Infof("using userspace bind mode %s", udpMux.LocalAddr().String())
-	} else {
-		rawSock, err := sharedsock.Listen(e.config.WgPort, sharedsock.NewIncomingSTUNFilter())
-		if err != nil {
-			return err
-		}
-		mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: rawSock, Net: transportNet})
-		go mux.ReadFromConn(e.ctx)
-		e.udpMuxConn = rawSock
-		e.udpMux = mux
 	}
 
 	if e.firewall != nil {
@@ -1042,18 +979,6 @@ func (e *Engine) close() {
 		}
 	}
 
-	if e.udpMux != nil {
-		if err := e.udpMux.Close(); err != nil {
-			log.Debugf("close udp mux: %v", err)
-		}
-	}
-
-	if e.udpMuxConn != nil {
-		if err := e.udpMuxConn.Close(); err != nil {
-			log.Debugf("close udp mux connection: %v", err)
-		}
-	}
-
 	if !isNil(e.sshServer) {
 		err := e.sshServer.Stop()
 		if err != nil {
@@ -1085,6 +1010,68 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 	routes := toRoutes(netMap.GetRoutes())
 	dnsCfg := toDNSConfig(netMap.GetDNSConfig())
 	return routes, &dnsCfg, nil
+}
+
+func (e *Engine) newWgIface() (*iface.WGIface, error) {
+	transportNet, err := e.newStdNet()
+	if err != nil {
+		log.Errorf("failed to create pion's stdnet: %s", err)
+	}
+
+	var mArgs *iface.MobileIFaceArguments
+	switch runtime.GOOS {
+	case "android":
+		mArgs = &iface.MobileIFaceArguments{
+			TunAdapter: e.mobileDep.TunAdapter,
+			TunFd:      int(e.mobileDep.FileDescriptor),
+		}
+	case "ios":
+		mArgs = &iface.MobileIFaceArguments{
+			TunFd: int(e.mobileDep.FileDescriptor),
+		}
+	default:
+	}
+
+	return iface.NewWGIFace(e.config.WgIfaceName, e.config.WgAddr, e.config.WgPort, e.config.WgPrivateKey.String(), iface.DefaultMTU, transportNet, mArgs)
+}
+
+func (e *Engine) wgInterfaceCreate() (err error) {
+	switch runtime.GOOS {
+	case "android":
+		err = e.wgInterface.CreateOnAndroid(e.routeManager.InitialRouteRange(), e.dnsServer.DnsIP(), e.dnsServer.SearchDomains())
+	case "ios":
+		e.mobileDep.NetworkChangeListener.SetInterfaceIP(e.config.WgAddr)
+		err = e.wgInterface.Create()
+	default:
+		err = e.wgInterface.Create()
+	}
+	return err
+}
+
+func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
+	// due to tests where we are using a mocked version of the DNS server
+	if e.dnsServer != nil {
+		return nil, e.dnsServer, nil
+	}
+	switch runtime.GOOS {
+	case "android":
+		routes, dnsConfig, err := e.readInitialSettings()
+		if err != nil {
+			return nil, nil, err
+		}
+		dnsServer := dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, *dnsConfig, e.mobileDep.NetworkChangeListener)
+		go e.mobileDep.DnsReadyListener.OnReady()
+		return routes, dnsServer, nil
+	case "ios":
+		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager)
+		return nil, dnsServer, nil
+	default:
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, dnsServer, nil
+	}
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
