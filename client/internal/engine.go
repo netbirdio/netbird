@@ -820,8 +820,10 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		rk := []byte(wgConfig.RemoteKey)
 		var keyInput []byte
 		if string(lk) > string(rk) {
+			//nolint:gocritic
 			keyInput = append(lk[:16], rk[:16]...)
 		} else {
+			//nolint:gocritic
 			keyInput = append(rk[:16], lk[:16]...)
 		}
 
