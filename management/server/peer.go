@@ -442,8 +442,11 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 	}
 
 	if addedByUser {
-		user := account.Users[userID]
-		user.LastLogin = newPeer.LastLogin
+		user, err := account.FindUser(userID)
+		if err != nil {
+			return nil, nil, status.Errorf(status.Internal, "couldn't find user")
+		}
+		user.updateLastLogin(newPeer.LastLogin)
 	}
 
 	account.Peers[newPeer.ID] = newPeer
@@ -557,8 +560,11 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 		shouldStoreAccount = true
 
 		// sync user last login with peer last login
-		user := account.Users[login.UserID]
-		user.LastLogin = peer.LastLogin
+		user, err := account.FindUser(login.UserID)
+		if err != nil {
+			return nil, nil, status.Errorf(status.Internal, "couldn't find user")
+		}
+		user.updateLastLogin(peer.LastLogin)
 
 		am.StoreEvent(login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
 	}
