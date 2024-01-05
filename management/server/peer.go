@@ -5,8 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netbirdio/management-integrations/additions"
 	"github.com/rs/xid"
+
+	"github.com/netbirdio/management-integrations/additions"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -440,6 +441,11 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 		}
 	}
 
+	if addedByUser {
+		user := account.Users[userID]
+		user.LastLogin = newPeer.LastLogin
+	}
+
 	account.Peers[newPeer.ID] = newPeer
 	account.Network.IncSerial()
 	err = am.Store.SaveAccount(account)
@@ -549,6 +555,10 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 		updatePeerLastLogin(peer, account)
 		updateRemotePeers = true
 		shouldStoreAccount = true
+
+		// sync user last login with peer last login
+		user := account.Users[login.UserID]
+		user.LastLogin = peer.LastLogin
 
 		am.StoreEvent(login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
 	}
