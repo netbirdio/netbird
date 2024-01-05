@@ -4,10 +4,7 @@
 package api
 
 import (
-	"encoding/json"
 	"time"
-
-	"github.com/deepmap/oapi-codegen/pkg/runtime"
 )
 
 const (
@@ -179,9 +176,10 @@ type AccountSettings struct {
 	PeerLoginExpirationEnabled bool `json:"peer_login_expiration_enabled"`
 }
 
-// Checks defines model for Checks.
+// Checks List of objects that perform the actual checks
 type Checks struct {
-	union json.RawMessage
+	// NbVersionCheck Posture check for the version of NetBird
+	NbVersionCheck *NBVersionCheck `json:"nb_version_check,omitempty"`
 }
 
 // DNSSettings defines model for DNSSettings.
@@ -750,7 +748,7 @@ type PolicyUpdate struct {
 // PostureCheck defines model for PostureCheck.
 type PostureCheck struct {
 	// Checks List of objects that perform the actual checks
-	Checks []Checks `json:"checks"`
+	Checks *Checks `json:"checks,omitempty"`
 
 	// Description Posture check friendly description
 	Description *string `json:"description,omitempty"`
@@ -1103,39 +1101,3 @@ type PutApiUsersUserIdJSONRequestBody = UserRequest
 
 // PostApiUsersUserIdTokensJSONRequestBody defines body for PostApiUsersUserIdTokens for application/json ContentType.
 type PostApiUsersUserIdTokensJSONRequestBody = PersonalAccessTokenRequest
-
-// AsNBVersionCheck returns the union data inside the Checks as a NBVersionCheck
-func (t Checks) AsNBVersionCheck() (NBVersionCheck, error) {
-	var body NBVersionCheck
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromNBVersionCheck overwrites any union data inside the Checks as the provided NBVersionCheck
-func (t *Checks) FromNBVersionCheck(v NBVersionCheck) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeNBVersionCheck performs a merge with any union data inside the Checks, using the provided NBVersionCheck
-func (t *Checks) MergeNBVersionCheck(v NBVersionCheck) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JsonMerge(b, t.union)
-	t.union = merged
-	return err
-}
-
-func (t Checks) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *Checks) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}

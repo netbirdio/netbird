@@ -47,7 +47,12 @@ func (p *PostureChecksHandler) GetAllPostureChecks(w http.ResponseWriter, r *htt
 		return
 	}
 
-	util.WriteJSONObject(w, accountPostureChecks)
+	postureChecks := []*api.PostureCheck{}
+	for _, postureCheck := range accountPostureChecks {
+		postureChecks = append(postureChecks, toPostureChecksResponse(postureCheck))
+	}
+
+	util.WriteJSONObject(w, postureChecks)
 }
 
 // UpdatePostureCheck handles update to a posture check identified by a given ID
@@ -103,7 +108,7 @@ func (p *PostureChecksHandler) GetPostureCheck(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	util.WriteJSONObject(w, postureChecks)
+	util.WriteJSONObject(w, toPostureChecksResponse(postureChecks))
 }
 
 // DeletePostureCheck handles posture check deletion request
@@ -180,7 +185,7 @@ func (p *PostureChecksHandler) savePostureChecks(
 		return
 	}
 
-	util.WriteJSONObject(w, postureChecks)
+	util.WriteJSONObject(w, toPostureChecksResponse(&postureChecks))
 }
 
 func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
@@ -197,4 +202,26 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 	}
 
 	return nil
+}
+
+func toPostureChecksResponse(postureChecks *posture.Checks) *api.PostureCheck {
+	var checks api.Checks
+	for _, check := range postureChecks.Checks {
+		switch check.Name() {
+		case posture.NBVersionCheckName:
+			versionCheck := check.(*posture.NBVersionCheck)
+			checks.NbVersionCheck = &api.NBVersionCheck{
+				Enabled:    versionCheck.Enabled,
+				MinVersion: versionCheck.MinVersion,
+				MaxVersion: &versionCheck.MaxVersion,
+			}
+		}
+	}
+
+	return &api.PostureCheck{
+		Id:          postureChecks.ID,
+		Name:        postureChecks.Name,
+		Description: &postureChecks.Description,
+		Checks:      &checks,
+	}
 }

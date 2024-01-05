@@ -821,17 +821,17 @@ components:
           type: string
           example: This checks if the peer is running required NetBird's version
         checks:
-          description: List of objects that perform the actual checks
-          type: array
-          items:
-            $ref: '#/components/schemas/Checks'
+          $ref: '#/components/schemas/Checks'
       required:
         - id
         - name
-        - checks
+        - check
     Checks:
-      anyOf:
-        - $ref: '#/components/schemas/NBVersionCheck'
+      description: List of objects that perform the actual checks
+      type: object
+      properties:
+        nb_version_check:
+          $ref: '#/components/schemas/NBVersionCheck'
     NBVersionCheck:
       description: Posture check for the version of NetBird
       type: object
