@@ -167,15 +167,15 @@ func (p *PostureChecksHandler) savePostureChecks(
 		Checks:      make([]posture.Check, 0),
 	}
 
-	if req.NbVersionCheck != nil {
+	if nbVersionCheck := req.Checks.NbVersionCheck; nbVersionCheck != nil {
 		var maxVersion string
-		if req.NbVersionCheck.MaxVersion != nil {
-			maxVersion = *req.NbVersionCheck.MaxVersion
+		if nbVersionCheck.MaxVersion != nil {
+			maxVersion = *nbVersionCheck.MaxVersion
 		}
 
 		postureChecks.Checks = append(postureChecks.Checks, &posture.NBVersionCheck{
-			Enabled:    req.NbVersionCheck.Enabled,
-			MinVersion: req.NbVersionCheck.MinVersion,
+			Enabled:    nbVersionCheck.Enabled,
+			MinVersion: nbVersionCheck.MinVersion,
 			MaxVersion: maxVersion,
 		})
 	}
@@ -193,11 +193,11 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 		return status.Errorf(status.InvalidArgument, "posture checks name shouldn't be empty")
 	}
 
-	if req.NbVersionCheck == nil {
-		return status.Errorf(status.InvalidArgument, "posture checks list shouldn't be empty")
+	if req.Checks == nil {
+		return status.Errorf(status.InvalidArgument, "posture checks shouldn't be empty")
 	}
 
-	if req.NbVersionCheck != nil && req.NbVersionCheck.MinVersion == "" {
+	if req.Checks.NbVersionCheck != nil && req.Checks.NbVersionCheck.MinVersion == "" {
 		return status.Errorf(status.InvalidArgument, "minimum version for NetBird's version check shouldn't be empty")
 	}
 

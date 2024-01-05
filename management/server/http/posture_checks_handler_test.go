@@ -36,6 +36,7 @@ func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksH
 				return p, nil
 			},
 			SavePostureChecksFunc: func(accountID, userID string, postureChecks *posture.Checks) error {
+				postureChecks.ID = "postureCheck"
 				testPostureChecks[postureChecks.ID] = postureChecks
 				return nil
 			},
@@ -98,11 +99,11 @@ func TestGetPostureCheck(t *testing.T) {
 			name:           "GetPostureCheck OK",
 			expectedBody:   true,
 			requestType:    http.MethodGet,
-			requestPath:    "/api/posture-checks/postureCheck1",
+			requestPath:    "/api/posture-checks/postureCheck",
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name:           "GetPostureCheck not found",
+			name:           "GetPostureCheck Not Found",
 			requestType:    http.MethodGet,
 			requestPath:    "/api/posture-checks/not-exists",
 			expectedStatus: http.StatusNotFound,
@@ -110,8 +111,8 @@ func TestGetPostureCheck(t *testing.T) {
 	}
 
 	postureCheck := &posture.Checks{
-		ID:   "postureCheck1",
-		Name: "postureCheck1",
+		ID:   "postureCheck",
+		Name: "name",
 		Checks: []posture.Check{
 			&posture.NBVersionCheck{
 				Enabled:    true,
@@ -161,6 +162,7 @@ func TestGetPostureCheck(t *testing.T) {
 }
 
 func TestPostureCheckUpdate(t *testing.T) {
+	str := func(s string) *string { return &s }
 	tt := []struct {
 		name                 string
 		expectedStatus       int
@@ -170,36 +172,49 @@ func TestPostureCheckUpdate(t *testing.T) {
 		requestPath          string
 		requestBody          io.Reader
 	}{
-		//{
-		//	name:        "Create Posture Checks",
-		//	requestType: http.MethodPost,
-		//	requestPath: "/api/posture-checks",
-		//	requestBody: bytes.NewBuffer(
-		//		[]byte(`{
-		//            "name": "default",
-		//            "nb_version_check": {
-		//				"enabled": true,
-		//				"min_version": "1.2.3"
-		//            }
-		//		}`)),
-		//	expectedStatus: http.StatusOK,
-		//	expectedBody:   true,
-		//	expectedPostureCheck: &api.PostureCheck{
-		//		Id:     "id-was-set",
-		//		Name:   "default",
-		//		Checks: []api.Checks{},
-		//	},
-		//},
+		{
+			name:        "Create Posture Checks",
+			requestType: http.MethodPost,
+			requestPath: "/api/posture-checks",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+		           "name": "default",
+                   "description": "default",
+		           "checks": {
+						"nb_version_check": {
+							"enabled": true,
+							"min_version": "1.2.3",
+							"max_version": "2.0.0"
+		           		}
+                   }
+				}`)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedPostureCheck: &api.PostureCheck{
+				Id:          "postureCheck",
+				Name:        "default",
+				Description: str("default"),
+				Checks: &api.Checks{
+					NbVersionCheck: &api.NBVersionCheck{
+						Enabled:    true,
+						MinVersion: "1.2.3",
+						MaxVersion: str("2.0.0"),
+					},
+				},
+			},
+		},
 		{
 			name:        "Create Posture Checks Invalid Name",
 			requestType: http.MethodPost,
 			requestPath: "/api/posture-checks",
 			requestBody: bytes.NewBuffer(
 				[]byte(`{
-                    "nb_version_check": {
-						"enabled": true,
-						"min_version": "1.2.3"
-                    }
+                    "checks": {
+						"nb_version_check": {
+							"enabled": true,
+							"min_version": "1.2.0"
+                    	}
+					}
 				}`)),
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   false,
@@ -211,43 +226,55 @@ func TestPostureCheckUpdate(t *testing.T) {
 			requestBody: bytes.NewBuffer(
 				[]byte(`{
 					"name": "default",
-                    "nb_version_check": {
-						"enabled": true,
-                    }
+                    "checks": {
+						"nb_version_check": {
+							"enabled": true,
+                    	}
+					}
 				}`)),
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   false,
 		},
-		//{
-		//	name:        "Update Posture Checks",
-		//	requestType: http.MethodPut,
-		//	requestPath: "/api/posture-checks/postureCheck1",
-		//	requestBody: bytes.NewBuffer(
-		//		[]byte(`{
-		//            "name": "default",
-		//            "nb_version_check": {
-		//				"enabled": true,
-		//				"min_version": "1.2.3"
-		//            }
-		//		}`)),
-		//	expectedStatus: http.StatusOK,
-		//	expectedBody:   true,
-		//	expectedPostureCheck: &api.PostureCheck{
-		//		Id:     "id-was-set",
-		//		Name:   "default",
-		//		Checks: []api.Checks{},
-		//	},
-		//},
+		{
+			name:        "Update Posture Checks",
+			requestType: http.MethodPut,
+			requestPath: "/api/posture-checks/postureCheck",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+		           "name": "default",
+		           "checks": {
+						"nb_version_check": {
+							"enabled": true,
+							"min_version": "1.9.0"
+		           		}
+					}
+				}`)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedPostureCheck: &api.PostureCheck{
+				Id:          "postureCheck",
+				Name:        "default",
+				Description: str(""),
+				Checks: &api.Checks{
+					NbVersionCheck: &api.NBVersionCheck{
+						Enabled:    true,
+						MinVersion: "1.9.0",
+						MaxVersion: str(""),
+					},
+				},
+			},
+		},
 		{
 			name:        "Update Posture Checks Invalid Name",
 			requestType: http.MethodPut,
-			requestPath: "/api/posture-checks/postureCheck1",
+			requestPath: "/api/posture-checks/postureCheck",
 			requestBody: bytes.NewBuffer(
 				[]byte(`{
-                    "nb_version_check": {
-						"enabled": true,
-						"min_version": "1.2.3"
-                    }
+                    "checks": {
+						"nb_version_check": {
+							"enabled": true,
+                    	}
+					}
 				}`)),
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   false,
@@ -255,13 +282,15 @@ func TestPostureCheckUpdate(t *testing.T) {
 		{
 			name:        "Update Posture Checks Invalid NetBird's Min Version",
 			requestType: http.MethodPut,
-			requestPath: "/api/posture-checks/postureCheck1",
+			requestPath: "/api/posture-checks/postureCheck",
 			requestBody: bytes.NewBuffer(
 				[]byte(`{
 					"name": "default",
-                    "nb_version_check": {
-						"enabled": true,
-                    }
+                    "checks": {
+						"nb_version_check": {
+							"enabled": false,
+                    	}
+					}
 				}`)),
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   false,
@@ -269,8 +298,8 @@ func TestPostureCheckUpdate(t *testing.T) {
 	}
 
 	p := initPostureChecksTestData(&posture.Checks{
-		ID:   "postureCheck1",
-		Name: "postureCheck1",
+		ID:   "postureCheck",
+		Name: "postureCheck",
 		Checks: []posture.Check{
 			&posture.NBVersionCheck{
 				Enabled:    true,

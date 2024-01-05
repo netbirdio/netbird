@@ -862,8 +862,8 @@ components:
           description: Posture check friendly description
           type: string
           example: This checks if the peer is running required NetBird's version
-        nb_version_check:
-          $ref: '#/components/schemas/NBVersionCheck'
+        checks:
+          $ref: '#/components/schemas/Checks'
       required:
         - name
         - description

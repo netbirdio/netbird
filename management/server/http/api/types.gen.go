@@ -762,14 +762,14 @@ type PostureCheck struct {
 
 // PostureCheckUpdate defines model for PostureCheckUpdate.
 type PostureCheckUpdate struct {
+	// Checks List of objects that perform the actual checks
+	Checks *Checks `json:"checks,omitempty"`
+
 	// Description Posture check friendly description
 	Description string `json:"description"`
 
 	// Name Posture check name identifier
 	Name string `json:"name"`
-
-	// NbVersionCheck Posture check for the version of NetBird
-	NbVersionCheck *NBVersionCheck `json:"nb_version_check,omitempty"`
 }
 
 // Route defines model for Route.
