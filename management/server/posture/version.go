@@ -38,3 +38,7 @@ func (n *NBVersionCheck) Check(peer nbpeer.Peer) error {
 		n.MaxVersion,
 	)
 }
+
+func (n *NBVersionCheck) Name() string {
+	return NBVersionCheckName
+}
