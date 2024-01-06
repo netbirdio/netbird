@@ -408,7 +408,7 @@ get_turn_external_ip() {
   if [[ "x-$IP" != "x-" ]]; then
     TURN_EXTERNAL_IP_CONFIG="external-ip=$IP"
   fi
-  echo $TURN_EXTERNAL_IP_CONFIG
+  echo "$TURN_EXTERNAL_IP_CONFIG"
 }
 
 initEnvironment() {
