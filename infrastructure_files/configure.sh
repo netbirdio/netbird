@@ -65,7 +65,7 @@ if [[ "x-$NETBIRD_TURN_EXTERNAL_IP" == "x-" ]]; then
     echo "unable to discover server's public IP"
   fi
 else
-  echo ""${NETBIRD_TURN_EXTERNAL_IP}"| egrep '([0-9]{1,3}\.){3}[0-9]{1,3}$' > /dev/null
+  echo "${NETBIRD_TURN_EXTERNAL_IP}"| egrep '([0-9]{1,3}\.){3}[0-9]{1,3}$' > /dev/null
   if [[ $? -eq 0 ]]; then
     echo "using provided server's public IP"
     TURN_EXTERNAL_IP_CONFIG="external-ip=$NETBIRD_TURN_EXTERNAL_IP"
