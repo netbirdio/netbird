@@ -15,42 +15,50 @@ import (
 	"github.com/netbirdio/netbird/iface/bind"
 )
 
-type tunDevice struct {
+// ignore the wgTunDevice interface on Android because the creation of the tun device is different on this platform
+type wgTunDevice struct {
 	address    WGAddress
+	port       int
+	key        string
 	mtu        int
-	tunAdapter TunAdapter
 	iceBind    *bind.ICEBind
+	tunAdapter TunAdapter
 
-	fd      int
-	name    string
-	device  *device.Device
-	wrapper *DeviceWrapper
+	name       string
+	device     *device.Device
+	wrapper    *DeviceWrapper
+	udpMux     *bind.UniversalUDPMuxDefault
+	configurer wgConfigurer
 }
 
-func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter, transportNet transport.Net) *tunDevice {
-	return &tunDevice{
+func newTunDevice(address WGAddress, port int, key string, mtu int, transportNet transport.Net, tunAdapter TunAdapter) wgTunDevice {
+	return wgTunDevice{
 		address:    address,
+		port:       port,
+		key:        key,
 		mtu:        mtu,
-		tunAdapter: tunAdapter,
 		iceBind:    bind.NewICEBind(transportNet),
+		tunAdapter: tunAdapter,
 	}
 }
 
-func (t *tunDevice) Create(mIFaceArgs MobileIFaceArguments) error {
+func (t *wgTunDevice) Create(routes []string, dns string, searchDomains []string) (wgConfigurer, error) {
 	log.Info("create tun interface")
-	var err error
-	routesString := t.routesToString(mIFaceArgs.Routes)
-	searchDomainsToString := t.searchDomainsToString(mIFaceArgs.SearchDomains)
-	t.fd, err = t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, mIFaceArgs.Dns, searchDomainsToString, routesString)
+
+	routesString := routesToString(routes)
+	searchDomainsToString := searchDomainsToString(searchDomains)
+
+	fd, err := t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, dns, searchDomainsToString, routesString)
 	if err != nil {
 		log.Errorf("failed to create Android interface: %s", err)
-		return err
+		return nil, err
 	}
 
-	tunDevice, name, err := tun.CreateUnmonitoredTUNFromFD(t.fd)
+	tunDevice, name, err := tun.CreateUnmonitoredTUNFromFD(fd)
 	if err != nil {
-		unix.Close(t.fd)
-		return err
+		_ = unix.Close(fd)
+		log.Errorf("failed to create Android interface: %s", err)
+		return nil, err
 	}
 	t.name = name
 	t.wrapper = newDeviceWrapper(tunDevice)
@@ -61,44 +69,72 @@ func (t *tunDevice) Create(mIFaceArgs MobileIFaceArguments) error {
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
-	err = t.device.Up()
+	t.configurer = newWGUSPConfigurer(t.device, t.name)
+	err = t.configurer.configureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
-		return err
+		t.configurer.close()
+		return nil, err
 	}
-	log.Debugf("device is ready to use: %s", name)
-	return nil
+	return t.configurer, nil
+}
+func (t *wgTunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+	err := t.device.Up()
+	if err != nil {
+		return nil, err
+	}
+
+	udpMux, err := t.iceBind.GetICEMux()
+	if err != nil {
+		return nil, err
+	}
+	t.udpMux = udpMux
+	log.Debugf("device is ready to use: %s", t.name)
+	return udpMux, nil
 }
 
-func (t *tunDevice) Device() *device.Device {
-	return t.device
-}
-
-func (t *tunDevice) DeviceName() string {
-	return t.name
-}
-
-func (t *tunDevice) WgAddress() WGAddress {
-	return t.address
-}
-
-func (t *tunDevice) UpdateAddr(addr WGAddress) error {
+func (t *wgTunDevice) UpdateAddr(addr WGAddress) error {
 	// todo implement
 	return nil
 }
 
-func (t *tunDevice) Close() (err error) {
-	if t.device != nil {
-		t.device.Close()
+func (t *wgTunDevice) Close() error {
+	if t.configurer != nil {
+		t.configurer.close()
 	}
 
-	return
+	if t.device != nil {
+		t.device.Close()
+		t.device = nil
+	}
+
+	if t.udpMux != nil {
+		return t.udpMux.Close()
+
+	}
+	return nil
 }
 
-func (t *tunDevice) routesToString(routes []string) string {
+func (t *wgTunDevice) Device() *device.Device {
+	return t.device
+}
+
+func (t *wgTunDevice) DeviceName() string {
+	return t.name
+}
+
+func (t *wgTunDevice) WgAddress() WGAddress {
+	return t.address
+}
+
+func (t *wgTunDevice) Wrapper() *DeviceWrapper {
+	return t.wrapper
+}
+
+func routesToString(routes []string) string {
 	return strings.Join(routes, ";")
 }
 
-func (t *tunDevice) searchDomainsToString(searchDomains []string) string {
+func searchDomainsToString(searchDomains []string) string {
 	return strings.Join(searchDomains, ";")
 }

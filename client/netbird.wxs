@@ -20,6 +20,7 @@
 						<Shortcut Id="NetbirdStartMenuShortcut" Directory="StartMenuFolder" Name="NetBird" WorkingDirectory="NetbirdInstallDir" Icon="NetbirdIcon" />
 					</File>
 					<File ProcessorArchitecture="x64" Source=".\dist\netbird_windows_amd64\wintun.dll" />
+					<File ProcessorArchitecture="x64" Source=".\dist\netbird_windows_amd64\opengl32.dll" />
 
 					<ServiceInstall
                                      Id="NetBirdService"

@@ -12,6 +12,7 @@ import (
 
 	"github.com/golang/mock/gomock"
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
@@ -250,11 +251,12 @@ func TestUpdateDNSServer(t *testing.T) {
 
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			privKey, _ := wgtypes.GenerateKey()
 			newNet, err := stdnet.NewNet(nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgIface, err := iface.NewWGIFace(fmt.Sprintf("utun230%d", n), fmt.Sprintf("100.66.100.%d/32", n+1), iface.DefaultMTU, nil, newNet)
+			wgIface, err := iface.NewWGIFace(fmt.Sprintf("utun230%d", n), fmt.Sprintf("100.66.100.%d/32", n+1), 33100, privKey.String(), iface.DefaultMTU, newNet, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -331,7 +333,8 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 		return
 	}
 
-	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.1/32", iface.DefaultMTU, nil, newNet)
+	privKey, _ := wgtypes.GeneratePrivateKey()
+	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.1/32", 33100, privKey.String(), iface.DefaultMTU, newNet, nil)
 	if err != nil {
 		t.Errorf("build interface wireguard: %v", err)
 		return
@@ -782,7 +785,8 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 		return nil, err
 	}
 
-	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.2/24", iface.DefaultMTU, nil, newNet)
+	privKey, _ := wgtypes.GeneratePrivateKey()
+	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.2/24", 33100, privKey.String(), iface.DefaultMTU, newNet, nil)
 	if err != nil {
 		t.Fatalf("build interface wireguard: %v", err)
 		return nil, err

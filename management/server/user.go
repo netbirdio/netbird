@@ -1073,11 +1073,10 @@ func (am *DefaultAccountManager) deleteUserFromIDP(targetUserID, accountID strin
 		if err != nil {
 			return fmt.Errorf("failed to remove user %s app metadata in IdP: %s", targetUserID, err)
 		}
-
-		_, err = am.refreshCache(accountID)
-		if err != nil {
-			log.Errorf("refresh account (%q) cache: %v", accountID, err)
-		}
+	}
+	err := am.removeUserFromCache(accountID, targetUserID)
+	if err != nil {
+		log.Errorf("remove user from account (%q) cache failed with error: %v", accountID, err)
 	}
 	return nil
 }

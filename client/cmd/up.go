@@ -95,7 +95,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return fmt.Errorf("get config file: %v", err)
 	}
 
-	config, _ = internal.UpdateOldManagementPort(ctx, config, configPath)
+	config, _ = internal.UpdateOldManagementURL(ctx, config, configPath)
 
 	err = foregroundLogin(ctx, cmd, config, setupKey)
 	if err != nil {
