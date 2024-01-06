@@ -485,13 +485,11 @@ initEnvironment() {
   ZITADEL_EXTERNALSECURE="false"
   ZITADEL_TLS_MODE="disabled"
   ZITADEL_MASTERKEY="$(openssl rand -base64 32 | head -c 32)"
-  #NETBIRD_PORT=80
   NETBIRD_HTTP_PROTOCOL="http"
   TURN_USER="self"
   TURN_PASSWORD=$(openssl rand -base64 32 | sed 's/=//g')
   TURN_MIN_PORT=49152
   TURN_MAX_PORT=65535
-  #TURN_LISTENING_PORT=3478
 
   if ! check_nb_domain "$NETBIRD_DOMAIN"; then
     NETBIRD_DOMAIN=$(read_nb_domain)
@@ -515,7 +513,6 @@ initEnvironment() {
   else
     ZITADEL_EXTERNALSECURE="true"
     ZITADEL_TLS_MODE="external"
-    #NETBIRD_PORT=443
 
     if ! check_nb_port "$NETBIRD_PORT"; then
       NETBIRD_PORT=$(read_nb_port)
