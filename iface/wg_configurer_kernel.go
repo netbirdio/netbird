@@ -60,8 +60,8 @@ func (c *wgKernelConfigurer) updatePeer(peerKey string, allowedIps string, keepA
 		ReplaceAllowedIPs:           true,
 		AllowedIPs:                  []net.IPNet{*ipNet},
 		PersistentKeepaliveInterval: &keepAlive,
-		PresharedKey:                preSharedKey,
 		Endpoint:                    endpoint,
+		PresharedKey:                preSharedKey,
 	}
 
 	config := wgtypes.Config{
