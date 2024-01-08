@@ -67,6 +67,11 @@ type ConnConfig struct {
 
 	// UsesBind indicates whether the WireGuard interface is userspace and uses bind.ICEBind
 	UserspaceBind bool
+
+	// RosenpassPubKey is this peer's Rosenpass public key
+	RosenpassPubKey []byte
+	// RosenpassPubKey is this peer's RosenpassAddr server address (IP:port)
+	RosenpassAddr string
 }
 
 // OfferAnswer represents a session establishment offer or answer
@@ -79,6 +84,12 @@ type OfferAnswer struct {
 
 	// Version of NetBird Agent
 	Version string
+	// RosenpassPubKey is the Rosenpass public key of the remote peer when receiving this message
+	// This value is the local Rosenpass server public key when sending the message
+	RosenpassPubKey []byte
+	// RosenpassAddr is the Rosenpass server address (IP:port) of the remote peer when receiving this message
+	// This value is the local Rosenpass server address when sending the message
+	RosenpassAddr string
 }
 
 // IceCredentials ICE protocol credentials struct
@@ -97,6 +108,8 @@ type Conn struct {
 	signalOffer       func(OfferAnswer) error
 	signalAnswer      func(OfferAnswer) error
 	sendSignalMessage func(message *sProto.Message) error
+	onConnected       func(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string)
+	onDisconnected    func(remotePeer string, wgIP string)
 
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
 	remoteOffersCh chan OfferAnswer
@@ -335,7 +348,8 @@ func (conn *Conn) Open() error {
 		remoteWgPort = remoteOfferAnswer.WgListenPort
 	}
 	// the ice connection has been established successfully so we are ready to start the proxy
-	remoteAddr, err := conn.configureConnection(remoteConn, remoteWgPort)
+	remoteAddr, err := conn.configureConnection(remoteConn, remoteWgPort, remoteOfferAnswer.RosenpassPubKey,
+		remoteOfferAnswer.RosenpassAddr)
 	if err != nil {
 		return err
 	}
@@ -358,7 +372,7 @@ func isRelayCandidate(candidate ice.Candidate) bool {
 }
 
 // configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
-func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int) (net.Addr, error) {
+func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, remoteRosenpassPubKey []byte, remoteRosenpassAddr string) (net.Addr, error) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -376,7 +390,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int) (ne
 			return nil, err
 		}
 	} else {
-		// To support old version's with direct mode we attempt to punch an additional role with the remote wireguard port
+		// To support old version's with direct mode we attempt to punch an additional role with the remote WireGuard port
 		go conn.punchRemoteWGPort(pair, remoteWgPort)
 		endpoint = remoteConn.RemoteAddr()
 	}
@@ -408,6 +422,15 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int) (ne
 	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
 		log.Warnf("unable to save peer's state, got error: %v", err)
+	}
+
+	_, ipNet, err := net.ParseCIDR(conn.config.WgConfig.AllowedIps)
+	if err != nil {
+		return nil, err
+	}
+
+	if conn.onConnected != nil {
+		conn.onConnected(conn.config.Key, remoteRosenpassPubKey, ipNet.IP.String(), remoteRosenpassAddr)
 	}
 
 	return endpoint, nil
@@ -460,6 +483,10 @@ func (conn *Conn) cleanup() error {
 		conn.notifyDisconnected = nil
 	}
 
+	if conn.status == StatusConnected && conn.onDisconnected != nil {
+		conn.onDisconnected(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps)
+	}
+
 	conn.status = StatusDisconnected
 
 	peerState := State{
@@ -487,6 +514,16 @@ func (conn *Conn) cleanup() error {
 // SetSignalOffer sets a handler function to be triggered by Conn when a new connection offer has to be signalled to the remote peer
 func (conn *Conn) SetSignalOffer(handler func(offer OfferAnswer) error) {
 	conn.signalOffer = handler
+}
+
+// SetOnConnected sets a handler function to be triggered by Conn when a new connection to a remote peer established
+func (conn *Conn) SetOnConnected(handler func(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string)) {
+	conn.onConnected = handler
+}
+
+// SetOnDisconnected sets a handler function to be triggered by Conn when a connection to a remote disconnected
+func (conn *Conn) SetOnDisconnected(handler func(remotePeer string, wgIP string)) {
+	conn.onDisconnected = handler
 }
 
 // SetSignalAnswer sets a handler function to be triggered by Conn when a new connection answer has to be signalled to the remote peer
@@ -543,9 +580,11 @@ func (conn *Conn) sendAnswer() error {
 
 	log.Debugf("sending answer to %s", conn.config.Key)
 	err = conn.signalAnswer(OfferAnswer{
-		IceCredentials: IceCredentials{localUFrag, localPwd},
-		WgListenPort:   conn.config.LocalWgPort,
-		Version:        version.NetbirdVersion(),
+		IceCredentials:  IceCredentials{localUFrag, localPwd},
+		WgListenPort:    conn.config.LocalWgPort,
+		Version:         version.NetbirdVersion(),
+		RosenpassPubKey: conn.config.RosenpassPubKey,
+		RosenpassAddr:   conn.config.RosenpassAddr,
 	})
 	if err != nil {
 		return err
@@ -564,9 +603,11 @@ func (conn *Conn) sendOffer() error {
 		return err
 	}
 	err = conn.signalOffer(OfferAnswer{
-		IceCredentials: IceCredentials{localUFrag, localPwd},
-		WgListenPort:   conn.config.LocalWgPort,
-		Version:        version.NetbirdVersion(),
+		IceCredentials:  IceCredentials{localUFrag, localPwd},
+		WgListenPort:    conn.config.LocalWgPort,
+		Version:         version.NetbirdVersion(),
+		RosenpassPubKey: conn.config.RosenpassPubKey,
+		RosenpassAddr:   conn.config.RosenpassAddr,
 	})
 	if err != nil {
 		return err

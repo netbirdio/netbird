@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
@@ -76,6 +77,8 @@ type EngineConfig struct {
 	NATExternalIPs []string
 
 	CustomDNSAddress string
+
+	RosenpassEnabled bool
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -86,6 +89,8 @@ type Engine struct {
 	mgmClient mgm.Client
 	// peerConns is a map that holds all the peers that are known to this peer
 	peerConns map[string]*peer.Conn
+	// rpManager is a Rosenpass manager
+	rpManager *rosenpass.Manager
 
 	// syncMsgMux is used to guarantee sequential Management Service message processing
 	syncMsgMux *sync.Mutex
@@ -184,6 +189,18 @@ func (e *Engine) Start() error {
 		return err
 	}
 	e.wgInterface = wgIface
+
+	if e.config.RosenpassEnabled {
+		log.Infof("rosenpass is enabled")
+		e.rpManager, err = rosenpass.NewManager(e.config.PreSharedKey, e.config.WgIfaceName)
+		if err != nil {
+			return err
+		}
+		err := e.rpManager.Run()
+		if err != nil {
+			return err
+		}
+	}
 
 	initialRoutes, dnsServer, err := e.newDnsServer()
 	if err != nil {
@@ -363,7 +380,8 @@ func sendSignal(message *sProto.Message, s signal.Client) error {
 }
 
 // SignalOfferAnswer signals either an offer or an answer to remote peer
-func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client, isAnswer bool) error {
+func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client,
+	isAnswer bool) error {
 	var t sProto.Body_Type
 	if isAnswer {
 		t = sProto.Body_ANSWER
@@ -374,7 +392,7 @@ func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKe
 	msg, err := signal.MarshalCredential(myKey, offerAnswer.WgListenPort, remoteKey, &signal.Credential{
 		UFrag: offerAnswer.IceCredentials.UFrag,
 		Pwd:   offerAnswer.IceCredentials.Pwd,
-	}, t)
+	}, t, offerAnswer.RosenpassPubKey, offerAnswer.RosenpassAddr)
 	if err != nil {
 		return err
 	}
@@ -627,6 +645,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		e.acl.ApplyFiltering(networkMap)
 	}
 	e.networkSerial = serial
+
 	return nil
 }
 
@@ -796,6 +815,26 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		PreSharedKey: e.config.PreSharedKey,
 	}
 
+	if e.config.RosenpassEnabled {
+		lk := []byte(e.config.WgPrivateKey.PublicKey().String())
+		rk := []byte(wgConfig.RemoteKey)
+		var keyInput []byte
+		if string(lk) > string(rk) {
+			//nolint:gocritic
+			keyInput = append(lk[:16], rk[:16]...)
+		} else {
+			//nolint:gocritic
+			keyInput = append(rk[:16], lk[:16]...)
+		}
+
+		key, err := wgtypes.NewKey(keyInput)
+		if err != nil {
+			return nil, err
+		}
+
+		wgConfig.PreSharedKey = &key
+	}
+
 	// randomize connection timeout
 	timeout := time.Duration(rand.Intn(PeerConnectionTimeoutMax-PeerConnectionTimeoutMin)+PeerConnectionTimeoutMin) * time.Millisecond
 	config := peer.ConnConfig{
@@ -811,6 +850,8 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
 		UserspaceBind:        e.wgInterface.IsUserspaceBind(),
+		RosenpassPubKey:      e.getRosenpassPubKey(),
+		RosenpassAddr:        e.getRosenpassAddr(),
 	}
 
 	peerConn, err := peer.NewConn(config, e.statusRecorder, e.wgProxyFactory, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover)
@@ -842,6 +883,12 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		return sendSignal(message, e.signal)
 	})
 
+	if e.rpManager != nil {
+
+		peerConn.SetOnConnected(e.rpManager.OnConnected)
+		peerConn.SetOnDisconnected(e.rpManager.OnDisconnected)
+	}
+
 	return peerConn, nil
 }
 
@@ -867,13 +914,21 @@ func (e *Engine) receiveSignalEvents() {
 
 				conn.RegisterProtoSupportMeta(msg.Body.GetFeaturesSupported())
 
+				var rosenpassPubKey []byte
+				rosenpassAddr := ""
+				if msg.GetBody().GetRosenpassConfig() != nil {
+					rosenpassPubKey = msg.GetBody().GetRosenpassConfig().GetRosenpassPubKey()
+					rosenpassAddr = msg.GetBody().GetRosenpassConfig().GetRosenpassServerAddr()
+				}
 				conn.OnRemoteOffer(peer.OfferAnswer{
 					IceCredentials: peer.IceCredentials{
 						UFrag: remoteCred.UFrag,
 						Pwd:   remoteCred.Pwd,
 					},
-					WgListenPort: int(msg.GetBody().GetWgListenPort()),
-					Version:      msg.GetBody().GetNetBirdVersion(),
+					WgListenPort:    int(msg.GetBody().GetWgListenPort()),
+					Version:         msg.GetBody().GetNetBirdVersion(),
+					RosenpassPubKey: rosenpassPubKey,
+					RosenpassAddr:   rosenpassAddr,
 				})
 			case sProto.Body_ANSWER:
 				remoteCred, err := signal.UnMarshalCredential(msg)
@@ -881,15 +936,23 @@ func (e *Engine) receiveSignalEvents() {
 					return err
 				}
 
-				conn.RegisterProtoSupportMeta(msg.Body.GetFeaturesSupported())
+				conn.RegisterProtoSupportMeta(msg.GetBody().GetFeaturesSupported())
 
+				var rosenpassPubKey []byte
+				rosenpassAddr := ""
+				if msg.GetBody().GetRosenpassConfig() != nil {
+					rosenpassPubKey = msg.GetBody().GetRosenpassConfig().GetRosenpassPubKey()
+					rosenpassAddr = msg.GetBody().GetRosenpassConfig().GetRosenpassServerAddr()
+				}
 				conn.OnRemoteAnswer(peer.OfferAnswer{
 					IceCredentials: peer.IceCredentials{
 						UFrag: remoteCred.UFrag,
 						Pwd:   remoteCred.Pwd,
 					},
-					WgListenPort: int(msg.GetBody().GetWgListenPort()),
-					Version:      msg.GetBody().GetNetBirdVersion(),
+					WgListenPort:    int(msg.GetBody().GetWgListenPort()),
+					Version:         msg.GetBody().GetNetBirdVersion(),
+					RosenpassPubKey: rosenpassPubKey,
+					RosenpassAddr:   rosenpassAddr,
 				})
 			case sProto.Body_CANDIDATE:
 				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)
@@ -1000,6 +1063,10 @@ func (e *Engine) close() {
 			log.Warnf("failed to reset firewall: %s", err)
 		}
 	}
+
+	if e.rpManager != nil {
+		_ = e.rpManager.Close()
+	}
 }
 
 func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
@@ -1093,4 +1160,18 @@ func findIPFromInterface(iface *net.Interface) (net.IP, error) {
 		}
 	}
 	return nil, fmt.Errorf("interface %s don't have an ipv4 address", iface.Name)
+}
+
+func (e *Engine) getRosenpassPubKey() []byte {
+	if e.rpManager != nil {
+		return e.rpManager.GetPubKey()
+	}
+	return nil
+}
+
+func (e *Engine) getRosenpassAddr() string {
+	if e.rpManager != nil {
+		return e.rpManager.GetAddress().String()
+	}
+	return ""
 }
