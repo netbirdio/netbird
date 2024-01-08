@@ -113,8 +113,8 @@ func TestGetPostureCheck(t *testing.T) {
 	postureCheck := &posture.Checks{
 		ID:   "postureCheck",
 		Name: "name",
-		Checks: []posture.Check{
-			&posture.NBVersionCheck{
+		Checks: map[string]posture.Check{
+			posture.NBVersionCheckName: &posture.NBVersionCheck{
 				Enabled:    true,
 				MinVersion: "1.0.0",
 			},
@@ -179,14 +179,14 @@ func TestPostureCheckUpdate(t *testing.T) {
 			requestBody: bytes.NewBuffer(
 				[]byte(`{
 		           "name": "default",
-                   "description": "default",
+                  "description": "default",
 		           "checks": {
 						"nb_version_check": {
 							"enabled": true,
 							"min_version": "1.2.3",
 							"max_version": "2.0.0"
 		           		}
-                   }
+                  }
 				}`)),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
@@ -209,11 +209,11 @@ func TestPostureCheckUpdate(t *testing.T) {
 			requestPath: "/api/posture-checks",
 			requestBody: bytes.NewBuffer(
 				[]byte(`{
-                    "checks": {
+                   "checks": {
 						"nb_version_check": {
 							"enabled": true,
 							"min_version": "1.2.0"
-                    	}
+                   	}
 					}
 				}`)),
 			expectedStatus: http.StatusBadRequest,
@@ -226,10 +226,10 @@ func TestPostureCheckUpdate(t *testing.T) {
 			requestBody: bytes.NewBuffer(
 				[]byte(`{
 					"name": "default",
-                    "checks": {
+                   "checks": {
 						"nb_version_check": {
 							"enabled": true,
-                    	}
+                   	}
 					}
 				}`)),
 			expectedStatus: http.StatusBadRequest,
@@ -270,10 +270,10 @@ func TestPostureCheckUpdate(t *testing.T) {
 			requestPath: "/api/posture-checks/postureCheck",
 			requestBody: bytes.NewBuffer(
 				[]byte(`{
-                    "checks": {
+                   "checks": {
 						"nb_version_check": {
 							"enabled": true,
-                    	}
+                   	}
 					}
 				}`)),
 			expectedStatus: http.StatusBadRequest,
@@ -286,10 +286,10 @@ func TestPostureCheckUpdate(t *testing.T) {
 			requestBody: bytes.NewBuffer(
 				[]byte(`{
 					"name": "default",
-                    "checks": {
+                   "checks": {
 						"nb_version_check": {
 							"enabled": false,
-                    	}
+                   	}
 					}
 				}`)),
 			expectedStatus: http.StatusBadRequest,
@@ -300,8 +300,8 @@ func TestPostureCheckUpdate(t *testing.T) {
 	p := initPostureChecksTestData(&posture.Checks{
 		ID:   "postureCheck",
 		Name: "postureCheck",
-		Checks: []posture.Check{
-			&posture.NBVersionCheck{
+		Checks: map[string]posture.Check{
+			posture.NBVersionCheckName: &posture.NBVersionCheck{
 				Enabled:    true,
 				MinVersion: "1.0.0",
 			},

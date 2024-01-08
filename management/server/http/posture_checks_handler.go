@@ -164,7 +164,8 @@ func (p *PostureChecksHandler) savePostureChecks(
 		ID:          postureChecksID,
 		Name:        req.Name,
 		Description: req.Description,
-		Checks:      make([]posture.Check, 0),
+		//Checks:      make([]posture.Check, 0),
+		Checks: make(map[string]posture.Check, 0),
 	}
 
 	if nbVersionCheck := req.Checks.NbVersionCheck; nbVersionCheck != nil {
@@ -173,11 +174,12 @@ func (p *PostureChecksHandler) savePostureChecks(
 			maxVersion = *nbVersionCheck.MaxVersion
 		}
 
-		postureChecks.Checks = append(postureChecks.Checks, &posture.NBVersionCheck{
+		postureChecks.Checks[posture.NBVersionCheckName] = &posture.NBVersionCheck{
 			Enabled:    nbVersionCheck.Enabled,
 			MinVersion: nbVersionCheck.MinVersion,
 			MaxVersion: maxVersion,
-		})
+		}
+
 	}
 
 	if err := p.accountManager.SavePostureChecks(account.Id, user.Id, &postureChecks); err != nil {
