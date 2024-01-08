@@ -71,6 +71,18 @@ func (p *PostureChecksHandler) UpdatePostureCheck(w http.ResponseWriter, r *http
 		return
 	}
 
+	postureChecksIdx := -1
+	for i, postureCheck := range account.PostureChecks {
+		if postureCheck.ID == postureChecksID {
+			postureChecksIdx = i
+			break
+		}
+	}
+	if postureChecksIdx < 0 {
+		util.WriteError(status.Errorf(status.NotFound, "couldn't find posture checks id %s", postureChecksID), w)
+		return
+	}
+
 	p.savePostureChecks(w, r, account, user, postureChecksID)
 }
 
@@ -164,7 +176,7 @@ func (p *PostureChecksHandler) savePostureChecks(
 		ID:          postureChecksID,
 		Name:        req.Name,
 		Description: req.Description,
-		Checks:      make(map[string]posture.Check, 0),
+		Checks:      make([]posture.Check, 0),
 	}
 
 	if nbVersionCheck := req.Checks.NbVersionCheck; nbVersionCheck != nil {
@@ -173,11 +185,11 @@ func (p *PostureChecksHandler) savePostureChecks(
 			maxVersion = *nbVersionCheck.MaxVersion
 		}
 
-		postureChecks.Checks[posture.NBVersionCheckName] = &posture.NBVersionCheck{
+		postureChecks.Checks = append(postureChecks.Checks, &posture.NBVersionCheck{
 			Enabled:    nbVersionCheck.Enabled,
 			MinVersion: nbVersionCheck.MinVersion,
 			MaxVersion: maxVersion,
-		}
+		})
 
 	}
 

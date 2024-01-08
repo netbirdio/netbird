@@ -113,8 +113,8 @@ func TestGetPostureCheck(t *testing.T) {
 	postureCheck := &posture.Checks{
 		ID:   "postureCheck",
 		Name: "name",
-		Checks: map[string]posture.Check{
-			posture.NBVersionCheckName: &posture.NBVersionCheck{
+		Checks: []posture.Check{
+			&posture.NBVersionCheck{
 				Enabled:    true,
 				MinVersion: "1.0.0",
 			},
@@ -300,8 +300,8 @@ func TestPostureCheckUpdate(t *testing.T) {
 	p := initPostureChecksTestData(&posture.Checks{
 		ID:   "postureCheck",
 		Name: "postureCheck",
-		Checks: map[string]posture.Check{
-			posture.NBVersionCheckName: &posture.NBVersionCheck{
+		Checks: []posture.Check{
+			&posture.NBVersionCheck{
 				Enabled:    true,
 				MinVersion: "1.0.0",
 			},
