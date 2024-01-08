@@ -29,6 +29,8 @@ const (
 	chainNameInputFilter   = "netbird-acl-input-filter"
 	chainNameOutputFilter  = "netbird-acl-output-filter"
 	chainNameForwardFilter = "netbird-acl-forward-filter"
+
+	allowNetbirdInputRuleID = "allow Netbird incoming traffic"
 )
 
 var (
@@ -197,9 +199,9 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 	return nil
 }
 
-// CreateDefaultAllowRules In case if the USP firewall manager can use the native firewall manager we must to create allow rules for
+// createDefaultAllowRules In case if the USP firewall manager can use the native firewall manager we must to create allow rules for
 // input and output chains
-func (m *AclManager) CreateDefaultAllowRules() error {
+func (m *AclManager) createDefaultAllowRules() error {
 	expIn := []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
 		&expr.Cmp{
