@@ -58,6 +58,7 @@ type AclManager struct {
 type iFaceMapper interface {
 	Name() string
 	Address() iface.WGAddress
+	IsUserspaceBind() bool
 }
 
 func newAclManager(table *nftables.Table, wgIface iFaceMapper, routeingFwChainName string) (*AclManager, error) {
@@ -195,6 +196,55 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 	m.rConn.FlushSet(r.nftSet)
 	m.rConn.DelSet(r.nftSet)
 	m.ipsetStore.deleteIpset(r.nftSet.Name)
+	return nil
+}
+
+// CreateDefaultAllowRules In case if the USP firewall manager can use the native firewall manager we must to create allow rules for
+// input and output chains
+func (m *AclManager) CreateDefaultAllowRules() error {
+	expIn := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(m.wgIface.Name()),
+		},
+		&expr.Verdict{
+			Kind: expr.VerdictAccept,
+		},
+	}
+
+	_ = m.rConn.InsertRule(&nftables.Rule{
+		Table:    m.workTable,
+		Chain:    m.chainInputRules,
+		Position: 0,
+		Exprs:    expIn,
+	})
+
+	expOut := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(m.wgIface.Name()),
+		},
+		&expr.Verdict{
+			Kind: expr.VerdictAccept,
+		},
+	}
+
+	_ = m.rConn.InsertRule(&nftables.Rule{
+		Table:    m.workTable,
+		Chain:    m.chainOutputRules,
+		Position: 0,
+		Exprs:    expOut,
+	})
+
+	err := m.rConn.Flush()
+	if err != nil {
+		log.Debugf("failed to create default allow rules: %s", err)
+		return err
+	}
 	return nil
 }
 
