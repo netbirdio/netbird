@@ -29,8 +29,6 @@ const (
 	chainNameInputFilter   = "netbird-acl-input-filter"
 	chainNameOutputFilter  = "netbird-acl-output-filter"
 	chainNameForwardFilter = "netbird-acl-forward-filter"
-
-	allowNetbirdInputRuleID = "allow Netbird incoming traffic"
 )
 
 var (
