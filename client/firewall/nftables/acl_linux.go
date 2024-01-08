@@ -735,7 +735,6 @@ func (m *AclManager) createPreroutingMangle() *nftables.Chain {
 		Chain: chain,
 		Exprs: expressions,
 	})
-	chain = m.rConn.AddChain(chain)
 	return chain
 }
 
