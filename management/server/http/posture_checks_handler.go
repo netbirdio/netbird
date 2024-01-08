@@ -164,8 +164,7 @@ func (p *PostureChecksHandler) savePostureChecks(
 		ID:          postureChecksID,
 		Name:        req.Name,
 		Description: req.Description,
-		//Checks:      make([]posture.Check, 0),
-		Checks: make(map[string]posture.Check, 0),
+		Checks:      make(map[string]posture.Check, 0),
 	}
 
 	if nbVersionCheck := req.Checks.NbVersionCheck; nbVersionCheck != nil {
