@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 )
@@ -43,13 +44,18 @@ func (am *DefaultAccountManager) SavePostureChecks(accountID, userID string, pos
 		return err
 	}
 
-	_ = am.savePostureChecks(account, postureChecks)
+	exists := am.savePostureChecks(account, postureChecks)
 
 	if err = am.Store.SaveAccount(account); err != nil {
 		return err
 	}
 
-	// TODO: add posture checks activity
+	action := activity.PostureCheckCreated
+	if exists {
+		action = activity.PostureCheckUpdated
+	}
+
+	am.StoreEvent(userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 
 	return nil
 }
@@ -63,7 +69,7 @@ func (am *DefaultAccountManager) DeletePostureChecks(accountID, postureChecksID,
 		return err
 	}
 
-	_, err = am.deletePostureChecks(account, postureChecksID)
+	postureChecks, err := am.deletePostureChecks(account, postureChecksID)
 	if err != nil {
 		return err
 	}
@@ -72,7 +78,7 @@ func (am *DefaultAccountManager) DeletePostureChecks(accountID, postureChecksID,
 		return err
 	}
 
-	// TODO: add posture checks activity
+	am.StoreEvent(userID, postureChecks.ID, accountID, activity.PostureCheckDeleted, postureChecks.EventMeta())
 
 	return nil
 }
