@@ -1562,7 +1562,7 @@ func TestAccount_Copy(t *testing.T) {
 		PostureChecks: []*posture.Checks{
 			{
 				ID:     "posture Checks1",
-				Checks: map[string]posture.Check{},
+				Checks: make([]posture.Check, 0),
 			},
 		},
 		Settings: &Settings{},
