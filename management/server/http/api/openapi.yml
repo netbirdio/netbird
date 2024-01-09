@@ -779,6 +779,12 @@ components:
         - $ref: '#/components/schemas/PolicyMinimum'
         - type: object
           properties:
+            source_posture_checks:
+              description: Posture checks ID's applied to policy source groups
+              type: array
+              items:
+                type: string
+                example: "chacdk86lnnboviihd70"
             rules:
               description: Policy rule object for policy UI editor
               type: array
@@ -825,7 +831,7 @@ components:
       required:
         - id
         - name
-        - check
+        - checks
     Checks:
       description: List of objects that perform the actual checks
       type: object

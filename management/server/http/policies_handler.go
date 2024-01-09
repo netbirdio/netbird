@@ -206,6 +206,10 @@ func (h *Policies) savePolicy(
 		policy.Rules = append(policy.Rules, &pr)
 	}
 
+	if req.SourcePostureChecks != nil {
+		policy.SourcePostureChecks = sourcePostureChecksToStrings(account, *req.SourcePostureChecks)
+	}
+
 	if err := h.accountManager.SavePolicy(account.Id, user.Id, &policy); err != nil {
 		util.WriteError(err, w)
 		return
@@ -349,6 +353,20 @@ func groupMinimumsToStrings(account *server.Account, gm []string) []string {
 			continue
 		}
 		result = append(result, g)
+	}
+	return result
+}
+
+func sourcePostureChecksToStrings(account *server.Account, postureChecksIds []string) []string {
+	result := make([]string, 0, len(postureChecksIds))
+	for _, id := range postureChecksIds {
+		for _, postureCheck := range account.PostureChecks {
+			if id == postureCheck.ID {
+				result = append(result, id)
+				continue
+			}
+		}
+
 	}
 	return result
 }

@@ -1,8 +1,6 @@
 package server
 
 import (
-	"fmt"
-
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -134,7 +132,7 @@ func (am *DefaultAccountManager) deletePostureChecks(account *Account, postureCh
 	for _, policy := range account.Policies {
 		for _, id := range policy.SourcePostureChecks {
 			if id == postureChecksID {
-				return nil, fmt.Errorf("posture checks have been linked to policy: %s", policy.Name)
+				return nil, status.Errorf(status.PreconditionFailed, "posture checks have been linked to policy: %s", policy.Name)
 			}
 		}
 	}
