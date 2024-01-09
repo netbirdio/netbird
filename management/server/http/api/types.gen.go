@@ -268,9 +268,6 @@ type NBVersionCheck struct {
 	// Enabled NetBird's version check status
 	Enabled bool `json:"enabled"`
 
-	// MaxVersion Maximum acceptable NetBird version
-	MaxVersion *string `json:"max_version,omitempty"`
-
 	// MinVersion Minimum acceptable NetBird version
 	MinVersion string `json:"min_version"`
 }

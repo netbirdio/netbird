@@ -844,10 +844,6 @@ components:
           description: Minimum acceptable NetBird version
           type: string
           example: "1.2.3"
-        max_version:
-          description: Maximum acceptable NetBird version
-          type: string
-          example: "1.3.5"
       required:
         - enabled
         - min_version

@@ -180,15 +180,9 @@ func (p *PostureChecksHandler) savePostureChecks(
 	}
 
 	if nbVersionCheck := req.Checks.NbVersionCheck; nbVersionCheck != nil {
-		var maxVersion string
-		if nbVersionCheck.MaxVersion != nil {
-			maxVersion = *nbVersionCheck.MaxVersion
-		}
-
 		postureChecks.Checks = append(postureChecks.Checks, &posture.NBVersionCheck{
 			Enabled:    nbVersionCheck.Enabled,
 			MinVersion: nbVersionCheck.MinVersion,
-			MaxVersion: maxVersion,
 		})
 
 	}
@@ -227,7 +221,6 @@ func toPostureChecksResponse(postureChecks *posture.Checks) *api.PostureCheck {
 			checks.NbVersionCheck = &api.NBVersionCheck{
 				Enabled:    versionCheck.Enabled,
 				MinVersion: versionCheck.MinVersion,
-				MaxVersion: &versionCheck.MaxVersion,
 			}
 		}
 	}

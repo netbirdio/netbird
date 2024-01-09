@@ -24,7 +24,6 @@ func TestChecks_MarshalJSON(t *testing.T) {
 					&NBVersionCheck{
 						Enabled:    true,
 						MinVersion: "1.0.0",
-						MaxVersion: "1.2.9",
 					},
 				},
 			},
@@ -36,8 +35,7 @@ func TestChecks_MarshalJSON(t *testing.T) {
                     "Checks": {
                         "NBVersionCheck": {
                             "Enabled": true,
-                            "MinVersion": "1.0.0",
-                            "MaxVersion": "1.2.9"
+                            "MinVersion": "1.0.0"
                         }
                     }
                 }
@@ -63,8 +61,7 @@ func TestChecks_MarshalJSON(t *testing.T) {
                     "Checks": {
                         "NBVersionCheck": {
                             "Enabled": false,
-                            "MinVersion": "",
-                            "MaxVersion": ""
+                            "MinVersion": ""
                         }
                     }
                 }
@@ -104,8 +101,7 @@ func TestChecks_UnmarshalJSON(t *testing.T) {
                     "Checks": {
                         "NBVersionCheck": {
                             "Enabled": true,
-                            "MinVersion": "1.0.0",
-                            "MaxVersion": "1.2.9"
+                            "MinVersion": "1.0.0"
                         }
                     }
                 }
@@ -118,7 +114,6 @@ func TestChecks_UnmarshalJSON(t *testing.T) {
 					&NBVersionCheck{
 						Enabled:    true,
 						MinVersion: "1.0.0",
-						MaxVersion: "1.2.9",
 					},
 				},
 			},

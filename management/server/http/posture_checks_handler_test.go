@@ -59,15 +59,7 @@ func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksH
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				user := server.NewAdminUser("test_user")
 				return &server.Account{
-					Id:     claims.AccountId,
-					Domain: "hotmail.com",
-					Policies: []*server.Policy{
-						{ID: "id-existed"},
-					},
-					Groups: map[string]*server.Group{
-						"F": {ID: "F"},
-						"G": {ID: "G"},
-					},
+					Id: claims.AccountId,
 					Users: map[string]*server.User{
 						"test_user": user,
 					},
@@ -199,7 +191,6 @@ func TestPostureCheckUpdate(t *testing.T) {
 					NbVersionCheck: &api.NBVersionCheck{
 						Enabled:    true,
 						MinVersion: "1.2.3",
-						MaxVersion: str("2.0.0"),
 					},
 				},
 			},
@@ -260,7 +251,6 @@ func TestPostureCheckUpdate(t *testing.T) {
 					NbVersionCheck: &api.NBVersionCheck{
 						Enabled:    true,
 						MinVersion: "1.9.0",
-						MaxVersion: str(""),
 					},
 				},
 			},
