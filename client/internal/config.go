@@ -41,6 +41,7 @@ type ConfigInput struct {
 	PreSharedKey     *string
 	NATExternalIPs   []string
 	CustomDNSAddress []byte
+	RosenpassEnabled *bool
 }
 
 // Config Configuration type
@@ -54,6 +55,7 @@ type Config struct {
 	WgPort               int
 	IFaceBlackList       []string
 	DisableIPv6Discovery bool
+	RosenpassEnabled     bool
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey string
 
@@ -169,6 +171,10 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		config.PreSharedKey = *input.PreSharedKey
 	}
 
+	if input.RosenpassEnabled != nil {
+		config.RosenpassEnabled = *input.RosenpassEnabled
+	}
+
 	defaultAdminURL, err := parseURL("Admin URL", DefaultAdminURL)
 	if err != nil {
 		return nil, err
@@ -244,6 +250,11 @@ func update(input ConfigInput) (*Config, error) {
 
 	if input.CustomDNSAddress != nil {
 		config.CustomDNSAddress = string(input.CustomDNSAddress)
+		refresh = true
+	}
+
+	if input.RosenpassEnabled != nil {
+		config.RosenpassEnabled = *input.RosenpassEnabled
 		refresh = true
 	}
 

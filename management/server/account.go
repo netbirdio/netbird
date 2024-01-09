@@ -1086,6 +1086,9 @@ func (am *DefaultAccountManager) DeleteAccount(accountID, userID string) error {
 		log.Errorf("failed deleting account %s. error: %s", accountID, err)
 		return err
 	}
+	// cancel peer login expiry job
+	am.peerLoginExpiry.Cancel([]string{account.Id})
+
 	log.Debugf("account %s deleted", accountID)
 	return nil
 }

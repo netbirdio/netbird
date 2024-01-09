@@ -443,8 +443,19 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 	})
 }
 
-func sortFunc() func(a *FirewallRule, b *FirewallRule) bool {
-	return func(a, b *FirewallRule) bool {
-		return a.PeerIP+fmt.Sprintf("%d", a.Direction) < b.PeerIP+fmt.Sprintf("%d", b.Direction)
+func sortFunc() func(a *FirewallRule, b *FirewallRule) int {
+	return func(a, b *FirewallRule) int {
+		// Concatenate PeerIP and Direction as string for comparison
+		aStr := a.PeerIP + fmt.Sprintf("%d", a.Direction)
+		bStr := b.PeerIP + fmt.Sprintf("%d", b.Direction)
+
+		// Compare the concatenated strings
+		if aStr < bStr {
+			return -1 // a is less than b
+		}
+		if aStr > bStr {
+			return 1 // a is greater than b
+		}
+		return 0 // a is equal to b
 	}
 }

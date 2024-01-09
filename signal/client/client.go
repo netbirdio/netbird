@@ -53,8 +53,9 @@ func UnMarshalCredential(msg *proto.Message) (*Credential, error) {
 	}, nil
 }
 
-// MarshalCredential marsharl a Credential instance and returns a Message object
-func MarshalCredential(myKey wgtypes.Key, myPort int, remoteKey wgtypes.Key, credential *Credential, t proto.Body_Type) (*proto.Message, error) {
+// MarshalCredential marshal a Credential instance and returns a Message object
+func MarshalCredential(myKey wgtypes.Key, myPort int, remoteKey wgtypes.Key, credential *Credential, t proto.Body_Type,
+	rosenpassPubKey []byte, rosenpassAddr string) (*proto.Message, error) {
 	return &proto.Message{
 		Key:       myKey.PublicKey().String(),
 		RemoteKey: remoteKey.String(),
@@ -63,6 +64,10 @@ func MarshalCredential(myKey wgtypes.Key, myPort int, remoteKey wgtypes.Key, cre
 			Payload:        fmt.Sprintf("%s:%s", credential.UFrag, credential.Pwd),
 			WgListenPort:   uint32(myPort),
 			NetBirdVersion: version.NetbirdVersion(),
+			RosenpassConfig: &proto.RosenpassConfig{
+				RosenpassPubKey:     rosenpassPubKey,
+				RosenpassServerAddr: rosenpassAddr,
+			},
 		},
 	}, nil
 }
