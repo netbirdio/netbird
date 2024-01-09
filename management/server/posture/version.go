@@ -22,7 +22,11 @@ func (n *NBVersionCheck) Check(peer nbpeer.Peer) error {
 		return err
 	}
 
-	minMaxVersionRange := ">= " + n.MinVersion + "," + "<= " + n.MaxVersion
+	minMaxVersionRange := ">= " + n.MinVersion
+	if n.MaxVersion != "" {
+		minMaxVersionRange += "," + "<= " + n.MaxVersion
+	}
+
 	constraints, err := version.NewConstraint(minMaxVersionRange)
 	if err != nil {
 		return err
