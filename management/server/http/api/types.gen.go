@@ -740,12 +740,15 @@ type PolicyUpdate struct {
 
 	// Rules Policy rule object for policy UI editor
 	Rules []PolicyRuleUpdate `json:"rules"`
+
+	// SourcePostureChecks Posture checks ID's applied to policy source groups
+	SourcePostureChecks *[]string `json:"source_posture_checks,omitempty"`
 }
 
 // PostureCheck defines model for PostureCheck.
 type PostureCheck struct {
 	// Checks List of objects that perform the actual checks
-	Checks *Checks `json:"checks,omitempty"`
+	Checks Checks `json:"checks"`
 
 	// Description Posture check friendly description
 	Description *string `json:"description,omitempty"`

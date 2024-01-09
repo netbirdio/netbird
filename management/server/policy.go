@@ -163,11 +163,12 @@ func (p *Policy) Copy() *Policy {
 		Description:         p.Description,
 		Enabled:             p.Enabled,
 		Rules:               make([]*PolicyRule, len(p.Rules)),
-		SourcePostureChecks: p.SourcePostureChecks,
+		SourcePostureChecks: make([]string, len(p.SourcePostureChecks)),
 	}
 	for i, r := range p.Rules {
 		c.Rules[i] = r.Copy()
 	}
+	copy(c.SourcePostureChecks, p.SourcePostureChecks)
 	return c
 }
 
