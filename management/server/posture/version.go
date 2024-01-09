@@ -16,6 +16,10 @@ type NBVersionCheck struct {
 var _ Check = (*NBVersionCheck)(nil)
 
 func (n *NBVersionCheck) Check(peer nbpeer.Peer) error {
+	if !n.Enabled {
+		return nil
+	}
+
 	peerNBVersion, err := version.NewVersion(peer.Meta.UIVersion)
 	if err != nil {
 		return err
