@@ -203,11 +203,24 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 // input and output chains
 func (m *AclManager) createDefaultAllowRules() error {
 	expIn := []expr.Any{
-		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       12,
+			Len:          4,
+		},
+		// mask
+		&expr.Bitwise{
+			SourceRegister: 1,
+			DestRegister:   1,
+			Len:            4,
+			Mask:           []byte{0x00, 0x00, 0x00, 0x00},
+			Xor:            zeroXor,
+		},
+		// net address
 		&expr.Cmp{
-			Op:       expr.CmpOpEq,
 			Register: 1,
-			Data:     ifname(m.wgIface.Name()),
+			Data:     []byte{0x00, 0x00, 0x00, 0x00},
 		},
 		&expr.Verdict{
 			Kind: expr.VerdictAccept,
@@ -222,11 +235,24 @@ func (m *AclManager) createDefaultAllowRules() error {
 	})
 
 	expOut := []expr.Any{
-		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       16,
+			Len:          4,
+		},
+		// mask
+		&expr.Bitwise{
+			SourceRegister: 1,
+			DestRegister:   1,
+			Len:            4,
+			Mask:           []byte{0x00, 0x00, 0x00, 0x00},
+			Xor:            zeroXor,
+		},
+		// net address
 		&expr.Cmp{
-			Op:       expr.CmpOpEq,
 			Register: 1,
-			Data:     ifname(m.wgIface.Name()),
+			Data:     []byte{0x00, 0x00, 0x00, 0x00},
 		},
 		&expr.Verdict{
 			Kind: expr.VerdictAccept,

@@ -45,6 +45,7 @@ func (t *tunUSPDevice) Create() (wgConfigurer, error) {
 	log.Info("create tun interface")
 	tunIface, err := tun.CreateTUN(t.name, t.mtu)
 	if err != nil {
+		log.Debugf("faile to create tun unterface (%s, %d): %s", t.name, t.mtu, err)
 		return nil, err
 	}
 	t.wrapper = newDeviceWrapper(tunIface)
