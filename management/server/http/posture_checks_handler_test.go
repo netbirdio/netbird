@@ -187,7 +187,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 				Id:          "postureCheck",
 				Name:        "default",
 				Description: str("default"),
-				Checks: &api.Checks{
+				Checks: api.Checks{
 					NbVersionCheck: &api.NBVersionCheck{
 						Enabled:    true,
 						MinVersion: "1.2.3",
@@ -247,7 +247,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 				Id:          "postureCheck",
 				Name:        "default",
 				Description: str(""),
-				Checks: &api.Checks{
+				Checks: api.Checks{
 					NbVersionCheck: &api.NBVersionCheck{
 						Enabled:    true,
 						MinVersion: "1.9.0",

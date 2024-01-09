@@ -229,6 +229,6 @@ func toPostureChecksResponse(postureChecks *posture.Checks) *api.PostureCheck {
 		Id:          postureChecks.ID,
 		Name:        postureChecks.Name,
 		Description: &postureChecks.Description,
-		Checks:      &checks,
+		Checks:      checks,
 	}
 }
