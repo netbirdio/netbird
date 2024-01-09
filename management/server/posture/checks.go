@@ -103,6 +103,7 @@ func (pc *Checks) unmarshalChecks(rawChecks map[string]json.RawMessage) error {
 	pc.Checks = make([]Check, 0, len(rawChecks))
 
 	for name, rawCheck := range rawChecks {
+		//nolint:gocritic
 		switch name {
 		case NBVersionCheckName:
 			check := &NBVersionCheck{}

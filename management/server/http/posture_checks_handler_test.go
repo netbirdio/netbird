@@ -71,6 +71,7 @@ func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksH
 					Users: map[string]*server.User{
 						"test_user": user,
 					},
+					PostureChecks: postureChecks,
 				}, user, nil
 			},
 		},

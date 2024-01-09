@@ -220,6 +220,7 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 func toPostureChecksResponse(postureChecks *posture.Checks) *api.PostureCheck {
 	var checks api.Checks
 	for _, check := range postureChecks.Checks {
+		//nolint:gocritic
 		switch check.Name() {
 		case posture.NBVersionCheckName:
 			versionCheck := check.(*posture.NBVersionCheck)
