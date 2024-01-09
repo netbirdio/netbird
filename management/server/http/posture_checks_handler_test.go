@@ -196,6 +196,23 @@ func TestPostureCheckUpdate(t *testing.T) {
 			},
 		},
 		{
+			name:        "Create Posture Checks Invalid Check",
+			requestType: http.MethodPost,
+			requestPath: "/api/posture-checks",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+                   "name": "default",
+                   "checks": {
+						"non_existing_check": {
+							"enabled": true,
+							"min_version": "1.2.0"
+                   	}
+					}
+				}`)),
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   false,
+		},
+		{
 			name:        "Create Posture Checks Invalid Name",
 			requestType: http.MethodPost,
 			requestPath: "/api/posture-checks",
@@ -254,6 +271,23 @@ func TestPostureCheckUpdate(t *testing.T) {
 					},
 				},
 			},
+		},
+		{
+			name:        "Update Posture Checks Invalid Check",
+			requestType: http.MethodPut,
+			requestPath: "/api/posture-checks/postureCheck",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+                   "name": "default",
+                   "checks": {
+						"non_existing_check": {
+							"enabled": true,
+							"min_version": "1.2.0"
+                   	}
+					}
+				}`)),
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   false,
 		},
 		{
 			name:        "Update Posture Checks Invalid Name",

@@ -200,7 +200,7 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 		return status.Errorf(status.InvalidArgument, "posture checks name shouldn't be empty")
 	}
 
-	if req.Checks == nil {
+	if req.Checks == nil || req.Checks.NbVersionCheck == nil {
 		return status.Errorf(status.InvalidArgument, "posture checks shouldn't be empty")
 	}
 

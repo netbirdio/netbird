@@ -849,7 +849,7 @@ components:
         min_version:
           description: Minimum acceptable NetBird version
           type: string
-          example: "1.2.3"
+          example: "0.25.0"
       required:
         - enabled
         - min_version
