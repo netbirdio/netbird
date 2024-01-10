@@ -19,7 +19,7 @@ func TestNBVersionCheck_Check(t *testing.T) {
 			name: "Valid Peer NB version",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
-					UIVersion: "1.0.1",
+					WtVersion: "1.0.1",
 				},
 			},
 			check: NBVersionCheck{
@@ -32,7 +32,7 @@ func TestNBVersionCheck_Check(t *testing.T) {
 			name: "Valid Peer NB version With No Patch Version 1",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
-					UIVersion: "2.0.9",
+					WtVersion: "2.0.9",
 				},
 			},
 			check: NBVersionCheck{
@@ -45,7 +45,7 @@ func TestNBVersionCheck_Check(t *testing.T) {
 			name: "Valid Peer NB version With No Patch Version 2",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
-					UIVersion: "2.0.0",
+					WtVersion: "2.0.0",
 				},
 			},
 			check: NBVersionCheck{
@@ -58,7 +58,7 @@ func TestNBVersionCheck_Check(t *testing.T) {
 			name: "Older Peer NB version",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
-					UIVersion: "0.9.9",
+					WtVersion: "0.9.9",
 				},
 			},
 			check: NBVersionCheck{
@@ -71,7 +71,7 @@ func TestNBVersionCheck_Check(t *testing.T) {
 			name: "Older Peer NB version With Patch Version",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
-					UIVersion: "0.1.0",
+					WtVersion: "0.1.0",
 				},
 			},
 			check: NBVersionCheck{
@@ -84,7 +84,7 @@ func TestNBVersionCheck_Check(t *testing.T) {
 			name: "Older Peer NB version With Check Disabled",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
-					UIVersion: "0.0.9",
+					WtVersion: "0.0.9",
 				},
 			},
 			check: NBVersionCheck{
@@ -97,7 +97,7 @@ func TestNBVersionCheck_Check(t *testing.T) {
 			name: "Invalid Peer NB version",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
-					UIVersion: "x.y.z",
+					WtVersion: "x.y.z",
 				},
 			},
 			check: NBVersionCheck{

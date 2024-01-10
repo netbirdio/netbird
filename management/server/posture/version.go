@@ -20,7 +20,7 @@ func (n *NBVersionCheck) Check(peer nbpeer.Peer) error {
 		return nil
 	}
 
-	peerNBVersion, err := version.NewVersion(peer.Meta.UIVersion)
+	peerNBVersion, err := version.NewVersion(peer.Meta.WtVersion)
 	if err != nil {
 		return err
 	}
