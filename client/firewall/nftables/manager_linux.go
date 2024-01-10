@@ -107,10 +107,6 @@ func (m *Manager) RemoveRoutingRules(pair firewall.RouterPair) error {
 
 // AllowNetbird allows netbird interface traffic
 func (m *Manager) AllowNetbird() error {
-	if !m.wgIface.IsUserspaceBind() {
-		return nil
-	}
-
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
