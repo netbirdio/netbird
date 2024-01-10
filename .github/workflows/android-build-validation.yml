@@ -28,7 +28,6 @@ jobs:
         with:
           java-version: "11"
           distribution: "adopt"
-          cache: "gradle"
 
       - name: NDK Cache
         id: ndk-cache
