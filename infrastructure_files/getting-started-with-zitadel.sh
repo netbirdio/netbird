@@ -402,6 +402,15 @@ read_nb_domain() {
   echo "$READ_NETBIRD_DOMAIN"
 }
 
+get_turn_external_ip() {
+  TURN_EXTERNAL_IP_CONFIG="#external-ip="
+  IP=$(curl -s -4 https://jsonip.com | jq -r '.ip')
+  if [[ "x-$IP" != "x-" ]]; then
+    TURN_EXTERNAL_IP_CONFIG="external-ip=$IP"
+  fi
+  echo "$TURN_EXTERNAL_IP_CONFIG"
+}
+
 initEnvironment() {
   CADDY_SECURE_DOMAIN=""
   ZITADEL_EXTERNALSECURE="false"
@@ -413,6 +422,7 @@ initEnvironment() {
   TURN_PASSWORD=$(openssl rand -base64 32 | sed 's/=//g')
   TURN_MIN_PORT=49152
   TURN_MAX_PORT=65535
+  TURN_EXTERNAL_IP_CONFIG=$(get_turn_external_ip)
 
   if ! check_nb_domain "$NETBIRD_DOMAIN"; then
     NETBIRD_DOMAIN=$(read_nb_domain)
@@ -560,6 +570,7 @@ EOF
 renderTurnServerConf() {
   cat <<EOF
 listening-port=3478
+$TURN_EXTERNAL_IP_CONFIG
 tls-listening-port=5349
 min-port=$TURN_MIN_PORT
 max-port=$TURN_MAX_PORT
