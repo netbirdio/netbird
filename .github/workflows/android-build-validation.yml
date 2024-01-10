@@ -26,7 +26,7 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v3
         with:
-          java-version: "11"
+          java-version: "8"
           distribution: "adopt"
 
       - name: NDK Cache
