@@ -54,6 +54,29 @@ if [[ "x-$TURN_PASSWORD" == "x-" ]]; then
   export TURN_PASSWORD=$(openssl rand -base64 32 | sed 's/=//g')
 fi
 
+TURN_EXTERNAL_IP_CONFIG="#"
+
+if [[ "x-$NETBIRD_TURN_EXTERNAL_IP" == "x-" ]]; then
+  echo "discovering server's public IP"
+  IP=$(curl -s -4 https://jsonip.com | jq -r '.ip')
+  if [[ "x-$IP" != "x-" ]]; then
+    TURN_EXTERNAL_IP_CONFIG="external-ip=$IP"
+  else
+    echo "unable to discover server's public IP"
+  fi
+else
+  echo "${NETBIRD_TURN_EXTERNAL_IP}"| egrep '([0-9]{1,3}\.){3}[0-9]{1,3}$' > /dev/null
+  if [[ $? -eq 0 ]]; then
+    echo "using provided server's public IP"
+    TURN_EXTERNAL_IP_CONFIG="external-ip=$NETBIRD_TURN_EXTERNAL_IP"
+  else
+    echo "provided NETBIRD_TURN_EXTERNAL_IP $NETBIRD_TURN_EXTERNAL_IP is invalid, please correct it and try again"
+    exit 1
+  fi
+fi
+
+export TURN_EXTERNAL_IP_CONFIG
+
 artifacts_path="./artifacts"
 mkdir -p $artifacts_path
 
