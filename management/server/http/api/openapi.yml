@@ -1824,7 +1824,7 @@ paths:
       summary: List all Rules
       description: Returns a list of all rules. This will be deprecated in favour of `/api/policies`.
       tags: [ Rules ]
-      depricated: true
+      deprecated: true
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -1848,7 +1848,7 @@ paths:
     post:
       summary: Create a Rule
       description: Creates a rule. This will be deprecated in favour of `/api/policies`.
-      depricated: true
+      deprecated: true
       tags: [ Rules ]
       security:
         - BearerAuth: [ ]
@@ -1870,7 +1870,7 @@ paths:
     get:
       summary: Retrieve a Rule
       description: Get information about a rules. This will be deprecated in favour of `/api/policies/{policyID}`.
-      depricated: true
+      deprecated: true
       tags: [ Rules ]
       security:
         - BearerAuth: [ ]
@@ -1900,7 +1900,7 @@ paths:
     put:
       summary: Update a Rule
       description: Update/Replace a rule. This will be deprecated in favour of `/api/policies/{policyID}`.
-      depricated: true
+      deprecated: true
       tags: [ Rules ]
       security:
         - BearerAuth: [ ]
@@ -1936,7 +1936,7 @@ paths:
     delete:
       summary: Delete a Rule
       description: Delete a rule. This will be deprecated in favour of `/api/policies/{policyID}`.
-      depricated: true
+      deprecated: true
       tags: [ Rules ]
       security:
         - BearerAuth: [ ]
