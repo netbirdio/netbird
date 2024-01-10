@@ -29,10 +29,23 @@ func TestNBVersionCheck_Check(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "Valid Peer NB version With No Patch Version",
+			name: "Valid Peer NB version With No Patch Version 1",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
 					UIVersion: "2.0.9",
+				},
+			},
+			check: NBVersionCheck{
+				Enabled:    true,
+				MinVersion: "2.0",
+			},
+			wantErr: false,
+		},
+		{
+			name: "Valid Peer NB version With No Patch Version 2",
+			input: peer.Peer{
+				Meta: peer.PeerSystemMeta{
+					UIVersion: "2.0.0",
 				},
 			},
 			check: NBVersionCheck{
@@ -51,6 +64,19 @@ func TestNBVersionCheck_Check(t *testing.T) {
 			check: NBVersionCheck{
 				Enabled:    true,
 				MinVersion: "1.0.0",
+			},
+			wantErr: true,
+		},
+		{
+			name: "Older Peer NB version With Patch Version",
+			input: peer.Peer{
+				Meta: peer.PeerSystemMeta{
+					UIVersion: "0.1.0",
+				},
+			},
+			check: NBVersionCheck{
+				Enabled:    true,
+				MinVersion: "0.2",
 			},
 			wantErr: true,
 		},

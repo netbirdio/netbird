@@ -1538,9 +1538,10 @@ func TestAccount_Copy(t *testing.T) {
 		},
 		Policies: []*Policy{
 			{
-				ID:      "policy1",
-				Enabled: true,
-				Rules:   make([]*PolicyRule, 0),
+				ID:                  "policy1",
+				Enabled:             true,
+				Rules:               make([]*PolicyRule, 0),
+				SourcePostureChecks: make([]string, 0),
 			},
 		},
 		Routes: map[string]*route.Route{
