@@ -494,7 +494,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	if conf.GetSshConfig() != nil {
 		err := e.updateSSH(conf.GetSshConfig())
 		if err != nil {
-			log.Warnf("failed handling SSH server setup %v", e)
+			log.Warnf("failed handling SSH server setup %v", err)
 		}
 	}
 
