@@ -114,6 +114,11 @@ func (m *Manager) AllowNetbird() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	err := m.aclManager.createDefaultAllowRules()
+	if err != nil {
+		return fmt.Errorf("failed to create default allow rules: %v", err)
+	}
+
 	chains, err := m.rConn.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
 	if err != nil {
 		return fmt.Errorf("list of chains: %w", err)
@@ -149,7 +154,7 @@ func (m *Manager) AllowNetbird() error {
 		return fmt.Errorf("failed to flush allow input netbird rules: %v", err)
 	}
 
-	return m.aclManager.createDefaultAllowRules()
+	return nil
 }
 
 // Reset firewall to the default state
