@@ -73,9 +73,9 @@ func (a *Auth) SaveConfigIfSSOSupported() (bool, error) {
 	supportsSSO := true
 	err := a.withBackOff(a.ctx, func() (err error) {
 		_, err = internal.GetDeviceAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
-		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.NotFound {
+		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.NotFound || s.Code() == codes.Unimplemented) {
 			_, err = internal.GetPKCEAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
-			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.NotFound {
+			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.NotFound || s.Code() == codes.Unimplemented) {
 				supportsSSO = false
 				err = nil
 			}
