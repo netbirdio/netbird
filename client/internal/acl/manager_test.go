@@ -38,7 +38,7 @@ func TestDefaultManager(t *testing.T) {
 	defer ctrl.Finish()
 
 	ifaceMock := mocks.NewMockIFaceMapper(ctrl)
-	ifaceMock.EXPECT().IsUserspaceBind().Return(true)
+	ifaceMock.EXPECT().IsUserspaceBind().Return(true).AnyTimes()
 	ifaceMock.EXPECT().SetFilter(gomock.Any())
 	ip, network, err := net.ParseCIDR("172.0.0.1/32")
 	if err != nil {
@@ -331,7 +331,7 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 	defer ctrl.Finish()
 
 	ifaceMock := mocks.NewMockIFaceMapper(ctrl)
-	ifaceMock.EXPECT().IsUserspaceBind().Return(true)
+	ifaceMock.EXPECT().IsUserspaceBind().Return(true).AnyTimes()
 	ifaceMock.EXPECT().SetFilter(gomock.Any())
 	ip, network, err := net.ParseCIDR("172.0.0.1/32")
 	if err != nil {
