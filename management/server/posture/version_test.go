@@ -23,7 +23,6 @@ func TestNBVersionCheck_Check(t *testing.T) {
 				},
 			},
 			check: NBVersionCheck{
-				Enabled:    true,
 				MinVersion: "1.0.0",
 			},
 			wantErr: false,
@@ -36,7 +35,6 @@ func TestNBVersionCheck_Check(t *testing.T) {
 				},
 			},
 			check: NBVersionCheck{
-				Enabled:    true,
 				MinVersion: "2.0",
 			},
 			wantErr: false,
@@ -49,7 +47,6 @@ func TestNBVersionCheck_Check(t *testing.T) {
 				},
 			},
 			check: NBVersionCheck{
-				Enabled:    true,
 				MinVersion: "2.0",
 			},
 			wantErr: false,
@@ -62,7 +59,6 @@ func TestNBVersionCheck_Check(t *testing.T) {
 				},
 			},
 			check: NBVersionCheck{
-				Enabled:    true,
 				MinVersion: "1.0.0",
 			},
 			wantErr: true,
@@ -75,23 +71,9 @@ func TestNBVersionCheck_Check(t *testing.T) {
 				},
 			},
 			check: NBVersionCheck{
-				Enabled:    true,
 				MinVersion: "0.2",
 			},
 			wantErr: true,
-		},
-		{
-			name: "Older Peer NB version With Check Disabled",
-			input: peer.Peer{
-				Meta: peer.PeerSystemMeta{
-					WtVersion: "0.0.9",
-				},
-			},
-			check: NBVersionCheck{
-				Enabled:    false,
-				MinVersion: "1.0.0",
-			},
-			wantErr: false,
 		},
 		{
 			name: "Invalid Peer NB version",
@@ -101,7 +83,6 @@ func TestNBVersionCheck_Check(t *testing.T) {
 				},
 			},
 			check: NBVersionCheck{
-				Enabled:    true,
 				MinVersion: "1.0.0",
 			},
 			wantErr: true,

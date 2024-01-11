@@ -108,7 +108,6 @@ func TestGetPostureCheck(t *testing.T) {
 		Name: "name",
 		Checks: []posture.Check{
 			&posture.NBVersionCheck{
-				Enabled:    true,
 				MinVersion: "1.0.0",
 			},
 		},
@@ -175,9 +174,7 @@ func TestPostureCheckUpdate(t *testing.T) {
                   "description": "default",
 		           "checks": {
 						"nb_version_check": {
-							"enabled": true,
-							"min_version": "1.2.3",
-							"max_version": "2.0.0"
+							"min_version": "1.2.3"
 		           		}
                   }
 				}`)),
@@ -189,7 +186,6 @@ func TestPostureCheckUpdate(t *testing.T) {
 				Description: str("default"),
 				Checks: api.Checks{
 					NbVersionCheck: &api.NBVersionCheck{
-						Enabled:    true,
 						MinVersion: "1.2.3",
 					},
 				},
@@ -204,7 +200,6 @@ func TestPostureCheckUpdate(t *testing.T) {
                    "name": "default",
                    "checks": {
 						"non_existing_check": {
-							"enabled": true,
 							"min_version": "1.2.0"
                    	}
 					}
@@ -220,7 +215,6 @@ func TestPostureCheckUpdate(t *testing.T) {
 				[]byte(`{
                    "checks": {
 						"nb_version_check": {
-							"enabled": true,
 							"min_version": "1.2.0"
                    	}
 					}
@@ -236,9 +230,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 				[]byte(`{
 					"name": "default",
                    "checks": {
-						"nb_version_check": {
-							"enabled": true,
-                   	}
+						"nb_version_check": {}
 					}
 				}`)),
 			expectedStatus: http.StatusBadRequest,
@@ -253,7 +245,6 @@ func TestPostureCheckUpdate(t *testing.T) {
 		           "name": "default",
 		           "checks": {
 						"nb_version_check": {
-							"enabled": true,
 							"min_version": "1.9.0"
 		           		}
 					}
@@ -266,7 +257,6 @@ func TestPostureCheckUpdate(t *testing.T) {
 				Description: str(""),
 				Checks: api.Checks{
 					NbVersionCheck: &api.NBVersionCheck{
-						Enabled:    true,
 						MinVersion: "1.9.0",
 					},
 				},
@@ -281,7 +271,6 @@ func TestPostureCheckUpdate(t *testing.T) {
                    "name": "default",
                    "checks": {
 						"non_existing_check": {
-							"enabled": true,
 							"min_version": "1.2.0"
                    	}
 					}
@@ -297,7 +286,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 				[]byte(`{
                    "checks": {
 						"nb_version_check": {
-							"enabled": true,
+							"min_version": "1.2.0"
                    	}
 					}
 				}`)),
@@ -312,9 +301,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 				[]byte(`{
 					"name": "default",
                    "checks": {
-						"nb_version_check": {
-							"enabled": false,
-                   	}
+						"nb_version_check": {}
 					}
 				}`)),
 			expectedStatus: http.StatusBadRequest,
@@ -327,7 +314,6 @@ func TestPostureCheckUpdate(t *testing.T) {
 		Name: "postureCheck",
 		Checks: []posture.Check{
 			&posture.NBVersionCheck{
-				Enabled:    true,
 				MinVersion: "1.0.0",
 			},
 		},

@@ -265,9 +265,6 @@ type GroupRequest struct {
 
 // NBVersionCheck Posture check for the version of NetBird
 type NBVersionCheck struct {
-	// Enabled NetBird's version check status
-	Enabled bool `json:"enabled"`
-
 	// MinVersion Minimum acceptable NetBird version
 	MinVersion string `json:"min_version"`
 }

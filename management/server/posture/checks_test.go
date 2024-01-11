@@ -22,7 +22,6 @@ func TestChecks_MarshalJSON(t *testing.T) {
 				AccountID:   "acc1",
 				Checks: []Check{
 					&NBVersionCheck{
-						Enabled:    true,
 						MinVersion: "1.0.0",
 					},
 				},
@@ -34,7 +33,6 @@ func TestChecks_MarshalJSON(t *testing.T) {
                     "Description": "desc1",
                     "Checks": {
                         "NBVersionCheck": {
-                            "Enabled": true,
                             "MinVersion": "1.0.0"
                         }
                     }
@@ -60,7 +58,6 @@ func TestChecks_MarshalJSON(t *testing.T) {
                     "Description": "",
                     "Checks": {
                         "NBVersionCheck": {
-                            "Enabled": false,
                             "MinVersion": ""
                         }
                     }
@@ -112,7 +109,6 @@ func TestChecks_UnmarshalJSON(t *testing.T) {
 				Description: "desc1",
 				Checks: []Check{
 					&NBVersionCheck{
-						Enabled:    true,
 						MinVersion: "1.0.0",
 					},
 				},

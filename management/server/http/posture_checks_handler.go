@@ -181,7 +181,6 @@ func (p *PostureChecksHandler) savePostureChecks(
 
 	if nbVersionCheck := req.Checks.NbVersionCheck; nbVersionCheck != nil {
 		postureChecks.Checks = append(postureChecks.Checks, &posture.NBVersionCheck{
-			Enabled:    nbVersionCheck.Enabled,
 			MinVersion: nbVersionCheck.MinVersion,
 		})
 
@@ -219,7 +218,6 @@ func toPostureChecksResponse(postureChecks *posture.Checks) *api.PostureCheck {
 		case posture.NBVersionCheckName:
 			versionCheck := check.(*posture.NBVersionCheck)
 			checks.NbVersionCheck = &api.NBVersionCheck{
-				Enabled:    versionCheck.Enabled,
 				MinVersion: versionCheck.MinVersion,
 			}
 		}
