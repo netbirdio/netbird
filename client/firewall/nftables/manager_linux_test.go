@@ -37,6 +37,8 @@ func (i *iFaceMock) Address() iface.WGAddress {
 	panic("AddressFunc is not set")
 }
 
+func (i *iFaceMock) IsUserspaceBind() bool { return false }
+
 func TestNftablesManager(t *testing.T) {
 	mock := &iFaceMock{
 		NameFunc: func() string {

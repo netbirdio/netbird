@@ -87,8 +87,10 @@ jobs:
           CI_NETBIRD_SIGNAL_PORT: 12345
           CI_NETBIRD_STORE_CONFIG_ENGINE: "sqlite"
           CI_NETBIRD_MGMT_IDP_SIGNKEY_REFRESH: false
+          CI_NETBIRD_TURN_EXTERNAL_IP: "1.2.3.4"
 
         run: |
+          set -x
           grep AUTH_CLIENT_ID docker-compose.yml | grep $CI_NETBIRD_AUTH_CLIENT_ID
           grep AUTH_CLIENT_SECRET docker-compose.yml | grep $CI_NETBIRD_AUTH_CLIENT_SECRET
           grep AUTH_AUTHORITY docker-compose.yml | grep $CI_NETBIRD_AUTH_AUTHORITY
@@ -120,6 +122,7 @@ jobs:
           grep -A 10 PKCEAuthorizationFlow management.json | grep -A 10 ProviderConfig | grep TokenEndpoint | grep $CI_NETBIRD_AUTH_TOKEN_ENDPOINT
           grep -A 10 PKCEAuthorizationFlow management.json | grep -A 10 ProviderConfig | grep Scope | grep "$CI_NETBIRD_AUTH_SUPPORTED_SCOPES"
           grep -A 10 PKCEAuthorizationFlow management.json | grep -A 10 ProviderConfig | grep -A 3 RedirectURLs | grep "http://localhost:53000"
+          grep "external-ip" turnserver.conf | grep $CI_NETBIRD_TURN_EXTERNAL_IP
 
       - name: Install modules
         run: go mod tidy
@@ -175,7 +178,10 @@ jobs:
       - name: test management.json file gen
         run: test -f management.json
       - name: test turnserver.conf file gen
-        run: test -f turnserver.conf
+        run: | 
+          set -x
+          test -f turnserver.conf
+          grep external-ip turnserver.conf
       - name: test zitadel.env file gen
         run: test -f zitadel.env
       - name: test dashboard.env file gen

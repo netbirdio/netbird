@@ -106,10 +106,18 @@ func (m *Manager) RemoveRoutingRules(pair firewall.RouterPair) error {
 }
 
 // AllowNetbird allows netbird interface traffic
-// todo review this method usage
 func (m *Manager) AllowNetbird() error {
+	if !m.wgIface.IsUserspaceBind() {
+		return nil
+	}
+
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
+
+	err := m.aclManager.createDefaultAllowRules()
+	if err != nil {
+		return fmt.Errorf("failed to create default allow rules: %v", err)
+	}
 
 	chains, err := m.rConn.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
 	if err != nil {
@@ -145,6 +153,7 @@ func (m *Manager) AllowNetbird() error {
 	if err != nil {
 		return fmt.Errorf("failed to flush allow input netbird rules: %v", err)
 	}
+
 	return nil
 }
 

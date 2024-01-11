@@ -22,6 +22,13 @@ jobs:
           go-version: "1.21.x"
       - name: Setup Android SDK
         uses: android-actions/setup-android@v2
+
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: "8"
+          distribution: "adopt"
+
       - name: NDK Cache
         id: ndk-cache
         uses: actions/cache@v3
