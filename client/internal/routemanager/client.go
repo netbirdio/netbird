@@ -3,6 +3,7 @@ package routemanager
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/netip"
 
 	log "github.com/sirupsen/logrus"
@@ -35,6 +36,7 @@ type clientNetwork struct {
 	peerStateUpdate     chan struct{}
 	routePeersNotifiers map[string]chan struct{}
 	chosenRoute         *route.Route
+	chosenIP            *net.IP
 	network             netip.Prefix
 	updateSerial        uint64
 }
@@ -178,11 +180,7 @@ func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 		if err != nil {
 			return err
 		}
-		addr := c.wgInterface.Address().IP.String()
-		if c.chosenRoute.Network.Addr().Is6() {
-			addr = c.wgInterface.Address6().IP.String()
-		}
-		err = removeFromRouteTableIfNonSystem(c.network, addr)
+		err = removeFromRouteTableIfNonSystem(c.network, c.chosenIP.String())
 		if err != nil {
 			return fmt.Errorf("couldn't remove route %s from system, err: %v",
 				c.network, err)
@@ -221,16 +219,17 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 			return err
 		}
 	} else {
-		gwAddr := c.wgInterface.Address().IP.String()
+		gwAddr := c.wgInterface.Address().IP
+		c.chosenIP = &gwAddr
 		if c.network.Addr().Is6() {
 			if c.wgInterface.Address6() == nil {
 				return fmt.Errorf("Could not assign IPv6 route %s for peer %s because no IPv6 address is assigned",
 					c.network.String(), c.wgInterface.Address().IP.String())
 			}
-			gwAddr = c.wgInterface.Address6().IP.String()
+			c.chosenIP = &c.wgInterface.Address6().IP
 		}
 
-		err = addToRouteTableIfNoExists(c.network, gwAddr, c.wgInterface.Name())
+		err = addToRouteTableIfNoExists(c.network, c.chosenIP.String(), c.wgInterface.Name())
 		if err != nil {
 			return fmt.Errorf("route %s couldn't be added for peer %s, err: %v",
 				c.network.String(), c.wgInterface.Address().IP.String(), err)

@@ -554,6 +554,11 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 			return err
 		}
 		e.config.WgAddr6 = conf.Address6
+
+		err = e.acl.ResetV6RulesAndAddr()
+		if err != nil {
+			return err
+		}
 		log.Infof("updated peer IPv6 address from %s to %s", oldAddr, conf.Address6)
 	}
 

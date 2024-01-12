@@ -30,6 +30,8 @@ const (
 	chainNameOutputFilter  = "netbird-acl-output-filter"
 	chainNameForwardFilter = "netbird-acl-forward-filter"
 
+	setNameHostIpAddrs = "netbird-acl-host-ips"
+
 	allowNetbirdInputRuleID = "allow Netbird incoming traffic"
 )
 
@@ -46,6 +48,7 @@ type AclManager struct {
 
 	workTable         *nftables.Table
 	workTable6        *nftables.Table
+	v6Active          bool
 	chainInputRules   *nftables.Chain
 	chainOutputRules  *nftables.Chain
 	chainFwFilter     *nftables.Chain
@@ -83,6 +86,7 @@ func newAclManager(table *nftables.Table, table6 *nftables.Table, wgIface iFaceM
 		wgIface:             wgIface,
 		workTable:           table,
 		workTable6:          table6,
+		v6Active:            wgIface.Address6() != nil,
 		routeingFwChainName: routeingFwChainName,
 
 		ipsetStore:  newIpsetStore(),
@@ -95,7 +99,44 @@ func newAclManager(table *nftables.Table, table6 *nftables.Table, wgIface iFaceM
 		return nil, err
 	}
 
+	if m.v6Active {
+		err = m.createDefaultChains6()
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return m, nil
+}
+
+// Resets the IPv6 Firewall Table to adapt to changes in IP addresses
+func (m *AclManager) UpdateV6Address() error {
+	for k, r := range m.rules {
+		if r.ip.To4() == nil {
+			err := m.DeleteRule(r)
+			if err != nil {
+				return err
+			}
+			delete(m.rules, k)
+		}
+	}
+	sets, err := m.rConn.GetSets(m.workTable6)
+	if err != nil {
+		for _, set := range sets {
+			m.rConn.DelSet(set)
+		}
+	}
+	m.ipsetStore6 = newIpsetStore()
+	m.rConn.FlushTable(m.workTable6)
+	if m.wgIface.Address6() != nil {
+		err := m.createDefaultChains6()
+		if err != nil {
+			return err
+		}
+	}
+	m.v6Active = m.wgIface.Address6() != nil
+
+	return nil
 }
 
 // AddFiltering rule to the firewall
@@ -119,6 +160,9 @@ func (m *AclManager) AddFiltering(
 		if err != nil {
 			return nil, err
 		}
+	}
+	if !m.v6Active && ip.To4() == nil {
+		return nil, fmt.Errorf("attempted to configure filtering for IPv6 address even though IPv6 is not active")
 	}
 
 	newRules := make([]firewall.Rule, 0, 2)
@@ -219,16 +263,28 @@ func (m *AclManager) Flush() error {
 		return err
 	}
 
-	if err := m.refreshRuleHandles(m.chainInputRules); err != nil {
+	if err := m.refreshRuleHandles(m.workTable, m.chainInputRules); err != nil {
 		log.Errorf("failed to refresh rule handles ipv4 input chain: %v", err)
 	}
 
-	if err := m.refreshRuleHandles(m.chainOutputRules); err != nil {
+	if err := m.refreshRuleHandles(m.workTable, m.chainOutputRules); err != nil {
 		log.Errorf("failed to refresh rule handles IPv4 output chain: %v", err)
 	}
 
-	if err := m.refreshRuleHandles(m.chainPrerouting); err != nil {
+	if err := m.refreshRuleHandles(m.workTable, m.chainPrerouting); err != nil {
 		log.Errorf("failed to refresh rule handles IPv4 prerouting chain: %v", err)
+	}
+
+	if err := m.refreshRuleHandles(m.workTable6, m.chainInputRules6); err != nil {
+		log.Errorf("failed to refresh rule handles ipv6 input chain: %v", err)
+	}
+
+	if err := m.refreshRuleHandles(m.workTable6, m.chainOutputRules6); err != nil {
+		log.Errorf("failed to refresh rule handles IPv6 output chain: %v", err)
+	}
+
+	if err := m.refreshRuleHandles(m.workTable6, m.chainPrerouting6); err != nil {
+		log.Errorf("failed to refresh rule handles IPv6 prerouting chain: %v", err)
 	}
 
 	return nil
@@ -283,8 +339,10 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 	}
 
 	rawIP := ip.To4()
+	table := m.workTable
 	if rawIP == nil {
 		rawIP = ip.To16()
+		table = m.workTable6
 	}
 	// check if rawIP contains zeroed IP address value
 	// in that case not add IP match expression into the rule definition
@@ -376,7 +434,7 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 		chain = m.chainOutputRules
 	}
 	nftRule := m.rConn.InsertRule(&nftables.Rule{
-		Table:    m.workTable,
+		Table:    table,
 		Chain:    chain,
 		Position: 0,
 		Exprs:    expressions,
@@ -539,53 +597,39 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 
 func (m *AclManager) createDefaultChains() (err error) {
 	// chainNameInputRules
-	chain, chain6 := m.createChain(chainNameInputRules)
+	chain := m.createChain(chainNameInputRules, m.workTable)
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", chain.Name, err)
 		return err
 	}
 	m.chainInputRules = chain
-	m.chainInputRules6 = chain6
 
 	// chainNameOutputRules
-	chain, chain6 = m.createChain(chainNameOutputRules)
+	chain = m.createChain(chainNameOutputRules, m.workTable)
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", chainNameOutputRules, err)
 		return err
 	}
 	m.chainOutputRules = chain
-	m.chainOutputRules6 = chain6
 
 	// netbird-acl-input-filter
 	// type filter hook input priority filter; policy accept;
-	chain, chain6 = m.createFilterChainWithHook(chainNameInputFilter, nftables.ChainHookInput)
+	chain = m.createFilterChainWithHook(chainNameInputFilter, nftables.ChainHookInput, m.workTable)
 	//netbird-acl-input-filter iifname "wt0" ip saddr 100.72.0.0/16 ip daddr != 100.72.0.0/16 accept
 	m.addRouteAllowRule(chain, expr.MetaKeyIIFNAME)
 	m.addFwdAllow(chain, expr.MetaKeyIIFNAME)
 	m.addJumpRule(chain, m.chainInputRules.Name, expr.MetaKeyIIFNAME) // to netbird-acl-input-rules
 	m.addDropExpressions(chain, expr.MetaKeyIIFNAME)
-	if chain6 != nil {
-		m.addRouteAllowRule(chain6, expr.MetaKeyIIFNAME)
-		m.addFwdAllow(chain6, expr.MetaKeyIIFNAME)
-		m.addJumpRule(chain6, m.chainInputRules6.Name, expr.MetaKeyIIFNAME) // to netbird-acl-input-rules
-		m.addDropExpressions(chain6, expr.MetaKeyIIFNAME)
-	}
 
 	// netbird-acl-output-filter
 	// type filter hook output priority filter; policy accept;
-	chain, chain6 = m.createFilterChainWithHook(chainNameOutputFilter, nftables.ChainHookOutput)
+	chain = m.createFilterChainWithHook(chainNameOutputFilter, nftables.ChainHookOutput, m.workTable)
 	m.addRouteAllowRule(chain, expr.MetaKeyOIFNAME)
 	m.addFwdAllow(chain, expr.MetaKeyOIFNAME)
 	m.addJumpRule(chain, m.chainOutputRules.Name, expr.MetaKeyOIFNAME) // to netbird-acl-output-rules
 	m.addDropExpressions(chain, expr.MetaKeyOIFNAME)
-	if chain6 != nil {
-		m.addRouteAllowRule(chain6, expr.MetaKeyOIFNAME)
-		m.addFwdAllow(chain6, expr.MetaKeyOIFNAME)
-		m.addJumpRule(chain6, m.chainOutputRules6.Name, expr.MetaKeyOIFNAME) // to netbird-acl-output-rules
-		m.addDropExpressions(chain6, expr.MetaKeyOIFNAME)
-	}
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", chainNameOutputFilter, err)
@@ -593,10 +637,10 @@ func (m *AclManager) createDefaultChains() (err error) {
 	}
 
 	// netbird-acl-forward-filter
-	m.chainFwFilter, m.chainFwFilter6 = m.createFilterChainWithHook(chainNameForwardFilter, nftables.ChainHookForward)
-	m.addJumpRulesToRtForward() // to
-	m.addMarkAccept()
-	m.addJumpRuleToInputChain() // to netbird-acl-input-rules
+	m.chainFwFilter = m.createFilterChainWithHook(chainNameForwardFilter, nftables.ChainHookForward, m.workTable)
+	m.addJumpRulesToRtForward(m.workTable, m.chainFwFilter) // to
+	m.addMarkAccept(m.workTable, m.chainFwFilter)
+	m.addJumpRuleToInputChain(m.workTable, m.chainFwFilter, m.chainInputRules) // to netbird-acl-input-rules
 	m.addDropExpressions(m.chainFwFilter, expr.MetaKeyIIFNAME)
 	err = m.rConn.Flush()
 	if err != nil {
@@ -606,7 +650,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 
 	// netbird-acl-output-filter
 	// type filter hook output priority filter; policy accept;
-	m.chainPrerouting, m.chainPrerouting6 = m.createPreroutingMangle()
+	m.chainPrerouting = m.createPreroutingMangle(m.workTable, false)
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", m.chainPrerouting.Name, err)
@@ -615,7 +659,73 @@ func (m *AclManager) createDefaultChains() (err error) {
 	return nil
 }
 
-func (m *AclManager) addJumpRulesToRtForward() {
+func (m *AclManager) createDefaultChains6() (err error) {
+
+	// chainNameInputRules
+	chain := m.createChain(chainNameInputRules, m.workTable6)
+	err = m.rConn.Flush()
+	if err != nil {
+		log.Debugf("failed to create chain (%s): %s", chain.Name, err)
+		return err
+	}
+	m.chainInputRules6 = chain
+
+	// chainNameOutputRules
+	chain = m.createChain(chainNameOutputRules, m.workTable6)
+	err = m.rConn.Flush()
+	if err != nil {
+		log.Debugf("failed to create chain (%s): %s", chainNameOutputRules, err)
+		return err
+	}
+	m.chainOutputRules6 = chain
+
+	// netbird-acl-input-filter
+	// type filter hook input priority filter; policy accept;
+	chain = m.createFilterChainWithHook(chainNameInputFilter, nftables.ChainHookInput, m.workTable6)
+	//netbird-acl-input-filter iifname "wt0" ip saddr 100.72.0.0/16 ip daddr != 100.72.0.0/16 accept
+	m.addRouteAllowRule(chain, expr.MetaKeyIIFNAME)
+	m.addFwdAllow(chain, expr.MetaKeyIIFNAME)
+	m.addJumpRule(chain, m.chainInputRules6.Name, expr.MetaKeyIIFNAME) // to netbird-acl-input-rules
+	m.addDropExpressions(chain, expr.MetaKeyIIFNAME)
+
+	// netbird-acl-output-filter
+	// type filter hook output priority filter; policy accept;
+	chain = m.createFilterChainWithHook(chainNameOutputFilter, nftables.ChainHookOutput, m.workTable6)
+	m.addRouteAllowRule(chain, expr.MetaKeyOIFNAME)
+	m.addFwdAllow(chain, expr.MetaKeyOIFNAME)
+	m.addJumpRule(chain, m.chainOutputRules6.Name, expr.MetaKeyOIFNAME) // to netbird-acl-output-rules
+	m.addDropExpressions(chain, expr.MetaKeyOIFNAME)
+	err = m.rConn.Flush()
+	if err != nil {
+		log.Debugf("failed to create chain (%s): %s", chainNameOutputFilter, err)
+		return err
+	}
+
+	// netbird-acl-forward-filter
+	m.chainFwFilter6 = m.createFilterChainWithHook(chainNameForwardFilter, nftables.ChainHookForward, m.workTable6)
+	m.addJumpRulesToRtForward(m.workTable6, m.chainFwFilter6) // to
+	m.addMarkAccept(m.workTable6, m.chainFwFilter6)
+	m.addJumpRuleToInputChain(m.workTable6, m.chainFwFilter6, m.chainInputRules6) // to netbird-acl-input-rules
+	m.addDropExpressions(m.chainFwFilter6, expr.MetaKeyIIFNAME)
+	err = m.rConn.Flush()
+	if err != nil {
+		log.Debugf("failed to create chain (%s): %s", chainNameForwardFilter, err)
+		return err
+	}
+
+	// netbird-acl-output-filter
+	// type filter hook output priority filter; policy accept;
+	m.chainPrerouting6 = m.createPreroutingMangle(m.workTable6, true)
+	err = m.rConn.Flush()
+	if err != nil {
+		log.Debugf("failed to create chain (%s): %s", m.chainPrerouting.Name, err)
+		return err
+	}
+	return nil
+}
+
+func (m *AclManager) addJumpRulesToRtForward(table *nftables.Table, chain *nftables.Chain) {
+
 	expressions := []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
 		&expr.Cmp{
@@ -630,19 +740,10 @@ func (m *AclManager) addJumpRulesToRtForward() {
 	}
 
 	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: m.workTable,
-		Chain: m.chainFwFilter,
+		Table: table,
+		Chain: chain,
 		Exprs: expressions,
 	})
-
-	if m.workTable6 != nil {
-
-		_ = m.rConn.AddRule(&nftables.Rule{
-			Table: m.workTable6,
-			Chain: m.chainFwFilter6,
-			Exprs: expressions,
-		})
-	}
 
 	expressions = []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
@@ -658,21 +759,13 @@ func (m *AclManager) addJumpRulesToRtForward() {
 	}
 
 	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: m.workTable,
-		Chain: m.chainFwFilter,
+		Table: table,
+		Chain: chain,
 		Exprs: expressions,
 	})
-
-	if m.workTable6 != nil {
-		_ = m.rConn.AddRule(&nftables.Rule{
-			Table: m.workTable6,
-			Chain: m.chainFwFilter6,
-			Exprs: expressions,
-		})
-	}
 }
 
-func (m *AclManager) addMarkAccept() {
+func (m *AclManager) addMarkAccept(table *nftables.Table, chain *nftables.Chain) {
 	// oifname "wt0" meta mark 0x000007e4 accept
 	// iifname "wt0" meta mark 0x000007e4 accept
 	ifaces := []expr.MetaKey{expr.MetaKeyIIFNAME, expr.MetaKeyOIFNAME}
@@ -699,73 +792,44 @@ func (m *AclManager) addMarkAccept() {
 		}
 
 		_ = m.rConn.AddRule(&nftables.Rule{
-			Table: m.workTable,
-			Chain: m.chainFwFilter,
+			Table: table,
+			Chain: chain,
 			Exprs: expressions,
 		})
-
-		if m.workTable6 != nil {
-			_ = m.rConn.AddRule(&nftables.Rule{
-				Table: m.workTable6,
-				Chain: m.chainFwFilter6,
-				Exprs: expressions,
-			})
-		}
 	}
 }
 
-func (m *AclManager) createChain(name string) (*nftables.Chain, *nftables.Chain) {
+func (m *AclManager) createChain(name string, table *nftables.Table) *nftables.Chain {
+
 	chain := &nftables.Chain{
 		Name:  name,
-		Table: m.workTable,
+		Table: table,
 	}
 
 	chain = m.rConn.AddChain(chain)
 
-	var chain6 *nftables.Chain = nil
-	if m.workTable6 != nil {
-		chain6 = &nftables.Chain{
-			Name:  name,
-			Table: m.workTable6,
-		}
-		chain6 = m.rConn.AddChain(chain6)
-	}
-
-	return chain, chain6
+	return chain
 }
 
-func (m *AclManager) createFilterChainWithHook(name string, hookNum nftables.ChainHook) (*nftables.Chain, *nftables.Chain) {
+func (m *AclManager) createFilterChainWithHook(name string, hookNum nftables.ChainHook, table *nftables.Table) *nftables.Chain {
 	polAccept := nftables.ChainPolicyAccept
 	chain := &nftables.Chain{
 		Name:     name,
-		Table:    m.workTable,
+		Table:    table,
 		Hooknum:  hookNum,
 		Priority: nftables.ChainPriorityFilter,
 		Type:     nftables.ChainTypeFilter,
 		Policy:   &polAccept,
 	}
 
-	var chain6 *nftables.Chain = nil
-	if m.workTable6 != nil {
-		chain6 = &nftables.Chain{
-			Name:     name,
-			Table:    m.workTable6,
-			Hooknum:  hookNum,
-			Priority: nftables.ChainPriorityFilter,
-			Type:     nftables.ChainTypeFilter,
-			Policy:   &polAccept,
-		}
-		chain6 = m.rConn.AddChain(chain6)
-	}
-
-	return m.rConn.AddChain(chain), chain6
+	return m.rConn.AddChain(chain)
 }
 
-func (m *AclManager) createPreroutingMangle() (*nftables.Chain, *nftables.Chain) {
+func (m *AclManager) createPreroutingMangle(table *nftables.Table, forV6 bool) *nftables.Chain {
 	polAccept := nftables.ChainPolicyAccept
 	chain := &nftables.Chain{
 		Name:     "netbird-acl-prerouting-filter",
-		Table:    m.workTable,
+		Table:    table,
 		Hooknum:  nftables.ChainHookPrerouting,
 		Priority: nftables.ChainPriorityMangle,
 		Type:     nftables.ChainTypeFilter,
@@ -774,7 +838,24 @@ func (m *AclManager) createPreroutingMangle() (*nftables.Chain, *nftables.Chain)
 
 	chain = m.rConn.AddChain(chain)
 
-	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
+	rawIP := m.wgIface.Address().Network.IP.To4()
+	mask := m.wgIface.Address().Network.Mask
+	addrLen := uint32(4)
+	// source address position
+	srcAddrOffset := uint32(12)
+	dstAddrOffset := uint32(16)
+	nullArray := []byte{0x0, 0x0, 0x0, 0x0}
+
+	if forV6 {
+		rawIP = m.wgIface.Address6().Network.IP.To16()
+		addrLen = 16
+		mask = m.wgIface.Address6().Network.Mask
+		srcAddrOffset = uint32(8)
+		dstAddrOffset = uint32(24)
+		nullArray = []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
+	}
+	ip, _ := netip.AddrFromSlice(rawIP)
+
 	expressions := []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
 		&expr.Cmp{
@@ -785,15 +866,15 @@ func (m *AclManager) createPreroutingMangle() (*nftables.Chain, *nftables.Chain)
 		&expr.Payload{
 			DestRegister: 2,
 			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       12,
-			Len:          4,
+			Offset:       srcAddrOffset,
+			Len:          addrLen,
 		},
 		&expr.Bitwise{
 			SourceRegister: 2,
 			DestRegister:   2,
-			Len:            4,
-			Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-			Mask:           m.wgIface.Address().Network.Mask,
+			Len:            addrLen,
+			Xor:            nullArray,
+			Mask:           mask,
 		},
 		&expr.Cmp{
 			Op:       expr.CmpOpNeq,
@@ -803,13 +884,13 @@ func (m *AclManager) createPreroutingMangle() (*nftables.Chain, *nftables.Chain)
 		&expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       16,
-			Len:          4,
+			Offset:       dstAddrOffset,
+			Len:          addrLen,
 		},
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
 			Register: 1,
-			Data:     m.wgIface.Address().IP.To4(),
+			Data:     rawIP,
 		},
 		&expr.Immediate{
 			Register: 1,
@@ -822,81 +903,13 @@ func (m *AclManager) createPreroutingMangle() (*nftables.Chain, *nftables.Chain)
 		},
 	}
 	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: m.workTable,
+		Table: table,
 		Chain: chain,
 		Exprs: expressions,
 	})
 	chain = m.rConn.AddChain(chain)
 
-	var chain6 *nftables.Chain = nil
-	if m.workTable6 != nil {
-		chain6 = &nftables.Chain{
-			Name:     "netbird-acl-prerouting-filter",
-			Table:    m.workTable,
-			Hooknum:  nftables.ChainHookPrerouting,
-			Priority: nftables.ChainPriorityMangle,
-			Type:     nftables.ChainTypeFilter,
-			Policy:   &polAccept,
-		}
-
-		chain6 = m.rConn.AddChain(chain)
-
-		ip, _ := netip.AddrFromSlice(m.wgIface.Address6().Network.IP.To16())
-		expressions := []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     ifname(m.wgIface.Name()),
-			},
-			&expr.Payload{
-				DestRegister: 2,
-				Base:         expr.PayloadBaseNetworkHeader,
-				Offset:       8,
-				Len:          16,
-			},
-			&expr.Bitwise{
-				SourceRegister: 2,
-				DestRegister:   2,
-				Len:            16,
-				Xor:            []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
-				Mask:           m.wgIface.Address6().Network.Mask,
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpNeq,
-				Register: 2,
-				Data:     ip.Unmap().AsSlice(),
-			},
-			&expr.Payload{
-				DestRegister: 1,
-				Base:         expr.PayloadBaseNetworkHeader,
-				Offset:       24,
-				Len:          16,
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     m.wgIface.Address6().IP.To16(),
-			},
-			&expr.Immediate{
-				Register: 1,
-				Data:     postroutingMark,
-			},
-			&expr.Meta{
-				Key:            expr.MetaKeyMARK,
-				SourceRegister: true,
-				Register:       1,
-			},
-		}
-		_ = m.rConn.AddRule(&nftables.Rule{
-			Table: m.workTable6,
-			Chain: chain,
-			Exprs: expressions,
-		})
-		chain6 = m.rConn.AddChain(chain6)
-	}
-
-	return chain, chain6
+	return chain
 }
 
 func (m *AclManager) addDropExpressions(chain *nftables.Chain, ifaceKey expr.MetaKey) []expr.Any {
@@ -917,7 +930,7 @@ func (m *AclManager) addDropExpressions(chain *nftables.Chain, ifaceKey expr.Met
 	return nil
 }
 
-func (m *AclManager) addJumpRuleToInputChain() {
+func (m *AclManager) addJumpRuleToInputChain(table *nftables.Table, chain *nftables.Chain, inputChain *nftables.Chain) {
 	expressions := []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
 		&expr.Cmp{
@@ -927,36 +940,15 @@ func (m *AclManager) addJumpRuleToInputChain() {
 		},
 		&expr.Verdict{
 			Kind:  expr.VerdictJump,
-			Chain: m.chainInputRules.Name,
+			Chain: inputChain.Name,
 		},
 	}
 
 	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: m.workTable,
-		Chain: m.chainFwFilter,
+		Table: table,
+		Chain: chain,
 		Exprs: expressions,
 	})
-
-	if m.workTable6 != nil {
-		expressions = []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     ifname(m.wgIface.Name()),
-			},
-			&expr.Verdict{
-				Kind:  expr.VerdictJump,
-				Chain: m.chainInputRules6.Name,
-			},
-		}
-
-		_ = m.rConn.AddRule(&nftables.Rule{
-			Table: m.workTable6,
-			Chain: m.chainFwFilter6,
-			Exprs: expressions,
-		})
-	}
 }
 
 func (m *AclManager) addRouteAllowRule(chain *nftables.Chain, netIfName expr.MetaKey) {
@@ -1187,7 +1179,6 @@ func (m *AclManager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr
 }
 
 func (m *AclManager) addIpToSet(ipsetName string, ip net.IP) (*nftables.Set, error) {
-	ipset, err := m.rConn.GetSetByName(m.workTable, ipsetName)
 	rawIP := ip.To4()
 	ipsetType := nftables.TypeIPAddr
 	if rawIP == nil {
@@ -1195,6 +1186,7 @@ func (m *AclManager) addIpToSet(ipsetName string, ip net.IP) (*nftables.Set, err
 		ipsetType = nftables.TypeIP6Addr
 	}
 	if ipsetType == nftables.TypeIPAddr {
+		ipset, err := m.rConn.GetSetByName(m.workTable, ipsetName)
 		if err != nil {
 			if ipset, err = m.createSet(m.workTable, ipsetName, ipsetType); err != nil {
 				return nil, fmt.Errorf("get set name: %v", err)
@@ -1216,7 +1208,10 @@ func (m *AclManager) addIpToSet(ipsetName string, ip net.IP) (*nftables.Set, err
 		if err := m.sConn.Flush(); err != nil {
 			return nil, fmt.Errorf("flush add elements: %v", err)
 		}
+
+		return ipset, nil
 	} else {
+		ipset, err := m.rConn.GetSetByName(m.workTable6, ipsetName)
 		if err != nil {
 			if ipset, err = m.createSet(m.workTable6, ipsetName, ipsetType); err != nil {
 				return nil, fmt.Errorf("get set name: %v", err)
@@ -1238,9 +1233,9 @@ func (m *AclManager) addIpToSet(ipsetName string, ip net.IP) (*nftables.Set, err
 		if err := m.sConn.Flush(); err != nil {
 			return nil, fmt.Errorf("flush add elements: %v", err)
 		}
-	}
 
-	return ipset, nil
+		return ipset, nil
+	}
 }
 
 // createSet in given table by name
@@ -1285,12 +1280,12 @@ func (m *AclManager) flushWithBackoff() (err error) {
 	return
 }
 
-func (m *AclManager) refreshRuleHandles(chain *nftables.Chain) error {
-	if m.workTable == nil || chain == nil {
+func (m *AclManager) refreshRuleHandles(table *nftables.Table, chain *nftables.Chain) error {
+	if table == nil || chain == nil {
 		return nil
 	}
 
-	list, err := m.rConn.GetRules(m.workTable, chain)
+	list, err := m.rConn.GetRules(table, chain)
 	if err != nil {
 		return err
 	}
@@ -1317,6 +1312,10 @@ func generateRuleId(
 	action firewall.Action,
 	ipset *nftables.Set,
 ) string {
+	ipver := "v4"
+	if ip.To4() == nil {
+		ipver = "v6"
+	}
 	rulesetID := ":" + strconv.Itoa(int(direction)) + ":"
 	if sPort != nil {
 		rulesetID += sPort.String()
@@ -1330,7 +1329,7 @@ func generateRuleId(
 	if ipset == nil {
 		return "ip:" + ip.String() + rulesetID
 	}
-	return "set:" + ipset.Name + rulesetID
+	return "set:" + ipver + ":" + ipset.Name + rulesetID
 }
 func generateRuleIdForMangle(ipset *nftables.Set, ip net.IP, proto firewall.Protocol, port *firewall.Port) string {
 	// case of icmp port is empty

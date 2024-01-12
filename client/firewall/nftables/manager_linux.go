@@ -54,6 +54,17 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 	return m, nil
 }
 
+// Resets the IPv6 Firewall Table to adapt to changes in IP addresses
+func (m *Manager) ResetV6RulesAndAddr() error {
+	// TODO on disabling and re-enabling IPv6, not all rules are applied (most notably the routing forwarding rules).
+	err := m.aclManager.UpdateV6Address()
+	if err != nil {
+		return err
+	}
+
+	return m.router.UpdateV6Address()
+}
+
 // AddFiltering rule to the firewall
 //
 // If comment argument is empty firewall manager should set

@@ -70,6 +70,10 @@ func CreateWithNativeFirewall(iface IFaceMapper, nativeFirewall firewall.Manager
 	return mgr, nil
 }
 
+func (m *Manager) ResetV6RulesAndAddr() error {
+	return nil
+}
+
 func create(iface IFaceMapper) (*Manager, error) {
 	m := &Manager{
 		decoders: sync.Pool{

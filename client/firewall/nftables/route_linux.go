@@ -24,8 +24,6 @@ const (
 	userDataAcceptForwardRuleDst = "frwacceptdst"
 )
 
-// TODO ipv6 everywhere here.
-
 // some presets for building nftable rules
 var (
 	zeroXor  = binaryutil.NativeEndian.PutUint32(0)
@@ -53,6 +51,7 @@ type router struct {
 	chains6      map[string]*nftables.Chain
 	// rules is useful to avoid duplicates and to get missing attributes that we don't have when adding new rules
 	rules                    map[string]*nftables.Rule
+	rules6                   map[string]*nftables.Rule
 	isDefaultFwdRulesEnabled bool
 }
 
@@ -68,10 +67,11 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table, workTable6 
 		chains:     make(map[string]*nftables.Chain),
 		chains6:    make(map[string]*nftables.Chain),
 		rules:      make(map[string]*nftables.Rule),
+		rules6:     make(map[string]*nftables.Rule),
 	}
 
 	var err error
-	r.filterTable, r.filterTable6, err = r.loadFilterTables(workTable6 != nil)
+	r.filterTable, r.filterTable6, err = r.loadFilterTables()
 	if err != nil {
 		if errors.Is(err, errFilterTableNotFound) {
 			log.Warnf("table 'filter' not found for forward rules for one of the supported address families-")
@@ -89,6 +89,12 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table, workTable6 
 	if err != nil {
 		log.Errorf("failed to create containers for route: %s", err)
 	}
+
+	err = r.createContainers6()
+	if err != nil {
+		log.Errorf("failed to create v6 containers for route: %s", err)
+	}
+
 	return r, err
 }
 
@@ -104,7 +110,26 @@ func (r *router) ResetForwardRules() {
 	}
 }
 
-func (r *router) loadFilterTables(include6 bool) (*nftables.Table, *nftables.Table, error) {
+func (r *router) UpdateV6Address() error {
+	err := r.createContainers6()
+	if err != nil {
+		return err
+	}
+
+	for name, rule := range r.rules6 {
+		rule = &nftables.Rule{
+			Table:    r.workTable6,
+			Chain:    r.chains6[rule.Chain.Name],
+			Exprs:    rule.Exprs,
+			UserData: rule.UserData,
+		}
+		r.rules6[name] = r.conn.AddRule(rule)
+	}
+
+	return r.conn.Flush()
+}
+
+func (r *router) loadFilterTables() (*nftables.Table, *nftables.Table, error) {
 	tables, err := r.conn.ListTablesOfFamily(nftables.TableFamilyIPv4)
 	if err != nil {
 		return nil, nil, fmt.Errorf("nftables: unable to list tables: %v", err)
@@ -119,16 +144,14 @@ func (r *router) loadFilterTables(include6 bool) (*nftables.Table, *nftables.Tab
 	}
 
 	var table6 *nftables.Table = nil
-	if include6 {
-		tables, err = r.conn.ListTablesOfFamily(nftables.TableFamilyIPv6)
-		if err != nil {
-			return nil, nil, fmt.Errorf("nftables: unable to list tables: %v", err)
-		}
-		for _, table := range tables {
-			if table.Name == "filter" {
-				table6 = table
-				break
-			}
+	tables, err = r.conn.ListTablesOfFamily(nftables.TableFamilyIPv6)
+	if err != nil {
+		return nil, nil, fmt.Errorf("nftables: unable to list tables: %v", err)
+	}
+	for _, table := range tables {
+		if table.Name == "filter" {
+			table6 = table
+			break
 		}
 	}
 
@@ -155,22 +178,33 @@ func (r *router) createContainers() error {
 		Type:     nftables.ChainTypeNAT,
 	})
 
-	if r.workTable6 != nil {
-		r.chains6[chainNameRouteingFw] = r.conn.AddChain(&nftables.Chain{
-			Name:  chainNameRouteingFw,
-			Table: r.workTable6,
-		})
-
-		r.chains6[chainNameRoutingNat] = r.conn.AddChain(&nftables.Chain{
-			Name:     chainNameRoutingNat,
-			Table:    r.workTable6,
-			Hooknum:  nftables.ChainHookPostrouting,
-			Priority: nftables.ChainPriorityNATSource - 1,
-			Type:     nftables.ChainTypeNAT,
-		})
+	err := r.refreshRulesMap()
+	if err != nil {
+		log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
 	}
 
-	err := r.refreshRulesMap()
+	err = r.conn.Flush()
+	if err != nil {
+		return fmt.Errorf("nftables: unable to initialize table: %v", err)
+	}
+	return nil
+}
+func (r *router) createContainers6() error {
+
+	r.chains6[chainNameRouteingFw] = r.conn.AddChain(&nftables.Chain{
+		Name:  chainNameRouteingFw,
+		Table: r.workTable6,
+	})
+
+	r.chains6[chainNameRoutingNat] = r.conn.AddChain(&nftables.Chain{
+		Name:     chainNameRoutingNat,
+		Table:    r.workTable6,
+		Hooknum:  nftables.ChainHookPostrouting,
+		Priority: nftables.ChainPriorityNATSource - 1,
+		Type:     nftables.ChainTypeNAT,
+	})
+
+	err := r.refreshRulesMap6()
 	if err != nil {
 		log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
 	}
@@ -248,13 +282,13 @@ func (r *router) insertRoutingRule(format, chainName string, pair manager.Router
 		}
 	}
 
-	table, chain := r.workTable, r.chains[chainName]
+	table, chain, rules := r.workTable, r.chains[chainName], r.rules
 	parsedIp, _, _ := net.ParseCIDR(pair.Source)
 	if parsedIp.To4() == nil {
-		table, chain = r.workTable6, r.chains6[chainName]
+		table, chain, rules = r.workTable6, r.chains6[chainName], r.rules6
 	}
 
-	r.rules[ruleKey] = r.conn.InsertRule(&nftables.Rule{
+	rules[ruleKey] = r.conn.InsertRule(&nftables.Rule{
 		Table:    table,
 		Chain:    chain,
 		Exprs:    expression,
@@ -279,7 +313,7 @@ func (r *router) acceptForwardRule(sourceNetwork string) {
 	})...)
 
 	rule := &nftables.Rule{
-		Table: r.filterTable,
+		Table: table,
 		Chain: &nftables.Chain{
 			Name:     "FORWARD",
 			Table:    table,
@@ -304,7 +338,7 @@ func (r *router) acceptForwardRule(sourceNetwork string) {
 	})...)
 
 	rule = &nftables.Rule{
-		Table: r.filterTable,
+		Table: table,
 		Chain: &nftables.Chain{
 			Name:     "FORWARD",
 			Table:    table,
@@ -395,6 +429,23 @@ func (r *router) refreshRulesMap() error {
 		for _, rule := range rules {
 			if len(rule.UserData) > 0 {
 				r.rules[string(rule.UserData)] = rule
+			}
+		}
+	}
+	return nil
+}
+
+// refreshRulesMap6 refreshes the rule map for IPv6 with the latest rules. this is useful to avoid
+// duplicates and to get missing attributes that we don't have when adding new rules
+func (r *router) refreshRulesMap6() error {
+	for _, chain := range r.chains6 {
+		rules, err := r.conn.GetRules(chain.Table, chain)
+		if err != nil {
+			return fmt.Errorf("nftables: unable to list rules: %v", err)
+		}
+		for _, rule := range rules {
+			if len(rule.UserData) > 0 {
+				r.rules6[string(rule.UserData)] = rule
 			}
 		}
 	}

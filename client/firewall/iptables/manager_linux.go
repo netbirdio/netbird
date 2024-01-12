@@ -24,6 +24,10 @@ type Manager struct {
 	router     *routerManager
 }
 
+func (m *Manager) ResetV6RulesAndAddr() error {
+	return nil
+}
+
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMapper interface {
 	Name() string

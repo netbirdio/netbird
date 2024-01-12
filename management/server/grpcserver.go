@@ -250,14 +250,14 @@ func mapError(err error) error {
 
 func extractPeerMeta(loginReq *proto.LoginRequest) nbpeer.PeerSystemMeta {
 	return nbpeer.PeerSystemMeta{
-		Hostname:  loginReq.GetMeta().GetHostname(),
-		GoOS:      loginReq.GetMeta().GetGoOS(),
-		Kernel:    loginReq.GetMeta().GetKernel(),
-		Core:      loginReq.GetMeta().GetCore(),
-		Platform:  loginReq.GetMeta().GetPlatform(),
-		OS:        loginReq.GetMeta().GetOS(),
-		WtVersion: loginReq.GetMeta().GetWiretrusteeVersion(),
-		UIVersion: loginReq.GetMeta().GetUiVersion(),
+		Hostname:      loginReq.GetMeta().GetHostname(),
+		GoOS:          loginReq.GetMeta().GetGoOS(),
+		Kernel:        loginReq.GetMeta().GetKernel(),
+		Core:          loginReq.GetMeta().GetCore(),
+		Platform:      loginReq.GetMeta().GetPlatform(),
+		OS:            loginReq.GetMeta().GetOS(),
+		WtVersion:     loginReq.GetMeta().GetWiretrusteeVersion(),
+		UIVersion:     loginReq.GetMeta().GetUiVersion(),
 		Ipv6Supported: loginReq.GetMeta().GetIpv6Supported(),
 	}
 }
@@ -435,12 +435,12 @@ func toPeerConfig(peer *nbpeer.Peer, network *Network, dnsName string) *proto.Pe
 	}
 }
 
-func toRemotePeerConfig(peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
+func toRemotePeerConfig(peers []*nbpeer.Peer, dnsName string, v6Enabled bool) []*proto.RemotePeerConfig {
 	remotePeers := []*proto.RemotePeerConfig{}
 	for _, rPeer := range peers {
 		fqdn := rPeer.FQDN(dnsName)
 		allowedIps := []string{fmt.Sprintf(AllowedIPsFormat, rPeer.IP)}
-		if rPeer.IP6 != nil {
+		if rPeer.IP6 != nil && v6Enabled {
 			allowedIps = append(allowedIps, fmt.Sprintf(AllowedIP6sFormat, *rPeer.IP6))
 		}
 		remotePeers = append(remotePeers, &proto.RemotePeerConfig{
@@ -458,13 +458,13 @@ func toSyncResponse(config *Config, peer *nbpeer.Peer, turnCredentials *TURNCred
 
 	pConfig := toPeerConfig(peer, networkMap.Network, dnsName)
 
-	remotePeers := toRemotePeerConfig(networkMap.Peers, dnsName)
+	remotePeers := toRemotePeerConfig(networkMap.Peers, dnsName, peer.IP6 != nil)
 
 	routesUpdate := toProtocolRoutes(networkMap.Routes)
 
 	dnsUpdate := toProtocolDNSConfig(networkMap.DNSConfig)
 
-	offlinePeers := toRemotePeerConfig(networkMap.OfflinePeers, dnsName)
+	offlinePeers := toRemotePeerConfig(networkMap.OfflinePeers, dnsName, peer.IP6 != nil)
 
 	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules)
 

@@ -76,6 +76,10 @@ type Manager interface {
 	// RemoveRoutingRules removes a routing firewall rule
 	RemoveRoutingRules(pair RouterPair) error
 
+	// UpdateV6Address makes changes to the firewall to adapt to the IP address changes.
+	// It is expected that after calling this method ApplyFiltering will be called to re-add the firewall rules.
+	ResetV6RulesAndAddr() error
+
 	// Reset firewall to the default state
 	Reset() error
 
