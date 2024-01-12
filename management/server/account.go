@@ -87,6 +87,7 @@ type AccountManager interface {
 	UpdatePeerSSHKey(peerID string, sshKey string) error
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
+	GetGroupByName(groupName, accountID string) (*Group, error)
 	SaveGroup(accountID, userID string, group *Group) error
 	DeleteGroup(accountId, userId, groupID string) error
 	ListGroups(accountId string) ([]*Group, error)
