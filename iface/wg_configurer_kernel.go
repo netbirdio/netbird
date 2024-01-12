@@ -1,4 +1,4 @@
-//go:build !android && !ios
+//go:build linux && !android
 
 package iface
 
@@ -13,17 +13,18 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
-type wGConfigurer struct {
+type wgKernelConfigurer struct {
 	deviceName string
 }
 
-func newWGConfigurer(deviceName string) wGConfigurer {
-	return wGConfigurer{
+func newWGConfigurer(deviceName string) wgConfigurer {
+	wgc := &wgKernelConfigurer{
 		deviceName: deviceName,
 	}
+	return wgc
 }
 
-func (c *wGConfigurer) configureInterface(privateKey string, port int) error {
+func (c *wgKernelConfigurer) configureInterface(privateKey string, port int) error {
 	log.Debugf("adding Wireguard private key")
 	key, err := wgtypes.ParseKey(privateKey)
 	if err != nil {
@@ -44,7 +45,7 @@ func (c *wGConfigurer) configureInterface(privateKey string, port int) error {
 	return nil
 }
 
-func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+func (c *wgKernelConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	// parse allowed ips
 	var allowedIpNets []net.IPNet
 	for _, allowedIp := range strings.Split(allowedIps, ",") {
@@ -64,8 +65,8 @@ func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive t
 		ReplaceAllowedIPs:           true,
 		AllowedIPs:                  allowedIpNets,
 		PersistentKeepaliveInterval: &keepAlive,
-		PresharedKey:                preSharedKey,
 		Endpoint:                    endpoint,
+		PresharedKey:                preSharedKey,
 	}
 
 	config := wgtypes.Config{
@@ -78,7 +79,7 @@ func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive t
 	return nil
 }
 
-func (c *wGConfigurer) removePeer(peerKey string) error {
+func (c *wgKernelConfigurer) removePeer(peerKey string) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return err
@@ -99,7 +100,7 @@ func (c *wGConfigurer) removePeer(peerKey string) error {
 	return nil
 }
 
-func (c *wGConfigurer) addAllowedIP(peerKey string, allowedIP string) error {
+func (c *wgKernelConfigurer) addAllowedIP(peerKey string, allowedIP string) error {
 	_, ipNet, err := net.ParseCIDR(allowedIP)
 	if err != nil {
 		return err
@@ -126,7 +127,7 @@ func (c *wGConfigurer) addAllowedIP(peerKey string, allowedIP string) error {
 	return nil
 }
 
-func (c *wGConfigurer) removeAllowedIP(peerKey string, allowedIP string) error {
+func (c *wgKernelConfigurer) removeAllowedIP(peerKey string, allowedIP string) error {
 	_, ipNet, err := net.ParseCIDR(allowedIP)
 	if err != nil {
 		return err
@@ -168,7 +169,7 @@ func (c *wGConfigurer) removeAllowedIP(peerKey string, allowedIP string) error {
 	return nil
 }
 
-func (c *wGConfigurer) getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
+func (c *wgKernelConfigurer) getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
 	wg, err := wgctrl.New()
 	if err != nil {
 		return wgtypes.Peer{}, err
@@ -192,7 +193,7 @@ func (c *wGConfigurer) getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, erro
 	return wgtypes.Peer{}, fmt.Errorf("peer not found")
 }
 
-func (c *wGConfigurer) configure(config wgtypes.Config) error {
+func (c *wgKernelConfigurer) configure(config wgtypes.Config) error {
 	wg, err := wgctrl.New()
 	if err != nil {
 		return err
@@ -207,4 +208,7 @@ func (c *wGConfigurer) configure(config wgtypes.Config) error {
 	log.Tracef("got Wireguard device %s", c.deviceName)
 
 	return wg.ConfigureDevice(c.deviceName, config)
+}
+
+func (c *wgKernelConfigurer) close() {
 }

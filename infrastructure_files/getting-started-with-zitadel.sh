@@ -312,7 +312,7 @@ delete_auto_service_user() {
 
 init_zitadel() {
   echo -e "\nInitializing Zitadel with NetBird's applications\n"
-  INSTANCE_URL="$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT"
+  INSTANCE_URL="$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
 
   TOKEN_PATH=./machinekey/zitadel-admin-sa.token
 
@@ -402,6 +402,15 @@ read_nb_domain() {
   echo "$READ_NETBIRD_DOMAIN"
 }
 
+get_turn_external_ip() {
+  TURN_EXTERNAL_IP_CONFIG="#external-ip="
+  IP=$(curl -s -4 https://jsonip.com | jq -r '.ip')
+  if [[ "x-$IP" != "x-" ]]; then
+    TURN_EXTERNAL_IP_CONFIG="external-ip=$IP"
+  fi
+  echo "$TURN_EXTERNAL_IP_CONFIG"
+}
+
 initEnvironment() {
   CADDY_SECURE_DOMAIN=""
   ZITADEL_EXTERNALSECURE="false"
@@ -413,6 +422,7 @@ initEnvironment() {
   TURN_PASSWORD=$(openssl rand -base64 32 | sed 's/=//g')
   TURN_MIN_PORT=49152
   TURN_MAX_PORT=65535
+  TURN_EXTERNAL_IP_CONFIG=$(get_turn_external_ip)
 
   if ! check_nb_domain "$NETBIRD_DOMAIN"; then
     NETBIRD_DOMAIN=$(read_nb_domain)
@@ -472,7 +482,7 @@ initEnvironment() {
   echo -e "\nStarting NetBird services\n"
   $DOCKER_COMPOSE_COMMAND up -d
   echo -e "\nDone!\n"
-  echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT"
+  echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
   echo "Login with the following credentials:"
   echo "Username: $ZITADEL_ADMIN_USERNAME" | tee .env
   echo "Password: $ZITADEL_ADMIN_PASSWORD" | tee -a .env
@@ -560,6 +570,7 @@ EOF
 renderTurnServerConf() {
   cat <<EOF
 listening-port=3478
+$TURN_EXTERNAL_IP_CONFIG
 tls-listening-port=5349
 min-port=$TURN_MIN_PORT
 max-port=$TURN_MAX_PORT
@@ -608,14 +619,14 @@ renderManagementJson() {
     "IdpManagerConfig": {
         "ManagerType": "zitadel",
         "ClientConfig": {
-            "Issuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT",
-            "TokenEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT/oauth/v2/token",
+            "Issuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN",
+            "TokenEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth/v2/token",
             "ClientID": "$NETBIRD_IDP_MGMT_CLIENT_ID",
             "ClientSecret": "$NETBIRD_IDP_MGMT_CLIENT_SECRET",
             "GrantType": "client_credentials"
         },
         "ExtraConfig": {
-            "ManagementEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT/management/v1"
+            "ManagementEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/management/v1"
         }
      },
     "PKCEAuthorizationFlow": {
@@ -633,12 +644,12 @@ EOF
 renderDashboardEnv() {
   cat <<EOF
 # Endpoints
-NETBIRD_MGMT_API_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT
-NETBIRD_MGMT_GRPC_API_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT
+NETBIRD_MGMT_API_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
+NETBIRD_MGMT_GRPC_API_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
 # OIDC
 AUTH_AUDIENCE=$NETBIRD_AUTH_CLIENT_ID
 AUTH_CLIENT_ID=$NETBIRD_AUTH_CLIENT_ID
-AUTH_AUTHORITY=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT
+AUTH_AUTHORITY=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
 USE_AUTH0=false
 AUTH_SUPPORTED_SCOPES="openid profile email offline_access"
 AUTH_REDIRECT_URI=/nb-auth

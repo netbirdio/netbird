@@ -54,6 +54,8 @@ message LoginRequest {
   bool isLinuxDesktopClient = 8;
 
   string hostname = 9;
+
+  optional bool rosenpassEnabled = 10;
 }
 
 message LoginResponse {

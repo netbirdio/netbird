@@ -86,6 +86,10 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		CustomDNSAddress: customDNSAddressConverted,
 	}
 
+	if rootCmd.PersistentFlags().Changed(enableRosenpassFlag) {
+		ic.RosenpassEnabled = &rosenpassEnabled
+	}
+
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
 		ic.PreSharedKey = &preSharedKey
 	}
@@ -95,7 +99,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return fmt.Errorf("get config file: %v", err)
 	}
 
-	config, _ = internal.UpdateOldManagementPort(ctx, config, configPath)
+	config, _ = internal.UpdateOldManagementURL(ctx, config, configPath)
 
 	err = foregroundLogin(ctx, cmd, config, setupKey)
 	if err != nil {
@@ -151,6 +155,10 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		CustomDNSAddress:     customDNSAddressConverted,
 		IsLinuxDesktopClient: isLinuxRunningDesktop(),
 		Hostname:             hostName,
+	}
+
+	if cmd.Flag(enableRosenpassFlag).Changed {
+		loginRequest.RosenpassEnabled = &rosenpassEnabled
 	}
 
 	var loginErr error

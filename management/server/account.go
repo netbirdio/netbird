@@ -1119,6 +1119,9 @@ func (am *DefaultAccountManager) DeleteAccount(accountID, userID string) error {
 		log.Errorf("failed deleting account %s. error: %s", accountID, err)
 		return err
 	}
+	// cancel peer login expiry job
+	am.peerLoginExpiry.Cancel([]string{account.Id})
+
 	log.Debugf("account %s deleted", accountID)
 	return nil
 }
@@ -1330,6 +1333,22 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, a
 	}
 
 	return data, err
+}
+
+func (am *DefaultAccountManager) removeUserFromCache(accountID, userID string) error {
+	data, err := am.getAccountFromCache(accountID, false)
+	if err != nil {
+		return err
+	}
+
+	for i, datum := range data {
+		if datum.ID == userID {
+			data = append(data[:i], data[i+1:]...)
+			break
+		}
+	}
+
+	return am.cacheManager.Set(am.ctx, accountID, data, cacheStore.WithExpiration(cacheEntryExpiration()))
 }
 
 // updateAccountDomainAttributes updates the account domain attributes and then, saves the account

@@ -36,7 +36,8 @@ func getOSNameAndVersion() (string, string) {
 	query := wmi.CreateQuery(&dst, "")
 	err := wmi.Query(query, &dst)
 	if err != nil {
-		log.Fatal(err)
+		log.Error(err)
+		return "Windows", getBuildVersion()
 	}
 
 	if len(dst) == 0 {

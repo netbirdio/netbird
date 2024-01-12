@@ -101,6 +101,10 @@ func (u *User) LastDashboardLoginChanged(LastLogin time.Time) bool {
 	return LastLogin.After(u.LastLogin) && !u.LastLogin.IsZero()
 }
 
+func (u *User) updateLastLogin(login time.Time) {
+	u.LastLogin = login
+}
+
 // HasAdminPower returns true if the user has admin or owner roles, false otherwise
 func (u *User) HasAdminPower() bool {
 	return u.Role == UserRoleAdmin || u.Role == UserRoleOwner
@@ -1073,11 +1077,10 @@ func (am *DefaultAccountManager) deleteUserFromIDP(targetUserID, accountID strin
 		if err != nil {
 			return fmt.Errorf("failed to remove user %s app metadata in IdP: %s", targetUserID, err)
 		}
-
-		_, err = am.refreshCache(accountID)
-		if err != nil {
-			log.Errorf("refresh account (%q) cache: %v", accountID, err)
-		}
+	}
+	err := am.removeUserFromCache(accountID, targetUserID)
+	if err != nil {
+		log.Errorf("remove user from account (%q) cache failed with error: %v", accountID, err)
 	}
 	return nil
 }

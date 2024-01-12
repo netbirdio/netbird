@@ -14,6 +14,7 @@ import (
 	"github.com/pion/transport/v3/stdnet"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/iface"
 )
@@ -41,11 +42,12 @@ func TestAddRemoveRoutes(t *testing.T) {
 
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			peerPrivateKey, _ := wgtypes.GeneratePrivateKey()
 			newNet, err := stdnet.NewNet()
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun53%d", n), "100.65.75.2/24", iface.DefaultMTU, nil, newNet)
+			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun53%d", n), "100.65.75.2/24", 33100, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil)
 			require.NoError(t, err, "should create testing WGIface interface")
 			defer wgInterface.Close()
 
@@ -175,11 +177,12 @@ func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
 			log.SetOutput(os.Stderr)
 		}()
 		t.Run(testCase.name, func(t *testing.T) {
+			peerPrivateKey, _ := wgtypes.GeneratePrivateKey()
 			newNet, err := stdnet.NewNet()
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun53%d", n), "100.65.75.2/24", iface.DefaultMTU, nil, newNet)
+			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun53%d", n), "100.65.75.2/24", 33100, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil)
 			require.NoError(t, err, "should create testing WGIface interface")
 			defer wgInterface.Close()
 
