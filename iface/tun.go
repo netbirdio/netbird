@@ -12,7 +12,7 @@ type wgTunDevice interface {
 	Up() (*bind.UniversalUDPMuxDefault, error)
 	UpdateAddr(address WGAddress) error
 	WgAddress() WGAddress
-	UpdateAddr6(address6 *WGAddress) error
+	UpdateAddr6(addr6 *WGAddress) error
 	WgAddress6() *WGAddress
 	DeviceName() string
 	Close() error

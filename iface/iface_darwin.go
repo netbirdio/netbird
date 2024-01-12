@@ -6,6 +6,8 @@ package iface
 import (
 	"fmt"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/pion/transport/v3"
 
 	"github.com/netbirdio/netbird/iface/netstack"

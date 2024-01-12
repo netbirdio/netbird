@@ -8,6 +8,7 @@ import (
 	"context"
 	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/iface/netstack"
 	"os"
 	"os/exec"
 	"runtime"
@@ -91,5 +92,5 @@ func _getReleaseInfo() string {
 
 func _checkIPv6Support() bool {
 	return firewall.SupportsIPv6() &&
-		iface.WireGuardModuleIsLoaded()
+		iface.WireGuardModuleIsLoaded() && !netstack.IsEnabled()
 }
