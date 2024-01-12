@@ -9,21 +9,18 @@ import (
 )
 
 type NBVersionCheck struct {
-	Enabled    bool
 	MinVersion string
-	MaxVersion string
 }
 
 var _ Check = (*NBVersionCheck)(nil)
 
 func (n *NBVersionCheck) Check(peer nbpeer.Peer) error {
-	peerNBVersion, err := version.NewVersion(peer.Meta.UIVersion)
+	peerNBVersion, err := version.NewVersion(peer.Meta.WtVersion)
 	if err != nil {
 		return err
 	}
 
-	minMaxVersionRange := ">= " + n.MinVersion + "," + "<= " + n.MaxVersion
-	constraints, err := version.NewConstraint(minMaxVersionRange)
+	constraints, err := version.NewConstraint(">= " + n.MinVersion)
 	if err != nil {
 		return err
 	}
@@ -32,9 +29,12 @@ func (n *NBVersionCheck) Check(peer nbpeer.Peer) error {
 		return nil
 	}
 
-	return fmt.Errorf("peer NB version %s is not within the allowed version range %s to %s",
+	return fmt.Errorf("peer NB version %s is older than minimum allowed version %s",
 		peer.Meta.UIVersion,
 		n.MinVersion,
-		n.MaxVersion,
 	)
+}
+
+func (n *NBVersionCheck) Name() string {
+	return NBVersionCheckName
 }
