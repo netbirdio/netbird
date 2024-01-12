@@ -176,6 +176,12 @@ type AccountSettings struct {
 	PeerLoginExpirationEnabled bool `json:"peer_login_expiration_enabled"`
 }
 
+// Checks List of objects that perform the actual checks
+type Checks struct {
+	// NbVersionCheck Posture check for the version of NetBird
+	NbVersionCheck *NBVersionCheck `json:"nb_version_check,omitempty"`
+}
+
 // DNSSettings defines model for DNSSettings.
 type DNSSettings struct {
 	// DisabledManagementGroups Groups whose DNS management is disabled
@@ -255,6 +261,12 @@ type GroupRequest struct {
 
 	// Peers List of peers ids
 	Peers *[]string `json:"peers,omitempty"`
+}
+
+// NBVersionCheck Posture check for the version of NetBird
+type NBVersionCheck struct {
+	// MinVersion Minimum acceptable NetBird version
+	MinVersion string `json:"min_version"`
 }
 
 // Nameserver defines model for Nameserver.
@@ -572,6 +584,9 @@ type Policy struct {
 
 	// Rules Policy rule object for policy UI editor
 	Rules []PolicyRule `json:"rules"`
+
+	// SourcePostureChecks Posture checks ID's applied to policy source groups
+	SourcePostureChecks []string `json:"source_posture_checks"`
 }
 
 // PolicyMinimum defines model for PolicyMinimum.
@@ -722,6 +737,36 @@ type PolicyUpdate struct {
 
 	// Rules Policy rule object for policy UI editor
 	Rules []PolicyRuleUpdate `json:"rules"`
+
+	// SourcePostureChecks Posture checks ID's applied to policy source groups
+	SourcePostureChecks *[]string `json:"source_posture_checks,omitempty"`
+}
+
+// PostureCheck defines model for PostureCheck.
+type PostureCheck struct {
+	// Checks List of objects that perform the actual checks
+	Checks Checks `json:"checks"`
+
+	// Description Posture check friendly description
+	Description *string `json:"description,omitempty"`
+
+	// Id Posture check ID
+	Id string `json:"id"`
+
+	// Name Posture check name identifier
+	Name string `json:"name"`
+}
+
+// PostureCheckUpdate defines model for PostureCheckUpdate.
+type PostureCheckUpdate struct {
+	// Checks List of objects that perform the actual checks
+	Checks *Checks `json:"checks,omitempty"`
+
+	// Description Posture check friendly description
+	Description string `json:"description"`
+
+	// Name Posture check name identifier
+	Name string `json:"name"`
 }
 
 // Route defines model for Route.
@@ -1020,6 +1065,12 @@ type PostApiPoliciesJSONRequestBody = PolicyUpdate
 
 // PutApiPoliciesPolicyIdJSONRequestBody defines body for PutApiPoliciesPolicyId for application/json ContentType.
 type PutApiPoliciesPolicyIdJSONRequestBody = PolicyUpdate
+
+// PostApiPostureChecksJSONRequestBody defines body for PostApiPostureChecks for application/json ContentType.
+type PostApiPostureChecksJSONRequestBody = PostureCheckUpdate
+
+// PutApiPostureChecksPostureCheckIdJSONRequestBody defines body for PutApiPostureChecksPostureCheckId for application/json ContentType.
+type PutApiPostureChecksPostureCheckIdJSONRequestBody = PostureCheckUpdate
 
 // PostApiRoutesJSONRequestBody defines body for PostApiRoutes for application/json ContentType.
 type PostApiRoutesJSONRequestBody = RouteRequest

@@ -11,7 +11,6 @@ import (
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
@@ -152,26 +151,24 @@ type Policy struct {
 	// Rules of the policy
 	Rules []*PolicyRule `gorm:"foreignKey:PolicyID;references:id"`
 
-	// PostureChecks of the policy
-	PostureChecks []*posture.Checks `gorm:"many2many:policy_posture_checks;"`
+	// SourcePostureChecks are ID references to Posture checks for policy source groups
+	SourcePostureChecks []string `gorm:"serializer:json"`
 }
 
 // Copy returns a copy of the policy.
 func (p *Policy) Copy() *Policy {
 	c := &Policy{
-		ID:            p.ID,
-		Name:          p.Name,
-		Description:   p.Description,
-		Enabled:       p.Enabled,
-		Rules:         make([]*PolicyRule, len(p.Rules)),
-		PostureChecks: make([]*posture.Checks, len(p.PostureChecks)),
+		ID:                  p.ID,
+		Name:                p.Name,
+		Description:         p.Description,
+		Enabled:             p.Enabled,
+		Rules:               make([]*PolicyRule, len(p.Rules)),
+		SourcePostureChecks: make([]string, len(p.SourcePostureChecks)),
 	}
 	for i, r := range p.Rules {
 		c.Rules[i] = r.Copy()
 	}
-	for i, pc := range p.PostureChecks {
-		c.PostureChecks[i] = pc.Copy()
-	}
+	copy(c.SourcePostureChecks, p.SourcePostureChecks)
 	return c
 }
 

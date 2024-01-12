@@ -30,6 +30,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 )
@@ -119,6 +120,10 @@ type AccountManager interface {
 	GetAllConnectedPeers() (map[string]struct{}, error)
 	HasConnectedChannel(peerID string) bool
 	GetExternalCacheManager() ExternalCacheManager
+	GetPostureChecks(accountID, postureChecksID, userID string) (*posture.Checks, error)
+	SavePostureChecks(accountID, userID string, postureChecks *posture.Checks) error
+	DeletePostureChecks(accountID, postureChecksID, userID string) error
+	ListPostureChecks(accountID, userID string) ([]*posture.Checks, error)
 }
 
 type DefaultAccountManager struct {
@@ -217,6 +222,7 @@ type Account struct {
 	NameServerGroups       map[string]*nbdns.NameServerGroup `gorm:"-"`
 	NameServerGroupsG      []nbdns.NameServerGroup           `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	DNSSettings            DNSSettings                       `gorm:"embedded;embeddedPrefix:dns_settings_"`
+	PostureChecks          []*posture.Checks                 `gorm:"foreignKey:AccountID;references:id"`
 	// Settings is a dictionary of Account settings
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
 }
@@ -662,6 +668,11 @@ func (a *Account) Copy() *Account {
 		settings = a.Settings.Copy()
 	}
 
+	postureChecks := []*posture.Checks{}
+	for _, postureCheck := range a.PostureChecks {
+		postureChecks = append(postureChecks, postureCheck.Copy())
+	}
+
 	return &Account{
 		Id:                     a.Id,
 		CreatedBy:              a.CreatedBy,
@@ -678,6 +689,7 @@ func (a *Account) Copy() *Account {
 		Routes:                 routes,
 		NameServerGroups:       nsGroups,
 		DNSSettings:            dnsSettings,
+		PostureChecks:          postureChecks,
 		Settings:               settings,
 	}
 }
