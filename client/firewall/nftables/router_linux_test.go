@@ -29,7 +29,7 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 		t.Skip("nftables not supported on this OS")
 	}
 
-	table, err := createWorkTable()
+	table, table6, err := createWorkTables()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 
 	for _, testCase := range test.InsertRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
-			manager, err := newRouter(context.TODO(), table)
+			manager, err := newRouter(context.TODO(), table, table6)
 			require.NoError(t, err, "failed to create router")
 
 			nftablesTestingClient := &nftables.Conn{}
@@ -131,7 +131,7 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 		t.Skip("nftables not supported on this OS")
 	}
 
-	table, err := createWorkTable()
+	table, table6, err := createWorkTables()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 
 	for _, testCase := range test.RemoveRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
-			manager, err := newRouter(context.TODO(), table)
+			manager, err := newRouter(context.TODO(), table, table6)
 			require.NoError(t, err, "failed to create router")
 
 			nftablesTestingClient := &nftables.Conn{}
@@ -238,27 +238,33 @@ func isIptablesClientAvailable(client *iptables.IPTables) bool {
 	return err == nil
 }
 
-func createWorkTable() (*nftables.Table, error) {
+func createWorkTables() (*nftables.Table, *nftables.Table, error) {
 	sConn, err := nftables.New(nftables.AsLasting())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	tables, err := sConn.ListTablesOfFamily(nftables.TableFamilyIPv4)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	for _, t := range tables {
+	tables6, err := sConn.ListTablesOfFamily(nftables.TableFamilyIPv6)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for _, t := range append(tables, tables6...) {
 		if t.Name == tableName {
 			sConn.DelTable(t)
 		}
 	}
 
 	table := sConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv4})
+	table6 := sConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv6})
 	err = sConn.Flush()
 
-	return table, err
+	return table, table6, err
 }
 
 func deleteWorkTable() {

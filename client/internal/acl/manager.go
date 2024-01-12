@@ -16,7 +16,7 @@ import (
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
-// Manager is a ACL rules manager
+// Manager is an ACL rules manager
 type Manager interface {
 	ApplyFiltering(networkMap *mgmProto.NetworkMap)
 	ResetV6RulesAndAddr() error

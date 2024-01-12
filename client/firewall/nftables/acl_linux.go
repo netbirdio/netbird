@@ -30,13 +30,14 @@ const (
 	chainNameOutputFilter  = "netbird-acl-output-filter"
 	chainNameForwardFilter = "netbird-acl-forward-filter"
 
-	setNameHostIpAddrs = "netbird-acl-host-ips"
-
 	allowNetbirdInputRuleID = "allow Netbird incoming traffic"
 )
 
 var (
-	anyIP           = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	anyIP = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+
+	nullAddress4    = []byte{0x0, 0x0, 0x0, 0x0}
+	nullAddress6    = []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
 	postroutingMark = []byte{0xe4, 0x7, 0x0, 0x00}
 )
 
@@ -256,7 +257,7 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 	return nil
 }
 
-// createDefaultAllowRules In case if the USP firewall manager can use the native firewall manager we must to create allow rules for
+// createDefaultAllowRules In case if the USP firewall manager can use the native firewall manager we must create allow rules for
 // input and output chains
 func (m *AclManager) createDefaultAllowRules() error {
 	expIn := []expr.Any{
@@ -920,7 +921,7 @@ func (m *AclManager) createPreroutingMangle(table *nftables.Table, forV6 bool) *
 	// source address position
 	srcAddrOffset := uint32(12)
 	dstAddrOffset := uint32(16)
-	nullArray := []byte{0x0, 0x0, 0x0, 0x0}
+	nullArray := nullAddress4
 
 	if forV6 {
 		rawIP = m.wgIface.Address6().Network.IP.To16()
@@ -928,7 +929,7 @@ func (m *AclManager) createPreroutingMangle(table *nftables.Table, forV6 bool) *
 		mask = m.wgIface.Address6().Network.Mask
 		srcAddrOffset = uint32(8)
 		dstAddrOffset = uint32(24)
-		nullArray = []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
+		nullArray = nullAddress6
 	}
 	ip, _ := netip.AddrFromSlice(rawIP)
 
@@ -1031,14 +1032,14 @@ func (m *AclManager) addRouteAllowRule(chain *nftables.Chain, netIfName expr.Met
 	srcAddrOffset := uint32(12)
 	dstAddrOffset := uint32(16)
 	mask := m.wgIface.Address().Network.Mask
-	nullArray := []byte{0x0, 0x0, 0x0, 0x0}
+	nullArray := nullAddress4
 	if chain.Table.Family == nftables.TableFamilyIPv6 {
 		ip, _ = netip.AddrFromSlice(m.wgIface.Address6().Network.IP.To16())
 		addrLen = 16
 		srcAddrOffset = 8
 		dstAddrOffset = 24
 		mask = m.wgIface.Address6().Network.Mask
-		nullArray = []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
+		nullArray = nullAddress6
 	}
 
 	var srcOp, dstOp expr.CmpOp
@@ -1109,14 +1110,14 @@ func (m *AclManager) addFwdAllow(chain *nftables.Chain, iifname expr.MetaKey) {
 	srcAddrOffset := uint32(12)
 	dstAddrOffset := uint32(16)
 	mask := m.wgIface.Address().Network.Mask
-	nullArray := []byte{0x0, 0x0, 0x0, 0x0}
+	nullArray := nullAddress4
 	if chain.Table.Family == nftables.TableFamilyIPv6 {
 		ip, _ = netip.AddrFromSlice(m.wgIface.Address6().Network.IP.To16())
 		addrLen = 16
 		srcAddrOffset = 8
 		dstAddrOffset = 24
 		mask = m.wgIface.Address6().Network.Mask
-		nullArray = []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
+		nullArray = nullAddress6
 	}
 
 	var srcOp, dstOp expr.CmpOp
@@ -1187,14 +1188,14 @@ func (m *AclManager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr
 	srcAddrOffset := uint32(12)
 	dstAddrOffset := uint32(16)
 	mask := m.wgIface.Address().Network.Mask
-	nullArray := []byte{0x0, 0x0, 0x0, 0x0}
+	nullArray := nullAddress4
 	if chain.Table.Family == nftables.TableFamilyIPv6 {
 		ip, _ = netip.AddrFromSlice(m.wgIface.Address6().Network.IP.To16())
 		addrLen = 16
 		srcAddrOffset = 8
 		dstAddrOffset = 24
 		mask = m.wgIface.Address6().Network.Mask
-		nullArray = []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
+		nullArray = nullAddress6
 	}
 
 	expressions := []expr.Any{

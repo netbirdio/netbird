@@ -47,14 +47,14 @@ func TestAddRemoveRoutes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun53%d", n), "100.65.75.2/24", 33100, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil)
+			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun53%d", n), "100.65.75.2/24", "", 33100, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil)
 			require.NoError(t, err, "should create testing WGIface interface")
 			defer wgInterface.Close()
 
 			err = wgInterface.Create()
 			require.NoError(t, err, "should create testing wireguard interface")
 
-			err = addToRouteTableIfNoExists(testCase.prefix, wgInterface.Address().IP.String())
+			err = addToRouteTableIfNoExists(testCase.prefix, wgInterface.Address().IP.String(), wgInterface.Name())
 			require.NoError(t, err, "addToRouteTableIfNoExists should not return err")
 
 			prefixGateway, err := getExistingRIBRouteGateway(testCase.prefix)
@@ -182,7 +182,7 @@ func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun53%d", n), "100.65.75.2/24", 33100, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil)
+			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun53%d", n), "100.65.75.2/24", "", 33100, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil)
 			require.NoError(t, err, "should create testing WGIface interface")
 			defer wgInterface.Close()
 
@@ -193,12 +193,12 @@ func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
 
 			// Prepare the environment
 			if testCase.preExistingPrefix.IsValid() {
-				err := addToRouteTableIfNoExists(testCase.preExistingPrefix, MockAddr)
+				err := addToRouteTableIfNoExists(testCase.preExistingPrefix, MockAddr, wgInterface.Name())
 				require.NoError(t, err, "should not return err when adding pre-existing route")
 			}
 
 			// Add the route
-			err = addToRouteTableIfNoExists(testCase.prefix, MockAddr)
+			err = addToRouteTableIfNoExists(testCase.prefix, MockAddr, wgInterface.Name())
 			require.NoError(t, err, "should not return err when adding route")
 
 			if testCase.shouldAddRoute {
