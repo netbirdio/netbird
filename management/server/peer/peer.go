@@ -20,7 +20,7 @@ type Peer struct {
 	// IP address of the Peer
 	IP net.IP `gorm:"uniqueIndex:idx_peers_account_id_ip"`
 	// IPv6 address of the Peer
-	IP6 *net.IP
+	IP6 *net.IP `gorm:"uniqueIndex:idx_peers_account_id_ip6"`
 	// Meta is a Peer system meta data
 	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	// Name is peer's name (machine name)
