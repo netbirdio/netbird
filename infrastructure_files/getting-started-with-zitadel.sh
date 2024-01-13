@@ -506,20 +506,22 @@ initEnvironment() {
       NETBIRD_DOMAIN=$(read_nb_domain)
     fi
 
-    if ! check_nb_http_port "$NETBIRD_HTTP_PORT"; then
-      NETBIRD_HTTP_PORT=$(read_nb_http_port)
-    fi
-
-    if ! check_nb_http_port "$NETBIRD_8080_PORT"; then
-      NETBIRD_8080_PORT=$(read_nb_8080_port)
-    fi
-
-    if ! check_nb_3478_port "$TURN_LISTENING_PORT"; then
-      TURN_LISTENING_PORT=$(read_nb_3478_port)
-    fi
-    if ! check_nb_port "$NETBIRD_PORT"; then
-      NETBIRD_PORT=$(read_nb_port)
-    fi
+    if [[ "x-$NETBIRD_INTERATIVE_MODE" == "x-true" ]]; then 
+        if ! check_nb_http_port "$NETBIRD_HTTP_PORT"; then
+          NETBIRD_HTTP_PORT=$(read_nb_http_port)
+        fi
+    
+        if ! check_nb_http_port "$NETBIRD_8080_PORT"; then
+          NETBIRD_8080_PORT=$(read_nb_8080_port)
+        fi
+    
+        if ! check_nb_3478_port "$TURN_LISTENING_PORT"; then
+          TURN_LISTENING_PORT=$(read_nb_3478_port)
+        fi
+        if ! check_nb_port "$NETBIRD_PORT"; then
+          NETBIRD_PORT=$(read_nb_port)
+        fi
+    fi  
 
     CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:443"
     NETBIRD_HTTP_PROTOCOL="https"
