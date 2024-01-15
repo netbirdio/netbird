@@ -1814,6 +1814,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 		Settings: &Settings{
 			PeerLoginExpirationEnabled: true,
 			PeerLoginExpiration:        DefaultPeerLoginExpiration,
+			GroupsPropagationEnabled:   true,
 		},
 	}
 
