@@ -56,6 +56,11 @@ message LoginRequest {
   string hostname = 9;
 
   optional bool rosenpassEnabled = 10;
+
+  optional string interfaceName = 11;
+
+  optional int64 wireguardPort = 12;
+
 }
 
 message LoginResponse {

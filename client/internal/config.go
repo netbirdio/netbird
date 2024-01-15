@@ -42,6 +42,8 @@ type ConfigInput struct {
 	NATExternalIPs   []string
 	CustomDNSAddress []byte
 	RosenpassEnabled *bool
+	InterfaceName    *string
+	WireguardPort    *int
 }
 
 // Config Configuration type
@@ -59,7 +61,7 @@ type Config struct {
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey string
 
-	// ExternalIP mappings, if different than the host interface IP
+	// ExternalIP mappings, if different from the host interface IP
 	//
 	//   External IP must not be behind a CGNAT and port-forwarding for incoming UDP packets from WgPort on ExternalIP
 	//   to WgPort on host interface IP must be present. This can take form of single port-forwarding rule, 1:1 DNAT
@@ -142,11 +144,10 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	config := &Config{
 		SSHKey:               string(pem),
 		PrivateKey:           wgKey,
-		WgIface:              iface.WgInterfaceDefault,
-		WgPort:               iface.DefaultWgPort,
 		IFaceBlackList:       []string{},
 		DisableIPv6Discovery: false,
 		NATExternalIPs:       input.NATExternalIPs,
@@ -165,6 +166,16 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 			return nil, err
 		}
 		config.ManagementURL = URL
+	}
+
+	config.WgPort = iface.DefaultWgPort
+	if input.WireguardPort != nil {
+		config.WgPort = *input.WireguardPort
+	}
+
+	config.WgIface = iface.WgInterfaceDefault
+	if input.InterfaceName != nil {
+		config.WgIface = *input.InterfaceName
 	}
 
 	if input.PreSharedKey != nil {
@@ -243,6 +254,17 @@ func update(input ConfigInput) (*Config, error) {
 		config.WgPort = iface.DefaultWgPort
 		refresh = true
 	}
+
+	if input.WireguardPort != nil {
+		config.WgPort = *input.WireguardPort
+		refresh = true
+	}
+
+	if input.InterfaceName != nil {
+		config.WgIface = *input.InterfaceName
+		refresh = true
+	}
+
 	if input.NATExternalIPs != nil && len(config.NATExternalIPs) != len(input.NATExternalIPs) {
 		config.NATExternalIPs = input.NATExternalIPs
 		refresh = true

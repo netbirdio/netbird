@@ -28,7 +28,9 @@ const (
 	externalIPMapFlag   = "external-ip-map"
 	dnsResolverAddress  = "dns-resolver-address"
 	enableRosenpassFlag = "enable-rosenpass"
-	preSharedKeyFlag   = "preshared-key"
+	preSharedKeyFlag    = "preshared-key"
+	interfaceNameFlag   = "interface-name"
+	wireguardPortFlag   = "wireguard-port"
 )
 
 var (
@@ -52,6 +54,8 @@ var (
 	natExternalIPs          []string
 	customDNSAddress        string
 	rosenpassEnabled        bool
+	interfaceName           string
+	wireguardPort           uint16
 	rootCmd                 = &cobra.Command{
 		Use:          "netbird",
 		Short:        "",
