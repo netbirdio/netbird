@@ -55,7 +55,7 @@ var (
 	customDNSAddress        string
 	rosenpassEnabled        bool
 	interfaceName           string
-	wireguardPort           int
+	wireguardPort           uint16
 	rootCmd                 = &cobra.Command{
 		Use:          "netbird",
 		Short:        "",
