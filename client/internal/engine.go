@@ -148,12 +148,36 @@ func NewEngine(
 	config *EngineConfig,
 	mobileDep MobileDependency,
 	statusRecorder *peer.Status,
+) *Engine {
+	return NewEngineWithProbes(
+		ctx,
+		cancel,
+		signalClient,
+		mgmClient,
+		config,
+		mobileDep,
+		statusRecorder,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+}
+
+// NewEngineWithProbes creates a new Connection Engine with probes attached
+func NewEngineWithProbes(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	signalClient signal.Client,
+	mgmClient mgm.Client,
+	config *EngineConfig,
+	mobileDep MobileDependency,
+	statusRecorder *peer.Status,
 	mgmProbe *Probe,
 	signalProbe *Probe,
 	relayProbe *Probe,
 	wgProbe *Probe,
 ) *Engine {
-
 	return &Engine{
 		ctx:            ctx,
 		cancel:         cancel,
