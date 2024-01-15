@@ -11,6 +11,7 @@ import (
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
@@ -217,6 +218,25 @@ func (a *Account) getPeerConnectionResources(peerID string) ([]*nbpeer.Peer, []*
 	for _, policy := range a.Policies {
 		if !policy.Enabled {
 			continue
+		}
+
+		peer, ok := a.Peers[peerID]
+		if !ok && peer == nil {
+			continue
+		}
+
+		for _, postureChecksID := range policy.SourcePostureChecks {
+			postureChecks := getPostureCheck(a, postureChecksID)
+			if postureChecks == nil {
+				continue
+			}
+
+			for _, check := range postureChecks.Checks {
+				if err := check.Check(*peer); err != nil {
+					log.Debugf("an error occurred on check %s: %s", check.Name(), err.Error())
+					continue
+				}
+			}
 		}
 
 		for _, rule := range policy.Rules {
@@ -511,4 +531,13 @@ func getAllPeersFromGroups(account *Account, groups []string, peerID string) ([]
 		}
 	}
 	return filteredPeers, peerInGroups
+}
+
+func getPostureCheck(account *Account, postureChecksID string) *posture.Checks {
+	for _, postureChecks := range account.PostureChecks {
+		if postureChecks.ID == postureChecksID {
+			return postureChecks
+		}
+	}
+	return nil
 }
