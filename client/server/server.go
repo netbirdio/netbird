@@ -192,6 +192,17 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		s.latestConfigInput.RosenpassEnabled = msg.RosenpassEnabled
 	}
 
+	if msg.InterfaceName != nil {
+		inputConfig.InterfaceName = msg.InterfaceName
+		s.latestConfigInput.InterfaceName = msg.InterfaceName
+	}
+
+	if msg.WireguardPort != nil {
+		port := int(*msg.WireguardPort)
+		inputConfig.WireguardPort = &port
+		s.latestConfigInput.WireguardPort = &port
+	}
+
 	s.mutex.Unlock()
 
 	inputConfig.PreSharedKey = &msg.PreSharedKey

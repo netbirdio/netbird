@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -36,6 +37,8 @@ var (
 
 func init() {
 	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground")
+	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "Wireguard interface name")
+	upCmd.PersistentFlags().IntVar(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "Wireguard interface listening port")
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
@@ -86,8 +89,16 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		CustomDNSAddress: customDNSAddressConverted,
 	}
 
-	if rootCmd.PersistentFlags().Changed(enableRosenpassFlag) {
+	if cmd.Flag(enableRosenpassFlag).Changed {
 		ic.RosenpassEnabled = &rosenpassEnabled
+	}
+
+	if cmd.Flag(interfaceNameFlag).Changed {
+		ic.InterfaceName = &interfaceName
+	}
+
+	if cmd.Flag(wireguardPortFlag).Changed {
+		ic.WireguardPort = &wireguardPort
 	}
 
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
@@ -159,6 +170,15 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if cmd.Flag(enableRosenpassFlag).Changed {
 		loginRequest.RosenpassEnabled = &rosenpassEnabled
+	}
+
+	if cmd.Flag(interfaceNameFlag).Changed {
+		loginRequest.InterfaceName = &interfaceName
+	}
+
+	if cmd.Flag(wireguardPortFlag).Changed {
+		wp := int64(wireguardPort)
+		loginRequest.WireguardPort = &wp
 	}
 
 	var loginErr error
