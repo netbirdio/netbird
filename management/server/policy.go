@@ -562,7 +562,7 @@ func (a *Account) getValidatedPeersByPostureChecks(groupPeers []*nbpeer.Peer) []
 			}
 		}
 
-		if isValidPeer && peer != nil {
+		if isValidPeer {
 			validPeers = append(validPeers, peer)
 		}
 	}
