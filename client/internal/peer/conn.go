@@ -502,7 +502,9 @@ func (conn *Conn) cleanup() error {
 		// todo rethink status updates
 		log.Debugf("error while updating peer's %s state, err: %v", conn.config.Key, err)
 	}
-	conn.statusRecorder.UpdateWireguardPeerState(conn.config.Key, iface.WGStats{})
+	if err := conn.statusRecorder.UpdateWireguardPeerState(conn.config.Key, iface.WGStats{}); err != nil {
+		log.Debugf("failed to reset wireguard stats for peer %s: %s", conn.config.Key, err)
+	}
 
 	log.Debugf("cleaned up connection to peer %s", conn.config.Key)
 	if err1 != nil {
