@@ -282,9 +282,6 @@ func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*nbpeer.Peer, in
 
 			isAll := (len(all.Peers) - 1) == len(validGroupPeers)
 			for _, peer := range validGroupPeers {
-				if peer == nil {
-					continue
-				}
 
 				if _, ok := peersExists[peer.ID]; !ok {
 					peers = append(peers, peer)
