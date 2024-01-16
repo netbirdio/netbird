@@ -9,6 +9,7 @@ import (
 	"golang.org/x/exp/slices"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 )
 
 func TestAccount_getPeersByPolicy(t *testing.T) {
@@ -439,6 +440,212 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 		slices.SortFunc(firewallRules, sortFunc())
 		for i := range firewallRules {
 			assert.Equal(t, epectedFirewallRules[i], firewallRules[i])
+		}
+	})
+}
+
+func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
+	account := &Account{
+		Peers: map[string]*nbpeer.Peer{
+			"peerA": {
+				ID:     "peerA",
+				IP:     net.ParseIP("100.65.14.88"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.25.9",
+				},
+			},
+			"peerB": {
+				ID:     "peerB",
+				IP:     net.ParseIP("100.65.80.39"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.23.0",
+				},
+			},
+			"peerC": {
+				ID:     "peerC",
+				IP:     net.ParseIP("100.65.254.139"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.25.8",
+				},
+			},
+			"peerD": {
+				ID:     "peerD",
+				IP:     net.ParseIP("100.65.62.5"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.25.9",
+				},
+			},
+			"peerE": {
+				ID:     "peerE",
+				IP:     net.ParseIP("100.65.32.206"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.24.0",
+				},
+			},
+			"peerF": {
+				ID:     "peerF",
+				IP:     net.ParseIP("100.65.250.202"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.25.9",
+				},
+			},
+			"peerG": {
+				ID:     "peerG",
+				IP:     net.ParseIP("100.65.13.186"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.23.2",
+				},
+			},
+			"peerH": {
+				ID:     "peerH",
+				IP:     net.ParseIP("100.65.29.55"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.25.5",
+				},
+			},
+		},
+		Groups: map[string]*Group{
+			"GroupAll": {
+				ID:   "GroupAll",
+				Name: "All",
+				Peers: []string{
+					"peerB",
+					"peerA",
+					"peerD",
+					"peerC",
+					"peerE",
+					"peerF",
+					"peerG",
+					"peerH",
+				},
+			},
+		},
+		Rules: map[string]*Rule{
+			"RuleDefault": {
+				ID:          "RuleDefault",
+				Name:        "Default",
+				Description: "This is a default rule that allows connections between all the resources",
+				Source: []string{
+					"GroupAll",
+				},
+				Destination: []string{
+					"GroupAll",
+				},
+			},
+		},
+		PostureChecks: []*posture.Checks{
+			{
+				ID:          "PostureChecksDefault",
+				Name:        "Default",
+				Description: "This is a posture checks that check if peer is running required version",
+				Checks: []posture.Check{
+					&posture.NBVersionCheck{
+						MinVersion: "0.25",
+					},
+				},
+			},
+		},
+	}
+
+	policy, err := RuleToPolicy(account.Rules["RuleDefault"])
+	assert.NoError(t, err)
+	policy.SourcePostureChecks = []string{"PostureChecksDefault"}
+
+	account.Policies = append(account.Policies, policy)
+
+	account.Policies = append(account.Policies, &Policy{
+		ID:          "PolicyPostureChecks",
+		Name:        "",
+		Description: "This is the policy with posture checks applied",
+		Enabled:     true,
+		SourcePostureChecks: []string{
+			"PostureChecksDefault",
+		},
+	})
+
+	t.Run("check peer's map details with posture checks", func(t *testing.T) {
+		peers, firewallRules := account.getPeerConnectionResources("peerB")
+		assert.Len(t, peers, 0)
+		assert.Len(t, firewallRules, 0)
+
+		peers, firewallRules = account.getPeerConnectionResources("peerA")
+		assert.Len(t, peers, 4)
+		assert.Contains(t, peers, account.Peers["peerC"])
+		assert.Contains(t, peers, account.Peers["peerD"])
+		assert.Contains(t, peers, account.Peers["peerF"])
+		assert.Contains(t, peers, account.Peers["peerH"])
+
+		expectedFirewallRules := []*FirewallRule{
+			{
+				PeerIP:    "100.65.254.139",
+				Direction: firewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+			},
+			{
+				PeerIP:    "100.65.254.139",
+				Direction: firewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+			},
+			{
+				PeerIP:    "100.65.62.5",
+				Direction: firewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+			},
+			{
+				PeerIP:    "100.65.62.5",
+				Direction: firewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+			},
+			{
+				PeerIP:    "100.65.250.202",
+				Direction: firewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+			},
+			{
+				PeerIP:    "100.65.250.202",
+				Direction: firewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+			},
+			{
+				PeerIP:    "100.65.29.55",
+				Direction: firewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+			},
+			{
+				PeerIP:    "100.65.29.55",
+				Direction: firewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+			},
+		}
+		assert.Len(t, firewallRules, len(expectedFirewallRules))
+		slices.SortFunc(expectedFirewallRules, sortFunc())
+		slices.SortFunc(firewallRules, sortFunc())
+		for i := range firewallRules {
+			assert.Equal(t, expectedFirewallRules[i], firewallRules[i])
 		}
 	})
 }
