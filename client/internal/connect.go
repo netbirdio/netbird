@@ -27,16 +27,33 @@ import (
 
 // RunClient with main logic.
 func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status) error {
-	return runClient(ctx, config, statusRecorder, MobileDependency{}, nil, nil, nil)
+	return runClient(ctx, config, statusRecorder, MobileDependency{}, nil, nil, nil, nil)
 }
 
 // RunClientWithProbes runs the client's main logic with probes attached
-func RunClientWithProbes(ctx context.Context, config *Config, statusRecorder *peer.Status, mgmProbe *Probe, signalProbe *Probe, relayProbe *Probe) error {
-	return runClient(ctx, config, statusRecorder, MobileDependency{}, mgmProbe, signalProbe, relayProbe)
+func RunClientWithProbes(
+	ctx context.Context,
+	config *Config,
+	statusRecorder *peer.Status,
+	mgmProbe *Probe,
+	signalProbe *Probe,
+	relayProbe *Probe,
+	wgProbe *Probe,
+) error {
+	return runClient(ctx, config, statusRecorder, MobileDependency{}, mgmProbe, signalProbe, relayProbe, wgProbe)
 }
 
 // RunClientMobile with main logic on mobile system
-func RunClientMobile(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover, networkChangeListener listener.NetworkChangeListener, dnsAddresses []string, dnsReadyListener dns.ReadyListener) error {
+func RunClientMobile(
+	ctx context.Context,
+	config *Config,
+	statusRecorder *peer.Status,
+	tunAdapter iface.TunAdapter,
+	iFaceDiscover stdnet.ExternalIFaceDiscover,
+	networkChangeListener listener.NetworkChangeListener,
+	dnsAddresses []string,
+	dnsReadyListener dns.ReadyListener,
+) error {
 	// in case of non Android os these variables will be nil
 	mobileDependency := MobileDependency{
 		TunAdapter:            tunAdapter,
@@ -45,16 +62,23 @@ func RunClientMobile(ctx context.Context, config *Config, statusRecorder *peer.S
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 	}
-	return runClient(ctx, config, statusRecorder, mobileDependency, nil, nil, nil)
+	return runClient(ctx, config, statusRecorder, mobileDependency, nil, nil, nil, nil)
 }
 
-func RunClientiOS(ctx context.Context, config *Config, statusRecorder *peer.Status, fileDescriptor int32, networkChangeListener listener.NetworkChangeListener, dnsManager dns.IosDnsManager) error {
+func RunClientiOS(
+	ctx context.Context,
+	config *Config,
+	statusRecorder *peer.Status,
+	fileDescriptor int32,
+	networkChangeListener listener.NetworkChangeListener,
+	dnsManager dns.IosDnsManager,
+) error {
 	mobileDependency := MobileDependency{
 		FileDescriptor:        fileDescriptor,
 		NetworkChangeListener: networkChangeListener,
 		DnsManager:            dnsManager,
 	}
-	return runClient(ctx, config, statusRecorder, mobileDependency, nil, nil, nil)
+	return runClient(ctx, config, statusRecorder, mobileDependency, nil, nil, nil, nil)
 }
 
 func runClient(
@@ -65,6 +89,7 @@ func runClient(
 	mgmProbe *Probe,
 	signalProbe *Probe,
 	relayProbe *Probe,
+	wgProbe *Probe,
 ) error {
 	log.Infof("starting NetBird client version %s", version.NetbirdVersion())
 
@@ -194,7 +219,7 @@ func runClient(
 			return wrapErr(err)
 		}
 
-		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, statusRecorder, mgmProbe, signalProbe, relayProbe)
+		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe)
 		err = engine.Start()
 		if err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)

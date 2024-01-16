@@ -130,6 +130,7 @@ type Engine struct {
 	mgmProbe    *Probe
 	signalProbe *Probe
 	relayProbe  *Probe
+	wgProbe     *Probe
 }
 
 // Peer is an instance of the Connection Peer
@@ -150,6 +151,7 @@ func NewEngine(
 	mgmProbe *Probe,
 	signalProbe *Probe,
 	relayProbe *Probe,
+	wgProbe *Probe,
 ) *Engine {
 
 	return &Engine{
@@ -170,6 +172,7 @@ func NewEngine(
 		mgmProbe:       mgmProbe,
 		signalProbe:    signalProbe,
 		relayProbe:     relayProbe,
+		wgProbe:        wgProbe,
 	}
 }
 
@@ -1224,6 +1227,26 @@ func (e *Engine) receiveProbeEvents() {
 
 			log.Debugf("received relay probe request, healthy: %t", healthy)
 			return healthy
+		})
+	}
+
+	if e.wgProbe != nil {
+		go e.wgProbe.Receive(e.ctx, func() bool {
+			log.Debug("received wg probe request")
+
+			for _, peer := range e.peerConns {
+				key := peer.GetKey()
+				wgStats, err := peer.GetConf().WgConfig.WgInterface.GetStats(key)
+				if err != nil {
+					log.Debugf("failed to get wg stats for peer %s: %s", key, err)
+				}
+				// wgStats could be zero value, in which case we just reset the stats
+				if err := e.statusRecorder.UpdateWireguardPeerState(key, wgStats); err != nil {
+					log.Debugf("failed to update wg stats for peer %s: %s", key, err)
+				}
+			}
+
+			return true
 		})
 	}
 }

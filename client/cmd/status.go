@@ -22,15 +22,18 @@ import (
 )
 
 type peerStateDetailOutput struct {
-	FQDN                 string           `json:"fqdn" yaml:"fqdn"`
-	IP                   string           `json:"netbirdIp" yaml:"netbirdIp"`
-	PubKey               string           `json:"publicKey" yaml:"publicKey"`
-	Status               string           `json:"status" yaml:"status"`
-	LastStatusUpdate     time.Time        `json:"lastStatusUpdate" yaml:"lastStatusUpdate"`
-	ConnType             string           `json:"connectionType" yaml:"connectionType"`
-	Direct               bool             `json:"direct" yaml:"direct"`
-	IceCandidateType     iceCandidateType `json:"iceCandidateType" yaml:"iceCandidateType"`
-	IceCandidateEndpoint iceCandidateType `json:"iceCandidateEndpoint" yaml:"iceCandidateEndpoint"`
+	FQDN                   string           `json:"fqdn" yaml:"fqdn"`
+	IP                     string           `json:"netbirdIp" yaml:"netbirdIp"`
+	PubKey                 string           `json:"publicKey" yaml:"publicKey"`
+	Status                 string           `json:"status" yaml:"status"`
+	LastStatusUpdate       time.Time        `json:"lastStatusUpdate" yaml:"lastStatusUpdate"`
+	ConnType               string           `json:"connectionType" yaml:"connectionType"`
+	Direct                 bool             `json:"direct" yaml:"direct"`
+	IceCandidateType       iceCandidateType `json:"iceCandidateType" yaml:"iceCandidateType"`
+	IceCandidateEndpoint   iceCandidateType `json:"iceCandidateEndpoint" yaml:"iceCandidateEndpoint"`
+	LastWireguardHandshake time.Time        `json:"lastWireguardHandshake" yaml:"lastWireguardHandshake"`
+	TransferReceived       int64            `json:"transferReceived" yaml:"transferReceived"`
+	TransferSent           int64            `json:"transferSent" yaml:"transferSent"`
 }
 
 type peersStateOutput struct {
@@ -299,6 +302,9 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 	remoteICEEndpoint := ""
 	connType := ""
 	peersConnected := 0
+	lastHandshake := time.Time{}
+	transferReceived := int64(0)
+	transferSent := int64(0)
 	for _, pbPeerState := range peers {
 		isPeerConnected := pbPeerState.ConnStatus == peer.StatusConnected.String()
 		if skipDetailByFilters(pbPeerState, isPeerConnected) {
@@ -315,6 +321,9 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 			if pbPeerState.Relayed {
 				connType = "Relayed"
 			}
+			lastHandshake = pbPeerState.GetLastWireguardHandshake().AsTime().Local()
+			transferReceived = pbPeerState.GetBytesRx()
+			transferSent = pbPeerState.GetBytesTx()
 		}
 
 		timeLocal := pbPeerState.GetConnStatusUpdate().AsTime().Local()
@@ -333,7 +342,10 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 				Local:  localICEEndpoint,
 				Remote: remoteICEEndpoint,
 			},
-			FQDN: pbPeerState.GetFqdn(),
+			FQDN:                   pbPeerState.GetFqdn(),
+			LastWireguardHandshake: lastHandshake,
+			TransferReceived:       transferReceived,
+			TransferSent:           transferSent,
 		}
 
 		peersStateDetail = append(peersStateDetail, peerState)
@@ -502,6 +514,11 @@ func parsePeers(peers peersStateOutput) string {
 			remoteICEEndpoint = peerState.IceCandidateEndpoint.Remote
 		}
 
+		lastWireguardHandshake := "-"
+		if !peerState.LastWireguardHandshake.IsZero() {
+			lastWireguardHandshake = peerState.LastWireguardHandshake.Format("2006-01-02 15:04:05")
+		}
+
 		peerString := fmt.Sprintf(
 			"\n %s:\n"+
 				"  NetBird IP: %s\n"+
@@ -512,7 +529,9 @@ func parsePeers(peers peersStateOutput) string {
 				"  Direct: %t\n"+
 				"  ICE candidate (Local/Remote): %s/%s\n"+
 				"  ICE candidate endpoints (Local/Remote): %s/%s\n"+
-				"  Last connection update: %s\n",
+				"  Last connection update: %s\n"+
+				"  Last Wireguard handshake: %s\n"+
+				"  Transfer status (received/sent) %s/%s\n",
 			peerState.FQDN,
 			peerState.IP,
 			peerState.PubKey,
@@ -524,6 +543,9 @@ func parsePeers(peers peersStateOutput) string {
 			localICEEndpoint,
 			remoteICEEndpoint,
 			peerState.LastStatusUpdate.Format("2006-01-02 15:04:05"),
+			lastWireguardHandshake,
+			toIEC(peerState.TransferReceived),
+			toIEC(peerState.TransferSent),
 		)
 
 		peersString += peerString
@@ -562,4 +584,18 @@ func skipDetailByFilters(peerState *proto.PeerState, isConnected bool) bool {
 	}
 
 	return statusEval || ipEval || nameEval
+}
+
+func toIEC(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB",
+		float64(b)/float64(div), "KMGTPE"[exp])
 }

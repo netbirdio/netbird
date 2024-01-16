@@ -129,6 +129,9 @@ message PeerState {
   string fqdn = 9;
   string localIceCandidateEndpoint = 10;
   string remoteIceCandidateEndpoint = 11;
+  google.protobuf.Timestamp lastWireguardHandshake = 12;
+  int64 bytesRx = 13;
+  int64 bytesTx = 14;
 }
 
 // LocalPeerState contains the latest state of the local peer

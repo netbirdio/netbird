@@ -43,6 +43,7 @@ type Server struct {
 	mgmProbe    *internal.Probe
 	signalProbe *internal.Probe
 	relayProbe  *internal.Probe
+	wgProbe     *internal.Probe
 	lastProbe   time.Time
 }
 
@@ -64,6 +65,7 @@ func New(ctx context.Context, configPath, logFile string) *Server {
 		mgmProbe:    internal.NewProbe(),
 		signalProbe: internal.NewProbe(),
 		relayProbe:  internal.NewProbe(),
+		wgProbe:     internal.NewProbe(),
 	}
 }
 
@@ -115,7 +117,7 @@ func (s *Server) Start() error {
 	}
 
 	go func() {
-		if err := internal.RunClientWithProbes(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe); err != nil {
+		if err := internal.RunClientWithProbes(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe); err != nil {
 			log.Errorf("init connections: %v", err)
 		}
 	}()
@@ -417,7 +419,7 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	}
 
 	go func() {
-		if err := internal.RunClientWithProbes(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe); err != nil {
+		if err := internal.RunClientWithProbes(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe); err != nil {
 			log.Errorf("run client connection: %v", err)
 			return
 		}
@@ -478,9 +480,10 @@ func (s *Server) runProbes() {
 		managementHealthy := s.mgmProbe.Probe()
 		signalHealthy := s.signalProbe.Probe()
 		relayHealthy := s.relayProbe.Probe()
+		wgProbe := s.wgProbe.Probe()
 
 		// Update last time only if all probes were successful
-		if managementHealthy && signalHealthy && relayHealthy {
+		if managementHealthy && signalHealthy && relayHealthy && wgProbe {
 			s.lastProbe = time.Now()
 		}
 	}
@@ -559,6 +562,9 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			LocalIceCandidateEndpoint:  peerState.LocalIceCandidateEndpoint,
 			RemoteIceCandidateEndpoint: peerState.RemoteIceCandidateEndpoint,
 			Fqdn:                       peerState.FQDN,
+			LastWireguardHandshake:     timestamppb.New(peerState.LastWireguardHandshake),
+			BytesRx:                    peerState.BytesRx,
+			BytesTx:                    peerState.BytesTx,
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}

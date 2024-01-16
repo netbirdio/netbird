@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/client/internal/relay"
+	"github.com/netbirdio/netbird/iface"
 )
 
 // State contains the latest state of a peer
@@ -21,6 +22,9 @@ type State struct {
 	RemoteIceCandidateType     string
 	LocalIceCandidateEndpoint  string
 	RemoteIceCandidateEndpoint string
+	LastWireguardHandshake     time.Time
+	BytesTx                    int64
+	BytesRx                    int64
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -183,6 +187,25 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 	}
 
 	d.notifyPeerListChanged()
+	return nil
+}
+
+// UpdateWireguardPeerState updates the wireguard bits of the peer state
+func (d *Status) UpdateWireguardPeerState(pubKey string, wgStats iface.WGStats) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[pubKey]
+	if !ok {
+		return errors.New("peer doesn't exist")
+	}
+
+	peerState.LastWireguardHandshake = wgStats.LastHandshake
+	peerState.BytesRx = wgStats.RxBytes
+	peerState.BytesTx = wgStats.TxBytes
+
+	d.peers[pubKey] = peerState
+
 	return nil
 }
 
