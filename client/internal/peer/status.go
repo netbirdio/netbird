@@ -10,15 +10,17 @@ import (
 
 // State contains the latest state of a peer
 type State struct {
-	IP                     string
-	PubKey                 string
-	FQDN                   string
-	ConnStatus             ConnStatus
-	ConnStatusUpdate       time.Time
-	Relayed                bool
-	Direct                 bool
-	LocalIceCandidateType  string
-	RemoteIceCandidateType string
+	IP                         string
+	PubKey                     string
+	FQDN                       string
+	ConnStatus                 ConnStatus
+	ConnStatusUpdate           time.Time
+	Relayed                    bool
+	Direct                     bool
+	LocalIceCandidateType      string
+	RemoteIceCandidateType     string
+	LocalIceCandidateEndpoint  string
+	RemoteIceCandidateEndpoint string
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -164,6 +166,8 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		peerState.Relayed = receivedState.Relayed
 		peerState.LocalIceCandidateType = receivedState.LocalIceCandidateType
 		peerState.RemoteIceCandidateType = receivedState.RemoteIceCandidateType
+		peerState.LocalIceCandidateEndpoint = receivedState.LocalIceCandidateEndpoint
+		peerState.RemoteIceCandidateEndpoint = receivedState.RemoteIceCandidateEndpoint
 	}
 
 	d.peers[receivedState.PubKey] = peerState

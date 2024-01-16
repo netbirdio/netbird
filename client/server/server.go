@@ -548,15 +548,17 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 
 	for _, peerState := range fullStatus.Peers {
 		pbPeerState := &proto.PeerState{
-			IP:                     peerState.IP,
-			PubKey:                 peerState.PubKey,
-			ConnStatus:             peerState.ConnStatus.String(),
-			ConnStatusUpdate:       timestamppb.New(peerState.ConnStatusUpdate),
-			Relayed:                peerState.Relayed,
-			Direct:                 peerState.Direct,
-			LocalIceCandidateType:  peerState.LocalIceCandidateType,
-			RemoteIceCandidateType: peerState.RemoteIceCandidateType,
-			Fqdn:                   peerState.FQDN,
+			IP:                         peerState.IP,
+			PubKey:                     peerState.PubKey,
+			ConnStatus:                 peerState.ConnStatus.String(),
+			ConnStatusUpdate:           timestamppb.New(peerState.ConnStatusUpdate),
+			Relayed:                    peerState.Relayed,
+			Direct:                     peerState.Direct,
+			LocalIceCandidateType:      peerState.LocalIceCandidateType,
+			RemoteIceCandidateType:     peerState.RemoteIceCandidateType,
+			LocalIceCandidateEndpoint:  peerState.LocalIceCandidateEndpoint,
+			RemoteIceCandidateEndpoint: peerState.RemoteIceCandidateEndpoint,
+			Fqdn:                       peerState.FQDN,
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}

@@ -127,6 +127,8 @@ message PeerState {
   string localIceCandidateType = 7;
   string remoteIceCandidateType =8;
   string fqdn = 9;
+  string localIceCandidateEndpoint = 10;
+  string remoteIceCandidateEndpoint = 11;
 }
 
 // LocalPeerState contains the latest state of the local peer

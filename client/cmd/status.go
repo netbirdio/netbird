@@ -22,14 +22,15 @@ import (
 )
 
 type peerStateDetailOutput struct {
-	FQDN             string           `json:"fqdn" yaml:"fqdn"`
-	IP               string           `json:"netbirdIp" yaml:"netbirdIp"`
-	PubKey           string           `json:"publicKey" yaml:"publicKey"`
-	Status           string           `json:"status" yaml:"status"`
-	LastStatusUpdate time.Time        `json:"lastStatusUpdate" yaml:"lastStatusUpdate"`
-	ConnType         string           `json:"connectionType" yaml:"connectionType"`
-	Direct           bool             `json:"direct" yaml:"direct"`
-	IceCandidateType iceCandidateType `json:"iceCandidateType" yaml:"iceCandidateType"`
+	FQDN                 string           `json:"fqdn" yaml:"fqdn"`
+	IP                   string           `json:"netbirdIp" yaml:"netbirdIp"`
+	PubKey               string           `json:"publicKey" yaml:"publicKey"`
+	Status               string           `json:"status" yaml:"status"`
+	LastStatusUpdate     time.Time        `json:"lastStatusUpdate" yaml:"lastStatusUpdate"`
+	ConnType             string           `json:"connectionType" yaml:"connectionType"`
+	Direct               bool             `json:"direct" yaml:"direct"`
+	IceCandidateType     iceCandidateType `json:"iceCandidateType" yaml:"iceCandidateType"`
+	IceCandidateEndpoint iceCandidateType `json:"iceCandidateEndpoint" yaml:"iceCandidateEndpoint"`
 }
 
 type peersStateOutput struct {
@@ -294,6 +295,8 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 	var peersStateDetail []peerStateDetailOutput
 	localICE := ""
 	remoteICE := ""
+	localICEEndpoint := ""
+	remoteICEEndpoint := ""
 	connType := ""
 	peersConnected := 0
 	for _, pbPeerState := range peers {
@@ -306,6 +309,8 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 
 			localICE = pbPeerState.GetLocalIceCandidateType()
 			remoteICE = pbPeerState.GetRemoteIceCandidateType()
+			localICEEndpoint = pbPeerState.GetLocalIceCandidateEndpoint()
+			remoteICEEndpoint = pbPeerState.GetRemoteIceCandidateEndpoint()
 			connType = "P2P"
 			if pbPeerState.Relayed {
 				connType = "Relayed"
@@ -323,6 +328,10 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 			IceCandidateType: iceCandidateType{
 				Local:  localICE,
 				Remote: remoteICE,
+			},
+			IceCandidateEndpoint: iceCandidateType{
+				Local:  localICEEndpoint,
+				Remote: remoteICEEndpoint,
 			},
 			FQDN: pbPeerState.GetFqdn(),
 		}
@@ -483,6 +492,16 @@ func parsePeers(peers peersStateOutput) string {
 			remoteICE = peerState.IceCandidateType.Remote
 		}
 
+		localICEEndpoint := "-"
+		if peerState.IceCandidateEndpoint.Local != "" {
+			localICEEndpoint = peerState.IceCandidateEndpoint.Local
+		}
+
+		remoteICEEndpoint := "-"
+		if peerState.IceCandidateEndpoint.Remote != "" {
+			remoteICEEndpoint = peerState.IceCandidateEndpoint.Remote
+		}
+
 		peerString := fmt.Sprintf(
 			"\n %s:\n"+
 				"  NetBird IP: %s\n"+
@@ -492,6 +511,7 @@ func parsePeers(peers peersStateOutput) string {
 				"  Connection type: %s\n"+
 				"  Direct: %t\n"+
 				"  ICE candidate (Local/Remote): %s/%s\n"+
+				"  ICE candidate endpoints (Local/Remote): %s/%s\n"+
 				"  Last connection update: %s\n",
 			peerState.FQDN,
 			peerState.IP,
@@ -501,6 +521,8 @@ func parsePeers(peers peersStateOutput) string {
 			peerState.Direct,
 			localICE,
 			remoteICE,
+			localICEEndpoint,
+			remoteICEEndpoint,
 			peerState.LastStatusUpdate.Format("2006-01-02 15:04:05"),
 		)
 
