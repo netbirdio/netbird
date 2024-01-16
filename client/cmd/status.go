@@ -50,6 +50,18 @@ type managementStateOutput struct {
 	Error     string `json:"error" yaml:"error"`
 }
 
+type relayStateOutputDetail struct {
+	URI       string `json:"uri" yaml:"uri"`
+	Available bool   `json:"available" yaml:"available"`
+	Error     string `json:"error" yaml:"error"`
+}
+
+type relayStateOutput struct {
+	Total     int                      `json:"total" yaml:"total"`
+	Available int                      `json:"available" yaml:"available"`
+	Details   []relayStateOutputDetail `json:"details" yaml:"details"`
+}
+
 type iceCandidateType struct {
 	Local  string `json:"local" yaml:"local"`
 	Remote string `json:"remote" yaml:"remote"`
@@ -61,6 +73,7 @@ type statusOutputOverview struct {
 	DaemonVersion   string                `json:"daemonVersion" yaml:"daemonVersion"`
 	ManagementState managementStateOutput `json:"management" yaml:"management"`
 	SignalState     signalStateOutput     `json:"signal" yaml:"signal"`
+	Relays          relayStateOutput      `json:"relays" yaml:"relays"`
 	IP              string                `json:"netbirdIp" yaml:"netbirdIp"`
 	PubKey          string                `json:"publicKey" yaml:"publicKey"`
 	KernelInterface bool                  `json:"usesKernelInterface" yaml:"usesKernelInterface"`
@@ -148,7 +161,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 	case yamlFlag:
 		statusOutputString, err = parseToYAML(outputInformationHolder)
 	default:
-		statusOutputString = parseGeneralSummary(outputInformationHolder, false)
+		statusOutputString = parseGeneralSummary(outputInformationHolder, false, false)
 	}
 
 	if err != nil {
@@ -232,6 +245,7 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 		Error:     signalState.Error,
 	}
 
+	relayOverview := mapRelays(pbFullStatus.GetRelays())
 	peersOverview := mapPeers(resp.GetFullStatus().GetPeers())
 
 	overview := statusOutputOverview{
@@ -240,6 +254,7 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 		DaemonVersion:   resp.GetDaemonVersion(),
 		ManagementState: managementOverview,
 		SignalState:     signalOverview,
+		Relays:          relayOverview,
 		IP:              pbFullStatus.GetLocalPeerState().GetIP(),
 		PubKey:          pbFullStatus.GetLocalPeerState().GetPubKey(),
 		KernelInterface: pbFullStatus.GetLocalPeerState().GetKernelInterface(),
@@ -247,6 +262,32 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 	}
 
 	return overview
+}
+
+func mapRelays(relays []*proto.RelayState) relayStateOutput {
+	var relayStateDetail []relayStateOutputDetail
+
+	var relaysAvailable int
+	for _, relay := range relays {
+		available := relay.GetAvailable()
+		relayStateDetail = append(relayStateDetail,
+			relayStateOutputDetail{
+				URI:       relay.URI,
+				Available: available,
+				Error:     relay.GetError(),
+			},
+		)
+
+		if available {
+			relaysAvailable++
+		}
+	}
+
+	return relayStateOutput{
+		Total:     len(relays),
+		Available: relaysAvailable,
+		Details:   relayStateDetail,
+	}
 }
 
 func mapPeers(peers []*proto.PeerState) peersStateOutput {
@@ -333,7 +374,7 @@ func parseToYAML(overview statusOutputOverview) (string, error) {
 	return string(yamlBytes), nil
 }
 
-func parseGeneralSummary(overview statusOutputOverview, showURL bool) string {
+func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays bool) string {
 
 	var managementConnString string
 	if overview.ManagementState.Connected {
@@ -370,6 +411,23 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool) string {
 		interfaceIP = "N/A"
 	}
 
+	var relayAvailableString string
+	if showRelays {
+		for _, relay := range overview.Relays.Details {
+			available := "Available"
+			reason := ""
+			if !relay.Available {
+				available = "Unavailable"
+				reason = fmt.Sprintf(", reason: %s", relay.Error)
+			}
+			relayAvailableString += fmt.Sprintf("\n  [%s] is %s%s", relay.URI, available, reason)
+
+		}
+	} else {
+
+		relayAvailableString = fmt.Sprintf("%d/%d Available", overview.Relays.Available, overview.Relays.Total)
+	}
+
 	peersCountString := fmt.Sprintf("%d/%d Connected", overview.Peers.Connected, overview.Peers.Total)
 
 	summary := fmt.Sprintf(
@@ -377,6 +435,7 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool) string {
 			"CLI version: %s\n"+
 			"Management: %s\n"+
 			"Signal: %s\n"+
+			"Relays: %s\n"+
 			"FQDN: %s\n"+
 			"NetBird IP: %s\n"+
 			"Interface type: %s\n"+
@@ -385,6 +444,7 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool) string {
 		version.NetbirdVersion(),
 		managementConnString,
 		signalConnString,
+		relayAvailableString,
 		overview.FQDN,
 		interfaceIP,
 		interfaceTypeString,
@@ -395,7 +455,7 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool) string {
 
 func parseToFullDetailSummary(overview statusOutputOverview) string {
 	parsedPeersString := parsePeers(overview.Peers)
-	summary := parseGeneralSummary(overview, true)
+	summary := parseGeneralSummary(overview, true, true)
 
 	return fmt.Sprintf(
 		"Peers detail:"+

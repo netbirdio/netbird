@@ -4,6 +4,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/netbirdio/netbird/client/internal/relay"
 )
 
 // State contains the latest state of a peer
@@ -47,9 +49,10 @@ type FullStatus struct {
 	ManagementState ManagementState
 	SignalState     SignalState
 	LocalPeerState  LocalPeerState
+	Relays          []relay.ProbeResult
 }
 
-// Status holds a state of peers, signal and management connections
+// Status holds a state of peers, signal, management connections and relays
 type Status struct {
 	mux             sync.Mutex
 	peers           map[string]State
@@ -58,6 +61,7 @@ type Status struct {
 	signalError     error
 	managementState bool
 	managementError error
+	relayStates     []relay.ProbeResult
 	localPeer       LocalPeerState
 	offlinePeers    []State
 	mgmAddress      string
@@ -305,6 +309,12 @@ func (d *Status) MarkSignalConnected() {
 	d.signalError = nil
 }
 
+func (d *Status) UpdateRelayStates(relayResults []relay.ProbeResult) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.relayStates = relayResults
+}
+
 func (d *Status) GetManagementState() ManagementState {
 	return ManagementState{
 		d.mgmAddress,
@@ -321,6 +331,10 @@ func (d *Status) GetSignalState() SignalState {
 	}
 }
 
+func (d *Status) GetRelayStates() []relay.ProbeResult {
+	return d.relayStates
+}
+
 // GetFullStatus gets full status
 func (d *Status) GetFullStatus() FullStatus {
 	d.mux.Lock()
@@ -330,6 +344,7 @@ func (d *Status) GetFullStatus() FullStatus {
 		ManagementState: d.GetManagementState(),
 		SignalState:     d.GetSignalState(),
 		LocalPeerState:  d.localPeer,
+		Relays:          d.GetRelayStates(),
 	}
 
 	for _, status := range d.peers {

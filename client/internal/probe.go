@@ -5,6 +5,7 @@ import "context"
 type Probe struct {
 	request chan struct{}
 	result  chan bool
+	ready   bool
 }
 
 func NewProbe() *Probe {
@@ -15,11 +16,20 @@ func NewProbe() *Probe {
 }
 
 func (p *Probe) Probe() bool {
+	if !p.ready {
+		return true
+	}
+
 	p.request <- struct{}{}
 	return <-p.result
 }
 
 func (p *Probe) Receive(ctx context.Context, callback func() bool) {
+	p.ready = true
+	defer func() {
+		p.ready = false
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():

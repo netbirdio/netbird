@@ -151,10 +151,18 @@ message ManagementState {
   string error = 3;
 }
 
+// RelayState contains the latest state of the relay
+message RelayState {
+  string URI = 1;
+  bool available = 2;
+  string error = 3;
+}
+
 // FullStatus contains the full state held by the Status instance
 message FullStatus {
     ManagementState managementState = 1;
     SignalState     signalState = 2;
     LocalPeerState  localPeerState = 3;
     repeated PeerState peers = 4;
+    repeated RelayState relays = 5;
 }

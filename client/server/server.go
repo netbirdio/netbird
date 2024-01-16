@@ -42,6 +42,7 @@ type Server struct {
 
 	mgmProbe    *internal.Probe
 	signalProbe *internal.Probe
+	relayProbe  *internal.Probe
 	lastProbe   time.Time
 }
 
@@ -62,6 +63,7 @@ func New(ctx context.Context, configPath, logFile string) *Server {
 		logFile:     logFile,
 		mgmProbe:    internal.NewProbe(),
 		signalProbe: internal.NewProbe(),
+		relayProbe:  internal.NewProbe(),
 	}
 }
 
@@ -113,7 +115,7 @@ func (s *Server) Start() error {
 	}
 
 	go func() {
-		if err := internal.RunClientWithProbes(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe); err != nil {
+		if err := internal.RunClientWithProbes(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe); err != nil {
 			log.Errorf("init connections: %v", err)
 		}
 	}()
@@ -415,7 +417,7 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	}
 
 	go func() {
-		if err := internal.RunClientWithProbes(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe); err != nil {
+		if err := internal.RunClientWithProbes(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe); err != nil {
 			log.Errorf("run client connection: %v", err)
 			return
 		}
@@ -473,18 +475,12 @@ func (s *Server) Status(
 
 func (s *Server) runProbes() {
 	if time.Since(s.lastProbe) > probeThreshold {
-		managementHealthy := true
-		if s.statusRecorder.GetManagementState().Connected {
-			managementHealthy = s.mgmProbe.Probe()
-		}
-
-		signalHealthy := true
-		if s.statusRecorder.GetSignalState().Connected {
-			signalHealthy = s.signalProbe.Probe()
-		}
+		managementHealthy := s.mgmProbe.Probe()
+		signalHealthy := s.signalProbe.Probe()
+		relayHealthy := s.relayProbe.Probe()
 
 		// Update last time only if all probes were successful
-		if managementHealthy && signalHealthy {
+		if managementHealthy && signalHealthy && relayHealthy {
 			s.lastProbe = time.Now()
 		}
 	}
@@ -530,6 +526,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 		SignalState:     &proto.SignalState{},
 		LocalPeerState:  &proto.LocalPeerState{},
 		Peers:           []*proto.PeerState{},
+		Relays:          []*proto.RelayState{},
 	}
 
 	pbFullStatus.ManagementState.URL = fullStatus.ManagementState.URL
@@ -563,5 +560,17 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}
+
+	for _, relayState := range fullStatus.Relays {
+		pbRelayState := &proto.RelayState{
+			URI:       relayState.URI.String(),
+			Available: relayState.Err == nil,
+		}
+		if err := relayState.Err; err != nil {
+			pbRelayState.Error = err.Error()
+		}
+		pbFullStatus.Relays = append(pbFullStatus.Relays, pbRelayState)
+	}
+
 	return &pbFullStatus
 }

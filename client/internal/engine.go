@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
@@ -128,6 +129,7 @@ type Engine struct {
 
 	mgmProbe    *Probe
 	signalProbe *Probe
+	relayProbe  *Probe
 }
 
 // Peer is an instance of the Connection Peer
@@ -147,6 +149,7 @@ func NewEngine(
 	statusRecorder *peer.Status,
 	mgmProbe *Probe,
 	signalProbe *Probe,
+	relayProbe *Probe,
 ) *Engine {
 
 	return &Engine{
@@ -166,6 +169,7 @@ func NewEngine(
 		wgProxyFactory: wgproxy.NewFactory(config.WgPort),
 		mgmProbe:       mgmProbe,
 		signalProbe:    signalProbe,
+		relayProbe:     relayProbe,
 	}
 }
 
@@ -1202,4 +1206,57 @@ func (e *Engine) receiveProbeEvents() {
 			return healthy
 		})
 	}
+
+	if e.relayProbe != nil {
+		go e.relayProbe.Receive(e.ctx, func() bool {
+			healthy := true
+
+			results := append(e.probeSTUNs(), e.probeTURNs()...)
+			e.statusRecorder.UpdateRelayStates(results)
+
+			// A single failed server will result in a "failed" probe
+			for _, res := range results {
+				if res.Err != nil {
+					healthy = false
+					break
+				}
+			}
+
+			log.Debugf("received relay probe request, healthy: %t", healthy)
+			return healthy
+		})
+	}
+}
+
+func (e *Engine) probeSTUNs() []relay.ProbeResult {
+	results := make([]relay.ProbeResult, len(e.STUNs))
+	var wg sync.WaitGroup
+	for i, uri := range e.STUNs {
+		ctx, cancel := context.WithTimeout(e.ctx, 1*time.Second)
+		defer cancel()
+
+		results[i].URI = uri
+		wg.Add(1)
+		go relay.ProbeSTUN(ctx, &wg, uri, &results[i])
+	}
+
+	wg.Wait()
+
+	return results
+}
+
+func (e *Engine) probeTURNs() []relay.ProbeResult {
+	results := make([]relay.ProbeResult, len(e.TURNs))
+	var wg sync.WaitGroup
+	for i, uri := range e.TURNs {
+		ctx, cancel := context.WithTimeout(e.ctx, 1*time.Second)
+		defer cancel()
+
+		results[i].URI = uri
+		wg.Add(1)
+		go relay.ProbeTURN(ctx, &wg, uri, &results[i])
+	}
+	wg.Wait()
+
+	return results
 }
