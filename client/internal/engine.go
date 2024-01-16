@@ -524,9 +524,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 // E.g. when a new peer has been registered and we are allowed to connect to it.
 func (e *Engine) receiveManagementEvents() {
 	go func() {
-		err := e.mgmClient.Sync(func(update *mgmProto.SyncResponse) error {
-			return e.handleSync(update)
-		})
+		err := e.mgmClient.Sync(e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
