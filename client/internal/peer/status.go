@@ -352,9 +352,9 @@ func (d *Status) GetManagementState() ManagementState {
 
 func (d *Status) GetSignalState() SignalState {
 	return SignalState{
-		d.mgmAddress,
-		d.managementState,
-		d.managementError,
+		d.signalAddress,
+		d.signalState,
+		d.signalError,
 	}
 }
 
