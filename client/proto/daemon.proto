@@ -125,7 +125,7 @@ message PeerState {
   bool relayed = 5;
   bool direct = 6;
   string localIceCandidateType = 7;
-  string remoteIceCandidateType =8;
+  string remoteIceCandidateType = 8;
   string fqdn = 9;
   string localIceCandidateEndpoint = 10;
   string remoteIceCandidateEndpoint = 11;
@@ -135,7 +135,7 @@ message PeerState {
 message LocalPeerState {
   string IP = 1;
   string pubKey = 2;
-  bool  kernelInterface =3;
+  bool  kernelInterface = 3;
   string fqdn = 4;
 }
 
@@ -162,9 +162,9 @@ message RelayState {
 
 // FullStatus contains the full state held by the Status instance
 message FullStatus {
-    ManagementState managementState = 1;
-    SignalState     signalState = 2;
-    LocalPeerState  localPeerState = 3;
-    repeated PeerState peers = 4;
-    repeated RelayState relays = 5;
+  ManagementState managementState = 1;
+  SignalState     signalState = 2;
+  LocalPeerState  localPeerState = 3;
+  repeated PeerState peers = 4;
+  repeated RelayState relays = 5;
 }
