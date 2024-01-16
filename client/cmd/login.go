@@ -82,10 +82,13 @@ var loginCmd = &cobra.Command{
 
 		loginRequest := proto.LoginRequest{
 			SetupKey:             setupKey,
-			PreSharedKey:         preSharedKey,
 			ManagementUrl:        managementURL,
 			IsLinuxDesktopClient: isLinuxRunningDesktop(),
 			Hostname:             hostName,
+		}
+
+		if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+			loginRequest.OptionalPreSharedKey = &preSharedKey
 		}
 
 		var loginErr error

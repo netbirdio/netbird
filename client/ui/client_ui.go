@@ -235,7 +235,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				_, err = client.Login(s.ctx, &proto.LoginRequest{
 					ManagementUrl:        s.iMngURL.Text,
 					AdminURL:             s.iAdminURL.Text,
-					PreSharedKey:         s.iPreSharedKey.Text,
+					OptionalPreSharedKey: &s.iPreSharedKey.Text,
 					IsLinuxDesktopClient: runtime.GOOS == "linux",
 				})
 				if err != nil {

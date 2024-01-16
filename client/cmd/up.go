@@ -163,7 +163,6 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	loginRequest := proto.LoginRequest{
 		SetupKey:             setupKey,
-		PreSharedKey:         preSharedKey,
 		ManagementUrl:        managementURL,
 		AdminURL:             adminURL,
 		NatExternalIPs:       natExternalIPs,
@@ -171,6 +170,10 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		CustomDNSAddress:     customDNSAddressConverted,
 		IsLinuxDesktopClient: isLinuxRunningDesktop(),
 		Hostname:             hostName,
+	}
+
+	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+		loginRequest.OptionalPreSharedKey = &preSharedKey
 	}
 
 	if cmd.Flag(enableRosenpassFlag).Changed {
