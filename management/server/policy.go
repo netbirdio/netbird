@@ -278,17 +278,12 @@ func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*nbpeer.Peer, in
 	}
 
 	return func(rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) {
-			isAll := (len(all.Peers) - 1) == len(groupPeers)
-			for _, peer := range groupPeers {
+			validGroupPeers := a.getValidatedPeersByPostureChecks(groupPeers)
+
+			isAll := (len(all.Peers) - 1) == len(validGroupPeers)
+			for _, peer := range validGroupPeers {
 				if peer == nil {
 					continue
-				}
-
-				for _, policy := range a.Policies {
-					err := a.validatePostureChecksOnPeer(policy.SourcePostureChecks, peer.ID)
-					if err != nil {
-						continue
-					}
 				}
 
 				if _, ok := peersExists[peer.ID]; !ok {
@@ -530,6 +525,7 @@ func getAllPeersFromGroups(account *Account, groups []string, peerID string) ([]
 	return filteredPeers, peerInGroups
 }
 
+// validatePostureChecksOnPeer validates the posture checks on a peer
 func (a *Account) validatePostureChecksOnPeer(sourcePostureChecksID []string, peerID string) error {
 	peer, ok := a.Peers[peerID]
 	if !ok && peer == nil {
@@ -550,6 +546,30 @@ func (a *Account) validatePostureChecksOnPeer(sourcePostureChecksID []string, pe
 	}
 
 	return nil
+}
+
+// getValidatedPeersByPostureChecks returns a slice of valid peers based on applied policy posture checks
+func (a *Account) getValidatedPeersByPostureChecks(groupPeers []*nbpeer.Peer) []*nbpeer.Peer {
+	validPeers := make([]*nbpeer.Peer, 0)
+	for _, peer := range groupPeers {
+		if peer == nil {
+			continue
+		}
+
+		isValidPeer := true
+		for _, policy := range a.Policies {
+			err := a.validatePostureChecksOnPeer(policy.SourcePostureChecks, peer.ID)
+			if err != nil {
+				isValidPeer = false
+				break
+			}
+		}
+
+		if isValidPeer && peer != nil {
+			validPeers = append(validPeers, peer)
+		}
+	}
+	return validPeers
 }
 
 func getPostureChecks(account *Account, postureChecksID string) *posture.Checks {
