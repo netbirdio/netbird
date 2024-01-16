@@ -41,11 +41,13 @@ type peersStateOutput struct {
 type signalStateOutput struct {
 	URL       string `json:"url" yaml:"url"`
 	Connected bool   `json:"connected" yaml:"connected"`
+	Error     string `json:"error" yaml:"error"`
 }
 
 type managementStateOutput struct {
 	URL       string `json:"url" yaml:"url"`
 	Connected bool   `json:"connected" yaml:"connected"`
+	Error     string `json:"error" yaml:"error"`
 }
 
 type iceCandidateType struct {
@@ -220,12 +222,14 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 	managementOverview := managementStateOutput{
 		URL:       managementState.GetURL(),
 		Connected: managementState.GetConnected(),
+		Error:     managementState.Error,
 	}
 
 	signalState := pbFullStatus.GetSignalState()
 	signalOverview := signalStateOutput{
 		URL:       signalState.GetURL(),
 		Connected: signalState.GetConnected(),
+		Error:     signalState.Error,
 	}
 
 	peersOverview := mapPeers(resp.GetFullStatus().GetPeers())
@@ -331,19 +335,29 @@ func parseToYAML(overview statusOutputOverview) (string, error) {
 
 func parseGeneralSummary(overview statusOutputOverview, showURL bool) string {
 
-	managementConnString := "Disconnected"
+	var managementConnString string
 	if overview.ManagementState.Connected {
 		managementConnString = "Connected"
 		if showURL {
 			managementConnString = fmt.Sprintf("%s to %s", managementConnString, overview.ManagementState.URL)
 		}
+	} else {
+		managementConnString = "Disconnected"
+		if overview.ManagementState.Error != "" {
+			managementConnString = fmt.Sprintf("%s, reason: %s", managementConnString, overview.ManagementState.Error)
+		}
 	}
 
-	signalConnString := "Disconnected"
+	var signalConnString string
 	if overview.SignalState.Connected {
 		signalConnString = "Connected"
 		if showURL {
 			signalConnString = fmt.Sprintf("%s to %s", signalConnString, overview.SignalState.URL)
+		}
+	} else {
+		signalConnString = "Disconnected"
+		if overview.SignalState.Error != "" {
+			signalConnString = fmt.Sprintf("%s, reason: %s", signalConnString, overview.SignalState.Error)
 		}
 	}
 

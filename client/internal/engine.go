@@ -125,6 +125,9 @@ type Engine struct {
 	acl          acl.Manager
 
 	dnsServer dns.Server
+
+	mgmProbe    *Probe
+	signalProbe *Probe
 }
 
 // Peer is an instance of the Connection Peer
@@ -135,9 +138,15 @@ type Peer struct {
 
 // NewEngine creates a new Connection Engine
 func NewEngine(
-	ctx context.Context, cancel context.CancelFunc,
-	signalClient signal.Client, mgmClient mgm.Client,
-	config *EngineConfig, mobileDep MobileDependency, statusRecorder *peer.Status,
+	ctx context.Context,
+	cancel context.CancelFunc,
+	signalClient signal.Client,
+	mgmClient mgm.Client,
+	config *EngineConfig,
+	mobileDep MobileDependency,
+	statusRecorder *peer.Status,
+	mgmProbe *Probe,
+	signalProbe *Probe,
 ) *Engine {
 
 	return &Engine{
@@ -155,6 +164,8 @@ func NewEngine(
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
 		wgProxyFactory: wgproxy.NewFactory(config.WgPort),
+		mgmProbe:       mgmProbe,
+		signalProbe:    signalProbe,
 	}
 }
 
@@ -251,6 +262,7 @@ func (e *Engine) Start() error {
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
+	e.receiveProbeEvents()
 
 	return nil
 }
@@ -1174,4 +1186,22 @@ func (e *Engine) getRosenpassAddr() string {
 		return e.rpManager.GetAddress().String()
 	}
 	return ""
+}
+
+func (e *Engine) receiveProbeEvents() {
+	if e.signalProbe != nil {
+		go e.signalProbe.Receive(e.ctx, func() bool {
+			healthy := e.signal.IsHealthy()
+			log.Debugf("received signal probe request, healthy: %t", healthy)
+			return healthy
+		})
+	}
+
+	if e.mgmProbe != nil {
+		go e.mgmProbe.Receive(e.ctx, func() bool {
+			healthy := e.mgmClient.IsHealthy()
+			log.Debugf("received management probe request, healthy: %t", healthy)
+			return healthy
+		})
+	}
 }

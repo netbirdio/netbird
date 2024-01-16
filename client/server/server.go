@@ -21,6 +21,8 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+const probeThreshold = time.Second * 5
+
 // Server for service control.
 type Server struct {
 	rootCtx   context.Context
@@ -37,6 +39,10 @@ type Server struct {
 	proto.UnimplementedDaemonServiceServer
 
 	statusRecorder *peer.Status
+
+	mgmProbe    *internal.Probe
+	signalProbe *internal.Probe
+	lastProbe   time.Time
 }
 
 type oauthAuthFlow struct {
@@ -53,7 +59,9 @@ func New(ctx context.Context, configPath, logFile string) *Server {
 		latestConfigInput: internal.ConfigInput{
 			ConfigPath: configPath,
 		},
-		logFile: logFile,
+		logFile:     logFile,
+		mgmProbe:    internal.NewProbe(),
+		signalProbe: internal.NewProbe(),
 	}
 }
 
@@ -105,7 +113,7 @@ func (s *Server) Start() error {
 	}
 
 	go func() {
-		if err := internal.RunClient(ctx, config, s.statusRecorder); err != nil {
+		if err := internal.RunClientWithProbes(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe); err != nil {
 			log.Errorf("init connections: %v", err)
 		}
 	}()
@@ -407,7 +415,7 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	}
 
 	go func() {
-		if err := internal.RunClient(ctx, s.config, s.statusRecorder); err != nil {
+		if err := internal.RunClientWithProbes(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe); err != nil {
 			log.Errorf("run client connection: %v", err)
 			return
 		}
@@ -431,7 +439,7 @@ func (s *Server) Down(_ context.Context, _ *proto.DownRequest) (*proto.DownRespo
 	return &proto.DownResponse{}, nil
 }
 
-// Status starts engine work in the daemon.
+// Status returns the daemon status
 func (s *Server) Status(
 	_ context.Context,
 	msg *proto.StatusRequest,
@@ -453,12 +461,33 @@ func (s *Server) Status(
 	}
 
 	if msg.GetFullPeerStatus {
+		s.runProbes()
+
 		fullStatus := s.statusRecorder.GetFullStatus()
 		pbFullStatus := toProtoFullStatus(fullStatus)
 		statusResponse.FullStatus = pbFullStatus
 	}
 
 	return &statusResponse, nil
+}
+
+func (s *Server) runProbes() {
+	if time.Since(s.lastProbe) > probeThreshold {
+		managementHealthy := true
+		if s.statusRecorder.GetManagementState().Connected {
+			managementHealthy = s.mgmProbe.Probe()
+		}
+
+		signalHealthy := true
+		if s.statusRecorder.GetSignalState().Connected {
+			signalHealthy = s.signalProbe.Probe()
+		}
+
+		// Update last time only if all probes were successful
+		if managementHealthy && signalHealthy {
+			s.lastProbe = time.Now()
+		}
+	}
 }
 
 // GetConfig of the daemon.
@@ -505,9 +534,15 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 
 	pbFullStatus.ManagementState.URL = fullStatus.ManagementState.URL
 	pbFullStatus.ManagementState.Connected = fullStatus.ManagementState.Connected
+	if err := fullStatus.ManagementState.Error; err != nil {
+		pbFullStatus.ManagementState.Error = err.Error()
+	}
 
 	pbFullStatus.SignalState.URL = fullStatus.SignalState.URL
 	pbFullStatus.SignalState.Connected = fullStatus.SignalState.Connected
+	if err := fullStatus.SignalState.Error; err != nil {
+		pbFullStatus.SignalState.Error = err.Error()
+	}
 
 	pbFullStatus.LocalPeerState.IP = fullStatus.LocalPeerState.IP
 	pbFullStatus.LocalPeerState.PubKey = fullStatus.LocalPeerState.PubKey

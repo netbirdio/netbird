@@ -141,13 +141,16 @@ message LocalPeerState {
 message SignalState {
   string URL = 1;
   bool connected = 2;
+  string error = 3;
 }
 
 // ManagementState contains the latest state of a management connection
 message ManagementState {
   string URL = 1;
   bool connected = 2;
+  string error = 3;
 }
+
 // FullStatus contains the full state held by the Status instance
 message FullStatus {
     ManagementState managementState = 1;

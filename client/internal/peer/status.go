@@ -31,12 +31,14 @@ type LocalPeerState struct {
 type SignalState struct {
 	URL       string
 	Connected bool
+	Error     error
 }
 
 // ManagementState contains the latest state of a management connection
 type ManagementState struct {
 	URL       string
 	Connected bool
+	Error     error
 }
 
 // FullStatus contains the full state held by the Status instance
@@ -53,7 +55,9 @@ type Status struct {
 	peers           map[string]State
 	changeNotify    map[string]chan struct{}
 	signalState     bool
+	signalError     error
 	managementState bool
+	managementError error
 	localPeer       LocalPeerState
 	offlinePeers    []State
 	mgmAddress      string
@@ -248,12 +252,13 @@ func (d *Status) CleanLocalPeerState() {
 }
 
 // MarkManagementDisconnected sets ManagementState to disconnected
-func (d *Status) MarkManagementDisconnected() {
+func (d *Status) MarkManagementDisconnected(err error) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
 
 	d.managementState = false
+	d.managementError = err
 }
 
 // MarkManagementConnected sets ManagementState to connected
@@ -263,6 +268,7 @@ func (d *Status) MarkManagementConnected() {
 	defer d.onConnectionChanged()
 
 	d.managementState = true
+	d.managementError = nil
 }
 
 // UpdateSignalAddress update the address of the signal server
@@ -280,12 +286,13 @@ func (d *Status) UpdateManagementAddress(mgmAddress string) {
 }
 
 // MarkSignalDisconnected sets SignalState to disconnected
-func (d *Status) MarkSignalDisconnected() {
+func (d *Status) MarkSignalDisconnected(err error) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
 
 	d.signalState = false
+	d.signalError = err
 }
 
 // MarkSignalConnected sets SignalState to connected
@@ -295,6 +302,23 @@ func (d *Status) MarkSignalConnected() {
 	defer d.onConnectionChanged()
 
 	d.signalState = true
+	d.signalError = nil
+}
+
+func (d *Status) GetManagementState() ManagementState {
+	return ManagementState{
+		d.mgmAddress,
+		d.managementState,
+		d.managementError,
+	}
+}
+
+func (d *Status) GetSignalState() SignalState {
+	return SignalState{
+		d.mgmAddress,
+		d.managementState,
+		d.managementError,
+	}
 }
 
 // GetFullStatus gets full status
@@ -303,15 +327,9 @@ func (d *Status) GetFullStatus() FullStatus {
 	defer d.mux.Unlock()
 
 	fullStatus := FullStatus{
-		ManagementState: ManagementState{
-			d.mgmAddress,
-			d.managementState,
-		},
-		SignalState: SignalState{
-			d.signalAddress,
-			d.signalState,
-		},
-		LocalPeerState: d.localPeer,
+		ManagementState: d.GetManagementState(),
+		SignalState:     d.GetSignalState(),
+		LocalPeerState:  d.localPeer,
 	}
 
 	for _, status := range d.peers {
