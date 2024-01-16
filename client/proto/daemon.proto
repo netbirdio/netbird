@@ -34,7 +34,7 @@ message LoginRequest {
 
   // This is the old PreSharedKey field which will be deprecated in favor of optionalPreSharedKey field that is defined as optional
   // to allow clearing of preshared key while being able to persist in the config file.
-  string preSharedKey = 2;
+  string preSharedKey = 2 [deprecated=true];
 
   // managementUrl to authenticate.
   string managementUrl = 3;
