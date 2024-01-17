@@ -29,6 +29,8 @@ type SqliteStore struct {
 	globalAccountLock sync.Mutex
 	metrics           telemetry.AppMetrics
 	installationPK    int
+	peerStatusMap     map[string]map[string]nbpeer.PeerStatus
+	peerStatusMapMtx  sync.Mutex
 }
 
 type installation struct {
@@ -69,7 +71,7 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 		return nil, err
 	}
 
-	return &SqliteStore{db: db, storeFile: file, metrics: metrics, installationPK: 1}, nil
+	return &SqliteStore{db: db, storeFile: file, metrics: metrics, installationPK: 1, peerStatusMap: make(map[string]map[string]nbpeer.PeerStatus)}, nil
 }
 
 // NewSqliteStoreFromFileStore restores a store from FileStore and stores SQLite DB in the file located in datadir
@@ -137,8 +139,21 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 		account.SetupKeysG = append(account.SetupKeysG, *key)
 	}
 
+	s.peerStatusMapMtx.Lock()
+	accountPeerStatusMap := s.peerStatusMap[account.Id]
+	// can we unlock here or after checking all peers?
+	s.peerStatusMapMtx.Unlock()
+
+	//todo: consider the case where no SaveAccount has been called for an account
+	// and we have not synced peer statuses in the map.
+
 	for id, peer := range account.Peers {
 		peer.ID = id
+		if accountPeerStatusMap != nil {
+			if peerStatus, ok := accountPeerStatusMap[peer.ID]; ok {
+				peer.Status = peerStatus.Copy()
+			}
+		}
 		account.PeersG = append(account.PeersG, *peer)
 	}
 
@@ -233,6 +248,11 @@ func (s *SqliteStore) DeleteAccount(account *Account) error {
 	}
 	log.Debugf("took %d ms to delete an account to the SQLite", took.Milliseconds())
 
+	s.peerStatusMapMtx.Lock()
+	defer s.peerStatusMapMtx.Unlock()
+
+	delete(s.peerStatusMap, account.Id)
+
 	return err
 }
 
@@ -254,16 +274,16 @@ func (s *SqliteStore) GetInstallationID() string {
 }
 
 func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
-	var peer nbpeer.Peer
+	s.peerStatusMapMtx.Lock()
+	defer s.peerStatusMapMtx.Unlock()
 
-	result := s.db.First(&peer, "account_id = ? and id = ?", accountID, peerID)
-	if result.Error != nil {
-		return status.Errorf(status.NotFound, "peer %s not found", peerID)
+	if _, ok := s.peerStatusMap[accountID]; !ok {
+		s.peerStatusMap[accountID] = make(map[string]nbpeer.PeerStatus)
 	}
 
-	peer.Status = &peerStatus
+	s.peerStatusMap[accountID][peerID] = peerStatus
 
-	return s.db.Save(peer).Error
+	return nil
 }
 
 // DeleteHashedPAT2TokenIDIndex is noop in Sqlite
@@ -381,9 +401,18 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 	}
 	account.SetupKeysG = nil
 
+	s.peerStatusMapMtx.Lock()
+	accountPeerStatusMap := s.peerStatusMap[account.Id]
+	// can we unlock here or after checking all peers?
+	s.peerStatusMapMtx.Unlock()
+
 	account.Peers = make(map[string]*nbpeer.Peer, len(account.PeersG))
 	for _, peer := range account.PeersG {
-		account.Peers[peer.ID] = peer.Copy()
+		p := peer.Copy()
+		if peerStatus, ok := accountPeerStatusMap[p.ID]; ok {
+			p.Status = peerStatus.Copy()
+		}
+		account.Peers[peer.ID] = p
 	}
 	account.PeersG = nil
 
