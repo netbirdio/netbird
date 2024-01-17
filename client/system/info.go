@@ -31,6 +31,27 @@ type Info struct {
 	CPUs               int
 	WiretrusteeVersion string
 	UIVersion          string
+
+	BiosManufacturer     string
+	BiosVersion          string
+	ChassisType          uint
+	ChassisTypeDesc      string
+	ConnectionIp         string
+	ConnectionMacAddress string
+	CPUSignature         string
+	DefaultGatewayIp     string
+	ExternalIp           string
+	LastReboot           string
+	LocalIp              string
+	MacAddress           string
+	KernelMajorVersion   string
+	KernelMinorVersion   string
+	OSBuild              string
+	OSProductName        string
+	ProductTypeDesc      string
+	SerialNumber         string
+	SystemManufacturer   string
+	SystemProductName    string
 }
 
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context
