@@ -542,7 +542,7 @@ func (a *Account) validatePostureChecksOnPeer(sourcePostureChecksID []string, pe
 			isValid, err := check.Check(*peer)
 			if !isValid {
 				if err != nil {
-					log.Debugf("an error occured check %s: on peer: %s :%s", check.Name(), peer.ID, err.Error())
+					log.Debugf("an error occurred check %s: on peer: %s :%s", check.Name(), peer.ID, err.Error())
 				}
 				return false
 			}

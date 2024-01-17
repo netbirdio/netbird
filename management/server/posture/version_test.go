@@ -14,6 +14,7 @@ func TestNBVersionCheck_Check(t *testing.T) {
 		input   peer.Peer
 		check   NBVersionCheck
 		wantErr bool
+		isValid bool
 	}{
 		{
 			name: "Valid Peer NB version",
@@ -26,6 +27,7 @@ func TestNBVersionCheck_Check(t *testing.T) {
 				MinVersion: "1.0.0",
 			},
 			wantErr: false,
+			isValid: true,
 		},
 		{
 			name: "Valid Peer NB version With No Patch Version 1",
@@ -38,6 +40,7 @@ func TestNBVersionCheck_Check(t *testing.T) {
 				MinVersion: "2.0",
 			},
 			wantErr: false,
+			isValid: true,
 		},
 		{
 			name: "Valid Peer NB version With No Patch Version 2",
@@ -50,6 +53,7 @@ func TestNBVersionCheck_Check(t *testing.T) {
 				MinVersion: "2.0",
 			},
 			wantErr: false,
+			isValid: true,
 		},
 		{
 			name: "Older Peer NB version",
@@ -61,7 +65,8 @@ func TestNBVersionCheck_Check(t *testing.T) {
 			check: NBVersionCheck{
 				MinVersion: "1.0.0",
 			},
-			wantErr: true,
+			wantErr: false,
+			isValid: false,
 		},
 		{
 			name: "Older Peer NB version With Patch Version",
@@ -73,7 +78,8 @@ func TestNBVersionCheck_Check(t *testing.T) {
 			check: NBVersionCheck{
 				MinVersion: "0.2",
 			},
-			wantErr: true,
+			wantErr: false,
+			isValid: false,
 		},
 		{
 			name: "Invalid Peer NB version",
@@ -86,17 +92,19 @@ func TestNBVersionCheck_Check(t *testing.T) {
 				MinVersion: "1.0.0",
 			},
 			wantErr: true,
+			isValid: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.check.Check(tt.input)
+			isValid, err := tt.check.Check(tt.input)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 			}
+			assert.Equal(t, tt.isValid, isValid)
 		})
 	}
 }
