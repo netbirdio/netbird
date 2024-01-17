@@ -1276,34 +1276,9 @@ func (e *Engine) receiveProbeEvents() {
 }
 
 func (e *Engine) probeSTUNs() []relay.ProbeResult {
-	results := make([]relay.ProbeResult, len(e.STUNs))
-	var wg sync.WaitGroup
-	for i, uri := range e.STUNs {
-		ctx, cancel := context.WithTimeout(e.ctx, 1*time.Second)
-		defer cancel()
-
-		results[i].URI = uri
-		wg.Add(1)
-		go relay.ProbeSTUN(ctx, &wg, uri, &results[i])
-	}
-
-	wg.Wait()
-
-	return results
+	return relay.ProbeAll(e.ctx, relay.ProbeSTUN, e.STUNs)
 }
 
 func (e *Engine) probeTURNs() []relay.ProbeResult {
-	results := make([]relay.ProbeResult, len(e.TURNs))
-	var wg sync.WaitGroup
-	for i, uri := range e.TURNs {
-		ctx, cancel := context.WithTimeout(e.ctx, 1*time.Second)
-		defer cancel()
-
-		results[i].URI = uri
-		wg.Add(1)
-		go relay.ProbeTURN(ctx, &wg, uri, &results[i])
-	}
-	wg.Wait()
-
-	return results
+	return relay.ProbeAll(e.ctx, relay.ProbeTURN, e.TURNs)
 }
