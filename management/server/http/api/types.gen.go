@@ -176,10 +176,19 @@ type AccountSettings struct {
 	PeerLoginExpirationEnabled bool `json:"peer_login_expiration_enabled"`
 }
 
+// CheckMinVersion Posture check for the version of operating system
+type CheckMinVersion struct {
+	// MinVersion Minimum acceptable version
+	MinVersion string `json:"min_version"`
+}
+
 // Checks List of objects that perform the actual checks
 type Checks struct {
-	// NbVersionCheck Posture check for the version of NetBird
+	// NbVersionCheck Posture check for the version of operating system
 	NbVersionCheck *NBVersionCheck `json:"nb_version_check,omitempty"`
+
+	// OsVersionCheck Posture check for the version of operating system
+	OsVersionCheck *OSVersionCheck `json:"os_version_check,omitempty"`
 }
 
 // DNSSettings defines model for DNSSettings.
@@ -263,11 +272,8 @@ type GroupRequest struct {
 	Peers *[]string `json:"peers,omitempty"`
 }
 
-// NBVersionCheck Posture check for the version of NetBird
-type NBVersionCheck struct {
-	// MinVersion Minimum acceptable NetBird version
-	MinVersion string `json:"min_version"`
-}
+// NBVersionCheck Posture check for the version of operating system
+type NBVersionCheck = CheckMinVersion
 
 // Nameserver defines model for Nameserver.
 type Nameserver struct {
@@ -339,6 +345,24 @@ type NameserverGroupRequest struct {
 
 	// SearchDomainsEnabled Search domain status for match domains. It should be true only if domains list is not empty.
 	SearchDomainsEnabled bool `json:"search_domains_enabled"`
+}
+
+// OSVersionCheck Posture check for the version of operating system
+type OSVersionCheck struct {
+	// Android Posture check for the version of operating system
+	Android *CheckMinVersion `json:"android,omitempty"`
+
+	// Darwin Posture check for the version of operating system
+	Darwin *CheckMinVersion `json:"darwin,omitempty"`
+
+	// Ios Posture check for the version of operating system
+	Ios *CheckMinVersion `json:"ios,omitempty"`
+
+	// Linux Posture check for the version of operating system
+	Linux *CheckMinVersion `json:"linux,omitempty"`
+
+	// Windows Posture check for the version of operating system
+	Windows *CheckMinVersion `json:"windows,omitempty"`
 }
 
 // Peer defines model for Peer.

@@ -183,7 +183,16 @@ func (p *PostureChecksHandler) savePostureChecks(
 		postureChecks.Checks = append(postureChecks.Checks, &posture.NBVersionCheck{
 			MinVersion: nbVersionCheck.MinVersion,
 		})
+	}
 
+	if osVersionCheck := req.Checks.OsVersionCheck; osVersionCheck != nil {
+		postureChecks.Checks = append(postureChecks.Checks, &posture.OSVersionCheck{
+			Android: (*posture.MinVersionCheck)(osVersionCheck.Android),
+			Darwin:  (*posture.MinVersionCheck)(osVersionCheck.Darwin),
+			Ios:     (*posture.MinVersionCheck)(osVersionCheck.Ios),
+			Linux:   (*posture.MinVersionCheck)(osVersionCheck.Linux),
+			Windows: (*posture.MinVersionCheck)(osVersionCheck.Windows),
+		})
 	}
 
 	if err := p.accountManager.SavePostureChecks(account.Id, user.Id, &postureChecks); err != nil {
@@ -199,7 +208,7 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 		return status.Errorf(status.InvalidArgument, "posture checks name shouldn't be empty")
 	}
 
-	if req.Checks == nil || req.Checks.NbVersionCheck == nil {
+	if req.Checks == nil || req.Checks.NbVersionCheck == nil || req.Checks.OsVersionCheck == nil {
 		return status.Errorf(status.InvalidArgument, "posture checks shouldn't be empty")
 	}
 
@@ -213,12 +222,20 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 func toPostureChecksResponse(postureChecks *posture.Checks) *api.PostureCheck {
 	var checks api.Checks
 	for _, check := range postureChecks.Checks {
-		//nolint:gocritic
 		switch check.Name() {
 		case posture.NBVersionCheckName:
 			versionCheck := check.(*posture.NBVersionCheck)
 			checks.NbVersionCheck = &api.NBVersionCheck{
 				MinVersion: versionCheck.MinVersion,
+			}
+		case posture.OSVersionCheckName:
+			osCheck := check.(*posture.OSVersionCheck)
+			checks.OsVersionCheck = &api.OSVersionCheck{
+				Android: (*api.CheckMinVersion)(osCheck.Android),
+				Darwin:  (*api.CheckMinVersion)(osCheck.Darwin),
+				Ios:     (*api.CheckMinVersion)(osCheck.Ios),
+				Linux:   (*api.CheckMinVersion)(osCheck.Linux),
+				Windows: (*api.CheckMinVersion)(osCheck.Windows),
 			}
 		}
 	}
