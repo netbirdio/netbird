@@ -488,8 +488,11 @@ func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
 
 // getAllPeersFromGroups for given peer ID and list of groups
 //
-// Returns list of peers from the provided groups that pass the posture checks
-// if the sourcePostureChecksIDs is set.
+// Returns a list of peers from specified groups that pass specified posture checks
+// and a boolean indicating if the supplied peer ID exists within these groups.
+//
+// Important: Posture checks are applicable only to source group peers,
+// for destination group peers, call this method with an empty list of sourcePostureChecksIDs
 func getAllPeersFromGroups(account *Account, groups []string, peerID string, sourcePostureChecksIDs []string) ([]*nbpeer.Peer, bool) {
 	peerInGroups := false
 	filteredPeers := make([]*nbpeer.Peer, 0, len(groups))
@@ -505,7 +508,7 @@ func getAllPeersFromGroups(account *Account, groups []string, peerID string, sou
 				continue
 			}
 
-			// validate the peer
+			// validate the peer based on policy posture checks applied
 			isValid := account.validatePostureChecksOnPeer(sourcePostureChecksIDs, peer.ID)
 			if !isValid {
 				continue
