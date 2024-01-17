@@ -1,9 +1,8 @@
 package posture
 
 import (
-	"fmt"
-
 	"github.com/hashicorp/go-version"
+	log "github.com/sirupsen/logrus"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
@@ -14,25 +13,27 @@ type NBVersionCheck struct {
 
 var _ Check = (*NBVersionCheck)(nil)
 
-func (n *NBVersionCheck) Check(peer nbpeer.Peer) error {
+func (n *NBVersionCheck) Check(peer nbpeer.Peer) (bool, error) {
 	peerNBVersion, err := version.NewVersion(peer.Meta.WtVersion)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	constraints, err := version.NewConstraint(">= " + n.MinVersion)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if constraints.Check(peerNBVersion) {
-		return nil
+		return true, nil
 	}
 
-	return fmt.Errorf("peer NB version %s is older than minimum allowed version %s",
+	log.Debugf("peer %s NB version %s is older than minimum allowed version %s",
+		peer.ID,
 		peer.Meta.UIVersion,
 		n.MinVersion,
 	)
+	return false, nil
 }
 
 func (n *NBVersionCheck) Name() string {

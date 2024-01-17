@@ -12,7 +12,7 @@ const (
 
 // Check represents an interface for performing a check on a peer.
 type Check interface {
-	Check(peer nbpeer.Peer) error
+	Check(peer nbpeer.Peer) (bool, error)
 	Name() string
 }
 
