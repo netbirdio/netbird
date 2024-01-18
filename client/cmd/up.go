@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"runtime"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -16,6 +17,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -36,6 +38,8 @@ var (
 
 func init() {
 	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground")
+	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "Wireguard interface name")
+	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "Wireguard interface listening port")
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
@@ -86,6 +90,22 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		CustomDNSAddress: customDNSAddressConverted,
 	}
 
+	if cmd.Flag(enableRosenpassFlag).Changed {
+		ic.RosenpassEnabled = &rosenpassEnabled
+	}
+
+	if cmd.Flag(interfaceNameFlag).Changed {
+		if err := parseInterfaceName(interfaceName); err != nil {
+			return err
+		}
+		ic.InterfaceName = &interfaceName
+	}
+
+	if cmd.Flag(wireguardPortFlag).Changed {
+		p := int(wireguardPort)
+		ic.WireguardPort = &p
+	}
+
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
 		ic.PreSharedKey = &preSharedKey
 	}
@@ -95,7 +115,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return fmt.Errorf("get config file: %v", err)
 	}
 
-	config, _ = internal.UpdateOldManagementPort(ctx, config, configPath)
+	config, _ = internal.UpdateOldManagementURL(ctx, config, configPath)
 
 	err = foregroundLogin(ctx, cmd, config, setupKey)
 	if err != nil {
@@ -151,6 +171,22 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		CustomDNSAddress:     customDNSAddressConverted,
 		IsLinuxDesktopClient: isLinuxRunningDesktop(),
 		Hostname:             hostName,
+	}
+
+	if cmd.Flag(enableRosenpassFlag).Changed {
+		loginRequest.RosenpassEnabled = &rosenpassEnabled
+	}
+
+	if cmd.Flag(interfaceNameFlag).Changed {
+		if err := parseInterfaceName(interfaceName); err != nil {
+			return err
+		}
+		loginRequest.InterfaceName = &interfaceName
+	}
+
+	if cmd.Flag(wireguardPortFlag).Changed {
+		wp := int64(wireguardPort)
+		loginRequest.WireguardPort = &wp
 	}
 
 	var loginErr error
@@ -222,6 +258,18 @@ func validateNATExternalIPs(list []string) error {
 		}
 	}
 	return nil
+}
+
+func parseInterfaceName(name string) error {
+	if runtime.GOOS != "darwin" {
+		return nil
+	}
+
+	if strings.HasPrefix(name, "utun") {
+		return nil
+	}
+
+	return fmt.Errorf("invalid interface name %s. Please use the prefix utun followed by a number on MacOS. e.g., utun1 or utun199", name)
 }
 
 func validateElement(element string) (int, error) {

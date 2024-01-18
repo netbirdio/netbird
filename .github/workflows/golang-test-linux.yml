@@ -21,7 +21,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.20.x"
+          go-version: "1.21.x"
 
 
       - name: Cache Go modules
@@ -50,7 +50,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.20.x"
+          go-version: "1.21.x"
 
       - name: Cache Go modules
         uses: actions/cache@v3

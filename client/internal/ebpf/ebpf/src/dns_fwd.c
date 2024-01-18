@@ -46,8 +46,8 @@ int xdp_dns_fwd(struct iphdr  *ip, struct udphdr *udp) {
         if(!read_settings()){
             return XDP_PASS;
         }
-        bpf_printk("dns port: %d", ntohs(dns_port));
-        bpf_printk("dns ip: %d", ntohl(dns_ip));
+        // bpf_printk("dns port: %d", ntohs(dns_port));
+        // bpf_printk("dns ip: %d", ntohl(dns_ip));
     }
 
     if (udp->dest == GENERAL_DNS_PORT && ip->daddr == dns_ip) {

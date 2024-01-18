@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"os"
@@ -12,16 +13,19 @@ import (
 
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/iface"
+	mgm "github.com/netbirdio/netbird/management/client"
 	"github.com/netbirdio/netbird/util"
 )
 
 const (
-	// ManagementLegacyPort is the port that was used before by the Management gRPC server.
+	// managementLegacyPortString is the port that was used before by the Management gRPC server.
 	// It is used for backward compatibility now.
 	// NB: hardcoded from github.com/netbirdio/netbird/management/cmd to avoid import
-	ManagementLegacyPort = 33073
+	managementLegacyPortString = "33073"
 	// DefaultManagementURL points to the NetBird's cloud management endpoint
-	DefaultManagementURL = "https://api.wiretrustee.com:443"
+	DefaultManagementURL = "https://api.netbird.io:443"
+	// oldDefaultManagementURL points to the NetBird's old cloud management endpoint
+	oldDefaultManagementURL = "https://api.wiretrustee.com:443"
 	// DefaultAdminURL points to NetBird's cloud management console
 	DefaultAdminURL = "https://app.netbird.io:443"
 )
@@ -37,6 +41,9 @@ type ConfigInput struct {
 	PreSharedKey     *string
 	NATExternalIPs   []string
 	CustomDNSAddress []byte
+	RosenpassEnabled *bool
+	InterfaceName    *string
+	WireguardPort    *int
 }
 
 // Config Configuration type
@@ -50,10 +57,11 @@ type Config struct {
 	WgPort               int
 	IFaceBlackList       []string
 	DisableIPv6Discovery bool
+	RosenpassEnabled     bool
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey string
 
-	// ExternalIP mappings, if different than the host interface IP
+	// ExternalIP mappings, if different from the host interface IP
 	//
 	//   External IP must not be behind a CGNAT and port-forwarding for incoming UDP packets from WgPort on ExternalIP
 	//   to WgPort on host interface IP must be present. This can take form of single port-forwarding rule, 1:1 DNAT
@@ -136,11 +144,10 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	config := &Config{
 		SSHKey:               string(pem),
 		PrivateKey:           wgKey,
-		WgIface:              iface.WgInterfaceDefault,
-		WgPort:               iface.DefaultWgPort,
 		IFaceBlackList:       []string{},
 		DisableIPv6Discovery: false,
 		NATExternalIPs:       input.NATExternalIPs,
@@ -161,8 +168,22 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		config.ManagementURL = URL
 	}
 
+	config.WgPort = iface.DefaultWgPort
+	if input.WireguardPort != nil {
+		config.WgPort = *input.WireguardPort
+	}
+
+	config.WgIface = iface.WgInterfaceDefault
+	if input.InterfaceName != nil {
+		config.WgIface = *input.InterfaceName
+	}
+
 	if input.PreSharedKey != nil {
 		config.PreSharedKey = *input.PreSharedKey
+	}
+
+	if input.RosenpassEnabled != nil {
+		config.RosenpassEnabled = *input.RosenpassEnabled
 	}
 
 	defaultAdminURL, err := parseURL("Admin URL", DefaultAdminURL)
@@ -233,6 +254,17 @@ func update(input ConfigInput) (*Config, error) {
 		config.WgPort = iface.DefaultWgPort
 		refresh = true
 	}
+
+	if input.WireguardPort != nil {
+		config.WgPort = *input.WireguardPort
+		refresh = true
+	}
+
+	if input.InterfaceName != nil {
+		config.WgIface = *input.InterfaceName
+		refresh = true
+	}
+
 	if input.NATExternalIPs != nil && len(config.NATExternalIPs) != len(input.NATExternalIPs) {
 		config.NATExternalIPs = input.NATExternalIPs
 		refresh = true
@@ -240,6 +272,11 @@ func update(input ConfigInput) (*Config, error) {
 
 	if input.CustomDNSAddress != nil {
 		config.CustomDNSAddress = string(input.CustomDNSAddress)
+		refresh = true
+	}
+
+	if input.RosenpassEnabled != nil {
+		config.RosenpassEnabled = *input.RosenpassEnabled
 		refresh = true
 	}
 
@@ -301,4 +338,87 @@ func isPreSharedKeyHidden(preSharedKey *string) bool {
 func configFileIsExists(path string) bool {
 	_, err := os.Stat(path)
 	return !os.IsNotExist(err)
+}
+
+// UpdateOldManagementURL checks whether client can switch to the new Management URL with port 443 and the management domain.
+// If it can switch, then it updates the config and returns a new one. Otherwise, it returns the provided config.
+// The check is performed only for the NetBird's managed version.
+func UpdateOldManagementURL(ctx context.Context, config *Config, configPath string) (*Config, error) {
+
+	defaultManagementURL, err := parseURL("Management URL", DefaultManagementURL)
+	if err != nil {
+		return nil, err
+	}
+
+	parsedOldDefaultManagementURL, err := parseURL("Management URL", oldDefaultManagementURL)
+	if err != nil {
+		return nil, err
+	}
+
+	if config.ManagementURL.Hostname() != defaultManagementURL.Hostname() &&
+		config.ManagementURL.Hostname() != parsedOldDefaultManagementURL.Hostname() {
+		// only do the check for the NetBird's managed version
+		return config, nil
+	}
+
+	var mgmTlsEnabled bool
+	if config.ManagementURL.Scheme == "https" {
+		mgmTlsEnabled = true
+	}
+
+	if !mgmTlsEnabled {
+		// only do the check for HTTPs scheme (the hosted version of the Management service is always HTTPs)
+		return config, nil
+	}
+
+	if config.ManagementURL.Port() != managementLegacyPortString &&
+		config.ManagementURL.Hostname() == defaultManagementURL.Hostname() {
+		return config, nil
+	}
+
+	newURL, err := parseURL("Management URL", fmt.Sprintf("%s://%s:%d",
+		config.ManagementURL.Scheme, defaultManagementURL.Hostname(), 443))
+	if err != nil {
+		return nil, err
+	}
+	// here we check whether we could switch from the legacy 33073 port to the new 443
+	log.Infof("attempting to switch from the legacy Management URL %s to the new one %s",
+		config.ManagementURL.String(), newURL.String())
+	key, err := wgtypes.ParseKey(config.PrivateKey)
+	if err != nil {
+		log.Infof("couldn't switch to the new Management %s", newURL.String())
+		return config, err
+	}
+
+	client, err := mgm.NewClient(ctx, newURL.Host, key, mgmTlsEnabled)
+	if err != nil {
+		log.Infof("couldn't switch to the new Management %s", newURL.String())
+		return config, err
+	}
+	defer func() {
+		err = client.Close()
+		if err != nil {
+			log.Warnf("failed to close the Management service client %v", err)
+		}
+	}()
+
+	// gRPC check
+	_, err = client.GetServerPublicKey()
+	if err != nil {
+		log.Infof("couldn't switch to the new Management %s", newURL.String())
+		return nil, err
+	}
+
+	// everything is alright => update the config
+	newConfig, err := UpdateConfig(ConfigInput{
+		ManagementURL: newURL.String(),
+		ConfigPath:    configPath,
+	})
+	if err != nil {
+		log.Infof("couldn't switch to the new Management %s", newURL.String())
+		return config, fmt.Errorf("failed updating config file: %v", err)
+	}
+	log.Infof("successfully switched to the new Management URL: %s", newURL.String())
+
+	return newConfig, nil
 }

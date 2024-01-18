@@ -5,47 +5,25 @@ package iface
 
 import (
 	"fmt"
-	"sync"
 
-	"github.com/pion/transport/v2"
+	"github.com/pion/transport/v3"
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
-func NewWGIFace(ifaceName string, address string, mtu int, tunAdapter TunAdapter, transportNet transport.Net) (*WGIface, error) {
-	wgIFace := &WGIface{
-		mu: sync.Mutex{},
-	}
-
+func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, mtu int, transportNet transport.Net, args *MobileIFaceArguments) (*WGIface, error) {
 	wgAddress, err := parseWGAddress(address)
 	if err != nil {
-		return wgIFace, err
+		return nil, err
 	}
-
-	tun := newTunDevice(ifaceName, wgAddress, mtu, tunAdapter, transportNet)
-	wgIFace.tun = tun
-
-	wgIFace.configurer = newWGConfigurer(tun)
-
-	wgIFace.userspaceBind = !WireGuardModuleIsLoaded()
-
+	wgIFace := &WGIface{
+		tun:           newTunDevice(iFaceName, wgAddress, wgPort, wgPrivKey, transportNet, args.TunFd),
+		userspaceBind: true,
+	}
 	return wgIFace, nil
-}
-
-// CreateOniOS creates a new Wireguard interface, sets a given IP and brings it up.
-// Will reuse an existing one.
-func (w *WGIface) CreateOniOS(tunFd int32) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.tun.Create(tunFd)
 }
 
 // CreateOnAndroid creates a new Wireguard interface, sets a given IP and brings it up.
 // Will reuse an existing one.
-func (w *WGIface) CreateOnAndroid(mIFaceArgs MobileIFaceArguments) error {
-	return fmt.Errorf("this function has not implemented on mobile")
-}
-
-// Create this function make sense on mobile only
-func (w *WGIface) Create() error {
-	return fmt.Errorf("this function has not implemented on mobile")
+func (w *WGIface) CreateOnAndroid([]string, string, []string) error {
+	return fmt.Errorf("this function has not implemented on this platform")
 }

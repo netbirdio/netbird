@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"io"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -23,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
@@ -32,7 +32,6 @@ import (
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/route"
-	"github.com/netbirdio/netbird/sharedsock"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/util"
@@ -78,6 +77,8 @@ type EngineConfig struct {
 	NATExternalIPs []string
 
 	CustomDNSAddress string
+
+	RosenpassEnabled bool
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -88,6 +89,8 @@ type Engine struct {
 	mgmClient mgm.Client
 	// peerConns is a map that holds all the peers that are known to this peer
 	peerConns map[string]*peer.Conn
+	// rpManager is a Rosenpass manager
+	rpManager *rosenpass.Manager
 
 	// syncMsgMux is used to guarantee sequential Management Service message processing
 	syncMsgMux *sync.Mutex
@@ -107,8 +110,7 @@ type Engine struct {
 	wgInterface    *iface.WGIface
 	wgProxyFactory *wgproxy.Factory
 
-	udpMux     *bind.UniversalUDPMuxDefault
-	udpMuxConn io.Closer
+	udpMux *bind.UniversalUDPMuxDefault
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
@@ -181,66 +183,38 @@ func (e *Engine) Start() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	wgIFaceName := e.config.WgIfaceName
-	wgAddr := e.config.WgAddr
-	myPrivateKey := e.config.WgPrivateKey
-	var err error
-	transportNet, err := e.newStdNet()
+	wgIface, err := e.newWgIface()
 	if err != nil {
-		log.Errorf("failed to create pion's stdnet: %s", err)
-	}
-
-	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.TunAdapter, transportNet)
-	if err != nil {
-		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIFaceName, err.Error())
+		log.Errorf("failed creating wireguard interface instance %s: [%s]", e.config.WgIfaceName, err.Error())
 		return err
 	}
+	e.wgInterface = wgIface
 
-	var routes []*route.Route
-
-	switch runtime.GOOS {
-	case "android":
-		var dnsConfig *nbdns.Config
-		routes, dnsConfig, err = e.readInitialSettings()
+	if e.config.RosenpassEnabled {
+		log.Infof("rosenpass is enabled")
+		e.rpManager, err = rosenpass.NewManager(e.config.PreSharedKey, e.config.WgIfaceName)
 		if err != nil {
 			return err
 		}
-		if e.dnsServer == nil {
-			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, *dnsConfig, e.mobileDep.NetworkChangeListener)
-			go e.mobileDep.DnsReadyListener.OnReady()
-		}
-	case "ios":
-		if e.dnsServer == nil {
-			e.dnsServer = dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager)
-		}
-	default:
-		if e.dnsServer == nil {
-			e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
-			if err != nil {
-				e.close()
-				return err
-			}
+		err := e.rpManager.Run()
+		if err != nil {
+			return err
 		}
 	}
 
-	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
+	initialRoutes, dnsServer, err := e.newDnsServer()
+	if err != nil {
+		e.close()
+		return err
+	}
+	e.dnsServer = dnsServer
+
+	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, initialRoutes)
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
-	switch runtime.GOOS {
-	case "android":
-		err = e.wgInterface.CreateOnAndroid(iface.MobileIFaceArguments{
-			Routes:        e.routeManager.InitialRouteRange(),
-			Dns:           e.dnsServer.DnsIP(),
-			SearchDomains: e.dnsServer.SearchDomains(),
-		})
-	case "ios":
-		e.mobileDep.NetworkChangeListener.SetInterfaceIP(wgAddr)
-		err = e.wgInterface.CreateOniOS(e.mobileDep.FileDescriptor)
-	default:
-		err = e.wgInterface.Create()
-	}
+	err = e.wgInterfaceCreate()
 	if err != nil {
-		log.Errorf("failed creating tunnel interface %s: [%s]", wgIFaceName, err.Error())
+		log.Errorf("failed creating tunnel interface %s: [%s]", e.config.WgIfaceName, err.Error())
 		e.close()
 		return err
 	}
@@ -258,31 +232,11 @@ func (e *Engine) Start() error {
 		}
 	}
 
-	err = e.wgInterface.Configure(myPrivateKey.String(), e.config.WgPort)
+	e.udpMux, err = e.wgInterface.Up()
 	if err != nil {
-		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIFaceName, err.Error())
+		log.Errorf("failed to pull up wgInterface [%s]: %s", e.wgInterface.Name(), err.Error())
 		e.close()
 		return err
-	}
-
-	if e.wgInterface.IsUserspaceBind() {
-		iceBind := e.wgInterface.GetBind()
-		udpMux, err := iceBind.GetICEMux()
-		if err != nil {
-			e.close()
-			return err
-		}
-		e.udpMux = udpMux
-		log.Infof("using userspace bind mode %s", udpMux.LocalAddr().String())
-	} else {
-		rawSock, err := sharedsock.Listen(e.config.WgPort, sharedsock.NewIncomingSTUNFilter())
-		if err != nil {
-			return err
-		}
-		mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: rawSock, Net: transportNet})
-		go mux.ReadFromConn(e.ctx)
-		e.udpMuxConn = rawSock
-		e.udpMux = mux
 	}
 
 	if e.firewall != nil {
@@ -426,7 +380,8 @@ func sendSignal(message *sProto.Message, s signal.Client) error {
 }
 
 // SignalOfferAnswer signals either an offer or an answer to remote peer
-func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client, isAnswer bool) error {
+func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client,
+	isAnswer bool) error {
 	var t sProto.Body_Type
 	if isAnswer {
 		t = sProto.Body_ANSWER
@@ -437,7 +392,7 @@ func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKe
 	msg, err := signal.MarshalCredential(myKey, offerAnswer.WgListenPort, remoteKey, &signal.Credential{
 		UFrag: offerAnswer.IceCredentials.UFrag,
 		Pwd:   offerAnswer.IceCredentials.Pwd,
-	}, t)
+	}, t, offerAnswer.RosenpassPubKey, offerAnswer.RosenpassAddr)
 	if err != nil {
 		return err
 	}
@@ -539,7 +494,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	if conf.GetSshConfig() != nil {
 		err := e.updateSSH(conf.GetSshConfig())
 		if err != nil {
-			log.Warnf("failed handling SSH server setup %v", e)
+			log.Warnf("failed handling SSH server setup %v", err)
 		}
 	}
 
@@ -690,6 +645,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		e.acl.ApplyFiltering(networkMap)
 	}
 	e.networkSerial = serial
+
 	return nil
 }
 
@@ -859,6 +815,26 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		PreSharedKey: e.config.PreSharedKey,
 	}
 
+	if e.config.RosenpassEnabled {
+		lk := []byte(e.config.WgPrivateKey.PublicKey().String())
+		rk := []byte(wgConfig.RemoteKey)
+		var keyInput []byte
+		if string(lk) > string(rk) {
+			//nolint:gocritic
+			keyInput = append(lk[:16], rk[:16]...)
+		} else {
+			//nolint:gocritic
+			keyInput = append(rk[:16], lk[:16]...)
+		}
+
+		key, err := wgtypes.NewKey(keyInput)
+		if err != nil {
+			return nil, err
+		}
+
+		wgConfig.PreSharedKey = &key
+	}
+
 	// randomize connection timeout
 	timeout := time.Duration(rand.Intn(PeerConnectionTimeoutMax-PeerConnectionTimeoutMin)+PeerConnectionTimeoutMin) * time.Millisecond
 	config := peer.ConnConfig{
@@ -874,6 +850,8 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
 		UserspaceBind:        e.wgInterface.IsUserspaceBind(),
+		RosenpassPubKey:      e.getRosenpassPubKey(),
+		RosenpassAddr:        e.getRosenpassAddr(),
 	}
 
 	peerConn, err := peer.NewConn(config, e.statusRecorder, e.wgProxyFactory, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover)
@@ -905,6 +883,12 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		return sendSignal(message, e.signal)
 	})
 
+	if e.rpManager != nil {
+
+		peerConn.SetOnConnected(e.rpManager.OnConnected)
+		peerConn.SetOnDisconnected(e.rpManager.OnDisconnected)
+	}
+
 	return peerConn, nil
 }
 
@@ -930,13 +914,21 @@ func (e *Engine) receiveSignalEvents() {
 
 				conn.RegisterProtoSupportMeta(msg.Body.GetFeaturesSupported())
 
+				var rosenpassPubKey []byte
+				rosenpassAddr := ""
+				if msg.GetBody().GetRosenpassConfig() != nil {
+					rosenpassPubKey = msg.GetBody().GetRosenpassConfig().GetRosenpassPubKey()
+					rosenpassAddr = msg.GetBody().GetRosenpassConfig().GetRosenpassServerAddr()
+				}
 				conn.OnRemoteOffer(peer.OfferAnswer{
 					IceCredentials: peer.IceCredentials{
 						UFrag: remoteCred.UFrag,
 						Pwd:   remoteCred.Pwd,
 					},
-					WgListenPort: int(msg.GetBody().GetWgListenPort()),
-					Version:      msg.GetBody().GetNetBirdVersion(),
+					WgListenPort:    int(msg.GetBody().GetWgListenPort()),
+					Version:         msg.GetBody().GetNetBirdVersion(),
+					RosenpassPubKey: rosenpassPubKey,
+					RosenpassAddr:   rosenpassAddr,
 				})
 			case sProto.Body_ANSWER:
 				remoteCred, err := signal.UnMarshalCredential(msg)
@@ -944,15 +936,23 @@ func (e *Engine) receiveSignalEvents() {
 					return err
 				}
 
-				conn.RegisterProtoSupportMeta(msg.Body.GetFeaturesSupported())
+				conn.RegisterProtoSupportMeta(msg.GetBody().GetFeaturesSupported())
 
+				var rosenpassPubKey []byte
+				rosenpassAddr := ""
+				if msg.GetBody().GetRosenpassConfig() != nil {
+					rosenpassPubKey = msg.GetBody().GetRosenpassConfig().GetRosenpassPubKey()
+					rosenpassAddr = msg.GetBody().GetRosenpassConfig().GetRosenpassServerAddr()
+				}
 				conn.OnRemoteAnswer(peer.OfferAnswer{
 					IceCredentials: peer.IceCredentials{
 						UFrag: remoteCred.UFrag,
 						Pwd:   remoteCred.Pwd,
 					},
-					WgListenPort: int(msg.GetBody().GetWgListenPort()),
-					Version:      msg.GetBody().GetNetBirdVersion(),
+					WgListenPort:    int(msg.GetBody().GetWgListenPort()),
+					Version:         msg.GetBody().GetNetBirdVersion(),
+					RosenpassPubKey: rosenpassPubKey,
+					RosenpassAddr:   rosenpassAddr,
 				})
 			case sProto.Body_CANDIDATE:
 				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)
@@ -1042,18 +1042,6 @@ func (e *Engine) close() {
 		}
 	}
 
-	if e.udpMux != nil {
-		if err := e.udpMux.Close(); err != nil {
-			log.Debugf("close udp mux: %v", err)
-		}
-	}
-
-	if e.udpMuxConn != nil {
-		if err := e.udpMuxConn.Close(); err != nil {
-			log.Debugf("close udp mux connection: %v", err)
-		}
-	}
-
 	if !isNil(e.sshServer) {
 		err := e.sshServer.Stop()
 		if err != nil {
@@ -1075,6 +1063,10 @@ func (e *Engine) close() {
 			log.Warnf("failed to reset firewall: %s", err)
 		}
 	}
+
+	if e.rpManager != nil {
+		_ = e.rpManager.Close()
+	}
 }
 
 func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
@@ -1085,6 +1077,68 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 	routes := toRoutes(netMap.GetRoutes())
 	dnsCfg := toDNSConfig(netMap.GetDNSConfig())
 	return routes, &dnsCfg, nil
+}
+
+func (e *Engine) newWgIface() (*iface.WGIface, error) {
+	transportNet, err := e.newStdNet()
+	if err != nil {
+		log.Errorf("failed to create pion's stdnet: %s", err)
+	}
+
+	var mArgs *iface.MobileIFaceArguments
+	switch runtime.GOOS {
+	case "android":
+		mArgs = &iface.MobileIFaceArguments{
+			TunAdapter: e.mobileDep.TunAdapter,
+			TunFd:      int(e.mobileDep.FileDescriptor),
+		}
+	case "ios":
+		mArgs = &iface.MobileIFaceArguments{
+			TunFd: int(e.mobileDep.FileDescriptor),
+		}
+	default:
+	}
+
+	return iface.NewWGIFace(e.config.WgIfaceName, e.config.WgAddr, e.config.WgPort, e.config.WgPrivateKey.String(), iface.DefaultMTU, transportNet, mArgs)
+}
+
+func (e *Engine) wgInterfaceCreate() (err error) {
+	switch runtime.GOOS {
+	case "android":
+		err = e.wgInterface.CreateOnAndroid(e.routeManager.InitialRouteRange(), e.dnsServer.DnsIP(), e.dnsServer.SearchDomains())
+	case "ios":
+		e.mobileDep.NetworkChangeListener.SetInterfaceIP(e.config.WgAddr)
+		err = e.wgInterface.Create()
+	default:
+		err = e.wgInterface.Create()
+	}
+	return err
+}
+
+func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
+	// due to tests where we are using a mocked version of the DNS server
+	if e.dnsServer != nil {
+		return nil, e.dnsServer, nil
+	}
+	switch runtime.GOOS {
+	case "android":
+		routes, dnsConfig, err := e.readInitialSettings()
+		if err != nil {
+			return nil, nil, err
+		}
+		dnsServer := dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, *dnsConfig, e.mobileDep.NetworkChangeListener)
+		go e.mobileDep.DnsReadyListener.OnReady()
+		return routes, dnsServer, nil
+	case "ios":
+		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager)
+		return nil, dnsServer, nil
+	default:
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, dnsServer, nil
+	}
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
@@ -1106,4 +1160,18 @@ func findIPFromInterface(iface *net.Interface) (net.IP, error) {
 		}
 	}
 	return nil, fmt.Errorf("interface %s don't have an ipv4 address", iface.Name)
+}
+
+func (e *Engine) getRosenpassPubKey() []byte {
+	if e.rpManager != nil {
+		return e.rpManager.GetPubKey()
+	}
+	return nil
+}
+
+func (e *Engine) getRosenpassAddr() string {
+	if e.rpManager != nil {
+		return e.rpManager.GetAddress().String()
+	}
+	return ""
 }

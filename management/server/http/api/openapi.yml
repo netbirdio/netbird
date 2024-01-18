@@ -1822,8 +1822,9 @@ paths:
   /api/rules:
     get:
       summary: List all Rules
-      description: Returns a list of all rules
+      description: Returns a list of all rules. This will be deprecated in favour of `/api/policies`.
       tags: [ Rules ]
+      deprecated: true
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -1846,7 +1847,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
     post:
       summary: Create a Rule
-      description: Creates a rule
+      description: Creates a rule. This will be deprecated in favour of `/api/policies`.
+      deprecated: true
       tags: [ Rules ]
       security:
         - BearerAuth: [ ]
@@ -1867,7 +1869,8 @@ paths:
   /api/rules/{ruleId}:
     get:
       summary: Retrieve a Rule
-      description: Get information about a rules
+      description: Get information about a rules. This will be deprecated in favour of `/api/policies/{policyID}`.
+      deprecated: true
       tags: [ Rules ]
       security:
         - BearerAuth: [ ]
@@ -1896,7 +1899,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
     put:
       summary: Update a Rule
-      description: Update/Replace a rule
+      description: Update/Replace a rule. This will be deprecated in favour of `/api/policies/{policyID}`.
+      deprecated: true
       tags: [ Rules ]
       security:
         - BearerAuth: [ ]
@@ -1931,7 +1935,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
     delete:
       summary: Delete a Rule
-      description: Delete a rule
+      description: Delete a rule. This will be deprecated in favour of `/api/policies/{policyID}`.
+      deprecated: true
       tags: [ Rules ]
       security:
         - BearerAuth: [ ]

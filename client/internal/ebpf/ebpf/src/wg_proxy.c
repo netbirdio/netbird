@@ -34,7 +34,7 @@ int xdp_wg_proxy(struct iphdr  *ip, struct udphdr *udp) {
         if (!read_port_settings()){
             return XDP_PASS;
         }
-        bpf_printk("proxy port: %d, wg port: %d", proxy_port, wg_port);
+        // bpf_printk("proxy port: %d, wg port: %d", proxy_port, wg_port);
     }
 
     // 2130706433 = 127.0.0.1
