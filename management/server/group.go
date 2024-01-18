@@ -73,7 +73,7 @@ func (am *DefaultAccountManager) GetGroup(accountID, groupID string) (*Group, er
 	return nil, status.Errorf(status.NotFound, "group with ID %s not found", groupID)
 }
 
-// GetGroupByName
+// GetGroupByName filters all groups in an account by name and returns the one with the most peers
 func (am *DefaultAccountManager) GetGroupByName(groupName, accountID string) (*Group, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
