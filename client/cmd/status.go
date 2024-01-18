@@ -519,7 +519,7 @@ func parsePeers(peers peersStateOutput) string {
 		}
 
 		lastWireguardHandshake := "-"
-		if !peerState.LastWireguardHandshake.IsZero() {
+		if !peerState.LastWireguardHandshake.IsZero() && peerState.LastWireguardHandshake != time.Unix(0, 0) {
 			lastWireguardHandshake = peerState.LastWireguardHandshake.Format("2006-01-02 15:04:05")
 		}
 
