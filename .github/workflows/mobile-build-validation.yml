@@ -47,7 +47,7 @@ jobs:
           CGO_ENABLED: 0
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/23.1.7779620
   ios_build:
-    runs-on: linux-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
