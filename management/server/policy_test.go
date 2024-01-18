@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -708,12 +707,8 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				Port:      "80",
 			},
 		}
-		require.Len(t, firewallRules, len(expectedFirewallRules))
-		slices.SortFunc(expectedFirewallRules, sortFunc())
-		slices.SortFunc(firewallRules, sortFunc())
-		for i := range firewallRules {
-			assert.Equal(t, expectedFirewallRules[i], firewallRules[i])
-		}
+		assert.Len(t, firewallRules, len(expectedFirewallRules))
+		assert.ElementsMatch(t, firewallRules, expectedFirewallRules)
 	})
 }
 

@@ -540,13 +540,12 @@ func (a *Account) validatePostureChecksOnPeer(sourcePostureChecksID []string, pe
 
 		for _, check := range postureChecks.Checks {
 			isValid, err := check.Check(*peer)
+			if err != nil {
+				log.Debugf("an error occurred check %s: on peer: %s :%s", check.Name(), peer.ID, err.Error())
+			}
 			if !isValid {
-				if err != nil {
-					log.Debugf("an error occurred check %s: on peer: %s :%s", check.Name(), peer.ID, err.Error())
-				}
 				return false
 			}
-
 		}
 	}
 	return true
