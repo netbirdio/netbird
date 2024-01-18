@@ -50,7 +50,7 @@ require (
 	github.com/hashicorp/go-version v1.6.0
 	github.com/libp2p/go-netroute v0.2.0
 	github.com/magiconair/properties v1.8.5
-	github.com/mattn/go-sqlite3 v1.14.17
+	github.com/mattn/go-sqlite3 v1.14.19
 	github.com/mdlayher/socket v0.4.1
 	github.com/miekg/dns v1.1.43
 	github.com/mitchellh/hashstructure/v2 v2.0.2
