@@ -513,6 +513,10 @@ func parsePeers(peers peersStateOutput) string {
 		if peerState.IceCandidateEndpoint.Remote != "" {
 			remoteICEEndpoint = peerState.IceCandidateEndpoint.Remote
 		}
+		lastStatusUpdate := "-"
+		if !peerState.LastStatusUpdate.IsZero() {
+			lastStatusUpdate = peerState.LastStatusUpdate.Format("2006-01-02 15:04:05")
+		}
 
 		lastWireguardHandshake := "-"
 		if !peerState.LastWireguardHandshake.IsZero() {
@@ -542,7 +546,7 @@ func parsePeers(peers peersStateOutput) string {
 			remoteICE,
 			localICEEndpoint,
 			remoteICEEndpoint,
-			peerState.LastStatusUpdate.Format("2006-01-02 15:04:05"),
+			lastStatusUpdate,
 			lastWireguardHandshake,
 			toIEC(peerState.TransferReceived),
 			toIEC(peerState.TransferSent),
