@@ -165,7 +165,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 		requestBody          io.Reader
 	}{
 		{
-			name:        "Create Posture Checks",
+			name:        "Create Posture Checks NB version",
 			requestType: http.MethodPost,
 			requestPath: "/api/posture-checks",
 			requestBody: bytes.NewBuffer(
@@ -187,6 +187,43 @@ func TestPostureCheckUpdate(t *testing.T) {
 				Checks: api.Checks{
 					NbVersionCheck: &api.NBVersionCheck{
 						MinVersion: "1.2.3",
+					},
+				},
+			},
+		},
+		{
+			name:        "Create Posture Checks OS version",
+			requestType: http.MethodPost,
+			requestPath: "/api/posture-checks",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+		           "name": "default",
+                  "description": "default",
+		           "checks": {
+						"os_version_check": {
+							"android": {
+								"min_version": "9.0.0"
+							},
+							"ios": {
+								"min_version": "17.0"
+							}
+		           		}
+                  }
+				}`)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedPostureCheck: &api.PostureCheck{
+				Id:          "postureCheck",
+				Name:        "default",
+				Description: str("default"),
+				Checks: api.Checks{
+					OsVersionCheck: &api.OSVersionCheck{
+						Android: &api.CheckMinVersion{
+							MinVersion: "9.0.0",
+						},
+						Ios: &api.CheckMinVersion{
+							MinVersion: "17.0",
+						},
 					},
 				},
 			},
