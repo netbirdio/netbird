@@ -73,6 +73,39 @@ func (am *DefaultAccountManager) GetGroup(accountID, groupID string) (*Group, er
 	return nil, status.Errorf(status.NotFound, "group with ID %s not found", groupID)
 }
 
+// GetGroupByName filters all groups in an account by name and returns the one with the most peers
+func (am *DefaultAccountManager) GetGroupByName(groupName, accountID string) (*Group, error) {
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	matchingGroups := make([]*Group, 0)
+	for _, group := range account.Groups {
+		if group.Name == groupName {
+			matchingGroups = append(matchingGroups, group)
+		}
+	}
+
+	if len(matchingGroups) == 0 {
+		return nil, status.Errorf(status.NotFound, "group with name %s not found", groupName)
+	}
+
+	maxPeers := -1
+	var groupWithMostPeers *Group
+	for i, group := range matchingGroups {
+		if len(group.Peers) > maxPeers {
+			maxPeers = len(group.Peers)
+			groupWithMostPeers = matchingGroups[i]
+		}
+	}
+
+	return groupWithMostPeers, nil
+}
+
 // SaveGroup object of the peers
 func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *Group) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
