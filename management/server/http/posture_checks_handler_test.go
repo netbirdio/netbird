@@ -228,6 +228,9 @@ func TestPostureCheckUpdate(t *testing.T) {
 							},
 							"ios": {
 								"min_version": "17.0"
+							},
+							"linux": {
+								"min_kernel_version": "6.0.0"
 							}
 		           		}
                   }
@@ -245,6 +248,9 @@ func TestPostureCheckUpdate(t *testing.T) {
 						},
 						Ios: &api.MinVersionCheck{
 							MinVersion: "17.0",
+						},
+						Linux: &api.MinKernelVersionCheck{
+							MinKernelVersion: "6.0.0",
 						},
 					},
 				},
