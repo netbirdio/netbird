@@ -32,8 +32,9 @@ message LoginRequest {
   // setupKey wiretrustee setup key.
   string setupKey = 1;
 
-  // preSharedKey for wireguard setup.
-  string preSharedKey = 2;
+  // This is the old PreSharedKey field which will be deprecated in favor of optionalPreSharedKey field that is defined as optional
+  // to allow clearing of preshared key while being able to persist in the config file.
+  string preSharedKey = 2 [deprecated=true];
 
   // managementUrl to authenticate.
   string managementUrl = 3;
@@ -61,6 +62,7 @@ message LoginRequest {
 
   optional int64 wireguardPort = 12;
 
+  optional string optionalPreSharedKey = 13;
 }
 
 message LoginResponse {
