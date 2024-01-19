@@ -35,9 +35,9 @@ func (c *OSVersionCheck) Check(peer nbpeer.Peer) error {
 	case "ios":
 		return checkMinVersion(peerGoOS, peer.Meta.Core, c.Ios)
 	case "linux":
-		return checkMinKernelVersion(peerGoOS, peer.Meta.Core, c.Linux)
+		return checkMinKernelVersion(peerGoOS, peer.Meta.KernelVersion, c.Linux)
 	case "windows":
-		return checkMinKernelVersion(peerGoOS, peer.Meta.Core, c.Windows)
+		return checkMinKernelVersion(peerGoOS, peer.Meta.KernelVersion, c.Windows)
 	}
 	return nil
 }
