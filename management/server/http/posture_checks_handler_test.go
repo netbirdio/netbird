@@ -240,10 +240,10 @@ func TestPostureCheckUpdate(t *testing.T) {
 				Description: str("default"),
 				Checks: api.Checks{
 					OsVersionCheck: &api.OSVersionCheck{
-						Android: &api.CheckMinVersion{
+						Android: &api.MinVersionCheck{
 							MinVersion: "9.0.0",
 						},
-						Ios: &api.CheckMinVersion{
+						Ios: &api.MinVersionCheck{
 							MinVersion: "17.0",
 						},
 					},
@@ -344,7 +344,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 				Description: str(""),
 				Checks: api.Checks{
 					OsVersionCheck: &api.OSVersionCheck{
-						Linux: &api.CheckMinKernelVersion{
+						Linux: &api.MinKernelVersionCheck{
 							MinKernelVersion: "6.9.0",
 						},
 					},

@@ -231,11 +231,11 @@ func toPostureChecksResponse(postureChecks *posture.Checks) *api.PostureCheck {
 		case posture.OSVersionCheckName:
 			osCheck := check.(*posture.OSVersionCheck)
 			checks.OsVersionCheck = &api.OSVersionCheck{
-				Android: (*api.CheckMinVersion)(osCheck.Android),
-				Darwin:  (*api.CheckMinVersion)(osCheck.Darwin),
-				Ios:     (*api.CheckMinVersion)(osCheck.Ios),
-				Linux:   (*api.CheckMinKernelVersion)(osCheck.Linux),
-				Windows: (*api.CheckMinKernelVersion)(osCheck.Windows),
+				Android: (*api.MinVersionCheck)(osCheck.Android),
+				Darwin:  (*api.MinVersionCheck)(osCheck.Darwin),
+				Ios:     (*api.MinVersionCheck)(osCheck.Ios),
+				Linux:   (*api.MinKernelVersionCheck)(osCheck.Linux),
+				Windows: (*api.MinKernelVersionCheck)(osCheck.Windows),
 			}
 		}
 	}

@@ -845,26 +845,26 @@ components:
     NBVersionCheck:
       description: Posture check for the version of NetBird
       type: object
-      $ref: '#/components/schemas/CheckMinVersion'
+      $ref: '#/components/schemas/MinVersionCheck'
     OSVersionCheck:
       description: Posture check for the version of operating system
       type: object
       properties:
         android:
           description: Minimum version of Android
-          $ref: '#/components/schemas/CheckMinVersion'
+          $ref: '#/components/schemas/MinVersionCheck'
         darwin:
-          $ref: '#/components/schemas/CheckMinVersion'
+          $ref: '#/components/schemas/MinVersionCheck'
         ios:
           description: Minimum version of iOS
-          $ref: '#/components/schemas/CheckMinVersion'
+          $ref: '#/components/schemas/MinVersionCheck'
         linux:
           description: Minimum version of Linux
-          $ref: '#/components/schemas/CheckMinKernelVersion'
+          $ref: '#/components/schemas/MinKernelVersionCheck'
         windows:
           description: Minimum version of Windows
-          $ref: '#/components/schemas/CheckMinKernelVersion'
-    CheckMinVersion:
+          $ref: '#/components/schemas/MinKernelVersionCheck'
+    MinVersionCheck:
       description: Posture check for the version of operating system
       type: object
       properties:
@@ -874,7 +874,7 @@ components:
           example: "14.3"
       required:
         - min_version
-    CheckMinKernelVersion:
+    MinKernelVersionCheck:
       description: Posture check for the version of kernel
       type: object
       properties:
