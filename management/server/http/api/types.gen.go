@@ -176,6 +176,12 @@ type AccountSettings struct {
 	PeerLoginExpirationEnabled bool `json:"peer_login_expiration_enabled"`
 }
 
+// CheckMinKernelVersion Posture check for the version of kernel
+type CheckMinKernelVersion struct {
+	// MinKernelVersion Minimum acceptable version
+	MinKernelVersion string `json:"min_kernel_version"`
+}
+
 // CheckMinVersion Posture check for the version of operating system
 type CheckMinVersion struct {
 	// MinVersion Minimum acceptable version
@@ -358,11 +364,11 @@ type OSVersionCheck struct {
 	// Ios Posture check for the version of operating system
 	Ios *CheckMinVersion `json:"ios,omitempty"`
 
-	// Linux Posture check for the version of operating system
-	Linux *CheckMinVersion `json:"linux,omitempty"`
+	// Linux Posture check for the version of kernel
+	Linux *CheckMinKernelVersion `json:"linux,omitempty"`
 
-	// Windows Posture check for the version of operating system
-	Windows *CheckMinVersion `json:"windows,omitempty"`
+	// Windows Posture check for the version of kernel
+	Windows *CheckMinKernelVersion `json:"windows,omitempty"`
 }
 
 // Peer defines model for Peer.

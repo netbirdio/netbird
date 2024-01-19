@@ -190,8 +190,8 @@ func (p *PostureChecksHandler) savePostureChecks(
 			Android: (*posture.MinVersionCheck)(osVersionCheck.Android),
 			Darwin:  (*posture.MinVersionCheck)(osVersionCheck.Darwin),
 			Ios:     (*posture.MinVersionCheck)(osVersionCheck.Ios),
-			Linux:   (*posture.MinVersionCheck)(osVersionCheck.Linux),
-			Windows: (*posture.MinVersionCheck)(osVersionCheck.Windows),
+			Linux:   (*posture.MinKernelVersionCheck)(osVersionCheck.Linux),
+			Windows: (*posture.MinKernelVersionCheck)(osVersionCheck.Windows),
 		})
 	}
 
@@ -234,8 +234,8 @@ func toPostureChecksResponse(postureChecks *posture.Checks) *api.PostureCheck {
 				Android: (*api.CheckMinVersion)(osCheck.Android),
 				Darwin:  (*api.CheckMinVersion)(osCheck.Darwin),
 				Ios:     (*api.CheckMinVersion)(osCheck.Ios),
-				Linux:   (*api.CheckMinVersion)(osCheck.Linux),
-				Windows: (*api.CheckMinVersion)(osCheck.Windows),
+				Linux:   (*api.CheckMinKernelVersion)(osCheck.Linux),
+				Windows: (*api.CheckMinKernelVersion)(osCheck.Windows),
 			}
 		}
 	}

@@ -11,12 +11,16 @@ type MinVersionCheck struct {
 	MinVersion string
 }
 
+type MinKernelVersionCheck struct {
+	MinKernelVersion string
+}
+
 type OSVersionCheck struct {
 	Android *MinVersionCheck
 	Darwin  *MinVersionCheck
 	Ios     *MinVersionCheck
-	Linux   *MinVersionCheck
-	Windows *MinVersionCheck
+	Linux   *MinKernelVersionCheck
+	Windows *MinKernelVersionCheck
 }
 
 var _ Check = (*OSVersionCheck)(nil)
@@ -31,9 +35,9 @@ func (c *OSVersionCheck) Check(peer nbpeer.Peer) error {
 	case "ios":
 		return checkMinVersion(peerGoOS, peer.Meta.Core, c.Ios)
 	case "linux":
-		return checkMinVersion(peerGoOS, peer.Meta.Core, c.Linux)
+		return checkMinKernelVersion(peerGoOS, peer.Meta.Core, c.Linux)
 	case "windows":
-		return checkMinVersion(peerGoOS, peer.Meta.Core, c.Windows)
+		return checkMinKernelVersion(peerGoOS, peer.Meta.Core, c.Windows)
 	}
 	return nil
 }
@@ -61,5 +65,27 @@ func checkMinVersion(peerGoOS, peerVersion string, check *MinVersionCheck) error
 		return nil
 	}
 
-	return fmt.Errorf("peer %s version %s is older than minimum allowed version %s", peerGoOS, peerVersion, check.MinVersion)
+	return fmt.Errorf("peer %s OS version %s is older than minimum allowed version %s", peerGoOS, peerVersion, check.MinVersion)
+}
+
+func checkMinKernelVersion(peerGoOS, peerVersion string, check *MinKernelVersionCheck) error {
+	if check == nil {
+		return nil
+	}
+
+	peerNBVersion, err := version.NewVersion(peerVersion)
+	if err != nil {
+		return err
+	}
+
+	constraints, err := version.NewConstraint(">= " + check.MinKernelVersion)
+	if err != nil {
+		return err
+	}
+
+	if constraints.Check(peerNBVersion) {
+		return nil
+	}
+
+	return fmt.Errorf("peer %s kernel version %s is older than minimum allowed version %s", peerGoOS, peerVersion, check.MinKernelVersion)
 }

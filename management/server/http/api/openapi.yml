@@ -854,17 +854,16 @@ components:
           description: Minimum version of Android
           $ref: '#/components/schemas/CheckMinVersion'
         darwin:
-          description: Minimum version of Darwin
           $ref: '#/components/schemas/CheckMinVersion'
         ios:
           description: Minimum version of iOS
           $ref: '#/components/schemas/CheckMinVersion'
         linux:
           description: Minimum version of Linux
-          $ref: '#/components/schemas/CheckMinVersion'
+          $ref: '#/components/schemas/CheckMinKernelVersion'
         windows:
           description: Minimum version of Windows
-          $ref: '#/components/schemas/CheckMinVersion'
+          $ref: '#/components/schemas/CheckMinKernelVersion'
     CheckMinVersion:
       description: Posture check for the version of operating system
       type: object
@@ -872,9 +871,19 @@ components:
         min_version:
           description: Minimum acceptable version
           type: string
-          example: "23.2.0"
+          example: "14.3"
       required:
         - min_version
+    CheckMinKernelVersion:
+      description: Posture check for the version of kernel
+      type: object
+      properties:
+        min_kernel_version:
+          description: Minimum acceptable version
+          type: string
+          example: "6.6.12"
+      required:
+        - min_kernel_version
     PostureCheckUpdate:
       type: object
       properties:
