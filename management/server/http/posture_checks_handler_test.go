@@ -80,45 +80,67 @@ func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksH
 }
 
 func TestGetPostureCheck(t *testing.T) {
-	tt := []struct {
-		name           string
-		expectedStatus int
-		expectedBody   bool
-		requestType    string
-		requestPath    string
-		requestBody    io.Reader
-	}{
-		{
-			name:           "GetPostureCheck OK",
-			expectedBody:   true,
-			requestType:    http.MethodGet,
-			requestPath:    "/api/posture-checks/postureCheck",
-			expectedStatus: http.StatusOK,
-		},
-		{
-			name:           "GetPostureCheck Not Found",
-			requestType:    http.MethodGet,
-			requestPath:    "/api/posture-checks/not-exists",
-			expectedStatus: http.StatusNotFound,
-		},
-	}
-
 	postureCheck := &posture.Checks{
 		ID:   "postureCheck",
-		Name: "name",
+		Name: "nbVersion",
 		Checks: []posture.Check{
 			&posture.NBVersionCheck{
 				MinVersion: "1.0.0",
 			},
 		},
 	}
+	osPostureCheck := &posture.Checks{
+		ID:   "osPostureCheck",
+		Name: "osVersion",
+		Checks: []posture.Check{
+			&posture.OSVersionCheck{
+				Linux: &posture.MinKernelVersionCheck{
+					MinKernelVersion: "6.0.0",
+				},
+				Darwin: &posture.MinVersionCheck{
+					MinVersion: "14",
+				},
+				Ios: &posture.MinVersionCheck{
+					MinVersion: "",
+				},
+			},
+		},
+	}
+	tt := []struct {
+		name           string
+		id             string
+		checkName      string
+		expectedStatus int
+		expectedBody   bool
+		requestBody    io.Reader
+	}{
+		{
+			name:           "GetPostureCheck NBVersion OK",
+			expectedBody:   true,
+			id:             postureCheck.ID,
+			checkName:      postureCheck.Name,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "GetPostureCheck OSVersion OK",
+			expectedBody:   true,
+			id:             osPostureCheck.ID,
+			checkName:      osPostureCheck.Name,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "GetPostureCheck Not Found",
+			id:             "not-exists",
+			expectedStatus: http.StatusNotFound,
+		},
+	}
 
-	p := initPostureChecksTestData(postureCheck)
+	p := initPostureChecksTestData(postureCheck, osPostureCheck)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
-			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
+			req := httptest.NewRequest(http.MethodGet, "/api/posture-checks/"+tc.id, tc.requestBody)
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/posture-checks/{postureCheckId}", p.GetPostureCheck).Methods("GET")
@@ -147,8 +169,8 @@ func TestGetPostureCheck(t *testing.T) {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
 
-			assert.Equal(t, got.Id, postureCheck.ID)
-			assert.Equal(t, got.Name, postureCheck.Name)
+			assert.Equal(t, got.Id, tc.id)
+			assert.Equal(t, got.Name, tc.checkName)
 		})
 	}
 }
