@@ -48,7 +48,7 @@ func (c *OSVersionCheck) Name() string {
 
 func checkMinVersion(peerGoOS, peerVersion string, check *MinVersionCheck) error {
 	if check == nil {
-		return nil
+		return fmt.Errorf("peer %s OS is not allowed", peerGoOS)
 	}
 
 	peerNBVersion, err := version.NewVersion(peerVersion)
@@ -70,7 +70,7 @@ func checkMinVersion(peerGoOS, peerVersion string, check *MinVersionCheck) error
 
 func checkMinKernelVersion(peerGoOS, peerVersion string, check *MinKernelVersionCheck) error {
 	if check == nil {
-		return nil
+		return fmt.Errorf("peer %s OS is not allowed", peerGoOS)
 	}
 
 	peerNBVersion, err := version.NewVersion(peerVersion)
