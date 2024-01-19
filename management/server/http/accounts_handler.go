@@ -41,7 +41,7 @@ func (h *AccountsHandler) GetAllAccounts(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if !user.HasAdminPower() {
+	if !(user.HasAdminPower() || user.IsServiceUser) {
 		util.WriteError(status.Errorf(status.PermissionDenied, "the user has no permission to access account data"), w)
 		return
 	}

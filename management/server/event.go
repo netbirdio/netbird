@@ -7,10 +7,28 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/status"
 )
 
 // GetEvents returns a list of activity events of an account
 func (am *DefaultAccountManager) GetEvents(accountID, userID string) ([]*activity.Event, error) {
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !(user.HasAdminPower() || user.IsServiceUser) {
+		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view events")
+	}
+
 	events, err := am.eventStore.Get(accountID, 0, 10000, true)
 	if err != nil {
 		return nil, err

@@ -822,8 +822,8 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 		t.Fatalf("Error when getting users from account: %s", err)
 	}
 
-	assert.Equal(t, 1, len(users))
-	assert.Equal(t, mockServiceUserID, users[0].ID)
+	// Service users should see all users
+	assert.Equal(t, 2, len(users))
 }
 
 func TestDefaultAccountManager_SaveUser(t *testing.T) {
