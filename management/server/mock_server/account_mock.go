@@ -29,6 +29,7 @@ type MockAccountManager struct {
 	GetPeerNetworkFunc              func(peerKey string) (*server.Network, error)
 	AddPeerFunc                     func(setupKey string, userId string, peer *nbpeer.Peer) (*nbpeer.Peer, *server.NetworkMap, error)
 	GetGroupFunc                    func(accountID, groupID string) (*server.Group, error)
+	GetGroupByNameFunc              func(accountID, groupName string) (*server.Group, error)
 	SaveGroupFunc                   func(accountID, userID string, group *server.Group) error
 	DeleteGroupFunc                 func(accountID, userId, groupID string) error
 	ListGroupsFunc                  func(accountID string) ([]*server.Group, error)
@@ -243,6 +244,14 @@ func (am *MockAccountManager) GetGroup(accountID, groupID string) (*server.Group
 		return am.GetGroupFunc(accountID, groupID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetGroup is not implemented")
+}
+
+// GetGroupByName mock implementation of GetGroupByName from server.AccountManager interface
+func (am *MockAccountManager) GetGroupByName(accountID, groupName string) (*server.Group, error) {
+	if am.GetGroupFunc != nil {
+		return am.GetGroupByNameFunc(accountID, groupName)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetGroupByName is not implemented")
 }
 
 // SaveGroup mock implementation of SaveGroup from server.AccountManager interface
