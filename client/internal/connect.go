@@ -191,7 +191,9 @@ func runClient(
 		statusRecorder.UpdateSignalAddress(signalURL)
 
 		statusRecorder.MarkSignalDisconnected(nil)
-		defer statusRecorder.MarkSignalDisconnected(state.err)
+		defer func() {
+			statusRecorder.MarkSignalDisconnected(state.err)
+		}()
 
 		// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
 		signalClient, err := connectToSignal(engineCtx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
