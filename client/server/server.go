@@ -205,7 +205,9 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 
 	s.mutex.Unlock()
 
-	inputConfig.PreSharedKey = &msg.PreSharedKey
+	if msg.OptionalPreSharedKey != nil {
+		inputConfig.PreSharedKey = msg.OptionalPreSharedKey
+	}
 
 	config, err := internal.UpdateOrCreateConfig(inputConfig)
 	if err != nil {
