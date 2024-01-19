@@ -296,7 +296,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 			expectedBody:   false,
 		},
 		{
-			name:        "Update Posture Checks",
+			name:        "Update Posture Checks NB Verson",
 			requestType: http.MethodPut,
 			requestPath: "/api/posture-checks/postureCheck",
 			requestBody: bytes.NewBuffer(
@@ -317,6 +317,36 @@ func TestPostureCheckUpdate(t *testing.T) {
 				Checks: api.Checks{
 					NbVersionCheck: &api.NBVersionCheck{
 						MinVersion: "1.9.0",
+					},
+				},
+			},
+		},
+		{
+			name:        "Update Posture Checks OS Version",
+			requestType: http.MethodPut,
+			requestPath: "/api/posture-checks/osPostureCheck",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+		           "name": "default",
+		           "checks": {
+						"os_version_check": {
+							"linux": {
+								"min_kernel_version": "6.9.0"
+							}
+		           		}
+					}
+				}`)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedPostureCheck: &api.PostureCheck{
+				Id:          "postureCheck",
+				Name:        "default",
+				Description: str(""),
+				Checks: api.Checks{
+					OsVersionCheck: &api.OSVersionCheck{
+						Linux: &api.CheckMinKernelVersion{
+							MinKernelVersion: "6.9.0",
+						},
 					},
 				},
 			},
@@ -376,7 +406,19 @@ func TestPostureCheckUpdate(t *testing.T) {
 				MinVersion: "1.0.0",
 			},
 		},
-	})
+	},
+		&posture.Checks{
+			ID:   "osPostureCheck",
+			Name: "osPostureCheck",
+			Checks: []posture.Check{
+				&posture.OSVersionCheck{
+					Linux: &posture.MinKernelVersionCheck{
+						MinKernelVersion: "5.0.0",
+					},
+				},
+			},
+		},
+	)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
