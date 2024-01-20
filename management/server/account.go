@@ -1549,7 +1549,12 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 		return nil, nil, err
 	}
 	unlock := am.Store.AcquireAccountLock(newAcc.Id)
-	defer unlock()
+	alreadyUnlocked := false
+	defer func() {
+		if !alreadyUnlocked {
+			unlock()
+		}
+	}()
 
 	account, err := am.Store.GetAccount(newAcc.Id)
 	if err != nil {
@@ -1600,6 +1605,8 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 								log.Errorf("failed to save account: %v", err)
 							} else {
 								am.updateAccountPeers(account)
+								unlock()
+								alreadyUnlocked = true
 								for _, g := range addNewGroups {
 									if group := account.GetGroup(g); group != nil {
 										am.StoreEvent(user.Id, user.Id, account.Id, activity.GroupAddedToUser,
