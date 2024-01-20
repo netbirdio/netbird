@@ -1544,7 +1544,14 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 		log.Infof("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
 	}
 
-	account, err := am.getAccountWithAuthorizationClaims(claims)
+	newAcc, err := am.getAccountWithAuthorizationClaims(claims)
+	if err != nil {
+		return nil, nil, err
+	}
+	unlock := am.Store.AcquireAccountLock(newAcc.Id)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(newAcc.Id)
 	if err != nil {
 		return nil, nil, err
 	}
