@@ -1544,7 +1544,19 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 		log.Infof("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
 	}
 
-	account, err := am.getAccountWithAuthorizationClaims(claims)
+	newAcc, err := am.getAccountWithAuthorizationClaims(claims)
+	if err != nil {
+		return nil, nil, err
+	}
+	unlock := am.Store.AcquireAccountLock(newAcc.Id)
+	alreadyUnlocked := false
+	defer func() {
+		if !alreadyUnlocked {
+			unlock()
+		}
+	}()
+
+	account, err := am.Store.GetAccount(newAcc.Id)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1593,6 +1605,8 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 								log.Errorf("failed to save account: %v", err)
 							} else {
 								am.updateAccountPeers(account)
+								unlock()
+								alreadyUnlocked = true
 								for _, g := range addNewGroups {
 									if group := account.GetGroup(g); group != nil {
 										am.StoreEvent(user.Id, user.Id, account.Id, activity.GroupAddedToUser,
