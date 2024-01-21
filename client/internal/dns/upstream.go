@@ -22,7 +22,7 @@ const (
 	probeTimeout     = 2 * time.Second
 )
 
-const testRecord = "netbird.io."
+const testRecord = "."
 
 type upstreamClient interface {
 	exchange(upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
@@ -196,8 +196,6 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 		Clock:               backoff.SystemClock,
 	}
 
-	r := new(dns.Msg).SetQuestion(testRecord, dns.TypeA)
-
 	operation := func() error {
 		select {
 		case <-u.ctx.Done():
@@ -206,7 +204,7 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 		}
 
 		for _, upstream := range u.upstreamServers {
-			if _, _, err := u.upstreamClient.exchange(upstream, r); err != nil {
+			if err := u.testNameserver(upstream); err != nil {
 				log.Tracef("upstream check for %s: %s", upstream, err)
 			} else {
 				// at least one upstream server is available, stop probing
@@ -259,7 +257,7 @@ func (u *upstreamResolverBase) testNameserver(server string) error {
 	ctx, cancel := context.WithTimeout(u.ctx, probeTimeout)
 	defer cancel()
 
-	r := new(dns.Msg).SetQuestion(".", dns.TypeSOA)
+	r := new(dns.Msg).SetQuestion(testRecord, dns.TypeSOA)
 
 	_, _, err := u.upstreamClient.exchangeContext(ctx, server, r)
 	return err
