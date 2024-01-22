@@ -4,11 +4,17 @@ package dns
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/iface"
 )
 
 const (
@@ -23,7 +29,26 @@ const (
 	resolvConfManager
 )
 
+var ErrUnknownOsManagerType = errors.New("unknown os manager type")
+
 type osManagerType int
+
+func newOsManagerType(osManager string) (osManagerType, error) {
+	switch osManager {
+	case "netbird":
+		return fileManager, nil
+	case "file":
+		return netbirdManager, nil
+	case "networkManager":
+		return networkManager, nil
+	case "systemd":
+		return systemdManager, nil
+	case "resolvconf":
+		return resolvConfManager, nil
+	default:
+		return 0, ErrUnknownOsManagerType
+	}
+}
 
 func (t osManagerType) String() string {
 	switch t {
@@ -49,6 +74,10 @@ func newHostManager(wgInterface WGIface) (hostManager, error) {
 	}
 
 	log.Debugf("discovered mode is: %s", osManager)
+	return newHostManagerFromType(wgInterface, osManager)
+}
+
+func newHostManagerFromType(wgInterface WGIface, osManager osManagerType) (hostManager, error) {
 	switch osManager {
 	case networkManager:
 		return newNetworkManagerDbusConfigurator(wgInterface)
@@ -62,7 +91,6 @@ func newHostManager(wgInterface WGIface) (hostManager, error) {
 }
 
 func getOSDNSManagerType() (osManagerType, error) {
-
 	file, err := os.Open(defaultResolvConfPath)
 	if err != nil {
 		return 0, fmt.Errorf("unable to open %s for checking owner, got error: %s", defaultResolvConfPath, err)
@@ -101,5 +129,75 @@ func getOSDNSManagerType() (osManagerType, error) {
 			return resolvConfManager, nil
 		}
 	}
+	// TODO: check err
+
 	return fileManager, nil
+}
+
+func CheckUncleanShutdown(wgIface string) error {
+	if _, err := os.Stat(fileUncleanShutdownResolvConfLocation); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			// no file -> clean shutdown
+			return nil
+		} else {
+			return fmt.Errorf("state: %w", err)
+		}
+	}
+
+	log.Warnf("detected unclean shutdown, file %s exists", fileUncleanShutdownResolvConfLocation)
+
+	osManagerTypeStr, err := os.ReadFile(fileUncleanShutdownManagerTypeLocation)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", fileUncleanShutdownManagerTypeLocation, err)
+	}
+
+	log.Warnf("restoring unclean shutdown dns settings via previously detected manager: %s", osManagerTypeStr)
+
+	// determine os manager type, so we can invoke the respective restore action
+	osManagerType, err := newOsManagerType(string(osManagerTypeStr))
+	if err != nil {
+		return fmt.Errorf("detect previous host manager: %w", err)
+	}
+
+	dummyInt, err := iface.NewWGIFace(wgIface, "0.0.0.0/32", 0, "", iface.DefaultMTU, &stdnet.Net{}, nil)
+	if err != nil {
+		return fmt.Errorf("create dummy int: %w", err)
+	}
+
+	manager, err := newHostManagerFromType(dummyInt, osManagerType)
+	if err != nil {
+		return fmt.Errorf("create previous host manager: %w", err)
+	}
+
+	if err := manager.restoreUncleanShutdownBackup(); err != nil {
+		return fmt.Errorf("restore unclean shutdown backup: %w", err)
+	}
+
+	return removeUncleanShutdownBackup()
+}
+
+func createUncleanShutdownBackup(sourcePath string, managerType osManagerType) error {
+	dir := filepath.Dir(fileUncleanShutdownResolvConfLocation)
+	if err := os.MkdirAll(dir, os.FileMode(0755)); err != nil {
+		return fmt.Errorf("create dir %s: %w", dir, err)
+	}
+
+	if err := copyFile(sourcePath, fileUncleanShutdownResolvConfLocation); err != nil {
+		return fmt.Errorf("create %s: %w", sourcePath, err)
+	}
+
+	if err := os.WriteFile(fileUncleanShutdownManagerTypeLocation, []byte(managerType.String()), 0644); err != nil { //nolint:gosec
+		return fmt.Errorf("create %s: %w", fileUncleanShutdownManagerTypeLocation, err)
+	}
+	return nil
+}
+
+func removeUncleanShutdownBackup() error {
+	if err := os.Remove(fileUncleanShutdownResolvConfLocation); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove %s: %s", fileUncleanShutdownResolvConfLocation, err)
+	}
+	if err := os.Remove(fileUncleanShutdownManagerTypeLocation); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove %s: %s", fileUncleanShutdownManagerTypeLocation, err)
+	}
+	return nil
 }

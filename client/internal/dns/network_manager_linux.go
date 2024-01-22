@@ -219,6 +219,10 @@ func (n *networkManagerDbusConfigurator) deleteConnectionSettings() error {
 	return nil
 }
 
+func (n *networkManagerDbusConfigurator) restoreUncleanShutdownBackup() error {
+	return nil
+}
+
 func isNetworkManagerSupported() bool {
 	return isNetworkManagerSupportedVersion() && isNetworkManagerSupportedMode()
 }

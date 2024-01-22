@@ -60,6 +60,11 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
 		append([]string{config.ServerIP}, r.originalNameServers...),
 		r.othersConfigs)
 
+	// create a backup for unclean shutdown detection before the resolv.conf is changed
+	if err := createUncleanShutdownBackup(resolvconfFile, resolvConfManager); err != nil {
+		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
+	}
+
 	err = r.applyConfig(buf)
 	if err != nil {
 		return fmt.Errorf("apply config: %w", err)
@@ -76,6 +81,11 @@ func (r *resolvconf) restoreHostDNS() error {
 	if err != nil {
 		return fmt.Errorf("got an error while removing resolvconf configuration for %s interface, error: %w", r.ifaceName, err)
 	}
+
+	if err := removeUncleanShutdownBackup(); err != nil {
+		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
+	}
+
 	return nil
 }
 
@@ -86,6 +96,13 @@ func (r *resolvconf) applyConfig(content bytes.Buffer) error {
 	_, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("got an error while applying resolvconf configuration for %s interface, error: %w", r.ifaceName, err)
+	}
+	return nil
+}
+
+func (r *resolvconf) restoreUncleanShutdownBackup() error {
+	if err := r.restoreHostDNS(); err != nil {
+		return fmt.Errorf("restoring dns for interface %s: %w", r.ifaceName, err)
 	}
 	return nil
 }

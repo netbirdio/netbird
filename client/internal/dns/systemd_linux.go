@@ -200,6 +200,10 @@ func (s *systemdDbusConfigurator) callLinkMethod(method string, value any) error
 	return nil
 }
 
+func (s *systemdDbusConfigurator) restoreUncleanShutdownBackup() error {
+	return nil
+}
+
 func getSystemdDbusProperty(property string, store any) error {
 	obj, closeConn, err := getDbusObject(systemdResolvedDest, systemdDbusObjectNode)
 	if err != nil {

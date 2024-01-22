@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -92,6 +93,12 @@ func runClient(
 	wgProbe *Probe,
 ) error {
 	log.Infof("starting NetBird client version %s", version.NetbirdVersion())
+
+	// Check if client was not shut down in a clean way and restore DNS config if required.
+	// Otherwise, we might not be able to connect to the management server to retrieve new config.
+	if err := dns.CheckUncleanShutdown(config.WgIface); err != nil {
+		log.Errorf("checking unclean shutdown error: %s", err)
+	}
 
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
@@ -244,7 +251,7 @@ func runClient(
 
 		log.Info("stopped NetBird client")
 
-		if _, err := state.Status(); err == ErrResetConnection {
+		if _, err := state.Status(); errors.Is(err, ErrResetConnection) {
 			return err
 		}
 

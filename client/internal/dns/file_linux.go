@@ -21,6 +21,9 @@ const (
 
 	fileDefaultResolvConfBackupLocation = defaultResolvConfPath + ".original.netbird"
 
+	fileUncleanShutdownResolvConfLocation  = "/var/lib/netbird/resolv.conf"
+	fileUncleanShutdownManagerTypeLocation = "/var/lib/netbird/manager-type"
+
 	fileMaxLineCharsLimit        = 256
 	fileMaxNumberOfSearchDomains = 6
 )
@@ -86,6 +89,12 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	}
 
 	log.Infof("created a NetBird managed %s file with the DNS settings. Added %d search domains. Search list: %s", defaultResolvConfPath, len(searchDomainList), searchDomainList)
+
+	// create another backup for unclean shutdown detection right after overwriting the original resolv.conf
+	if err := createUncleanShutdownBackup(fileDefaultResolvConfBackupLocation, fileManager); err != nil {
+		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
+	}
+
 	return nil
 }
 
@@ -114,7 +123,18 @@ func (f *fileConfigurator) restore() error {
 		return fmt.Errorf("restoring %s from %s: %w", defaultResolvConfPath, fileDefaultResolvConfBackupLocation, err)
 	}
 
+	if err := removeUncleanShutdownBackup(); err != nil {
+		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
+	}
+
 	return os.RemoveAll(fileDefaultResolvConfBackupLocation)
+}
+
+func (f *fileConfigurator) restoreUncleanShutdownBackup() error {
+	if err := copyFile(fileUncleanShutdownResolvConfLocation, defaultResolvConfPath); err != nil {
+		return fmt.Errorf("restoring %s from %s: %w", defaultResolvConfPath, fileUncleanShutdownResolvConfLocation, err)
+	}
+	return nil
 }
 
 func prepareResolvConfContent(searchDomains, nameServers, others []string) bytes.Buffer {
