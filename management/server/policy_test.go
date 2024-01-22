@@ -452,7 +452,9 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				IP:     net.ParseIP("100.65.14.88"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.25.9",
+					GoOS:          "linux",
+					KernelVersion: "6.6.7",
+					WtVersion:     "0.25.9",
 				},
 			},
 			"peerB": {
@@ -460,7 +462,9 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				IP:     net.ParseIP("100.65.80.39"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.23.0",
+					GoOS:          "linux",
+					KernelVersion: "6.6.1",
+					WtVersion:     "0.23.0",
 				},
 			},
 			"peerC": {
@@ -468,7 +472,9 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				IP:     net.ParseIP("100.65.254.139"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.25.8",
+					GoOS:          "linux",
+					KernelVersion: "6.6.1",
+					WtVersion:     "0.25.8",
 				},
 			},
 			"peerD": {
@@ -476,7 +482,9 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				IP:     net.ParseIP("100.65.62.5"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.25.9",
+					GoOS:          "linux",
+					KernelVersion: "6.6.0",
+					WtVersion:     "0.25.9",
 				},
 			},
 			"peerE": {
@@ -484,7 +492,9 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				IP:     net.ParseIP("100.65.32.206"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.24.0",
+					GoOS:          "linux",
+					KernelVersion: "6.6.1",
+					WtVersion:     "0.24.0",
 				},
 			},
 			"peerF": {
@@ -492,7 +502,9 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				IP:     net.ParseIP("100.65.250.202"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.25.9",
+					GoOS:          "linux",
+					KernelVersion: "6.6.1",
+					WtVersion:     "0.25.9",
 				},
 			},
 			"peerG": {
@@ -500,7 +512,9 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				IP:     net.ParseIP("100.65.13.186"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.23.2",
+					GoOS:          "linux",
+					KernelVersion: "6.6.1",
+					WtVersion:     "0.23.2",
 				},
 			},
 			"peerH": {
@@ -508,7 +522,19 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				IP:     net.ParseIP("100.65.29.55"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.23.1",
+					GoOS:          "linux",
+					KernelVersion: "6.6.1",
+					WtVersion:     "0.23.1",
+				},
+			},
+			"peerI": {
+				ID:     "peerI",
+				IP:     net.ParseIP("100.65.21.56"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS:          "windows",
+					KernelVersion: "10.0.14393.2430",
+					WtVersion:     "0.25.1",
 				},
 			},
 		},
@@ -524,6 +550,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 					"peerF",
 					"peerG",
 					"peerH",
+					"peerI",
 				},
 			},
 			"GroupSwarm": {
@@ -536,6 +563,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 					"peerE",
 					"peerG",
 					"peerH",
+					"peerI",
 				},
 			},
 		},
@@ -543,10 +571,15 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 			{
 				ID:          "PostureChecksDefault",
 				Name:        "Default",
-				Description: "This is a posture checks that check if peer is running required version",
+				Description: "This is a posture checks that check if peer is running required versions",
 				Checks: []posture.Check{
 					&posture.NBVersionCheck{
 						MinVersion: "0.25",
+					},
+					&posture.OSVersionCheck{
+						Linux: &posture.MinKernelVersionCheck{
+							MinKernelVersion: "6.6.0",
+						},
 					},
 				},
 			},
@@ -616,6 +649,16 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 		assert.Contains(t, peers, account.Peers["peerC"])
 		assert.Contains(t, peers, account.Peers["peerD"])
 		assert.Contains(t, peers, account.Peers["peerF"])
+
+		// peerI doesn't fulfill the OS version posture check and exists in only destination group Swarm,
+		// all source group peers satisfying the NB posture check should establish connection
+		peers, firewallRules = account.getPeerConnectionResources("peerI")
+		assert.Len(t, peers, 4)
+		assert.Len(t, firewallRules, 4)
+		assert.Contains(t, peers, account.Peers["peerA"])
+		assert.Contains(t, peers, account.Peers["peerC"])
+		assert.Contains(t, peers, account.Peers["peerD"])
+		assert.Contains(t, peers, account.Peers["peerF"])
 	})
 
 	t.Run("verify peer's network map with modified group peer list", func(t *testing.T) {
@@ -625,6 +668,12 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 		// peerB doesn't satisfy the NB posture check, and doesn't exist in destination group peer's
 		// no connection should be established to any peer of destination group
 		peers, firewallRules := account.getPeerConnectionResources("peerB")
+		assert.Len(t, peers, 0)
+		assert.Len(t, firewallRules, 0)
+
+		// peerI doesn't satisfy the OS version posture check, and doesn't exist in destination group peer's
+		// no connection should be established to any peer of destination group
+		peers, firewallRules = account.getPeerConnectionResources("peerI")
 		assert.Len(t, peers, 0)
 		assert.Len(t, firewallRules, 0)
 
