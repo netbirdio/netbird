@@ -88,6 +88,22 @@ func TestOSVersionCheck_Check(t *testing.T) {
 			wantErr: false,
 			isValid: false,
 		},
+		{
+			name: "Invalid Peer Linux kernel version",
+			input: peer.Peer{
+				Meta: peer.PeerSystemMeta{
+					GoOS:          "linux",
+					KernelVersion: "x.y.1",
+				},
+			},
+			check: OSVersionCheck{
+				Linux: &MinKernelVersionCheck{
+					MinKernelVersion: "6.0.0",
+				},
+			},
+			wantErr: true,
+			isValid: false,
+		},
 	}
 
 	for _, tt := range tests {
