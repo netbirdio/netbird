@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
@@ -125,6 +126,11 @@ type Engine struct {
 	acl          acl.Manager
 
 	dnsServer dns.Server
+
+	mgmProbe    *Probe
+	signalProbe *Probe
+	relayProbe  *Probe
+	wgProbe     *Probe
 }
 
 // Peer is an instance of the Connection Peer
@@ -135,11 +141,43 @@ type Peer struct {
 
 // NewEngine creates a new Connection Engine
 func NewEngine(
-	ctx context.Context, cancel context.CancelFunc,
-	signalClient signal.Client, mgmClient mgm.Client,
-	config *EngineConfig, mobileDep MobileDependency, statusRecorder *peer.Status,
+	ctx context.Context,
+	cancel context.CancelFunc,
+	signalClient signal.Client,
+	mgmClient mgm.Client,
+	config *EngineConfig,
+	mobileDep MobileDependency,
+	statusRecorder *peer.Status,
 ) *Engine {
+	return NewEngineWithProbes(
+		ctx,
+		cancel,
+		signalClient,
+		mgmClient,
+		config,
+		mobileDep,
+		statusRecorder,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+}
 
+// NewEngineWithProbes creates a new Connection Engine with probes attached
+func NewEngineWithProbes(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	signalClient signal.Client,
+	mgmClient mgm.Client,
+	config *EngineConfig,
+	mobileDep MobileDependency,
+	statusRecorder *peer.Status,
+	mgmProbe *Probe,
+	signalProbe *Probe,
+	relayProbe *Probe,
+	wgProbe *Probe,
+) *Engine {
 	return &Engine{
 		ctx:            ctx,
 		cancel:         cancel,
@@ -155,6 +193,10 @@ func NewEngine(
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
 		wgProxyFactory: wgproxy.NewFactory(config.WgPort),
+		mgmProbe:       mgmProbe,
+		signalProbe:    signalProbe,
+		relayProbe:     relayProbe,
+		wgProbe:        wgProbe,
 	}
 }
 
@@ -251,6 +293,7 @@ func (e *Engine) Start() error {
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
+	e.receiveProbeEvents()
 
 	return nil
 }
@@ -512,9 +555,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 // E.g. when a new peer has been registered and we are allowed to connect to it.
 func (e *Engine) receiveManagementEvents() {
 	go func() {
-		err := e.mgmClient.Sync(func(update *mgmProto.SyncResponse) error {
-			return e.handleSync(update)
-		})
+		err := e.mgmClient.Sync(e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
@@ -1174,4 +1215,70 @@ func (e *Engine) getRosenpassAddr() string {
 		return e.rpManager.GetAddress().String()
 	}
 	return ""
+}
+
+func (e *Engine) receiveProbeEvents() {
+	if e.signalProbe != nil {
+		go e.signalProbe.Receive(e.ctx, func() bool {
+			healthy := e.signal.IsHealthy()
+			log.Debugf("received signal probe request, healthy: %t", healthy)
+			return healthy
+		})
+	}
+
+	if e.mgmProbe != nil {
+		go e.mgmProbe.Receive(e.ctx, func() bool {
+			healthy := e.mgmClient.IsHealthy()
+			log.Debugf("received management probe request, healthy: %t", healthy)
+			return healthy
+		})
+	}
+
+	if e.relayProbe != nil {
+		go e.relayProbe.Receive(e.ctx, func() bool {
+			healthy := true
+
+			results := append(e.probeSTUNs(), e.probeTURNs()...)
+			e.statusRecorder.UpdateRelayStates(results)
+
+			// A single failed server will result in a "failed" probe
+			for _, res := range results {
+				if res.Err != nil {
+					healthy = false
+					break
+				}
+			}
+
+			log.Debugf("received relay probe request, healthy: %t", healthy)
+			return healthy
+		})
+	}
+
+	if e.wgProbe != nil {
+		go e.wgProbe.Receive(e.ctx, func() bool {
+			log.Debug("received wg probe request")
+
+			for _, peer := range e.peerConns {
+				key := peer.GetKey()
+				wgStats, err := peer.GetConf().WgConfig.WgInterface.GetStats(key)
+				if err != nil {
+					log.Debugf("failed to get wg stats for peer %s: %s", key, err)
+				}
+				// wgStats could be zero value, in which case we just reset the stats
+				if err := e.statusRecorder.UpdateWireguardPeerState(key, wgStats); err != nil {
+					log.Debugf("failed to update wg stats for peer %s: %s", key, err)
+				}
+			}
+
+			return true
+		})
+	}
+}
+
+func (e *Engine) probeSTUNs() []relay.ProbeResult {
+	return relay.ProbeAll(e.ctx, relay.ProbeSTUN, e.STUNs)
+}
+
+func (e *Engine) probeTURNs() []relay.ProbeResult {
+	return relay.ProbeAll(e.ctx, relay.ProbeTURN, e.TURNs)
 }

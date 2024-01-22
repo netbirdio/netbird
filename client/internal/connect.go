@@ -27,11 +27,33 @@ import (
 
 // RunClient with main logic.
 func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status) error {
-	return runClient(ctx, config, statusRecorder, MobileDependency{})
+	return runClient(ctx, config, statusRecorder, MobileDependency{}, nil, nil, nil, nil)
+}
+
+// RunClientWithProbes runs the client's main logic with probes attached
+func RunClientWithProbes(
+	ctx context.Context,
+	config *Config,
+	statusRecorder *peer.Status,
+	mgmProbe *Probe,
+	signalProbe *Probe,
+	relayProbe *Probe,
+	wgProbe *Probe,
+) error {
+	return runClient(ctx, config, statusRecorder, MobileDependency{}, mgmProbe, signalProbe, relayProbe, wgProbe)
 }
 
 // RunClientMobile with main logic on mobile system
-func RunClientMobile(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover, networkChangeListener listener.NetworkChangeListener, dnsAddresses []string, dnsReadyListener dns.ReadyListener) error {
+func RunClientMobile(
+	ctx context.Context,
+	config *Config,
+	statusRecorder *peer.Status,
+	tunAdapter iface.TunAdapter,
+	iFaceDiscover stdnet.ExternalIFaceDiscover,
+	networkChangeListener listener.NetworkChangeListener,
+	dnsAddresses []string,
+	dnsReadyListener dns.ReadyListener,
+) error {
 	// in case of non Android os these variables will be nil
 	mobileDependency := MobileDependency{
 		TunAdapter:            tunAdapter,
@@ -40,19 +62,35 @@ func RunClientMobile(ctx context.Context, config *Config, statusRecorder *peer.S
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 	}
-	return runClient(ctx, config, statusRecorder, mobileDependency)
+	return runClient(ctx, config, statusRecorder, mobileDependency, nil, nil, nil, nil)
 }
 
-func RunClientiOS(ctx context.Context, config *Config, statusRecorder *peer.Status, fileDescriptor int32, networkChangeListener listener.NetworkChangeListener, dnsManager dns.IosDnsManager) error {
+func RunClientiOS(
+	ctx context.Context,
+	config *Config,
+	statusRecorder *peer.Status,
+	fileDescriptor int32,
+	networkChangeListener listener.NetworkChangeListener,
+	dnsManager dns.IosDnsManager,
+) error {
 	mobileDependency := MobileDependency{
 		FileDescriptor:        fileDescriptor,
 		NetworkChangeListener: networkChangeListener,
 		DnsManager:            dnsManager,
 	}
-	return runClient(ctx, config, statusRecorder, mobileDependency)
+	return runClient(ctx, config, statusRecorder, mobileDependency, nil, nil, nil, nil)
 }
 
-func runClient(ctx context.Context, config *Config, statusRecorder *peer.Status, mobileDependency MobileDependency) error {
+func runClient(
+	ctx context.Context,
+	config *Config,
+	statusRecorder *peer.Status,
+	mobileDependency MobileDependency,
+	mgmProbe *Probe,
+	signalProbe *Probe,
+	relayProbe *Probe,
+	wgProbe *Probe,
+) error {
 	log.Infof("starting NetBird client version %s", version.NetbirdVersion())
 
 	backOff := &backoff.ExponentialBackOff{
@@ -103,7 +141,7 @@ func runClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 
 		engineCtx, cancel := context.WithCancel(ctx)
 		defer func() {
-			statusRecorder.MarkManagementDisconnected()
+			statusRecorder.MarkManagementDisconnected(state.err)
 			statusRecorder.CleanLocalPeerState()
 			cancel()
 		}()
@@ -152,8 +190,10 @@ func runClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 
 		statusRecorder.UpdateSignalAddress(signalURL)
 
-		statusRecorder.MarkSignalDisconnected()
-		defer statusRecorder.MarkSignalDisconnected()
+		statusRecorder.MarkSignalDisconnected(nil)
+		defer func() {
+			statusRecorder.MarkSignalDisconnected(state.err)
+		}()
 
 		// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
 		signalClient, err := connectToSignal(engineCtx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
@@ -181,7 +221,7 @@ func runClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 			return wrapErr(err)
 		}
 
-		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, statusRecorder)
+		engine := NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe)
 		err = engine.Start()
 		if err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)

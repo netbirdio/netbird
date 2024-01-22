@@ -274,6 +274,8 @@ go test -exec sudo ./...
 ```
 > On Windows use a powershell with administrator privileges
 
+> Non-GTK environments will need the `libayatana-appindicator3-dev` (debian/ubuntu) package installed
+
 ## Checklist before submitting a PR
 As a critical network service and open-source project, we must enforce a few things before submitting the pull-requests:
 - Keep functions as simple as possible, with a single purpose

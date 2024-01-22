@@ -59,6 +59,10 @@ func (w *mocWGIface) SetFilter(filter iface.PacketFilter) error {
 	return nil
 }
 
+func (w *mocWGIface) GetStats(_ string) (iface.WGStats, error) {
+	return iface.WGStats{}, nil
+}
+
 var zoneRecords = []nbdns.SimpleRecord{
 	{
 		Name:  "peera.netbird.cloud",

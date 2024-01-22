@@ -408,12 +408,14 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 	conn.status = StatusConnected
 
 	peerState := State{
-		PubKey:                 conn.config.Key,
-		ConnStatus:             conn.status,
-		ConnStatusUpdate:       time.Now(),
-		LocalIceCandidateType:  pair.Local.Type().String(),
-		RemoteIceCandidateType: pair.Remote.Type().String(),
-		Direct:                 !isRelayCandidate(pair.Local),
+		PubKey:                     conn.config.Key,
+		ConnStatus:                 conn.status,
+		ConnStatusUpdate:           time.Now(),
+		LocalIceCandidateType:      pair.Local.Type().String(),
+		RemoteIceCandidateType:     pair.Remote.Type().String(),
+		LocalIceCandidateEndpoint:  fmt.Sprintf("%s:%d", pair.Local.Address(), pair.Local.Port()),
+		RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Local.Port()),
+		Direct:                     !isRelayCandidate(pair.Local),
 	}
 	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
 		peerState.Relayed = true
@@ -499,6 +501,9 @@ func (conn *Conn) cleanup() error {
 		// pretty common error because by that time Engine can already remove the peer and status won't be available.
 		// todo rethink status updates
 		log.Debugf("error while updating peer's %s state, err: %v", conn.config.Key, err)
+	}
+	if err := conn.statusRecorder.UpdateWireguardPeerState(conn.config.Key, iface.WGStats{}); err != nil {
+		log.Debugf("failed to reset wireguard stats for peer %s: %s", conn.config.Key, err)
 	}
 
 	log.Debugf("cleaned up connection to peer %s", conn.config.Key)

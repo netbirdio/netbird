@@ -127,15 +127,20 @@ message PeerState {
   bool relayed = 5;
   bool direct = 6;
   string localIceCandidateType = 7;
-  string remoteIceCandidateType =8;
+  string remoteIceCandidateType = 8;
   string fqdn = 9;
+  string localIceCandidateEndpoint = 10;
+  string remoteIceCandidateEndpoint = 11;
+  google.protobuf.Timestamp lastWireguardHandshake = 12;
+  int64 bytesRx = 13;
+  int64 bytesTx = 14;
 }
 
 // LocalPeerState contains the latest state of the local peer
 message LocalPeerState {
   string IP = 1;
   string pubKey = 2;
-  bool  kernelInterface =3;
+  bool  kernelInterface = 3;
   string fqdn = 4;
 }
 
@@ -143,17 +148,28 @@ message LocalPeerState {
 message SignalState {
   string URL = 1;
   bool connected = 2;
+  string error = 3;
 }
 
 // ManagementState contains the latest state of a management connection
 message ManagementState {
   string URL = 1;
   bool connected = 2;
+  string error = 3;
 }
+
+// RelayState contains the latest state of the relay
+message RelayState {
+  string URI = 1;
+  bool available = 2;
+  string error = 3;
+}
+
 // FullStatus contains the full state held by the Status instance
 message FullStatus {
-    ManagementState managementState = 1;
-    SignalState     signalState = 2;
-    LocalPeerState  localPeerState = 3;
-    repeated PeerState peers = 4;
+  ManagementState managementState = 1;
+  SignalState     signalState = 2;
+  LocalPeerState  localPeerState = 3;
+  repeated PeerState peers = 4;
+  repeated RelayState relays = 5;
 }

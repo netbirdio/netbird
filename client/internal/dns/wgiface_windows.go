@@ -9,5 +9,6 @@ type WGIface interface {
 	IsUserspaceBind() bool
 	GetFilter() iface.PacketFilter
 	GetDevice() *iface.DeviceWrapper
+	GetStats(peerKey string) (iface.WGStats, error)
 	GetInterfaceGUIDString() (string, error)
 }

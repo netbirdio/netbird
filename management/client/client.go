@@ -17,4 +17,5 @@ type Client interface {
 	GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error)
 	GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error)
 	GetNetworkMap() (*proto.NetworkMap, error)
+	IsHealthy() bool
 }

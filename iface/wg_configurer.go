@@ -14,4 +14,5 @@ type wgConfigurer interface {
 	addAllowedIP(peerKey string, allowedIP string) error
 	removeAllowedIP(peerKey string, allowedIP string) error
 	close()
+	getStats(peerKey string) (WGStats, error)
 }
