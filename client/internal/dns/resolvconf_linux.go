@@ -10,7 +10,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const resolvconfCommand = "resolvconf"
+const (
+	resolvconfCommand = "resolvconf"
+	resolvconfFile    = "/etc/resolv.conf"
+)
 
 type resolvconf struct {
 	ifaceName string
@@ -22,9 +25,9 @@ type resolvconf struct {
 
 // supported "openresolv" only
 func newResolvConfConfigurator(wgInterface WGIface) (hostManager, error) {
-	originalSearchDomains, nameServers, others, err := originalDNSConfigs("/etc/resolv.conf")
+	originalSearchDomains, nameServers, others, err := originalDNSConfigs(resolvconfFile)
 	if err != nil {
-		log.Error(err)
+		log.Errorf("could not read original search domains from %s: %s", resolvconfFile, err)
 	}
 
 	return &resolvconf{
@@ -44,7 +47,7 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
 	if !config.RouteAll {
 		err = r.restoreHostDNS()
 		if err != nil {
-			log.Error(err)
+			log.Errorf("restore host dns: %s", err)
 		}
 		return fmt.Errorf("unable to configure DNS for this peer using resolvconf manager without a nameserver group with all domains configured")
 	}
@@ -59,7 +62,7 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
 
 	err = r.applyConfig(buf)
 	if err != nil {
-		return err
+		return fmt.Errorf("apply config: %w", err)
 	}
 
 	log.Infof("added %d search domains. Search list: %s", len(searchDomainList), searchDomainList)
@@ -67,20 +70,22 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
 }
 
 func (r *resolvconf) restoreHostDNS() error {
+	// openresolv only, debian resolvconf doesn't support "-f"
 	cmd := exec.Command(resolvconfCommand, "-f", "-d", r.ifaceName)
 	_, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("got an error while removing resolvconf configuration for %s interface, error: %s", r.ifaceName, err)
+		return fmt.Errorf("got an error while removing resolvconf configuration for %s interface, error: %w", r.ifaceName, err)
 	}
 	return nil
 }
 
 func (r *resolvconf) applyConfig(content bytes.Buffer) error {
+	// openresolv only, debian resolvconf doesn't support "-x"
 	cmd := exec.Command(resolvconfCommand, "-x", "-a", r.ifaceName)
 	cmd.Stdin = &content
 	_, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("got an error while applying resolvconf configuration for %s interface, error: %s", r.ifaceName, err)
+		return fmt.Errorf("got an error while applying resolvconf configuration for %s interface, error: %w", r.ifaceName, err)
 	}
 	return nil
 }
