@@ -15,6 +15,10 @@ type MockClient struct {
 	SendFunc                func(msg *proto.Message) error
 }
 
+func (sm *MockClient) IsHealthy() bool {
+	return true
+}
+
 func (sm *MockClient) Close() error {
 	if sm.CloseFunc == nil {
 		return nil

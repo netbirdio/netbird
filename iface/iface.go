@@ -27,6 +27,12 @@ type WGIface struct {
 	filter     PacketFilter
 }
 
+type WGStats struct {
+	LastHandshake time.Time
+	TxBytes       int64
+	RxBytes       int64
+}
+
 // IsUserspaceBind indicates whether this interfaces is userspace with bind.ICEBind
 func (w *WGIface) IsUserspaceBind() bool {
 	return w.userspaceBind
@@ -138,4 +144,9 @@ func (w *WGIface) GetDevice() *DeviceWrapper {
 	defer w.mu.Unlock()
 
 	return w.tun.Wrapper()
+}
+
+// GetStats returns the last handshake time, rx and tx bytes for the given peer
+func (w *WGIface) GetStats(peerKey string) (WGStats, error) {
+	return w.configurer.getStats(peerKey)
 }

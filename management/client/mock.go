@@ -1,9 +1,10 @@
 package client
 
 import (
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/management/proto"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 type MockClient struct {
@@ -14,6 +15,10 @@ type MockClient struct {
 	LoginFunc                      func(serverKey wgtypes.Key, info *system.Info, sshKey []byte) (*proto.LoginResponse, error)
 	GetDeviceAuthorizationFlowFunc func(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error)
 	GetPKCEAuthorizationFlowFunc   func(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error)
+}
+
+func (m *MockClient) IsHealthy() bool {
+	return true
 }
 
 func (m *MockClient) Close() error {
