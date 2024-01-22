@@ -106,13 +106,13 @@ func getOSDNSManagerType() (osManagerType, error) {
 
 // checkStub checks if the stub resolver is disabled in systemd-resolved. If it is disabled, we fallback to file manager.
 func checkStub() bool {
-	_, nameServers, _, err := resolvConfEntries()
+	rConf, err := parseDefaultResolvConf()
 	if err != nil {
 		log.Warnf("failed to parse resolv conf: %s", err)
 		return true
 	}
 
-	for _, ns := range nameServers {
+	for _, ns := range rConf.nameServers {
 		if ns == "127.0.0.53" {
 			return true
 		}

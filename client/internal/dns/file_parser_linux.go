@@ -1,42 +1,54 @@
 package dns
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
 	defaultResolvConfPath = "/etc/resolv.conf"
 )
 
-func resolvConfEntries() (searchDomains, nameServers, others []string, err error) {
-	return parseResolvConf(defaultResolvConfPath)
+type resolvConf struct {
+	nameServers   []string
+	searchDomains []string
+	others        []string
 }
 
-func parseResolvConf(resolvconfFile string) (searchDomains, nameServers, others []string, err error) {
-	file, err := os.Open(resolvconfFile)
+func parseDefaultResolvConf() (*resolvConf, error) {
+	return parseResolvConfFile(defaultResolvConfPath)
+}
+
+func parseBackupResolvConf() (*resolvConf, error) {
+	return parseResolvConfFile(fileDefaultResolvConfBackupLocation)
+}
+
+func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
+	file, err := os.Open(resolvConfFile)
 	if err != nil {
-		err = fmt.Errorf(`could not read existing resolv.conf`)
-		return
+		return nil, err
 	}
 	defer file.Close()
 
-	reader := bufio.NewReader(file)
+	cur, err := os.ReadFile(resolvConfFile)
+	if err != nil {
+		return nil, err
+	}
 
-	for {
-		lineBytes, isPrefix, readErr := reader.ReadLine()
-		if readErr != nil {
-			break
-		}
+	if len(cur) == 0 {
+		return nil, fmt.Errorf("file is empty")
+	}
 
-		if isPrefix {
-			err = fmt.Errorf(`resolv.conf line too long`)
-			return
-		}
+	rconf := &resolvConf{
+		nameServers: make([]string, 0),
+		others:      make([]string, 0),
+	}
 
-		line := strings.TrimSpace(string(lineBytes))
+	for _, line := range strings.Split(string(cur), "\n") {
+		line = strings.TrimSpace(line)
 
 		if strings.HasPrefix(line, "#") {
 			continue
@@ -56,12 +68,14 @@ func parseResolvConf(resolvconfFile string) (searchDomains, nameServers, others 
 		}
 
 		if strings.HasPrefix(line, "search") {
+			log.Debugf("found search domains: %s", line)
 			splitLines := strings.Fields(line)
 			if len(splitLines) < 2 {
 				continue
 			}
 
-			searchDomains = splitLines[1:]
+			rconf.searchDomains = splitLines[1:]
+			log.Debugf("search domains: %s", rconf.searchDomains)
 			continue
 		}
 
@@ -70,13 +84,13 @@ func parseResolvConf(resolvconfFile string) (searchDomains, nameServers, others 
 			if len(splitLines) != 2 {
 				continue
 			}
-			nameServers = append(nameServers, splitLines[1])
+			rconf.nameServers = append(rconf.nameServers, splitLines[1])
 			continue
 		}
 
 		if line != "" {
-			others = append(others, line)
+			rconf.others = append(rconf.others, line)
 		}
 	}
-	return
+	return rconf, nil
 }

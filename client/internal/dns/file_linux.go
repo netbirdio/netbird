@@ -4,10 +4,13 @@ package dns
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
+	"github.com/illarion/gonotify"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -23,11 +26,17 @@ const (
 )
 
 type fileConfigurator struct {
-	originalPerms os.FileMode
+	originalPerms   os.FileMode
+	inotify         *gonotify.Inotify
+	inotifyWg       sync.WaitGroup
+	inotifyLock     sync.Mutex
+	nbSearchDomains []string
+	nbNameserverIP  string
 }
 
 func newFileConfigurator() (hostManager, error) {
-	return &fileConfigurator{}, nil
+	fc := &fileConfigurator{}
+	return fc, nil
 }
 
 func (f *fileConfigurator) supportCustomPort() bool {
@@ -58,22 +67,39 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 		}
 	}
 
-	searchDomainList := searchDomains(config)
+	f.inotifyLock.Lock()
+	f.nbSearchDomains = searchDomains(config)
+	f.nbNameserverIP = config.ServerIP
+	defer f.inotifyLock.Unlock()
 
-	originalSearchDomains, nameServers, others, err := parseResolvConf(fileDefaultResolvConfBackupLocation)
+	resolvConf, err := parseBackupResolvConf()
 	if err != nil {
 		log.Error(err)
 	}
 
-	searchDomainList = mergeSearchDomains(searchDomainList, originalSearchDomains)
+	f.stopWatchFileChanges()
+
+	err = f.updateConfig(resolvConf)
+	if err != nil {
+		return err
+	}
+	f.watchFileChanges()
+	return nil
+}
+
+func (f *fileConfigurator) updateConfig(cfg *resolvConf) error {
+	f.inotifyLock.Lock()
+	defer f.inotifyLock.Unlock()
+	searchDomainList := mergeSearchDomains(f.nbSearchDomains, cfg.searchDomains)
+	nameServers := f.generateNsList(cfg)
 
 	buf := prepareResolvConfContent(
 		searchDomainList,
-		append([]string{config.ServerIP}, nameServers...),
-		others)
+		nameServers,
+		cfg.others)
 
 	log.Debugf("creating managed file %s", defaultResolvConfPath)
-	err = os.WriteFile(defaultResolvConfPath, buf.Bytes(), f.originalPerms)
+	err := os.WriteFile(defaultResolvConfPath, buf.Bytes(), f.originalPerms)
 	if err != nil {
 		restoreErr := f.restore()
 		if restoreErr != nil {
@@ -87,6 +113,7 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 }
 
 func (f *fileConfigurator) restoreHostDNS() error {
+	f.stopWatchFileChanges()
 	return f.restore()
 }
 
@@ -112,6 +139,135 @@ func (f *fileConfigurator) restore() error {
 	}
 
 	return os.RemoveAll(fileDefaultResolvConfBackupLocation)
+}
+
+// generateNsList generates a list of nameservers from the config and adds the primary nameserver to the beginning of the list
+func (f *fileConfigurator) generateNsList(cfg *resolvConf) []string {
+	ns := make([]string, 1, len(cfg.nameServers)+1)
+	ns[0] = f.nbNameserverIP
+	for _, cfgNs := range cfg.nameServers {
+		if f.nbNameserverIP != cfgNs {
+			ns = append(ns, cfgNs)
+		}
+	}
+	return ns
+}
+
+func (f *fileConfigurator) watchFileChanges() {
+	if f.inotify != nil {
+		return
+	}
+	inotify, err := gonotify.NewInotify()
+	if err != nil {
+		log.Errorf("failed to start inotify watcher for resolv.conf: %s", err)
+		return
+	}
+	f.inotify = inotify
+
+	const eventTypes = gonotify.IN_ATTRIB |
+		gonotify.IN_CREATE |
+		gonotify.IN_MODIFY |
+		gonotify.IN_MOVE |
+		gonotify.IN_CLOSE_WRITE |
+		gonotify.IN_DELETE
+
+	const watchDir = "/etc"
+	err = f.inotify.AddWatch(watchDir, eventTypes)
+	if err != nil {
+		log.Errorf("failed to add inotify watch for resolv.conf: %s", err)
+		return
+	}
+	f.inotifyWg.Add(1)
+	go func() {
+		defer f.inotifyWg.Done()
+		for {
+			events, err := f.inotify.Read()
+			if err != nil {
+				if errors.Is(err, os.ErrClosed) {
+					log.Infof("inotify closed")
+					return
+				}
+
+				log.Errorf("failed to read inotify %v", err)
+				return
+			}
+			var match bool
+			for _, ev := range events {
+				if ev.Name == defaultResolvConfPath {
+					match = true
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+
+			rConf, err := parseDefaultResolvConf()
+			if err != nil {
+				log.Errorf("failed to parse resolv conf: %s", err)
+				continue
+			}
+
+			if !f.nbParamsAreMissing(rConf) {
+				log.Debugf("resolv.conf still correct, skip the update")
+				continue
+			}
+			log.Info("broken params in resolv.conf, repair it...")
+
+			err = f.inotify.RmWatch(watchDir)
+			if err != nil {
+				log.Errorf("failed to rm inotify watch for resolv.conf: %s", err)
+			}
+
+			err = f.updateConfig(rConf)
+			if err != nil {
+				log.Errorf("failed to repair resolv.conf: %v", err)
+			}
+
+			err = f.inotify.AddWatch(watchDir, eventTypes)
+			if err != nil {
+				log.Errorf("failed to readd inotify watch for resolv.conf: %s", err)
+				return
+			}
+		}
+	}()
+	return
+}
+
+func (f *fileConfigurator) stopWatchFileChanges() {
+	if f.inotify == nil {
+		return
+	}
+	err := f.inotify.Close()
+	if err != nil {
+		log.Warnf("failed to close resolv.conf inotify: %v", err)
+	}
+	f.inotifyWg.Wait()
+	f.inotify = nil
+}
+
+// nbParamsAreMissing checks if the resolv.conf file contains all the parameters that NetBird needs
+// check the NetBird related nameserver IP at the first place
+// check the NetBird related search domains in the search domains list
+func (f *fileConfigurator) nbParamsAreMissing(rConf *resolvConf) bool {
+	log.Debugf("check parasm: %v, %v", rConf.searchDomains, rConf.nameServers)
+	if !isContains(f.nbSearchDomains, rConf.searchDomains) {
+		log.Debugf("broken searchdomains")
+		return true
+	}
+
+	if len(rConf.nameServers) == 0 {
+		log.Debugf("empty ns list")
+		return true
+	}
+
+	if rConf.nameServers[0] != f.nbNameserverIP {
+		log.Debugf("broken ns")
+		return true
+	}
+
+	log.Debugf("all good")
+	return false
 }
 
 func prepareResolvConfContent(searchDomains, nameServers, others []string) bytes.Buffer {
@@ -165,6 +321,19 @@ func mergeSearchDomains(searchDomains []string, originalSearchDomains []string) 
 // return with the number of characters in the searchDomains line
 func validateAndFillSearchDomains(initialLineChars int, s *[]string, vs []string) int {
 	for _, sd := range vs {
+		duplicated := false
+		for _, fs := range *s {
+			if fs == sd {
+				duplicated = true
+				break
+			}
+
+		}
+
+		if duplicated {
+			continue
+		}
+
 		tmpCharsNumber := initialLineChars + 1 + len(sd)
 		if tmpCharsNumber > fileMaxLineCharsLimit {
 			// lets log all skipped Domains
@@ -181,6 +350,7 @@ func validateAndFillSearchDomains(initialLineChars int, s *[]string, vs []string
 		}
 		*s = append(*s, sd)
 	}
+
 	return initialLineChars
 }
 
@@ -200,4 +370,19 @@ func copyFile(src, dest string) error {
 		return fmt.Errorf("got an writing the destination file %s for copy. Error: %s", dest, err)
 	}
 	return nil
+}
+
+func isContains(subList []string, list []string) bool {
+	for _, sl := range subList {
+		var found bool
+		for _, l := range list {
+			if sl == l {
+				found = true
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }

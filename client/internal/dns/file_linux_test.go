@@ -49,6 +49,53 @@ func Test_mergeSearchTooLongDomain(t *testing.T) {
 	}
 }
 
+func Test_isContains(t *testing.T) {
+	type args struct {
+		subList []string
+		list    []string
+	}
+	tests := []struct {
+		args args
+		want bool
+	}{
+		{
+			args: args{
+				subList: []string{"a", "b", "c"},
+				list:    []string{"a", "b", "c"},
+			},
+			want: true,
+		},
+		{
+			args: args{
+				subList: []string{"a"},
+				list:    []string{"a", "b", "c"},
+			},
+			want: true,
+		},
+		{
+			args: args{
+				subList: []string{"d"},
+				list:    []string{"a", "b", "c"},
+			},
+			want: false,
+		},
+		{
+			args: args{
+				subList: []string{"a"},
+				list:    []string{},
+			},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run("list check test", func(t *testing.T) {
+			if got := isContains(tt.args.subList, tt.args.list); got != tt.want {
+				t.Errorf("isContains() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func getLongLine() string {
 	x := "search "
 	for {

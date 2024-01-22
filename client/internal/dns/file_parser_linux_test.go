@@ -55,23 +55,23 @@ search netbird.cloud
 		if err != nil {
 			t.Fatal(err)
 		}
-		search, ns, other, err := parseResolvConf(tmpResolvConf)
+		cfg, err := parseResolvConfFile(tmpResolvConf)
 		if err != nil {
 			t.Fatal(err)
 		}
-		ok := compareLists(search, testCase.expectedSearch)
+		ok := compareLists(cfg.searchDomains, testCase.expectedSearch)
 		if !ok {
-			t.Errorf("invalid parse result for search domains, expected: %v, got: %v", testCase.expectedSearch, search)
+			t.Errorf("invalid parse result for search domains, expected: %v, got: %v", testCase.expectedSearch, cfg.searchDomains)
 		}
 
-		ok = compareLists(ns, testCase.expectedNS)
+		ok = compareLists(cfg.nameServers, testCase.expectedNS)
 		if !ok {
-			t.Errorf("invalid parse result for ns domains, expected: %v, got: %v", testCase.expectedNS, ns)
+			t.Errorf("invalid parse result for ns domains, expected: %v, got: %v", testCase.expectedNS, cfg.nameServers)
 		}
 
-		ok = compareLists(other, testCase.expectedOther)
+		ok = compareLists(cfg.others, testCase.expectedOther)
 		if !ok {
-			t.Errorf("invalid parse result for others, expected: %v, got: %v", testCase.expectedOther, other)
+			t.Errorf("invalid parse result for others, expected: %v, got: %v", testCase.expectedOther, cfg.others)
 		}
 	}
 

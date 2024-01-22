@@ -48,6 +48,7 @@ require (
 	github.com/google/nftables v0.0.0-20220808154552-2eca00135732
 	github.com/hashicorp/go-secure-stdlib/base62 v0.1.2
 	github.com/hashicorp/go-version v1.6.0
+	github.com/illarion/gonotify v1.0.1
 	github.com/libp2p/go-netroute v0.2.0
 	github.com/magiconair/properties v1.8.5
 	github.com/mattn/go-sqlite3 v1.14.17
