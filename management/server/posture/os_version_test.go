@@ -14,6 +14,7 @@ func TestOSVersionCheck_Check(t *testing.T) {
 		input   peer.Peer
 		check   OSVersionCheck
 		wantErr bool
+		isValid bool
 	}{
 		{
 			name: "Valid Peer Linux Kernel version",
@@ -29,6 +30,7 @@ func TestOSVersionCheck_Check(t *testing.T) {
 				},
 			},
 			wantErr: false,
+			isValid: true,
 		},
 		{
 			name: "Not valid Peer macOS version",
@@ -43,7 +45,8 @@ func TestOSVersionCheck_Check(t *testing.T) {
 					MinVersion: "15",
 				},
 			},
-			wantErr: true,
+			wantErr: false,
+			isValid: false,
 		},
 		{
 			name: "Valid Peer ios version allowed by any rule",
@@ -59,6 +62,7 @@ func TestOSVersionCheck_Check(t *testing.T) {
 				},
 			},
 			wantErr: false,
+			isValid: true,
 		},
 		{
 			name: "Valid Peer android version not allowed by rule",
@@ -69,7 +73,8 @@ func TestOSVersionCheck_Check(t *testing.T) {
 				},
 			},
 			check:   OSVersionCheck{},
-			wantErr: true,
+			wantErr: false,
+			isValid: false,
 		},
 		{
 			name: "Valid Peer Linux Kernel version not allowed by rule",
@@ -80,18 +85,20 @@ func TestOSVersionCheck_Check(t *testing.T) {
 				},
 			},
 			check:   OSVersionCheck{},
-			wantErr: true,
+			wantErr: false,
+			isValid: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.check.Check(tt.input)
+			isValid, err := tt.check.Check(tt.input)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 			}
+			assert.Equal(t, tt.isValid, isValid)
 		})
 	}
 }

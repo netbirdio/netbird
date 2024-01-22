@@ -1,10 +1,9 @@
 package posture
 
 import (
-	"fmt"
-
 	"github.com/hashicorp/go-version"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	log "github.com/sirupsen/logrus"
 )
 
 type MinVersionCheck struct {
@@ -25,7 +24,7 @@ type OSVersionCheck struct {
 
 var _ Check = (*OSVersionCheck)(nil)
 
-func (c *OSVersionCheck) Check(peer nbpeer.Peer) error {
+func (c *OSVersionCheck) Check(peer nbpeer.Peer) (bool, error) {
 	peerGoOS := peer.Meta.GoOS
 	switch peerGoOS {
 	case "android":
@@ -39,53 +38,59 @@ func (c *OSVersionCheck) Check(peer nbpeer.Peer) error {
 	case "windows":
 		return checkMinKernelVersion(peerGoOS, peer.Meta.KernelVersion, c.Windows)
 	}
-	return nil
+	return true, nil
 }
 
 func (c *OSVersionCheck) Name() string {
 	return OSVersionCheckName
 }
 
-func checkMinVersion(peerGoOS, peerVersion string, check *MinVersionCheck) error {
+func checkMinVersion(peerGoOS, peerVersion string, check *MinVersionCheck) (bool, error) {
 	if check == nil {
-		return fmt.Errorf("peer %s OS is not allowed", peerGoOS)
+		log.Debugf("peer %s OS is not allowed in the check", peerGoOS)
+		return false, nil
 	}
 
 	peerNBVersion, err := version.NewVersion(peerVersion)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	constraints, err := version.NewConstraint(">= " + check.MinVersion)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if constraints.Check(peerNBVersion) {
-		return nil
+		return true, nil
 	}
 
-	return fmt.Errorf("peer %s OS version %s is older than minimum allowed version %s", peerGoOS, peerVersion, check.MinVersion)
+	log.Debugf("peer %s OS version %s is older than minimum allowed version %s", peerGoOS, peerVersion, check.MinVersion)
+
+	return false, nil
 }
 
-func checkMinKernelVersion(peerGoOS, peerVersion string, check *MinKernelVersionCheck) error {
+func checkMinKernelVersion(peerGoOS, peerVersion string, check *MinKernelVersionCheck) (bool, error) {
 	if check == nil {
-		return fmt.Errorf("peer %s OS is not allowed", peerGoOS)
+		log.Debugf("peer %s OS is not allowed in the check", peerGoOS)
+		return false, nil
 	}
 
 	peerNBVersion, err := version.NewVersion(peerVersion)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	constraints, err := version.NewConstraint(">= " + check.MinKernelVersion)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if constraints.Check(peerNBVersion) {
-		return nil
+		return true, nil
 	}
 
-	return fmt.Errorf("peer %s kernel version %s is older than minimum allowed version %s", peerGoOS, peerVersion, check.MinKernelVersion)
+	log.Debugf("peer %s kernel version %s is older than minimum allowed version %s", peerGoOS, peerVersion, check.MinKernelVersion)
+
+	return false, nil
 }
