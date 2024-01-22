@@ -302,7 +302,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 			expectedBody:   false,
 		},
 		{
-			name:        "Update Posture Checks NB Verson",
+			name:        "Update Posture Checks NB Version",
 			requestType: http.MethodPut,
 			requestPath: "/api/posture-checks/postureCheck",
 			requestBody: bytes.NewBuffer(
