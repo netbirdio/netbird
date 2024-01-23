@@ -134,7 +134,7 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig) error {
 
 	// create a backup for unclean shutdown detection before adding domains, as these might end up in the resolv.conf file.
 	// The file content itself is not important for systemd restoration
-	if err := createUncleanShutdownBackup(resolvconfFile, systemdManager); err != nil {
+	if err := createUncleanShutdownBackup(defaultResolvConfPath, systemdManager); err != nil {
 		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
 	}
 

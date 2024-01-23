@@ -10,10 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const (
-	resolvconfCommand = "resolvconf"
-	resolvconfFile    = "/etc/resolv.conf"
-)
+const resolvconfCommand = "resolvconf"
 
 type resolvconf struct {
 	ifaceName string
@@ -25,9 +22,9 @@ type resolvconf struct {
 
 // supported "openresolv" only
 func newResolvConfConfigurator(wgInterface WGIface) (hostManager, error) {
-	originalSearchDomains, nameServers, others, err := originalDNSConfigs(resolvconfFile)
+	originalSearchDomains, nameServers, others, err := originalDNSConfigs(defaultResolvConfPath)
 	if err != nil {
-		log.Errorf("could not read original search domains from %s: %s", resolvconfFile, err)
+		log.Errorf("could not read original search domains from %s: %s", defaultResolvConfPath, err)
 	}
 
 	return &resolvconf{
@@ -61,7 +58,7 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
 		r.othersConfigs)
 
 	// create a backup for unclean shutdown detection before the resolv.conf is changed
-	if err := createUncleanShutdownBackup(resolvconfFile, resolvConfManager); err != nil {
+	if err := createUncleanShutdownBackup(defaultResolvConfPath, resolvConfManager); err != nil {
 		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
 	}
 
