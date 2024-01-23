@@ -95,7 +95,11 @@ func getOSDNSManagerType() (osManagerType, error) {
 	if err != nil {
 		return 0, fmt.Errorf("unable to open %s for checking owner, got error: %s", defaultResolvConfPath, err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Errorf("close file %s: %s", defaultResolvConfPath, err)
+		}
+	}()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
