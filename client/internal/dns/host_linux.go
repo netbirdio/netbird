@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -133,7 +134,9 @@ func getOSDNSManagerType() (osManagerType, error) {
 			return resolvConfManager, nil
 		}
 	}
-	// TODO: check err
+	if err := scanner.Err(); err != nil && err != io.EOF {
+		fmt.Errorf("scan: %w", err)
+	}
 
 	return fileManager, nil
 }
