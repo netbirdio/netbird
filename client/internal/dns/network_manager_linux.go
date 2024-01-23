@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -41,8 +42,12 @@ const (
 	networkManagerDbusPrimaryDNSPriority       int32 = -500
 	networkManagerDbusWithMatchDomainPriority  int32 = 0
 	networkManagerDbusSearchDomainOnlyPriority int32 = 50
-	supportedNetworkManagerVersionConstraint         = ">= 1.16, < 1.28"
 )
+
+var supportedNetworkManagerVersionConstraint = []string{
+	">= 1.16, < 1.27",
+	">=1.44, <1.45",
+}
 
 type networkManagerDbusConfigurator struct {
 	dbusLinkObject dbus.ObjectPath
@@ -299,17 +304,25 @@ func isNetworkManagerSupportedVersion() bool {
 	}
 	versionValue, err := parseVersion(value.Value().(string))
 	if err != nil {
+		log.Errorf("nm: parse version: %s", err)
 		return false
 	}
 
-	constraints, err := version.NewConstraint(supportedNetworkManagerVersionConstraint)
-	if err != nil {
-		return false
+	var supported bool
+	for _, constraint := range supportedNetworkManagerVersionConstraint {
+		constr, err := version.NewConstraint(constraint)
+		if err != nil {
+			log.Errorf("nm: create constraint: %s", err)
+			return false
+		}
+
+		if met := constr.Check(versionValue); met {
+			supported = true
+			break
+		}
 	}
 
-	supported := constraints.Check(versionValue)
-	log.Debugf("network manager constraints '%s' met: %t", supportedNetworkManagerVersionConstraint, supported)
-
+	log.Debugf("network manager constraints [%s] met: %t", strings.Join(supportedNetworkManagerVersionConstraint, " | "), supported)
 	return supported
 }
 
