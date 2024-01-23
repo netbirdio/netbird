@@ -7,7 +7,7 @@ import (
 
 func Test_mergeSearchDomains(t *testing.T) {
 	searchDomains := []string{"a", "b"}
-	originDomains := []string{"a", "b"}
+	originDomains := []string{"c", "d"}
 	mergedDomains := mergeSearchDomains(searchDomains, originDomains)
 	if len(mergedDomains) != 4 {
 		t.Errorf("invalid len of result domains: %d, want: %d", len(mergedDomains), 4)
