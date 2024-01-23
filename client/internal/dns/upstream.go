@@ -19,10 +19,14 @@ const (
 	failsTillDeact   = int32(5)
 	reactivatePeriod = 30 * time.Second
 	upstreamTimeout  = 15 * time.Second
+	probeTimeout     = 2 * time.Second
 )
+
+const testRecord = "."
 
 type upstreamClient interface {
 	exchange(upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
+	exchangeContext(ctx context.Context, upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
 }
 
 type UpstreamResolver interface {
@@ -80,7 +84,7 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		rm, t, err := u.upstreamClient.exchange(upstream, r)
 
 		if err != nil {
-			if err == context.DeadlineExceeded || isTimeout(err) {
+			if errors.Is(err, context.DeadlineExceeded) || isTimeout(err) {
 				log.WithError(err).WithField("upstream", upstream).
 					Warn("got an error while connecting to upstream")
 				continue
@@ -134,13 +138,49 @@ func (u *upstreamResolverBase) checkUpstreamFails() {
 	case <-u.ctx.Done():
 		return
 	default:
-		// todo test the deactivation logic, it seems to affect the client
-		if runtime.GOOS != "ios" {
-			log.Warnf("upstream resolving is Disabled for %v", reactivatePeriod)
-			u.deactivate()
-			u.disabled = true
-			go u.waitUntilResponse()
-		}
+	}
+
+	u.disable()
+}
+
+// probeAvailability tests all upstream servers simultaneously and
+// disables the resolver if none work
+func (u *upstreamResolverBase) probeAvailability() {
+	u.mutex.Lock()
+	defer u.mutex.Unlock()
+
+	select {
+	case <-u.ctx.Done():
+		return
+	default:
+	}
+
+	var success bool
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, upstream := range u.upstreamServers {
+		upstream := upstream
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := u.testNameserver(upstream); err != nil {
+				log.Warnf("probing upstream nameserver %s: %s", upstream, err)
+				return
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			success = true
+		}()
+	}
+
+	wg.Wait()
+
+	// didn't find a working upstream server, let's disable and try later
+	if !success {
+		u.disable()
 	}
 }
 
@@ -156,8 +196,6 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 		Clock:               backoff.SystemClock,
 	}
 
-	r := new(dns.Msg).SetQuestion("netbird.io.", dns.TypeA)
-
 	operation := func() error {
 		select {
 		case <-u.ctx.Done():
@@ -165,16 +203,16 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 		default:
 		}
 
-		var err error
 		for _, upstream := range u.upstreamServers {
-			_, _, err = u.upstreamClient.exchange(upstream, r)
-
-			if err == nil {
+			if err := u.testNameserver(upstream); err != nil {
+				log.Tracef("upstream check for %s: %s", upstream, err)
+			} else {
+				// at least one upstream server is available, stop probing
 				return nil
 			}
 		}
 
-		log.Tracef("checking connectivity with upstreams %s failed with error: %s. Retrying in %s", err, u.upstreamServers, exponentialBackOff.NextBackOff())
+		log.Tracef("checking connectivity with upstreams %s failed. Retrying in %s", u.upstreamServers, exponentialBackOff.NextBackOff())
 		return fmt.Errorf("got an error from upstream check call")
 	}
 
@@ -199,4 +237,28 @@ func isTimeout(err error) bool {
 		return neterr != nil && neterr.Timeout()
 	}
 	return false
+}
+
+func (u *upstreamResolverBase) disable() {
+	if u.disabled {
+		return
+	}
+
+	// todo test the deactivation logic, it seems to affect the client
+	if runtime.GOOS != "ios" {
+		log.Warnf("upstream resolving is Disabled for %v", reactivatePeriod)
+		u.deactivate()
+		u.disabled = true
+		go u.waitUntilResponse()
+	}
+}
+
+func (u *upstreamResolverBase) testNameserver(server string) error {
+	ctx, cancel := context.WithTimeout(u.ctx, probeTimeout)
+	defer cancel()
+
+	r := new(dns.Msg).SetQuestion(testRecord, dns.TypeSOA)
+
+	_, _, err := u.upstreamClient.exchangeContext(ctx, server, r)
+	return err
 }
