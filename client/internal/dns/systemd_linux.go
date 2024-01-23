@@ -132,6 +132,12 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig) error {
 		log.Infof("removing %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
 	}
 
+	// create a backup for unclean shutdown detection before adding domains, as these might end up in the resolv.conf file.
+	// The file content itself is not important for systemd restoration
+	if err := createUncleanShutdownBackup(resolvconfFile, systemdManager); err != nil {
+		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
+	}
+
 	log.Infof("adding %d search domains and %d match domains. Search list: %s , Match list: %s", len(searchDomains), len(matchDomains), searchDomains, matchDomains)
 	err = s.setDomainsForInterface(domainsInput)
 	if err != nil {
@@ -157,6 +163,11 @@ func (s *systemdDbusConfigurator) restoreHostDNS() error {
 	if err != nil {
 		return fmt.Errorf("unable to revert link configuration, got error: %s", err)
 	}
+
+	if err := removeUncleanShutdownBackup(); err != nil {
+		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
+	}
+
 	return s.flushCaches()
 }
 
@@ -201,6 +212,9 @@ func (s *systemdDbusConfigurator) callLinkMethod(method string, value any) error
 }
 
 func (s *systemdDbusConfigurator) restoreUncleanShutdownBackup() error {
+	if err := s.restoreHostDNS(); err != nil {
+		return fmt.Errorf("restoring dns via systemd: %w", err)
+	}
 	return nil
 }
 
