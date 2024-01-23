@@ -30,7 +30,7 @@ type fileConfigurator struct {
 
 func newFileConfigurator() (hostManager, error) {
 	fc := &fileConfigurator{}
-	fc.repair = newRepair(fc.updateConfig)
+	fc.repair = newRepair(defaultResolvConfPath, fc.updateConfig)
 	return fc, nil
 }
 
