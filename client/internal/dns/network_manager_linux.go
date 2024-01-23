@@ -44,9 +44,9 @@ const (
 	networkManagerDbusSearchDomainOnlyPriority int32 = 50
 )
 
-var supportedNetworkManagerVersionConstraint = []string{
+var supportedNetworkManagerVersionConstraints = []string{
 	">= 1.16, < 1.27",
-	">=1.44, <1.45",
+	">= 1.44, < 1.45",
 }
 
 type networkManagerDbusConfigurator struct {
@@ -309,7 +309,7 @@ func isNetworkManagerSupportedVersion() bool {
 	}
 
 	var supported bool
-	for _, constraint := range supportedNetworkManagerVersionConstraint {
+	for _, constraint := range supportedNetworkManagerVersionConstraints {
 		constr, err := version.NewConstraint(constraint)
 		if err != nil {
 			log.Errorf("nm: create constraint: %s", err)
@@ -322,7 +322,7 @@ func isNetworkManagerSupportedVersion() bool {
 		}
 	}
 
-	log.Debugf("network manager constraints [%s] met: %t", strings.Join(supportedNetworkManagerVersionConstraint, " | "), supported)
+	log.Debugf("network manager constraints [%s] met: %t", strings.Join(supportedNetworkManagerVersionConstraints, " | "), supported)
 	return supported
 }
 
