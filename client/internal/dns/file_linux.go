@@ -21,9 +21,6 @@ const (
 
 	fileDefaultResolvConfBackupLocation = defaultResolvConfPath + ".original.netbird"
 
-	fileUncleanShutdownResolvConfLocation  = "/var/lib/netbird/resolv.conf"
-	fileUncleanShutdownManagerTypeLocation = "/var/lib/netbird/manager-type"
-
 	fileMaxLineCharsLimit        = 256
 	fileMaxNumberOfSearchDomains = 6
 )

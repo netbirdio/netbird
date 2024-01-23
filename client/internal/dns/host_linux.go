@@ -20,6 +20,9 @@ import (
 
 const (
 	defaultResolvConfPath = "/etc/resolv.conf"
+
+	fileUncleanShutdownResolvConfLocation  = "/var/lib/netbird/resolv.conf"
+	fileUncleanShutdownManagerTypeLocation = "/var/lib/netbird/manager-type"
 )
 
 const (
@@ -166,6 +169,7 @@ func CheckUncleanShutdown(wgIface string) error {
 		return fmt.Errorf("detect previous host manager: %w", err)
 	}
 
+	// the only real thing we need is the interface name
 	dummyInt, err := iface.NewWGIFace(wgIface, "0.0.0.0/32", 0, "", iface.DefaultMTU, &stdnet.Net{}, nil)
 	if err != nil {
 		return fmt.Errorf("create dummy int: %w", err)
