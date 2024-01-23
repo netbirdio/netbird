@@ -135,7 +135,7 @@ func getOSDNSManagerType() (osManagerType, error) {
 		}
 	}
 	if err := scanner.Err(); err != nil && err != io.EOF {
-		fmt.Errorf("scan: %w", err)
+		return 0, fmt.Errorf("scan: %w", err)
 	}
 
 	return fileManager, nil
