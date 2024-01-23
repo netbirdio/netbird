@@ -39,7 +39,7 @@ func newHostManager(wgInterface WGIface) (hostManager, error) {
 	}, nil
 }
 
-func (s *registryConfigurator) supportCustomPort() bool {
+func (r *registryConfigurator) supportCustomPort() bool {
 	return false
 }
 
@@ -203,6 +203,10 @@ func (r *registryConfigurator) getInterfaceRegistryKey() (registry.Key, error) {
 	return regKey, nil
 }
 
+func (r *registryConfigurator) restoreUncleanShutdownBackup() error {
+	return nil
+}
+
 func removeRegistryKeyFromDNSPolicyConfig(regKeyPath string) error {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, regKeyPath, registry.QUERY_VALUE)
 	if err == nil {
@@ -212,5 +216,9 @@ func removeRegistryKeyFromDNSPolicyConfig(regKeyPath string) error {
 			return fmt.Errorf("unable to remove existing key from registry, key: HKEY_LOCAL_MACHINE\\%s, error: %s", regKeyPath, err)
 		}
 	}
+	return nil
+}
+
+func CheckUncleanShutdown(wgIface string) error {
 	return nil
 }

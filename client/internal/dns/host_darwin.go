@@ -270,3 +270,11 @@ func runSystemConfigCommand(command string) ([]byte, error) {
 	}
 	return out, nil
 }
+
+func (s *systemConfigurator) restoreUncleanShutdownBackup() error {
+	return nil
+}
+
+func CheckUncleanShutdown(wgIface string) error {
+	return nil
+}

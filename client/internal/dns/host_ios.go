@@ -35,3 +35,11 @@ func (a iosHostManager) restoreHostDNS() error {
 func (a iosHostManager) supportCustomPort() bool {
 	return false
 }
+
+func (a iosHostManager) restoreUncleanShutdownBackup() error {
+	return nil
+}
+
+func CheckUncleanShutdown(_ string) error {
+	return nil
+}

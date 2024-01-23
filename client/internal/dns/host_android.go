@@ -18,3 +18,11 @@ func (a androidHostManager) restoreHostDNS() error {
 func (a androidHostManager) supportCustomPort() bool {
 	return false
 }
+
+func (a androidHostManager) restoreUncleanShutdownBackup() error {
+	return nil
+}
+
+func CheckUncleanShutdown(_ string) error {
+	return nil
+}
