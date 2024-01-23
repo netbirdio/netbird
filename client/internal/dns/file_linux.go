@@ -4,13 +4,10 @@ package dns
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 
-	"github.com/illarion/gonotify"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -26,16 +23,14 @@ const (
 )
 
 type fileConfigurator struct {
-	originalPerms   os.FileMode
-	inotify         *gonotify.Inotify
-	inotifyWg       sync.WaitGroup
-	inotifyLock     sync.Mutex
-	nbSearchDomains []string
-	nbNameserverIP  string
+	repair *repair
+
+	originalPerms os.FileMode
 }
 
 func newFileConfigurator() (hostManager, error) {
 	fc := &fileConfigurator{}
+	fc.repair = newRepair(fc.updateConfig)
 	return fc, nil
 }
 
@@ -67,31 +62,27 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 		}
 	}
 
-	f.inotifyLock.Lock()
-	f.nbSearchDomains = searchDomains(config)
-	f.nbNameserverIP = config.ServerIP
-	defer f.inotifyLock.Unlock()
+	nbSearchDomains := searchDomains(config)
+	nbNameserverIP := config.ServerIP
 
 	resolvConf, err := parseBackupResolvConf()
 	if err != nil {
 		log.Error(err)
 	}
 
-	f.stopWatchFileChanges()
+	f.repair.stopWatchFileChanges()
 
-	err = f.updateConfig(resolvConf)
+	err = f.updateConfig(nbSearchDomains, nbNameserverIP, resolvConf)
 	if err != nil {
 		return err
 	}
-	f.watchFileChanges()
+	f.repair.watchFileChanges(nbSearchDomains, nbNameserverIP)
 	return nil
 }
 
-func (f *fileConfigurator) updateConfig(cfg *resolvConf) error {
-	f.inotifyLock.Lock()
-	defer f.inotifyLock.Unlock()
-	searchDomainList := mergeSearchDomains(f.nbSearchDomains, cfg.searchDomains)
-	nameServers := f.generateNsList(cfg)
+func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP string, cfg *resolvConf) error {
+	searchDomainList := mergeSearchDomains(nbSearchDomains, cfg.searchDomains)
+	nameServers := generateNsList(nbNameserverIP, cfg)
 
 	buf := prepareResolvConfContent(
 		searchDomainList,
@@ -113,7 +104,7 @@ func (f *fileConfigurator) updateConfig(cfg *resolvConf) error {
 }
 
 func (f *fileConfigurator) restoreHostDNS() error {
-	f.stopWatchFileChanges()
+	f.repair.stopWatchFileChanges()
 	return f.restore()
 }
 
@@ -142,132 +133,15 @@ func (f *fileConfigurator) restore() error {
 }
 
 // generateNsList generates a list of nameservers from the config and adds the primary nameserver to the beginning of the list
-func (f *fileConfigurator) generateNsList(cfg *resolvConf) []string {
+func generateNsList(nbNameserverIP string, cfg *resolvConf) []string {
 	ns := make([]string, 1, len(cfg.nameServers)+1)
-	ns[0] = f.nbNameserverIP
+	ns[0] = nbNameserverIP
 	for _, cfgNs := range cfg.nameServers {
-		if f.nbNameserverIP != cfgNs {
+		if nbNameserverIP != cfgNs {
 			ns = append(ns, cfgNs)
 		}
 	}
 	return ns
-}
-
-func (f *fileConfigurator) watchFileChanges() {
-	if f.inotify != nil {
-		return
-	}
-	inotify, err := gonotify.NewInotify()
-	if err != nil {
-		log.Errorf("failed to start inotify watcher for resolv.conf: %s", err)
-		return
-	}
-	f.inotify = inotify
-
-	const eventTypes = gonotify.IN_ATTRIB |
-		gonotify.IN_CREATE |
-		gonotify.IN_MODIFY |
-		gonotify.IN_MOVE |
-		gonotify.IN_CLOSE_WRITE |
-		gonotify.IN_DELETE
-
-	const watchDir = "/etc"
-	err = f.inotify.AddWatch(watchDir, eventTypes)
-	if err != nil {
-		log.Errorf("failed to add inotify watch for resolv.conf: %s", err)
-		return
-	}
-	f.inotifyWg.Add(1)
-	go func() {
-		defer f.inotifyWg.Done()
-		for {
-			events, err := f.inotify.Read()
-			if err != nil {
-				if errors.Is(err, os.ErrClosed) {
-					log.Infof("inotify closed")
-					return
-				}
-
-				log.Errorf("failed to read inotify %v", err)
-				return
-			}
-			var match bool
-			for _, ev := range events {
-				if ev.Name == defaultResolvConfPath {
-					match = true
-					break
-				}
-			}
-			if !match {
-				continue
-			}
-
-			rConf, err := parseDefaultResolvConf()
-			if err != nil {
-				log.Errorf("failed to parse resolv conf: %s", err)
-				continue
-			}
-
-			if !f.nbParamsAreMissing(rConf) {
-				log.Debugf("resolv.conf still correct, skip the update")
-				continue
-			}
-			log.Info("broken params in resolv.conf, repair it...")
-
-			err = f.inotify.RmWatch(watchDir)
-			if err != nil {
-				log.Errorf("failed to rm inotify watch for resolv.conf: %s", err)
-			}
-
-			err = f.updateConfig(rConf)
-			if err != nil {
-				log.Errorf("failed to repair resolv.conf: %v", err)
-			}
-
-			err = f.inotify.AddWatch(watchDir, eventTypes)
-			if err != nil {
-				log.Errorf("failed to readd inotify watch for resolv.conf: %s", err)
-				return
-			}
-		}
-	}()
-	return
-}
-
-func (f *fileConfigurator) stopWatchFileChanges() {
-	if f.inotify == nil {
-		return
-	}
-	err := f.inotify.Close()
-	if err != nil {
-		log.Warnf("failed to close resolv.conf inotify: %v", err)
-	}
-	f.inotifyWg.Wait()
-	f.inotify = nil
-}
-
-// nbParamsAreMissing checks if the resolv.conf file contains all the parameters that NetBird needs
-// check the NetBird related nameserver IP at the first place
-// check the NetBird related search domains in the search domains list
-func (f *fileConfigurator) nbParamsAreMissing(rConf *resolvConf) bool {
-	log.Debugf("check parasm: %v, %v", rConf.searchDomains, rConf.nameServers)
-	if !isContains(f.nbSearchDomains, rConf.searchDomains) {
-		log.Debugf("broken searchdomains")
-		return true
-	}
-
-	if len(rConf.nameServers) == 0 {
-		log.Debugf("empty ns list")
-		return true
-	}
-
-	if rConf.nameServers[0] != f.nbNameserverIP {
-		log.Debugf("broken ns")
-		return true
-	}
-
-	log.Debugf("all good")
-	return false
 }
 
 func prepareResolvConfContent(searchDomains, nameServers, others []string) bytes.Buffer {

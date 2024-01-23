@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -16,6 +14,10 @@ type resolvConf struct {
 	nameServers   []string
 	searchDomains []string
 	others        []string
+}
+
+func (r *resolvConf) String() string {
+	return fmt.Sprintf("search domains: %v, name servers: %v, others: %s", r.searchDomains, r.nameServers, r.others)
 }
 
 func parseDefaultResolvConf() (*resolvConf, error) {
@@ -68,14 +70,12 @@ func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
 		}
 
 		if strings.HasPrefix(line, "search") {
-			log.Debugf("found search domains: %s", line)
 			splitLines := strings.Fields(line)
 			if len(splitLines) < 2 {
 				continue
 			}
 
 			rconf.searchDomains = splitLines[1:]
-			log.Debugf("search domains: %s", rconf.searchDomains)
 			continue
 		}
 
