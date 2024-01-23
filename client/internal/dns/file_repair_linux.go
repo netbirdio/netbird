@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"sync"
 
 	"github.com/illarion/gonotify"
@@ -18,8 +19,6 @@ const (
 		gonotify.IN_MOVE |
 		gonotify.IN_CLOSE_WRITE |
 		gonotify.IN_DELETE
-
-	watchDir = "/etc"
 )
 
 type repairConfFn func([]string, string, *resolvConf) error
@@ -27,6 +26,7 @@ type repairConfFn func([]string, string, *resolvConf) error
 type repair struct {
 	operationFile string
 	updateFn      repairConfFn
+	watchDir      string
 
 	inotify   *gonotify.Inotify
 	inotifyWg sync.WaitGroup
@@ -35,6 +35,7 @@ type repair struct {
 func newRepair(operationFile string, updateFn repairConfFn) *repair {
 	return &repair{
 		operationFile: operationFile,
+		watchDir:      path.Dir(operationFile),
 		updateFn:      updateFn,
 	}
 }
@@ -52,7 +53,7 @@ func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP strin
 	}
 	f.inotify = inotify
 
-	err = f.inotify.AddWatch(watchDir, eventTypes)
+	err = f.inotify.AddWatch(f.watchDir, eventTypes)
 	if err != nil {
 		log.Errorf("failed to add inotify watch for resolv.conf: %s", err)
 		return
@@ -64,7 +65,6 @@ func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP strin
 			events, err := f.inotify.Read()
 			if err != nil {
 				if errors.Is(err, os.ErrClosed) {
-					log.Infof("inotify closed")
 					return
 				}
 
@@ -91,7 +91,7 @@ func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP strin
 			}
 			log.Info("broken params in resolv.conf, repair it...")
 
-			err = f.inotify.RmWatch(watchDir)
+			err = f.inotify.RmWatch(f.watchDir)
 			if err != nil {
 				log.Errorf("failed to rm inotify watch for resolv.conf: %s", err)
 			}
@@ -101,7 +101,7 @@ func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP strin
 				log.Errorf("failed to repair resolv.conf: %v", err)
 			}
 
-			err = f.inotify.AddWatch(watchDir, eventTypes)
+			err = f.inotify.AddWatch(f.watchDir, eventTypes)
 			if err != nil {
 				log.Errorf("failed to readd inotify watch for resolv.conf: %s", err)
 				return
