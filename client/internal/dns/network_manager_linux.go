@@ -74,13 +74,13 @@ func (s networkManagerConnSettings) cleanDeprecatedSettings() {
 func newNetworkManagerDbusConfigurator(wgInterface WGIface) (hostManager, error) {
 	obj, closeConn, err := getDbusObject(networkManagerDest, networkManagerDbusObjectNode)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get nm dbus: %w", err)
 	}
 	defer closeConn()
 	var s string
 	err = obj.Call(networkManagerDbusGetDeviceByIPIfaceMethod, dbusDefaultFlag, wgInterface.Name()).Store(&s)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("call: %w", err)
 	}
 
 	log.Debugf("got network manager dbus Link Object: %s from net interface %s", s, wgInterface.Name())
@@ -145,6 +145,12 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig) er
 	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSPriorityKey] = dbus.MakeVariant(priority)
 	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSSearchKey] = dbus.MakeVariant(newDomainList)
 
+	// create a backup for unclean shutdown detection before adding domains, as these might end up in the resolv.conf file.
+	// The file content itself is not important for network-manager restoration
+	if err := createUncleanShutdownBackup(defaultResolvConfPath, networkManager); err != nil {
+		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
+	}
+
 	log.Infof("adding %d search domains and %d match domains. Search list: %s , Match list: %s", len(searchDomains), len(matchDomains), searchDomains, matchDomains)
 	err = n.reApplyConnectionSettings(connSettings, configVersion)
 	if err != nil {
@@ -155,7 +161,15 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig) er
 
 func (n *networkManagerDbusConfigurator) restoreHostDNS() error {
 	// once the interface is gone network manager cleans all config associated with it
-	return n.deleteConnectionSettings()
+	if err := n.deleteConnectionSettings(); err != nil {
+		return fmt.Errorf("delete connection settings: %w", err)
+	}
+
+	if err := removeUncleanShutdownBackup(); err != nil {
+		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
+	}
+
+	return nil
 }
 
 func (n *networkManagerDbusConfigurator) getAppliedConnectionSettings() (networkManagerConnSettings, networkManagerConfigVersion, error) {
@@ -220,6 +234,9 @@ func (n *networkManagerDbusConfigurator) deleteConnectionSettings() error {
 }
 
 func (n *networkManagerDbusConfigurator) restoreUncleanShutdownBackup() error {
+	if err := n.restoreHostDNS(); err != nil {
+		return fmt.Errorf("restoring dns via network-manager: %w", err)
+	}
 	return nil
 }
 
@@ -290,7 +307,10 @@ func isNetworkManagerSupportedVersion() bool {
 		return false
 	}
 
-	return constraints.Check(versionValue)
+	supported := constraints.Check(versionValue)
+	log.Debugf("network manager constraints '%s' met: %t", supportedNetworkManagerVersionConstraint, supported)
+
+	return supported
 }
 
 func parseVersion(inputVersion string) (*version.Version, error) {
