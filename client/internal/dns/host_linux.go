@@ -97,7 +97,7 @@ func newHostManagerFromType(wgInterface WGIface, osManager osManagerType) (hostM
 func getOSDNSManagerType() (osManagerType, error) {
 	file, err := os.Open(defaultResolvConfPath)
 	if err != nil {
-		return 0, fmt.Errorf("unable to open %s for checking owner, got error: %s", defaultResolvConfPath, err)
+		return 0, fmt.Errorf("unable to open %s for checking owner, got error: %w", defaultResolvConfPath, err)
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
@@ -205,10 +205,10 @@ func createUncleanShutdownBackup(sourcePath string, managerType osManagerType) e
 
 func removeUncleanShutdownBackup() error {
 	if err := os.Remove(fileUncleanShutdownResolvConfLocation); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("remove %s: %s", fileUncleanShutdownResolvConfLocation, err)
+		return fmt.Errorf("remove %s: %w", fileUncleanShutdownResolvConfLocation, err)
 	}
 	if err := os.Remove(fileUncleanShutdownManagerTypeLocation); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("remove %s: %s", fileUncleanShutdownManagerTypeLocation, err)
+		return fmt.Errorf("remove %s: %w", fileUncleanShutdownManagerTypeLocation, err)
 	}
 	return nil
 }
