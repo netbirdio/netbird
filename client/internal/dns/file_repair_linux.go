@@ -3,22 +3,21 @@
 package dns
 
 import (
-	"errors"
 	"fmt"
-	"os"
 	"path"
 	"sync"
 
-	"github.com/illarion/gonotify"
+	"github.com/fsnotify/fsnotify"
 	log "github.com/sirupsen/logrus"
 )
 
-const (
-	eventTypes = gonotify.IN_CREATE |
-		gonotify.IN_MODIFY |
-		gonotify.IN_MOVE |
-		gonotify.IN_CLOSE_WRITE |
-		gonotify.IN_DELETE
+var (
+	eventTypes = []fsnotify.Op{
+		fsnotify.Create,
+		fsnotify.Write,
+		fsnotify.Remove,
+		fsnotify.Rename,
+	}
 )
 
 type repairConfFn func([]string, string, *resolvConf) error
@@ -28,7 +27,7 @@ type repair struct {
 	updateFn      repairConfFn
 	watchDir      string
 
-	inotify   *gonotify.Inotify
+	inotify   *fsnotify.Watcher
 	inotifyWg sync.WaitGroup
 }
 
@@ -46,68 +45,65 @@ func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP strin
 	}
 
 	log.Infof("start to watch resolv.conf")
-	inotify, err := gonotify.NewInotify()
+	inotify, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("failed to start inotify watcher for resolv.conf: %s", err)
 		return
 	}
 	f.inotify = inotify
 
-	err = f.inotify.AddWatch(f.watchDir, eventTypes)
-	if err != nil {
-		log.Errorf("failed to add inotify watch for resolv.conf: %s", err)
-		return
-	}
 	f.inotifyWg.Add(1)
 	go func() {
 		defer f.inotifyWg.Done()
 		for {
-			events, err := f.inotify.Read()
-			if err != nil {
-				if errors.Is(err, os.ErrClosed) {
+			select {
+			case event, ok := <-f.inotify.Events:
+				if !ok {
 					return
 				}
+				if !f.isEventRelevant(event) {
+					continue
+				}
 
-				log.Errorf("failed to read inotify %v", err)
-				return
-			}
+				log.Tracef("resolv.conf changed, check if it is broken")
 
-			if !f.isEventRelevant(events) {
-				continue
-			}
+				rConf, err := parseResolvConfFile(f.operationFile)
+				if err != nil {
+					log.Warnf("failed to parse resolv conf: %s", err)
+					continue
+				}
 
-			log.Tracef("resolv.conf changed, check if it is broken")
+				log.Debugf("check resolv.conf parameters: %s", rConf)
+				if !isNbParamsMissing(nbSearchDomains, nbNameserverIP, rConf) {
+					log.Tracef("resolv.conf still correct, skip the update")
+					continue
+				}
+				log.Info("broken params in resolv.conf, repair it...")
 
-			rConf, err := parseResolvConfFile(f.operationFile)
-			if err != nil {
-				log.Warnf("failed to parse resolv conf: %s", err)
-				continue
-			}
+				err = f.inotify.Remove(f.watchDir)
+				if err != nil {
+					log.Errorf("failed to rm inotify watch for resolv.conf: %s", err)
+				}
 
-			log.Debugf("check resolv.conf parameters: %s", rConf)
-			if !isNbParamsMissing(nbSearchDomains, nbNameserverIP, rConf) {
-				log.Tracef("resolv.conf still correct, skip the update")
-				continue
-			}
-			log.Info("broken params in resolv.conf, repair it...")
+				err = f.updateFn(nbSearchDomains, nbNameserverIP, rConf)
+				if err != nil {
+					log.Errorf("failed to repair resolv.conf: %v", err)
+				}
 
-			err = f.inotify.RmWatch(f.watchDir)
-			if err != nil {
-				log.Errorf("failed to rm inotify watch for resolv.conf: %s", err)
-			}
-
-			err = f.updateFn(nbSearchDomains, nbNameserverIP, rConf)
-			if err != nil {
-				log.Errorf("failed to repair resolv.conf: %v", err)
-			}
-
-			err = f.inotify.AddWatch(f.watchDir, eventTypes)
-			if err != nil {
-				log.Errorf("failed to readd inotify watch for resolv.conf: %s", err)
-				return
+				err = f.inotify.Add(f.watchDir)
+				if err != nil {
+					log.Errorf("failed to readd inotify watch for resolv.conf: %s", err)
+					return
+				}
 			}
 		}
 	}()
+
+	err = f.inotify.Add(f.watchDir)
+	if err != nil {
+		log.Errorf("failed to add inotify watch for resolv.conf: %s", err)
+		return
+	}
 }
 
 func (f *repair) stopWatchFileChanges() {
@@ -122,12 +118,22 @@ func (f *repair) stopWatchFileChanges() {
 	f.inotify = nil
 }
 
-func (f *repair) isEventRelevant(events []gonotify.InotifyEvent) bool {
-	operatioFileSymlink := fmt.Sprintf("%s~", f.operationFile)
-	for _, ev := range events {
-		if ev.Name == f.operationFile || ev.Name == operatioFileSymlink {
-			return true
+func (f *repair) isEventRelevant(event fsnotify.Event) bool {
+	var ok bool
+	for _, et := range eventTypes {
+		if event.Has(et) {
+			ok = true
+			break
 		}
+	}
+	if !ok {
+		return false
+	}
+
+	//todo validate this
+	operatioFileSymlink := fmt.Sprintf("%s~", f.operationFile)
+	if event.Name == f.operationFile || event.Name == operatioFileSymlink {
+		return true
 	}
 	return false
 }
