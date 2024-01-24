@@ -71,3 +71,5 @@ func buildRecordKey(name string, class, qType uint16) string {
 	key := fmt.Sprintf("%s_%d_%d", name, class, qType)
 	return key
 }
+
+func (d *localResolver) probeAvailability() {}

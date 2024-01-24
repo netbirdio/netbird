@@ -19,8 +19,6 @@ import (
 )
 
 const (
-	defaultResolvConfPath = "/etc/resolv.conf"
-
 	fileUncleanShutdownResolvConfLocation  = "/var/lib/netbird/resolv.conf"
 	fileUncleanShutdownManagerTypeLocation = "/var/lib/netbird/manager-type"
 )
@@ -121,7 +119,11 @@ func getOSDNSManagerType() (osManagerType, error) {
 			return networkManager, nil
 		}
 		if strings.Contains(text, "systemd-resolved") && isDbusListenerRunning(systemdResolvedDest, systemdDbusObjectNode) {
-			return systemdManager, nil
+			if checkStub() {
+				return systemdManager, nil
+			} else {
+				return fileManager, nil
+			}
 		}
 		if strings.Contains(text, "resolvconf") {
 			if isDbusListenerRunning(systemdResolvedDest, systemdDbusObjectNode) {
@@ -142,6 +144,23 @@ func getOSDNSManagerType() (osManagerType, error) {
 	}
 
 	return fileManager, nil
+}
+
+// checkStub checks if the stub resolver is disabled in systemd-resolved. If it is disabled, we fall back to file manager.
+func checkStub() bool {
+	rConf, err := parseDefaultResolvConf()
+	if err != nil {
+		log.Warnf("failed to parse resolv conf: %s", err)
+		return true
+	}
+
+	for _, ns := range rConf.nameServers {
+		if ns == "127.0.0.53" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func CheckUncleanShutdown(wgIface string) error {
