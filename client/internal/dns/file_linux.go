@@ -3,7 +3,6 @@
 package dns
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"os"
@@ -24,11 +23,15 @@ const (
 )
 
 type fileConfigurator struct {
+	repair *repair
+
 	originalPerms os.FileMode
 }
 
 func newFileConfigurator() (hostManager, error) {
-	return &fileConfigurator{}, nil
+	fc := &fileConfigurator{}
+	fc.repair = newRepair(defaultResolvConfPath, fc.updateConfig)
+	return fc, nil
 }
 
 func (f *fileConfigurator) supportCustomPort() bool {
@@ -59,22 +62,35 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 		}
 	}
 
-	searchDomainList := searchDomains(config)
+	nbSearchDomains := searchDomains(config)
+	nbNameserverIP := config.ServerIP
 
-	originalSearchDomains, nameServers, others, err := originalDNSConfigs(fileDefaultResolvConfBackupLocation)
+	resolvConf, err := parseBackupResolvConf()
 	if err != nil {
 		log.Error(err)
 	}
 
-	searchDomainList = mergeSearchDomains(searchDomainList, originalSearchDomains)
+	f.repair.stopWatchFileChanges()
+
+	err = f.updateConfig(nbSearchDomains, nbNameserverIP, resolvConf)
+	if err != nil {
+		return err
+	}
+	f.repair.watchFileChanges(nbSearchDomains, nbNameserverIP)
+	return nil
+}
+
+func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP string, cfg *resolvConf) error {
+	searchDomainList := mergeSearchDomains(nbSearchDomains, cfg.searchDomains)
+	nameServers := generateNsList(nbNameserverIP, cfg)
 
 	buf := prepareResolvConfContent(
 		searchDomainList,
-		append([]string{config.ServerIP}, nameServers...),
-		others)
+		nameServers,
+		cfg.others)
 
 	log.Debugf("creating managed file %s", defaultResolvConfPath)
-	err = os.WriteFile(defaultResolvConfPath, buf.Bytes(), f.originalPerms)
+	err := os.WriteFile(defaultResolvConfPath, buf.Bytes(), f.originalPerms)
 	if err != nil {
 		restoreErr := f.restore()
 		if restoreErr != nil {
@@ -88,6 +104,7 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 }
 
 func (f *fileConfigurator) restoreHostDNS() error {
+	f.repair.stopWatchFileChanges()
 	return f.restore()
 }
 
@@ -113,6 +130,18 @@ func (f *fileConfigurator) restore() error {
 	}
 
 	return os.RemoveAll(fileDefaultResolvConfBackupLocation)
+}
+
+// generateNsList generates a list of nameservers from the config and adds the primary nameserver to the beginning of the list
+func generateNsList(nbNameserverIP string, cfg *resolvConf) []string {
+	ns := make([]string, 1, len(cfg.nameServers)+1)
+	ns[0] = nbNameserverIP
+	for _, cfgNs := range cfg.nameServers {
+		if nbNameserverIP != cfgNs {
+			ns = append(ns, cfgNs)
+		}
+	}
+	return ns
 }
 
 func prepareResolvConfContent(searchDomains, nameServers, others []string) bytes.Buffer {
@@ -150,70 +179,6 @@ func searchDomains(config HostDNSConfig) []string {
 	return listOfDomains
 }
 
-func originalDNSConfigs(resolvconfFile string) (searchDomains, nameServers, others []string, err error) {
-	file, err := os.Open(resolvconfFile)
-	if err != nil {
-		err = fmt.Errorf(`could not read existing resolv.conf`)
-		return
-	}
-	defer file.Close()
-
-	reader := bufio.NewReader(file)
-
-	for {
-		lineBytes, isPrefix, readErr := reader.ReadLine()
-		if readErr != nil {
-			break
-		}
-
-		if isPrefix {
-			err = fmt.Errorf(`resolv.conf line too long`)
-			return
-		}
-
-		line := strings.TrimSpace(string(lineBytes))
-
-		if strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		if strings.HasPrefix(line, "domain") {
-			continue
-		}
-
-		if strings.HasPrefix(line, "options") && strings.Contains(line, "rotate") {
-			line = strings.ReplaceAll(line, "rotate", "")
-			splitLines := strings.Fields(line)
-			if len(splitLines) == 1 {
-				continue
-			}
-			line = strings.Join(splitLines, " ")
-		}
-
-		if strings.HasPrefix(line, "search") {
-			splitLines := strings.Fields(line)
-			if len(splitLines) < 2 {
-				continue
-			}
-
-			searchDomains = splitLines[1:]
-			continue
-		}
-
-		if strings.HasPrefix(line, "nameserver") {
-			splitLines := strings.Fields(line)
-			if len(splitLines) != 2 {
-				continue
-			}
-			nameServers = append(nameServers, splitLines[1])
-			continue
-		}
-
-		others = append(others, line)
-	}
-	return
-}
-
 // merge search Domains lists and cut off the list if it is too long
 func mergeSearchDomains(searchDomains []string, originalSearchDomains []string) []string {
 	lineSize := len("search")
@@ -230,6 +195,19 @@ func mergeSearchDomains(searchDomains []string, originalSearchDomains []string) 
 // return with the number of characters in the searchDomains line
 func validateAndFillSearchDomains(initialLineChars int, s *[]string, vs []string) int {
 	for _, sd := range vs {
+		duplicated := false
+		for _, fs := range *s {
+			if fs == sd {
+				duplicated = true
+				break
+			}
+
+		}
+
+		if duplicated {
+			continue
+		}
+
 		tmpCharsNumber := initialLineChars + 1 + len(sd)
 		if tmpCharsNumber > fileMaxLineCharsLimit {
 			// lets log all skipped Domains
@@ -246,6 +224,7 @@ func validateAndFillSearchDomains(initialLineChars int, s *[]string, vs []string
 		}
 		*s = append(*s, sd)
 	}
+
 	return initialLineChars
 }
 
@@ -265,4 +244,19 @@ func copyFile(src, dest string) error {
 		return fmt.Errorf("got an writing the destination file %s for copy. Error: %s", dest, err)
 	}
 	return nil
+}
+
+func isContains(subList []string, list []string) bool {
+	for _, sl := range subList {
+		var found bool
+		for _, l := range list {
+			if sl == l {
+				found = true
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
