@@ -31,6 +31,7 @@ type Info struct {
 	CPUs               int
 	WiretrusteeVersion string
 	UIVersion          string
+	KernelVersion      string
 }
 
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context
