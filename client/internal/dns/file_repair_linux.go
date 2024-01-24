@@ -130,7 +130,6 @@ func (f *repair) isEventRelevant(event fsnotify.Event) bool {
 		return false
 	}
 
-	//todo validate this
 	operatioFileSymlink := fmt.Sprintf("%s~", f.operationFile)
 	if event.Name == f.operationFile || event.Name == operatioFileSymlink {
 		return true
