@@ -58,19 +58,19 @@ type systemdDbusLinkDomainsInput struct {
 func newSystemdDbusConfigurator(wgInterface WGIface) (hostManager, error) {
 	iface, err := net.InterfaceByName(wgInterface.Name())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get interface: %w", err)
 	}
 
 	obj, closeConn, err := getDbusObject(systemdResolvedDest, systemdDbusObjectNode)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get dbus resolved dest: %w", err)
 	}
 	defer closeConn()
 
 	var s string
 	err = obj.Call(systemdDbusGetLinkMethod, dbusDefaultFlag, iface.Index).Store(&s)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get dbus link method: %w", err)
 	}
 
 	log.Debugf("got dbus Link interface: %s from net interface %s and index %d", s, iface.Name, iface.Index)
