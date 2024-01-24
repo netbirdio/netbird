@@ -91,6 +91,7 @@ nameserver 8.8.8.8`,
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run("test", func(t *testing.T) {
 			t.Parallel()
 			workDir := t.TempDir()

@@ -52,6 +52,7 @@ search netbird.cloud
 	}
 
 	for _, testCase := range testCases {
+		testCase := testCase
 		t.Run("test", func(t *testing.T) {
 			t.Parallel()
 			tmpResolvConf := fmt.Sprintf("%s/%s", t.TempDir(), "resolv.conf")
