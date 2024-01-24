@@ -55,46 +55,40 @@ func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP strin
 	f.inotifyWg.Add(1)
 	go func() {
 		defer f.inotifyWg.Done()
-		for {
-			select {
-			case event, ok := <-f.inotify.Events:
-				if !ok {
-					return
-				}
-				if !f.isEventRelevant(event) {
-					continue
-				}
+		for event := range f.inotify.Events {
+			if !f.isEventRelevant(event) {
+				continue
+			}
 
-				log.Tracef("resolv.conf changed, check if it is broken")
+			log.Tracef("resolv.conf changed, check if it is broken")
 
-				rConf, err := parseResolvConfFile(f.operationFile)
-				if err != nil {
-					log.Warnf("failed to parse resolv conf: %s", err)
-					continue
-				}
+			rConf, err := parseResolvConfFile(f.operationFile)
+			if err != nil {
+				log.Warnf("failed to parse resolv conf: %s", err)
+				continue
+			}
 
-				log.Debugf("check resolv.conf parameters: %s", rConf)
-				if !isNbParamsMissing(nbSearchDomains, nbNameserverIP, rConf) {
-					log.Tracef("resolv.conf still correct, skip the update")
-					continue
-				}
-				log.Info("broken params in resolv.conf, repair it...")
+			log.Debugf("check resolv.conf parameters: %s", rConf)
+			if !isNbParamsMissing(nbSearchDomains, nbNameserverIP, rConf) {
+				log.Tracef("resolv.conf still correct, skip the update")
+				continue
+			}
+			log.Info("broken params in resolv.conf, repair it...")
 
-				err = f.inotify.Remove(f.watchDir)
-				if err != nil {
-					log.Errorf("failed to rm inotify watch for resolv.conf: %s", err)
-				}
+			err = f.inotify.Remove(f.watchDir)
+			if err != nil {
+				log.Errorf("failed to rm inotify watch for resolv.conf: %s", err)
+			}
 
-				err = f.updateFn(nbSearchDomains, nbNameserverIP, rConf)
-				if err != nil {
-					log.Errorf("failed to repair resolv.conf: %v", err)
-				}
+			err = f.updateFn(nbSearchDomains, nbNameserverIP, rConf)
+			if err != nil {
+				log.Errorf("failed to repair resolv.conf: %v", err)
+			}
 
-				err = f.inotify.Add(f.watchDir)
-				if err != nil {
-					log.Errorf("failed to readd inotify watch for resolv.conf: %s", err)
-					return
-				}
+			err = f.inotify.Add(f.watchDir)
+			if err != nil {
+				log.Errorf("failed to readd inotify watch for resolv.conf: %s", err)
+				return
 			}
 		}
 	}()
