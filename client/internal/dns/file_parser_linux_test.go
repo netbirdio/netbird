@@ -54,7 +54,7 @@ search netbird.cloud
 	for _, testCase := range testCases {
 		t.Run("test", func(t *testing.T) {
 			t.Parallel()
-			tmpResolvConf := fmt.Sprintf("%s/%s", os.TempDir(), "resolv.conf")
+			tmpResolvConf := fmt.Sprintf("%s/%s", t.TempDir(), "resolv.conf")
 			err := os.WriteFile(tmpResolvConf, []byte(testCase.input), 0644)
 			if err != nil {
 				t.Fatal(err)
