@@ -76,7 +76,7 @@ func (r *resolvconf) restoreHostDNS() error {
 	cmd := exec.Command(resolvconfCommand, "-f", "-d", r.ifaceName)
 	_, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("got an error while removing resolvconf configuration for %s interface, error: %w", r.ifaceName, err)
+		return fmt.Errorf("removing resolvconf configuration for %s interface, error: %w", r.ifaceName, err)
 	}
 
 	if err := removeUncleanShutdownIndicator(); err != nil {
@@ -92,7 +92,7 @@ func (r *resolvconf) applyConfig(content bytes.Buffer) error {
 	cmd.Stdin = &content
 	_, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("got an error while applying resolvconf configuration for %s interface, error: %w", r.ifaceName, err)
+		return fmt.Errorf("applying resolvconf configuration for %s interface, error: %w", r.ifaceName, err)
 	}
 	return nil
 }

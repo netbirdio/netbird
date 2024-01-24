@@ -96,7 +96,7 @@ func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP
 		if restoreErr != nil {
 			log.Errorf("attempt to restore default file failed with error: %s", err)
 		}
-		return fmt.Errorf("got an error creating resolver file %s. Error: %w", defaultResolvConfPath, err)
+		return fmt.Errorf("creating resolver file %s. Error: %w", defaultResolvConfPath, err)
 	}
 
 	log.Infof("created a NetBird managed %s file with the DNS settings. Added %d search domains. Search list: %s", defaultResolvConfPath, len(searchDomainList), searchDomainList)

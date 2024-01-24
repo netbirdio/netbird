@@ -237,7 +237,7 @@ func getSystemdDbusProperty(property string, store any) error {
 
 	v, e := obj.GetProperty(property)
 	if e != nil {
-		return fmt.Errorf("got an error getting property %s: %w", property, e)
+		return fmt.Errorf("getting property %s: %w", property, e)
 	}
 
 	return v.Store(store)
