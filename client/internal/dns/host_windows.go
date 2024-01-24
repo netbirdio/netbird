@@ -73,6 +73,11 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig) error {
 		log.Infof("removed %s as main DNS forwarder for this peer", config.ServerIP)
 	}
 
+	// create a file for unclean shutdown detection
+	if err := createUncleanShutdownBackup(r.guid); err != nil {
+		log.Errorf("failed to create unclean shutdown file: %s", err)
+	}
+
 	var (
 		searchDomains []string
 		matchDomains  []string
@@ -100,11 +105,6 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	err = r.updateSearchDomains(searchDomains)
 	if err != nil {
 		return fmt.Errorf("update search domains: %w", err)
-	}
-
-	// create a file for unclean shutdown detection
-	if err := createUncleanShutdownBackup(r.guid); err != nil {
-		log.Errorf("failed to create unclean shutdown file: %s", err)
 	}
 
 	return nil
@@ -287,7 +287,7 @@ func createUncleanShutdownBackup(guid string) error {
 		return fmt.Errorf("create dir %s: %w", dir, err)
 	}
 
-	if err := os.WriteFile(file, []byte(guid), 0700); err != nil {
+	if err := os.WriteFile(file, []byte(guid), 0600); err != nil {
 		return fmt.Errorf("create %s: %w", file, err)
 	}
 
