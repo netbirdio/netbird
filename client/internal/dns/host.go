@@ -28,9 +28,9 @@ type DomainConfig struct {
 }
 
 type mockHostConfigurator struct {
-	applyDNSConfigFunc               func(config HostDNSConfig) error
-	restoreHostDNSFunc               func() error
-	supportCustomPortFunc            func() bool
+	applyDNSConfigFunc            func(config HostDNSConfig) error
+	restoreHostDNSFunc            func() error
+	supportCustomPortFunc         func() bool
 	restoreUncleanShutdownDNSFunc func() error
 }
 
@@ -64,9 +64,9 @@ func (m *mockHostConfigurator) restoreUncleanShutdownDNS() error {
 
 func newNoopHostMocker() hostManager {
 	return &mockHostConfigurator{
-		applyDNSConfigFunc:               func(config HostDNSConfig) error { return nil },
-		restoreHostDNSFunc:               func() error { return nil },
-		supportCustomPortFunc:            func() bool { return true },
+		applyDNSConfigFunc:            func(config HostDNSConfig) error { return nil },
+		restoreHostDNSFunc:            func() error { return nil },
+		supportCustomPortFunc:         func() bool { return true },
 		restoreUncleanShutdownDNSFunc: func() error { return nil },
 	}
 }
