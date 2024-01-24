@@ -63,7 +63,7 @@ func (s *serviceViaListener) Listen() error {
 	s.listenIP, s.listenPort, err = s.evalListenAddress()
 	if err != nil {
 		log.Errorf("failed to eval runtime address: %s", err)
-		return err
+		return fmt.Errorf("eval listen address: %w", err)
 	}
 	s.server.Addr = fmt.Sprintf("%s:%d", s.listenIP, s.listenPort)
 

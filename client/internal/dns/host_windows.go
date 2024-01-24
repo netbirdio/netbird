@@ -62,12 +62,12 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	if config.RouteAll {
 		err = r.addDNSSetupForAll(config.ServerIP)
 		if err != nil {
-			return err
+			return fmt.Errorf("add dns setup: %w", err)
 		}
 	} else if r.routingAll {
 		err = r.deleteInterfaceRegistryKeyProperty(interfaceConfigNameServerKey)
 		if err != nil {
-			return err
+			return fmt.Errorf("delete interface registry key property: %w", err)
 		}
 		r.routingAll = false
 		log.Infof("removed %s as main DNS forwarder for this peer", config.ServerIP)
@@ -94,12 +94,12 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig) error {
 		err = removeRegistryKeyFromDNSPolicyConfig(dnsPolicyConfigMatchPath)
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("add dns match policy: %w", err)
 	}
 
 	err = r.updateSearchDomains(searchDomains)
 	if err != nil {
-		return err
+		return fmt.Errorf("update search domains: %w", err)
 	}
 
 	// create a file for unclean shutdown detection
@@ -189,7 +189,7 @@ func (r *registryConfigurator) updateSearchDomains(domains []string) error {
 func (r *registryConfigurator) setInterfaceRegistryKeyStringValue(key, value string) error {
 	regKey, err := r.getInterfaceRegistryKey()
 	if err != nil {
-		return err
+		return fmt.Errorf("get interface registry key: %w", err)
 	}
 	defer close(regKey)
 
@@ -204,7 +204,7 @@ func (r *registryConfigurator) setInterfaceRegistryKeyStringValue(key, value str
 func (r *registryConfigurator) deleteInterfaceRegistryKeyProperty(propertyKey string) error {
 	regKey, err := r.getInterfaceRegistryKey()
 	if err != nil {
-		return err
+		return fmt.Errorf("get interface registry key: %w", err)
 	}
 	defer close(regKey)
 
