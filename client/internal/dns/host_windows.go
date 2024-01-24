@@ -276,7 +276,7 @@ func CheckUncleanShutdown(_ string) error {
 		return fmt.Errorf("restore unclean shutdown backup: %w", err)
 	}
 
-	return removeUncleanShutdownBackup()
+	return nil
 }
 
 func createUncleanShutdownBackup(guid string) error {

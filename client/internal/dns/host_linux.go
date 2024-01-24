@@ -184,7 +184,7 @@ func CheckUncleanShutdown(wgIface string) error {
 		return fmt.Errorf("restore unclean shutdown backup: %w", err)
 	}
 
-	return removeUncleanShutdownBackup()
+	return nil
 }
 
 func createUncleanShutdownBackup(sourcePath string, managerType osManagerType) error {

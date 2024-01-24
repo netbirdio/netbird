@@ -131,6 +131,11 @@ func (f *fileConfigurator) restoreUncleanShutdownBackup() error {
 	if err := copyFile(fileUncleanShutdownResolvConfLocation, defaultResolvConfPath); err != nil {
 		return fmt.Errorf("restoring %s from %s: %w", defaultResolvConfPath, fileUncleanShutdownResolvConfLocation, err)
 	}
+
+	if err := removeUncleanShutdownBackup(); err != nil {
+		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
+	}
+
 	return nil
 }
 
