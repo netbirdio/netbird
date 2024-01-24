@@ -104,7 +104,7 @@ func getOSDNSManagerType() (osManagerType, error) {
 	return fileManager, nil
 }
 
-// checkStub checks if the stub resolver is disabled in systemd-resolved. If it is disabled, we fallback to file manager.
+// checkStub checks if the stub resolver is disabled in systemd-resolved. If it is disabled, we fall back to file manager.
 func checkStub() bool {
 	rConf, err := parseDefaultResolvConf()
 	if err != nil {
