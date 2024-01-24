@@ -73,7 +73,7 @@ func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP strin
 				log.Tracef("resolv.conf still correct, skip the update")
 				continue
 			}
-			log.Info("broken params in resolv.conf, repair it...")
+			log.Info("broken params in resolv.conf, repairing it...")
 
 			err = f.inotify.Remove(f.watchDir)
 			if err != nil {
@@ -124,8 +124,8 @@ func (f *repair) isEventRelevant(event fsnotify.Event) bool {
 		return false
 	}
 
-	operatioFileSymlink := fmt.Sprintf("%s~", f.operationFile)
-	if event.Name == f.operationFile || event.Name == operatioFileSymlink {
+	operationFileSymlink := fmt.Sprintf("%s~", f.operationFile)
+	if event.Name == f.operationFile || event.Name == operationFileSymlink {
 		return true
 	}
 	return false

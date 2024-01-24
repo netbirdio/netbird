@@ -98,7 +98,7 @@ nameserver 8.8.8.8`,
 			operationFile := workDir + "/resolv.conf"
 			err := os.WriteFile(operationFile, []byte(tt.resolvConfContent), 0755)
 			if err != nil {
-				t.Fatalf("failed to wrtie out resolv.conf: %s", err)
+				t.Fatalf("failed to write out resolv.conf: %s", err)
 			}
 
 			var changed bool
@@ -114,7 +114,7 @@ nameserver 8.8.8.8`,
 
 			err = os.WriteFile(operationFile, []byte(tt.touchedConfContent), 0755)
 			if err != nil {
-				t.Fatalf("failed to wrtie out resolv.conf: %s", err)
+				t.Fatalf("failed to write out resolv.conf: %s", err)
 			}
 
 			<-ctx.Done()
@@ -122,7 +122,7 @@ nameserver 8.8.8.8`,
 			r.stopWatchFileChanges()
 
 			if changed != tt.wantChange {
-				t.Errorf("unexpected result: want: %v, get: %v", tt.wantChange, changed)
+				t.Errorf("unexpected result: want: %v, got: %v", tt.wantChange, changed)
 			}
 		})
 	}

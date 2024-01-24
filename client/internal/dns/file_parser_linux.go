@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -33,13 +35,17 @@ func parseBackupResolvConf() (*resolvConf, error) {
 func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
 	file, err := os.Open(resolvConfFile)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open %s file: %w", resolvConfFile, err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Errorf("failed closing %s: %s", resolvConfFile, err)
+		}
+	}()
 
 	cur, err := os.ReadFile(resolvConfFile)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read %s file: %w", resolvConfFile, err)
 	}
 
 	if len(cur) == 0 {
