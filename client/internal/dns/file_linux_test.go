@@ -88,6 +88,20 @@ func Test_isContains(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			args: args{
+				subList: []string{},
+				list:    []string{"b"},
+			},
+			want: true,
+		},
+		{
+			args: args{
+				subList: []string{},
+				list:    []string{},
+			},
+			want: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run("list check test", func(t *testing.T) {
