@@ -53,8 +53,9 @@ func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
 	}
 
 	rconf := &resolvConf{
-		nameServers: make([]string, 0),
-		others:      make([]string, 0),
+		searchDomains: make([]string, 0),
+		nameServers:   make([]string, 0),
+		others:        make([]string, 0),
 	}
 
 	for _, line := range strings.Split(string(cur), "\n") {
