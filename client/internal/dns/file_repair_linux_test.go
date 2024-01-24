@@ -12,7 +12,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	util.InitLog("debug", "console")
+	_ = util.InitLog("debug", "console")
 	code := m.Run()
 	os.Exit(code)
 }
@@ -89,8 +89,10 @@ nameserver 8.8.8.8`,
 			wantChange: true,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run("test", func(t *testing.T) {
+			t.Parallel()
 			workDir := t.TempDir()
 			operationFile := workDir + "/resolv.conf"
 			err := os.WriteFile(operationFile, []byte(tt.resolvConfContent), 0755)
