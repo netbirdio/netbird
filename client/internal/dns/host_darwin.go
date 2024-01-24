@@ -332,7 +332,7 @@ func createUncleanShutdownIndicator() error {
 		return fmt.Errorf("create dir %s: %w", dir, err)
 	}
 
-	if err := os.WriteFile(fileUncleanShutdownFileLocation, nil, 0644); err != nil {
+	if err := os.WriteFile(fileUncleanShutdownFileLocation, nil, 0644); err != nil { //nolint:gosec
 		return fmt.Errorf("create %s: %w", fileUncleanShutdownFileLocation, err)
 	}
 

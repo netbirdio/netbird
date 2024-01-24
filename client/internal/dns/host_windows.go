@@ -191,7 +191,7 @@ func (r *registryConfigurator) setInterfaceRegistryKeyStringValue(key, value str
 	if err != nil {
 		return fmt.Errorf("get interface registry key: %w", err)
 	}
-	defer close(regKey)
+	defer closer(regKey)
 
 	err = regKey.SetStringValue(key, value)
 	if err != nil {
@@ -206,7 +206,7 @@ func (r *registryConfigurator) deleteInterfaceRegistryKeyProperty(propertyKey st
 	if err != nil {
 		return fmt.Errorf("get interface registry key: %w", err)
 	}
-	defer close(regKey)
+	defer closer(regKey)
 
 	err = regKey.DeleteValue(propertyKey)
 	if err != nil {
@@ -239,7 +239,7 @@ func (r *registryConfigurator) restoreUncleanShutdownDNS() error {
 func removeRegistryKeyFromDNSPolicyConfig(regKeyPath string) error {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, regKeyPath, registry.QUERY_VALUE)
 	if err == nil {
-		defer close(k)
+		defer closer(k)
 		err = registry.DeleteKey(registry.LOCAL_MACHINE, regKeyPath)
 		if err != nil {
 			return fmt.Errorf("unable to remove existing key from registry, key: HKEY_LOCAL_MACHINE\\%s, error: %w", regKeyPath, err)
@@ -307,7 +307,7 @@ func getUncleanShutdownFile() string {
 	return filepath.Join(os.Getenv("PROGRAMDATA"), netbirdProgramDataLocation, fileUncleanShutdownFile)
 }
 
-func close(closer io.Closer) {
+func closer(closer io.Closer) {
 	if err := closer.Close(); err != nil {
 		log.Errorf("failed to close: %s", err)
 	}
