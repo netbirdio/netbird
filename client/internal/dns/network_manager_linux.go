@@ -153,7 +153,7 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig) er
 
 	// create a backup for unclean shutdown detection before adding domains, as these might end up in the resolv.conf file.
 	// The file content itself is not important for network-manager restoration
-	if err := createUncleanShutdownBackup(defaultResolvConfPath, networkManager); err != nil {
+	if err := createUncleanShutdownIndicator(defaultResolvConfPath, networkManager); err != nil {
 		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
 	}
 
@@ -171,7 +171,7 @@ func (n *networkManagerDbusConfigurator) restoreHostDNS() error {
 		return fmt.Errorf("delete connection settings: %w", err)
 	}
 
-	if err := removeUncleanShutdownBackup(); err != nil {
+	if err := removeUncleanShutdownIndicator(); err != nil {
 		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
 	}
 
@@ -245,7 +245,7 @@ func (n *networkManagerDbusConfigurator) deleteConnectionSettings() error {
 	return nil
 }
 
-func (n *networkManagerDbusConfigurator) restoreUncleanShutdownBackup() error {
+func (n *networkManagerDbusConfigurator) restoreUncleanShutdownDNS() error {
 	if err := n.restoreHostDNS(); err != nil {
 		return fmt.Errorf("restoring dns via network-manager: %w", err)
 	}

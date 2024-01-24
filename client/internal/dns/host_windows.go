@@ -74,7 +74,7 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	}
 
 	// create a file for unclean shutdown detection
-	if err := createUncleanShutdownBackup(r.guid); err != nil {
+	if err := createUncleanShutdownIndicator(r.guid); err != nil {
 		log.Errorf("failed to create unclean shutdown file: %s", err)
 	}
 
@@ -168,7 +168,7 @@ func (r *registryConfigurator) restoreHostDNS() error {
 		return fmt.Errorf("remove interface registry key: %w", err)
 	}
 
-	if err := removeUncleanShutdownBackup(); err != nil {
+	if err := removeUncleanShutdownIndicator(); err != nil {
 		log.Errorf("failed to remove unclean shutdown file: %s", err)
 	}
 
@@ -229,7 +229,7 @@ func (r *registryConfigurator) getInterfaceRegistryKey() (registry.Key, error) {
 	return regKey, nil
 }
 
-func (r *registryConfigurator) restoreUncleanShutdownBackup() error {
+func (r *registryConfigurator) restoreUncleanShutdownDNS() error {
 	if err := r.restoreHostDNS(); err != nil {
 		return fmt.Errorf("restoring dns via registry: %w", err)
 	}
@@ -272,14 +272,14 @@ func CheckUncleanShutdown(_ string) error {
 		return fmt.Errorf("create host manager: %w", err)
 	}
 
-	if err := manager.restoreUncleanShutdownBackup(); err != nil {
+	if err := manager.restoreUncleanShutdownDNS(); err != nil {
 		return fmt.Errorf("restore unclean shutdown backup: %w", err)
 	}
 
 	return nil
 }
 
-func createUncleanShutdownBackup(guid string) error {
+func createUncleanShutdownIndicator(guid string) error {
 	file := getUncleanShutdownFile()
 
 	dir := filepath.Dir(file)
@@ -294,7 +294,7 @@ func createUncleanShutdownBackup(guid string) error {
 	return nil
 }
 
-func removeUncleanShutdownBackup() error {
+func removeUncleanShutdownIndicator() error {
 	file := getUncleanShutdownFile()
 
 	if err := os.Remove(file); err != nil && !errors.Is(err, fs.ErrNotExist) {

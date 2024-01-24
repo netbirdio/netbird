@@ -69,7 +69,7 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	}
 
 	// create a file for unclean shutdown detection
-	if err := createUncleanShutdownBackup(); err != nil {
+	if err := createUncleanShutdownIndicator(); err != nil {
 		log.Errorf("failed to create unclean shutdown file: %s", err)
 	}
 
@@ -134,7 +134,7 @@ func (s *systemConfigurator) restoreHostDNS() error {
 		return fmt.Errorf("clean system: %w", err)
 	}
 
-	if err := removeUncleanShutdownBackup(); err != nil {
+	if err := removeUncleanShutdownIndicator(); err != nil {
 		log.Errorf("failed to remove unclean shutdown file: %s", err)
 	}
 
@@ -295,7 +295,7 @@ func runSystemConfigCommand(command string) ([]byte, error) {
 	return out, nil
 }
 
-func (s *systemConfigurator) restoreUncleanShutdownBackup() error {
+func (s *systemConfigurator) restoreUncleanShutdownDNS() error {
 	if err := s.restoreHostDNS(); err != nil {
 		return fmt.Errorf("restoring dns via scutil: %w", err)
 	}
@@ -319,14 +319,14 @@ func CheckUncleanShutdown(_ string) error {
 		return fmt.Errorf("create host manager: %w", err)
 	}
 
-	if err := manager.restoreUncleanShutdownBackup(); err != nil {
+	if err := manager.restoreUncleanShutdownDNS(); err != nil {
 		return fmt.Errorf("restore unclean shutdown backup: %w", err)
 	}
 
 	return nil
 }
 
-func createUncleanShutdownBackup() error {
+func createUncleanShutdownIndicator() error {
 	dir := filepath.Dir(fileUncleanShutdownFileLocation)
 	if err := os.MkdirAll(dir, os.FileMode(0755)); err != nil {
 		return fmt.Errorf("create dir %s: %w", dir, err)
@@ -339,7 +339,7 @@ func createUncleanShutdownBackup() error {
 	return nil
 }
 
-func removeUncleanShutdownBackup() error {
+func removeUncleanShutdownIndicator() error {
 	if err := os.Remove(fileUncleanShutdownFileLocation); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("remove %s: %w", fileUncleanShutdownFileLocation, err)
 	}

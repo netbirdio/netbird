@@ -180,14 +180,14 @@ func CheckUncleanShutdown(wgIface string) error {
 		return fmt.Errorf("create previous host manager: %w", err)
 	}
 
-	if err := manager.restoreUncleanShutdownBackup(); err != nil {
+	if err := manager.restoreUncleanShutdownDNS(); err != nil {
 		return fmt.Errorf("restore unclean shutdown backup: %w", err)
 	}
 
 	return nil
 }
 
-func createUncleanShutdownBackup(sourcePath string, managerType osManagerType) error {
+func createUncleanShutdownIndicator(sourcePath string, managerType osManagerType) error {
 	dir := filepath.Dir(fileUncleanShutdownResolvConfLocation)
 	if err := os.MkdirAll(dir, os.FileMode(0755)); err != nil {
 		return fmt.Errorf("create dir %s: %w", dir, err)
@@ -203,7 +203,7 @@ func createUncleanShutdownBackup(sourcePath string, managerType osManagerType) e
 	return nil
 }
 
-func removeUncleanShutdownBackup() error {
+func removeUncleanShutdownIndicator() error {
 	if err := os.Remove(fileUncleanShutdownResolvConfLocation); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("remove %s: %w", fileUncleanShutdownResolvConfLocation, err)
 	}

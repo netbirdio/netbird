@@ -137,7 +137,7 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig) error {
 
 	// create a backup for unclean shutdown detection before adding domains, as these might end up in the resolv.conf file.
 	// The file content itself is not important for systemd restoration
-	if err := createUncleanShutdownBackup(defaultResolvConfPath, systemdManager); err != nil {
+	if err := createUncleanShutdownIndicator(defaultResolvConfPath, systemdManager); err != nil {
 		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
 	}
 
@@ -174,7 +174,7 @@ func (s *systemdDbusConfigurator) restoreHostDNS() error {
 		return fmt.Errorf("unable to revert link configuration, got error: %w", err)
 	}
 
-	if err := removeUncleanShutdownBackup(); err != nil {
+	if err := removeUncleanShutdownIndicator(); err != nil {
 		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
 	}
 
@@ -221,7 +221,7 @@ func (s *systemdDbusConfigurator) callLinkMethod(method string, value any) error
 	return nil
 }
 
-func (s *systemdDbusConfigurator) restoreUncleanShutdownBackup() error {
+func (s *systemdDbusConfigurator) restoreUncleanShutdownDNS() error {
 	if err := s.restoreHostDNS(); err != nil {
 		return fmt.Errorf("restoring dns via systemd: %w", err)
 	}

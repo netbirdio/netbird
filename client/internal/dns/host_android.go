@@ -19,7 +19,7 @@ func (a androidHostManager) supportCustomPort() bool {
 	return false
 }
 
-func (a androidHostManager) restoreUncleanShutdownBackup() error {
+func (a androidHostManager) restoreUncleanShutdownDNS() error {
 	return nil
 }
 

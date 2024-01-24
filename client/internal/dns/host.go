@@ -11,7 +11,7 @@ type hostManager interface {
 	applyDNSConfig(config HostDNSConfig) error
 	restoreHostDNS() error
 	supportCustomPort() bool
-	restoreUncleanShutdownBackup() error
+	restoreUncleanShutdownDNS() error
 }
 
 type HostDNSConfig struct {
@@ -31,7 +31,7 @@ type mockHostConfigurator struct {
 	applyDNSConfigFunc               func(config HostDNSConfig) error
 	restoreHostDNSFunc               func() error
 	supportCustomPortFunc            func() bool
-	restoreUncleanShutdownBackupFunc func() error
+	restoreUncleanShutdownDNSFunc func() error
 }
 
 func (m *mockHostConfigurator) applyDNSConfig(config HostDNSConfig) error {
@@ -55,11 +55,11 @@ func (m *mockHostConfigurator) supportCustomPort() bool {
 	return false
 }
 
-func (m *mockHostConfigurator) restoreUncleanShutdownBackup() error {
-	if m.restoreUncleanShutdownBackupFunc != nil {
-		return m.restoreUncleanShutdownBackupFunc()
+func (m *mockHostConfigurator) restoreUncleanShutdownDNS() error {
+	if m.restoreUncleanShutdownDNSFunc != nil {
+		return m.restoreUncleanShutdownDNSFunc()
 	}
-	return fmt.Errorf("method restoreUncleanShutdownBackup is not implemented")
+	return fmt.Errorf("method restoreUncleanShutdownDNS is not implemented")
 }
 
 func newNoopHostMocker() hostManager {
@@ -67,7 +67,7 @@ func newNoopHostMocker() hostManager {
 		applyDNSConfigFunc:               func(config HostDNSConfig) error { return nil },
 		restoreHostDNSFunc:               func() error { return nil },
 		supportCustomPortFunc:            func() bool { return true },
-		restoreUncleanShutdownBackupFunc: func() error { return nil },
+		restoreUncleanShutdownDNSFunc: func() error { return nil },
 	}
 }
 
