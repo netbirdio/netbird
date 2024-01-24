@@ -52,29 +52,32 @@ search netbird.cloud
 	}
 
 	for _, testCase := range testCases {
-		tmpResolvConf := fmt.Sprintf("%s/%s", os.TempDir(), "resolv.conf")
-		err := os.WriteFile(tmpResolvConf, []byte(testCase.input), 0644)
-		if err != nil {
-			t.Fatal(err)
-		}
-		cfg, err := parseResolvConfFile(tmpResolvConf)
-		if err != nil {
-			t.Fatal(err)
-		}
-		ok := compareLists(cfg.searchDomains, testCase.expectedSearch)
-		if !ok {
-			t.Errorf("invalid parse result for search domains, expected: %v, got: %v", testCase.expectedSearch, cfg.searchDomains)
-		}
+		t.Run("test", func(t *testing.T) {
+			t.Parallel()
+			tmpResolvConf := fmt.Sprintf("%s/%s", os.TempDir(), "resolv.conf")
+			err := os.WriteFile(tmpResolvConf, []byte(testCase.input), 0644)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := parseResolvConfFile(tmpResolvConf)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ok := compareLists(cfg.searchDomains, testCase.expectedSearch)
+			if !ok {
+				t.Errorf("invalid parse result for search domains, expected: %v, got: %v", testCase.expectedSearch, cfg.searchDomains)
+			}
 
-		ok = compareLists(cfg.nameServers, testCase.expectedNS)
-		if !ok {
-			t.Errorf("invalid parse result for ns domains, expected: %v, got: %v", testCase.expectedNS, cfg.nameServers)
-		}
+			ok = compareLists(cfg.nameServers, testCase.expectedNS)
+			if !ok {
+				t.Errorf("invalid parse result for ns domains, expected: %v, got: %v", testCase.expectedNS, cfg.nameServers)
+			}
 
-		ok = compareLists(cfg.others, testCase.expectedOther)
-		if !ok {
-			t.Errorf("invalid parse result for others, expected: %v, got: %v", testCase.expectedOther, cfg.others)
-		}
+			ok = compareLists(cfg.others, testCase.expectedOther)
+			if !ok {
+				t.Errorf("invalid parse result for others, expected: %v, got: %v", testCase.expectedOther, cfg.others)
+			}
+		})
 	}
 
 }
