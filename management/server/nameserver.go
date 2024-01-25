@@ -16,7 +16,7 @@ import (
 const domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}$`
 
 // GetNameServerGroup gets a nameserver group object from account and nameserver group IDs
-func (am *DefaultAccountManager) GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error) {
+func (am *DefaultAccountManager) GetNameServerGroup(accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error) {
 
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
@@ -24,6 +24,15 @@ func (am *DefaultAccountManager) GetNameServerGroup(accountID, nsGroupID string)
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, err
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !(user.HasAdminPower() || user.IsServiceUser) {
+		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view nameserver groups")
 	}
 
 	nsGroup, found := account.NameServerGroups[nsGroupID]
@@ -147,7 +156,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(accountID, nsGroupID, use
 }
 
 // ListNameServerGroups returns a list of nameserver groups from account
-func (am *DefaultAccountManager) ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error) {
+func (am *DefaultAccountManager) ListNameServerGroups(accountID string, userID string) ([]*nbdns.NameServerGroup, error) {
 
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
@@ -155,6 +164,15 @@ func (am *DefaultAccountManager) ListNameServerGroups(accountID string) ([]*nbdn
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, err
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !(user.HasAdminPower() || user.IsServiceUser) {
+		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view name server groups")
 	}
 
 	nsGroups := make([]*nbdns.NameServerGroup, 0, len(account.NameServerGroups))

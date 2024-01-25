@@ -63,11 +63,11 @@ type MockAccountManager struct {
 	DeletePATFunc                   func(accountID string, initiatorUserID string, targetUserId string, tokenID string) error
 	GetPATFunc                      func(accountID string, initiatorUserID string, targetUserId string, tokenID string) (*server.PersonalAccessToken, error)
 	GetAllPATsFunc                  func(accountID string, initiatorUserID string, targetUserId string) ([]*server.PersonalAccessToken, error)
-	GetNameServerGroupFunc          func(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
+	GetNameServerGroupFunc          func(accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error)
 	CreateNameServerGroupFunc       func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainsEnabled bool) (*nbdns.NameServerGroup, error)
 	SaveNameServerGroupFunc         func(accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
 	DeleteNameServerGroupFunc       func(accountID, nsGroupID, userID string) error
-	ListNameServerGroupsFunc        func(accountID string) ([]*nbdns.NameServerGroup, error)
+	ListNameServerGroupsFunc        func(accountID string, userID string) ([]*nbdns.NameServerGroup, error)
 	CreateUserFunc                  func(accountID, userID string, key *server.UserInfo) (*server.UserInfo, error)
 	GetAccountFromTokenFunc         func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error)
 	CheckUserAccessByJWTGroupsFunc  func(claims jwtclaims.AuthorizationClaims) error
@@ -496,9 +496,9 @@ func (am *MockAccountManager) InviteUser(accountID string, initiatorUserID strin
 }
 
 // GetNameServerGroup mocks GetNameServerGroup of the AccountManager interface
-func (am *MockAccountManager) GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error) {
+func (am *MockAccountManager) GetNameServerGroup(accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error) {
 	if am.GetNameServerGroupFunc != nil {
-		return am.GetNameServerGroupFunc(accountID, nsGroupID)
+		return am.GetNameServerGroupFunc(accountID, userID, nsGroupID)
 	}
 	return nil, nil
 }
@@ -528,9 +528,9 @@ func (am *MockAccountManager) DeleteNameServerGroup(accountID, nsGroupID, userID
 }
 
 // ListNameServerGroups mocks ListNameServerGroups of the AccountManager interface
-func (am *MockAccountManager) ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error) {
+func (am *MockAccountManager) ListNameServerGroups(accountID string, userID string) ([]*nbdns.NameServerGroup, error) {
 	if am.ListNameServerGroupsFunc != nil {
-		return am.ListNameServerGroupsFunc(accountID)
+		return am.ListNameServerGroupsFunc(accountID, userID)
 	}
 	return nil, nil
 }
