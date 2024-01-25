@@ -23,7 +23,6 @@ const OsNameCtxKey = "OsName"
 type Info struct {
 	GoOS               string
 	Kernel             string
-	Core               string
 	Platform           string
 	OS                 string
 	OSVersion          string
