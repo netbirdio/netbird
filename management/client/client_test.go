@@ -352,6 +352,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 		Platform:           info.Platform,
 		OS:                 info.OS,
 		WiretrusteeVersion: info.WiretrusteeVersion,
+		KernelVersion:      info.KernelVersion,
 	}
 
 	assert.Equal(t, ValidKey, actualValidKey)
