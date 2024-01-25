@@ -1,5 +1,7 @@
 package dns
 
+import "net/netip"
+
 type androidHostManager struct {
 }
 
@@ -19,10 +21,10 @@ func (a androidHostManager) supportCustomPort() bool {
 	return false
 }
 
-func (a androidHostManager) restoreUncleanShutdownDNS() error {
+func (a androidHostManager) restoreUncleanShutdownDNS(netip.Addr) error {
 	return nil
 }
 
-func CheckUncleanShutdown(_ string) error {
+func CheckUncleanShutdown(string) error {
 	return nil
 }

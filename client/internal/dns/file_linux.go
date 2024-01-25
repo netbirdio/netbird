@@ -5,6 +5,7 @@ package dns
 import (
 	"bytes"
 	"fmt"
+	"net/netip"
 	"os"
 	"strings"
 
@@ -102,7 +103,7 @@ func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP
 	log.Infof("created a NetBird managed %s file with the DNS settings. Added %d search domains. Search list: %s", defaultResolvConfPath, len(searchDomainList), searchDomainList)
 
 	// create another backup for unclean shutdown detection right after overwriting the original resolv.conf
-	if err := createUncleanShutdownIndicator(fileDefaultResolvConfBackupLocation, fileManager); err != nil {
+	if err := createUncleanShutdownIndicator(fileDefaultResolvConfBackupLocation, fileManager, nbNameserverIP); err != nil {
 		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
 	}
 
@@ -142,13 +143,43 @@ func (f *fileConfigurator) restore() error {
 	return os.RemoveAll(fileDefaultResolvConfBackupLocation)
 }
 
-func (f *fileConfigurator) restoreUncleanShutdownDNS() error {
+func (f *fileConfigurator) restoreUncleanShutdownDNS(storedDNSAddress netip.Addr) error {
+	resolvConf, err := parseDefaultResolvConf()
+	if err != nil {
+		return fmt.Errorf("parse current resolv.conf: %w", err)
+	}
+
+	// no current nameservers set -> restore
+	if len(resolvConf.nameServers) == 0 {
+		return restoreResolvConfFile()
+	}
+
+	currentDNSAddress, err := netip.ParseAddr(resolvConf.nameServers[0])
+	// not a valid first nameserver -> restore
+	if err != nil {
+		log.Errorf("restoring unclean shutdown: parse dns address %s failed: %s", resolvConf.nameServers[1], err)
+		return restoreResolvConfFile()
+	}
+
+	// current address is still netbird's non-available dns address -> restore
+	// comparing parsed addresses only, to remove ambiguity
+	if currentDNSAddress.String() == storedDNSAddress.String() {
+		return restoreResolvConfFile()
+	}
+
+	log.Info("restoring unclean shutdown: first current nameserver differs from saved nameserver pre-netbird: not restoring")
+	return nil
+}
+
+func restoreResolvConfFile() error {
+	log.Debugf("restoring unclean shutdown: restoring %s from %s", defaultResolvConfPath, fileUncleanShutdownResolvConfLocation)
+
 	if err := copyFile(fileUncleanShutdownResolvConfLocation, defaultResolvConfPath); err != nil {
 		return fmt.Errorf("restoring %s from %s: %w", defaultResolvConfPath, fileUncleanShutdownResolvConfLocation, err)
 	}
 
 	if err := removeUncleanShutdownIndicator(); err != nil {
-		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
+		log.Errorf("failed to remove unclean shutdown resolv.conf file: %s", err)
 	}
 
 	return nil

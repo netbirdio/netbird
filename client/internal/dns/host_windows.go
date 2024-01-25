@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -229,7 +230,7 @@ func (r *registryConfigurator) getInterfaceRegistryKey() (registry.Key, error) {
 	return regKey, nil
 }
 
-func (r *registryConfigurator) restoreUncleanShutdownDNS() error {
+func (r *registryConfigurator) restoreUncleanShutdownDNS(netip.Addr) error {
 	if err := r.restoreHostDNS(); err != nil {
 		return fmt.Errorf("restoring dns via registry: %w", err)
 	}
@@ -272,7 +273,7 @@ func CheckUncleanShutdown(_ string) error {
 		return fmt.Errorf("create host manager: %w", err)
 	}
 
-	if err := manager.restoreUncleanShutdownDNS(); err != nil {
+	if err := manager.restoreUncleanShutdownDNS(nil); err != nil {
 		return fmt.Errorf("restore unclean shutdown backup: %w", err)
 	}
 

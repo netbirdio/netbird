@@ -3,6 +3,7 @@ package dns
 import (
 	"encoding/json"
 	"fmt"
+	"net/netip"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -37,10 +38,10 @@ func (a iosHostManager) supportCustomPort() bool {
 	return false
 }
 
-func (a iosHostManager) restoreUncleanShutdownDNS() error {
+func (a iosHostManager) restoreUncleanShutdownDNS(netip.Addr) error {
 	return nil
 }
 
-func CheckUncleanShutdown(_ string) error {
+func CheckUncleanShutdown(string) error {
 	return nil
 }

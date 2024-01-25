@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -257,6 +258,13 @@ func (s *systemConfigurator) addDNSSetup(setupKey, dnsServer string, port int, e
 	return nil
 }
 
+func (s *systemConfigurator) restoreUncleanShutdownDNS(netip.Addr) error {
+	if err := s.restoreHostDNS(); err != nil {
+		return fmt.Errorf("restoring dns via scutil: %w", err)
+	}
+	return nil
+}
+
 func getKeyWithInput(format, key string) string {
 	return fmt.Sprintf(format, key)
 }
@@ -295,13 +303,6 @@ func runSystemConfigCommand(command string) ([]byte, error) {
 	return out, nil
 }
 
-func (s *systemConfigurator) restoreUncleanShutdownDNS() error {
-	if err := s.restoreHostDNS(); err != nil {
-		return fmt.Errorf("restoring dns via scutil: %w", err)
-	}
-	return nil
-}
-
 func CheckUncleanShutdown(_ string) error {
 	if _, err := os.Stat(fileUncleanShutdownFileLocation); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -319,7 +320,7 @@ func CheckUncleanShutdown(_ string) error {
 		return fmt.Errorf("create host manager: %w", err)
 	}
 
-	if err := manager.restoreUncleanShutdownDNS(); err != nil {
+	if err := manager.restoreUncleanShutdownDNS(nil); err != nil {
 		return fmt.Errorf("restore unclean shutdown backup: %w", err)
 	}
 

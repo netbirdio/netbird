@@ -5,6 +5,7 @@ package dns
 import (
 	"bytes"
 	"fmt"
+	"net/netip"
 	"os/exec"
 
 	log "github.com/sirupsen/logrus"
@@ -58,7 +59,7 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
 		r.othersConfigs)
 
 	// create a backup for unclean shutdown detection before the resolv.conf is changed
-	if err := createUncleanShutdownIndicator(defaultResolvConfPath, resolvConfManager); err != nil {
+	if err := createUncleanShutdownIndicator(defaultResolvConfPath, resolvConfManager, config.ServerIP); err != nil {
 		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
 	}
 
@@ -97,7 +98,7 @@ func (r *resolvconf) applyConfig(content bytes.Buffer) error {
 	return nil
 }
 
-func (r *resolvconf) restoreUncleanShutdownDNS() error {
+func (r *resolvconf) restoreUncleanShutdownDNS(netip.Addr) error {
 	if err := r.restoreHostDNS(); err != nil {
 		return fmt.Errorf("restoring dns for interface %s: %w", r.ifaceName, err)
 	}
