@@ -221,7 +221,7 @@ func (s *systemdDbusConfigurator) callLinkMethod(method string, value any) error
 	return nil
 }
 
-func (s *systemdDbusConfigurator) restoreUncleanShutdownDNS(netip.Addr) error {
+func (s *systemdDbusConfigurator) restoreUncleanShutdownDNS(*netip.Addr) error {
 	if err := s.restoreHostDNS(); err != nil {
 		return fmt.Errorf("restoring dns via systemd: %w", err)
 	}

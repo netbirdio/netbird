@@ -143,7 +143,7 @@ func (f *fileConfigurator) restore() error {
 	return os.RemoveAll(fileDefaultResolvConfBackupLocation)
 }
 
-func (f *fileConfigurator) restoreUncleanShutdownDNS(storedDNSAddress netip.Addr) error {
+func (f *fileConfigurator) restoreUncleanShutdownDNS(storedDNSAddress *netip.Addr) error {
 	resolvConf, err := parseDefaultResolvConf()
 	if err != nil {
 		return fmt.Errorf("parse current resolv.conf: %w", err)

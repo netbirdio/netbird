@@ -98,7 +98,7 @@ func (r *resolvconf) applyConfig(content bytes.Buffer) error {
 	return nil
 }
 
-func (r *resolvconf) restoreUncleanShutdownDNS(netip.Addr) error {
+func (r *resolvconf) restoreUncleanShutdownDNS(*netip.Addr) error {
 	if err := r.restoreHostDNS(); err != nil {
 		return fmt.Errorf("restoring dns for interface %s: %w", r.ifaceName, err)
 	}

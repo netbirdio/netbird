@@ -211,7 +211,7 @@ func CheckUncleanShutdown(wgIface string) error {
 		return fmt.Errorf("create previous host manager: %w", err)
 	}
 
-	if err := manager.restoreUncleanShutdownDNS(dnsAddress); err != nil {
+	if err := manager.restoreUncleanShutdownDNS(&dnsAddress); err != nil {
 		return fmt.Errorf("restore unclean shutdown backup: %w", err)
 	}
 

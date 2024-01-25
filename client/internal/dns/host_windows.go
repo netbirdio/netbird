@@ -230,7 +230,7 @@ func (r *registryConfigurator) getInterfaceRegistryKey() (registry.Key, error) {
 	return regKey, nil
 }
 
-func (r *registryConfigurator) restoreUncleanShutdownDNS(netip.Addr) error {
+func (r *registryConfigurator) restoreUncleanShutdownDNS(*netip.Addr) error {
 	if err := r.restoreHostDNS(); err != nil {
 		return fmt.Errorf("restoring dns via registry: %w", err)
 	}

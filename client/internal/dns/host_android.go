@@ -21,7 +21,7 @@ func (a androidHostManager) supportCustomPort() bool {
 	return false
 }
 
-func (a androidHostManager) restoreUncleanShutdownDNS(netip.Addr) error {
+func (a androidHostManager) restoreUncleanShutdownDNS(*netip.Addr) error {
 	return nil
 }
 

@@ -258,7 +258,7 @@ func (s *systemConfigurator) addDNSSetup(setupKey, dnsServer string, port int, e
 	return nil
 }
 
-func (s *systemConfigurator) restoreUncleanShutdownDNS(netip.Addr) error {
+func (s *systemConfigurator) restoreUncleanShutdownDNS(*netip.Addr) error {
 	if err := s.restoreHostDNS(); err != nil {
 		return fmt.Errorf("restoring dns via scutil: %w", err)
 	}
