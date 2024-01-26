@@ -291,6 +291,7 @@ var (
 			SetupCloseHandler()
 
 			<-stopCh
+			geo.Stop()
 			ephemeralManager.Stop()
 			_ = appMetrics.Close()
 			_ = listener.Close()

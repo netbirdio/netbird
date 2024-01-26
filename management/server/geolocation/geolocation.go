@@ -20,6 +20,7 @@ type Geolocation struct {
 	mux            *sync.RWMutex
 	sha256sum      []byte
 	db             *maxminddb.Reader
+	stopCh         chan struct{}
 	reloadInterval int // in seconds
 }
 
@@ -54,6 +55,7 @@ func NewGeolocation(datadir string) (*Geolocation, error) {
 		sha256sum:      getSha256sum(mmdbPath),
 		db:             db,
 		reloadInterval: 10,
+		stopCh:         make(chan struct{}),
 	}
 
 	go geo.reloader()
@@ -111,22 +113,35 @@ func (gl *Geolocation) Lookup(ip string) (*Record, error) {
 	return &record, nil
 }
 
+func (gl *Geolocation) Stop() error {
+	close(gl.stopCh)
+	if gl.db != nil {
+		return gl.db.Close()
+	}
+	return nil
+}
+
 func (gl *Geolocation) reloader() {
 	for {
-		newSha256sum := getSha256sum(gl.mmdbPath)
-		if !bytes.Equal(gl.sha256sum, newSha256sum) {
-			err := gl.reload()
-			if err != nil {
-				log.Errorf("reload: %s", err)
+		select {
+		case <-gl.stopCh:
+			return
+		case <-time.After(time.Duration(gl.reloadInterval) * time.Second):
+			newSha256sum := getSha256sum(gl.mmdbPath)
+			if !bytes.Equal(gl.sha256sum, newSha256sum) {
+				err := gl.reload(newSha256sum)
+				if err != nil {
+					log.Errorf("reload failed: %s", err)
+				}
+			} else {
+				log.Debugf("No changes in %s, no need to reload. Next check in %d seconds.",
+					gl.mmdbPath, gl.reloadInterval)
 			}
-		} else {
-			log.Debugf("No changes in %s, no need to reload", gl.mmdbPath)
 		}
-		time.Sleep(time.Duration(gl.reloadInterval) * time.Second)
 	}
 }
 
-func (gl *Geolocation) reload() error {
+func (gl *Geolocation) reload(newSha256sum []byte) error {
 	gl.mux.Lock()
 	defer gl.mux.Unlock()
 
@@ -143,7 +158,7 @@ func (gl *Geolocation) reload() error {
 	}
 
 	gl.db = db
-	gl.sha256sum = getSha256sum(gl.mmdbPath)
+	gl.sha256sum = newSha256sum
 
 	return nil
 }
