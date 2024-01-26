@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path"
 	"sync"
 
 	"github.com/oschwald/maxminddb-golang"
@@ -32,30 +33,32 @@ type Record struct {
 	} `maxminddb:"country"`
 }
 
-func NewGeolocation(path string) (*Geolocation, error) {
-	db, err := openDB(path)
+func NewGeolocation(datadir string) (*Geolocation, error) {
+	mmdbPath := path.Join(datadir, "GeoLite2-City.mmdb")
+
+	db, err := openDB(mmdbPath)
 	if err != nil {
 		return nil, err
 	}
 	return &Geolocation{
-		path: path,
+		path: mmdbPath,
 		mux:  &sync.RWMutex{},
 		db:   db,
 	}, nil
 }
 
-func openDB(path string) (*maxminddb.Reader, error) {
-	_, err := os.Stat(path)
+func openDB(mmdbPath string) (*maxminddb.Reader, error) {
+	_, err := os.Stat(mmdbPath)
 
 	if os.IsNotExist(err) {
-		return nil, fmt.Errorf("%v does not exist", path)
+		return nil, fmt.Errorf("%v does not exist", mmdbPath)
 	} else if err != nil {
 		return nil, err
 	}
 
-	db, err := maxminddb.Open(path)
+	db, err := maxminddb.Open(mmdbPath)
 	if err != nil {
-		return nil, fmt.Errorf("%v could not be opened: %w", path, err)
+		return nil, fmt.Errorf("%v could not be opened: %w", mmdbPath, err)
 	}
 
 	return db, nil

@@ -161,8 +161,13 @@ var (
 				}
 			}
 
+			geo, err := geolocation.NewGeolocation(config.Datadir)
+			if err != nil {
+				return fmt.Errorf("could not initialize Geolocation service")
+			}
+
 			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
-				dnsDomain, eventStore, userDeleteFromIDPEnabled)
+				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}
@@ -284,26 +289,6 @@ var (
 			serveGRPCWithHTTP(listener, rootHandler, tlsEnabled)
 
 			SetupCloseHandler()
-
-			// TODO
-			geo, err := geolocation.NewGeolocation(path.Join(config.Datadir, "GeoLite2-City.mmdb"))
-			if err != nil {
-				return fmt.Errorf("could not initialise Geolocation service")
-			}
-			go func() {
-				for {
-					record, _ := geo.Lookup("8.8.8.8")
-					log.Infof("Geolocation record: %+v", record)
-					time.Sleep(500 * time.Millisecond)
-				}
-			}()
-			go func() {
-				for {
-					err := geo.Reload()
-					log.Errorf("geo reload: %s", err)
-					time.Sleep(5000 * time.Millisecond)
-				}
-			}()
 
 			<-stopCh
 			ephemeralManager.Stop()
