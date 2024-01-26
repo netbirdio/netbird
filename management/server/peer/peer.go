@@ -56,23 +56,27 @@ type PeerStatus struct {
 
 // PeerSystemMeta is a metadata of a Peer machine system
 type PeerSystemMeta struct {
-	Hostname  string
-	GoOS      string
-	Kernel    string
-	Core      string
-	Platform  string
-	OS        string
-	WtVersion string
-	UIVersion string
+	Hostname      string
+	GoOS          string
+	Kernel        string
+	Core          string
+	Platform      string
+	OS            string
+	OSVersion     string
+	WtVersion     string
+	UIVersion     string
+	KernelVersion string
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 	return p.Hostname == other.Hostname &&
 		p.GoOS == other.GoOS &&
 		p.Kernel == other.Kernel &&
+		p.KernelVersion == other.KernelVersion &&
 		p.Core == other.Core &&
 		p.Platform == other.Platform &&
 		p.OS == other.OS &&
+		p.OSVersion == other.OSVersion &&
 		p.WtVersion == other.WtVersion &&
 		p.UIVersion == other.UIVersion
 }

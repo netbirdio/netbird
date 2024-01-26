@@ -428,10 +428,11 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		Hostname:           info.Hostname,
 		GoOS:               info.GoOS,
 		OS:                 info.OS,
-		Core:               info.OSVersion,
+		OSVersion:          info.OSVersion,
 		Platform:           info.Platform,
 		Kernel:             info.Kernel,
 		WiretrusteeVersion: info.WiretrusteeVersion,
 		UiVersion:          info.UIVersion,
+		KernelVersion:      info.KernelVersion,
 	}
 }

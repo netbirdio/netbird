@@ -231,13 +231,17 @@ func toGroupsInfo(groups map[string]*server.Group, peerID string) []api.GroupMin
 }
 
 func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeer []api.AccessiblePeer) *api.Peer {
+	osVersion := peer.Meta.OSVersion
+	if osVersion == "" {
+		osVersion = peer.Meta.Core
+	}
 	return &api.Peer{
 		Id:                     peer.ID,
 		Name:                   peer.Name,
 		Ip:                     peer.IP.String(),
 		Connected:              peer.Status.Connected,
 		LastSeen:               peer.Status.LastSeen,
-		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, peer.Meta.Core),
+		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
 		Version:                peer.Meta.WtVersion,
 		Groups:                 groupsInfo,
 		SshEnabled:             peer.SSHEnabled,
@@ -254,13 +258,17 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 }
 
 func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeersCount int) *api.PeerBatch {
+	osVersion := peer.Meta.OSVersion
+	if osVersion == "" {
+		osVersion = peer.Meta.Core
+	}
 	return &api.PeerBatch{
 		Id:                     peer.ID,
 		Name:                   peer.Name,
 		Ip:                     peer.IP.String(),
 		Connected:              peer.Status.Connected,
 		LastSeen:               peer.Status.LastSeen,
-		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, peer.Meta.Core),
+		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
 		Version:                peer.Meta.WtVersion,
 		Groups:                 groupsInfo,
 		SshEnabled:             peer.SSHEnabled,
