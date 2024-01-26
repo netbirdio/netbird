@@ -27,6 +27,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/geolite"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -138,6 +139,7 @@ type DefaultAccountManager struct {
 	externalCacheManager ExternalCacheManager
 	ctx                  context.Context
 	eventStore           activity.Store
+	geo                  *geolite.GeoLite
 
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
