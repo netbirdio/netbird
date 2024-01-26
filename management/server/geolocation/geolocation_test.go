@@ -7,10 +7,10 @@ import (
 )
 
 // from https://github.com/maxmind/MaxMind-DB/blob/main/test-data/GeoLite2-City-Test.mmdb
-var path = "../testdata/GeoLite2-City-Test.mmdb"
+var mmdbPath = "../testdata/GeoLite2-City-Test.mmdb"
 
 func TestGeoLite_Lookup(t *testing.T) {
-	geo, err := NewGeolocation(path)
+	geo, err := NewGeolocation(mmdbPath)
 	assert.NoError(t, err)
 	assert.NotNil(t, geo)
 

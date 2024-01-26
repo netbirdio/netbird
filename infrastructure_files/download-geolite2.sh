@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# set $MM_ACCOUNT_ID and $MM_LICENSE_KEY when call this script
+# set $MM_ACCOUNT_ID and $MM_LICENSE_KEY when calling this script
 # see https://dev.maxmind.com/geoip/updating-databases#directly-downloading-databases
 
 # Check if MM_ACCOUNT_ID is set
@@ -27,9 +27,9 @@ SIGNATURE_URL="https://download.maxmind.com/geoip/databases/GeoLite2-City/downlo
 
 # Download the database and signature files
 echo "Downloading database file..."
-DATABASE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J $DATABASE_URL -w "%{filename_effective}")
+DATABASE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J "$DATABASE_URL" -w "%{filename_effective}")
 echo "Downloading signature file..."
-SIGNATURE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J $SIGNATURE_URL -w "%{filename_effective}")
+SIGNATURE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J "$SIGNATURE_URL" -w "%{filename_effective}")
 
 # Verify the signature
 echo "Verifying signature..."

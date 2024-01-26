@@ -49,10 +49,15 @@ func NewGeolocation(datadir string) (*Geolocation, error) {
 		return nil, err
 	}
 
+	sha256sum, err := getSha256sum(mmdbPath)
+	if err != nil {
+		return nil, err
+	}
+
 	geo := &Geolocation{
 		mmdbPath:            mmdbPath,
 		mux:                 &sync.RWMutex{},
-		sha256sum:           getSha256sum(mmdbPath),
+		sha256sum:           sha256sum,
 		db:                  db,
 		reloadCheckInterval: 10 * time.Second, // TODO: make configurable
 		stopCh:              make(chan struct{}),
@@ -80,19 +85,19 @@ func openDB(mmdbPath string) (*maxminddb.Reader, error) {
 	return db, nil
 }
 
-func getSha256sum(mmdbPath string) []byte {
+func getSha256sum(mmdbPath string) ([]byte, error) {
 	f, err := os.Open(mmdbPath)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	defer f.Close()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
-	return h.Sum(nil)
+	return h.Sum(nil), nil
 }
 
 func (gl *Geolocation) Lookup(ip string) (*Record, error) {
@@ -127,7 +132,11 @@ func (gl *Geolocation) reloader() {
 		case <-gl.stopCh:
 			return
 		case <-time.After(gl.reloadCheckInterval):
-			newSha256sum := getSha256sum(gl.mmdbPath)
+			newSha256sum, err := getSha256sum(gl.mmdbPath)
+			if err != nil {
+				log.Errorf("failed to calculate sha256 sum for '%s': %s", gl.mmdbPath, err)
+				continue
+			}
 			if !bytes.Equal(gl.sha256sum, newSha256sum) {
 				err := gl.reload(newSha256sum)
 				if err != nil {
