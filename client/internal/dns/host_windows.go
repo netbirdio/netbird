@@ -249,7 +249,7 @@ func removeRegistryKeyFromDNSPolicyConfig(regKeyPath string) error {
 	return nil
 }
 
-func CheckUncleanShutdown(_ string) error {
+func CheckUncleanShutdown(string) error {
 	file := getUncleanShutdownFile()
 
 	if _, err := os.Stat(file); err != nil {

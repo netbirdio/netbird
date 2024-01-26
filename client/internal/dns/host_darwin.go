@@ -303,7 +303,7 @@ func runSystemConfigCommand(command string) ([]byte, error) {
 	return out, nil
 }
 
-func CheckUncleanShutdown(_ string) error {
+func CheckUncleanShutdown(string) error {
 	if _, err := os.Stat(fileUncleanShutdownFileLocation); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			// no file -> clean shutdown
