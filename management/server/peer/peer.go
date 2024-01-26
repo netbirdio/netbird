@@ -62,6 +62,7 @@ type PeerSystemMeta struct {
 	Core          string
 	Platform      string
 	OS            string
+	OSVersion     string
 	WtVersion     string
 	UIVersion     string
 	KernelVersion string
@@ -75,6 +76,7 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		p.Core == other.Core &&
 		p.Platform == other.Platform &&
 		p.OS == other.OS &&
+		p.OSVersion == other.OSVersion &&
 		p.WtVersion == other.WtVersion &&
 		p.UIVersion == other.UIVersion
 }

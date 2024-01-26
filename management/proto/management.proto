@@ -97,12 +97,14 @@ message PeerSystemMeta {
   string hostname = 1;
   string goOS = 2;
   string kernel = 3;
-  string core = 4;
+  // core field has been deprecated in favor of the new OsVersion field for better clarity.
+  string core = 4 [deprecated=true];
   string platform = 5;
   string OS = 6;
   string wiretrusteeVersion = 7;
   string uiVersion = 8;
   string kernelVersion = 9;
+  string OSVersion = 10;
 }
 
 message LoginResponse {

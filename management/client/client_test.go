@@ -348,9 +348,9 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 		Hostname:           info.Hostname,
 		GoOS:               info.GoOS,
 		Kernel:             info.Kernel,
-		Core:               info.OSVersion,
 		Platform:           info.Platform,
 		OS:                 info.OS,
+		OSVersion:          info.OSVersion,
 		WiretrusteeVersion: info.WiretrusteeVersion,
 		KernelVersion:      info.KernelVersion,
 	}
