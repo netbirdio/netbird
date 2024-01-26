@@ -36,7 +36,7 @@ type systemConfigurator struct {
 	createdKeys      map[string]struct{}
 }
 
-func newHostManager(_ WGIface) (hostManager, error) {
+func newHostManager() (hostManager, error) {
 	return &systemConfigurator{
 		createdKeys: make(map[string]struct{}),
 	}, nil

@@ -55,8 +55,8 @@ type systemdDbusLinkDomainsInput struct {
 	MatchOnly bool
 }
 
-func newSystemdDbusConfigurator(wgInterface WGIface) (hostManager, error) {
-	iface, err := net.InterfaceByName(wgInterface.Name())
+func newSystemdDbusConfigurator(wgInterface string) (hostManager, error) {
+	iface, err := net.InterfaceByName(wgInterface)
 	if err != nil {
 		return nil, fmt.Errorf("get interface: %w", err)
 	}

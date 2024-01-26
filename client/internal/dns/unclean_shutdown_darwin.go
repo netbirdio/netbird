@@ -26,7 +26,7 @@ func CheckUncleanShutdown(string) error {
 
 	log.Warnf("detected unclean shutdown, file %s exists. Restoring unclean shutdown dns settings.", fileUncleanShutdownFileLocation)
 
-	manager, err := newHostManager(nil)
+	manager, err := newHostManager()
 	if err != nil {
 		return fmt.Errorf("create host manager: %w", err)
 	}

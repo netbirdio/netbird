@@ -22,14 +22,14 @@ type resolvconf struct {
 }
 
 // supported "openresolv" only
-func newResolvConfConfigurator(wgInterface WGIface) (hostManager, error) {
+func newResolvConfConfigurator(wgInterface string) (hostManager, error) {
 	resolvConfEntries, err := parseDefaultResolvConf()
 	if err != nil {
 		log.Errorf("could not read original search domains from %s: %s", defaultResolvConfPath, err)
 	}
 
 	return &resolvconf{
-		ifaceName:             wgInterface.Name(),
+		ifaceName:             wgInterface,
 		originalSearchDomains: resolvConfEntries.searchDomains,
 		originalNameServers:   resolvConfEntries.nameServers,
 		othersConfigs:         resolvConfEntries.others,

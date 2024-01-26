@@ -77,19 +77,19 @@ func (s networkManagerConnSettings) cleanDeprecatedSettings() {
 	}
 }
 
-func newNetworkManagerDbusConfigurator(wgInterface WGIface) (hostManager, error) {
+func newNetworkManagerDbusConfigurator(wgInterface string) (hostManager, error) {
 	obj, closeConn, err := getDbusObject(networkManagerDest, networkManagerDbusObjectNode)
 	if err != nil {
 		return nil, fmt.Errorf("get nm dbus: %w", err)
 	}
 	defer closeConn()
 	var s string
-	err = obj.Call(networkManagerDbusGetDeviceByIPIfaceMethod, dbusDefaultFlag, wgInterface.Name()).Store(&s)
+	err = obj.Call(networkManagerDbusGetDeviceByIPIfaceMethod, dbusDefaultFlag, wgInterface).Store(&s)
 	if err != nil {
 		return nil, fmt.Errorf("call: %w", err)
 	}
 
-	log.Debugf("got network manager dbus Link Object: %s from net interface %s", s, wgInterface.Name())
+	log.Debugf("got network manager dbus Link Object: %s from net interface %s", s, wgInterface)
 
 	return &networkManagerDbusConfigurator{
 		dbusLinkObject: dbus.ObjectPath(s),

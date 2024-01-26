@@ -12,9 +12,6 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/client/internal/stdnet"
-	"github.com/netbirdio/netbird/iface"
 )
 
 const (
@@ -58,13 +55,7 @@ func CheckUncleanShutdown(wgIface string) error {
 		return fmt.Errorf("detect previous host manager: %w", err)
 	}
 
-	// the only real thing we need is the interface name
-	dummyInt, err := iface.NewWGIFace(wgIface, "0.0.0.0/32", 0, "", iface.DefaultMTU, &stdnet.Net{}, nil)
-	if err != nil {
-		return fmt.Errorf("create dummy int: %w", err)
-	}
-
-	manager, err := newHostManagerFromType(dummyInt, osManagerType)
+	manager, err := newHostManagerFromType(wgIface, osManagerType)
 	if err != nil {
 		return fmt.Errorf("create previous host manager: %w", err)
 	}

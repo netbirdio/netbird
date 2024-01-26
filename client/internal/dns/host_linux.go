@@ -59,7 +59,7 @@ func (t osManagerType) String() string {
 	}
 }
 
-func newHostManager(wgInterface WGIface) (hostManager, error) {
+func newHostManager(wgInterface string) (hostManager, error) {
 	osManager, err := getOSDNSManagerType()
 	if err != nil {
 		return nil, err
@@ -69,7 +69,7 @@ func newHostManager(wgInterface WGIface) (hostManager, error) {
 	return newHostManagerFromType(wgInterface, osManager)
 }
 
-func newHostManagerFromType(wgInterface WGIface, osManager osManagerType) (hostManager, error) {
+func newHostManagerFromType(wgInterface string, osManager osManagerType) (hostManager, error) {
 	switch osManager {
 	case networkManager:
 		return newNetworkManagerDbusConfigurator(wgInterface)
