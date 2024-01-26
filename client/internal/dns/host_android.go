@@ -5,7 +5,7 @@ import "net/netip"
 type androidHostManager struct {
 }
 
-func newHostManager(wgInterface WGIface) (hostManager, error) {
+func newHostManager() (hostManager, error) {
 	return &androidHostManager{}, nil
 }
 
