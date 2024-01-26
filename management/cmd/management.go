@@ -163,7 +163,7 @@ var (
 
 			geo, err := geolocation.NewGeolocation(config.Datadir)
 			if err != nil {
-				return fmt.Errorf("could not initialize Geolocation service")
+				log.Infof("could not initialize Geolocation service, we procced without geo support")
 			}
 
 			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
@@ -291,7 +291,9 @@ var (
 			SetupCloseHandler()
 
 			<-stopCh
-			_ = geo.Stop()
+			if geo != nil {
+				_ = geo.Stop()
+			}
 			ephemeralManager.Stop()
 			_ = appMetrics.Close()
 			_ = listener.Close()
