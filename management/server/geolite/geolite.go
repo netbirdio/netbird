@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync"
 
 	"github.com/oschwald/maxminddb-golang"
 )
 
 type GeoLite struct {
 	path string
+	mux  *sync.RWMutex
 	db   *maxminddb.Reader
 }
 
@@ -31,6 +33,18 @@ type Record struct {
 }
 
 func NewGeoLite(path string) (*GeoLite, error) {
+	db, err := openDB(path)
+	if err != nil {
+		return nil, err
+	}
+	return &GeoLite{
+		path: path,
+		mux:  &sync.RWMutex{},
+		db:   db,
+	}, nil
+}
+
+func openDB(path string) (*maxminddb.Reader, error) {
 	_, err := os.Stat(path)
 
 	if os.IsNotExist(err) {
@@ -44,13 +58,13 @@ func NewGeoLite(path string) (*GeoLite, error) {
 		return nil, fmt.Errorf("%v could not be opened: %w", path, err)
 	}
 
-	return &GeoLite{
-		path: path,
-		db:   db,
-	}, nil
+	return db, nil
 }
 
-func (gl GeoLite) Lookup(ip string) (*Record, error) {
+func (gl *GeoLite) Lookup(ip string) (*Record, error) {
+	gl.mux.RLock()
+	defer gl.mux.RUnlock()
+
 	parsedIp := net.ParseIP(ip)
 	if parsedIp == nil {
 		return nil, fmt.Errorf("could not parse IP %s", ip)
@@ -63,4 +77,23 @@ func (gl GeoLite) Lookup(ip string) (*Record, error) {
 	}
 
 	return &record, nil
+}
+
+func (gl *GeoLite) Reload() error {
+	gl.mux.Lock()
+	defer gl.mux.Unlock()
+
+	err := gl.db.Close()
+	if err != nil {
+		return err
+	}
+
+	db, err := openDB(gl.path)
+	if err != nil {
+		return err
+	}
+
+	gl.db = db
+
+	return nil
 }

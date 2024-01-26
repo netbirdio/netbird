@@ -7,7 +7,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/netbirdio/management-integrations/integrations"
 	"io"
 	"io/fs"
 	"net"
@@ -17,6 +16,8 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"github.com/netbirdio/management-integrations/integrations"
 
 	"github.com/google/uuid"
 	"github.com/miekg/dns"
@@ -32,6 +33,7 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/geolite"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -282,6 +284,26 @@ var (
 			serveGRPCWithHTTP(listener, rootHandler, tlsEnabled)
 
 			SetupCloseHandler()
+
+			// TODO
+			geo, err := geolite.NewGeoLite(path.Join(config.Datadir, "GeoLite2-City.mmdb"))
+			if err != nil {
+				return fmt.Errorf("could not initialise geolite2 service")
+			}
+			go func() {
+				for {
+					record, _ := geo.Lookup("57.133.69.250")
+					log.Infof("geolite record: %+v", record)
+					time.Sleep(500 * time.Millisecond)
+				}
+			}()
+			go func() {
+				for {
+					err := geo.Reload()
+					log.Errorf("geo reload: %s", err)
+					time.Sleep(5000 * time.Millisecond)
+				}
+			}()
 
 			<-stopCh
 			ephemeralManager.Stop()

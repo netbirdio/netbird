@@ -24,9 +24,9 @@ management/management
 client/client
 client/client.exe
 *.syso
-client/.distfiles/
-infrastructure_files/setup.env
+client/.distfiles/jjkinfrastructure_files/setup.env
 infrastructure_files/setup-*.env
 .vscode
 .DS_Store
 *.db
+GeoLite2-City*
