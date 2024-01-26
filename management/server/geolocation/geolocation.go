@@ -15,6 +15,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const mmdfFileName = "GeoLite2-City.mmdb"
+
 type Geolocation struct {
 	mmdbPath            string
 	mux                 *sync.RWMutex
@@ -42,7 +44,7 @@ type Record struct {
 }
 
 func NewGeolocation(datadir string) (*Geolocation, error) {
-	mmdbPath := path.Join(datadir, "GeoLite2-City.mmdb")
+	mmdbPath := path.Join(datadir, mmdfFileName)
 
 	db, err := openDB(mmdbPath)
 	if err != nil {

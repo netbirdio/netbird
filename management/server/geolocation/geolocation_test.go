@@ -1,8 +1,10 @@
 package geolocation
 
 import (
+	"path"
 	"testing"
 
+	"github.com/netbirdio/netbird/util"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -10,7 +12,11 @@ import (
 var mmdbPath = "../testdata/GeoLite2-City-Test.mmdb"
 
 func TestGeoLite_Lookup(t *testing.T) {
-	geo, err := NewGeolocation(mmdbPath)
+	tempDir := t.TempDir()
+	err := util.CopyFileContents(mmdbPath, path.Join(tempDir, mmdfFileName))
+	assert.NoError(t, err)
+
+	geo, err := NewGeolocation(tempDir)
 	assert.NoError(t, err)
 	assert.NotNil(t, geo)
 
