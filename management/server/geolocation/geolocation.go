@@ -1,19 +1,26 @@
 package geolocation
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path"
 	"sync"
+	"time"
 
 	"github.com/oschwald/maxminddb-golang"
+	log "github.com/sirupsen/logrus"
 )
 
 type Geolocation struct {
-	path string
-	mux  *sync.RWMutex
-	db   *maxminddb.Reader
+	mmdbPath       string
+	mux            *sync.RWMutex
+	sha256sum      []byte
+	db             *maxminddb.Reader
+	reloadInterval int // in seconds
 }
 
 type Record struct {
@@ -40,11 +47,18 @@ func NewGeolocation(datadir string) (*Geolocation, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Geolocation{
-		path: mmdbPath,
-		mux:  &sync.RWMutex{},
-		db:   db,
-	}, nil
+
+	geo := &Geolocation{
+		mmdbPath:       mmdbPath,
+		mux:            &sync.RWMutex{},
+		sha256sum:      getSha256sum(mmdbPath),
+		db:             db,
+		reloadInterval: 10,
+	}
+
+	go geo.reloader()
+
+	return geo, nil
 }
 
 func openDB(mmdbPath string) (*maxminddb.Reader, error) {
@@ -62,6 +76,21 @@ func openDB(mmdbPath string) (*maxminddb.Reader, error) {
 	}
 
 	return db, nil
+}
+
+func getSha256sum(mmdbPath string) []byte {
+	f, err := os.Open(mmdbPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		log.Fatal(err)
+	}
+
+	return h.Sum(nil)
 }
 
 func (gl *Geolocation) Lookup(ip string) (*Record, error) {
@@ -82,21 +111,39 @@ func (gl *Geolocation) Lookup(ip string) (*Record, error) {
 	return &record, nil
 }
 
-func (gl *Geolocation) Reload() error {
+func (gl *Geolocation) reloader() {
+	for {
+		newSha256sum := getSha256sum(gl.mmdbPath)
+		if !bytes.Equal(gl.sha256sum, newSha256sum) {
+			err := gl.reload()
+			if err != nil {
+				log.Errorf("reload: %s", err)
+			}
+		} else {
+			log.Debugf("No changes in %s, no need to reload", gl.mmdbPath)
+		}
+		time.Sleep(time.Duration(gl.reloadInterval) * time.Second)
+	}
+}
+
+func (gl *Geolocation) reload() error {
 	gl.mux.Lock()
 	defer gl.mux.Unlock()
+
+	log.Infof("Reloading %s", gl.mmdbPath)
 
 	err := gl.db.Close()
 	if err != nil {
 		return err
 	}
 
-	db, err := openDB(gl.path)
+	db, err := openDB(gl.mmdbPath)
 	if err != nil {
 		return err
 	}
 
 	gl.db = db
+	gl.sha256sum = getSha256sum(gl.mmdbPath)
 
 	return nil
 }
