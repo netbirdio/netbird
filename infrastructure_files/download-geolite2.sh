@@ -22,20 +22,18 @@ then
     exit 1
 fi
 
-# Database URL
 DATABASE_URL="https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz"
-# SHA256 URL
 SIGNATURE_URL="https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz.sha256"
 
 # Download the database and signature files
 echo "Downloading database file..."
-DATABASE_FILE=$(curl -s -u $MM_ACCOUNT_ID:$MM_LICENSE_KEY -L -O -J $DATABASE_URL -w "%{filename_effective}")
+DATABASE_FILE="$(curl -s -u $MM_ACCOUNT_ID:$MM_LICENSE_KEY -L -O -J $DATABASE_URL -w "%{filename_effective}")"
 echo "Downloading signature file..."
-SIGNATURE_FILE=$(curl -s -u $MM_ACCOUNT_ID:$MM_LICENSE_KEY -L -O -J $SIGNATURE_URL -w "%{filename_effective}")
+SIGNATURE_FILE="$(curl -s -u $MM_ACCOUNT_ID:$MM_LICENSE_KEY -L -O -J $SIGNATURE_URL -w "%{filename_effective}")"
 
 # Verify the signature
 echo "Verifying signature..."
-if sha256sum -c --status $SIGNATURE_FILE; then
+if sha256sum -c --status "$SIGNATURE_FILE"; then
     echo "Signature is valid."
 else
     echo "Signature is invalid. Aborting."
@@ -46,17 +44,18 @@ fi
 EXTRACTION_DIR=$(basename "$DATABASE_FILE" .tar.gz)
 echo "Unpacking $DATABASE_FILE..."
 mkdir -p "$EXTRACTION_DIR"
-tar -xzvf $DATABASE_FILE
+tar -xzvf "$DATABASE_FILE"
 
 # Create a SHA256 signature file
 MMDB_FILE="GeoLite2-City.mmdb"
-cd $EXTRACTION_DIR
+cd "$EXTRACTION_DIR"
 sha256sum "$MMDB_FILE" > "$MMDB_FILE.sha256"
 echo "SHA256 signature created for $MMDB_FILE."
 cd -
 
 # Remove downloaded files
-rm $DATABASE_FILE $SIGNATURE_FILE
+rm "$DATABASE_FILE" "$SIGNATURE_FILE"
 
+# Done. Print next steps
 echo "Process completed successfully."
 echo "Now you can place $EXTRACTION_DIR/$MMDB_FILE to 'datadir' of management service."
