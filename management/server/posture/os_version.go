@@ -28,11 +28,11 @@ func (c *OSVersionCheck) Check(peer nbpeer.Peer) (bool, error) {
 	peerGoOS := peer.Meta.GoOS
 	switch peerGoOS {
 	case "android":
-		return checkMinVersion(peerGoOS, peer.Meta.Core, c.Android)
+		return checkMinVersion(peerGoOS, peer.Meta.OSVersion, c.Android)
 	case "darwin":
-		return checkMinVersion(peerGoOS, peer.Meta.Core, c.Darwin)
+		return checkMinVersion(peerGoOS, peer.Meta.OSVersion, c.Darwin)
 	case "ios":
-		return checkMinVersion(peerGoOS, peer.Meta.Core, c.Ios)
+		return checkMinVersion(peerGoOS, peer.Meta.OSVersion, c.Ios)
 	case "linux":
 		return checkMinKernelVersion(peerGoOS, peer.Meta.KernelVersion, c.Linux)
 	case "windows":
