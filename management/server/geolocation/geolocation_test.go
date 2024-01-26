@@ -1,4 +1,4 @@
-package geolite
+package geolocation
 
 import (
 	"testing"
@@ -10,7 +10,7 @@ import (
 var path = "../testdata/GeoLite2-City-Test.mmdb"
 
 func TestGeoLite_Lookup(t *testing.T) {
-	geo, err := NewGeoLite(path)
+	geo, err := NewGeolocation(path)
 	assert.NoError(t, err)
 	assert.NotNil(t, geo)
 

@@ -33,7 +33,7 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/geolite"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -286,14 +286,14 @@ var (
 			SetupCloseHandler()
 
 			// TODO
-			geo, err := geolite.NewGeoLite(path.Join(config.Datadir, "GeoLite2-City.mmdb"))
+			geo, err := geolocation.NewGeolocation(path.Join(config.Datadir, "GeoLite2-City.mmdb"))
 			if err != nil {
-				return fmt.Errorf("could not initialise geolite2 service")
+				return fmt.Errorf("could not initialise Geolocation service")
 			}
 			go func() {
 				for {
-					record, _ := geo.Lookup("57.133.69.250")
-					log.Infof("geolite record: %+v", record)
+					record, _ := geo.Lookup("8.8.8.8")
+					log.Infof("Geolocation record: %+v", record)
 					time.Sleep(500 * time.Millisecond)
 				}
 			}()

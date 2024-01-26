@@ -1,4 +1,4 @@
-package geolite
+package geolocation
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"github.com/oschwald/maxminddb-golang"
 )
 
-type GeoLite struct {
+type Geolocation struct {
 	path string
 	mux  *sync.RWMutex
 	db   *maxminddb.Reader
@@ -32,12 +32,12 @@ type Record struct {
 	} `maxminddb:"country"`
 }
 
-func NewGeoLite(path string) (*GeoLite, error) {
+func NewGeolocation(path string) (*Geolocation, error) {
 	db, err := openDB(path)
 	if err != nil {
 		return nil, err
 	}
-	return &GeoLite{
+	return &Geolocation{
 		path: path,
 		mux:  &sync.RWMutex{},
 		db:   db,
@@ -61,7 +61,7 @@ func openDB(path string) (*maxminddb.Reader, error) {
 	return db, nil
 }
 
-func (gl *GeoLite) Lookup(ip string) (*Record, error) {
+func (gl *Geolocation) Lookup(ip string) (*Record, error) {
 	gl.mux.RLock()
 	defer gl.mux.RUnlock()
 
@@ -79,7 +79,7 @@ func (gl *GeoLite) Lookup(ip string) (*Record, error) {
 	return &record, nil
 }
 
-func (gl *GeoLite) Reload() error {
+func (gl *Geolocation) Reload() error {
 	gl.mux.Lock()
 	defer gl.mux.Unlock()
 
