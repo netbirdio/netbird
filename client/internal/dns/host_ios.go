@@ -41,7 +41,3 @@ func (a iosHostManager) supportCustomPort() bool {
 func (a iosHostManager) restoreUncleanShutdownDNS(*netip.Addr) error {
 	return nil
 }
-
-func CheckUncleanShutdown(string) error {
-	return nil
-}
