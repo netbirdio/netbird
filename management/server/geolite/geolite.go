@@ -9,21 +9,24 @@ import (
 )
 
 type GeoLite struct {
-	db *maxminddb.Reader
+	path string
+	db   *maxminddb.Reader
 }
 
 type Record struct {
 	City struct {
-		Names struct {
+		GeonameID uint `maxminddb:"geoname_id"`
+		Names     struct {
 			En string `maxminddb:"en"`
 		} `maxminddb:"names"`
-		ISOCode string `maxminddb:"iso_code"`
 	} `maxminddb:"city"`
 	Continent struct {
-		Code string `maxminddb:"code"`
+		GeonameID uint   `maxminddb:"geoname_id"`
+		Code      string `maxminddb:"code"`
 	} `maxminddb:"continent"`
 	Country struct {
-		ISOCode string `maxminddb:"iso_code"`
+		GeonameID uint   `maxminddb:"geoname_id"`
+		ISOCode   string `maxminddb:"iso_code"`
 	} `maxminddb:"country"`
 }
 
@@ -41,7 +44,10 @@ func NewGeoLite(path string) (*GeoLite, error) {
 		return nil, fmt.Errorf("%v could not be opened: %w", path, err)
 	}
 
-	return &GeoLite{db: db}, nil
+	return &GeoLite{
+		path: path,
+		db:   db,
+	}, nil
 }
 
 func (gl GeoLite) Lookup(ip string) (*Record, error) {
