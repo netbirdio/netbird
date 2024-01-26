@@ -36,8 +36,8 @@ func TestOSVersionCheck_Check(t *testing.T) {
 			name: "Not valid Peer macOS version",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
-					GoOS: "darwin",
-					Core: "14.2.1",
+					GoOS:      "darwin",
+					OSVersion: "14.2.1",
 				},
 			},
 			check: OSVersionCheck{
@@ -52,8 +52,8 @@ func TestOSVersionCheck_Check(t *testing.T) {
 			name: "Valid Peer ios version allowed by any rule",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
-					GoOS: "ios",
-					Core: "17.0.1",
+					GoOS:      "ios",
+					OSVersion: "17.0.1",
 				},
 			},
 			check: OSVersionCheck{
@@ -68,8 +68,8 @@ func TestOSVersionCheck_Check(t *testing.T) {
 			name: "Valid Peer android version not allowed by rule",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
-					GoOS: "android",
-					Core: "14",
+					GoOS:      "android",
+					OSVersion: "14",
 				},
 			},
 			check:   OSVersionCheck{},
