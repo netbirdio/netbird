@@ -216,6 +216,15 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 		return status.Errorf(status.InvalidArgument, "minimum version for NetBird's version check shouldn't be empty")
 	}
 
+	if req.Checks.OsVersionCheck != nil &&
+		req.Checks.OsVersionCheck.Android.MinVersion == "" &&
+		req.Checks.OsVersionCheck.Darwin.MinVersion == "" &&
+		req.Checks.OsVersionCheck.Ios.MinVersion == "" &&
+		req.Checks.OsVersionCheck.Linux.MinKernelVersion == "" &&
+		req.Checks.OsVersionCheck.Windows.MinKernelVersion == "" {
+		return status.Errorf(status.InvalidArgument, "minimum version for at least one in OS version check shouldn't be empty")
+	}
+
 	return nil
 }
 
