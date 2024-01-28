@@ -222,7 +222,7 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 		osVersionCheck.Ios != nil && osVersionCheck.Ios.MinVersion == "" &&
 		osVersionCheck.Linux != nil && osVersionCheck.Linux.MinKernelVersion == "" &&
 		osVersionCheck.Windows != nil && osVersionCheck.Windows.MinKernelVersion == "" {
-		return status.Errorf(status.InvalidArgument, "minimum version for at least one in OS version check shouldn't be empty")
+		return status.Errorf(status.InvalidArgument, "minimum version for at least one OS in the OS version check shouldn't be empty")
 	}
 
 	return nil
