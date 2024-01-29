@@ -7,7 +7,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/netbirdio/management-integrations/integrations"
 	"io"
 	"io/fs"
 	"net"
@@ -17,6 +16,8 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"github.com/netbirdio/management-integrations/integrations"
 
 	"github.com/google/uuid"
 	"github.com/miekg/dns"
@@ -115,7 +116,7 @@ var (
 			}
 
 			if _, err = os.Stat(config.Datadir); os.IsNotExist(err) {
-				err = os.MkdirAll(config.Datadir, os.ModeDir)
+				err = os.MkdirAll(config.Datadir, 0755)
 				if err != nil {
 					return fmt.Errorf("failed creating datadir: %s: %v", config.Datadir, err)
 				}
