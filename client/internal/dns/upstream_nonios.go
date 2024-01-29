@@ -23,7 +23,7 @@ func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net
 	return nonIOS, nil
 }
 
-func (u *upstreamResolverNonIOS) exchangeContext(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
+func (u *upstreamResolverNonIOS) exchange(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
 	upstreamExchangeClient := &dns.Client{}
 	return upstreamExchangeClient.ExchangeContext(ctx, r, upstream)
 }

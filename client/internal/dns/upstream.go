@@ -25,7 +25,7 @@ const (
 const testRecord = "."
 
 type upstreamClient interface {
-	exchangeContext(ctx context.Context, upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
+	exchange(ctx context.Context, upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
 }
 
 type UpstreamResolver interface {
@@ -256,7 +256,7 @@ func (u *upstreamResolverBase) exchange(upstream string, r *dns.Msg) (rm *dns.Ms
 	// default upstream timeout
 	ctx, cancel := context.WithTimeout(context.Background(), u.upstreamTimeout)
 	defer cancel()
-	return u.upstreamClient.exchangeContext(ctx, upstream, r)
+	return u.upstreamClient.exchange(ctx, upstream, r)
 }
 
 func (u *upstreamResolverBase) testNameserver(server string) error {
@@ -265,6 +265,6 @@ func (u *upstreamResolverBase) testNameserver(server string) error {
 
 	r := new(dns.Msg).SetQuestion(testRecord, dns.TypeSOA)
 
-	_, _, err := u.upstreamClient.exchangeContext(ctx, server, r)
+	_, _, err := u.upstreamClient.exchange(ctx, server, r)
 	return err
 }

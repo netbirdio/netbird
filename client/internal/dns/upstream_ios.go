@@ -40,7 +40,7 @@ func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net
 	return ios, nil
 }
 
-func (u *upstreamResolverIOS) exchangeContext(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
+func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
 	client := &dns.Client{}
 	upstreamHost, _, err := net.SplitHostPort(upstream)
 	if err != nil {
