@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/labstack/gommon/log"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -162,7 +163,7 @@ var (
 
 			geo, err := geolocation.NewGeolocation(config.Datadir)
 			if err != nil {
-				log.Infof("could not initialize geo location service, we proceed without geo support")
+				log.Warn("could not initialize geo location service, we proceed without geo support")
 			} else {
 				log.Infof("geo location service has been initialized from %s", config.Datadir)
 			}
