@@ -185,8 +185,14 @@ func (p *PostureChecksHandler) savePostureChecks(
 		})
 	}
 
-	if geoLocationCheck := req.Checks.GeoLocationCheck; geoLocationCheck != nil {
-		postureChecks.Checks = append(postureChecks.Checks, toPostureGeoLocationCheck(geoLocationCheck))
+	if osVersionCheck := req.Checks.OsVersionCheck; osVersionCheck != nil {
+		postureChecks.Checks = append(postureChecks.Checks, &posture.OSVersionCheck{
+			Android: (*posture.MinVersionCheck)(osVersionCheck.Android),
+			Darwin:  (*posture.MinVersionCheck)(osVersionCheck.Darwin),
+			Ios:     (*posture.MinVersionCheck)(osVersionCheck.Ios),
+			Linux:   (*posture.MinKernelVersionCheck)(osVersionCheck.Linux),
+			Windows: (*posture.MinKernelVersionCheck)(osVersionCheck.Windows),
+		})
 	}
 
 	if err := p.accountManager.SavePostureChecks(account.Id, user.Id, &postureChecks); err != nil {
@@ -202,7 +208,7 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 		return status.Errorf(status.InvalidArgument, "posture checks name shouldn't be empty")
 	}
 
-	if req.Checks == nil || (req.Checks.NbVersionCheck == nil && req.Checks.GeoLocationCheck == nil) {
+	if req.Checks == nil || (req.Checks.NbVersionCheck == nil && req.Checks.OsVersionCheck == nil) {
 		return status.Errorf(status.InvalidArgument, "posture checks shouldn't be empty")
 	}
 
@@ -210,21 +216,18 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 		return status.Errorf(status.InvalidArgument, "minimum version for NetBird's version check shouldn't be empty")
 	}
 
-	if geoLocationCheck := req.Checks.GeoLocationCheck; geoLocationCheck != nil {
-		if geoLocationCheck.Action == "" {
-			return status.Errorf(status.InvalidArgument, "action for geolocation check shouldn't be empty")
+	if osVersionCheck := req.Checks.OsVersionCheck; osVersionCheck != nil {
+		emptyOS := osVersionCheck.Android == nil && osVersionCheck.Darwin == nil && osVersionCheck.Ios == nil &&
+			osVersionCheck.Linux == nil && osVersionCheck.Windows == nil
+		emptyMinVersion := osVersionCheck.Android != nil && osVersionCheck.Android.MinVersion == "" ||
+			osVersionCheck.Darwin != nil && osVersionCheck.Darwin.MinVersion == "" ||
+			osVersionCheck.Ios != nil && osVersionCheck.Ios.MinVersion == "" ||
+			osVersionCheck.Linux != nil && osVersionCheck.Linux.MinKernelVersion == "" ||
+			osVersionCheck.Windows != nil && osVersionCheck.Windows.MinKernelVersion == ""
+		if emptyOS || emptyMinVersion {
+			return status.Errorf(status.InvalidArgument,
+				"minimum version for at least one OS in the OS version check shouldn't be empty")
 		}
-
-		for _, loc := range geoLocationCheck.Locations {
-			if loc.CountryCode == "" {
-				return status.Errorf(status.InvalidArgument, "country code for geolocation check shouldn't be empty")
-			}
-
-			if loc.CityName == nil && loc.CityGeonameId == nil {
-				return status.Errorf(status.InvalidArgument, "city name or city geoname id for geolocation check shouldn't be empty")
-			}
-		}
-
 	}
 
 	return nil
@@ -236,10 +239,18 @@ func toPostureChecksResponse(postureChecks *posture.Checks) *api.PostureCheck {
 		switch check.Name() {
 		case posture.NBVersionCheckName:
 			versionCheck := check.(*posture.NBVersionCheck)
-			checks.NbVersionCheck = (*api.NBVersionCheck)(versionCheck)
-		case posture.GeoLocationCheckName:
-			geoLocationCheck := check.(*posture.GeoLocationCheck)
-			checks.GeoLocationCheck = toGeoLocationCheckResponse(geoLocationCheck)
+			checks.NbVersionCheck = &api.NBVersionCheck{
+				MinVersion: versionCheck.MinVersion,
+			}
+		case posture.OSVersionCheckName:
+			osCheck := check.(*posture.OSVersionCheck)
+			checks.OsVersionCheck = &api.OSVersionCheck{
+				Android: (*api.MinVersionCheck)(osCheck.Android),
+				Darwin:  (*api.MinVersionCheck)(osCheck.Darwin),
+				Ios:     (*api.MinVersionCheck)(osCheck.Ios),
+				Linux:   (*api.MinKernelVersionCheck)(osCheck.Linux),
+				Windows: (*api.MinKernelVersionCheck)(osCheck.Windows),
+			}
 		}
 	}
 
@@ -248,49 +259,5 @@ func toPostureChecksResponse(postureChecks *posture.Checks) *api.PostureCheck {
 		Name:        postureChecks.Name,
 		Description: &postureChecks.Description,
 		Checks:      checks,
-	}
-}
-
-func toGeoLocationCheckResponse(geoLocationCheck *posture.GeoLocationCheck) *api.GeoLocationCheck {
-	locations := make([]api.Location, 0, len(geoLocationCheck.Locations))
-	for _, loc := range geoLocationCheck.Locations {
-		locations = append(locations, api.Location{
-			CityGeonameId: &loc.CityGeoNameID,
-			CityName:      &loc.CityName,
-			CountryCode:   loc.CountryCode,
-		})
-	}
-
-	return &api.GeoLocationCheck{
-		Action:    api.GeoLocationCheckAction(geoLocationCheck.Action),
-		Locations: locations,
-	}
-}
-
-func toPostureGeoLocationCheck(apiGeoLocationCheck *api.GeoLocationCheck) *posture.GeoLocationCheck {
-	locations := make([]posture.Location, 0, len(apiGeoLocationCheck.Locations))
-	for _, loc := range apiGeoLocationCheck.Locations {
-		var (
-			cityName      string
-			cityGeoNameID int
-		)
-
-		if loc.CityName != nil {
-			cityName = *loc.CityName
-		}
-		if loc.CityGeonameId != nil {
-			cityGeoNameID = *loc.CityGeonameId
-		}
-
-		locations = append(locations, posture.Location{
-			CountryCode:   loc.CountryCode,
-			CityName:      cityName,
-			CityGeoNameID: cityGeoNameID,
-		})
-	}
-
-	return &posture.GeoLocationCheck{
-		Action:    string(apiGeoLocationCheck.Action),
-		Locations: locations,
 	}
 }

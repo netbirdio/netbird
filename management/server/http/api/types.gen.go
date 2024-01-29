@@ -63,12 +63,6 @@ const (
 	EventActivityCodeUserUnblock                              EventActivityCode = "user.unblock"
 )
 
-// Defines values for GeoLocationCheckAction.
-const (
-	GeoLocationCheckActionAllow GeoLocationCheckAction = "allow"
-	GeoLocationCheckActionDeny  GeoLocationCheckAction = "deny"
-)
-
 // Defines values for NameserverNsType.
 const (
 	NameserverNsTypeUdp NameserverNsType = "udp"
@@ -184,11 +178,11 @@ type AccountSettings struct {
 
 // Checks List of objects that perform the actual checks
 type Checks struct {
-	// GeoLocationCheck Posture check for geo location
-	GeoLocationCheck *GeoLocationCheck `json:"geo_location_check,omitempty"`
-
-	// NbVersionCheck Posture check for the version of NetBird
+	// NbVersionCheck Posture check for the version of operating system
 	NbVersionCheck *NBVersionCheck `json:"nb_version_check,omitempty"`
+
+	// OsVersionCheck Posture check for the version of operating system
+	OsVersionCheck *OSVersionCheck `json:"os_version_check,omitempty"`
 }
 
 // DNSSettings defines model for DNSSettings.
@@ -229,18 +223,6 @@ type Event struct {
 
 // EventActivityCode The string code of the activity that occurred during the event
 type EventActivityCode string
-
-// GeoLocationCheck Posture check for geo location
-type GeoLocationCheck struct {
-	// Action Action to take upon policy match
-	Action GeoLocationCheckAction `json:"action"`
-
-	// Locations List of geo locations to which the policy applies
-	Locations []Location `json:"locations"`
-}
-
-// GeoLocationCheckAction Action to take upon policy match
-type GeoLocationCheckAction string
 
 // Group defines model for Group.
 type Group struct {
@@ -284,23 +266,20 @@ type GroupRequest struct {
 	Peers *[]string `json:"peers,omitempty"`
 }
 
-// Location Describe geographical location information
-type Location struct {
-	// CityGeonameId Unique identifier for the city as provided by the GeoNames database
-	CityGeonameId *int `json:"city_geoname_id,omitempty"`
-
-	// CityName Commonly used English name of the city
-	CityName *string `json:"city_name,omitempty"`
-
-	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
-	CountryCode string `json:"country_code"`
+// MinKernelVersionCheck Posture check for the version of kernel
+type MinKernelVersionCheck struct {
+	// MinKernelVersion Minimum acceptable version
+	MinKernelVersion string `json:"min_kernel_version"`
 }
 
-// NBVersionCheck Posture check for the version of NetBird
-type NBVersionCheck struct {
-	// MinVersion Minimum acceptable NetBird version
+// MinVersionCheck Posture check for the version of operating system
+type MinVersionCheck struct {
+	// MinVersion Minimum acceptable version
 	MinVersion string `json:"min_version"`
 }
+
+// NBVersionCheck Posture check for the version of operating system
+type NBVersionCheck = MinVersionCheck
 
 // Nameserver defines model for Nameserver.
 type Nameserver struct {
@@ -372,6 +351,24 @@ type NameserverGroupRequest struct {
 
 	// SearchDomainsEnabled Search domain status for match domains. It should be true only if domains list is not empty.
 	SearchDomainsEnabled bool `json:"search_domains_enabled"`
+}
+
+// OSVersionCheck Posture check for the version of operating system
+type OSVersionCheck struct {
+	// Android Posture check for the version of operating system
+	Android *MinVersionCheck `json:"android,omitempty"`
+
+	// Darwin Posture check for the version of operating system
+	Darwin *MinVersionCheck `json:"darwin,omitempty"`
+
+	// Ios Posture check for the version of operating system
+	Ios *MinVersionCheck `json:"ios,omitempty"`
+
+	// Linux Posture check for the version of kernel
+	Linux *MinKernelVersionCheck `json:"linux,omitempty"`
+
+	// Windows Posture check for the version of kernel
+	Windows *MinKernelVersionCheck `json:"windows,omitempty"`
 }
 
 // Peer defines model for Peer.

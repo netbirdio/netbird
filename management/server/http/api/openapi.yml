@@ -21,6 +21,8 @@ tags:
     description: Interact with and view information about rules.
   - name: Policies
     description: Interact with and view information about policies.
+  - name: Posture Checks
+    description: Interact with and view information about posture checks.
   - name: Routes
     description: Interact with and view information about routes.
   - name: DNS
@@ -838,18 +840,52 @@ components:
       properties:
         nb_version_check:
           $ref: '#/components/schemas/NBVersionCheck'
+        os_version_check:
+          $ref: '#/components/schemas/OSVersionCheck'
         geo_location_check:
           $ref: '#/components/schemas/GeoLocationCheck'
     NBVersionCheck:
       description: Posture check for the version of NetBird
       type: object
+      $ref: '#/components/schemas/MinVersionCheck'
+    OSVersionCheck:
+      description: Posture check for the version of operating system
+      type: object
+      properties:
+        android:
+          description: Minimum version of Android
+          $ref: '#/components/schemas/MinVersionCheck'
+        darwin:
+          $ref: '#/components/schemas/MinVersionCheck'
+        ios:
+          description: Minimum version of iOS
+          $ref: '#/components/schemas/MinVersionCheck'
+        linux:
+          description: Minimum version of Linux
+          $ref: '#/components/schemas/MinKernelVersionCheck'
+        windows:
+          description: Minimum version of Windows
+          $ref: '#/components/schemas/MinKernelVersionCheck'
+    MinVersionCheck:
+      description: Posture check for the version of operating system
+      type: object
       properties:
         min_version:
-          description: Minimum acceptable NetBird version
+          description: Minimum acceptable version
           type: string
-          example: "0.25.0"
+          example: "14.3"
       required:
         - min_version
+    MinKernelVersionCheck:
+      description: Posture check for the version of kernel
+      type: object
+      properties:
+        min_kernel_version:
+          description: Minimum acceptable version
+          type: string
+          example: "6.6.12"
+      required:
+        - min_kernel_version
     GeoLocationCheck:
       description: Posture check for geo location
       type: object
@@ -2252,7 +2288,6 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-
   /api/routes/{routeId}:
     get:
       summary: Retrieve a Route
@@ -2397,7 +2432,6 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-
   /api/dns/nameservers/{nsgroupId}:
     get:
       summary: Retrieve a Nameserver Group
@@ -2489,7 +2523,6 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-
   /api/dns/settings:
     get:
       summary: Retrieve DNS settings
@@ -2571,7 +2604,7 @@ paths:
     get:
       summary: List all Posture Checks
       description: Returns a list of all posture checks
-      tags: [ Posture Checks ]
+      tags: [ "Posture Checks" ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -2595,7 +2628,7 @@ paths:
     post:
       summary: Create a Posture Check
       description: Creates a posture check
-      tags: [ Posture Checks ]
+      tags: [ "Posture Checks" ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -2616,7 +2649,7 @@ paths:
     get:
       summary: Retrieve a Posture Check
       description: Get information about a posture check
-      tags: [ Posture Checks ]
+      tags: [ "Posture Checks" ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -2645,7 +2678,7 @@ paths:
     put:
       summary: Update a Posture Check
       description: Update/Replace a posture check
-      tags: [ Posture Checks ]
+      tags: [ "Posture Checks" ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -2680,7 +2713,7 @@ paths:
     delete:
       summary: Delete a Posture Check
       description: Delete a posture check
-      tags: [ Posture Checks ]
+      tags: [ "Posture Checks" ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]

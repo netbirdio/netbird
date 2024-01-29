@@ -7,7 +7,8 @@ import (
 )
 
 const (
-	NBVersionCheckName   = "NBVersionCheck"
+	NBVersionCheckName = "NBVersionCheck"
+	OSVersionCheckName = "OSVersionCheck"
 	GeoLocationCheckName = "GeoLocationCheck"
 )
 
@@ -111,7 +112,12 @@ func (pc *Checks) unmarshalChecks(rawChecks map[string]json.RawMessage) error {
 				return err
 			}
 			pc.Checks = append(pc.Checks, check)
-
+		case OSVersionCheckName:
+			check := &OSVersionCheck{}
+			if err := json.Unmarshal(rawCheck, check); err != nil {
+				return err
+			}
+			pc.Checks = append(pc.Checks, check)
 		case GeoLocationCheckName:
 			check := &GeoLocationCheck{}
 			if err := json.Unmarshal(rawCheck, check); err != nil {
