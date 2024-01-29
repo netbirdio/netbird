@@ -61,7 +61,7 @@ var baseExistingNSGroup = &nbdns.NameServerGroup{
 func initNameserversTestData() *NameserversHandler {
 	return &NameserversHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetNameServerGroupFunc: func(accountID, nsGroupID string) (*nbdns.NameServerGroup, error) {
+			GetNameServerGroupFunc: func(accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error) {
 				if nsGroupID == existingNSGroupID {
 					return baseExistingNSGroup.Copy(), nil
 				}

@@ -20,6 +20,7 @@ const (
 	nsGroupPeer2Key     = "/yF0+vCfv+mRR5k0dca0TrGdO/oiNeAI58gToZm5NyI="
 	validDomain         = "example.com"
 	invalidDomain       = "dnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdns.com"
+	testUserID          = "testingUser"
 )
 
 func TestCreateNameServerGroup(t *testing.T) {
@@ -726,7 +727,7 @@ func TestGetNameServerGroup(t *testing.T) {
 		t.Error("failed to init testing account")
 	}
 
-	foundGroup, err := am.GetNameServerGroup(account.Id, existingNSGroupID)
+	foundGroup, err := am.GetNameServerGroup(account.Id, testUserID, existingNSGroupID)
 	if err != nil {
 		t.Error("getting existing nameserver group failed with error: ", err)
 	}
@@ -735,7 +736,7 @@ func TestGetNameServerGroup(t *testing.T) {
 		t.Error("got a nil group while getting nameserver group with ID")
 	}
 
-	_, err = am.GetNameServerGroup(account.Id, "not existing")
+	_, err = am.GetNameServerGroup(account.Id, testUserID, "not existing")
 	if err == nil {
 		t.Error("getting not existing nameserver group should return error, got nil")
 	}
@@ -813,7 +814,7 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error
 	}
 
 	accountID := "testingAcc"
-	userID := "testingUser"
+	userID := testUserID
 	domain := "example.com"
 
 	account := newAccountWithId(accountID, userID, domain)
