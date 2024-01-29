@@ -259,13 +259,6 @@ func (u *upstreamResolverBase) disable() {
 	}
 }
 
-func (u *upstreamResolverBase) exchange(upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
-	// default upstream timeout
-	ctx, cancel := context.WithTimeout(context.Background(), u.upstreamTimeout)
-	defer cancel()
-	return u.upstreamClient.exchange(ctx, upstream, r)
-}
-
 func (u *upstreamResolverBase) testNameserver(server string) error {
 	ctx, cancel := context.WithTimeout(u.ctx, probeTimeout)
 	defer cancel()
