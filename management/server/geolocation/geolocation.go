@@ -15,7 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const mmdfFileName = "GeoLite2-City.mmdb"
+const mmdbFileName = "GeoLite2-City.mmdb"
 
 type Geolocation struct {
 	mmdbPath            string
@@ -44,7 +44,7 @@ type Record struct {
 }
 
 func NewGeolocation(datadir string) (*Geolocation, error) {
-	mmdbPath := path.Join(datadir, mmdfFileName)
+	mmdbPath := path.Join(datadir, mmdbFileName)
 
 	db, err := openDB(mmdbPath)
 	if err != nil {

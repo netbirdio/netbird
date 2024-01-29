@@ -14,16 +14,25 @@ var mmdbPath = "../testdata/GeoLite2-City-Test.mmdb"
 
 func TestGeoLite_Lookup(t *testing.T) {
 	tempDir := t.TempDir()
-	filename := path.Join(tempDir, mmdfFileName)
+	filename := path.Join(tempDir, mmdbFileName)
 	err := util.CopyFileContents(mmdbPath, filename)
 	assert.NoError(t, err)
 	defer func() {
-		os.Remove(filename)
+		err := os.Remove(filename)
+		if err != nil {
+			t.Errorf("os.Remove: %s", err)
+		}
 	}()
 
 	geo, err := NewGeolocation(tempDir)
 	assert.NoError(t, err)
 	assert.NotNil(t, geo)
+	defer func() {
+		err = geo.Stop()
+		if err != nil {
+			t.Errorf("geo.Stop: %s", err)
+		}
+	}()
 
 	record, err := geo.Lookup("89.160.20.128")
 	assert.NoError(t, err)
