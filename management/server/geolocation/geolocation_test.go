@@ -1,6 +1,7 @@
 package geolocation
 
 import (
+	"os"
 	"path"
 	"testing"
 
@@ -13,8 +14,12 @@ var mmdbPath = "../testdata/GeoLite2-City-Test.mmdb"
 
 func TestGeoLite_Lookup(t *testing.T) {
 	tempDir := t.TempDir()
-	err := util.CopyFileContents(mmdbPath, path.Join(tempDir, mmdfFileName))
+	filename := path.Join(tempDir, mmdfFileName)
+	err := util.CopyFileContents(mmdbPath, filename)
 	assert.NoError(t, err)
+	defer func() {
+		os.Remove(filename)
+	}()
 
 	geo, err := NewGeolocation(tempDir)
 	assert.NoError(t, err)
