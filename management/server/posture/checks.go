@@ -8,6 +8,7 @@ import (
 
 const (
 	NBVersionCheckName = "NBVersionCheck"
+	OSVersionCheckName = "OSVersionCheck"
 )
 
 // Check represents an interface for performing a check on a peer.
@@ -103,10 +104,15 @@ func (pc *Checks) unmarshalChecks(rawChecks map[string]json.RawMessage) error {
 	pc.Checks = make([]Check, 0, len(rawChecks))
 
 	for name, rawCheck := range rawChecks {
-		//nolint:gocritic
 		switch name {
 		case NBVersionCheckName:
 			check := &NBVersionCheck{}
+			if err := json.Unmarshal(rawCheck, check); err != nil {
+				return err
+			}
+			pc.Checks = append(pc.Checks, check)
+		case OSVersionCheckName:
+			check := &OSVersionCheck{}
 			if err := json.Unmarshal(rawCheck, check); err != nil {
 				return err
 			}

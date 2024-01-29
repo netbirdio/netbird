@@ -29,10 +29,8 @@ func (n *NBVersionCheck) Check(peer nbpeer.Peer) (bool, error) {
 	}
 
 	log.Debugf("peer %s NB version %s is older than minimum allowed version %s",
-		peer.ID,
-		peer.Meta.UIVersion,
-		n.MinVersion,
-	)
+		peer.ID, peer.Meta.WtVersion, n.MinVersion)
+
 	return false, nil
 }
 
