@@ -87,7 +87,7 @@ func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP strin
 
 			err = f.inotify.Add(f.watchDir)
 			if err != nil {
-				log.Errorf("failed to readd inotify watch for resolv.conf: %s", err)
+				log.Errorf("failed to re-add inotify watch for resolv.conf: %s", err)
 				return
 			}
 		}

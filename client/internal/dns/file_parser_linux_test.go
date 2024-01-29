@@ -16,11 +16,11 @@ func Test_parseResolvConf(t *testing.T) {
 		expectedOther  []string
 	}{
 		{
-			input: `domain chello.hu
-search chello.hu
+			input: `domain example.org
+search example.org
 nameserver 192.168.0.1
 `,
-			expectedSearch: []string{"chello.hu"},
+			expectedSearch: []string{"example.org"},
 			expectedNS:     []string{"192.168.0.1"},
 			expectedOther:  []string{},
 		},
