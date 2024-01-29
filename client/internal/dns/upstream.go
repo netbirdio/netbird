@@ -25,7 +25,6 @@ const (
 const testRecord = "."
 
 type upstreamClient interface {
-	exchange(upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
 	exchangeContext(ctx context.Context, upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
 }
 
@@ -251,6 +250,13 @@ func (u *upstreamResolverBase) disable() {
 		u.disabled = true
 		go u.waitUntilResponse()
 	}
+}
+
+func (u *upstreamResolverBase) exchange(upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
+	// default upstream timeout
+	ctx, cancel := context.WithTimeout(context.Background(), u.upstreamTimeout)
+	defer cancel()
+	return u.upstreamClient.exchangeContext(ctx, upstream, r)
 }
 
 func (u *upstreamResolverBase) testNameserver(server string) error {
