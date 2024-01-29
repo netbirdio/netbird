@@ -216,13 +216,18 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 		return status.Errorf(status.InvalidArgument, "minimum version for NetBird's version check shouldn't be empty")
 	}
 
-	if osVersionCheck := req.Checks.OsVersionCheck; osVersionCheck != nil &&
-		osVersionCheck.Android != nil && osVersionCheck.Android.MinVersion == "" &&
-		osVersionCheck.Darwin != nil && osVersionCheck.Darwin.MinVersion == "" &&
-		osVersionCheck.Ios != nil && osVersionCheck.Ios.MinVersion == "" &&
-		osVersionCheck.Linux != nil && osVersionCheck.Linux.MinKernelVersion == "" &&
-		osVersionCheck.Windows != nil && osVersionCheck.Windows.MinKernelVersion == "" {
-		return status.Errorf(status.InvalidArgument, "minimum version for at least one OS in the OS version check shouldn't be empty")
+	if osVersionCheck := req.Checks.OsVersionCheck; osVersionCheck != nil {
+		emptyOS := osVersionCheck.Android == nil && osVersionCheck.Darwin == nil && osVersionCheck.Ios == nil &&
+			osVersionCheck.Linux == nil && osVersionCheck.Windows == nil
+		emptyMinVersion := osVersionCheck.Android != nil && osVersionCheck.Android.MinVersion == "" ||
+			osVersionCheck.Darwin != nil && osVersionCheck.Darwin.MinVersion == "" ||
+			osVersionCheck.Ios != nil && osVersionCheck.Ios.MinVersion == "" ||
+			osVersionCheck.Linux != nil && osVersionCheck.Linux.MinKernelVersion == "" ||
+			osVersionCheck.Windows != nil && osVersionCheck.Windows.MinKernelVersion == ""
+		if emptyOS || emptyMinVersion {
+			return status.Errorf(status.InvalidArgument,
+				"minimum version for at least one OS in the OS version check shouldn't be empty")
+		}
 	}
 
 	return nil

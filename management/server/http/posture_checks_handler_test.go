@@ -465,3 +465,53 @@ func TestPostureCheckUpdate(t *testing.T) {
 		})
 	}
 }
+
+func TestPostureCheck_validatePostureChecksUpdate(t *testing.T) {
+	// empty name
+	err := validatePostureChecksUpdate(api.PostureCheckUpdate{})
+	assert.Error(t, err)
+
+	// empty checks
+	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default"})
+	assert.Error(t, err)
+	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{}})
+	assert.Error(t, err)
+
+	// not valid NbVersionCheck
+	nbVersionCheck := api.NBVersionCheck{}
+	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{NbVersionCheck: &nbVersionCheck}})
+	assert.Error(t, err)
+
+	// valid NbVersionCheck
+	nbVersionCheck = api.NBVersionCheck{MinVersion: "1.0"}
+	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{NbVersionCheck: &nbVersionCheck}})
+	assert.NoError(t, err)
+
+	// not valid OsVersionCheck
+	osVersionCheck := api.OSVersionCheck{}
+	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{OsVersionCheck: &osVersionCheck}})
+	assert.Error(t, err)
+
+	// not valid OsVersionCheck
+	osVersionCheck = api.OSVersionCheck{Linux: &api.MinKernelVersionCheck{}}
+	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{OsVersionCheck: &osVersionCheck}})
+	assert.Error(t, err)
+
+	// not valid OsVersionCheck
+	osVersionCheck = api.OSVersionCheck{Linux: &api.MinKernelVersionCheck{}, Darwin: &api.MinVersionCheck{MinVersion: "14.2"}}
+	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{OsVersionCheck: &osVersionCheck}})
+	assert.Error(t, err)
+
+	// valid OsVersionCheck
+	osVersionCheck = api.OSVersionCheck{Linux: &api.MinKernelVersionCheck{MinKernelVersion: "6.0"}}
+	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{OsVersionCheck: &osVersionCheck}})
+	assert.NoError(t, err)
+
+	// valid OsVersionCheck
+	osVersionCheck = api.OSVersionCheck{
+		Linux:  &api.MinKernelVersionCheck{MinKernelVersion: "6.0"},
+		Darwin: &api.MinVersionCheck{MinVersion: "14.2"},
+	}
+	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{OsVersionCheck: &osVersionCheck}})
+	assert.NoError(t, err)
+}
