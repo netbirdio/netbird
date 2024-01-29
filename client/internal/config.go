@@ -42,9 +42,9 @@ type ConfigInput struct {
 	NATExternalIPs   []string
 	CustomDNSAddress []byte
 	RosenpassEnabled *bool
+	SSHAllowed       *bool
 	InterfaceName    *string
 	WireguardPort    *int
-	SSHAllowed       *bool
 }
 
 // Config Configuration type
@@ -288,9 +288,16 @@ func update(input ConfigInput) (*Config, error) {
 	}
 
 	if input.SSHAllowed != nil {
+
+		log.Infof("SSH allowed flag set!")
+
 		config.SSHAllowed = *input.SSHAllowed
 		refresh = true
+	} else {
+
+		log.Infof("No SSH allowed flag set....")
 	}
+
 
 	if refresh {
 		// since we have new management URL, we need to update config file

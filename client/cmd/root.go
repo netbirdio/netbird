@@ -28,6 +28,7 @@ const (
 	externalIPMapFlag   = "external-ip-map"
 	dnsResolverAddress  = "dns-resolver-address"
 	enableRosenpassFlag = "enable-rosenpass"
+	SSHAllowedFlag      = "allow-ssh-server"
 	preSharedKeyFlag    = "preshared-key"
 	interfaceNameFlag   = "interface-name"
 	wireguardPortFlag   = "wireguard-port"
@@ -54,6 +55,7 @@ var (
 	natExternalIPs          []string
 	customDNSAddress        string
 	rosenpassEnabled        bool
+	sshAllowed              bool
 	interfaceName           string
 	wireguardPort           uint16
 	rootCmd                 = &cobra.Command{
@@ -126,6 +128,7 @@ func init() {
 			`E.g. --dns-resolver-address 127.0.0.1:5053 or --dns-resolver-address ""`,
 	)
 	upCmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "[Experimental] Enable Rosenpass feature. If enabled, the connection will be post-quantum secured via Rosenpass.")
+	upCmd.PersistentFlags().BoolVar(&sshAllowed, SSHAllowedFlag, false, "[Experimental] Allow SSH server on peer. If enabled, the SSH server will be permitted")
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
@@ -176,7 +179,7 @@ func FlagNameToEnvVar(cmdFlag string, prefix string) string {
 	return prefix + upper
 }
 
-// DialClientGRPCServer returns client connection to the dameno server.
+// DialClientGRPCServer returns client connection to the daemon server.
 func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*3)
 	defer cancel()
