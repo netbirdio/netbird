@@ -276,6 +276,7 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		NATExternalIPs:       config.NATExternalIPs,
 		CustomDNSAddress:     config.CustomDNSAddress,
 		RosenpassEnabled:     config.RosenpassEnabled,
+		SSHAllowed:           config.SSHAllowed,
 	}
 
 	if config.PreSharedKey != "" {

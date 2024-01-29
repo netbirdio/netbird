@@ -44,6 +44,7 @@ type ConfigInput struct {
 	RosenpassEnabled *bool
 	InterfaceName    *string
 	WireguardPort    *int
+	SSHAllowed       *bool
 }
 
 // Config Configuration type
@@ -58,6 +59,7 @@ type Config struct {
 	IFaceBlackList       []string
 	DisableIPv6Discovery bool
 	RosenpassEnabled     bool
+	SSHAllowed           bool
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey string
 
@@ -152,6 +154,7 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		DisableIPv6Discovery: false,
 		NATExternalIPs:       input.NATExternalIPs,
 		CustomDNSAddress:     string(input.CustomDNSAddress),
+		SSHAllowed:           false,
 	}
 
 	defaultManagementURL, err := parseURL("Management URL", DefaultManagementURL)
@@ -184,6 +187,10 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 
 	if input.RosenpassEnabled != nil {
 		config.RosenpassEnabled = *input.RosenpassEnabled
+	}
+
+	if input.SSHAllowed != nil {
+		config.SSHAllowed = *input.SSHAllowed
 	}
 
 	defaultAdminURL, err := parseURL("Admin URL", DefaultAdminURL)
@@ -277,6 +284,11 @@ func update(input ConfigInput) (*Config, error) {
 
 	if input.RosenpassEnabled != nil {
 		config.RosenpassEnabled = *input.RosenpassEnabled
+		refresh = true
+	}
+
+	if input.SSHAllowed != nil {
+		config.SSHAllowed = *input.SSHAllowed
 		refresh = true
 	}
 

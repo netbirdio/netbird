@@ -80,6 +80,8 @@ type EngineConfig struct {
 	CustomDNSAddress string
 
 	RosenpassEnabled bool
+
+	SSHAllowed       bool
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -483,47 +485,51 @@ func isNil(server nbssh.Server) bool {
 
 func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 	
-	log.Warnf("running SSH server is not permitted!")
-	return nil
+	if !e.config.SSHAllowed {
+		log.Warnf("running SSH server is not permitted")
+		return nil
+	} else {
 	
-	if sshConf.GetSshEnabled() {
-		if runtime.GOOS == "windows" {
-			log.Warnf("running SSH server on Windows is not supported")
-			return nil
-		}
-		// start SSH server if it wasn't running
-		if isNil(e.sshServer) {
-			// nil sshServer means it has not yet been started
-			var err error
-			e.sshServer, err = e.sshServerFunc(e.config.SSHKey,
-				fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort))
-			if err != nil {
-				return err
+		if sshConf.GetSshEnabled() {
+			if runtime.GOOS == "windows" {
+				log.Warnf("running SSH server on Windows is not supported")
+				return nil
 			}
-			go func() {
-				// blocking
-				err = e.sshServer.Start()
+			// start SSH server if it wasn't running
+			if isNil(e.sshServer) {
+				// nil sshServer means it has not yet been started
+				var err error
+				e.sshServer, err = e.sshServerFunc(e.config.SSHKey,
+					fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort))
 				if err != nil {
-					// will throw error when we stop it even if it is a graceful stop
-					log.Debugf("stopped SSH server with error %v", err)
+					return err
 				}
-				e.syncMsgMux.Lock()
-				defer e.syncMsgMux.Unlock()
-				e.sshServer = nil
-				log.Infof("stopped SSH server")
-			}()
-		} else {
-			log.Debugf("SSH server is already running")
+				go func() {
+					// blocking
+					err = e.sshServer.Start()
+					if err != nil {
+						// will throw error when we stop it even if it is a graceful stop
+						log.Debugf("stopped SSH server with error %v", err)
+					}
+					e.syncMsgMux.Lock()
+					defer e.syncMsgMux.Unlock()
+					e.sshServer = nil
+					log.Infof("stopped SSH server")
+				}()
+			} else {
+				log.Debugf("SSH server is already running")
+			}
+		} else if !isNil(e.sshServer) {
+			// Disable SSH server request, so stop it if it was running
+			err := e.sshServer.Stop()
+			if err != nil {
+				log.Warnf("failed to stop SSH server %v", err)
+			}
+			e.sshServer = nil
 		}
-	} else if !isNil(e.sshServer) {
-		// Disable SSH server request, so stop it if it was running
-		err := e.sshServer.Stop()
-		if err != nil {
-			log.Warnf("failed to stop SSH server %v", err)
-		}
-		e.sshServer = nil
+		return nil
+
 	}
-	return nil
 }
 
 func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
