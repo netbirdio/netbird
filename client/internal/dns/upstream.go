@@ -79,8 +79,15 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	for _, upstream := range u.upstreamServers {
+		var rm *dns.Msg
+		var t time.Duration
+		var err error
 
-		rm, t, err := u.upstreamClient.exchange(upstream, r)
+		func() {
+			ctx, cancel := context.WithTimeout(u.ctx, u.upstreamTimeout)
+			defer cancel()
+			rm, t, err = u.upstreamClient.exchange(ctx, upstream, r)
+		}()
 
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) || isTimeout(err) {
