@@ -41,7 +41,7 @@ func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net
 }
 
 func (u *upstreamResolverIOS) exchange(upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+	ctx, cancel := context.WithTimeout(context.Background(), u.upstreamTimeout)
 	defer cancel()
 	return u.exchangeContext(ctx, upstream, r)
 }
