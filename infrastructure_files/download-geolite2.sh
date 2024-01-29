@@ -59,3 +59,4 @@ rm "$DATABASE_FILE" "$SIGNATURE_FILE"
 # Done. Print next steps
 echo "Process completed successfully."
 echo "Now you can place $EXTRACTION_DIR/$MMDB_FILE to 'datadir' of management service."
+echo -e "Example:\n\tdocker compose cp $EXTRACTION_DIR/$MMDB_FILE management:/var/lib/netbird/"

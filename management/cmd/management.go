@@ -17,8 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netbirdio/management-integrations/integrations"
-
 	"github.com/google/uuid"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
@@ -30,6 +28,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
@@ -163,7 +162,9 @@ var (
 
 			geo, err := geolocation.NewGeolocation(config.Datadir)
 			if err != nil {
-				log.Infof("could not initialize Geolocation service, we procced without geo support")
+				log.Infof("could not initialize geo location service, we proceed without geo support")
+			} else {
+				log.Infof("geo location service has been initialized from %s", config.Datadir)
 			}
 
 			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
