@@ -63,6 +63,12 @@ const (
 	EventActivityCodeUserUnblock                              EventActivityCode = "user.unblock"
 )
 
+// Defines values for GeoLocationCheckAction.
+const (
+	GeoLocationCheckActionAllow GeoLocationCheckAction = "allow"
+	GeoLocationCheckActionDeny  GeoLocationCheckAction = "deny"
+)
+
 // Defines values for NameserverNsType.
 const (
 	NameserverNsTypeUdp NameserverNsType = "udp"
@@ -178,6 +184,9 @@ type AccountSettings struct {
 
 // Checks List of objects that perform the actual checks
 type Checks struct {
+	// GeoLocationCheck Posture check for geo location
+	GeoLocationCheck *GeoLocationCheck `json:"geo_location_check,omitempty"`
+
 	// NbVersionCheck Posture check for the version of operating system
 	NbVersionCheck *NBVersionCheck `json:"nb_version_check,omitempty"`
 
@@ -224,6 +233,18 @@ type Event struct {
 // EventActivityCode The string code of the activity that occurred during the event
 type EventActivityCode string
 
+// GeoLocationCheck Posture check for geo location
+type GeoLocationCheck struct {
+	// Action Action to take upon policy match
+	Action GeoLocationCheckAction `json:"action"`
+
+	// Locations List of geo locations to which the policy applies
+	Locations []Location `json:"locations"`
+}
+
+// GeoLocationCheckAction Action to take upon policy match
+type GeoLocationCheckAction string
+
 // Group defines model for Group.
 type Group struct {
 	// Id Group ID
@@ -264,6 +285,18 @@ type GroupRequest struct {
 
 	// Peers List of peers ids
 	Peers *[]string `json:"peers,omitempty"`
+}
+
+// Location Describe geographical location information
+type Location struct {
+	// CityGeonameId Unique identifier for the city as provided by the GeoNames database
+	CityGeonameId *int `json:"city_geoname_id,omitempty"`
+
+	// CityName Commonly used English name of the city
+	CityName *string `json:"city_name,omitempty"`
+
+	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
+	CountryCode string `json:"country_code"`
 }
 
 // MinKernelVersionCheck Posture check for the version of kernel

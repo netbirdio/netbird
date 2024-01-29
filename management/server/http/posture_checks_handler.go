@@ -195,6 +195,10 @@ func (p *PostureChecksHandler) savePostureChecks(
 		})
 	}
 
+	if geoLocationCheck := req.Checks.GeoLocationCheck; geoLocationCheck != nil {
+		postureChecks.Checks = append(postureChecks.Checks, toPostureGeoLocationCheck(geoLocationCheck))
+	}
+
 	if err := p.accountManager.SavePostureChecks(account.Id, user.Id, &postureChecks); err != nil {
 		util.WriteError(err, w)
 		return
@@ -208,7 +212,8 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 		return status.Errorf(status.InvalidArgument, "posture checks name shouldn't be empty")
 	}
 
-	if req.Checks == nil || (req.Checks.NbVersionCheck == nil && req.Checks.OsVersionCheck == nil) {
+	if req.Checks == nil || (req.Checks.NbVersionCheck == nil && req.Checks.OsVersionCheck == nil &&
+		req.Checks.GeoLocationCheck == nil) {
 		return status.Errorf(status.InvalidArgument, "posture checks shouldn't be empty")
 	}
 
@@ -228,6 +233,23 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 			return status.Errorf(status.InvalidArgument,
 				"minimum version for at least one OS in the OS version check shouldn't be empty")
 		}
+	}
+
+	if geoLocationCheck := req.Checks.GeoLocationCheck; geoLocationCheck != nil {
+		if geoLocationCheck.Action == "" {
+			return status.Errorf(status.InvalidArgument, "action for geolocation check shouldn't be empty")
+		}
+
+		for _, loc := range geoLocationCheck.Locations {
+			if loc.CountryCode == "" {
+				return status.Errorf(status.InvalidArgument, "country code for geolocation check shouldn't be empty")
+			}
+
+			if loc.CityName == nil && loc.CityGeonameId == nil {
+				return status.Errorf(status.InvalidArgument, "city name or city geoname id for geolocation check shouldn't be empty")
+			}
+		}
+
 	}
 
 	return nil
@@ -251,6 +273,9 @@ func toPostureChecksResponse(postureChecks *posture.Checks) *api.PostureCheck {
 				Linux:   (*api.MinKernelVersionCheck)(osCheck.Linux),
 				Windows: (*api.MinKernelVersionCheck)(osCheck.Windows),
 			}
+		case posture.GeoLocationCheckName:
+			geoLocationCheck := check.(*posture.GeoLocationCheck)
+			checks.GeoLocationCheck = toGeoLocationCheckResponse(geoLocationCheck)
 		}
 	}
 
@@ -259,5 +284,49 @@ func toPostureChecksResponse(postureChecks *posture.Checks) *api.PostureCheck {
 		Name:        postureChecks.Name,
 		Description: &postureChecks.Description,
 		Checks:      checks,
+	}
+}
+
+func toGeoLocationCheckResponse(geoLocationCheck *posture.GeoLocationCheck) *api.GeoLocationCheck {
+	locations := make([]api.Location, 0, len(geoLocationCheck.Locations))
+	for _, loc := range geoLocationCheck.Locations {
+		locations = append(locations, api.Location{
+			CityGeonameId: &loc.CityGeoNameID,
+			CityName:      &loc.CityName,
+			CountryCode:   loc.CountryCode,
+		})
+	}
+
+	return &api.GeoLocationCheck{
+		Action:    api.GeoLocationCheckAction(geoLocationCheck.Action),
+		Locations: locations,
+	}
+}
+
+func toPostureGeoLocationCheck(apiGeoLocationCheck *api.GeoLocationCheck) *posture.GeoLocationCheck {
+	locations := make([]posture.Location, 0, len(apiGeoLocationCheck.Locations))
+	for _, loc := range apiGeoLocationCheck.Locations {
+		var (
+			cityName      string
+			cityGeoNameID int
+		)
+
+		if loc.CityName != nil {
+			cityName = *loc.CityName
+		}
+		if loc.CityGeonameId != nil {
+			cityGeoNameID = *loc.CityGeonameId
+		}
+
+		locations = append(locations, posture.Location{
+			CountryCode:   loc.CountryCode,
+			CityName:      cityName,
+			CityGeoNameID: cityGeoNameID,
+		})
+	}
+
+	return &posture.GeoLocationCheck{
+		Action:    string(apiGeoLocationCheck.Action),
+		Locations: locations,
 	}
 }
