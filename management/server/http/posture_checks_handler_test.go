@@ -444,8 +444,8 @@ func TestPostureCheckUpdate(t *testing.T) {
 						"geo_location_check": {
 							"locations": [
 								{
-									"city_name": "test",
-									"country_code": "TE"
+									"city_name": "Los Angeles",
+									"country_code": "US"
 								}
 							],
 							"action": "allow"
@@ -462,8 +462,8 @@ func TestPostureCheckUpdate(t *testing.T) {
 					GeoLocationCheck: &api.GeoLocationCheck{
 						Locations: []api.Location{
 							{
-								CityName:    "test",
-								CountryCode: "TE",
+								CityName:    "Los Angeles",
+								CountryCode: "US",
 							},
 						},
 						Action: api.GeoLocationCheckActionAllow,

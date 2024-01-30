@@ -71,7 +71,7 @@ type PeerSystemMeta struct {
 	Location struct {
 		CountryCode string
 		CityName    string
-	}
+	} `gorm:"embedded;embeddedPrefix:location_"`
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
