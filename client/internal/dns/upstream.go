@@ -25,8 +25,7 @@ const (
 const testRecord = "."
 
 type upstreamClient interface {
-	exchange(upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
-	exchangeContext(ctx context.Context, upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
+	exchange(ctx context.Context, upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
 }
 
 type UpstreamResolver interface {
@@ -80,8 +79,15 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	for _, upstream := range u.upstreamServers {
+		var rm *dns.Msg
+		var t time.Duration
+		var err error
 
-		rm, t, err := u.upstreamClient.exchange(upstream, r)
+		func() {
+			ctx, cancel := context.WithTimeout(u.ctx, u.upstreamTimeout)
+			defer cancel()
+			rm, t, err = u.upstreamClient.exchange(ctx, upstream, r)
+		}()
 
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) || isTimeout(err) {
@@ -213,7 +219,7 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 		}
 
 		log.Tracef("checking connectivity with upstreams %s failed. Retrying in %s", u.upstreamServers, exponentialBackOff.NextBackOff())
-		return fmt.Errorf("got an error from upstream check call")
+		return fmt.Errorf("upstream check call error")
 	}
 
 	err := backoff.Retry(operation, exponentialBackOff)
@@ -259,6 +265,6 @@ func (u *upstreamResolverBase) testNameserver(server string) error {
 
 	r := new(dns.Msg).SetQuestion(testRecord, dns.TypeSOA)
 
-	_, _, err := u.upstreamClient.exchangeContext(ctx, server, r)
+	_, _, err := u.upstreamClient.exchange(ctx, server, r)
 	return err
 }

@@ -52,7 +52,7 @@ func (d *localResolver) lookupRecord(r *dns.Msg) dns.RR {
 func (d *localResolver) registerRecord(record nbdns.SimpleRecord) error {
 	fullRecord, err := dns.NewRR(record.String())
 	if err != nil {
-		return err
+		return fmt.Errorf("register record: %w", err)
 	}
 
 	fullRecord.Header().Rdlength = record.Len()

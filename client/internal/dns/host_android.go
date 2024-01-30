@@ -1,9 +1,11 @@
 package dns
 
+import "net/netip"
+
 type androidHostManager struct {
 }
 
-func newHostManager(wgInterface WGIface) (hostManager, error) {
+func newHostManager() (hostManager, error) {
 	return &androidHostManager{}, nil
 }
 
@@ -17,4 +19,8 @@ func (a androidHostManager) restoreHostDNS() error {
 
 func (a androidHostManager) supportCustomPort() bool {
 	return false
+}
+
+func (a androidHostManager) restoreUncleanShutdownDNS(*netip.Addr) error {
+	return nil
 }
