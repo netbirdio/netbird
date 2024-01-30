@@ -219,7 +219,7 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 		}
 
 		log.Tracef("checking connectivity with upstreams %s failed. Retrying in %s", u.upstreamServers, exponentialBackOff.NextBackOff())
-		return fmt.Errorf("got an error from upstream check call")
+		return fmt.Errorf("upstream check call error")
 	}
 
 	err := backoff.Retry(operation, exponentialBackOff)

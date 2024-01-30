@@ -6,6 +6,8 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
+	"net/netip"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -34,7 +36,7 @@ type systemConfigurator struct {
 	createdKeys      map[string]struct{}
 }
 
-func newHostManager(_ WGIface) (hostManager, error) {
+func newHostManager() (hostManager, error) {
 	return &systemConfigurator{
 		createdKeys: make(map[string]struct{}),
 	}, nil
@@ -50,15 +52,20 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	if config.RouteAll {
 		err = s.addDNSSetupForAll(config.ServerIP, config.ServerPort)
 		if err != nil {
-			return err
+			return fmt.Errorf("add dns setup for all: %w", err)
 		}
 	} else if s.primaryServiceID != "" {
 		err = s.removeKeyFromSystemConfig(getKeyWithInput(primaryServiceSetupKeyFormat, s.primaryServiceID))
 		if err != nil {
-			return err
+			return fmt.Errorf("remote key from system config: %w", err)
 		}
 		s.primaryServiceID = ""
 		log.Infof("removed %s:%d as main DNS resolver for this peer", config.ServerIP, config.ServerPort)
+	}
+
+	// create a file for unclean shutdown detection
+	if err := createUncleanShutdownIndicator(); err != nil {
+		log.Errorf("failed to create unclean shutdown file: %s", err)
 	}
 
 	var (
@@ -85,7 +92,7 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig) error {
 		err = s.removeKeyFromSystemConfig(matchKey)
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("add match domains: %w", err)
 	}
 
 	searchKey := getKeyWithInput(netbirdDNSStateKeyFormat, searchSuffix)
@@ -96,7 +103,7 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig) error {
 		err = s.removeKeyFromSystemConfig(searchKey)
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("add search domains: %w", err)
 	}
 
 	return nil
@@ -119,7 +126,11 @@ func (s *systemConfigurator) restoreHostDNS() error {
 	_, err := runSystemConfigCommand(wrapCommand(lines))
 	if err != nil {
 		log.Errorf("got an error while cleaning the system configuration: %s", err)
-		return err
+		return fmt.Errorf("clean system: %w", err)
+	}
+
+	if err := removeUncleanShutdownIndicator(); err != nil {
+		log.Errorf("failed to remove unclean shutdown file: %s", err)
 	}
 
 	return nil
@@ -129,7 +140,7 @@ func (s *systemConfigurator) removeKeyFromSystemConfig(key string) error {
 	line := buildRemoveKeyOperation(key)
 	_, err := runSystemConfigCommand(wrapCommand(line))
 	if err != nil {
-		return err
+		return fmt.Errorf("remove key: %w", err)
 	}
 
 	delete(s.createdKeys, key)
@@ -140,7 +151,7 @@ func (s *systemConfigurator) removeKeyFromSystemConfig(key string) error {
 func (s *systemConfigurator) addSearchDomains(key, domains string, ip string, port int) error {
 	err := s.addDNSState(key, domains, ip, port, true)
 	if err != nil {
-		return err
+		return fmt.Errorf("add dns state: %w", err)
 	}
 
 	log.Infof("added %d search domains to the state. Domain list: %s", len(strings.Split(domains, " ")), domains)
@@ -153,7 +164,7 @@ func (s *systemConfigurator) addSearchDomains(key, domains string, ip string, po
 func (s *systemConfigurator) addMatchDomains(key, domains, dnsServer string, port int) error {
 	err := s.addDNSState(key, domains, dnsServer, port, false)
 	if err != nil {
-		return err
+		return fmt.Errorf("add dns state: %w", err)
 	}
 
 	log.Infof("added %d match domains to the state. Domain list: %s", len(strings.Split(domains, " ")), domains)
@@ -178,33 +189,37 @@ func (s *systemConfigurator) addDNSState(state, domains, dnsServer string, port 
 
 	_, err := runSystemConfigCommand(stdinCommands)
 	if err != nil {
-		return fmt.Errorf("got error while applying state for domains %s, error: %s", domains, err)
+		return fmt.Errorf("applying state for domains %s, error: %w", domains, err)
 	}
 	return nil
 }
 
 func (s *systemConfigurator) addDNSSetupForAll(dnsServer string, port int) error {
-	primaryServiceKey, existingNameserver := s.getPrimaryService()
-	if primaryServiceKey == "" {
-		return fmt.Errorf("couldn't find the primary service key")
+	primaryServiceKey, existingNameserver, err := s.getPrimaryService()
+	if err != nil || primaryServiceKey == "" {
+		return fmt.Errorf("couldn't find the primary service key: %w", err)
 	}
-	err := s.addDNSSetup(getKeyWithInput(primaryServiceSetupKeyFormat, primaryServiceKey), dnsServer, port, existingNameserver)
+
+	err = s.addDNSSetup(getKeyWithInput(primaryServiceSetupKeyFormat, primaryServiceKey), dnsServer, port, existingNameserver)
 	if err != nil {
-		return err
+		return fmt.Errorf("add dns setup: %w", err)
 	}
+
 	log.Infof("configured %s:%d as main DNS resolver for this peer", dnsServer, port)
 	s.primaryServiceID = primaryServiceKey
+
 	return nil
 }
 
-func (s *systemConfigurator) getPrimaryService() (string, string) {
+func (s *systemConfigurator) getPrimaryService() (string, string, error) {
 	line := buildCommandLine("show", globalIPv4State, "")
 	stdinCommands := wrapCommand(line)
+
 	b, err := runSystemConfigCommand(stdinCommands)
 	if err != nil {
-		log.Error("got error while sending the command: ", err)
-		return "", ""
+		return "", "", fmt.Errorf("sending the command: %w", err)
 	}
+
 	scanner := bufio.NewScanner(bytes.NewReader(b))
 	primaryService := ""
 	router := ""
@@ -217,7 +232,11 @@ func (s *systemConfigurator) getPrimaryService() (string, string) {
 			router = strings.TrimSpace(strings.Split(text, ":")[1])
 		}
 	}
-	return primaryService, router
+	if err := scanner.Err(); err != nil && err != io.EOF {
+		return primaryService, router, fmt.Errorf("scan: %w", err)
+	}
+
+	return primaryService, router, nil
 }
 
 func (s *systemConfigurator) addDNSSetup(setupKey, dnsServer string, port int, existingDNSServer string) error {
@@ -228,7 +247,14 @@ func (s *systemConfigurator) addDNSSetup(setupKey, dnsServer string, port int, e
 	stdinCommands := wrapCommand(addDomainCommand)
 	_, err := runSystemConfigCommand(stdinCommands)
 	if err != nil {
-		return fmt.Errorf("got error while applying dns setup, error: %s", err)
+		return fmt.Errorf("applying dns setup, error: %w", err)
+	}
+	return nil
+}
+
+func (s *systemConfigurator) restoreUncleanShutdownDNS(*netip.Addr) error {
+	if err := s.restoreHostDNS(); err != nil {
+		return fmt.Errorf("restoring dns via scutil: %w", err)
 	}
 	return nil
 }
@@ -266,7 +292,7 @@ func runSystemConfigCommand(command string) ([]byte, error) {
 	cmd.Stdin = strings.NewReader(command)
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("got error while running system configuration command: \"%s\", error: %s", command, err)
+		return nil, fmt.Errorf("running system configuration command: \"%s\", error: %w", command, err)
 	}
 	return out, nil
 }

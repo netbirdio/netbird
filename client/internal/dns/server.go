@@ -142,12 +142,15 @@ func (s *DefaultServer) Initialize() (err error) {
 	if s.permanent {
 		err = s.service.Listen()
 		if err != nil {
-			return err
+			return fmt.Errorf("service listen: %w", err)
 		}
 	}
 
 	s.hostManager, err = s.initialize()
-	return err
+	if err != nil {
+		return fmt.Errorf("initialize: %w", err)
+	}
+	return nil
 }
 
 // DnsIP returns the DNS resolver server IP address
@@ -225,7 +228,7 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 		}
 
 		if err := s.applyConfiguration(update); err != nil {
-			return err
+			return fmt.Errorf("apply configuration: %w", err)
 		}
 
 		s.updateSerial = serial
