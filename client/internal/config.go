@@ -42,7 +42,7 @@ type ConfigInput struct {
 	NATExternalIPs   []string
 	CustomDNSAddress []byte
 	RosenpassEnabled *bool
-	SSHAllowed       *bool
+	ServerSSHAllowed *bool
 	InterfaceName    *string
 	WireguardPort    *int
 }
@@ -59,9 +59,9 @@ type Config struct {
 	IFaceBlackList       []string
 	DisableIPv6Discovery bool
 	RosenpassEnabled     bool
-	SSHAllowed           bool
+	ServerSSHAllowed     bool
 	// SSHKey is a private SSH key in a PEM format
-	SSHKey string
+	SSHKey               string
 
 	// ExternalIP mappings, if different from the host interface IP
 	//
@@ -78,9 +78,9 @@ type Config struct {
 	//      "12.34.56.78/eth0"     => IPv4 assigned to interface eth0 will be mapped to external IP of 12.34.56.78
 	//      "12.34.56.78/10.1.2.3" => interface IP 10.1.2.3 will be mapped to external IP of 12.34.56.78
 
-	NATExternalIPs []string
+	NATExternalIPs       []string
 	// CustomDNSAddress sets the DNS resolver listening address in format ip:port
-	CustomDNSAddress string
+	CustomDNSAddress     string
 }
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
@@ -154,7 +154,7 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		DisableIPv6Discovery: false,
 		NATExternalIPs:       input.NATExternalIPs,
 		CustomDNSAddress:     string(input.CustomDNSAddress),
-		SSHAllowed:           false,
+		ServerSSHAllowed:     false,
 	}
 
 	defaultManagementURL, err := parseURL("Management URL", DefaultManagementURL)
@@ -189,8 +189,8 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		config.RosenpassEnabled = *input.RosenpassEnabled
 	}
 
-	if input.SSHAllowed != nil {
-		config.SSHAllowed = *input.SSHAllowed
+	if input.ServerSSHAllowed != nil {
+		config.ServerSSHAllowed = *input.ServerSSHAllowed
 	}
 
 	defaultAdminURL, err := parseURL("Admin URL", DefaultAdminURL)
@@ -287,17 +287,11 @@ func update(input ConfigInput) (*Config, error) {
 		refresh = true
 	}
 
-	if input.SSHAllowed != nil {
-
-		log.Infof("SSH allowed flag set!")
-
-		config.SSHAllowed = *input.SSHAllowed
+	if input.ServerSSHAllowed != nil {
+		log.Infof("SSH allowed flag set")
+		config.ServerSSHAllowed = *input.ServerSSHAllowed
 		refresh = true
-	} else {
-
-		log.Infof("No SSH allowed flag set....")
-	}
-
+	} 
 
 	if refresh {
 		// since we have new management URL, we need to update config file
