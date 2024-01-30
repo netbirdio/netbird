@@ -81,7 +81,7 @@ type EngineConfig struct {
 
 	RosenpassEnabled bool
 
-	SSHAllowed       bool
+	ServerSSHAllowed bool
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -485,7 +485,7 @@ func isNil(server nbssh.Server) bool {
 
 func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 	
-	if !e.config.SSHAllowed {
+	if !e.config.ServerSSHAllowed {
 		log.Warnf("running SSH server is not permitted")
 		return nil
 	} else {

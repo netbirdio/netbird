@@ -63,6 +63,8 @@ message LoginRequest {
   optional int64 wireguardPort = 12;
 
   optional string optionalPreSharedKey = 13;
+
+  optional bool serverSSHAllowed = 14;
 }
 
 message LoginResponse {
