@@ -289,11 +289,8 @@ type GroupRequest struct {
 
 // Location Describe geographical location information
 type Location struct {
-	// CityGeonameId Unique identifier for the city as provided by the GeoNames database
-	CityGeonameId *int `json:"city_geoname_id,omitempty"`
-
 	// CityName Commonly used English name of the city
-	CityName *string `json:"city_name,omitempty"`
+	CityName string `json:"city_name"`
 
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
 	CountryCode string `json:"country_code"`

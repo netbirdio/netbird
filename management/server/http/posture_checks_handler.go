@@ -239,14 +239,16 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 		if geoLocationCheck.Action == "" {
 			return status.Errorf(status.InvalidArgument, "action for geolocation check shouldn't be empty")
 		}
+		if len(geoLocationCheck.Locations) == 0 {
+			return status.Errorf(status.InvalidArgument, "locations for geolocation check shouldn't be empty")
+		}
 
 		for _, loc := range geoLocationCheck.Locations {
 			if loc.CountryCode == "" {
 				return status.Errorf(status.InvalidArgument, "country code for geolocation check shouldn't be empty")
 			}
-
-			if loc.CityName == nil && loc.CityGeonameId == nil {
-				return status.Errorf(status.InvalidArgument, "city name or city geoname id for geolocation check shouldn't be empty")
+			if loc.CityName == "" {
+				return status.Errorf(status.InvalidArgument, "city name for geolocation check shouldn't be empty")
 			}
 		}
 
@@ -291,9 +293,8 @@ func toGeoLocationCheckResponse(geoLocationCheck *posture.GeoLocationCheck) *api
 	locations := make([]api.Location, 0, len(geoLocationCheck.Locations))
 	for _, loc := range geoLocationCheck.Locations {
 		locations = append(locations, api.Location{
-			CityGeonameId: &loc.CityGeoNameID,
-			CityName:      &loc.CityName,
-			CountryCode:   loc.CountryCode,
+			CityName:    loc.CityName,
+			CountryCode: loc.CountryCode,
 		})
 	}
 
@@ -306,22 +307,9 @@ func toGeoLocationCheckResponse(geoLocationCheck *posture.GeoLocationCheck) *api
 func toPostureGeoLocationCheck(apiGeoLocationCheck *api.GeoLocationCheck) *posture.GeoLocationCheck {
 	locations := make([]posture.Location, 0, len(apiGeoLocationCheck.Locations))
 	for _, loc := range apiGeoLocationCheck.Locations {
-		var (
-			cityName      string
-			cityGeoNameID int
-		)
-
-		if loc.CityName != nil {
-			cityName = *loc.CityName
-		}
-		if loc.CityGeonameId != nil {
-			cityGeoNameID = *loc.CityGeonameId
-		}
-
 		locations = append(locations, posture.Location{
-			CountryCode:   loc.CountryCode,
-			CityName:      cityName,
-			CityGeoNameID: cityGeoNameID,
+			CountryCode: loc.CountryCode,
+			CityName:    loc.CityName,
 		})
 	}
 

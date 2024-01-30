@@ -15,9 +15,6 @@ type Location struct {
 
 	// CityName Commonly used English name of the city
 	CityName string
-
-	// CityGeoNameId Unique identifier for the city as provided by the GeoNames database
-	CityGeoNameID int
 }
 
 var _ Check = (*GeoLocationCheck)(nil)
