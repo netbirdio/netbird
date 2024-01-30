@@ -11,11 +11,12 @@ import (
 	"github.com/kardianos/service"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
+
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/util"
-	"github.com/spf13/cobra"
-	"google.golang.org/grpc"
 )
 
 func (p *program) Start(svc service.Service) error {
@@ -109,7 +110,6 @@ var runCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		cmd.Printf("Netbird service is running")
 		return nil
 	},
 }

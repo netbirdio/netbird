@@ -1080,6 +1080,11 @@ func (e *Engine) close() {
 		log.Errorf("failed closing ebpf proxy: %s", err)
 	}
 
+	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
+	if e.dnsServer != nil {
+		e.dnsServer.Stop()
+	}
+
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
 	if e.wgInterface != nil {
 		if err := e.wgInterface.Close(); err != nil {
@@ -1096,10 +1101,6 @@ func (e *Engine) close() {
 
 	if e.routeManager != nil {
 		e.routeManager.Stop()
-	}
-
-	if e.dnsServer != nil {
-		e.dnsServer.Stop()
 	}
 
 	if e.firewall != nil {
