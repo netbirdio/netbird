@@ -134,13 +134,25 @@ func (gl *Geolocation) reloader() {
 		case <-gl.stopCh:
 			return
 		case <-time.After(gl.reloadCheckInterval):
-			newSha256sum, err := getSha256sum(gl.mmdbPath)
+			newSha256sum1, err := getSha256sum(gl.mmdbPath)
 			if err != nil {
 				log.Errorf("failed to calculate sha256 sum for '%s': %s", gl.mmdbPath, err)
 				continue
 			}
-			if !bytes.Equal(gl.sha256sum, newSha256sum) {
-				err := gl.reload(newSha256sum)
+			if !bytes.Equal(gl.sha256sum, newSha256sum1) {
+				// we check sum twice just to avoid possible case when we reload during update of the file
+				// considering the frequency of file update (few times a week) checking sum twice should be enough
+				time.Sleep(50 * time.Millisecond)
+				newSha256sum2, err := getSha256sum(gl.mmdbPath)
+				if err != nil {
+					log.Errorf("failed to calculate sha256 sum for '%s': %s", gl.mmdbPath, err)
+					continue
+				}
+				if !bytes.Equal(newSha256sum1, newSha256sum2) {
+					log.Errorf("sha256 sum changed during reloading of '%s'", gl.mmdbPath)
+					continue
+				}
+				err = gl.reload(newSha256sum2)
 				if err != nil {
 					log.Errorf("reload failed: %s", err)
 				}
