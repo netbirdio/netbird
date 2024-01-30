@@ -111,14 +111,8 @@ func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto
 	}, nil
 }
 
-// extractIps returns real peer ip and grpc peer address (ip:port)
-func extractIps(ctx context.Context) (string, string) {
-	var peerAddr string
-	grpcPeer, grcpPeerExtracted := gRPCPeer.FromContext(ctx)
-	if grcpPeerExtracted {
-		peerAddr = grpcPeer.Addr.String()
-	}
-
+// getRealIP returns real peer IP from load balance or fallback to IP of the GRPC peer
+func getRealIP(ctx context.Context) string {
 	if headers, ok := metadata.FromIncomingContext(ctx); ok {
 		value := headers.Get("x-forwarded-for")
 		if len(value) == 0 || value[0] == "" {
@@ -130,22 +124,21 @@ func extractIps(ctx context.Context) (string, string) {
 			ipStr := strings.TrimSpace(ips[len(ips)-1])
 			ip, err := netip.ParseAddr(ipStr)
 			if err == nil {
-				return ip.String(), peerAddr
+				return ip.String()
 			}
 		}
 
-		if grcpPeerExtracted {
+		if grpcPeer, ok := gRPCPeer.FromContext(ctx); ok {
 			addrPort, err := netip.ParseAddrPort(grpcPeer.Addr.String())
 			if err == nil {
-				return addrPort.Addr().String(), peerAddr
+				return addrPort.Addr().String()
 			}
-			log.Errorf("when resolve ip address %s", err)
+			log.Errorf("when resolve ip address of GRPC peer: %s", err)
 		}
 	}
 
 	// not happen normally as we should be able to resolve ip address above
-	log.Errorf("only return peerAddr, could not resolve real ip")
-	return "", peerAddr
+	return ""
 }
 
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
@@ -155,8 +148,8 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountSyncRequest()
 	}
-	realIP, peerAddr := extractIps(srv.Context())
-	log.Debugf("Sync request from peer [%s] [%s], real ip: [%s]", req.WgPubKey, peerAddr, realIP)
+	realIP := getRealIP(srv.Context())
+	log.Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, realIP)
 
 	syncReq := &proto.SyncRequest{}
 	peerKey, err := s.parseRequest(req, syncReq)
@@ -327,8 +320,8 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountLoginRequest()
 	}
-	_, peerAddr := extractIps(ctx)
-	log.Debugf("Login request from peer [%s] [%s]", req.WgPubKey, peerAddr)
+	realIP := getRealIP(ctx)
+	log.Debugf("Login request from peer [%s] [%s]", req.WgPubKey, realIP)
 
 	loginReq := &proto.LoginRequest{}
 	peerKey, err := s.parseRequest(req, loginReq)
@@ -338,7 +331,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 
 	if loginReq.GetMeta() == nil {
 		msg := status.Errorf(codes.FailedPrecondition,
-			"peer system meta has to be provided to log in. Peer %s, remote addr %s", peerKey.String(), peerAddr)
+			"peer system meta has to be provided to log in. Peer %s, remote addr %s", peerKey.String(), realIP)
 		log.Warn(msg)
 		return nil, msg
 	}
