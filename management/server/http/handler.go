@@ -82,6 +82,7 @@ func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValid
 	api.addDNSSettingEndpoint()
 	api.addEventsEndpoint()
 	api.addPostureCheckEndpoint()
+	api.addLocationsEndpoint()
 
 	err := api.Router.Walk(func(route *mux.Route, _ *mux.Router, _ []*mux.Route) error {
 		methods, err := route.GetMethods()
@@ -209,4 +210,10 @@ func (apiHandler *apiHandler) addPostureCheckEndpoint() {
 	apiHandler.Router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.UpdatePostureCheck).Methods("PUT", "OPTIONS")
 	apiHandler.Router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.GetPostureCheck).Methods("GET", "OPTIONS")
 	apiHandler.Router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.DeletePostureCheck).Methods("DELETE", "OPTIONS")
+}
+
+func (apiHandler *apiHandler) addLocationsEndpoint() {
+	locationHandler := NewLocationsHandlerHandler(apiHandler.AccountManager, apiHandler.AuthCfg)
+	apiHandler.Router.HandleFunc("/locations/countries", locationHandler.GetAllCountries).Methods("GET", "OPTIONS")
+	apiHandler.Router.HandleFunc("/locations/{country}/cities", locationHandler.GetCitiesByCountry).Methods("GET", "OPTIONS")
 }
