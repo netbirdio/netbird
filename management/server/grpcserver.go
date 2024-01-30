@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/netip"
 	"strings"
 	"time"
@@ -136,9 +135,9 @@ func extractIps(ctx context.Context) (string, string) {
 		}
 
 		if grcpPeerExtracted {
-			ip, err := net.ResolveTCPAddr("", grpcPeer.Addr.String())
+			addrPort, err := netip.ParseAddrPort(grpcPeer.Addr.String())
 			if err == nil {
-				return ip.IP.String(), peerAddr
+				return addrPort.Addr().String(), peerAddr
 			}
 			log.Errorf("when resolve ip address %s", err)
 		}
