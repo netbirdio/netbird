@@ -1,6 +1,8 @@
 package posture
 
 import (
+	"fmt"
+
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
@@ -28,7 +30,28 @@ type GeoLocationCheck struct {
 }
 
 func (g *GeoLocationCheck) Check(peer nbpeer.Peer) (bool, error) {
-	return false, nil
+	for _, loc := range g.Locations {
+		if loc.CountryCode == peer.Meta.Location.CountryCode && loc.CityName == peer.Meta.Location.CityName {
+			switch g.Action {
+			case GeoLocationActionDeny:
+				return false, nil
+			case GeoLocationActionAllow:
+				return true, nil
+			}
+		}
+	}
+
+	// At this point, no location in the list matches the peer's location
+	// For action deny and no location match, allow the peer
+	if g.Action == GeoLocationActionDeny {
+		return true, nil
+	}
+	// For action allow and no location match, deny the peer
+	if g.Action == GeoLocationActionAllow {
+		return false, nil
+	}
+
+	return false, fmt.Errorf("invalid geo location action: %s", g.Action)
 }
 
 func (g *GeoLocationCheck) Name() string {
