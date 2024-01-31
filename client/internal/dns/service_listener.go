@@ -140,7 +140,7 @@ func (s *serviceViaListener) setListenerStatus(running bool) {
 	s.listenerIsRunning = running
 }
 
-func (s *serviceViaListener) getFirstListenerAvailable() (string, int, error) {
+func (s *serviceViaListener) getFirstDNSListenerAvailable() (string, int, error) {
 	ips := []string{defaultIP, customIP}
 	if runtime.GOOS != "darwin" {
 		ips = append([]string{s.wgInterface.Address().IP.String()}, ips...)
@@ -170,7 +170,7 @@ func (s *serviceViaListener) evalListenAddress() (string, int, error) {
 		return s.customAddr.Addr().String(), int(s.customAddr.Port()), nil
 	}
 
-	return s.getFirstListenerAvailable()
+	return s.getFirstDNSListenerAvailable()
 }
 
 // shouldApplyPortFwd decides whether to apply eBPF program to capture DNS traffic on port 53.
