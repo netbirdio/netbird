@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/xid"
@@ -247,8 +248,10 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 			if loc.CountryCode == "" {
 				return status.Errorf(status.InvalidArgument, "country code for geolocation check shouldn't be empty")
 			}
-			if loc.CityName == "" {
-				return status.Errorf(status.InvalidArgument, "city name for geolocation check shouldn't be empty")
+
+			countryCodeRegex := regexp.MustCompile("^[a-zA-Z]{2}$")
+			if !countryCodeRegex.MatchString(loc.CountryCode) {
+				return status.Errorf(status.InvalidArgument, "country code must be 2 letters (ISO 3166-1 alpha-2 format)")
 			}
 		}
 

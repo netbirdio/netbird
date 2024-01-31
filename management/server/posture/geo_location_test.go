@@ -43,6 +43,27 @@ func TestGeoLocationCheck_Check(t *testing.T) {
 			isValid: true,
 		},
 		{
+			name: "Peer location matches the location in the allow country only",
+			input: peer.Peer{
+				Meta: peer.PeerSystemMeta{
+					Location: Location{
+						CountryCode: "DE",
+						CityName:    "Berlin",
+					},
+				},
+			},
+			check: GeoLocationCheck{
+				Locations: []Location{
+					{
+						CountryCode: "DE",
+					},
+				},
+				Action: GeoLocationActionAllow,
+			},
+			wantErr: false,
+			isValid: true,
+		},
+		{
 			name: "Peer location doesn't match the location in the allow sets",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
@@ -61,6 +82,27 @@ func TestGeoLocationCheck_Check(t *testing.T) {
 					{
 						CountryCode: "US",
 						CityName:    "Los Angeles",
+					},
+				},
+				Action: GeoLocationActionAllow,
+			},
+			wantErr: false,
+			isValid: false,
+		},
+		{
+			name: "Peer location doesn't match the location in the allow country only",
+			input: peer.Peer{
+				Meta: peer.PeerSystemMeta{
+					Location: Location{
+						CountryCode: "DE",
+						CityName:    "Frankfurt am Main",
+					},
+				},
+			},
+			check: GeoLocationCheck{
+				Locations: []Location{
+					{
+						CountryCode: "US",
 					},
 				},
 				Action: GeoLocationActionAllow,
@@ -95,6 +137,30 @@ func TestGeoLocationCheck_Check(t *testing.T) {
 			isValid: false,
 		},
 		{
+			name: "Peer location matches the location in the deny country only",
+			input: peer.Peer{
+				Meta: peer.PeerSystemMeta{
+					Location: Location{
+						CountryCode: "DE",
+						CityName:    "Berlin",
+					},
+				},
+			},
+			check: GeoLocationCheck{
+				Locations: []Location{
+					{
+						CountryCode: "DE",
+					},
+					{
+						CountryCode: "US",
+					},
+				},
+				Action: GeoLocationActionDeny,
+			},
+			wantErr: false,
+			isValid: false,
+		},
+		{
 			name: "Peer location doesn't match the location in the deny sets",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
@@ -110,6 +176,28 @@ func TestGeoLocationCheck_Check(t *testing.T) {
 						CountryCode: "DE",
 						CityName:    "Berlin",
 					},
+					{
+						CountryCode: "US",
+						CityName:    "Los Angeles",
+					},
+				},
+				Action: GeoLocationActionDeny,
+			},
+			wantErr: false,
+			isValid: true,
+		},
+		{
+			name: "Peer location doesn't match the location in the deny country only",
+			input: peer.Peer{
+				Meta: peer.PeerSystemMeta{
+					Location: Location{
+						CountryCode: "DE",
+						CityName:    "Frankfurt am Main",
+					},
+				},
+			},
+			check: GeoLocationCheck{
+				Locations: []Location{
 					{
 						CountryCode: "US",
 						CityName:    "Los Angeles",
