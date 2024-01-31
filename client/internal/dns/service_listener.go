@@ -140,7 +140,7 @@ func (s *serviceViaListener) setListenerStatus(running bool) {
 	s.listenerIsRunning = running
 }
 
-func (s *serviceViaListener) getFirstListenerAvailable() (string, int, error) {
+func (s *serviceViaListener) getFirstDNSListenerAvailable() (string, int, error) {
 	ips := []string{defaultIP, customIP}
 	if runtime.GOOS != "darwin" {
 		ips = append([]string{s.wgInterface.Address().IP.String()}, ips...)
@@ -156,9 +156,10 @@ func (s *serviceViaListener) getFirstListenerAvailable() (string, int, error) {
 				if err != nil {
 					log.Errorf("got an error closing the probe listener, error: %s", err)
 				}
+				log.Infof("successfully found dns binding candidate at %s", addrString)
 				return ip, port, nil
 			}
-			log.Warnf("binding dns on %s is not available, error: %s", addrString, err)
+			log.Debugf("binding dns on %s is not available, error: %s", addrString, err)
 		}
 	}
 	return "", 0, fmt.Errorf("unable to find an unused ip and port combination. IPs tested: %v and ports %v", ips, ports)
@@ -169,7 +170,7 @@ func (s *serviceViaListener) evalListenAddress() (string, int, error) {
 		return s.customAddr.Addr().String(), int(s.customAddr.Port()), nil
 	}
 
-	return s.getFirstListenerAvailable()
+	return s.getFirstDNSListenerAvailable()
 }
 
 // shouldApplyPortFwd decides whether to apply eBPF program to capture DNS traffic on port 53.
