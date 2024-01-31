@@ -61,7 +61,7 @@ func NewGeolocation(datadir string) (*Geolocation, error) {
 		mux:                 &sync.RWMutex{},
 		sha256sum:           sha256sum,
 		db:                  db,
-		reloadCheckInterval: 10 * time.Second, // TODO: make configurable
+		reloadCheckInterval: 60 * time.Second, // TODO: make configurable
 		stopCh:              make(chan struct{}),
 	}
 
