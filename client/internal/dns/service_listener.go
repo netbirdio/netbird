@@ -156,9 +156,10 @@ func (s *serviceViaListener) getFirstListenerAvailable() (string, int, error) {
 				if err != nil {
 					log.Errorf("got an error closing the probe listener, error: %s", err)
 				}
+				log.Infof("successfully found dns binding candidate at %s", addrString)
 				return ip, port, nil
 			}
-			log.Warnf("binding dns on %s is not available, error: %s", addrString, err)
+			log.Debugf("binding dns on %s is not available, error: %s", addrString, err)
 		}
 	}
 	return "", 0, fmt.Errorf("unable to find an unused ip and port combination. IPs tested: %v and ports %v", ips, ports)
