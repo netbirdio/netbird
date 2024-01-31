@@ -48,3 +48,7 @@ func (m *MockServer) UpdateDNSServer(serial uint64, update nbdns.Config) error {
 func (m *MockServer) SearchDomains() []string {
 	return make([]string, 0)
 }
+
+// ProbeAvailability mocks implementation of ProbeAvailability from the Server interface
+func (m *MockServer) ProbeAvailability() {
+}

@@ -2,6 +2,7 @@ package dns
 
 import (
 	"fmt"
+	"net/netip"
 	"strings"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -11,6 +12,7 @@ type hostManager interface {
 	applyDNSConfig(config HostDNSConfig) error
 	restoreHostDNS() error
 	supportCustomPort() bool
+	restoreUncleanShutdownDNS(storedDNSAddress *netip.Addr) error
 }
 
 type HostDNSConfig struct {
@@ -27,9 +29,10 @@ type DomainConfig struct {
 }
 
 type mockHostConfigurator struct {
-	applyDNSConfigFunc    func(config HostDNSConfig) error
-	restoreHostDNSFunc    func() error
-	supportCustomPortFunc func() bool
+	applyDNSConfigFunc            func(config HostDNSConfig) error
+	restoreHostDNSFunc            func() error
+	supportCustomPortFunc         func() bool
+	restoreUncleanShutdownDNSFunc func(*netip.Addr) error
 }
 
 func (m *mockHostConfigurator) applyDNSConfig(config HostDNSConfig) error {
@@ -53,11 +56,19 @@ func (m *mockHostConfigurator) supportCustomPort() bool {
 	return false
 }
 
+func (m *mockHostConfigurator) restoreUncleanShutdownDNS(storedDNSAddress *netip.Addr) error {
+	if m.restoreUncleanShutdownDNSFunc != nil {
+		return m.restoreUncleanShutdownDNSFunc(storedDNSAddress)
+	}
+	return fmt.Errorf("method restoreUncleanShutdownDNS is not implemented")
+}
+
 func newNoopHostMocker() hostManager {
 	return &mockHostConfigurator{
-		applyDNSConfigFunc:    func(config HostDNSConfig) error { return nil },
-		restoreHostDNSFunc:    func() error { return nil },
-		supportCustomPortFunc: func() bool { return true },
+		applyDNSConfigFunc:            func(config HostDNSConfig) error { return nil },
+		restoreHostDNSFunc:            func() error { return nil },
+		supportCustomPortFunc:         func() bool { return true },
+		restoreUncleanShutdownDNSFunc: func(*netip.Addr) error { return nil },
 	}
 }
 

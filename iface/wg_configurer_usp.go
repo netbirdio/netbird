@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -205,6 +206,93 @@ func (t *wgUSPConfigurer) close() {
 			_ = os.Remove(sockPath)
 		}
 	}
+}
+
+func (t *wgUSPConfigurer) getStats(peerKey string) (WGStats, error) {
+	ipc, err := t.device.IpcGet()
+	if err != nil {
+		return WGStats{}, fmt.Errorf("ipc get: %w", err)
+	}
+
+	stats, err := findPeerInfo(ipc, peerKey, []string{
+		"last_handshake_time_sec",
+		"last_handshake_time_nsec",
+		"tx_bytes",
+		"rx_bytes",
+	})
+	if err != nil {
+		return WGStats{}, fmt.Errorf("find peer info: %w", err)
+	}
+
+	sec, err := strconv.ParseInt(stats["last_handshake_time_sec"], 10, 64)
+	if err != nil {
+		return WGStats{}, fmt.Errorf("parse handshake sec: %w", err)
+	}
+	nsec, err := strconv.ParseInt(stats["last_handshake_time_nsec"], 10, 64)
+	if err != nil {
+		return WGStats{}, fmt.Errorf("parse handshake nsec: %w", err)
+	}
+	txBytes, err := strconv.ParseInt(stats["tx_bytes"], 10, 64)
+	if err != nil {
+		return WGStats{}, fmt.Errorf("parse tx_bytes: %w", err)
+	}
+	rxBytes, err := strconv.ParseInt(stats["rx_bytes"], 10, 64)
+	if err != nil {
+		return WGStats{}, fmt.Errorf("parse rx_bytes: %w", err)
+	}
+
+	return WGStats{
+		LastHandshake: time.Unix(sec, nsec),
+		TxBytes:       txBytes,
+		RxBytes:       rxBytes,
+	}, nil
+}
+
+func findPeerInfo(ipcInput string, peerKey string, searchConfigKeys []string) (map[string]string, error) {
+	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return nil, fmt.Errorf("parse key: %w", err)
+	}
+
+	hexKey := hex.EncodeToString(peerKeyParsed[:])
+
+	lines := strings.Split(ipcInput, "\n")
+
+	configFound := map[string]string{}
+	foundPeer := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// If we're within the details of the found peer and encounter another public key,
+		// this means we're starting another peer's details. So, stop.
+		if strings.HasPrefix(line, "public_key=") && foundPeer {
+			break
+		}
+
+		// Identify the peer with the specific public key
+		if line == fmt.Sprintf("public_key=%s", hexKey) {
+			foundPeer = true
+		}
+
+		for _, key := range searchConfigKeys {
+			if foundPeer && strings.HasPrefix(line, key+"=") {
+				v := strings.SplitN(line, "=", 2)
+				configFound[v[0]] = v[1]
+			}
+		}
+	}
+
+	// todo: use multierr
+	for _, key := range searchConfigKeys {
+		if _, ok := configFound[key]; !ok {
+			return configFound, fmt.Errorf("config key not found: %s", key)
+		}
+	}
+	if !foundPeer {
+		return nil, fmt.Errorf("peer not found: %s", peerKey)
+	}
+
+	return configFound, nil
 }
 
 func toWgUserspaceString(wgCfg wgtypes.Config) string {

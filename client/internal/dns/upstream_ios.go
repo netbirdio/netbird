@@ -40,7 +40,7 @@ func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net
 	return ios, nil
 }
 
-func (u *upstreamResolverIOS) exchange(upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
+func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
 	client := &dns.Client{}
 	upstreamHost, _, err := net.SplitHostPort(upstream)
 	if err != nil {
@@ -52,7 +52,7 @@ func (u *upstreamResolverIOS) exchange(upstream string, r *dns.Msg) (rm *dns.Msg
 		client = u.getClientPrivate()
 	}
 
-	return client.Exchange(r, upstream)
+	return client.ExchangeContext(ctx, r, upstream)
 }
 
 // getClientPrivate returns a new DNS client bound to the local IP address of the Netbird interface

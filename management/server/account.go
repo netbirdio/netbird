@@ -104,11 +104,11 @@ type AccountManager interface {
 	SaveRoute(accountID, userID string, route *route.Route) error
 	DeleteRoute(accountID, routeID, userID string) error
 	ListRoutes(accountID, userID string) ([]*route.Route, error)
-	GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
+	GetNameServerGroup(accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error)
 	CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainsEnabled bool) (*nbdns.NameServerGroup, error)
 	SaveNameServerGroup(accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
 	DeleteNameServerGroup(accountID, nsGroupID, userID string) error
-	ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error)
+	ListNameServerGroups(accountID string, userID string) ([]*nbdns.NameServerGroup, error)
 	GetDNSDomain() string
 	StoreEvent(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any)
 	GetEvents(accountID, userID string) ([]*activity.Event, error)
@@ -1560,7 +1560,19 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 		log.Infof("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
 	}
 
-	account, err := am.getAccountWithAuthorizationClaims(claims)
+	newAcc, err := am.getAccountWithAuthorizationClaims(claims)
+	if err != nil {
+		return nil, nil, err
+	}
+	unlock := am.Store.AcquireAccountLock(newAcc.Id)
+	alreadyUnlocked := false
+	defer func() {
+		if !alreadyUnlocked {
+			unlock()
+		}
+	}()
+
+	account, err := am.Store.GetAccount(newAcc.Id)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1609,6 +1621,8 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 								log.Errorf("failed to save account: %v", err)
 							} else {
 								am.updateAccountPeers(account)
+								unlock()
+								alreadyUnlocked = true
 								for _, g := range addNewGroups {
 									if group := account.GetGroup(g); group != nil {
 										am.StoreEvent(user.Id, user.Id, account.Id, activity.GroupAddedToUser,

@@ -2,6 +2,8 @@ package dns
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/netip"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -20,7 +22,7 @@ func newHostManager(dnsManager IosDnsManager) (hostManager, error) {
 func (a iosHostManager) applyDNSConfig(config HostDNSConfig) error {
 	jsonData, err := json.Marshal(config)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal: %w", err)
 	}
 	jsonString := string(jsonData)
 	log.Debugf("Applying DNS settings: %s", jsonString)
@@ -34,4 +36,8 @@ func (a iosHostManager) restoreHostDNS() error {
 
 func (a iosHostManager) supportCustomPort() bool {
 	return false
+}
+
+func (a iosHostManager) restoreUncleanShutdownDNS(*netip.Addr) error {
+	return nil
 }

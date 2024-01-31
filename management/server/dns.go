@@ -48,7 +48,7 @@ func (am *DefaultAccountManager) GetDNSSettings(accountID string, userID string)
 		return nil, err
 	}
 
-	if !user.HasAdminPower() {
+	if !(user.HasAdminPower() || user.IsServiceUser) {
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view DNS settings")
 	}
 	dnsSettings := account.DNSSettings.Copy()

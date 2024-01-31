@@ -991,7 +991,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 	// in case of self-hosted, or IDP doesn't return anything, we will return the locally stored userInfo
 	if len(queriedUsers) == 0 {
 		for _, accountUser := range account.Users {
-			if !user.HasAdminPower() && user.Id != accountUser.Id {
+			if !(user.HasAdminPower() || user.IsServiceUser || user.Id == accountUser.Id) {
 				// if user is not an admin then show only current user and do not show other users
 				continue
 			}
@@ -1005,7 +1005,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 	}
 
 	for _, localUser := range account.Users {
-		if !user.HasAdminPower() && user.Id != localUser.Id {
+		if !(user.HasAdminPower() || user.IsServiceUser) && user.Id != localUser.Id {
 			// if user is not an admin then show only current user and do not show other users
 			continue
 		}
