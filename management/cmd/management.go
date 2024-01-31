@@ -11,7 +11,6 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"os"
 	"path"
@@ -170,7 +169,7 @@ var (
 
 			turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 
-			trustedPeers := []netip.Prefix{}
+			trustedPeers := config.TrustedHTTPProxies
 			headers := []string{realip.XForwardedFor, realip.XRealIp}
 			gRPCOpts := []grpc.ServerOption{
 				grpc.KeepaliveEnforcementPolicy(kaep),
