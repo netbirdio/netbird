@@ -16,6 +16,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
+var (
+	countryCodeRegex = regexp.MustCompile("^[a-zA-Z]{2}$")
+)
+
 // PostureChecksHandler is a handler that returns posture checks of the account.
 type PostureChecksHandler struct {
 	accountManager  server.AccountManager
@@ -248,8 +252,6 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 			if loc.CountryCode == "" {
 				return status.Errorf(status.InvalidArgument, "country code for geolocation check shouldn't be empty")
 			}
-
-			countryCodeRegex := regexp.MustCompile("^[a-zA-Z]{2}$")
 			if !countryCodeRegex.MatchString(loc.CountryCode) {
 				return status.Errorf(status.InvalidArgument, "country code must be 2 letters (ISO 3166-1 alpha-2 format)")
 			}
