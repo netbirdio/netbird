@@ -80,7 +80,7 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*nbpeer.P
 }
 
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
-func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected bool) error {
+func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected bool, realIP string) error {
 	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
 		return err
@@ -109,6 +109,18 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 		newStatus.LoginExpired = false
 	}
 	peer.Status = newStatus
+
+	if am.geo != nil && realIP != "" {
+		location, err := am.geo.Lookup(realIP)
+		if err != nil {
+			log.Errorf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP, err)
+		} else {
+			peer.Meta.Location.CountryCode = location.Country.ISOCode
+			peer.Meta.Location.CityName = location.City.Names.En
+			// TODO: save peer location
+		}
+	}
+
 	account.UpdatePeer(peer)
 
 	err = am.Store.SavePeerStatus(account.Id, peer.ID, *newStatus)

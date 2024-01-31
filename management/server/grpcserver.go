@@ -147,7 +147,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 
 	s.ephemeralManager.OnPeerConnected(peer)
 
-	err = s.accountManager.MarkPeerConnected(peerKey.String(), true)
+	err = s.accountManager.MarkPeerConnected(peerKey.String(), true, realIP)
 	if err != nil {
 		log.Warnf("failed marking peer as connected %s %v", peerKey, err)
 	}
@@ -205,7 +205,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 func (s *GRPCServer) cancelPeerRoutines(peer *nbpeer.Peer) {
 	s.peersUpdateManager.CloseChannel(peer.ID)
 	s.turnCredentialsManager.CancelRefresh(peer.ID)
-	_ = s.accountManager.MarkPeerConnected(peer.Key, false)
+	_ = s.accountManager.MarkPeerConnected(peer.Key, false, "")
 	s.ephemeralManager.OnPeerDisconnected(peer)
 }
 
