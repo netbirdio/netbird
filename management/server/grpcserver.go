@@ -254,13 +254,18 @@ func mapError(err error) error {
 }
 
 func extractPeerMeta(loginReq *proto.LoginRequest) nbpeer.PeerSystemMeta {
+	osVersion := loginReq.GetMeta().GetOSVersion()
+	if osVersion == "" {
+		osVersion = loginReq.GetMeta().GetCore()
+	}
+
 	return nbpeer.PeerSystemMeta{
 		Hostname:      loginReq.GetMeta().GetHostname(),
 		GoOS:          loginReq.GetMeta().GetGoOS(),
 		Kernel:        loginReq.GetMeta().GetKernel(),
 		Platform:      loginReq.GetMeta().GetPlatform(),
 		OS:            loginReq.GetMeta().GetOS(),
-		OSVersion:     loginReq.GetMeta().GetOSVersion(),
+		OSVersion:     osVersion,
 		WtVersion:     loginReq.GetMeta().GetWiretrusteeVersion(),
 		UIVersion:     loginReq.GetMeta().GetUiVersion(),
 		KernelVersion: loginReq.GetMeta().GetKernelVersion(),
