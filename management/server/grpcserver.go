@@ -3,17 +3,15 @@ package server
 import (
 	"context"
 	"fmt"
-	"net/netip"
 	"strings"
 	"time"
 
 	pb "github.com/golang/protobuf/proto" // nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
+	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
-	gRPCPeer "google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -111,33 +109,10 @@ func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto
 	}, nil
 }
 
-// getRealIP returns real peer IP from load balance or fallback to IP of the GRPC peer
 func getRealIP(ctx context.Context) string {
-	if headers, ok := metadata.FromIncomingContext(ctx); ok {
-		value := headers.Get("x-forwarded-for")
-		if len(value) == 0 || value[0] == "" {
-			value = headers.Get("x-real-ip")
-		}
-
-		if len(value) > 0 && value[0] != "" {
-			ips := strings.Split(value[0], ",")
-			ipStr := strings.TrimSpace(ips[len(ips)-1])
-			ip, err := netip.ParseAddr(ipStr)
-			if err == nil {
-				return ip.String()
-			}
-		}
-
-		if grpcPeer, ok := gRPCPeer.FromContext(ctx); ok {
-			addrPort, err := netip.ParseAddrPort(grpcPeer.Addr.String())
-			if err == nil {
-				return addrPort.Addr().String()
-			}
-			log.Errorf("when resolve ip address of GRPC peer: %s", err)
-		}
+	if ip, ok := realip.FromContext(ctx); ok {
+		return ip.String()
 	}
-
-	// not happen normally as we should be able to resolve ip address above
 	return ""
 }
 
