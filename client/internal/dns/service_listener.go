@@ -66,15 +66,6 @@ func (s *serviceViaListener) Listen() error {
 		return fmt.Errorf("eval listen address: %w", err)
 	}
 	s.server.Addr = fmt.Sprintf("%s:%d", s.listenIP, s.listenPort)
-
-	if s.shouldApplyPortFwd() {
-		s.ebpfService = ebpf.GetEbpfManagerInstance()
-		err = s.ebpfService.LoadDNSFwd(s.listenIP, s.listenPort)
-		if err != nil {
-			log.Warnf("failed to load DNS port forwarder, custom port may not work well on some Linux operating systems: %s", err)
-			s.ebpfService = nil
-		}
-	}
 	log.Debugf("starting dns on %s", s.server.Addr)
 	go func() {
 		s.setListenerStatus(true)
@@ -140,55 +131,89 @@ func (s *serviceViaListener) setListenerStatus(running bool) {
 	s.listenerIsRunning = running
 }
 
-func (s *serviceViaListener) getFirstDNSListenerAvailable() (string, int, error) {
-	ips := []string{defaultIP, customIP}
-	if runtime.GOOS != "darwin" {
-		ips = append([]string{s.wgInterface.Address().IP.String()}, ips...)
-	}
-	ports := []int{defaultPort, customPort}
-	for _, port := range ports {
-		for _, ip := range ips {
-			addrString := fmt.Sprintf("%s:%d", ip, port)
-			udpAddr := net.UDPAddrFromAddrPort(netip.MustParseAddrPort(addrString))
-			probeListener, err := net.ListenUDP("udp", udpAddr)
-			if err == nil {
-				err = probeListener.Close()
-				if err != nil {
-					log.Errorf("got an error closing the probe listener, error: %s", err)
-				}
-				log.Infof("successfully found dns binding candidate at %s", addrString)
-				return ip, port, nil
-			}
-			log.Debugf("binding dns on %s is not available, error: %s", addrString, err)
-		}
-	}
-	return "", 0, fmt.Errorf("unable to find an unused ip and port combination. IPs tested: %v and ports %v", ips, ports)
-}
-
+// evalListenAddress figure out the listen address for the DNS server
+// first check the 53 port availability on WG interface or lo, if not success
+// check the 5053 port on WG interface for eBPF, if not success
+// check the 5053 port availability on WG interface or lo without eBPF usage,
 func (s *serviceViaListener) evalListenAddress() (string, int, error) {
 	if s.customAddr != nil {
 		return s.customAddr.Addr().String(), int(s.customAddr.Port()), nil
 	}
 
-	return s.getFirstDNSListenerAvailable()
+	ip, ok := s.testFreePort(defaultPort)
+	if ok {
+		return ip, defaultPort, nil
+	}
+
+	ebpfSrv, ok := s.tryToUseeBPF()
+	if ok {
+		s.ebpfService = ebpfSrv
+		return s.wgInterface.Address().IP.String(), customPort, nil
+	}
+
+	ip, ok = s.testFreePort(customPort)
+	if ok {
+		return ip, customPort, nil
+	}
+
+	return "", 0, fmt.Errorf("failed to find a free port for DNS server")
 }
 
-// shouldApplyPortFwd decides whether to apply eBPF program to capture DNS traffic on port 53.
-// This is needed because on some operating systems if we start a DNS server not on a default port 53, the domain name
-// resolution won't work.
-// So, in case we are running on Linux and picked a non-default port (53) we should fall back to the eBPF solution that will capture
-// traffic on port 53 and forward it to a local DNS server running on 5053.
-func (s *serviceViaListener) shouldApplyPortFwd() bool {
-	if runtime.GOOS != "linux" {
+func (s *serviceViaListener) testFreePort(port int) (string, bool) {
+	var ips []string
+	if runtime.GOOS != "darwin" {
+		ips = []string{s.wgInterface.Address().IP.String(), defaultIP, customIP}
+	} else {
+		ips = []string{defaultIP, customIP}
+	}
+
+	for _, ip := range ips {
+		if !s.tryToBind(ip, port) {
+			continue
+		}
+
+		return ip, true
+	}
+	return "", false
+}
+
+func (s *serviceViaListener) tryToBind(ip string, port int) bool {
+	addrString := fmt.Sprintf("%s:%d", ip, port)
+	udpAddr := net.UDPAddrFromAddrPort(netip.MustParseAddrPort(addrString))
+	probeListener, err := net.ListenUDP("udp", udpAddr)
+	if err != nil {
+		log.Warnf("binding dns on %s is not available, error: %s", addrString, err)
 		return false
 	}
 
-	if s.customAddr != nil {
-		return false
-	}
-
-	if s.listenPort == defaultPort {
-		return false
+	err = probeListener.Close()
+	if err != nil {
+		log.Errorf("got an error closing the probe listener, error: %s", err)
 	}
 	return true
+}
+
+// tryToUseeBPF decides whether to apply eBPF program to capture DNS traffic on port 53.
+// This is needed because on some operating systems if we start a DNS server not on a default port 53,
+// the domain name  resolution won't work. So, in case we are running on Linux and picked the 5053
+// port we should fall back to the eBPF solution that will capture traffic on port 53 and forward
+// it to a local DNS server running on 5053.
+func (s *serviceViaListener) tryToUseeBPF() (ebpfMgr.Manager, bool) {
+	if runtime.GOOS != "linux" {
+		return nil, false
+	}
+
+	ip := s.wgInterface.Address().IP.String()
+	if !s.tryToBind(ip, customPort) {
+		return nil, false
+	}
+
+	ebpfSrv := ebpf.GetEbpfManagerInstance()
+	err := ebpfSrv.LoadDNSFwd(s.wgInterface.Address().IP.String(), customPort)
+	if err != nil {
+		log.Warnf("failed to load DNS forwarder eBPF program, error: %s", err)
+		return nil, false
+	}
+
+	return ebpfSrv, true
 }
