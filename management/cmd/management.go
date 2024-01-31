@@ -7,7 +7,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/netbirdio/management-integrations/integrations"
 	"io"
 	"io/fs"
 	"net"
@@ -29,9 +28,11 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -159,8 +160,15 @@ var (
 				}
 			}
 
+			geo, err := geolocation.NewGeolocation(config.Datadir)
+			if err != nil {
+				log.Warnf("could not initialize geo location service, we proceed without geo support")
+			} else {
+				log.Infof("geo location service has been initialized from %s", config.Datadir)
+			}
+
 			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
-				dnsDomain, eventStore, userDeleteFromIDPEnabled)
+				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}
@@ -284,6 +292,9 @@ var (
 			SetupCloseHandler()
 
 			<-stopCh
+			if geo != nil {
+				_ = geo.Stop()
+			}
 			ephemeralManager.Stop()
 			_ = appMetrics.Close()
 			_ = listener.Close()

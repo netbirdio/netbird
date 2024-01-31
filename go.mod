@@ -58,6 +58,7 @@ require (
 	github.com/netbirdio/management-integrations/additions v0.0.0-20240118163419-8a7c87accb22
 	github.com/netbirdio/management-integrations/integrations v0.0.0-20240118163419-8a7c87accb22
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
+	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pion/logging v0.2.2
 	github.com/pion/stun/v2 v2.0.0
