@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path"
@@ -30,6 +31,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
@@ -168,7 +170,21 @@ var (
 
 			turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 
-			gRPCOpts := []grpc.ServerOption{grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp)}
+			trustedPeers := config.TrustedHTTPProxies
+			if len(trustedPeers) == 0 {
+				trustedPeers = []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}
+			}
+			headers := []string{realip.XForwardedFor, realip.XRealIp}
+			gRPCOpts := []grpc.ServerOption{
+				grpc.KeepaliveEnforcementPolicy(kaep),
+				grpc.KeepaliveParams(kasp),
+				grpc.ChainUnaryInterceptor(
+					realip.UnaryServerInterceptor(trustedPeers, headers),
+				),
+				grpc.ChainStreamInterceptor(
+					realip.StreamServerInterceptor(trustedPeers, headers),
+				),
+			}
 			var certManager *autocert.Manager
 			var tlsConfig *tls.Config
 			tlsEnabled := false

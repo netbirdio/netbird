@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net/netip"
 	"net/url"
 
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -39,6 +40,8 @@ type Config struct {
 	DataStoreEncryptionKey string
 
 	HttpConfig *HttpServerConfig
+
+	TrustedHTTPProxies []netip.Prefix
 
 	IdpManagerConfig *idp.Config
 
