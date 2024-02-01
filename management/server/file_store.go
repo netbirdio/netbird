@@ -626,6 +626,27 @@ func (s *FileStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.P
 	return nil
 }
 
+// SavePeerLocation stores the PeerStatus in memory. It doesn't attempt to persist data to speed up things.
+// Peer.Location will be saved eventually when some other changes occur.
+func (s *FileStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	peer := account.Peers[peerWithLocation.ID]
+	if peer == nil {
+		return status.Errorf(status.NotFound, "peer %s not found", peerWithLocation.ID)
+	}
+
+	peer.Meta.Location = peerWithLocation.Meta.Location
+
+	return nil
+}
+
 // SaveUserLastLogin stores the last login time for a user in memory. It doesn't attempt to persist data to speed up things.
 func (s *FileStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error {
 	s.mux.Lock()

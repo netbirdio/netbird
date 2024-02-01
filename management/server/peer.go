@@ -113,11 +113,16 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 	if am.geo != nil && realIP != "" {
 		location, err := am.geo.Lookup(realIP)
 		if err != nil {
-			log.Errorf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP, err)
+			log.Warnf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP, err)
 		} else {
+			peer.Meta.Location.RealIP = realIP
 			peer.Meta.Location.CountryCode = location.Country.ISOCode
 			peer.Meta.Location.CityName = location.City.Names.En
-			// TODO: save peer location
+			peer.Meta.Location.GeoNameID = location.City.GeonameID
+			err = am.Store.SavePeerLocation(account.Id, peer)
+			if err != nil {
+				log.Warnf("could not store location for peer %s: %s", peer.ID, err)
+			}
 		}
 	}
 
