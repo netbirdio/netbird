@@ -145,12 +145,10 @@ func (s *serviceViaListener) evalListenAddress() (string, uint16, error) {
 		return ip, defaultPort, nil
 	}
 
-	if runtime.GOOS == "linux" {
-		ebpfSrv, port, ok := s.tryToUseeBPF()
-		if ok {
-			s.ebpfService = ebpfSrv
-			return s.wgInterface.Address().IP.String(), port, nil
-		}
+	ebpfSrv, port, ok := s.tryToUseeBPF()
+	if ok {
+		s.ebpfService = ebpfSrv
+		return s.wgInterface.Address().IP.String(), port, nil
 	}
 
 	ip, ok = s.testFreePort(customPort)
@@ -197,13 +195,17 @@ func (s *serviceViaListener) tryToBind(ip string, port int) bool {
 
 // tryToUseeBPF decides whether to apply eBPF program to capture DNS traffic on port 53.
 // This is needed because on some operating systems if we start a DNS server not on a default port 53,
-// the domain name  resolution won't work. So, in case we are running on Linux and picked a random
+// the domain name  resolution won't work. So, in case we are running on Linux and picked a free
 // port we should fall back to the eBPF solution that will capture traffic on port 53 and forward
 // it to a local DNS server running on the chosen port.
 func (s *serviceViaListener) tryToUseeBPF() (ebpfMgr.Manager, uint16, bool) {
-	port, err := generateFreePort()
+	if runtime.GOOS != "linux" {
+		return nil, 0, false
+	}
+
+	port, err := s.generateFreePort()
 	if err != nil {
-		log.Warnf("failed to generate a free port for eBPF DNS forwarder server: %w", err)
+		log.Warnf("failed to generate a free port for eBPF DNS forwarder server: %s", err)
 		return nil, 0, false
 	}
 
@@ -217,18 +219,23 @@ func (s *serviceViaListener) tryToUseeBPF() (ebpfMgr.Manager, uint16, bool) {
 	return ebpfSrv, port, true
 }
 
-func generateFreePort() (uint16, error) {
+func (s *serviceViaListener) generateFreePort() (uint16, error) {
+	ok := s.tryToBind(s.wgInterface.Address().IP.String(), customPort)
+	if ok {
+		return customPort, nil
+	}
+
 	udpAddr := net.UDPAddrFromAddrPort(netip.MustParseAddrPort("0.0.0.0:0"))
 	probeListener, err := net.ListenUDP("udp", udpAddr)
 	if err != nil {
-		log.Debugf("failed to bind random port for DNS: %w", err)
+		log.Debugf("failed to bind random port for DNS: %s", err)
 		return 0, err
 	}
 
 	addrPort := netip.MustParseAddrPort(probeListener.LocalAddr().String()) // might panic if address is incorrect
 	err = probeListener.Close()
 	if err != nil {
-		log.Debugf("failed to free up DNS port: %w", err)
+		log.Debugf("failed to free up DNS port: %s", err)
 		return 0, err
 	}
 	return addrPort.Port(), nil
