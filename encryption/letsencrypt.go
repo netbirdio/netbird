@@ -1,10 +1,11 @@
 package encryption
 
 import (
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/crypto/acme/autocert"
 	"os"
 	"path/filepath"
+
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/crypto/acme/autocert"
 )
 
 // CreateCertManager wraps common logic of generating Let's encrypt certificate.
@@ -12,7 +13,7 @@ func CreateCertManager(datadir string, letsencryptDomain string) (*autocert.Mana
 	certDir := filepath.Join(datadir, "letsencrypt")
 
 	if _, err := os.Stat(certDir); os.IsNotExist(err) {
-		err = os.MkdirAll(certDir, os.ModeDir)
+		err = os.MkdirAll(certDir, 0755)
 		if err != nil {
 			return nil, err
 		}

@@ -5,8 +5,10 @@ package dns
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -41,8 +43,12 @@ const (
 	networkManagerDbusPrimaryDNSPriority       int32 = -500
 	networkManagerDbusWithMatchDomainPriority  int32 = 0
 	networkManagerDbusSearchDomainOnlyPriority int32 = 50
-	supportedNetworkManagerVersionConstraint         = ">= 1.16, < 1.28"
 )
+
+var supportedNetworkManagerVersionConstraints = []string{
+	">= 1.16, < 1.27",
+	">= 1.44, < 1.45",
+}
 
 type networkManagerDbusConfigurator struct {
 	dbusLinkObject dbus.ObjectPath
@@ -71,19 +77,19 @@ func (s networkManagerConnSettings) cleanDeprecatedSettings() {
 	}
 }
 
-func newNetworkManagerDbusConfigurator(wgInterface WGIface) (hostManager, error) {
+func newNetworkManagerDbusConfigurator(wgInterface string) (hostManager, error) {
 	obj, closeConn, err := getDbusObject(networkManagerDest, networkManagerDbusObjectNode)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get nm dbus: %w", err)
 	}
 	defer closeConn()
 	var s string
-	err = obj.Call(networkManagerDbusGetDeviceByIPIfaceMethod, dbusDefaultFlag, wgInterface.Name()).Store(&s)
+	err = obj.Call(networkManagerDbusGetDeviceByIPIfaceMethod, dbusDefaultFlag, wgInterface).Store(&s)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("call: %w", err)
 	}
 
-	log.Debugf("got network manager dbus Link Object: %s from net interface %s", s, wgInterface.Name())
+	log.Debugf("got network manager dbus Link Object: %s from net interface %s", s, wgInterface)
 
 	return &networkManagerDbusConfigurator{
 		dbusLinkObject: dbus.ObjectPath(s),
@@ -97,14 +103,14 @@ func (n *networkManagerDbusConfigurator) supportCustomPort() bool {
 func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	connSettings, configVersion, err := n.getAppliedConnectionSettings()
 	if err != nil {
-		return fmt.Errorf("got an error while retrieving the applied connection settings, error: %s", err)
+		return fmt.Errorf("retrieving the applied connection settings, error: %w", err)
 	}
 
 	connSettings.cleanDeprecatedSettings()
 
 	dnsIP, err := netip.ParseAddr(config.ServerIP)
 	if err != nil {
-		return fmt.Errorf("unable to parse ip address, error: %s", err)
+		return fmt.Errorf("unable to parse ip address, error: %w", err)
 	}
 	convDNSIP := binary.LittleEndian.Uint32(dnsIP.AsSlice())
 	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSKey] = dbus.MakeVariant([]uint32{convDNSIP})
@@ -145,23 +151,37 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig) er
 	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSPriorityKey] = dbus.MakeVariant(priority)
 	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSSearchKey] = dbus.MakeVariant(newDomainList)
 
+	// create a backup for unclean shutdown detection before adding domains, as these might end up in the resolv.conf file.
+	// The file content itself is not important for network-manager restoration
+	if err := createUncleanShutdownIndicator(defaultResolvConfPath, networkManager, dnsIP.String()); err != nil {
+		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
+	}
+
 	log.Infof("adding %d search domains and %d match domains. Search list: %s , Match list: %s", len(searchDomains), len(matchDomains), searchDomains, matchDomains)
 	err = n.reApplyConnectionSettings(connSettings, configVersion)
 	if err != nil {
-		return fmt.Errorf("got an error while reapplying the connection with new settings, error: %s", err)
+		return fmt.Errorf("reapplying the connection with new settings, error: %w", err)
 	}
 	return nil
 }
 
 func (n *networkManagerDbusConfigurator) restoreHostDNS() error {
 	// once the interface is gone network manager cleans all config associated with it
-	return n.deleteConnectionSettings()
+	if err := n.deleteConnectionSettings(); err != nil {
+		return fmt.Errorf("delete connection settings: %w", err)
+	}
+
+	if err := removeUncleanShutdownIndicator(); err != nil {
+		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
+	}
+
+	return nil
 }
 
 func (n *networkManagerDbusConfigurator) getAppliedConnectionSettings() (networkManagerConnSettings, networkManagerConfigVersion, error) {
 	obj, closeConn, err := getDbusObject(networkManagerDest, n.dbusLinkObject)
 	if err != nil {
-		return nil, 0, fmt.Errorf("got error while attempting to retrieve the applied connection settings, err: %s", err)
+		return nil, 0, fmt.Errorf("attempting to retrieve the applied connection settings, err: %w", err)
 	}
 	defer closeConn()
 
@@ -176,7 +196,7 @@ func (n *networkManagerDbusConfigurator) getAppliedConnectionSettings() (network
 	err = obj.CallWithContext(ctx, networkManagerDbusDeviceGetAppliedConnectionMethod, dbusDefaultFlag,
 		networkManagerDbusDefaultBehaviorFlag).Store(&connSettings, &configVersion)
 	if err != nil {
-		return nil, 0, fmt.Errorf("got error while calling GetAppliedConnection method with context, err: %s", err)
+		return nil, 0, fmt.Errorf("calling GetAppliedConnection method with context, err: %w", err)
 	}
 
 	return connSettings, configVersion, nil
@@ -185,7 +205,7 @@ func (n *networkManagerDbusConfigurator) getAppliedConnectionSettings() (network
 func (n *networkManagerDbusConfigurator) reApplyConnectionSettings(connSettings networkManagerConnSettings, configVersion networkManagerConfigVersion) error {
 	obj, closeConn, err := getDbusObject(networkManagerDest, n.dbusLinkObject)
 	if err != nil {
-		return fmt.Errorf("got error while attempting to retrieve the applied connection settings, err: %s", err)
+		return fmt.Errorf("attempting to retrieve the applied connection settings, err: %w", err)
 	}
 	defer closeConn()
 
@@ -195,7 +215,7 @@ func (n *networkManagerDbusConfigurator) reApplyConnectionSettings(connSettings 
 	err = obj.CallWithContext(ctx, networkManagerDbusDeviceReapplyMethod, dbusDefaultFlag,
 		connSettings, configVersion, networkManagerDbusDefaultBehaviorFlag).Store()
 	if err != nil {
-		return fmt.Errorf("got error while calling ReApply method with context, err: %s", err)
+		return fmt.Errorf("calling ReApply method with context, err: %w", err)
 	}
 
 	return nil
@@ -204,18 +224,31 @@ func (n *networkManagerDbusConfigurator) reApplyConnectionSettings(connSettings 
 func (n *networkManagerDbusConfigurator) deleteConnectionSettings() error {
 	obj, closeConn, err := getDbusObject(networkManagerDest, n.dbusLinkObject)
 	if err != nil {
-		return fmt.Errorf("got error while attempting to retrieve the applied connection settings, err: %s", err)
+		return fmt.Errorf("attempting to retrieve the applied connection settings, err: %w", err)
 	}
 	defer closeConn()
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
 
+	// this call is required to remove the device for DNS cleanup, even if it fails
 	err = obj.CallWithContext(ctx, networkManagerDbusDeviceDeleteMethod, dbusDefaultFlag).Store()
 	if err != nil {
-		return fmt.Errorf("got error while calling delete method with context, err: %s", err)
+		var dbusErr dbus.Error
+		if errors.As(err, &dbusErr) && dbusErr.Name == dbus.ErrMsgUnknownMethod.Name {
+			// interface is gone already
+			return nil
+		}
+		return fmt.Errorf("calling delete method with context, err: %s", err)
 	}
 
+	return nil
+}
+
+func (n *networkManagerDbusConfigurator) restoreUncleanShutdownDNS(*netip.Addr) error {
+	if err := n.restoreHostDNS(); err != nil {
+		return fmt.Errorf("restoring dns via network-manager: %w", err)
+	}
 	return nil
 }
 
@@ -250,13 +283,13 @@ func isNetworkManagerSupportedMode() bool {
 func getNetworkManagerDNSProperty(property string, store any) error {
 	obj, closeConn, err := getDbusObject(networkManagerDest, networkManagerDbusDNSManagerObjectNode)
 	if err != nil {
-		return fmt.Errorf("got error while attempting to retrieve the network manager dns manager object, error: %s", err)
+		return fmt.Errorf("attempting to retrieve the network manager dns manager object, error: %w", err)
 	}
 	defer closeConn()
 
 	v, e := obj.GetProperty(property)
 	if e != nil {
-		return fmt.Errorf("got an error getting property %s: %v", property, e)
+		return fmt.Errorf("getting property %s: %w", property, e)
 	}
 
 	return v.Store(store)
@@ -278,15 +311,26 @@ func isNetworkManagerSupportedVersion() bool {
 	}
 	versionValue, err := parseVersion(value.Value().(string))
 	if err != nil {
+		log.Errorf("nm: parse version: %s", err)
 		return false
 	}
 
-	constraints, err := version.NewConstraint(supportedNetworkManagerVersionConstraint)
-	if err != nil {
-		return false
+	var supported bool
+	for _, constraint := range supportedNetworkManagerVersionConstraints {
+		constr, err := version.NewConstraint(constraint)
+		if err != nil {
+			log.Errorf("nm: create constraint: %s", err)
+			return false
+		}
+
+		if met := constr.Check(versionValue); met {
+			supported = true
+			break
+		}
 	}
 
-	return constraints.Check(versionValue)
+	log.Debugf("network manager constraints [%s] met: %t", strings.Join(supportedNetworkManagerVersionConstraints, " | "), supported)
+	return supported
 }
 
 func parseVersion(inputVersion string) (*version.Version, error) {

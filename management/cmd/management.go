@@ -7,11 +7,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/netbirdio/management-integrations/integrations"
 	"io"
 	"io/fs"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path"
@@ -29,9 +29,12 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
+	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -115,7 +118,7 @@ var (
 			}
 
 			if _, err = os.Stat(config.Datadir); os.IsNotExist(err) {
-				err = os.MkdirAll(config.Datadir, os.ModeDir)
+				err = os.MkdirAll(config.Datadir, 0755)
 				if err != nil {
 					return fmt.Errorf("failed creating datadir: %s: %v", config.Datadir, err)
 				}
@@ -159,15 +162,36 @@ var (
 				}
 			}
 
+			geo, err := geolocation.NewGeolocation(config.Datadir)
+			if err != nil {
+				log.Warnf("could not initialize geo location service, we proceed without geo support")
+			} else {
+				log.Infof("geo location service has been initialized from %s", config.Datadir)
+			}
+
 			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
-				dnsDomain, eventStore, userDeleteFromIDPEnabled)
+				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}
 
 			turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 
-			gRPCOpts := []grpc.ServerOption{grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp)}
+			trustedPeers := config.TrustedHTTPProxies
+			if len(trustedPeers) == 0 {
+				trustedPeers = []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}
+			}
+			headers := []string{realip.XForwardedFor, realip.XRealIp}
+			gRPCOpts := []grpc.ServerOption{
+				grpc.KeepaliveEnforcementPolicy(kaep),
+				grpc.KeepaliveParams(kasp),
+				grpc.ChainUnaryInterceptor(
+					realip.UnaryServerInterceptor(trustedPeers, headers),
+				),
+				grpc.ChainStreamInterceptor(
+					realip.StreamServerInterceptor(trustedPeers, headers),
+				),
+			}
 			var certManager *autocert.Manager
 			var tlsConfig *tls.Config
 			tlsEnabled := false
@@ -284,6 +308,9 @@ var (
 			SetupCloseHandler()
 
 			<-stopCh
+			if geo != nil {
+				_ = geo.Stop()
+			}
 			ephemeralManager.Stop()
 			_ = appMetrics.Close()
 			_ = listener.Close()

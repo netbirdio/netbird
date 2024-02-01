@@ -27,6 +27,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -103,11 +104,11 @@ type AccountManager interface {
 	SaveRoute(accountID, userID string, route *route.Route) error
 	DeleteRoute(accountID, routeID, userID string) error
 	ListRoutes(accountID, userID string) ([]*route.Route, error)
-	GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
+	GetNameServerGroup(accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error)
 	CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainsEnabled bool) (*nbdns.NameServerGroup, error)
 	SaveNameServerGroup(accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
 	DeleteNameServerGroup(accountID, nsGroupID, userID string) error
-	ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error)
+	ListNameServerGroups(accountID string, userID string) ([]*nbdns.NameServerGroup, error)
 	GetDNSDomain() string
 	StoreEvent(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any)
 	GetEvents(accountID, userID string) ([]*activity.Event, error)
@@ -138,6 +139,7 @@ type DefaultAccountManager struct {
 	externalCacheManager ExternalCacheManager
 	ctx                  context.Context
 	eventStore           activity.Store
+	geo                  *geolocation.Geolocation
 
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
@@ -816,10 +818,12 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
 func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
-	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store, userDeleteFromIDPEnabled bool,
+	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store, geo *geolocation.Geolocation,
+	userDeleteFromIDPEnabled bool,
 ) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
 		Store:                    store,
+		geo:                      geo,
 		peersUpdateManager:       peersUpdateManager,
 		idpManager:               idpManager,
 		ctx:                      context.Background(),
@@ -1556,7 +1560,19 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 		log.Infof("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
 	}
 
-	account, err := am.getAccountWithAuthorizationClaims(claims)
+	newAcc, err := am.getAccountWithAuthorizationClaims(claims)
+	if err != nil {
+		return nil, nil, err
+	}
+	unlock := am.Store.AcquireAccountLock(newAcc.Id)
+	alreadyUnlocked := false
+	defer func() {
+		if !alreadyUnlocked {
+			unlock()
+		}
+	}()
+
+	account, err := am.Store.GetAccount(newAcc.Id)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1605,6 +1621,8 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 								log.Errorf("failed to save account: %v", err)
 							} else {
 								am.updateAccountPeers(account)
+								unlock()
+								alreadyUnlocked = true
 								for _, g := range addNewGroups {
 									if group := account.GetGroup(g); group != nil {
 										am.StoreEvent(user.Id, user.Id, account.Id, activity.GroupAddedToUser,

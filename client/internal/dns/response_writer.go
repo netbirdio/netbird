@@ -31,10 +31,13 @@ func (r *responseWriter) RemoteAddr() net.Addr {
 func (r *responseWriter) WriteMsg(msg *dns.Msg) error {
 	buff, err := msg.Pack()
 	if err != nil {
-		return err
+		return fmt.Errorf("pack: %w", err)
 	}
-	_, err = r.Write(buff)
-	return err
+
+	if _, err := r.Write(buff); err != nil {
+		return fmt.Errorf("write: %w", err)
+	}
+	return nil
 }
 
 // Write writes a raw buffer back to the client.

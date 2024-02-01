@@ -28,7 +28,7 @@ import (
 
 // ConnStateNotifier is a wrapper interface of the status recorders
 type ConnStateNotifier interface {
-	MarkManagementDisconnected()
+	MarkManagementDisconnected(error)
 	MarkManagementConnected()
 }
 
@@ -154,7 +154,7 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 				return nil
 			default:
 				backOff.Reset() // reset backoff counter after successful connection
-				c.notifyDisconnected()
+				c.notifyDisconnected(err)
 				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
 				return err
 			}
@@ -283,6 +283,32 @@ func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
 	return &serverKey, nil
 }
 
+// IsHealthy probes the gRPC connection and returns false on errors
+func (c *GrpcClient) IsHealthy() bool {
+	switch c.conn.GetState() {
+	case connectivity.TransientFailure:
+		return false
+	case connectivity.Connecting:
+		return true
+	case connectivity.Shutdown:
+		return true
+	case connectivity.Idle:
+	case connectivity.Ready:
+	}
+
+	ctx, cancel := context.WithTimeout(c.ctx, 1*time.Second)
+	defer cancel()
+
+	_, err := c.realClient.GetServerKey(ctx, &proto.Empty{})
+	if err != nil {
+		c.notifyDisconnected(err)
+		log.Warnf("health check returned: %s", err)
+		return false
+	}
+	c.notifyConnected()
+	return true
+}
+
 func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*proto.LoginResponse, error) {
 	if !c.ready() {
 		return nil, fmt.Errorf("no connection to management")
@@ -400,14 +426,14 @@ func (c *GrpcClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKC
 	return flowInfoResp, nil
 }
 
-func (c *GrpcClient) notifyDisconnected() {
+func (c *GrpcClient) notifyDisconnected(err error) {
 	c.connStateCallbackLock.RLock()
 	defer c.connStateCallbackLock.RUnlock()
 
 	if c.connStateCallback == nil {
 		return
 	}
-	c.connStateCallback.MarkManagementDisconnected()
+	c.connStateCallback.MarkManagementDisconnected(err)
 }
 
 func (c *GrpcClient) notifyConnected() {

@@ -935,7 +935,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		return
 	}
 
-	userID := "account_creator"
+	userID := "testingUser"
 	account, err := createAccount(manager, "test_account", userID, "netbird.cloud")
 	if err != nil {
 		t.Fatal(err)
@@ -2236,7 +2236,7 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, false)
+	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false)
 }
 
 func createStore(t *testing.T) (Store, error) {

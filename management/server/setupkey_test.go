@@ -18,7 +18,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	userID := "test_user"
+	userID := "testingUser"
 	account, err := manager.GetOrCreateAccountByUser(userID, "")
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +76,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	userID := "test_user"
+	userID := "testingUser"
 	account, err := manager.GetOrCreateAccountByUser(userID, "")
 	if err != nil {
 		t.Fatal(err)

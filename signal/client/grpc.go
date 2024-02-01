@@ -28,7 +28,7 @@ const defaultSendTimeout = 5 * time.Second
 
 // ConnStateNotifier is a wrapper interface of the status recorder
 type ConnStateNotifier interface {
-	MarkSignalDisconnected()
+	MarkSignalDisconnected(error)
 	MarkSignalConnected()
 }
 
@@ -166,7 +166,7 @@ func (c *GrpcClient) Receive(msgHandler func(msg *proto.Message) error) error {
 			// we need this reset because after a successful connection and a consequent error, backoff lib doesn't
 			// reset times and next try will start with a long delay
 			backOff.Reset()
-			c.notifyDisconnected()
+			c.notifyDisconnected(err)
 			log.Warnf("disconnected from the Signal service but will retry silently. Reason: %v", err)
 			return err
 		}
@@ -236,6 +236,35 @@ func (c *GrpcClient) connect(ctx context.Context, key string) (proto.SignalExcha
 // for now it just checks whether gRPC connection to the service is in state Ready
 func (c *GrpcClient) Ready() bool {
 	return c.signalConn.GetState() == connectivity.Ready || c.signalConn.GetState() == connectivity.Idle
+}
+
+// IsHealthy probes the gRPC connection and returns false on errors
+func (c *GrpcClient) IsHealthy() bool {
+	switch c.signalConn.GetState() {
+	case connectivity.TransientFailure:
+		return false
+	case connectivity.Connecting:
+		return true
+	case connectivity.Shutdown:
+		return true
+	case connectivity.Idle:
+	case connectivity.Ready:
+	}
+
+	ctx, cancel := context.WithTimeout(c.ctx, 1*time.Second)
+	defer cancel()
+	_, err := c.realClient.Send(ctx, &proto.EncryptedMessage{
+		Key:       c.key.PublicKey().String(),
+		RemoteKey: "dummy",
+		Body:      nil,
+	})
+	if err != nil {
+		c.notifyDisconnected(err)
+		log.Warnf("health check returned: %s", err)
+		return false
+	}
+	c.notifyConnected()
+	return true
 }
 
 // WaitStreamConnected waits until the client is connected to the Signal stream
@@ -383,14 +412,14 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient,
 	}
 }
 
-func (c *GrpcClient) notifyDisconnected() {
+func (c *GrpcClient) notifyDisconnected(err error) {
 	c.connStateCallbackLock.RLock()
 	defer c.connStateCallbackLock.RUnlock()
 
 	if c.connStateCallback == nil {
 		return
 	}
-	c.connStateCallback.MarkSignalDisconnected()
+	c.connStateCallback.MarkSignalDisconnected(err)
 }
 
 func (c *GrpcClient) notifyConnected() {
