@@ -842,6 +842,8 @@ components:
           $ref: '#/components/schemas/NBVersionCheck'
         os_version_check:
           $ref: '#/components/schemas/OSVersionCheck'
+        geo_location_check:
+          $ref: '#/components/schemas/GeoLocationCheck'
     NBVersionCheck:
       description: Posture check for the version of NetBird
       type: object
@@ -884,6 +886,38 @@ components:
           example: "6.6.12"
       required:
         - min_kernel_version
+    GeoLocationCheck:
+      description: Posture check for geo location
+      type: object
+      properties:
+        locations:
+          description: List of geo locations to which the policy applies
+          type: array
+          items:
+            $ref: '#/components/schemas/Location'
+        action:
+          description: Action to take upon policy match
+          type: string
+          enum: [ "allow", "deny" ]
+          example: "allow"
+      required:
+        - locations
+        - action
+    Location:
+      description: Describe geographical location information
+      type: object
+      properties:
+        country_code:
+          description: 2-letter ISO 3166-1 alpha-2 code that represents the country
+          type: string
+          example: "DE"
+        city_name:
+          description: Commonly used English name of the city
+          type: string
+          example: "Berlin"
+      required:
+        - country_code
+        - city_name
     PostureCheckUpdate:
       type: object
       properties:

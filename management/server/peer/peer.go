@@ -66,6 +66,12 @@ type PeerSystemMeta struct {
 	WtVersion     string
 	UIVersion     string
 	KernelVersion string
+	// Location mock location for peer
+	// TODO: Add actual implementation based on peer IP
+	Location struct {
+		CountryCode string
+		CityName    string
+	} `gorm:"embedded;embeddedPrefix:location_"`
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
