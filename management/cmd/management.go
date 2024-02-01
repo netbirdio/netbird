@@ -31,6 +31,7 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
@@ -162,6 +163,14 @@ var (
 				}
 			}
 
+			geolocationStore, err := geolocation.NewSqliteStore(config.Datadir)
+			if err != nil {
+				log.Warnf("could not  geo location database, we proceed without location endpoints")
+			} else {
+				log.Infof("geo location database has been initialized from %s", config.Datadir)
+			}
+			geolocationManager := geolocation.NewManager(geolocationStore)
+
 			geo, err := geolocation.NewGeolocation(config.Datadir)
 			if err != nil {
 				log.Warnf("could not initialize geo location service, we proceed without geo support")
@@ -230,7 +239,7 @@ var (
 				UserIDClaim:  config.HttpConfig.AuthUserIDClaim,
 				KeysLocation: config.HttpConfig.AuthKeysLocation,
 			}
-			httpAPIHandler, err := httpapi.APIHandler(accountManager, *jwtValidator, appMetrics, httpAPIAuthCfg)
+			httpAPIHandler, err := httpapi.APIHandler(accountManager, geolocationManager, *jwtValidator, appMetrics, httpAPIAuthCfg)
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}

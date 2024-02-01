@@ -4,37 +4,41 @@ type Manager struct {
 	Store *SqliteStore
 }
 
-func Newmanager(store *SqliteStore) *Manager {
+func NewManager(store *SqliteStore) *Manager {
+	if store == nil {
+		return nil
+	}
 	return &Manager{
 		Store: store,
 	}
 }
 
 func (m *Manager) GetAllCountries() ([]string, error) {
-	countries, err := m.Store.GetAllCountries()
+	allCountries, err := m.Store.GetAllCountries()
 	if err != nil {
 		return nil, err
 	}
 
-	var validCountries []string
-	for _, country := range countries {
+	countries := make([]string, 0)
+	for _, country := range allCountries {
 		if country != "" {
-			validCountries = append(validCountries, country)
+			countries = append(countries, country)
 		}
 	}
-	return validCountries, nil
+	return countries, nil
 }
 
 func (m *Manager) GetCitiesByCountry(countryISOCode string) ([]string, error) {
-	cities, err := m.Store.GetCitiesByCountry(countryISOCode)
+	allCities, err := m.Store.GetCitiesByCountry(countryISOCode)
 	if err != nil {
 		return nil, err
 	}
-	var validCities []string
-	for _, country := range cities {
-		if country != "" {
-			validCities = append(validCities, country)
+
+	cities := make([]string, 0)
+	for _, city := range allCities {
+		if city != "" {
+			cities = append(cities, city)
 		}
 	}
-	return validCities, nil
+	return cities, nil
 }

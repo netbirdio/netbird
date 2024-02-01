@@ -18,8 +18,12 @@ type SqliteStore struct {
 func NewSqliteStore(dataDir string) (*SqliteStore, error) {
 	storeStr := "geonames.db?cache=shared"
 	if runtime.GOOS == "windows" {
-		// Vo avoid `The process cannot access the file because it is being used by another process` on Windows
 		storeStr = "geonames.db"
+	}
+
+	_, err := fileExists(filepath.Join(dataDir, "geonames.db"))
+	if err != nil {
+		return nil, err
 	}
 
 	file := filepath.Join(dataDir, storeStr)

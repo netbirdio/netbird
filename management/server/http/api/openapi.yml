@@ -2733,3 +2733,62 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
+  /api/locations/countries:
+    get:
+      summary: List all country codes
+      description: Get list of all country in 2-letter ISO 3166-1 alpha-2 codes
+      tags: [ "Geo Locations" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: List of country codes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  example: "DE"
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/locations/countries/{country}/cities:
+    get:
+      summary: List all city names by country
+      description: Get a list of all English city names for a given country code
+      tags: [ "Geo Locations" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: country
+          required: true
+          schema:
+            type: string
+          description: The 2-letter ISO 3166-1 alpha-2 country code
+      responses:
+        '200':
+          description: List of city names
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  example: "Berlin"
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
