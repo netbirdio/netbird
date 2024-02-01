@@ -66,9 +66,7 @@ type PeerSystemMeta struct {
 	WtVersion     string
 	UIVersion     string
 	KernelVersion string
-	// Location mock location for peer
-	// TODO: Add actual implementation based on peer IP
-	Location struct {
+	Location      struct {
 		RealIP      net.IP // from grpc peer or reverse proxy headers depends on setup
 		CountryCode string
 		CityName    string
