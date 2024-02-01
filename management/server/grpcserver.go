@@ -8,10 +8,10 @@ import (
 
 	pb "github.com/golang/protobuf/proto" // nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
+	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
-	gRPCPeer "google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -109,6 +109,13 @@ func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto
 	}, nil
 }
 
+func getRealIP(ctx context.Context) string {
+	if ip, ok := realip.FromContext(ctx); ok {
+		return ip.String()
+	}
+	return ""
+}
+
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
@@ -116,10 +123,8 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountSyncRequest()
 	}
-	p, ok := gRPCPeer.FromContext(srv.Context())
-	if ok {
-		log.Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, p.Addr.String())
-	}
+	realIP := getRealIP(srv.Context())
+	log.Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, realIP)
 
 	syncReq := &proto.SyncRequest{}
 	peerKey, err := s.parseRequest(req, syncReq)
@@ -290,10 +295,8 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountLoginRequest()
 	}
-	p, ok := gRPCPeer.FromContext(ctx)
-	if ok {
-		log.Debugf("Login request from peer [%s] [%s]", req.WgPubKey, p.Addr.String())
-	}
+	realIP := getRealIP(ctx)
+	log.Debugf("Login request from peer [%s] [%s]", req.WgPubKey, realIP)
 
 	loginReq := &proto.LoginRequest{}
 	peerKey, err := s.parseRequest(req, loginReq)
@@ -303,8 +306,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 
 	if loginReq.GetMeta() == nil {
 		msg := status.Errorf(codes.FailedPrecondition,
-			"peer system meta has to be provided to log in. Peer %s, remote addr %s", peerKey.String(),
-			p.Addr.String())
+			"peer system meta has to be provided to log in. Peer %s, remote addr %s", peerKey.String(), realIP)
 		log.Warn(msg)
 		return nil, msg
 	}
