@@ -71,11 +71,8 @@ func NewGeolocation(datadir string) (*Geolocation, error) {
 }
 
 func openDB(mmdbPath string) (*maxminddb.Reader, error) {
-	_, err := os.Stat(mmdbPath)
-
-	if os.IsNotExist(err) {
-		return nil, fmt.Errorf("%v does not exist", mmdbPath)
-	} else if err != nil {
+	_, err := fileExists(mmdbPath)
+	if err != nil {
 		return nil, err
 	}
 
@@ -186,4 +183,15 @@ func (gl *Geolocation) reload(newSha256sum []byte) error {
 	log.Infof("Successfully reloaded '%s'", gl.mmdbPath)
 
 	return nil
+}
+
+func fileExists(filePath string) (bool, error) {
+	_, err := os.Stat(filePath)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, fmt.Errorf("%v does not exist", filePath)
+	}
+	return false, err
 }
