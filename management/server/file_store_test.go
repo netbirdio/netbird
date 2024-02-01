@@ -653,12 +653,7 @@ func TestFileStore_SavePeerLocation(t *testing.T) {
 		AccountID: account.Id,
 		ID:        "testpeer",
 		Meta: nbpeer.PeerSystemMeta{
-			Location: struct {
-				RealIP      net.IP
-				CountryCode string
-				CityName    string
-				GeoNameID   uint
-			}{
+			Location: nbpeer.Location{
 				RealIP:      net.ParseIP("10.0.0.0"),
 				CountryCode: "YY",
 				CityName:    "City",

@@ -66,12 +66,13 @@ type PeerSystemMeta struct {
 	WtVersion     string
 	UIVersion     string
 	KernelVersion string
-	Location      struct {
-		RealIP      net.IP // from grpc peer or reverse proxy headers depends on setup
-		CountryCode string
-		CityName    string
-		GeoNameID   uint // city level geoname id
-	} `gorm:"embedded;embeddedPrefix:location_"`
+	Location      Location `gorm:"embedded;embeddedPrefix:location_"`
+}
+type Location struct {
+	RealIP      net.IP // from grpc peer or reverse proxy headers depends on setup
+	CountryCode string
+	CityName    string
+	GeoNameID   uint // city level geoname id
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
