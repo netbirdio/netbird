@@ -106,6 +106,22 @@ func TestGetPostureCheck(t *testing.T) {
 			},
 		},
 	}
+	geoPostureCheck := &posture.Checks{
+		ID:   "geoPostureCheck",
+		Name: "geoLocation",
+		Checks: []posture.Check{
+			&posture.GeoLocationCheck{
+				Locations: []posture.Location{
+					{
+						CountryCode: "DE",
+						CityName:    "Berlin",
+					},
+				},
+				Action: posture.GeoLocationActionAllow,
+			},
+		},
+	}
+
 	tt := []struct {
 		name           string
 		id             string
@@ -129,13 +145,20 @@ func TestGetPostureCheck(t *testing.T) {
 			expectedStatus: http.StatusOK,
 		},
 		{
+			name:           "GetPostureCheck GeoLocation OK",
+			expectedBody:   true,
+			id:             geoPostureCheck.ID,
+			checkName:      geoPostureCheck.Name,
+			expectedStatus: http.StatusOK,
+		},
+		{
 			name:           "GetPostureCheck Not Found",
 			id:             "not-exists",
 			expectedStatus: http.StatusNotFound,
 		},
 	}
 
-	p := initPostureChecksTestData(postureCheck, osPostureCheck)
+	p := initPostureChecksTestData(postureCheck, osPostureCheck, geoPostureCheck)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -257,6 +280,45 @@ func TestPostureCheckUpdate(t *testing.T) {
 			},
 		},
 		{
+			name:        "Create Posture Checks Geo Location",
+			requestType: http.MethodPost,
+			requestPath: "/api/posture-checks",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+      				"name": "default",
+                  	"description": "default",
+					"checks": {
+						"geo_location_check": {
+							"locations": [
+								{
+									"city_name": "Berlin",
+									"country_code": "DE"
+								}
+							],
+							"action": "allow"
+						}
+					}
+				}`)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedPostureCheck: &api.PostureCheck{
+				Id:          "postureCheck",
+				Name:        "default",
+				Description: str("default"),
+				Checks: api.Checks{
+					GeoLocationCheck: &api.GeoLocationCheck{
+						Locations: []api.Location{
+							{
+								CityName:    "Berlin",
+								CountryCode: "DE",
+							},
+						},
+						Action: api.GeoLocationCheckActionAllow,
+					},
+				},
+			},
+		},
+		{
 			name:        "Create Posture Checks Invalid Check",
 			requestType: http.MethodPost,
 			requestPath: "/api/posture-checks",
@@ -296,6 +358,20 @@ func TestPostureCheckUpdate(t *testing.T) {
 					"name": "default",
                    "checks": {
 						"nb_version_check": {}
+					}
+				}`)),
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   false,
+		},
+		{
+			name:        "Create Posture Checks Invalid Geo Location",
+			requestType: http.MethodPost,
+			requestPath: "/api/posture-checks",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+					"name": "default",
+                   "checks": {
+						"geo_location_check": {}
 					}
 				}`)),
 			expectedStatus: http.StatusBadRequest,
@@ -353,6 +429,44 @@ func TestPostureCheckUpdate(t *testing.T) {
 						Linux: &api.MinKernelVersionCheck{
 							MinKernelVersion: "6.9.0",
 						},
+					},
+				},
+			},
+		},
+		{
+			name:        "Update Posture Checks Geo Location",
+			requestType: http.MethodPut,
+			requestPath: "/api/posture-checks/geoPostureCheck",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+					"name": "default",
+					"checks": {
+						"geo_location_check": {
+							"locations": [
+								{
+									"city_name": "Los Angeles",
+									"country_code": "US"
+								}
+							],
+							"action": "allow"
+						}
+					}
+					}`)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedPostureCheck: &api.PostureCheck{
+				Id:          "postureCheck",
+				Name:        "default",
+				Description: str(""),
+				Checks: api.Checks{
+					GeoLocationCheck: &api.GeoLocationCheck{
+						Locations: []api.Location{
+							{
+								CityName:    "Los Angeles",
+								CountryCode: "US",
+							},
+						},
+						Action: api.GeoLocationCheckActionAllow,
 					},
 				},
 			},
@@ -421,6 +535,21 @@ func TestPostureCheckUpdate(t *testing.T) {
 					Linux: &posture.MinKernelVersionCheck{
 						MinKernelVersion: "5.0.0",
 					},
+				},
+			},
+		},
+		&posture.Checks{
+			ID:   "geoPostureCheck",
+			Name: "geoLocation",
+			Checks: []posture.Check{
+				&posture.GeoLocationCheck{
+					Locations: []posture.Location{
+						{
+							CountryCode: "DE",
+							CityName:    "Berlin",
+						},
+					},
+					Action: posture.GeoLocationActionDeny,
 				},
 			},
 		},

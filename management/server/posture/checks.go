@@ -9,6 +9,7 @@ import (
 const (
 	NBVersionCheckName = "NBVersionCheck"
 	OSVersionCheckName = "OSVersionCheck"
+	GeoLocationCheckName = "GeoLocationCheck"
 )
 
 // Check represents an interface for performing a check on a peer.
@@ -113,6 +114,12 @@ func (pc *Checks) unmarshalChecks(rawChecks map[string]json.RawMessage) error {
 			pc.Checks = append(pc.Checks, check)
 		case OSVersionCheckName:
 			check := &OSVersionCheck{}
+			if err := json.Unmarshal(rawCheck, check); err != nil {
+				return err
+			}
+			pc.Checks = append(pc.Checks, check)
+		case GeoLocationCheckName:
+			check := &GeoLocationCheck{}
 			if err := json.Unmarshal(rawCheck, check); err != nil {
 				return err
 			}
