@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -80,7 +81,7 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*nbpeer.P
 }
 
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
-func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected bool, realIP string) error {
+func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected bool, realIP net.IP) error {
 	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
 		return err
@@ -110,10 +111,10 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 	}
 	peer.Status = newStatus
 
-	if am.geo != nil && realIP != "" {
+	if am.geo != nil && realIP != nil {
 		location, err := am.geo.Lookup(realIP)
 		if err != nil {
-			log.Warnf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP, err)
+			log.Warnf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP.String(), err)
 		} else {
 			peer.Meta.Location.RealIP = realIP
 			peer.Meta.Location.CountryCode = location.Country.ISOCode

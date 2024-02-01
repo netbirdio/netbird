@@ -1,6 +1,7 @@
 package geolocation
 
 import (
+	"net"
 	"os"
 	"path"
 	"testing"
@@ -34,7 +35,7 @@ func TestGeoLite_Lookup(t *testing.T) {
 		}
 	}()
 
-	record, err := geo.Lookup("89.160.20.128")
+	record, err := geo.Lookup(net.ParseIP("89.160.20.128"))
 	assert.NoError(t, err)
 	assert.NotNil(t, record)
 	assert.Equal(t, "SE", record.Country.ISOCode)
@@ -43,7 +44,4 @@ func TestGeoLite_Lookup(t *testing.T) {
 	assert.Equal(t, uint(2694762), record.City.GeonameID)
 	assert.Equal(t, "EU", record.Continent.Code)
 	assert.Equal(t, uint(6255148), record.Continent.GeonameID)
-
-	_, err = geo.Lookup("589.160.20.128")
-	assert.Error(t, err)
 }

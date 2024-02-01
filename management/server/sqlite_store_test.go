@@ -227,12 +227,12 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 		ID:        "testpeer",
 		Meta: nbpeer.PeerSystemMeta{
 			Location: struct {
-				RealIP      string
+				RealIP      net.IP
 				CountryCode string
 				CityName    string
 				GeoNameID   uint
 			}{
-				RealIP:      "0.0.0.0",
+				RealIP:      net.ParseIP("0.0.0.0"),
 				CountryCode: "YY",
 				CityName:    "City",
 				GeoNameID:   1,
@@ -247,7 +247,7 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 	err = store.SaveAccount(account)
 	require.NoError(t, err)
 
-	peer.Meta.Location.RealIP = "35.1.1.1"
+	peer.Meta.Location.RealIP = net.ParseIP("35.1.1.1")
 	peer.Meta.Location.CountryCode = "DE"
 	peer.Meta.Location.CityName = "Berlin"
 	peer.Meta.Location.GeoNameID = 2950159

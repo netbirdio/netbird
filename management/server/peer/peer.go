@@ -69,7 +69,7 @@ type PeerSystemMeta struct {
 	// Location mock location for peer
 	// TODO: Add actual implementation based on peer IP
 	Location struct {
-		RealIP      string // from grpc peer or reverse proxy headers depends on setup
+		RealIP      net.IP // from grpc peer or reverse proxy headers depends on setup
 		CountryCode string
 		CityName    string
 		GeoNameID   uint // city level geoname id
@@ -87,7 +87,7 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		p.OSVersion == other.OSVersion &&
 		p.WtVersion == other.WtVersion &&
 		p.UIVersion == other.UIVersion &&
-		p.Location.RealIP == other.Location.RealIP &&
+		p.Location.RealIP.Equal(other.Location.RealIP) &&
 		p.Location.CountryCode == other.Location.CountryCode &&
 		p.Location.CityName == other.Location.CityName &&
 		p.Location.GeoNameID == other.Location.GeoNameID

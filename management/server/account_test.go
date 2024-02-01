@@ -1638,7 +1638,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 		LoginExpirationEnabled: true,
 	})
 	require.NoError(t, err, "unable to add peer")
-	err = manager.MarkPeerConnected(key.PublicKey().String(), true, "")
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil)
 	require.NoError(t, err, "unable to mark peer connected")
 	account, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
@@ -1705,7 +1705,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	}
 
 	// when we mark peer as connected, the peer login expiration routine should trigger
-	err = manager.MarkPeerConnected(key.PublicKey().String(), true, "")
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	failed := waitTimeout(wg, time.Second)
@@ -1728,7 +1728,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 		LoginExpirationEnabled: true,
 	})
 	require.NoError(t, err, "unable to add peer")
-	err = manager.MarkPeerConnected(key.PublicKey().String(), true, "")
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	wg := &sync.WaitGroup{}
