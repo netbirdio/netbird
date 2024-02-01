@@ -139,6 +139,11 @@ func (c *Client) SetTraceLogLevel() {
 	log.SetLevel(log.TraceLevel)
 }
 
+// SetInfoLogLevel configure the logger to info level
+func (c *Client) SetInfoLogLevel() {
+	log.SetLevel(log.InfoLevel)
+}
+
 // PeersList return with the list of the PeerInfos
 func (c *Client) PeersList() *PeerInfoArray {
 
