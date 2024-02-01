@@ -269,7 +269,7 @@ func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer
 
 func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
 	var peer nbpeer.Peer
-	result := s.db.First(&peer, "account_id = ? and id = ?", accountID, peer.ID)
+	result := s.db.First(&peer, "account_id = ? and id = ?", accountID, peerWithLocation.ID)
 	if result.Error != nil {
 		return status.Errorf(status.NotFound, "peer %s not found", peer.ID)
 	}
