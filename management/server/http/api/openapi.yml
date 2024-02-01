@@ -247,6 +247,10 @@ components:
               description: Peer's IP address
               type: string
               example: 10.64.0.1
+            public_ip:
+              description: Peer's public IP address
+              type: string
+              example: 10.64.0.1
             connected:
               description: Peer to Management connection status
               type: boolean
@@ -260,6 +264,14 @@ components:
               description: Peer's operating system and version
               type: string
               example: Darwin 13.2.1
+            kernel_version:
+              description: Peer's operating system kernel version
+              type: string
+              example: 23.2.0
+            geoname_id:
+              description: Unique identifier from the GeoNames database for a specific geographical location.
+              type: integer
+              example: 2643743
             version:
               description: Peer's daemon or cli version
               type: string

@@ -415,6 +415,9 @@ type Peer struct {
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
+	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
+	GeonameId *int `json:"geoname_id,omitempty"`
+
 	// Groups Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
 
@@ -426,6 +429,9 @@ type Peer struct {
 
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
+
+	// KernelVersion Peer's operating system kernel version
+	KernelVersion *string `json:"kernel_version,omitempty"`
 
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
@@ -444,6 +450,9 @@ type Peer struct {
 
 	// Os Peer's operating system and version
 	Os string `json:"os"`
+
+	// PublicIp Peer's public IP address
+	PublicIp *string `json:"public_ip,omitempty"`
 
 	// SshEnabled Indicates whether SSH server is enabled on this peer
 	SshEnabled bool `json:"ssh_enabled"`
@@ -469,6 +478,9 @@ type PeerBase struct {
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
+	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
+	GeonameId *int `json:"geoname_id,omitempty"`
+
 	// Groups Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
 
@@ -480,6 +492,9 @@ type PeerBase struct {
 
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
+
+	// KernelVersion Peer's operating system kernel version
+	KernelVersion *string `json:"kernel_version,omitempty"`
 
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
@@ -498,6 +513,9 @@ type PeerBase struct {
 
 	// Os Peer's operating system and version
 	Os string `json:"os"`
+
+	// PublicIp Peer's public IP address
+	PublicIp *string `json:"public_ip,omitempty"`
 
 	// SshEnabled Indicates whether SSH server is enabled on this peer
 	SshEnabled bool `json:"ssh_enabled"`
@@ -526,6 +544,9 @@ type PeerBatch struct {
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
+	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
+	GeonameId *int `json:"geoname_id,omitempty"`
+
 	// Groups Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
 
@@ -537,6 +558,9 @@ type PeerBatch struct {
 
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
+
+	// KernelVersion Peer's operating system kernel version
+	KernelVersion *string `json:"kernel_version,omitempty"`
 
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
@@ -555,6 +579,9 @@ type PeerBatch struct {
 
 	// Os Peer's operating system and version
 	Os string `json:"os"`
+
+	// PublicIp Peer's public IP address
+	PublicIp *string `json:"public_ip,omitempty"`
 
 	// SshEnabled Indicates whether SSH server is enabled on this peer
 	SshEnabled bool `json:"ssh_enabled"`
