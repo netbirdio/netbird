@@ -1518,7 +1518,6 @@ func TestAccount_Copy(t *testing.T) {
 				Peers: []string{"peer1"},
 			},
 		},
-		Rules: map[string]*Rule{},
 		Policies: []*Policy{
 			{
 				ID:      "policy1",

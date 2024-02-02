@@ -1,7 +1,5 @@
 package server
 
-import "fmt"
-
 // TrafficFlowType defines allowed direction of the traffic in the rule
 type TrafficFlowType int
 
@@ -65,36 +63,4 @@ func (r *Rule) Copy() *Rule {
 // EventMeta returns activity event meta related to this rule
 func (r *Rule) EventMeta() map[string]any {
 	return map[string]any{"name": r.Name}
-}
-
-// ToPolicyRule converts a Rule to a PolicyRule object
-func (r *Rule) ToPolicyRule() *PolicyRule {
-	if r == nil {
-		return nil
-	}
-	return &PolicyRule{
-		ID:            r.ID,
-		Name:          r.Name,
-		Enabled:       !r.Disabled,
-		Description:   r.Description,
-		Destinations:  r.Destination,
-		Sources:       r.Source,
-		Bidirectional: true,
-		Protocol:      PolicyRuleProtocolALL,
-		Action:        PolicyTrafficActionAccept,
-	}
-}
-
-// RuleToPolicy converts a Rule to a Policy query object
-func RuleToPolicy(rule *Rule) (*Policy, error) {
-	if rule == nil {
-		return nil, fmt.Errorf("rule is empty")
-	}
-	return &Policy{
-		ID:          rule.ID,
-		Name:        rule.Name,
-		Description: rule.Description,
-		Enabled:     !rule.Disabled,
-		Rules:       []*PolicyRule{rule.ToPolicyRule()},
-	}, nil
 }

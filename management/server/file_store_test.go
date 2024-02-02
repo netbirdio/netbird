@@ -193,18 +193,18 @@ func TestStore(t *testing.T) {
 		Name:  "all",
 		Peers: []string{"testpeer"},
 	}
-	allRule := &Rule{
-		ID:          "all",
-		Name:        "all",
-		Source:      []string{"all"},
-		Destination: []string{"all"},
-		Flow:        TrafficFlowBidirect,
-	}
 	account.Policies = append(account.Policies, &Policy{
 		ID:      "all",
 		Name:    "all",
 		Enabled: true,
-		Rules:   []*PolicyRule{allRule.ToPolicyRule()},
+		Rules: []*PolicyRule{
+			{
+				ID:           "all",
+				Name:         "all",
+				Sources:      []string{"all"},
+				Destinations: []string{"all"},
+			},
+		},
 	})
 	account.Policies = append(account.Policies, &Policy{
 		ID:      "dmz",

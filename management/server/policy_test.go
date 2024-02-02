@@ -83,40 +83,56 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				},
 			},
 		},
-		Rules: map[string]*Rule{
-			"RuleDefault": {
+		Policies: []*Policy{
+			{
 				ID:          "RuleDefault",
 				Name:        "Default",
 				Description: "This is a default rule that allows connections between all the resources",
-				Source: []string{
-					"GroupAll",
-				},
-				Destination: []string{
-					"GroupAll",
+				Enabled:     true,
+				Rules: []*PolicyRule{
+					{
+						ID:            "RuleDefault",
+						Name:          "Default",
+						Description:   "This is a default rule that allows connections between all the resources",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      PolicyRuleProtocolALL,
+						Action:        PolicyTrafficActionAccept,
+						Sources: []string{
+							"GroupAll",
+						},
+						Destinations: []string{
+							"GroupAll",
+						},
+					},
 				},
 			},
-			"RuleSwarm": {
+			{
 				ID:          "RuleSwarm",
 				Name:        "Swarm",
-				Description: "",
-				Source: []string{
-					"GroupSwarm",
-					"GroupAll",
-				},
-				Destination: []string{
-					"GroupSwarm",
+				Description: "No description",
+				Enabled:     true,
+				Rules: []*PolicyRule{
+					{
+						ID:            "RuleSwarm",
+						Name:          "Swarm",
+						Description:   "No description",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      PolicyRuleProtocolALL,
+						Action:        PolicyTrafficActionAccept,
+						Sources: []string{
+							"GroupSwarm",
+							"GroupAll",
+						},
+						Destinations: []string{
+							"GroupSwarm",
+						},
+					},
 				},
 			},
 		},
 	}
-
-	rule1, err := RuleToPolicy(account.Rules["RuleDefault"])
-	assert.NoError(t, err)
-
-	rule2, err := RuleToPolicy(account.Rules["RuleSwarm"])
-	assert.NoError(t, err)
-
-	account.Policies = append(account.Policies, rule1, rule2)
 
 	t.Run("check that all peers get map", func(t *testing.T) {
 		for _, p := range account.Peers {
@@ -307,40 +323,55 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				},
 			},
 		},
-		Rules: map[string]*Rule{
-			"RuleDefault": {
+		Policies: []*Policy{
+			{
 				ID:          "RuleDefault",
 				Name:        "Default",
-				Disabled:    true,
 				Description: "This is a default rule that allows connections between all the resources",
-				Source: []string{
-					"GroupAll",
-				},
-				Destination: []string{
-					"GroupAll",
+				Enabled:     false,
+				Rules: []*PolicyRule{
+					{
+						ID:            "RuleDefault",
+						Name:          "Default",
+						Description:   "This is a default rule that allows connections between all the resources",
+						Bidirectional: true,
+						Enabled:       false,
+						Protocol:      PolicyRuleProtocolALL,
+						Action:        PolicyTrafficActionAccept,
+						Sources: []string{
+							"GroupAll",
+						},
+						Destinations: []string{
+							"GroupAll",
+						},
+					},
 				},
 			},
-			"RuleSwarm": {
+			{
 				ID:          "RuleSwarm",
 				Name:        "Swarm",
-				Description: "",
-				Source: []string{
-					"GroupSwarm",
-				},
-				Destination: []string{
-					"peerF",
+				Description: "No description",
+				Enabled:     true,
+				Rules: []*PolicyRule{
+					{
+						ID:            "RuleSwarm",
+						Name:          "Swarm",
+						Description:   "No description",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      PolicyRuleProtocolALL,
+						Action:        PolicyTrafficActionAccept,
+						Sources: []string{
+							"GroupSwarm",
+						},
+						Destinations: []string{
+							"peerF",
+						},
+					},
 				},
 			},
 		},
 	}
-
-	rule1, err := RuleToPolicy(account.Rules["RuleDefault"])
-	assert.NoError(t, err)
-
-	rule2, err := RuleToPolicy(account.Rules["RuleSwarm"])
-	assert.NoError(t, err)
-
-	account.Policies = append(account.Policies, rule1, rule2)
 
 	t.Run("check first peer map", func(t *testing.T) {
 		peers, firewallRules := account.getPeerConnectionResources("peerB")
