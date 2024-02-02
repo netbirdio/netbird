@@ -9,10 +9,9 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// SqliteStore represents an account storage backed by a Sqlite DB persisted to disk
+// SqliteStore represents a location storage backed by a Sqlite DB.
 type SqliteStore struct {
-	db        *gorm.DB
-	storeFile string
+	db *gorm.DB
 }
 
 func NewSqliteStore(dataDir string) (*SqliteStore, error) {
@@ -40,11 +39,12 @@ func NewSqliteStore(dataDir string) (*SqliteStore, error) {
 		return nil, err
 	}
 	conns := runtime.NumCPU()
-	sql.SetMaxOpenConns(conns) // TODO: make it configurable
+	sql.SetMaxOpenConns(conns)
 
-	return &SqliteStore{db: db, storeFile: file}, nil
+	return &SqliteStore{db: db}, nil
 }
 
+// GetAllCountries returns a list of all countries in the store.
 func (s *SqliteStore) GetAllCountries() ([]string, error) {
 	var countries []string
 	result := s.db.Table("geonames").Distinct("country_iso_code").Pluck("country_iso_code", &countries)
@@ -54,6 +54,7 @@ func (s *SqliteStore) GetAllCountries() ([]string, error) {
 	return countries, nil
 }
 
+// GetCitiesByCountry retrieves a list of cities from the store based on the given country ISO code.
 func (s *SqliteStore) GetCitiesByCountry(countryISOCode string) ([]string, error) {
 	var cities []string
 	result := s.db.Table("geonames").
