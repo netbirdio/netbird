@@ -33,9 +33,15 @@ func parseBackupResolvConf() (*resolvConf, error) {
 }
 
 func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
+	rconf := &resolvConf{
+		searchDomains: make([]string, 0),
+		nameServers:   make([]string, 0),
+		others:        make([]string, 0),
+	}
+
 	file, err := os.Open(resolvConfFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open %s file: %w", resolvConfFile, err)
+		return rconf, fmt.Errorf("failed to open %s file: %w", resolvConfFile, err)
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
@@ -45,17 +51,11 @@ func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
 
 	cur, err := os.ReadFile(resolvConfFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read %s file: %w", resolvConfFile, err)
+		return rconf, fmt.Errorf("failed to read %s file: %w", resolvConfFile, err)
 	}
 
 	if len(cur) == 0 {
-		return nil, fmt.Errorf("file is empty")
-	}
-
-	rconf := &resolvConf{
-		searchDomains: make([]string, 0),
-		nameServers:   make([]string, 0),
-		others:        make([]string, 0),
+		return rconf, fmt.Errorf("file is empty")
 	}
 
 	for _, line := range strings.Split(string(cur), "\n") {
