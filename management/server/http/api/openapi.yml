@@ -247,10 +247,10 @@ components:
               description: Peer's IP address
               type: string
               example: 10.64.0.1
-            public_ip:
-              description: Peer's public IP address
+            connection_ip:
+              description: Peer's public connection IP address
               type: string
-              example: 10.64.0.1
+              example: 35.64.0.1
             connected:
               description: Peer to Management connection status
               type: boolean

@@ -225,14 +225,13 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 	peer := &nbpeer.Peer{
 		AccountID: account.Id,
 		ID:        "testpeer",
-		Meta: nbpeer.PeerSystemMeta{
-			Location: nbpeer.Location{
-				RealIP:      net.ParseIP("0.0.0.0"),
-				CountryCode: "YY",
-				CityName:    "City",
-				GeoNameID:   1,
-			},
+		Location: nbpeer.Location{
+			ConnectionIP: net.ParseIP("0.0.0.0"),
+			CountryCode:  "YY",
+			CityName:     "City",
+			GeoNameID:    1,
 		},
+		Meta: nbpeer.PeerSystemMeta{},
 	}
 	// error is expected as peer is not in store yet
 	err = store.SavePeerLocation(account.Id, peer)
@@ -242,10 +241,10 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 	err = store.SaveAccount(account)
 	require.NoError(t, err)
 
-	peer.Meta.Location.RealIP = net.ParseIP("35.1.1.1")
-	peer.Meta.Location.CountryCode = "DE"
-	peer.Meta.Location.CityName = "Berlin"
-	peer.Meta.Location.GeoNameID = 2950159
+	peer.Location.ConnectionIP = net.ParseIP("35.1.1.1")
+	peer.Location.CountryCode = "DE"
+	peer.Location.CityName = "Berlin"
+	peer.Location.GeoNameID = 2950159
 
 	err = store.SavePeerLocation(account.Id, account.Peers[peer.ID])
 	assert.NoError(t, err)
@@ -253,8 +252,8 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 	account, err = store.GetAccount(account.Id)
 	require.NoError(t, err)
 
-	actual := account.Peers[peer.ID].Meta.Location
-	assert.Equal(t, peer.Meta.Location, actual)
+	actual := account.Peers[peer.ID].Location
+	assert.Equal(t, peer.Location, actual)
 }
 
 func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {

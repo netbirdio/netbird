@@ -412,6 +412,9 @@ type Peer struct {
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
+	// ConnectionIp Peer's public connection IP address
+	ConnectionIp *string `json:"connection_ip,omitempty"`
+
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
@@ -450,9 +453,6 @@ type Peer struct {
 
 	// Os Peer's operating system and version
 	Os string `json:"os"`
-
-	// PublicIp Peer's public IP address
-	PublicIp *string `json:"public_ip,omitempty"`
 
 	// SshEnabled Indicates whether SSH server is enabled on this peer
 	SshEnabled bool `json:"ssh_enabled"`
@@ -475,6 +475,9 @@ type PeerBase struct {
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
+	// ConnectionIp Peer's public connection IP address
+	ConnectionIp *string `json:"connection_ip,omitempty"`
+
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
@@ -513,9 +516,6 @@ type PeerBase struct {
 
 	// Os Peer's operating system and version
 	Os string `json:"os"`
-
-	// PublicIp Peer's public IP address
-	PublicIp *string `json:"public_ip,omitempty"`
 
 	// SshEnabled Indicates whether SSH server is enabled on this peer
 	SshEnabled bool `json:"ssh_enabled"`
@@ -541,6 +541,9 @@ type PeerBatch struct {
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
+	// ConnectionIp Peer's public connection IP address
+	ConnectionIp *string `json:"connection_ip,omitempty"`
+
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
@@ -579,9 +582,6 @@ type PeerBatch struct {
 
 	// Os Peer's operating system and version
 	Os string `json:"os"`
-
-	// PublicIp Peer's public IP address
-	PublicIp *string `json:"public_ip,omitempty"`
 
 	// SshEnabled Indicates whether SSH server is enabled on this peer
 	SshEnabled bool `json:"ssh_enabled"`

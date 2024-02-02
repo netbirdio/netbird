@@ -642,7 +642,7 @@ func (s *FileStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.
 		return status.Errorf(status.NotFound, "peer %s not found", peerWithLocation.ID)
 	}
 
-	peer.Meta.Location = peerWithLocation.Meta.Location
+	peer.Location = peerWithLocation.Location
 
 	return nil
 }

@@ -19,11 +19,9 @@ func TestGeoLocationCheck_Check(t *testing.T) {
 		{
 			name: "Peer location matches the location in the allow sets",
 			input: peer.Peer{
-				Meta: peer.PeerSystemMeta{
-					Location: peer.Location{
-						CountryCode: "DE",
-						CityName:    "Berlin",
-					},
+				Location: peer.Location{
+					CountryCode: "DE",
+					CityName:    "Berlin",
 				},
 			},
 			check: GeoLocationCheck{
@@ -45,11 +43,9 @@ func TestGeoLocationCheck_Check(t *testing.T) {
 		{
 			name: "Peer location matches the location in the allow country only",
 			input: peer.Peer{
-				Meta: peer.PeerSystemMeta{
-					Location: peer.Location{
-						CountryCode: "DE",
-						CityName:    "Berlin",
-					},
+				Location: peer.Location{
+					CountryCode: "DE",
+					CityName:    "Berlin",
 				},
 			},
 			check: GeoLocationCheck{
@@ -66,11 +62,9 @@ func TestGeoLocationCheck_Check(t *testing.T) {
 		{
 			name: "Peer location doesn't match the location in the allow sets",
 			input: peer.Peer{
-				Meta: peer.PeerSystemMeta{
-					Location: peer.Location{
-						CountryCode: "DE",
-						CityName:    "Frankfurt am Main",
-					},
+				Location: peer.Location{
+					CountryCode: "DE",
+					CityName:    "Frankfurt am Main",
 				},
 			},
 			check: GeoLocationCheck{
@@ -92,11 +86,9 @@ func TestGeoLocationCheck_Check(t *testing.T) {
 		{
 			name: "Peer location doesn't match the location in the allow country only",
 			input: peer.Peer{
-				Meta: peer.PeerSystemMeta{
-					Location: peer.Location{
-						CountryCode: "DE",
-						CityName:    "Frankfurt am Main",
-					},
+				Location: peer.Location{
+					CountryCode: "DE",
+					CityName:    "Frankfurt am Main",
 				},
 			},
 			check: GeoLocationCheck{
@@ -113,11 +105,9 @@ func TestGeoLocationCheck_Check(t *testing.T) {
 		{
 			name: "Peer location matches the location in the deny sets",
 			input: peer.Peer{
-				Meta: peer.PeerSystemMeta{
-					Location: peer.Location{
-						CountryCode: "DE",
-						CityName:    "Berlin",
-					},
+				Location: peer.Location{
+					CountryCode: "DE",
+					CityName:    "Berlin",
 				},
 			},
 			check: GeoLocationCheck{
@@ -139,11 +129,9 @@ func TestGeoLocationCheck_Check(t *testing.T) {
 		{
 			name: "Peer location matches the location in the deny country only",
 			input: peer.Peer{
-				Meta: peer.PeerSystemMeta{
-					Location: peer.Location{
-						CountryCode: "DE",
-						CityName:    "Berlin",
-					},
+				Location: peer.Location{
+					CountryCode: "DE",
+					CityName:    "Berlin",
 				},
 			},
 			check: GeoLocationCheck{
@@ -163,11 +151,9 @@ func TestGeoLocationCheck_Check(t *testing.T) {
 		{
 			name: "Peer location doesn't match the location in the deny sets",
 			input: peer.Peer{
-				Meta: peer.PeerSystemMeta{
-					Location: peer.Location{
-						CountryCode: "DE",
-						CityName:    "Frankfurt am Main",
-					},
+				Location: peer.Location{
+					CountryCode: "DE",
+					CityName:    "Frankfurt am Main",
 				},
 			},
 			check: GeoLocationCheck{
@@ -189,11 +175,9 @@ func TestGeoLocationCheck_Check(t *testing.T) {
 		{
 			name: "Peer location doesn't match the location in the deny country only",
 			input: peer.Peer{
-				Meta: peer.PeerSystemMeta{
-					Location: peer.Location{
-						CountryCode: "DE",
-						CityName:    "Frankfurt am Main",
-					},
+				Location: peer.Location{
+					CountryCode: "DE",
+					CityName:    "Frankfurt am Main",
 				},
 			},
 			check: GeoLocationCheck{

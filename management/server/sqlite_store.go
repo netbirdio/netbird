@@ -274,7 +274,7 @@ func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpee
 		return status.Errorf(status.NotFound, "peer %s not found", peer.ID)
 	}
 
-	peer.Meta.Location = peerWithLocation.Meta.Location
+	peer.Location = peerWithLocation.Location
 
 	return s.db.Save(peer).Error
 }
