@@ -199,7 +199,6 @@ func (s *serviceViaListener) tryToBind(ip string, port int) bool {
 // port we should fall back to the eBPF solution that will capture traffic on port 53 and forward
 // it to a local DNS server running on the chosen port.
 func (s *serviceViaListener) tryToUseeBPF() (ebpfMgr.Manager, uint16, bool) {
-	var port uint16 //nolint:golint,unused
 	if runtime.GOOS != "linux" {
 		return nil, 0, false
 	}
