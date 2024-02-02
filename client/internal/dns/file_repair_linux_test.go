@@ -5,6 +5,7 @@ package dns
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -126,5 +127,49 @@ nameserver 8.8.8.8`,
 			}
 		})
 	}
+}
 
+func Test_newRepairSymlink(t *testing.T) {
+	resolvConfContent := `
+nameserver 10.0.0.1
+nameserver 8.8.8.8
+searchdomain netbird.cloud something`
+
+	modifyContent := `nameserver 8.8.8.8`
+
+	tmpResolvConf := filepath.Join(t.TempDir(), "resolv.conf")
+	err := os.WriteFile(tmpResolvConf, []byte(resolvConfContent), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tmpLink := filepath.Join(t.TempDir(), "symlink")
+	err = os.Symlink(tmpResolvConf, tmpLink)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var changed bool
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	updateFn := func([]string, string, *resolvConf) error {
+		changed = true
+		cancel()
+		return nil
+	}
+
+	r := newRepair(tmpLink, updateFn)
+	r.watchFileChanges([]string{"netbird.cloud"}, "10.0.0.1")
+
+	err = os.WriteFile(tmpLink, []byte(modifyContent), 0755)
+	if err != nil {
+		t.Fatalf("failed to write out resolv.conf: %s", err)
+	}
+
+	<-ctx.Done()
+
+	r.stopWatchFileChanges()
+
+	if changed != true {
+		t.Errorf("unexpected result: want: %v, got: %v", true, false)
+	}
 }

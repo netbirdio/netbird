@@ -3,8 +3,8 @@
 package dns
 
 import (
-	"fmt"
 	"path"
+	"path/filepath"
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
@@ -32,9 +32,10 @@ type repair struct {
 }
 
 func newRepair(operationFile string, updateFn repairConfFn) *repair {
+	targetFile := targetFile(operationFile)
 	return &repair{
-		operationFile: operationFile,
-		watchDir:      path.Dir(operationFile),
+		operationFile: targetFile,
+		watchDir:      path.Dir(targetFile),
 		updateFn:      updateFn,
 	}
 }
@@ -44,7 +45,7 @@ func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP strin
 		return
 	}
 
-	log.Infof("start to watch resolv.conf")
+	log.Infof("start to watch resolv.conf: %s", f.operationFile)
 	inotify, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Errorf("failed to start inotify watcher for resolv.conf: %s", err)
@@ -60,7 +61,7 @@ func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP strin
 				continue
 			}
 
-			log.Tracef("resolv.conf changed, check if it is broken")
+			log.Tracef("%s changed, check if it is broken", f.operationFile)
 
 			rConf, err := parseResolvConfFile(f.operationFile)
 			if err != nil {
@@ -124,8 +125,7 @@ func (f *repair) isEventRelevant(event fsnotify.Event) bool {
 		return false
 	}
 
-	operationFileSymlink := fmt.Sprintf("%s~", f.operationFile)
-	if event.Name == f.operationFile || event.Name == operationFileSymlink {
+	if event.Name == f.operationFile {
 		return true
 	}
 	return false
@@ -148,4 +148,12 @@ func isNbParamsMissing(nbSearchDomains []string, nbNameserverIP string, rConf *r
 	}
 
 	return false
+}
+
+func targetFile(filename string) string {
+	target, err := filepath.EvalSymlinks(filename)
+	if err != nil {
+		log.Errorf("evarl err: %s", err)
+	}
+	return target
 }
