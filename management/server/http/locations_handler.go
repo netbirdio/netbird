@@ -7,6 +7,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/geolocation"
+	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -60,10 +61,15 @@ func (l *LocationsHandler) GetCitiesByCountry(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	cities, err := l.locationManager.GetCitiesByCountry(countryCode)
+	allCities, err := l.locationManager.GetCitiesByCountry(countryCode)
 	if err != nil {
 		util.WriteError(err, w)
 		return
+	}
+
+	cities := make([]api.City, 0, len(allCities))
+	for _, city := range allCities {
+		cities = append(cities, toCityResponse(city))
 	}
 	util.WriteJSONObject(w, cities)
 }
@@ -79,4 +85,11 @@ func (l *LocationsHandler) authenticateUser(r *http.Request) error {
 		return status.Errorf(status.PermissionDenied, "user is not allowed to perform this action")
 	}
 	return nil
+}
+
+func toCityResponse(city geolocation.City) api.City {
+	return api.City{
+		CityName:  city.CityName,
+		GeonameId: city.GeoNameID,
+	}
 }

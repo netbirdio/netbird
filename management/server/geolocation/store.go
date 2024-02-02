@@ -15,9 +15,9 @@ type SqliteStore struct {
 }
 
 func NewSqliteStore(dataDir string) (*SqliteStore, error) {
-	storeStr := "geonames.db?cache=shared"
+	storeStr := "geonames.db?cache=shared&mode=ro"
 	if runtime.GOOS == "windows" {
-		storeStr = "geonames.db"
+		storeStr = "geonames.db?&mode=ro"
 	}
 
 	_, err := fileExists(filepath.Join(dataDir, "geonames.db"))
@@ -55,14 +55,16 @@ func (s *SqliteStore) GetAllCountries() ([]string, error) {
 }
 
 // GetCitiesByCountry retrieves a list of cities from the store based on the given country ISO code.
-func (s *SqliteStore) GetCitiesByCountry(countryISOCode string) ([]string, error) {
-	var cities []string
+func (s *SqliteStore) GetCitiesByCountry(countryISOCode string) ([]City, error) {
+	var cities []City
 	result := s.db.Table("geonames").
+		Select("geoname_id", "city_name").
 		Where("country_iso_code = ?", countryISOCode).
-		Distinct("city_name").
-		Pluck("city_name", &cities)
+		Group("city_name").
+		Scan(&cities)
 	if result.Error != nil {
 		return nil, result.Error
 	}
+
 	return cities, nil
 }

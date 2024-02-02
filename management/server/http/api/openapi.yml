@@ -918,6 +918,21 @@ components:
       required:
         - country_code
         - city_name
+    City:
+      description: Describe city geographical location information
+      type: object
+      properties:
+        geoname_id:
+          description: Integer ID of the record in GeoNames database
+          type: integer
+          example: 2950158
+        city_name:
+          description: Commonly used English name of the city
+          type: string
+          example: "Berlin"
+      required:
+        - geoname_id
+        - city_name
     PostureCheckUpdate:
       type: object
       properties:
@@ -2780,10 +2795,7 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: string
-                  example: "Berlin"
+                $ref: '#/components/schemas/City'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

@@ -1,5 +1,10 @@
 package geolocation
 
+type City struct {
+	GeoNameID int `gorm:"column:geoname_id"`
+	CityName  string
+}
+
 type Manager struct {
 	Store *SqliteStore
 }
@@ -31,17 +36,6 @@ func (m *Manager) GetAllCountries() ([]string, error) {
 }
 
 // GetCitiesByCountry retrieves a list of cities in a specific country based on the country's ISO code.
-func (m *Manager) GetCitiesByCountry(countryISOCode string) ([]string, error) {
-	allCities, err := m.Store.GetCitiesByCountry(countryISOCode)
-	if err != nil {
-		return nil, err
-	}
-
-	cities := make([]string, 0)
-	for _, city := range allCities {
-		if city != "" {
-			cities = append(cities, city)
-		}
-	}
-	return cities, nil
+func (m *Manager) GetCitiesByCountry(countryISOCode string) ([]City, error) {
+	return m.Store.GetCitiesByCountry(countryISOCode)
 }

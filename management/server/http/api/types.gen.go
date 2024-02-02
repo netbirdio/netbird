@@ -194,6 +194,15 @@ type Checks struct {
 	OsVersionCheck *OSVersionCheck `json:"os_version_check,omitempty"`
 }
 
+// City Describe city geographical location information
+type City struct {
+	// CityName Commonly used English name of the city
+	CityName string `json:"city_name"`
+
+	// GeonameId Integer ID of the record in GeoNames database
+	GeonameId int `json:"geoname_id"`
+}
+
 // DNSSettings defines model for DNSSettings.
 type DNSSettings struct {
 	// DisabledManagementGroups Groups whose DNS management is disabled
