@@ -3,7 +3,6 @@ package http
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -43,24 +42,6 @@ func initPoliciesTestData(policies ...*server.Policy) *Policies {
 					policy.Rules[0].ID = "id-was-set"
 				}
 				return nil
-			},
-			SaveRuleFunc: func(_, _ string, rule *server.Rule) error {
-				if !strings.HasPrefix(rule.ID, "id-") {
-					rule.ID = "id-was-set"
-				}
-				return nil
-			},
-			GetRuleFunc: func(_, ruleID, _ string) (*server.Rule, error) {
-				if ruleID != "idoftherule" {
-					return nil, fmt.Errorf("not found")
-				}
-				return &server.Rule{
-					ID:          "idoftherule",
-					Name:        "Rule",
-					Source:      []string{"idofsrcrule"},
-					Destination: []string{"idofdestrule"},
-					Flow:        server.TrafficFlowBidirect,
-				}, nil
 			},
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				user := server.NewAdminUser("test_user")
