@@ -209,8 +209,8 @@ type Account struct {
 	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Groups                 map[string]*Group                 `gorm:"-"`
 	GroupsG                []Group                           `json:"-" gorm:"foreignKey:AccountID;references:id"`
-	Rules                  map[string]*Rule                  `gorm:"-"`
-	RulesG                 []Rule                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	Rules                  map[string]*Rule                  `json:"-" gorm:"-"`
+	RulesG                 []Rule                            `json:"-" gorm:"-"`
 	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
 	Routes                 map[string]*route.Route           `gorm:"-"`
 	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
@@ -635,11 +635,6 @@ func (a *Account) Copy() *Account {
 		groups[id] = group.Copy()
 	}
 
-	rules := map[string]*Rule{}
-	for id, rule := range a.Rules {
-		rules[id] = rule.Copy()
-	}
-
 	policies := []*Policy{}
 	for _, policy := range a.Policies {
 		policies = append(policies, policy.Copy())
@@ -673,7 +668,6 @@ func (a *Account) Copy() *Account {
 		Peers:                  peers,
 		Users:                  users,
 		Groups:                 groups,
-		Rules:                  rules,
 		Policies:               policies,
 		Routes:                 routes,
 		NameServerGroups:       nsGroups,
@@ -1787,7 +1781,6 @@ func addAllGroup(account *Account) error {
 			Source:      []string{allGroup.ID},
 			Destination: []string{allGroup.ID},
 		}
-		account.Rules = map[string]*Rule{defaultRule.ID: defaultRule}
 
 		// TODO: after migration we need to drop rule and create policy directly
 		defaultPolicy, err := RuleToPolicy(defaultRule)
