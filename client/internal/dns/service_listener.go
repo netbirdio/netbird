@@ -203,7 +203,7 @@ func (s *serviceViaListener) tryToUseeBPF() (ebpfMgr.Manager, uint16, bool) {
 		return nil, 0, false
 	}
 
-	port, err := s.generateFreePort()
+	port, err := s.generateFreePort() //nolint:staticcheck,unused
 	if err != nil {
 		log.Warnf("failed to generate a free port for eBPF DNS forwarder server: %s", err)
 		return nil, 0, false
