@@ -198,9 +198,8 @@ func (s *serviceViaListener) tryToBind(ip string, port int) bool {
 // the domain name  resolution won't work. So, in case we are running on Linux and picked a free
 // port we should fall back to the eBPF solution that will capture traffic on port 53 and forward
 // it to a local DNS server running on the chosen port.
-//
-//nolint:golint,unused
 func (s *serviceViaListener) tryToUseeBPF() (ebpfMgr.Manager, uint16, bool) {
+	var port uint16 //nolint:golint,unused
 	if runtime.GOOS != "linux" {
 		return nil, 0, false
 	}
