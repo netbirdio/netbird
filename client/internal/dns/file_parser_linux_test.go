@@ -102,6 +102,12 @@ options edns0 trust-ad
 			expectedNS:     []string{"192.168.2.1", "100.81.99.197"},
 			expectedOther:  []string{"options debug", "options edns0 trust-ad"},
 		},
+		{
+			input:          ``,
+			expectedSearch: []string{},
+			expectedNS:     []string{},
+			expectedOther:  []string{},
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -146,4 +152,14 @@ func compareLists(search []string, search2 []string) bool {
 		}
 	}
 	return true
+}
+
+func Test_emptyFile(t *testing.T) {
+	cfg, err := parseResolvConfFile("/tmp/nothing")
+	if err == nil {
+		t.Errorf("expected error, got nil")
+	}
+	if len(cfg.others) != 0 || len(cfg.searchDomains) != 0 || len(cfg.nameServers) != 0 {
+		t.Errorf("expected empty config, got %v", cfg)
+	}
 }
