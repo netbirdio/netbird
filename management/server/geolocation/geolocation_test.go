@@ -3,10 +3,12 @@ package geolocation
 import (
 	"os"
 	"path"
+	"sync"
 	"testing"
 
-	"github.com/netbirdio/netbird/util"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/netbird/util"
 )
 
 // from https://github.com/maxmind/MaxMind-DB/blob/main/test-data/GeoLite2-City-Test.mmdb
@@ -24,8 +26,14 @@ func TestGeoLite_Lookup(t *testing.T) {
 		}
 	}()
 
-	geo, err := NewGeolocation(tempDir)
+	db, err := openDB(mmdbPath)
 	assert.NoError(t, err)
+
+	geo := &Geolocation{
+		mux:    &sync.RWMutex{},
+		db:     db,
+		stopCh: make(chan struct{}),
+	}
 	assert.NotNil(t, geo)
 	defer func() {
 		err = geo.Stop()
