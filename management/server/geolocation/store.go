@@ -133,5 +133,16 @@ func setupInMemoryDBFromFile(db *gorm.DB, source string) error {
 		return err
 	}
 
+	// index geoname_id and country_iso_code field
+	err = db.Exec("CREATE INDEX idx_geonames_country_iso_code ON geonames(country_iso_code);").Error
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = db.Exec("CREATE INDEX idx_geonames_geoname_id ON geonames(geoname_id);").Error
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	return nil
 }
