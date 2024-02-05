@@ -765,15 +765,10 @@ components:
           description: Policy status
           type: boolean
           example: true
-        query:
-          description: Policy Rego query
-          type: string
-          example: "package netbird\\n\\nall[rule] {\\n is_peer_in_any_group([\\\"ch8i4ug6lnn4g9hqv7m0\\\",\\\"ch8i4ug6lnn4g9hqv7m0\\\"])\\n rule := {\\n rules_from_group(\\\"ch8i4ug6lnn4g9hqv7m0\\\", \\\"dst\\\", \\\"accept\\\", \\\"\\\"),\\n rules_from_group(\\\"ch8i4ug6lnn4g9hqv7m0\\\", \\\"src\\\", \\\"accept\\\", \\\"\\\"),\\n }[_][_]\\n}\\n"
       required:
         - name
         - description
         - enabled
-        - query
     PolicyUpdate:
       allOf:
         - $ref: '#/components/schemas/PolicyMinimum'
