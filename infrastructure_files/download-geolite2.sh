@@ -72,15 +72,29 @@ download_geolite_mmdb() {
 
 download_geolite_csv_and_create_sqlite_db() {
   DATABASE_URL="https://download.maxmind.com/geoip/databases/GeoLite2-City-CSV/download?suffix=zip"
+  SIGNATURE_URL="https://download.maxmind.com/geoip/databases/GeoLite2-City-CSV/download?suffix=zip.sha256"
+
 
   # Download the database file
   echo "Downloading database file..."
   DATABASE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J "$DATABASE_URL" -w "%{filename_effective}")
+  echo "Downloading signature file..."
+  SIGNATURE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J "$SIGNATURE_URL" -w "%{filename_effective}")
 
-  unzip "$DATABASE_FILE"
+  # Verify the signature
+  echo "Verifying signature..."
+  if sha256sum -c --status "$SIGNATURE_FILE"; then
+      echo "Signature is valid."
+  else
+      echo "Signature is invalid. Aborting."
+      exit 1
+  fi
 
+  # Unpack the database file
   EXTRACTION_DIR=$(basename "$DATABASE_FILE" .zip)
   DB_NAME="geonames.db"
+
+  unzip "$DATABASE_FILE"
 
 # Create SQLite database and import data from CSV
 sqlite3 "$DB_NAME" <<EOF
@@ -91,7 +105,7 @@ EOF
 
   # Remove downloaded and extracted files
   rm -r -r "$EXTRACTION_DIR"
-  rm  "$DATABASE_FILE"
+  rm  "$DATABASE_FILE" "$SIGNATURE_FILE"
 
   echo "SQLite database '$DB_NAME' created successfully."
   echo "Now you can place $DB_NAME to 'datadir' of management service."
