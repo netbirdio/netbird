@@ -50,9 +50,12 @@ func NewSqliteStore(dataDir string) (*SqliteStore, error) {
 }
 
 // GetAllCountries returns a list of all countries in the store.
-func (s *SqliteStore) GetAllCountries() ([]string, error) {
-	var countries []string
-	result := s.db.Table("geonames").Distinct("country_iso_code").Pluck("country_iso_code", &countries)
+func (s *SqliteStore) GetAllCountries() ([]Country, error) {
+	var countries []Country
+	result := s.db.Table("geonames").
+		Select("country_iso_code", "country_name").
+		Group("country_name").
+		Scan(&countries)
 	if result.Error != nil {
 		return nil, result.Error
 	}

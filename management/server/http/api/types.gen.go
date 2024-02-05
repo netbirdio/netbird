@@ -203,6 +203,15 @@ type City struct {
 	GeonameId int `json:"geoname_id"`
 }
 
+// Country Describe country geographical location information
+type Country struct {
+	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
+	CountryCode string `json:"country_code"`
+
+	// CountryName Commonly used English name of the country
+	CountryName string `json:"country_name"`
+}
+
 // DNSSettings defines model for DNSSettings.
 type DNSSettings struct {
 	// DisabledManagementGroups Groups whose DNS management is disabled

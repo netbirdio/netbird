@@ -918,6 +918,21 @@ components:
       required:
         - country_code
         - city_name
+    Country:
+      description: Describe country geographical location information
+      type: object
+      properties:
+        country_name:
+          description: Commonly used English name of the country
+          type: string
+          example: "Germany"
+        country_code:
+          description: 2-letter ISO 3166-1 alpha-2 code that represents the country
+          type: string
+          example: "DE"
+      required:
+        - country_name
+        - country_code
     City:
       description: Describe city geographical location information
       type: object
@@ -2787,8 +2802,7 @@ paths:
           name: country
           required: true
           schema:
-            type: string
-          description: The 2-letter ISO 3166-1 alpha-2 country code
+            $ref: '#/components/schemas/Country'
       responses:
         '200':
           description: List of city names

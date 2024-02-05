@@ -49,6 +49,11 @@ type City struct {
 	CityName  string
 }
 
+type Country struct {
+	CountryISOCode string `gorm:"column:country_iso_code"`
+	CountryName    string
+}
+
 func NewGeolocation(datadir string) (*Geolocation, error) {
 	mmdbPath := path.Join(datadir, mmdbFileName)
 
@@ -101,15 +106,15 @@ func (gl *Geolocation) Lookup(ip string) (*Record, error) {
 }
 
 // GetAllCountries retrieves a list of all countries.
-func (gl *Geolocation) GetAllCountries() ([]string, error) {
+func (gl *Geolocation) GetAllCountries() ([]Country, error) {
 	allCountries, err := gl.locationDB.GetAllCountries()
 	if err != nil {
 		return nil, err
 	}
 
-	countries := make([]string, 0)
+	countries := make([]Country, 0)
 	for _, country := range allCountries {
-		if country != "" {
+		if country.CountryName != "" {
 			countries = append(countries, country)
 		}
 	}
@@ -118,7 +123,18 @@ func (gl *Geolocation) GetAllCountries() ([]string, error) {
 
 // GetCitiesByCountry retrieves a list of cities in a specific country based on the country's ISO code.
 func (gl *Geolocation) GetCitiesByCountry(countryISOCode string) ([]City, error) {
-	return gl.locationDB.GetCitiesByCountry(countryISOCode)
+	allCities, err := gl.locationDB.GetCitiesByCountry(countryISOCode)
+	if err != nil {
+		return nil, err
+	}
+
+	cities := make([]City, 0)
+	for _, city := range allCities {
+		if city.CityName != "" {
+			cities = append(cities, city)
+		}
+	}
+	return cities, nil
 }
 
 func (gl *Geolocation) Stop() error {

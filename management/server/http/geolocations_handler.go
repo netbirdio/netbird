@@ -39,10 +39,15 @@ func (l *GeolocationsHandler) GetAllCountries(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	countries, err := l.geolocationManager.GetAllCountries()
+	allCountries, err := l.geolocationManager.GetAllCountries()
 	if err != nil {
 		util.WriteError(err, w)
 		return
+	}
+
+	countries := make([]api.Country, 0, len(allCountries))
+	for _, country := range allCountries {
+		countries = append(countries, toCountryResponse(country))
 	}
 	util.WriteJSONObject(w, countries)
 }
@@ -85,6 +90,13 @@ func (l *GeolocationsHandler) authenticateUser(r *http.Request) error {
 		return status.Errorf(status.PermissionDenied, "user is not allowed to perform this action")
 	}
 	return nil
+}
+
+func toCountryResponse(country geolocation.Country) api.Country {
+	return api.Country{
+		CountryName: country.CountryName,
+		CountryCode: country.CountryISOCode,
+	}
 }
 
 func toCityResponse(city geolocation.City) api.City {
