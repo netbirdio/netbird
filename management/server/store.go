@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -52,7 +53,7 @@ func getStoreEngineFromEnv() StoreEngine {
 	// NETBIRD_STORE_ENGINE supposed to be used in tests. Otherwise rely on the config file.
 	kind, ok := os.LookupEnv("NETBIRD_STORE_ENGINE")
 	if !ok {
-		return FileStoreEngine
+		return SqliteStoreEngine
 	}
 
 	value := StoreEngine(strings.ToLower(kind))
@@ -61,13 +62,26 @@ func getStoreEngineFromEnv() StoreEngine {
 		return value
 	}
 
+	return SqliteStoreEngine
+}
+
+func getStoreEngineFromDatadir(dataDir string) StoreEngine {
+	storeFile := filepath.Join(dataDir, storeFileName)
+	if _, err := os.Stat(storeFile); err != nil {
+		// json file not found then use sqlite as default
+		return SqliteStoreEngine
+	}
 	return FileStoreEngine
 }
 
 func NewStore(kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
 	if kind == "" {
-		// fallback to env. Normally this only should be used from tests
+		// if store engine is not set in the config we first try to evaluate NETBIRD_STORE_ENGINE
 		kind = getStoreEngineFromEnv()
+		if kind == "" {
+			// NETBIRD_STORE_ENGINE is not set we evaluate default based on dataDir
+			kind = getStoreEngineFromDatadir(dataDir)
+		}
 	}
 	switch kind {
 	case FileStoreEngine:
@@ -81,15 +95,14 @@ func NewStore(kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (S
 	}
 }
 
+// NewStoreFromJson is only used in tests
 func NewStoreFromJson(dataDir string, metrics telemetry.AppMetrics) (Store, error) {
 	fstore, err := NewFileStore(dataDir, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	kind := getStoreEngineFromEnv()
-
-	switch kind {
+	switch kind := getStoreEngineFromEnv(); kind {
 	case FileStoreEngine:
 		return fstore, nil
 	case SqliteStoreEngine:
