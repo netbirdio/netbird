@@ -13,18 +13,18 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
-// LocationsHandler is a handler that returns locations.
-type LocationsHandler struct {
-	accountManager  server.AccountManager
-	locationManager *geolocation.Manager
-	claimsExtractor *jwtclaims.ClaimsExtractor
+// GeolocationsHandler is a handler that returns locations.
+type GeolocationsHandler struct {
+	accountManager     server.AccountManager
+	geolocationManager *geolocation.Geolocation
+	claimsExtractor    *jwtclaims.ClaimsExtractor
 }
 
 // NewLocationsHandlerHandler creates a new Location handler
-func NewLocationsHandlerHandler(accountManager server.AccountManager, locationManager *geolocation.Manager, authCfg AuthCfg) *LocationsHandler {
-	return &LocationsHandler{
-		accountManager:  accountManager,
-		locationManager: locationManager,
+func NewLocationsHandlerHandler(accountManager server.AccountManager, geolocationManager *geolocation.Geolocation, authCfg AuthCfg) *GeolocationsHandler {
+	return &GeolocationsHandler{
+		accountManager:     accountManager,
+		geolocationManager: geolocationManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
 			jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
@@ -33,13 +33,13 @@ func NewLocationsHandlerHandler(accountManager server.AccountManager, locationMa
 }
 
 // GetAllCountries retrieves a list of all countries
-func (l *LocationsHandler) GetAllCountries(w http.ResponseWriter, r *http.Request) {
+func (l *GeolocationsHandler) GetAllCountries(w http.ResponseWriter, r *http.Request) {
 	if err := l.authenticateUser(r); err != nil {
 		util.WriteError(err, w)
 		return
 	}
 
-	countries, err := l.locationManager.GetAllCountries()
+	countries, err := l.geolocationManager.GetAllCountries()
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -48,7 +48,7 @@ func (l *LocationsHandler) GetAllCountries(w http.ResponseWriter, r *http.Reques
 }
 
 // GetCitiesByCountry retrieves a list of cities based on the given country code
-func (l *LocationsHandler) GetCitiesByCountry(w http.ResponseWriter, r *http.Request) {
+func (l *GeolocationsHandler) GetCitiesByCountry(w http.ResponseWriter, r *http.Request) {
 	if err := l.authenticateUser(r); err != nil {
 		util.WriteError(err, w)
 		return
@@ -61,7 +61,7 @@ func (l *LocationsHandler) GetCitiesByCountry(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	allCities, err := l.locationManager.GetCitiesByCountry(countryCode)
+	allCities, err := l.geolocationManager.GetCitiesByCountry(countryCode)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -74,7 +74,7 @@ func (l *LocationsHandler) GetCitiesByCountry(w http.ResponseWriter, r *http.Req
 	util.WriteJSONObject(w, cities)
 }
 
-func (l *LocationsHandler) authenticateUser(r *http.Request) error {
+func (l *GeolocationsHandler) authenticateUser(r *http.Request) error {
 	claims := l.claimsExtractor.FromRequestContext(r)
 	_, user, err := l.accountManager.GetAccountFromToken(claims)
 	if err != nil {

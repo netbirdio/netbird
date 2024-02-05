@@ -24,10 +24,10 @@ type AuthCfg struct {
 }
 
 type apiHandler struct {
-	Router          *mux.Router
-	AccountManager  s.AccountManager
-	LocationManager *geolocation.Manager
-	AuthCfg         AuthCfg
+	Router             *mux.Router
+	AccountManager     s.AccountManager
+	geolocationManager *geolocation.Geolocation
+	AuthCfg            AuthCfg
 }
 
 // EmptyObject is an empty struct used to return empty JSON object
@@ -35,7 +35,7 @@ type emptyObject struct {
 }
 
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func APIHandler(accountManager s.AccountManager, LocationManager *geolocation.Manager, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg AuthCfg) (http.Handler, error) {
+func APIHandler(accountManager s.AccountManager, LocationManager *geolocation.Geolocation, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg AuthCfg) (http.Handler, error) {
 	claimsExtractor := jwtclaims.NewClaimsExtractor(
 		jwtclaims.WithAudience(authCfg.Audience),
 		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
@@ -65,10 +65,10 @@ func APIHandler(accountManager s.AccountManager, LocationManager *geolocation.Ma
 	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler, acMiddleware.Handler)
 
 	api := apiHandler{
-		Router:          router,
-		AccountManager:  accountManager,
-		LocationManager: LocationManager,
-		AuthCfg:         authCfg,
+		Router:             router,
+		AccountManager:     accountManager,
+		geolocationManager: LocationManager,
+		AuthCfg:            authCfg,
 	}
 
 	integrations.RegisterHandlers(api.Router, accountManager, claimsExtractor)
@@ -217,8 +217,8 @@ func (apiHandler *apiHandler) addPostureCheckEndpoint() {
 
 func (apiHandler *apiHandler) addLocationsEndpoint() {
 	// enable location endpoints if location manager is enabled
-	if apiHandler.LocationManager != nil {
-		locationHandler := NewLocationsHandlerHandler(apiHandler.AccountManager, apiHandler.LocationManager, apiHandler.AuthCfg)
+	if apiHandler.geolocationManager != nil {
+		locationHandler := NewLocationsHandlerHandler(apiHandler.AccountManager, apiHandler.geolocationManager, apiHandler.AuthCfg)
 		apiHandler.Router.HandleFunc("/locations/countries", locationHandler.GetAllCountries).Methods("GET", "OPTIONS")
 		apiHandler.Router.HandleFunc("/locations/countries/{country}/cities", locationHandler.GetCitiesByCountry).Methods("GET", "OPTIONS")
 	}

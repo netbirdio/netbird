@@ -22,6 +22,7 @@ type Geolocation struct {
 	mux                 *sync.RWMutex
 	sha256sum           []byte
 	db                  *maxminddb.Reader
+	locationDB          *SqliteStore
 	stopCh              chan struct{}
 	reloadCheckInterval time.Duration
 }
@@ -43,6 +44,11 @@ type Record struct {
 	} `maxminddb:"country"`
 }
 
+type City struct {
+	GeoNameID int `gorm:"column:geoname_id"`
+	CityName  string
+}
+
 func NewGeolocation(datadir string) (*Geolocation, error) {
 	mmdbPath := path.Join(datadir, mmdbFileName)
 
@@ -56,11 +62,17 @@ func NewGeolocation(datadir string) (*Geolocation, error) {
 		return nil, err
 	}
 
+	locationDB, err := NewSqliteStore(datadir)
+	if err != nil {
+		return nil, err
+	}
+
 	geo := &Geolocation{
 		mmdbPath:            mmdbPath,
 		mux:                 &sync.RWMutex{},
 		sha256sum:           sha256sum,
 		db:                  db,
+		locationDB:          locationDB,
 		reloadCheckInterval: 60 * time.Second, // TODO: make configurable
 		stopCh:              make(chan struct{}),
 	}
@@ -68,35 +80,6 @@ func NewGeolocation(datadir string) (*Geolocation, error) {
 	go geo.reloader()
 
 	return geo, nil
-}
-
-func openDB(mmdbPath string) (*maxminddb.Reader, error) {
-	_, err := fileExists(mmdbPath)
-	if err != nil {
-		return nil, err
-	}
-
-	db, err := maxminddb.Open(mmdbPath)
-	if err != nil {
-		return nil, fmt.Errorf("%v could not be opened: %w", mmdbPath, err)
-	}
-
-	return db, nil
-}
-
-func getSha256sum(mmdbPath string) ([]byte, error) {
-	f, err := os.Open(mmdbPath)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return nil, err
-	}
-
-	return h.Sum(nil), nil
 }
 
 func (gl *Geolocation) Lookup(ip string) (*Record, error) {
@@ -115,6 +98,27 @@ func (gl *Geolocation) Lookup(ip string) (*Record, error) {
 	}
 
 	return &record, nil
+}
+
+// GetAllCountries retrieves a list of all countries.
+func (gl *Geolocation) GetAllCountries() ([]string, error) {
+	allCountries, err := gl.locationDB.GetAllCountries()
+	if err != nil {
+		return nil, err
+	}
+
+	countries := make([]string, 0)
+	for _, country := range allCountries {
+		if country != "" {
+			countries = append(countries, country)
+		}
+	}
+	return countries, nil
+}
+
+// GetCitiesByCountry retrieves a list of cities in a specific country based on the country's ISO code.
+func (gl *Geolocation) GetCitiesByCountry(countryISOCode string) ([]City, error) {
+	return gl.locationDB.GetCitiesByCountry(countryISOCode)
 }
 
 func (gl *Geolocation) Stop() error {
@@ -183,6 +187,35 @@ func (gl *Geolocation) reload(newSha256sum []byte) error {
 	log.Infof("Successfully reloaded '%s'", gl.mmdbPath)
 
 	return nil
+}
+
+func openDB(mmdbPath string) (*maxminddb.Reader, error) {
+	_, err := fileExists(mmdbPath)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := maxminddb.Open(mmdbPath)
+	if err != nil {
+		return nil, fmt.Errorf("%v could not be opened: %w", mmdbPath, err)
+	}
+
+	return db, nil
+}
+
+func getSha256sum(mmdbPath string) ([]byte, error) {
+	f, err := os.Open(mmdbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return nil, err
+	}
+
+	return h.Sum(nil), nil
 }
 
 func fileExists(filePath string) (bool, error) {

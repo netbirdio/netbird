@@ -163,14 +163,6 @@ var (
 				}
 			}
 
-			geolocationStore, err := geolocation.NewSqliteStore(config.Datadir)
-			if err != nil {
-				log.Warnf("could not  geo location database, we proceed without location endpoints")
-			} else {
-				log.Infof("geo location database has been initialized from %s", config.Datadir)
-			}
-			geolocationManager := geolocation.NewManager(geolocationStore)
-
 			geo, err := geolocation.NewGeolocation(config.Datadir)
 			if err != nil {
 				log.Warnf("could not initialize geo location service, we proceed without geo support")
@@ -239,7 +231,7 @@ var (
 				UserIDClaim:  config.HttpConfig.AuthUserIDClaim,
 				KeysLocation: config.HttpConfig.AuthKeysLocation,
 			}
-			httpAPIHandler, err := httpapi.APIHandler(accountManager, geolocationManager, *jwtValidator, appMetrics, httpAPIAuthCfg)
+			httpAPIHandler, err := httpapi.APIHandler(accountManager, geo, *jwtValidator, appMetrics, httpAPIAuthCfg)
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}
