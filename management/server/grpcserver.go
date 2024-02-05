@@ -256,7 +256,6 @@ func mapError(err error) error {
 func extractPeerMeta(loginReq *proto.LoginRequest) nbpeer.PeerSystemMeta {
 	osVersion := loginReq.GetMeta().GetOSVersion()
 	if osVersion == "" {
-		//nolint:staticcheck
 		osVersion = loginReq.GetMeta().GetCore()
 	}
 
