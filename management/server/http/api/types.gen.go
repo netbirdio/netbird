@@ -567,9 +567,6 @@ type Policy struct {
 	// Name Policy name identifier
 	Name string `json:"name"`
 
-	// Query Policy Rego query
-	Query string `json:"query"`
-
 	// Rules Policy rule object for policy UI editor
 	Rules []PolicyRule `json:"rules"`
 }
@@ -587,9 +584,6 @@ type PolicyMinimum struct {
 
 	// Name Policy name identifier
 	Name string `json:"name"`
-
-	// Query Policy Rego query
-	Query string `json:"query"`
 }
 
 // PolicyRule defines model for PolicyRule.
@@ -716,9 +710,6 @@ type PolicyUpdate struct {
 
 	// Name Policy name identifier
 	Name string `json:"name"`
-
-	// Query Policy Rego query
-	Query string `json:"query"`
 
 	// Rules Policy rule object for policy UI editor
 	Rules []PolicyRuleUpdate `json:"rules"`
