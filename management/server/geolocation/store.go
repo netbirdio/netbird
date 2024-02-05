@@ -1,6 +1,7 @@
 package geolocation
 
 import (
+	"fmt"
 	"path/filepath"
 	"runtime"
 
@@ -15,22 +16,26 @@ type SqliteStore struct {
 }
 
 func NewSqliteStore(dataDir string) (*SqliteStore, error) {
-	storeStr := "geonames.db?cache=shared&mode=ro"
-	if runtime.GOOS == "windows" {
-		storeStr = "geonames.db?&mode=ro"
-	}
-
-	_, err := fileExists(filepath.Join(dataDir, "geonames.db"))
+	file := filepath.Join(dataDir, "geonames.db")
+	_, err := fileExists(file)
 	if err != nil {
 		return nil, err
 	}
 
-	file := filepath.Join(dataDir, storeStr)
-	db, err := gorm.Open(sqlite.Open(file), &gorm.Config{
+	storeStr := ":memory:?cache=shared&mode=ro"
+	if runtime.GOOS == "windows" {
+		storeStr = ":memory:?&mode=ro"
+	}
+
+	db, err := gorm.Open(sqlite.Open(storeStr), &gorm.Config{
 		Logger:      logger.Default.LogMode(logger.Silent),
 		PrepareStmt: true,
 	})
 	if err != nil {
+		return nil, err
+	}
+
+	if err := setupInMemoryDBFromFile(db, file); err != nil {
 		return nil, err
 	}
 
@@ -67,4 +72,29 @@ func (s *SqliteStore) GetCitiesByCountry(countryISOCode string) ([]City, error) 
 	}
 
 	return cities, nil
+}
+
+// setupInMemoryDBFromFile prepares an in-memory DB by attaching a file database and,
+// copies the data from the attached database to the in-memory database.
+func setupInMemoryDBFromFile(db *gorm.DB, source string) error {
+	// Attach the on-disk database to the in-memory database
+	attachStmt := fmt.Sprintf("ATTACH DATABASE '%s' AS source;", source)
+	if err := db.Exec(attachStmt).Error; err != nil {
+		return err
+	}
+
+	err := db.Exec(`
+		CREATE TABLE geonames AS SELECT * FROM source.geonames;
+	`).Error
+	if err != nil {
+		return err
+	}
+
+	// Detach the on-disk database from the in-memory database
+	err = db.Exec("DETACH DATABASE source;").Error
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
