@@ -202,7 +202,7 @@ func (gl *Geolocation) reload(newSha256sum []byte) error {
 
 	log.Infof("Successfully reloaded '%s'", gl.mmdbPath)
 
-	return nil
+	return gl.locationDB.reload()
 }
 
 func openDB(mmdbPath string) (*maxminddb.Reader, error) {

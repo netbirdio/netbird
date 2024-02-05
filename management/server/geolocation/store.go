@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"sync"
 
+	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -12,7 +14,9 @@ import (
 
 // SqliteStore represents a location storage backed by a Sqlite DB.
 type SqliteStore struct {
-	db *gorm.DB
+	db       *gorm.DB
+	filePath string
+	mux      *sync.RWMutex
 }
 
 func NewSqliteStore(dataDir string) (*SqliteStore, error) {
@@ -22,31 +26,16 @@ func NewSqliteStore(dataDir string) (*SqliteStore, error) {
 		return nil, err
 	}
 
-	storeStr := ":memory:?cache=shared&mode=ro"
-	if runtime.GOOS == "windows" {
-		storeStr = ":memory:?&mode=ro"
-	}
-
-	db, err := gorm.Open(sqlite.Open(storeStr), &gorm.Config{
-		Logger:      logger.Default.LogMode(logger.Silent),
-		PrepareStmt: true,
-	})
+	db, err := connectDB(file)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := setupInMemoryDBFromFile(db, file); err != nil {
-		return nil, err
-	}
-
-	sql, err := db.DB()
-	if err != nil {
-		return nil, err
-	}
-	conns := runtime.NumCPU()
-	sql.SetMaxOpenConns(conns)
-
-	return &SqliteStore{db: db}, nil
+	return &SqliteStore{
+		db:       db,
+		filePath: file,
+		mux:      &sync.RWMutex{},
+	}, nil
 }
 
 // GetAllCountries returns a list of all countries in the store.
@@ -75,6 +64,51 @@ func (s *SqliteStore) GetCitiesByCountry(countryISOCode string) ([]City, error) 
 	}
 
 	return cities, nil
+}
+
+func (s *SqliteStore) reload() error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	log.Infof("Reloading '%s'", s.filePath)
+
+	db, err := connectDB(s.filePath)
+	if err != nil {
+		return err
+	}
+	s.db = db
+
+	log.Infof("Successfully reloaded '%s'", s.filePath)
+	return nil
+}
+
+// connectDB connects to an SQLite database and prepares it by setting up an in-memory database.
+func connectDB(source string) (*gorm.DB, error) {
+	storeStr := ":memory:?cache=shared&mode=ro"
+	if runtime.GOOS == "windows" {
+		storeStr = ":memory:?&mode=ro"
+	}
+
+	db, err := gorm.Open(sqlite.Open(storeStr), &gorm.Config{
+		Logger:      logger.Default.LogMode(logger.Silent),
+		PrepareStmt: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := setupInMemoryDBFromFile(db, source); err != nil {
+		return nil, err
+	}
+
+	sql, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+	conns := runtime.NumCPU()
+	sql.SetMaxOpenConns(conns)
+
+	return db, nil
 }
 
 // setupInMemoryDBFromFile prepares an in-memory DB by attaching a file database and,
