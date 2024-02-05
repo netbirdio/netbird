@@ -705,7 +705,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
   #UI dashboard
   dashboard:
-    image: wiretrustee/dashboard:latest
+    image: netbirdio/dashboard:latest
     restart: unless-stopped
     networks: [netbird]
     env_file:
