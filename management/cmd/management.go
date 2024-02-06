@@ -174,8 +174,8 @@ var (
 			trustedHTTPProxies := config.TrustedHTTPProxies
 			trustedProxiesCount := config.TrustedHTTPProxiesCount
 			if len(trustedPeers) == 0 {
-				log.Warn("TrustedPeers are configured to default value 0.0.0.0/0. This may introduce connection IP spoofing.")
-				trustedPeers = []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}
+				log.Warn("TrustedPeers are configured to default value '0.0.0.0/0', '::/0'. This allows connection IP spoofing.")
+				trustedPeers = []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
 			}
 			if len(trustedHTTPProxies) > 0 && trustedProxiesCount > 0 {
 				log.Warn("TrustedHTTPProxies and TrustedHTTPProxiesCount both are configured. " +
