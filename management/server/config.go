@@ -41,7 +41,9 @@ type Config struct {
 
 	HttpConfig *HttpServerConfig
 
-	TrustedHTTPProxies []netip.Prefix
+	TrustedHTTPProxies      []netip.Prefix
+	TrustedHTTPProxiesCount uint
+	TrustedPeers            []netip.Prefix
 
 	IdpManagerConfig *idp.Config
 

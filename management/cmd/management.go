@@ -170,12 +170,23 @@ var (
 
 			turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 
-			trustedPeers := config.TrustedHTTPProxies
+			trustedPeers := config.TrustedPeers
+			trustedHTTPProxies := config.TrustedHTTPProxies
+			trustedProxiesCount := config.TrustedHTTPProxiesCount
 			if len(trustedPeers) == 0 {
+				log.Warn("TrustedPeers are configured to default value 0.0.0.0/0. This may introduce connection IP spoofing.")
 				trustedPeers = []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}
 			}
-			headers := []string{realip.XForwardedFor, realip.XRealIp}
-			realipOpts := realip.Opts{TrustedPeers: trustedPeers, Headers: headers, TrustedProxiesCount: 1}
+			if len(trustedHTTPProxies) > 0 && trustedProxiesCount > 0 {
+				log.Warn("TrustedHTTPProxies and TrustedHTTPProxies both are configured. " +
+					"This is not recommended way to extract X-Forwarded-For. Consider using one of these options.")
+			}
+			realipOpts := realip.Opts{
+				TrustedPeers:        trustedPeers,
+				TrustedProxies:      trustedHTTPProxies,
+				TrustedProxiesCount: trustedProxiesCount,
+				Headers:             []string{realip.XForwardedFor, realip.XRealIp},
+			}
 			gRPCOpts := []grpc.ServerOption{
 				grpc.KeepaliveEnforcementPolicy(kaep),
 				grpc.KeepaliveParams(kasp),
