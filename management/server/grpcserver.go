@@ -270,16 +270,19 @@ func extractPeerMeta(loginReq *proto.LoginRequest) nbpeer.PeerSystemMeta {
 	}
 
 	return nbpeer.PeerSystemMeta{
-		Hostname:         loginReq.GetMeta().GetHostname(),
-		GoOS:             loginReq.GetMeta().GetGoOS(),
-		Kernel:           loginReq.GetMeta().GetKernel(),
-		Platform:         loginReq.GetMeta().GetPlatform(),
-		OS:               loginReq.GetMeta().GetOS(),
-		OSVersion:        osVersion,
-		WtVersion:        loginReq.GetMeta().GetWiretrusteeVersion(),
-		UIVersion:        loginReq.GetMeta().GetUiVersion(),
-		KernelVersion:    loginReq.GetMeta().GetKernelVersion(),
-		NetworkAddresses: networkAddresses,
+		Hostname:           loginReq.GetMeta().GetHostname(),
+		GoOS:               loginReq.GetMeta().GetGoOS(),
+		Kernel:             loginReq.GetMeta().GetKernel(),
+		Platform:           loginReq.GetMeta().GetPlatform(),
+		OS:                 loginReq.GetMeta().GetOS(),
+		OSVersion:          osVersion,
+		WtVersion:          loginReq.GetMeta().GetWiretrusteeVersion(),
+		UIVersion:          loginReq.GetMeta().GetUiVersion(),
+		KernelVersion:      loginReq.GetMeta().GetKernelVersion(),
+		NetworkAddresses:   networkAddresses,
+		SystemSerialNumber: loginReq.GetMeta().GetSysManufacturer(),
+		SystemProductName:  loginReq.GetMeta().GetSysProductName(),
+		SystemManufacturer: loginReq.GetMeta().GetSysSerialNumber(),
 	}
 }
 

@@ -72,6 +72,7 @@ require (
 	github.com/stretchr/testify v1.8.4
 	github.com/things-go/go-socks5 v0.0.4
 	github.com/yusufpapurcu/wmi v1.2.3
+	github.com/zcalusic/sysinfo v1.0.2
 	go.opentelemetry.io/otel v1.11.1
 	go.opentelemetry.io/otel/exporters/prometheus v0.33.0
 	go.opentelemetry.io/otel/metric v0.33.0

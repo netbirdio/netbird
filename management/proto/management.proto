@@ -106,6 +106,9 @@ message PeerSystemMeta {
   string kernelVersion = 9;
   string OSVersion = 10;
   repeated NetworkAddress networkAddresses = 11;
+  string sysSerialNumber = 12;
+  string sysProductName = 13;
+  string sysManufacturer = 14;
 }
 
 message LoginResponse {

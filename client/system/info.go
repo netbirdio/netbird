@@ -38,6 +38,9 @@ type Info struct {
 	UIVersion          string
 	KernelVersion      string
 	NetworkAddresses   []NetworkAddress
+	SystemSerialNumber string
+	SystemProductName  string
+	SystemManufacturer string
 }
 
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context
