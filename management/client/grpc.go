@@ -471,5 +471,8 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		UiVersion:          info.UIVersion,
 		KernelVersion:      info.KernelVersion,
 		NetworkAddresses:   addresses,
+		SysSerialNumber:    info.SystemSerialNumber,
+		SysManufacturer:    info.SystemManufacturer,
+		SysProductName:     info.SystemProductName,
 	}
 }
