@@ -175,16 +175,14 @@ var (
 				trustedPeers = []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}
 			}
 			headers := []string{realip.XForwardedFor, realip.XRealIp}
+			realipOpts := realip.Opts{TrustedPeers: trustedPeers, Headers: headers, TrustedProxiesCount: 1}
 			gRPCOpts := []grpc.ServerOption{
 				grpc.KeepaliveEnforcementPolicy(kaep),
 				grpc.KeepaliveParams(kasp),
-				grpc.ChainUnaryInterceptor(
-					realip.UnaryServerInterceptor(trustedPeers, headers),
-				),
-				grpc.ChainStreamInterceptor(
-					realip.StreamServerInterceptor(trustedPeers, headers),
-				),
+				grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts)),
+				grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts)),
 			}
+
 			var certManager *autocert.Manager
 			var tlsConfig *tls.Config
 			tlsEnabled := false
