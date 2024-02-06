@@ -1236,7 +1236,7 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 		return ud, nil
 	}
 
-	log.Debugf("user %s not found in cache", userID)
+	log.Infof("user %s not found in any cache", userID)
 
 	return nil, nil //nolint:nilnil
 }
