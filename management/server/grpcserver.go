@@ -260,16 +260,25 @@ func extractPeerMeta(loginReq *proto.LoginRequest) nbpeer.PeerSystemMeta {
 		osVersion = loginReq.GetMeta().GetCore()
 	}
 
+	networkAddresses := make([]nbpeer.NetworkAddress, 0, len(loginReq.GetMeta().GetNetworkAddresses()))
+	for _, addr := range loginReq.GetMeta().GetNetworkAddresses() {
+		networkAddresses = append(networkAddresses, nbpeer.NetworkAddress{
+			IP:  addr.GetIp(),
+			Mac: addr.GetMac(),
+		})
+	}
+
 	return nbpeer.PeerSystemMeta{
-		Hostname:      loginReq.GetMeta().GetHostname(),
-		GoOS:          loginReq.GetMeta().GetGoOS(),
-		Kernel:        loginReq.GetMeta().GetKernel(),
-		Platform:      loginReq.GetMeta().GetPlatform(),
-		OS:            loginReq.GetMeta().GetOS(),
-		OSVersion:     osVersion,
-		WtVersion:     loginReq.GetMeta().GetWiretrusteeVersion(),
-		UIVersion:     loginReq.GetMeta().GetUiVersion(),
-		KernelVersion: loginReq.GetMeta().GetKernelVersion(),
+		Hostname:         loginReq.GetMeta().GetHostname(),
+		GoOS:             loginReq.GetMeta().GetGoOS(),
+		Kernel:           loginReq.GetMeta().GetKernel(),
+		Platform:         loginReq.GetMeta().GetPlatform(),
+		OS:               loginReq.GetMeta().GetOS(),
+		OSVersion:        osVersion,
+		WtVersion:        loginReq.GetMeta().GetWiretrusteeVersion(),
+		UIVersion:        loginReq.GetMeta().GetUiVersion(),
+		KernelVersion:    loginReq.GetMeta().GetKernelVersion(),
+		NetworkAddresses: networkAddresses,
 	}
 }
 

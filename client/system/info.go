@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"net"
 	"strings"
 
 	"google.golang.org/grpc/metadata"
@@ -18,6 +19,11 @@ const OsVersionCtxKey = "OsVersion"
 // OsNameCtxKey context key for operating system name
 const OsNameCtxKey = "OsName"
 
+type NetworkAddress struct {
+	IP  string
+	Mac string
+}
+
 // Info is an object that contains machine information
 // Most of the code is taken from https://github.com/matishsiao/goInfo
 type Info struct {
@@ -31,6 +37,7 @@ type Info struct {
 	WiretrusteeVersion string
 	UIVersion          string
 	KernelVersion      string
+	NetworkAddresses   []NetworkAddress
 }
 
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context
@@ -61,4 +68,43 @@ func extractDeviceName(ctx context.Context, defaultName string) string {
 // GetDesktopUIUserAgent returns the Desktop ui user agent
 func GetDesktopUIUserAgent() string {
 	return "netbird-desktop-ui/" + version.NetbirdVersion()
+}
+
+func networkAddresses() ([]NetworkAddress, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	var netAddresses []NetworkAddress
+	for _, iface := range interfaces {
+		if iface.HardwareAddr.String() == "" {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, address := range addrs {
+			ipNet, ok := address.(*net.IPNet)
+			if !ok {
+				continue
+			}
+
+			if ipNet.IP.IsLoopback() {
+				continue
+			}
+
+			if ipNet.IP.To4() == nil {
+				continue
+			}
+			netAddr := NetworkAddress{
+				IP:  ipNet.IP.String(),
+				Mac: iface.HardwareAddr.String(),
+			}
+			netAddresses = append(netAddresses, netAddr)
+		}
+	}
+	return netAddresses, nil
 }

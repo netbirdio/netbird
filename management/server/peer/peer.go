@@ -64,18 +64,25 @@ type Location struct {
 	GeoNameID    uint // city level geoname id
 }
 
+// NetworkAddress is the IP and MAC address of a network interface
+type NetworkAddress struct {
+	IP  string
+	Mac string
+}
+
 // PeerSystemMeta is a metadata of a Peer machine system
 type PeerSystemMeta struct {
-	Hostname      string
-	GoOS          string
-	Kernel        string
-	Core          string
-	Platform      string
-	OS            string
-	OSVersion     string
-	WtVersion     string
-	UIVersion     string
-	KernelVersion string
+	Hostname         string
+	GoOS             string
+	Kernel           string
+	Core             string
+	Platform         string
+	OS               string
+	OSVersion        string
+	WtVersion        string
+	UIVersion        string
+	KernelVersion    string
+	NetworkAddresses []NetworkAddress `gorm:"serializer:json"`
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {

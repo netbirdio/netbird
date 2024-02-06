@@ -50,11 +50,26 @@ func GetInfo(ctx context.Context) *Info {
 	if osName == "" {
 		osName = osInfo[3]
 	}
-	gio := &Info{Kernel: osInfo[0], Platform: osInfo[2], OS: osName, OSVersion: osVer, GoOS: runtime.GOOS, CPUs: runtime.NumCPU(), KernelVersion: osInfo[1]}
+
 	systemHostname, _ := os.Hostname()
-	gio.Hostname = extractDeviceName(ctx, systemHostname)
-	gio.WiretrusteeVersion = version.NetbirdVersion()
-	gio.UIVersion = extractUserAgent(ctx)
+
+	addrs, err := networkAddresses()
+	if err != nil {
+		log.Warnf("failed to discover network addresses: %s", err)
+	}
+	gio := &Info{
+		Kernel:             osInfo[0],
+		Platform:           osInfo[2],
+		OS:                 osName,
+		OSVersion:          osVer,
+		Hostname:           extractDeviceName(ctx, systemHostname),
+		GoOS:               runtime.GOOS,
+		CPUs:               runtime.NumCPU(),
+		WiretrusteeVersion: version.NetbirdVersion(),
+		UIVersion:          extractUserAgent(ctx),
+		KernelVersion:      osInfo[1],
+		NetworkAddresses:   addrs,
+	}
 
 	return gio
 }

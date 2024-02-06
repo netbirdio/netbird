@@ -22,7 +22,22 @@ type Win32_OperatingSystem struct {
 func GetInfo(ctx context.Context) *Info {
 	osName, osVersion := getOSNameAndVersion()
 	buildVersion := getBuildVersion()
-	gio := &Info{Kernel: "windows", OSVersion: osVersion, Platform: "unknown", OS: osName, GoOS: runtime.GOOS, CPUs: runtime.NumCPU(), KernelVersion: buildVersion}
+
+	addrs, err := networkAddresses()
+	if err != nil {
+		log.Warnf("failed to discover network addresses: %s", err)
+	}
+
+	gio := &Info{
+		Kernel:           "windows",
+		OSVersion:        osVersion,
+		Platform:         "unknown",
+		OS:               osName,
+		GoOS:             runtime.GOOS,
+		CPUs:             runtime.NumCPU(),
+		KernelVersion:    buildVersion,
+		NetworkAddresses: addrs,
+	}
 	systemHostname, _ := os.Hostname()
 	gio.Hostname = extractDeviceName(ctx, systemHostname)
 	gio.WiretrusteeVersion = version.NetbirdVersion()
