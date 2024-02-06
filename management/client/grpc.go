@@ -450,6 +450,15 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 	if info == nil {
 		return nil
 	}
+
+	addresses := make([]*proto.NetworkAddress, 0, len(info.NetworkAddresses))
+	for _, addr := range info.NetworkAddresses {
+		addresses = append(addresses, &proto.NetworkAddress{
+			Ip:  addr.IP,
+			Mac: addr.Mac,
+		})
+	}
+
 	return &proto.PeerSystemMeta{
 		Hostname:           info.Hostname,
 		GoOS:               info.GoOS,
@@ -460,5 +469,6 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		WiretrusteeVersion: info.WiretrusteeVersion,
 		UiVersion:          info.UIVersion,
 		KernelVersion:      info.KernelVersion,
+		NetworkAddresses:   addresses,
 	}
 }

@@ -27,13 +27,28 @@ func GetInfo(ctx context.Context) *Info {
 	}
 	sysName := string(bytes.Split(utsname.Sysname[:], []byte{0})[0])
 	machine := string(bytes.Split(utsname.Machine[:], []byte{0})[0])
-	release := string(bytes.Split(utsname.Release[:], []byte{0})[0])
+	release := string(bytes.Split(utnetowrksname.Release[:], []byte{0})[0])
 	swVersion, err := exec.Command("sw_vers", "-productVersion").Output()
 	if err != nil {
 		log.Warnf("got an error while retrieving macOS version with sw_vers, error: %s. Using darwin version instead.\n", err)
 		swVersion = []byte(release)
 	}
-	gio := &Info{Kernel: sysName, OSVersion: strings.TrimSpace(string(swVersion)), Platform: machine, OS: sysName, GoOS: runtime.GOOS, CPUs: runtime.NumCPU(), KernelVersion: release}
+
+	addrs, err := networkAddresses()
+	if err != nil {
+		log.Warnf("failed to discover network addresses: %s", err)
+	}
+
+	gio := &Info{
+		Kernel:           sysName,
+		OSVersion:        strings.TrimSpace(string(swVersion)),
+		Platform:         machine,
+		OS:               sysName,
+		GoOS:             runtime.GOOS,
+		CPUs:             runtime.NumCPU(),
+		KernelVersion:    release,
+		NetworkAddresses: addrs,
+	}
 	systemHostname, _ := os.Hostname()
 	gio.Hostname = extractDeviceName(ctx, systemHostname)
 	gio.WiretrusteeVersion = version.NetbirdVersion()
