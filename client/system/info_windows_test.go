@@ -1,23 +1,25 @@
 package system
 
 import (
-	log "github.com/sirupsen/logrus"
 	"testing"
+
+	log "github.com/sirupsen/logrus"
 )
 
 func Test_sysInfo(t *testing.T) {
-	sysInfo()
-	serialNum, prodName, manufacturer := sysInfo()
-	if serialNum == "" {
-		t.Errorf("serialNum is empty")
+	serialNum, err := sysNumber()
+	if err != nil {
+		t.Errorf("failed to get system serial number: %s", err)
 	}
 
-	if prodName == "" {
-		t.Errorf("prodName is empty")
+	prodName, err := sysProductName()
+	if err != nil {
+		t.Errorf("failed to get system product name: %s", err)
 	}
 
-	if manufacturer == "" {
-		t.Errorf("manufacturer is empty")
+	manufacturer, err := sysManufacturer()
+	if err != nil {
+		t.Errorf("failed to get system manufacturer: %s", err)
 	}
 	log.Infof("Windows sys info: %s, %s, %s", serialNum, prodName, manufacturer)
 }
