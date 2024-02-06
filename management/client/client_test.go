@@ -343,6 +343,15 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 
 	wg.Wait()
 
+	protoNetAddr := make([]*mgmtProto.NetworkAddress, 0, len(info.NetworkAddresses))
+	for _, addr := range info.NetworkAddresses {
+		protoNetAddr = append(protoNetAddr, &mgmtProto.NetworkAddress{
+			Ip:  addr.IP,
+			Mac: addr.Mac,
+		})
+
+	}
+
 	expectedMeta := &mgmtProto.PeerSystemMeta{
 		Hostname:           info.Hostname,
 		GoOS:               info.GoOS,
@@ -352,8 +361,10 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 		OSVersion:          info.OSVersion,
 		WiretrusteeVersion: info.WiretrusteeVersion,
 		KernelVersion:      info.KernelVersion,
+		NetworkAddresses:   protoNetAddr,
 	}
 
+	log.Infof("acutal: %v", actualMeta)
 	assert.Equal(t, ValidKey, actualValidKey)
 	assert.Equal(t, expectedMeta, actualMeta)
 }
