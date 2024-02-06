@@ -178,7 +178,7 @@ var (
 				trustedPeers = []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}
 			}
 			if len(trustedHTTPProxies) > 0 && trustedProxiesCount > 0 {
-				log.Warn("TrustedHTTPProxies and TrustedHTTPProxies both are configured. " +
+				log.Warn("TrustedHTTPProxies and TrustedHTTPProxiesCount both are configured. " +
 					"This is not recommended way to extract X-Forwarded-For. Consider using one of these options.")
 			}
 			realipOpts := realip.Opts{
