@@ -18,6 +18,18 @@ type Win32_OperatingSystem struct {
 	Caption string
 }
 
+type Win32_ComputerSystem struct {
+	Manufacturer string
+}
+
+type Win32_ComputerSystemProduct struct {
+	Name string
+}
+
+type Win32_BIOS struct {
+	SerialNumber string
+}
+
 // GetInfo retrieves and parses the system information
 func GetInfo(ctx context.Context) *Info {
 	osName, osVersion := getOSNameAndVersion()
@@ -28,15 +40,33 @@ func GetInfo(ctx context.Context) *Info {
 		log.Warnf("failed to discover network addresses: %s", err)
 	}
 
+	serialNum, err := sysNumber()
+	if err != nil {
+		log.Warnf("failed to get system serial number: %s", err)
+	}
+
+	prodName, err := sysProductName()
+	if err != nil {
+		log.Warnf("failed to get system product name: %s", err)
+	}
+
+	manufacturer, err := sysManufacturer()
+	if err != nil {
+		log.Warnf("failed to get system manufacturer: %s", err)
+	}
+
 	gio := &Info{
-		Kernel:           "windows",
-		OSVersion:        osVersion,
-		Platform:         "unknown",
-		OS:               osName,
-		GoOS:             runtime.GOOS,
-		CPUs:             runtime.NumCPU(),
-		KernelVersion:    buildVersion,
-		NetworkAddresses: addrs,
+		Kernel:             "windows",
+		OSVersion:          osVersion,
+		Platform:           "unknown",
+		OS:                 osName,
+		GoOS:               runtime.GOOS,
+		CPUs:               runtime.NumCPU(),
+		KernelVersion:      buildVersion,
+		NetworkAddresses:   addrs,
+		SystemSerialNumber: serialNum,
+		SystemProductName:  prodName,
+		SystemManufacturer: manufacturer,
 	}
 	systemHostname, _ := os.Hostname()
 	gio.Hostname = extractDeviceName(ctx, systemHostname)
@@ -107,4 +137,34 @@ func getBuildVersion() string {
 	}
 	ver := fmt.Sprintf("%d.%d.%s.%d", major, minor, build, ubr)
 	return ver
+}
+
+func sysNumber() (string, error) {
+	var dst []Win32_BIOS
+	query := wmi.CreateQuery(&dst, "")
+	err := wmi.Query(query, &dst)
+	if err != nil {
+		return "", err
+	}
+	return dst[0].SerialNumber, nil
+}
+
+func sysProductName() (string, error) {
+	var dst []Win32_ComputerSystemProduct
+	query := wmi.CreateQuery(&dst, "")
+	err := wmi.Query(query, &dst)
+	if err != nil {
+		return "", err
+	}
+	return dst[0].Name, nil
+}
+
+func sysManufacturer() (string, error) {
+	var dst []Win32_ComputerSystem
+	query := wmi.CreateQuery(&dst, "")
+	err := wmi.Query(query, &dst)
+	if err != nil {
+		return "", err
+	}
+	return dst[0].Manufacturer, nil
 }
