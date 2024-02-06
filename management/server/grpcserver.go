@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -109,11 +110,11 @@ func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto
 	}, nil
 }
 
-func getRealIP(ctx context.Context) string {
-	if ip, ok := realip.FromContext(ctx); ok {
-		return ip.String()
+func getRealIP(ctx context.Context) net.IP {
+	if addr, ok := realip.FromContext(ctx); ok {
+		return net.IP(addr.AsSlice())
 	}
-	return ""
+	return nil
 }
 
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
@@ -124,7 +125,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		s.appMetrics.GRPCMetrics().CountSyncRequest()
 	}
 	realIP := getRealIP(srv.Context())
-	log.Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, realIP)
+	log.Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, realIP.String())
 
 	syncReq := &proto.SyncRequest{}
 	peerKey, err := s.parseRequest(req, syncReq)
@@ -147,7 +148,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 
 	s.ephemeralManager.OnPeerConnected(peer)
 
-	err = s.accountManager.MarkPeerConnected(peerKey.String(), true)
+	err = s.accountManager.MarkPeerConnected(peerKey.String(), true, realIP)
 	if err != nil {
 		log.Warnf("failed marking peer as connected %s %v", peerKey, err)
 	}
@@ -205,7 +206,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 func (s *GRPCServer) cancelPeerRoutines(peer *nbpeer.Peer) {
 	s.peersUpdateManager.CloseChannel(peer.ID)
 	s.turnCredentialsManager.CancelRefresh(peer.ID)
-	_ = s.accountManager.MarkPeerConnected(peer.Key, false)
+	_ = s.accountManager.MarkPeerConnected(peer.Key, false, nil)
 	s.ephemeralManager.OnPeerDisconnected(peer)
 }
 
@@ -302,7 +303,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		s.appMetrics.GRPCMetrics().CountLoginRequest()
 	}
 	realIP := getRealIP(ctx)
-	log.Debugf("Login request from peer [%s] [%s]", req.WgPubKey, realIP)
+	log.Debugf("Login request from peer [%s] [%s]", req.WgPubKey, realIP.String())
 
 	loginReq := &proto.LoginRequest{}
 	peerKey, err := s.parseRequest(req, loginReq)

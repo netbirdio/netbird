@@ -102,17 +102,12 @@ func getSha256sum(mmdbPath string) ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
-func (gl *Geolocation) Lookup(ip string) (*Record, error) {
+func (gl *Geolocation) Lookup(ip net.IP) (*Record, error) {
 	gl.mux.RLock()
 	defer gl.mux.RUnlock()
 
-	parsedIp := net.ParseIP(ip)
-	if parsedIp == nil {
-		return nil, fmt.Errorf("could not parse IP %s", ip)
-	}
-
 	var record Record
-	err := gl.db.Lookup(parsedIp, &record)
+	err := gl.db.Lookup(ip, &record)
 	if err != nil {
 		return nil, err
 	}

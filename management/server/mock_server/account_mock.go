@@ -1,6 +1,7 @@
 package mock_server
 
 import (
+	"net"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -24,7 +25,7 @@ type MockAccountManager struct {
 	GetUserFunc                     func(claims jwtclaims.AuthorizationClaims) (*server.User, error)
 	ListUsersFunc                   func(accountID string) ([]*server.User, error)
 	GetPeersFunc                    func(accountID, userID string) ([]*nbpeer.Peer, error)
-	MarkPeerConnectedFunc           func(peerKey string, connected bool) error
+	MarkPeerConnectedFunc           func(peerKey string, connected bool, realIP net.IP) error
 	DeletePeerFunc                  func(accountID, peerKey, userID string) error
 	GetNetworkMapFunc               func(peerKey string) (*server.NetworkMap, error)
 	GetPeerNetworkFunc              func(peerKey string) (*server.Network, error)
@@ -152,9 +153,9 @@ func (am *MockAccountManager) GetAccountByUserOrAccountID(
 }
 
 // MarkPeerConnected mock implementation of MarkPeerConnected from server.AccountManager interface
-func (am *MockAccountManager) MarkPeerConnected(peerKey string, connected bool) error {
+func (am *MockAccountManager) MarkPeerConnected(peerKey string, connected bool, realIP net.IP) error {
 	if am.MarkPeerConnectedFunc != nil {
-		return am.MarkPeerConnectedFunc(peerKey, connected)
+		return am.MarkPeerConnectedFunc(peerKey, connected, realIP)
 	}
 	return status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
 }
