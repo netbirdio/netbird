@@ -89,6 +89,23 @@ type PeerSystemMeta struct {
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
+	if len(p.NetworkAddresses) != len(other.NetworkAddresses) {
+		return false
+	}
+
+	for _, addr := range p.NetworkAddresses {
+		var found bool
+		for _, oAddr := range other.NetworkAddresses {
+			if addr.Mac == oAddr.Mac && addr.IP == oAddr.IP {
+				found = true
+				continue
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
 	return p.Hostname == other.Hostname &&
 		p.GoOS == other.GoOS &&
 		p.Kernel == other.Kernel &&
@@ -98,7 +115,10 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		p.OS == other.OS &&
 		p.OSVersion == other.OSVersion &&
 		p.WtVersion == other.WtVersion &&
-		p.UIVersion == other.UIVersion
+		p.UIVersion == other.UIVersion &&
+		p.SystemSerialNumber == other.SystemSerialNumber &&
+		p.SystemProductName == other.SystemProductName &&
+		p.SystemManufacturer == other.SystemManufacturer
 }
 
 // AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
