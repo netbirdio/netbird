@@ -1223,6 +1223,21 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 		}
 	}
 
+	user, err := account.FindUser(userID)
+	if err != nil {
+		log.Errorf("failed finding user %s in account %s", userID, account.Id)
+		return nil, err
+	}
+
+	key := user.IntegrationReference.CacheKey(account.Id, userID)
+	ud, err := am.externalCacheManager.Get(am.ctx, key)
+	if err == nil {
+		log.Debugf("user %s found in external cache", userID)
+		return ud, nil
+	}
+
+	log.Debugf("user %s not found in cache", userID)
+
 	return nil, nil //nolint:nilnil
 }
 
