@@ -13,6 +13,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/zcalusic/sysinfo"
 
 	"github.com/netbirdio/netbird/version"
 )
@@ -57,6 +58,9 @@ func GetInfo(ctx context.Context) *Info {
 	if err != nil {
 		log.Warnf("failed to discover network addresses: %s", err)
 	}
+
+	serialNum, prodName, manufacturer := sysInfo()
+
 	gio := &Info{
 		Kernel:             osInfo[0],
 		Platform:           osInfo[2],
@@ -69,6 +73,9 @@ func GetInfo(ctx context.Context) *Info {
 		UIVersion:          extractUserAgent(ctx),
 		KernelVersion:      osInfo[1],
 		NetworkAddresses:   addrs,
+		SystemSerialNumber: serialNum,
+		SystemProductName:  prodName,
+		SystemManufacturer: manufacturer,
 	}
 
 	return gio
@@ -100,4 +107,10 @@ func _getReleaseInfo() string {
 		log.Warnf("geucwReleaseInfo: %s", err)
 	}
 	return out.String()
+}
+
+func sysInfo() (serialNumber string, productName string, manufacturer string) {
+	var si sysinfo.SysInfo
+	si.GetSysInfo()
+	return si.Product.Version, si.Product.Name, si.Product.Vendor
 }

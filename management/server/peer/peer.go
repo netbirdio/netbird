@@ -72,17 +72,20 @@ type NetworkAddress struct {
 
 // PeerSystemMeta is a metadata of a Peer machine system
 type PeerSystemMeta struct {
-	Hostname         string
-	GoOS             string
-	Kernel           string
-	Core             string
-	Platform         string
-	OS               string
-	OSVersion        string
-	WtVersion        string
-	UIVersion        string
-	KernelVersion    string
-	NetworkAddresses []NetworkAddress `gorm:"serializer:json"`
+	Hostname           string
+	GoOS               string
+	Kernel             string
+	Core               string
+	Platform           string
+	OS                 string
+	OSVersion          string
+	WtVersion          string
+	UIVersion          string
+	KernelVersion      string
+	NetworkAddresses   []NetworkAddress `gorm:"serializer:json"`
+	SystemSerialNumber string
+	SystemProductName  string
+	SystemManufacturer string
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
