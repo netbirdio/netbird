@@ -12,6 +12,10 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+const (
+	geoSqliteDBFile = "geonames.db"
+)
+
 // SqliteStore represents a location storage backed by a Sqlite DB.
 type SqliteStore struct {
 	db       *gorm.DB
@@ -20,20 +24,14 @@ type SqliteStore struct {
 }
 
 func NewSqliteStore(dataDir string) (*SqliteStore, error) {
-	file := filepath.Join(dataDir, "geonames.db")
-	_, err := fileExists(file)
-	if err != nil {
-		return nil, err
-	}
-
-	db, err := connectDB(file)
+	db, err := connectDB(dataDir)
 	if err != nil {
 		return nil, err
 	}
 
 	return &SqliteStore{
 		db:       db,
-		filePath: file,
+		filePath: filepath.Join(dataDir, geoSqliteDBFile),
 		mux:      &sync.RWMutex{},
 	}, nil
 }
@@ -83,7 +81,13 @@ func (s *SqliteStore) reload() error {
 }
 
 // connectDB connects to an SQLite database and prepares it by setting up an in-memory database.
-func connectDB(source string) (*gorm.DB, error) {
+func connectDB(dataDir string) (*gorm.DB, error) {
+	file := filepath.Join(dataDir, geoSqliteDBFile)
+	_, err := fileExists(file)
+	if err != nil {
+		return nil, err
+	}
+
 	storeStr := ":memory:?cache=shared&mode=ro"
 	if runtime.GOOS == "windows" {
 		storeStr = ":memory:?&mode=ro"
@@ -97,7 +101,7 @@ func connectDB(source string) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	if err := setupInMemoryDBFromFile(db, source); err != nil {
+	if err := setupInMemoryDBFromFile(db, file); err != nil {
 		return nil, err
 	}
 
