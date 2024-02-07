@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
@@ -38,6 +39,9 @@ func NewSqliteStore(dataDir string) (*SqliteStore, error) {
 
 // GetAllCountries returns a list of all countries in the store.
 func (s *SqliteStore) GetAllCountries() ([]Country, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
 	var countries []Country
 	result := s.db.Table("geonames").
 		Select("country_iso_code", "country_name").
@@ -51,6 +55,9 @@ func (s *SqliteStore) GetAllCountries() ([]Country, error) {
 
 // GetCitiesByCountry retrieves a list of cities from the store based on the given country ISO code.
 func (s *SqliteStore) GetCitiesByCountry(countryISOCode string) ([]City, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
 	var cities []City
 	result := s.db.Table("geonames").
 		Select("geoname_id", "city_name").
@@ -70,18 +77,36 @@ func (s *SqliteStore) reload() error {
 
 	log.Infof("Reloading '%s'", s.filePath)
 
-	db, err := connectDB(s.filePath)
+	newDb, err := connectDB(s.filePath)
 	if err != nil {
 		return err
 	}
-	s.db = db
+
+	_ = s.close()
+	s.db = newDb
 
 	log.Infof("Successfully reloaded '%s'", s.filePath)
 	return nil
 }
 
+// close closes the database connection.
+// It retrieves the underlying *sql.DB object from the *gorm.DB object
+// and calls the Close() method on it.
+func (s *SqliteStore) close() error {
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}
+
 // connectDB connects to an SQLite database and prepares it by setting up an in-memory database.
 func connectDB(dataDir string) (*gorm.DB, error) {
+	start := time.Now()
+	defer func() {
+		log.Debugf("took %v to setup geoname db", time.Since(start))
+	}()
+
 	file := filepath.Join(dataDir, geoSqliteDBFile)
 	_, err := fileExists(file)
 	if err != nil {
