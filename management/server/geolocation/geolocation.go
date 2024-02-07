@@ -179,7 +179,7 @@ func (gl *Geolocation) reloader() {
 			return
 		case <-time.After(gl.reloadCheckInterval):
 			if err := gl.locationDB.reload(); err != nil {
-				log.Errorf("reload failed: %s", err)
+				log.Errorf("geonames db reload failed: %s", err)
 			}
 
 			newSha256sum1, err := getSha256sum(gl.mmdbPath)
@@ -202,7 +202,7 @@ func (gl *Geolocation) reloader() {
 				}
 				err = gl.reload(newSha256sum2)
 				if err != nil {
-					log.Errorf("reload failed: %s", err)
+					log.Errorf("mmdb reload failed: %s", err)
 				}
 			} else {
 				log.Debugf("No changes in '%s', no need to reload. Next check is in %.0f seconds.",

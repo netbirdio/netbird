@@ -86,12 +86,23 @@ func (s *SqliteStore) reload() error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	sha256sum, err := getSha256sum(s.filePath)
+	newSha256sum1, err := getSha256sum(s.filePath)
 	if err != nil {
 		log.Errorf("failed to calculate sha256 sum for '%s': %s", s.filePath, err)
 	}
 
-	if !bytes.Equal(s.sha256sum, sha256sum) {
+	if !bytes.Equal(s.sha256sum, newSha256sum1) {
+		// we check sum twice just to avoid possible case when we reload during update of the file
+		// considering the frequency of file update (few times a week) checking sum twice should be enough
+		time.Sleep(50 * time.Millisecond)
+		newSha256sum2, err := getSha256sum(s.filePath)
+		if err != nil {
+			return fmt.Errorf("failed to calculate sha256 sum for '%s': %s", s.filePath, err)
+		}
+		if !bytes.Equal(newSha256sum1, newSha256sum2) {
+			return fmt.Errorf("sha256 sum changed during reloading of '%s'", s.filePath)
+		}
+
 		log.Infof("Reloading '%s'", s.filePath)
 
 		newDb, err := connectDB(s.filePath)
