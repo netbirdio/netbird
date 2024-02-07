@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -230,18 +231,30 @@ func toGroupsInfo(groups map[string]*server.Group, peerID string) []api.GroupMin
 	return groupsInfo
 }
 
+func connectionIPoString(ip net.IP) *string {
+	publicIP := ""
+	if ip != nil {
+		publicIP = ip.String()
+	}
+	return &publicIP
+}
+
 func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeer []api.AccessiblePeer) *api.Peer {
 	osVersion := peer.Meta.OSVersion
 	if osVersion == "" {
 		osVersion = peer.Meta.Core
 	}
+	geonameID := int(peer.Location.GeoNameID)
 	return &api.Peer{
 		Id:                     peer.ID,
 		Name:                   peer.Name,
 		Ip:                     peer.IP.String(),
+		ConnectionIp:           connectionIPoString(peer.Location.ConnectionIP),
 		Connected:              peer.Status.Connected,
 		LastSeen:               peer.Status.LastSeen,
 		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
+		KernelVersion:          &peer.Meta.KernelVersion,
+		GeonameId:              &geonameID,
 		Version:                peer.Meta.WtVersion,
 		Groups:                 groupsInfo,
 		SshEnabled:             peer.SSHEnabled,
@@ -262,13 +275,17 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 	if osVersion == "" {
 		osVersion = peer.Meta.Core
 	}
+	geonameID := int(peer.Location.GeoNameID)
 	return &api.PeerBatch{
 		Id:                     peer.ID,
 		Name:                   peer.Name,
 		Ip:                     peer.IP.String(),
+		ConnectionIp:           connectionIPoString(peer.Location.ConnectionIP),
 		Connected:              peer.Status.Connected,
 		LastSeen:               peer.Status.LastSeen,
 		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
+		KernelVersion:          &peer.Meta.KernelVersion,
+		GeonameId:              &geonameID,
 		Version:                peer.Meta.WtVersion,
 		Groups:                 groupsInfo,
 		SshEnabled:             peer.SSHEnabled,

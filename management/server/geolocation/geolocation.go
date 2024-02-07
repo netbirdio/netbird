@@ -87,17 +87,44 @@ func NewGeolocation(datadir string) (*Geolocation, error) {
 	return geo, nil
 }
 
-func (gl *Geolocation) Lookup(ip string) (*Record, error) {
+func openDB(mmdbPath string) (*maxminddb.Reader, error) {
+	_, err := os.Stat(mmdbPath)
+
+	if os.IsNotExist(err) {
+		return nil, fmt.Errorf("%v does not exist", mmdbPath)
+	} else if err != nil {
+		return nil, err
+	}
+
+	db, err := maxminddb.Open(mmdbPath)
+	if err != nil {
+		return nil, fmt.Errorf("%v could not be opened: %w", mmdbPath, err)
+	}
+
+	return db, nil
+}
+
+func getSha256sum(mmdbPath string) ([]byte, error) {
+	f, err := os.Open(mmdbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return nil, err
+	}
+
+	return h.Sum(nil), nil
+}
+
+func (gl *Geolocation) Lookup(ip net.IP) (*Record, error) {
 	gl.mux.RLock()
 	defer gl.mux.RUnlock()
 
-	parsedIp := net.ParseIP(ip)
-	if parsedIp == nil {
-		return nil, fmt.Errorf("could not parse IP %s", ip)
-	}
-
 	var record Record
-	err := gl.db.Lookup(parsedIp, &record)
+	err := gl.db.Lookup(ip, &record)
 	if err != nil {
 		return nil, err
 	}
@@ -203,35 +230,6 @@ func (gl *Geolocation) reload(newSha256sum []byte) error {
 	log.Infof("Successfully reloaded '%s'", gl.mmdbPath)
 
 	return gl.locationDB.reload()
-}
-
-func openDB(mmdbPath string) (*maxminddb.Reader, error) {
-	_, err := fileExists(mmdbPath)
-	if err != nil {
-		return nil, err
-	}
-
-	db, err := maxminddb.Open(mmdbPath)
-	if err != nil {
-		return nil, fmt.Errorf("%v could not be opened: %w", mmdbPath, err)
-	}
-
-	return db, nil
-}
-
-func getSha256sum(mmdbPath string) ([]byte, error) {
-	f, err := os.Open(mmdbPath)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return nil, err
-	}
-
-	return h.Sum(nil), nil
 }
 
 func fileExists(filePath string) (bool, error) {

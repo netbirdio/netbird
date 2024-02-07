@@ -430,8 +430,14 @@ type Peer struct {
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
+	// ConnectionIp Peer's public connection IP address
+	ConnectionIp *string `json:"connection_ip,omitempty"`
+
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
+
+	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
+	GeonameId *int `json:"geoname_id,omitempty"`
 
 	// Groups Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
@@ -444,6 +450,9 @@ type Peer struct {
 
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
+
+	// KernelVersion Peer's operating system kernel version
+	KernelVersion *string `json:"kernel_version,omitempty"`
 
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
@@ -484,8 +493,14 @@ type PeerBase struct {
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
+	// ConnectionIp Peer's public connection IP address
+	ConnectionIp *string `json:"connection_ip,omitempty"`
+
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
+
+	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
+	GeonameId *int `json:"geoname_id,omitempty"`
 
 	// Groups Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
@@ -498,6 +513,9 @@ type PeerBase struct {
 
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
+
+	// KernelVersion Peer's operating system kernel version
+	KernelVersion *string `json:"kernel_version,omitempty"`
 
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
@@ -541,8 +559,14 @@ type PeerBatch struct {
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
+	// ConnectionIp Peer's public connection IP address
+	ConnectionIp *string `json:"connection_ip,omitempty"`
+
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
+
+	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
+	GeonameId *int `json:"geoname_id,omitempty"`
 
 	// Groups Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
@@ -555,6 +579,9 @@ type PeerBatch struct {
 
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
+
+	// KernelVersion Peer's operating system kernel version
+	KernelVersion *string `json:"kernel_version,omitempty"`
 
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`

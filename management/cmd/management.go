@@ -180,7 +180,7 @@ var (
 
 			trustedPeers := config.TrustedHTTPProxies
 			if len(trustedPeers) == 0 {
-				trustedPeers = []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}
+				trustedPeers = []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
 			}
 			headers := []string{realip.XForwardedFor, realip.XRealIp}
 			gRPCOpts := []grpc.ServerOption{
