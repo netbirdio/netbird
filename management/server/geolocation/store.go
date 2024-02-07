@@ -49,8 +49,8 @@ func NewSqliteStore(dataDir string) (*SqliteStore, error) {
 
 // GetAllCountries returns a list of all countries in the store.
 func (s *SqliteStore) GetAllCountries() ([]Country, error) {
-	s.mux.Lock()
-	defer s.mux.Unlock()
+	s.mux.RLock()
+	defer s.mux.RUnlock()
 
 	var countries []Country
 	result := s.db.Table("geonames").
@@ -65,8 +65,8 @@ func (s *SqliteStore) GetAllCountries() ([]Country, error) {
 
 // GetCitiesByCountry retrieves a list of cities from the store based on the given country ISO code.
 func (s *SqliteStore) GetCitiesByCountry(countryISOCode string) ([]City, error) {
-	s.mux.Lock()
-	defer s.mux.Unlock()
+	s.mux.RLock()
+	defer s.mux.RUnlock()
 
 	var cities []City
 	result := s.db.Table("geonames").
