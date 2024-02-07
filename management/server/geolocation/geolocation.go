@@ -22,6 +22,7 @@ type Geolocation struct {
 	mux                 *sync.RWMutex
 	sha256sum           []byte
 	db                  *maxminddb.Reader
+	locationDB          *SqliteStore
 	stopCh              chan struct{}
 	reloadCheckInterval time.Duration
 }
@@ -43,6 +44,16 @@ type Record struct {
 	} `maxminddb:"country"`
 }
 
+type City struct {
+	GeoNameID int `gorm:"column:geoname_id"`
+	CityName  string
+}
+
+type Country struct {
+	CountryISOCode string `gorm:"column:country_iso_code"`
+	CountryName    string
+}
+
 func NewGeolocation(datadir string) (*Geolocation, error) {
 	mmdbPath := path.Join(datadir, mmdbFileName)
 
@@ -56,11 +67,17 @@ func NewGeolocation(datadir string) (*Geolocation, error) {
 		return nil, err
 	}
 
+	locationDB, err := NewSqliteStore(datadir)
+	if err != nil {
+		return nil, err
+	}
+
 	geo := &Geolocation{
 		mmdbPath:            mmdbPath,
 		mux:                 &sync.RWMutex{},
 		sha256sum:           sha256sum,
 		db:                  db,
+		locationDB:          locationDB,
 		reloadCheckInterval: 60 * time.Second, // TODO: make configurable
 		stopCh:              make(chan struct{}),
 	}
@@ -115,6 +132,38 @@ func (gl *Geolocation) Lookup(ip net.IP) (*Record, error) {
 	return &record, nil
 }
 
+// GetAllCountries retrieves a list of all countries.
+func (gl *Geolocation) GetAllCountries() ([]Country, error) {
+	allCountries, err := gl.locationDB.GetAllCountries()
+	if err != nil {
+		return nil, err
+	}
+
+	countries := make([]Country, 0)
+	for _, country := range allCountries {
+		if country.CountryName != "" {
+			countries = append(countries, country)
+		}
+	}
+	return countries, nil
+}
+
+// GetCitiesByCountry retrieves a list of cities in a specific country based on the country's ISO code.
+func (gl *Geolocation) GetCitiesByCountry(countryISOCode string) ([]City, error) {
+	allCities, err := gl.locationDB.GetCitiesByCountry(countryISOCode)
+	if err != nil {
+		return nil, err
+	}
+
+	cities := make([]City, 0)
+	for _, city := range allCities {
+		if city.CityName != "" {
+			cities = append(cities, city)
+		}
+	}
+	return cities, nil
+}
+
 func (gl *Geolocation) Stop() error {
 	close(gl.stopCh)
 	if gl.db != nil {
@@ -129,6 +178,10 @@ func (gl *Geolocation) reloader() {
 		case <-gl.stopCh:
 			return
 		case <-time.After(gl.reloadCheckInterval):
+			if err := gl.locationDB.reload(); err != nil {
+				log.Errorf("geonames db reload failed: %s", err)
+			}
+
 			newSha256sum1, err := getSha256sum(gl.mmdbPath)
 			if err != nil {
 				log.Errorf("failed to calculate sha256 sum for '%s': %s", gl.mmdbPath, err)
@@ -149,7 +202,7 @@ func (gl *Geolocation) reloader() {
 				}
 				err = gl.reload(newSha256sum2)
 				if err != nil {
-					log.Errorf("reload failed: %s", err)
+					log.Errorf("mmdb reload failed: %s", err)
 				}
 			} else {
 				log.Debugf("No changes in '%s', no need to reload. Next check is in %.0f seconds.",
@@ -181,4 +234,15 @@ func (gl *Geolocation) reload(newSha256sum []byte) error {
 	log.Infof("Successfully reloaded '%s'", gl.mmdbPath)
 
 	return nil
+}
+
+func fileExists(filePath string) (bool, error) {
+	_, err := os.Stat(filePath)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, fmt.Errorf("%v does not exist", filePath)
+	}
+	return false, err
 }

@@ -930,6 +930,36 @@ components:
       required:
         - country_code
         - city_name
+    Country:
+      description: Describe country geographical location information
+      type: object
+      properties:
+        country_name:
+          description: Commonly used English name of the country
+          type: string
+          example: "Germany"
+        country_code:
+          description: 2-letter ISO 3166-1 alpha-2 code that represents the country
+          type: string
+          example: "DE"
+      required:
+        - country_name
+        - country_code
+    City:
+      description: Describe city geographical location information
+      type: object
+      properties:
+        geoname_id:
+          description: Integer ID of the record in GeoNames database
+          type: integer
+          example: 2950158
+        city_name:
+          description: Commonly used English name of the city
+          type: string
+          example: "Berlin"
+      required:
+        - geoname_id
+        - city_name
     PostureCheckUpdate:
       type: object
       properties:
@@ -2737,6 +2767,61 @@ paths:
         '200':
           description: Delete status code
           content: { }
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/locations/countries:
+    get:
+      summary: List all country codes
+      description: Get list of all country in 2-letter ISO 3166-1 alpha-2 codes
+      tags: [ "Geo Locations" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: List of country codes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  example: "DE"
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/locations/countries/{country}/cities:
+    get:
+      summary: List all city names by country
+      description: Get a list of all English city names for a given country code
+      tags: [ "Geo Locations" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: country
+          required: true
+          schema:
+            $ref: '#/components/schemas/Country'
+      responses:
+        '200':
+          description: List of city names
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/City'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
