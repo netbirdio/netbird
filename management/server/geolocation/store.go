@@ -1,6 +1,7 @@
 package geolocation
 
 import (
+	"bytes"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -19,21 +20,30 @@ const (
 
 // SqliteStore represents a location storage backed by a Sqlite DB.
 type SqliteStore struct {
-	db       *gorm.DB
-	filePath string
-	mux      *sync.RWMutex
+	db        *gorm.DB
+	filePath  string
+	mux       *sync.RWMutex
+	sha256sum []byte
 }
 
 func NewSqliteStore(dataDir string) (*SqliteStore, error) {
-	db, err := connectDB(dataDir)
+	file := filepath.Join(dataDir, geoSqliteDBFile)
+
+	db, err := connectDB(file)
+	if err != nil {
+		return nil, err
+	}
+
+	sha256sum, err := getSha256sum(file)
 	if err != nil {
 		return nil, err
 	}
 
 	return &SqliteStore{
-		db:       db,
-		filePath: filepath.Join(dataDir, geoSqliteDBFile),
-		mux:      &sync.RWMutex{},
+		db:        db,
+		filePath:  file,
+		mux:       &sync.RWMutex{},
+		sha256sum: sha256sum,
 	}, nil
 }
 
@@ -71,21 +81,32 @@ func (s *SqliteStore) GetCitiesByCountry(countryISOCode string) ([]City, error) 
 	return cities, nil
 }
 
+// reload attempts to reload the SqliteStore's database if the database file has changed.
 func (s *SqliteStore) reload() error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	log.Infof("Reloading '%s'", s.filePath)
-
-	newDb, err := connectDB(s.filePath)
+	sha256sum, err := getSha256sum(s.filePath)
 	if err != nil {
-		return err
+		log.Errorf("failed to calculate sha256 sum for '%s': %s", s.filePath, err)
 	}
 
-	_ = s.close()
-	s.db = newDb
+	if !bytes.Equal(s.sha256sum, sha256sum) {
+		log.Infof("Reloading '%s'", s.filePath)
 
-	log.Infof("Successfully reloaded '%s'", s.filePath)
+		newDb, err := connectDB(s.filePath)
+		if err != nil {
+			return err
+		}
+
+		_ = s.close()
+		s.db = newDb
+
+		log.Infof("Successfully reloaded '%s'", s.filePath)
+	} else {
+		log.Debugf("No changes in '%s', no need to reload", s.filePath)
+	}
+
 	return nil
 }
 
@@ -101,14 +122,13 @@ func (s *SqliteStore) close() error {
 }
 
 // connectDB connects to an SQLite database and prepares it by setting up an in-memory database.
-func connectDB(dataDir string) (*gorm.DB, error) {
+func connectDB(filePath string) (*gorm.DB, error) {
 	start := time.Now()
 	defer func() {
 		log.Debugf("took %v to setup geoname db", time.Since(start))
 	}()
 
-	file := filepath.Join(dataDir, geoSqliteDBFile)
-	_, err := fileExists(file)
+	_, err := fileExists(filePath)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +146,7 @@ func connectDB(dataDir string) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	if err := setupInMemoryDBFromFile(db, file); err != nil {
+	if err := setupInMemoryDBFromFile(db, filePath); err != nil {
 		return nil, err
 	}
 

@@ -178,6 +178,10 @@ func (gl *Geolocation) reloader() {
 		case <-gl.stopCh:
 			return
 		case <-time.After(gl.reloadCheckInterval):
+			if err := gl.locationDB.reload(); err != nil {
+				log.Errorf("reload failed: %s", err)
+			}
+
 			newSha256sum1, err := getSha256sum(gl.mmdbPath)
 			if err != nil {
 				log.Errorf("failed to calculate sha256 sum for '%s': %s", gl.mmdbPath, err)
@@ -229,7 +233,7 @@ func (gl *Geolocation) reload(newSha256sum []byte) error {
 
 	log.Infof("Successfully reloaded '%s'", gl.mmdbPath)
 
-	return gl.locationDB.reload()
+	return nil
 }
 
 func fileExists(filePath string) (bool, error) {
