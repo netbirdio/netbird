@@ -890,18 +890,6 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 		if err != nil {
 			return nil, err
 		}
-		if userData == nil {
-			// lets check external cache
-			key := newUser.IntegrationReference.CacheKey(account.Id, newUser.Id)
-			log.Debugf("looking up user %s of account %s in external cache", key, account.Id)
-			info, err := am.externalCacheManager.Get(am.ctx, key)
-			if err != nil {
-				log.Infof("Get ExternalCache for key: %s, error: %s", key, err)
-				return nil, status.Errorf(status.NotFound, "user %s not found in the IdP", newUser.Id)
-			}
-
-			return newUser.ToUserInfo(info)
-		}
 		return newUser.ToUserInfo(userData)
 	}
 	return newUser.ToUserInfo(nil)
