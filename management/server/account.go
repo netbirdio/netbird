@@ -1232,8 +1232,8 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 	key := user.IntegrationReference.CacheKey(account.Id, userID)
 	ud, err := am.externalCacheManager.Get(am.ctx, key)
 	if err == nil {
-		log.Debugf("user %s found in external cache", userID)
-		return ud, nil
+		log.Errorf("failed to get externalCache for key: %s, error: %s", key, err)
+		return ud, status.Errorf(status.NotFound, "user %s not found in the IdP", userID)
 	}
 
 	log.Infof("user %s not found in any cache", userID)
