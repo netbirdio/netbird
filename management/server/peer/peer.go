@@ -64,10 +64,10 @@ type Location struct {
 	GeoNameID    uint // city level geoname id
 }
 
-// NetworkAddress is the IP and MAC address of a network interface
+// NetworkAddress is the IP address with network and MAC address of a network interface
 type NetworkAddress struct {
-	IP  string
-	Mac string
+	NetIP string
+	Mac   string
 }
 
 // PeerSystemMeta is a metadata of a Peer machine system
@@ -96,7 +96,7 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 	for _, addr := range p.NetworkAddresses {
 		var found bool
 		for _, oAddr := range other.NetworkAddresses {
-			if addr.Mac == oAddr.Mac && addr.IP == oAddr.IP {
+			if addr.Mac == oAddr.Mac && addr.NetIP == oAddr.NetIP {
 				found = true
 				continue
 			}
