@@ -174,3 +174,5 @@ replace github.com/getlantern/systray => github.com/netbirdio/systray v0.0.0-202
 replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20240105182236-6c340dd55aed
 
 replace github.com/cloudflare/circl => github.com/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
+
+replace github.com/perlogix/libdetectcloud => github.com/netbirdio/libdetectcloud v0.0.0-20240208115109-b03fbb408709
