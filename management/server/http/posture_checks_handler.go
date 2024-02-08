@@ -9,6 +9,7 @@ import (
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -22,14 +23,16 @@ var (
 
 // PostureChecksHandler is a handler that returns posture checks of the account.
 type PostureChecksHandler struct {
-	accountManager  server.AccountManager
-	claimsExtractor *jwtclaims.ClaimsExtractor
+	accountManager     server.AccountManager
+	geolocationManager *geolocation.Geolocation
+	claimsExtractor    *jwtclaims.ClaimsExtractor
 }
 
 // NewPostureChecksHandler creates a new PostureChecks handler
-func NewPostureChecksHandler(accountManager server.AccountManager, authCfg AuthCfg) *PostureChecksHandler {
+func NewPostureChecksHandler(accountManager server.AccountManager, geolocationManager *geolocation.Geolocation, authCfg AuthCfg) *PostureChecksHandler {
 	return &PostureChecksHandler{
-		accountManager: accountManager,
+		accountManager:     accountManager,
+		geolocationManager: geolocationManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
 			jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
@@ -62,6 +65,11 @@ func (p *PostureChecksHandler) GetAllPostureChecks(w http.ResponseWriter, r *htt
 
 // UpdatePostureCheck handles update to a posture check identified by a given ID
 func (p *PostureChecksHandler) UpdatePostureCheck(w http.ResponseWriter, r *http.Request) {
+	if p.geolocationManager == nil {
+		util.WriteError(status.Errorf(status.PreconditionFailed, "Geo location database is not initialized"), w)
+		return
+	}
+
 	claims := p.claimsExtractor.FromRequestContext(r)
 	account, user, err := p.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -93,6 +101,11 @@ func (p *PostureChecksHandler) UpdatePostureCheck(w http.ResponseWriter, r *http
 
 // CreatePostureCheck handles posture check creation request
 func (p *PostureChecksHandler) CreatePostureCheck(w http.ResponseWriter, r *http.Request) {
+	if p.geolocationManager == nil {
+		util.WriteError(status.Errorf(status.PreconditionFailed, "Geo location database is not initialized"), w)
+		return
+	}
+
 	claims := p.claimsExtractor.FromRequestContext(r)
 	account, user, err := p.accountManager.GetAccountFromToken(claims)
 	if err != nil {
