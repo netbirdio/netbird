@@ -65,11 +65,6 @@ func (p *PostureChecksHandler) GetAllPostureChecks(w http.ResponseWriter, r *htt
 
 // UpdatePostureCheck handles update to a posture check identified by a given ID
 func (p *PostureChecksHandler) UpdatePostureCheck(w http.ResponseWriter, r *http.Request) {
-	if p.geolocationManager == nil {
-		util.WriteError(status.Errorf(status.PreconditionFailed, "Geo location database is not initialized"), w)
-		return
-	}
-
 	claims := p.claimsExtractor.FromRequestContext(r)
 	account, user, err := p.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -101,11 +96,6 @@ func (p *PostureChecksHandler) UpdatePostureCheck(w http.ResponseWriter, r *http
 
 // CreatePostureCheck handles posture check creation request
 func (p *PostureChecksHandler) CreatePostureCheck(w http.ResponseWriter, r *http.Request) {
-	if p.geolocationManager == nil {
-		util.WriteError(status.Errorf(status.PreconditionFailed, "Geo location database is not initialized"), w)
-		return
-	}
-
 	claims := p.claimsExtractor.FromRequestContext(r)
 	account, user, err := p.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -214,6 +204,10 @@ func (p *PostureChecksHandler) savePostureChecks(
 	}
 
 	if geoLocationCheck := req.Checks.GeoLocationCheck; geoLocationCheck != nil {
+		if p.geolocationManager == nil {
+			util.WriteError(status.Errorf(status.PreconditionFailed, "Geo location database is not initialized"), w)
+			return
+		}
 		postureChecks.Checks = append(postureChecks.Checks, toPostureGeoLocationCheck(geoLocationCheck))
 	}
 
