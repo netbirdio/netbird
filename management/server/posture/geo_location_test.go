@@ -192,6 +192,36 @@ func TestGeoLocationCheck_Check(t *testing.T) {
 			wantErr: false,
 			isValid: true,
 		},
+		{
+			name:  "Peer with no location in the allow sets",
+			input: peer.Peer{},
+			check: GeoLocationCheck{
+				Locations: []Location{
+					{
+						CountryCode: "DE",
+						CityName:    "Berlin",
+					},
+				},
+				Action: GeoLocationActionAllow,
+			},
+			wantErr: true,
+			isValid: false,
+		},
+		{
+			name:  "Peer with no location in the deny sets",
+			input: peer.Peer{},
+			check: GeoLocationCheck{
+				Locations: []Location{
+					{
+						CountryCode: "DE",
+						CityName:    "Berlin",
+					},
+				},
+				Action: GeoLocationActionDeny,
+			},
+			wantErr: true,
+			isValid: false,
+		},
 	}
 
 	for _, tt := range tests {

@@ -30,6 +30,11 @@ type GeoLocationCheck struct {
 }
 
 func (g *GeoLocationCheck) Check(peer nbpeer.Peer) (bool, error) {
+	// deny if the peer location is not evaluated
+	if peer.Location.CountryCode == "" && peer.Location.CityName == "" {
+		return false, fmt.Errorf("peer's location is not set")
+	}
+
 	for _, loc := range g.Locations {
 		if loc.CountryCode == peer.Location.CountryCode {
 			if loc.CityName == "" || loc.CityName == peer.Location.CityName {
