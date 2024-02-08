@@ -47,7 +47,7 @@ require (
 	github.com/google/go-cmp v0.5.9
 	github.com/google/gopacket v1.1.19
 	github.com/google/nftables v0.0.0-20220808154552-2eca00135732
-	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.0.2-0.20240129190346-220740bc30b1
+	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.0.2-0.20240202184442-37827591b26c
 	github.com/hashicorp/go-secure-stdlib/base62 v0.1.2
 	github.com/hashicorp/go-version v1.6.0
 	github.com/libp2p/go-netroute v0.2.0
@@ -172,3 +172,5 @@ replace github.com/getlantern/systray => github.com/netbirdio/systray v0.0.0-202
 replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20240105182236-6c340dd55aed
 
 replace github.com/cloudflare/circl => github.com/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
+
+replace github.com/grpc-ecosystem/go-grpc-middleware/v2 => github.com/surik/go-grpc-middleware/v2 v2.0.0-20240206110057-98a38fc1f86f

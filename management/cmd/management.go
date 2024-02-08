@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -178,21 +179,31 @@ var (
 
 			turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 
-			trustedPeers := config.TrustedHTTPProxies
-			if len(trustedPeers) == 0 {
-				trustedPeers = []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
+			trustedPeers := config.ReverseProxy.TrustedPeers
+			defaultTrustedPeers := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
+			if len(trustedPeers) == 0 || slices.Equal[[]netip.Prefix](trustedPeers, defaultTrustedPeers) {
+				log.Warn("TrustedPeers are configured to default value '0.0.0.0/0', '::/0'. This allows connection IP spoofing.")
+				trustedPeers = defaultTrustedPeers
 			}
-			headers := []string{realip.XForwardedFor, realip.XRealIp}
+			trustedHTTPProxies := config.ReverseProxy.TrustedHTTPProxies
+			trustedProxiesCount := config.ReverseProxy.TrustedHTTPProxiesCount
+			if len(trustedHTTPProxies) > 0 && trustedProxiesCount > 0 {
+				log.Warn("TrustedHTTPProxies and TrustedHTTPProxiesCount both are configured. " +
+					"This is not recommended way to extract X-Forwarded-For. Consider using one of these options.")
+			}
+			realipOpts := realip.Opts{
+				TrustedPeers:        trustedPeers,
+				TrustedProxies:      trustedHTTPProxies,
+				TrustedProxiesCount: trustedProxiesCount,
+				Headers:             []string{realip.XForwardedFor, realip.XRealIp},
+			}
 			gRPCOpts := []grpc.ServerOption{
 				grpc.KeepaliveEnforcementPolicy(kaep),
 				grpc.KeepaliveParams(kasp),
-				grpc.ChainUnaryInterceptor(
-					realip.UnaryServerInterceptor(trustedPeers, headers),
-				),
-				grpc.ChainStreamInterceptor(
-					realip.StreamServerInterceptor(trustedPeers, headers),
-				),
+				grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts)),
+				grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts)),
 			}
+
 			var certManager *autocert.Manager
 			var tlsConfig *tls.Config
 			tlsEnabled := false
