@@ -465,6 +465,8 @@ func (conn *Conn) cleanup() error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
+	conn.sentExtraSrflx = false
+
 	var err1, err2, err3 error
 	if conn.agent != nil {
 		err1 = conn.agent.Close()
@@ -565,7 +567,7 @@ func (conn *Conn) onICECandidate(candidate ice.Candidate) {
 				relatedAdd := candidate.RelatedAddress()
 				extraSrflx, err := ice.NewCandidateServerReflexive(&ice.CandidateServerReflexiveConfig{
 					Network:   candidate.NetworkType().String(),
-					Address:   candidate.String(),
+					Address:   candidate.Address(),
 					Port:      relatedAdd.Port,
 					Component: candidate.Component(),
 					RelAddr:   relatedAdd.Address,
