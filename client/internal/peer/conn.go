@@ -579,7 +579,7 @@ func (conn *Conn) onICECandidate(candidate ice.Candidate) {
 				}
 				err = conn.signalCandidate(extraSrflx)
 				if err != nil {
-					log.Errorf("failed signaling the extra server reflexive candidate to the remote peer %s %s", conn.config.Key, err)
+					log.Errorf("failed signaling the extra server reflexive candidate to the remote peer %s: %s", conn.config.Key, err)
 					return
 				}
 				conn.sentExtraSrflx = true
