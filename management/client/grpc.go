@@ -454,8 +454,8 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 	addresses := make([]*proto.NetworkAddress, 0, len(info.NetworkAddresses))
 	for _, addr := range info.NetworkAddresses {
 		addresses = append(addresses, &proto.NetworkAddress{
-			Ip:  addr.IP,
-			Mac: addr.Mac,
+			NetIP: addr.NetIP.String(),
+			Mac:   addr.Mac,
 		})
 	}
 

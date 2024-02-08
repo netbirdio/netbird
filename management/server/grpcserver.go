@@ -263,8 +263,8 @@ func extractPeerMeta(loginReq *proto.LoginRequest) nbpeer.PeerSystemMeta {
 	networkAddresses := make([]nbpeer.NetworkAddress, 0, len(loginReq.GetMeta().GetNetworkAddresses()))
 	for _, addr := range loginReq.GetMeta().GetNetworkAddresses() {
 		networkAddresses = append(networkAddresses, nbpeer.NetworkAddress{
-			IP:  addr.GetIp(),
-			Mac: addr.GetMac(),
+			NetIP: addr.GetNetIP(),
+			Mac:   addr.GetMac(),
 		})
 	}
 

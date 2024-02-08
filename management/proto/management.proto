@@ -359,6 +359,6 @@ message FirewallRule {
 }
 
 message NetworkAddress {
-  string ip = 1;
+  string netIP = 1;
   string mac = 2;
 }

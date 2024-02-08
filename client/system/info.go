@@ -3,6 +3,7 @@ package system
 import (
 	"context"
 	"net"
+	"net/netip"
 	"strings"
 
 	"google.golang.org/grpc/metadata"
@@ -22,8 +23,8 @@ const OsVersionCtxKey = "OsVersion"
 const OsNameCtxKey = "OsName"
 
 type NetworkAddress struct {
-	IP  string
-	Mac string
+	NetIP netip.Prefix
+	Mac   string
 }
 
 // Info is an object that contains machine information
@@ -107,8 +108,8 @@ func networkAddresses() ([]NetworkAddress, error) {
 			}
 
 			netAddr := NetworkAddress{
-				IP:  ipNet.IP.String(),
-				Mac: iface.HardwareAddr.String(),
+				NetIP: netip.MustParsePrefix(ipNet.String()),
+				Mac:   iface.HardwareAddr.String(),
 			}
 
 			if isDuplicated(netAddresses, netAddr) {
@@ -123,7 +124,7 @@ func networkAddresses() ([]NetworkAddress, error) {
 
 func isDuplicated(addresses []NetworkAddress, addr NetworkAddress) bool {
 	for _, duplicated := range addresses {
-		if duplicated.IP == addr.IP {
+		if duplicated.NetIP == addr.NetIP {
 			return true
 		}
 	}
