@@ -106,15 +106,26 @@ func networkAddresses() ([]NetworkAddress, error) {
 				continue
 			}
 
-			if ipNet.IP.To4() == nil {
-				continue
-			}
 			netAddr := NetworkAddress{
 				IP:  ipNet.IP.String(),
 				Mac: iface.HardwareAddr.String(),
 			}
+
+			if isDuplicated(netAddresses, netAddr) {
+				continue
+			}
+
 			netAddresses = append(netAddresses, netAddr)
 		}
 	}
 	return netAddresses, nil
+}
+
+func isDuplicated(addresses []NetworkAddress, addr NetworkAddress) bool {
+	for _, duplicated := range addresses {
+		if duplicated.IP == addr.IP {
+			return true
+		}
+	}
+	return false
 }
