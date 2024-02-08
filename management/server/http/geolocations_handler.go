@@ -20,8 +20,8 @@ type GeolocationsHandler struct {
 	claimsExtractor    *jwtclaims.ClaimsExtractor
 }
 
-// NewLocationsHandlerHandler creates a new Location handler
-func NewLocationsHandlerHandler(accountManager server.AccountManager, geolocationManager *geolocation.Geolocation, authCfg AuthCfg) *GeolocationsHandler {
+// NewGeolocationsHandlerHandler creates a new Geolocations handler
+func NewGeolocationsHandlerHandler(accountManager server.AccountManager, geolocationManager *geolocation.Geolocation, authCfg AuthCfg) *GeolocationsHandler {
 	return &GeolocationsHandler{
 		accountManager:     accountManager,
 		geolocationManager: geolocationManager,
