@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -67,6 +68,7 @@ func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksH
 				}, user, nil
 			},
 		},
+		geolocationManager: &geolocation.Geolocation{},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
 				return jwtclaims.AuthorizationClaims{
@@ -208,6 +210,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 		requestType          string
 		requestPath          string
 		requestBody          io.Reader
+		setupHandlerFunc     func(handler *PostureChecksHandler)
 	}{
 		{
 			name:        "Create Posture Checks NB version",
@@ -234,6 +237,36 @@ func TestPostureCheckUpdate(t *testing.T) {
 						MinVersion: "1.2.3",
 					},
 				},
+			},
+		},
+		{
+			name:        "Create Posture Checks NB version with No geolocation DB",
+			requestType: http.MethodPost,
+			requestPath: "/api/posture-checks",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+		           "name": "default",
+                  "description": "default",
+		           "checks": {
+						"nb_version_check": {
+							"min_version": "1.2.3"
+		           		}
+                  }
+				}`)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedPostureCheck: &api.PostureCheck{
+				Id:          "postureCheck",
+				Name:        "default",
+				Description: str("default"),
+				Checks: api.Checks{
+					NbVersionCheck: &api.NBVersionCheck{
+						MinVersion: "1.2.3",
+					},
+				},
+			},
+			setupHandlerFunc: func(handler *PostureChecksHandler) {
+				handler.geolocationManager = nil
 			},
 		},
 		{
@@ -316,6 +349,32 @@ func TestPostureCheckUpdate(t *testing.T) {
 						Action: api.GeoLocationCheckActionAllow,
 					},
 				},
+			},
+		},
+		{
+			name:        "Create Posture Checks Geo Location with No geolocation DB",
+			requestType: http.MethodPost,
+			requestPath: "/api/posture-checks",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+      				"name": "default",
+                  	"description": "default",
+					"checks": {
+						"geo_location_check": {
+							"locations": [
+								{
+									"city_name": "Berlin",
+									"country_code": "DE"
+								}
+							],
+							"action": "allow"
+						}
+					}
+				}`)),
+			expectedStatus: http.StatusPreconditionFailed,
+			expectedBody:   false,
+			setupHandlerFunc: func(handler *PostureChecksHandler) {
+				handler.geolocationManager = nil
 			},
 		},
 		{
@@ -434,6 +493,39 @@ func TestPostureCheckUpdate(t *testing.T) {
 			},
 		},
 		{
+			name:        "Update Posture Checks OS Version with No geolocation DB",
+			requestType: http.MethodPut,
+			requestPath: "/api/posture-checks/osPostureCheck",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+		           "name": "default",
+		           "checks": {
+						"os_version_check": {
+							"linux": {
+								"min_kernel_version": "6.9.0"
+							}
+		           		}
+					}
+				}`)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedPostureCheck: &api.PostureCheck{
+				Id:          "postureCheck",
+				Name:        "default",
+				Description: str(""),
+				Checks: api.Checks{
+					OsVersionCheck: &api.OSVersionCheck{
+						Linux: &api.MinKernelVersionCheck{
+							MinKernelVersion: "6.9.0",
+						},
+					},
+				},
+			},
+			setupHandlerFunc: func(handler *PostureChecksHandler) {
+				handler.geolocationManager = nil
+			},
+		},
+		{
 			name:        "Update Posture Checks Geo Location",
 			requestType: http.MethodPut,
 			requestPath: "/api/posture-checks/geoPostureCheck",
@@ -469,6 +561,31 @@ func TestPostureCheckUpdate(t *testing.T) {
 						Action: api.GeoLocationCheckActionAllow,
 					},
 				},
+			},
+		},
+		{
+			name:        "Update Posture Checks Geo Location with No geolocation DB",
+			requestType: http.MethodPut,
+			requestPath: "/api/posture-checks/geoPostureCheck",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+					"name": "default",
+					"checks": {
+						"geo_location_check": {
+							"locations": [
+								{
+									"city_name": "Los Angeles",
+									"country_code": "US"
+								}
+							],
+							"action": "allow"
+						}
+					}
+					}`)),
+			expectedStatus: http.StatusPreconditionFailed,
+			expectedBody:   false,
+			setupHandlerFunc: func(handler *PostureChecksHandler) {
+				handler.geolocationManager = nil
 			},
 		},
 		{
@@ -560,9 +677,14 @@ func TestPostureCheckUpdate(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
+			defaultHandler := *p
+			if tc.setupHandlerFunc != nil {
+				tc.setupHandlerFunc(&defaultHandler)
+			}
+
 			router := mux.NewRouter()
-			router.HandleFunc("/api/posture-checks", p.CreatePostureCheck).Methods("POST")
-			router.HandleFunc("/api/posture-checks/{postureCheckId}", p.UpdatePostureCheck).Methods("PUT")
+			router.HandleFunc("/api/posture-checks", defaultHandler.CreatePostureCheck).Methods("POST")
+			router.HandleFunc("/api/posture-checks/{postureCheckId}", defaultHandler.UpdatePostureCheck).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

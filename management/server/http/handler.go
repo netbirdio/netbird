@@ -207,7 +207,7 @@ func (apiHandler *apiHandler) addEventsEndpoint() {
 }
 
 func (apiHandler *apiHandler) addPostureCheckEndpoint() {
-	postureCheckHandler := NewPostureChecksHandler(apiHandler.AccountManager, apiHandler.AuthCfg)
+	postureCheckHandler := NewPostureChecksHandler(apiHandler.AccountManager, apiHandler.geolocationManager, apiHandler.AuthCfg)
 	apiHandler.Router.HandleFunc("/posture-checks", postureCheckHandler.GetAllPostureChecks).Methods("GET", "OPTIONS")
 	apiHandler.Router.HandleFunc("/posture-checks", postureCheckHandler.CreatePostureCheck).Methods("POST", "OPTIONS")
 	apiHandler.Router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.UpdatePostureCheck).Methods("PUT", "OPTIONS")
@@ -218,7 +218,7 @@ func (apiHandler *apiHandler) addPostureCheckEndpoint() {
 func (apiHandler *apiHandler) addLocationsEndpoint() {
 	// enable location endpoints if location manager is enabled
 	if apiHandler.geolocationManager != nil {
-		locationHandler := NewLocationsHandlerHandler(apiHandler.AccountManager, apiHandler.geolocationManager, apiHandler.AuthCfg)
+		locationHandler := NewGeolocationsHandlerHandler(apiHandler.AccountManager, apiHandler.geolocationManager, apiHandler.AuthCfg)
 		apiHandler.Router.HandleFunc("/locations/countries", locationHandler.GetAllCountries).Methods("GET", "OPTIONS")
 		apiHandler.Router.HandleFunc("/locations/countries/{country}/cities", locationHandler.GetCitiesByCountry).Methods("GET", "OPTIONS")
 	}
