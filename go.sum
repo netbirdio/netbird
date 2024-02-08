@@ -377,6 +377,7 @@ github.com/mxk/go-flowrate v0.0.0-20140419014527-cca7078d478f/go.mod h1:ZdcZmHo+
 github.com/nadoo/ipset v0.5.0 h1:5GJUAuZ7ITQQQGne5J96AmFjRtI8Avlbk6CabzYWVUc=
 github.com/nadoo/ipset v0.5.0/go.mod h1:rYF5DQLRGGoQ8ZSWeK+6eX5amAuPqwFkWjhQlEITGJQ=
 github.com/netbirdio/libdetectcloud v0.0.0-20230721195148-b0a0473b5591/go.mod h1:9y6140vn+2JFi0k4RobK1/4PmRAP7IUTCHIkAHW4R88=
+github.com/netbirdio/libdetectcloud v0.0.0-20240208115109-b03fbb408709 h1:KyrScg73MBpc26mQcTq30TYccp8TiVWrez0AsV1fQGQ=
 github.com/netbirdio/libdetectcloud v0.0.0-20240208115109-b03fbb408709/go.mod h1:9y6140vn+2JFi0k4RobK1/4PmRAP7IUTCHIkAHW4R88=
 github.com/netbirdio/management-integrations/additions v0.0.0-20240118163419-8a7c87accb22 h1:XTiNnVB6OEwung8WIiGJNzOTLVefuSzAA/cu+6Sst8A=
 github.com/netbirdio/management-integrations/additions v0.0.0-20240118163419-8a7c87accb22/go.mod h1:31FhBNvQ+riHEIu6LSTmqr8IeuSIsGfQffqV4LFmbwA=
