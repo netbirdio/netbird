@@ -22,7 +22,7 @@ const (
 type SqliteStore struct {
 	db        *gorm.DB
 	filePath  string
-	mux       *sync.RWMutex
+	mux       sync.RWMutex
 	sha256sum []byte
 }
 
@@ -42,7 +42,7 @@ func NewSqliteStore(dataDir string) (*SqliteStore, error) {
 	return &SqliteStore{
 		db:        db,
 		filePath:  file,
-		mux:       &sync.RWMutex{},
+		mux:       sync.RWMutex{},
 		sha256sum: sha256sum,
 	}, nil
 }
@@ -144,9 +144,9 @@ func connectDB(filePath string) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	storeStr := ":memory:?cache=shared&mode=ro"
+	storeStr := "file::memory:?cache=shared"
 	if runtime.GOOS == "windows" {
-		storeStr = ":memory:?&mode=ro"
+		storeStr = "file::memory:"
 	}
 
 	db, err := gorm.Open(sqlite.Open(storeStr), &gorm.Config{
