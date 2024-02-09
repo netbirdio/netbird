@@ -26,7 +26,6 @@ func Detect() string {
 		detectGCE,
 		detectOracle,
 		detectIBMCloud,
-		detectOpenStack,
 		detectSoftlayer,
 		detectVultr,
 		detectContainer,
