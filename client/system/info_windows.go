@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows/registry"
 
+	"github.com/netbirdio/netbird/client/system/detect_cloud"
 	"github.com/netbirdio/netbird/version"
 )
 

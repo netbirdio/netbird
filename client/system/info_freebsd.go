@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netbirdio/netbird/client/system/detect_cloud"
 	"github.com/netbirdio/netbird/version"
 )
 

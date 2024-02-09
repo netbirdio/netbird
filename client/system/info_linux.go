@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/zcalusic/sysinfo"
 
+	"github.com/netbirdio/netbird/client/system/detect_cloud"
 	"github.com/netbirdio/netbird/version"
 )
 
