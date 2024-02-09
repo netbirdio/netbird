@@ -167,7 +167,14 @@ func (gl *Geolocation) GetCitiesByCountry(countryISOCode string) ([]City, error)
 func (gl *Geolocation) Stop() error {
 	close(gl.stopCh)
 	if gl.db != nil {
-		return gl.db.Close()
+		if err := gl.db.Close(); err != nil {
+			return err
+		}
+	}
+	if gl.locationDB != nil {
+		if err := gl.locationDB.close(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
