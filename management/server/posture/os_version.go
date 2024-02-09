@@ -1,6 +1,8 @@
 package posture
 
 import (
+	"strings"
+
 	"github.com/hashicorp/go-version"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	log "github.com/sirupsen/logrus"
@@ -34,7 +36,8 @@ func (c *OSVersionCheck) Check(peer nbpeer.Peer) (bool, error) {
 	case "ios":
 		return checkMinVersion(peerGoOS, peer.Meta.OSVersion, c.Ios)
 	case "linux":
-		return checkMinKernelVersion(peerGoOS, peer.Meta.KernelVersion, c.Linux)
+		kernelVersion := strings.Split(peer.Meta.KernelVersion, "-")[0]
+		return checkMinKernelVersion(peerGoOS, kernelVersion, c.Linux)
 	case "windows":
 		return checkMinKernelVersion(peerGoOS, peer.Meta.KernelVersion, c.Windows)
 	}
