@@ -20,6 +20,8 @@ import (
 )
 
 func initGeolocationTestData(t *testing.T) *GeolocationsHandler {
+	t.Helper()
+
 	var (
 		mmdbPath       = "../testdata/GeoLite2-City-Test.mmdb"
 		geonamesDBPath = "../testdata/geonames-test.db"
