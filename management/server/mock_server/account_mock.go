@@ -93,6 +93,8 @@ type MockAccountManager struct {
 	DeletePostureChecksFunc         func(accountID, postureChecksID, userID string) error
 	ListPostureChecksFunc           func(accountID, userID string) ([]*posture.Checks, error)
 	GetUsageFunc                    func(ctx context.Context, accountID string, start, end time.Time) (*server.AccountUsageStats, error)
+	UpdateIntegratedApprovalGroupsFunc func(accountID string, userID string, groups []string) error
+	GroupValidationFunc                func(accountId string, groups []string) (bool, error)
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -711,4 +713,20 @@ func (am *MockAccountManager) GetUsage(ctx context.Context, accountID string, st
 		return am.GetUsageFunc(ctx, accountID, start, end)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetUsage is not implemented")
+}
+
+// UpdateIntegratedApprovalGroups mocks UpdateIntegratedApprovalGroups of the AccountManager interface
+func (am *MockAccountManager) UpdateIntegratedApprovalGroups(accountID string, userID string, groups []string) error {
+	if am.UpdateIntegratedApprovalGroupsFunc != nil {
+		return am.UpdateIntegratedApprovalGroupsFunc(accountID, userID, groups)
+	}
+	return status.Errorf(codes.Unimplemented, "method UpdateIntegratedApprovalGroups is not implemented")
+}
+
+// GroupValidation mocks GroupValidation of the AccountManager interface
+func (am *MockAccountManager) GroupValidation(accountId string, groups []string) (bool, error) {
+	if am.GroupValidationFunc != nil {
+		return am.GroupValidationFunc(accountId, groups)
+	}
+	return false, status.Errorf(codes.Unimplemented, "method GroupValidation is not implemented")
 }

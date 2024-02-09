@@ -2,6 +2,8 @@ package server_test
 
 import (
 	"context"
+	"github.com/netbirdio/netbird/management/server/account"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"math/rand"
 	"net"
 	"os"
@@ -10,24 +12,19 @@ import (
 	sync2 "sync"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/activity"
-
-	"google.golang.org/grpc/credentials/insecure"
-
-	"github.com/netbirdio/netbird/management/server"
-
 	pb "github.com/golang/protobuf/proto" //nolint
-	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/encryption"
-
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -448,6 +445,17 @@ var _ = Describe("Management service", func() {
 	})
 })
 
+type MocIntegratedApproval struct {
+}
+
+func (MocIntegratedApproval) PreparePeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer {
+	return peer
+}
+
+func (MocIntegratedApproval) ValidatePeer(accountID string, peer *nbpeer.Peer, peersGroup []string, integratedApprovalGroups []string) (bool, error) {
+	return true, nil
+}
+
 func loginPeerWithValidSetupKey(serverPubKey wgtypes.Key, key wgtypes.Key, client mgmtProto.ManagementServiceClient) *mgmtProto.LoginResponse {
 	defer GinkgoRecover()
 
@@ -504,7 +512,7 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "",
-		eventStore, nil, false)
+		eventStore, nil, false, MocIntegratedApproval{})
 	if err != nil {
 		log.Fatalf("failed creating a manager: %v", err)
 	}

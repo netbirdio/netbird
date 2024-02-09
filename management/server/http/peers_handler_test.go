@@ -3,6 +3,7 @@ package http
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/netbirdio/management-integrations/integrations"
 	"io"
 	"net"
 	"net/http"
@@ -102,6 +103,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 				}
 			}),
 		),
+		peerValidator: integrations.NewIntegratedApproval(),
 	}
 }
 

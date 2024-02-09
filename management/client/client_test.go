@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"github.com/netbirdio/management-integrations/integrations"
 	"net"
 	"path/filepath"
 	"sync"
@@ -60,7 +61,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 
 	peersUpdateManager := mgmt.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
-	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "", eventStore, nil, false)
+	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "", eventStore, nil, false, integrations.NewIntegratedApproval())
 	if err != nil {
 		t.Fatal(err)
 	}

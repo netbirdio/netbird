@@ -274,6 +274,15 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 		}
 	}
 
+	// check integrated peer approval
+	if account.Settings.Extra != nil {
+		for _, integratedPeerApprovalGroups := range account.Settings.Extra.IntegratedApprovalGroups {
+			if groupID == integratedPeerApprovalGroups {
+				return &GroupLinkError{"integrated approval", g.Name}
+			}
+		}
+	}
+
 	delete(account.Groups, groupID)
 
 	account.Network.IncSerial()

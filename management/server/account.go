@@ -22,13 +22,13 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/management-integrations/additions"
-
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/integrated_approval"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -126,6 +126,8 @@ type AccountManager interface {
 	SavePostureChecks(accountID, userID string, postureChecks *posture.Checks) error
 	DeletePostureChecks(accountID, postureChecksID, userID string) error
 	ListPostureChecks(accountID, userID string) ([]*posture.Checks, error)
+	UpdateIntegratedApprovalGroups(accountID string, userID string, groups []string) error
+	GroupValidation(accountId string, groups []string) (bool, error)
 }
 
 type DefaultAccountManager struct {
@@ -154,6 +156,8 @@ type DefaultAccountManager struct {
 
 	// userDeleteFromIDPEnabled allows to delete user from IDP when user is deleted from account
 	userDeleteFromIDPEnabled bool
+
+	integratedPeerValidator integrated_approval.IntegratedApproval
 }
 
 // Settings represents Account settings structure that can be modified via API and Dashboard
@@ -380,19 +384,21 @@ func (a *Account) GetGroup(groupID string) *Group {
 }
 
 // GetPeerNetworkMap returns a group by ID if exists, nil otherwise
-func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
+func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string, integratedValidator integrated_approval.IntegratedApproval) *NetworkMap {
 	peer := a.Peers[peerID]
 	if peer == nil {
 		return &NetworkMap{
 			Network: a.Network.Copy(),
 		}
 	}
+
 	validatedPeers := additions.ValidatePeers([]*nbpeer.Peer{peer})
 	if len(validatedPeers) == 0 {
 		return &NetworkMap{
 			Network: a.Network.Copy(),
 		}
 	}
+
 	aclPeers, firewallRules := a.getPeerConnectionResources(peerID)
 	// exclude expired peers
 	var peersToConnect []*nbpeer.Peer
@@ -569,6 +575,20 @@ func (a *Account) FindSetupKey(setupKey string) (*SetupKey, error) {
 	}
 
 	return key, nil
+}
+
+// GetPeerGroupsList return with the list of groups ID.
+func (a *Account) GetPeerGroupsList(peerID string) []string {
+	var grps []string
+	for groupID, group := range a.Groups {
+		for _, id := range group.Peers {
+			if id == peerID {
+				grps = append(grps, groupID)
+				break
+			}
+		}
+	}
+	return grps
 }
 
 func (a *Account) getUserGroups(userID string) ([]string, error) {
@@ -824,6 +844,7 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
 func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
 	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store, geo *geolocation.Geolocation,
 	userDeleteFromIDPEnabled bool,
+	integratedPeerValidator integrated_approval.IntegratedApproval,
 ) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
 		Store:                    store,
@@ -837,6 +858,7 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 		eventStore:               eventStore,
 		peerLoginExpiry:          NewDefaultScheduler(),
 		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
+		integratedPeerValidator:  integratedPeerValidator,
 	}
 	allAccounts := store.GetAllAccounts()
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1

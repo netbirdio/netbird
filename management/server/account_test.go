@@ -12,19 +12,29 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
-
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/activity"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/route"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/route"
 )
+
+type MocIntegratedApproval struct {
+}
+
+func (MocIntegratedApproval) PreparePeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer {
+	return peer
+}
+
+func (MocIntegratedApproval) ValidatePeer(accountID string, peer *nbpeer.Peer, peersGroup []string, integratedApprovalGroups []string) (bool, error) {
+	return true, nil
+}
 
 func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Account, userID string) {
 	t.Helper()
@@ -363,7 +373,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 			account.Groups[all.ID].Peers = append(account.Groups[all.ID].Peers, peer.ID)
 		}
 
-		networkMap := account.GetPeerNetworkMap(testCase.peerID, "netbird.io")
+		networkMap := account.GetPeerNetworkMap(testCase.peerID, "netbird.io", MocIntegratedApproval{})
 		assert.Len(t, networkMap.Peers, len(testCase.expectedPeers))
 		assert.Len(t, networkMap.OfflinePeers, len(testCase.expectedOfflinePeers))
 	}
@@ -2218,7 +2228,7 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false)
+	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedApproval{})
 }
 
 func createStore(t *testing.T) (Store, error) {

@@ -5,8 +5,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/netbirdio/management-integrations/additions"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/management-integrations/additions"
 
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
