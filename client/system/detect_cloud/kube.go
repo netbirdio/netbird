@@ -1,12 +1,12 @@
 package detect_cloud
 
 import (
-	"io/ioutil"
+	"os"
 	"strings"
 )
 
 func detectContainer() string {
-	b, err := ioutil.ReadFile("/proc/self/cgroup")
+	b, err := os.ReadFile("/proc/self/cgroup")
 	if err != nil {
 		return ""
 	}

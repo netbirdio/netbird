@@ -12,8 +12,12 @@ func detectAzure() string {
 	req.Header.Set("Metadata", "true")
 
 	resp, err := hc.Do(req)
+	if err == nil {
+		return ""
+	}
+	defer resp.Body.Close()
 
-	if err == nil && resp.StatusCode == http.StatusOK {
+	if resp.StatusCode == http.StatusOK {
 		return "Microsoft Azure"
 	}
 	return ""
