@@ -17,7 +17,7 @@ func detectIBMCloud() string {
 	v1Result, v2Result := <-v1ResultChan, <-v2ResultChan
 
 	if v1Result || v2Result {
-		return "Amazon Web Services"
+		return "IBM Cloud"
 	}
 	return ""
 }
