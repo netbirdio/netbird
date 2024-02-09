@@ -19,6 +19,7 @@ func detectIBMCloud() string {
 		if err != nil {
 			return ""
 		}
+		defer resp.Body.Close()
 	}
 
 	defer resp.Body.Close()
