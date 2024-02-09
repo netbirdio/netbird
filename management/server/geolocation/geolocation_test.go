@@ -17,7 +17,7 @@ var mmdbPath = "../testdata/GeoLite2-City-Test.mmdb"
 
 func TestGeoLite_Lookup(t *testing.T) {
 	tempDir := t.TempDir()
-	filename := path.Join(tempDir, mmdbFileName)
+	filename := path.Join(tempDir, MMDBFileName)
 	err := util.CopyFileContents(mmdbPath, filename)
 	assert.NoError(t, err)
 	defer func() {
