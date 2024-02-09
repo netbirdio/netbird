@@ -375,7 +375,7 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 		Preload(clause.Associations).
 		First(&account, "id = ?", accountID)
 	if result.Error != nil {
-		log.Error(result.Error)
+		log.Errorf("when getting account from the store: %s", result.Error)
 		return nil, status.Errorf(status.NotFound, "account not found")
 	}
 
