@@ -184,23 +184,22 @@ func (p *PostureChecksHandler) savePostureChecks(
 		ID:          postureChecksID,
 		Name:        req.Name,
 		Description: req.Description,
-		Checks:      make([]posture.Check, 0),
 	}
 
 	if nbVersionCheck := req.Checks.NbVersionCheck; nbVersionCheck != nil {
-		postureChecks.Checks = append(postureChecks.Checks, &posture.NBVersionCheck{
+		postureChecks.Checks.NBVersionCheck = &posture.NBVersionCheck{
 			MinVersion: nbVersionCheck.MinVersion,
-		})
+		}
 	}
 
 	if osVersionCheck := req.Checks.OsVersionCheck; osVersionCheck != nil {
-		postureChecks.Checks = append(postureChecks.Checks, &posture.OSVersionCheck{
+		postureChecks.Checks.OSVersionCheck = &posture.OSVersionCheck{
 			Android: (*posture.MinVersionCheck)(osVersionCheck.Android),
 			Darwin:  (*posture.MinVersionCheck)(osVersionCheck.Darwin),
 			Ios:     (*posture.MinVersionCheck)(osVersionCheck.Ios),
 			Linux:   (*posture.MinKernelVersionCheck)(osVersionCheck.Linux),
 			Windows: (*posture.MinKernelVersionCheck)(osVersionCheck.Windows),
-		})
+		}
 	}
 
 	if geoLocationCheck := req.Checks.GeoLocationCheck; geoLocationCheck != nil {
@@ -208,7 +207,7 @@ func (p *PostureChecksHandler) savePostureChecks(
 			util.WriteError(status.Errorf(status.PreconditionFailed, "Geo location database is not initialized"), w)
 			return
 		}
-		postureChecks.Checks = append(postureChecks.Checks, toPostureGeoLocationCheck(geoLocationCheck))
+		postureChecks.Checks.GeoLocationCheck = toPostureGeoLocationCheck(geoLocationCheck)
 	}
 
 	if err := p.accountManager.SavePostureChecks(account.Id, user.Id, &postureChecks); err != nil {
@@ -271,26 +270,25 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 
 func toPostureChecksResponse(postureChecks *posture.Checks) *api.PostureCheck {
 	var checks api.Checks
-	for _, check := range postureChecks.Checks {
-		switch check.Name() {
-		case posture.NBVersionCheckName:
-			versionCheck := check.(*posture.NBVersionCheck)
-			checks.NbVersionCheck = &api.NBVersionCheck{
-				MinVersion: versionCheck.MinVersion,
-			}
-		case posture.OSVersionCheckName:
-			osCheck := check.(*posture.OSVersionCheck)
-			checks.OsVersionCheck = &api.OSVersionCheck{
-				Android: (*api.MinVersionCheck)(osCheck.Android),
-				Darwin:  (*api.MinVersionCheck)(osCheck.Darwin),
-				Ios:     (*api.MinVersionCheck)(osCheck.Ios),
-				Linux:   (*api.MinKernelVersionCheck)(osCheck.Linux),
-				Windows: (*api.MinKernelVersionCheck)(osCheck.Windows),
-			}
-		case posture.GeoLocationCheckName:
-			geoLocationCheck := check.(*posture.GeoLocationCheck)
-			checks.GeoLocationCheck = toGeoLocationCheckResponse(geoLocationCheck)
+
+	if postureChecks.Checks.NBVersionCheck != nil {
+		checks.NbVersionCheck = &api.NBVersionCheck{
+			MinVersion: postureChecks.Checks.NBVersionCheck.MinVersion,
 		}
+	}
+
+	if postureChecks.Checks.OSVersionCheck != nil {
+		checks.OsVersionCheck = &api.OSVersionCheck{
+			Android: (*api.MinVersionCheck)(postureChecks.Checks.OSVersionCheck.Android),
+			Darwin:  (*api.MinVersionCheck)(postureChecks.Checks.OSVersionCheck.Darwin),
+			Ios:     (*api.MinVersionCheck)(postureChecks.Checks.OSVersionCheck.Ios),
+			Linux:   (*api.MinKernelVersionCheck)(postureChecks.Checks.OSVersionCheck.Linux),
+			Windows: (*api.MinKernelVersionCheck)(postureChecks.Checks.OSVersionCheck.Windows),
+		}
+	}
+
+	if postureChecks.Checks.GeoLocationCheck != nil {
+		checks.GeoLocationCheck = toGeoLocationCheckResponse(postureChecks.Checks.GeoLocationCheck)
 	}
 
 	return &api.PostureCheck{

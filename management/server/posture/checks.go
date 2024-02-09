@@ -1,14 +1,12 @@
 package posture
 
 import (
-	"encoding/json"
-
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
 const (
-	NBVersionCheckName = "NBVersionCheck"
-	OSVersionCheckName = "OSVersionCheck"
+	NBVersionCheckName   = "NBVersionCheck"
+	OSVersionCheckName   = "OSVersionCheck"
 	GeoLocationCheckName = "GeoLocationCheck"
 )
 
@@ -31,8 +29,14 @@ type Checks struct {
 	// AccountID is a reference to the Account that this object belongs
 	AccountID string `json:"-" gorm:"index"`
 
-	// Checks is a list of objects that perform the actual checks
-	Checks []Check `gorm:"serializer:json"`
+	// Checks is a set of objects that perform the actual checks
+	Checks ChecksDefinition `gorm:"serializer:json"`
+}
+
+type ChecksDefinition struct {
+	NBVersionCheck   *NBVersionCheck   `json:",omitempty"`
+	OSVersionCheck   *OSVersionCheck   `json:",omitempty"`
+	GeoLocationCheck *GeoLocationCheck `json:",omitempty"`
 }
 
 // TableName returns the name of the table for the Checks model in the database.
@@ -47,9 +51,8 @@ func (pc *Checks) Copy() *Checks {
 		Name:        pc.Name,
 		Description: pc.Description,
 		AccountID:   pc.AccountID,
-		Checks:      make([]Check, len(pc.Checks)),
+		Checks:      pc.Checks, // TODO: copy by value
 	}
-	copy(checks.Checks, pc.Checks)
 	return checks
 }
 
@@ -58,73 +61,17 @@ func (pc *Checks) EventMeta() map[string]any {
 	return map[string]any{"name": pc.Name}
 }
 
-// MarshalJSON returns the JSON encoding of the Checks object.
-// The Checks object is marshaled as a map[string]json.RawMessage,
-// where the key is the name of the check and the value is the JSON
-// representation of the Check object.
-func (pc *Checks) MarshalJSON() ([]byte, error) {
-	type Alias Checks
-	return json.Marshal(&struct {
-		Checks map[string]json.RawMessage
-		*Alias
-	}{
-		Checks: pc.marshalChecks(),
-		Alias:  (*Alias)(pc),
-	})
-}
-
-// UnmarshalJSON unmarshal the JSON data into the Checks object.
-func (pc *Checks) UnmarshalJSON(data []byte) error {
-	type Alias Checks
-	aux := &struct {
-		Checks map[string]json.RawMessage
-		*Alias
-	}{
-		Alias: (*Alias)(pc),
+// GetChecks returns list of all initialized checks definitions
+func (pc *Checks) GetChecks() []Check {
+	var checks []Check
+	if pc.Checks.NBVersionCheck != nil {
+		checks = append(checks, pc.Checks.NBVersionCheck)
 	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
+	if pc.Checks.OSVersionCheck != nil {
+		checks = append(checks, pc.Checks.OSVersionCheck)
 	}
-	return pc.unmarshalChecks(aux.Checks)
-}
-
-func (pc *Checks) marshalChecks() map[string]json.RawMessage {
-	result := make(map[string]json.RawMessage)
-	for _, check := range pc.Checks {
-		data, err := json.Marshal(check)
-		if err != nil {
-			return result
-		}
-		result[check.Name()] = data
+	if pc.Checks.GeoLocationCheck != nil {
+		checks = append(checks, pc.Checks.GeoLocationCheck)
 	}
-	return result
-}
-
-func (pc *Checks) unmarshalChecks(rawChecks map[string]json.RawMessage) error {
-	pc.Checks = make([]Check, 0, len(rawChecks))
-
-	for name, rawCheck := range rawChecks {
-		switch name {
-		case NBVersionCheckName:
-			check := &NBVersionCheck{}
-			if err := json.Unmarshal(rawCheck, check); err != nil {
-				return err
-			}
-			pc.Checks = append(pc.Checks, check)
-		case OSVersionCheckName:
-			check := &OSVersionCheck{}
-			if err := json.Unmarshal(rawCheck, check); err != nil {
-				return err
-			}
-			pc.Checks = append(pc.Checks, check)
-		case GeoLocationCheckName:
-			check := &GeoLocationCheck{}
-			if err := json.Unmarshal(rawCheck, check); err != nil {
-				return err
-			}
-			pc.Checks = append(pc.Checks, check)
-		}
-	}
-	return nil
+	return checks
 }
