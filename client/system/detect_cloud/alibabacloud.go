@@ -6,7 +6,7 @@ import (
 
 func detectAlibabaCloud() string {
 	resp, err := hc.Get("http://100.100.100.200/latest/")
-	if err == nil {
+	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()

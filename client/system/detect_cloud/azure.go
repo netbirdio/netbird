@@ -12,7 +12,7 @@ func detectAzure() string {
 	req.Header.Set("Metadata", "true")
 
 	resp, err := hc.Do(req)
-	if err == nil {
+	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()

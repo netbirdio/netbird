@@ -6,7 +6,7 @@ import (
 
 func detectDigitalOcean() string {
 	resp, err := hc.Get("http://169.254.169.254/metadata/v1/")
-	if err == nil {
+	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()

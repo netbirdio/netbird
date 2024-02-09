@@ -6,7 +6,7 @@ import (
 
 func detectVultr() string {
 	resp, err := hc.Get("http://169.254.169.254/v1.json")
-	if err == nil {
+	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()

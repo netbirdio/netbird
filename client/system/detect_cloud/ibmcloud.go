@@ -10,7 +10,6 @@ func detectIBMCloud() string {
 
 	resp, err := hc.Do(req)
 	if err != nil {
-		resp.Body.Close()
 		req, err = http.NewRequest("PUT", "https://api.metadata.cloud.ibm.com/instance_identity/v1/token", nil)
 		if err != nil {
 			return ""

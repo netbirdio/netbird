@@ -6,7 +6,7 @@ import (
 
 func detectSoftlayer() string {
 	resp, err := hc.Get("https://api.service.softlayer.com/rest/v3/SoftLayer_Resource_Metadata/UserMetadata.txt")
-	if err == nil {
+	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()
