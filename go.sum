@@ -376,11 +376,6 @@ github.com/mwitkow/go-conntrack v0.0.0-20190716064945-2f068394615f/go.mod h1:qRW
 github.com/mxk/go-flowrate v0.0.0-20140419014527-cca7078d478f/go.mod h1:ZdcZmHo+o7JKHSa8/e818NopupXU1YMK5fe1lsApnBw=
 github.com/nadoo/ipset v0.5.0 h1:5GJUAuZ7ITQQQGne5J96AmFjRtI8Avlbk6CabzYWVUc=
 github.com/nadoo/ipset v0.5.0/go.mod h1:rYF5DQLRGGoQ8ZSWeK+6eX5amAuPqwFkWjhQlEITGJQ=
-github.com/netbirdio/libdetectcloud v0.0.0-20230721195148-b0a0473b5591/go.mod h1:9y6140vn+2JFi0k4RobK1/4PmRAP7IUTCHIkAHW4R88=
-github.com/netbirdio/libdetectcloud v0.0.0-20240208115109-b03fbb408709 h1:KyrScg73MBpc26mQcTq30TYccp8TiVWrez0AsV1fQGQ=
-github.com/netbirdio/libdetectcloud v0.0.0-20240208115109-b03fbb408709/go.mod h1:9y6140vn+2JFi0k4RobK1/4PmRAP7IUTCHIkAHW4R88=
-github.com/netbirdio/libdetectcloud v0.0.0-20240208140925-ab9af8ba9956 h1:UmaPSfgjWx4jSxjL99+9Rv9pLTGAfiSHGwxGUhXFcn4=
-github.com/netbirdio/libdetectcloud v0.0.0-20240208140925-ab9af8ba9956/go.mod h1:9y6140vn+2JFi0k4RobK1/4PmRAP7IUTCHIkAHW4R88=
 github.com/netbirdio/management-integrations/additions v0.0.0-20240118163419-8a7c87accb22 h1:XTiNnVB6OEwung8WIiGJNzOTLVefuSzAA/cu+6Sst8A=
 github.com/netbirdio/management-integrations/additions v0.0.0-20240118163419-8a7c87accb22/go.mod h1:31FhBNvQ+riHEIu6LSTmqr8IeuSIsGfQffqV4LFmbwA=
 github.com/netbirdio/management-integrations/integrations v0.0.0-20240118163419-8a7c87accb22 h1:FNc4p8RS/gFm5jlmvUFWC4/5YxPDWejYyqEBVziFZwo=
@@ -424,8 +419,6 @@ github.com/pegasus-kv/thrift v0.13.0 h1:4ESwaNoHImfbHa9RUGJiJZ4hrxorihZHk5aarYwY
 github.com/pegasus-kv/thrift v0.13.0/go.mod h1:Gl9NT/WHG6ABm6NsrbfE8LiJN0sAyneCrvB4qN4NPqQ=
 github.com/pelletier/go-toml/v2 v2.0.9 h1:uH2qQXheeefCCkuBBSLi7jCiSmj3VRh2+Goq2N7Xxu0=
 github.com/pelletier/go-toml/v2 v2.0.9/go.mod h1:tJU2Z3ZkXwnxa4DPO899bsyIoywizdUvyaeZurnPPDc=
-github.com/perlogix/libdetectcloud v0.0.0-20230721195148-b0a0473b5591 h1:XKeGRKzA98UNhf8JBToToDpu+cvwiEMZHTL614QjTwA=
-github.com/perlogix/libdetectcloud v0.0.0-20230721195148-b0a0473b5591/go.mod h1:9y6140vn+2JFi0k4RobK1/4PmRAP7IUTCHIkAHW4R88=
 github.com/pion/dtls/v2 v2.2.7 h1:cSUBsETxepsCSFSxC3mc/aDo14qQLMSL+O6IjG28yV8=
 github.com/pion/dtls/v2 v2.2.7/go.mod h1:8WiMkebSHFD0T+dIU+UeBaoV7kDhOW5oDCzZ7WZ/F9s=
 github.com/pion/ice/v3 v3.0.2 h1:dNQnKsjLvOWz+PaI4tw1VnLYTp9adihC1HIASFGajmI=
