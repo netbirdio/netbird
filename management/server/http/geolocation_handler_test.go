@@ -37,6 +37,7 @@ func initGeolocationTestData(t *testing.T) *GeolocationsHandler {
 
 	geo, err := geolocation.NewGeolocation(tempDir)
 	assert.NoError(t, err)
+	t.Cleanup(func() { _ = geo.Stop() })
 
 	return &GeolocationsHandler{
 		accountManager: &mock_server.MockAccountManager{
