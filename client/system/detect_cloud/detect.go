@@ -18,7 +18,7 @@ func Detect() string {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	detectFuncs := []func() string{
+	detectVendorFuncs := []func() string{
 		detectAlibabaCloud,
 		detectAWS,
 		detectAzure,
@@ -28,15 +28,20 @@ func Detect() string {
 		detectIBMCloud,
 		detectSoftlayer,
 		detectVultr,
+	}
+
+	detectSoftwareFuncs := []func() string{
+		detectOpenStack,
 		detectContainer,
 	}
 
-	results := make(chan string, len(detectFuncs))
+	vendorResults := make(chan string, len(detectVendorFuncs))
+	softwareResults := make(chan string, len(detectSoftwareFuncs))
 
 	var wg sync.WaitGroup
-	wg.Add(len(detectFuncs))
+	wg.Add(len(detectVendorFuncs) + len(detectSoftwareFuncs))
 
-	for _, fn := range detectFuncs {
+	for _, fn := range detectVendorFuncs {
 		go func(f func() string) {
 			defer wg.Done()
 			select {
@@ -44,8 +49,22 @@ func Detect() string {
 				return
 			default:
 				if result := f(); result != "" {
-					results <- result
+					vendorResults <- result
 					cancel()
+				}
+			}
+		}(fn)
+	}
+
+	for _, fn := range detectSoftwareFuncs {
+		go func(f func() string) {
+			defer wg.Done()
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				if result := f(); result != "" {
+					softwareResults <- result
 				}
 			}
 		}(fn)
@@ -53,10 +72,17 @@ func Detect() string {
 
 	go func() {
 		wg.Wait()
-		close(results)
+		close(vendorResults)
+		close(softwareResults)
 	}()
 
-	for result := range results {
+	for result := range vendorResults {
+		if result != "" {
+			return result
+		}
+	}
+
+	for result := range softwareResults {
 		if result != "" {
 			return result
 		}
