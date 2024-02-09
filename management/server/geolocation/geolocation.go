@@ -19,7 +19,7 @@ const mmdbFileName = "GeoLite2-City.mmdb"
 
 type Geolocation struct {
 	mmdbPath            string
-	mux                 *sync.RWMutex
+	mux                 sync.RWMutex
 	sha256sum           []byte
 	db                  *maxminddb.Reader
 	locationDB          *SqliteStore
@@ -74,7 +74,7 @@ func NewGeolocation(datadir string) (*Geolocation, error) {
 
 	geo := &Geolocation{
 		mmdbPath:            mmdbPath,
-		mux:                 &sync.RWMutex{},
+		mux:                 sync.RWMutex{},
 		sha256sum:           sha256sum,
 		db:                  db,
 		locationDB:          locationDB,

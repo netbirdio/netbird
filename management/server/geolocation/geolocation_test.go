@@ -31,7 +31,7 @@ func TestGeoLite_Lookup(t *testing.T) {
 	assert.NoError(t, err)
 
 	geo := &Geolocation{
-		mux:    &sync.RWMutex{},
+		mux:    sync.RWMutex{},
 		db:     db,
 		stopCh: make(chan struct{}),
 	}
