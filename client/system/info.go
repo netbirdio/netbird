@@ -8,8 +8,6 @@ import (
 
 	"google.golang.org/grpc/metadata"
 
-	"github.com/perlogix/libdetectcloud"
-
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -70,10 +68,6 @@ func extractDeviceName(ctx context.Context, defaultName string) string {
 		return defaultName
 	}
 	return v
-}
-
-func detectCloud() string {
-	return libdetectcloud.Detect()
 }
 
 // GetDesktopUIUserAgent returns the Desktop ui user agent

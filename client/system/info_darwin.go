@@ -15,6 +15,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/system/detect_cloud"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -58,7 +59,7 @@ func GetInfo(ctx context.Context) *Info {
 	gio.Hostname = extractDeviceName(ctx, systemHostname)
 	gio.WiretrusteeVersion = version.NetbirdVersion()
 	gio.UIVersion = extractUserAgent(ctx)
-	gio.Cloud = detectCloud()
+	gio.Cloud = detect_cloud.Detect()
 
 	log.Debugf("Cloud: %s", gio.Cloud)
 	log.Debugf("SystemManufacturer: %s", gio.SystemManufacturer)

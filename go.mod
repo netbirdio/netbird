@@ -62,7 +62,6 @@ require (
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
-	github.com/perlogix/libdetectcloud v0.0.0-20230721195148-b0a0473b5591
 	github.com/pion/logging v0.2.2
 	github.com/pion/stun/v2 v2.0.0
 	github.com/pion/transport/v3 v3.0.1
@@ -174,5 +173,3 @@ replace github.com/getlantern/systray => github.com/netbirdio/systray v0.0.0-202
 replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20240105182236-6c340dd55aed
 
 replace github.com/cloudflare/circl => github.com/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
-
-replace github.com/perlogix/libdetectcloud => github.com/netbirdio/libdetectcloud v0.0.0-20240208140925-ab9af8ba9956
