@@ -110,8 +110,8 @@ func init() {
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(sshCmd)
-	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
-	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
+	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd, enableCmd, disableCmd) // service control commands are subcommands of service
+	serviceCmd.AddCommand(installCmd, uninstallCmd)                                     // service installer commands are subcommands of service
 	upCmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil,
 		`Sets external IPs maps between local addresses and interfaces.`+
 			`You can specify a comma-separated list with a single IP and IP/IP or IP/Interface Name. `+

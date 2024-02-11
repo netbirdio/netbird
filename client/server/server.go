@@ -116,11 +116,13 @@ func (s *Server) Start() error {
 		s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	}
 
-	go func() {
-		if err := internal.RunClientWithProbes(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe); err != nil {
-			log.Errorf("init connections: %v", err)
-		}
-	}()
+	if config.Autostart {
+		go func() {
+			if err := internal.RunClientWithProbes(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe); err != nil {
+				log.Errorf("init connections: %v", err)
+			}
+		}()
+	}
 
 	return nil
 }

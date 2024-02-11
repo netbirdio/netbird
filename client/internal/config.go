@@ -44,6 +44,7 @@ type ConfigInput struct {
 	RosenpassEnabled *bool
 	InterfaceName    *string
 	WireguardPort    *int
+	Autostart        bool
 }
 
 // Config Configuration type
@@ -79,6 +80,10 @@ type Config struct {
 	NATExternalIPs []string
 	// CustomDNSAddress sets the DNS resolver listening address in format ip:port
 	CustomDNSAddress string
+
+	// Autostart determines whether the client should start with the service
+	// it's set to true by default due to backwards compatibility
+	Autostart bool
 }
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
@@ -152,6 +157,7 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		DisableIPv6Discovery: false,
 		NATExternalIPs:       input.NATExternalIPs,
 		CustomDNSAddress:     string(input.CustomDNSAddress),
+		Autostart:            true,
 	}
 
 	defaultManagementURL, err := parseURL("Management URL", DefaultManagementURL)
@@ -275,8 +281,17 @@ func update(input ConfigInput) (*Config, error) {
 		refresh = true
 	}
 
+<<<<<<< Updated upstream
 	if input.RosenpassEnabled != nil {
 		config.RosenpassEnabled = *input.RosenpassEnabled
+=======
+	if config.Autostart == false {
+		refresh = true
+	}
+
+	if input.Autostart != config.Autostart {
+		config.Autostart = input.Autostart
+>>>>>>> Stashed changes
 		refresh = true
 	}
 

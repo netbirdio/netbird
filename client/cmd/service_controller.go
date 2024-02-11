@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal"
 	"net"
 	"os"
 	"strings"
@@ -212,5 +213,56 @@ var restartCmd = &cobra.Command{
 		}
 		cmd.Println("Netbird service has been restarted")
 		return nil
+	},
+}
+
+func toggleAutostart(cmd *cobra.Command, args []string, toggle bool) error {
+	config, err := internal.ReadConfig(configPath)
+	if err != nil {
+		return err
+	}
+
+	if config.Autostart == toggle {
+		if toggle {
+			cmd.Println("Automatically connecting is already enabled")
+			return nil
+		}
+
+		cmd.Println("Automatically connecting is already disabled")
+		return nil
+	}
+
+	updatedConfig, err := internal.UpdateConfig(internal.ConfigInput{Autostart: toggle})
+	if err != nil {
+		return err
+	}
+
+	err = internal.WriteOutConfig(configPath, updatedConfig)
+	if err != nil {
+		return err
+	}
+
+	if toggle {
+		cmd.Println("Automatically connecting has been enabled")
+		return nil
+	}
+
+	cmd.Println("Automatically connecting has been disabled")
+	return nil
+}
+
+var disableCmd = &cobra.Command{
+	Use:   "disable",
+	Short: "disable automatically connecting when the Netbird service starts",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return toggleAutostart(cmd, args, false)
+	},
+}
+
+var enableCmd = &cobra.Command{
+	Use:   "enable",
+	Short: "enable automatically connecting when the Netbird service starts",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return toggleAutostart(cmd, args, true)
 	},
 }
