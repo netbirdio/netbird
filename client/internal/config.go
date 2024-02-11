@@ -44,7 +44,7 @@ type ConfigInput struct {
 	RosenpassEnabled *bool
 	InterfaceName    *string
 	WireguardPort    *int
-	Autostart        bool
+	Autostart        *bool
 }
 
 // Config Configuration type
@@ -281,17 +281,12 @@ func update(input ConfigInput) (*Config, error) {
 		refresh = true
 	}
 
-<<<<<<< Updated upstream
 	if input.RosenpassEnabled != nil {
 		config.RosenpassEnabled = *input.RosenpassEnabled
-=======
-	if config.Autostart == false {
-		refresh = true
 	}
 
-	if input.Autostart != config.Autostart {
-		config.Autostart = input.Autostart
->>>>>>> Stashed changes
+	if input.Autostart != nil {
+		config.Autostart = *input.Autostart
 		refresh = true
 	}
 
