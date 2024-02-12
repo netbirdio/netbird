@@ -52,19 +52,20 @@ func (am *DefaultAccountManager) SavePostureChecks(accountID, userID string, pos
 	}
 
 	exists := am.savePostureChecks(account, postureChecks)
+	action := activity.PostureCheckCreated
+	if exists {
+		action = activity.PostureCheckUpdated
+		account.Network.IncSerial()
+	}
 
 	if err = am.Store.SaveAccount(account); err != nil {
 		return err
 	}
 
-	action := activity.PostureCheckCreated
+	am.StoreEvent(userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 	if exists {
-		action = activity.PostureCheckUpdated
-		account.Network.IncSerial()
 		am.updateAccountPeers(account)
 	}
-
-	am.StoreEvent(userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 
 	return nil
 }
