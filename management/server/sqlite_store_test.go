@@ -307,6 +307,9 @@ func newAccount(store Store, id int) error {
 
 func TestSqliteStore_CalculateUsageStats(t *testing.T) {
 	store := newSqliteStoreFromFile(t, "testdata/store_stats.json")
+	defer func() {
+		require.NoError(t, store.Close())
+	}()
 
 	startDate := time.Date(2024, time.February, 1, 0, 0, 0, 0, time.UTC)
 	endDate := startDate.AddDate(0, 1, 0).Add(-time.Nanosecond)
