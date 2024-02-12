@@ -70,7 +70,7 @@ type AccountManager interface {
 	CheckUserAccessByJWTGroups(claims jwtclaims.AuthorizationClaims) error
 	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
 	DeleteAccount(accountID, userID string) error
-	GetCurrentUsage(ctx context.Context, accountID, userID string) (*AccountUsageStats, error)
+	GetCurrentUsage(ctx context.Context, accountID string) (*AccountUsageStats, error)
 	MarkPATUsed(tokenID string) error
 	GetUser(claims jwtclaims.AuthorizationClaims) (*User, error)
 	ListUsers(accountID string) ([]*User, error)
@@ -1105,22 +1105,7 @@ func (am *DefaultAccountManager) DeleteAccount(accountID, userID string) error {
 
 // GetCurrentUsage returns the usage stats for the given account.
 // This cannot be used to calculate usage stats for a period in the past as it relies on peers' last seen time.
-func (am *DefaultAccountManager) GetCurrentUsage(ctx context.Context, accountID, userID string) (*AccountUsageStats, error) {
-	account, err := am.Store.GetAccount(accountID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get account: %w", err)
-	}
-
-	// This will fail if the user requests to get usage for an account that the user doesn't belong to
-	user, err := account.FindUser(userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find user: %w", err)
-	}
-
-	if !user.HasAdminPower() && !user.IsServiceUser {
-		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to retrieve usage")
-	}
-
+func (am *DefaultAccountManager) GetCurrentUsage(ctx context.Context, accountID string) (*AccountUsageStats, error) {
 	now := time.Now().UTC()
 
 	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)

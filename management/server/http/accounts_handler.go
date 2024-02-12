@@ -140,7 +140,19 @@ func (h *AccountsHandler) GetCurrentUsage(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	usageStats, err := h.accountManager.GetCurrentUsage(r.Context(), targetAccountID, claims.UserId)
+	// This will fail if the user requests to get usage for an account that the user doesn't belong to
+	user, err := h.accountManager.GetUser(claims)
+	if err != nil {
+		util.WriteError(status.Errorf(status.Internal, "get user: %s", err), w)
+		return
+	}
+
+	if !user.HasAdminPower() && !user.IsServiceUser {
+		util.WriteError(status.Errorf(status.PermissionDenied, "user is not allowed to retrieve usage"), w)
+		return
+	}
+
+	usageStats, err := h.accountManager.GetCurrentUsage(r.Context(), targetAccountID)
 	if err != nil {
 		util.WriteError(err, w)
 		return

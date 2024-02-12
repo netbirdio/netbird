@@ -86,7 +86,7 @@ type MockAccountManager struct {
 	GetAllConnectedPeersFunc        func() (map[string]struct{}, error)
 	HasConnectedChannelFunc         func(peerID string) bool
 	GetExternalCacheManagerFunc     func() server.ExternalCacheManager
-	GetCurrentUsageFunc             func(ctx context.Context, accountID, userID string) (*server.AccountUsageStats, error)
+	GetCurrentUsageFunc             func(ctx context.Context, accountID string) (*server.AccountUsageStats, error)
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -666,9 +666,9 @@ func (am *MockAccountManager) GetExternalCacheManager() server.ExternalCacheMana
 }
 
 // GetCurrentUsage mocks GetCurrentUsage of the AccountManager interface
-func (am *MockAccountManager) GetCurrentUsage(ctx context.Context, accountID, userID string) (*server.AccountUsageStats, error) {
+func (am *MockAccountManager) GetCurrentUsage(ctx context.Context, accountID string) (*server.AccountUsageStats, error) {
 	if am.GetCurrentUsageFunc != nil {
-		return am.GetCurrentUsageFunc(ctx, accountID, userID)
+		return am.GetCurrentUsageFunc(ctx, accountID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetCurrentUsage is not implemented")
 }

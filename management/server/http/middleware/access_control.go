@@ -37,7 +37,6 @@ func NewAccessControl(audience, userIDClaim string, getUser GetUser) *AccessCont
 var tokenPathRegexp = regexp.MustCompile(`^.*/api/users/.*/tokens.*$`)
 
 // Handler method of the middleware which forbids all modify requests for non admin users
-// It also adds
 func (a *AccessControl) Handler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
