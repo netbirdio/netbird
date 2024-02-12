@@ -45,7 +45,7 @@ func (cd ChecksDefinition) Copy() ChecksDefinition {
 	var cdCopy ChecksDefinition
 	if cd.NBVersionCheck != nil {
 		cdCopy.NBVersionCheck = &NBVersionCheck{
-			MinVersion: cdCopy.NBVersionCheck.MinVersion,
+			MinVersion: cd.NBVersionCheck.MinVersion,
 		}
 	}
 	if cd.OSVersionCheck != nil {
