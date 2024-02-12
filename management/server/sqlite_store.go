@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"fmt"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -489,4 +491,45 @@ func (s *SqliteStore) Close() error {
 // GetStoreEngine returns SqliteStoreEngine
 func (s *SqliteStore) GetStoreEngine() StoreEngine {
 	return SqliteStoreEngine
+}
+
+// CalculateUsageStats returns the usage stats for an account
+// start and end are inclusive.
+func (s *SqliteStore) CalculateUsageStats(ctx context.Context, accountID string, start time.Time, end time.Time) (*AccountUsageStats, error) {
+	stats := &AccountUsageStats{}
+
+	err := s.db.Model(&nbpeer.Peer{}).
+		WithContext(ctx).
+		Where("account_id = ? AND peer_status_last_seen BETWEEN ? AND ?", accountID, start, end).
+		Distinct("user_id").
+		Count(&stats.ActiveUsers).Error
+	if err != nil {
+		return nil, fmt.Errorf("get active users: %w", err)
+	}
+
+	err = s.db.Model(&User{}).
+		WithContext(ctx).
+		Where("account_id = ?", accountID).
+		Count(&stats.TotalUsers).Error
+	if err != nil {
+		return nil, fmt.Errorf("get total users: %w", err)
+	}
+
+	err = s.db.Model(&nbpeer.Peer{}).
+		WithContext(ctx).
+		Where("account_id = ? AND peer_status_last_seen BETWEEN ? AND ?", accountID, start, end).
+		Count(&stats.ActivePeers).Error
+	if err != nil {
+		return nil, fmt.Errorf("get active peers: %w", err)
+	}
+
+	err = s.db.Model(&nbpeer.Peer{}).
+		WithContext(ctx).
+		Where("account_id = ?", accountID).
+		Count(&stats.TotalPeers).Error
+	if err != nil {
+		return nil, fmt.Errorf("get total peers: %w", err)
+	}
+
+	return stats, nil
 }

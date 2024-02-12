@@ -33,6 +33,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
+
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
@@ -234,7 +235,10 @@ var (
 				UserIDClaim:  config.HttpConfig.AuthUserIDClaim,
 				KeysLocation: config.HttpConfig.AuthKeysLocation,
 			}
-			httpAPIHandler, err := httpapi.APIHandler(accountManager, *jwtValidator, appMetrics, httpAPIAuthCfg)
+
+			ctx, cancel := context.WithCancel(cmd.Context())
+			defer cancel()
+			httpAPIHandler, err := httpapi.APIHandler(ctx, accountManager, *jwtValidator, appMetrics, httpAPIAuthCfg)
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}
@@ -256,8 +260,6 @@ var (
 			}
 
 			if !disableMetrics {
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
 				idpManager := "disabled"
 				if config.IdpManagerConfig != nil && config.IdpManagerConfig.ManagerType != "" {
 					idpManager = config.IdpManagerConfig.ManagerType

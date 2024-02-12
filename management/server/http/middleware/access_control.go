@@ -7,6 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/status"
 
@@ -39,6 +40,11 @@ var tokenPathRegexp = regexp.MustCompile(`^.*/api/users/.*/tokens.*$`)
 // It also adds
 func (a *AccessControl) Handler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		if bypass.ShouldBypass(r.URL.Path, h, w, r) {
+			return
+		}
+
 		claims := a.claimsExtract.FromRequestContext(r)
 
 		user, err := a.getUser(claims)

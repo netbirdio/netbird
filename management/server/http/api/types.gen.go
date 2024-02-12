@@ -176,6 +176,21 @@ type AccountSettings struct {
 	PeerLoginExpirationEnabled bool `json:"peer_login_expiration_enabled"`
 }
 
+// AccountUsageStats defines model for AccountUsageStats.
+type AccountUsageStats struct {
+	// ActivePeers The number of active peers in the account.
+	ActivePeers int `json:"active_peers"`
+
+	// ActiveUsers The number of active users in the account.
+	ActiveUsers int `json:"active_users"`
+
+	// TotalPeers The total number of peers in the account.
+	TotalPeers int `json:"total_peers"`
+
+	// TotalUsers The total number of users in the account.
+	TotalUsers int `json:"total_users"`
+}
+
 // DNSSettings defines model for DNSSettings.
 type DNSSettings struct {
 	// DisabledManagementGroups Groups whose DNS management is disabled

@@ -130,6 +130,32 @@ func (h *AccountsHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) 
 	util.WriteJSONObject(w, emptyObject{})
 }
 
+// GetCurrentUsage returns the current month's usage for the account.
+func (h *AccountsHandler) GetCurrentUsage(w http.ResponseWriter, r *http.Request) {
+	claims := h.claimsExtractor.FromRequestContext(r)
+	vars := mux.Vars(r)
+	targetAccountID := vars["accountId"]
+	if len(targetAccountID) == 0 {
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid account ID"), w)
+		return
+	}
+
+	usageStats, err := h.accountManager.GetCurrentUsage(r.Context(), targetAccountID, claims.UserId)
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+
+	stats := &api.AccountUsageStats{
+		ActivePeers: int(usageStats.ActivePeers),
+		ActiveUsers: int(usageStats.ActiveUsers),
+		TotalPeers:  int(usageStats.TotalPeers),
+		TotalUsers:  int(usageStats.TotalUsers),
+	}
+
+	util.WriteJSONObject(w, stats)
+}
+
 func toAccountResponse(account *server.Account) *api.Account {
 	jwtAllowGroups := account.Settings.JWTAllowGroups
 	if jwtAllowGroups == nil {

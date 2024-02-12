@@ -91,6 +91,30 @@ components:
           $ref: '#/components/schemas/AccountSettings'
       required:
         - settings
+    AccountUsageStats:
+      type: object
+      properties:
+        active_users:
+          type: integer
+          description: The number of active users in the account.
+          example: 5
+        total_users:
+          type: integer
+          description: The total number of users in the account.
+          example: 10
+        active_peers:
+          type: integer
+          description: The number of active peers in the account.
+          example: 15
+        total_peers:
+          type: integer
+          description: The total number of peers in the account.
+          example: 20
+      required:
+        - active_users
+        - total_users
+        - active_peers
+        - total_peers
     User:
       type: object
       properties:
@@ -1153,6 +1177,36 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
+  /accounts/{accountId}/usage:
+    get:
+      summary: Get current month's account usage statistics
+      operationId: getAccountUsage
+      tags:
+        - Accounts
+      parameters:
+        - in: path
+          name: accountId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of the account to retrieve usage statistics for.
+      responses:
+        '200':
+          description: A JSON object containing the current month's usage statistics of the account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountUsageStats'
+        '400':
+          $ref: '#/components/responses/bad_request'
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          $ref: '#/components/responses/not_found'
+        '500':
+          $ref: '#/components/responses/internal_error'
   /api/users:
     get:
       summary: List all Users
