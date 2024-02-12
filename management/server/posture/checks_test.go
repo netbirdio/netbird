@@ -1,6 +1,7 @@
 package posture
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,8 +21,8 @@ func TestChecks_MarshalJSON(t *testing.T) {
 				Name:        "name1",
 				Description: "desc1",
 				AccountID:   "acc1",
-				Checks: []Check{
-					&NBVersionCheck{
+				Checks: ChecksDefinition{
+					NBVersionCheck: &NBVersionCheck{
 						MinVersion: "1.0.0",
 					},
 				},
@@ -47,8 +48,8 @@ func TestChecks_MarshalJSON(t *testing.T) {
 				Name:        "",
 				Description: "",
 				AccountID:   "",
-				Checks: []Check{
-					&NBVersionCheck{},
+				Checks: ChecksDefinition{
+					NBVersionCheck: &NBVersionCheck{},
 				},
 			},
 			want: []byte(`
@@ -69,7 +70,7 @@ func TestChecks_MarshalJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.checks.MarshalJSON()
+			got, err := json.Marshal(tt.checks)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Checks.MarshalJSON() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -97,7 +98,6 @@ func TestChecks_UnmarshalJSON(t *testing.T) {
                     "Description": "desc1",
                     "Checks": {
                         "NBVersionCheck": {
-                            "Enabled": true,
                             "MinVersion": "1.0.0"
                         }
                     }
@@ -107,8 +107,8 @@ func TestChecks_UnmarshalJSON(t *testing.T) {
 				ID:          "id1",
 				Name:        "name1",
 				Description: "desc1",
-				Checks: []Check{
-					&NBVersionCheck{
+				Checks: ChecksDefinition{
+					NBVersionCheck: &NBVersionCheck{
 						MinVersion: "1.0.0",
 					},
 				},
@@ -121,25 +121,23 @@ func TestChecks_UnmarshalJSON(t *testing.T) {
 			expectedError: true,
 		},
 		{
-			name: "Empty JSON Posture Check Unmarshal",
-			in:   []byte(`{}`),
-			expected: &Checks{
-				Checks: make([]Check, 0),
-			},
+			name:          "Empty JSON Posture Check Unmarshal",
+			in:            []byte(`{}`),
+			expected:      &Checks{},
 			expectedError: false,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			checks := &Checks{}
 
-			err := checks.UnmarshalJSON(tc.in)
+			var checks Checks
+			err := json.Unmarshal(tc.in, &checks)
 			if tc.expectedError {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tc.expected, checks)
+				assert.Equal(t, tc.expected, &checks)
 			}
 		})
 	}

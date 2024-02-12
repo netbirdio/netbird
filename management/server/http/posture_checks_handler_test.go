@@ -85,8 +85,8 @@ func TestGetPostureCheck(t *testing.T) {
 	postureCheck := &posture.Checks{
 		ID:   "postureCheck",
 		Name: "nbVersion",
-		Checks: []posture.Check{
-			&posture.NBVersionCheck{
+		Checks: posture.ChecksDefinition{
+			NBVersionCheck: &posture.NBVersionCheck{
 				MinVersion: "1.0.0",
 			},
 		},
@@ -94,8 +94,8 @@ func TestGetPostureCheck(t *testing.T) {
 	osPostureCheck := &posture.Checks{
 		ID:   "osPostureCheck",
 		Name: "osVersion",
-		Checks: []posture.Check{
-			&posture.OSVersionCheck{
+		Checks: posture.ChecksDefinition{
+			OSVersionCheck: &posture.OSVersionCheck{
 				Linux: &posture.MinKernelVersionCheck{
 					MinKernelVersion: "6.0.0",
 				},
@@ -111,8 +111,8 @@ func TestGetPostureCheck(t *testing.T) {
 	geoPostureCheck := &posture.Checks{
 		ID:   "geoPostureCheck",
 		Name: "geoLocation",
-		Checks: []posture.Check{
-			&posture.GeoLocationCheck{
+		Checks: posture.ChecksDefinition{
+			GeoLocationCheck: &posture.GeoLocationCheck{
 				Locations: []posture.Location{
 					{
 						CountryCode: "DE",
@@ -638,8 +638,8 @@ func TestPostureCheckUpdate(t *testing.T) {
 	p := initPostureChecksTestData(&posture.Checks{
 		ID:   "postureCheck",
 		Name: "postureCheck",
-		Checks: []posture.Check{
-			&posture.NBVersionCheck{
+		Checks: posture.ChecksDefinition{
+			NBVersionCheck: &posture.NBVersionCheck{
 				MinVersion: "1.0.0",
 			},
 		},
@@ -647,8 +647,8 @@ func TestPostureCheckUpdate(t *testing.T) {
 		&posture.Checks{
 			ID:   "osPostureCheck",
 			Name: "osPostureCheck",
-			Checks: []posture.Check{
-				&posture.OSVersionCheck{
+			Checks: posture.ChecksDefinition{
+				OSVersionCheck: &posture.OSVersionCheck{
 					Linux: &posture.MinKernelVersionCheck{
 						MinKernelVersion: "5.0.0",
 					},
@@ -658,8 +658,8 @@ func TestPostureCheckUpdate(t *testing.T) {
 		&posture.Checks{
 			ID:   "geoPostureCheck",
 			Name: "geoLocation",
-			Checks: []posture.Check{
-				&posture.GeoLocationCheck{
+			Checks: posture.ChecksDefinition{
+				GeoLocationCheck: &posture.GeoLocationCheck{
 					Locations: []posture.Location{
 						{
 							CountryCode: "DE",

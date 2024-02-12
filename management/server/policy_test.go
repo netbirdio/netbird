@@ -572,11 +572,11 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				ID:          "PostureChecksDefault",
 				Name:        "Default",
 				Description: "This is a posture checks that check if peer is running required versions",
-				Checks: []posture.Check{
-					&posture.NBVersionCheck{
+				Checks: posture.ChecksDefinition{
+					NBVersionCheck: &posture.NBVersionCheck{
 						MinVersion: "0.25",
 					},
-					&posture.OSVersionCheck{
+					OSVersionCheck: &posture.OSVersionCheck{
 						Linux: &posture.MinKernelVersionCheck{
 							MinKernelVersion: "6.6.0",
 						},

@@ -1562,8 +1562,7 @@ func TestAccount_Copy(t *testing.T) {
 		DNSSettings: DNSSettings{DisabledManagementGroups: []string{}},
 		PostureChecks: []*posture.Checks{
 			{
-				ID:     "posture Checks1",
-				Checks: make([]posture.Check, 0),
+				ID: "posture Checks1",
 			},
 		},
 		Settings: &Settings{},
