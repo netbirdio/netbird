@@ -42,6 +42,15 @@ func (am *DefaultAccountManager) SavePostureChecks(accountID, userID string, pos
 		return err
 	}
 
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return err
+	}
+
+	if !user.HasAdminPower() {
+		return status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view posture checks")
+	}
+
 	exists := am.savePostureChecks(account, postureChecks)
 
 	if err = am.Store.SaveAccount(account); err != nil {
@@ -65,6 +74,15 @@ func (am *DefaultAccountManager) DeletePostureChecks(accountID, postureChecksID,
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return err
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return err
+	}
+
+	if !user.HasAdminPower() {
+		return status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view posture checks")
 	}
 
 	postureChecks, err := am.deletePostureChecks(account, postureChecksID)

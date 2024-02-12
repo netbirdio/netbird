@@ -15,7 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const mmdbFileName = "GeoLite2-City.mmdb"
+const MMDBFileName = "GeoLite2-City.mmdb"
 
 type Geolocation struct {
 	mmdbPath            string
@@ -55,7 +55,7 @@ type Country struct {
 }
 
 func NewGeolocation(datadir string) (*Geolocation, error) {
-	mmdbPath := path.Join(datadir, mmdbFileName)
+	mmdbPath := path.Join(datadir, MMDBFileName)
 
 	db, err := openDB(mmdbPath)
 	if err != nil {
@@ -167,7 +167,14 @@ func (gl *Geolocation) GetCitiesByCountry(countryISOCode string) ([]City, error)
 func (gl *Geolocation) Stop() error {
 	close(gl.stopCh)
 	if gl.db != nil {
-		return gl.db.Close()
+		if err := gl.db.Close(); err != nil {
+			return err
+		}
+	}
+	if gl.locationDB != nil {
+		if err := gl.locationDB.close(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

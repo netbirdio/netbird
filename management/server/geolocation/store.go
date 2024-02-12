@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	geoSqliteDBFile = "geonames.db"
+	GeoSqliteDBFile = "geonames.db"
 )
 
 // SqliteStore represents a location storage backed by a Sqlite DB.
@@ -27,7 +27,7 @@ type SqliteStore struct {
 }
 
 func NewSqliteStore(dataDir string) (*SqliteStore, error) {
-	file := filepath.Join(dataDir, geoSqliteDBFile)
+	file := filepath.Join(dataDir, GeoSqliteDBFile)
 
 	db, err := connectDB(file)
 	if err != nil {
