@@ -40,7 +40,7 @@ func initAccountsTestData(account *server.Account, admin *server.User) *Accounts
 				accCopy.UpdateSettings(newSettings)
 				return accCopy, nil
 			},
-			GetCurrentUsageFunc: func(context.Context, string, string) (*server.AccountUsageStats, error) {
+			GetCurrentUsageFunc: func(context.Context, string) (*server.AccountUsageStats, error) {
 				return &server.AccountUsageStats{
 					ActiveUsers: 2,
 					TotalUsers:  3,
