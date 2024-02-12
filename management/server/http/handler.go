@@ -1,6 +1,8 @@
 package http
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -13,6 +15,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
+
+const apiPrefix = "/api"
 
 // AuthCfg contains parameters for authentication middleware
 type AuthCfg struct {
@@ -33,7 +37,7 @@ type emptyObject struct {
 }
 
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg AuthCfg) (http.Handler, error) {
+func APIHandler(ctx context.Context, accountManager s.AccountManager, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg AuthCfg) (http.Handler, error) {
 	claimsExtractor := jwtclaims.NewClaimsExtractor(
 		jwtclaims.WithAudience(authCfg.Audience),
 		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
@@ -59,7 +63,8 @@ func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValid
 	rootRouter := mux.NewRouter()
 	metricsMiddleware := appMetrics.HTTPMiddleware()
 
-	router := rootRouter.PathPrefix("/api").Subrouter()
+	prefix := apiPrefix
+	router := rootRouter.PathPrefix(prefix).Subrouter()
 	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler, acMiddleware.Handler)
 
 	api := apiHandler{
@@ -68,7 +73,10 @@ func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValid
 		AuthCfg:        authCfg,
 	}
 
-	integrations.RegisterHandlers(api.Router, accountManager, claimsExtractor)
+	if _, err := integrations.RegisterHandlers(ctx, prefix, api.Router, accountManager, claimsExtractor); err != nil {
+		return nil, fmt.Errorf("register integrations endpoints: %w", err)
+	}
+
 	api.addAccountsEndpoint()
 	api.addPeersEndpoint()
 	api.addUsersEndpoint()

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -302,4 +303,30 @@ func newAccount(store Store, id int) error {
 	}
 
 	return store.SaveAccount(account)
+}
+
+func TestSqliteStore_CalculateUsageStats(t *testing.T) {
+	store := newSqliteStoreFromFile(t, "testdata/store_stats.json")
+	defer func() {
+		require.NoError(t, store.Close())
+	}()
+
+	startDate := time.Date(2024, time.February, 1, 0, 0, 0, 0, time.UTC)
+	endDate := startDate.AddDate(0, 1, 0).Add(-time.Nanosecond)
+
+	stats1, err := store.CalculateUsageStats(context.TODO(), "account-1", startDate, endDate)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(2), stats1.ActiveUsers)
+	assert.Equal(t, int64(4), stats1.TotalUsers)
+	assert.Equal(t, int64(3), stats1.ActivePeers)
+	assert.Equal(t, int64(7), stats1.TotalPeers)
+
+	stats2, err := store.CalculateUsageStats(context.TODO(), "account-2", startDate, endDate)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(1), stats2.ActiveUsers)
+	assert.Equal(t, int64(2), stats2.TotalUsers)
+	assert.Equal(t, int64(1), stats2.ActivePeers)
+	assert.Equal(t, int64(2), stats2.TotalPeers)
 }

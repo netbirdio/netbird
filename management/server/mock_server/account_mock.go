@@ -1,6 +1,7 @@
 package mock_server
 
 import (
+	"context"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -85,6 +86,7 @@ type MockAccountManager struct {
 	GetAllConnectedPeersFunc        func() (map[string]struct{}, error)
 	HasConnectedChannelFunc         func(peerID string) bool
 	GetExternalCacheManagerFunc     func() server.ExternalCacheManager
+	GetCurrentUsageFunc             func(ctx context.Context, accountID string) (*server.AccountUsageStats, error)
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -640,7 +642,7 @@ func (am *MockAccountManager) GetAllConnectedPeers() (map[string]struct{}, error
 	return nil, status.Errorf(codes.Unimplemented, "method GetAllConnectedPeers is not implemented")
 }
 
-// HasconnectedChannel mocks HasConnectedChannel of the AccountManager interface
+// HasConnectedChannel mocks HasConnectedChannel of the AccountManager interface
 func (am *MockAccountManager) HasConnectedChannel(peerID string) bool {
 	if am.HasConnectedChannelFunc != nil {
 		return am.HasConnectedChannelFunc(peerID)
@@ -661,4 +663,12 @@ func (am *MockAccountManager) GetExternalCacheManager() server.ExternalCacheMana
 		return am.GetExternalCacheManagerFunc()
 	}
 	return nil
+}
+
+// GetCurrentUsage mocks GetCurrentUsage of the AccountManager interface
+func (am *MockAccountManager) GetCurrentUsage(ctx context.Context, accountID string) (*server.AccountUsageStats, error) {
+	if am.GetCurrentUsageFunc != nil {
+		return am.GetCurrentUsageFunc(ctx, accountID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetCurrentUsage is not implemented")
 }

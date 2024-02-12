@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -38,6 +39,14 @@ func initAccountsTestData(account *server.Account, admin *server.User) *Accounts
 				accCopy := account.Copy()
 				accCopy.UpdateSettings(newSettings)
 				return accCopy, nil
+			},
+			GetCurrentUsageFunc: func(context.Context, string, string) (*server.AccountUsageStats, error) {
+				return &server.AccountUsageStats{
+					ActiveUsers: 2,
+					TotalUsers:  3,
+					ActivePeers: 3,
+					TotalPeers:  6,
+				}, nil
 			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(

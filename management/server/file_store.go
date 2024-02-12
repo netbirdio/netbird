@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -659,4 +661,32 @@ func (s *FileStore) Close() error {
 // GetStoreEngine returns FileStoreEngine
 func (s *FileStore) GetStoreEngine() StoreEngine {
 	return FileStoreEngine
+}
+
+// CalculateUsageStats returns the usage stats for an account
+// start and end are inclusive.
+func (s *FileStore) CalculateUsageStats(_ context.Context, accountID string, start time.Time, end time.Time) (*AccountUsageStats, error) {
+	account, exists := s.Accounts[accountID]
+	if !exists {
+		return nil, fmt.Errorf("account not found")
+	}
+
+	stats := &AccountUsageStats{
+		TotalUsers: int64(len(account.Users)),
+		TotalPeers: int64(len(account.Peers)),
+	}
+
+	activeUsers := make(map[string]bool)
+	for _, peer := range account.Peers {
+		if (peer.Status.LastSeen.Equal(start) || peer.Status.LastSeen.After(start)) &&
+			(peer.Status.LastSeen.Equal(end) || peer.Status.LastSeen.Before(end)) {
+			if _, exists := account.Users[peer.UserID]; exists && !activeUsers[peer.UserID] {
+				activeUsers[peer.UserID] = true
+				stats.ActiveUsers++
+			}
+			stats.ActivePeers++
+		}
+	}
+
+	return stats, nil
 }

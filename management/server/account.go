@@ -70,6 +70,7 @@ type AccountManager interface {
 	CheckUserAccessByJWTGroups(claims jwtclaims.AuthorizationClaims) error
 	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
 	DeleteAccount(accountID, userID string) error
+	GetCurrentUsage(ctx context.Context, accountID string) (*AccountUsageStats, error)
 	MarkPATUsed(tokenID string) error
 	GetUser(claims jwtclaims.AuthorizationClaims) (*User, error)
 	ListUsers(accountID string) ([]*User, error)
@@ -219,6 +220,14 @@ type Account struct {
 	DNSSettings            DNSSettings                       `gorm:"embedded;embeddedPrefix:dns_settings_"`
 	// Settings is a dictionary of Account settings
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
+}
+
+// AccountUsageStats represents the current usage statistics for an account
+type AccountUsageStats struct {
+	ActiveUsers int64 `json:"active_users"`
+	TotalUsers  int64 `json:"total_users"`
+	ActivePeers int64 `json:"active_peers"`
+	TotalPeers  int64 `json:"total_peers"`
 }
 
 type UserInfo struct {
@@ -1094,8 +1103,23 @@ func (am *DefaultAccountManager) DeleteAccount(accountID, userID string) error {
 	return nil
 }
 
+// GetCurrentUsage returns the usage stats for the given account.
+// This cannot be used to calculate usage stats for a period in the past as it relies on peers' last seen time.
+func (am *DefaultAccountManager) GetCurrentUsage(ctx context.Context, accountID string) (*AccountUsageStats, error) {
+	now := time.Now().UTC()
+
+	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	usageStats, err := am.Store.CalculateUsageStats(ctx, accountID, startOfMonth, time.Now().UTC())
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate usage stats: %w", err)
+	}
+
+	return usageStats, nil
+}
+
 // GetAccountByUserOrAccountID looks for an account by user or accountID, if no account is provided and
 // userID doesn't have an account associated with it, one account is created
+// domain is used to create a new account if no account is found
 func (am *DefaultAccountManager) GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error) {
 	if accountID != "" {
 		return am.Store.GetAccount(accountID)
@@ -1781,7 +1805,7 @@ func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(claims jwtclaims.Aut
 	return nil
 }
 
-// addAllGroup to account object if it doesn't exists
+// addAllGroup to account object if it doesn't exist
 func addAllGroup(account *Account) error {
 	if len(account.Groups) == 0 {
 		allGroup := &Group{
