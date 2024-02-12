@@ -60,6 +60,8 @@ func (am *DefaultAccountManager) SavePostureChecks(accountID, userID string, pos
 	action := activity.PostureCheckCreated
 	if exists {
 		action = activity.PostureCheckUpdated
+		account.Network.IncSerial()
+		am.updateAccountPeers(account)
 	}
 
 	am.StoreEvent(userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
