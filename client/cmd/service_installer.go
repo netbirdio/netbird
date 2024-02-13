@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"github.com/netbirdio/netbird/client/internal"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -20,6 +21,26 @@ var installCmd = &cobra.Command{
 		err := handleRebrand(cmd)
 		if err != nil {
 			return err
+		}
+
+		if cmd.Flag(disableAutoConnectFlag).Changed {
+			_, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
+				ConfigPath:         configPath,
+				DisableAutoConnect: &autoConnectDisabled,
+			})
+
+			if err != nil {
+				cmd.PrintErrln(err)
+				return err
+			}
+
+			if autoConnectDisabled {
+				cmd.Println("Autoconnect has been disabled. The client won't connect automatically when the service starts.")
+			}
+
+			if !autoConnectDisabled {
+				cmd.Println("Autoconnect has been enabled. The client will connect automatically when the service starts.")
+			}
 		}
 
 		svcConfig := newSVCConfig()
@@ -77,6 +98,7 @@ var installCmd = &cobra.Command{
 			cmd.PrintErrln(err)
 			return err
 		}
+
 		cmd.Println("Netbird service has been installed")
 		return nil
 	},

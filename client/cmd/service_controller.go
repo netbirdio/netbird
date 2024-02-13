@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal"
 	"net"
 	"os"
 	"strings"
@@ -212,46 +211,6 @@ var restartCmd = &cobra.Command{
 			return err
 		}
 		cmd.Println("Netbird service has been restarted")
-		return nil
-	},
-}
-
-var disableCmd = &cobra.Command{
-	Use:   "disable",
-	Short: "disable connecting automatically when the Netbird service starts",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		toggle := false
-
-		_, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
-			ConfigPath: configPath,
-			Autostart:  &toggle,
-		})
-
-		if err != nil {
-			return err
-		}
-
-		cmd.Println("Connecting automatically on daemon start has been disabled")
-		return nil
-	},
-}
-
-var enableCmd = &cobra.Command{
-	Use:   "enable",
-	Short: "enable connecting automatically when the Netbird service starts",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		toggle := true
-
-		_, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
-			ConfigPath: configPath,
-			Autostart:  &toggle,
-		})
-
-		if err != nil {
-			return err
-		}
-
-		cmd.Println("Connecting automatically on daemon start has been enabled")
 		return nil
 	},
 }

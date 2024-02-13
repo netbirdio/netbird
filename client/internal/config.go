@@ -35,16 +35,16 @@ var defaultInterfaceBlacklist = []string{iface.WgInterfaceDefault, "wt", "utun",
 
 // ConfigInput carries configuration changes to the client
 type ConfigInput struct {
-	ManagementURL    string
-	AdminURL         string
-	ConfigPath       string
-	PreSharedKey     *string
-	NATExternalIPs   []string
-	CustomDNSAddress []byte
-	RosenpassEnabled *bool
-	InterfaceName    *string
-	WireguardPort    *int
-	Autostart        *bool
+	ManagementURL      string
+	AdminURL           string
+	ConfigPath         string
+	PreSharedKey       *string
+	NATExternalIPs     []string
+	CustomDNSAddress   []byte
+	RosenpassEnabled   *bool
+	InterfaceName      *string
+	WireguardPort      *int
+	DisableAutoConnect *bool
 }
 
 // Config Configuration type
@@ -81,9 +81,9 @@ type Config struct {
 	// CustomDNSAddress sets the DNS resolver listening address in format ip:port
 	CustomDNSAddress string
 
-	// Autostart determines whether the client should start with the service
+	// DisableAutoConnect determines whether the client should start with the service
 	// it's set to true by default due to backwards compatibility
-	Autostart bool
+	DisableAutoConnect bool
 }
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
@@ -157,7 +157,7 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		DisableIPv6Discovery: false,
 		NATExternalIPs:       input.NATExternalIPs,
 		CustomDNSAddress:     string(input.CustomDNSAddress),
-		Autostart:            true,
+		DisableAutoConnect:   false,
 	}
 
 	defaultManagementURL, err := parseURL("Management URL", DefaultManagementURL)
@@ -285,8 +285,8 @@ func update(input ConfigInput) (*Config, error) {
 		config.RosenpassEnabled = *input.RosenpassEnabled
 	}
 
-	if input.Autostart != nil {
-		config.Autostart = *input.Autostart
+	if input.DisableAutoConnect != nil {
+		config.DisableAutoConnect = *input.DisableAutoConnect
 		refresh = true
 	}
 
