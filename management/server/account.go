@@ -1235,7 +1235,7 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 	ud, err := am.externalCacheManager.Get(am.ctx, key)
 	if err != nil {
 		log.Debugf("failed to get externalCache for key: %s, error: %s", key, err)
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	return ud, nil
