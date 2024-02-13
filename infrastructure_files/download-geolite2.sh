@@ -33,9 +33,9 @@ download_geolite_mmdb() {
   SIGNATURE_URL="https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz.sha256"
 
   # Download the database and signature files
-  echo "Downloading database file..."
+  echo "Downloading mmdb database file..."
   DATABASE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J "$DATABASE_URL" -w "%{filename_effective}")
-  echo "Downloading signature file..."
+  echo "Downloading mmdb signature file..."
   SIGNATURE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J "$SIGNATURE_URL" -w "%{filename_effective}")
 
   # Verify the signature
@@ -51,14 +51,14 @@ download_geolite_mmdb() {
   EXTRACTION_DIR=$(basename "$DATABASE_FILE" .tar.gz)
   echo "Unpacking $DATABASE_FILE..."
   mkdir -p "$EXTRACTION_DIR"
-  tar -xzvf "$DATABASE_FILE"
+  tar -xzvf "$DATABASE_FILE" > /dev/null 2>&1
 
   # Create a SHA256 signature file
   MMDB_FILE="GeoLite2-City.mmdb"
   cd "$EXTRACTION_DIR"
   sha256sum "$MMDB_FILE" > "$MMDB_FILE.sha256"
   echo "SHA256 signature created for $MMDB_FILE."
-  cd -
+  cd - > /dev/null 2>&1
 
   # Remove downloaded files
   rm "$DATABASE_FILE" "$SIGNATURE_FILE"
@@ -76,9 +76,9 @@ download_geolite_csv_and_create_sqlite_db() {
 
 
   # Download the database file
-  echo "Downloading database file..."
+  echo "Downloading csv database file..."
   DATABASE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J "$DATABASE_URL" -w "%{filename_effective}")
-  echo "Downloading signature file..."
+  echo "Downloading csv signature file..."
   SIGNATURE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J "$SIGNATURE_URL" -w "%{filename_effective}")
 
   # Verify the signature
@@ -94,7 +94,8 @@ download_geolite_csv_and_create_sqlite_db() {
   EXTRACTION_DIR=$(basename "$DATABASE_FILE" .zip)
   DB_NAME="geonames.db"
 
-  unzip "$DATABASE_FILE"
+  echo "Unpacking $DATABASE_FILE..."
+  unzip "$DATABASE_FILE" > /dev/null 2>&1
 
 # Create SQLite database and import data from CSV
 sqlite3 "$DB_NAME" <<EOF
@@ -113,4 +114,5 @@ EOF
 }
 
 download_geolite_mmdb
+echo ""
 download_geolite_csv_and_create_sqlite_db
