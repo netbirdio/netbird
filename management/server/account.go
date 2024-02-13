@@ -1223,7 +1223,7 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 		}
 	}
 
-	// add extra check on external cache manager. We mey get to this point when the user is not yet findable in IDP,
+	// add extra check on external cache manager. We may get to this point when the user is not yet findable in IDP,
 	// or it didn't have its metadata updated with am.addAccountIDToIDPAppMeta
 	user, err := account.FindUser(userID)
 	if err != nil {
@@ -1235,7 +1235,6 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 	ud, err := am.externalCacheManager.Get(am.ctx, key)
 	if err != nil {
 		log.Debugf("failed to get externalCache for key: %s, error: %s", key, err)
-		return nil, nil //nolint:nilnil
 	}
 
 	return ud, nil
