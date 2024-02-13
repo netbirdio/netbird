@@ -302,8 +302,9 @@ func toPostureChecksResponse(postureChecks *posture.Checks) *api.PostureCheck {
 func toGeoLocationCheckResponse(geoLocationCheck *posture.GeoLocationCheck) *api.GeoLocationCheck {
 	locations := make([]api.Location, 0, len(geoLocationCheck.Locations))
 	for _, loc := range geoLocationCheck.Locations {
+		l := loc // make G601 happy
 		locations = append(locations, api.Location{
-			CityName:    loc.CityName,
+			CityName:    &l.CityName,
 			CountryCode: loc.CountryCode,
 		})
 	}
@@ -317,9 +318,13 @@ func toGeoLocationCheckResponse(geoLocationCheck *posture.GeoLocationCheck) *api
 func toPostureGeoLocationCheck(apiGeoLocationCheck *api.GeoLocationCheck) *posture.GeoLocationCheck {
 	locations := make([]posture.Location, 0, len(apiGeoLocationCheck.Locations))
 	for _, loc := range apiGeoLocationCheck.Locations {
+		cityName := ""
+		if loc.CityName != nil {
+			cityName = *loc.CityName
+		}
 		locations = append(locations, posture.Location{
 			CountryCode: loc.CountryCode,
-			CityName:    loc.CityName,
+			CityName:    cityName,
 		})
 	}
 

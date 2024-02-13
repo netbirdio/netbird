@@ -924,7 +924,6 @@ components:
           example: "Berlin"
       required:
         - country_code
-        - city_name
     Country:
       description: Describe country geographical location information
       type: object
