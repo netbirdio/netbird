@@ -12,6 +12,8 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/netbirdio/netbird/management/server/status"
 )
 
 const (
@@ -23,6 +25,7 @@ type SqliteStore struct {
 	db        *gorm.DB
 	filePath  string
 	mux       sync.RWMutex
+	closed    bool
 	sha256sum []byte
 }
 
@@ -52,6 +55,10 @@ func (s *SqliteStore) GetAllCountries() ([]Country, error) {
 	s.mux.RLock()
 	defer s.mux.RUnlock()
 
+	if s.closed {
+		return nil, status.Errorf(status.PreconditionFailed, "geo location database is not initialized")
+	}
+
 	var countries []Country
 	result := s.db.Table("geonames").
 		Select("country_iso_code", "country_name").
@@ -60,6 +67,7 @@ func (s *SqliteStore) GetAllCountries() ([]Country, error) {
 	if result.Error != nil {
 		return nil, result.Error
 	}
+
 	return countries, nil
 }
 
@@ -67,6 +75,10 @@ func (s *SqliteStore) GetAllCountries() ([]Country, error) {
 func (s *SqliteStore) GetCitiesByCountry(countryISOCode string) ([]City, error) {
 	s.mux.RLock()
 	defer s.mux.RUnlock()
+
+	if s.closed {
+		return nil, status.Errorf(status.PreconditionFailed, "geo location database is not initialized")
+	}
 
 	var cities []City
 	result := s.db.Table("geonames").
@@ -104,13 +116,15 @@ func (s *SqliteStore) reload() error {
 		}
 
 		log.Infof("Reloading '%s'", s.filePath)
+		_ = s.close()
+		s.closed = true
 
 		newDb, err := connectDB(s.filePath)
 		if err != nil {
 			return err
 		}
 
-		_ = s.close()
+		s.closed = false
 		s.db = newDb
 
 		log.Infof("Successfully reloaded '%s'", s.filePath)
