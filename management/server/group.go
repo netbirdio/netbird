@@ -115,6 +115,13 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 	if err != nil {
 		return err
 	}
+
+	for _, peerID := range newGroup.Peers {
+		if account.Peers[peerID] == nil {
+			return status.Errorf(status.InvalidArgument, "peer with ID \"%s\" not found", peerID)
+		}
+	}
+
 	oldGroup, exists := account.Groups[newGroup.ID]
 	account.Groups[newGroup.ID] = newGroup
 
