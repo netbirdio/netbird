@@ -65,6 +65,26 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
 	}
 
+	if cmd.Flag(disableAutoConnectFlag).Changed {
+		_, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
+			ConfigPath:         configPath,
+			DisableAutoConnect: &autoConnectDisabled,
+		})
+
+		if err != nil {
+			cmd.PrintErrln(err)
+			return err
+		}
+
+		if autoConnectDisabled {
+			cmd.Println("Autoconnect has been disabled. The client won't connect automatically when the service starts.")
+		}
+
+		if !autoConnectDisabled {
+			cmd.Println("Autoconnect has been enabled. The client will connect automatically when the service starts.")
+		}
+	}
+
 	if foregroundMode {
 		return runInForegroundMode(ctx, cmd)
 	}
