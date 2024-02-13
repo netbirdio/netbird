@@ -543,6 +543,16 @@ func (a *Account) FindUser(userID string) (*User, error) {
 	return user, nil
 }
 
+// FindGroupByName looks for a given group in the Account by name or returns error if user wasn't found.
+func (a *Account) FindGroupByName(groupName string) (*Group, error) {
+	for _, group := range a.Groups {
+		if group.Name == groupName {
+			return group, nil
+		}
+	}
+	return nil, status.Errorf(status.NotFound, "group %s not found", groupName)
+}
+
 // FindSetupKey looks for a given SetupKey in the Account or returns error if it wasn't found.
 func (a *Account) FindSetupKey(setupKey string) (*SetupKey, error) {
 	key := a.SetupKeys[setupKey]

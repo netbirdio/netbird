@@ -13,6 +13,25 @@ const (
 	groupAdminUserID = "testingAdminUser"
 )
 
+func TestDefaultAccountManager_CreateGroup(t *testing.T) {
+	am, err := createManager(t)
+	if err != nil {
+		t.Error("failed to create account manager")
+	}
+
+	account, err := initTestGroupAccount(am)
+	if err != nil {
+		t.Error("failed to init testing account")
+	}
+
+	for _, group := range account.Groups {
+		err = am.SaveGroup(account.Id, groupAdminUserID, group)
+		if err == nil {
+			t.Error("should not create group with the same name")
+		}
+	}
+}
+
 func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 	am, err := createManager(t)
 	if err != nil {

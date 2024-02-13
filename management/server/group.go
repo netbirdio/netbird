@@ -116,6 +116,18 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 		return err
 	}
 
+	// avoid duplicate groups
+	group, err := account.FindGroupByName(newGroup.Name)
+	if err != nil {
+		s, ok := status.FromError(err)
+		if !ok || s.ErrorType != status.NotFound {
+			return err
+		}
+	}
+	if group != nil {
+		return status.Errorf(status.AlreadyExists, "group with name %s already exists", newGroup.Name)
+	}
+
 	for _, peerID := range newGroup.Peers {
 		if account.Peers[peerID] == nil {
 			return status.Errorf(status.InvalidArgument, "peer with ID \"%s\" not found", peerID)
