@@ -43,6 +43,8 @@ func (g *GeoLocationCheck) Check(peer nbpeer.Peer) (bool, error) {
 					return false, nil
 				case GeoLocationActionAllow:
 					return true, nil
+				default:
+					return false, fmt.Errorf("invalid geo location action: %s", g.Action)
 				}
 			}
 		}

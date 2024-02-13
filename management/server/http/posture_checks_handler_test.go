@@ -592,6 +592,31 @@ func TestPostureCheckUpdate(t *testing.T) {
 			},
 		},
 		{
+			name:        "Update Posture Checks Geo Location with not valid action",
+			requestType: http.MethodPut,
+			requestPath: "/api/posture-checks/geoPostureCheck",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+					"name": "default",
+					"checks": {
+						"geo_location_check": {
+							"locations": [
+								{
+									"city_name": "Los Angeles",
+									"country_code": "US"
+								}
+							],
+							"action": "not-valid"
+						}
+					}
+					}`)),
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   false,
+			setupHandlerFunc: func(handler *PostureChecksHandler) {
+				handler.geolocationManager = nil
+			},
+		},
+		{
 			name:        "Update Posture Checks Invalid Check",
 			requestType: http.MethodPut,
 			requestPath: "/api/posture-checks/postureCheck",
