@@ -38,9 +38,6 @@ const (
 	PublicCategory             = "public"
 	PrivateCategory            = "private"
 	UnknownCategory            = "unknown"
-	GroupIssuedAPI             = "api"
-	GroupIssuedJWT             = "jwt"
-	GroupIssuedIntegration     = "integration"
 	CacheExpirationMax         = 7 * 24 * 3600 * time.Second // 7 days
 	CacheExpirationMin         = 3 * 24 * 3600 * time.Second // 3 days
 	DefaultPeerLoginExpiration = 24 * time.Hour

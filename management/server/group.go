@@ -18,6 +18,12 @@ func (e *GroupLinkError) Error() string {
 	return fmt.Sprintf("group has been linked to %s: %s", e.Resource, e.Name)
 }
 
+const (
+	GroupIssuedAPI         = "api"
+	GroupIssuedJWT         = "jwt"
+	GroupIssuedIntegration = "integration"
+)
+
 // Group of the peers for ACL
 type Group struct {
 	// ID of the group
@@ -29,7 +35,7 @@ type Group struct {
 	// Name visible in the UI
 	Name string
 
-	// Issued of the group
+	// Issued is enum of "api", "
 	Issued string
 
 	// Peers list of the group
@@ -116,7 +122,6 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 		return err
 	}
 
-	// avoid duplicate groups
 	group, err := account.FindGroupByName(newGroup.Name)
 	if err != nil {
 		s, ok := status.FromError(err)
@@ -124,7 +129,10 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 			return err
 		}
 	}
-	if group != nil {
+
+	// avoid duplicate groups only for the API issued groups. Integration or JWY groups can be duplicated as they are
+	// coming from the IdP that we don't have control of.
+	if group != nil && group.Issued == GroupIssuedAPI {
 		return status.Errorf(status.AlreadyExists, "group with name %s already exists", newGroup.Name)
 	}
 
