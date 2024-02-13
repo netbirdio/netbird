@@ -2,6 +2,7 @@ package geolocation
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -12,11 +13,15 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/netbirdio/netbird/management/server/status"
 )
 
 const (
 	GeoSqliteDBFile = "geonames.db"
 )
+
+var errDBClosed = errors.New("sql: database is closed")
 
 // SqliteStore represents a location storage backed by a Sqlite DB.
 type SqliteStore struct {
@@ -57,7 +62,10 @@ func (s *SqliteStore) GetAllCountries() ([]Country, error) {
 		Select("country_iso_code", "country_name").
 		Group("country_name").
 		Scan(&countries)
-	if result.Error != nil {
+	if err := result.Error; err != nil {
+		if err.Error() == errDBClosed.Error() {
+			return nil, status.Errorf(status.PreconditionFailed, "geo location database is not initialized")
+		}
 		return nil, result.Error
 	}
 	return countries, nil
@@ -74,7 +82,10 @@ func (s *SqliteStore) GetCitiesByCountry(countryISOCode string) ([]City, error) 
 		Where("country_iso_code = ?", countryISOCode).
 		Group("city_name").
 		Scan(&cities)
-	if result.Error != nil {
+	if err := result.Error; err != nil {
+		if err.Error() == errDBClosed.Error() {
+			return nil, status.Errorf(status.PreconditionFailed, "geo location database is not initialized")
+		}
 		return nil, result.Error
 	}
 
@@ -104,13 +115,12 @@ func (s *SqliteStore) reload() error {
 		}
 
 		log.Infof("Reloading '%s'", s.filePath)
+		_ = s.close()
 
 		newDb, err := connectDB(s.filePath)
 		if err != nil {
 			return err
 		}
-
-		_ = s.close()
 		s.db = newDb
 
 		log.Infof("Successfully reloaded '%s'", s.filePath)
