@@ -240,10 +240,9 @@ func (h *GroupsHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
 func toGroupResponse(account *server.Account, group *server.Group) *api.Group {
 	cache := make(map[string]api.PeerMinimum)
 	gr := api.Group{
-		Id:         group.ID,
-		Name:       group.Name,
-		PeersCount: len(group.Peers),
-		Issued:     &group.Issued,
+		Id:     group.ID,
+		Name:   group.Name,
+		Issued: &group.Issued,
 	}
 
 	for _, pid := range group.Peers {
@@ -261,5 +260,8 @@ func toGroupResponse(account *server.Account, group *server.Group) *api.Group {
 			gr.Peers = append(gr.Peers, peerResp)
 		}
 	}
+
+	gr.PeersCount = len(gr.Peers)
+
 	return &gr
 }

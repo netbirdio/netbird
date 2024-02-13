@@ -130,8 +130,9 @@ type Conn struct {
 	remoteModeCh chan ModeMessage
 	meta         meta
 
-	adapter       iface.TunAdapter
-	iFaceDiscover stdnet.ExternalIFaceDiscover
+	adapter        iface.TunAdapter
+	iFaceDiscover  stdnet.ExternalIFaceDiscover
+	sentExtraSrflx bool
 }
 
 // meta holds meta information about a connection
@@ -464,6 +465,8 @@ func (conn *Conn) cleanup() error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
+	conn.sentExtraSrflx = false
+
 	var err1, err2, err3 error
 	if conn.agent != nil {
 		err1 = conn.agent.Close()
@@ -556,6 +559,30 @@ func (conn *Conn) onICECandidate(candidate ice.Candidate) {
 			err := conn.signalCandidate(candidate)
 			if err != nil {
 				log.Errorf("failed signaling candidate to the remote peer %s %s", conn.config.Key, err)
+			}
+
+			// sends an extra server reflexive candidate to the remote peer with our related port (usually the wireguard port)
+			// this is useful when network has an existing port forwarding rule for the wireguard port and this peer
+			if !conn.sentExtraSrflx && candidate.Type() == ice.CandidateTypeServerReflexive && candidate.Port() != candidate.RelatedAddress().Port {
+				relatedAdd := candidate.RelatedAddress()
+				extraSrflx, err := ice.NewCandidateServerReflexive(&ice.CandidateServerReflexiveConfig{
+					Network:   candidate.NetworkType().String(),
+					Address:   candidate.Address(),
+					Port:      relatedAdd.Port,
+					Component: candidate.Component(),
+					RelAddr:   relatedAdd.Address,
+					RelPort:   relatedAdd.Port,
+				})
+				if err != nil {
+					log.Errorf("failed creating extra server reflexive candidate %s", err)
+					return
+				}
+				err = conn.signalCandidate(extraSrflx)
+				if err != nil {
+					log.Errorf("failed signaling the extra server reflexive candidate to the remote peer %s: %s", conn.config.Key, err)
+					return
+				}
+				conn.sentExtraSrflx = true
 			}
 		}()
 	}
