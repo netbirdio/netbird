@@ -22,7 +22,7 @@ import (
 )
 
 var berlin = "Berlin"
-var logAngelos = "Log Angelos"
+var logAngeles = "Los Angeles"
 
 func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksHandler {
 	testPostureChecks := make(map[string]*posture.Checks, len(postureChecks))
@@ -557,7 +557,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 					GeoLocationCheck: &api.GeoLocationCheck{
 						Locations: []api.Location{
 							{
-								CityName:    &logAngelos,
+								CityName:    &losAngeles,
 								CountryCode: "US",
 							},
 						},
