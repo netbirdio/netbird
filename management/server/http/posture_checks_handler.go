@@ -303,8 +303,12 @@ func toGeoLocationCheckResponse(geoLocationCheck *posture.GeoLocationCheck) *api
 	locations := make([]api.Location, 0, len(geoLocationCheck.Locations))
 	for _, loc := range geoLocationCheck.Locations {
 		l := loc // make G601 happy
+		var cityName *string
+		if loc.CityName != "" {
+			cityName = &l.CityName
+		}
 		locations = append(locations, api.Location{
-			CityName:    &l.CityName,
+			CityName:    cityName,
 			CountryCode: loc.CountryCode,
 		})
 	}
