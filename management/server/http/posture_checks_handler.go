@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"slices"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/xid"
@@ -250,10 +251,13 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 		if geoLocationCheck.Action == "" {
 			return status.Errorf(status.InvalidArgument, "action for geolocation check shouldn't be empty")
 		}
+		allowedActions := []api.GeoLocationCheckAction{api.GeoLocationCheckActionAllow, api.GeoLocationCheckActionDeny}
+		if !slices.Contains(allowedActions, geoLocationCheck.Action) {
+			return status.Errorf(status.InvalidArgument, "action for geolocation check is not valid value")
+		}
 		if len(geoLocationCheck.Locations) == 0 {
 			return status.Errorf(status.InvalidArgument, "locations for geolocation check shouldn't be empty")
 		}
-
 		for _, loc := range geoLocationCheck.Locations {
 			if loc.CountryCode == "" {
 				return status.Errorf(status.InvalidArgument, "country code for geolocation check shouldn't be empty")
