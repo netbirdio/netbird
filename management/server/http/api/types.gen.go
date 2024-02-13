@@ -308,7 +308,7 @@ type GroupRequest struct {
 // Location Describe geographical location information
 type Location struct {
 	// CityName Commonly used English name of the city
-	CityName string `json:"city_name"`
+	CityName *string `json:"city_name,omitempty"`
 
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
 	CountryCode string `json:"country_code"`

@@ -21,6 +21,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
+var berlin = "Berlin"
+var logAngelos = "Log Angelos"
+
 func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksHandler {
 	testPostureChecks := make(map[string]*posture.Checks, len(postureChecks))
 	for _, postureCheck := range postureChecks {
@@ -342,7 +345,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 					GeoLocationCheck: &api.GeoLocationCheck{
 						Locations: []api.Location{
 							{
-								CityName:    "Berlin",
+								CityName:    &berlin,
 								CountryCode: "DE",
 							},
 						},
@@ -554,7 +557,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 					GeoLocationCheck: &api.GeoLocationCheck{
 						Locations: []api.Location{
 							{
-								CityName:    "Los Angeles",
+								CityName:    &logAngelos,
 								CountryCode: "US",
 							},
 						},
