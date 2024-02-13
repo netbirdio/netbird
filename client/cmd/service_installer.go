@@ -106,7 +106,7 @@ var uninstallCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		cmd.Println("Netbird has been uninstalled")
+		cmd.Println("Netbird service has been uninstalled")
 		return nil
 	},
 }
