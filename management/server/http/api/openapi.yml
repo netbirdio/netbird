@@ -562,7 +562,10 @@ components:
           type: integer
           example: 2
         issued:
-          description: How group was issued (api, integration, jwt)
+          description: How the group was issued (api, integration, jwt)
+          type: string
+          enum: ["api", "integration", "jwt"]
+          example: api
           type: string
           example: api
       required:
