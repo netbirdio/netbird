@@ -109,7 +109,7 @@ type AccountManager interface {
 	DeleteNameServerGroup(accountID, nsGroupID, userID string) error
 	ListNameServerGroups(accountID string, userID string) ([]*nbdns.NameServerGroup, error)
 	GetDNSDomain() string
-	StoreEvent(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any)
+	StoreEvent(initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
 	GetEvents(accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettings(accountID string, userID string) (*DNSSettings, error)
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error

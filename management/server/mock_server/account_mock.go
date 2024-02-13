@@ -74,7 +74,7 @@ type MockAccountManager struct {
 	CheckUserAccessByJWTGroupsFunc  func(claims jwtclaims.AuthorizationClaims) error
 	DeleteAccountFunc               func(accountID, userID string) error
 	GetDNSDomainFunc                func() string
-	StoreEventFunc                  func(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any)
+	StoreEventFunc                  func(initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
 	GetEventsFunc                   func(accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettingsFunc              func(accountID, userID string) (*server.DNSSettings, error)
 	SaveDNSSettingsFunc             func(accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
@@ -651,7 +651,7 @@ func (am *MockAccountManager) HasConnectedChannel(peerID string) bool {
 }
 
 // StoreEvent mocks StoreEvent of the AccountManager interface
-func (am *MockAccountManager) StoreEvent(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any) {
+func (am *MockAccountManager) StoreEvent(initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
 	if am.StoreEventFunc != nil {
 		am.StoreEventFunc(initiatorID, targetID, accountID, activityID, meta)
 	}
