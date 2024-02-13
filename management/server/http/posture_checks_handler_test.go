@@ -22,7 +22,7 @@ import (
 )
 
 var berlin = "Berlin"
-var logAngeles = "Los Angeles"
+var losAngeles = "Los Angeles"
 
 func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksHandler {
 	testPostureChecks := make(map[string]*posture.Checks, len(postureChecks))
