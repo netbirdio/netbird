@@ -130,7 +130,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 		}
 	}
 
-	// avoid duplicate groups only for the API issued groups. Integration or JWY groups can be duplicated as they are
+	// avoid duplicate groups only for the API issued groups. Integration or JWT groups can be duplicated as they are
 	// coming from the IdP that we don't have control of.
 	if group != nil && group.Issued == GroupIssuedAPI {
 		return status.Errorf(status.AlreadyExists, "group with name %s already exists", newGroup.Name)
