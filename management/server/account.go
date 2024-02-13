@@ -540,7 +540,7 @@ func (a *Account) FindUser(userID string) (*User, error) {
 	return user, nil
 }
 
-// FindGroupByName looks for a given group in the Account by name or returns error if user wasn't found.
+// FindGroupByName looks for a given group in the Account by name or returns error if the group wasn't found.
 func (a *Account) FindGroupByName(groupName string) (*Group, error) {
 	for _, group := range a.Groups {
 		if group.Name == groupName {
