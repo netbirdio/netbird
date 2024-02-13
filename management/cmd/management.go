@@ -191,17 +191,17 @@ var (
 				log.Warn("TrustedHTTPProxies and TrustedHTTPProxiesCount both are configured. " +
 					"This is not recommended way to extract X-Forwarded-For. Consider using one of these options.")
 			}
-			realipOpts := realip.Opts{
-				TrustedPeers:        trustedPeers,
-				TrustedProxies:      trustedHTTPProxies,
-				TrustedProxiesCount: trustedProxiesCount,
-				Headers:             []string{realip.XForwardedFor, realip.XRealIp},
+			realipOpts := []realip.Option{
+				realip.WithTrustedPeers(trustedPeers),
+				realip.WithTrustedProxies(trustedHTTPProxies),
+				realip.WithTrustedProxiesCount(trustedProxiesCount),
+				realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
 			}
 			gRPCOpts := []grpc.ServerOption{
 				grpc.KeepaliveEnforcementPolicy(kaep),
 				grpc.KeepaliveParams(kasp),
-				grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts)),
-				grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts)),
+				grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...)),
+				grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...)),
 			}
 
 			var certManager *autocert.Manager
