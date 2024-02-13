@@ -35,7 +35,7 @@ type Group struct {
 	// Name visible in the UI
 	Name string
 
-	// Issued is enum of "api", "
+	// Issued defines how this group was created (enum of "api", "integration" or "jwt")
 	Issued string
 
 	// Peers list of the group
