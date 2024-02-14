@@ -295,10 +295,6 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		engineConf.PreSharedKey = &preSharedKey
 	}
 
-	// DEBUG
-	log.Infof("ServerSSHAllowed value")
-	log.Info(engineConf.ServerSSHAllowed)
-
 	return engineConf, nil
 }
 
