@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/client/system/detect_cloud"
+	"github.com/netbirdio/netbird/client/system/detect_platform"
 	"github.com/netbirdio/netbird/version"
 )
 

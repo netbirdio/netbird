@@ -16,6 +16,7 @@ import (
 	"github.com/zcalusic/sysinfo"
 
 	"github.com/netbirdio/netbird/client/system/detect_cloud"
+	"github.com/netbirdio/netbird/client/system/detect_platform"
 	"github.com/netbirdio/netbird/version"
 )
 
