@@ -346,8 +346,8 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 	protoNetAddr := make([]*mgmtProto.NetworkAddress, 0, len(info.NetworkAddresses))
 	for _, addr := range info.NetworkAddresses {
 		protoNetAddr = append(protoNetAddr, &mgmtProto.NetworkAddress{
-			Ip:  addr.IP,
-			Mac: addr.Mac,
+			NetIP: addr.NetIP.String(),
+			Mac:   addr.Mac,
 		})
 
 	}
@@ -382,7 +382,7 @@ func isEqual(a, b *mgmtProto.PeerSystemMeta) bool {
 	for _, addr := range a.GetNetworkAddresses() {
 		var found bool
 		for _, oAddr := range b.GetNetworkAddresses() {
-			if addr.GetMac() == oAddr.GetMac() && addr.GetIp() == oAddr.GetIp() {
+			if addr.GetMac() == oAddr.GetMac() && addr.GetNetIP() == oAddr.GetNetIP() {
 				found = true
 				continue
 			}
