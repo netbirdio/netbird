@@ -79,7 +79,7 @@ func GetInfo(ctx context.Context) *Info {
 		SystemManufacturer: manufacturer,
 	}
 
-	gio.Cloud = detect_cloud.Detect()
+	gio.Cloud = detect_cloud.Detect(ctx)
 
 	log.Debugf("Cloud: %s", gio.Cloud)
 	log.Debugf("SystemManufacturer: %s", gio.SystemManufacturer)

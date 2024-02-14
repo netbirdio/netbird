@@ -73,7 +73,7 @@ func GetInfo(ctx context.Context) *Info {
 	gio.Hostname = extractDeviceName(ctx, systemHostname)
 	gio.WiretrusteeVersion = version.NetbirdVersion()
 	gio.UIVersion = extractUserAgent(ctx)
-	gio.Cloud = detect_cloud.Detect()
+	gio.Cloud = detect_cloud.Detect(ctx)
 
 	log.Debugf("Cloud: %s", gio.Cloud)
 	log.Debugf("SystemManufacturer: %s", gio.SystemManufacturer)
