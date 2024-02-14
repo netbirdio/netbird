@@ -1,17 +1,20 @@
 package detect_cloud
 
-import "net/http"
+import (
+	"context"
+	"net/http"
+)
 
-func detectIBMCloud() string {
+func detectIBMCloud(ctx context.Context) string {
 	v1ResultChan := make(chan bool, 1)
 	v2ResultChan := make(chan bool, 1)
 
 	go func() {
-		v1ResultChan <- detectIBMSecure()
+		v1ResultChan <- detectIBMSecure(ctx)
 	}()
 
 	go func() {
-		v2ResultChan <- detectIBM()
+		v2ResultChan <- detectIBM(ctx)
 	}()
 
 	v1Result, v2Result := <-v1ResultChan, <-v2ResultChan
@@ -22,8 +25,8 @@ func detectIBMCloud() string {
 	return ""
 }
 
-func detectIBMSecure() bool {
-	req, err := http.NewRequest("PUT", "https://api.metadata.cloud.ibm.com/instance_identity/v1/token", nil)
+func detectIBMSecure(ctx context.Context) bool {
+	req, err := http.NewRequestWithContext(ctx, "PUT", "https://api.metadata.cloud.ibm.com/instance_identity/v1/token", nil)
 	if err != nil {
 		return false
 	}
@@ -36,8 +39,8 @@ func detectIBMSecure() bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-func detectIBM() bool {
-	req, err := http.NewRequest("PUT", "http://api.metadata.cloud.ibm.com/instance_identity/v1/token", nil)
+func detectIBM(ctx context.Context) bool {
+	req, err := http.NewRequestWithContext(ctx, "PUT", "http://api.metadata.cloud.ibm.com/instance_identity/v1/token", nil)
 	if err != nil {
 		return false
 	}

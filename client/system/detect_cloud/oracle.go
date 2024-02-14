@@ -1,17 +1,20 @@
 package detect_cloud
 
-import "net/http"
+import (
+	"context"
+	"net/http"
+)
 
-func detectOracle() string {
+func detectOracle(ctx context.Context) string {
 	v1ResultChan := make(chan bool, 1)
 	v2ResultChan := make(chan bool, 1)
 
 	go func() {
-		v1ResultChan <- detectOracleIDMSv1()
+		v1ResultChan <- detectOracleIDMSv1(ctx)
 	}()
 
 	go func() {
-		v2ResultChan <- detectOracleIDMSv2()
+		v2ResultChan <- detectOracleIDMSv2(ctx)
 	}()
 
 	v1Result, v2Result := <-v1ResultChan, <-v2ResultChan
@@ -22,8 +25,8 @@ func detectOracle() string {
 	return ""
 }
 
-func detectOracleIDMSv1() bool {
-	req, err := http.NewRequest("GET", "http://169.254.169.254/opc/v1/instance/", nil)
+func detectOracleIDMSv1(ctx context.Context) bool {
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://169.254.169.254/opc/v1/instance/", nil)
 	if err != nil {
 		return false
 	}
@@ -37,8 +40,8 @@ func detectOracleIDMSv1() bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-func detectOracleIDMSv2() bool {
-	req, err := http.NewRequest("GET", "http://169.254.169.254/opc/v2/instance/", nil)
+func detectOracleIDMSv2(ctx context.Context) bool {
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://169.254.169.254/opc/v2/instance/", nil)
 	if err != nil {
 		return false
 	}

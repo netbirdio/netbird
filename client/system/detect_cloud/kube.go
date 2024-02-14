@@ -1,27 +1,17 @@
 package detect_cloud
 
 import (
+	"context"
 	"os"
-	"strings"
 )
 
-func detectContainer() string {
-	b, err := os.ReadFile("/proc/self/cgroup")
-	if err != nil {
-		return ""
+func detectContainer(ctx context.Context) string {
+	if _, exists := os.LookupEnv("KUBERNETES_SERVICE_HOST"); exists {
+		return "Kubernetes"
 	}
 
-	fc := string(b)
-	kube := strings.Contains(fc, "kube")
-	container := strings.Contains(fc, "containerd")
-
-	if kube {
-		return "K8S Container"
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return "Docker"
 	}
-
-	if container {
-		return "Container"
-	}
-
 	return ""
 }

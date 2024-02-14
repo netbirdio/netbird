@@ -14,23 +14,23 @@ import (
 
 var hc = &http.Client{Timeout: 300 * time.Millisecond}
 
-func Detect() string {
+func Detect(mainCtx context.Context) string {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	detectVendorFuncs := []func() string{
+	detectVendorFuncs := []func(context.Context) string{
 		detectAlibabaCloud,
 		detectAWS,
 		detectAzure,
 		detectDigitalOcean,
-		detectGCE,
+		detectGCP,
 		detectOracle,
 		detectIBMCloud,
 		detectSoftlayer,
 		detectVultr,
 	}
 
-	detectSoftwareFuncs := []func() string{
+	detectSoftwareFuncs := []func(context.Context) string{
 		detectOpenStack,
 		detectContainer,
 	}
@@ -39,16 +39,16 @@ func Detect() string {
 	softwareResults := make(chan string, len(detectSoftwareFuncs))
 
 	var wg sync.WaitGroup
-	wg.Add(len(detectVendorFuncs) + len(detectSoftwareFuncs))
 
 	for _, fn := range detectVendorFuncs {
-		go func(f func() string) {
+		wg.Add(1)
+		go func(f func(context.Context) string) {
 			defer wg.Done()
 			select {
 			case <-ctx.Done():
 				return
 			default:
-				if result := f(); result != "" {
+				if result := f(mainCtx); result != "" {
 					vendorResults <- result
 					cancel()
 				}
@@ -57,13 +57,14 @@ func Detect() string {
 	}
 
 	for _, fn := range detectSoftwareFuncs {
-		go func(f func() string) {
+		wg.Add(1)
+		go func(f func(context.Context) string) {
 			defer wg.Done()
 			select {
 			case <-ctx.Done():
 				return
 			default:
-				if result := f(); result != "" {
+				if result := f(mainCtx); result != "" {
 					softwareResults <- result
 				}
 			}

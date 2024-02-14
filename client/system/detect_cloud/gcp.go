@@ -5,11 +5,12 @@ import (
 	"net/http"
 )
 
-func detectAlibabaCloud(ctx context.Context) string {
-	req, err := http.NewRequestWithContext(ctx, "GET", "http://100.100.100.200/latest/", nil)
+func detectGCP(ctx context.Context) string {
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://metadata.google.internal", nil)
 	if err != nil {
 		return ""
 	}
+	req.Header.Add("Metadata-Flavor", "Google")
 
 	resp, err := hc.Do(req)
 	if err != nil {
@@ -18,7 +19,7 @@ func detectAlibabaCloud(ctx context.Context) string {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
-		return "Alibaba Cloud"
+		return "Google Cloud Platform"
 	}
 	return ""
 }

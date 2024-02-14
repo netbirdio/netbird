@@ -1,19 +1,20 @@
 package detect_cloud
 
 import (
+	"context"
 	"net/http"
 )
 
-func detectAWS() string {
+func detectAWS(ctx context.Context) string {
 	v1ResultChan := make(chan bool, 1)
 	v2ResultChan := make(chan bool, 1)
 
 	go func() {
-		v1ResultChan <- detectAWSIDMSv1()
+		v1ResultChan <- detectAWSIDMSv1(ctx)
 	}()
 
 	go func() {
-		v2ResultChan <- detectAWSIDMSv2()
+		v2ResultChan <- detectAWSIDMSv2(ctx)
 	}()
 
 	v1Result, v2Result := <-v1ResultChan, <-v2ResultChan
@@ -24,17 +25,23 @@ func detectAWS() string {
 	return ""
 }
 
-func detectAWSIDMSv1() bool {
-	resp, err := hc.Get("http://169.254.169.254/latest/")
+func detectAWSIDMSv1(ctx context.Context) bool {
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://169.254.169.254/latest/", nil)
+	if err != nil {
+		return false
+	}
+
+	resp, err := hc.Do(req)
 	if err != nil {
 		return false
 	}
 	defer resp.Body.Close()
+
 	return resp.StatusCode == http.StatusOK
 }
 
-func detectAWSIDMSv2() bool {
-	req, err := http.NewRequest("PUT", "http://169.254.169.254/latest/api/token", nil)
+func detectAWSIDMSv2(ctx context.Context) bool {
+	req, err := http.NewRequestWithContext(ctx, "PUT", "http://169.254.169.254/latest/api/token", nil)
 	if err != nil {
 		return false
 	}
@@ -45,5 +52,6 @@ func detectAWSIDMSv2() bool {
 		return false
 	}
 	defer resp.Body.Close()
+
 	return resp.StatusCode == http.StatusOK
 }
