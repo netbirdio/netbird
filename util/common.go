@@ -22,3 +22,38 @@ func FileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
+
+
+/// Bool helpers
+
+// True returns a *bool whose underlying value is true.
+func True() *bool {
+	t := true
+	return &t
+}
+
+// False returns a *bool whose underlying value is false.
+func False() *bool {
+	t := false
+	return &t
+}
+
+// Return bool representation if the bool pointer is non-nil, otherwise returns false
+func ReturnBoolWithDefaultFalse(b *bool) bool {
+	if b != nil {
+		return *b
+	} else {
+		return false
+	}
+
+}
+
+// Return bool representation if the bool pointer is non-nil, otherwise returns true
+func ReturnBoolWithDefaultTrue(b *bool) bool {
+	if b != nil {
+		return *b
+	} else {
+		return true
+	}
+
+}

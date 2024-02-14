@@ -59,7 +59,7 @@ type Config struct {
 	IFaceBlackList       []string
 	DisableIPv6Discovery bool
 	RosenpassEnabled     bool
-	ServerSSHAllowed     bool
+	ServerSSHAllowed     *bool
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey               string
 
@@ -90,6 +90,16 @@ func ReadConfig(configPath string) (*Config, error) {
 		if _, err := util.ReadJson(configPath, config); err != nil {
 			return nil, err
 		}
+
+		// Should be redondant with createEngineConfig declaration on connect.go, but easier to read
+		if config.ServerSSHAllowed == nil {
+			config.ServerSSHAllowed = util.True()
+		}
+
+		// DEBUG
+		log.Infof("ServerSSHAllowed value")
+		log.Info(config.ServerSSHAllowed)
+
 		return config, nil
 	}
 
@@ -154,7 +164,7 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		DisableIPv6Discovery: false,
 		NATExternalIPs:       input.NATExternalIPs,
 		CustomDNSAddress:     string(input.CustomDNSAddress),
-		ServerSSHAllowed:     false,
+		ServerSSHAllowed:     util.False(),
 	}
 
 	defaultManagementURL, err := parseURL("Management URL", DefaultManagementURL)
@@ -190,7 +200,7 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 	}
 
 	if input.ServerSSHAllowed != nil {
-		config.ServerSSHAllowed = *input.ServerSSHAllowed
+		config.ServerSSHAllowed = input.ServerSSHAllowed
 	}
 
 	defaultAdminURL, err := parseURL("Admin URL", DefaultAdminURL)
@@ -289,7 +299,7 @@ func update(input ConfigInput) (*Config, error) {
 
 	if input.ServerSSHAllowed != nil {
 		log.Infof("SSH allowed flag set")
-		config.ServerSSHAllowed = *input.ServerSSHAllowed
+		config.ServerSSHAllowed = input.ServerSSHAllowed
 		refresh = true
 	} 
 
