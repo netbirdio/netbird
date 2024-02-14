@@ -1,4 +1,4 @@
-package detect_cloud
+package detect_platform
 
 import (
 	"context"
@@ -7,11 +7,6 @@ import (
 	"time"
 )
 
-/*
-	This packages is inspired by the work of the original author (https://github.com/perlogix), but it has been modified to fit the needs of the project.
-	Original project: https://github.com/perlogix/libdetectcloud
-*/
-
 var hc = &http.Client{Timeout: 300 * time.Millisecond}
 
 func Detect(ctx context.Context) string {
@@ -19,15 +14,8 @@ func Detect(ctx context.Context) string {
 	defer cancel()
 
 	funcs := []func(context.Context) string{
-		detectAlibabaCloud,
-		detectAWS,
-		detectAzure,
-		detectDigitalOcean,
-		detectGCP,
-		detectOracle,
-		detectIBMCloud,
-		detectSoftlayer,
-		detectVultr,
+		detectOpenStack,
+		detectContainer,
 	}
 
 	results := make(chan string, len(funcs))

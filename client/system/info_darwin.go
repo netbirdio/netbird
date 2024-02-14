@@ -16,6 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/system/detect_cloud"
+	"github.com/netbirdio/netbird/client/system/detect_platform"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -42,6 +43,11 @@ func GetInfo(ctx context.Context) *Info {
 
 	serialNum, prodName, manufacturer := sysInfo()
 
+	env := Environment{
+		Cloud:    detect_cloud.Detect(ctx),
+		Platform: detect_platform.Detect(ctx),
+	}
+
 	gio := &Info{
 		Kernel:             sysName,
 		OSVersion:          strings.TrimSpace(string(swVersion)),
@@ -54,16 +60,12 @@ func GetInfo(ctx context.Context) *Info {
 		SystemSerialNumber: serialNum,
 		SystemProductName:  prodName,
 		SystemManufacturer: manufacturer,
+		Environment:        env,
 	}
 	systemHostname, _ := os.Hostname()
 	gio.Hostname = extractDeviceName(ctx, systemHostname)
 	gio.WiretrusteeVersion = version.NetbirdVersion()
 	gio.UIVersion = extractUserAgent(ctx)
-	gio.Cloud = detect_cloud.Detect(ctx)
-
-	log.Debugf("Cloud: %s", gio.Cloud)
-	log.Debugf("SystemManufacturer: %s", gio.SystemManufacturer)
-	log.Debugf("SystemProductName: %s", gio.SystemProductName)
 
 	return gio
 }

@@ -62,6 +62,11 @@ func GetInfo(ctx context.Context) *Info {
 
 	serialNum, prodName, manufacturer := sysInfo()
 
+	env := Environment{
+		Cloud:    detect_cloud.Detect(ctx),
+		Platform: detect_platform.Detect(ctx),
+	}
+
 	gio := &Info{
 		Kernel:             osInfo[0],
 		Platform:           osInfo[2],
@@ -77,13 +82,8 @@ func GetInfo(ctx context.Context) *Info {
 		SystemSerialNumber: serialNum,
 		SystemProductName:  prodName,
 		SystemManufacturer: manufacturer,
+		Environment:        env,
 	}
-
-	gio.Cloud = detect_cloud.Detect(ctx)
-
-	log.Debugf("Cloud: %s", gio.Cloud)
-	log.Debugf("SystemManufacturer: %s", gio.SystemManufacturer)
-	log.Debugf("SystemProductName: %s", gio.SystemProductName)
 
 	return gio
 }

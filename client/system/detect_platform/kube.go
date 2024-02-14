@@ -1,4 +1,4 @@
-package detect_cloud
+package detect_platform
 
 import (
 	"context"
