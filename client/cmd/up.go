@@ -65,26 +65,6 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
 	}
 
-	if cmd.Flag(disableAutoConnectFlag).Changed {
-		_, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
-			ConfigPath:         configPath,
-			DisableAutoConnect: &autoConnectDisabled,
-		})
-
-		if err != nil {
-			cmd.PrintErrln(err)
-			return err
-		}
-
-		if autoConnectDisabled {
-			cmd.Println("Autoconnect has been disabled. The client won't connect automatically when the service starts.")
-		}
-
-		if !autoConnectDisabled {
-			cmd.Println("Autoconnect has been enabled. The client will connect automatically when the service starts.")
-		}
-	}
-
 	if foregroundMode {
 		return runInForegroundMode(ctx, cmd)
 	}
@@ -130,6 +110,18 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		ic.PreSharedKey = &preSharedKey
 	}
 
+	if cmd.Flag(disableAutoConnectFlag).Changed {
+		ic.DisableAutoConnect = &autoConnectDisabled
+
+		if autoConnectDisabled {
+			cmd.Println("Autoconnect has been disabled. The client won't connect automatically when the service starts.")
+		}
+
+		if !autoConnectDisabled {
+			cmd.Println("Autoconnect has been enabled. The client will connect automatically when the service starts.")
+		}
+	}
+
 	config, err := internal.UpdateOrCreateConfig(ic)
 	if err != nil {
 		return fmt.Errorf("get config file: %v", err)
@@ -153,6 +145,26 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
 	if err != nil {
 		return err
+	}
+
+  if cmd.Flag(disableAutoConnectFlag).Changed {
+		_, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
+			ConfigPath:         configPath,
+			DisableAutoConnect: &autoConnectDisabled,
+		})
+
+		if err != nil {
+			cmd.PrintErrln(err)
+			return err
+		}
+
+		if autoConnectDisabled {
+			cmd.Println("Autoconnect has been disabled. The client won't connect automatically when the service starts.")
+		}
+
+		if !autoConnectDisabled {
+			cmd.Println("Autoconnect has been enabled. The client will connect automatically when the service starts.")
+		}
 	}
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
