@@ -52,7 +52,11 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 		client = u.getClientPrivate()
 	}
 
-	return client.ExchangeContext(ctx, r, upstream)
+	// Cannot use client.ExchangeContext because it overwrites our Dialer
+	if deadline, ok := ctx.Deadline(); ok {
+		client.Dialer.Timeout = time.Until(deadline)
+	}
+	return client.Exchange(r, upstream)
 }
 
 // getClientPrivate returns a new DNS client bound to the local IP address of the Netbird interface
