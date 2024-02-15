@@ -154,8 +154,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		})
 
 		if err != nil {
-			cmd.PrintErrln(err)
-			return err
+			return fmt.Errorf("update config file: %v", err)
 		}
 
 		if autoConnectDisabled {
