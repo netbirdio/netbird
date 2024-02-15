@@ -46,28 +46,32 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 	if err != nil {
 		log.Errorf("error while parsing upstream host: %s", err)
 	}
+
+	timeout := upstreamTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		timeout = time.Until(deadline)
+	}
+	client.DialTimeout = timeout
+
 	upstreamIP := net.ParseIP(upstreamHost)
 	if u.lNet.Contains(upstreamIP) || net.IP.IsPrivate(upstreamIP) {
 		log.Debugf("using private client to query upstream: %s", upstream)
-		client = u.getClientPrivate()
+		client = u.getClientPrivate(timeout)
 	}
 
 	// Cannot use client.ExchangeContext because it overwrites our Dialer
-	if deadline, ok := ctx.Deadline(); ok {
-		client.Dialer.Timeout = time.Until(deadline)
-	}
 	return client.Exchange(r, upstream)
 }
 
 // getClientPrivate returns a new DNS client bound to the local IP address of the Netbird interface
 // This method is needed for iOS
-func (u *upstreamResolverIOS) getClientPrivate() *dns.Client {
+func (u *upstreamResolverIOS) getClientPrivate(dialTimeout time.Duration) *dns.Client {
 	dialer := &net.Dialer{
 		LocalAddr: &net.UDPAddr{
 			IP:   u.lIP,
 			Port: 0, // Let the OS pick a free port
 		},
-		Timeout: upstreamTimeout,
+		Timeout: dialTimeout,
 		Control: func(network, address string, c syscall.RawConn) error {
 			var operr error
 			fn := func(s uintptr) {
