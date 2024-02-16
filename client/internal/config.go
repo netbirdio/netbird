@@ -96,10 +96,6 @@ func ReadConfig(configPath string) (*Config, error) {
 			config.ServerSSHAllowed = util.True()
 		}
 
-		// DEBUG
-		log.Infof("ServerSSHAllowed value")
-		log.Info(config.ServerSSHAllowed)
-
 		return config, nil
 	}
 
