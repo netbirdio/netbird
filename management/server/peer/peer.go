@@ -3,6 +3,7 @@ package peer
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"time"
 )
 
@@ -66,7 +67,7 @@ type Location struct {
 
 // NetworkAddress is the IP address with network and MAC address of a network interface
 type NetworkAddress struct {
-	NetIP string
+	NetIP netip.Prefix
 	Mac   string
 }
 

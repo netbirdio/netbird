@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -262,8 +263,13 @@ func extractPeerMeta(loginReq *proto.LoginRequest) nbpeer.PeerSystemMeta {
 
 	networkAddresses := make([]nbpeer.NetworkAddress, 0, len(loginReq.GetMeta().GetNetworkAddresses()))
 	for _, addr := range loginReq.GetMeta().GetNetworkAddresses() {
+		netAddr, err := netip.ParsePrefix(addr.GetNetIP())
+		if err != nil {
+			log.Warnf("failed to parse netip address, %s: %v", addr.GetNetIP(), err)
+			continue
+		}
 		networkAddresses = append(networkAddresses, nbpeer.NetworkAddress{
-			NetIP: addr.GetNetIP(),
+			NetIP: netAddr,
 			Mac:   addr.GetMac(),
 		})
 	}
