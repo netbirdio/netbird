@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -150,18 +152,36 @@ func (gm *GoogleWorkspaceManager) GetAllAccounts() (map[string][]*UserData, erro
 
 // getAllUsers returns all users in a Google Workspace account filtered by customer ID.
 func (gm *GoogleWorkspaceManager) getAllUsers() ([]*UserData, error) {
+	var usersLimit int64 = 500
+	if maxUsersLimitEnv := os.Getenv("GOOGLE_WORKSPACE_USERS_LIMIT"); maxUsersLimitEnv != "" {
+		maxUsersLimit, err := strconv.Atoi(maxUsersLimitEnv)
+		if err == nil {
+			log.Debugf("GOOGLE_WORKSPACE_USERS_LIMIT env is set using %d  as users limit", maxUsersLimit)
+			usersLimit = int64(maxUsersLimit)
+		}
+	} else {
+		log.Debugf("GOOGLE_WORKSPACE_USERS_LIMIT env is not set using default users limit 500")
+	}
+
 	users := make([]*UserData, 0)
 	pageToken := ""
 	for {
-		call := gm.usersService.List().Customer(gm.CustomerID).MaxResults(500)
+		call := gm.usersService.List().Customer(gm.CustomerID).MaxResults(usersLimit)
 		if pageToken != "" {
 			call.PageToken(pageToken)
 		}
 
 		resp, err := call.Do()
 		if err != nil {
+			log.Debugf("failed to retrieve users from workspace error: %s, http status: %d, headers: %v",
+				err.Error(),
+				resp.HTTPStatusCode,
+				resp.Header,
+			)
 			return nil, err
 		}
+
+		log.Debugf("fetched %d users from workspace", len(resp.Users))
 
 		for _, user := range resp.Users {
 			users = append(users, parseGoogleWorkspaceUser(user))
