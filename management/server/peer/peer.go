@@ -67,7 +67,7 @@ type Location struct {
 
 // NetworkAddress is the IP address with network and MAC address of a network interface
 type NetworkAddress struct {
-	NetIP netip.Prefix
+	NetIP netip.Prefix `gorm:"serializer:json"`
 	Mac   string
 }
 
