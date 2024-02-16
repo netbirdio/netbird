@@ -91,11 +91,6 @@ func ReadConfig(configPath string) (*Config, error) {
 			return nil, err
 		}
 
-		// Should be redondant with createEngineConfig declaration on connect.go, but easier to read
-		if config.ServerSSHAllowed == nil {
-			config.ServerSSHAllowed = util.True()
-		}
-
 		return config, nil
 	}
 
@@ -294,10 +289,14 @@ func update(input ConfigInput) (*Config, error) {
 	}
 
 	if input.ServerSSHAllowed != nil {
-		log.Infof("SSH allowed flag set")
 		config.ServerSSHAllowed = input.ServerSSHAllowed
 		refresh = true
 	} 
+
+	if config.ServerSSHAllowed == nil {
+		config.ServerSSHAllowed = util.True()
+		refresh = true
+	}
 
 	if refresh {
 		// since we have new management URL, we need to update config file
