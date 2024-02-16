@@ -116,7 +116,7 @@ func (s *Server) Start() error {
 		s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	}
 
-	if config.DisableAutoConnect {
+	if !config.DisableAutoConnect {
 		go func() {
 			if err := internal.RunClientWithProbes(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe); err != nil {
 				log.Errorf("init connections: %v", err)
