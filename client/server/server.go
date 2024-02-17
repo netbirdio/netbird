@@ -206,6 +206,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		s.latestConfigInput.RosenpassEnabled = msg.RosenpassEnabled
 	}
 
+	if msg.DisableAutoConnect != nil {
+		inputConfig.DisableAutoConnect = msg.DisableAutoConnect
+		s.latestConfigInput.DisableAutoConnect = msg.DisableAutoConnect
+	}
+
 	if msg.InterfaceName != nil {
 		inputConfig.InterfaceName = msg.InterfaceName
 		s.latestConfigInput.InterfaceName = msg.InterfaceName
