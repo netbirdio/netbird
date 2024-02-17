@@ -81,8 +81,8 @@ type Config struct {
 	// CustomDNSAddress sets the DNS resolver listening address in format ip:port
 	CustomDNSAddress string
 
-	// DisableAutoConnect determines whether the client should start with the service
-	// it's set to true by default due to backwards compatibility
+	// DisableAutoConnect determines whether the client should not start with the service
+	// it's set to false by default due to backwards compatibility
 	DisableAutoConnect bool
 }
 
