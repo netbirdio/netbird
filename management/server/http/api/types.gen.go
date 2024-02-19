@@ -186,9 +186,7 @@ type AccountSettings struct {
 type Checks struct {
 	// GeoLocationCheck Posture check for geo location
 	GeoLocationCheck *GeoLocationCheck `json:"geo_location_check,omitempty"`
-
-	// NbVersionCheck Posture check for the version of operating system
-	NbVersionCheck *NBVersionCheck `json:"nb_version_check,omitempty"`
+	NbVersionCheck   *NBVersionCheck   `json:"nb_version_check,omitempty"`
 
 	// OsVersionCheck Posture check for the version of operating system
 	OsVersionCheck *OSVersionCheck `json:"os_version_check,omitempty"`
@@ -326,13 +324,13 @@ type MinKernelVersionCheck struct {
 	MinKernelVersion string `json:"min_kernel_version"`
 }
 
-// MinVersionCheck Posture check for the version of operating system
+// MinVersionCheck defines model for MinVersionCheck.
 type MinVersionCheck struct {
 	// MinVersion Minimum acceptable version
 	MinVersion string `json:"min_version"`
 }
 
-// NBVersionCheck Posture check for the version of operating system
+// NBVersionCheck defines model for NBVersionCheck.
 type NBVersionCheck = MinVersionCheck
 
 // Nameserver defines model for Nameserver.
@@ -409,14 +407,9 @@ type NameserverGroupRequest struct {
 
 // OSVersionCheck Posture check for the version of operating system
 type OSVersionCheck struct {
-	// Android Posture check for the version of operating system
 	Android *MinVersionCheck `json:"android,omitempty"`
-
-	// Darwin Posture check for the version of operating system
-	Darwin *MinVersionCheck `json:"darwin,omitempty"`
-
-	// Ios Posture check for the version of operating system
-	Ios *MinVersionCheck `json:"ios,omitempty"`
+	Darwin  *MinVersionCheck `json:"darwin,omitempty"`
+	Ios     *MinVersionCheck `json:"ios,omitempty"`
 
 	// Linux Posture check with the kernel version
 	Linux *MinKernelVersionCheck `json:"linux,omitempty"`
@@ -873,7 +866,7 @@ type PostureCheck struct {
 	// Id Posture check ID
 	Id string `json:"id"`
 
-	// Name Posture check name identifier
+	// Name Posture check unique name identifier
 	Name string `json:"name"`
 }
 
