@@ -74,6 +74,7 @@ func TestEngine_SSH(t *testing.T) {
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
+		ServerSSHAllowed: true,
 	}, MobileDependency{}, peer.NewRecorder("https://mgm"))
 
 	engine.dnsServer = &dns.MockServer{
