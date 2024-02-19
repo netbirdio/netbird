@@ -1,4 +1,4 @@
-openapi: 3.0.1
+openapi: 3.1.0
 servers:
   - url: https://api.netbird.io
     description: Default server
@@ -318,6 +318,10 @@ components:
               description: (Cloud only) Indicates whether peer needs approval
               type: boolean
               example: true
+            country_code:
+              $ref: '#/components/schemas/CountryCode'
+            city_name:
+              $ref: '#/components/schemas/CityName'
           required:
             - ip
             - connected
@@ -868,11 +872,22 @@ components:
           description: Minimum version of iOS
           $ref: '#/components/schemas/MinVersionCheck'
         linux:
-          description: Minimum version of Linux
+          description: Minimum Linux kernel version
           $ref: '#/components/schemas/MinKernelVersionCheck'
         windows:
-          description: Minimum version of Windows
+          description: Minimum Windows kernel build version
           $ref: '#/components/schemas/MinKernelVersionCheck'
+      example:
+        android:
+          min_version: "13"
+        ios:
+          min_version: "17.3.1"
+        darwin:
+          min_version: "14.2.1"
+        linux:
+          min_kernel_version: "5.3.3"
+        windows:
+          min_kernel_version: "10.0.1234"
     MinVersionCheck:
       description: Posture check for the version of operating system
       type: object
@@ -884,7 +899,7 @@ components:
       required:
         - min_version
     MinKernelVersionCheck:
-      description: Posture check for the version of kernel
+      description: Posture check with the kernel version
       type: object
       properties:
         min_kernel_version:
@@ -915,15 +930,19 @@ components:
       type: object
       properties:
         country_code:
-          description: 2-letter ISO 3166-1 alpha-2 code that represents the country
-          type: string
-          example: "DE"
+          $ref: '#/components/schemas/CountryCode'
         city_name:
-          description: Commonly used English name of the city
-          type: string
-          example: "Berlin"
+          $ref: '#/components/schemas/CityName'
       required:
         - country_code
+    CountryCode:
+      description: 2-letter ISO 3166-1 alpha-2 code that represents the country
+      type: string
+      example: "DE"
+    CityName:
+      description: Commonly used English name of the city
+      type: string
+      example: "Berlin"
     Country:
       description: Describe country geographical location information
       type: object
@@ -933,9 +952,7 @@ components:
           type: string
           example: "Germany"
         country_code:
-          description: 2-letter ISO 3166-1 alpha-2 code that represents the country
-          type: string
-          example: "DE"
+            $ref: '#/components/schemas/CountryCode'
       required:
         - country_name
         - country_code

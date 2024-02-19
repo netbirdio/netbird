@@ -205,6 +205,7 @@ func (p *PostureChecksHandler) savePostureChecks(
 
 	if geoLocationCheck := req.Checks.GeoLocationCheck; geoLocationCheck != nil {
 		if p.geolocationManager == nil {
+			// TODO: update error message to include geo db self hosted doc link when ready
 			util.WriteError(status.Errorf(status.PreconditionFailed, "Geo location database is not initialized"), w)
 			return
 		}

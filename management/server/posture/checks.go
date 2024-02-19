@@ -1,6 +1,10 @@
 package posture
 
 import (
+	"fmt"
+
+	"github.com/hashicorp/go-version"
+
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
@@ -113,4 +117,61 @@ func (pc *Checks) GetChecks() []Check {
 		checks = append(checks, pc.Checks.GeoLocationCheck)
 	}
 	return checks
+}
+
+func (pc *Checks) Validate() error {
+	if check := pc.Checks.NBVersionCheck; check != nil {
+		if !isVersionValid(check.MinVersion) {
+			return fmt.Errorf("%s version: %s is not valid", check.Name(), check.MinVersion)
+		}
+	}
+
+	if osCheck := pc.Checks.OSVersionCheck; osCheck != nil {
+		if osCheck.Android != nil {
+			if !isVersionValid(osCheck.Android.MinVersion) {
+				return fmt.Errorf("%s android version: %s is not valid", osCheck.Name(), osCheck.Android.MinVersion)
+			}
+		}
+
+		if osCheck.Ios != nil {
+			if !isVersionValid(osCheck.Ios.MinVersion) {
+				return fmt.Errorf("%s ios version: %s is not valid", osCheck.Name(), osCheck.Ios.MinVersion)
+			}
+		}
+
+		if osCheck.Darwin != nil {
+			if !isVersionValid(osCheck.Darwin.MinVersion) {
+				return fmt.Errorf("%s  darwin version: %s is not valid", osCheck.Name(), osCheck.Darwin.MinVersion)
+			}
+		}
+
+		if osCheck.Linux != nil {
+			if !isVersionValid(osCheck.Linux.MinKernelVersion) {
+				return fmt.Errorf("%s  linux kernel version: %s is not valid", osCheck.Name(),
+					osCheck.Linux.MinKernelVersion)
+			}
+		}
+
+		if osCheck.Windows != nil {
+			if !isVersionValid(osCheck.Windows.MinKernelVersion) {
+				return fmt.Errorf("%s  windows kernel version: %s is not valid", osCheck.Name(),
+					osCheck.Windows.MinKernelVersion)
+			}
+		}
+	}
+
+	return nil
+}
+
+func isVersionValid(ver string) bool {
+	newVersion, err := version.NewVersion(ver)
+	if err != nil {
+		return false
+	}
+
+	if newVersion != nil {
+		return true
+	}
+
+	return false
 }

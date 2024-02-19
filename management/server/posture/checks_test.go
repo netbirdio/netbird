@@ -142,3 +142,77 @@ func TestChecks_UnmarshalJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestChecks_Validate(t *testing.T) {
+	testCases := []struct {
+		name          string
+		checks        Checks
+		expectedError bool
+	}{
+		{
+			name: "Valid checks version",
+			checks: Checks{
+				Checks: ChecksDefinition{
+					NBVersionCheck: &NBVersionCheck{
+						MinVersion: "0.25.0",
+					},
+					OSVersionCheck: &OSVersionCheck{
+						Ios: &MinVersionCheck{
+							MinVersion: "13.0.1",
+						},
+						Linux: &MinKernelVersionCheck{
+							MinKernelVersion: "5.3.3-dev",
+						},
+					},
+				},
+			},
+			expectedError: false,
+		},
+		{
+			name: "Invalid checks version",
+			checks: Checks{
+				Checks: ChecksDefinition{
+					NBVersionCheck: &NBVersionCheck{
+						MinVersion: "abc",
+					},
+					OSVersionCheck: &OSVersionCheck{
+						Android: &MinVersionCheck{
+							MinVersion: "dev",
+						},
+					},
+				},
+			},
+			expectedError: true,
+		},
+		{
+			name: "Combined valid and invalid checks version",
+			checks: Checks{
+				Checks: ChecksDefinition{
+					NBVersionCheck: &NBVersionCheck{
+						MinVersion: "abc",
+					},
+					OSVersionCheck: &OSVersionCheck{
+						Windows: &MinKernelVersionCheck{
+							MinKernelVersion: "10.0.1234",
+						},
+						Darwin: &MinVersionCheck{
+							MinVersion: "13.0.1",
+						},
+					},
+				},
+			},
+			expectedError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.checks.Validate()
+			if tc.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
