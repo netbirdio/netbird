@@ -216,7 +216,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 			shouldCreate: false,
 		},
 		{
-			name: "Create A NS Group With More Than 2 Nameservers Should Fail",
+			name: "Create A NS Group With More Than 3 Nameservers Should Fail",
 			inputArgs: input{
 				name:        "super",
 				description: "super",
@@ -235,6 +235,11 @@ func TestCreateNameServerGroup(t *testing.T) {
 					},
 					{
 						IP:     netip.MustParseAddr("1.1.3.3"),
+						NSType: nbdns.UDPNameServerType,
+						Port:   nbdns.DefaultDNSPort,
+					},
+					{
+						IP:     netip.MustParseAddr("1.1.4.4"),
 						NSType: nbdns.UDPNameServerType,
 						Port:   nbdns.DefaultDNSPort,
 					},
@@ -454,6 +459,11 @@ func TestSaveNameServerGroup(t *testing.T) {
 		},
 		{
 			IP:     netip.MustParseAddr("1.1.3.3"),
+			NSType: nbdns.UDPNameServerType,
+			Port:   nbdns.DefaultDNSPort,
+		},
+		{
+			IP:     netip.MustParseAddr("1.1.4.4"),
 			NSType: nbdns.UDPNameServerType,
 			Port:   nbdns.DefaultDNSPort,
 		},
