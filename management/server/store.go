@@ -50,10 +50,10 @@ const (
 )
 
 func getStoreEngineFromEnv() StoreEngine {
-	// NETBIRD_STORE_ENGINE supposed to be used in tests. Otherwise rely on the config file.
+	// NETBIRD_STORE_ENGINE supposed to be used in tests. Otherwise, rely on the config file.
 	kind, ok := os.LookupEnv("NETBIRD_STORE_ENGINE")
 	if !ok {
-		return SqliteStoreEngine
+		return ""
 	}
 
 	value := StoreEngine(strings.ToLower(kind))
