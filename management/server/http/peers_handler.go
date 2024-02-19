@@ -267,6 +267,8 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		LoginExpired:           peer.Status.LoginExpired,
 		AccessiblePeers:        accessiblePeer,
 		ApprovalRequired:       &peer.Status.RequiresApproval,
+		CountryCode:            &peer.Location.CountryCode,
+		CityName:               &peer.Location.CityName,
 	}
 }
 

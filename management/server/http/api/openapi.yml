@@ -318,6 +318,10 @@ components:
               description: (Cloud only) Indicates whether peer needs approval
               type: boolean
               example: true
+            country_code:
+              $ref: '#/components/schemas/CountryCode'
+            city_name:
+              $ref: '#/components/schemas/CityName'
           required:
             - ip
             - connected
@@ -926,15 +930,19 @@ components:
       type: object
       properties:
         country_code:
-          description: 2-letter ISO 3166-1 alpha-2 code that represents the country
-          type: string
-          example: "DE"
+          $ref: '#/components/schemas/CountryCode'
         city_name:
-          description: Commonly used English name of the city
-          type: string
-          example: "Berlin"
+          $ref: '#/components/schemas/CityName'
       required:
         - country_code
+    CountryCode:
+      description: 2-letter ISO 3166-1 alpha-2 code that represents the country
+      type: string
+      example: "DE"
+    CityName:
+      description: Commonly used English name of the city
+      type: string
+      example: "Berlin"
     Country:
       description: Describe country geographical location information
       type: object
@@ -944,9 +952,7 @@ components:
           type: string
           example: "Germany"
         country_code:
-          description: 2-letter ISO 3166-1 alpha-2 code that represents the country
-          type: string
-          example: "DE"
+            $ref: '#/components/schemas/CountryCode'
       required:
         - country_name
         - country_code

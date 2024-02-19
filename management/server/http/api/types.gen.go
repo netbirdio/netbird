@@ -203,14 +203,20 @@ type City struct {
 	GeonameId int `json:"geoname_id"`
 }
 
+// CityName Commonly used English name of the city
+type CityName = string
+
 // Country Describe country geographical location information
 type Country struct {
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
-	CountryCode string `json:"country_code"`
+	CountryCode CountryCode `json:"country_code"`
 
 	// CountryName Commonly used English name of the country
 	CountryName string `json:"country_name"`
 }
+
+// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
+type CountryCode = string
 
 // DNSSettings defines model for DNSSettings.
 type DNSSettings struct {
@@ -308,13 +314,13 @@ type GroupRequest struct {
 // Location Describe geographical location information
 type Location struct {
 	// CityName Commonly used English name of the city
-	CityName *string `json:"city_name,omitempty"`
+	CityName *CityName `json:"city_name,omitempty"`
 
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
-	CountryCode string `json:"country_code"`
+	CountryCode CountryCode `json:"country_code"`
 }
 
-// MinKernelVersionCheck Posture check for the version of kernel
+// MinKernelVersionCheck Posture check with the kernel version
 type MinKernelVersionCheck struct {
 	// MinKernelVersion Minimum acceptable version
 	MinKernelVersion string `json:"min_kernel_version"`
@@ -412,10 +418,10 @@ type OSVersionCheck struct {
 	// Ios Posture check for the version of operating system
 	Ios *MinVersionCheck `json:"ios,omitempty"`
 
-	// Linux Posture check for the version of kernel
+	// Linux Posture check with the kernel version
 	Linux *MinKernelVersionCheck `json:"linux,omitempty"`
 
-	// Windows Posture check for the version of kernel
+	// Windows Posture check with the kernel version
 	Windows *MinKernelVersionCheck `json:"windows,omitempty"`
 }
 
@@ -427,11 +433,17 @@ type Peer struct {
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
 	ApprovalRequired *bool `json:"approval_required,omitempty"`
 
+	// CityName Commonly used English name of the city
+	CityName *CityName `json:"city_name,omitempty"`
+
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
 	// ConnectionIp Peer's public connection IP address
 	ConnectionIp *string `json:"connection_ip,omitempty"`
+
+	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
+	CountryCode *CountryCode `json:"country_code,omitempty"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
@@ -490,11 +502,17 @@ type PeerBase struct {
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
 	ApprovalRequired *bool `json:"approval_required,omitempty"`
 
+	// CityName Commonly used English name of the city
+	CityName *CityName `json:"city_name,omitempty"`
+
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
 	// ConnectionIp Peer's public connection IP address
 	ConnectionIp *string `json:"connection_ip,omitempty"`
+
+	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
+	CountryCode *CountryCode `json:"country_code,omitempty"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
@@ -556,11 +574,17 @@ type PeerBatch struct {
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
 	ApprovalRequired *bool `json:"approval_required,omitempty"`
 
+	// CityName Commonly used English name of the city
+	CityName *CityName `json:"city_name,omitempty"`
+
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
 	// ConnectionIp Peer's public connection IP address
 	ConnectionIp *string `json:"connection_ip,omitempty"`
+
+	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
+	CountryCode *CountryCode `json:"country_code,omitempty"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
