@@ -96,16 +96,6 @@ func verifyNewAccountHasDefaultFields(t *testing.T, account *Account, createdBy 
 	if account.Domain != domain {
 		t.Errorf("expecting newly created account to have domain %s, got %s", domain, account.Domain)
 	}
-
-	if len(account.Rules) != 1 {
-		t.Errorf("expecting newly created account to have 1 rule, got %d", len(account.Rules))
-	}
-
-	for _, rule := range account.Rules {
-		if rule.Name != "Default" {
-			t.Errorf("expecting newly created account to have Default rule, got %s", rule.Name)
-		}
-	}
 }
 
 func TestAccount_GetPeerNetworkMap(t *testing.T) {
@@ -1526,13 +1516,6 @@ func TestAccount_Copy(t *testing.T) {
 			"group1": {
 				ID:    "group1",
 				Peers: []string{"peer1"},
-			},
-		},
-		Rules: map[string]*Rule{
-			"rule1": {
-				ID:          "rule1",
-				Destination: []string{},
-				Source:      []string{},
 			},
 		},
 		Policies: []*Policy{

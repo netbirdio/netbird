@@ -156,11 +156,6 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 		account.GroupsG = append(account.GroupsG, *group)
 	}
 
-	for id, rule := range account.Rules {
-		rule.ID = id
-		account.RulesG = append(account.RulesG, *rule)
-	}
-
 	for id, route := range account.Routes {
 		route.ID = id
 		account.RoutesG = append(account.RoutesG, *route)
@@ -356,7 +351,6 @@ func (s *SqliteStore) GetAllAccounts() (all []*Account) {
 
 func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 	var account Account
-
 	result := s.db.Model(&account).
 		Preload("UsersG.PATsG"). // have to be specifies as this is nester reference
 		Preload(clause.Associations).
@@ -402,12 +396,6 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 		account.Groups[group.ID] = group.Copy()
 	}
 	account.GroupsG = nil
-
-	account.Rules = make(map[string]*Rule, len(account.RulesG))
-	for _, rule := range account.RulesG {
-		account.Rules[rule.ID] = rule.Copy()
-	}
-	account.RulesG = nil
 
 	account.Routes = make(map[string]*route.Route, len(account.RoutesG))
 	for _, route := range account.RoutesG {
