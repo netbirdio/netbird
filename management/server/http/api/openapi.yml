@@ -832,7 +832,7 @@ components:
           type: string
           example: ch8i4ug6lnn4g9hqv7mg
         name:
-          description: Posture check name identifier
+          description: Posture check unique name identifier
           type: string
           example: Default
         description:
