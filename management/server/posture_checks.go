@@ -51,7 +51,13 @@ func (am *DefaultAccountManager) SavePostureChecks(accountID, userID string, pos
 		return status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view posture checks")
 	}
 
-	exists := am.savePostureChecks(account, postureChecks)
+	exists, uniqName := am.savePostureChecks(account, postureChecks)
+
+	// we do not allow create new posture checks with non uniq name
+	if !exists && !uniqName {
+		return status.Errorf(status.PreconditionFailed, "Posture check name should be uniq")
+	}
+
 	action := activity.PostureCheckCreated
 	if exists {
 		action = activity.PostureCheckUpdated
@@ -123,12 +129,15 @@ func (am *DefaultAccountManager) ListPostureChecks(accountID, userID string) ([]
 	return account.PostureChecks, nil
 }
 
-func (am *DefaultAccountManager) savePostureChecks(account *Account, postureChecks *posture.Checks) (exists bool) {
+func (am *DefaultAccountManager) savePostureChecks(account *Account, postureChecks *posture.Checks) (exists, uniqName bool) {
+	uniqName = true
 	for i, p := range account.PostureChecks {
-		if p.ID == postureChecks.ID {
+		if !exists && p.ID == postureChecks.ID {
 			account.PostureChecks[i] = postureChecks
 			exists = true
-			break
+		}
+		if p.Name == postureChecks.Name {
+			uniqName = false
 		}
 	}
 	if !exists {
