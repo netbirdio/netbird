@@ -39,6 +39,12 @@ func (l *GeolocationsHandler) GetAllCountries(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	if l.geolocationManager == nil || l.geolocationManager.GetLocationDB() == nil {
+		// TODO: update error message to include geo db self hosted doc link when ready
+		util.WriteError(status.Errorf(status.PreconditionFailed, "Geo location database is not initialized"), w)
+		return
+	}
+
 	allCountries, err := l.geolocationManager.GetAllCountries()
 	if err != nil {
 		util.WriteError(err, w)
@@ -63,6 +69,12 @@ func (l *GeolocationsHandler) GetCitiesByCountry(w http.ResponseWriter, r *http.
 	countryCode := vars["country"]
 	if !countryCodeRegex.MatchString(countryCode) {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid country code"), w)
+		return
+	}
+
+	if l.geolocationManager == nil || l.geolocationManager.GetLocationDB() == nil {
+		// TODO: update error message to include geo db self hosted doc link when ready
+		util.WriteError(status.Errorf(status.PreconditionFailed, "Geo location database is not initialized"), w)
 		return
 	}
 

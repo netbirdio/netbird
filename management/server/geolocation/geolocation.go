@@ -119,6 +119,10 @@ func getSha256sum(mmdbPath string) ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
+func (gl *Geolocation) GetLocationDB() *SqliteStore {
+	return gl.locationDB
+}
+
 func (gl *Geolocation) Lookup(ip net.IP) (*Record, error) {
 	gl.mux.RLock()
 	defer gl.mux.RUnlock()
