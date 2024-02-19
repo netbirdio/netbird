@@ -868,11 +868,22 @@ components:
           description: Minimum version of iOS
           $ref: '#/components/schemas/MinVersionCheck'
         linux:
-          description: Minimum version of Linux
+          description: Minimum Linux kernel version
           $ref: '#/components/schemas/MinKernelVersionCheck'
         windows:
-          description: Minimum version of Windows
+          description: Minimum Windows kernel build version
           $ref: '#/components/schemas/MinKernelVersionCheck'
+      example:
+        android:
+          min_version: "13"
+        ios:
+          min_version: "17.3.1"
+        darwin:
+          min_version: "14.2.1"
+        linux:
+          min_kernel_version: "5.3.3"
+        windows:
+          min_kernel_version: "10.0.1234"
     MinVersionCheck:
       description: Posture check for the version of operating system
       type: object
@@ -884,7 +895,7 @@ components:
       required:
         - min_version
     MinKernelVersionCheck:
-      description: Posture check for the version of kernel
+      description: Posture check with the kernel version
       type: object
       properties:
         min_kernel_version:
