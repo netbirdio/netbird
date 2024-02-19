@@ -51,6 +51,10 @@ func (am *DefaultAccountManager) SavePostureChecks(accountID, userID string, pos
 		return status.Errorf(status.PermissionDenied, "only users with admin power are allowed to view posture checks")
 	}
 
+	if err := postureChecks.Validate(); err != nil {
+		return status.Errorf(status.BadRequest, err.Error())
+	}
+
 	exists, uniqName := am.savePostureChecks(account, postureChecks)
 
 	// we do not allow create new posture checks with non uniq name
