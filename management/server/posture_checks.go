@@ -55,7 +55,7 @@ func (am *DefaultAccountManager) SavePostureChecks(accountID, userID string, pos
 
 	// we do not allow create new posture checks with non uniq name
 	if !exists && !uniqName {
-		return status.Errorf(status.PreconditionFailed, "Posture check name should be uniq")
+		return status.Errorf(status.PreconditionFailed, "Posture check name should be unique")
 	}
 
 	action := activity.PostureCheckCreated
