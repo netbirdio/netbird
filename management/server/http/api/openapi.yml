@@ -904,7 +904,7 @@ components:
         nameservers:
           description: Nameserver list
           minLength: 1
-          maxLength: 2
+          maxLength: 3
           type: array
           items:
             $ref: '#/components/schemas/Nameserver'
