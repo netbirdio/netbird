@@ -483,9 +483,13 @@ func (s *SqliteStore) SaveUserLastLogin(accountID, userID string, lastLogin time
 	return s.db.Save(user).Error
 }
 
-// Close is noop in Sqlite
+// Close closes the underlying DB connection
 func (s *SqliteStore) Close() error {
-	return nil
+	db, err := s.db.DB()
+	if err != nil {
+		return fmt.Errorf("get db: %w", err)
+	}
+	return db.Close()
 }
 
 // GetStoreEngine returns SqliteStoreEngine
