@@ -2,6 +2,7 @@ package posture
 
 import (
 	"fmt"
+	"net/netip"
 
 	"github.com/hashicorp/go-version"
 
@@ -9,9 +10,10 @@ import (
 )
 
 const (
-	NBVersionCheckName   = "NBVersionCheck"
-	OSVersionCheckName   = "OSVersionCheck"
-	GeoLocationCheckName = "GeoLocationCheck"
+	NBVersionCheckName      = "NBVersionCheck"
+	OSVersionCheckName      = "OSVersionCheck"
+	GeoLocationCheckName    = "GeoLocationCheck"
+	PrivateNetworkCheckName = "PrivateNetworkCheck"
 )
 
 // Check represents an interface for performing a check on a peer.
@@ -39,9 +41,10 @@ type Checks struct {
 
 // ChecksDefinition contains definition of actual check
 type ChecksDefinition struct {
-	NBVersionCheck   *NBVersionCheck   `json:",omitempty"`
-	OSVersionCheck   *OSVersionCheck   `json:",omitempty"`
-	GeoLocationCheck *GeoLocationCheck `json:",omitempty"`
+	NBVersionCheck      *NBVersionCheck      `json:",omitempty"`
+	OSVersionCheck      *OSVersionCheck      `json:",omitempty"`
+	GeoLocationCheck    *GeoLocationCheck    `json:",omitempty"`
+	PrivateNetworkCheck *PrivateNetworkCheck `json:",omitempty"`
 }
 
 // Copy returns a copy of a checks definition.
@@ -79,6 +82,14 @@ func (cd ChecksDefinition) Copy() ChecksDefinition {
 		}
 		copy(cd.GeoLocationCheck.Locations, geoCheck.Locations)
 	}
+	if cd.PrivateNetworkCheck != nil {
+		privateNetCheck := cd.PrivateNetworkCheck
+		cdCopy.PrivateNetworkCheck = &PrivateNetworkCheck{
+			Action:   privateNetCheck.Action,
+			Prefixes: make([]netip.Prefix, len(privateNetCheck.Prefixes)),
+		}
+		copy(cd.PrivateNetworkCheck.Prefixes, privateNetCheck.Prefixes)
+	}
 	return cdCopy
 }
 
@@ -115,6 +126,9 @@ func (pc *Checks) GetChecks() []Check {
 	}
 	if pc.Checks.GeoLocationCheck != nil {
 		checks = append(checks, pc.Checks.GeoLocationCheck)
+	}
+	if pc.Checks.PrivateNetworkCheck != nil {
+		checks = append(checks, pc.Checks.PrivateNetworkCheck)
 	}
 	return checks
 }
