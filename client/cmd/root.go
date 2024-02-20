@@ -25,12 +25,13 @@ import (
 )
 
 const (
-	externalIPMapFlag   = "external-ip-map"
-	dnsResolverAddress  = "dns-resolver-address"
-	enableRosenpassFlag = "enable-rosenpass"
-	preSharedKeyFlag    = "preshared-key"
-	interfaceNameFlag   = "interface-name"
-	wireguardPortFlag   = "wireguard-port"
+	externalIPMapFlag      = "external-ip-map"
+	dnsResolverAddress     = "dns-resolver-address"
+	enableRosenpassFlag    = "enable-rosenpass"
+	preSharedKeyFlag       = "preshared-key"
+	interfaceNameFlag      = "interface-name"
+	wireguardPortFlag      = "wireguard-port"
+	disableAutoConnectFlag = "disable-auto-connect"
 )
 
 var (
@@ -56,6 +57,7 @@ var (
 	rosenpassEnabled        bool
 	interfaceName           string
 	wireguardPort           uint16
+	autoConnectDisabled     bool
 	rootCmd                 = &cobra.Command{
 		Use:          "netbird",
 		Short:        "",
@@ -126,6 +128,7 @@ func init() {
 			`E.g. --dns-resolver-address 127.0.0.1:5053 or --dns-resolver-address ""`,
 	)
 	upCmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "[Experimental] Enable Rosenpass feature. If enabled, the connection will be post-quantum secured via Rosenpass.")
+	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
