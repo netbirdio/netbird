@@ -39,12 +39,13 @@ type ConfigInput struct {
 	AdminURL         string
 	ConfigPath       string
 	PreSharedKey     *string
-	NATExternalIPs   []string
-	CustomDNSAddress []byte
-	RosenpassEnabled *bool
 	ServerSSHAllowed *bool
-	InterfaceName    *string
-	WireguardPort    *int
+	NATExternalIPs     []string
+	CustomDNSAddress   []byte
+	RosenpassEnabled   *bool
+	InterfaceName      *string
+	WireguardPort      *int
+	DisableAutoConnect *bool
 }
 
 // Config Configuration type
@@ -81,6 +82,10 @@ type Config struct {
 	NATExternalIPs       []string
 	// CustomDNSAddress sets the DNS resolver listening address in format ip:port
 	CustomDNSAddress     string
+
+	// DisableAutoConnect determines whether the client should not start with the service
+	// it's set to false by default due to backwards compatibility
+	DisableAutoConnect bool
 }
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
@@ -156,6 +161,7 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		NATExternalIPs:       input.NATExternalIPs,
 		CustomDNSAddress:     string(input.CustomDNSAddress),
 		ServerSSHAllowed:     util.False(),
+		DisableAutoConnect:   false,
 	}
 
 	defaultManagementURL, err := parseURL("Management URL", DefaultManagementURL)
@@ -288,10 +294,15 @@ func update(input ConfigInput) (*Config, error) {
 		refresh = true
 	}
 
+	if input.DisableAutoConnect != nil {
+		config.DisableAutoConnect = *input.DisableAutoConnect
+		refresh = true
+	}
+
 	if input.ServerSSHAllowed != nil {
 		config.ServerSSHAllowed = input.ServerSSHAllowed
 		refresh = true
-	} 
+	}
 
 	if config.ServerSSHAllowed == nil {
 		config.ServerSSHAllowed = util.True()

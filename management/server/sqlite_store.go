@@ -16,6 +16,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
@@ -63,7 +64,7 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 	err = db.AutoMigrate(
 		&SetupKey{}, &nbpeer.Peer{}, &User{}, &PersonalAccessToken{}, &Group{}, &Rule{},
 		&Account{}, &Policy{}, &PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
-		&installation{}, &account.ExtraSettings{},
+		&installation{}, &account.ExtraSettings{}, &posture.Checks{},
 	)
 	if err != nil {
 		return nil, err
@@ -261,6 +262,18 @@ func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer
 	return s.db.Save(peer).Error
 }
 
+func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
+	var peer nbpeer.Peer
+	result := s.db.First(&peer, "account_id = ? and id = ?", accountID, peerWithLocation.ID)
+	if result.Error != nil {
+		return status.Errorf(status.NotFound, "peer %s not found", peer.ID)
+	}
+
+	peer.Location = peerWithLocation.Location
+
+	return s.db.Save(peer).Error
+}
+
 // DeleteHashedPAT2TokenIDIndex is noop in Sqlite
 func (s *SqliteStore) DeleteHashedPAT2TokenIDIndex(hashedToken string) error {
 	return nil
@@ -356,6 +369,7 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 		Preload(clause.Associations).
 		First(&account, "id = ?", accountID)
 	if result.Error != nil {
+		log.Errorf("when getting account from the store: %s", result.Error)
 		return nil, status.Errorf(status.NotFound, "account not found")
 	}
 

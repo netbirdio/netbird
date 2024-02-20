@@ -599,6 +599,55 @@ func TestFileStore_SavePeerStatus(t *testing.T) {
 	assert.Equal(t, newStatus, *actual)
 }
 
+func TestFileStore_SavePeerLocation(t *testing.T) {
+	storeDir := t.TempDir()
+
+	err := util.CopyFileContents("testdata/store.json", filepath.Join(storeDir, "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewFileStore(storeDir, nil)
+	if err != nil {
+		return
+	}
+	account, err := store.GetAccount("bf1c8084-ba50-4ce7-9439-34653001fc3b")
+	require.NoError(t, err)
+
+	peer := &nbpeer.Peer{
+		AccountID: account.Id,
+		ID:        "testpeer",
+		Location: nbpeer.Location{
+			ConnectionIP: net.ParseIP("10.0.0.0"),
+			CountryCode:  "YY",
+			CityName:     "City",
+			GeoNameID:    1,
+		},
+		Meta: nbpeer.PeerSystemMeta{},
+	}
+	// error is expected as peer is not in store yet
+	err = store.SavePeerLocation(account.Id, peer)
+	assert.Error(t, err)
+
+	account.Peers[peer.ID] = peer
+	err = store.SaveAccount(account)
+	require.NoError(t, err)
+
+	peer.Location.ConnectionIP = net.ParseIP("35.1.1.1")
+	peer.Location.CountryCode = "DE"
+	peer.Location.CityName = "Berlin"
+	peer.Location.GeoNameID = 2950159
+
+	err = store.SavePeerLocation(account.Id, account.Peers[peer.ID])
+	assert.NoError(t, err)
+
+	account, err = store.GetAccount(account.Id)
+	require.NoError(t, err)
+
+	actual := account.Peers[peer.ID].Location
+	assert.Equal(t, peer.Location, actual)
+}
+
 func newStore(t *testing.T) *FileStore {
 	t.Helper()
 	store, err := NewFileStore(t.TempDir(), nil)
