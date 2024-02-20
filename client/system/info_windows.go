@@ -22,7 +22,7 @@ type Win32_OperatingSystem struct {
 func GetInfo(ctx context.Context) *Info {
 	osName, osVersion := getOSNameAndVersion()
 	buildVersion := getBuildVersion()
-	gio := &Info{Kernel: "windows", OSVersion: osVersion, Core: buildVersion, Platform: "unknown", OS: osName, GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
+	gio := &Info{Kernel: "windows", OSVersion: osVersion, Platform: "unknown", OS: osName, GoOS: runtime.GOOS, CPUs: runtime.NumCPU(), KernelVersion: buildVersion}
 	systemHostname, _ := os.Hostname()
 	gio.Hostname = extractDeviceName(ctx, systemHostname)
 	gio.WiretrusteeVersion = version.NetbirdVersion()

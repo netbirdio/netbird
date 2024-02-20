@@ -27,9 +27,11 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 )
@@ -74,7 +76,7 @@ type AccountManager interface {
 	GetUser(claims jwtclaims.AuthorizationClaims) (*User, error)
 	ListUsers(accountID string) ([]*User, error)
 	GetPeers(accountID, userID string) ([]*nbpeer.Peer, error)
-	MarkPeerConnected(peerKey string, connected bool) error
+	MarkPeerConnected(peerKey string, connected bool, realIP net.IP) error
 	DeletePeer(accountID, peerID, userID string) error
 	UpdatePeer(accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
 	GetNetworkMap(peerID string) (*NetworkMap, error)
@@ -119,6 +121,10 @@ type AccountManager interface {
 	GetAllConnectedPeers() (map[string]struct{}, error)
 	HasConnectedChannel(peerID string) bool
 	GetExternalCacheManager() ExternalCacheManager
+	GetPostureChecks(accountID, postureChecksID, userID string) (*posture.Checks, error)
+	SavePostureChecks(accountID, userID string, postureChecks *posture.Checks) error
+	DeletePostureChecks(accountID, postureChecksID, userID string) error
+	ListPostureChecks(accountID, userID string) ([]*posture.Checks, error)
 }
 
 type DefaultAccountManager struct {
@@ -133,6 +139,7 @@ type DefaultAccountManager struct {
 	externalCacheManager ExternalCacheManager
 	ctx                  context.Context
 	eventStore           activity.Store
+	geo                  *geolocation.Geolocation
 
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
@@ -215,6 +222,7 @@ type Account struct {
 	NameServerGroups       map[string]*nbdns.NameServerGroup `gorm:"-"`
 	NameServerGroupsG      []nbdns.NameServerGroup           `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	DNSSettings            DNSSettings                       `gorm:"embedded;embeddedPrefix:dns_settings_"`
+	PostureChecks          []*posture.Checks                 `gorm:"foreignKey:AccountID;references:id"`
 	// Settings is a dictionary of Account settings
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
 	// deprecated on store and api level
@@ -658,6 +666,11 @@ func (a *Account) Copy() *Account {
 		settings = a.Settings.Copy()
 	}
 
+	postureChecks := []*posture.Checks{}
+	for _, postureCheck := range a.PostureChecks {
+		postureChecks = append(postureChecks, postureCheck.Copy())
+	}
+
 	return &Account{
 		Id:                     a.Id,
 		CreatedBy:              a.CreatedBy,
@@ -673,6 +686,7 @@ func (a *Account) Copy() *Account {
 		Routes:                 routes,
 		NameServerGroups:       nsGroups,
 		DNSSettings:            dnsSettings,
+		PostureChecks:          postureChecks,
 		Settings:               settings,
 	}
 }
@@ -799,10 +813,12 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
 func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
-	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store, userDeleteFromIDPEnabled bool,
+	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store, geo *geolocation.Geolocation,
+	userDeleteFromIDPEnabled bool,
 ) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
 		Store:                    store,
+		geo:                      geo,
 		peersUpdateManager:       peersUpdateManager,
 		idpManager:               idpManager,
 		ctx:                      context.Background(),
