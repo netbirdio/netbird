@@ -130,6 +130,12 @@ const (
 	PeerApprovalRevoked
 	// TransferredOwnerRole indicates that the user transferred the owner role of the account
 	TransferredOwnerRole
+	// PostureCheckCreated indicates that the user created a posture check
+	PostureCheckCreated
+	// PostureCheckUpdated indicates that the user updated a posture check
+	PostureCheckUpdated
+	// PostureCheckDeleted indicates that the user deleted a posture check
+	PostureCheckDeleted
 )
 
 var activityMap = map[Activity]Code{
@@ -193,6 +199,9 @@ var activityMap = map[Activity]Code{
 	PeerApproved:                              {"Peer approved", "peer.approve"},
 	PeerApprovalRevoked:                       {"Peer approval revoked", "peer.approval.revoke"},
 	TransferredOwnerRole:                      {"Transferred owner role", "transferred.owner.role"},
+	PostureCheckCreated:                       {"Posture check created", "posture.check.created"},
+	PostureCheckUpdated:                       {"Posture check updated", "posture.check.updated"},
+	PostureCheckDeleted:                       {"Posture check deleted", "posture.check.deleted"},
 }
 
 // StringCode returns a string code of the activity

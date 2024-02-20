@@ -11,6 +11,7 @@ import (
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
@@ -150,20 +151,25 @@ type Policy struct {
 
 	// Rules of the policy
 	Rules []*PolicyRule `gorm:"foreignKey:PolicyID;references:id"`
+
+	// SourcePostureChecks are ID references to Posture checks for policy source groups
+	SourcePostureChecks []string `gorm:"serializer:json"`
 }
 
 // Copy returns a copy of the policy.
 func (p *Policy) Copy() *Policy {
 	c := &Policy{
-		ID:          p.ID,
-		Name:        p.Name,
-		Description: p.Description,
-		Enabled:     p.Enabled,
-		Rules:       make([]*PolicyRule, len(p.Rules)),
+		ID:                  p.ID,
+		Name:                p.Name,
+		Description:         p.Description,
+		Enabled:             p.Enabled,
+		Rules:               make([]*PolicyRule, len(p.Rules)),
+		SourcePostureChecks: make([]string, len(p.SourcePostureChecks)),
 	}
 	for i, r := range p.Rules {
 		c.Rules[i] = r.Copy()
 	}
+	copy(c.SourcePostureChecks, p.SourcePostureChecks)
 	return c
 }
 
@@ -219,8 +225,8 @@ func (a *Account) getPeerConnectionResources(peerID string) ([]*nbpeer.Peer, []*
 				continue
 			}
 
-			sourcePeers, peerInSources := getAllPeersFromGroups(a, rule.Sources, peerID)
-			destinationPeers, peerInDestinations := getAllPeersFromGroups(a, rule.Destinations, peerID)
+			sourcePeers, peerInSources := getAllPeersFromGroups(a, rule.Sources, peerID, policy.SourcePostureChecks)
+			destinationPeers, peerInDestinations := getAllPeersFromGroups(a, rule.Destinations, peerID, nil)
 			sourcePeers = additions.ValidatePeers(sourcePeers)
 			destinationPeers = additions.ValidatePeers(destinationPeers)
 
@@ -269,6 +275,7 @@ func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*nbpeer.Peer, in
 				if peer == nil {
 					continue
 				}
+
 				if _, ok := peersExists[peer.ID]; !ok {
 					peers = append(peers, peer)
 					peersExists[peer.ID] = struct{}{}
@@ -481,8 +488,12 @@ func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
 
 // getAllPeersFromGroups for given peer ID and list of groups
 //
-// Returns list of peers and boolean indicating if peer is in any of the groups
-func getAllPeersFromGroups(account *Account, groups []string, peerID string) ([]*nbpeer.Peer, bool) {
+// Returns a list of peers from specified groups that pass specified posture checks
+// and a boolean indicating if the supplied peer ID exists within these groups.
+//
+// Important: Posture checks are applicable only to source group peers,
+// for destination group peers, call this method with an empty list of sourcePostureChecksIDs
+func getAllPeersFromGroups(account *Account, groups []string, peerID string, sourcePostureChecksIDs []string) ([]*nbpeer.Peer, bool) {
 	peerInGroups := false
 	filteredPeers := make([]*nbpeer.Peer, 0, len(groups))
 	for _, g := range groups {
@@ -497,6 +508,12 @@ func getAllPeersFromGroups(account *Account, groups []string, peerID string) ([]
 				continue
 			}
 
+			// validate the peer based on policy posture checks applied
+			isValid := account.validatePostureChecksOnPeer(sourcePostureChecksIDs, peer.ID)
+			if !isValid {
+				continue
+			}
+
 			if peer.ID == peerID {
 				peerInGroups = true
 				continue
@@ -506,4 +523,39 @@ func getAllPeersFromGroups(account *Account, groups []string, peerID string) ([]
 		}
 	}
 	return filteredPeers, peerInGroups
+}
+
+// validatePostureChecksOnPeer validates the posture checks on a peer
+func (a *Account) validatePostureChecksOnPeer(sourcePostureChecksID []string, peerID string) bool {
+	peer, ok := a.Peers[peerID]
+	if !ok && peer == nil {
+		return false
+	}
+
+	for _, postureChecksID := range sourcePostureChecksID {
+		postureChecks := getPostureChecks(a, postureChecksID)
+		if postureChecks == nil {
+			continue
+		}
+
+		for _, check := range postureChecks.GetChecks() {
+			isValid, err := check.Check(*peer)
+			if err != nil {
+				log.Debugf("an error occurred check %s: on peer: %s :%s", check.Name(), peer.ID, err.Error())
+			}
+			if !isValid {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func getPostureChecks(account *Account, postureChecksID string) *posture.Checks {
+	for _, postureChecks := range account.PostureChecks {
+		if postureChecks.ID == postureChecksID {
+			return postureChecks
+		}
+	}
+	return nil
 }

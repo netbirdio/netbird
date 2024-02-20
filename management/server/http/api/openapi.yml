@@ -1,4 +1,4 @@
-openapi: 3.0.1
+openapi: 3.1.0
 servers:
   - url: https://api.netbird.io
     description: Default server
@@ -21,6 +21,8 @@ tags:
     description: Interact with and view information about rules.
   - name: Policies
     description: Interact with and view information about policies.
+  - name: Posture Checks
+    description: Interact with and view information about posture checks.
   - name: Routes
     description: Interact with and view information about routes.
   - name: DNS
@@ -245,6 +247,10 @@ components:
               description: Peer's IP address
               type: string
               example: 10.64.0.1
+            connection_ip:
+              description: Peer's public connection IP address
+              type: string
+              example: 35.64.0.1
             connected:
               description: Peer to Management connection status
               type: boolean
@@ -258,6 +264,14 @@ components:
               description: Peer's operating system and version
               type: string
               example: Darwin 13.2.1
+            kernel_version:
+              description: Peer's operating system kernel version
+              type: string
+              example: 23.2.0
+            geoname_id:
+              description: Unique identifier from the GeoNames database for a specific geographical location.
+              type: integer
+              example: 2643743
             version:
               description: Peer's daemon or cli version
               type: string
@@ -304,6 +318,10 @@ components:
               description: (Cloud only) Indicates whether peer needs approval
               type: boolean
               example: true
+            country_code:
+              $ref: '#/components/schemas/CountryCode'
+            city_name:
+              $ref: '#/components/schemas/CityName'
           required:
             - ip
             - connected
@@ -774,6 +792,12 @@ components:
         - $ref: '#/components/schemas/PolicyMinimum'
         - type: object
           properties:
+            source_posture_checks:
+              description: Posture checks ID's applied to policy source groups
+              type: array
+              items:
+                type: string
+                example: "chacdk86lnnboviihd70"
             rules:
               description: Policy rule object for policy UI editor
               type: array
@@ -786,6 +810,12 @@ components:
         - $ref: '#/components/schemas/PolicyMinimum'
         - type: object
           properties:
+            source_posture_checks:
+              description: Posture checks ID's applied to policy source groups
+              type: array
+              items:
+                type: string
+                example: "chacdk86lnnboviihd70"
             rules:
               description: Policy rule object for policy UI editor
               type: array
@@ -793,6 +823,170 @@ components:
                 $ref: '#/components/schemas/PolicyRule'
           required:
             - rules
+            - source_posture_checks
+    PostureCheck:
+      type: object
+      properties:
+        id:
+          description: Posture check ID
+          type: string
+          example: ch8i4ug6lnn4g9hqv7mg
+        name:
+          description: Posture check unique name identifier
+          type: string
+          example: Default
+        description:
+          description: Posture check friendly description
+          type: string
+          example: This checks if the peer is running required NetBird's version
+        checks:
+          $ref: '#/components/schemas/Checks'
+      required:
+        - id
+        - name
+        - checks
+    Checks:
+      description: List of objects that perform the actual checks
+      type: object
+      properties:
+        nb_version_check:
+          $ref: '#/components/schemas/NBVersionCheck'
+        os_version_check:
+          $ref: '#/components/schemas/OSVersionCheck'
+        geo_location_check:
+          $ref: '#/components/schemas/GeoLocationCheck'
+    NBVersionCheck:
+      description: Posture check for the version of NetBird
+      type: object
+      $ref: '#/components/schemas/MinVersionCheck'
+    OSVersionCheck:
+      description: Posture check for the version of operating system
+      type: object
+      properties:
+        android:
+          description: Minimum version of Android
+          $ref: '#/components/schemas/MinVersionCheck'
+        darwin:
+          $ref: '#/components/schemas/MinVersionCheck'
+        ios:
+          description: Minimum version of iOS
+          $ref: '#/components/schemas/MinVersionCheck'
+        linux:
+          description: Minimum Linux kernel version
+          $ref: '#/components/schemas/MinKernelVersionCheck'
+        windows:
+          description: Minimum Windows kernel build version
+          $ref: '#/components/schemas/MinKernelVersionCheck'
+      example:
+        android:
+          min_version: "13"
+        ios:
+          min_version: "17.3.1"
+        darwin:
+          min_version: "14.2.1"
+        linux:
+          min_kernel_version: "5.3.3"
+        windows:
+          min_kernel_version: "10.0.1234"
+    MinVersionCheck:
+      description: Posture check for the version of operating system
+      type: object
+      properties:
+        min_version:
+          description: Minimum acceptable version
+          type: string
+          example: "14.3"
+      required:
+        - min_version
+    MinKernelVersionCheck:
+      description: Posture check with the kernel version
+      type: object
+      properties:
+        min_kernel_version:
+          description: Minimum acceptable version
+          type: string
+          example: "6.6.12"
+      required:
+        - min_kernel_version
+    GeoLocationCheck:
+      description: Posture check for geo location
+      type: object
+      properties:
+        locations:
+          description: List of geo locations to which the policy applies
+          type: array
+          items:
+            $ref: '#/components/schemas/Location'
+        action:
+          description: Action to take upon policy match
+          type: string
+          enum: [ "allow", "deny" ]
+          example: "allow"
+      required:
+        - locations
+        - action
+    Location:
+      description: Describe geographical location information
+      type: object
+      properties:
+        country_code:
+          $ref: '#/components/schemas/CountryCode'
+        city_name:
+          $ref: '#/components/schemas/CityName'
+      required:
+        - country_code
+    CountryCode:
+      description: 2-letter ISO 3166-1 alpha-2 code that represents the country
+      type: string
+      example: "DE"
+    CityName:
+      description: Commonly used English name of the city
+      type: string
+      example: "Berlin"
+    Country:
+      description: Describe country geographical location information
+      type: object
+      properties:
+        country_name:
+          description: Commonly used English name of the country
+          type: string
+          example: "Germany"
+        country_code:
+            $ref: '#/components/schemas/CountryCode'
+      required:
+        - country_name
+        - country_code
+    City:
+      description: Describe city geographical location information
+      type: object
+      properties:
+        geoname_id:
+          description: Integer ID of the record in GeoNames database
+          type: integer
+          example: 2950158
+        city_name:
+          description: Commonly used English name of the city
+          type: string
+          example: "Berlin"
+      required:
+        - geoname_id
+        - city_name
+    PostureCheckUpdate:
+      type: object
+      properties:
+        name:
+          description: Posture check name identifier
+          type: string
+          example: Default
+        description:
+          description: Posture check friendly description
+          type: string
+          example: This checks if the peer is running required NetBird's version
+        checks:
+          $ref: '#/components/schemas/Checks'
+      required:
+        - name
+        - description
     RouteRequest:
       type: object
       properties:
@@ -2144,7 +2338,6 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-
   /api/routes/{routeId}:
     get:
       summary: Retrieve a Route
@@ -2289,7 +2482,6 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-
   /api/dns/nameservers/{nsgroupId}:
     get:
       summary: Retrieve a Nameserver Group
@@ -2381,7 +2573,6 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-
   /api/dns/settings:
     get:
       summary: Retrieve DNS settings
@@ -2451,6 +2642,197 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Event'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/posture-checks:
+    get:
+      summary: List all Posture Checks
+      description: Returns a list of all posture checks
+      tags: [ "Posture Checks" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of posture checks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PostureCheck'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a Posture Check
+      description: Creates a posture check
+      tags: [ "Posture Checks" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: New posture check request
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/PostureCheckUpdate'
+      responses:
+        '200':
+          description: A posture check Object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostureCheck'
+  /api/posture-checks/{postureCheckId}:
+    get:
+      summary: Retrieve a Posture Check
+      description: Get information about a posture check
+      tags: [ "Posture Checks" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: postureCheckId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a posture check
+      responses:
+        '200':
+          description: A posture check object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostureCheck'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update a Posture Check
+      description: Update/Replace a posture check
+      tags: [ "Posture Checks" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: postureCheckId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a posture check
+      requestBody:
+        description: Update Rule request
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/PostureCheckUpdate'
+      responses:
+        '200':
+          description: A posture check object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostureCheck'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a Posture Check
+      description: Delete a posture check
+      tags: [ "Posture Checks" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: postureCheckId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a posture check
+      responses:
+        '200':
+          description: Delete status code
+          content: { }
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/locations/countries:
+    get:
+      summary: List all country codes
+      description: Get list of all country in 2-letter ISO 3166-1 alpha-2 codes
+      tags: [ "Geo Locations" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: List of country codes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  example: "DE"
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/locations/countries/{country}/cities:
+    get:
+      summary: List all city names by country
+      description: Get a list of all English city names for a given country code
+      tags: [ "Geo Locations" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: country
+          required: true
+          schema:
+            $ref: '#/components/schemas/Country'
+      responses:
+        '200':
+          description: List of city names
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/City'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

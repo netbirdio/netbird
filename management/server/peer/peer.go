@@ -41,6 +41,8 @@ type Peer struct {
 	LastLogin time.Time
 	// Indicate ephemeral peer attribute
 	Ephemeral bool
+	// Geo location based on connection IP
+	Location Location `gorm:"embedded;embeddedPrefix:location_"`
 }
 
 type PeerStatus struct {
@@ -54,25 +56,37 @@ type PeerStatus struct {
 	RequiresApproval bool
 }
 
+// Location is a geo location information of a Peer based on public connection IP
+type Location struct {
+	ConnectionIP net.IP // from grpc peer or reverse proxy headers depends on setup
+	CountryCode  string
+	CityName     string
+	GeoNameID    uint // city level geoname id
+}
+
 // PeerSystemMeta is a metadata of a Peer machine system
 type PeerSystemMeta struct {
-	Hostname  string
-	GoOS      string
-	Kernel    string
-	Core      string
-	Platform  string
-	OS        string
-	WtVersion string
-	UIVersion string
+	Hostname      string
+	GoOS          string
+	Kernel        string
+	Core          string
+	Platform      string
+	OS            string
+	OSVersion     string
+	WtVersion     string
+	UIVersion     string
+	KernelVersion string
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 	return p.Hostname == other.Hostname &&
 		p.GoOS == other.GoOS &&
 		p.Kernel == other.Kernel &&
+		p.KernelVersion == other.KernelVersion &&
 		p.Core == other.Core &&
 		p.Platform == other.Platform &&
 		p.OS == other.OS &&
+		p.OSVersion == other.OSVersion &&
 		p.WtVersion == other.WtVersion &&
 		p.UIVersion == other.UIVersion
 }
@@ -104,6 +118,7 @@ func (p *Peer) Copy() *Peer {
 		LoginExpirationEnabled: p.LoginExpirationEnabled,
 		LastLogin:              p.LastLogin,
 		Ephemeral:              p.Ephemeral,
+		Location:               p.Location,
 	}
 }
 
