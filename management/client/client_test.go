@@ -343,6 +343,15 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 
 	wg.Wait()
 
+	protoNetAddr := make([]*mgmtProto.NetworkAddress, 0, len(info.NetworkAddresses))
+	for _, addr := range info.NetworkAddresses {
+		protoNetAddr = append(protoNetAddr, &mgmtProto.NetworkAddress{
+			NetIP: addr.NetIP.String(),
+			Mac:   addr.Mac,
+		})
+
+	}
+
 	expectedMeta := &mgmtProto.PeerSystemMeta{
 		Hostname:           info.Hostname,
 		GoOS:               info.GoOS,
@@ -353,10 +362,52 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 		OSVersion:          info.OSVersion,
 		WiretrusteeVersion: info.WiretrusteeVersion,
 		KernelVersion:      info.KernelVersion,
+
+		NetworkAddresses:   protoNetAddr,
+		SysSerialNumber:    info.SystemSerialNumber,
+		SysProductName:     info.SystemProductName,
+		SysManufacturer:    info.SystemManufacturer,
 	}
 
 	assert.Equal(t, ValidKey, actualValidKey)
-	assert.Equal(t, expectedMeta, actualMeta)
+	if !isEqual(expectedMeta, actualMeta) {
+		t.Errorf("expected and actual meta are not equal")
+	}
+}
+
+func isEqual(a, b *mgmtProto.PeerSystemMeta) bool {
+	if len(a.NetworkAddresses) != len(b.NetworkAddresses) {
+		return false
+	}
+
+	for _, addr := range a.GetNetworkAddresses() {
+		var found bool
+		for _, oAddr := range b.GetNetworkAddresses() {
+			if addr.GetMac() == oAddr.GetMac() && addr.GetNetIP() == oAddr.GetNetIP() {
+				found = true
+				continue
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	log.Infof("------")
+
+	return a.GetHostname() == b.GetHostname() &&
+		a.GetGoOS() == b.GetGoOS() &&
+		a.GetKernel() == b.GetKernel() &&
+		a.GetKernelVersion() == b.GetKernelVersion() &&
+		a.GetCore() == b.GetCore() &&
+		a.GetPlatform() == b.GetPlatform() &&
+		a.GetOS() == b.GetOS() &&
+		a.GetOSVersion() == b.GetOSVersion() &&
+		a.GetWiretrusteeVersion() == b.GetWiretrusteeVersion() &&
+		a.GetUiVersion() == b.GetUiVersion() &&
+		a.GetSysSerialNumber() == b.GetSysSerialNumber() &&
+		a.GetSysProductName() == b.GetSysProductName() &&
+		a.GetSysManufacturer() == b.GetSysManufacturer()
 }
 
 func Test_GetDeviceAuthorizationFlow(t *testing.T) {

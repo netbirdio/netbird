@@ -3,6 +3,7 @@ package peer
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"time"
 )
 
@@ -64,21 +65,48 @@ type Location struct {
 	GeoNameID    uint // city level geoname id
 }
 
+// NetworkAddress is the IP address with network and MAC address of a network interface
+type NetworkAddress struct {
+	NetIP netip.Prefix `gorm:"serializer:json"`
+	Mac   string
+}
+
 // PeerSystemMeta is a metadata of a Peer machine system
 type PeerSystemMeta struct {
-	Hostname      string
-	GoOS          string
-	Kernel        string
-	Core          string
-	Platform      string
-	OS            string
-	OSVersion     string
-	WtVersion     string
-	UIVersion     string
-	KernelVersion string
+	Hostname           string
+	GoOS               string
+	Kernel             string
+	Core               string
+	Platform           string
+	OS                 string
+	OSVersion          string
+	WtVersion          string
+	UIVersion          string
+	KernelVersion      string
+	NetworkAddresses   []NetworkAddress `gorm:"serializer:json"`
+	SystemSerialNumber string
+	SystemProductName  string
+	SystemManufacturer string
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
+	if len(p.NetworkAddresses) != len(other.NetworkAddresses) {
+		return false
+	}
+
+	for _, addr := range p.NetworkAddresses {
+		var found bool
+		for _, oAddr := range other.NetworkAddresses {
+			if addr.Mac == oAddr.Mac && addr.NetIP == oAddr.NetIP {
+				found = true
+				continue
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
 	return p.Hostname == other.Hostname &&
 		p.GoOS == other.GoOS &&
 		p.Kernel == other.Kernel &&
@@ -88,7 +116,10 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		p.OS == other.OS &&
 		p.OSVersion == other.OSVersion &&
 		p.WtVersion == other.WtVersion &&
-		p.UIVersion == other.UIVersion
+		p.UIVersion == other.UIVersion &&
+		p.SystemSerialNumber == other.SystemSerialNumber &&
+		p.SystemProductName == other.SystemProductName &&
+		p.SystemManufacturer == other.SystemManufacturer
 }
 
 // AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
