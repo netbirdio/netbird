@@ -32,6 +32,7 @@ const (
 	interfaceNameFlag      = "interface-name"
 	wireguardPortFlag      = "wireguard-port"
 	disableAutoConnectFlag = "disable-auto-connect"
+	serverSSHAllowedFlag = "allow-server-ssh"
 )
 
 var (
@@ -55,6 +56,7 @@ var (
 	natExternalIPs          []string
 	customDNSAddress        string
 	rosenpassEnabled        bool
+	serverSSHAllowed        bool
 	interfaceName           string
 	wireguardPort           uint16
 	autoConnectDisabled     bool
@@ -128,6 +130,7 @@ func init() {
 			`E.g. --dns-resolver-address 127.0.0.1:5053 or --dns-resolver-address ""`,
 	)
 	upCmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "[Experimental] Enable Rosenpass feature. If enabled, the connection will be post-quantum secured via Rosenpass.")
+	upCmd.PersistentFlags().BoolVar(&serverSSHAllowed, serverSSHAllowedFlag, false, "Allow SSH server on peer. If enabled, the SSH server will be permitted")
 	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
 }
 
@@ -179,7 +182,7 @@ func FlagNameToEnvVar(cmdFlag string, prefix string) string {
 	return prefix + upper
 }
 
-// DialClientGRPCServer returns client connection to the dameno server.
+// DialClientGRPCServer returns client connection to the daemon server.
 func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*3)
 	defer cancel()
