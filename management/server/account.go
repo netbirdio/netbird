@@ -216,8 +216,6 @@ type Account struct {
 	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Groups                 map[string]*Group                 `gorm:"-"`
 	GroupsG                []Group                           `json:"-" gorm:"foreignKey:AccountID;references:id"`
-	Rules                  map[string]*Rule                  `gorm:"-"`
-	RulesG                 []Rule                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
 	Routes                 map[string]*route.Route           `gorm:"-"`
 	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
@@ -227,6 +225,9 @@ type Account struct {
 	PostureChecks          []*posture.Checks                 `gorm:"foreignKey:AccountID;references:id"`
 	// Settings is a dictionary of Account settings
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
+	// deprecated on store and api level
+	Rules  map[string]*Rule `json:"-" gorm:"-"`
+	RulesG []Rule           `json:"-" gorm:"-"`
 }
 
 type UserInfo struct {
@@ -643,11 +644,6 @@ func (a *Account) Copy() *Account {
 		groups[id] = group.Copy()
 	}
 
-	rules := map[string]*Rule{}
-	for id, rule := range a.Rules {
-		rules[id] = rule.Copy()
-	}
-
 	policies := []*Policy{}
 	for _, policy := range a.Policies {
 		policies = append(policies, policy.Copy())
@@ -686,7 +682,6 @@ func (a *Account) Copy() *Account {
 		Peers:                  peers,
 		Users:                  users,
 		Groups:                 groups,
-		Rules:                  rules,
 		Policies:               policies,
 		Routes:                 routes,
 		NameServerGroups:       nsGroups,
@@ -1809,21 +1804,28 @@ func addAllGroup(account *Account) error {
 		}
 		account.Groups = map[string]*Group{allGroup.ID: allGroup}
 
-		defaultRule := &Rule{
-			ID:          xid.New().String(),
+		id := xid.New().String()
+
+		defaultPolicy := &Policy{
+			ID:          id,
 			Name:        DefaultRuleName,
 			Description: DefaultRuleDescription,
-			Disabled:    false,
-			Source:      []string{allGroup.ID},
-			Destination: []string{allGroup.ID},
+			Enabled:     true,
+			Rules: []*PolicyRule{
+				{
+					ID:            id,
+					Name:          DefaultRuleName,
+					Description:   DefaultRuleDescription,
+					Enabled:       true,
+					Sources:       []string{allGroup.ID},
+					Destinations:  []string{allGroup.ID},
+					Bidirectional: true,
+					Protocol:      PolicyRuleProtocolALL,
+					Action:        PolicyTrafficActionAccept,
+				},
+			},
 		}
-		account.Rules = map[string]*Rule{defaultRule.ID: defaultRule}
 
-		// TODO: after migration we need to drop rule and create policy directly
-		defaultPolicy, err := RuleToPolicy(defaultRule)
-		if err != nil {
-			return fmt.Errorf("convert rule to policy: %w", err)
-		}
 		account.Policies = []*Policy{defaultPolicy}
 	}
 	return nil

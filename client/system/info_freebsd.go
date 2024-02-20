@@ -32,6 +32,7 @@ func GetInfo(ctx context.Context) *Info {
 	}
 
 	gio := &Info{Kernel: osInfo[0], Platform: runtime.GOARCH, OS: osInfo[2], GoOS: runtime.GOOS, CPUs: runtime.NumCPU(), KernelVersion: osInfo[1], Environment: env}
+
 	systemHostname, _ := os.Hostname()
 	gio.Hostname = extractDeviceName(ctx, systemHostname)
 	gio.WiretrusteeVersion = version.NetbirdVersion()

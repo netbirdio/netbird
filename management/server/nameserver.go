@@ -255,8 +255,8 @@ func validateNSGroupName(name, nsGroupID string, nsGroupMap map[string]*nbdns.Na
 
 func validateNSList(list []nbdns.NameServer) error {
 	nsListLenght := len(list)
-	if nsListLenght == 0 || nsListLenght > 2 {
-		return status.Errorf(status.InvalidArgument, "the list of nameservers should be 1 or 2, got %d", len(list))
+	if nsListLenght == 0 || nsListLenght > 3 {
+		return status.Errorf(status.InvalidArgument, "the list of nameservers should be 1 or 3, got %d", len(list))
 	}
 	return nil
 }

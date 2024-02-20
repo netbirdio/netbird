@@ -362,6 +362,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 		OSVersion:          info.OSVersion,
 		WiretrusteeVersion: info.WiretrusteeVersion,
 		KernelVersion:      info.KernelVersion,
+
 		NetworkAddresses:   protoNetAddr,
 		SysSerialNumber:    info.SystemSerialNumber,
 		SysProductName:     info.SystemProductName,
