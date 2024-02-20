@@ -11,6 +11,7 @@ import (
 	"github.com/netbirdio/management-integrations/integrations"
 
 	s "github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -27,9 +28,10 @@ type AuthCfg struct {
 }
 
 type apiHandler struct {
-	Router         *mux.Router
-	AccountManager s.AccountManager
-	AuthCfg        AuthCfg
+	Router             *mux.Router
+	AccountManager     s.AccountManager
+	geolocationManager *geolocation.Geolocation
+	AuthCfg            AuthCfg
 }
 
 // EmptyObject is an empty struct used to return empty JSON object
@@ -37,7 +39,7 @@ type emptyObject struct {
 }
 
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func APIHandler(ctx context.Context, accountManager s.AccountManager, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg AuthCfg) (http.Handler, error) {
+func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationManager *geolocation.Geolocation, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg AuthCfg) (http.Handler, error) {
 	claimsExtractor := jwtclaims.NewClaimsExtractor(
 		jwtclaims.WithAudience(authCfg.Audience),
 		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
@@ -68,9 +70,10 @@ func APIHandler(ctx context.Context, accountManager s.AccountManager, jwtValidat
 	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler, acMiddleware.Handler)
 
 	api := apiHandler{
-		Router:         router,
-		AccountManager: accountManager,
-		AuthCfg:        authCfg,
+		Router:             router,
+		AccountManager:     accountManager,
+		geolocationManager: LocationManager,
+		AuthCfg:            authCfg,
 	}
 
 	if _, err := integrations.RegisterHandlers(ctx, prefix, api.Router, accountManager, claimsExtractor); err != nil {
@@ -89,6 +92,8 @@ func APIHandler(ctx context.Context, accountManager s.AccountManager, jwtValidat
 	api.addDNSNameserversEndpoint()
 	api.addDNSSettingEndpoint()
 	api.addEventsEndpoint()
+	api.addPostureCheckEndpoint()
+	api.addLocationsEndpoint()
 
 	err := api.Router.Walk(func(route *mux.Route, _ *mux.Router, _ []*mux.Route) error {
 		methods, err := route.GetMethods()
@@ -207,4 +212,19 @@ func (apiHandler *apiHandler) addDNSSettingEndpoint() {
 func (apiHandler *apiHandler) addEventsEndpoint() {
 	eventsHandler := NewEventsHandler(apiHandler.AccountManager, apiHandler.AuthCfg)
 	apiHandler.Router.HandleFunc("/events", eventsHandler.GetAllEvents).Methods("GET", "OPTIONS")
+}
+
+func (apiHandler *apiHandler) addPostureCheckEndpoint() {
+	postureCheckHandler := NewPostureChecksHandler(apiHandler.AccountManager, apiHandler.geolocationManager, apiHandler.AuthCfg)
+	apiHandler.Router.HandleFunc("/posture-checks", postureCheckHandler.GetAllPostureChecks).Methods("GET", "OPTIONS")
+	apiHandler.Router.HandleFunc("/posture-checks", postureCheckHandler.CreatePostureCheck).Methods("POST", "OPTIONS")
+	apiHandler.Router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.UpdatePostureCheck).Methods("PUT", "OPTIONS")
+	apiHandler.Router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.GetPostureCheck).Methods("GET", "OPTIONS")
+	apiHandler.Router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.DeletePostureCheck).Methods("DELETE", "OPTIONS")
+}
+
+func (apiHandler *apiHandler) addLocationsEndpoint() {
+	locationHandler := NewGeolocationsHandlerHandler(apiHandler.AccountManager, apiHandler.geolocationManager, apiHandler.AuthCfg)
+	apiHandler.Router.HandleFunc("/locations/countries", locationHandler.GetAllCountries).Methods("GET", "OPTIONS")
+	apiHandler.Router.HandleFunc("/locations/countries/{country}/cities", locationHandler.GetCitiesByCountry).Methods("GET", "OPTIONS")
 }

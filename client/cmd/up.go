@@ -110,6 +110,18 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		ic.PreSharedKey = &preSharedKey
 	}
 
+	if cmd.Flag(disableAutoConnectFlag).Changed {
+		ic.DisableAutoConnect = &autoConnectDisabled
+
+		if autoConnectDisabled {
+			cmd.Println("Autoconnect has been disabled. The client won't connect automatically when the service starts.")
+		}
+
+		if !autoConnectDisabled {
+			cmd.Println("Autoconnect has been enabled. The client will connect automatically when the service starts.")
+		}
+	}
+
 	config, err := internal.UpdateOrCreateConfig(ic)
 	if err != nil {
 		return fmt.Errorf("get config file: %v", err)
@@ -178,6 +190,10 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if cmd.Flag(enableRosenpassFlag).Changed {
 		loginRequest.RosenpassEnabled = &rosenpassEnabled
+	}
+
+	if cmd.Flag(disableAutoConnectFlag).Changed {
+		loginRequest.DisableAutoConnect = &autoConnectDisabled
 	}
 
 	if cmd.Flag(interfaceNameFlag).Changed {

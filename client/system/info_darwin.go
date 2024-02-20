@@ -33,7 +33,7 @@ func GetInfo(ctx context.Context) *Info {
 		log.Warnf("got an error while retrieving macOS version with sw_vers, error: %s. Using darwin version instead.\n", err)
 		swVersion = []byte(release)
 	}
-	gio := &Info{Kernel: sysName, OSVersion: strings.TrimSpace(string(swVersion)), Core: release, Platform: machine, OS: sysName, GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
+	gio := &Info{Kernel: sysName, OSVersion: strings.TrimSpace(string(swVersion)), Platform: machine, OS: sysName, GoOS: runtime.GOOS, CPUs: runtime.NumCPU(), KernelVersion: release}
 	systemHostname, _ := os.Hostname()
 	gio.Hostname = extractDeviceName(ctx, systemHostname)
 	gio.WiretrusteeVersion = version.NetbirdVersion()

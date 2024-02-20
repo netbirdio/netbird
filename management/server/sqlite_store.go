@@ -18,6 +18,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
@@ -65,7 +66,7 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 	err = db.AutoMigrate(
 		&SetupKey{}, &nbpeer.Peer{}, &User{}, &PersonalAccessToken{}, &Group{}, &Rule{},
 		&Account{}, &Policy{}, &PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
-		&installation{}, &account.ExtraSettings{},
+		&installation{}, &account.ExtraSettings{}, &posture.Checks{},
 	)
 	if err != nil {
 		return nil, err
@@ -156,11 +157,6 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 	for id, group := range account.Groups {
 		group.ID = id
 		account.GroupsG = append(account.GroupsG, *group)
-	}
-
-	for id, rule := range account.Rules {
-		rule.ID = id
-		account.RulesG = append(account.RulesG, *rule)
 	}
 
 	for id, route := range account.Routes {
@@ -268,6 +264,18 @@ func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer
 	return s.db.Save(peer).Error
 }
 
+func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
+	var peer nbpeer.Peer
+	result := s.db.First(&peer, "account_id = ? and id = ?", accountID, peerWithLocation.ID)
+	if result.Error != nil {
+		return status.Errorf(status.NotFound, "peer %s not found", peer.ID)
+	}
+
+	peer.Location = peerWithLocation.Location
+
+	return s.db.Save(peer).Error
+}
+
 // DeleteHashedPAT2TokenIDIndex is noop in Sqlite
 func (s *SqliteStore) DeleteHashedPAT2TokenIDIndex(hashedToken string) error {
 	return nil
@@ -358,12 +366,12 @@ func (s *SqliteStore) GetAllAccounts() (all []*Account) {
 
 func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 	var account Account
-
 	result := s.db.Model(&account).
 		Preload("UsersG.PATsG"). // have to be specifies as this is nester reference
 		Preload(clause.Associations).
 		First(&account, "id = ?", accountID)
 	if result.Error != nil {
+		log.Errorf("when getting account from the store: %s", result.Error)
 		return nil, status.Errorf(status.NotFound, "account not found")
 	}
 
@@ -404,12 +412,6 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 		account.Groups[group.ID] = group.Copy()
 	}
 	account.GroupsG = nil
-
-	account.Rules = make(map[string]*Rule, len(account.RulesG))
-	for _, rule := range account.RulesG {
-		account.Rules[rule.ID] = rule.Copy()
-	}
-	account.RulesG = nil
 
 	account.Routes = make(map[string]*route.Route, len(account.RoutesG))
 	for _, route := range account.RoutesG {

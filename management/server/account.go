@@ -27,9 +27,11 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 )
@@ -75,7 +77,7 @@ type AccountManager interface {
 	GetUser(claims jwtclaims.AuthorizationClaims) (*User, error)
 	ListUsers(accountID string) ([]*User, error)
 	GetPeers(accountID, userID string) ([]*nbpeer.Peer, error)
-	MarkPeerConnected(peerKey string, connected bool) error
+	MarkPeerConnected(peerKey string, connected bool, realIP net.IP) error
 	DeletePeer(accountID, peerID, userID string) error
 	UpdatePeer(accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
 	GetNetworkMap(peerID string) (*NetworkMap, error)
@@ -120,6 +122,10 @@ type AccountManager interface {
 	GetAllConnectedPeers() (map[string]struct{}, error)
 	HasConnectedChannel(peerID string) bool
 	GetExternalCacheManager() ExternalCacheManager
+	GetPostureChecks(accountID, postureChecksID, userID string) (*posture.Checks, error)
+	SavePostureChecks(accountID, userID string, postureChecks *posture.Checks) error
+	DeletePostureChecks(accountID, postureChecksID, userID string) error
+	ListPostureChecks(accountID, userID string) ([]*posture.Checks, error)
 }
 
 type DefaultAccountManager struct {
@@ -134,6 +140,7 @@ type DefaultAccountManager struct {
 	externalCacheManager ExternalCacheManager
 	ctx                  context.Context
 	eventStore           activity.Store
+	geo                  *geolocation.Geolocation
 
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
@@ -210,16 +217,18 @@ type Account struct {
 	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Groups                 map[string]*Group                 `gorm:"-"`
 	GroupsG                []Group                           `json:"-" gorm:"foreignKey:AccountID;references:id"`
-	Rules                  map[string]*Rule                  `gorm:"-"`
-	RulesG                 []Rule                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
 	Routes                 map[string]*route.Route           `gorm:"-"`
 	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	NameServerGroups       map[string]*nbdns.NameServerGroup `gorm:"-"`
 	NameServerGroupsG      []nbdns.NameServerGroup           `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	DNSSettings            DNSSettings                       `gorm:"embedded;embeddedPrefix:dns_settings_"`
+	PostureChecks          []*posture.Checks                 `gorm:"foreignKey:AccountID;references:id"`
 	// Settings is a dictionary of Account settings
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
+	// deprecated on store and api level
+	Rules  map[string]*Rule `json:"-" gorm:"-"`
+	RulesG []Rule           `json:"-" gorm:"-"`
 }
 
 // AccountUsageStats represents the current usage statistics for an account
@@ -644,11 +653,6 @@ func (a *Account) Copy() *Account {
 		groups[id] = group.Copy()
 	}
 
-	rules := map[string]*Rule{}
-	for id, rule := range a.Rules {
-		rules[id] = rule.Copy()
-	}
-
 	policies := []*Policy{}
 	for _, policy := range a.Policies {
 		policies = append(policies, policy.Copy())
@@ -671,6 +675,11 @@ func (a *Account) Copy() *Account {
 		settings = a.Settings.Copy()
 	}
 
+	postureChecks := []*posture.Checks{}
+	for _, postureCheck := range a.PostureChecks {
+		postureChecks = append(postureChecks, postureCheck.Copy())
+	}
+
 	return &Account{
 		Id:                     a.Id,
 		CreatedBy:              a.CreatedBy,
@@ -682,11 +691,11 @@ func (a *Account) Copy() *Account {
 		Peers:                  peers,
 		Users:                  users,
 		Groups:                 groups,
-		Rules:                  rules,
 		Policies:               policies,
 		Routes:                 routes,
 		NameServerGroups:       nsGroups,
 		DNSSettings:            dnsSettings,
+		PostureChecks:          postureChecks,
 		Settings:               settings,
 	}
 }
@@ -813,10 +822,12 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
 func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
-	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store, userDeleteFromIDPEnabled bool,
+	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store, geo *geolocation.Geolocation,
+	userDeleteFromIDPEnabled bool,
 ) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
 		Store:                    store,
+		geo:                      geo,
 		peersUpdateManager:       peersUpdateManager,
 		idpManager:               idpManager,
 		ctx:                      context.Background(),
@@ -1247,6 +1258,8 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 		}
 	}
 
+	// add extra check on external cache manager. We may get to this point when the user is not yet findable in IDP,
+	// or it didn't have its metadata updated with am.addAccountIDToIDPAppMeta
 	user, err := account.FindUser(userID)
 	if err != nil {
 		log.Errorf("failed finding user %s in account %s", userID, account.Id)
@@ -1255,14 +1268,11 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 
 	key := user.IntegrationReference.CacheKey(account.Id, userID)
 	ud, err := am.externalCacheManager.Get(am.ctx, key)
-	if err == nil {
-		log.Errorf("failed to get externalCache for key: %s, error: %s", key, err)
-		return ud, status.Errorf(status.NotFound, "user %s not found in the IdP", userID)
+	if err != nil {
+		log.Debugf("failed to get externalCache for key: %s, error: %s", key, err)
 	}
 
-	log.Infof("user %s not found in any cache", userID)
-
-	return nil, nil //nolint:nilnil
+	return ud, nil
 }
 
 func (am *DefaultAccountManager) refreshCache(accountID string) ([]*idp.UserData, error) {
@@ -1818,21 +1828,28 @@ func addAllGroup(account *Account) error {
 		}
 		account.Groups = map[string]*Group{allGroup.ID: allGroup}
 
-		defaultRule := &Rule{
-			ID:          xid.New().String(),
+		id := xid.New().String()
+
+		defaultPolicy := &Policy{
+			ID:          id,
 			Name:        DefaultRuleName,
 			Description: DefaultRuleDescription,
-			Disabled:    false,
-			Source:      []string{allGroup.ID},
-			Destination: []string{allGroup.ID},
+			Enabled:     true,
+			Rules: []*PolicyRule{
+				{
+					ID:            id,
+					Name:          DefaultRuleName,
+					Description:   DefaultRuleDescription,
+					Enabled:       true,
+					Sources:       []string{allGroup.ID},
+					Destinations:  []string{allGroup.ID},
+					Bidirectional: true,
+					Protocol:      PolicyRuleProtocolALL,
+					Action:        PolicyTrafficActionAccept,
+				},
+			},
 		}
-		account.Rules = map[string]*Rule{defaultRule.ID: defaultRule}
 
-		// TODO: after migration we need to drop rule and create policy directly
-		defaultPolicy, err := RuleToPolicy(defaultRule)
-		if err != nil {
-			return fmt.Errorf("convert rule to policy: %w", err)
-		}
 		account.Policies = []*Policy{defaultPolicy}
 	}
 	return nil
