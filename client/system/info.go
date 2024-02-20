@@ -25,6 +25,11 @@ type NetworkAddress struct {
 	Mac   string
 }
 
+type Environment struct {
+	Cloud    string
+	Platform string
+}
+
 // Info is an object that contains machine information
 // Most of the code is taken from https://github.com/matishsiao/goInfo
 type Info struct {
@@ -42,6 +47,7 @@ type Info struct {
 	SystemSerialNumber string
 	SystemProductName  string
 	SystemManufacturer string
+	Environment        Environment
 }
 
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context
