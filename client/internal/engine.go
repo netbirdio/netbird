@@ -79,7 +79,8 @@ type EngineConfig struct {
 
 	CustomDNSAddress string
 
-	RosenpassEnabled bool
+	RosenpassEnabled    bool
+	RosenpassPermissive bool
 
 	ServerSSHAllowed bool
 }
@@ -236,6 +237,11 @@ func (e *Engine) Start() error {
 
 	if e.config.RosenpassEnabled {
 		log.Infof("rosenpass is enabled")
+		if e.config.RosenpassPermissive {
+			log.Infof("running rosenpass in permissive mode")
+		} else {
+			log.Infof("running rosenpass in strict mode")
+		}
 		e.rpManager, err = rosenpass.NewManager(e.config.PreSharedKey, e.config.WgIfaceName)
 		if err != nil {
 			return err
@@ -484,12 +490,12 @@ func isNil(server nbssh.Server) bool {
 }
 
 func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
-	
+
 	if !e.config.ServerSSHAllowed {
 		log.Warnf("running SSH server is not permitted")
 		return nil
 	} else {
-	
+
 		if sshConf.GetSshEnabled() {
 			if runtime.GOOS == "windows" {
 				log.Warnf("running SSH server on Windows is not supported")
@@ -870,7 +876,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		PreSharedKey: e.config.PreSharedKey,
 	}
 
-	if e.config.RosenpassEnabled {
+	if e.config.RosenpassEnabled && !e.config.RosenpassPermissive {
 		lk := []byte(e.config.WgPrivateKey.PublicKey().String())
 		rk := []byte(wgConfig.RemoteKey)
 		var keyInput []byte

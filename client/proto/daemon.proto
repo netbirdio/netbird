@@ -67,6 +67,8 @@ message LoginRequest {
   optional bool disableAutoConnect = 14;
 
   optional bool serverSSHAllowed = 15;
+
+  optional bool rosenpassPermissive = 16;
 }
 
 message LoginResponse {

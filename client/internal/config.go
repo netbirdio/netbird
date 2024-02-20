@@ -35,17 +35,18 @@ var defaultInterfaceBlacklist = []string{iface.WgInterfaceDefault, "wt", "utun",
 
 // ConfigInput carries configuration changes to the client
 type ConfigInput struct {
-	ManagementURL    string
-	AdminURL         string
-	ConfigPath       string
-	PreSharedKey     *string
-	ServerSSHAllowed *bool
-	NATExternalIPs     []string
-	CustomDNSAddress   []byte
-	RosenpassEnabled   *bool
-	InterfaceName      *string
-	WireguardPort      *int
-	DisableAutoConnect *bool
+	ManagementURL       string
+	AdminURL            string
+	ConfigPath          string
+	PreSharedKey        *string
+	ServerSSHAllowed    *bool
+	NATExternalIPs      []string
+	CustomDNSAddress    []byte
+	RosenpassEnabled    *bool
+	RosenpassPermissive *bool
+	InterfaceName       *string
+	WireguardPort       *int
+	DisableAutoConnect  *bool
 }
 
 // Config Configuration type
@@ -60,9 +61,10 @@ type Config struct {
 	IFaceBlackList       []string
 	DisableIPv6Discovery bool
 	RosenpassEnabled     bool
+	RosenpassPermissive  bool
 	ServerSSHAllowed     *bool
 	// SSHKey is a private SSH key in a PEM format
-	SSHKey               string
+	SSHKey string
 
 	// ExternalIP mappings, if different from the host interface IP
 	//
@@ -79,9 +81,9 @@ type Config struct {
 	//      "12.34.56.78/eth0"     => IPv4 assigned to interface eth0 will be mapped to external IP of 12.34.56.78
 	//      "12.34.56.78/10.1.2.3" => interface IP 10.1.2.3 will be mapped to external IP of 12.34.56.78
 
-	NATExternalIPs       []string
+	NATExternalIPs []string
 	// CustomDNSAddress sets the DNS resolver listening address in format ip:port
-	CustomDNSAddress     string
+	CustomDNSAddress string
 
 	// DisableAutoConnect determines whether the client should not start with the service
 	// it's set to false by default due to backwards compatibility
@@ -196,6 +198,10 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		config.RosenpassEnabled = *input.RosenpassEnabled
 	}
 
+	if input.RosenpassPermissive != nil {
+		config.RosenpassPermissive = *input.RosenpassPermissive
+	}
+
 	if input.ServerSSHAllowed != nil {
 		config.ServerSSHAllowed = input.ServerSSHAllowed
 	}
@@ -291,6 +297,11 @@ func update(input ConfigInput) (*Config, error) {
 
 	if input.RosenpassEnabled != nil {
 		config.RosenpassEnabled = *input.RosenpassEnabled
+		refresh = true
+	}
+
+	if input.RosenpassPermissive != nil {
+		config.RosenpassPermissive = *input.RosenpassPermissive
 		refresh = true
 	}
 
