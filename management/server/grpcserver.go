@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -260,16 +261,33 @@ func extractPeerMeta(loginReq *proto.LoginRequest) nbpeer.PeerSystemMeta {
 		osVersion = loginReq.GetMeta().GetCore()
 	}
 
+	networkAddresses := make([]nbpeer.NetworkAddress, 0, len(loginReq.GetMeta().GetNetworkAddresses()))
+	for _, addr := range loginReq.GetMeta().GetNetworkAddresses() {
+		netAddr, err := netip.ParsePrefix(addr.GetNetIP())
+		if err != nil {
+			log.Warnf("failed to parse netip address, %s: %v", addr.GetNetIP(), err)
+			continue
+		}
+		networkAddresses = append(networkAddresses, nbpeer.NetworkAddress{
+			NetIP: netAddr,
+			Mac:   addr.GetMac(),
+		})
+	}
+
 	return nbpeer.PeerSystemMeta{
-		Hostname:      loginReq.GetMeta().GetHostname(),
-		GoOS:          loginReq.GetMeta().GetGoOS(),
-		Kernel:        loginReq.GetMeta().GetKernel(),
-		Platform:      loginReq.GetMeta().GetPlatform(),
-		OS:            loginReq.GetMeta().GetOS(),
-		OSVersion:     osVersion,
-		WtVersion:     loginReq.GetMeta().GetWiretrusteeVersion(),
-		UIVersion:     loginReq.GetMeta().GetUiVersion(),
-		KernelVersion: loginReq.GetMeta().GetKernelVersion(),
+		Hostname:           loginReq.GetMeta().GetHostname(),
+		GoOS:               loginReq.GetMeta().GetGoOS(),
+		Kernel:             loginReq.GetMeta().GetKernel(),
+		Platform:           loginReq.GetMeta().GetPlatform(),
+		OS:                 loginReq.GetMeta().GetOS(),
+		OSVersion:          osVersion,
+		WtVersion:          loginReq.GetMeta().GetWiretrusteeVersion(),
+		UIVersion:          loginReq.GetMeta().GetUiVersion(),
+		KernelVersion:      loginReq.GetMeta().GetKernelVersion(),
+		NetworkAddresses:   networkAddresses,
+		SystemSerialNumber: loginReq.GetMeta().GetSysManufacturer(),
+		SystemProductName:  loginReq.GetMeta().GetSysProductName(),
+		SystemManufacturer: loginReq.GetMeta().GetSysSerialNumber(),
 	}
 }
 
