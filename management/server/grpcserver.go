@@ -285,9 +285,9 @@ func extractPeerMeta(loginReq *proto.LoginRequest) nbpeer.PeerSystemMeta {
 		UIVersion:          loginReq.GetMeta().GetUiVersion(),
 		KernelVersion:      loginReq.GetMeta().GetKernelVersion(),
 		NetworkAddresses:   networkAddresses,
-		SystemSerialNumber: loginReq.GetMeta().GetSysManufacturer(),
+		SystemSerialNumber: loginReq.GetMeta().GetSysSerialNumber(),
 		SystemProductName:  loginReq.GetMeta().GetSysProductName(),
-		SystemManufacturer: loginReq.GetMeta().GetSysSerialNumber(),
+		SystemManufacturer: loginReq.GetMeta().GetSysManufacturer(),
 	}
 }
 
