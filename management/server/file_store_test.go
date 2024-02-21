@@ -659,7 +659,7 @@ func newStore(t *testing.T) *FileStore {
 	return store
 }
 
-func TestFileStore_CalculateStats(t *testing.T) {
+func TestFileStore_CalculateUsageStats(t *testing.T) {
 	storeDir := t.TempDir()
 
 	err := util.CopyFileContents("testdata/store_stats.json", filepath.Join(storeDir, "store.json"))

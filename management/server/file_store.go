@@ -677,15 +677,20 @@ func (s *FileStore) CalculateUsageStats(_ context.Context, accountID string, sta
 	}
 
 	stats := &AccountUsageStats{
-		TotalUsers: int64(len(account.Users)),
+		TotalUsers: 0,
 		TotalPeers: int64(len(account.Peers)),
+	}
+
+	for _, user := range account.Users {
+		if !user.IsServiceUser {
+			stats.TotalUsers++
+		}
 	}
 
 	activeUsers := make(map[string]bool)
 	for _, peer := range account.Peers {
 		lastSeen := peer.Status.LastSeen
 		if lastSeen.Compare(start) >= 0 && lastSeen.Compare(end) <= 0 {
-
 			if _, exists := account.Users[peer.UserID]; exists && !activeUsers[peer.UserID] {
 				activeUsers[peer.UserID] = true
 				stats.ActiveUsers++

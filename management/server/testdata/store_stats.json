@@ -23,6 +23,10 @@
         },
         "user-4-account-1": {
           "Id": "user-4-account-1"
+        },
+        "user-5-account-1": {
+          "Id": "user-5-account-1",
+          "IsServiceUser": true
         }
       },
       "Peers": {
@@ -122,6 +126,10 @@
         },
         "user-2-account-2": {
           "Id": "user-1-account-2"
+        },
+        "user-3-account-2": {
+          "Id": "user-3-account-1",
+          "IsServiceUser": true
         }
       },
       "Peers": {

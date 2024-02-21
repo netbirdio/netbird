@@ -514,7 +514,7 @@ func (s *SqliteStore) CalculateUsageStats(ctx context.Context, accountID string,
 		}
 
 		err = tx.Model(&User{}).
-			Where("account_id = ?", accountID).
+			Where("account_id = ? AND is_service_user = ?", accountID, false).
 			Count(&stats.TotalUsers).Error
 		if err != nil {
 			return fmt.Errorf("get total users: %w", err)
