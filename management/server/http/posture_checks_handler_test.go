@@ -122,7 +122,7 @@ func TestGetPostureCheck(t *testing.T) {
 						CityName:    "Berlin",
 					},
 				},
-				Action: posture.GeoLocationActionAllow,
+				Action: posture.CheckActionAllow,
 			},
 		},
 	}
@@ -694,7 +694,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 							CityName:    "Berlin",
 						},
 					},
-					Action: posture.GeoLocationActionDeny,
+					Action: posture.CheckActionDeny,
 				},
 			},
 		},
