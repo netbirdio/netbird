@@ -443,22 +443,22 @@ type Peer struct {
 	ApprovalRequired *bool `json:"approval_required,omitempty"`
 
 	// CityName Commonly used English name of the city
-	CityName *CityName `json:"city_name,omitempty"`
+	CityName CityName `json:"city_name"`
 
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
 	// ConnectionIp Peer's public connection IP address
-	ConnectionIp *string `json:"connection_ip,omitempty"`
+	ConnectionIp string `json:"connection_ip"`
 
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
-	CountryCode *CountryCode `json:"country_code,omitempty"`
+	CountryCode CountryCode `json:"country_code"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
 	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
-	GeonameId *int `json:"geoname_id,omitempty"`
+	GeonameId int `json:"geoname_id"`
 
 	// Groups Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
@@ -473,7 +473,7 @@ type Peer struct {
 	Ip string `json:"ip"`
 
 	// KernelVersion Peer's operating system kernel version
-	KernelVersion *string `json:"kernel_version,omitempty"`
+	KernelVersion string `json:"kernel_version"`
 
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
@@ -497,10 +497,10 @@ type Peer struct {
 	SshEnabled bool `json:"ssh_enabled"`
 
 	// UiVersion Peer's desktop UI version
-	UiVersion *string `json:"ui_version,omitempty"`
+	UiVersion string `json:"ui_version"`
 
 	// UserId User ID of the user that enrolled this peer
-	UserId *string `json:"user_id,omitempty"`
+	UserId string `json:"user_id"`
 
 	// Version Peer's daemon or cli version
 	Version string `json:"version"`
@@ -512,22 +512,22 @@ type PeerBase struct {
 	ApprovalRequired *bool `json:"approval_required,omitempty"`
 
 	// CityName Commonly used English name of the city
-	CityName *CityName `json:"city_name,omitempty"`
+	CityName CityName `json:"city_name"`
 
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
 	// ConnectionIp Peer's public connection IP address
-	ConnectionIp *string `json:"connection_ip,omitempty"`
+	ConnectionIp string `json:"connection_ip"`
 
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
-	CountryCode *CountryCode `json:"country_code,omitempty"`
+	CountryCode CountryCode `json:"country_code"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
 	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
-	GeonameId *int `json:"geoname_id,omitempty"`
+	GeonameId int `json:"geoname_id"`
 
 	// Groups Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
@@ -542,7 +542,7 @@ type PeerBase struct {
 	Ip string `json:"ip"`
 
 	// KernelVersion Peer's operating system kernel version
-	KernelVersion *string `json:"kernel_version,omitempty"`
+	KernelVersion string `json:"kernel_version"`
 
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
@@ -566,10 +566,10 @@ type PeerBase struct {
 	SshEnabled bool `json:"ssh_enabled"`
 
 	// UiVersion Peer's desktop UI version
-	UiVersion *string `json:"ui_version,omitempty"`
+	UiVersion string `json:"ui_version"`
 
 	// UserId User ID of the user that enrolled this peer
-	UserId *string `json:"user_id,omitempty"`
+	UserId string `json:"user_id"`
 
 	// Version Peer's daemon or cli version
 	Version string `json:"version"`
@@ -584,22 +584,22 @@ type PeerBatch struct {
 	ApprovalRequired *bool `json:"approval_required,omitempty"`
 
 	// CityName Commonly used English name of the city
-	CityName *CityName `json:"city_name,omitempty"`
+	CityName CityName `json:"city_name"`
 
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
 	// ConnectionIp Peer's public connection IP address
-	ConnectionIp *string `json:"connection_ip,omitempty"`
+	ConnectionIp string `json:"connection_ip"`
 
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
-	CountryCode *CountryCode `json:"country_code,omitempty"`
+	CountryCode CountryCode `json:"country_code"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
 	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
-	GeonameId *int `json:"geoname_id,omitempty"`
+	GeonameId int `json:"geoname_id"`
 
 	// Groups Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
@@ -614,7 +614,7 @@ type PeerBatch struct {
 	Ip string `json:"ip"`
 
 	// KernelVersion Peer's operating system kernel version
-	KernelVersion *string `json:"kernel_version,omitempty"`
+	KernelVersion string `json:"kernel_version"`
 
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
@@ -638,10 +638,10 @@ type PeerBatch struct {
 	SshEnabled bool `json:"ssh_enabled"`
 
 	// UiVersion Peer's desktop UI version
-	UiVersion *string `json:"ui_version,omitempty"`
+	UiVersion string `json:"ui_version"`
 
 	// UserId User ID of the user that enrolled this peer
-	UserId *string `json:"user_id,omitempty"`
+	UserId string `json:"user_id"`
 
 	// Version Peer's daemon or cli version
 	Version string `json:"version"`
