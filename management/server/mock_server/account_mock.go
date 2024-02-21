@@ -92,7 +92,7 @@ type MockAccountManager struct {
 	SavePostureChecksFunc           func(accountID, userID string, postureChecks *posture.Checks) error
 	DeletePostureChecksFunc         func(accountID, postureChecksID, userID string) error
 	ListPostureChecksFunc           func(accountID, userID string) ([]*posture.Checks, error)
-	GetCurrentUsageFunc             func(ctx context.Context, accountID string) (*server.AccountUsageStats, error)
+	GetUsageFunc                    func(ctx context.Context, accountID string, start, end time.Time) (*server.AccountUsageStats, error)
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -705,10 +705,10 @@ func (am *MockAccountManager) ListPostureChecks(accountID, userID string) ([]*po
 	return nil, status.Errorf(codes.Unimplemented, "method ListPostureChecks is not implemented")
 }
 
-// GetCurrentUsage mocks GetCurrentUsage of the AccountManager interface
-func (am *MockAccountManager) GetCurrentUsage(ctx context.Context, accountID string) (*server.AccountUsageStats, error) {
-	if am.GetCurrentUsageFunc != nil {
-		return am.GetCurrentUsageFunc(ctx, accountID)
+// GetUsage mocks GetCurrentUsage of the AccountManager interface
+func (am *MockAccountManager) GetUsage(ctx context.Context, accountID string, start time.Time, end time.Time) (*server.AccountUsageStats, error) {
+	if am.GetUsageFunc != nil {
+		return am.GetUsageFunc(ctx, accountID, start, end)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetCurrentUsage is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method GetUsage is not implemented")
 }
