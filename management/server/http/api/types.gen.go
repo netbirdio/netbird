@@ -116,6 +116,12 @@ const (
 	PolicyRuleUpdateProtocolUdp  PolicyRuleUpdateProtocol = "udp"
 )
 
+// Defines values for PrivateNetworkCheckAction.
+const (
+	PrivateNetworkCheckActionAllow PrivateNetworkCheckAction = "allow"
+	PrivateNetworkCheckActionDeny  PrivateNetworkCheckAction = "deny"
+)
+
 // Defines values for UserStatus.
 const (
 	UserStatusActive  UserStatus = "active"
@@ -186,10 +192,15 @@ type AccountSettings struct {
 type Checks struct {
 	// GeoLocationCheck Posture check for geo location
 	GeoLocationCheck *GeoLocationCheck `json:"geo_location_check,omitempty"`
-	NbVersionCheck   *NBVersionCheck   `json:"nb_version_check,omitempty"`
+
+	// NbVersionCheck Posture check for the version of operating system
+	NbVersionCheck *NBVersionCheck `json:"nb_version_check,omitempty"`
 
 	// OsVersionCheck Posture check for the version of operating system
 	OsVersionCheck *OSVersionCheck `json:"os_version_check,omitempty"`
+
+	// PrivateNetworkCheck Posture check for allow or deny private network
+	PrivateNetworkCheck *PrivateNetworkCheck `json:"private_network_check,omitempty"`
 }
 
 // City Describe city geographical location information
@@ -324,13 +335,13 @@ type MinKernelVersionCheck struct {
 	MinKernelVersion string `json:"min_kernel_version"`
 }
 
-// MinVersionCheck defines model for MinVersionCheck.
+// MinVersionCheck Posture check for the version of operating system
 type MinVersionCheck struct {
 	// MinVersion Minimum acceptable version
 	MinVersion string `json:"min_version"`
 }
 
-// NBVersionCheck defines model for NBVersionCheck.
+// NBVersionCheck Posture check for the version of operating system
 type NBVersionCheck = MinVersionCheck
 
 // Nameserver defines model for Nameserver.
@@ -407,9 +418,14 @@ type NameserverGroupRequest struct {
 
 // OSVersionCheck Posture check for the version of operating system
 type OSVersionCheck struct {
+	// Android Posture check for the version of operating system
 	Android *MinVersionCheck `json:"android,omitempty"`
-	Darwin  *MinVersionCheck `json:"darwin,omitempty"`
-	Ios     *MinVersionCheck `json:"ios,omitempty"`
+
+	// Darwin Posture check for the version of operating system
+	Darwin *MinVersionCheck `json:"darwin,omitempty"`
+
+	// Ios Posture check for the version of operating system
+	Ios *MinVersionCheck `json:"ios,omitempty"`
 
 	// Linux Posture check with the kernel version
 	Linux *MinKernelVersionCheck `json:"linux,omitempty"`
@@ -881,6 +897,18 @@ type PostureCheckUpdate struct {
 	// Name Posture check name identifier
 	Name string `json:"name"`
 }
+
+// PrivateNetworkCheck Posture check for allow or deny private network
+type PrivateNetworkCheck struct {
+	// Action Action to take upon policy match
+	Action PrivateNetworkCheckAction `json:"action"`
+
+	// Prefixes List of private network prefixes
+	Prefixes []string `json:"prefixes"`
+}
+
+// PrivateNetworkCheckAction Action to take upon policy match
+type PrivateNetworkCheckAction string
 
 // Route defines model for Route.
 type Route struct {

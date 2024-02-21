@@ -855,6 +855,8 @@ components:
           $ref: '#/components/schemas/OSVersionCheck'
         geo_location_check:
           $ref: '#/components/schemas/GeoLocationCheck'
+        private_network_check:
+          $ref: '#/components/schemas/PrivateNetworkCheck'
     NBVersionCheck:
       description: Posture check for the version of NetBird
       type: object
@@ -924,6 +926,24 @@ components:
           example: "allow"
       required:
         - locations
+        - action
+    PrivateNetworkCheck:
+      description: Posture check for allow or deny private network
+      type: object
+      properties:
+        prefixes:
+          description: List of private network prefixes
+          type: array
+          items:
+            type: string
+            example: "192.168.1.0/24"
+        action:
+          description: Action to take upon policy match
+          type: string
+          enum: [ "allow", "deny" ]
+          example: "allow"
+      required:
+        - prefixes
         - action
     Location:
       description: Describe geographical location information
