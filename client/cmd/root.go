@@ -25,14 +25,15 @@ import (
 )
 
 const (
-	externalIPMapFlag      = "external-ip-map"
-	dnsResolverAddress     = "dns-resolver-address"
-	enableRosenpassFlag    = "enable-rosenpass"
-	preSharedKeyFlag       = "preshared-key"
-	interfaceNameFlag      = "interface-name"
-	wireguardPortFlag      = "wireguard-port"
-	disableAutoConnectFlag = "disable-auto-connect"
-	serverSSHAllowedFlag = "allow-server-ssh"
+	externalIPMapFlag       = "external-ip-map"
+	dnsResolverAddress      = "dns-resolver-address"
+	enableRosenpassFlag     = "enable-rosenpass"
+	rosenpassPermissiveFlag = "rosenpass-permissive"
+	preSharedKeyFlag        = "preshared-key"
+	interfaceNameFlag       = "interface-name"
+	wireguardPortFlag       = "wireguard-port"
+	disableAutoConnectFlag  = "disable-auto-connect"
+	serverSSHAllowedFlag    = "allow-server-ssh"
 )
 
 var (
@@ -56,6 +57,7 @@ var (
 	natExternalIPs          []string
 	customDNSAddress        string
 	rosenpassEnabled        bool
+	rosenpassPermissive     bool
 	serverSSHAllowed        bool
 	interfaceName           string
 	wireguardPort           uint16
@@ -130,6 +132,7 @@ func init() {
 			`E.g. --dns-resolver-address 127.0.0.1:5053 or --dns-resolver-address ""`,
 	)
 	upCmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "[Experimental] Enable Rosenpass feature. If enabled, the connection will be post-quantum secured via Rosenpass.")
+	upCmd.PersistentFlags().BoolVar(&rosenpassPermissive, rosenpassPermissiveFlag, false, "[Experimental] Enable Rosenpass in permissive mode to allow this peer to accept WireGuard connections without requiring Rosenpass functionality from peers that do not have Rosenpass enabled.")
 	upCmd.PersistentFlags().BoolVar(&serverSSHAllowed, serverSSHAllowedFlag, false, "Allow SSH server on peer. If enabled, the SSH server will be permitted")
 	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
 }
