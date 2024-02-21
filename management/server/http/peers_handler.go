@@ -3,7 +3,6 @@ package http
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -229,14 +228,6 @@ func toGroupsInfo(groups map[string]*server.Group, peerID string) []api.GroupMin
 		}
 	}
 	return groupsInfo
-}
-
-func connectionIPoString(ip net.IP) *string {
-	publicIP := ""
-	if ip != nil {
-		publicIP = ip.String()
-	}
-	return &publicIP
 }
 
 func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeer []api.AccessiblePeer) *api.Peer {
