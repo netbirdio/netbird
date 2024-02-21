@@ -104,6 +104,10 @@ message PeerSystemMeta {
   string uiVersion = 8;
   string kernelVersion = 9;
   string OSVersion = 10;
+  repeated NetworkAddress networkAddresses = 11;
+  string sysSerialNumber = 12;
+  string sysProductName = 13;
+  string sysManufacturer = 14;
 }
 
 message LoginResponse {
@@ -352,4 +356,9 @@ message FirewallRule {
     UDP = 3;
     ICMP = 4;
   }
+}
+
+message NetworkAddress {
+  string netIP = 1;
+  string mac = 2;
 }

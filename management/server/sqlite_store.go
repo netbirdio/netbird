@@ -66,7 +66,7 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 	err = db.AutoMigrate(
 		&SetupKey{}, &nbpeer.Peer{}, &User{}, &PersonalAccessToken{}, &Group{}, &Rule{},
 		&Account{}, &Policy{}, &PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
-		&installation{}, &account.ExtraSettings{}, &posture.Checks{},
+		&installation{}, &account.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 	)
 	if err != nil {
 		return nil, err
@@ -487,11 +487,11 @@ func (s *SqliteStore) SaveUserLastLogin(accountID, userID string, lastLogin time
 
 // Close closes the underlying DB connection
 func (s *SqliteStore) Close() error {
-	db, err := s.db.DB()
+	sql, err := s.db.DB()
 	if err != nil {
 		return fmt.Errorf("get db: %w", err)
 	}
-	return db.Close()
+	return sql.Close()
 }
 
 // GetStoreEngine returns SqliteStoreEngine

@@ -23,6 +23,7 @@ import (
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	signal "github.com/netbirdio/netbird/signal/client"
+	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -283,6 +284,7 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		NATExternalIPs:       config.NATExternalIPs,
 		CustomDNSAddress:     config.CustomDNSAddress,
 		RosenpassEnabled:     config.RosenpassEnabled,
+		ServerSSHAllowed:     util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
 	}
 
 	if config.PreSharedKey != "" {

@@ -65,6 +65,8 @@ message LoginRequest {
   optional string optionalPreSharedKey = 13;
 
   optional bool disableAutoConnect = 14;
+
+  optional bool serverSSHAllowed = 15;
 }
 
 message LoginResponse {

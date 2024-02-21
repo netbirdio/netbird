@@ -94,6 +94,10 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		ic.RosenpassEnabled = &rosenpassEnabled
 	}
 
+	if cmd.Flag(serverSSHAllowedFlag).Changed {
+		ic.ServerSSHAllowed = &serverSSHAllowed
+	}
+
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
 			return err
@@ -190,6 +194,10 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if cmd.Flag(enableRosenpassFlag).Changed {
 		loginRequest.RosenpassEnabled = &rosenpassEnabled
+	}
+
+	if cmd.Flag(serverSSHAllowedFlag).Changed {
+		loginRequest.ServerSSHAllowed = &serverSSHAllowed
 	}
 
 	if cmd.Flag(disableAutoConnectFlag).Changed {
