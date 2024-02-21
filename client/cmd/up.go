@@ -94,6 +94,10 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		ic.RosenpassEnabled = &rosenpassEnabled
 	}
 
+	if cmd.Flag(rosenpassPermissiveFlag).Changed {
+		ic.RosenpassPermissive = &rosenpassPermissive
+	}
+
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		ic.ServerSSHAllowed = &serverSSHAllowed
 	}
@@ -194,6 +198,10 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if cmd.Flag(enableRosenpassFlag).Changed {
 		loginRequest.RosenpassEnabled = &rosenpassEnabled
+	}
+
+	if cmd.Flag(rosenpassPermissiveFlag).Changed {
+		loginRequest.RosenpassPermissive = &rosenpassPermissive
 	}
 
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
