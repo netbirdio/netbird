@@ -668,6 +668,9 @@ func (s *FileStore) GetStoreEngine() StoreEngine {
 // CalculateUsageStats returns the usage stats for an account
 // start and end are inclusive.
 func (s *FileStore) CalculateUsageStats(_ context.Context, accountID string, start time.Time, end time.Time) (*AccountUsageStats, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
 	account, exists := s.Accounts[accountID]
 	if !exists {
 		return nil, fmt.Errorf("account not found")
