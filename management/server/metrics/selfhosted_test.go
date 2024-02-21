@@ -6,6 +6,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -62,12 +63,33 @@ func (mockDatasource) GetAllAccounts() []*server.Account {
 							Protocol:      server.PolicyRuleProtocolTCP,
 						},
 					},
+					SourcePostureChecks: []string{"1"},
 				},
 			},
 			Routes: map[string]*route.Route{
 				"1": {
 					ID:         "1",
 					PeerGroups: make([]string, 1),
+				},
+			},
+			PostureChecks: []*posture.Checks{
+				{
+					ID:   "1",
+					Name: "test",
+					Checks: posture.ChecksDefinition{
+						NBVersionCheck: &posture.NBVersionCheck{
+							MinVersion: "0.0.1",
+						},
+					},
+				},
+				{
+					ID:   "2",
+					Name: "tes2",
+					Checks: posture.ChecksDefinition{
+						NBVersionCheck: &posture.NBVersionCheck{
+							MinVersion: "0.0.2",
+						},
+					},
 				},
 			},
 			Users: map[string]*server.User{
@@ -246,4 +268,13 @@ func TestGenerateProperties(t *testing.T) {
 	if properties["store_engine"] != server.FileStoreEngine {
 		t.Errorf("expected JsonFile, got %s", properties["store_engine"])
 	}
+
+	if properties["rules_with_src_posture_checks"] != 1 {
+		t.Errorf("expected 1 rules_with_src_posture_checks, got %d", properties["rules_with_src_posture_checks"])
+	}
+
+	if properties["posture_checks"] != 2 {
+		t.Errorf("expected 1 posture_checks, got %d", properties["posture_checks"])
+	}
+
 }
