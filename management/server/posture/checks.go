@@ -83,7 +83,7 @@ func (cd ChecksDefinition) Copy() ChecksDefinition {
 			Action:    geoCheck.Action,
 			Locations: make([]Location, len(geoCheck.Locations)),
 		}
-		copy(cd.GeoLocationCheck.Locations, geoCheck.Locations)
+		copy(cdCopy.GeoLocationCheck.Locations, geoCheck.Locations)
 	}
 	if cd.PrivateNetworkCheck != nil {
 		privateNetCheck := cd.PrivateNetworkCheck
@@ -91,7 +91,7 @@ func (cd ChecksDefinition) Copy() ChecksDefinition {
 			Action:   privateNetCheck.Action,
 			Prefixes: make([]netip.Prefix, len(privateNetCheck.Prefixes)),
 		}
-		copy(cd.PrivateNetworkCheck.Prefixes, privateNetCheck.Prefixes)
+		copy(cdCopy.PrivateNetworkCheck.Prefixes, privateNetCheck.Prefixes)
 	}
 	return cdCopy
 }
