@@ -14,6 +14,9 @@ const (
 	OSVersionCheckName      = "OSVersionCheck"
 	GeoLocationCheckName    = "GeoLocationCheck"
 	PrivateNetworkCheckName = "PrivateNetworkCheck"
+
+	CheckActionAllow string = "allow"
+	CheckActionDeny  string = "deny"
 )
 
 // Check represents an interface for performing a check on a peer.
