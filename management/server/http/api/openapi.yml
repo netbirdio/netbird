@@ -323,18 +323,25 @@ components:
             city_name:
               $ref: '#/components/schemas/CityName'
           required:
-            - ip
+            - city_name
             - connected
-            - last_seen
-            - os
-            - version
-            - groups
-            - ssh_enabled
-            - hostname
+            - connection_ip
+            - country_code
             - dns_label
+            - geoname_id
+            - groups
+            - hostname
+            - ip
+            - kernel_version
+            - last_login
+            - last_seen
             - login_expiration_enabled
             - login_expired
-            - last_login
+            - os
+            - ssh_enabled
+            - user_id
+            - version
+            - ui_version
     AccessiblePeer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
