@@ -77,7 +77,7 @@ func (cd ChecksDefinition) Copy() ChecksDefinition {
 			Action:    geoCheck.Action,
 			Locations: make([]Location, len(geoCheck.Locations)),
 		}
-		copy(cd.GeoLocationCheck.Locations, geoCheck.Locations)
+		copy(cdCopy.GeoLocationCheck.Locations, geoCheck.Locations)
 	}
 	return cdCopy
 }
