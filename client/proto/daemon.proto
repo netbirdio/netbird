@@ -34,7 +34,7 @@ message LoginRequest {
 
   // This is the old PreSharedKey field which will be deprecated in favor of optionalPreSharedKey field that is defined as optional
   // to allow clearing of preshared key while being able to persist in the config file.
-  string preSharedKey = 2 [deprecated=true];
+  string preSharedKey = 2 [deprecated = true];
 
   // managementUrl to authenticate.
   string managementUrl = 3;
@@ -140,6 +140,7 @@ message PeerState {
   google.protobuf.Timestamp lastWireguardHandshake = 12;
   int64 bytesRx = 13;
   int64 bytesTx = 14;
+  bool rosenpassEnabled = 15;
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -148,6 +149,8 @@ message LocalPeerState {
   string pubKey = 2;
   bool  kernelInterface = 3;
   string fqdn = 4;
+  bool rosenpassEnabled = 5;
+  bool rosenpassPermissive = 6;
 }
 
 // SignalState contains the latest state of a signal connection

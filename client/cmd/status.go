@@ -34,6 +34,7 @@ type peerStateDetailOutput struct {
 	LastWireguardHandshake time.Time        `json:"lastWireguardHandshake" yaml:"lastWireguardHandshake"`
 	TransferReceived       int64            `json:"transferReceived" yaml:"transferReceived"`
 	TransferSent           int64            `json:"transferSent" yaml:"transferSent"`
+	RosenpassEnabled       bool             `json:"rosenpassEnabled" yaml:"rosenpassEnabled"`
 }
 
 type peersStateOutput struct {
@@ -72,16 +73,18 @@ type iceCandidateType struct {
 }
 
 type statusOutputOverview struct {
-	Peers           peersStateOutput      `json:"peers" yaml:"peers"`
-	CliVersion      string                `json:"cliVersion" yaml:"cliVersion"`
-	DaemonVersion   string                `json:"daemonVersion" yaml:"daemonVersion"`
-	ManagementState managementStateOutput `json:"management" yaml:"management"`
-	SignalState     signalStateOutput     `json:"signal" yaml:"signal"`
-	Relays          relayStateOutput      `json:"relays" yaml:"relays"`
-	IP              string                `json:"netbirdIp" yaml:"netbirdIp"`
-	PubKey          string                `json:"publicKey" yaml:"publicKey"`
-	KernelInterface bool                  `json:"usesKernelInterface" yaml:"usesKernelInterface"`
-	FQDN            string                `json:"fqdn" yaml:"fqdn"`
+	Peers               peersStateOutput      `json:"peers" yaml:"peers"`
+	CliVersion          string                `json:"cliVersion" yaml:"cliVersion"`
+	DaemonVersion       string                `json:"daemonVersion" yaml:"daemonVersion"`
+	ManagementState     managementStateOutput `json:"management" yaml:"management"`
+	SignalState         signalStateOutput     `json:"signal" yaml:"signal"`
+	Relays              relayStateOutput      `json:"relays" yaml:"relays"`
+	IP                  string                `json:"netbirdIp" yaml:"netbirdIp"`
+	PubKey              string                `json:"publicKey" yaml:"publicKey"`
+	KernelInterface     bool                  `json:"usesKernelInterface" yaml:"usesKernelInterface"`
+	FQDN                string                `json:"fqdn" yaml:"fqdn"`
+	RosenpassEnabled    bool                  `json:"rosenpassEnabled" yaml:"rosenpassEnabled"`
+	RosenpassPermissive bool                  `json:"rosenpassPermissive" yaml:"rosenpassPermissive"`
 }
 
 var (
@@ -253,16 +256,18 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 	peersOverview := mapPeers(resp.GetFullStatus().GetPeers())
 
 	overview := statusOutputOverview{
-		Peers:           peersOverview,
-		CliVersion:      version.NetbirdVersion(),
-		DaemonVersion:   resp.GetDaemonVersion(),
-		ManagementState: managementOverview,
-		SignalState:     signalOverview,
-		Relays:          relayOverview,
-		IP:              pbFullStatus.GetLocalPeerState().GetIP(),
-		PubKey:          pbFullStatus.GetLocalPeerState().GetPubKey(),
-		KernelInterface: pbFullStatus.GetLocalPeerState().GetKernelInterface(),
-		FQDN:            pbFullStatus.GetLocalPeerState().GetFqdn(),
+		Peers:               peersOverview,
+		CliVersion:          version.NetbirdVersion(),
+		DaemonVersion:       resp.GetDaemonVersion(),
+		ManagementState:     managementOverview,
+		SignalState:         signalOverview,
+		Relays:              relayOverview,
+		IP:                  pbFullStatus.GetLocalPeerState().GetIP(),
+		PubKey:              pbFullStatus.GetLocalPeerState().GetPubKey(),
+		KernelInterface:     pbFullStatus.GetLocalPeerState().GetKernelInterface(),
+		FQDN:                pbFullStatus.GetLocalPeerState().GetFqdn(),
+		RosenpassEnabled:    pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
+		RosenpassPermissive: pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
 	}
 
 	return overview
@@ -346,6 +351,7 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 			LastWireguardHandshake: lastHandshake,
 			TransferReceived:       transferReceived,
 			TransferSent:           transferSent,
+			RosenpassEnabled:       pbPeerState.GetRosenpassEnabled(),
 		}
 
 		peersStateDetail = append(peersStateDetail, peerState)
@@ -451,6 +457,14 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 
 	peersCountString := fmt.Sprintf("%d/%d Connected", overview.Peers.Connected, overview.Peers.Total)
 
+	rosenpassEnabledStatus := "false"
+	if overview.RosenpassEnabled {
+		rosenpassEnabledStatus = "true"
+		if overview.RosenpassPermissive {
+			rosenpassEnabledStatus = "true (permissive)"
+		}
+	}
+
 	summary := fmt.Sprintf(
 		"Daemon version: %s\n"+
 			"CLI version: %s\n"+
@@ -460,6 +474,7 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 			"FQDN: %s\n"+
 			"NetBird IP: %s\n"+
 			"Interface type: %s\n"+
+			"Quantum resistance: %s\n"+
 			"Peers count: %s\n",
 		overview.DaemonVersion,
 		version.NetbirdVersion(),
@@ -469,13 +484,14 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 		overview.FQDN,
 		interfaceIP,
 		interfaceTypeString,
+		rosenpassEnabledStatus,
 		peersCountString,
 	)
 	return summary
 }
 
 func parseToFullDetailSummary(overview statusOutputOverview) string {
-	parsedPeersString := parsePeers(overview.Peers)
+	parsedPeersString := parsePeers(overview.Peers, overview.RosenpassEnabled, overview.RosenpassPermissive)
 	summary := parseGeneralSummary(overview, true, true)
 
 	return fmt.Sprintf(
@@ -487,7 +503,7 @@ func parseToFullDetailSummary(overview statusOutputOverview) string {
 	)
 }
 
-func parsePeers(peers peersStateOutput) string {
+func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bool) string {
 	var (
 		peersString = ""
 	)
@@ -518,9 +534,26 @@ func parsePeers(peers peersStateOutput) string {
 			lastStatusUpdate = peerState.LastStatusUpdate.Format("2006-01-02 15:04:05")
 		}
 
-		lastWireguardHandshake := "-"
+		lastWireGuardHandshake := "-"
 		if !peerState.LastWireguardHandshake.IsZero() && peerState.LastWireguardHandshake != time.Unix(0, 0) {
-			lastWireguardHandshake = peerState.LastWireguardHandshake.Format("2006-01-02 15:04:05")
+			lastWireGuardHandshake = peerState.LastWireguardHandshake.Format("2006-01-02 15:04:05")
+		}
+
+		rosenpassEnabledStatus := "false"
+		if rosenpassEnabled {
+			if peerState.RosenpassEnabled {
+				rosenpassEnabledStatus = "true"
+			} else {
+				if rosenpassPermissive {
+					rosenpassEnabledStatus = "false (remote didn't enable quantum resistance)"
+				} else {
+					rosenpassEnabledStatus = "false (connection won't work without a permissive mode)"
+				}
+			}
+		} else {
+			if peerState.RosenpassEnabled {
+				rosenpassEnabledStatus = "false (connection might not work without a remote permissive mode)"
+			}
 		}
 
 		peerString := fmt.Sprintf(
@@ -534,8 +567,9 @@ func parsePeers(peers peersStateOutput) string {
 				"  ICE candidate (Local/Remote): %s/%s\n"+
 				"  ICE candidate endpoints (Local/Remote): %s/%s\n"+
 				"  Last connection update: %s\n"+
-				"  Last Wireguard handshake: %s\n"+
-				"  Transfer status (received/sent) %s/%s\n",
+				"  Last WireGuard handshake: %s\n"+
+				"  Transfer status (received/sent) %s/%s\n"+
+				"  Quantum resistance: %s\n",
 			peerState.FQDN,
 			peerState.IP,
 			peerState.PubKey,
@@ -547,9 +581,10 @@ func parsePeers(peers peersStateOutput) string {
 			localICEEndpoint,
 			remoteICEEndpoint,
 			lastStatusUpdate,
-			lastWireguardHandshake,
+			lastWireGuardHandshake,
 			toIEC(peerState.TransferReceived),
 			toIEC(peerState.TransferSent),
+			rosenpassEnabledStatus,
 		)
 
 		peersString += peerString

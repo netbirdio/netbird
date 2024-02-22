@@ -112,9 +112,9 @@ func (s *Server) Start() error {
 
 	if s.statusRecorder == nil {
 		s.statusRecorder = peer.NewRecorder(config.ManagementURL.String())
-	} else {
-		s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	}
+	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
+	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
 
 	if !config.DisableAutoConnect {
 		go func() {
@@ -433,9 +433,9 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 
 	if s.statusRecorder == nil {
 		s.statusRecorder = peer.NewRecorder(s.config.ManagementURL.String())
-	} else {
-		s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	}
+	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
+	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
 	go func() {
 		if err := internal.RunClientWithProbes(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe); err != nil {
@@ -479,9 +479,9 @@ func (s *Server) Status(
 
 	if s.statusRecorder == nil {
 		s.statusRecorder = peer.NewRecorder(s.config.ManagementURL.String())
-	} else {
-		s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	}
+	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
+	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
 	if msg.GetFullPeerStatus {
 		s.runProbes()
@@ -567,6 +567,8 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	pbFullStatus.LocalPeerState.PubKey = fullStatus.LocalPeerState.PubKey
 	pbFullStatus.LocalPeerState.KernelInterface = fullStatus.LocalPeerState.KernelInterface
 	pbFullStatus.LocalPeerState.Fqdn = fullStatus.LocalPeerState.FQDN
+	pbFullStatus.LocalPeerState.RosenpassPermissive = fullStatus.RosenpassState.Permissive
+	pbFullStatus.LocalPeerState.RosenpassEnabled = fullStatus.RosenpassState.Enabled
 
 	for _, peerState := range fullStatus.Peers {
 		pbPeerState := &proto.PeerState{
@@ -584,6 +586,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			LastWireguardHandshake:     timestamppb.New(peerState.LastWireguardHandshake),
 			BytesRx:                    peerState.BytesRx,
 			BytesTx:                    peerState.BytesTx,
+			RosenpassEnabled:           peerState.RosenpassEnabled,
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}

@@ -1286,7 +1286,7 @@ func (e *Engine) receiveProbeEvents() {
 					log.Debugf("failed to get wg stats for peer %s: %s", key, err)
 				}
 				// wgStats could be zero value, in which case we just reset the stats
-				if err := e.statusRecorder.UpdateWireguardPeerState(key, wgStats); err != nil {
+				if err := e.statusRecorder.UpdateWireGuardPeerState(key, wgStats); err != nil {
 					log.Debugf("failed to update wg stats for peer %s: %s", key, err)
 				}
 			}
