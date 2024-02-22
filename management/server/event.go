@@ -54,8 +54,7 @@ func (am *DefaultAccountManager) GetEvents(accountID, userID string) ([]*activit
 	return filtered, nil
 }
 
-func (am *DefaultAccountManager) StoreEvent(initiatorID, targetID, accountID string, activityID activity.Activity,
-	meta map[string]any) {
+func (am *DefaultAccountManager) StoreEvent(initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
 
 	go func() {
 		_, err := am.eventStore.Save(&activity.Event{

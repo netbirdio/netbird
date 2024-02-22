@@ -242,7 +242,10 @@ var (
 				UserIDClaim:  config.HttpConfig.AuthUserIDClaim,
 				KeysLocation: config.HttpConfig.AuthKeysLocation,
 			}
-			httpAPIHandler, err := httpapi.APIHandler(accountManager, geo, *jwtValidator, appMetrics, httpAPIAuthCfg)
+
+			ctx, cancel := context.WithCancel(cmd.Context())
+			defer cancel()
+			httpAPIHandler, err := httpapi.APIHandler(ctx, accountManager, geo, *jwtValidator, appMetrics, httpAPIAuthCfg)
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}
@@ -264,8 +267,6 @@ var (
 			}
 
 			if !disableMetrics {
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
 				idpManager := "disabled"
 				if config.IdpManagerConfig != nil && config.IdpManagerConfig.ManagerType != "" {
 					idpManager = config.IdpManagerConfig.ManagerType
