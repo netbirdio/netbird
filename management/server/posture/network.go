@@ -10,7 +10,7 @@ import (
 
 type PrivateNetworkCheck struct {
 	Action string
-	Ranges []netip.Prefix
+	Ranges []netip.Prefix `gorm:"serializer:json"`
 }
 
 var _ Check = (*PrivateNetworkCheck)(nil)
