@@ -109,6 +109,6 @@ func NewStoreFromJson(dataDir string, metrics telemetry.AppMetrics) (Store, erro
 	case SqliteStoreEngine:
 		return NewSqliteStoreFromFileStore(fstore, dataDir, metrics)
 	default:
-		return nil, fmt.Errorf("unsupported store engine %s", kind)
+		return NewSqliteStoreFromFileStore(fstore, dataDir, metrics)
 	}
 }
