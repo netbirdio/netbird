@@ -57,8 +57,8 @@ require (
 	github.com/miekg/dns v1.1.43
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/nadoo/ipset v0.5.0
-	github.com/netbirdio/management-integrations/additions v0.0.0-20240118163419-8a7c87accb22
-	github.com/netbirdio/management-integrations/integrations v0.0.0-20240118163419-8a7c87accb22
+	github.com/netbirdio/management-integrations/additions v0.0.0-20240212121739-8ea8c89a4552
+	github.com/netbirdio/management-integrations/integrations v0.0.0-20240212121739-8ea8c89a4552
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible

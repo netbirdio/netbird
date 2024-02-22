@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"fmt"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -483,11 +485,11 @@ func (s *SqliteStore) SaveUserLastLogin(accountID, userID string, lastLogin time
 	return s.db.Save(user).Error
 }
 
-// Close is noop in Sqlite
+// Close closes the underlying DB connection
 func (s *SqliteStore) Close() error {
 	sql, err := s.db.DB()
 	if err != nil {
-		return err
+		return fmt.Errorf("get db: %w", err)
 	}
 	return sql.Close()
 }
@@ -495,4 +497,49 @@ func (s *SqliteStore) Close() error {
 // GetStoreEngine returns SqliteStoreEngine
 func (s *SqliteStore) GetStoreEngine() StoreEngine {
 	return SqliteStoreEngine
+}
+
+// CalculateUsageStats returns the usage stats for an account
+// start and end are inclusive.
+func (s *SqliteStore) CalculateUsageStats(ctx context.Context, accountID string, start time.Time, end time.Time) (*AccountUsageStats, error) {
+	stats := &AccountUsageStats{}
+
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		err := tx.Model(&nbpeer.Peer{}).
+			Where("account_id = ? AND peer_status_last_seen BETWEEN ? AND ?", accountID, start, end).
+			Distinct("user_id").
+			Count(&stats.ActiveUsers).Error
+		if err != nil {
+			return fmt.Errorf("get active users: %w", err)
+		}
+
+		err = tx.Model(&User{}).
+			Where("account_id = ? AND is_service_user = ?", accountID, false).
+			Count(&stats.TotalUsers).Error
+		if err != nil {
+			return fmt.Errorf("get total users: %w", err)
+		}
+
+		err = tx.Model(&nbpeer.Peer{}).
+			Where("account_id = ? AND peer_status_last_seen BETWEEN ? AND ?", accountID, start, end).
+			Count(&stats.ActivePeers).Error
+		if err != nil {
+			return fmt.Errorf("get active peers: %w", err)
+		}
+
+		err = tx.Model(&nbpeer.Peer{}).
+			Where("account_id = ?", accountID).
+			Count(&stats.TotalPeers).Error
+		if err != nil {
+			return fmt.Errorf("get total peers: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("transaction: %w", err)
+	}
+
+	return stats, nil
 }

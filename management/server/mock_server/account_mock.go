@@ -1,6 +1,7 @@
 package mock_server
 
 import (
+	"context"
 	"net"
 	"time"
 
@@ -75,7 +76,7 @@ type MockAccountManager struct {
 	CheckUserAccessByJWTGroupsFunc  func(claims jwtclaims.AuthorizationClaims) error
 	DeleteAccountFunc               func(accountID, userID string) error
 	GetDNSDomainFunc                func() string
-	StoreEventFunc                  func(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any)
+	StoreEventFunc                  func(initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
 	GetEventsFunc                   func(accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettingsFunc              func(accountID, userID string) (*server.DNSSettings, error)
 	SaveDNSSettingsFunc             func(accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
@@ -91,6 +92,7 @@ type MockAccountManager struct {
 	SavePostureChecksFunc           func(accountID, userID string, postureChecks *posture.Checks) error
 	DeletePostureChecksFunc         func(accountID, postureChecksID, userID string) error
 	ListPostureChecksFunc           func(accountID, userID string) ([]*posture.Checks, error)
+	GetUsageFunc                    func(ctx context.Context, accountID string, start, end time.Time) (*server.AccountUsageStats, error)
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -646,7 +648,7 @@ func (am *MockAccountManager) GetAllConnectedPeers() (map[string]struct{}, error
 	return nil, status.Errorf(codes.Unimplemented, "method GetAllConnectedPeers is not implemented")
 }
 
-// HasconnectedChannel mocks HasConnectedChannel of the AccountManager interface
+// HasConnectedChannel mocks HasConnectedChannel of the AccountManager interface
 func (am *MockAccountManager) HasConnectedChannel(peerID string) bool {
 	if am.HasConnectedChannelFunc != nil {
 		return am.HasConnectedChannelFunc(peerID)
@@ -655,7 +657,7 @@ func (am *MockAccountManager) HasConnectedChannel(peerID string) bool {
 }
 
 // StoreEvent mocks StoreEvent of the AccountManager interface
-func (am *MockAccountManager) StoreEvent(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any) {
+func (am *MockAccountManager) StoreEvent(initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
 	if am.StoreEventFunc != nil {
 		am.StoreEventFunc(initiatorID, targetID, accountID, activityID, meta)
 	}
@@ -701,4 +703,12 @@ func (am *MockAccountManager) ListPostureChecks(accountID, userID string) ([]*po
 		return am.ListPostureChecksFunc(accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method ListPostureChecks is not implemented")
+}
+
+// GetUsage mocks GetCurrentUsage of the AccountManager interface
+func (am *MockAccountManager) GetUsage(ctx context.Context, accountID string, start time.Time, end time.Time) (*server.AccountUsageStats, error) {
+	if am.GetUsageFunc != nil {
+		return am.GetUsageFunc(ctx, accountID, start, end)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetUsage is not implemented")
 }

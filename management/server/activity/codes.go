@@ -1,12 +1,14 @@
 package activity
 
+import "maps"
+
 // Activity that triggered an Event
 type Activity int
 
 // Code is an activity string representation
 type Code struct {
-	message string
-	code    string
+	Message string
+	Code    string
 }
 
 const (
@@ -207,7 +209,7 @@ var activityMap = map[Activity]Code{
 // StringCode returns a string code of the activity
 func (a Activity) StringCode() string {
 	if code, ok := activityMap[a]; ok {
-		return code.code
+		return code.Code
 	}
 	return "UNKNOWN_ACTIVITY"
 }
@@ -215,7 +217,12 @@ func (a Activity) StringCode() string {
 // Message returns a string representation of an activity
 func (a Activity) Message() string {
 	if code, ok := activityMap[a]; ok {
-		return code.message
+		return code.Message
 	}
 	return "UNKNOWN_ACTIVITY"
+}
+
+// RegisterActivityMap adds new codes to the activity map
+func RegisterActivityMap(codes map[Activity]Code) {
+	maps.Copy(activityMap, codes)
 }
