@@ -903,8 +903,8 @@ type PrivateNetworkCheck struct {
 	// Action Action to take upon policy match
 	Action PrivateNetworkCheckAction `json:"action"`
 
-	// Prefixes List of private network prefixes
-	Prefixes []string `json:"prefixes"`
+	// Ranges List of private network ranges in CIDR notation
+	Ranges []string `json:"ranges"`
 }
 
 // PrivateNetworkCheckAction Action to take upon policy match

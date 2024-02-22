@@ -88,10 +88,10 @@ func (cd ChecksDefinition) Copy() ChecksDefinition {
 	if cd.PrivateNetworkCheck != nil {
 		privateNetCheck := cd.PrivateNetworkCheck
 		cdCopy.PrivateNetworkCheck = &PrivateNetworkCheck{
-			Action:   privateNetCheck.Action,
-			Prefixes: make([]netip.Prefix, len(privateNetCheck.Prefixes)),
+			Action: privateNetCheck.Action,
+			Ranges: make([]netip.Prefix, len(privateNetCheck.Ranges)),
 		}
-		copy(cdCopy.PrivateNetworkCheck.Prefixes, privateNetCheck.Prefixes)
+		copy(cdCopy.PrivateNetworkCheck.Ranges, privateNetCheck.Ranges)
 	}
 	return cdCopy
 }

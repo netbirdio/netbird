@@ -938,19 +938,19 @@ components:
       description: Posture check for allow or deny private network
       type: object
       properties:
-        prefixes:
-          description: List of private network prefixes
+        ranges:
+          description: List of private network ranges in CIDR notation
           type: array
           items:
             type: string
-            example: "192.168.1.0/24"
+            example: ["192.168.1.0/24", "10.0.0.0/8"]
         action:
           description: Action to take upon policy match
           type: string
           enum: [ "allow", "deny" ]
           example: "allow"
       required:
-        - prefixes
+        - ranges
         - action
     Location:
       description: Describe geographical location information

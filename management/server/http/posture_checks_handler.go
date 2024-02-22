@@ -287,8 +287,8 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 		if !slices.Contains(allowedActions, privateNetworkCheck.Action) {
 			return status.Errorf(status.InvalidArgument, "action for private network check is not valid value")
 		}
-		if len(privateNetworkCheck.Prefixes) == 0 {
-			return status.Errorf(status.InvalidArgument, "network prefixes for private network check shouldn't be empty")
+		if len(privateNetworkCheck.Ranges) == 0 {
+			return status.Errorf(status.InvalidArgument, "network ranges for private network check shouldn't be empty")
 		}
 	}
 
@@ -370,20 +370,20 @@ func toPostureGeoLocationCheck(apiGeoLocationCheck *api.GeoLocationCheck) *postu
 }
 
 func toPrivateNetworkCheckResponse(check *posture.PrivateNetworkCheck) *api.PrivateNetworkCheck {
-	netPrefixes := make([]string, 0, len(check.Prefixes))
-	for _, netPrefix := range check.Prefixes {
+	netPrefixes := make([]string, 0, len(check.Ranges))
+	for _, netPrefix := range check.Ranges {
 		netPrefixes = append(netPrefixes, netPrefix.String())
 	}
 
 	return &api.PrivateNetworkCheck{
-		Prefixes: netPrefixes,
-		Action:   api.PrivateNetworkCheckAction(check.Action),
+		Ranges: netPrefixes,
+		Action: api.PrivateNetworkCheckAction(check.Action),
 	}
 }
 
 func toPrivateNetworkCheck(check *api.PrivateNetworkCheck) (*posture.PrivateNetworkCheck, error) {
 	prefixes := make([]netip.Prefix, 0)
-	for _, prefix := range check.Prefixes {
+	for _, prefix := range check.Ranges {
 		parsedPrefix, err := netip.ParsePrefix(prefix)
 		if err != nil {
 			return nil, err
@@ -392,7 +392,7 @@ func toPrivateNetworkCheck(check *api.PrivateNetworkCheck) (*posture.PrivateNetw
 	}
 
 	return &posture.PrivateNetworkCheck{
-		Prefixes: prefixes,
-		Action:   string(check.Action),
+		Ranges: prefixes,
+		Action: string(check.Action),
 	}, nil
 }
