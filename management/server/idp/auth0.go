@@ -117,17 +117,17 @@ type auth0Profile struct {
 // Connections represents a single Auth0 connection
 // https://auth0.com/docs/api/management/v2/connections/get-connections
 type Connection struct {
+	Id                 string            `json:"id"`
 	Name               string            `json:"name"`
 	DisplayName        string            `json:"display_name"`
-	Options            ConnectionOptions `json:"options"`
 	IsDomainConnection bool              `json:"is_domain_connection"`
 	Realms             []string          `json:"realms"`
 	Metadata           map[string]string `json:"metadata"`
+	Options            ConnectionOptions `json:"options"`
 }
 
 type ConnectionOptions struct {
-	ID       string `json:"id"`
-	Strategy string `json:"strategy"`
+	DomainAliases []string `json:"domain_aliases"`
 }
 
 // NewAuth0Manager creates a new instance of the Auth0Manager
@@ -793,12 +793,15 @@ func (am *Auth0Manager) DeleteUser(userID string) error {
 	return nil
 }
 
-// GetAllConnections returns detailed list of all connections.
+// GetAllConnections returns detailed list of all connections filtered by given params.
 // Note this method is not part of the IDP Manager interface as this is Auth0 specific.
-func (am *Auth0Manager) GetAllConnections() ([]Connection, error) {
+func (am *Auth0Manager) GetAllConnections(strategy []string) ([]Connection, error) {
 	var connections []Connection
 
-	req, err := am.createRequest(http.MethodGet, "/api/v2/connections", nil)
+	q := make(url.Values)
+	q.Set("strategy", strings.Join(strategy, ","))
+
+	req, err := am.createRequest(http.MethodGet, "/api/v2/connections?"+q.Encode(), nil)
 	if err != nil {
 		return connections, err
 	}
