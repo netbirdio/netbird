@@ -3,7 +3,6 @@ package http
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -231,44 +230,36 @@ func toGroupsInfo(groups map[string]*server.Group, peerID string) []api.GroupMin
 	return groupsInfo
 }
 
-func connectionIPoString(ip net.IP) *string {
-	publicIP := ""
-	if ip != nil {
-		publicIP = ip.String()
-	}
-	return &publicIP
-}
-
 func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeer []api.AccessiblePeer) *api.Peer {
 	osVersion := peer.Meta.OSVersion
 	if osVersion == "" {
 		osVersion = peer.Meta.Core
 	}
-	geonameID := int(peer.Location.GeoNameID)
+
 	return &api.Peer{
 		Id:                     peer.ID,
 		Name:                   peer.Name,
 		Ip:                     peer.IP.String(),
-		ConnectionIp:           connectionIPoString(peer.Location.ConnectionIP),
+		ConnectionIp:           peer.Location.ConnectionIP.String(),
 		Connected:              peer.Status.Connected,
 		LastSeen:               peer.Status.LastSeen,
 		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
-		KernelVersion:          &peer.Meta.KernelVersion,
-		GeonameId:              &geonameID,
+		KernelVersion:          peer.Meta.KernelVersion,
+		GeonameId:              int(peer.Location.GeoNameID),
 		Version:                peer.Meta.WtVersion,
 		Groups:                 groupsInfo,
 		SshEnabled:             peer.SSHEnabled,
 		Hostname:               peer.Meta.Hostname,
-		UserId:                 &peer.UserID,
-		UiVersion:              &peer.Meta.UIVersion,
+		UserId:                 peer.UserID,
+		UiVersion:              peer.Meta.UIVersion,
 		DnsLabel:               fqdn(peer, dnsDomain),
 		LoginExpirationEnabled: peer.LoginExpirationEnabled,
 		LastLogin:              peer.LastLogin,
 		LoginExpired:           peer.Status.LoginExpired,
 		AccessiblePeers:        accessiblePeer,
 		ApprovalRequired:       &peer.Status.RequiresApproval,
-		CountryCode:            &peer.Location.CountryCode,
-		CityName:               &peer.Location.CityName,
+		CountryCode:            peer.Location.CountryCode,
+		CityName:               peer.Location.CityName,
 	}
 }
 
@@ -277,31 +268,31 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 	if osVersion == "" {
 		osVersion = peer.Meta.Core
 	}
-	geonameID := int(peer.Location.GeoNameID)
+
 	return &api.PeerBatch{
 		Id:                     peer.ID,
 		Name:                   peer.Name,
 		Ip:                     peer.IP.String(),
-		ConnectionIp:           connectionIPoString(peer.Location.ConnectionIP),
+		ConnectionIp:           peer.Location.ConnectionIP.String(),
 		Connected:              peer.Status.Connected,
 		LastSeen:               peer.Status.LastSeen,
 		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
-		KernelVersion:          &peer.Meta.KernelVersion,
-		GeonameId:              &geonameID,
+		KernelVersion:          peer.Meta.KernelVersion,
+		GeonameId:              int(peer.Location.GeoNameID),
 		Version:                peer.Meta.WtVersion,
 		Groups:                 groupsInfo,
 		SshEnabled:             peer.SSHEnabled,
 		Hostname:               peer.Meta.Hostname,
-		UserId:                 &peer.UserID,
-		UiVersion:              &peer.Meta.UIVersion,
+		UserId:                 peer.UserID,
+		UiVersion:              peer.Meta.UIVersion,
 		DnsLabel:               fqdn(peer, dnsDomain),
 		LoginExpirationEnabled: peer.LoginExpirationEnabled,
 		LastLogin:              peer.LastLogin,
 		LoginExpired:           peer.Status.LoginExpired,
 		AccessiblePeersCount:   accessiblePeersCount,
 		ApprovalRequired:       &peer.Status.RequiresApproval,
-		CountryCode:            &peer.Location.CountryCode,
-		CityName:               &peer.Location.CityName,
+		CountryCode:            peer.Location.CountryCode,
+		CityName:               peer.Location.CityName,
 	}
 }
 

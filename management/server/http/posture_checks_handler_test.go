@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -122,7 +123,19 @@ func TestGetPostureCheck(t *testing.T) {
 						CityName:    "Berlin",
 					},
 				},
-				Action: posture.GeoLocationActionAllow,
+				Action: posture.CheckActionAllow,
+			},
+		},
+	}
+	privateNetworkCheck := &posture.Checks{
+		ID:   "privateNetworkPostureCheck",
+		Name: "privateNetwork",
+		Checks: posture.ChecksDefinition{
+			PrivateNetworkCheck: &posture.PrivateNetworkCheck{
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("192.168.0.0/24"),
+				},
+				Action: posture.CheckActionAllow,
 			},
 		},
 	}
@@ -157,13 +170,20 @@ func TestGetPostureCheck(t *testing.T) {
 			expectedStatus: http.StatusOK,
 		},
 		{
+			name:           "GetPostureCheck PrivateNetwork OK",
+			expectedBody:   true,
+			id:             privateNetworkCheck.ID,
+			checkName:      privateNetworkCheck.Name,
+			expectedStatus: http.StatusOK,
+		},
+		{
 			name:           "GetPostureCheck Not Found",
 			id:             "not-exists",
 			expectedStatus: http.StatusNotFound,
 		},
 	}
 
-	p := initPostureChecksTestData(postureCheck, osPostureCheck, geoPostureCheck)
+	p := initPostureChecksTestData(postureCheck, osPostureCheck, geoPostureCheck, privateNetworkCheck)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -350,6 +370,39 @@ func TestPostureCheckUpdate(t *testing.T) {
 							},
 						},
 						Action: api.GeoLocationCheckActionAllow,
+					},
+				},
+			},
+		},
+		{
+			name:        "Create Posture Checks Private Network",
+			requestType: http.MethodPost,
+			requestPath: "/api/posture-checks",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+					"name": "default",
+					"description": "default",
+					"checks": {
+						"private_network_check": {
+							"action": "allow",
+							"ranges": [
+								"10.0.0.0/8"
+							]
+						}
+					}
+					}`)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedPostureCheck: &api.PostureCheck{
+				Id:          "postureCheck",
+				Name:        "default",
+				Description: str("default"),
+				Checks: api.Checks{
+					PrivateNetworkCheck: &api.PrivateNetworkCheck{
+						Ranges: []string{
+							"10.0.0.0/8",
+						},
+						Action: api.PrivateNetworkCheckActionAllow,
 					},
 				},
 			},
@@ -661,6 +714,38 @@ func TestPostureCheckUpdate(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   false,
 		},
+		{
+			name:        "Update Posture Checks Private Network",
+			requestType: http.MethodPut,
+			requestPath: "/api/posture-checks/privateNetworkPostureCheck",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+					"name": "default",
+					"checks": {
+						"private_network_check": {
+							"action": "deny",
+							"ranges": [
+								"192.168.1.0/24"
+							]
+						}
+					}
+					}`)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedPostureCheck: &api.PostureCheck{
+				Id:          "postureCheck",
+				Name:        "default",
+				Description: str(""),
+				Checks: api.Checks{
+					PrivateNetworkCheck: &api.PrivateNetworkCheck{
+						Ranges: []string{
+							"192.168.1.0/24",
+						},
+						Action: api.PrivateNetworkCheckActionDeny,
+					},
+				},
+			},
+		},
 	}
 
 	p := initPostureChecksTestData(&posture.Checks{
@@ -694,7 +779,19 @@ func TestPostureCheckUpdate(t *testing.T) {
 							CityName:    "Berlin",
 						},
 					},
-					Action: posture.GeoLocationActionDeny,
+					Action: posture.CheckActionDeny,
+				},
+			},
+		},
+		&posture.Checks{
+			ID:   "privateNetworkPostureCheck",
+			Name: "privateNetwork",
+			Checks: posture.ChecksDefinition{
+				PrivateNetworkCheck: &posture.PrivateNetworkCheck{
+					Ranges: []netip.Prefix{
+						netip.MustParsePrefix("192.168.0.0/24"),
+					},
+					Action: posture.CheckActionAllow,
 				},
 			},
 		},
@@ -793,4 +890,30 @@ func TestPostureCheck_validatePostureChecksUpdate(t *testing.T) {
 	}
 	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{OsVersionCheck: &osVersionCheck}})
 	assert.NoError(t, err)
+
+	// valid private network check
+	privateNetworkCheck := api.PrivateNetworkCheck{
+		Action: api.PrivateNetworkCheckActionAllow,
+		Ranges: []string{
+			"192.168.1.0/24", "10.0.0.0/8",
+		},
+	}
+	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{PrivateNetworkCheck: &privateNetworkCheck}})
+	assert.NoError(t, err)
+
+	// invalid private network check
+	privateNetworkCheck = api.PrivateNetworkCheck{
+		Action: api.PrivateNetworkCheckActionDeny,
+		Ranges: []string{},
+	}
+	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{PrivateNetworkCheck: &privateNetworkCheck}})
+	assert.Error(t, err)
+
+	// invalid private network check
+	privateNetworkCheck = api.PrivateNetworkCheck{
+		Action: "unknownAction",
+		Ranges: []string{},
+	}
+	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{PrivateNetworkCheck: &privateNetworkCheck}})
+	assert.Error(t, err)
 }
