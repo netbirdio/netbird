@@ -60,7 +60,7 @@ func (cd ChecksDefinition) Copy() ChecksDefinition {
 	}
 	if cd.OSVersionCheck != nil {
 		cdCopy.OSVersionCheck = &OSVersionCheck{}
-		osCheck := cdCopy.OSVersionCheck
+		osCheck := cd.OSVersionCheck
 		if osCheck.Android != nil {
 			cdCopy.OSVersionCheck.Android = &MinVersionCheck{MinVersion: osCheck.Android.MinVersion}
 		}

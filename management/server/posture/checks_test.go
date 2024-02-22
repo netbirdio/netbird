@@ -2,6 +2,7 @@ package posture
 
 import (
 	"encoding/json"
+	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -215,4 +216,63 @@ func TestChecks_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestChecks_Copy(t *testing.T) {
+	check := &Checks{
+		ID:          "1",
+		Name:        "default",
+		Description: "description",
+		AccountID:   "accountID",
+		Checks: ChecksDefinition{
+			NBVersionCheck: &NBVersionCheck{
+				MinVersion: "0.25.0",
+			},
+			OSVersionCheck: &OSVersionCheck{
+				Android: &MinVersionCheck{
+					MinVersion: "13",
+				},
+				Darwin: &MinVersionCheck{
+					MinVersion: "14.2.0",
+				},
+				Ios: &MinVersionCheck{
+					MinVersion: "17.3.0",
+				},
+				Linux: &MinKernelVersionCheck{
+					MinKernelVersion: "6.5.11-linuxkit",
+				},
+				Windows: &MinKernelVersionCheck{
+					MinKernelVersion: "10.0.14393",
+				},
+			},
+			GeoLocationCheck: &GeoLocationCheck{
+				Locations: []Location{
+					{
+						CountryCode: "DE",
+						CityName:    "Berlin",
+					},
+				},
+				Action: CheckActionAllow,
+			},
+			PrivateNetworkCheck: &PrivateNetworkCheck{
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("192.168.0.0/24"),
+					netip.MustParsePrefix("10.0.0.0/8"),
+				},
+				Action: CheckActionDeny,
+			},
+		},
+	}
+	checkCopy := check.Copy()
+
+	assert.Equal(t, check.ID, checkCopy.ID)
+	assert.Equal(t, check.Name, checkCopy.Name)
+	assert.Equal(t, check.Description, checkCopy.Description)
+	assert.Equal(t, check.AccountID, checkCopy.AccountID)
+	assert.Equal(t, check.Checks.Copy(), checkCopy.Checks.Copy())
+	assert.ElementsMatch(t, check.GetChecks(), checkCopy.GetChecks())
+
+	// Updating the original check should not take effect on copy
+	check.Name = "name"
+	assert.NotSame(t, check, checkCopy)
 }
