@@ -114,6 +114,22 @@ type auth0Profile struct {
 	LastLogin     string `json:"last_login"`
 }
 
+// Connections represents a single Auth0 connection
+// https://auth0.com/docs/api/management/v2/connections/get-connections
+type Connection struct {
+	Name               string            `json:"name"`
+	DisplayName        string            `json:"display_name"`
+	Options            ConnectionOptions `json:"options"`
+	IsDomainConnection bool              `json:"is_domain_connection"`
+	Realms             []string          `json:"realms"`
+	Metadata           map[string]string `json:"metadata"`
+}
+
+type ConnectionOptions struct {
+	ID       string `json:"id"`
+	Strategy string `json:"strategy"`
+}
+
 // NewAuth0Manager creates a new instance of the Auth0Manager
 func NewAuth0Manager(config Auth0ClientConfig, appMetrics telemetry.AppMetrics) (*Auth0Manager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
@@ -581,13 +597,13 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 
 	body, err := io.ReadAll(jobResp.Body)
 	if err != nil {
-		log.Debugf("Coudln't read export job response; %v", err)
+		log.Debugf("Couldn't read export job response; %v", err)
 		return nil, err
 	}
 
 	err = am.helper.Unmarshal(body, &exportJobResp)
 	if err != nil {
-		log.Debugf("Coudln't unmarshal export job response; %v", err)
+		log.Debugf("Couldn't unmarshal export job response; %v", err)
 		return nil, err
 	}
 
@@ -635,7 +651,7 @@ func (am *Auth0Manager) GetUserByEmail(email string) ([]*UserData, error) {
 
 	err = am.helper.Unmarshal(body, &userResp)
 	if err != nil {
-		log.Debugf("Coudln't unmarshal export job response; %v", err)
+		log.Debugf("Couldn't unmarshal export job response; %v", err)
 		return nil, err
 	}
 
@@ -684,13 +700,13 @@ func (am *Auth0Manager) CreateUser(email, name, accountID, invitedByEmail string
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Debugf("Coudln't read export job response; %v", err)
+		log.Debugf("Couldn't read export job response; %v", err)
 		return nil, err
 	}
 
 	err = am.helper.Unmarshal(body, &createResp)
 	if err != nil {
-		log.Debugf("Coudln't unmarshal export job response; %v", err)
+		log.Debugf("Couldn't unmarshal export job response; %v", err)
 		return nil, err
 	}
 
@@ -775,6 +791,53 @@ func (am *Auth0Manager) DeleteUser(userID string) error {
 	}
 
 	return nil
+}
+
+// GetAllConnections returns detailed list of all connections.
+// Note this method is not part of the IDP Manager interface as this is Auth0 specific.
+func (am *Auth0Manager) GetAllConnections() ([]Connection, error) {
+	var connections []Connection
+
+	req, err := am.createRequest(http.MethodGet, "/api/v2/connections", nil)
+	if err != nil {
+		return connections, err
+	}
+
+	resp, err := am.httpClient.Do(req)
+	if err != nil {
+		log.Debugf("execute get connections request: %v", err)
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return connections, err
+	}
+
+	defer func() {
+		err = resp.Body.Close()
+		if err != nil {
+			log.Errorf("close get connections request body: %v", err)
+		}
+	}()
+	if resp.StatusCode != 200 {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return connections, fmt.Errorf("unable to get connections, statusCode %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Debugf("Couldn't read get connections response; %v", err)
+		return connections, err
+	}
+
+	err = am.helper.Unmarshal(body, &connections)
+	if err != nil {
+		log.Debugf("Couldn't unmarshal get connection response; %v", err)
+		return connections, err
+	}
+
+	return connections, err
 }
 
 // checkExportJobStatus checks the status of the job created at CreateExportUsersJob.
