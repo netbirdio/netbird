@@ -6,11 +6,6 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
-const (
-	GeoLocationActionAllow string = "allow"
-	GeoLocationActionDeny  string = "deny"
-)
-
 type Location struct {
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
 	CountryCode string
@@ -39,9 +34,9 @@ func (g *GeoLocationCheck) Check(peer nbpeer.Peer) (bool, error) {
 		if loc.CountryCode == peer.Location.CountryCode {
 			if loc.CityName == "" || loc.CityName == peer.Location.CityName {
 				switch g.Action {
-				case GeoLocationActionDeny:
+				case CheckActionDeny:
 					return false, nil
-				case GeoLocationActionAllow:
+				case CheckActionAllow:
 					return true, nil
 				default:
 					return false, fmt.Errorf("invalid geo location action: %s", g.Action)
@@ -51,11 +46,11 @@ func (g *GeoLocationCheck) Check(peer nbpeer.Peer) (bool, error) {
 	}
 	// At this point, no location in the list matches the peer's location
 	// For action deny and no location match, allow the peer
-	if g.Action == GeoLocationActionDeny {
+	if g.Action == CheckActionDeny {
 		return true, nil
 	}
 	// For action allow and no location match, deny the peer
-	if g.Action == GeoLocationActionAllow {
+	if g.Action == CheckActionAllow {
 		return false, nil
 	}
 
