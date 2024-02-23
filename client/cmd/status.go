@@ -461,7 +461,7 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 	if overview.RosenpassEnabled {
 		rosenpassEnabledStatus = "true"
 		if overview.RosenpassPermissive {
-			rosenpassEnabledStatus = "true (permissive)"
+			rosenpassEnabledStatus = "true (permissive)" //nolint
 		}
 	}
 
