@@ -2,9 +2,7 @@ package geolocation
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"path"
@@ -54,20 +52,23 @@ type Country struct {
 	CountryName    string
 }
 
-func NewGeolocation(datadir string) (*Geolocation, error) {
-	mmdbPath := path.Join(datadir, MMDBFileName)
+func NewGeolocation(dataDir string) (*Geolocation, error) {
+	if err := loadMaxMindDatabases(dataDir); err != nil {
+		return nil, fmt.Errorf("failed to load MaxMind databases: %v", err)
+	}
 
+	mmdbPath := path.Join(dataDir, MMDBFileName)
 	db, err := openDB(mmdbPath)
 	if err != nil {
 		return nil, err
 	}
 
-	sha256sum, err := getSha256sum(mmdbPath)
+	sha256sum, err := calculateFileSHA256(mmdbPath)
 	if err != nil {
 		return nil, err
 	}
 
-	locationDB, err := NewSqliteStore(datadir)
+	locationDB, err := NewSqliteStore(dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -102,21 +103,6 @@ func openDB(mmdbPath string) (*maxminddb.Reader, error) {
 	}
 
 	return db, nil
-}
-
-func getSha256sum(mmdbPath string) ([]byte, error) {
-	f, err := os.Open(mmdbPath)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return nil, err
-	}
-
-	return h.Sum(nil), nil
 }
 
 func (gl *Geolocation) Lookup(ip net.IP) (*Record, error) {
@@ -189,7 +175,7 @@ func (gl *Geolocation) reloader() {
 				log.Errorf("geonames db reload failed: %s", err)
 			}
 
-			newSha256sum1, err := getSha256sum(gl.mmdbPath)
+			newSha256sum1, err := calculateFileSHA256(gl.mmdbPath)
 			if err != nil {
 				log.Errorf("failed to calculate sha256 sum for '%s': %s", gl.mmdbPath, err)
 				continue
@@ -198,7 +184,7 @@ func (gl *Geolocation) reloader() {
 				// we check sum twice just to avoid possible case when we reload during update of the file
 				// considering the frequency of file update (few times a week) checking sum twice should be enough
 				time.Sleep(50 * time.Millisecond)
-				newSha256sum2, err := getSha256sum(gl.mmdbPath)
+				newSha256sum2, err := calculateFileSHA256(gl.mmdbPath)
 				if err != nil {
 					log.Errorf("failed to calculate sha256 sum for '%s': %s", gl.mmdbPath, err)
 					continue
