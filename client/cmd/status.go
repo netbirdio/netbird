@@ -34,7 +34,7 @@ type peerStateDetailOutput struct {
 	LastWireguardHandshake time.Time        `json:"lastWireguardHandshake" yaml:"lastWireguardHandshake"`
 	TransferReceived       int64            `json:"transferReceived" yaml:"transferReceived"`
 	TransferSent           int64            `json:"transferSent" yaml:"transferSent"`
-	RosenpassEnabled       bool             `json:"rosenpassEnabled" yaml:"rosenpassEnabled"`
+	RosenpassEnabled       bool             `json:"quantumResistance" yaml:"quantumResistance"`
 }
 
 type peersStateOutput struct {
@@ -83,8 +83,8 @@ type statusOutputOverview struct {
 	PubKey              string                `json:"publicKey" yaml:"publicKey"`
 	KernelInterface     bool                  `json:"usesKernelInterface" yaml:"usesKernelInterface"`
 	FQDN                string                `json:"fqdn" yaml:"fqdn"`
-	RosenpassEnabled    bool                  `json:"rosenpassEnabled" yaml:"rosenpassEnabled"`
-	RosenpassPermissive bool                  `json:"rosenpassPermissive" yaml:"rosenpassPermissive"`
+	RosenpassEnabled    bool                  `json:"quantumResistance" yaml:"quantumResistance"`
+	RosenpassPermissive bool                  `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
 }
 
 var (
