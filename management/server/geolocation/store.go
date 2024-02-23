@@ -37,7 +37,7 @@ func NewSqliteStore(dataDir string) (*SqliteStore, error) {
 		return nil, err
 	}
 
-	sha256sum, err := getSha256sum(file)
+	sha256sum, err := calculateFileSHA256(file)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func (s *SqliteStore) reload() error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	newSha256sum1, err := getSha256sum(s.filePath)
+	newSha256sum1, err := calculateFileSHA256(s.filePath)
 	if err != nil {
 		log.Errorf("failed to calculate sha256 sum for '%s': %s", s.filePath, err)
 	}
@@ -107,7 +107,7 @@ func (s *SqliteStore) reload() error {
 		// we check sum twice just to avoid possible case when we reload during update of the file
 		// considering the frequency of file update (few times a week) checking sum twice should be enough
 		time.Sleep(50 * time.Millisecond)
-		newSha256sum2, err := getSha256sum(s.filePath)
+		newSha256sum2, err := calculateFileSHA256(s.filePath)
 		if err != nil {
 			return fmt.Errorf("failed to calculate sha256 sum for '%s': %s", s.filePath, err)
 		}

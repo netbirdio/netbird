@@ -110,20 +110,20 @@ func decompressZipFile(filepath, destDir string) error {
 	return nil
 }
 
-// calculateSHA256 calculates the SHA256 checksum of a file.
-func calculateSHA256(filepath string) (string, error) {
+// calculateFileSHA256 calculates the SHA256 checksum of a file.
+func calculateFileSHA256(filepath string) ([]byte, error) {
 	file, err := os.Open(filepath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer file.Close()
 
-	hasher := sha256.New()
-	if _, err := io.Copy(hasher, file); err != nil {
-		return "", err
+	h := sha256.New()
+	if _, err := io.Copy(h, file); err != nil {
+		return nil, err
 	}
 
-	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
+	return h.Sum(nil), nil
 }
 
 // loadChecksumFromFile loads the first checksum from a file.
@@ -150,12 +150,12 @@ func loadChecksumFromFile(filepath string) (string, error) {
 
 // verifyChecksum compares the calculated SHA256 checksum of a file against the expected checksum.
 func verifyChecksum(filepath, expectedChecksum string) error {
-	calculatedChecksum, err := calculateSHA256(filepath)
+	calculatedChecksum, err := calculateFileSHA256(filepath)
 	if err != nil {
 		return err
 	}
 
-	if calculatedChecksum != expectedChecksum {
+	if string(calculatedChecksum) != expectedChecksum {
 		return fmt.Errorf("checksum mismatch: expected %s, got %s", expectedChecksum, calculatedChecksum)
 	}
 
@@ -169,6 +169,8 @@ func downloadFile(url, filepath string) error {
 		return err
 	}
 	defer resp.Body.Close()
+
+	fmt.Println(resp.Header)
 
 	out, err := os.Create(filepath)
 	if err != nil {
