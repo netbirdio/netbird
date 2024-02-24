@@ -231,7 +231,8 @@ func TestParsingToJSON(t *testing.T) {
                 },
                 "lastWireguardHandshake": "2001-01-01T01:01:02Z",
                 "transferReceived": 200,
-                "transferSent": 100
+                "transferSent": 100,
+				"quantumResistance":false
               },
               {
                 "fqdn": "peer-2.awesome-domain.com",
@@ -251,7 +252,8 @@ func TestParsingToJSON(t *testing.T) {
                 },
                 "lastWireguardHandshake": "2002-02-02T02:02:03Z",
                 "transferReceived": 2000,
-                "transferSent": 1000
+                "transferSent": 1000,
+				"quantumResistance":false
               }
             ]
           },
@@ -286,7 +288,9 @@ func TestParsingToJSON(t *testing.T) {
           "netbirdIp": "192.168.178.100/16",
           "publicKey": "Some-Pub-Key",
           "usesKernelInterface": true,
-          "fqdn": "some-localhost.awesome-domain.com"
+          "fqdn": "some-localhost.awesome-domain.com",
+          "quantumResistance":false,
+          "quantumResistancePermissive":false
         }`
 	// @formatter:on
 
@@ -320,6 +324,7 @@ func TestParsingToYAML(t *testing.T) {
           lastWireguardHandshake: 2001-01-01T01:01:02Z
           transferReceived: 200
           transferSent: 100
+          quantumResistance: false
         - fqdn: peer-2.awesome-domain.com
           netbirdIp: 192.168.178.102
           publicKey: Pubkey2
@@ -336,6 +341,7 @@ func TestParsingToYAML(t *testing.T) {
           lastWireguardHandshake: 2002-02-02T02:02:03Z
           transferReceived: 2000
           transferSent: 1000
+          quantumResistance: false
 cliVersion: development
 daemonVersion: 0.14.1
 management:
@@ -360,6 +366,8 @@ netbirdIp: 192.168.178.100/16
 publicKey: Some-Pub-Key
 usesKernelInterface: true
 fqdn: some-localhost.awesome-domain.com
+quantumResistance: false
+quantumResistancePermissive: false
 `
 
 	assert.Equal(t, expectedYAML, yaml)
@@ -380,8 +388,9 @@ func TestParsingToDetail(t *testing.T) {
   ICE candidate (Local/Remote): -/-
   ICE candidate endpoints (Local/Remote): -/-
   Last connection update: 2001-01-01 01:01:01
-  Last Wireguard handshake: 2001-01-01 01:01:02
+  Last WireGuard handshake: 2001-01-01 01:01:02
   Transfer status (received/sent) 200 B/100 B
+  Quantum resistance: false
 
  peer-2.awesome-domain.com:
   NetBird IP: 192.168.178.102
@@ -393,8 +402,9 @@ func TestParsingToDetail(t *testing.T) {
   ICE candidate (Local/Remote): relay/prflx
   ICE candidate endpoints (Local/Remote): 10.0.0.1:10001/10.0.10.1:10002
   Last connection update: 2002-02-02 02:02:02
-  Last Wireguard handshake: 2002-02-02 02:02:03
+  Last WireGuard handshake: 2002-02-02 02:02:03
   Transfer status (received/sent) 2.0 KiB/1000 B
+  Quantum resistance: false
 
 Daemon version: 0.14.1
 CLI version: development
@@ -406,6 +416,7 @@ Relays:
 FQDN: some-localhost.awesome-domain.com
 NetBird IP: 192.168.178.100/16
 Interface type: Kernel
+Quantum resistance: false
 Peers count: 2/2 Connected
 `
 
@@ -424,6 +435,7 @@ Relays: 1/2 Available
 FQDN: some-localhost.awesome-domain.com
 NetBird IP: 192.168.178.100/16
 Interface type: Kernel
+Quantum resistance: false
 Peers count: 2/2 Connected
 `
 

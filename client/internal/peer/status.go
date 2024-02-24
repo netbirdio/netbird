@@ -25,6 +25,7 @@ type State struct {
 	LastWireguardHandshake     time.Time
 	BytesTx                    int64
 	BytesRx                    int64
+	RosenpassEnabled           bool
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -49,30 +50,39 @@ type ManagementState struct {
 	Error     error
 }
 
+// RosenpassState contains the latest state of the Rosenpass configuration
+type RosenpassState struct {
+	Enabled    bool
+	Permissive bool
+}
+
 // FullStatus contains the full state held by the Status instance
 type FullStatus struct {
 	Peers           []State
 	ManagementState ManagementState
 	SignalState     SignalState
 	LocalPeerState  LocalPeerState
+	RosenpassState  RosenpassState
 	Relays          []relay.ProbeResult
 }
 
 // Status holds a state of peers, signal, management connections and relays
 type Status struct {
-	mux             sync.Mutex
-	peers           map[string]State
-	changeNotify    map[string]chan struct{}
-	signalState     bool
-	signalError     error
-	managementState bool
-	managementError error
-	relayStates     []relay.ProbeResult
-	localPeer       LocalPeerState
-	offlinePeers    []State
-	mgmAddress      string
-	signalAddress   string
-	notifier        *notifier
+	mux                 sync.Mutex
+	peers               map[string]State
+	changeNotify        map[string]chan struct{}
+	signalState         bool
+	signalError         error
+	managementState     bool
+	managementError     error
+	relayStates         []relay.ProbeResult
+	localPeer           LocalPeerState
+	offlinePeers        []State
+	mgmAddress          string
+	signalAddress       string
+	notifier            *notifier
+	rosenpassEnabled    bool
+	rosenpassPermissive bool
 
 	// To reduce the number of notification invocation this bool will be true when need to call the notification
 	// Some Peer actions mostly used by in a batch when the network map has been synchronized. In these type of events
@@ -172,6 +182,7 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		peerState.RemoteIceCandidateType = receivedState.RemoteIceCandidateType
 		peerState.LocalIceCandidateEndpoint = receivedState.LocalIceCandidateEndpoint
 		peerState.RemoteIceCandidateEndpoint = receivedState.RemoteIceCandidateEndpoint
+		peerState.RosenpassEnabled = receivedState.RosenpassEnabled
 	}
 
 	d.peers[receivedState.PubKey] = peerState
@@ -190,8 +201,8 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 	return nil
 }
 
-// UpdateWireguardPeerState updates the wireguard bits of the peer state
-func (d *Status) UpdateWireguardPeerState(pubKey string, wgStats iface.WGStats) error {
+// UpdateWireGuardPeerState updates the WireGuard bits of the peer state
+func (d *Status) UpdateWireGuardPeerState(pubKey string, wgStats iface.WGStats) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -316,6 +327,14 @@ func (d *Status) UpdateManagementAddress(mgmAddress string) {
 	d.mgmAddress = mgmAddress
 }
 
+// UpdateRosenpass update the Rosenpass configuration
+func (d *Status) UpdateRosenpass(rosenpassEnabled, rosenpassPermissive bool) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.rosenpassPermissive = rosenpassPermissive
+	d.rosenpassEnabled = rosenpassEnabled
+}
+
 // MarkSignalDisconnected sets SignalState to disconnected
 func (d *Status) MarkSignalDisconnected(err error) {
 	d.mux.Lock()
@@ -340,6 +359,13 @@ func (d *Status) UpdateRelayStates(relayResults []relay.ProbeResult) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	d.relayStates = relayResults
+}
+
+func (d *Status) GetRosenpassState() RosenpassState {
+	return RosenpassState{
+		d.rosenpassEnabled,
+		d.rosenpassPermissive,
+	}
 }
 
 func (d *Status) GetManagementState() ManagementState {
@@ -372,6 +398,7 @@ func (d *Status) GetFullStatus() FullStatus {
 		SignalState:     d.GetSignalState(),
 		LocalPeerState:  d.localPeer,
 		Relays:          d.GetRelayStates(),
+		RosenpassState:  d.GetRosenpassState(),
 	}
 
 	for _, status := range d.peers {
