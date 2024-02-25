@@ -4,8 +4,10 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,30 +34,26 @@ func decompressTarGzFile(filepath, destDir string) error {
 
 	for {
 		header, err := tarReader.Next()
-		if err == io.EOF {
-			break
-		}
 		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
 			return err
 		}
 
-		switch header.Typeflag {
-		case tar.TypeDir:
-			err := os.MkdirAll(destDir+"/"+header.Name, 0755)
+		if header.Typeflag == tar.TypeReg {
+			outFile, err := os.Create(path.Join(destDir, path.Base(header.Name)))
 			if err != nil {
 				return err
 			}
-		case tar.TypeReg:
-			outFile, err := os.Create(destDir + "/" + header.Name)
-			if err != nil {
-				return err
-			}
+
 			if _, err := io.Copy(outFile, tarReader); err != nil {
 				outFile.Close()
 				return err
 			}
 			outFile.Close()
 		}
+
 	}
 
 	return nil
@@ -151,12 +149,14 @@ func loadChecksumFromFile(filepath string) (string, error) {
 // verifyChecksum compares the calculated SHA256 checksum of a file against the expected checksum.
 func verifyChecksum(filepath, expectedChecksum string) error {
 	calculatedChecksum, err := calculateFileSHA256(filepath)
+
+	fileCheckSum := fmt.Sprintf("%x", calculatedChecksum)
 	if err != nil {
 		return err
 	}
 
-	if string(calculatedChecksum) != expectedChecksum {
-		return fmt.Errorf("checksum mismatch: expected %s, got %s", expectedChecksum, calculatedChecksum)
+	if fileCheckSum != expectedChecksum {
+		return fmt.Errorf("checksum mismatch: expected %s, got %s", expectedChecksum, fileCheckSum)
 	}
 
 	return nil
@@ -170,7 +170,14 @@ func downloadFile(url, filepath string) error {
 	}
 	defer resp.Body.Close()
 
-	fmt.Println(resp.Header)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected error occured while downloading the file: %s", string(bodyBytes))
+	}
 
 	out, err := os.Create(filepath)
 	if err != nil {
@@ -178,6 +185,6 @@ func downloadFile(url, filepath string) error {
 	}
 	defer out.Close()
 
-	_, err = io.Copy(out, resp.Body)
+	_, err = io.Copy(out, bytes.NewBuffer(bodyBytes))
 	return err
 }
