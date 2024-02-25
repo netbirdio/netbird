@@ -5,7 +5,6 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"strings"
 )
 
 const (
@@ -17,36 +16,60 @@ const (
 
 // LoadMaxMindDatabases loads the MaxMind databases.
 func LoadMaxMindDatabases(dataDir string) error {
-	var reload bool
+	files := []string{MMDBFileName, GeoSqliteDBFile}
+	for _, file := range files {
+		exists, _ := fileExists(path.Join(dataDir, file))
+		if exists {
+			continue
+		}
 
-	_, err := fileExists(path.Join(dataDir, MMDBFileName))
-	if err != nil {
-		reload = true
-	}
+		switch file {
+		case MMDBFileName:
+			extractFunc := func(src string, dst string) error {
+				if err := decompressTarGzFile(src, dst); err != nil {
+					return err
+				}
+				// move the extracted db file to management data directory
+				return os.Rename(path.Join(dst, MMDBFileName), path.Join(dataDir, MMDBFileName))
+			}
+			if err := loadDatabase(
+				geoLiteCitySha256TarURL,
+				geoLiteCityTarGZURL,
+				extractFunc,
+			); err != nil {
+				return err
+			}
 
-	_, err = fileExists(path.Join(dataDir, GeoSqliteDBFile))
-	if err != nil {
-		reload = true
-	}
+		case GeoSqliteDBFile:
+			extractFunc := func(src string, dst string) error {
+				if err := decompressZipFile(src, dst); err != nil {
+					return err
+				}
+				// TODO: generate sqlite db from processed csv file
+				return nil
+			}
 
-	if reload {
-		if err := loadGeoLiteBinaryDatabase(dataDir); err != nil {
-			return fmt.Errorf("error loading geolite binary database: %v", err)
+			if err := loadDatabase(
+				geoLiteCitySha256ZipURL,
+				geoLiteCityZipURL,
+				extractFunc,
+			); err != nil {
+				return err
+			}
 		}
 	}
-
 	return nil
 }
 
-func loadGeoLiteBinaryDatabase(dataDir string) error {
-	temp, err := os.MkdirTemp(os.TempDir(), strings.TrimPrefix(MMDBFileName, ".mmdb"))
+func loadDatabase(checksumURL string, fileURL string, extractFunc func(src string, dst string) error) error {
+	temp, err := os.MkdirTemp(os.TempDir(), "geolite")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(temp)
 
-	checksumFile := path.Join(temp, getFileName(geoLiteCitySha256TarURL))
-	err = downloadFile(geoLiteCitySha256TarURL, checksumFile)
+	checksumFile := path.Join(temp, getFileName(checksumURL))
+	err = downloadFile(checksumURL, checksumFile)
 	if err != nil {
 		return err
 	}
@@ -56,22 +79,17 @@ func loadGeoLiteBinaryDatabase(dataDir string) error {
 		return err
 	}
 
-	binaryDbFile := path.Join(temp, getFileName(geoLiteCityTarGZURL))
-	err = downloadFile(geoLiteCityTarGZURL, binaryDbFile)
+	dbFile := path.Join(temp, getFileName(fileURL))
+	err = downloadFile(fileURL, dbFile)
 	if err != nil {
 		return err
 	}
 
-	if err := verifyChecksum(binaryDbFile, sha256sum); err != nil {
+	if err := verifyChecksum(dbFile, sha256sum); err != nil {
 		return err
 	}
 
-	if err := decompressTarGzFile(binaryDbFile, temp); err != nil {
-		return err
-	}
-
-	// move the extracted db file to management data directory
-	return os.Rename(path.Join(temp, MMDBFileName), path.Join(dataDir, MMDBFileName))
+	return extractFunc(dbFile, temp)
 }
 
 func getFileName(urlStr string) string {
