@@ -3,9 +3,9 @@
 package dns
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
+	"net/netip"
 	"os"
 	"strings"
 
@@ -24,11 +24,15 @@ const (
 )
 
 type fileConfigurator struct {
+	repair *repair
+
 	originalPerms os.FileMode
 }
 
 func newFileConfigurator() (hostManager, error) {
-	return &fileConfigurator{}, nil
+	fc := &fileConfigurator{}
+	fc.repair = newRepair(defaultResolvConfPath, fc.updateConfig)
+	return fc, nil
 }
 
 func (f *fileConfigurator) supportCustomPort() bool {
@@ -46,7 +50,7 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 		if backupFileExist {
 			err = f.restore()
 			if err != nil {
-				return fmt.Errorf("unable to configure DNS for this peer using file manager without a Primary nameserver group. Restoring the original file return err: %s", err)
+				return fmt.Errorf("unable to configure DNS for this peer using file manager without a Primary nameserver group. Restoring the original file return err: %w", err)
 			}
 		}
 		return fmt.Errorf("unable to configure DNS for this peer using file manager without a nameserver group with all domains configured")
@@ -55,53 +59,73 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	if !backupFileExist {
 		err = f.backup()
 		if err != nil {
-			return fmt.Errorf("unable to backup the resolv.conf file")
+			return fmt.Errorf("unable to backup the resolv.conf file: %w", err)
 		}
 	}
 
-	searchDomainList := searchDomains(config)
+	nbSearchDomains := searchDomains(config)
+	nbNameserverIP := config.ServerIP
 
-	originalSearchDomains, nameServers, others, err := originalDNSConfigs(fileDefaultResolvConfBackupLocation)
+	resolvConf, err := parseBackupResolvConf()
 	if err != nil {
-		log.Error(err)
+		log.Errorf("could not read original search domains from %s: %s", fileDefaultResolvConfBackupLocation, err)
 	}
 
-	searchDomainList = mergeSearchDomains(searchDomainList, originalSearchDomains)
+	f.repair.stopWatchFileChanges()
+
+	err = f.updateConfig(nbSearchDomains, nbNameserverIP, resolvConf)
+	if err != nil {
+		return err
+	}
+	f.repair.watchFileChanges(nbSearchDomains, nbNameserverIP)
+	return nil
+}
+
+func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP string, cfg *resolvConf) error {
+	searchDomainList := mergeSearchDomains(nbSearchDomains, cfg.searchDomains)
+	nameServers := generateNsList(nbNameserverIP, cfg)
 
 	buf := prepareResolvConfContent(
 		searchDomainList,
-		append([]string{config.ServerIP}, nameServers...),
-		others)
+		nameServers,
+		cfg.others)
 
 	log.Debugf("creating managed file %s", defaultResolvConfPath)
-	err = os.WriteFile(defaultResolvConfPath, buf.Bytes(), f.originalPerms)
+	err := os.WriteFile(defaultResolvConfPath, buf.Bytes(), f.originalPerms)
 	if err != nil {
 		restoreErr := f.restore()
 		if restoreErr != nil {
 			log.Errorf("attempt to restore default file failed with error: %s", err)
 		}
-		return fmt.Errorf("got an creating resolver file %s. Error: %s", defaultResolvConfPath, err)
+		return fmt.Errorf("creating resolver file %s. Error: %w", defaultResolvConfPath, err)
 	}
 
-	log.Infof("created a NetBird managed %s file with your DNS settings. Added %d search domains. Search list: %s", defaultResolvConfPath, len(searchDomainList), searchDomainList)
+	log.Infof("created a NetBird managed %s file with the DNS settings. Added %d search domains. Search list: %s", defaultResolvConfPath, len(searchDomainList), searchDomainList)
+
+	// create another backup for unclean shutdown detection right after overwriting the original resolv.conf
+	if err := createUncleanShutdownIndicator(fileDefaultResolvConfBackupLocation, fileManager, nbNameserverIP); err != nil {
+		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
+	}
+
 	return nil
 }
 
 func (f *fileConfigurator) restoreHostDNS() error {
+	f.repair.stopWatchFileChanges()
 	return f.restore()
 }
 
 func (f *fileConfigurator) backup() error {
 	stats, err := os.Stat(defaultResolvConfPath)
 	if err != nil {
-		return fmt.Errorf("got an error while checking stats for %s file. Error: %s", defaultResolvConfPath, err)
+		return fmt.Errorf("checking stats for %s file. Error: %w", defaultResolvConfPath, err)
 	}
 
 	f.originalPerms = stats.Mode()
 
 	err = copyFile(defaultResolvConfPath, fileDefaultResolvConfBackupLocation)
 	if err != nil {
-		return fmt.Errorf("got error while backing up the %s file. Error: %s", defaultResolvConfPath, err)
+		return fmt.Errorf("backing up %s: %w", defaultResolvConfPath, err)
 	}
 	return nil
 }
@@ -109,10 +133,68 @@ func (f *fileConfigurator) backup() error {
 func (f *fileConfigurator) restore() error {
 	err := copyFile(fileDefaultResolvConfBackupLocation, defaultResolvConfPath)
 	if err != nil {
-		return fmt.Errorf("got error while restoring the %s file from %s. Error: %s", defaultResolvConfPath, fileDefaultResolvConfBackupLocation, err)
+		return fmt.Errorf("restoring %s from %s: %w", defaultResolvConfPath, fileDefaultResolvConfBackupLocation, err)
+	}
+
+	if err := removeUncleanShutdownIndicator(); err != nil {
+		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
 	}
 
 	return os.RemoveAll(fileDefaultResolvConfBackupLocation)
+}
+
+func (f *fileConfigurator) restoreUncleanShutdownDNS(storedDNSAddress *netip.Addr) error {
+	resolvConf, err := parseDefaultResolvConf()
+	if err != nil {
+		return fmt.Errorf("parse current resolv.conf: %w", err)
+	}
+
+	// no current nameservers set -> restore
+	if len(resolvConf.nameServers) == 0 {
+		return restoreResolvConfFile()
+	}
+
+	currentDNSAddress, err := netip.ParseAddr(resolvConf.nameServers[0])
+	// not a valid first nameserver -> restore
+	if err != nil {
+		log.Errorf("restoring unclean shutdown: parse dns address %s failed: %s", resolvConf.nameServers[1], err)
+		return restoreResolvConfFile()
+	}
+
+	// current address is still netbird's non-available dns address -> restore
+	// comparing parsed addresses only, to remove ambiguity
+	if currentDNSAddress.String() == storedDNSAddress.String() {
+		return restoreResolvConfFile()
+	}
+
+	log.Info("restoring unclean shutdown: first current nameserver differs from saved nameserver pre-netbird: not restoring")
+	return nil
+}
+
+func restoreResolvConfFile() error {
+	log.Debugf("restoring unclean shutdown: restoring %s from %s", defaultResolvConfPath, fileUncleanShutdownResolvConfLocation)
+
+	if err := copyFile(fileUncleanShutdownResolvConfLocation, defaultResolvConfPath); err != nil {
+		return fmt.Errorf("restoring %s from %s: %w", defaultResolvConfPath, fileUncleanShutdownResolvConfLocation, err)
+	}
+
+	if err := removeUncleanShutdownIndicator(); err != nil {
+		log.Errorf("failed to remove unclean shutdown resolv.conf file: %s", err)
+	}
+
+	return nil
+}
+
+// generateNsList generates a list of nameservers from the config and adds the primary nameserver to the beginning of the list
+func generateNsList(nbNameserverIP string, cfg *resolvConf) []string {
+	ns := make([]string, 1, len(cfg.nameServers)+1)
+	ns[0] = nbNameserverIP
+	for _, cfgNs := range cfg.nameServers {
+		if nbNameserverIP != cfgNs {
+			ns = append(ns, cfgNs)
+		}
+	}
+	return ns
 }
 
 func prepareResolvConfContent(searchDomains, nameServers, others []string) bytes.Buffer {
@@ -150,70 +232,6 @@ func searchDomains(config HostDNSConfig) []string {
 	return listOfDomains
 }
 
-func originalDNSConfigs(resolvconfFile string) (searchDomains, nameServers, others []string, err error) {
-	file, err := os.Open(resolvconfFile)
-	if err != nil {
-		err = fmt.Errorf(`could not read existing resolv.conf`)
-		return
-	}
-	defer file.Close()
-
-	reader := bufio.NewReader(file)
-
-	for {
-		lineBytes, isPrefix, readErr := reader.ReadLine()
-		if readErr != nil {
-			break
-		}
-
-		if isPrefix {
-			err = fmt.Errorf(`resolv.conf line too long`)
-			return
-		}
-
-		line := strings.TrimSpace(string(lineBytes))
-
-		if strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		if strings.HasPrefix(line, "domain") {
-			continue
-		}
-
-		if strings.HasPrefix(line, "options") && strings.Contains(line, "rotate") {
-			line = strings.ReplaceAll(line, "rotate", "")
-			splitLines := strings.Fields(line)
-			if len(splitLines) == 1 {
-				continue
-			}
-			line = strings.Join(splitLines, " ")
-		}
-
-		if strings.HasPrefix(line, "search") {
-			splitLines := strings.Fields(line)
-			if len(splitLines) < 2 {
-				continue
-			}
-
-			searchDomains = splitLines[1:]
-			continue
-		}
-
-		if strings.HasPrefix(line, "nameserver") {
-			splitLines := strings.Fields(line)
-			if len(splitLines) != 2 {
-				continue
-			}
-			nameServers = append(nameServers, splitLines[1])
-			continue
-		}
-
-		others = append(others, line)
-	}
-	return
-}
-
 // merge search Domains lists and cut off the list if it is too long
 func mergeSearchDomains(searchDomains []string, originalSearchDomains []string) []string {
 	lineSize := len("search")
@@ -230,6 +248,19 @@ func mergeSearchDomains(searchDomains []string, originalSearchDomains []string) 
 // return with the number of characters in the searchDomains line
 func validateAndFillSearchDomains(initialLineChars int, s *[]string, vs []string) int {
 	for _, sd := range vs {
+		duplicated := false
+		for _, fs := range *s {
+			if fs == sd {
+				duplicated = true
+				break
+			}
+
+		}
+
+		if duplicated {
+			continue
+		}
+
 		tmpCharsNumber := initialLineChars + 1 + len(sd)
 		if tmpCharsNumber > fileMaxLineCharsLimit {
 			// lets log all skipped Domains
@@ -246,23 +277,39 @@ func validateAndFillSearchDomains(initialLineChars int, s *[]string, vs []string
 		}
 		*s = append(*s, sd)
 	}
+
 	return initialLineChars
 }
 
 func copyFile(src, dest string) error {
 	stats, err := os.Stat(src)
 	if err != nil {
-		return fmt.Errorf("got an error while checking stats for %s file when copying it. Error: %s", src, err)
+		return fmt.Errorf("checking stats for %s file when copying it. Error: %s", src, err)
 	}
 
 	bytesRead, err := os.ReadFile(src)
 	if err != nil {
-		return fmt.Errorf("got an error while reading the file %s file for copy. Error: %s", src, err)
+		return fmt.Errorf("reading the file %s file for copy. Error: %s", src, err)
 	}
 
 	err = os.WriteFile(dest, bytesRead, stats.Mode())
 	if err != nil {
-		return fmt.Errorf("got an writing the destination file %s for copy. Error: %s", dest, err)
+		return fmt.Errorf("writing the destination file %s for copy. Error: %s", dest, err)
 	}
 	return nil
+}
+
+func isContains(subList []string, list []string) bool {
+	for _, sl := range subList {
+		var found bool
+		for _, l := range list {
+			if sl == l {
+				found = true
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }

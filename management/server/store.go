@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -33,12 +35,14 @@ type Store interface {
 	// AcquireGlobalLock should attempt to acquire a global lock and return a function that releases the lock
 	AcquireGlobalLock() func()
 	SavePeerStatus(accountID, peerID string, status nbpeer.PeerStatus) error
+	SavePeerLocation(accountID string, peer *nbpeer.Peer) error
 	SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error
 	// Close should close the store persisting all unsaved data.
 	Close() error
 	// GetStoreEngine should return StoreEngine of the current store implementation.
 	// This is also a method of metrics.DataSource interface.
 	GetStoreEngine() StoreEngine
+	CalculateUsageStats(ctx context.Context, accountID string, start time.Time, end time.Time) (*AccountUsageStats, error)
 }
 
 type StoreEngine string
@@ -49,10 +53,10 @@ const (
 )
 
 func getStoreEngineFromEnv() StoreEngine {
-	// NETBIRD_STORE_ENGINE supposed to be used in tests. Otherwise rely on the config file.
+	// NETBIRD_STORE_ENGINE supposed to be used in tests. Otherwise, rely on the config file.
 	kind, ok := os.LookupEnv("NETBIRD_STORE_ENGINE")
 	if !ok {
-		return FileStoreEngine
+		return ""
 	}
 
 	value := StoreEngine(strings.ToLower(kind))
@@ -61,13 +65,26 @@ func getStoreEngineFromEnv() StoreEngine {
 		return value
 	}
 
+	return SqliteStoreEngine
+}
+
+func getStoreEngineFromDatadir(dataDir string) StoreEngine {
+	storeFile := filepath.Join(dataDir, storeFileName)
+	if _, err := os.Stat(storeFile); err != nil {
+		// json file not found then use sqlite as default
+		return SqliteStoreEngine
+	}
 	return FileStoreEngine
 }
 
 func NewStore(kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
 	if kind == "" {
-		// fallback to env. Normally this only should be used from tests
+		// if store engine is not set in the config we first try to evaluate NETBIRD_STORE_ENGINE
 		kind = getStoreEngineFromEnv()
+		if kind == "" {
+			// NETBIRD_STORE_ENGINE is not set we evaluate default based on dataDir
+			kind = getStoreEngineFromDatadir(dataDir)
+		}
 	}
 	switch kind {
 	case FileStoreEngine:
@@ -81,20 +98,19 @@ func NewStore(kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (S
 	}
 }
 
+// NewStoreFromJson is only used in tests
 func NewStoreFromJson(dataDir string, metrics telemetry.AppMetrics) (Store, error) {
 	fstore, err := NewFileStore(dataDir, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	kind := getStoreEngineFromEnv()
-
-	switch kind {
+	switch kind := getStoreEngineFromEnv(); kind {
 	case FileStoreEngine:
 		return fstore, nil
 	case SqliteStoreEngine:
 		return NewSqliteStoreFromFileStore(fstore, dataDir, metrics)
 	default:
-		return nil, fmt.Errorf("unsupported store engine %s", kind)
+		return NewSqliteStoreFromFileStore(fstore, dataDir, metrics)
 	}
 }

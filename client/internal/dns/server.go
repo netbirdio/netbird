@@ -32,6 +32,7 @@ type Server interface {
 	UpdateDNSServer(serial uint64, update nbdns.Config) error
 	OnUpdatedHostDNSServer(strings []string)
 	SearchDomains() []string
+	ProbeAvailability()
 }
 
 type registeredHandlerMap map[string]handlerWithStop
@@ -63,6 +64,7 @@ type DefaultServer struct {
 type handlerWithStop interface {
 	dns.Handler
 	stop()
+	probeAvailability()
 }
 
 type muxUpdate struct {
@@ -140,12 +142,15 @@ func (s *DefaultServer) Initialize() (err error) {
 	if s.permanent {
 		err = s.service.Listen()
 		if err != nil {
-			return err
+			return fmt.Errorf("service listen: %w", err)
 		}
 	}
 
 	s.hostManager, err = s.initialize()
-	return err
+	if err != nil {
+		return fmt.Errorf("initialize: %w", err)
+	}
+	return nil
 }
 
 // DnsIP returns the DNS resolver server IP address
@@ -223,7 +228,7 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 		}
 
 		if err := s.applyConfiguration(update); err != nil {
-			return err
+			return fmt.Errorf("apply configuration: %w", err)
 		}
 
 		s.updateSerial = serial
@@ -246,6 +251,14 @@ func (s *DefaultServer) SearchDomains() []string {
 		searchDomains = append(searchDomains, dConf.Domain)
 	}
 	return searchDomains
+}
+
+// ProbeAvailability tests each upstream group's servers for availability
+// and deactivates the group if no server responds
+func (s *DefaultServer) ProbeAvailability() {
+	for _, mux := range s.dnsMuxMap {
+		mux.probeAvailability()
+	}
 }
 
 func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
@@ -378,6 +391,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			})
 		}
 	}
+
 	return muxUpdates, nil
 }
 
@@ -488,13 +502,13 @@ func (s *DefaultServer) upstreamCallbacks(
 		}
 
 		l := log.WithField("nameservers", nsGroup.NameServers)
-		l.Debug("reactivate temporary Disabled nameserver group")
+		l.Debug("reactivate temporary disabled nameserver group")
 
 		if nsGroup.Primary {
 			s.currentConfig.RouteAll = true
 		}
 		if err := s.hostManager.applyDNSConfig(s.currentConfig); err != nil {
-			l.WithError(err).Error("reactivate temporary Disabled nameserver group, DNS update apply")
+			l.WithError(err).Error("reactivate temporary disabled nameserver group, DNS update apply")
 		}
 	}
 	return

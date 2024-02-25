@@ -3,6 +3,7 @@ package peer
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"time"
 )
 
@@ -43,6 +44,8 @@ type Peer struct {
 	LastLogin time.Time
 	// Indicate ephemeral peer attribute
 	Ephemeral bool
+	// Geo location based on connection IP
+	Location Location `gorm:"embedded;embeddedPrefix:location_"`
 }
 
 type PeerStatus struct {
@@ -56,28 +59,70 @@ type PeerStatus struct {
 	RequiresApproval bool
 }
 
+// Location is a geo location information of a Peer based on public connection IP
+type Location struct {
+	ConnectionIP net.IP // from grpc peer or reverse proxy headers depends on setup
+	CountryCode  string
+	CityName     string
+	GeoNameID    uint // city level geoname id
+}
+
+// NetworkAddress is the IP address with network and MAC address of a network interface
+type NetworkAddress struct {
+	NetIP netip.Prefix `gorm:"serializer:json"`
+	Mac   string
+}
+
 // PeerSystemMeta is a metadata of a Peer machine system
 type PeerSystemMeta struct {
-	Hostname      string
-	GoOS          string
-	Kernel        string
-	Core          string
-	Platform      string
-	OS            string
-	WtVersion     string
-	UIVersion     string
+	Hostname           string
+	GoOS               string
+	Kernel             string
+	Core               string
+	Platform           string
+	OS                 string
+	OSVersion          string
+	WtVersion          string
+	UIVersion          string
+	KernelVersion      string
+	NetworkAddresses   []NetworkAddress `gorm:"serializer:json"`
+	SystemSerialNumber string
+	SystemProductName  string
+	SystemManufacturer string
 	Ipv6Supported bool
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
+	if len(p.NetworkAddresses) != len(other.NetworkAddresses) {
+		return false
+	}
+
+	for _, addr := range p.NetworkAddresses {
+		var found bool
+		for _, oAddr := range other.NetworkAddresses {
+			if addr.Mac == oAddr.Mac && addr.NetIP == oAddr.NetIP {
+				found = true
+				continue
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
 	return p.Hostname == other.Hostname &&
 		p.GoOS == other.GoOS &&
 		p.Kernel == other.Kernel &&
+		p.KernelVersion == other.KernelVersion &&
 		p.Core == other.Core &&
 		p.Platform == other.Platform &&
 		p.OS == other.OS &&
+		p.OSVersion == other.OSVersion &&
 		p.WtVersion == other.WtVersion &&
 		p.UIVersion == other.UIVersion &&
+		p.SystemSerialNumber == other.SystemSerialNumber &&
+		p.SystemProductName == other.SystemProductName &&
+		p.SystemManufacturer == other.SystemManufacturer &&
 		p.Ipv6Supported == other.Ipv6Supported
 }
 
@@ -109,6 +154,7 @@ func (p *Peer) Copy() *Peer {
 		LoginExpirationEnabled: p.LoginExpirationEnabled,
 		LastLogin:              p.LastLogin,
 		Ephemeral:              p.Ephemeral,
+		Location:               p.Location,
 	}
 }
 

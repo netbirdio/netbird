@@ -105,8 +105,8 @@ type mockUpstreamResolver struct {
 	err error
 }
 
-// ExchangeContext mock implementation of ExchangeContext from upstreamResolver
-func (c mockUpstreamResolver) exchange(upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error) {
+// exchange mock implementation of exchange from upstreamResolver
+func (c mockUpstreamResolver) exchange(_ context.Context, _ string, _ *dns.Msg) (*dns.Msg, time.Duration, error) {
 	return c.r, c.rtt, c.err
 }
 

@@ -35,6 +35,7 @@ type Client interface {
 	GetStatus() Status
 	Receive(msgHandler func(msg *proto.Message) error) error
 	Ready() bool
+	IsHealthy() bool
 	WaitStreamConnected()
 	SendToStream(msg *proto.EncryptedMessage) error
 	Send(msg *proto.Message) error

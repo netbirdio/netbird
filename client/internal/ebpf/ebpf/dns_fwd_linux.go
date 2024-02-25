@@ -13,7 +13,7 @@ const (
 )
 
 func (tf *GeneralManager) LoadDNSFwd(ip string, dnsPort int) error {
-	log.Debugf("load ebpf DNS forwarder: address: %s:%d", ip, dnsPort)
+	log.Debugf("load eBPF DNS forwarder, watching addr: %s:53, redirect to port: %d", ip, dnsPort)
 	tf.lock.Lock()
 	defer tf.lock.Unlock()
 

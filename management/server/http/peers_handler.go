@@ -231,6 +231,11 @@ func toGroupsInfo(groups map[string]*server.Group, peerID string) []api.GroupMin
 }
 
 func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeer []api.AccessiblePeer) *api.Peer {
+	osVersion := peer.Meta.OSVersion
+	if osVersion == "" {
+		osVersion = peer.Meta.Core
+	}
+
 	var ip6 *string
 	if peer.IP6 != nil {
 		ip6string := peer.IP6.String()
@@ -241,16 +246,19 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		Id:                     peer.ID,
 		Name:                   peer.Name,
 		Ip:                     peer.IP.String(),
+		ConnectionIp:           peer.Location.ConnectionIP.String(),
 		Ip6:                    ip6,
 		Connected:              peer.Status.Connected,
 		LastSeen:               peer.Status.LastSeen,
-		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, peer.Meta.Core),
+		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
+		KernelVersion:          peer.Meta.KernelVersion,
+		GeonameId:              int(peer.Location.GeoNameID),
 		Version:                peer.Meta.WtVersion,
 		Groups:                 groupsInfo,
 		SshEnabled:             peer.SSHEnabled,
 		Hostname:               peer.Meta.Hostname,
-		UserId:                 &peer.UserID,
-		UiVersion:              &peer.Meta.UIVersion,
+		UserId:                 peer.UserID,
+		UiVersion:              peer.Meta.UIVersion,
 		Ipv6Supported:          peer.Meta.Ipv6Supported,
 		Ipv6Enabled:            peer.IP6 != nil,
 		DnsLabel:               fqdn(peer, dnsDomain),
@@ -259,29 +267,39 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		LoginExpired:           peer.Status.LoginExpired,
 		AccessiblePeers:        accessiblePeer,
 		ApprovalRequired:       &peer.Status.RequiresApproval,
+		CountryCode:            peer.Location.CountryCode,
+		CityName:               peer.Location.CityName,
 	}
 }
 
 func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeersCount int) *api.PeerBatch {
+	osVersion := peer.Meta.OSVersion
+	if osVersion == "" {
+		osVersion = peer.Meta.Core
+	}
 	var ip6 *string
 	if peer.IP6 != nil {
 		ip6string := peer.IP6.String()
 		ip6 = &ip6string
 	}
+
 	return &api.PeerBatch{
 		Id:                     peer.ID,
 		Name:                   peer.Name,
 		Ip:                     peer.IP.String(),
+		ConnectionIp:           peer.Location.ConnectionIP.String(),
 		Ip6:                    ip6,
 		Connected:              peer.Status.Connected,
 		LastSeen:               peer.Status.LastSeen,
-		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, peer.Meta.Core),
+		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
+		KernelVersion:          peer.Meta.KernelVersion,
+		GeonameId:              int(peer.Location.GeoNameID),
 		Version:                peer.Meta.WtVersion,
 		Groups:                 groupsInfo,
 		SshEnabled:             peer.SSHEnabled,
 		Hostname:               peer.Meta.Hostname,
-		UserId:                 &peer.UserID,
-		UiVersion:              &peer.Meta.UIVersion,
+		UserId:                 peer.UserID,
+		UiVersion:              peer.Meta.UIVersion,
 		Ipv6Supported:          peer.Meta.Ipv6Supported,
 		Ipv6Enabled:            peer.IP6 != nil,
 		DnsLabel:               fqdn(peer, dnsDomain),
@@ -290,6 +308,8 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		LoginExpired:           peer.Status.LoginExpired,
 		AccessiblePeersCount:   accessiblePeersCount,
 		ApprovalRequired:       &peer.Status.RequiresApproval,
+		CountryCode:            peer.Location.CountryCode,
+		CityName:               peer.Location.CityName,
 	}
 }
 

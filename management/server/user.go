@@ -890,18 +890,6 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 		if err != nil {
 			return nil, err
 		}
-		if userData == nil {
-			// lets check external cache
-			key := newUser.IntegrationReference.CacheKey(account.Id, newUser.Id)
-			log.Debugf("looking up user %s of account %s in external cache", key, account.Id)
-			info, err := am.externalCacheManager.Get(am.ctx, key)
-			if err != nil {
-				log.Infof("Get ExternalCache for key: %s, error: %s", key, err)
-				return nil, status.Errorf(status.NotFound, "user %s not found in the IdP", newUser.Id)
-			}
-
-			return newUser.ToUserInfo(info)
-		}
 		return newUser.ToUserInfo(userData)
 	}
 	return newUser.ToUserInfo(nil)
@@ -991,7 +979,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 	// in case of self-hosted, or IDP doesn't return anything, we will return the locally stored userInfo
 	if len(queriedUsers) == 0 {
 		for _, accountUser := range account.Users {
-			if !user.HasAdminPower() && user.Id != accountUser.Id {
+			if !(user.HasAdminPower() || user.IsServiceUser || user.Id == accountUser.Id) {
 				// if user is not an admin then show only current user and do not show other users
 				continue
 			}
@@ -1005,7 +993,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 	}
 
 	for _, localUser := range account.Users {
-		if !user.HasAdminPower() && user.Id != localUser.Id {
+		if !(user.HasAdminPower() || user.IsServiceUser) && user.Id != localUser.Id {
 			// if user is not an admin then show only current user and do not show other users
 			continue
 		}

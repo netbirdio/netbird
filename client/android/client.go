@@ -79,6 +79,7 @@ func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsRead
 		return err
 	}
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
+	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
 	var ctx context.Context
 	//nolint
@@ -109,6 +110,7 @@ func (c *Client) RunWithoutLogin(dns *DNSList, dnsReadyListener DnsReadyListener
 		return err
 	}
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
+	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
 	var ctx context.Context
 	//nolint
@@ -137,6 +139,11 @@ func (c *Client) Stop() {
 // SetTraceLogLevel configure the logger to trace level
 func (c *Client) SetTraceLogLevel() {
 	log.SetLevel(log.TraceLevel)
+}
+
+// SetInfoLogLevel configure the logger to info level
+func (c *Client) SetInfoLogLevel() {
+	log.SetLevel(log.InfoLevel)
 }
 
 // PeersList return with the list of the PeerInfos

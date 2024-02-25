@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net/netip"
 	"net/url"
 
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -47,6 +48,8 @@ type Config struct {
 	PKCEAuthorizationFlow *PKCEAuthorizationFlow
 
 	StoreConfig StoreConfig
+
+	ReverseProxy ReverseProxy
 }
 
 // GetAuthAudiences returns the audience from the http config and device authorization flow config
@@ -141,6 +144,27 @@ type ProviderConfig struct {
 // StoreConfig contains Store configuration
 type StoreConfig struct {
 	Engine StoreEngine
+}
+
+// ReverseProxy contains reverse proxy configuration in front of management.
+type ReverseProxy struct {
+	// TrustedHTTPProxies represents a list of trusted HTTP proxies by their IP prefixes.
+	// When extracting the real IP address from request headers, the middleware will verify
+	// if the peer's address falls within one of these trusted IP prefixes.
+	TrustedHTTPProxies []netip.Prefix
+
+	// TrustedHTTPProxiesCount specifies the count of trusted HTTP proxies between the internet
+	// and the server. When using the trusted proxy count method to extract the real IP address,
+	// the middleware will search the X-Forwarded-For IP list from the rightmost by this count
+	// minus one.
+	TrustedHTTPProxiesCount uint
+
+	// TrustedPeers represents a list of trusted peers by their IP prefixes.
+	// These peers are considered trustworthy by the gRPC server operator,
+	// and the middleware will attempt to extract the real IP address from
+	// request headers if the peer's address falls within one of these
+	// trusted IP prefixes.
+	TrustedPeers []netip.Prefix
 }
 
 // validateURL validates input http url

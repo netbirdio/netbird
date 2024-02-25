@@ -55,7 +55,7 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*nbpeer.P
 	peers := make([]*nbpeer.Peer, 0)
 	peersMap := make(map[string]*nbpeer.Peer)
 	for _, peer := range account.Peers {
-		if !user.HasAdminPower() && user.Id != peer.UserID {
+		if !(user.HasAdminPower() || user.IsServiceUser) && user.Id != peer.UserID {
 			// only display peers that belong to the current user if the current user is not an admin
 			continue
 		}
@@ -81,7 +81,7 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*nbpeer.P
 }
 
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
-func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected bool) error {
+func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected bool, realIP net.IP) error {
 	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
 		return err
@@ -110,6 +110,23 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 		newStatus.LoginExpired = false
 	}
 	peer.Status = newStatus
+
+	if am.geo != nil && realIP != nil {
+		location, err := am.geo.Lookup(realIP)
+		if err != nil {
+			log.Warnf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP.String(), err)
+		} else {
+			peer.Location.ConnectionIP = realIP
+			peer.Location.CountryCode = location.Country.ISOCode
+			peer.Location.CityName = location.City.Names.En
+			peer.Location.GeoNameID = location.City.GeonameID
+			err = am.Store.SavePeerLocation(account.Id, peer)
+			if err != nil {
+				log.Warnf("could not store location for peer %s: %s", peer.ID, err)
+			}
+		}
+	}
+
 	account.UpdatePeer(peer)
 
 	err = am.Store.SavePeerStatus(account.Id, peer.ID, *newStatus)
@@ -768,7 +785,7 @@ func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*nbp
 	}
 
 	// if admin or user owns this peer, return peer
-	if user.HasAdminPower() || peer.UserID == userID {
+	if user.HasAdminPower() || user.IsServiceUser || peer.UserID == userID {
 		return peer, nil
 	}
 

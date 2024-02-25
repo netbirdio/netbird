@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -212,6 +213,49 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 	actual := account.Peers["testpeer"].Status
 	assert.Equal(t, newStatus, *actual)
 }
+func TestSqlite_SavePeerLocation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	store := newSqliteStoreFromFile(t, "testdata/store.json")
+
+	account, err := store.GetAccount("bf1c8084-ba50-4ce7-9439-34653001fc3b")
+	require.NoError(t, err)
+
+	peer := &nbpeer.Peer{
+		AccountID: account.Id,
+		ID:        "testpeer",
+		Location: nbpeer.Location{
+			ConnectionIP: net.ParseIP("0.0.0.0"),
+			CountryCode:  "YY",
+			CityName:     "City",
+			GeoNameID:    1,
+		},
+		Meta: nbpeer.PeerSystemMeta{},
+	}
+	// error is expected as peer is not in store yet
+	err = store.SavePeerLocation(account.Id, peer)
+	assert.Error(t, err)
+
+	account.Peers[peer.ID] = peer
+	err = store.SaveAccount(account)
+	require.NoError(t, err)
+
+	peer.Location.ConnectionIP = net.ParseIP("35.1.1.1")
+	peer.Location.CountryCode = "DE"
+	peer.Location.CityName = "Berlin"
+	peer.Location.GeoNameID = 2950159
+
+	err = store.SavePeerLocation(account.Id, account.Peers[peer.ID])
+	assert.NoError(t, err)
+
+	account, err = store.GetAccount(account.Id)
+	require.NoError(t, err)
+
+	actual := account.Peers[peer.ID].Location
+	assert.Equal(t, peer.Location, actual)
+}
 
 func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -302,4 +346,30 @@ func newAccount(store Store, id int) error {
 	}
 
 	return store.SaveAccount(account)
+}
+
+func TestSqliteStore_CalculateUsageStats(t *testing.T) {
+	store := newSqliteStoreFromFile(t, "testdata/store_stats.json")
+	t.Cleanup(func() {
+		require.NoError(t, store.Close())
+	})
+
+	startDate := time.Date(2024, time.February, 1, 0, 0, 0, 0, time.UTC)
+	endDate := startDate.AddDate(0, 1, 0).Add(-time.Nanosecond)
+
+	stats1, err := store.CalculateUsageStats(context.TODO(), "account-1", startDate, endDate)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(2), stats1.ActiveUsers)
+	assert.Equal(t, int64(4), stats1.TotalUsers)
+	assert.Equal(t, int64(3), stats1.ActivePeers)
+	assert.Equal(t, int64(7), stats1.TotalPeers)
+
+	stats2, err := store.CalculateUsageStats(context.TODO(), "account-2", startDate, endDate)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(1), stats2.ActiveUsers)
+	assert.Equal(t, int64(2), stats2.TotalUsers)
+	assert.Equal(t, int64(1), stats2.ActivePeers)
+	assert.Equal(t, int64(2), stats2.TotalPeers)
 }

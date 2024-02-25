@@ -3,15 +3,17 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/netip"
 	"strings"
 	"time"
 
 	pb "github.com/golang/protobuf/proto" // nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
+	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
-	gRPCPeer "google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -109,6 +111,13 @@ func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto
 	}, nil
 }
 
+func getRealIP(ctx context.Context) net.IP {
+	if addr, ok := realip.FromContext(ctx); ok {
+		return net.IP(addr.AsSlice())
+	}
+	return nil
+}
+
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
@@ -116,10 +125,8 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountSyncRequest()
 	}
-	p, ok := gRPCPeer.FromContext(srv.Context())
-	if ok {
-		log.Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, p.Addr.String())
-	}
+	realIP := getRealIP(srv.Context())
+	log.Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, realIP.String())
 
 	syncReq := &proto.SyncRequest{}
 	peerKey, err := s.parseRequest(req, syncReq)
@@ -142,7 +149,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 
 	s.ephemeralManager.OnPeerConnected(peer)
 
-	err = s.accountManager.MarkPeerConnected(peerKey.String(), true)
+	err = s.accountManager.MarkPeerConnected(peerKey.String(), true, realIP)
 	if err != nil {
 		log.Warnf("failed marking peer as connected %s %v", peerKey, err)
 	}
@@ -200,7 +207,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 func (s *GRPCServer) cancelPeerRoutines(peer *nbpeer.Peer) {
 	s.peersUpdateManager.CloseChannel(peer.ID)
 	s.turnCredentialsManager.CancelRefresh(peer.ID)
-	_ = s.accountManager.MarkPeerConnected(peer.Key, false)
+	_ = s.accountManager.MarkPeerConnected(peer.Key, false, nil)
 	s.ephemeralManager.OnPeerDisconnected(peer)
 }
 
@@ -249,16 +256,39 @@ func mapError(err error) error {
 }
 
 func extractPeerMeta(loginReq *proto.LoginRequest) nbpeer.PeerSystemMeta {
+	osVersion := loginReq.GetMeta().GetOSVersion()
+	if osVersion == "" {
+		osVersion = loginReq.GetMeta().GetCore()
+	}
+
+	networkAddresses := make([]nbpeer.NetworkAddress, 0, len(loginReq.GetMeta().GetNetworkAddresses()))
+	for _, addr := range loginReq.GetMeta().GetNetworkAddresses() {
+		netAddr, err := netip.ParsePrefix(addr.GetNetIP())
+		if err != nil {
+			log.Warnf("failed to parse netip address, %s: %v", addr.GetNetIP(), err)
+			continue
+		}
+		networkAddresses = append(networkAddresses, nbpeer.NetworkAddress{
+			NetIP: netAddr,
+			Mac:   addr.GetMac(),
+		})
+	}
+
 	return nbpeer.PeerSystemMeta{
-		Hostname:      loginReq.GetMeta().GetHostname(),
-		GoOS:          loginReq.GetMeta().GetGoOS(),
-		Kernel:        loginReq.GetMeta().GetKernel(),
-		Core:          loginReq.GetMeta().GetCore(),
-		Platform:      loginReq.GetMeta().GetPlatform(),
-		OS:            loginReq.GetMeta().GetOS(),
-		WtVersion:     loginReq.GetMeta().GetWiretrusteeVersion(),
-		UIVersion:     loginReq.GetMeta().GetUiVersion(),
-		Ipv6Supported: loginReq.GetMeta().GetIpv6Supported(),
+		Hostname:           loginReq.GetMeta().GetHostname(),
+		GoOS:               loginReq.GetMeta().GetGoOS(),
+		Kernel:             loginReq.GetMeta().GetKernel(),
+		Platform:           loginReq.GetMeta().GetPlatform(),
+		OS:                 loginReq.GetMeta().GetOS(),
+		OSVersion:          osVersion,
+		WtVersion:          loginReq.GetMeta().GetWiretrusteeVersion(),
+		UIVersion:          loginReq.GetMeta().GetUiVersion(),
+		KernelVersion:      loginReq.GetMeta().GetKernelVersion(),
+		NetworkAddresses:   networkAddresses,
+		SystemSerialNumber: loginReq.GetMeta().GetSysSerialNumber(),
+		SystemProductName:  loginReq.GetMeta().GetSysProductName(),
+		SystemManufacturer: loginReq.GetMeta().GetSysManufacturer(),
+		Ipv6Supported:      loginReq.GetMeta().GetIpv6Supported(),
 	}
 }
 
@@ -291,10 +321,8 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountLoginRequest()
 	}
-	p, ok := gRPCPeer.FromContext(ctx)
-	if ok {
-		log.Debugf("Login request from peer [%s] [%s]", req.WgPubKey, p.Addr.String())
-	}
+	realIP := getRealIP(ctx)
+	log.Debugf("Login request from peer [%s] [%s]", req.WgPubKey, realIP.String())
 
 	loginReq := &proto.LoginRequest{}
 	peerKey, err := s.parseRequest(req, loginReq)
@@ -304,8 +332,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 
 	if loginReq.GetMeta() == nil {
 		msg := status.Errorf(codes.FailedPrecondition,
-			"peer system meta has to be provided to log in. Peer %s, remote addr %s", peerKey.String(),
-			p.Addr.String())
+			"peer system meta has to be provided to log in. Peer %s, remote addr %s", peerKey.String(), realIP)
 		log.Warn(msg)
 		return nil, msg
 	}

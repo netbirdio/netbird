@@ -21,6 +21,8 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+const probeThreshold = time.Second * 5
+
 // Server for service control.
 type Server struct {
 	rootCtx   context.Context
@@ -37,6 +39,12 @@ type Server struct {
 	proto.UnimplementedDaemonServiceServer
 
 	statusRecorder *peer.Status
+
+	mgmProbe    *internal.Probe
+	signalProbe *internal.Probe
+	relayProbe  *internal.Probe
+	wgProbe     *internal.Probe
+	lastProbe   time.Time
 }
 
 type oauthAuthFlow struct {
@@ -53,7 +61,11 @@ func New(ctx context.Context, configPath, logFile string) *Server {
 		latestConfigInput: internal.ConfigInput{
 			ConfigPath: configPath,
 		},
-		logFile: logFile,
+		logFile:     logFile,
+		mgmProbe:    internal.NewProbe(),
+		signalProbe: internal.NewProbe(),
+		relayProbe:  internal.NewProbe(),
+		wgProbe:     internal.NewProbe(),
 	}
 }
 
@@ -100,15 +112,17 @@ func (s *Server) Start() error {
 
 	if s.statusRecorder == nil {
 		s.statusRecorder = peer.NewRecorder(config.ManagementURL.String())
-	} else {
-		s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	}
+	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
+	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
 
-	go func() {
-		if err := internal.RunClient(ctx, config, s.statusRecorder); err != nil {
-			log.Errorf("init connections: %v", err)
-		}
-	}()
+	if !config.DisableAutoConnect {
+		go func() {
+			if err := internal.RunClientWithProbes(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe); err != nil {
+				log.Errorf("init connections: %v", err)
+			}
+		}()
+	}
 
 	return nil
 }
@@ -192,9 +206,37 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		s.latestConfigInput.RosenpassEnabled = msg.RosenpassEnabled
 	}
 
+	if msg.RosenpassPermissive != nil {
+		inputConfig.RosenpassPermissive = msg.RosenpassPermissive
+		s.latestConfigInput.RosenpassPermissive = msg.RosenpassPermissive
+	}
+
+	if msg.ServerSSHAllowed != nil {
+		inputConfig.ServerSSHAllowed = msg.ServerSSHAllowed
+		s.latestConfigInput.ServerSSHAllowed = msg.ServerSSHAllowed
+	}
+
+	if msg.DisableAutoConnect != nil {
+		inputConfig.DisableAutoConnect = msg.DisableAutoConnect
+		s.latestConfigInput.DisableAutoConnect = msg.DisableAutoConnect
+	}
+
+	if msg.InterfaceName != nil {
+		inputConfig.InterfaceName = msg.InterfaceName
+		s.latestConfigInput.InterfaceName = msg.InterfaceName
+	}
+
+	if msg.WireguardPort != nil {
+		port := int(*msg.WireguardPort)
+		inputConfig.WireguardPort = &port
+		s.latestConfigInput.WireguardPort = &port
+	}
+
 	s.mutex.Unlock()
 
-	inputConfig.PreSharedKey = &msg.PreSharedKey
+	if msg.OptionalPreSharedKey != nil {
+		inputConfig.PreSharedKey = msg.OptionalPreSharedKey
+	}
 
 	config, err := internal.UpdateOrCreateConfig(inputConfig)
 	if err != nil {
@@ -391,12 +433,12 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 
 	if s.statusRecorder == nil {
 		s.statusRecorder = peer.NewRecorder(s.config.ManagementURL.String())
-	} else {
-		s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	}
+	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
+	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
 	go func() {
-		if err := internal.RunClient(ctx, s.config, s.statusRecorder); err != nil {
+		if err := internal.RunClientWithProbes(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe); err != nil {
 			log.Errorf("run client connection: %v", err)
 			return
 		}
@@ -420,7 +462,7 @@ func (s *Server) Down(_ context.Context, _ *proto.DownRequest) (*proto.DownRespo
 	return &proto.DownResponse{}, nil
 }
 
-// Status starts engine work in the daemon.
+// Status returns the daemon status
 func (s *Server) Status(
 	_ context.Context,
 	msg *proto.StatusRequest,
@@ -437,17 +479,33 @@ func (s *Server) Status(
 
 	if s.statusRecorder == nil {
 		s.statusRecorder = peer.NewRecorder(s.config.ManagementURL.String())
-	} else {
-		s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	}
+	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
+	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
 	if msg.GetFullPeerStatus {
+		s.runProbes()
+
 		fullStatus := s.statusRecorder.GetFullStatus()
 		pbFullStatus := toProtoFullStatus(fullStatus)
 		statusResponse.FullStatus = pbFullStatus
 	}
 
 	return &statusResponse, nil
+}
+
+func (s *Server) runProbes() {
+	if time.Since(s.lastProbe) > probeThreshold {
+		managementHealthy := s.mgmProbe.Probe()
+		signalHealthy := s.signalProbe.Probe()
+		relayHealthy := s.relayProbe.Probe()
+		wgProbe := s.wgProbe.Probe()
+
+		// Update last time only if all probes were successful
+		if managementHealthy && signalHealthy && relayHealthy && wgProbe {
+			s.lastProbe = time.Now()
+		}
+	}
 }
 
 // GetConfig of the daemon.
@@ -490,32 +548,59 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 		SignalState:     &proto.SignalState{},
 		LocalPeerState:  &proto.LocalPeerState{},
 		Peers:           []*proto.PeerState{},
+		Relays:          []*proto.RelayState{},
 	}
 
 	pbFullStatus.ManagementState.URL = fullStatus.ManagementState.URL
 	pbFullStatus.ManagementState.Connected = fullStatus.ManagementState.Connected
+	if err := fullStatus.ManagementState.Error; err != nil {
+		pbFullStatus.ManagementState.Error = err.Error()
+	}
 
 	pbFullStatus.SignalState.URL = fullStatus.SignalState.URL
 	pbFullStatus.SignalState.Connected = fullStatus.SignalState.Connected
+	if err := fullStatus.SignalState.Error; err != nil {
+		pbFullStatus.SignalState.Error = err.Error()
+	}
 
 	pbFullStatus.LocalPeerState.IP = fullStatus.LocalPeerState.IP
 	pbFullStatus.LocalPeerState.PubKey = fullStatus.LocalPeerState.PubKey
 	pbFullStatus.LocalPeerState.KernelInterface = fullStatus.LocalPeerState.KernelInterface
 	pbFullStatus.LocalPeerState.Fqdn = fullStatus.LocalPeerState.FQDN
+	pbFullStatus.LocalPeerState.RosenpassPermissive = fullStatus.RosenpassState.Permissive
+	pbFullStatus.LocalPeerState.RosenpassEnabled = fullStatus.RosenpassState.Enabled
 
 	for _, peerState := range fullStatus.Peers {
 		pbPeerState := &proto.PeerState{
-			IP:                     peerState.IP,
-			PubKey:                 peerState.PubKey,
-			ConnStatus:             peerState.ConnStatus.String(),
-			ConnStatusUpdate:       timestamppb.New(peerState.ConnStatusUpdate),
-			Relayed:                peerState.Relayed,
-			Direct:                 peerState.Direct,
-			LocalIceCandidateType:  peerState.LocalIceCandidateType,
-			RemoteIceCandidateType: peerState.RemoteIceCandidateType,
-			Fqdn:                   peerState.FQDN,
+			IP:                         peerState.IP,
+			PubKey:                     peerState.PubKey,
+			ConnStatus:                 peerState.ConnStatus.String(),
+			ConnStatusUpdate:           timestamppb.New(peerState.ConnStatusUpdate),
+			Relayed:                    peerState.Relayed,
+			Direct:                     peerState.Direct,
+			LocalIceCandidateType:      peerState.LocalIceCandidateType,
+			RemoteIceCandidateType:     peerState.RemoteIceCandidateType,
+			LocalIceCandidateEndpoint:  peerState.LocalIceCandidateEndpoint,
+			RemoteIceCandidateEndpoint: peerState.RemoteIceCandidateEndpoint,
+			Fqdn:                       peerState.FQDN,
+			LastWireguardHandshake:     timestamppb.New(peerState.LastWireguardHandshake),
+			BytesRx:                    peerState.BytesRx,
+			BytesTx:                    peerState.BytesTx,
+			RosenpassEnabled:           peerState.RosenpassEnabled,
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}
+
+	for _, relayState := range fullStatus.Relays {
+		pbRelayState := &proto.RelayState{
+			URI:       relayState.URI.String(),
+			Available: relayState.Err == nil,
+		}
+		if err := relayState.Err; err != nil {
+			pbRelayState.Error = err.Error()
+		}
+		pbFullStatus.Relays = append(pbFullStatus.Relays, pbRelayState)
+	}
+
 	return &pbFullStatus
 }

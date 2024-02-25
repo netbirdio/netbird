@@ -157,31 +157,33 @@ func (w *Worker) generatePayload(apiKey string) pushPayload {
 
 func (w *Worker) generateProperties() properties {
 	var (
-		uptime                float64
-		accounts              int
-		expirationEnabled     int
-		users                 int
-		serviceUsers          int
-		pats                  int
-		peers                 int
-		peersSSHEnabled       int
-		setupKeysUsage        int
-		ephemeralPeersSKs     int
-		ephemeralPeersSKUsage int
-		activePeersLastDay    int
-		osPeers               map[string]int
-		userPeers             int
-		rules                 int
-		rulesProtocol         map[string]int
-		rulesDirection        map[string]int
-		groups                int
-		routes                int
-		routesWithRGGroups    int
-		nameservers           int
-		uiClient              int
-		version               string
-		peerActiveVersions    []string
-		osUIClients           map[string]int
+		uptime                    float64
+		accounts                  int
+		expirationEnabled         int
+		users                     int
+		serviceUsers              int
+		pats                      int
+		peers                     int
+		peersSSHEnabled           int
+		setupKeysUsage            int
+		ephemeralPeersSKs         int
+		ephemeralPeersSKUsage     int
+		activePeersLastDay        int
+		osPeers                   map[string]int
+		userPeers                 int
+		rules                     int
+		rulesProtocol             map[string]int
+		rulesDirection            map[string]int
+		rulesWithSrcPostureChecks int
+		postureChecks             int
+		groups                    int
+		routes                    int
+		routesWithRGGroups        int
+		nameservers               int
+		uiClient                  int
+		version                   string
+		peerActiveVersions        []string
+		osUIClients               map[string]int
 	)
 	start := time.Now()
 	metricsProperties := make(properties)
@@ -219,7 +221,12 @@ func (w *Worker) generateProperties() properties {
 					rulesDirection["oneway"]++
 				}
 			}
+			if len(policy.SourcePostureChecks) > 0 {
+				rulesWithSrcPostureChecks++
+			}
 		}
+
+		postureChecks += len(account.PostureChecks)
 
 		for _, user := range account.Users {
 			if user.IsServiceUser {
@@ -286,6 +293,8 @@ func (w *Worker) generateProperties() properties {
 	metricsProperties["active_peers_last_day"] = activePeersLastDay
 	metricsProperties["user_peers"] = userPeers
 	metricsProperties["rules"] = rules
+	metricsProperties["rules_with_src_posture_checks"] = rulesWithSrcPostureChecks
+	metricsProperties["posture_checks"] = postureChecks
 	metricsProperties["groups"] = groups
 	metricsProperties["routes"] = routes
 	metricsProperties["routes_with_routing_groups"] = routesWithRGGroups

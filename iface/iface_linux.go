@@ -53,7 +53,6 @@ func NewWGIFace(iFaceName string, address string, address6 string, wgPort int, w
 	wgIFace.tun = newTunUSPDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, transportNet)
 	wgIFace.userspaceBind = true
 	return wgIFace, nil
-
 }
 
 // CreateOnAndroid this function make sense on mobile only

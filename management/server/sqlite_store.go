@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"fmt"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -16,6 +18,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
@@ -63,7 +66,7 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 	err = db.AutoMigrate(
 		&SetupKey{}, &nbpeer.Peer{}, &User{}, &PersonalAccessToken{}, &Group{}, &Rule{},
 		&Account{}, &Policy{}, &PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
-		&installation{}, &account.ExtraSettings{},
+		&installation{}, &account.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 	)
 	if err != nil {
 		return nil, err
@@ -154,11 +157,6 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 	for id, group := range account.Groups {
 		group.ID = id
 		account.GroupsG = append(account.GroupsG, *group)
-	}
-
-	for id, rule := range account.Rules {
-		rule.ID = id
-		account.RulesG = append(account.RulesG, *rule)
 	}
 
 	for id, route := range account.Routes {
@@ -266,6 +264,18 @@ func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer
 	return s.db.Save(peer).Error
 }
 
+func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
+	var peer nbpeer.Peer
+	result := s.db.First(&peer, "account_id = ? and id = ?", accountID, peerWithLocation.ID)
+	if result.Error != nil {
+		return status.Errorf(status.NotFound, "peer %s not found", peer.ID)
+	}
+
+	peer.Location = peerWithLocation.Location
+
+	return s.db.Save(peer).Error
+}
+
 // DeleteHashedPAT2TokenIDIndex is noop in Sqlite
 func (s *SqliteStore) DeleteHashedPAT2TokenIDIndex(hashedToken string) error {
 	return nil
@@ -356,12 +366,12 @@ func (s *SqliteStore) GetAllAccounts() (all []*Account) {
 
 func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 	var account Account
-
 	result := s.db.Model(&account).
 		Preload("UsersG.PATsG"). // have to be specifies as this is nester reference
 		Preload(clause.Associations).
 		First(&account, "id = ?", accountID)
 	if result.Error != nil {
+		log.Errorf("when getting account from the store: %s", result.Error)
 		return nil, status.Errorf(status.NotFound, "account not found")
 	}
 
@@ -402,12 +412,6 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 		account.Groups[group.ID] = group.Copy()
 	}
 	account.GroupsG = nil
-
-	account.Rules = make(map[string]*Rule, len(account.RulesG))
-	for _, rule := range account.RulesG {
-		account.Rules[rule.ID] = rule.Copy()
-	}
-	account.RulesG = nil
 
 	account.Routes = make(map[string]*route.Route, len(account.RoutesG))
 	for _, route := range account.RoutesG {
@@ -481,12 +485,61 @@ func (s *SqliteStore) SaveUserLastLogin(accountID, userID string, lastLogin time
 	return s.db.Save(user).Error
 }
 
-// Close is noop in Sqlite
+// Close closes the underlying DB connection
 func (s *SqliteStore) Close() error {
-	return nil
+	sql, err := s.db.DB()
+	if err != nil {
+		return fmt.Errorf("get db: %w", err)
+	}
+	return sql.Close()
 }
 
 // GetStoreEngine returns SqliteStoreEngine
 func (s *SqliteStore) GetStoreEngine() StoreEngine {
 	return SqliteStoreEngine
+}
+
+// CalculateUsageStats returns the usage stats for an account
+// start and end are inclusive.
+func (s *SqliteStore) CalculateUsageStats(ctx context.Context, accountID string, start time.Time, end time.Time) (*AccountUsageStats, error) {
+	stats := &AccountUsageStats{}
+
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		err := tx.Model(&nbpeer.Peer{}).
+			Where("account_id = ? AND peer_status_last_seen BETWEEN ? AND ?", accountID, start, end).
+			Distinct("user_id").
+			Count(&stats.ActiveUsers).Error
+		if err != nil {
+			return fmt.Errorf("get active users: %w", err)
+		}
+
+		err = tx.Model(&User{}).
+			Where("account_id = ? AND is_service_user = ?", accountID, false).
+			Count(&stats.TotalUsers).Error
+		if err != nil {
+			return fmt.Errorf("get total users: %w", err)
+		}
+
+		err = tx.Model(&nbpeer.Peer{}).
+			Where("account_id = ? AND peer_status_last_seen BETWEEN ? AND ?", accountID, start, end).
+			Count(&stats.ActivePeers).Error
+		if err != nil {
+			return fmt.Errorf("get active peers: %w", err)
+		}
+
+		err = tx.Model(&nbpeer.Peer{}).
+			Where("account_id = ?", accountID).
+			Count(&stats.TotalPeers).Error
+		if err != nil {
+			return fmt.Errorf("get total peers: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("transaction: %w", err)
+	}
+
+	return stats, nil
 }

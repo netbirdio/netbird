@@ -7,14 +7,15 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/netbirdio/management-integrations/integrations"
 	"io"
 	"io/fs"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -29,9 +30,13 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
+	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -115,7 +120,7 @@ var (
 			}
 
 			if _, err = os.Stat(config.Datadir); os.IsNotExist(err) {
-				err = os.MkdirAll(config.Datadir, os.ModeDir)
+				err = os.MkdirAll(config.Datadir, 0755)
 				if err != nil {
 					return fmt.Errorf("failed creating datadir: %s: %v", config.Datadir, err)
 				}
@@ -159,15 +164,46 @@ var (
 				}
 			}
 
+			geo, err := geolocation.NewGeolocation(config.Datadir)
+			if err != nil {
+				log.Warnf("could not initialize geo location service, we proceed without geo support")
+			} else {
+				log.Infof("geo location service has been initialized from %s", config.Datadir)
+			}
+
 			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
-				dnsDomain, eventStore, userDeleteFromIDPEnabled)
+				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}
 
 			turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 
-			gRPCOpts := []grpc.ServerOption{grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp)}
+			trustedPeers := config.ReverseProxy.TrustedPeers
+			defaultTrustedPeers := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
+			if len(trustedPeers) == 0 || slices.Equal[[]netip.Prefix](trustedPeers, defaultTrustedPeers) {
+				log.Warn("TrustedPeers are configured to default value '0.0.0.0/0', '::/0'. This allows connection IP spoofing.")
+				trustedPeers = defaultTrustedPeers
+			}
+			trustedHTTPProxies := config.ReverseProxy.TrustedHTTPProxies
+			trustedProxiesCount := config.ReverseProxy.TrustedHTTPProxiesCount
+			if len(trustedHTTPProxies) > 0 && trustedProxiesCount > 0 {
+				log.Warn("TrustedHTTPProxies and TrustedHTTPProxiesCount both are configured. " +
+					"This is not recommended way to extract X-Forwarded-For. Consider using one of these options.")
+			}
+			realipOpts := []realip.Option{
+				realip.WithTrustedPeers(trustedPeers),
+				realip.WithTrustedProxies(trustedHTTPProxies),
+				realip.WithTrustedProxiesCount(trustedProxiesCount),
+				realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
+			}
+			gRPCOpts := []grpc.ServerOption{
+				grpc.KeepaliveEnforcementPolicy(kaep),
+				grpc.KeepaliveParams(kasp),
+				grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...)),
+				grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...)),
+			}
+
 			var certManager *autocert.Manager
 			var tlsConfig *tls.Config
 			tlsEnabled := false
@@ -206,7 +242,10 @@ var (
 				UserIDClaim:  config.HttpConfig.AuthUserIDClaim,
 				KeysLocation: config.HttpConfig.AuthKeysLocation,
 			}
-			httpAPIHandler, err := httpapi.APIHandler(accountManager, *jwtValidator, appMetrics, httpAPIAuthCfg)
+
+			ctx, cancel := context.WithCancel(cmd.Context())
+			defer cancel()
+			httpAPIHandler, err := httpapi.APIHandler(ctx, accountManager, geo, *jwtValidator, appMetrics, httpAPIAuthCfg)
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}
@@ -228,8 +267,6 @@ var (
 			}
 
 			if !disableMetrics {
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
 				idpManager := "disabled"
 				if config.IdpManagerConfig != nil && config.IdpManagerConfig.ManagerType != "" {
 					idpManager = config.IdpManagerConfig.ManagerType
@@ -284,6 +321,9 @@ var (
 			SetupCloseHandler()
 
 			<-stopCh
+			if geo != nil {
+				_ = geo.Stop()
+			}
 			ephemeralManager.Stop()
 			_ = appMetrics.Close()
 			_ = listener.Close()

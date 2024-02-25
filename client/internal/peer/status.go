@@ -4,19 +4,28 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/netbirdio/netbird/client/internal/relay"
+	"github.com/netbirdio/netbird/iface"
 )
 
 // State contains the latest state of a peer
 type State struct {
-	IP                     string
-	PubKey                 string
-	FQDN                   string
-	ConnStatus             ConnStatus
-	ConnStatusUpdate       time.Time
-	Relayed                bool
-	Direct                 bool
-	LocalIceCandidateType  string
-	RemoteIceCandidateType string
+	IP                         string
+	PubKey                     string
+	FQDN                       string
+	ConnStatus                 ConnStatus
+	ConnStatusUpdate           time.Time
+	Relayed                    bool
+	Direct                     bool
+	LocalIceCandidateType      string
+	RemoteIceCandidateType     string
+	LocalIceCandidateEndpoint  string
+	RemoteIceCandidateEndpoint string
+	LastWireguardHandshake     time.Time
+	BytesTx                    int64
+	BytesRx                    int64
+	RosenpassEnabled           bool
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -32,12 +41,20 @@ type LocalPeerState struct {
 type SignalState struct {
 	URL       string
 	Connected bool
+	Error     error
 }
 
 // ManagementState contains the latest state of a management connection
 type ManagementState struct {
 	URL       string
 	Connected bool
+	Error     error
+}
+
+// RosenpassState contains the latest state of the Rosenpass configuration
+type RosenpassState struct {
+	Enabled    bool
+	Permissive bool
 }
 
 // FullStatus contains the full state held by the Status instance
@@ -46,20 +63,27 @@ type FullStatus struct {
 	ManagementState ManagementState
 	SignalState     SignalState
 	LocalPeerState  LocalPeerState
+	RosenpassState  RosenpassState
+	Relays          []relay.ProbeResult
 }
 
-// Status holds a state of peers, signal and management connections
+// Status holds a state of peers, signal, management connections and relays
 type Status struct {
-	mux             sync.Mutex
-	peers           map[string]State
-	changeNotify    map[string]chan struct{}
-	signalState     bool
-	managementState bool
-	localPeer       LocalPeerState
-	offlinePeers    []State
-	mgmAddress      string
-	signalAddress   string
-	notifier        *notifier
+	mux                 sync.Mutex
+	peers               map[string]State
+	changeNotify        map[string]chan struct{}
+	signalState         bool
+	signalError         error
+	managementState     bool
+	managementError     error
+	relayStates         []relay.ProbeResult
+	localPeer           LocalPeerState
+	offlinePeers        []State
+	mgmAddress          string
+	signalAddress       string
+	notifier            *notifier
+	rosenpassEnabled    bool
+	rosenpassPermissive bool
 
 	// To reduce the number of notification invocation this bool will be true when need to call the notification
 	// Some Peer actions mostly used by in a batch when the network map has been synchronized. In these type of events
@@ -157,6 +181,9 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		peerState.Relayed = receivedState.Relayed
 		peerState.LocalIceCandidateType = receivedState.LocalIceCandidateType
 		peerState.RemoteIceCandidateType = receivedState.RemoteIceCandidateType
+		peerState.LocalIceCandidateEndpoint = receivedState.LocalIceCandidateEndpoint
+		peerState.RemoteIceCandidateEndpoint = receivedState.RemoteIceCandidateEndpoint
+		peerState.RosenpassEnabled = receivedState.RosenpassEnabled
 	}
 
 	d.peers[receivedState.PubKey] = peerState
@@ -172,6 +199,25 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 	}
 
 	d.notifyPeerListChanged()
+	return nil
+}
+
+// UpdateWireGuardPeerState updates the WireGuard bits of the peer state
+func (d *Status) UpdateWireGuardPeerState(pubKey string, wgStats iface.WGStats) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[pubKey]
+	if !ok {
+		return errors.New("peer doesn't exist")
+	}
+
+	peerState.LastWireguardHandshake = wgStats.LastHandshake
+	peerState.BytesRx = wgStats.RxBytes
+	peerState.BytesTx = wgStats.TxBytes
+
+	d.peers[pubKey] = peerState
+
 	return nil
 }
 
@@ -249,12 +295,13 @@ func (d *Status) CleanLocalPeerState() {
 }
 
 // MarkManagementDisconnected sets ManagementState to disconnected
-func (d *Status) MarkManagementDisconnected() {
+func (d *Status) MarkManagementDisconnected(err error) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
 
 	d.managementState = false
+	d.managementError = err
 }
 
 // MarkManagementConnected sets ManagementState to connected
@@ -264,6 +311,7 @@ func (d *Status) MarkManagementConnected() {
 	defer d.onConnectionChanged()
 
 	d.managementState = true
+	d.managementError = nil
 }
 
 // UpdateSignalAddress update the address of the signal server
@@ -280,13 +328,22 @@ func (d *Status) UpdateManagementAddress(mgmAddress string) {
 	d.mgmAddress = mgmAddress
 }
 
+// UpdateRosenpass update the Rosenpass configuration
+func (d *Status) UpdateRosenpass(rosenpassEnabled, rosenpassPermissive bool) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.rosenpassPermissive = rosenpassPermissive
+	d.rosenpassEnabled = rosenpassEnabled
+}
+
 // MarkSignalDisconnected sets SignalState to disconnected
-func (d *Status) MarkSignalDisconnected() {
+func (d *Status) MarkSignalDisconnected(err error) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
 
 	d.signalState = false
+	d.signalError = err
 }
 
 // MarkSignalConnected sets SignalState to connected
@@ -296,6 +353,40 @@ func (d *Status) MarkSignalConnected() {
 	defer d.onConnectionChanged()
 
 	d.signalState = true
+	d.signalError = nil
+}
+
+func (d *Status) UpdateRelayStates(relayResults []relay.ProbeResult) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.relayStates = relayResults
+}
+
+func (d *Status) GetRosenpassState() RosenpassState {
+	return RosenpassState{
+		d.rosenpassEnabled,
+		d.rosenpassPermissive,
+	}
+}
+
+func (d *Status) GetManagementState() ManagementState {
+	return ManagementState{
+		d.mgmAddress,
+		d.managementState,
+		d.managementError,
+	}
+}
+
+func (d *Status) GetSignalState() SignalState {
+	return SignalState{
+		d.signalAddress,
+		d.signalState,
+		d.signalError,
+	}
+}
+
+func (d *Status) GetRelayStates() []relay.ProbeResult {
+	return d.relayStates
 }
 
 // GetFullStatus gets full status
@@ -304,15 +395,11 @@ func (d *Status) GetFullStatus() FullStatus {
 	defer d.mux.Unlock()
 
 	fullStatus := FullStatus{
-		ManagementState: ManagementState{
-			d.mgmAddress,
-			d.managementState,
-		},
-		SignalState: SignalState{
-			d.signalAddress,
-			d.signalState,
-		},
-		LocalPeerState: d.localPeer,
+		ManagementState: d.GetManagementState(),
+		SignalState:     d.GetSignalState(),
+		LocalPeerState:  d.localPeer,
+		Relays:          d.GetRelayStates(),
+		RosenpassState:  d.GetRosenpassState(),
 	}
 
 	for _, status := range d.peers {

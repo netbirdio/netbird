@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -158,18 +160,6 @@ func restore(file string) (*FileStore, error) {
 		}
 		if account.Policies == nil {
 			account.Policies = make([]*Policy, 0)
-		}
-		for _, rule := range account.Rules {
-			policy, err := RuleToPolicy(rule)
-			if err != nil {
-				log.Errorf("unable to migrate rule to policy: %v", err)
-				continue
-			}
-			// don't update policies from rules, rules deprecated,
-			// only append not existed rules as part of the migration process
-			if _, ok := policies[policy.ID]; !ok {
-				account.Policies = append(account.Policies, policy)
-			}
 		}
 
 		// for data migration. Can be removed once most base will be with labels
@@ -340,13 +330,6 @@ func (s *FileStore) SaveAccount(account *Account) error {
 
 	if accountCopy.DomainCategory == PrivateCategory && accountCopy.IsDomainPrimaryAccount {
 		s.PrivateDomain2AccountID[accountCopy.Domain] = accountCopy.Id
-	}
-
-	accountCopy.Rules = make(map[string]*Rule)
-	for _, policy := range accountCopy.Policies {
-		for _, rule := range policy.Rules {
-			accountCopy.Rules[rule.ID] = rule.ToRule()
-		}
 	}
 
 	return s.persist(s.storeFile)
@@ -626,6 +609,27 @@ func (s *FileStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.P
 	return nil
 }
 
+// SavePeerLocation stores the PeerStatus in memory. It doesn't attempt to persist data to speed up things.
+// Peer.Location will be saved eventually when some other changes occur.
+func (s *FileStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	peer := account.Peers[peerWithLocation.ID]
+	if peer == nil {
+		return status.Errorf(status.NotFound, "peer %s not found", peerWithLocation.ID)
+	}
+
+	peer.Location = peerWithLocation.Location
+
+	return nil
+}
+
 // SaveUserLastLogin stores the last login time for a user in memory. It doesn't attempt to persist data to speed up things.
 func (s *FileStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error {
 	s.mux.Lock()
@@ -659,4 +663,41 @@ func (s *FileStore) Close() error {
 // GetStoreEngine returns FileStoreEngine
 func (s *FileStore) GetStoreEngine() StoreEngine {
 	return FileStoreEngine
+}
+
+// CalculateUsageStats returns the usage stats for an account
+// start and end are inclusive.
+func (s *FileStore) CalculateUsageStats(_ context.Context, accountID string, start time.Time, end time.Time) (*AccountUsageStats, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, exists := s.Accounts[accountID]
+	if !exists {
+		return nil, fmt.Errorf("account not found")
+	}
+
+	stats := &AccountUsageStats{
+		TotalUsers: 0,
+		TotalPeers: int64(len(account.Peers)),
+	}
+
+	for _, user := range account.Users {
+		if !user.IsServiceUser {
+			stats.TotalUsers++
+		}
+	}
+
+	activeUsers := make(map[string]bool)
+	for _, peer := range account.Peers {
+		lastSeen := peer.Status.LastSeen
+		if lastSeen.Compare(start) >= 0 && lastSeen.Compare(end) <= 0 {
+			if _, exists := account.Users[peer.UserID]; exists && !activeUsers[peer.UserID] {
+				activeUsers[peer.UserID] = true
+				stats.ActiveUsers++
+			}
+			stats.ActivePeers++
+		}
+	}
+
+	return stats, nil
 }
