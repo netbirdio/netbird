@@ -50,6 +50,7 @@ func TestDefaultManager(t *testing.T) {
 		IP:      ip,
 		Network: network,
 	}).AnyTimes()
+	ifaceMock.EXPECT().Address6().Return(nil)
 
 	// we receive one rule from the management so for testing purposes ignore it
 	fw, err := firewall.NewFirewall(context.Background(), ifaceMock)
@@ -343,6 +344,7 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 		IP:      ip,
 		Network: network,
 	}).AnyTimes()
+	ifaceMock.EXPECT().Address6().Return(nil)
 
 	// we receive one rule from the management so for testing purposes ignore it
 	fw, err := firewall.NewFirewall(context.Background(), ifaceMock)

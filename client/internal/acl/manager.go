@@ -28,7 +28,6 @@ type DefaultManager struct {
 	ipsetCounter int
 	rulesPairs   map[string][]firewall.Rule
 	rulesPairs6  map[string][]firewall.Rule
-	v6Active     bool
 	mutex        sync.Mutex
 }
 
@@ -202,10 +201,10 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	var ip6 *net.IP = nil
 	if r.PeerIP6 != "" {
 		ip6tmp := net.ParseIP(r.PeerIP6)
-		ip6 = &ip6tmp
-		if ip6 == nil {
+		if ip6tmp == nil {
 			return "", nil, nil, fmt.Errorf("invalid IP address, skipping firewall rule")
 		}
+		ip6 = &ip6tmp
 	}
 
 	protocol, err := convertToFirewallProtocol(r.Protocol)

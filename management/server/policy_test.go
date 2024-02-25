@@ -138,6 +138,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 		epectedFirewallRules := []*FirewallRule{
 			{
 				PeerIP:    "0.0.0.0",
+				PeerIP6:   "::",
 				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
 				Protocol:  "all",
@@ -145,6 +146,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 			},
 			{
 				PeerIP:    "0.0.0.0",
+				PeerIP6:   "::",
 				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
 				Protocol:  "all",

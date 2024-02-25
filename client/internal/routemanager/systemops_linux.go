@@ -168,8 +168,11 @@ func enableIPForwarding() error {
 
 	// Do the same for IPv6
 	bytes, err = os.ReadFile(ipv6ForwardingPath)
+	if err != nil {
+		return err
+	}
 	if len(bytes) > 0 && bytes[0] == 49 {
 		return nil
 	}
-	return os.WriteFile(ipv6ForwardingPath, []byte("1"), 0644)
+	return os.WriteFile(ipv6ForwardingPath, []byte("1"), 0644) //nolint:gosec
 }

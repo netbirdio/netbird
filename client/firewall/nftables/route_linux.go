@@ -160,7 +160,7 @@ func (r *router) loadFilterTables() (*nftables.Table, *nftables.Table, error) {
 		err = errFilterTableNotFound
 	}
 
-	return table4, table6, errFilterTableNotFound
+	return table4, table6, err
 }
 
 func (r *router) createContainers() error {
@@ -497,7 +497,7 @@ func (r *router) cleanUpDefaultForwardRules() error {
 			if err != nil {
 				return err
 			}
-			rules6 = append(rules, rules6...)
+			rules = append(rules, rules6...)
 		}
 	}
 
