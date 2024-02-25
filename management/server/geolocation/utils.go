@@ -68,23 +68,11 @@ func decompressZipFile(filepath, destDir string) error {
 	defer r.Close()
 
 	for _, f := range r.File {
-		fpath := destDir + "/" + f.Name
-
 		if f.FileInfo().IsDir() {
-			err = os.MkdirAll(fpath, os.ModePerm)
-			if err != nil {
-				return err
-			}
 			continue
-		} else {
-			dir, _ := path.Split(fpath)
-			err = os.MkdirAll(dir, os.ModePerm)
-			if err != nil {
-				return err
-			}
 		}
 
-		outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		outFile, err := os.Create(path.Join(destDir, path.Base(f.Name)))
 		if err != nil {
 			return err
 		}
@@ -96,10 +84,8 @@ func decompressZipFile(filepath, destDir string) error {
 		}
 
 		_, err = io.Copy(outFile, rc)
-
 		outFile.Close()
 		rc.Close()
-
 		if err != nil {
 			return err
 		}
