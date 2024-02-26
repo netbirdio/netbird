@@ -166,7 +166,7 @@ var (
 
 			geo, err := geolocation.NewGeolocation(config.Datadir)
 			if err != nil {
-				log.Warnf("could not initialize geo location service, we proceed without geo support")
+				log.Warnf("could not initialize geo location service: %v, we proceed without geo support", err)
 			} else {
 				log.Infof("geo location service has been initialized from %s", config.Datadir)
 			}

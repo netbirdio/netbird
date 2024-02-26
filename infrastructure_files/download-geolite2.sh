@@ -43,21 +43,18 @@ download_geolite_mmdb() {
   mkdir -p "$EXTRACTION_DIR"
   tar -xzvf "$DATABASE_FILE" > /dev/null 2>&1
 
-  # Create a SHA256 signature file
   MMDB_FILE="GeoLite2-City.mmdb"
-  cd "$EXTRACTION_DIR"
-  sha256sum "$MMDB_FILE" > "$MMDB_FILE.sha256"
-  echo "SHA256 signature created for $MMDB_FILE."
-  cd - > /dev/null 2>&1
+  cp "$EXTRACTION_DIR"/"$MMDB_FILE" $MMDB_FILE
 
   # Remove downloaded files
+  rm -r "$EXTRACTION_DIR"
   rm "$DATABASE_FILE" "$SIGNATURE_FILE"
 
   # Done. Print next steps
   echo ""
   echo "Process completed successfully."
-  echo "Now you can place $EXTRACTION_DIR/$MMDB_FILE to 'datadir' of management service."
-  echo -e "Example:\n\tdocker compose cp $EXTRACTION_DIR/$MMDB_FILE management:/var/lib/netbird/"
+  echo "Now you can place $MMDB_FILE to 'datadir' of management service."
+  echo -e "Example:\n\tdocker compose cp $MMDB_FILE management:/var/lib/netbird/"
 }
 
 
