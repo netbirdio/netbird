@@ -198,3 +198,7 @@ jobs:
         uses: actions/checkout@v3
       - name: test script
         run: bash -x infrastructure_files/download-geolite2.sh
+      - name: test mmdb file exists
+        run: ls -l GeoLite2-City_*/GeoLite2-City.mmdb
+      - name: test geonames file exists
+        run: test -f geonames.db
