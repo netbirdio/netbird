@@ -11,6 +11,19 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 )
 
+func TestGetList(t *testing.T) {
+	bypassPaths := []string{"/path1", "/path2", "/path3"}
+
+	for _, path := range bypassPaths {
+		err := bypass.AddBypassPath(path)
+		require.NoError(t, err, "Adding bypass path should not fail")
+	}
+
+	list := bypass.GetList()
+
+	assert.ElementsMatch(t, bypassPaths, list, "Bypass path list did not match expected paths")
+}
+
 func TestAuthBypass(t *testing.T) {
 	dummyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -28,6 +41,13 @@ func TestAuthBypass(t *testing.T) {
 			name:           "Path added to bypass",
 			pathToAdd:      "/bypass",
 			testPath:       "/bypass",
+			expectBypass:   true,
+			expectHTTPCode: http.StatusOK,
+		},
+		{
+			name:           "Wildcard path added to bypass",
+			pathToAdd:      "/bypass/*",
+			testPath:       "/bypass/extra",
 			expectBypass:   true,
 			expectHTTPCode: http.StatusOK,
 		},
@@ -60,6 +80,13 @@ func TestAuthBypass(t *testing.T) {
 			expectHTTPCode: http.StatusOK,
 		},
 		{
+			name:           "Wildrarded subpath does not match bypass",
+			pathToAdd:      "/webhook/*",
+			testPath:       "/webhook/extra/path",
+			expectBypass:   false,
+			expectHTTPCode: http.StatusOK,
+		},
+		{
 			name:           "Similar path does not match bypass",
 			pathToAdd:      "/webhook",
 			testPath:       "/webhooking",
@@ -78,7 +105,8 @@ func TestAuthBypass(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.pathToAdd != "" {
-				bypass.AddBypassPath(tc.pathToAdd)
+				err := bypass.AddBypassPath(tc.pathToAdd)
+				require.NoError(t, err, "Adding bypass path should not fail")
 				defer bypass.RemovePath(tc.pathToAdd)
 			}
 
