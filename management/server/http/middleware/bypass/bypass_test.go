@@ -80,7 +80,7 @@ func TestAuthBypass(t *testing.T) {
 			expectHTTPCode: http.StatusOK,
 		},
 		{
-			name:           "Wildrarded subpath does not match bypass",
+			name:           "Wildcard subpath does not match bypass",
 			pathToAdd:      "/webhook/*",
 			testPath:       "/webhook/extra/path",
 			expectBypass:   false,
