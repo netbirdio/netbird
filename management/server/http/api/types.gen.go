@@ -199,7 +199,7 @@ type Checks struct {
 	// OsVersionCheck Posture check for the version of operating system
 	OsVersionCheck *OSVersionCheck `json:"os_version_check,omitempty"`
 
-	// PeerNetworkRangeCheck Posture check for allow or deny peer local network
+	// PeerNetworkRangeCheck Posture check for allow or deny access based on peer local network addresses
 	PeerNetworkRangeCheck *PeerNetworkRangeCheck `json:"peer_network_range_check,omitempty"`
 }
 
@@ -656,7 +656,7 @@ type PeerMinimum struct {
 	Name string `json:"name"`
 }
 
-// PeerNetworkRangeCheck Posture check for allow or deny peer local network
+// PeerNetworkRangeCheck Posture check for allow or deny access based on peer local network addresses
 type PeerNetworkRangeCheck struct {
 	// Action Action to take upon policy match
 	Action PeerNetworkRangeCheckAction `json:"action"`

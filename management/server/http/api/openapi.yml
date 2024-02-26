@@ -935,7 +935,7 @@ components:
         - locations
         - action
     PeerNetworkRangeCheck:
-      description: Posture check for allow or deny peer local network
+      description: Posture check for allow or deny access based on peer local network addresses
       type: object
       properties:
         ranges:
@@ -943,7 +943,7 @@ components:
           type: array
           items:
             type: string
-            example: ["192.168.1.0/24", "10.0.0.0/8"]
+            example: ["192.168.1.0/24", "10.0.0.0/8", "2001:db8:1234:1a00::/56"]
         action:
           description: Action to take upon policy match
           type: string
