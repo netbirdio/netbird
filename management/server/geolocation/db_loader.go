@@ -61,6 +61,8 @@ func LoadMaxMindDatabases(dataDir string) error {
 	return nil
 }
 
+// loadDatabase downloads a file from the specified URL and verifies its checksum.
+// It then calls the extract function to perform additional processing on the extracted files.
 func loadDatabase(checksumURL string, fileURL string, extractFunc func(src string, dst string) error) error {
 	temp, err := os.MkdirTemp(os.TempDir(), "geolite")
 	if err != nil {
@@ -68,7 +70,7 @@ func loadDatabase(checksumURL string, fileURL string, extractFunc func(src strin
 	}
 	defer os.RemoveAll(temp)
 
-	checksumFile := path.Join(temp, getFileName(checksumURL))
+	checksumFile := path.Join(temp, getDatabaseFileName(checksumURL))
 	err = downloadFile(checksumURL, checksumFile)
 	if err != nil {
 		return err
@@ -79,7 +81,7 @@ func loadDatabase(checksumURL string, fileURL string, extractFunc func(src strin
 		return err
 	}
 
-	dbFile := path.Join(temp, getFileName(fileURL))
+	dbFile := path.Join(temp, getDatabaseFileName(fileURL))
 	err = downloadFile(fileURL, dbFile)
 	if err != nil {
 		return err
@@ -92,7 +94,8 @@ func loadDatabase(checksumURL string, fileURL string, extractFunc func(src strin
 	return extractFunc(dbFile, temp)
 }
 
-func getFileName(urlStr string) string {
+// getDatabaseFileName extracts the file name from a given URL string.
+func getDatabaseFileName(urlStr string) string {
 	u, err := url.Parse(urlStr)
 	if err != nil {
 		panic(err)
