@@ -20,6 +20,27 @@ const (
 	GeoSqliteDBFile = "geonames.db"
 )
 
+type GeoNames struct {
+	GeoNameID           int    `gorm:"column:geoname_id"`
+	LocaleCode          string `gorm:"column:locale_code"`
+	ContinentCode       string `gorm:"column:continent_code"`
+	ContinentName       string `gorm:"column:continent_name"`
+	CountryIsoCode      string `gorm:"column:country_iso_code"`
+	CountryName         string `gorm:"column:country_name"`
+	Subdivision1IsoCode string `gorm:"column:subdivision_1_iso_code"`
+	Subdivision1Name    string `gorm:"column:subdivision_1_name"`
+	Subdivision2IsoCode string `gorm:"column:subdivision_2_iso_code"`
+	Subdivision2Name    string `gorm:"column:subdivision_2_name"`
+	CityName            string `gorm:"column:city_name"`
+	MetroCode           string `gorm:"column:metro_code"`
+	TimeZone            string `gorm:"column:time_zone"`
+	IsInEuropeanUnion   string `gorm:"column:is_in_european_union"`
+}
+
+func (*GeoNames) TableName() string {
+	return "geonames"
+}
+
 // SqliteStore represents a location storage backed by a Sqlite DB.
 type SqliteStore struct {
 	db        *gorm.DB
@@ -60,7 +81,7 @@ func (s *SqliteStore) GetAllCountries() ([]Country, error) {
 	}
 
 	var countries []Country
-	result := s.db.Table("geonames").
+	result := s.db.Model(&GeoNames{}).
 		Select("country_iso_code", "country_name").
 		Group("country_name").
 		Scan(&countries)
@@ -81,7 +102,7 @@ func (s *SqliteStore) GetCitiesByCountry(countryISOCode string) ([]City, error) 
 	}
 
 	var cities []City
-	result := s.db.Table("geonames").
+	result := s.db.Model(&GeoNames{}).
 		Select("geoname_id", "city_name").
 		Where("country_iso_code = ?", countryISOCode).
 		Group("city_name").

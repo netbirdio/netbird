@@ -1,10 +1,16 @@
 package geolocation
 
 import (
+	"encoding/csv"
 	"fmt"
 	"net/url"
 	"os"
 	"path"
+	"strconv"
+
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 const (
@@ -14,8 +20,8 @@ const (
 	geoLiteCitySha256ZipURL = "https://pkgs.netbird.io/geolocation-dbs/GeoLite2-City-CSV/download?suffix=zip.sha256"
 )
 
-// LoadMaxMindDatabases loads the MaxMind databases.
-func LoadMaxMindDatabases(dataDir string) error {
+// loadGeolocationDatabases loads the MaxMind databases.
+func loadGeolocationDatabases(dataDir string) error {
 	files := []string{MMDBFileName, GeoSqliteDBFile}
 	for _, file := range files {
 		exists, _ := fileExists(path.Join(dataDir, file))
@@ -45,8 +51,8 @@ func LoadMaxMindDatabases(dataDir string) error {
 				if err := decompressZipFile(src, dst); err != nil {
 					return err
 				}
-				// TODO: generate sqlite db from processed csv file
-				return nil
+				extractedCsvFile := path.Join(dst, "GeoLite2-City-Locations-en.csv")
+				return importCsvToSqlite(dataDir, extractedCsvFile)
 			}
 
 			if err := loadDatabase(
@@ -92,6 +98,81 @@ func loadDatabase(checksumURL string, fileURL string, extractFunc func(src strin
 	}
 
 	return extractFunc(dbFile, temp)
+}
+
+// importCsvToSqlite imports a CSV file into a SQLite database.
+func importCsvToSqlite(dataDir string, csvFile string) error {
+	geonames, err := loadGeonamesCsv(csvFile)
+	if err != nil {
+		return err
+	}
+
+	db, err := gorm.Open(sqlite.Open(path.Join(dataDir, GeoSqliteDBFile)), &gorm.Config{
+		Logger:          logger.Default.LogMode(logger.Info),
+		CreateBatchSize: 1000,
+		PrepareStmt:     true,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		sql, err := db.DB()
+		if err != nil {
+			return
+		}
+		sql.Close()
+	}()
+
+	if err := db.AutoMigrate(&GeoNames{}); err != nil {
+		return err
+	}
+
+	return db.Create(geonames).Error
+}
+
+func loadGeonamesCsv(filepath string) ([]GeoNames, error) {
+	f, err := os.Open(filepath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	reader := csv.NewReader(f)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+
+	var geoNames []GeoNames
+	for index, record := range records {
+		if index == 0 {
+			continue
+		}
+		geoNameID, err := strconv.Atoi(record[0])
+		if err != nil {
+			return nil, err
+		}
+
+		geoName := GeoNames{
+			GeoNameID:           geoNameID,
+			LocaleCode:          record[1],
+			ContinentCode:       record[2],
+			ContinentName:       record[3],
+			CountryIsoCode:      record[4],
+			CountryName:         record[5],
+			Subdivision1IsoCode: record[6],
+			Subdivision1Name:    record[7],
+			Subdivision2IsoCode: record[8],
+			Subdivision2Name:    record[9],
+			CityName:            record[10],
+			MetroCode:           record[11],
+			TimeZone:            record[12],
+			IsInEuropeanUnion:   record[13],
+		}
+		geoNames = append(geoNames, geoName)
+	}
+
+	return geoNames, nil
 }
 
 // getDatabaseFileName extracts the file name from a given URL string.

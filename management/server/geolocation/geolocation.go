@@ -53,7 +53,7 @@ type Country struct {
 }
 
 func NewGeolocation(dataDir string) (*Geolocation, error) {
-	if err := loadMaxMindDatabases(dataDir); err != nil {
+	if err := loadGeolocationDatabases(dataDir); err != nil {
 		return nil, fmt.Errorf("failed to load MaxMind databases: %v", err)
 	}
 
