@@ -82,6 +82,7 @@ func (c *Client) Run(fd int32, interfaceName string) error {
 		return err
 	}
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
+	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
 	var ctx context.Context
 	//nolint
