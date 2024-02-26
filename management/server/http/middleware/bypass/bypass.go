@@ -1,6 +1,7 @@
 package bypass
 
 import (
+	"fmt"
 	"net/http"
 	"path"
 	"sync"
