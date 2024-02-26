@@ -10,7 +10,6 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
-	"github.com/netbirdio/netbird/management/server/integrated_approval"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -20,18 +19,16 @@ import (
 type PeersHandler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
-	peerValidator   integrated_approval.IntegratedApproval
 }
 
 // NewPeersHandler creates a new PeersHandler HTTP handler
-func NewPeersHandler(accountManager server.AccountManager, authCfg AuthCfg, peerValidator integrated_approval.IntegratedApproval) *PeersHandler {
+func NewPeersHandler(accountManager server.AccountManager, authCfg AuthCfg) *PeersHandler {
 	return &PeersHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
 			jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
 		),
-		peerValidator: peerValidator,
 	}
 }
 
@@ -64,7 +61,7 @@ func (h *PeersHandler) getPeer(account *server.Account, peerID, userID string, w
 
 	groupsInfo := toGroupsInfo(account.Groups, peer.ID)
 
-	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain(), h.peerValidator)
+	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain())
 	accessiblePeers := toAccessiblePeers(netMap, dnsDomain)
 
 	util.WriteJSONObject(w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, accessiblePeers))
@@ -94,7 +91,7 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 
 	groupMinimumInfo := toGroupsInfo(account.Groups, peer.ID)
 
-	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain(), h.peerValidator)
+	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain())
 	accessiblePeers := toAccessiblePeers(netMap, dnsDomain)
 
 	util.WriteJSONObject(w, toSinglePeerResponse(peer, groupMinimumInfo, dnsDomain, accessiblePeers))
@@ -179,7 +176,7 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PeersHandler) accessiblePeersNumber(account *server.Account, peerID string) int {
-	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain(), h.peerValidator)
+	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain())
 	return len(netMap.Peers) + len(netMap.OfflinePeers)
 }
 

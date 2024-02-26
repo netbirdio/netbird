@@ -12,7 +12,6 @@ import (
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
-	"github.com/netbirdio/netbird/management/server/integrated_approval"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
@@ -32,7 +31,6 @@ type apiHandler struct {
 	AccountManager     s.AccountManager
 	geolocationManager *geolocation.Geolocation
 	AuthCfg            AuthCfg
-	integratedPeerValidator integrated_approval.IntegratedApproval
 }
 
 // EmptyObject is an empty struct used to return empty JSON object
@@ -40,7 +38,7 @@ type emptyObject struct {
 }
 
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationManager *geolocation.Geolocation, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg AuthCfg, integratedPeerValidator integrated_approval.IntegratedApproval) (http.Handler, error) {
+func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationManager *geolocation.Geolocation, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg AuthCfg) (http.Handler, error) {
 	claimsExtractor := jwtclaims.NewClaimsExtractor(
 		jwtclaims.WithAudience(authCfg.Audience),
 		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
@@ -75,7 +73,6 @@ func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationMa
 		AccountManager:     accountManager,
 		geolocationManager: LocationManager,
 		AuthCfg:            authCfg,
-		integratedPeerValidator: integratedPeerValidator,
 	}
 
 	if _, err := integrations.RegisterHandlers(ctx, prefix, api.Router, accountManager, claimsExtractor); err != nil {
@@ -129,7 +126,7 @@ func (apiHandler *apiHandler) addAccountsEndpoint() {
 }
 
 func (apiHandler *apiHandler) addPeersEndpoint() {
-	peersHandler := NewPeersHandler(apiHandler.AccountManager, apiHandler.AuthCfg, apiHandler.integratedPeerValidator)
+	peersHandler := NewPeersHandler(apiHandler.AccountManager, apiHandler.AuthCfg)
 	apiHandler.Router.HandleFunc("/peers", peersHandler.GetAllPeers).Methods("GET", "OPTIONS")
 	apiHandler.Router.HandleFunc("/peers/{peerId}", peersHandler.HandlePeer).
 		Methods("GET", "PUT", "DELETE", "OPTIONS")

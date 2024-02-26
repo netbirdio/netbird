@@ -297,7 +297,7 @@ func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, erro
 		return nil, status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
 	}
 
-	return account.GetPeerNetworkMap(peer.ID, am.dnsDomain, am.integratedPeerValidator), nil
+	return account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
 }
 
 // GetPeerNetwork returns the Network for a given peer
@@ -480,7 +480,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 
 	am.updateAccountPeers(account)
 
-	networkMap := account.GetPeerNetworkMap(newPeer.ID, am.dnsDomain, am.integratedPeerValidator)
+	networkMap := account.GetPeerNetworkMap(newPeer.ID, am.dnsDomain)
 	return newPeer, networkMap, nil
 }
 
@@ -528,7 +528,7 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *Network
 		}
 	}
 
-	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain, am.integratedPeerValidator), nil
+	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
 }
 
 // LoginPeer logs in or registers a peer.
@@ -620,7 +620,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 		am.updateAccountPeers(account)
 	}
 
-	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain, am.integratedPeerValidator), nil
+	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
 }
 
 func checkIfPeerOwnerIsBlocked(peer *nbpeer.Peer, account *Account) error {
@@ -791,7 +791,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) {
 	peers := account.GetPeers()
 
 	for _, peer := range peers {
-		remotePeerNetworkMap := account.GetPeerNetworkMap(peer.ID, am.dnsDomain, am.integratedPeerValidator)
+		remotePeerNetworkMap := account.GetPeerNetworkMap(peer.ID, am.dnsDomain)
 		update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain())
 		am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})
 	}

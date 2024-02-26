@@ -384,7 +384,7 @@ func (a *Account) GetGroup(groupID string) *Group {
 }
 
 // GetPeerNetworkMap returns a group by ID if exists, nil otherwise
-func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string, integratedValidator integrated_approval.IntegratedApproval) *NetworkMap {
+func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 	peer := a.Peers[peerID]
 	if peer == nil {
 		return &NetworkMap{
