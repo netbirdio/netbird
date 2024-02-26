@@ -189,3 +189,10 @@ jobs:
         run: test -f zitadel.env
       - name: test dashboard.env file gen
         run: test -f dashboard.env
+  test-download-geolite2-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install jq
+        run: sudo update && sudo apt-get install -y unzip sqlite3
+      - name: test script
+        run: bash -x infrastructure_files/download-geolite2.sh

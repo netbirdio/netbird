@@ -16,6 +16,12 @@ then
     exit 1
 fi
 
+if ! command -v unzip &> /dev/null
+then
+    echo "unzip is not installed or not in PATH, please install with your package manager. e.g. sudo apt install unzip" > /dev/stderr
+    exit 1
+fi
+
 download_geolite_mmdb() {
   DATABASE_URL="https://pkgs.netbird.io/geolocation-dbs/GeoLite2-City/download?suffix=tar.gz"
   SIGNATURE_URL="https://pkgs.netbird.io/geolocation-dbs/GeoLite2-City/download?suffix=tar.gz.sha256"
@@ -51,6 +57,7 @@ download_geolite_mmdb() {
   rm "$DATABASE_FILE" "$SIGNATURE_FILE"
 
   # Done. Print next steps
+  echo ""
   echo "Process completed successfully."
   echo "Now you can place $EXTRACTION_DIR/$MMDB_FILE to 'datadir' of management service."
   echo -e "Example:\n\tdocker compose cp $EXTRACTION_DIR/$MMDB_FILE management:/var/lib/netbird/"
@@ -94,12 +101,15 @@ EOF
   # Remove downloaded and extracted files
   rm -r -r "$EXTRACTION_DIR"
   rm  "$DATABASE_FILE" "$SIGNATURE_FILE"
-
+  echo ""
   echo "SQLite database '$DB_NAME' created successfully."
   echo "Now you can place $DB_NAME to 'datadir' of management service."
   echo -e "Example:\n\tdocker compose cp $DB_NAME management:/var/lib/netbird/"
 }
 
 download_geolite_mmdb
-echo ""
+echo -e "\n\n"
 download_geolite_csv_and_create_sqlite_db
+echo -e "\n\n"
+echo "After copying the database files to the management service. You can restart the management service with:"
+echo -e "Example:\n\tdocker compose restart management"
