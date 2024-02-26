@@ -44,7 +44,7 @@ type Peer struct {
 	LastLogin time.Time
 	// Indicate ephemeral peer attribute
 	Ephemeral bool
-	// Geo location based on connection IP
+	// Geolocation based on connection IP
 	Location Location `gorm:"embedded;embeddedPrefix:location_"`
 }
 
@@ -89,7 +89,7 @@ type PeerSystemMeta struct {
 	SystemSerialNumber string
 	SystemProductName  string
 	SystemManufacturer string
-	Ipv6Supported bool
+	Ipv6Supported      bool
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {

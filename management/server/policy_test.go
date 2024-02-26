@@ -665,6 +665,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 		expectedFirewallRules := []*FirewallRule{
 			{
 				PeerIP:    "0.0.0.0",
+				PeerIP6:   "::",
 				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
 				Protocol:  "tcp",
