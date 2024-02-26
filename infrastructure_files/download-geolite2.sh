@@ -1,20 +1,5 @@
 #!/bin/bash
 
-# set $MM_ACCOUNT_ID and $MM_LICENSE_KEY when calling this script
-# see https://dev.maxmind.com/geoip/updating-databases#directly-downloading-databases
-
-# Check if MM_ACCOUNT_ID is set
-if [ -z "$MM_ACCOUNT_ID" ]; then
-    echo "MM_ACCOUNT_ID is not set. Please set the environment variable."
-    exit 1
-fi
-
-# Check if MM_LICENSE_KEY is set
-if [ -z "$MM_LICENSE_KEY" ]; then
-    echo "MM_LICENSE_KEY is not set. Please set the environment variable."
-    exit 1
-fi
-
 # to install sha256sum on mac: brew install coreutils
 if ! command -v sha256sum &> /dev/null
 then
@@ -28,15 +13,20 @@ then
     exit 1
 fi
 
-download_geolite_mmdb() {
-  DATABASE_URL="https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz"
-  SIGNATURE_URL="https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz.sha256"
+if ! command -v unzip &> /dev/null
+then
+    echo "unzip is not installed or not in PATH, please install with your package manager. e.g. sudo apt install unzip" > /dev/stderr
+    exit 1
+fi
 
+download_geolite_mmdb() {
+  DATABASE_URL="https://pkgs.netbird.io/geolocation-dbs/GeoLite2-City/download?suffix=tar.gz"
+  SIGNATURE_URL="https://pkgs.netbird.io/geolocation-dbs/GeoLite2-City/download?suffix=tar.gz.sha256"
   # Download the database and signature files
-  echo "Downloading mmdb database file..."
-  DATABASE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J "$DATABASE_URL" -w "%{filename_effective}")
   echo "Downloading mmdb signature file..."
-  SIGNATURE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J "$SIGNATURE_URL" -w "%{filename_effective}")
+  SIGNATURE_FILE=$(curl -s  -L -O -J "$SIGNATURE_URL" -w "%{filename_effective}")
+  echo "Downloading mmdb database file..."
+  DATABASE_FILE=$(curl -s  -L -O -J "$DATABASE_URL" -w "%{filename_effective}")
 
   # Verify the signature
   echo "Verifying signature..."
@@ -64,6 +54,7 @@ download_geolite_mmdb() {
   rm "$DATABASE_FILE" "$SIGNATURE_FILE"
 
   # Done. Print next steps
+  echo ""
   echo "Process completed successfully."
   echo "Now you can place $EXTRACTION_DIR/$MMDB_FILE to 'datadir' of management service."
   echo -e "Example:\n\tdocker compose cp $EXTRACTION_DIR/$MMDB_FILE management:/var/lib/netbird/"
@@ -71,15 +62,15 @@ download_geolite_mmdb() {
 
 
 download_geolite_csv_and_create_sqlite_db() {
-  DATABASE_URL="https://download.maxmind.com/geoip/databases/GeoLite2-City-CSV/download?suffix=zip"
-  SIGNATURE_URL="https://download.maxmind.com/geoip/databases/GeoLite2-City-CSV/download?suffix=zip.sha256"
+  DATABASE_URL="https://pkgs.netbird.io/geolocation-dbs/GeoLite2-City-CSV/download?suffix=zip"
+  SIGNATURE_URL="https://pkgs.netbird.io/geolocation-dbs/GeoLite2-City-CSV/download?suffix=zip.sha256"
 
 
   # Download the database file
-  echo "Downloading csv database file..."
-  DATABASE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J "$DATABASE_URL" -w "%{filename_effective}")
   echo "Downloading csv signature file..."
-  SIGNATURE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J "$SIGNATURE_URL" -w "%{filename_effective}")
+  SIGNATURE_FILE=$(curl -s  -L -O -J "$SIGNATURE_URL" -w "%{filename_effective}")
+  echo "Downloading csv database file..."
+  DATABASE_FILE=$(curl -s  -L -O -J "$DATABASE_URL" -w "%{filename_effective}")
 
   # Verify the signature
   echo "Verifying signature..."
@@ -107,12 +98,15 @@ EOF
   # Remove downloaded and extracted files
   rm -r -r "$EXTRACTION_DIR"
   rm  "$DATABASE_FILE" "$SIGNATURE_FILE"
-
+  echo ""
   echo "SQLite database '$DB_NAME' created successfully."
   echo "Now you can place $DB_NAME to 'datadir' of management service."
   echo -e "Example:\n\tdocker compose cp $DB_NAME management:/var/lib/netbird/"
 }
 
 download_geolite_mmdb
-echo ""
+echo -e "\n\n"
 download_geolite_csv_and_create_sqlite_db
+echo -e "\n\n"
+echo "After copying the database files to the management service. You can restart the management service with:"
+echo -e "Example:\n\tdocker compose restart management"
