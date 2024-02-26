@@ -137,6 +137,13 @@ create_new_application() {
   BASE_REDIRECT_URL2=$5
   LOGOUT_URL=$6
   ZITADEL_DEV_MODE=$7
+  DEVICE_CODE=$8
+
+  if [[ $DEVICE_CODE == "true" ]]; then
+    GRANT_TYPES='["OIDC_GRANT_TYPE_AUTHORIZATION_CODE","OIDC_GRANT_TYPE_DEVICE_CODE","OIDC_GRANT_TYPE_REFRESH_TOKEN"]'
+  else
+    GRANT_TYPES='["OIDC_GRANT_TYPE_AUTHORIZATION_CODE","OIDC_GRANT_TYPE_REFRESH_TOKEN"]'
+  fi
 
   RESPONSE=$(
     curl -sS -X POST "$INSTANCE_URL/management/v1/projects/$PROJECT_ID/apps/oidc" \
@@ -154,10 +161,7 @@ create_new_application() {
     "RESPONSETypes": [
       "OIDC_RESPONSE_TYPE_CODE"
     ],
-    "grantTypes": [
-      "OIDC_GRANT_TYPE_AUTHORIZATION_CODE",
-      "OIDC_GRANT_TYPE_REFRESH_TOKEN"
-    ],
+    "grantTypes": '"$GRANT_TYPES"',
     "appType": "OIDC_APP_TYPE_USER_AGENT",
     "authMethodType": "OIDC_AUTH_METHOD_TYPE_NONE",
     "version": "OIDC_VERSION_1_0",
@@ -340,10 +344,10 @@ init_zitadel() {
 
   # create zitadel spa applications
   echo "Creating new Zitadel SPA Dashboard application"
-  DASHBOARD_APPLICATION_CLIENT_ID=$(create_new_application "$INSTANCE_URL" "$PAT" "Dashboard" "$BASE_REDIRECT_URL/nb-auth" "$BASE_REDIRECT_URL/nb-silent-auth" "$BASE_REDIRECT_URL/" "$ZITADEL_DEV_MODE")
+  DASHBOARD_APPLICATION_CLIENT_ID=$(create_new_application "$INSTANCE_URL" "$PAT" "Dashboard" "$BASE_REDIRECT_URL/nb-auth" "$BASE_REDIRECT_URL/nb-silent-auth" "$BASE_REDIRECT_URL/" "$ZITADEL_DEV_MODE" "false")
 
   echo "Creating new Zitadel SPA Cli application"
-  CLI_APPLICATION_CLIENT_ID=$(create_new_application "$INSTANCE_URL" "$PAT" "Cli" "http://localhost:53000/" "http://localhost:54000/" "http://localhost:53000/" "true")
+  CLI_APPLICATION_CLIENT_ID=$(create_new_application "$INSTANCE_URL" "$PAT" "Cli" "http://localhost:53000/" "http://localhost:54000/" "http://localhost:53000/" "true" "true")
 
   MACHINE_USER_ID=$(create_service_user "$INSTANCE_URL" "$PAT")
 
@@ -561,6 +565,8 @@ renderCaddyfile() {
     reverse_proxy /.well-known/openid-configuration h2c://zitadel:8080
     reverse_proxy /openapi/* h2c://zitadel:8080
     reverse_proxy /debug/* h2c://zitadel:8080
+    reverse_proxy /device/* h2c://zitadel:8080
+    reverse_proxy /device h2c://zitadel:8080
     # Dashboard
     reverse_proxy /* dashboard:80
 }
@@ -628,6 +634,14 @@ renderManagementJson() {
         "ExtraConfig": {
             "ManagementEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/management/v1"
         }
+     },
+   "DeviceAuthorizationFlow": {
+       "Provider": "hosted",
+       "ProviderConfig": {
+           "Audience": "$NETBIRD_AUTH_CLIENT_ID_CLI",
+           "ClientID": "$NETBIRD_AUTH_CLIENT_ID_CLI",
+           "Scope": "openid"
+       }
      },
     "PKCEAuthorizationFlow": {
         "ProviderConfig": {
