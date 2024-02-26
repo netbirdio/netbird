@@ -35,7 +35,6 @@ func loadGeolocationDatabases(dataDir string) error {
 				if err := decompressTarGzFile(src, dst); err != nil {
 					return err
 				}
-				// move the extracted db file to management data directory
 				return os.Rename(path.Join(dst, MMDBFileName), path.Join(dataDir, MMDBFileName))
 			}
 			if err := loadDatabase(
@@ -108,7 +107,7 @@ func importCsvToSqlite(dataDir string, csvFile string) error {
 	}
 
 	db, err := gorm.Open(sqlite.Open(path.Join(dataDir, GeoSqliteDBFile)), &gorm.Config{
-		Logger:          logger.Default.LogMode(logger.Info),
+		Logger:          logger.Default.LogMode(logger.Silent),
 		CreateBatchSize: 1000,
 		PrepareStmt:     true,
 	})
