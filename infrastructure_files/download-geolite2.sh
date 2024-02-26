@@ -3,18 +3,6 @@
 # set $MM_ACCOUNT_ID and $MM_LICENSE_KEY when calling this script
 # see https://dev.maxmind.com/geoip/updating-databases#directly-downloading-databases
 
-# Check if MM_ACCOUNT_ID is set
-if [ -z "$MM_ACCOUNT_ID" ]; then
-    echo "MM_ACCOUNT_ID is not set. Please set the environment variable."
-    exit 1
-fi
-
-# Check if MM_LICENSE_KEY is set
-if [ -z "$MM_LICENSE_KEY" ]; then
-    echo "MM_LICENSE_KEY is not set. Please set the environment variable."
-    exit 1
-fi
-
 # to install sha256sum on mac: brew install coreutils
 if ! command -v sha256sum &> /dev/null
 then
@@ -29,14 +17,13 @@ then
 fi
 
 download_geolite_mmdb() {
-  DATABASE_URL="https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz"
-  SIGNATURE_URL="https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz.sha256"
-
+  DATABASE_URL="https://pkgs.netbird.io/geolocation-dbs/GeoLite2-City/download?suffix=tar.gz"
+  SIGNATURE_URL="https://pkgs.netbird.io/geolocation-dbs/GeoLite2-City/download?suffix=tar.gz.sha256"
   # Download the database and signature files
-  echo "Downloading mmdb database file..."
-  DATABASE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J "$DATABASE_URL" -w "%{filename_effective}")
   echo "Downloading mmdb signature file..."
-  SIGNATURE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J "$SIGNATURE_URL" -w "%{filename_effective}")
+  SIGNATURE_FILE=$(curl -s  -L -O -J "$SIGNATURE_URL" -w "%{filename_effective}")
+  echo "Downloading mmdb database file..."
+  DATABASE_FILE=$(curl -s  -L -O -J "$DATABASE_URL" -w "%{filename_effective}")
 
   # Verify the signature
   echo "Verifying signature..."
@@ -71,15 +58,15 @@ download_geolite_mmdb() {
 
 
 download_geolite_csv_and_create_sqlite_db() {
-  DATABASE_URL="https://download.maxmind.com/geoip/databases/GeoLite2-City-CSV/download?suffix=zip"
-  SIGNATURE_URL="https://download.maxmind.com/geoip/databases/GeoLite2-City-CSV/download?suffix=zip.sha256"
+  DATABASE_URL="https://pkgs.netbird.io/geolocation-dbs/GeoLite2-City-CSV/download?suffix=zip"
+  SIGNATURE_URL="https://pkgs.netbird.io/geolocation-dbs/GeoLite2-City-CSV/download?suffix=zip.sha256"
 
 
   # Download the database file
-  echo "Downloading csv database file..."
-  DATABASE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J "$DATABASE_URL" -w "%{filename_effective}")
   echo "Downloading csv signature file..."
-  SIGNATURE_FILE=$(curl -s -u "$MM_ACCOUNT_ID":"$MM_LICENSE_KEY" -L -O -J "$SIGNATURE_URL" -w "%{filename_effective}")
+  SIGNATURE_FILE=$(curl -s  -L -O -J "$SIGNATURE_URL" -w "%{filename_effective}")
+  echo "Downloading csv database file..."
+  DATABASE_FILE=$(curl -s  -L -O -J "$DATABASE_URL" -w "%{filename_effective}")
 
   # Verify the signature
   echo "Verifying signature..."
