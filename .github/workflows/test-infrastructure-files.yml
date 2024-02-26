@@ -127,6 +127,9 @@ jobs:
       - name: Install modules
         run: go mod tidy
 
+      - name: check git status
+        run: git --no-pager diff --exit-code
+
       - name: Build management binary
         working-directory: management
         run: CGO_ENABLED=1 go build -o netbird-mgmt main.go
@@ -186,3 +189,16 @@ jobs:
         run: test -f zitadel.env
       - name: test dashboard.env file gen
         run: test -f dashboard.env
+  test-download-geolite2-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y unzip sqlite3
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: test script
+        run: bash -x infrastructure_files/download-geolite2.sh
+      - name: test mmdb file exists
+        run: ls -l GeoLite2-City_*/GeoLite2-City.mmdb
+      - name: test geonames file exists
+        run: test -f geonames.db

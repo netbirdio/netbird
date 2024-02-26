@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"net/http"
+	"net/netip"
 	"regexp"
 	"slices"
 
@@ -212,6 +213,14 @@ func (p *PostureChecksHandler) savePostureChecks(
 		postureChecks.Checks.GeoLocationCheck = toPostureGeoLocationCheck(geoLocationCheck)
 	}
 
+	if privateNetworkCheck := req.Checks.PrivateNetworkCheck; privateNetworkCheck != nil {
+		postureChecks.Checks.PrivateNetworkCheck, err = toPrivateNetworkCheck(privateNetworkCheck)
+		if err != nil {
+			util.WriteError(status.Errorf(status.InvalidArgument, "invalid network prefix"), w)
+			return
+		}
+	}
+
 	if err := p.accountManager.SavePostureChecks(account.Id, user.Id, &postureChecks); err != nil {
 		util.WriteError(err, w)
 		return
@@ -226,7 +235,7 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 	}
 
 	if req.Checks == nil || (req.Checks.NbVersionCheck == nil && req.Checks.OsVersionCheck == nil &&
-		req.Checks.GeoLocationCheck == nil) {
+		req.Checks.GeoLocationCheck == nil && req.Checks.PrivateNetworkCheck == nil) {
 		return status.Errorf(status.InvalidArgument, "posture checks shouldn't be empty")
 	}
 
@@ -267,7 +276,20 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 				return status.Errorf(status.InvalidArgument, "country code must be 2 letters (ISO 3166-1 alpha-2 format)")
 			}
 		}
+	}
 
+	if privateNetworkCheck := req.Checks.PrivateNetworkCheck; privateNetworkCheck != nil {
+		if privateNetworkCheck.Action == "" {
+			return status.Errorf(status.InvalidArgument, "action for private network check shouldn't be empty")
+		}
+
+		allowedActions := []api.PrivateNetworkCheckAction{api.PrivateNetworkCheckActionAllow, api.PrivateNetworkCheckActionDeny}
+		if !slices.Contains(allowedActions, privateNetworkCheck.Action) {
+			return status.Errorf(status.InvalidArgument, "action for private network check is not valid value")
+		}
+		if len(privateNetworkCheck.Ranges) == 0 {
+			return status.Errorf(status.InvalidArgument, "network ranges for private network check shouldn't be empty")
+		}
 	}
 
 	return nil
@@ -294,6 +316,10 @@ func toPostureChecksResponse(postureChecks *posture.Checks) *api.PostureCheck {
 
 	if postureChecks.Checks.GeoLocationCheck != nil {
 		checks.GeoLocationCheck = toGeoLocationCheckResponse(postureChecks.Checks.GeoLocationCheck)
+	}
+
+	if postureChecks.Checks.PrivateNetworkCheck != nil {
+		checks.PrivateNetworkCheck = toPrivateNetworkCheckResponse(postureChecks.Checks.PrivateNetworkCheck)
 	}
 
 	return &api.PostureCheck{
@@ -341,4 +367,32 @@ func toPostureGeoLocationCheck(apiGeoLocationCheck *api.GeoLocationCheck) *postu
 		Action:    string(apiGeoLocationCheck.Action),
 		Locations: locations,
 	}
+}
+
+func toPrivateNetworkCheckResponse(check *posture.PrivateNetworkCheck) *api.PrivateNetworkCheck {
+	netPrefixes := make([]string, 0, len(check.Ranges))
+	for _, netPrefix := range check.Ranges {
+		netPrefixes = append(netPrefixes, netPrefix.String())
+	}
+
+	return &api.PrivateNetworkCheck{
+		Ranges: netPrefixes,
+		Action: api.PrivateNetworkCheckAction(check.Action),
+	}
+}
+
+func toPrivateNetworkCheck(check *api.PrivateNetworkCheck) (*posture.PrivateNetworkCheck, error) {
+	prefixes := make([]netip.Prefix, 0)
+	for _, prefix := range check.Ranges {
+		parsedPrefix, err := netip.ParsePrefix(prefix)
+		if err != nil {
+			return nil, err
+		}
+		prefixes = append(prefixes, parsedPrefix)
+	}
+
+	return &posture.PrivateNetworkCheck{
+		Ranges: prefixes,
+		Action: string(check.Action),
+	}, nil
 }

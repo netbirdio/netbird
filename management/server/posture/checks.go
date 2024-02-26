@@ -2,6 +2,7 @@ package posture
 
 import (
 	"fmt"
+	"net/netip"
 
 	"github.com/hashicorp/go-version"
 
@@ -9,9 +10,13 @@ import (
 )
 
 const (
-	NBVersionCheckName   = "NBVersionCheck"
-	OSVersionCheckName   = "OSVersionCheck"
-	GeoLocationCheckName = "GeoLocationCheck"
+	NBVersionCheckName      = "NBVersionCheck"
+	OSVersionCheckName      = "OSVersionCheck"
+	GeoLocationCheckName    = "GeoLocationCheck"
+	PrivateNetworkCheckName = "PrivateNetworkCheck"
+
+	CheckActionAllow string = "allow"
+	CheckActionDeny  string = "deny"
 )
 
 // Check represents an interface for performing a check on a peer.
@@ -39,9 +44,10 @@ type Checks struct {
 
 // ChecksDefinition contains definition of actual check
 type ChecksDefinition struct {
-	NBVersionCheck   *NBVersionCheck   `json:",omitempty"`
-	OSVersionCheck   *OSVersionCheck   `json:",omitempty"`
-	GeoLocationCheck *GeoLocationCheck `json:",omitempty"`
+	NBVersionCheck      *NBVersionCheck      `json:",omitempty"`
+	OSVersionCheck      *OSVersionCheck      `json:",omitempty"`
+	GeoLocationCheck    *GeoLocationCheck    `json:",omitempty"`
+	PrivateNetworkCheck *PrivateNetworkCheck `json:",omitempty"`
 }
 
 // Copy returns a copy of a checks definition.
@@ -54,7 +60,7 @@ func (cd ChecksDefinition) Copy() ChecksDefinition {
 	}
 	if cd.OSVersionCheck != nil {
 		cdCopy.OSVersionCheck = &OSVersionCheck{}
-		osCheck := cdCopy.OSVersionCheck
+		osCheck := cd.OSVersionCheck
 		if osCheck.Android != nil {
 			cdCopy.OSVersionCheck.Android = &MinVersionCheck{MinVersion: osCheck.Android.MinVersion}
 		}
@@ -78,6 +84,14 @@ func (cd ChecksDefinition) Copy() ChecksDefinition {
 			Locations: make([]Location, len(geoCheck.Locations)),
 		}
 		copy(cdCopy.GeoLocationCheck.Locations, geoCheck.Locations)
+	}
+	if cd.PrivateNetworkCheck != nil {
+		privateNetCheck := cd.PrivateNetworkCheck
+		cdCopy.PrivateNetworkCheck = &PrivateNetworkCheck{
+			Action: privateNetCheck.Action,
+			Ranges: make([]netip.Prefix, len(privateNetCheck.Ranges)),
+		}
+		copy(cdCopy.PrivateNetworkCheck.Ranges, privateNetCheck.Ranges)
 	}
 	return cdCopy
 }
@@ -115,6 +129,9 @@ func (pc *Checks) GetChecks() []Check {
 	}
 	if pc.Checks.GeoLocationCheck != nil {
 		checks = append(checks, pc.Checks.GeoLocationCheck)
+	}
+	if pc.Checks.PrivateNetworkCheck != nil {
+		checks = append(checks, pc.Checks.PrivateNetworkCheck)
 	}
 	return checks
 }

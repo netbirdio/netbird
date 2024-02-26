@@ -79,6 +79,7 @@ func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsRead
 		return err
 	}
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
+	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
 	var ctx context.Context
 	//nolint
@@ -109,6 +110,7 @@ func (c *Client) RunWithoutLogin(dns *DNSList, dnsReadyListener DnsReadyListener
 		return err
 	}
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
+	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
 	var ctx context.Context
 	//nolint
