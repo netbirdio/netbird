@@ -20,7 +20,7 @@ func AddBypassPath(path string) error {
 	byPassMutex.Lock()
 	defer byPassMutex.Unlock()
 	if err := validatePath(path); err != nil {
-		return err
+		return fmt.Errorf("validate: %w", err)
 	}
 	bypassPaths[path] = struct{}{}
 	return nil
