@@ -177,7 +177,10 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.shouldBypassAuth {
-				bypass.AddBypassPath(tc.path)
+				err := bypass.AddBypassPath(tc.path)
+				if err != nil {
+					t.Fatalf("failed to add bypass path: %v", err)
+				}
 			}
 
 			req := httptest.NewRequest("GET", "http://testing"+tc.path, nil)
