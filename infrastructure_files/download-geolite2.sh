@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# set $MM_ACCOUNT_ID and $MM_LICENSE_KEY when calling this script
-# see https://dev.maxmind.com/geoip/updating-databases#directly-downloading-databases
-
 # to install sha256sum on mac: brew install coreutils
 if ! command -v sha256sum &> /dev/null
 then
