@@ -32,8 +32,8 @@ func (MocIntegratedApproval) PreparePeer(accountID string, peer *nbpeer.Peer, pe
 	return peer
 }
 
-func (MocIntegratedApproval) ValidatePeer(accountID string, peer *nbpeer.Peer, peersGroup []string, integratedApprovalGroups []string) (bool, error) {
-	return true, nil
+func (MocIntegratedApproval) SyncPeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, bool) {
+	return peer.Copy(), false
 }
 
 func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Account, userID string) {
