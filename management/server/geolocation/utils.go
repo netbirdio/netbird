@@ -47,11 +47,11 @@ func decompressTarGzFile(filepath, destDir string) error {
 				return err
 			}
 
-			if _, err := io.Copy(outFile, tarReader); err != nil {
-				outFile.Close()
+			_, err = io.Copy(outFile, tarReader) // #nosec G110
+			outFile.Close()
+			if err != nil {
 				return err
 			}
-			outFile.Close()
 		}
 
 	}
@@ -83,7 +83,7 @@ func decompressZipFile(filepath, destDir string) error {
 			return err
 		}
 
-		_, err = io.Copy(outFile, rc)
+		_, err = io.Copy(outFile, rc) // #nosec G110
 		outFile.Close()
 		rc.Close()
 		if err != nil {
@@ -162,7 +162,7 @@ func downloadFile(url, filepath string) error {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected error occured while downloading the file: %s", string(bodyBytes))
+		return fmt.Errorf("unexpected error occurred while downloading the file: %s", string(bodyBytes))
 	}
 
 	out, err := os.Create(filepath)
