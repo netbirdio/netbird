@@ -103,15 +103,16 @@ func (wm *DefaultScheduler) Schedule(in time.Duration, ID string, job func() (ne
 					ticker.Stop()
 					return
 				}
-				if runIn != in { // do we need to compare it with the original duration?
+				// we need this comparison to avoid resetting the ticker with the same duration and missing the current elapsesed time
+				if runIn != in {
 					ticker.Reset(runIn)
 				}
 			case <-cancel:
 				ticker.Stop()
-				log.Debugf("stopped scheduled job %s ", ID)
 				wm.mu.Lock()
 				defer wm.mu.Unlock()
 				delete(wm.jobs, ID)
+				log.Debugf("stopped scheduled job %s ", ID)
 				return
 			}
 		}
