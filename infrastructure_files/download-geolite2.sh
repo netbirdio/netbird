@@ -30,6 +30,9 @@ download_geolite_mmdb() {
 
   # Verify the signature
   echo "Verifying signature..."
+
+  mv "$SIGNATURE_FILE" "$SIGNATURE_FILE".gz
+  gunzip "$SIGNATURE_FILE".gz
   if sha256sum -c --status "$SIGNATURE_FILE"; then
       echo "Signature is valid."
   else
@@ -71,6 +74,8 @@ download_geolite_csv_and_create_sqlite_db() {
 
   # Verify the signature
   echo "Verifying signature..."
+  mv "$SIGNATURE_FILE" "$SIGNATURE_FILE".gz
+  gunzip "$SIGNATURE_FILE".gz
   if sha256sum -c --status "$SIGNATURE_FILE"; then
       echo "Signature is valid."
   else
