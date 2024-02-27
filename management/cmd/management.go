@@ -171,8 +171,10 @@ var (
 				log.Infof("geo location service has been initialized from %s", config.Datadir)
 			}
 
-			integratedPeerApproval := integrations.NewIntegratedApproval()
-
+			integratedPeerApproval, err := integrations.NewIntegratedApproval()
+			if err != nil {
+				return fmt.Errorf("failed to initialize integrated peer approval: %v", err)
+			}
 			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
 				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerApproval)
 			if err != nil {
