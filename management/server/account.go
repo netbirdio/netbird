@@ -931,6 +931,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
 	}
 
+	err = additions.ValidateExtraSettings(newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID, am.eventStore)
+	if err != nil {
+		return nil, err
+	}
+
 	oldSettings := account.Settings
 	if oldSettings.PeerLoginExpirationEnabled != newSettings.PeerLoginExpirationEnabled {
 		event := activity.AccountPeerLoginExpirationEnabled
@@ -946,11 +951,6 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 	if oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration {
 		am.StoreEvent(userID, accountID, accountID, activity.AccountPeerLoginExpirationDurationUpdated, nil)
 		am.checkAndSchedulePeerLoginExpiration(account)
-	}
-
-	err = additions.ValidateExtraSettings(newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID, am.eventStore)
-	if err != nil {
-		return nil, err
 	}
 
 	updatedAccount := account.UpdateSettings(newSettings)
