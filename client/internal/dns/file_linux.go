@@ -11,8 +11,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/management/client"
 )
 
 const (
@@ -27,8 +25,8 @@ const (
 )
 
 const (
-	dnsFailoverThreshold = 2 * time.Second
-	dnsFailoverTimeout   = client.ConnectTimeout - dnsFailoverThreshold
+	dnsFailoverTimeout  = 4 * time.Second
+	dnsFailoverAttempts = 1
 )
 
 type fileConfigurator struct {
@@ -94,7 +92,7 @@ func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP
 	searchDomainList := mergeSearchDomains(nbSearchDomains, cfg.searchDomains)
 	nameServers := generateNsList(nbNameserverIP, cfg)
 
-	options := prepareOptionsWithTimeout(cfg.others, int(dnsFailoverTimeout.Seconds()))
+	options := prepareOptionsWithTimeout(cfg.others, int(dnsFailoverTimeout.Seconds()), dnsFailoverAttempts)
 	buf := prepareResolvConfContent(
 		searchDomainList,
 		nameServers,

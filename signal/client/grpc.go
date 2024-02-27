@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/management/client"
 	"github.com/netbirdio/netbird/signal/proto"
 )
 
@@ -71,7 +72,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
 	}
 
-	sigCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	sigCtx, cancel := context.WithTimeout(ctx, client.ConnectTimeout)
 	defer cancel()
 	conn, err := grpc.DialContext(
 		sigCtx,

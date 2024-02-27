@@ -26,7 +26,7 @@ import (
 	"github.com/netbirdio/netbird/management/proto"
 )
 
-const ConnectTimeout = 7 * time.Second
+const ConnectTimeout = 10 * time.Second
 
 // ConnStateNotifier is a wrapper interface of the status recorders
 type ConnStateNotifier interface {
