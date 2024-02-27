@@ -34,7 +34,8 @@ const (
 type fileConfigurator struct {
 	repair *repair
 
-	originalPerms os.FileMode
+	originalPerms  os.FileMode
+	nbNameserverIP string
 }
 
 func newFileConfigurator() (hostManager, error) {
@@ -72,7 +73,7 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	}
 
 	nbSearchDomains := searchDomains(config)
-	nbNameserverIP := config.ServerIP
+	f.nbNameserverIP = config.ServerIP
 
 	resolvConf, err := parseBackupResolvConf()
 	if err != nil {
@@ -81,11 +82,11 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 
 	f.repair.stopWatchFileChanges()
 
-	err = f.updateConfig(nbSearchDomains, nbNameserverIP, resolvConf)
+	err = f.updateConfig(nbSearchDomains, f.nbNameserverIP, resolvConf)
 	if err != nil {
 		return err
 	}
-	f.repair.watchFileChanges(nbSearchDomains, nbNameserverIP)
+	f.repair.watchFileChanges(nbSearchDomains, f.nbNameserverIP)
 	return nil
 }
 
@@ -140,7 +141,12 @@ func (f *fileConfigurator) backup() error {
 }
 
 func (f *fileConfigurator) restore() error {
-	err := copyFile(fileDefaultResolvConfBackupLocation, defaultResolvConfPath)
+	err := removeFirstNbNameserver(fileDefaultResolvConfBackupLocation, f.nbNameserverIP)
+	if err != nil {
+		return fmt.Errorf("removing netbird nameserver from %s: %w", fileDefaultResolvConfBackupLocation, err)
+	}
+
+	err = copyFile(fileDefaultResolvConfBackupLocation, defaultResolvConfPath)
 	if err != nil {
 		return fmt.Errorf("restoring %s from %s: %w", defaultResolvConfPath, fileDefaultResolvConfBackupLocation, err)
 	}

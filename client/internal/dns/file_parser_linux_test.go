@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func Test_parseResolvConf(t *testing.T) {
@@ -170,5 +172,85 @@ nameserver 192.168.0.1
 
 	if len(cfg.nameServers) != 1 {
 		t.Errorf("unexpected resolv.conf content: %v", cfg)
+	}
+}
+
+func TestRemoveFirstNbNameserver(t *testing.T) {
+	testCases := []struct {
+		name       string
+		content    string
+		ipToRemove string
+		expected   string
+	}{
+		{
+			name: "Unrelated nameservers with comments and options",
+			content: `# This is a comment
+options rotate
+nameserver 1.1.1.1
+# Another comment
+nameserver 8.8.4.4
+search example.com`,
+			ipToRemove: "9.9.9.9",
+			expected: `# This is a comment
+options rotate
+nameserver 1.1.1.1
+# Another comment
+nameserver 8.8.4.4
+search example.com`,
+		},
+		{
+			name: "First nameserver matches",
+			content: `search example.com
+nameserver 9.9.9.9
+# oof, a comment
+nameserver 8.8.4.4
+options attempts:5`,
+			ipToRemove: "9.9.9.9",
+			expected: `search example.com
+# oof, a comment
+nameserver 8.8.4.4
+options attempts:5`,
+		},
+		{
+			name: "Target IP not the first nameserver",
+			content: `# Comment about the first nameserver
+nameserver 8.8.4.4
+# Comment before our target
+nameserver 9.9.9.9
+options timeout:2`,
+			ipToRemove: "9.9.9.9",
+			expected: `# Comment about the first nameserver
+nameserver 8.8.4.4
+# Comment before our target
+nameserver 9.9.9.9
+options timeout:2`,
+		},
+		{
+			name: "Only nameserver matches",
+			content: `options debug
+nameserver 9.9.9.9
+search localdomain`,
+			ipToRemove: "9.9.9.9",
+			expected: `options debug
+nameserver 9.9.9.9
+search localdomain`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			tempFile := filepath.Join(tempDir, "resolv.conf")
+			err := os.WriteFile(tempFile, []byte(tc.content), 0644)
+			assert.NoError(t, err)
+
+			err = removeFirstNbNameserver(tempFile, tc.ipToRemove)
+			assert.NoError(t, err)
+
+			content, err := os.ReadFile(tempFile)
+			assert.NoError(t, err)
+
+			assert.Equal(t, tc.expected, string(content), "The resulting content should match the expected output.")
+		})
 	}
 }

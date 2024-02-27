@@ -103,3 +103,31 @@ func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
 	}
 	return rconf, nil
 }
+
+// removeFirstNbNameserver removes the given nameserver from the given file if it is in the first position
+// and writes the file back to the original location
+func removeFirstNbNameserver(filename, nameserverIP string) error {
+	resolvConf, err := parseResolvConfFile(filename)
+	if err != nil {
+		return fmt.Errorf("parse backup resolv.conf: %w", err)
+	}
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", filename, err)
+	}
+
+	if len(resolvConf.nameServers) > 1 && resolvConf.nameServers[0] == nameserverIP {
+		newContent := strings.Replace(string(content), fmt.Sprintf("nameserver %s\n", nameserverIP), "", 1)
+
+		stat, err := os.Stat(filename)
+		if err != nil {
+			return fmt.Errorf("stat %s: %w", filename, err)
+		}
+		if err := os.WriteFile(filename, []byte(newContent), stat.Mode()); err != nil {
+			return fmt.Errorf("write %s: %w", filename, err)
+		}
+
+	}
+
+	return nil
+}
