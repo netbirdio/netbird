@@ -8,8 +8,11 @@ import (
 	"net/netip"
 	"os"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/client"
 )
 
 const (
@@ -21,6 +24,11 @@ const (
 
 	fileMaxLineCharsLimit        = 256
 	fileMaxNumberOfSearchDomains = 6
+)
+
+const (
+	dnsFailoverThreshold = 2 * time.Second
+	dnsFailoverTimeout   = client.ConnectTimeout - dnsFailoverThreshold
 )
 
 type fileConfigurator struct {
@@ -85,10 +93,11 @@ func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP
 	searchDomainList := mergeSearchDomains(nbSearchDomains, cfg.searchDomains)
 	nameServers := generateNsList(nbNameserverIP, cfg)
 
+	options := prepareOptionsWithTimeout(cfg.others, int(dnsFailoverTimeout.Seconds()))
 	buf := prepareResolvConfContent(
 		searchDomainList,
 		nameServers,
-		cfg.others)
+		options)
 
 	log.Debugf("creating managed file %s", defaultResolvConfPath)
 	err := os.WriteFile(defaultResolvConfPath, buf.Bytes(), f.originalPerms)

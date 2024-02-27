@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os/exec"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -53,10 +54,12 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
 	searchDomainList := searchDomains(config)
 	searchDomainList = mergeSearchDomains(searchDomainList, r.originalSearchDomains)
 
+	options := prepareOptionsWithTimeout(r.othersConfigs, int(dnsFailoverTimeout.Seconds()))
+
 	buf := prepareResolvConfContent(
 		searchDomainList,
 		append([]string{config.ServerIP}, r.originalNameServers...),
-		r.othersConfigs)
+		options)
 
 	// create a backup for unclean shutdown detection before the resolv.conf is changed
 	if err := createUncleanShutdownIndicator(defaultResolvConfPath, resolvConfManager, config.ServerIP); err != nil {
@@ -103,4 +106,20 @@ func (r *resolvconf) restoreUncleanShutdownDNS(*netip.Addr) error {
 		return fmt.Errorf("restoring dns for interface %s: %w", r.ifaceName, err)
 	}
 	return nil
+}
+
+// prepareOptionsWithTimeout appends timeout to existing options if it doesn't exist,
+// otherwise it adds a new option with a timeout.
+func prepareOptionsWithTimeout(configs []string, dnsFailoverTimeout int) []string {
+	for i, config := range configs {
+		if strings.HasPrefix(config, "options") {
+			if strings.Contains(config, "timeout:") {
+				return configs
+			}
+			configs[i] = strings.Replace(config, "options ", fmt.Sprintf("options timeout:%d ", dnsFailoverTimeout), 1)
+			return configs
+		}
+	}
+
+	return append(configs, fmt.Sprintf("options timeout:%d", dnsFailoverTimeout))
 }
