@@ -259,12 +259,14 @@ options attempts:5`,
 		},
 		{
 			name: "Target IP not the first nameserver",
+			// nolint:dupword
 			content: `# Comment about the first nameserver
 nameserver 8.8.4.4
 # Comment before our target
 nameserver 9.9.9.9
 options timeout:2`,
 			ipToRemove: "9.9.9.9",
+			// nolint:dupword
 			expected: `# Comment about the first nameserver
 nameserver 8.8.4.4
 # Comment before our target
