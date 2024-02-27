@@ -157,7 +157,7 @@ func (f *fileConfigurator) restoreUncleanShutdownDNS(storedDNSAddress *netip.Add
 	currentDNSAddress, err := netip.ParseAddr(resolvConf.nameServers[0])
 	// not a valid first nameserver -> restore
 	if err != nil {
-		log.Errorf("restoring unclean shutdown: parse dns address %s failed: %s", resolvConf.nameServers[1], err)
+		log.Errorf("restoring unclean shutdown: parse dns address %s failed: %s", resolvConf.nameServers[0], err)
 		return restoreResolvConfFile()
 	}
 
