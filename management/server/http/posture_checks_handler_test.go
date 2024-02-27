@@ -131,7 +131,7 @@ func TestGetPostureCheck(t *testing.T) {
 		ID:   "privateNetworkPostureCheck",
 		Name: "privateNetwork",
 		Checks: posture.ChecksDefinition{
-			PrivateNetworkCheck: &posture.PrivateNetworkCheck{
+			PeerNetworkRangeCheck: &posture.PeerNetworkRangeCheck{
 				Ranges: []netip.Prefix{
 					netip.MustParsePrefix("192.168.0.0/24"),
 				},
@@ -375,7 +375,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 			},
 		},
 		{
-			name:        "Create Posture Checks Private Network",
+			name:        "Create Posture Checks Peer Network Range",
 			requestType: http.MethodPost,
 			requestPath: "/api/posture-checks",
 			requestBody: bytes.NewBuffer(
@@ -383,7 +383,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 					"name": "default",
 					"description": "default",
 					"checks": {
-						"private_network_check": {
+						"peer_network_range_check": {
 							"action": "allow",
 							"ranges": [
 								"10.0.0.0/8"
@@ -398,11 +398,11 @@ func TestPostureCheckUpdate(t *testing.T) {
 				Name:        "default",
 				Description: str("default"),
 				Checks: api.Checks{
-					PrivateNetworkCheck: &api.PrivateNetworkCheck{
+					PeerNetworkRangeCheck: &api.PeerNetworkRangeCheck{
 						Ranges: []string{
 							"10.0.0.0/8",
 						},
-						Action: api.PrivateNetworkCheckActionAllow,
+						Action: api.PeerNetworkRangeCheckActionAllow,
 					},
 				},
 			},
@@ -715,14 +715,14 @@ func TestPostureCheckUpdate(t *testing.T) {
 			expectedBody:   false,
 		},
 		{
-			name:        "Update Posture Checks Private Network",
+			name:        "Update Posture Checks Peer Network Range",
 			requestType: http.MethodPut,
-			requestPath: "/api/posture-checks/privateNetworkPostureCheck",
+			requestPath: "/api/posture-checks/peerNetworkRangePostureCheck",
 			requestBody: bytes.NewBuffer(
 				[]byte(`{
 					"name": "default",
 					"checks": {
-						"private_network_check": {
+						"peer_network_range_check": {
 							"action": "deny",
 							"ranges": [
 								"192.168.1.0/24"
@@ -737,11 +737,11 @@ func TestPostureCheckUpdate(t *testing.T) {
 				Name:        "default",
 				Description: str(""),
 				Checks: api.Checks{
-					PrivateNetworkCheck: &api.PrivateNetworkCheck{
+					PeerNetworkRangeCheck: &api.PeerNetworkRangeCheck{
 						Ranges: []string{
 							"192.168.1.0/24",
 						},
-						Action: api.PrivateNetworkCheckActionDeny,
+						Action: api.PeerNetworkRangeCheckActionDeny,
 					},
 				},
 			},
@@ -784,10 +784,10 @@ func TestPostureCheckUpdate(t *testing.T) {
 			},
 		},
 		&posture.Checks{
-			ID:   "privateNetworkPostureCheck",
-			Name: "privateNetwork",
+			ID:   "peerNetworkRangePostureCheck",
+			Name: "peerNetworkRange",
 			Checks: posture.ChecksDefinition{
-				PrivateNetworkCheck: &posture.PrivateNetworkCheck{
+				PeerNetworkRangeCheck: &posture.PeerNetworkRangeCheck{
 					Ranges: []netip.Prefix{
 						netip.MustParsePrefix("192.168.0.0/24"),
 					},
@@ -891,29 +891,50 @@ func TestPostureCheck_validatePostureChecksUpdate(t *testing.T) {
 	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{OsVersionCheck: &osVersionCheck}})
 	assert.NoError(t, err)
 
-	// valid private network check
-	privateNetworkCheck := api.PrivateNetworkCheck{
-		Action: api.PrivateNetworkCheckActionAllow,
+	// valid peer network range check
+	peerNetworkRangeCheck := api.PeerNetworkRangeCheck{
+		Action: api.PeerNetworkRangeCheckActionAllow,
 		Ranges: []string{
 			"192.168.1.0/24", "10.0.0.0/8",
 		},
 	}
-	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{PrivateNetworkCheck: &privateNetworkCheck}})
+	err = validatePostureChecksUpdate(
+		api.PostureCheckUpdate{
+			Name: "Default",
+			Checks: &api.Checks{
+				PeerNetworkRangeCheck: &peerNetworkRangeCheck,
+			},
+		},
+	)
 	assert.NoError(t, err)
 
-	// invalid private network check
-	privateNetworkCheck = api.PrivateNetworkCheck{
-		Action: api.PrivateNetworkCheckActionDeny,
+	// invalid peer network range check
+	peerNetworkRangeCheck = api.PeerNetworkRangeCheck{
+		Action: api.PeerNetworkRangeCheckActionDeny,
 		Ranges: []string{},
 	}
-	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{PrivateNetworkCheck: &privateNetworkCheck}})
+	err = validatePostureChecksUpdate(
+		api.PostureCheckUpdate{
+			Name: "Default",
+			Checks: &api.Checks{
+				PeerNetworkRangeCheck: &peerNetworkRangeCheck,
+			},
+		},
+	)
 	assert.Error(t, err)
 
-	// invalid private network check
-	privateNetworkCheck = api.PrivateNetworkCheck{
+	// invalid peer network range check
+	peerNetworkRangeCheck = api.PeerNetworkRangeCheck{
 		Action: "unknownAction",
 		Ranges: []string{},
 	}
-	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{PrivateNetworkCheck: &privateNetworkCheck}})
+	err = validatePostureChecksUpdate(
+		api.PostureCheckUpdate{
+			Name: "Default",
+			Checks: &api.Checks{
+				PeerNetworkRangeCheck: &peerNetworkRangeCheck,
+			},
+		},
+	)
 	assert.Error(t, err)
 }
