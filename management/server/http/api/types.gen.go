@@ -74,6 +74,12 @@ const (
 	NameserverNsTypeUdp NameserverNsType = "udp"
 )
 
+// Defines values for PeerNetworkRangeCheckAction.
+const (
+	PeerNetworkRangeCheckActionAllow PeerNetworkRangeCheckAction = "allow"
+	PeerNetworkRangeCheckActionDeny  PeerNetworkRangeCheckAction = "deny"
+)
+
 // Defines values for PolicyRuleAction.
 const (
 	PolicyRuleActionAccept PolicyRuleAction = "accept"
@@ -114,12 +120,6 @@ const (
 	PolicyRuleUpdateProtocolIcmp PolicyRuleUpdateProtocol = "icmp"
 	PolicyRuleUpdateProtocolTcp  PolicyRuleUpdateProtocol = "tcp"
 	PolicyRuleUpdateProtocolUdp  PolicyRuleUpdateProtocol = "udp"
-)
-
-// Defines values for PrivateNetworkCheckAction.
-const (
-	PrivateNetworkCheckActionAllow PrivateNetworkCheckAction = "allow"
-	PrivateNetworkCheckActionDeny  PrivateNetworkCheckAction = "deny"
 )
 
 // Defines values for UserStatus.
@@ -199,8 +199,8 @@ type Checks struct {
 	// OsVersionCheck Posture check for the version of operating system
 	OsVersionCheck *OSVersionCheck `json:"os_version_check,omitempty"`
 
-	// PrivateNetworkCheck Posture check for allow or deny private network
-	PrivateNetworkCheck *PrivateNetworkCheck `json:"private_network_check,omitempty"`
+	// PeerNetworkRangeCheck Posture check for allow or deny access based on peer local network addresses
+	PeerNetworkRangeCheck *PeerNetworkRangeCheck `json:"peer_network_range_check,omitempty"`
 }
 
 // City Describe city geographical location information
@@ -656,6 +656,18 @@ type PeerMinimum struct {
 	Name string `json:"name"`
 }
 
+// PeerNetworkRangeCheck Posture check for allow or deny access based on peer local network addresses
+type PeerNetworkRangeCheck struct {
+	// Action Action to take upon policy match
+	Action PeerNetworkRangeCheckAction `json:"action"`
+
+	// Ranges List of peer network ranges in CIDR notation
+	Ranges []string `json:"ranges"`
+}
+
+// PeerNetworkRangeCheckAction Action to take upon policy match
+type PeerNetworkRangeCheckAction string
+
 // PeerRequest defines model for PeerRequest.
 type PeerRequest struct {
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
@@ -897,18 +909,6 @@ type PostureCheckUpdate struct {
 	// Name Posture check name identifier
 	Name string `json:"name"`
 }
-
-// PrivateNetworkCheck Posture check for allow or deny private network
-type PrivateNetworkCheck struct {
-	// Action Action to take upon policy match
-	Action PrivateNetworkCheckAction `json:"action"`
-
-	// Ranges List of private network ranges in CIDR notation
-	Ranges []string `json:"ranges"`
-}
-
-// PrivateNetworkCheckAction Action to take upon policy match
-type PrivateNetworkCheckAction string
 
 // Route defines model for Route.
 type Route struct {
