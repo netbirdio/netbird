@@ -922,12 +922,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccountByUser(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	err = additions.ValidateExtraSettings(newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID, am.eventStore)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -939,6 +934,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 
 	if !user.HasAdminPower() {
 		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
+	}
+
+	err = additions.ValidateExtraSettings(newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID, am.eventStore)
+	if err != nil {
+		return nil, err
 	}
 
 	oldSettings := account.Settings
