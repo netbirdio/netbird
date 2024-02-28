@@ -630,6 +630,15 @@ func (s *serviceClient) onUpdateAvailable() {
 	}
 }
 
+func (s *serviceClient) onSessionEnd() {
+	s.app.SendNotification(
+		fyne.NewNotification(
+			"Peer Session Expired",
+			"Please re-authenticate to connect to the network",
+		),
+	)
+}
+
 func openURL(url string) error {
 	var err error
 	switch runtime.GOOS {
