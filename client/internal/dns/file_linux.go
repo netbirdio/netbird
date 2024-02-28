@@ -141,7 +141,7 @@ func (f *fileConfigurator) backup() error {
 func (f *fileConfigurator) restore() error {
 	err := removeFirstNbNameserver(fileDefaultResolvConfBackupLocation, f.nbNameserverIP)
 	if err != nil {
-		return fmt.Errorf("removing netbird nameserver from %s: %w", fileDefaultResolvConfBackupLocation, err)
+		log.Errorf("Failed to remove netbird nameserver from %s on backup restore: %s", fileDefaultResolvConfBackupLocation, err)
 	}
 
 	err = copyFile(fileDefaultResolvConfBackupLocation, defaultResolvConfPath)
