@@ -163,9 +163,9 @@ jobs:
         working-directory: infrastructure_files/artifacts
 
       - name: test geolocation databases
+        working-directory: infrastructure_files/artifacts
         run: |
-          set -x
-          sleep 10
+          sleep 30
           docker compose exec management ls -l /var/lib/netbird/ | grep -i GeoLite2-City.mmdb
           docker compose exec management ls -l /var/lib/netbird/ | grep -i geonames.db
 
