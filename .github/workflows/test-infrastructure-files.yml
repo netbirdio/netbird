@@ -164,6 +164,7 @@ jobs:
 
       - name: test geolocation databases
         run: |
+          set -x
           sleep 10
           docker compose exec management ls -l /var/lib/netbird/ | grep -i GeoLite2-City.mmdb
           docker compose exec management ls -l /var/lib/netbird/ | grep -i geonames.db
