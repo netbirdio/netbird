@@ -126,6 +126,7 @@ type AccountManager interface {
 	SavePostureChecks(accountID, userID string, postureChecks *posture.Checks) error
 	DeletePostureChecks(accountID, postureChecksID, userID string) error
 	ListPostureChecks(accountID, userID string) ([]*posture.Checks, error)
+	GetIdpManager() idp.Manager
 }
 
 type DefaultAccountManager struct {
@@ -898,6 +899,10 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 
 func (am *DefaultAccountManager) GetExternalCacheManager() ExternalCacheManager {
 	return am.externalCacheManager
+}
+
+func (am *DefaultAccountManager) GetIdpManager() idp.Manager {
+	return am.idpManager
 }
 
 // UpdateAccountSettings updates Account settings.
