@@ -15,6 +15,9 @@ const (
 	defaultResolvConfPath = "/etc/resolv.conf"
 )
 
+var timeoutRegex = regexp.MustCompile(`timeout:\d+`)
+var attemptsRegex = regexp.MustCompile(`attempts:\d+`)
+
 type resolvConf struct {
 	nameServers   []string
 	searchDomains []string
@@ -108,9 +111,6 @@ func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
 // prepareOptionsWithTimeout appends timeout to existing options if it doesn't exist,
 // otherwise it adds a new option with timeout and attempts.
 func prepareOptionsWithTimeout(input []string, timeout int, attempts int) []string {
-	timeoutRegex := regexp.MustCompile(`timeout:\d+`)
-	attemptsRegex := regexp.MustCompile(`attempts:\d+`)
-
 	configs := make([]string, len(input))
 	copy(configs, input)
 
