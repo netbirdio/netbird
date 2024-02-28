@@ -3,6 +3,7 @@ package geolocation
 import (
 	"encoding/csv"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path"
@@ -35,7 +36,7 @@ func loadGeolocationDatabases(dataDir string) error {
 				if err := decompressTarGzFile(src, dst); err != nil {
 					return err
 				}
-				return os.Rename(path.Join(dst, MMDBFileName), path.Join(dataDir, MMDBFileName))
+				return copyFile(path.Join(dst, MMDBFileName), path.Join(dataDir, MMDBFileName))
 			}
 			if err := loadDatabase(
 				geoLiteCitySha256TarURL,
@@ -184,4 +185,26 @@ func getDatabaseFileName(urlStr string) string {
 	ext := u.Query().Get("suffix")
 	fileName := fmt.Sprintf("%s.%s", path.Base(u.Path), ext)
 	return fileName
+}
+
+// copyFile performs a file copy operation from the source file to the destination.
+func copyFile(src string, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
