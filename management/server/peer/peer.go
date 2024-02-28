@@ -71,6 +71,12 @@ type NetworkAddress struct {
 	Mac   string
 }
 
+// Environment is a system environment information
+type Environment struct {
+	Cloud    string
+	Platform string
+}
+
 // PeerSystemMeta is a metadata of a Peer machine system
 type PeerSystemMeta struct {
 	Hostname           string
@@ -87,6 +93,7 @@ type PeerSystemMeta struct {
 	SystemSerialNumber string
 	SystemProductName  string
 	SystemManufacturer string
+	Environment        Environment `gorm:"serializer:json"`
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
@@ -119,7 +126,9 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		p.UIVersion == other.UIVersion &&
 		p.SystemSerialNumber == other.SystemSerialNumber &&
 		p.SystemProductName == other.SystemProductName &&
-		p.SystemManufacturer == other.SystemManufacturer
+		p.SystemManufacturer == other.SystemManufacturer &&
+		p.Environment.Cloud == other.Environment.Cloud &&
+		p.Environment.Platform == other.Environment.Platform
 }
 
 // AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
