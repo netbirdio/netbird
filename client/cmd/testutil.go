@@ -79,7 +79,7 @@ func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Liste
 	if err != nil {
 		return nil, nil
 	}
-	iv := integrations.NewIntegratedApproval()
+	iv, _ := integrations.NewIntegratedApproval()
 	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "", eventStore, nil, false, iv)
 	if err != nil {
 		t.Fatal(err)

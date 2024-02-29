@@ -61,7 +61,8 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 
 	peersUpdateManager := mgmt.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
-	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "", eventStore, nil, false, integrations.NewIntegratedApproval())
+	ia, _ := integrations.NewIntegratedApproval()
+	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "", eventStore, nil, false, ia)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,10 +365,10 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 		WiretrusteeVersion: info.WiretrusteeVersion,
 		KernelVersion:      info.KernelVersion,
 
-		NetworkAddresses:   protoNetAddr,
-		SysSerialNumber:    info.SystemSerialNumber,
-		SysProductName:     info.SystemProductName,
-		SysManufacturer:    info.SystemManufacturer,
+		NetworkAddresses: protoNetAddr,
+		SysSerialNumber:  info.SystemSerialNumber,
+		SysProductName:   info.SystemProductName,
+		SysManufacturer:  info.SystemManufacturer,
 	}
 
 	assert.Equal(t, ValidKey, actualValidKey)

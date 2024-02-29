@@ -71,10 +71,10 @@ func TestEngine_SSH(t *testing.T) {
 	defer cancel()
 
 	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, &EngineConfig{
-		WgIfaceName:  "utun101",
-		WgAddr:       "100.64.0.1/24",
-		WgPrivateKey: key,
-		WgPort:       33100,
+		WgIfaceName:      "utun101",
+		WgAddr:           "100.64.0.1/24",
+		WgPrivateKey:     key,
+		WgPort:           33100,
 		ServerSSHAllowed: true,
 	}, MobileDependency{}, peer.NewRecorder("https://mgm"))
 
@@ -1051,7 +1051,8 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "", eventStore, nil, false, integrations.NewIntegratedApproval())
+	ia, _ := integrations.NewIntegratedApproval()
+	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "", eventStore, nil, false, ia)
 	if err != nil {
 		return nil, "", err
 	}
