@@ -3,12 +3,14 @@
 package routemanager
 
 import (
+	"fmt"
 	"net"
 	"net/netip"
 	"os"
 	"syscall"
 	"unsafe"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 )
 
@@ -33,7 +35,7 @@ const ipv4ForwardingPath = "/proc/sys/net/ipv4/ip_forward"
 func addToRouteTable(prefix netip.Prefix, addr string) error {
 	_, ipNet, err := net.ParseCIDR(prefix.String())
 	if err != nil {
-		return err
+		return fmt.Errorf("parse prefix %s: %w", prefix, err)
 	}
 
 	addrMask := "/32"
@@ -43,7 +45,7 @@ func addToRouteTable(prefix netip.Prefix, addr string) error {
 
 	ip, _, err := net.ParseCIDR(addr + addrMask)
 	if err != nil {
-		return err
+		return fmt.Errorf("parse address %s: %w", addr, err)
 	}
 
 	route := &netlink.Route{
@@ -54,7 +56,7 @@ func addToRouteTable(prefix netip.Prefix, addr string) error {
 
 	err = netlink.RouteAdd(route)
 	if err != nil {
-		return err
+		return fmt.Errorf("add route: %w", err)
 	}
 
 	return nil
@@ -63,7 +65,7 @@ func addToRouteTable(prefix netip.Prefix, addr string) error {
 func removeFromRouteTable(prefix netip.Prefix, addr string) error {
 	_, ipNet, err := net.ParseCIDR(prefix.String())
 	if err != nil {
-		return err
+		return fmt.Errorf("parse prefix %s: %w", prefix, err)
 	}
 
 	addrMask := "/32"
@@ -73,7 +75,7 @@ func removeFromRouteTable(prefix netip.Prefix, addr string) error {
 
 	ip, _, err := net.ParseCIDR(addr + addrMask)
 	if err != nil {
-		return err
+		return fmt.Errorf("parse address %s: %w", addr, err)
 	}
 
 	route := &netlink.Route{
@@ -84,7 +86,7 @@ func removeFromRouteTable(prefix netip.Prefix, addr string) error {
 
 	err = netlink.RouteDel(route)
 	if err != nil {
-		return err
+		return fmt.Errorf("remove route: %w", err)
 	}
 
 	return nil
@@ -138,7 +140,7 @@ loop:
 func enableIPForwarding() error {
 	bytes, err := os.ReadFile(ipv4ForwardingPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("read file %s: %w", ipv4ForwardingPath, err)
 	}
 
 	// check if it is already enabled

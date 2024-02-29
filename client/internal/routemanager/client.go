@@ -158,7 +158,7 @@ func (c *clientNetwork) startPeersStatusChangeWatcher() {
 func (c *clientNetwork) removeRouteFromWireguardPeer(peerKey string) error {
 	state, err := c.statusRecorder.GetPeer(peerKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("get peer state: %v", err)
 	}
 	if state.ConnStatus != peer.StatusConnected {
 		return nil
@@ -166,7 +166,7 @@ func (c *clientNetwork) removeRouteFromWireguardPeer(peerKey string) error {
 
 	err = c.wgInterface.RemoveAllowedIP(peerKey, c.network.String())
 	if err != nil {
-		return fmt.Errorf("couldn't remove allowed IP %s removed for peer %s, err: %v",
+		return fmt.Errorf("remove allowed IP %s removed for peer %s, err: %v",
 			c.network, c.chosenRoute.Peer, err)
 	}
 	return nil
@@ -176,11 +176,11 @@ func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 	if c.chosenRoute != nil {
 		err := c.removeRouteFromWireguardPeer(c.chosenRoute.Peer)
 		if err != nil {
-			return err
+			return fmt.Errorf("remove route: %v", err)
 		}
 		err = removeFromRouteTableIfNonSystem(c.network, c.wgInterface.Address().IP.String())
 		if err != nil {
-			return fmt.Errorf("couldn't remove route %s from system, err: %v",
+			return fmt.Errorf("remove route %s from system, err: %v",
 				c.network, err)
 		}
 	}
@@ -197,7 +197,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 	if chosen == "" {
 		err = c.removeRouteFromPeerAndSystem()
 		if err != nil {
-			return err
+			return fmt.Errorf("remove route from peer and system: %v", err)
 		}
 
 		c.chosenRoute = nil
@@ -214,7 +214,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 	if c.chosenRoute != nil {
 		err = c.removeRouteFromWireguardPeer(c.chosenRoute.Peer)
 		if err != nil {
-			return err
+			return fmt.Errorf("remove route from peer: %v", err)
 		}
 	} else {
 		err = addToRouteTableIfNoExists(c.network, c.wgInterface.Address().IP.String())
@@ -267,7 +267,7 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 			log.Debugf("stopping watcher for network %s", c.network)
 			err := c.removeRouteFromPeerAndSystem()
 			if err != nil {
-				log.Error(err)
+				log.Errorf("Couldn't remove route from peer and system for network %s: %v", c.network, err)
 			}
 			return
 		case <-c.peerStateUpdate:
@@ -277,11 +277,11 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 			}
 		case update := <-c.routeUpdate:
 			if update.updateSerial < c.updateSerial {
-				log.Warnf("received a routes update with smaller serial number, ignoring it")
+				log.Warnf("Received a routes update with smaller serial number, ignoring it")
 				continue
 			}
 
-			log.Debugf("received a new client network route update for %s", c.network)
+			log.Debugf("Received a new client network route update for %s", c.network)
 
 			c.handleUpdate(update)
 
@@ -289,7 +289,7 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 
 			err := c.recalculateRouteAndUpdatePeerAndSystem()
 			if err != nil {
-				log.Error(err)
+				log.Errorf("Couldn't recalculate route and update peer and system for network %s: %v", c.network, err)
 			}
 
 			c.startPeersStatusChangeWatcher()

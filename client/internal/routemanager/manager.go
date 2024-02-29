@@ -2,6 +2,7 @@ package routemanager
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"sync"
 
@@ -74,7 +75,7 @@ func (m *DefaultManager) Stop() {
 	m.ctx = nil
 }
 
-// UpdateRoutes compares received routes with existing routes and remove, update or add them to the client and server maps
+// UpdateRoutes compares received routes with existing routes and removes, updates or adds them to the client and server maps
 func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error {
 	select {
 	case <-m.ctx.Done():
@@ -92,7 +93,7 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 		if m.serverRouter != nil {
 			err := m.serverRouter.updateRoutes(newServerRoutesMap)
 			if err != nil {
-				return err
+				return fmt.Errorf("update routes: %w", err)
 			}
 		}
 

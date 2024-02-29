@@ -74,7 +74,7 @@ func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 func existsInRouteTable(prefix netip.Prefix) (bool, error) {
 	routes, err := getRoutesFromTable()
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("get routes from table: %w", err)
 	}
 	for _, tableRoute := range routes {
 		if tableRoute == prefix {
@@ -87,7 +87,7 @@ func existsInRouteTable(prefix netip.Prefix) (bool, error) {
 func isSubRange(prefix netip.Prefix) (bool, error) {
 	routes, err := getRoutesFromTable()
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("get routes from table: %w", err)
 	}
 	for _, tableRoute := range routes {
 		if tableRoute.Bits() > minRangeBits && tableRoute.Contains(prefix.Addr()) && tableRoute.Bits() < prefix.Bits() {
