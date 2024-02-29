@@ -1,6 +1,6 @@
 <p align="center">
- <strong>:hatching_chick: New Release! Self-hosting in under 5 min.</strong>
-  <a href="https://github.com/netbirdio/netbird#quickstart-with-self-hosted-netbird">
+ <strong>:hatching_chick: New Release! Device Posture Checks.</strong>
+  <a href="https://docs.netbird.io/how-to/manage-posture-checks">
        Learn more
      </a>   
 </p>
@@ -42,9 +42,12 @@
 
 **Secure.** NetBird enables secure remote access by applying granular access policies, while allowing you to manage them intuitively from a single place. Works universally on any infrastructure.
 
-### Secure peer-to-peer VPN with SSO and MFA in minutes
+### Open-Source Network Security in a Single Platform
 
-https://user-images.githubusercontent.com/700848/197345890-2e2cded5-7b7a-436f-a444-94e80dd24f46.mov
+![image](https://github.com/netbirdio/netbird/assets/700848/d0f47ae0-2440-4416-848e-849c8ac82ae0)
+
+
+
 
 ### Key features
 
