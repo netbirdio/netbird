@@ -489,7 +489,7 @@ func toSyncResponse(config *Config, peer *nbpeer.Peer, turnCredentials *TURNCred
 
 	routesUpdate := toProtocolRoutes(networkMap.Routes)
 
-	dnsUpdate := toProtocolDNSConfig(networkMap.DNSConfig)
+	dnsUpdate := toProtocolDNSConfig(networkMap.DNSConfig, peer.IP6 != nil)
 
 	offlinePeers := toRemotePeerConfig(networkMap.OfflinePeers, dnsName, peer.IP6 != nil)
 

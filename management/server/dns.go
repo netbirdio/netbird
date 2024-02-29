@@ -112,7 +112,7 @@ func (am *DefaultAccountManager) SaveDNSSettings(accountID string, userID string
 	return nil
 }
 
-func toProtocolDNSConfig(update nbdns.Config) *proto.DNSConfig {
+func toProtocolDNSConfig(update nbdns.Config, ipv6Enabled bool) *proto.DNSConfig {
 	protoUpdate := &proto.DNSConfig{ServiceEnable: update.ServiceEnable}
 
 	for _, zone := range update.CustomZones {
@@ -136,14 +136,18 @@ func toProtocolDNSConfig(update nbdns.Config) *proto.DNSConfig {
 			SearchDomainsEnabled: nsGroup.SearchDomainsEnabled,
 		}
 		for _, ns := range nsGroup.NameServers {
-			protoNS := &proto.NameServer{
-				IP:     ns.IP.String(),
-				Port:   int64(ns.Port),
-				NSType: int64(ns.NSType),
+			if ns.IP.Is4() || ipv6Enabled {
+				protoNS := &proto.NameServer{
+					IP:     ns.IP.String(),
+					Port:   int64(ns.Port),
+					NSType: int64(ns.NSType),
+				}
+				protoGroup.NameServers = append(protoGroup.NameServers, protoNS)
 			}
-			protoGroup.NameServers = append(protoGroup.NameServers, protoNS)
 		}
-		protoUpdate.NameServerGroups = append(protoUpdate.NameServerGroups, protoGroup)
+		if len(protoGroup.NameServers) > 0 {
+			protoUpdate.NameServerGroups = append(protoUpdate.NameServerGroups, protoGroup)
+		}
 	}
 
 	return protoUpdate
