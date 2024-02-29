@@ -130,9 +130,10 @@ type serviceClient struct {
 	mQuit          *systray.MenuItem
 
 	// application with main windows.
-	app          fyne.App
-	wSettings    fyne.Window
-	showSettings bool
+	app              fyne.App
+	wSettings        fyne.Window
+	showSettings     bool
+	sendNotification bool
 
 	// input elements for settings form
 	iMngURL       *widget.Entry
@@ -145,11 +146,9 @@ type serviceClient struct {
 	managementURL string
 	preSharedKey  string
 	adminURL      string
-	configFile    string
 
 	connected            bool
 	update               *version.Update
-	sessionWatcher       *internal.SessionWatcher
 	daemonVersion        string
 	updateIndicationLock sync.Mutex
 	isUpdateIconActive   bool
@@ -160,9 +159,10 @@ type serviceClient struct {
 // This constructor also builds the UI elements for the settings window.
 func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient {
 	s := &serviceClient{
-		ctx:  context.Background(),
-		addr: addr,
-		app:  a,
+		ctx:              context.Background(),
+		addr:             addr,
+		app:              a,
+		sendNotification: true,
 
 		showSettings: showSettings,
 		update:       version.NewUpdate(),
@@ -386,9 +386,15 @@ func (s *serviceClient) updateStatus() error {
 		s.updateIndicationLock.Lock()
 		defer s.updateIndicationLock.Unlock()
 
+		// notify the user when the session has expired
+		if status.Status == string(internal.StatusNeedsLogin) {
+			s.onSessionExpire()
+		}
+
 		var systrayIconState bool
 		if status.Status == string(internal.StatusConnected) && !s.mUp.Disabled() {
 			s.connected = true
+			s.sendNotification = true
 			if s.isUpdateIconActive {
 				systray.SetIcon(s.icUpdateConnected)
 			} else {
@@ -555,15 +561,6 @@ func (s *serviceClient) onTrayReady() {
 			}
 		}
 	}()
-
-	s.getSrvConfig()
-	sessionWatcher, err := internal.NewSessionWatcher(s.ctx, s.configFile)
-	if err != nil {
-		log.Errorf("session watcher: %v", err)
-		return
-	}
-	sessionWatcher.SetOnExpireListener(s.onSessionExpire)
-	s.sessionWatcher = sessionWatcher
 }
 
 func normalizedVersion(version string) string {
@@ -624,7 +621,6 @@ func (s *serviceClient) getSrvConfig() {
 		s.adminURL = cfg.AdminURL
 	}
 	s.preSharedKey = cfg.PreSharedKey
-	s.configFile = cfg.ConfigFile
 
 	if s.showSettings {
 		s.iMngURL.SetText(s.managementURL)
@@ -649,13 +645,17 @@ func (s *serviceClient) onUpdateAvailable() {
 	}
 }
 
+// onSessionExpire sends a notification to the user when the session expires.
 func (s *serviceClient) onSessionExpire() {
-	s.app.SendNotification(
-		fyne.NewNotification(
-			"Peer Session Expired",
-			"Please re-authenticate to connect to the network",
-		),
-	)
+	if s.sendNotification {
+		s.app.SendNotification(
+			fyne.NewNotification(
+				"Peer Session Expired",
+				"Please re-authenticate to connect to the network",
+			),
+		)
+		s.sendNotification = false
+	}
 }
 
 func openURL(url string) error {
