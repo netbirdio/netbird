@@ -70,8 +70,12 @@ func CreateWithNativeFirewall(iface IFaceMapper, nativeFirewall firewall.Manager
 	return mgr, nil
 }
 
-func (m *Manager) ResetV6RulesAndAddr() error {
+func (m *Manager) ResetV6Firewall() error {
 	return nil
+}
+
+func (m *Manager) V6Active() bool {
+	return false
 }
 
 func create(iface IFaceMapper) (*Manager, error) {

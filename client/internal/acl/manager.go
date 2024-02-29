@@ -19,7 +19,7 @@ import (
 // Manager is an ACL rules manager
 type Manager interface {
 	ApplyFiltering(networkMap *mgmProto.NetworkMap)
-	ResetV6RulesAndAddr() error
+	ResetV6Acl() error
 }
 
 // DefaultManager uses firewall manager to handle
@@ -39,7 +39,7 @@ func NewDefaultManager(fm firewall.Manager) *DefaultManager {
 	}
 }
 
-func (d *DefaultManager) ResetV6RulesAndAddr() error {
+func (d *DefaultManager) ResetV6Acl() error {
 	for _, rules := range d.rulesPairs6 {
 		for _, r := range rules {
 			err := d.firewall.DeleteRule(r)
@@ -48,7 +48,7 @@ func (d *DefaultManager) ResetV6RulesAndAddr() error {
 			}
 		}
 	}
-	err := d.firewall.ResetV6RulesAndAddr()
+	err := d.firewall.ResetV6Firewall()
 	if err != nil {
 		return err
 	}
@@ -199,7 +199,7 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	}
 
 	var ip6 *net.IP = nil
-	if r.PeerIP6 != "" {
+	if d.firewall.V6Active() && r.PeerIP6 != "" {
 		ip6tmp := net.ParseIP(r.PeerIP6)
 		if ip6tmp == nil {
 			return "", nil, nil, fmt.Errorf("invalid IP address, skipping firewall rule")
@@ -235,7 +235,7 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	if rulesPair, ok := d.rulesPairs[ruleID]; ok {
 		rules = rulesPair
 	}
-	if rulesPair6, ok := d.rulesPairs6[ruleID]; ok && ip6 != nil {
+	if rulesPair6, ok := d.rulesPairs6[ruleID]; d.firewall.V6Active() && ok && ip6 != nil {
 		rules6 = rulesPair6
 	}
 
@@ -254,7 +254,7 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 		return "", nil, nil, err
 	}
 
-	if ip6 != nil && rules6 == nil {
+	if d.firewall.V6Active() && ip6 != nil && rules6 == nil {
 		switch r.Direction {
 		case mgmProto.FirewallRule_IN:
 			rules6, err = d.addInRules(*ip6, protocol, port, action, ipsetName, "")

@@ -36,9 +36,17 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 		wgIface: wgIface,
 	}
 
-	workTable, workTable6, err := m.createWorkTables()
+	workTable, err := m.createWorkTable()
 	if err != nil {
 		return nil, err
+	}
+
+	var workTable6 *nftables.Table
+	if wgIface.Address6() != nil {
+		workTable6, err = m.createWorkTable6()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	m.router, err = newRouter(context, workTable, workTable6)
@@ -55,13 +63,43 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 }
 
 // Resets the IPv6 Firewall Table to adapt to changes in IP addresses
-func (m *Manager) ResetV6RulesAndAddr() error {
-	err := m.aclManager.UpdateV6Address()
+func (m *Manager) ResetV6Firewall() error {
+
+	workTable6, err := m.aclManager.PrepareV6Reset()
 	if err != nil {
 		return err
 	}
 
-	return m.router.UpdateV6Address()
+	if m.wgIface.Address6() != nil {
+		if workTable6 != nil {
+			m.rConn.FlushTable(workTable6)
+		} else {
+			workTable6, err = m.createWorkTable6()
+			m.rConn.Flush()
+			if err != nil {
+				return err
+			}
+		}
+	} else {
+		m.rConn.DelTable(workTable6)
+		workTable6 = nil
+	}
+
+	err = m.router.RestoreAfterV6Reset(workTable6)
+	if err != nil {
+		return err
+	}
+
+	err = m.aclManager.ReinitAfterV6Reset(workTable6)
+	if err != nil {
+		return err
+	}
+
+	return m.rConn.Flush()
+}
+
+func (m *Manager) V6Active() bool {
+	return m.aclManager.v6Active
 }
 
 // AddFiltering rule to the firewall
@@ -81,10 +119,10 @@ func (m *Manager) AddFiltering(
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	//rawIP := ip.To4()
-	//if rawIP == nil {
-	//	return nil, fmt.Errorf("unsupported IP version: %s", ip.String())
-	//}
+	rawIP := ip.To4()
+	if rawIP == nil && m.wgIface.Address6() == nil {
+		return nil, fmt.Errorf("unsupported IP version: %s", ip.String())
+	}
 
 	return m.aclManager.AddFiltering(ip, proto, sPort, dPort, direction, action, ipsetName, comment)
 }
@@ -221,26 +259,38 @@ func (m *Manager) Flush() error {
 	return m.aclManager.Flush()
 }
 
-func (m *Manager) createWorkTables() (*nftables.Table, *nftables.Table, error) {
+func (m *Manager) createWorkTable() (*nftables.Table, error) {
 	tables, err := m.rConn.ListTablesOfFamily(nftables.TableFamilyIPv4)
 	if err != nil {
-		return nil, nil, fmt.Errorf("list of tables: %w", err)
-	}
-	tables6, err := m.rConn.ListTablesOfFamily(nftables.TableFamilyIPv6)
-	if err != nil {
-		return nil, nil, fmt.Errorf("list of v6 tables: %w", err)
+		return nil, fmt.Errorf("list of tables: %w", err)
 	}
 
-	for _, t := range append(tables, tables6...) {
+	for _, t := range tables {
 		if t.Name == tableName {
 			m.rConn.DelTable(t)
 		}
 	}
 
 	table := m.rConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv4})
+	err = m.rConn.Flush()
+	return table, err
+}
+
+func (m *Manager) createWorkTable6() (*nftables.Table, error) {
+	tables6, err := m.rConn.ListTablesOfFamily(nftables.TableFamilyIPv6)
+	if err != nil {
+		return nil, fmt.Errorf("list of v6 tables: %w", err)
+	}
+
+	for _, t := range tables6 {
+		if t.Name == tableName {
+			m.rConn.DelTable(t)
+		}
+	}
+
 	table6 := m.rConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv6})
 	err = m.rConn.Flush()
-	return table, table6, err
+	return table6, err
 }
 
 func (m *Manager) applyAllowNetbirdRules(chain *nftables.Chain) {

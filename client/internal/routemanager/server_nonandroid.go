@@ -76,7 +76,13 @@ func (m *defaultServerRouter) updateRoutes(routesMap map[string]*route.Route) er
 	return nil
 }
 
-func (m *defaultServerRouter) removeFromServerNetwork(route *route.Route) error {
+// Handles a reset of the IPv6 firewall table (necessary if IPv6 address changes).
+func (m *defaultServerRouter) handleV6FirewallReset() {
+	m.mux.Lock()
+	defer m.mux.Unlock()
+}
+
+func (m *defaultServerRouter) removeFromServerNetwork(rt *route.Route) error {
 	select {
 	case <-m.ctx.Done():
 		log.Infof("not removing from server network because context is done")
@@ -84,11 +90,18 @@ func (m *defaultServerRouter) removeFromServerNetwork(route *route.Route) error 
 	default:
 		m.mux.Lock()
 		defer m.mux.Unlock()
-		err := m.firewall.RemoveRoutingRules(routeToRouterPair(m.wgInterface.Address().String(), route))
+		routingAddress := m.wgInterface.Address().String()
+		if rt.NetworkType == route.IPv6Network {
+			if m.wgInterface.Address6() == nil {
+				return fmt.Errorf("attempted to add route for IPv6 even though device has no v6 address")
+			}
+			routingAddress = m.wgInterface.Address6().String()
+		}
+		err := m.firewall.RemoveRoutingRules(routeToRouterPair(routingAddress, rt))
 		if err != nil {
 			return err
 		}
-		delete(m.routes, route.ID)
+		delete(m.routes, rt.ID)
 		return nil
 	}
 }
@@ -125,6 +138,7 @@ func (m *defaultServerRouter) cleanUp() {
 		if r.NetworkType == route.IPv6Network {
 			if m.wgInterface.Address6() == nil {
 				log.Errorf("attempted to remove route for IPv6 even though device has no v6 address")
+				continue
 			}
 			routingAddress = m.wgInterface.Address6().String()
 		}

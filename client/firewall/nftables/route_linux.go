@@ -50,9 +50,10 @@ type router struct {
 	chains       map[string]*nftables.Chain
 	chains6      map[string]*nftables.Chain
 	// rules is useful to avoid duplicates and to get missing attributes that we don't have when adding new rules
-	rules                    map[string]*nftables.Rule
-	rules6                   map[string]*nftables.Rule
-	isDefaultFwdRulesEnabled bool
+	rules                     map[string]*nftables.Rule
+	rules6                    map[string]*nftables.Rule
+	isDefaultFwdRulesEnabled  bool
+	isDefaultFwdRulesEnabled6 bool
 }
 
 func newRouter(parentCtx context.Context, workTable *nftables.Table, workTable6 *nftables.Table) (*router, error) {
@@ -85,14 +86,21 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table, workTable6 
 		log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
 	}
 
+	err = r.cleanUpDefaultForwardRules6()
+	if err != nil {
+		log.Errorf("failed to clean up rules from IPv6 FORWARD chain: %s", err)
+	}
+
 	err = r.createContainers()
 	if err != nil {
 		log.Errorf("failed to create containers for route: %s", err)
 	}
 
-	err = r.createContainers6()
-	if err != nil {
-		log.Errorf("failed to create v6 containers for route: %s", err)
+	if r.workTable6 != nil {
+		err = r.createContainers6()
+		if err != nil {
+			log.Errorf("failed to create v6 containers for route: %s", err)
+		}
 	}
 
 	return r, err
@@ -110,22 +118,30 @@ func (r *router) ResetForwardRules() {
 	}
 }
 
-func (r *router) UpdateV6Address() error {
-	err := r.createContainers6()
-	if err != nil {
-		return err
-	}
+func (r *router) RestoreAfterV6Reset(newWorktable6 *nftables.Table) error {
+	r.workTable6 = newWorktable6
+	if newWorktable6 != nil {
 
-	for name, rule := range r.rules6 {
-		rule = &nftables.Rule{
-			Table:    r.workTable6,
-			Chain:    r.chains6[rule.Chain.Name],
-			Exprs:    rule.Exprs,
-			UserData: rule.UserData,
+		err := r.cleanUpDefaultForwardRules6()
+		if err != nil {
+			log.Errorf("failed to clean up rules from IPv6 FORWARD chain: %s", err)
 		}
-		r.rules6[name] = r.conn.AddRule(rule)
-	}
 
+		err = r.createContainers6()
+		if err != nil {
+			return err
+		}
+
+		for name, rule := range r.rules6 {
+			rule = &nftables.Rule{
+				Table:    r.workTable6,
+				Chain:    r.chains6[rule.Chain.Name],
+				Exprs:    rule.Exprs,
+				UserData: rule.UserData,
+			}
+			r.rules6[name] = r.conn.AddRule(rule)
+		}
+	}
 	return r.conn.Flush()
 }
 
@@ -218,6 +234,12 @@ func (r *router) createContainers6() error {
 
 // InsertRoutingRules inserts a nftable rule pair to the forwarding chain and if enabled, to the nat chain
 func (r *router) InsertRoutingRules(pair manager.RouterPair) error {
+	parsedIp, _, _ := net.ParseCIDR(pair.Source)
+
+	if parsedIp.To4() == nil && r.workTable6 == nil {
+		return fmt.Errorf("nftables: attempted to add IPv6 routing rule even though IPv6 is not enabled for this host")
+	}
+
 	err := r.refreshRulesMap()
 	if err != nil {
 		return err
@@ -244,7 +266,6 @@ func (r *router) InsertRoutingRules(pair manager.RouterPair) error {
 	}
 
 	filterTable := r.filterTable
-	parsedIp, _, _ := net.ParseCIDR(pair.Source)
 	if parsedIp.To4() == nil {
 		filterTable = r.filterTable6
 	}
@@ -350,11 +371,20 @@ func (r *router) acceptForwardRule(sourceNetwork string) {
 		UserData: []byte(userDataAcceptForwardRuleDst),
 	}
 	r.conn.AddRule(rule)
-	r.isDefaultFwdRulesEnabled = true
+	if parsedIp.To4() == nil {
+		r.isDefaultFwdRulesEnabled6 = true
+	} else {
+		r.isDefaultFwdRulesEnabled = true
+	}
 }
 
 // RemoveRoutingRules removes a nftable rule pair from forwarding and nat chains
 func (r *router) RemoveRoutingRules(pair manager.RouterPair) error {
+	parsedIp, _, _ := net.ParseCIDR(pair.Source)
+	if parsedIp.To4() == nil && r.workTable6 == nil {
+		return fmt.Errorf("nftables: attempted to remove IPv6 routing rule even though IPv6 is not enabled for this host")
+	}
+
 	err := r.refreshRulesMap()
 	if err != nil {
 		return err
@@ -478,27 +508,42 @@ func (r *router) cleanUpDefaultForwardRules() error {
 		}
 	}
 
-	if r.filterTable6 != nil {
-
-		chains, err = r.conn.ListChainsOfTableFamily(nftables.TableFamilyIPv6)
-		if err != nil {
-			return err
-		}
-
-		for _, chain := range chains {
-			if chain.Table.Name != r.filterTable6.Name {
-				continue
-			}
-			if chain.Name != "FORWARD" {
-				continue
-			}
-
-			rules6, err := r.conn.GetRules(r.filterTable, chain)
+	for _, rule := range rules {
+		if bytes.Equal(rule.UserData, []byte(userDataAcceptForwardRuleSrc)) || bytes.Equal(rule.UserData, []byte(userDataAcceptForwardRuleDst)) {
+			err := r.conn.DelRule(rule)
 			if err != nil {
 				return err
 			}
-			rules = append(rules, rules6...)
 		}
+	}
+	r.isDefaultFwdRulesEnabled = false
+	return r.conn.Flush()
+}
+func (r *router) cleanUpDefaultForwardRules6() error {
+	if r.filterTable == nil {
+		r.isDefaultFwdRulesEnabled = false
+		return nil
+	}
+
+	chains, err := r.conn.ListChainsOfTableFamily(nftables.TableFamilyIPv6)
+	if err != nil {
+		return err
+	}
+
+	var rules []*nftables.Rule
+	for _, chain := range chains {
+		if chain.Table.Name != r.filterTable6.Name {
+			continue
+		}
+		if chain.Name != "FORWARD" {
+			continue
+		}
+
+		rules6, err := r.conn.GetRules(r.filterTable6, chain)
+		if err != nil {
+			return err
+		}
+		rules = rules6
 	}
 
 	for _, rule := range rules {
@@ -509,7 +554,7 @@ func (r *router) cleanUpDefaultForwardRules() error {
 			}
 		}
 	}
-	r.isDefaultFwdRulesEnabled = false
+	r.isDefaultFwdRulesEnabled6 = false
 	return r.conn.Flush()
 }
 

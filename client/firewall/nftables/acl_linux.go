@@ -111,33 +111,40 @@ func newAclManager(table *nftables.Table, table6 *nftables.Table, wgIface iFaceM
 	return m, nil
 }
 
-// Resets the IPv6 Firewall Table to adapt to changes in IP addresses
-func (m *AclManager) UpdateV6Address() error {
-	for k, r := range m.rules {
-		if r.ip.To4() == nil {
-			err := m.DeleteRule(r)
-			if err != nil {
-				return err
+func (m *AclManager) PrepareV6Reset() (*nftables.Table, error) {
+	if m.workTable6 != nil {
+		for k, r := range m.rules {
+			if r.ip.To4() == nil {
+				err := m.DeleteRule(r)
+				if err != nil {
+					return nil, err
+				}
+				delete(m.rules, k)
 			}
-			delete(m.rules, k)
 		}
-	}
-	sets, err := m.rConn.GetSets(m.workTable6)
-	if err != nil {
-		for _, set := range sets {
-			m.rConn.DelSet(set)
+		sets, err := m.rConn.GetSets(m.workTable6)
+		if err != nil {
+			for _, set := range sets {
+				m.rConn.DelSet(set)
+			}
 		}
+		m.ipsetStore6 = newIpsetStore()
 	}
-	m.ipsetStore6 = newIpsetStore()
-	m.rConn.FlushTable(m.workTable6)
+	m.v6Active = m.wgIface.Address6() != nil
+
+	return m.workTable6, nil
+}
+
+func (m *AclManager) ReinitAfterV6Reset(workTable6 *nftables.Table) error {
 	if m.wgIface.Address6() != nil {
+		m.workTable6 = workTable6
 		err := m.createDefaultChains6()
 		if err != nil {
 			return err
 		}
+	} else {
+		m.workTable6 = nil
 	}
-	m.v6Active = m.wgIface.Address6() != nil
-
 	return nil
 }
 
