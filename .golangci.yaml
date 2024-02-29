@@ -69,6 +69,15 @@ linters-settings:
     # Default: false
     all: true
 
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+        disabled: false
+        arguments:
+          - "checkPrivateReceivers"
+          - "sayRepetitiveInsteadOfStutters"
+
 linters:
   disable-all: true
   enable:
@@ -96,6 +105,7 @@ linters:
     - sqlclosecheck # checks that sql.Rows and sql.Stmt are closed
     - thelper # thelper detects Go test helpers without t.Helper() call and checks the consistency of test helpers.
     - wastedassign # wastedassign finds wasted assignment statements
+    - revive # Fast, configurable, extensible, flexible, and beautiful linter for Go. Drop-in replacement of golint.
 issues:
   # Maximum count of issues with the same text.
   # Set to 0 to disable.
