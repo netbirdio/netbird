@@ -43,6 +43,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/version"
 )
 
 // ManagementLegacyPort is the port that was used before by the Management gRPC server.
@@ -315,6 +316,7 @@ var (
 				}
 			}
 
+			log.Infof("management server version %s", version.NetbirdVersion())
 			log.Infof("running HTTP server and gRPC server on the same port: %s", listener.Addr().String())
 			serveGRPCWithHTTP(listener, rootHandler, tlsEnabled)
 
