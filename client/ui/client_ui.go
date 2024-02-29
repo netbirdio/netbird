@@ -145,9 +145,11 @@ type serviceClient struct {
 	managementURL string
 	preSharedKey  string
 	adminURL      string
+	configFile    string
 
 	connected            bool
 	update               *version.Update
+	sessionWatcher       *internal.SessionWatcher
 	daemonVersion        string
 	updateIndicationLock sync.Mutex
 	isUpdateIconActive   bool
@@ -165,6 +167,13 @@ func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient
 		showSettings: showSettings,
 		update:       version.NewUpdate(),
 	}
+
+	//s.getSrvConfig()
+	//sessionWatcher, err := internal.NewSessionWatcher(s.ctx, s.configFile)
+	//if err == nil {
+	//	s.sessionWatcher = sessionWatcher
+	//	s.sessionWatcher.SetOnExpireListener(s.onSessionExpire)
+	//}
 
 	if runtime.GOOS == "windows" {
 		s.icConnected = iconConnectedICO
@@ -546,6 +555,15 @@ func (s *serviceClient) onTrayReady() {
 			}
 		}
 	}()
+
+	s.getSrvConfig()
+	sessionWatcher, err := internal.NewSessionWatcher(s.ctx, s.configFile)
+	if err != nil {
+		log.Errorf("session watcher: %v", err)
+		return
+	}
+	sessionWatcher.SetOnExpireListener(s.onSessionExpire)
+	s.sessionWatcher = sessionWatcher
 }
 
 func normalizedVersion(version string) string {
@@ -606,6 +624,7 @@ func (s *serviceClient) getSrvConfig() {
 		s.adminURL = cfg.AdminURL
 	}
 	s.preSharedKey = cfg.PreSharedKey
+	s.configFile = cfg.ConfigFile
 
 	if s.showSettings {
 		s.iMngURL.SetText(s.managementURL)
@@ -630,7 +649,7 @@ func (s *serviceClient) onUpdateAvailable() {
 	}
 }
 
-func (s *serviceClient) onSessionEnd() {
+func (s *serviceClient) onSessionExpire() {
 	s.app.SendNotification(
 		fyne.NewNotification(
 			"Peer Session Expired",
