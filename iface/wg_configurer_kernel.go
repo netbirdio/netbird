@@ -29,7 +29,7 @@ func (c *wgKernelConfigurer) configureInterface(privateKey string, port int) err
 	if err != nil {
 		return err
 	}
-	fwmark := 0
+	fwmark := NetbirdWireguardFwmark
 	config := wgtypes.Config{
 		PrivateKey:   &key,
 		ReplacePeers: true,
@@ -162,6 +162,14 @@ func (c *wgKernelConfigurer) removeAllowedIP(peerKey string, allowedIP string) e
 		return fmt.Errorf(`received error "%w" while removing allowed IP from peer on interface %s with settings: allowed ips %s`, err, c.deviceName, allowedIP)
 	}
 	return nil
+}
+
+func (c *wgKernelConfigurer) setFwmark(fwmark int) error {
+	config := wgtypes.Config{
+		FirewallMark: &fwmark,
+	}
+
+	return c.configure(config)
 }
 
 func (c *wgKernelConfigurer) getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {

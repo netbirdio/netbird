@@ -13,6 +13,7 @@ type wgConfigurer interface {
 	removePeer(peerKey string) error
 	addAllowedIP(peerKey string, allowedIP string) error
 	removeAllowedIP(peerKey string, allowedIP string) error
+	setFwmark(fwmark int) error
 	close()
 	getStats(peerKey string) (WGStats, error)
 }

@@ -37,7 +37,7 @@ func (c *wgUSPConfigurer) configureInterface(privateKey string, port int) error 
 	if err != nil {
 		return err
 	}
-	fwmark := 0
+	fwmark := NetbirdWireguardFwmark
 	config := wgtypes.Config{
 		PrivateKey:   &key,
 		ReplacePeers: true,
@@ -167,6 +167,12 @@ func (c *wgUSPConfigurer) removeAllowedIP(peerKey string, ip string) error {
 	} else {
 		return c.device.IpcSet(output)
 	}
+}
+
+func (c *wgUSPConfigurer) setFwmark(fwmark int) error {
+	fwmarkConfig := fmt.Sprintf("fwmark=%d\n", fwmark)
+
+	return c.device.IpcSet(fwmarkConfig)
 }
 
 // startUAPI starts the UAPI listener for managing the WireGuard interface via external tool
