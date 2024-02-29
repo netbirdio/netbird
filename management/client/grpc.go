@@ -53,7 +53,7 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
 	}
 
-	dialer := grpcpkg.NewCustomDialer(iface.NetbirdManagementFwmark)
+	dialer := grpcpkg.NewCustomDialer(iface.NetbirdFwmark)
 
 	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
 	defer cancel()

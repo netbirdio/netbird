@@ -78,7 +78,7 @@ func setFwmark(conn net.Conn) error {
 	}()
 
 	fd := int(file.Fd())
-	if err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, iface.NetbirdManagementFwmark); err != nil {
+	if err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, iface.NetbirdFwmark); err != nil {
 		return fmt.Errorf("setting SO_MARK: %w", err)
 	}
 	return nil

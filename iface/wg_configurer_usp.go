@@ -37,7 +37,7 @@ func (c *wgUSPConfigurer) configureInterface(privateKey string, port int) error 
 	if err != nil {
 		return err
 	}
-	fwmark := NetbirdWireguardFwmark
+	fwmark := NetbirdFwmark
 	config := wgtypes.Config{
 		PrivateKey:   &key,
 		ReplacePeers: true,

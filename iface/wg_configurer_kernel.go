@@ -29,7 +29,7 @@ func (c *wgKernelConfigurer) configureInterface(privateKey string, port int) err
 	if err != nil {
 		return err
 	}
-	fwmark := NetbirdWireguardFwmark
+	fwmark := NetbirdFwmark
 	config := wgtypes.Config{
 		PrivateKey:   &key,
 		ReplacePeers: true,

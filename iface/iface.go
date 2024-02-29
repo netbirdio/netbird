@@ -18,10 +18,8 @@ const (
 )
 
 const (
-	// NetbirdWireguardFwmark is the fwmark value used by Netbird via wireguard
-	NetbirdWireguardFwmark = 0x1BD00
-	// NetbirdManagementFwmark is the fwmark value used by Netbird for management traffic
-	NetbirdManagementFwmark = 0x1BD01
+	// NetbirdFwmark is the fwmark value used by Netbird via wireguard
+	NetbirdFwmark = 0x1BD00
 )
 
 // WGIface represents a interface instance
