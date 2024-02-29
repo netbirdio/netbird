@@ -76,7 +76,7 @@ func addToRouteTable(prefix netip.Prefix, addr string, devName string) error {
 	return nil
 }
 
-func removeFromRouteTable(prefix netip.Prefix, addr string) error {
+func removeFromRouteTable(prefix netip.Prefix, addr string, devName string) error {
 	_, ipNet, err := net.ParseCIDR(prefix.String())
 	if err != nil {
 		return err
@@ -87,15 +87,30 @@ func removeFromRouteTable(prefix netip.Prefix, addr string) error {
 		addrMask = "/128"
 	}
 
-	ip, _, err := net.ParseCIDR(addr + addrMask)
+	var ip net.IP = nil
+	if addr != "" {
+		parsedIp, _, err := net.ParseCIDR(addr + addrMask)
+		if err != nil {
+			return err
+		}
+		// for IPv6, setting the local IP as the gateway address results in an "invalid argument" error.
+		// Therefore, we cannot use it to obtain the interface for the route (that would only be possible in IPv4).
+		if parsedIp.To4() != nil {
+			ip = parsedIp
+		}
+	}
+
+	// We obtain the route interface using the device name.
+	linkAlias, err := netlink.LinkByName(devName)
 	if err != nil {
 		return err
 	}
 
 	route := &netlink.Route{
-		Scope: netlink.SCOPE_UNIVERSE,
-		Dst:   ipNet,
-		Gw:    ip,
+		Scope:     netlink.SCOPE_UNIVERSE,
+		Dst:       ipNet,
+		Gw:        ip,
+		LinkIndex: linkAlias.Attrs().Index,
 	}
 
 	err = netlink.RouteDel(route)

@@ -110,8 +110,8 @@ func isSubRange(prefix netip.Prefix) (bool, error) {
 	return false, nil
 }
 
-func removeFromRouteTableIfNonSystem(prefix netip.Prefix, addr string) error {
-	return removeFromRouteTable(prefix, addr)
+func removeFromRouteTableIfNonSystem(prefix netip.Prefix, addr string, devName string) error {
+	return removeFromRouteTable(prefix, addr, devName)
 }
 
 func getExistingRIBRouteGateway(prefix netip.Prefix) (net.IP, error) {
