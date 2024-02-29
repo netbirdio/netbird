@@ -79,7 +79,7 @@ type AccountManager interface {
 	GetPeers(accountID, userID string) ([]*nbpeer.Peer, error)
 	MarkPeerConnected(peerKey string, connected bool, realIP net.IP) error
 	DeletePeer(accountID, peerID, userID string) error
-	UpdatePeer(accountID, userID string, peer *nbpeer.Peer, enableV6 bool) (*nbpeer.Peer, error)
+	UpdatePeer(accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
 	GetNetworkMap(peerID string) (*NetworkMap, error)
 	GetPeerNetwork(peerID string) (*Network, error)
 	AddPeer(setupKey, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, *NetworkMap, error)
@@ -180,9 +180,6 @@ type Settings struct {
 
 	// Extra is a dictionary of Account settings
 	Extra *account.ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
-
-	// AssignIPv6ByDefault determines whether hosts added to the network get assigned an IPv6 address by default.
-	AssignIPv6ByDefault bool
 }
 
 // Copy copies the Settings struct
@@ -194,7 +191,6 @@ func (s *Settings) Copy() *Settings {
 		JWTGroupsClaimName:         s.JWTGroupsClaimName,
 		GroupsPropagationEnabled:   s.GroupsPropagationEnabled,
 		JWTAllowGroups:             s.JWTAllowGroups,
-		AssignIPv6ByDefault:        s.AssignIPv6ByDefault,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()
@@ -981,10 +977,6 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 	if oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration {
 		am.StoreEvent(userID, accountID, accountID, activity.AccountPeerLoginExpirationDurationUpdated, nil)
 		am.checkAndSchedulePeerLoginExpiration(account)
-	}
-
-	if oldSettings.AssignIPv6ByDefault != newSettings.AssignIPv6ByDefault {
-		am.StoreEvent(userID, accountID, accountID, activity.AccountAssignIPv6ByDefaultUpdated, nil)
 	}
 
 	updatedAccount := account.UpdateSettings(newSettings)

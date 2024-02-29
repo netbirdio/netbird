@@ -80,6 +80,10 @@ const (
 	PeerIPv6Enabled
 	// PeerIPv6Disabled indicates that a user disabled IPv6 for a peer
 	PeerIPv6Disabled
+	// PeerIPv6InheritEnabled indicates that IPv6 was enabled for a peer due to a change in group memberships.
+	PeerIPv6InheritEnabled
+	// PeerIPv6InheritDisabled indicates that IPv6 was disabled for a peer due to a change in group memberships.
+	PeerIPv6InheritDisabled
 	// PeerRenamed indicates that a user renamed a peer
 	PeerRenamed
 	// PeerLoginExpirationEnabled indicates that a user enabled login expiration of a peer
@@ -98,8 +102,6 @@ const (
 	AccountPeerLoginExpirationDisabled
 	// AccountPeerLoginExpirationDurationUpdated indicates that a user updated peer login expiration duration for the account
 	AccountPeerLoginExpirationDurationUpdated
-	// AccountAssignIPv6ByDefaultUpdated indicates that a user changed whether new peers get assigned an IPv6 address if supported.
-	AccountAssignIPv6ByDefaultUpdated
 	// PersonalAccessTokenCreated indicates that a user created a personal access token
 	PersonalAccessTokenCreated
 	// PersonalAccessTokenDeleted indicates that a user deleted a personal access token

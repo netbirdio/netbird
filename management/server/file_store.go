@@ -176,6 +176,13 @@ func restore(file string) (*FileStore, error) {
 			}
 		}
 
+		// for migration
+		for _, peer := range account.Peers {
+			if peer.V6Setting == "" {
+				peer.V6Setting = "inherit"
+			}
+		}
+
 		allGroup, err := account.GetGroupAll()
 		if err != nil {
 			log.Errorf("unable to find the All group, this should happen only when migrate from a version that didn't support groups. Error: %v", err)

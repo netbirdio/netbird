@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
@@ -78,16 +79,6 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allGroup, err := account.GetGroupAll()
-	if err != nil {
-		util.WriteError(err, w)
-		return
-	}
-	if allGroup.ID == groupID {
-		util.WriteError(status.Errorf(status.InvalidArgument, "updating group ALL is not allowed"), w)
-		return
-	}
-
 	var req api.PutApiGroupsGroupIdJSONRequestBody
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -106,12 +97,34 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	} else {
 		peers = *req.Peers
 	}
+
+	allGroup, err := account.GetGroupAll()
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+
+	if allGroup.ID == groupID {
+		if len(peers) != len(allGroup.Peers) {
+			util.WriteError(status.Errorf(status.InvalidArgument, "updating group ALL is not allowed"), w)
+			return
+		}
+		for _, peer := range peers {
+			if slices.Contains(allGroup.Peers, peer) {
+				continue
+			}
+			util.WriteError(status.Errorf(status.InvalidArgument, "updating group ALL is not allowed"), w)
+			return
+		}
+	}
+
 	group := server.Group{
 		ID:                   groupID,
 		Name:                 req.Name,
 		Peers:                peers,
 		Issued:               eg.Issued,
 		IntegrationReference: eg.IntegrationReference,
+		IPv6Enabled:          req.Ipv6Enabled,
 	}
 
 	if err := h.accountManager.SaveGroup(account.Id, user.Id, &group); err != nil {
@@ -240,9 +253,10 @@ func (h *GroupsHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
 func toGroupResponse(account *server.Account, group *server.Group) *api.Group {
 	cache := make(map[string]api.PeerMinimum)
 	gr := api.Group{
-		Id:     group.ID,
-		Name:   group.Name,
-		Issued: &group.Issued,
+		Id:          group.ID,
+		Name:        group.Name,
+		Issued:      &group.Issued,
+		Ipv6Enabled: group.IPv6Enabled,
 	}
 
 	for _, pid := range group.Peers {

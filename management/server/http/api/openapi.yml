@@ -56,10 +56,6 @@ components:
           description: Period of time after which peer login expires (seconds).
           type: integer
           example: 43200
-        assign_ipv6_by_default:
-          description: Whether to enable IPv6 for new hosts added to the system
-          type: boolean
-          example: false
         groups_propagation_enabled:
           description: Allows propagate the new user auto groups to peers that belongs to the user
           type: boolean
@@ -83,7 +79,6 @@ components:
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
-        - assign_ipv6_by_default
     AccountExtraSettings:
       type: object
       properties:
@@ -240,7 +235,8 @@ components:
           type: boolean
           example: true
         ipv6_enabled:
-          type: boolean
+          type: string
+          enum: [enabled, disabled, inherit]
           example: false
       required:
         - name
@@ -316,8 +312,9 @@ components:
               example: true
             ipv6_enabled:
               description: Whether IPv6 is enabled for this peer.
-              type: boolean
-              example: true
+              type: string
+              enum: [enabled, disabled, inherit]
+              example: inherit
             dns_label:
               description: Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
               type: string
@@ -630,8 +627,12 @@ components:
           items:
             type: string
             example: "ch8i4ug6lnn4g9hqv7m1"
+        ipv6_enabled:
+          description: Whether IPv6 should be enabled for all members with IPv6 set to "inherit"
+          type: boolean
       required:
         - name
+        - ipv6_enabled
     Group:
       allOf:
         - $ref: '#/components/schemas/GroupMinimum'
@@ -642,8 +643,12 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/PeerMinimum'
+            ipv6_enabled:
+              description: Whether IPv6 should be enabled for all members with IPv6 set to "inherit"
+              type: boolean
           required:
             - peers
+            - ipv6_enabled
     RuleMinimum:
       type: object
       properties:

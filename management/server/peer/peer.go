@@ -46,7 +46,20 @@ type Peer struct {
 	Ephemeral bool
 	// Geolocation based on connection IP
 	Location Location `gorm:"embedded;embeddedPrefix:location_"`
+	// Whether IPv6 should be enabled or not.
+	V6Setting V6Status
 }
+
+type V6Status string
+
+const (
+	// Inherit IPv6 settings from groups (=> if one group the peer is a member of has IPv6 enabled, it will be enabled).
+	V6Inherit V6Status = ""
+	// Enable IPv6 regardless of group settings, as long as it is supported.
+	V6Enabled V6Status = "enabled"
+	// Disable IPv6 regardless of group settings.
+	V6Disabled V6Status = "disabled"
+)
 
 type PeerStatus struct {
 	// LastSeen is the last time peer was connected to the management service
@@ -155,6 +168,7 @@ func (p *Peer) Copy() *Peer {
 		LastLogin:              p.LastLogin,
 		Ephemeral:              p.Ephemeral,
 		Location:               p.Location,
+		V6Setting:              p.V6Setting,
 	}
 }
 

@@ -75,14 +75,19 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 		return
 	}
 
+	v6Status := nbpeer.V6Inherit
+	if req.Ipv6Enabled != api.PeerRequestIpv6EnabledInherit {
+		v6Status = nbpeer.V6Status(req.Ipv6Enabled)
+	}
+
 	update := &nbpeer.Peer{ID: peerID, SSHEnabled: req.SshEnabled, Name: req.Name,
-		LoginExpirationEnabled: req.LoginExpirationEnabled}
+		LoginExpirationEnabled: req.LoginExpirationEnabled, V6Setting: v6Status}
 
 	if req.ApprovalRequired != nil {
 		update.Status = &nbpeer.PeerStatus{RequiresApproval: *req.ApprovalRequired}
 	}
 
-	peer, err := h.accountManager.UpdatePeer(account.Id, user.Id, update, req.Ipv6Enabled)
+	peer, err := h.accountManager.UpdatePeer(account.Id, user.Id, update)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -241,6 +246,10 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		ip6string := peer.IP6.String()
 		ip6 = &ip6string
 	}
+	v6Status := api.PeerIpv6EnabledInherit
+	if peer.V6Setting != nbpeer.V6Inherit {
+		v6Status = api.PeerIpv6Enabled(peer.V6Setting)
+	}
 
 	return &api.Peer{
 		Id:                     peer.ID,
@@ -260,7 +269,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		UserId:                 peer.UserID,
 		UiVersion:              peer.Meta.UIVersion,
 		Ipv6Supported:          peer.Meta.Ipv6Supported,
-		Ipv6Enabled:            peer.IP6 != nil,
+		Ipv6Enabled:            v6Status,
 		DnsLabel:               fqdn(peer, dnsDomain),
 		LoginExpirationEnabled: peer.LoginExpirationEnabled,
 		LastLogin:              peer.LastLogin,
@@ -282,6 +291,10 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		ip6string := peer.IP6.String()
 		ip6 = &ip6string
 	}
+	v6Status := api.PeerBatchIpv6EnabledInherit
+	if peer.V6Setting != nbpeer.V6Inherit {
+		v6Status = api.PeerBatchIpv6Enabled(peer.V6Setting)
+	}
 
 	return &api.PeerBatch{
 		Id:                     peer.ID,
@@ -301,7 +314,7 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		UserId:                 peer.UserID,
 		UiVersion:              peer.Meta.UIVersion,
 		Ipv6Supported:          peer.Meta.Ipv6Supported,
-		Ipv6Enabled:            peer.IP6 != nil,
+		Ipv6Enabled:            v6Status,
 		DnsLabel:               fqdn(peer, dnsDomain),
 		LoginExpirationEnabled: peer.LoginExpirationEnabled,
 		LastLogin:              peer.LastLogin,

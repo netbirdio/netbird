@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"slices"
 
 	log "github.com/sirupsen/logrus"
 
@@ -35,6 +36,8 @@ type Group struct {
 	// Peers list of the group
 	Peers []string `gorm:"serializer:json"`
 
+	IPv6Enabled bool
+
 	IntegrationReference IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
 }
 
@@ -48,6 +51,7 @@ func (g *Group) Copy() *Group {
 		ID:                   g.ID,
 		Name:                 g.Name,
 		Issued:               g.Issued,
+		IPv6Enabled:          g.IPv6Enabled,
 		Peers:                make([]string, len(g.Peers)),
 		IntegrationReference: g.IntegrationReference,
 	}
@@ -125,6 +129,40 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 	oldGroup, exists := account.Groups[newGroup.ID]
 	account.Groups[newGroup.ID] = newGroup
 
+	// Determine peer difference for group.
+	addedPeers := make([]string, 0)
+	removedPeers := make([]string, 0)
+	if exists {
+		addedPeers = difference(newGroup.Peers, oldGroup.Peers)
+		removedPeers = difference(oldGroup.Peers, newGroup.Peers)
+	} else {
+		addedPeers = append(addedPeers, newGroup.Peers...)
+	}
+
+	// Need to check whether IPv6 status has changed for all potentially affected peers.
+	peersToUpdate := removedPeers
+	if exists && oldGroup.IPv6Enabled != newGroup.IPv6Enabled {
+		peersToUpdate = slices.Concat(peersToUpdate, newGroup.Peers)
+	} else {
+		peersToUpdate = slices.Concat(peersToUpdate, addedPeers)
+	}
+
+	for _, peer := range peersToUpdate {
+		peerObj := account.GetPeer(peer)
+		update, err := am.DeterminePeerV6(userID, account, peerObj)
+		if err != nil {
+			return err
+		}
+		if update {
+			account.UpdatePeer(peerObj)
+			if peerObj.IP6 != nil {
+				am.StoreEvent(userID, newGroup.ID, accountID, activity.PeerIPv6InheritEnabled, newGroup.EventMeta())
+			} else {
+				am.StoreEvent(userID, newGroup.ID, accountID, activity.PeerIPv6InheritDisabled, newGroup.EventMeta())
+			}
+		}
+	}
+
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {
 		return err
@@ -134,13 +172,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 
 	// the following snippet tracks the activity and stores the group events in the event store.
 	// It has to happen after all the operations have been successfully performed.
-	addedPeers := make([]string, 0)
-	removedPeers := make([]string, 0)
-	if exists {
-		addedPeers = difference(newGroup.Peers, oldGroup.Peers)
-		removedPeers = difference(oldGroup.Peers, newGroup.Peers)
-	} else {
-		addedPeers = append(addedPeers, newGroup.Peers...)
+	if !exists {
 		am.StoreEvent(userID, newGroup.ID, accountID, activity.GroupCreated, newGroup.EventMeta())
 	}
 

@@ -76,7 +76,6 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 	settings := &server.Settings{
 		PeerLoginExpirationEnabled: req.Settings.PeerLoginExpirationEnabled,
 		PeerLoginExpiration:        time.Duration(float64(time.Second.Nanoseconds()) * float64(req.Settings.PeerLoginExpiration)),
-		AssignIPv6ByDefault:        req.Settings.AssignIpv6ByDefault,
 	}
 
 	if req.Settings.Extra != nil {
@@ -144,7 +143,6 @@ func toAccountResponse(account *server.Account) *api.Account {
 		JwtGroupsEnabled:           &account.Settings.JWTGroupsEnabled,
 		JwtGroupsClaimName:         &account.Settings.JWTGroupsClaimName,
 		JwtAllowGroups:             &jwtAllowGroups,
-		AssignIpv6ByDefault:        account.Settings.AssignIPv6ByDefault,
 	}
 
 	if account.Settings.Extra != nil {
