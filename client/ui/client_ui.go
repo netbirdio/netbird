@@ -168,13 +168,6 @@ func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient
 		update:       version.NewUpdate(),
 	}
 
-	//s.getSrvConfig()
-	//sessionWatcher, err := internal.NewSessionWatcher(s.ctx, s.configFile)
-	//if err == nil {
-	//	s.sessionWatcher = sessionWatcher
-	//	s.sessionWatcher.SetOnExpireListener(s.onSessionExpire)
-	//}
-
 	if runtime.GOOS == "windows" {
 		s.icConnected = iconConnectedICO
 		s.icDisconnected = iconDisconnectedICO
