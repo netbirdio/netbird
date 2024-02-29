@@ -13,7 +13,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
-	"github.com/netbirdio/netbird/version"
 )
 
 // Manager is a route manager interface
@@ -158,13 +157,6 @@ func (m *DefaultManager) classifiesRoutes(newRoutes []*route.Route) (map[string]
 	for _, newRoute := range newRoutes {
 		networkID := route.GetHAUniqueID(newRoute)
 		if !ownNetworkIDs[networkID] {
-			// if prefix is too small, lets assume is a possible default route which is not yet supported
-			// we skip this route management
-			if newRoute.Network.Bits() < minRangeBits {
-				log.Errorf("this agent version: %s, doesn't support default routes, received %s, skipping this route",
-					version.NetbirdVersion(), newRoute.Network)
-				continue
-			}
 			newClientRoutesIDMap[networkID] = append(newClientRoutesIDMap[networkID], newRoute)
 		}
 	}
