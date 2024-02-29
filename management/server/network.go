@@ -81,7 +81,9 @@ func GenerateNetwork6() *net.IPNet {
 	addrbuf := make([]byte, 16)
 	addrbuf[0] = 0xfd
 	addrbuf[1] = 0x00
-	_, _ = r.Read(addrbuf[2:Subnet6Size])
+	addrbuf[2] = 0xb1
+	addrbuf[3] = 0x4d
+	_, _ = r.Read(addrbuf[4:Subnet6Size])
 
 	n6 := iplib.NewNet6(addrbuf, Subnet6Size*8, 0).IPNet
 	return &n6

@@ -76,14 +76,6 @@ const (
 	PeerSSHEnabled
 	// PeerSSHDisabled indicates that a user disabled SSH server on a peer
 	PeerSSHDisabled
-	// PeerIPv6Enabled indicates that a user enabled IPv6 for a peer
-	PeerIPv6Enabled
-	// PeerIPv6Disabled indicates that a user disabled IPv6 for a peer
-	PeerIPv6Disabled
-	// PeerIPv6InheritEnabled indicates that IPv6 was enabled for a peer due to a change in group memberships.
-	PeerIPv6InheritEnabled
-	// PeerIPv6InheritDisabled indicates that IPv6 was disabled for a peer due to a change in group memberships.
-	PeerIPv6InheritDisabled
 	// PeerRenamed indicates that a user renamed a peer
 	PeerRenamed
 	// PeerLoginExpirationEnabled indicates that a user enabled login expiration of a peer
@@ -146,6 +138,14 @@ const (
 	PostureCheckUpdated
 	// PostureCheckDeleted indicates that the user deleted a posture check
 	PostureCheckDeleted
+	// PeerIPv6Enabled indicates that a user enabled IPv6 for a peer
+	PeerIPv6Enabled
+	// PeerIPv6Disabled indicates that a user disabled IPv6 for a peer
+	PeerIPv6Disabled
+	// PeerIPv6InheritEnabled indicates that IPv6 was enabled for a peer due to a change in group memberships.
+	PeerIPv6InheritEnabled
+	// PeerIPv6InheritDisabled indicates that IPv6 was disabled for a peer due to a change in group memberships.
+	PeerIPv6InheritDisabled
 )
 
 var activityMap = map[Activity]Code{
@@ -184,10 +184,6 @@ var activityMap = map[Activity]Code{
 	PeerRenamed:                              {"Peer renamed", "peer.rename"},
 	PeerLoginExpirationEnabled:               {"Peer login expiration enabled", "peer.login.expiration.enable"},
 	PeerLoginExpirationDisabled:              {"Peer login expiration disabled", "peer.login.expiration.disable"},
-	PeerIPv6Enabled:                          {"Peer IPv6 enabled by user", "peer.login.ipv6.manual_enable"},
-	PeerIPv6Disabled:                         {"Peer IPv6 disabled by user", "peer.login.ipv6.manual_disable"},
-	PeerIPv6InheritDisabled:                  {"Peer IPv6 disabled due to change in group settings or membership", "peer.login.ipv6.inherit_disable"},
-	PeerIPv6InheritEnabled:                   {"Peer IPv6 enabled due to change in group settings or membership", "peer.login.ipv6.inherit_enable"},
 	NameserverGroupCreated:                   {"Nameserver group created", "nameserver.group.add"},
 	NameserverGroupDeleted:                   {"Nameserver group deleted", "nameserver.group.delete"},
 	NameserverGroupUpdated:                   {"Nameserver group updated", "nameserver.group.update"},
@@ -216,6 +212,10 @@ var activityMap = map[Activity]Code{
 	PostureCheckCreated:                       {"Posture check created", "posture.check.created"},
 	PostureCheckUpdated:                       {"Posture check updated", "posture.check.updated"},
 	PostureCheckDeleted:                       {"Posture check deleted", "posture.check.deleted"},
+	PeerIPv6Enabled:                           {"Peer IPv6 enabled by user", "peer.login.ipv6.manual_enable"},
+	PeerIPv6Disabled:                          {"Peer IPv6 disabled by user", "peer.login.ipv6.manual_disable"},
+	PeerIPv6InheritDisabled:                   {"Peer IPv6 disabled due to change in group settings or membership", "peer.login.ipv6.inherit_disable"},
+	PeerIPv6InheritEnabled:                    {"Peer IPv6 enabled due to change in group settings or membership", "peer.login.ipv6.inherit_enable"},
 }
 
 // StringCode returns a string code of the activity
