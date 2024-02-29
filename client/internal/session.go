@@ -12,11 +12,12 @@ type SessionWatcher struct {
 	mgmURL     *url.URL
 	sshKey     string
 
-	fetchTicker *time.Ticker
+	watchTicker *time.Ticker
 
 	onExpireListener func()
 }
 
+// NewSessionWatcher creates a new instance of SessionWatcher.
 func NewSessionWatcher(ctx context.Context, configPath string) (*SessionWatcher, error) {
 	cfg, err := ReadConfig(configPath)
 	if err != nil {
@@ -28,17 +29,21 @@ func NewSessionWatcher(ctx context.Context, configPath string) (*SessionWatcher,
 		privateKey:  cfg.PrivateKey,
 		mgmURL:      cfg.ManagementURL,
 		sshKey:      cfg.SSHKey,
-		fetchTicker: time.NewTicker(10 * time.Second),
+		watchTicker: time.NewTicker(10 * time.Second),
 	}
-	go s.startFetcher()
+	go s.startWatcher()
 	return s, nil
 }
 
+// SetOnExpireListener sets the callback func to be called when the session expires.
 func (s *SessionWatcher) SetOnExpireListener(onExpire func()) {
 	s.onExpireListener = onExpire
 }
 
-func (s *SessionWatcher) startFetcher() {
+// startWatcher starts the session watcher.
+// It checks if login is required,
+// if login is required and onExpireListener is set, it calls the onExpireListener.
+func (s *SessionWatcher) startWatcher() {
 	required, _ := IsLoginRequired(s.ctx, s.privateKey, s.mgmURL, s.sshKey)
 	if required {
 		if s.onExpireListener != nil {
@@ -48,7 +53,7 @@ func (s *SessionWatcher) startFetcher() {
 
 	for {
 		select {
-		case <-s.fetchTicker.C:
+		case <-s.watchTicker.C:
 			required, _ := IsLoginRequired(s.ctx, s.privateKey, s.mgmURL, s.sshKey)
 			if required {
 				if s.onExpireListener != nil {
@@ -59,4 +64,6 @@ func (s *SessionWatcher) startFetcher() {
 	}
 }
 
-func (s *SessionWatcher) StopWatch() { s.fetchTicker.Stop() }
+// StopWatch stops the watch ticker of the SessionWatcher,
+// effectively stopping the session watching a process.
+func (s *SessionWatcher) StopWatch() { s.watchTicker.Stop() }
