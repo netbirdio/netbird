@@ -46,7 +46,7 @@ type Peer struct {
 	Location Location `gorm:"embedded;embeddedPrefix:location_"`
 }
 
-type PeerStatus struct {
+type PeerStatus struct { //nolint:revive
 	// LastSeen is the last time peer was connected to the management service
 	LastSeen time.Time
 	// Connected indicates whether peer is connected to the management service or not
@@ -72,7 +72,7 @@ type NetworkAddress struct {
 }
 
 // PeerSystemMeta is a metadata of a Peer machine system
-type PeerSystemMeta struct {
+type PeerSystemMeta struct { //nolint:revive
 	Hostname           string
 	GoOS               string
 	Kernel             string
