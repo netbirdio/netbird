@@ -61,7 +61,7 @@ func main() {
 
 	flag.Parse()
 
-	a := app.New()
+	a := app.NewWithID("NetBird")
 	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnectedPNG))
 
 	client := newServiceClient(daemonAddr, a, showSettings)
@@ -130,9 +130,10 @@ type serviceClient struct {
 	mQuit          *systray.MenuItem
 
 	// application with main windows.
-	app          fyne.App
-	wSettings    fyne.Window
-	showSettings bool
+	app              fyne.App
+	wSettings        fyne.Window
+	showSettings     bool
+	sendNotification bool
 
 	// input elements for settings form
 	iMngURL       *widget.Entry
@@ -158,9 +159,10 @@ type serviceClient struct {
 // This constructor also builds the UI elements for the settings window.
 func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient {
 	s := &serviceClient{
-		ctx:  context.Background(),
-		addr: addr,
-		app:  a,
+		ctx:              context.Background(),
+		addr:             addr,
+		app:              a,
+		sendNotification: false,
 
 		showSettings: showSettings,
 		update:       version.NewUpdate(),
@@ -377,9 +379,15 @@ func (s *serviceClient) updateStatus() error {
 		s.updateIndicationLock.Lock()
 		defer s.updateIndicationLock.Unlock()
 
+		// notify the user when the session has expired
+		if status.Status == string(internal.StatusNeedsLogin) {
+			s.onSessionExpire()
+		}
+
 		var systrayIconState bool
 		if status.Status == string(internal.StatusConnected) && !s.mUp.Disabled() {
 			s.connected = true
+			s.sendNotification = true
 			if s.isUpdateIconActive {
 				systray.SetIcon(s.icUpdateConnected)
 			} else {
@@ -627,6 +635,23 @@ func (s *serviceClient) onUpdateAvailable() {
 		systray.SetIcon(s.icUpdateConnected)
 	} else {
 		systray.SetIcon(s.icUpdateDisconnected)
+	}
+}
+
+// onSessionExpire sends a notification to the user when the session expires.
+func (s *serviceClient) onSessionExpire() {
+	if s.sendNotification {
+		title := "Connection session expired"
+		if runtime.GOOS == "darwin" {
+			title = "NetBird connection session expired"
+		}
+		s.app.SendNotification(
+			fyne.NewNotification(
+				title,
+				"Please re-authenticate to connect to the network",
+			),
+		)
+		s.sendNotification = false
 	}
 }
 
