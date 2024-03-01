@@ -92,6 +92,14 @@ message PeerKeys {
   bytes wgPubKey = 2;
 }
 
+// Environment is part of the PeerSystemMeta and describes the environment the agent is running in.
+message Environment {
+  // cloud is the cloud provider the agent is running in if applicable.
+  string cloud = 1;
+  // platform is the platform the agent is running on if applicable.
+  string platform = 2;
+}
+
 // PeerSystemMeta is machine meta data like OS and version.
 message PeerSystemMeta {
   string hostname = 1;
@@ -108,6 +116,7 @@ message PeerSystemMeta {
   string sysSerialNumber = 12;
   string sysProductName = 13;
   string sysManufacturer = 14;
+  Environment environment = 15;
 }
 
 message LoginResponse {
