@@ -61,7 +61,7 @@ func main() {
 
 	flag.Parse()
 
-	a := app.NewWithID("Netbird")
+	a := app.NewWithID("NetBird")
 	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnectedPNG))
 
 	client := newServiceClient(daemonAddr, a, showSettings)
