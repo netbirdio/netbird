@@ -641,9 +641,13 @@ func (s *serviceClient) onUpdateAvailable() {
 // onSessionExpire sends a notification to the user when the session expires.
 func (s *serviceClient) onSessionExpire() {
 	if s.sendNotification {
+		title := "Connection session expired"
+		if runtime.GOOS == "darwin" {
+			title = "NetBird connection session expired"
+		}
 		s.app.SendNotification(
 			fyne.NewNotification(
-				"NetBird session expired",
+				title,
 				"Please re-authenticate to connect to the network",
 			),
 		)
