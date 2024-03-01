@@ -1,13 +1,13 @@
 package server
 
 import (
+	crand "crypto/rand"
+	"encoding/binary"
+	"github.com/c-robinson/iplib"
+	"github.com/rs/xid"
 	"math/rand"
 	"net"
 	"sync"
-	"time"
-
-	"github.com/c-robinson/iplib"
-	"github.com/rs/xid"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -30,6 +30,8 @@ const (
 	AllowedIP6sFormat = "%s/128"
 )
 
+var rng = initializeRng()
+
 type NetworkMap struct {
 	Peers         []*nbpeer.Peer
 	Network       *Network
@@ -51,16 +53,23 @@ type Network struct {
 	mu sync.Mutex `json:"-" gorm:"-"`
 }
 
+func initializeRng() *rand.Rand {
+	seed := make([]byte, 8)
+	_, err := crand.Read(seed)
+	if err != nil {
+		return nil
+	}
+	s := rand.NewSource(int64(binary.LittleEndian.Uint64(seed)))
+	return rand.New(s)
+}
+
 // NewNetwork creates a new Network initializing it with a Serial=0
 // It takes a random /16 subnet from 100.64.0.0/10 (64 different subnets)
 func NewNetwork(enableV6 bool) *Network {
 
 	n := iplib.NewNet4(net.ParseIP("100.64.0.0"), NetSize)
 	sub, _ := n.Subnet(SubnetSize)
-
-	s := rand.NewSource(time.Now().Unix())
-	r := rand.New(s)
-	intn := r.Intn(len(sub))
+	intn := rng.Intn(len(sub))
 
 	var n6 *net.IPNet = nil
 	if enableV6 {
@@ -76,14 +85,12 @@ func NewNetwork(enableV6 bool) *Network {
 }
 
 func GenerateNetwork6() *net.IPNet {
-	s := rand.NewSource(time.Now().Unix())
-	r := rand.New(s)
 	addrbuf := make([]byte, 16)
 	addrbuf[0] = 0xfd
 	addrbuf[1] = 0x00
 	addrbuf[2] = 0xb1
 	addrbuf[3] = 0x4d
-	_, _ = r.Read(addrbuf[4:Subnet6Size])
+	_, _ = rng.Read(addrbuf[4:Subnet6Size])
 
 	n6 := iplib.NewNet6(addrbuf, Subnet6Size*8, 0).IPNet
 	return &n6
@@ -130,9 +137,7 @@ func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 	}
 
 	// pick a random IP
-	s := rand.NewSource(time.Now().Unix())
-	r := rand.New(s)
-	intn := r.Intn(len(ips))
+	intn := rng.Intn(len(ips))
 
 	return ips[intn], nil
 }
@@ -149,16 +154,13 @@ func AllocatePeerIP6(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 
 	maskSize, _ := ipNet.Mask.Size()
 
-	s := rand.NewSource(time.Now().Unix())
-	r := rand.New(s)
-
 	// TODO for small subnet sizes, randomly generating values until we don't get a duplicate is inefficient and could
 	// 		lead to many loop iterations, using a method similar to IPv4 would be preferable here.
 
 	addrbuf := make(net.IP, 16)
 	copy(addrbuf, ipNet.IP.To16())
 	for duplicate := true; duplicate; _, duplicate = takenIPMap[addrbuf.String()] {
-		_, _ = r.Read(addrbuf[(maskSize / 8):16])
+		_, _ = rng.Read(addrbuf[(maskSize / 8):16])
 	}
 	return addrbuf, nil
 }
