@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"os"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -23,10 +24,16 @@ const (
 	fileMaxNumberOfSearchDomains = 6
 )
 
+const (
+	dnsFailoverTimeout  = 4 * time.Second
+	dnsFailoverAttempts = 1
+)
+
 type fileConfigurator struct {
 	repair *repair
 
-	originalPerms os.FileMode
+	originalPerms  os.FileMode
+	nbNameserverIP string
 }
 
 func newFileConfigurator() (hostManager, error) {
@@ -64,7 +71,7 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	}
 
 	nbSearchDomains := searchDomains(config)
-	nbNameserverIP := config.ServerIP
+	f.nbNameserverIP = config.ServerIP
 
 	resolvConf, err := parseBackupResolvConf()
 	if err != nil {
@@ -73,11 +80,11 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 
 	f.repair.stopWatchFileChanges()
 
-	err = f.updateConfig(nbSearchDomains, nbNameserverIP, resolvConf)
+	err = f.updateConfig(nbSearchDomains, f.nbNameserverIP, resolvConf)
 	if err != nil {
 		return err
 	}
-	f.repair.watchFileChanges(nbSearchDomains, nbNameserverIP)
+	f.repair.watchFileChanges(nbSearchDomains, f.nbNameserverIP)
 	return nil
 }
 
@@ -85,10 +92,11 @@ func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP
 	searchDomainList := mergeSearchDomains(nbSearchDomains, cfg.searchDomains)
 	nameServers := generateNsList(nbNameserverIP, cfg)
 
+	options := prepareOptionsWithTimeout(cfg.others, int(dnsFailoverTimeout.Seconds()), dnsFailoverAttempts)
 	buf := prepareResolvConfContent(
 		searchDomainList,
 		nameServers,
-		cfg.others)
+		options)
 
 	log.Debugf("creating managed file %s", defaultResolvConfPath)
 	err := os.WriteFile(defaultResolvConfPath, buf.Bytes(), f.originalPerms)
@@ -131,7 +139,12 @@ func (f *fileConfigurator) backup() error {
 }
 
 func (f *fileConfigurator) restore() error {
-	err := copyFile(fileDefaultResolvConfBackupLocation, defaultResolvConfPath)
+	err := removeFirstNbNameserver(fileDefaultResolvConfBackupLocation, f.nbNameserverIP)
+	if err != nil {
+		log.Errorf("Failed to remove netbird nameserver from %s on backup restore: %s", fileDefaultResolvConfBackupLocation, err)
+	}
+
+	err = copyFile(fileDefaultResolvConfBackupLocation, defaultResolvConfPath)
 	if err != nil {
 		return fmt.Errorf("restoring %s from %s: %w", defaultResolvConfPath, fileDefaultResolvConfBackupLocation, err)
 	}
@@ -157,7 +170,7 @@ func (f *fileConfigurator) restoreUncleanShutdownDNS(storedDNSAddress *netip.Add
 	currentDNSAddress, err := netip.ParseAddr(resolvConf.nameServers[0])
 	// not a valid first nameserver -> restore
 	if err != nil {
-		log.Errorf("restoring unclean shutdown: parse dns address %s failed: %s", resolvConf.nameServers[1], err)
+		log.Errorf("restoring unclean shutdown: parse dns address %s failed: %s", resolvConf.nameServers[0], err)
 		return restoreResolvConfFile()
 	}
 

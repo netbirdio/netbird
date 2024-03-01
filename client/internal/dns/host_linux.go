@@ -65,7 +65,7 @@ func newHostManager(wgInterface string) (hostManager, error) {
 		return nil, err
 	}
 
-	log.Debugf("discovered mode is: %s", osManager)
+	log.Infof("System DNS manager discovered: %s", osManager)
 	return newHostManagerFromType(wgInterface, osManager)
 }
 
