@@ -162,7 +162,7 @@ func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient
 		ctx:              context.Background(),
 		addr:             addr,
 		app:              a,
-		sendNotification: true,
+		sendNotification: false,
 
 		showSettings: showSettings,
 		update:       version.NewUpdate(),
