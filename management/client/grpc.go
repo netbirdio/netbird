@@ -474,5 +474,9 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		SysSerialNumber:    info.SystemSerialNumber,
 		SysManufacturer:    info.SystemManufacturer,
 		SysProductName:     info.SystemProductName,
+		Environment: &proto.Environment{
+			Cloud:    info.Environment.Cloud,
+			Platform: info.Environment.Platform,
+		},
 	}
 }
