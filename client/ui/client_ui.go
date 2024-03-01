@@ -643,7 +643,7 @@ func (s *serviceClient) onSessionExpire() {
 	if s.sendNotification {
 		s.app.SendNotification(
 			fyne.NewNotification(
-				"Peer Session Expired",
+				"NetBird session expired",
 				"Please re-authenticate to connect to the network",
 			),
 		)
