@@ -76,30 +76,30 @@ const (
 
 // Defines values for PeerIpv6Enabled.
 const (
+	PeerIpv6EnabledAuto     PeerIpv6Enabled = "auto"
 	PeerIpv6EnabledDisabled PeerIpv6Enabled = "disabled"
 	PeerIpv6EnabledEnabled  PeerIpv6Enabled = "enabled"
-	PeerIpv6EnabledInherit  PeerIpv6Enabled = "inherit"
 )
 
 // Defines values for PeerBaseIpv6Enabled.
 const (
+	PeerBaseIpv6EnabledAuto     PeerBaseIpv6Enabled = "auto"
 	PeerBaseIpv6EnabledDisabled PeerBaseIpv6Enabled = "disabled"
 	PeerBaseIpv6EnabledEnabled  PeerBaseIpv6Enabled = "enabled"
-	PeerBaseIpv6EnabledInherit  PeerBaseIpv6Enabled = "inherit"
 )
 
 // Defines values for PeerBatchIpv6Enabled.
 const (
+	PeerBatchIpv6EnabledAuto     PeerBatchIpv6Enabled = "auto"
 	PeerBatchIpv6EnabledDisabled PeerBatchIpv6Enabled = "disabled"
 	PeerBatchIpv6EnabledEnabled  PeerBatchIpv6Enabled = "enabled"
-	PeerBatchIpv6EnabledInherit  PeerBatchIpv6Enabled = "inherit"
 )
 
 // Defines values for PeerRequestIpv6Enabled.
 const (
+	PeerRequestIpv6EnabledAuto     PeerRequestIpv6Enabled = "auto"
 	PeerRequestIpv6EnabledDisabled PeerRequestIpv6Enabled = "disabled"
 	PeerRequestIpv6EnabledEnabled  PeerRequestIpv6Enabled = "enabled"
-	PeerRequestIpv6EnabledInherit  PeerRequestIpv6Enabled = "inherit"
 )
 
 // Defines values for PolicyRuleAction.
@@ -311,7 +311,7 @@ type Group struct {
 	// Id Group ID
 	Id string `json:"id"`
 
-	// Ipv6Enabled Whether IPv6 should be enabled for all members with IPv6 set to "inherit"
+	// Ipv6Enabled Whether IPv6 should be enabled for all members with IPv6 set to "auto"
 	Ipv6Enabled bool `json:"ipv6_enabled"`
 
 	// Issued How group was issued by API or from JWT token
@@ -344,7 +344,7 @@ type GroupMinimum struct {
 
 // GroupRequest defines model for GroupRequest.
 type GroupRequest struct {
-	// Ipv6Enabled Whether IPv6 should be enabled for all members with IPv6 set to "inherit"
+	// Ipv6Enabled Whether IPv6 should be enabled for all members with IPv6 set to "auto"
 	Ipv6Enabled bool `json:"ipv6_enabled"`
 
 	// Name Group name identifier

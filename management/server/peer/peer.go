@@ -54,7 +54,7 @@ type V6Status string
 
 const (
 	// Inherit IPv6 settings from groups (=> if one group the peer is a member of has IPv6 enabled, it will be enabled).
-	V6Inherit V6Status = ""
+	V6Auto V6Status = ""
 	// Enable IPv6 regardless of group settings, as long as it is supported.
 	V6Enabled V6Status = "enabled"
 	// Disable IPv6 regardless of group settings.

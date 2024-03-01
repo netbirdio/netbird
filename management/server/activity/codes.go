@@ -146,6 +146,7 @@ const (
 	PeerIPv6InheritEnabled
 	// PeerIPv6InheritDisabled indicates that IPv6 was disabled for a peer due to a change in group memberships.
 	PeerIPv6InheritDisabled
+	RouteDisabledByDisablingV6
 )
 
 var activityMap = map[Activity]Code{
@@ -212,10 +213,11 @@ var activityMap = map[Activity]Code{
 	PostureCheckCreated:                       {"Posture check created", "posture.check.created"},
 	PostureCheckUpdated:                       {"Posture check updated", "posture.check.updated"},
 	PostureCheckDeleted:                       {"Posture check deleted", "posture.check.deleted"},
-	PeerIPv6Enabled:                           {"Peer IPv6 enabled by user", "peer.login.ipv6.manual_enable"},
-	PeerIPv6Disabled:                          {"Peer IPv6 disabled by user", "peer.login.ipv6.manual_disable"},
-	PeerIPv6InheritDisabled:                   {"Peer IPv6 disabled due to change in group settings or membership", "peer.login.ipv6.inherit_disable"},
-	PeerIPv6InheritEnabled:                    {"Peer IPv6 enabled due to change in group settings or membership", "peer.login.ipv6.inherit_enable"},
+	PeerIPv6Enabled:                           {"Peer IPv6 enabled by user", "peer.ipv6.manual_enable"},
+	PeerIPv6Disabled:                          {"Peer IPv6 disabled by user", "peer.ipv6.manual_disable"},
+	PeerIPv6InheritDisabled:                   {"Peer IPv6 disabled due to change in group settings or membership", "peer.ipv6.inherit_disable"},
+	PeerIPv6InheritEnabled:                    {"Peer IPv6 enabled due to change in group settings or membership", "peer.ipv6.inherit_enable"},
+	RouteDisabledByDisablingV6:                {"IPv6 Route was disabled because IPv6 was disabled for the routing peer", "route.disable.ipv6_disabled"},
 }
 
 // StringCode returns a string code of the activity

@@ -236,8 +236,8 @@ components:
           example: true
         ipv6_enabled:
           type: string
-          enum: [enabled, disabled, inherit]
-          example: false
+          enum: [enabled, disabled, auto]
+          example: auto
       required:
         - name
         - ssh_enabled
@@ -313,8 +313,8 @@ components:
             ipv6_enabled:
               description: Whether IPv6 is enabled for this peer.
               type: string
-              enum: [enabled, disabled, inherit]
-              example: inherit
+              enum: [enabled, disabled, auto]
+              example: auto
             dns_label:
               description: Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
               type: string
@@ -628,7 +628,7 @@ components:
             type: string
             example: "ch8i4ug6lnn4g9hqv7m1"
         ipv6_enabled:
-          description: Whether IPv6 should be enabled for all members with IPv6 set to "inherit"
+          description: Whether IPv6 should be enabled for all members with IPv6 set to "auto"
           type: boolean
       required:
         - name
@@ -644,7 +644,7 @@ components:
               items:
                 $ref: '#/components/schemas/PeerMinimum'
             ipv6_enabled:
-              description: Whether IPv6 should be enabled for all members with IPv6 set to "inherit"
+              description: Whether IPv6 should be enabled for all members with IPv6 set to "auto"
               type: boolean
           required:
             - peers

@@ -75,8 +75,8 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 		return
 	}
 
-	v6Status := nbpeer.V6Inherit
-	if req.Ipv6Enabled != api.PeerRequestIpv6EnabledInherit {
+	v6Status := nbpeer.V6Auto
+	if req.Ipv6Enabled != api.PeerRequestIpv6EnabledAuto {
 		v6Status = nbpeer.V6Status(req.Ipv6Enabled)
 	}
 
@@ -246,8 +246,8 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		ip6string := peer.IP6.String()
 		ip6 = &ip6string
 	}
-	v6Status := api.PeerIpv6EnabledInherit
-	if peer.V6Setting != nbpeer.V6Inherit {
+	v6Status := api.PeerIpv6EnabledAuto
+	if peer.V6Setting != nbpeer.V6Auto {
 		v6Status = api.PeerIpv6Enabled(peer.V6Setting)
 	}
 
@@ -291,8 +291,8 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		ip6string := peer.IP6.String()
 		ip6 = &ip6string
 	}
-	v6Status := api.PeerBatchIpv6EnabledInherit
-	if peer.V6Setting != nbpeer.V6Inherit {
+	v6Status := api.PeerBatchIpv6EnabledAuto
+	if peer.V6Setting != nbpeer.V6Auto {
 		v6Status = api.PeerBatchIpv6Enabled(peer.V6Setting)
 	}
 

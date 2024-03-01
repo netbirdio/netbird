@@ -149,7 +149,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 
 	for _, peer := range peersToUpdate {
 		peerObj := account.GetPeer(peer)
-		update, err := am.DeterminePeerV6(userID, account, peerObj)
+		update, err := am.DeterminePeerV6(account, peerObj)
 		if err != nil {
 			return err
 		}

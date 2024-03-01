@@ -309,9 +309,9 @@ func (a *Account) filterRoutesByIPv6Enabled(routes []*route.Route, v6Supported b
 		return routes
 	}
 	var filteredRoutes []*route.Route
-	for _, route := range routes {
-		if route.Network.Addr().Is4() {
-			filteredRoutes = append(filteredRoutes, route)
+	for _, rt := range routes {
+		if rt.Network.Addr().Is4() {
+			filteredRoutes = append(filteredRoutes, rt)
 		}
 	}
 	return filteredRoutes
@@ -350,6 +350,10 @@ func (a *Account) getRoutingPeerRoutes(peerID string) (enabledRoutes []*route.Ro
 	}
 
 	for _, r := range a.Routes {
+		// Skip IPv6 routes if IPv6 is currently not enabled.
+		if peer.IP6 == nil && r.NetworkType == route.IPv6Network {
+			continue
+		}
 		for _, groupID := range r.PeerGroups {
 			group := a.GetGroup(groupID)
 			if group == nil {
