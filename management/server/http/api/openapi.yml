@@ -121,7 +121,7 @@ components:
           description: Last time this user performed a login to the dashboard
           type: string
           format: date-time
-          example: 2023-05-05T09:00:35.477782Z
+          example: "2023-05-05T09:00:35.477782Z"
         auto_groups:
           description: Group IDs to auto-assign to peers registered by this user
           type: array
@@ -259,7 +259,7 @@ components:
               description: Last time peer connected to Netbird's management service
               type: string
               format: date-time
-              example: 2023-05-05T10:05:26.420578Z
+              example: "2023-05-05T10:05:26.420578Z"
             os:
               description: Peer's operating system and version
               type: string
@@ -313,7 +313,7 @@ components:
               description: Last time this peer performed log in (authentication). E.g., user authenticated.
               type: string
               format: date-time
-              example: 2023-05-05T09:00:35.477782Z
+              example: "2023-05-05T09:00:35.477782Z"
             approval_required:
               description: (Cloud only) Indicates whether peer needs approval
               type: boolean
@@ -405,7 +405,7 @@ components:
           description: Setup Key expiration date
           type: string
           format: date-time
-          example: 2023-06-01T14:47:22.291057Z
+          example: "2023-06-01T14:47:22.291057Z"
         type:
           description: Setup key type, one-off for single time usage and reusable
           type: string
@@ -426,7 +426,7 @@ components:
           description: Setup key last usage date
           type: string
           format: date-time
-          example: 2023-05-05T09:00:35.477782Z
+          example: "2023-05-05T09:00:35.477782Z"
         state:
           description: Setup key status, "valid", "overused","expired" or "revoked"
           type: string
@@ -441,7 +441,7 @@ components:
           description: Setup key last update date
           type: string
           format: date-time
-          example: 2023-05-05T09:00:35.477782Z
+          example: "2023-05-05T09:00:35.477782Z"
         usage_limit:
           description: A number of times this key can be used. The value of 0 indicates the unlimited usage.
           type: integer
@@ -522,7 +522,7 @@ components:
           description: Date the token expires
           type: string
           format: date-time
-          example: 2023-05-05T14:38:28.977616Z
+          example: "2023-05-05T14:38:28.977616Z"
         created_by:
           description: User ID of the user who created the token
           type: string
@@ -531,12 +531,12 @@ components:
           description: Date the token was created
           type: string
           format: date-time
-          example: 2023-05-02T14:48:20.465209Z
+          example: "2023-05-02T14:48:20.465209Z"
         last_used:
           description: Date the token was last used
           type: string
           format: date-time
-          example: 2023-05-04T12:45:25.9723616Z
+          example: "2023-05-04T12:45:25.9723616Z"
       required:
         - id
         - name
@@ -979,7 +979,7 @@ components:
           type: string
           example: "Germany"
         country_code:
-            $ref: '#/components/schemas/CountryCode'
+          $ref: '#/components/schemas/CountryCode'
       required:
         - country_name
         - country_code
@@ -1197,7 +1197,7 @@ components:
           description: The date and time when the event occurred
           type: string
           format: date-time
-          example: 2023-05-05T10:04:37.473542Z
+          example: "2023-05-05T10:04:37.473542Z"
         activity:
           description: The activity that occurred during the event
           type: string
