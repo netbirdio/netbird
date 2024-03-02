@@ -85,6 +85,8 @@ type User struct {
 	Blocked bool
 	// LastLogin is the last time the user logged in to IdP
 	LastLogin time.Time
+	// CreatedAt records the time the user was created
+	CreatedAt time.Time
 
 	// Issued of the user
 	Issued string `gorm:"default:api"`
@@ -173,6 +175,7 @@ func (u *User) Copy() *User {
 		PATs:                 pats,
 		Blocked:              u.Blocked,
 		LastLogin:            u.LastLogin,
+		CreatedAt:            u.CreatedAt,
 		Issued:               u.Issued,
 		IntegrationReference: u.IntegrationReference,
 	}
@@ -188,6 +191,7 @@ func NewUser(id string, role UserRole, isServiceUser bool, nonDeletable bool, se
 		ServiceUserName: serviceUserName,
 		AutoGroups:      autoGroups,
 		Issued:          issued,
+		CreatedAt:       time.Now().UTC(),
 	}
 }
 
@@ -338,6 +342,7 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 		AutoGroups:           invite.AutoGroups,
 		Issued:               invite.Issued,
 		IntegrationReference: invite.IntegrationReference,
+		CreatedAt:            time.Now().UTC(),
 	}
 	account.Users[idpUser.ID] = newUser
 
@@ -414,7 +419,7 @@ func (am *DefaultAccountManager) ListUsers(accountID string) ([]*User, error) {
 }
 
 func (am *DefaultAccountManager) deleteServiceUser(account *Account, initiatorUserID string, targetUser *User) {
-	meta := map[string]any{"name": targetUser.ServiceUserName}
+	meta := map[string]any{"name": targetUser.ServiceUserName, "created_at": targetUser.CreatedAt}
 	am.StoreEvent(initiatorUserID, targetUser.Id, account.Id, activity.ServiceUserDeleted, meta)
 	delete(account.Users, targetUser.Id)
 }
@@ -494,13 +499,23 @@ func (am *DefaultAccountManager) deleteRegularUser(account *Account, initiatorUs
 		return err
 	}
 
+	u, err := account.FindUser(targetUserID)
+	if err != nil {
+		log.Errorf("failed to find user %s for deletion, this should never happen: %s", targetUserID, err)
+	}
+
+	var tuCreatedAt time.Time
+	if u != nil {
+		tuCreatedAt = u.CreatedAt
+	}
+
 	delete(account.Users, targetUserID)
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return err
 	}
 
-	meta := map[string]any{"name": tuName, "email": tuEmail}
+	meta := map[string]any{"name": tuName, "email": tuEmail, "created_at": tuCreatedAt}
 	am.StoreEvent(initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
 
 	am.updateAccountPeers(account)
