@@ -273,7 +273,8 @@ func TestUser_Copy(t *testing.T) {
 			},
 		},
 		Blocked:   false,
-		LastLogin: time.Now(),
+		LastLogin: time.Now().UTC(),
+		CreatedAt: time.Now().UTC(),
 		Issued:    "test",
 		IntegrationReference: IntegrationReference{
 			ID:              0,
