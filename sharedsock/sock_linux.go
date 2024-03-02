@@ -21,6 +21,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
+
+	netpkg "github.com/netbirdio/netbird/pkg/net"
 )
 
 // ErrSharedSockStopped indicates that shared socket has been stopped
@@ -75,9 +77,23 @@ func Listen(port int, filter BPFFilter) (net.PacketConn, error) {
 		return nil, fmt.Errorf("failed to create ipv4 raw socket: %v", err)
 	}
 
+	if err := netpkg.SetSocketMark(rawSock.conn4); err != nil {
+		if closeErr := rawSock.Close(); closeErr != nil {
+			log.Errorf("Failed to close ipv4 raw socket: %v", closeErr)
+		}
+		return nil, fmt.Errorf("failed to set SO_MARK on ipv4 socket: %v", err)
+	}
+
 	rawSock.conn6, err = socket.Socket(unix.AF_INET6, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp6", nil)
 	if err != nil {
 		log.Errorf("failed to create ipv6 raw socket: %v", err)
+	}
+
+	if err := netpkg.SetSocketMark(rawSock.conn6); err != nil {
+		if closeErr := rawSock.Close(); closeErr != nil {
+			log.Errorf("Failed to close ipv6 raw socket: %v", closeErr)
+		}
+		return nil, fmt.Errorf("failed to set SO_MARK on ipv6 socket: %v", err)
 	}
 
 	ipv4Instructions, ipv6Instructions, err := filter.GetInstructions(uint32(rawSock.port))

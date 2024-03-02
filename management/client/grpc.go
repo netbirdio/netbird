@@ -23,7 +23,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
-	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/management/proto"
 	grpcpkg "github.com/netbirdio/netbird/pkg/grpc"
 )
@@ -53,15 +52,13 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
 	}
 
-	dialer := grpcpkg.NewCustomDialer(iface.NetbirdFwmark)
-
 	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
 	defer cancel()
 	conn, err := grpc.DialContext(
 		mgmCtx,
 		addr,
 		transportOption,
-		dialer,
+		grpcpkg.NewCustomDialer(),
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    30 * time.Second,

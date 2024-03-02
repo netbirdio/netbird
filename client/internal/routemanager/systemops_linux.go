@@ -62,10 +62,10 @@ func setupDefaultRouting(intf string) (err error) {
 		return fmt.Errorf("add blackhole route v6: %w", err)
 	}
 
-	if err = addRule(iface.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V4, -1, true); err != nil {
+	if err = addRule(netpkg.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V4, -1, true); err != nil {
 		return fmt.Errorf("add rule v4: %w", err)
 	}
-	if err = addRule(iface.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V6, -1, true); err != nil {
+	if err = addRule(netpkg.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V6, -1, true); err != nil {
 		return fmt.Errorf("add rule v6: %w", err)
 	}
 

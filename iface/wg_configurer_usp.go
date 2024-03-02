@@ -13,6 +13,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	netpkg "github.com/netbirdio/netbird/pkg/net"
 )
 
 type wgUSPConfigurer struct {
@@ -37,7 +39,7 @@ func (c *wgUSPConfigurer) configureInterface(privateKey string, port int) error 
 	if err != nil {
 		return err
 	}
-	fwmark := NetbirdFwmark
+	fwmark := netpkg.NetbirdFwmark
 	config := wgtypes.Config{
 		PrivateKey:   &key,
 		ReplacePeers: true,

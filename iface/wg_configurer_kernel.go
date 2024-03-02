@@ -10,6 +10,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	netpkg "github.com/netbirdio/netbird/pkg/net"
 )
 
 type wgKernelConfigurer struct {
@@ -29,7 +31,7 @@ func (c *wgKernelConfigurer) configureInterface(privateKey string, port int) err
 	if err != nil {
 		return err
 	}
-	fwmark := NetbirdFwmark
+	fwmark := netpkg.NetbirdFwmark
 	config := wgtypes.Config{
 		PrivateKey:   &key,
 		ReplacePeers: true,
