@@ -456,6 +456,10 @@ func (MocIntegratedApproval) SyncPeer(accountID string, peer *nbpeer.Peer, peers
 	return peer.Copy(), false
 }
 
+func (MocIntegratedApproval) Stop() {
+
+}
+
 func loginPeerWithValidSetupKey(serverPubKey wgtypes.Key, key wgtypes.Key, client mgmtProto.ManagementServiceClient) *mgmtProto.LoginResponse {
 	defer GinkgoRecover()
 

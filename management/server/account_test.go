@@ -36,6 +36,10 @@ func (MocIntegratedApproval) SyncPeer(accountID string, peer *nbpeer.Peer, peers
 	return peer.Copy(), false
 }
 
+func (MocIntegratedApproval) Stop() {
+
+}
+
 func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Account, userID string) {
 	t.Helper()
 	peer := &nbpeer.Peer{
