@@ -9,4 +9,5 @@ import (
 type IntegratedApproval interface {
 	PreparePeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer
 	SyncPeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, bool)
+	Stop()
 }
