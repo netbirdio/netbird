@@ -21,7 +21,9 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/management/client"
+	grpcpkg "github.com/netbirdio/netbird/pkg/grpc"
 	"github.com/netbirdio/netbird/signal/proto"
 )
 
@@ -70,12 +72,15 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
 	}
 
+	dialer := grpcpkg.NewCustomDialer(iface.NetbirdManagementFwmark)
+
 	sigCtx, cancel := context.WithTimeout(ctx, client.ConnectTimeout)
 	defer cancel()
 	conn, err := grpc.DialContext(
 		sigCtx,
 		addr,
 		transportOption,
+		dialer,
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    30 * time.Second,

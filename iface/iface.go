@@ -17,6 +17,13 @@ const (
 	DefaultWgPort = 51820
 )
 
+const (
+	// NetbirdWireguardFwmark is the fwmark value used by Netbird via wireguard
+	NetbirdWireguardFwmark = 0x1BD00
+	// NetbirdManagementFwmark is the fwmark value used by Netbird for management traffic
+	NetbirdManagementFwmark = 0x1BD01
+)
+
 // WGIface represents a interface instance
 type WGIface struct {
 	tun           wgTunDevice
