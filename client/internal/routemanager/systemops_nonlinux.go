@@ -23,7 +23,7 @@ func addToRouteTable(prefix netip.Prefix, addr string, devName string) error {
 	return nil
 }
 
-func removeFromRouteTable(prefix netip.Prefix, addr string) error {
+func removeFromRouteTable(prefix netip.Prefix, addr string, devName string) error {
 	args := []string{"delete", prefix.String()}
 	if runtime.GOOS == "darwin" {
 		args = append(args, addr)

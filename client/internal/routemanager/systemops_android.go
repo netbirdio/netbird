@@ -8,6 +8,6 @@ func addToRouteTableIfNoExists(prefix netip.Prefix, addr string, devName string)
 	return nil
 }
 
-func removeFromRouteTableIfNonSystem(prefix netip.Prefix, addr string) error {
+func removeFromRouteTableIfNonSystem(prefix netip.Prefix, addr string, devName string) error {
 	return nil
 }

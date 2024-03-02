@@ -30,7 +30,10 @@ const (
 	AllowedIP6sFormat = "%s/128"
 )
 
+// Global random number generator for IP addresses
+// Accesses to the RNG must always be protected using rngLock (RNG sources are not thread-safe)
 var rng = initializeRng()
+var rngLock = sync.Mutex{}
 
 type NetworkMap struct {
 	Peers         []*nbpeer.Peer
@@ -69,7 +72,9 @@ func NewNetwork(enableV6 bool) *Network {
 
 	n := iplib.NewNet4(net.ParseIP("100.64.0.0"), NetSize)
 	sub, _ := n.Subnet(SubnetSize)
+	rngLock.Lock()
 	intn := rng.Intn(len(sub))
+	rngLock.Unlock()
 
 	var n6 *net.IPNet = nil
 	if enableV6 {
@@ -90,7 +95,10 @@ func GenerateNetwork6() *net.IPNet {
 	addrbuf[1] = 0x00
 	addrbuf[2] = 0xb1
 	addrbuf[3] = 0x4d
+
+	rngLock.Lock()
 	_, _ = rng.Read(addrbuf[4:Subnet6Size])
+	rngLock.Unlock()
 
 	n6 := iplib.NewNet6(addrbuf, Subnet6Size*8, 0).IPNet
 	return &n6
@@ -137,7 +145,9 @@ func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 	}
 
 	// pick a random IP
+	rngLock.Lock()
 	intn := rng.Intn(len(ips))
+	rngLock.Unlock()
 
 	return ips[intn], nil
 }
@@ -160,7 +170,9 @@ func AllocatePeerIP6(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 	addrbuf := make(net.IP, 16)
 	copy(addrbuf, ipNet.IP.To16())
 	for duplicate := true; duplicate; _, duplicate = takenIPMap[addrbuf.String()] {
+		rngLock.Lock()
 		_, _ = rng.Read(addrbuf[(maskSize / 8):16])
+		rngLock.Unlock()
 	}
 	return addrbuf, nil
 }

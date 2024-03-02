@@ -105,7 +105,7 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if allGroup.ID == groupID {
-		if len(peers) != len(allGroup.Peers) {
+		if len(peers) != len(allGroup.Peers) || req.Name != allGroup.Name {
 			util.WriteError(status.Errorf(status.InvalidArgument, "updating group ALL is not allowed"), w)
 			return
 		}

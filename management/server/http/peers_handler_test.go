@@ -29,7 +29,7 @@ const noUpdateChannelTestPeerID = "no-update-channel"
 func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 	return &PeersHandler{
 		accountManager: &mock_server.MockAccountManager{
-			UpdatePeerFunc: func(accountID, userID string, update *nbpeer.Peer, enableV6 bool) (*nbpeer.Peer, error) {
+			UpdatePeerFunc: func(accountID, userID string, update *nbpeer.Peer) (*nbpeer.Peer, error) {
 				var p *nbpeer.Peer
 				for _, peer := range peers {
 					if update.ID == peer.ID {
@@ -37,10 +37,10 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 						break
 					}
 				}
-				if enableV6 && p.IP6 == nil {
+				if p.V6Setting == nbpeer.V6Enabled && p.IP6 == nil {
 					ip6 := net.ParseIP("2001:db8::dead:beef")
 					p.IP6 = &ip6
-				} else if !enableV6 {
+				} else {
 					p.IP6 = nil
 				}
 				p.SSHEnabled = update.SSHEnabled
