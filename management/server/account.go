@@ -206,6 +206,7 @@ type Account struct {
 
 	// User.Id it was created by
 	CreatedBy              string
+	CreatedAt              time.Time
 	Domain                 string `gorm:"index"`
 	DomainCategory         string
 	IsDomainPrimaryAccount bool
@@ -684,6 +685,7 @@ func (a *Account) Copy() *Account {
 	return &Account{
 		Id:                     a.Id,
 		CreatedBy:              a.CreatedBy,
+		CreatedAt:              a.CreatedAt,
 		Domain:                 a.Domain,
 		DomainCategory:         a.DomainCategory,
 		IsDomainPrimaryAccount: a.IsDomainPrimaryAccount,
@@ -1875,6 +1877,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 
 	acc := &Account{
 		Id:               accountID,
+		CreatedAt:        time.Now().UTC(),
 		SetupKeys:        setupKeys,
 		Network:          network,
 		Peers:            peers,
