@@ -1051,7 +1051,7 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	ia, _ := integrations.NewIntegratedApproval()
+	ia, _ := integrations.NewIntegratedApproval(context.Background())
 	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "", eventStore, nil, false, ia)
 	if err != nil {
 		return nil, "", err

@@ -171,7 +171,10 @@ var (
 				log.Infof("geo location service has been initialized from %s", config.Datadir)
 			}
 
-			integratedPeerApproval, err := integrations.NewIntegratedApproval()
+			ctx, cancel := context.WithCancel(cmd.Context())
+			defer cancel()
+
+			integratedPeerApproval, err := integrations.NewIntegratedApproval(ctx)
 			if err != nil {
 				return fmt.Errorf("failed to initialize integrated peer approval: %v", err)
 			}
@@ -247,8 +250,6 @@ var (
 				KeysLocation: config.HttpConfig.AuthKeysLocation,
 			}
 
-			ctx, cancel := context.WithCancel(cmd.Context())
-			defer cancel()
 			httpAPIHandler, err := httpapi.APIHandler(ctx, accountManager, geo, *jwtValidator, appMetrics, httpAPIAuthCfg)
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
