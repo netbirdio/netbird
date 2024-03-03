@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"github.com/netbirdio/management-integrations/integrations"
 	"net"
 	"path/filepath"
 	"sync"
@@ -17,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/management-integrations/integrations"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	mgmt "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -369,6 +369,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 		SysSerialNumber:  info.SystemSerialNumber,
 		SysProductName:   info.SystemProductName,
 		SysManufacturer:  info.SystemManufacturer,
+		Environment:      &mgmtProto.Environment{Cloud: info.Environment.Cloud, Platform: info.Environment.Platform},
 	}
 
 	assert.Equal(t, ValidKey, actualValidKey)
@@ -409,7 +410,9 @@ func isEqual(a, b *mgmtProto.PeerSystemMeta) bool {
 		a.GetUiVersion() == b.GetUiVersion() &&
 		a.GetSysSerialNumber() == b.GetSysSerialNumber() &&
 		a.GetSysProductName() == b.GetSysProductName() &&
-		a.GetSysManufacturer() == b.GetSysManufacturer()
+		a.GetSysManufacturer() == b.GetSysManufacturer() &&
+		a.GetEnvironment().Cloud == b.GetEnvironment().Cloud &&
+		a.GetEnvironment().Platform == b.GetEnvironment().Platform
 }
 
 func Test_GetDeviceAuthorizationFlow(t *testing.T) {

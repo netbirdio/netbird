@@ -63,6 +63,14 @@ linters-settings:
     enable:
       - nilness
 
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+        disabled: false
+        arguments:
+          - "checkPrivateReceivers"
+          - "sayRepetitiveInsteadOfStutters"
   tenv:
     # The option `all` will run against whole test files (`_test.go`) regardless of method/function signatures.
     # Otherwise, only methods that take `*testing.T`, `*testing.B`, and `testing.TB` as arguments are checked.
@@ -93,6 +101,7 @@ linters:
     - nilerr # finds the code that returns nil even if it checks that the error is not nil
     - nilnil # checks that there is no simultaneous return of nil error and an invalid value
     - predeclared # predeclared finds code that shadows one of Go's predeclared identifiers
+    - revive # Fast, configurable, extensible, flexible, and beautiful linter for Go. Drop-in replacement of golint.
     - sqlclosecheck # checks that sql.Rows and sql.Stmt are closed
     - thelper # thelper detects Go test helpers without t.Helper() call and checks the consistency of test helpers.
     - wastedassign # wastedassign finds wasted assignment statements

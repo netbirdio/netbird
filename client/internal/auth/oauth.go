@@ -26,7 +26,7 @@ type HTTPClient interface {
 }
 
 // AuthFlowInfo holds information for the OAuth 2.0  authorization flow
-type AuthFlowInfo struct {
+type AuthFlowInfo struct { //nolint:revive
 	DeviceCode              string `json:"device_code"`
 	UserCode                string `json:"user_code"`
 	VerificationURI         string `json:"verification_uri"`

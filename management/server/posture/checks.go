@@ -10,10 +10,10 @@ import (
 )
 
 const (
-	NBVersionCheckName      = "NBVersionCheck"
-	OSVersionCheckName      = "OSVersionCheck"
-	GeoLocationCheckName    = "GeoLocationCheck"
-	PrivateNetworkCheckName = "PrivateNetworkCheck"
+	NBVersionCheckName        = "NBVersionCheck"
+	OSVersionCheckName        = "OSVersionCheck"
+	GeoLocationCheckName      = "GeoLocationCheck"
+	PeerNetworkRangeCheckName = "PeerNetworkRangeCheck"
 
 	CheckActionAllow string = "allow"
 	CheckActionDeny  string = "deny"
@@ -44,10 +44,10 @@ type Checks struct {
 
 // ChecksDefinition contains definition of actual check
 type ChecksDefinition struct {
-	NBVersionCheck      *NBVersionCheck      `json:",omitempty"`
-	OSVersionCheck      *OSVersionCheck      `json:",omitempty"`
-	GeoLocationCheck    *GeoLocationCheck    `json:",omitempty"`
-	PrivateNetworkCheck *PrivateNetworkCheck `json:",omitempty"`
+	NBVersionCheck        *NBVersionCheck        `json:",omitempty"`
+	OSVersionCheck        *OSVersionCheck        `json:",omitempty"`
+	GeoLocationCheck      *GeoLocationCheck      `json:",omitempty"`
+	PeerNetworkRangeCheck *PeerNetworkRangeCheck `json:",omitempty"`
 }
 
 // Copy returns a copy of a checks definition.
@@ -85,13 +85,13 @@ func (cd ChecksDefinition) Copy() ChecksDefinition {
 		}
 		copy(cdCopy.GeoLocationCheck.Locations, geoCheck.Locations)
 	}
-	if cd.PrivateNetworkCheck != nil {
-		privateNetCheck := cd.PrivateNetworkCheck
-		cdCopy.PrivateNetworkCheck = &PrivateNetworkCheck{
-			Action: privateNetCheck.Action,
-			Ranges: make([]netip.Prefix, len(privateNetCheck.Ranges)),
+	if cd.PeerNetworkRangeCheck != nil {
+		peerNetRangeCheck := cd.PeerNetworkRangeCheck
+		cdCopy.PeerNetworkRangeCheck = &PeerNetworkRangeCheck{
+			Action: peerNetRangeCheck.Action,
+			Ranges: make([]netip.Prefix, len(peerNetRangeCheck.Ranges)),
 		}
-		copy(cdCopy.PrivateNetworkCheck.Ranges, privateNetCheck.Ranges)
+		copy(cdCopy.PeerNetworkRangeCheck.Ranges, peerNetRangeCheck.Ranges)
 	}
 	return cdCopy
 }
@@ -130,8 +130,8 @@ func (pc *Checks) GetChecks() []Check {
 	if pc.Checks.GeoLocationCheck != nil {
 		checks = append(checks, pc.Checks.GeoLocationCheck)
 	}
-	if pc.Checks.PrivateNetworkCheck != nil {
-		checks = append(checks, pc.Checks.PrivateNetworkCheck)
+	if pc.Checks.PeerNetworkRangeCheck != nil {
+		checks = append(checks, pc.Checks.PeerNetworkRangeCheck)
 	}
 	return checks
 }

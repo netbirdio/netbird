@@ -43,6 +43,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/version"
 )
 
 // ManagementLegacyPort is the port that was used before by the Management gRPC server.
@@ -166,7 +167,7 @@ var (
 
 			geo, err := geolocation.NewGeolocation(config.Datadir)
 			if err != nil {
-				log.Warnf("could not initialize geo location service, we proceed without geo support")
+				log.Warnf("could not initialize geo location service: %v, we proceed without geo support", err)
 			} else {
 				log.Infof("geo location service has been initialized from %s", config.Datadir)
 			}
@@ -319,6 +320,7 @@ var (
 				}
 			}
 
+			log.Infof("management server version %s", version.NetbirdVersion())
 			log.Infof("running HTTP server and gRPC server on the same port: %s", listener.Addr().String())
 			serveGRPCWithHTTP(listener, rootHandler, tlsEnabled)
 

@@ -53,10 +53,12 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
 	searchDomainList := searchDomains(config)
 	searchDomainList = mergeSearchDomains(searchDomainList, r.originalSearchDomains)
 
+	options := prepareOptionsWithTimeout(r.othersConfigs, int(dnsFailoverTimeout.Seconds()), dnsFailoverAttempts)
+
 	buf := prepareResolvConfContent(
 		searchDomainList,
 		append([]string{config.ServerIP}, r.originalNameServers...),
-		r.othersConfigs)
+		options)
 
 	// create a backup for unclean shutdown detection before the resolv.conf is changed
 	if err := createUncleanShutdownIndicator(defaultResolvConfPath, resolvConfManager, config.ServerIP); err != nil {

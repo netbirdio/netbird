@@ -4,7 +4,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"golang.org/x/crypto/acme/autocert"
 	"io"
 	"io/fs"
 	"net"
@@ -14,10 +13,14 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/crypto/acme/autocert"
+
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/signal/server"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/version"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
@@ -129,6 +132,7 @@ var (
 				log.Infof("running gRPC server: %s", grpcListener.Addr().String())
 			}
 
+			log.Infof("signal server version %s", version.NetbirdVersion())
 			log.Infof("started Signal Service")
 
 			SetupCloseHandler()

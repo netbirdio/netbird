@@ -408,6 +408,8 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 		return nil, nil, err
 	}
 
+	registrationTime := time.Now().UTC()
+
 	newPeer := &nbpeer.Peer{
 		ID:                     xid.New().String(),
 		Key:                    peer.Key,
@@ -417,10 +419,11 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 		Name:                   peer.Meta.Hostname,
 		DNSLabel:               newLabel,
 		UserID:                 userID,
-		Status:                 &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
+		Status:                 &nbpeer.PeerStatus{Connected: false, LastSeen: registrationTime},
 		SSHEnabled:             false,
 		SSHKey:                 peer.SSHKey,
-		LastLogin:              time.Now().UTC(),
+		LastLogin:              registrationTime,
+		CreatedAt:              registrationTime,
 		LoginExpirationEnabled: addedByUser,
 		Ephemeral:              ephemeral,
 	}
