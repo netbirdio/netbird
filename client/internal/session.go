@@ -1,20 +1,27 @@
 package internal
 
 import (
+	"context"
+	"sync"
 	"time"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
 type SessionWatcher struct {
+	ctx   context.Context
+	mutex sync.Mutex
+
 	peerStatusRecorder *peer.Status
 	watchTicker        *time.Ticker
-	onExpireListener   func()
+
+	onExpireListener func()
 }
 
 // NewSessionWatcher creates a new instance of SessionWatcher.
-func NewSessionWatcher(peerStatusRecorder *peer.Status) *SessionWatcher {
+func NewSessionWatcher(ctx context.Context, peerStatusRecorder *peer.Status) *SessionWatcher {
 	s := &SessionWatcher{
+		ctx:                ctx,
 		peerStatusRecorder: peerStatusRecorder,
 		watchTicker:        time.NewTicker(10 * time.Second),
 	}
@@ -24,12 +31,13 @@ func NewSessionWatcher(peerStatusRecorder *peer.Status) *SessionWatcher {
 
 // SetOnExpireListener sets the callback func to be called when the session expires.
 func (s *SessionWatcher) SetOnExpireListener(onExpire func()) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 	s.onExpireListener = onExpire
 }
 
-// startWatcher starts the session watcher.
-// It checks if login is required,
-// if login is required and onExpireListener is set, it calls the onExpireListener.
+// startWatcher continuously checks if the session requires login and
+// calls the onExpireListener if login is required.
 func (s *SessionWatcher) startWatcher() {
 	isLoginRequired := s.peerStatusRecorder.IsLoginRequired()
 	if isLoginRequired && s.onExpireListener != nil {
@@ -38,15 +46,16 @@ func (s *SessionWatcher) startWatcher() {
 
 	for {
 		select {
+		case <-s.ctx.Done():
+			s.watchTicker.Stop()
+			return
 		case <-s.watchTicker.C:
 			isLoginRequired := s.peerStatusRecorder.IsLoginRequired()
 			if isLoginRequired && s.onExpireListener != nil {
+				s.mutex.Lock()
 				s.onExpireListener()
+				s.mutex.Unlock()
 			}
 		}
 	}
 }
-
-// StopWatch stops the watch ticker of the SessionWatcher,
-// effectively stopping the session watching a process.
-func (s *SessionWatcher) StopWatch() { s.watchTicker.Stop() }
