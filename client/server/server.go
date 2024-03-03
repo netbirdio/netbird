@@ -119,7 +119,7 @@ func (s *Server) Start() error {
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
 
 	if s.sessionWatcher == nil {
-		s.sessionWatcher = internal.NewSessionWatcher(s.statusRecorder)
+		s.sessionWatcher = internal.NewSessionWatcher(ctx, s.statusRecorder)
 		s.sessionWatcher.SetOnExpireListener(s.onSessionExpire)
 	}
 
@@ -465,7 +465,6 @@ func (s *Server) Down(_ context.Context, _ *proto.DownRequest) (*proto.DownRespo
 	s.actCancel()
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusIdle)
-	s.sessionWatcher.StopWatch()
 
 	return &proto.DownResponse{}, nil
 }
