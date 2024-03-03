@@ -40,6 +40,8 @@ type Peer struct {
 	LoginExpirationEnabled bool
 	// LastLogin the time when peer performed last login operation
 	LastLogin time.Time
+	// CreatedAt records the time the peer was created
+	CreatedAt time.Time
 	// Indicate ephemeral peer attribute
 	Ephemeral bool
 	// Geo location based on connection IP
@@ -71,6 +73,12 @@ type NetworkAddress struct {
 	Mac   string
 }
 
+// Environment is a system environment information
+type Environment struct {
+	Cloud    string
+	Platform string
+}
+
 // PeerSystemMeta is a metadata of a Peer machine system
 type PeerSystemMeta struct { //nolint:revive
 	Hostname           string
@@ -87,6 +95,7 @@ type PeerSystemMeta struct { //nolint:revive
 	SystemSerialNumber string
 	SystemProductName  string
 	SystemManufacturer string
+	Environment        Environment `gorm:"serializer:json"`
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
@@ -119,7 +128,9 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		p.UIVersion == other.UIVersion &&
 		p.SystemSerialNumber == other.SystemSerialNumber &&
 		p.SystemProductName == other.SystemProductName &&
-		p.SystemManufacturer == other.SystemManufacturer
+		p.SystemManufacturer == other.SystemManufacturer &&
+		p.Environment.Cloud == other.Environment.Cloud &&
+		p.Environment.Platform == other.Environment.Platform
 }
 
 // AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
@@ -148,6 +159,7 @@ func (p *Peer) Copy() *Peer {
 		SSHEnabled:             p.SSHEnabled,
 		LoginExpirationEnabled: p.LoginExpirationEnabled,
 		LastLogin:              p.LastLogin,
+		CreatedAt:              p.CreatedAt,
 		Ephemeral:              p.Ephemeral,
 		Location:               p.Location,
 	}
@@ -204,7 +216,7 @@ func (p *Peer) FQDN(dnsDomain string) string {
 
 // EventMeta returns activity event meta related to the peer
 func (p *Peer) EventMeta(dnsDomain string) map[string]any {
-	return map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP}
+	return map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP, "created_at": p.CreatedAt}
 }
 
 // Copy PeerStatus

@@ -288,6 +288,10 @@ func extractPeerMeta(loginReq *proto.LoginRequest) nbpeer.PeerSystemMeta {
 		SystemSerialNumber: loginReq.GetMeta().GetSysSerialNumber(),
 		SystemProductName:  loginReq.GetMeta().GetSysProductName(),
 		SystemManufacturer: loginReq.GetMeta().GetSysManufacturer(),
+		Environment: nbpeer.Environment{
+			Cloud:    loginReq.GetMeta().GetEnvironment().GetCloud(),
+			Platform: loginReq.GetMeta().GetEnvironment().GetPlatform(),
+		},
 	}
 }
 
