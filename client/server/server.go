@@ -552,8 +552,11 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 
 func (s *Server) onSessionExpire() {
 	if runtime.GOOS != "windows" {
-		if err := sendTerminalNotification(); err != nil {
-			log.Errorf("send session expire terminal notification: %v", err)
+		isUIActive := internal.CheckUIApp()
+		if !isUIActive {
+			if err := sendTerminalNotification(); err != nil {
+				log.Errorf("send session expire terminal notification: %v", err)
+			}
 		}
 	}
 }
