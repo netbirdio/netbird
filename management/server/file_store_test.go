@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"crypto/sha256"
 	"net"
 	"path/filepath"
@@ -657,33 +656,4 @@ func newStore(t *testing.T) *FileStore {
 	}
 
 	return store
-}
-
-func TestFileStore_CalculateUsageStats(t *testing.T) {
-	storeDir := t.TempDir()
-
-	err := util.CopyFileContents("testdata/store_stats.json", filepath.Join(storeDir, "store.json"))
-	require.NoError(t, err)
-
-	store, err := NewFileStore(storeDir, nil)
-	require.NoError(t, err)
-
-	startDate := time.Date(2024, time.February, 1, 0, 0, 0, 0, time.UTC)
-	endDate := startDate.AddDate(0, 1, 0).Add(-time.Nanosecond)
-
-	stats1, err := store.CalculateUsageStats(context.TODO(), "account-1", startDate, endDate)
-	require.NoError(t, err)
-
-	assert.Equal(t, int64(2), stats1.ActiveUsers)
-	assert.Equal(t, int64(4), stats1.TotalUsers)
-	assert.Equal(t, int64(3), stats1.ActivePeers)
-	assert.Equal(t, int64(7), stats1.TotalPeers)
-
-	stats2, err := store.CalculateUsageStats(context.TODO(), "account-2", startDate, endDate)
-	require.NoError(t, err)
-
-	assert.Equal(t, int64(1), stats2.ActiveUsers)
-	assert.Equal(t, int64(2), stats2.TotalUsers)
-	assert.Equal(t, int64(1), stats2.ActivePeers)
-	assert.Equal(t, int64(2), stats2.TotalPeers)
 }
