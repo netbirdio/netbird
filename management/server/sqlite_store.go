@@ -505,10 +505,13 @@ func (s *SqliteStore) CalculateUsageStats(ctx context.Context, accountID string,
 	stats := &AccountUsageStats{}
 
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		err := tx.Model(&nbpeer.Peer{}).
-			Where("account_id = ? AND peer_status_last_seen BETWEEN ? AND ?", accountID, start, end).
-			Distinct("user_id").
-			Count(&stats.ActiveUsers).Error
+		err := tx.Raw(`
+			SELECT COUNT(DISTINCT user_id) FROM (
+				SELECT id as user_id FROM users WHERE account_id = ? AND last_login BETWEEN ? AND ? AND is_service_user = ?
+				UNION
+				SELECT user_id FROM peers WHERE account_id = ? AND peer_status_last_seen BETWEEN ? AND ?
+			) AS combined`, accountID, start, end, false, accountID, start, end).Scan(&stats.ActiveUsers).Error
+
 		if err != nil {
 			return fmt.Errorf("get active users: %w", err)
 		}

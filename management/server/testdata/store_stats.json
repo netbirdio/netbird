@@ -13,20 +13,29 @@
       },
       "Users": {
         "user-1-account-1": {
-          "Id": "user-1-account-1"
+          "Id": "user-1-account-1",
+          "LastLogin": "2023-01-15T00:00:00Z"
         },
         "user-2-account-1": {
-          "Id": "user-2-account-1"
+          "Id": "user-2-account-1",
+          "LastLogin": "2024-01-02T00:00:00Z"
         },
         "user-3-account-1": {
-          "Id": "user-3-account-1"
+          "Id": "user-3-account-1",
+          "LastLogin": "2024-02-05T00:00:00Z"
         },
         "user-4-account-1": {
-          "Id": "user-4-account-1"
+          "Id": "user-4-account-1",
+          "LastLogin": "2024-01-20T00:00:00Z"
         },
         "user-5-account-1": {
           "Id": "user-5-account-1",
-          "IsServiceUser": true
+          "IsServiceUser": true,
+          "LastLogin": "2024-02-15T00:00:00Z"
+        },
+        "user-6-account-1": {
+          "Id": "user-6-account-1",
+          "LastLogin": "2024-02-10T00:00:00Z"
         }
       },
       "Peers": {
@@ -106,6 +115,17 @@
           "Meta": {
             "Hostname": "peer7-host"
           }
+        },
+        "peer-8-account-1": {
+          "ID": "peer-8-account-1",
+          "UserID": "user-6-account-1",
+          "Status": {
+            "LastSeen": "2024-01-01T00:00:00Z"
+          },
+          "Name": "Peer Eight",
+          "Meta": {
+            "Hostname": "peer8-host"
+          }
         }
       }
     },
@@ -122,14 +142,17 @@
       },
       "Users": {
         "user-1-account-2": {
-          "Id": "user-1-account-2"
+          "Id": "user-1-account-2",
+          "LastLogin": "2023-12-15T00:00:00Z"
         },
         "user-2-account-2": {
-          "Id": "user-1-account-2"
+          "Id": "user-2-account-2",
+          "LastLogin": "2024-02-28T00:00:00Z"
         },
         "user-3-account-2": {
           "Id": "user-3-account-2",
-          "IsServiceUser": true
+          "IsServiceUser": true,
+          "LastLogin": "2024-01-30T00:00:00Z"
         }
       },
       "Peers": {

@@ -676,28 +676,33 @@ func (s *FileStore) CalculateUsageStats(_ context.Context, accountID string, sta
 		return nil, fmt.Errorf("account not found")
 	}
 
-	stats := &AccountUsageStats{
-		TotalUsers: 0,
-		TotalPeers: int64(len(account.Peers)),
-	}
+	stats := &AccountUsageStats{}
 
-	for _, user := range account.Users {
+	activeUsers := make(map[string]struct{})
+	for userID, user := range account.Users {
+		if user.LastLogin.After(start) && user.LastLogin.Before(end) && !user.IsServiceUser {
+			activeUsers[userID] = struct{}{}
+		}
+
 		if !user.IsServiceUser {
 			stats.TotalUsers++
 		}
 	}
 
-	activeUsers := make(map[string]bool)
 	for _, peer := range account.Peers {
-		lastSeen := peer.Status.LastSeen
-		if lastSeen.Compare(start) >= 0 && lastSeen.Compare(end) <= 0 {
-			if _, exists := account.Users[peer.UserID]; exists && !activeUsers[peer.UserID] {
-				activeUsers[peer.UserID] = true
-				stats.ActiveUsers++
-			}
+		if peer.Status.LastSeen.After(start) && peer.Status.LastSeen.Before(end) {
 			stats.ActivePeers++
+
+			// service users don't have peers, but we check regardless.
+			if _, exists := account.Users[peer.UserID]; exists && !account.Users[peer.UserID].IsServiceUser {
+				activeUsers[peer.UserID] = struct{}{}
+			}
 		}
 	}
+
+	stats.ActiveUsers = int64(len(activeUsers))
+
+	stats.TotalPeers = int64(len(account.Peers))
 
 	return stats, nil
 }
