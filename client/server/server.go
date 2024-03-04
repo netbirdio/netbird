@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"sync"
 	"time"
 
@@ -119,7 +120,7 @@ func (s *Server) Start() error {
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
 
 	if s.sessionWatcher == nil {
-		s.sessionWatcher = internal.NewSessionWatcher(ctx, s.statusRecorder)
+		s.sessionWatcher = internal.NewSessionWatcher(s.rootCtx, s.statusRecorder)
 		s.sessionWatcher.SetOnExpireListener(s.onSessionExpire)
 	}
 
@@ -550,8 +551,10 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 }
 
 func (s *Server) onSessionExpire() {
-	if err := sendTerminalNotification(); err != nil {
-		log.Errorf("send session expire terminal notification: %v", err)
+	if runtime.GOOS != "windows" {
+		if err := sendTerminalNotification(); err != nil {
+			log.Errorf("send session expire terminal notification: %v", err)
+		}
 	}
 }
 

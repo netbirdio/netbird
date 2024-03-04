@@ -15,6 +15,7 @@ type SessionWatcher struct {
 	peerStatusRecorder *peer.Status
 	watchTicker        *time.Ticker
 
+	sendNotification bool
 	onExpireListener func()
 }
 
@@ -23,7 +24,7 @@ func NewSessionWatcher(ctx context.Context, peerStatusRecorder *peer.Status) *Se
 	s := &SessionWatcher{
 		ctx:                ctx,
 		peerStatusRecorder: peerStatusRecorder,
-		watchTicker:        time.NewTicker(10 * time.Second),
+		watchTicker:        time.NewTicker(2 * time.Second),
 	}
 	go s.startWatcher()
 	return s
@@ -39,21 +40,22 @@ func (s *SessionWatcher) SetOnExpireListener(onExpire func()) {
 // startWatcher continuously checks if the session requires login and
 // calls the onExpireListener if login is required.
 func (s *SessionWatcher) startWatcher() {
-	isLoginRequired := s.peerStatusRecorder.IsLoginRequired()
-	if isLoginRequired && s.onExpireListener != nil {
-		s.onExpireListener()
-	}
-
 	for {
 		select {
 		case <-s.ctx.Done():
 			s.watchTicker.Stop()
 			return
 		case <-s.watchTicker.C:
+			managementState := s.peerStatusRecorder.GetManagementState()
+			if managementState.Connected {
+				s.sendNotification = true
+			}
+
 			isLoginRequired := s.peerStatusRecorder.IsLoginRequired()
-			if isLoginRequired && s.onExpireListener != nil {
+			if isLoginRequired && s.sendNotification && s.onExpireListener != nil {
 				s.mutex.Lock()
 				s.onExpireListener()
+				s.sendNotification = false
 				s.mutex.Unlock()
 			}
 		}
