@@ -81,12 +81,12 @@ func setupDefaultRouting(intf string) (err error) {
 func cleanupDefaultRouting(intf string) error {
 	var errs []error
 
-	if err := removeRoute(&defaultv4, nil, &intf, NetbirdVPNTableID, netlink.FAMILY_V4); err != nil {
-		errs = append(errs, fmt.Errorf("remove route v4: %w", err))
+	if err := removeSuppressedPrefixRule(syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, 0); err != nil {
+		errs = append(errs, fmt.Errorf("remove rule with suppress prefixlen v4: %w", err))
 	}
 
-	if err := removeBlackholeRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
-		errs = append(errs, fmt.Errorf("remove blackhole route v6: %w", err))
+	if err := removeSuppressedPrefixRule(syscall.RT_TABLE_MAIN, netlink.FAMILY_V6, 0); err != nil {
+		errs = append(errs, fmt.Errorf("remove rule with suppress prefixlen v6: %w", err))
 	}
 
 	if err := removeRule(nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V4, -1, true); err != nil {
@@ -97,12 +97,12 @@ func cleanupDefaultRouting(intf string) error {
 		errs = append(errs, fmt.Errorf("remove rule v6: %w", err))
 	}
 
-	if err := removeSuppressedPrefixRule(syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, 0); err != nil {
-		errs = append(errs, fmt.Errorf("remove rule with suppress prefixlen v4: %w", err))
+	if err := removeRoute(&defaultv4, nil, &intf, NetbirdVPNTableID, netlink.FAMILY_V4); err != nil {
+		errs = append(errs, fmt.Errorf("remove route v4: %w", err))
 	}
 
-	if err := removeSuppressedPrefixRule(syscall.RT_TABLE_MAIN, netlink.FAMILY_V6, 0); err != nil {
-		errs = append(errs, fmt.Errorf("remove rule with suppress prefixlen v6: %w", err))
+	if err := removeBlackholeRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
+		errs = append(errs, fmt.Errorf("remove blackhole route v6: %w", err))
 	}
 
 	if len(errs) > 0 {
