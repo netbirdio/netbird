@@ -58,7 +58,7 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		mgmCtx,
 		addr,
 		transportOption,
-		nbgrpc.NewCustomDialer(),
+		nbgrpc.WithCustomDialer(),
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    30 * time.Second,

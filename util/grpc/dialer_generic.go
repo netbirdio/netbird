@@ -4,6 +4,6 @@ package grpc
 
 import "google.golang.org/grpc"
 
-func NewCustomDialer() grpc.DialOption {
+func WithCustomDialer() grpc.DialOption {
 	return grpc.EmptyDialOption{}
 }
