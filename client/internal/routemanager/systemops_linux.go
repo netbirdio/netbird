@@ -49,10 +49,6 @@ func setupDefaultRouting(intf string) (err error) {
 		log.Errorf("Error adding routing table name: %v", err)
 	}
 
-	if err = enableIPForwarding(); err != nil {
-		return fmt.Errorf("enable IP forwarding: %w", err)
-	}
-
 	if err = addRoute(&defaultv4, nil, &intf, NetbirdVPNTableID, netlink.FAMILY_V4); err != nil {
 		return fmt.Errorf("add route v4: %w", err)
 	}
