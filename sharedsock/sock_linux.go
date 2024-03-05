@@ -22,7 +22,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 
-	netpkg "github.com/netbirdio/netbird/pkg/net"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 // ErrSharedSockStopped indicates that shared socket has been stopped
@@ -84,7 +84,7 @@ func Listen(port int, filter BPFFilter) (_ net.PacketConn, err error) {
 		return nil, fmt.Errorf("failed to create ipv4 raw socket: %w", err)
 	}
 
-	if err = netpkg.SetSocketMark(rawSock.conn4); err != nil {
+	if err = nbnet.SetSocketMark(rawSock.conn4); err != nil {
 		return nil, fmt.Errorf("failed to set SO_MARK on ipv4 socket: %w", err)
 	}
 
@@ -93,7 +93,7 @@ func Listen(port int, filter BPFFilter) (_ net.PacketConn, err error) {
 	if sockErr != nil {
 		log.Errorf("Failed to create ipv6 raw socket: %v", err)
 	} else {
-		if err = netpkg.SetSocketMark(rawSock.conn6); err != nil {
+		if err = nbnet.SetSocketMark(rawSock.conn6); err != nil {
 			return nil, fmt.Errorf("failed to set SO_MARK on ipv6 socket: %w", err)
 		}
 	}

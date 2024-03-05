@@ -14,7 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 
-	netpkg "github.com/netbirdio/netbird/pkg/net"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 const (
@@ -62,10 +62,10 @@ func setupDefaultRouting(intf string) (err error) {
 		return fmt.Errorf("add blackhole route v6: %w", err)
 	}
 
-	if err = addRule(netpkg.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V4, -1, true); err != nil {
+	if err = addRule(nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V4, -1, true); err != nil {
 		return fmt.Errorf("add rule v4: %w", err)
 	}
-	if err = addRule(netpkg.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V6, -1, true); err != nil {
+	if err = addRule(nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V6, -1, true); err != nil {
 		return fmt.Errorf("add rule v6: %w", err)
 	}
 
@@ -93,11 +93,11 @@ func cleanupDefaultRouting(intf string) error {
 		errs = append(errs, fmt.Errorf("remove blackhole route v6: %w", err))
 	}
 
-	if err := removeRule(netpkg.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V4, -1, true); err != nil {
+	if err := removeRule(nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V4, -1, true); err != nil {
 		errs = append(errs, fmt.Errorf("remove rule v4: %w", err))
 	}
 
-	if err := removeRule(netpkg.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V6, -1, true); err != nil {
+	if err := removeRule(nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V6, -1, true); err != nil {
 		errs = append(errs, fmt.Errorf("remove rule v6: %w", err))
 	}
 

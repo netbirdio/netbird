@@ -16,7 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/ebpf"
 	ebpfMgr "github.com/netbirdio/netbird/client/internal/ebpf/manager"
-	netpkg "github.com/netbirdio/netbird/pkg/net"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 // WGEBPFProxy definition for proxy with EBPF support
@@ -67,7 +67,7 @@ func (p *WGEBPFProxy) Listen() error {
 		IP:   net.ParseIP("127.0.0.1"),
 	}
 
-	p.conn, err = netpkg.ListenUDP("udp", &addr)
+	p.conn, err = nbnet.ListenUDP("udp", &addr)
 	if err != nil {
 		cErr := p.Free()
 		if cErr != nil {
@@ -228,7 +228,7 @@ func (p *WGEBPFProxy) prepareSenderRawSocket() (net.PacketConn, error) {
 	}
 
 	// Set the fwmark on the socket.
-	err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, netpkg.NetbirdFwmark)
+	err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, nbnet.NetbirdFwmark)
 	if err != nil {
 		return nil, fmt.Errorf("setting fwmark failed: %w", err)
 	}

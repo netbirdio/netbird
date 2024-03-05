@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	netpkg "github.com/netbirdio/netbird/pkg/net"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 const (
@@ -25,7 +25,7 @@ func (pl portLookup) searchFreePort() (int, error) {
 }
 
 func (pl portLookup) tryToBind(port int) error {
-	l, err := netpkg.NewListener().ListenPacket(context.Background(), "udp", fmt.Sprintf(":%d", port))
+	l, err := nbnet.NewListener().ListenPacket(context.Background(), "udp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return err
 	}

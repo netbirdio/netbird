@@ -14,7 +14,7 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
-	netpkg "github.com/netbirdio/netbird/pkg/net"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type wgUSPConfigurer struct {
@@ -39,7 +39,7 @@ func (c *wgUSPConfigurer) configureInterface(privateKey string, port int) error 
 	if err != nil {
 		return err
 	}
-	fwmark := netpkg.NetbirdFwmark
+	fwmark := nbnet.NetbirdFwmark
 	config := wgtypes.Config{
 		PrivateKey:   &key,
 		ReplacePeers: true,
