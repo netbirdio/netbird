@@ -72,7 +72,6 @@ type AccountManager interface {
 	CheckUserAccessByJWTGroups(claims jwtclaims.AuthorizationClaims) error
 	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
 	DeleteAccount(accountID, userID string) error
-	GetUsage(ctx context.Context, accountID string, start time.Time, end time.Time) (*AccountUsageStats, error)
 	MarkPATUsed(tokenID string) error
 	GetUser(claims jwtclaims.AuthorizationClaims) (*User, error)
 	ListUsers(accountID string) ([]*User, error)
@@ -231,14 +230,6 @@ type Account struct {
 	// deprecated on store and api level
 	Rules  map[string]*Rule `json:"-" gorm:"-"`
 	RulesG []Rule           `json:"-" gorm:"-"`
-}
-
-// AccountUsageStats represents the current usage statistics for an account
-type AccountUsageStats struct {
-	ActiveUsers int64 `json:"active_users"`
-	TotalUsers  int64 `json:"total_users"`
-	ActivePeers int64 `json:"active_peers"`
-	TotalPeers  int64 `json:"total_peers"`
 }
 
 type UserInfo struct {
@@ -1119,17 +1110,6 @@ func (am *DefaultAccountManager) DeleteAccount(accountID, userID string) error {
 
 	log.Debugf("account %s deleted", accountID)
 	return nil
-}
-
-// GetUsage returns the usage stats for the given account.
-// This cannot be used to calculate usage stats for a period in the past as it relies on peers' last seen time.
-func (am *DefaultAccountManager) GetUsage(ctx context.Context, accountID string, start time.Time, end time.Time) (*AccountUsageStats, error) {
-	usageStats, err := am.Store.CalculateUsageStats(ctx, accountID, start, end)
-	if err != nil {
-		return nil, fmt.Errorf("failed to calculate usage stats: %w", err)
-	}
-
-	return usageStats, nil
 }
 
 // GetAccountByUserOrAccountID looks for an account by user or accountID, if no account is provided and
