@@ -195,6 +195,7 @@ func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 			if err := cleanupDefaultRouting(c.wgInterface.Name()); err != nil {
 				return fmt.Errorf("cleanup default routing: %v", err)
 			}
+			log.Infof("Default routing cleanup complete")
 		} else if err := removeFromRouteTableIfNonSystem(c.network, c.wgInterface.Address().IP.String()); err != nil {
 			return fmt.Errorf("remove route %s from system, err: %v", c.network, err)
 		}
@@ -241,6 +242,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 			if err := setupDefaultRouting(c.wgInterface.Name()); err != nil {
 				return fmt.Errorf("setup default routing: %v", err)
 			}
+			log.Infof("Default routing setup complete")
 		} else if err := addToRouteTableIfNoExists(c.network, c.wgInterface.Address().IP.String()); err != nil {
 			return fmt.Errorf("route %s couldn't be added for peer %s, err: %v",
 				c.network.String(), c.wgInterface.Address().IP.String(), err)

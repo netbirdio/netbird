@@ -11,6 +11,7 @@ import (
 	"os"
 	"syscall"
 
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 
@@ -73,53 +74,37 @@ func setupDefaultRouting(intf string) (err error) {
 		return fmt.Errorf("add rule with suppress prefixlen v6: %w", err)
 	}
 
-	log.Infof("Default routing setup complete")
-
 	return nil
 }
 
 func cleanupDefaultRouting(intf string) error {
-	var errs []error
+	var result *multierror.Error
 
 	if err := removeSuppressedPrefixRule(syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, 0); err != nil {
-		errs = append(errs, fmt.Errorf("remove rule with suppress prefixlen v4: %w", err))
+		result = multierror.Append(result, fmt.Errorf("remove rule with suppress prefixlen v4: %w", err))
 	}
 
 	if err := removeSuppressedPrefixRule(syscall.RT_TABLE_MAIN, netlink.FAMILY_V6, 0); err != nil {
-		errs = append(errs, fmt.Errorf("remove rule with suppress prefixlen v6: %w", err))
+		result = multierror.Append(result, fmt.Errorf("remove rule with suppress prefixlen v6: %w", err))
 	}
 
 	if err := removeRule(nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V4, -1, true); err != nil {
-		errs = append(errs, fmt.Errorf("remove rule v4: %w", err))
+		result = multierror.Append(result, fmt.Errorf("remove rule v4: %w", err))
 	}
 
 	if err := removeRule(nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V6, -1, true); err != nil {
-		errs = append(errs, fmt.Errorf("remove rule v6: %w", err))
+		result = multierror.Append(result, fmt.Errorf("remove rule v6: %w", err))
 	}
 
 	if err := removeRoute(&defaultv4, nil, &intf, NetbirdVPNTableID, netlink.FAMILY_V4); err != nil {
-		errs = append(errs, fmt.Errorf("remove route v4: %w", err))
+		result = multierror.Append(result, fmt.Errorf("remove route v4: %w", err))
 	}
 
 	if err := removeBlackholeRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
-		errs = append(errs, fmt.Errorf("remove blackhole route v6: %w", err))
+		result = multierror.Append(result, fmt.Errorf("remove blackhole route v6: %w", err))
 	}
 
-	if len(errs) > 0 {
-		var combinedErr error
-		for _, err := range errs {
-			if combinedErr == nil {
-				combinedErr = err
-			} else {
-				combinedErr = fmt.Errorf("%v; %w", combinedErr, err)
-			}
-		}
-		return combinedErr
-	}
-
-	log.Infof("Default routing cleanup complete")
-
-	return nil
+	return result.ErrorOrNil()
 }
 
 func addToRouteTable(prefix netip.Prefix, addr string) error {
@@ -233,15 +218,17 @@ func removeRoute(prefix *netip.Prefix, addr, intf *string, tableID, family int) 
 func flushRoutes(tableID, family int) error {
 	routes, err := netlink.RouteListFiltered(family, &netlink.Route{Table: tableID}, netlink.RT_FILTER_TABLE)
 	if err != nil {
-		return fmt.Errorf("failed to list routes from table %d: %w", tableID, err)
+		fmt.Errorf("list routes from table %d: %w", tableID, err)
 	}
 
+	var result *multierror.Error
 	for i := range routes {
 		if err := netlink.RouteDel(&routes[i]); err != nil {
-			return fmt.Errorf("failed to delete route %v from table %d: %w", routes[i], tableID, err)
+			result = multierror.Append(result, fmt.Errorf("failed to delete route %v from table %d: %w", routes[i], tableID, err))
 		}
 	}
-	return nil
+
+	return result.ErrorOrNil()
 }
 
 // getRoutes fetches routes from a specific routing table identified by tableID.
