@@ -236,9 +236,9 @@ func flushRoutes(tableID, family int) error {
 		return fmt.Errorf("failed to list routes from table %d: %w", tableID, err)
 	}
 
-	for _, route := range routes {
-		if err := netlink.RouteDel(&route); err != nil {
-			return fmt.Errorf("failed to delete route %v from table %d: %w", route, tableID, err)
+	for i := range routes {
+		if err := netlink.RouteDel(&routes[i]); err != nil {
+			return fmt.Errorf("failed to delete route %v from table %d: %w", routes[i], tableID, err)
 		}
 	}
 	return nil
