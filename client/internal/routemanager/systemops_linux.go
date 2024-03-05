@@ -165,18 +165,16 @@ func addRoute(prefix *netip.Prefix, addr, intf *string, tableID, family int) err
 // ipFamily should be netlink.FAMILY_V4 for IPv4 or netlink.FAMILY_V6 for IPv6.
 // tableID specifies the routing table to which the blackhole route will be added.
 func addBlackholeRoute(prefix *netip.Prefix, tableID, ipFamily int) error {
+	_, ipNet, err := net.ParseCIDR(prefix.String())
+	if err != nil {
+		return fmt.Errorf("parse prefix %s: %w", prefix, err)
+	}
+
 	route := &netlink.Route{
 		Type:   syscall.RTN_BLACKHOLE,
 		Table:  tableID,
 		Family: ipFamily,
-	}
-
-	if prefix != nil {
-		_, ipNet, err := net.ParseCIDR(prefix.String())
-		if err != nil {
-			return fmt.Errorf("parse prefix %s: %w", prefix, err)
-		}
-		route.Dst = ipNet
+		Dst:    ipNet,
 	}
 
 	if err := netlink.RouteAdd(route); err != nil {
@@ -187,18 +185,16 @@ func addBlackholeRoute(prefix *netip.Prefix, tableID, ipFamily int) error {
 }
 
 func removeBlackholeRoute(prefix *netip.Prefix, tableID, ipFamily int) error {
+	_, ipNet, err := net.ParseCIDR(prefix.String())
+	if err != nil {
+		return fmt.Errorf("parse prefix %s: %w", prefix, err)
+	}
+
 	route := &netlink.Route{
 		Type:   syscall.RTN_BLACKHOLE,
 		Table:  tableID,
 		Family: ipFamily,
-	}
-
-	if prefix != nil {
-		_, ipNet, err := net.ParseCIDR(prefix.String())
-		if err != nil {
-			return fmt.Errorf("parse prefix %s: %w", prefix, err)
-		}
-		route.Dst = ipNet
+		Dst:    ipNet,
 	}
 
 	if err := netlink.RouteDel(route); err != nil {
@@ -211,18 +207,16 @@ func removeBlackholeRoute(prefix *netip.Prefix, tableID, ipFamily int) error {
 
 // removeRoute removes a route from a specific routing table identified by tableID.
 func removeRoute(prefix *netip.Prefix, addr, intf *string, tableID, family int) error {
+	_, ipNet, err := net.ParseCIDR(prefix.String())
+	if err != nil {
+		return fmt.Errorf("parse prefix %s: %w", prefix, err)
+	}
+
 	route := &netlink.Route{
 		Scope:  netlink.SCOPE_UNIVERSE,
 		Table:  tableID,
 		Family: family,
-	}
-
-	if prefix != nil {
-		_, ipNet, err := net.ParseCIDR(prefix.String())
-		if err != nil {
-			return fmt.Errorf("parse prefix %s: %w", prefix, err)
-		}
-		route.Dst = ipNet
+		Dst:    ipNet,
 	}
 
 	if err := addNextHop(addr, intf, route); err != nil {
