@@ -172,7 +172,7 @@ var (
 				log.Infof("geo location service has been initialized from %s", config.Datadir)
 			}
 
-			integratedPeerApproval, err := integrations.NewIntegratedApproval()
+			integratedPeerApproval, err := integrations.NewIntegratedApproval(eventStore)
 			if err != nil {
 				return fmt.Errorf("failed to initialize integrated peer approval: %v", err)
 			}
