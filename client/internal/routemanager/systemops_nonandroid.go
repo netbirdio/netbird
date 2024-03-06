@@ -13,7 +13,7 @@ import (
 
 var errRouteNotFound = fmt.Errorf("route not found")
 
-func addToRouteTableIfNoExists(prefix netip.Prefix, addr string) error {
+func addToRouteTableIfNoExists(prefix netip.Prefix, addr string, intf string) error {
 	ok, err := existsInRouteTable(prefix)
 	if err != nil {
 		return err
@@ -35,7 +35,7 @@ func addToRouteTableIfNoExists(prefix netip.Prefix, addr string) error {
 		}
 	}
 
-	return addToRouteTable(prefix, addr)
+	return addToRouteTable(prefix, addr, intf)
 }
 
 func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
@@ -68,7 +68,7 @@ func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 		return fmt.Errorf("unable to get the next hop for the default gateway address. error: %s", err)
 	}
 	log.Debugf("adding a new route for gateway %s with next hop %s", gatewayPrefix, gatewayHop)
-	return addToRouteTable(gatewayPrefix, gatewayHop.String())
+	return addToRouteTable(gatewayPrefix, gatewayHop.String(), "")
 }
 
 func existsInRouteTable(prefix netip.Prefix) (bool, error) {
@@ -97,8 +97,8 @@ func isSubRange(prefix netip.Prefix) (bool, error) {
 	return false, nil
 }
 
-func removeFromRouteTableIfNonSystem(prefix netip.Prefix, addr string) error {
-	return removeFromRouteTable(prefix, addr)
+func removeFromRouteTableIfNonSystem(prefix netip.Prefix, addr string, intf string) error {
+	return removeFromRouteTable(prefix, addr, intf)
 }
 
 func getExistingRIBRouteGateway(prefix netip.Prefix) (net.IP, error) {

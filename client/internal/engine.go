@@ -260,6 +260,10 @@ func (e *Engine) Start() error {
 	e.dnsServer = dnsServer
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, initialRoutes)
+	if err := e.routeManager.Init(); err != nil {
+		e.close()
+		return fmt.Errorf("init route manager: %w", err)
+	}
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
 	err = e.wgInterfaceCreate()

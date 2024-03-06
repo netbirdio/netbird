@@ -54,7 +54,7 @@ func TestAddRemoveRoutes(t *testing.T) {
 			err = wgInterface.Create()
 			require.NoError(t, err, "should create testing wireguard interface")
 
-			err = addToRouteTableIfNoExists(testCase.prefix, wgInterface.Address().IP.String())
+			err = addToRouteTableIfNoExists(testCase.prefix, wgInterface.Address().IP.String(), "")
 			require.NoError(t, err, "addToRouteTableIfNoExists should not return err")
 
 			prefixGateway, err := getExistingRIBRouteGateway(testCase.prefix)
@@ -67,7 +67,7 @@ func TestAddRemoveRoutes(t *testing.T) {
 			exists, err := existsInRouteTable(testCase.prefix)
 			require.NoError(t, err, "existsInRouteTable should not return err")
 			if exists && testCase.shouldRouteToWireguard {
-				err = removeFromRouteTableIfNonSystem(testCase.prefix, wgInterface.Address().IP.String())
+				err = removeFromRouteTableIfNonSystem(testCase.prefix, wgInterface.Address().IP.String(), "")
 				require.NoError(t, err, "removeFromRouteTableIfNonSystem should not return err")
 
 				prefixGateway, err = getExistingRIBRouteGateway(testCase.prefix)
@@ -193,12 +193,12 @@ func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
 
 			// Prepare the environment
 			if testCase.preExistingPrefix.IsValid() {
-				err := addToRouteTableIfNoExists(testCase.preExistingPrefix, MockAddr)
+				err := addToRouteTableIfNoExists(testCase.preExistingPrefix, MockAddr, "")
 				require.NoError(t, err, "should not return err when adding pre-existing route")
 			}
 
 			// Add the route
-			err = addToRouteTableIfNoExists(testCase.prefix, MockAddr)
+			err = addToRouteTableIfNoExists(testCase.prefix, MockAddr, "")
 			require.NoError(t, err, "should not return err when adding route")
 
 			if testCase.shouldAddRoute {
@@ -208,7 +208,7 @@ func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
 				require.True(t, ok, "route should exist")
 
 				// remove route again if added
-				err = removeFromRouteTableIfNonSystem(testCase.prefix, MockAddr)
+				err = removeFromRouteTableIfNonSystem(testCase.prefix, MockAddr, "")
 				require.NoError(t, err, "should not return err")
 			}
 

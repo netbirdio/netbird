@@ -36,83 +36,112 @@ var ErrTableIDExists = errors.New("ID exists with different name")
 var defaultv4 = netip.PrefixFrom(netip.IPv4Unspecified(), 0)
 var defaultv6 = netip.PrefixFrom(netip.IPv6Unspecified(), 0)
 
-// setupDefaultRouting sets up the default routing for the VPN.
-func setupDefaultRouting(intf string) (err error) {
-	defer func() {
-		if err != nil {
-			if cleanErr := cleanupDefaultRouting(intf); cleanErr != nil {
-				log.Errorf("Error cleaning up default routing: %v", cleanErr)
-			}
-		}
-	}()
+type ruleParams struct {
+	fwmark         int
+	tableID        int
+	family         int
+	priority       int
+	invert         bool
+	suppressPrefix int
+	description    string
+}
 
+func getSetupRules() []ruleParams {
+	return []ruleParams{
+		{nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V4, -1, true, -1, "add rule v4 netbird"},
+		{nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V6, -1, true, -1, "add rule v6 netbird"},
+		{-1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, -1, false, 0, "add rule with suppress prefixlen v4"},
+		{-1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V6, -1, false, 0, "add rule with suppress prefixlen v6"},
+		{nbnet.NetbirdFwmark, syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, -1, false, -1, "add rule v4 main"},
+		{nbnet.NetbirdFwmark, syscall.RT_TABLE_MAIN, netlink.FAMILY_V6, -1, false, -1, "add rule v6 main"},
+	}
+}
+
+// setupRouting establishes the routing configuration for the VPN, including essential rules
+// to ensure proper traffic flow for management, locally configured routes, and VPN traffic.
+//
+// Rule 1 (Management Traffic Priority): Ensures that traffic marked with the 'nbnet.NetbirdFwmark' is always
+// prioritized and routed via the main routing table. This rule prevents potential routes in the netbird routing table
+// to redirect the management traffic via the VPN.
+//
+// Rule 2 (Local Route Precedence): Safeguards locally installed routes by giving them precedence over
+// a potential default route received and configured for the VPN.
+//
+// Rule 3 (VPN Traffic Routing): Directs all remaining traffic to the 'NetbirdVPNTableID' custom routing table.
+// This table is where a default route or other specific routes received from the management server are configured,
+// enabling VPN connectivity.
+//
+// The rules are inserted in reverse order, as rules are added from the bottom up in the rule list.
+func setupRouting() (err error) {
 	if err = addRoutingTableName(); err != nil {
 		log.Errorf("Error adding routing table name: %v", err)
 	}
 
-	if err = addRoute(&defaultv4, nil, &intf, NetbirdVPNTableID, netlink.FAMILY_V4); err != nil {
-		return fmt.Errorf("add route v4: %w", err)
-	}
+	defer func() {
+		if err != nil {
+			if cleanErr := cleanupRouting(); cleanErr != nil {
+				log.Errorf("Error cleaning up routing: %v", cleanErr)
+			}
+		}
+	}()
 
-	// TODO: Change this to a normal route once we have ipv6 support
-	if err = addBlackholeRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
-		return fmt.Errorf("add blackhole route v6: %w", err)
-	}
-
-	if err = addRule(nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V4, -1, true); err != nil {
-		return fmt.Errorf("add rule v4: %w", err)
-	}
-	if err = addRule(nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V6, -1, true); err != nil {
-		return fmt.Errorf("add rule v6: %w", err)
-	}
-
-	if err = addRuleWithSuppressPrefixlen(syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, 0); err != nil {
-		return fmt.Errorf("add rule with suppress prefixlen v4: %w", err)
-	}
-
-	if err = addRuleWithSuppressPrefixlen(syscall.RT_TABLE_MAIN, netlink.FAMILY_V6, 0); err != nil {
-		return fmt.Errorf("add rule with suppress prefixlen v6: %w", err)
+	rules := getSetupRules()
+	for _, rule := range rules {
+		if err := addRule(rule); err != nil {
+			return fmt.Errorf("%s: %w", rule.description, err)
+		}
 	}
 
 	return nil
 }
 
-func cleanupDefaultRouting(intf string) error {
+// cleanupRouting performs a thorough cleanup of the routing configuration established by 'setupRouting'.
+// It systematically removes the three rules and any associated routing table entries to ensure a clean state.
+// The function uses error aggregation to report any errors encountered during the cleanup process.
+func cleanupRouting() error {
 	var result *multierror.Error
 
-	if err := removeSuppressedPrefixRule(syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, 0); err != nil {
-		result = multierror.Append(result, fmt.Errorf("remove rule with suppress prefixlen v4: %w", err))
+	if err := flushRoutes(NetbirdVPNTableID, netlink.FAMILY_V4); err != nil {
+		result = multierror.Append(result, fmt.Errorf("flush routes v4: %w", err))
+	}
+	if err := flushRoutes(NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
+		result = multierror.Append(result, fmt.Errorf("flush routes v6: %w", err))
 	}
 
-	if err := removeSuppressedPrefixRule(syscall.RT_TABLE_MAIN, netlink.FAMILY_V6, 0); err != nil {
-		result = multierror.Append(result, fmt.Errorf("remove rule with suppress prefixlen v6: %w", err))
-	}
-
-	if err := removeRule(nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V4, -1, true); err != nil {
-		result = multierror.Append(result, fmt.Errorf("remove rule v4: %w", err))
-	}
-
-	if err := removeRule(nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V6, -1, true); err != nil {
-		result = multierror.Append(result, fmt.Errorf("remove rule v6: %w", err))
-	}
-
-	if err := removeRoute(&defaultv4, nil, &intf, NetbirdVPNTableID, netlink.FAMILY_V4); err != nil {
-		result = multierror.Append(result, fmt.Errorf("remove route v4: %w", err))
-	}
-
-	if err := removeBlackholeRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
-		result = multierror.Append(result, fmt.Errorf("remove blackhole route v6: %w", err))
+	rules := getSetupRules()
+	for _, rule := range rules {
+		if err := removeAllRules(rule); err != nil {
+			result = multierror.Append(result, fmt.Errorf("%s: %w", rule.description, err))
+		}
 	}
 
 	return result.ErrorOrNil()
 }
 
-func addToRouteTable(prefix netip.Prefix, addr string) error {
-	return addRoute(&prefix, &addr, nil, syscall.RT_TABLE_MAIN, netlink.FAMILY_V4)
+func addToRouteTable(prefix netip.Prefix, addr string, intf string) error {
+	// TODO remove this once we have ipv6 support
+	if prefix == defaultv4 {
+		if err := addBlackholeRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
+			return fmt.Errorf("add blackhole: %w", err)
+		}
+	}
+	if err := addRoute(&prefix, nil, &intf, NetbirdVPNTableID, netlink.FAMILY_V4); err != nil {
+		return fmt.Errorf("add route: %w", err)
+	}
+	return nil
 }
 
-func removeFromRouteTable(prefix netip.Prefix, addr string) error {
-	return removeRoute(&prefix, &addr, nil, syscall.RT_TABLE_MAIN, netlink.FAMILY_V4)
+func removeFromRouteTable(prefix netip.Prefix, addr string, intf string) error {
+	// TODO remove this once we have ipv6 support
+	if prefix == defaultv4 {
+		if err := removeBlackholeRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
+			return fmt.Errorf("remove blackhole: %w", err)
+		}
+	}
+	if err := removeRoute(&prefix, nil, &intf, NetbirdVPNTableID, netlink.FAMILY_V4); err != nil {
+		return fmt.Errorf("remove route: %w", err)
+	}
+	return nil
 }
 
 func getRoutesFromTable() ([]netip.Prefix, error) {
@@ -208,7 +237,7 @@ func removeRoute(prefix *netip.Prefix, addr, intf *string, tableID, family int) 
 		return fmt.Errorf("add gateway and device: %w", err)
 	}
 
-	if err := netlink.RouteDel(route); err != nil {
+	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ENOENT) {
 		return fmt.Errorf("netlink remove route: %w", err)
 	}
 
@@ -218,7 +247,7 @@ func removeRoute(prefix *netip.Prefix, addr, intf *string, tableID, family int) 
 func flushRoutes(tableID, family int) error {
 	routes, err := netlink.RouteListFiltered(family, &netlink.Route{Table: tableID}, netlink.RT_FILTER_TABLE)
 	if err != nil {
-		fmt.Errorf("list routes from table %d: %w", tableID, err)
+		return fmt.Errorf("list routes from table %d: %w", tableID, err)
 	}
 
 	var result *multierror.Error
@@ -341,13 +370,14 @@ func addRoutingTableName() error {
 }
 
 // addRule adds a routing rule to a specific routing table identified by tableID.
-func addRule(fwmark, tableID, family, priority int, invert bool) error {
+func addRule(params ruleParams) error {
 	rule := netlink.NewRule()
-	rule.Table = tableID
-	rule.Mark = fwmark
-	rule.Family = family
-	rule.Priority = priority
-	rule.Invert = invert
+	rule.Table = params.tableID
+	rule.Mark = params.fwmark
+	rule.Family = params.family
+	rule.Priority = params.priority
+	rule.Invert = params.invert
+	rule.SuppressPrefixlen = params.suppressPrefix
 
 	if err := netlink.RuleAdd(rule); err != nil {
 		return fmt.Errorf("add routing rule: %w", err)
@@ -357,13 +387,14 @@ func addRule(fwmark, tableID, family, priority int, invert bool) error {
 }
 
 // removeRule removes a routing rule from a specific routing table identified by tableID.
-func removeRule(fwmark, tableID, family, priority int, invert bool) error {
+func removeRule(params ruleParams) error {
 	rule := netlink.NewRule()
-	rule.Table = tableID
-	rule.Mark = fwmark
-	rule.Family = family
-	rule.Invert = invert
-	rule.Priority = priority
+	rule.Table = params.tableID
+	rule.Mark = params.fwmark
+	rule.Family = params.family
+	rule.Invert = params.invert
+	rule.Priority = params.priority
+	rule.SuppressPrefixlen = params.suppressPrefix
 
 	if err := netlink.RuleDel(rule); err != nil {
 		return fmt.Errorf("remove routing rule: %w", err)
@@ -372,29 +403,15 @@ func removeRule(fwmark, tableID, family, priority int, invert bool) error {
 	return nil
 }
 
-func addRuleWithSuppressPrefixlen(tableID, family, prefixLength int) error {
-	rule := netlink.NewRule()
-	rule.Table = tableID
-	rule.Family = family
-	rule.SuppressPrefixlen = prefixLength
-
-	if err := netlink.RuleAdd(rule); err != nil {
-		return fmt.Errorf("add routing rule with suppressed prefix: %w", err)
+func removeAllRules(params ruleParams) error {
+	for {
+		if err := removeRule(params); err != nil {
+			if errors.Is(err, syscall.ENOENT) {
+				break
+			}
+			return err
+		}
 	}
-
-	return nil
-}
-
-func removeSuppressedPrefixRule(tableID, family, prefixLength int) error {
-	rule := netlink.NewRule()
-	rule.Table = tableID
-	rule.Family = family
-	rule.SuppressPrefixlen = prefixLength
-
-	if err := netlink.RuleDel(rule); err != nil {
-		return fmt.Errorf("remove routing rule: %w", err)
-	}
-
 	return nil
 }
 

@@ -37,13 +37,10 @@ type clientNetwork struct {
 	chosenRoute         *route.Route
 	network             netip.Prefix
 	updateSerial        uint64
-	isDefault           bool
 }
 
 func newClientNetworkWatcher(ctx context.Context, wgInterface *iface.WGIface, statusRecorder *peer.Status, network netip.Prefix) *clientNetwork {
 	ctx, cancel := context.WithCancel(ctx)
-
-	isDefault := network == netip.MustParsePrefix("0.0.0.0/0") || network == netip.MustParsePrefix("::/0")
 
 	client := &clientNetwork{
 		ctx:                 ctx,
@@ -55,7 +52,6 @@ func newClientNetworkWatcher(ctx context.Context, wgInterface *iface.WGIface, st
 		routeUpdate:         make(chan routesUpdate),
 		peerStateUpdate:     make(chan struct{}),
 		network:             network,
-		isDefault:           isDefault,
 	}
 	return client
 }
@@ -191,12 +187,7 @@ func (c *clientNetwork) removeRouteFromWireguardPeer(peerKey string) error {
 
 func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 	if c.chosenRoute != nil {
-		if c.isDefault {
-			if err := cleanupDefaultRouting(c.wgInterface.Name()); err != nil {
-				return fmt.Errorf("cleanup default routing: %v", err)
-			}
-			log.Infof("Default routing cleanup complete")
-		} else if err := removeFromRouteTableIfNonSystem(c.network, c.wgInterface.Address().IP.String()); err != nil {
+		if err := removeFromRouteTableIfNonSystem(c.network, c.wgInterface.Address().IP.String(), c.wgInterface.Name()); err != nil {
 			return fmt.Errorf("remove route %s from system, err: %v", c.network, err)
 		}
 
@@ -238,12 +229,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 		}
 	} else {
 		// otherwise add the route to the system
-		if c.isDefault {
-			if err := setupDefaultRouting(c.wgInterface.Name()); err != nil {
-				return fmt.Errorf("setup default routing: %v", err)
-			}
-			log.Infof("Default routing setup complete")
-		} else if err := addToRouteTableIfNoExists(c.network, c.wgInterface.Address().IP.String()); err != nil {
+		if err := addToRouteTableIfNoExists(c.network, c.wgInterface.Address().IP.String(), c.wgInterface.Name()); err != nil {
 			return fmt.Errorf("route %s couldn't be added for peer %s, err: %v",
 				c.network.String(), c.wgInterface.Address().IP.String(), err)
 		}

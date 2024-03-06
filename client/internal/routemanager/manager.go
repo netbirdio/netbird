@@ -17,6 +17,7 @@ import (
 
 // Manager is a route manager interface
 type Manager interface {
+	Init() error
 	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
@@ -56,6 +57,19 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 	return dm
 }
 
+// Init sets up the routing
+func (m *DefaultManager) Init() error {
+	if err := cleanupRouting(); err != nil {
+		log.Warnf("Failed cleaning up routing: %v", err)
+	}
+
+	if err := setupRouting(); err != nil {
+		return fmt.Errorf("setup routing: %w", err)
+	}
+	log.Info("Routing setup complete")
+	return nil
+}
+
 func (m *DefaultManager) EnableServerRouter(firewall firewall.Manager) error {
 	var err error
 	m.serverRouter, err = newServerRouter(m.ctx, m.wgInterface, firewall)
@@ -70,6 +84,11 @@ func (m *DefaultManager) Stop() {
 	m.stop()
 	if m.serverRouter != nil {
 		m.serverRouter.cleanUp()
+	}
+	if err := cleanupRouting(); err != nil {
+		log.Errorf("Error cleaning up routing: %v", err)
+	} else {
+		log.Info("Routing cleanup complete")
 	}
 	m.ctx = nil
 }
