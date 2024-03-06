@@ -47,7 +47,7 @@ type NetworkMap struct {
 type Network struct {
 	Identifier string     `json:"id"`
 	Net        net.IPNet  `gorm:"serializer:gob"`
-	Net6       *net.IPNet `gorm:"serializer:gob"`
+	Net6       *net.IPNet `gorm:"serializer:json"` // Can't use gob serializer, as it cannot encode nil values.
 	Dns        string
 	// Serial is an ID that increments by 1 when any change to the network happened (e.g. new peer has been added).
 	// Used to synchronize state to the client apps.
