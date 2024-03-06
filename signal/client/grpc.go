@@ -21,10 +21,9 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/management/client"
 	"github.com/netbirdio/netbird/signal/proto"
 )
-
-const defaultSendTimeout = 5 * time.Second
 
 // ConnStateNotifier is a wrapper interface of the status recorder
 type ConnStateNotifier interface {
@@ -71,7 +70,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
 	}
 
-	sigCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	sigCtx, cancel := context.WithTimeout(ctx, client.ConnectTimeout)
 	defer cancel()
 	conn, err := grpc.DialContext(
 		sigCtx,
@@ -353,7 +352,7 @@ func (c *GrpcClient) Send(msg *proto.Message) error {
 		return err
 	}
 
-	attemptTimeout := defaultSendTimeout
+	attemptTimeout := client.ConnectTimeout
 
 	for attempt := 0; attempt < 4; attempt++ {
 		if attempt > 1 {

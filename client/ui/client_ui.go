@@ -61,7 +61,7 @@ func main() {
 
 	flag.Parse()
 
-	a := app.New()
+	a := app.NewWithID("NetBird")
 	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnectedPNG))
 
 	client := newServiceClient(daemonAddr, a, showSettings)
@@ -82,17 +82,23 @@ var iconConnectedICO []byte
 //go:embed netbird-systemtray-connected.png
 var iconConnectedPNG []byte
 
-//go:embed netbird-systemtray-default.ico
+//go:embed netbird-systemtray-disconnected.ico
 var iconDisconnectedICO []byte
 
-//go:embed netbird-systemtray-default.png
+//go:embed netbird-systemtray-disconnected.png
 var iconDisconnectedPNG []byte
 
-//go:embed netbird-systemtray-update.ico
-var iconUpdateICO []byte
+//go:embed netbird-systemtray-update-disconnected.ico
+var iconUpdateDisconnectedICO []byte
 
-//go:embed netbird-systemtray-update.png
-var iconUpdatePNG []byte
+//go:embed netbird-systemtray-update-disconnected.png
+var iconUpdateDisconnectedPNG []byte
+
+//go:embed netbird-systemtray-update-connected.ico
+var iconUpdateConnectedICO []byte
+
+//go:embed netbird-systemtray-update-connected.png
+var iconUpdateConnectedPNG []byte
 
 //go:embed netbird-systemtray-update-cloud.ico
 var iconUpdateCloudICO []byte
@@ -105,10 +111,11 @@ type serviceClient struct {
 	addr string
 	conn proto.DaemonServiceClient
 
-	icConnected    []byte
-	icDisconnected []byte
-	icUpdate       []byte
-	icUpdateCloud  []byte
+	icConnected          []byte
+	icDisconnected       []byte
+	icUpdateConnected    []byte
+	icUpdateDisconnected []byte
+	icUpdateCloud        []byte
 
 	// systray menu items
 	mStatus        *systray.MenuItem
@@ -123,9 +130,10 @@ type serviceClient struct {
 	mQuit          *systray.MenuItem
 
 	// application with main windows.
-	app          fyne.App
-	wSettings    fyne.Window
-	showSettings bool
+	app              fyne.App
+	wSettings        fyne.Window
+	showSettings     bool
+	sendNotification bool
 
 	// input elements for settings form
 	iMngURL       *widget.Entry
@@ -139,6 +147,7 @@ type serviceClient struct {
 	preSharedKey  string
 	adminURL      string
 
+	connected            bool
 	update               *version.Update
 	daemonVersion        string
 	updateIndicationLock sync.Mutex
@@ -150,9 +159,10 @@ type serviceClient struct {
 // This constructor also builds the UI elements for the settings window.
 func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient {
 	s := &serviceClient{
-		ctx:  context.Background(),
-		addr: addr,
-		app:  a,
+		ctx:              context.Background(),
+		addr:             addr,
+		app:              a,
+		sendNotification: false,
 
 		showSettings: showSettings,
 		update:       version.NewUpdate(),
@@ -161,13 +171,15 @@ func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient
 	if runtime.GOOS == "windows" {
 		s.icConnected = iconConnectedICO
 		s.icDisconnected = iconDisconnectedICO
-		s.icUpdate = iconUpdateICO
+		s.icUpdateConnected = iconUpdateConnectedICO
+		s.icUpdateDisconnected = iconUpdateDisconnectedICO
 		s.icUpdateCloud = iconUpdateCloudICO
 
 	} else {
 		s.icConnected = iconConnectedPNG
 		s.icDisconnected = iconDisconnectedPNG
-		s.icUpdate = iconUpdatePNG
+		s.icUpdateConnected = iconUpdateConnectedPNG
+		s.icUpdateDisconnected = iconUpdateDisconnectedPNG
 		s.icUpdateCloud = iconUpdateCloudPNG
 	}
 
@@ -367,9 +379,18 @@ func (s *serviceClient) updateStatus() error {
 		s.updateIndicationLock.Lock()
 		defer s.updateIndicationLock.Unlock()
 
+		// notify the user when the session has expired
+		if status.Status == string(internal.StatusNeedsLogin) {
+			s.onSessionExpire()
+		}
+
 		var systrayIconState bool
 		if status.Status == string(internal.StatusConnected) && !s.mUp.Disabled() {
-			if !s.isUpdateIconActive {
+			s.connected = true
+			s.sendNotification = true
+			if s.isUpdateIconActive {
+				systray.SetIcon(s.icUpdateConnected)
+			} else {
 				systray.SetIcon(s.icConnected)
 			}
 			systray.SetTooltip("NetBird (Connected)")
@@ -378,7 +399,10 @@ func (s *serviceClient) updateStatus() error {
 			s.mDown.Enable()
 			systrayIconState = true
 		} else if status.Status != string(internal.StatusConnected) && s.mUp.Disabled() {
-			if !s.isUpdateIconActive {
+			s.connected = false
+			if s.isUpdateIconActive {
+				systray.SetIcon(s.icUpdateDisconnected)
+			} else {
 				systray.SetIcon(s.icDisconnected)
 			}
 			systray.SetTooltip("NetBird (Disconnected)")
@@ -605,10 +629,30 @@ func (s *serviceClient) onUpdateAvailable() {
 	defer s.updateIndicationLock.Unlock()
 
 	s.mUpdate.Show()
-	s.mAbout.SetIcon(s.icUpdateCloud)
-
 	s.isUpdateIconActive = true
-	systray.SetIcon(s.icUpdate)
+
+	if s.connected {
+		systray.SetIcon(s.icUpdateConnected)
+	} else {
+		systray.SetIcon(s.icUpdateDisconnected)
+	}
+}
+
+// onSessionExpire sends a notification to the user when the session expires.
+func (s *serviceClient) onSessionExpire() {
+	if s.sendNotification {
+		title := "Connection session expired"
+		if runtime.GOOS == "darwin" {
+			title = "NetBird connection session expired"
+		}
+		s.app.SendNotification(
+			fyne.NewNotification(
+				title,
+				"Please re-authenticate to connect to the network",
+			),
+		)
+		s.sendNotification = false
+	}
 }
 
 func openURL(url string) error {

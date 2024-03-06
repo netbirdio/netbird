@@ -126,6 +126,7 @@ type AccountManager interface {
 	SavePostureChecks(accountID, userID string, postureChecks *posture.Checks) error
 	DeletePostureChecks(accountID, postureChecksID, userID string) error
 	ListPostureChecks(accountID, userID string) ([]*posture.Checks, error)
+	GetIdpManager() idp.Manager
 	UpdateIntegratedApprovalGroups(accountID string, userID string, groups []string) error
 	GroupValidation(accountId string, groups []string) (bool, error)
 }
@@ -209,6 +210,7 @@ type Account struct {
 
 	// User.Id it was created by
 	CreatedBy              string
+	CreatedAt              time.Time
 	Domain                 string `gorm:"index"`
 	DomainCategory         string
 	IsDomainPrimaryAccount bool
@@ -703,6 +705,7 @@ func (a *Account) Copy() *Account {
 	return &Account{
 		Id:                     a.Id,
 		CreatedBy:              a.CreatedBy,
+		CreatedAt:              a.CreatedAt,
 		Domain:                 a.Domain,
 		DomainCategory:         a.DomainCategory,
 		IsDomainPrimaryAccount: a.IsDomainPrimaryAccount,
@@ -922,6 +925,10 @@ func (am *DefaultAccountManager) GetExternalCacheManager() ExternalCacheManager 
 	return am.externalCacheManager
 }
 
+func (am *DefaultAccountManager) GetIdpManager() idp.Manager {
+	return am.idpManager
+}
+
 // UpdateAccountSettings updates Account settings.
 // Only users with role UserRoleAdmin can update the account.
 // User that performs the update has to belong to the account.
@@ -939,12 +946,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccountByUser(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	err = additions.ValidateExtraSettings(newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID, am.eventStore)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -956,6 +958,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 
 	if !user.HasAdminPower() {
 		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
+	}
+
+	err = additions.ValidateExtraSettings(newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID, am.eventStore)
+	if err != nil {
+		return nil, err
 	}
 
 	oldSettings := account.Settings
@@ -1892,6 +1899,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 
 	acc := &Account{
 		Id:               accountID,
+		CreatedAt:        time.Now().UTC(),
 		SetupKeys:        setupKeys,
 		Network:          network,
 		Peers:            peers,

@@ -8,7 +8,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
-type NetStackTun struct {
+type NetStackTun struct { //nolint:revive
 	address       string
 	mtu           int
 	listenAddress string

@@ -32,8 +32,12 @@ func (MocIntegratedApproval) PreparePeer(accountID string, peer *nbpeer.Peer, pe
 	return peer
 }
 
-func (MocIntegratedApproval) SyncPeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, bool) {
-	return peer.Copy(), false
+func (MocIntegratedApproval) IsRequiresApproval(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) bool {
+	return false
+}
+
+func (MocIntegratedApproval) Stop() {
+
 }
 
 func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Account, userID string) {
@@ -102,6 +106,10 @@ func verifyNewAccountHasDefaultFields(t *testing.T, account *Account, createdBy 
 
 	if account.CreatedBy != createdBy {
 		t.Errorf("expecting newly created account to be created by user %s, got %s", createdBy, account.CreatedBy)
+	}
+
+	if account.CreatedAt.IsZero() {
+		t.Errorf("expecting newly created account to have a non-zero creation time")
 	}
 
 	if account.Domain != domain {
@@ -1483,6 +1491,7 @@ func TestAccount_Copy(t *testing.T) {
 	account := &Account{
 		Id:                     "account1",
 		CreatedBy:              "tester",
+		CreatedAt:              time.Now().UTC(),
 		Domain:                 "test.com",
 		DomainCategory:         "public",
 		IsDomainPrimaryAccount: true,

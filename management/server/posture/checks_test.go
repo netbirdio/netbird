@@ -254,7 +254,7 @@ func TestChecks_Copy(t *testing.T) {
 				},
 				Action: CheckActionAllow,
 			},
-			PrivateNetworkCheck: &PrivateNetworkCheck{
+			PeerNetworkRangeCheck: &PeerNetworkRangeCheck{
 				Ranges: []netip.Prefix{
 					netip.MustParsePrefix("192.168.0.0/24"),
 					netip.MustParsePrefix("10.0.0.0/8"),

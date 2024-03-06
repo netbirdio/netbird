@@ -162,6 +162,13 @@ jobs:
           test $count -eq 4
         working-directory: infrastructure_files/artifacts
 
+      - name: test geolocation databases
+        working-directory: infrastructure_files/artifacts
+        run: |
+          sleep 30
+          docker compose exec management ls -l /var/lib/netbird/ | grep -i GeoLite2-City.mmdb
+          docker compose exec management ls -l /var/lib/netbird/ | grep -i geonames.db
+
   test-getting-started-script:
     runs-on: ubuntu-latest
     steps:
@@ -199,6 +206,6 @@ jobs:
       - name: test script
         run: bash -x infrastructure_files/download-geolite2.sh
       - name: test mmdb file exists
-        run: ls -l GeoLite2-City_*/GeoLite2-City.mmdb
+        run: test -f GeoLite2-City.mmdb
       - name: test geonames file exists
         run: test -f geonames.db

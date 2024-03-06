@@ -11,6 +11,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -93,6 +94,7 @@ type MockAccountManager struct {
 	DeletePostureChecksFunc         func(accountID, postureChecksID, userID string) error
 	ListPostureChecksFunc           func(accountID, userID string) ([]*posture.Checks, error)
 	GetUsageFunc                    func(ctx context.Context, accountID string, start, end time.Time) (*server.AccountUsageStats, error)
+	GetIdpManagerFunc               func() idp.Manager
 	UpdateIntegratedApprovalGroupsFunc func(accountID string, userID string, groups []string) error
 	GroupValidationFunc                func(accountId string, groups []string) (bool, error)
 }
@@ -707,12 +709,20 @@ func (am *MockAccountManager) ListPostureChecks(accountID, userID string) ([]*po
 	return nil, status.Errorf(codes.Unimplemented, "method ListPostureChecks is not implemented")
 }
 
-// GetUsage mocks GetCurrentUsage of the AccountManager interface
+// GetUsage mocks GetUsage of the AccountManager interface
 func (am *MockAccountManager) GetUsage(ctx context.Context, accountID string, start time.Time, end time.Time) (*server.AccountUsageStats, error) {
 	if am.GetUsageFunc != nil {
 		return am.GetUsageFunc(ctx, accountID, start, end)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetUsage is not implemented")
+}
+
+// GetIdpManager mocks GetIdpManager of the AccountManager interface
+func (am *MockAccountManager) GetIdpManager() idp.Manager {
+	if am.GetIdpManagerFunc != nil {
+		return am.GetIdpManagerFunc()
+	}
+	return nil
 }
 
 // UpdateIntegratedApprovalGroups mocks UpdateIntegratedApprovalGroups of the AccountManager interface

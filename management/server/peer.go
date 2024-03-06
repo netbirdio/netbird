@@ -408,6 +408,8 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 		return nil, nil, err
 	}
 
+	registrationTime := time.Now().UTC()
+
 	newPeer := &nbpeer.Peer{
 		ID:                     xid.New().String(),
 		Key:                    peer.Key,
@@ -417,10 +419,11 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 		Name:                   peer.Meta.Hostname,
 		DNSLabel:               newLabel,
 		UserID:                 userID,
-		Status:                 &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
+		Status:                 &nbpeer.PeerStatus{Connected: false, LastSeen: registrationTime},
 		SSHEnabled:             false,
 		SSHKey:                 peer.SSHKey,
-		LastLogin:              time.Now().UTC(),
+		LastLogin:              registrationTime,
+		CreatedAt:              registrationTime,
 		LoginExpirationEnabled: addedByUser,
 		Ephemeral:              ephemeral,
 	}
@@ -518,10 +521,9 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *Network
 		return nil, nil, status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
 	}
 
-	peer, updated := am.integratedPeerValidator.SyncPeer(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
-
-	if updated {
-		account.UpdatePeer(peer)
+	requiresApproval := am.integratedPeerValidator.IsRequiresApproval(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
+	if peer.Status.RequiresApproval != requiresApproval {
+		peer.Status.RequiresApproval = requiresApproval
 		err = am.Store.SaveAccount(account)
 		if err != nil {
 			return nil, nil, err
@@ -594,12 +596,12 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 		am.StoreEvent(login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
 	}
 
-	peer, updated := am.integratedPeerValidator.SyncPeer(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
-	if updated {
+	isRequiresApproval := am.integratedPeerValidator.IsRequiresApproval(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
+	if peer.Status.RequiresApproval != isRequiresApproval {
 		shouldStoreAccount = true
 	}
 
-	peer, updated = updatePeerMeta(peer, login.Meta, account)
+	peer, updated := updatePeerMeta(peer, login.Meta, account)
 	if updated {
 		shouldStoreAccount = true
 	}

@@ -452,8 +452,12 @@ func (MocIntegratedApproval) PreparePeer(accountID string, peer *nbpeer.Peer, pe
 	return peer
 }
 
-func (MocIntegratedApproval) SyncPeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, bool) {
-	return peer.Copy(), false
+func (MocIntegratedApproval) IsRequiresApproval(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) bool {
+	return false
+}
+
+func (MocIntegratedApproval) Stop() {
+
 }
 
 func loginPeerWithValidSetupKey(serverPubKey wgtypes.Key, key wgtypes.Key, client mgmtProto.ManagementServiceClient) *mgmtProto.LoginResponse {

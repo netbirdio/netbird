@@ -8,16 +8,16 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
-type PrivateNetworkCheck struct {
+type PeerNetworkRangeCheck struct {
 	Action string
 	Ranges []netip.Prefix `gorm:"serializer:json"`
 }
 
-var _ Check = (*PrivateNetworkCheck)(nil)
+var _ Check = (*PeerNetworkRangeCheck)(nil)
 
-func (p *PrivateNetworkCheck) Check(peer nbpeer.Peer) (bool, error) {
+func (p *PeerNetworkRangeCheck) Check(peer nbpeer.Peer) (bool, error) {
 	if len(peer.Meta.NetworkAddresses) == 0 {
-		return false, fmt.Errorf("peer's does not contain private network addresses")
+		return false, fmt.Errorf("peer's does not contain peer network range addresses")
 	}
 
 	maskedPrefixes := make([]netip.Prefix, 0, len(p.Ranges))
@@ -34,7 +34,7 @@ func (p *PrivateNetworkCheck) Check(peer nbpeer.Peer) (bool, error) {
 			case CheckActionAllow:
 				return true, nil
 			default:
-				return false, fmt.Errorf("invalid private network check action: %s", p.Action)
+				return false, fmt.Errorf("invalid peer network range check action: %s", p.Action)
 			}
 		}
 	}
@@ -46,9 +46,9 @@ func (p *PrivateNetworkCheck) Check(peer nbpeer.Peer) (bool, error) {
 		return false, nil
 	}
 
-	return false, fmt.Errorf("invalid private network check action: %s", p.Action)
+	return false, fmt.Errorf("invalid peer network range check action: %s", p.Action)
 }
 
-func (p *PrivateNetworkCheck) Name() string {
-	return PrivateNetworkCheckName
+func (p *PeerNetworkRangeCheck) Name() string {
+	return PeerNetworkRangeCheckName
 }
