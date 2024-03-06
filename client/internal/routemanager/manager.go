@@ -3,6 +3,7 @@ package routemanager
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"runtime"
 	"sync"
 
@@ -13,7 +14,11 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/version"
 )
+
+var defaultv4 = netip.PrefixFrom(netip.IPv4Unspecified(), 0)
+var defaultv6 = netip.PrefixFrom(netip.IPv6Unspecified(), 0)
 
 // Manager is a route manager interface
 type Manager interface {
@@ -176,6 +181,9 @@ func (m *DefaultManager) classifiesRoutes(newRoutes []*route.Route) (map[string]
 	for _, newRoute := range newRoutes {
 		networkID := route.GetHAUniqueID(newRoute)
 		if !ownNetworkIDs[networkID] {
+			if !isPrefixSupported(newRoute.Network) {
+				continue
+			}
 			newClientRoutesIDMap[networkID] = append(newClientRoutesIDMap[networkID], newRoute)
 		}
 	}
@@ -190,4 +198,19 @@ func (m *DefaultManager) clientRoutes(initialRoutes []*route.Route) []*route.Rou
 		rs = append(rs, routes...)
 	}
 	return rs
+}
+
+func isPrefixSupported(prefix netip.Prefix) bool {
+	if runtime.GOOS == "linux" {
+		return true
+	}
+
+	// If prefix is too small, lets assume it is a possible default prefix which is not yet supported
+	// we skip this prefix management
+	if prefix.Bits() < minRangeBits {
+		log.Warnf("This agent version: %s, doesn't support default routes, received %s, skipping this prefix",
+			version.NetbirdVersion(), prefix)
+		return false
+	}
+	return true
 }

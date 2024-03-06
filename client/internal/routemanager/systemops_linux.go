@@ -33,9 +33,6 @@ const (
 
 var ErrTableIDExists = errors.New("ID exists with different name")
 
-var defaultv4 = netip.PrefixFrom(netip.IPv4Unspecified(), 0)
-var defaultv6 = netip.PrefixFrom(netip.IPv6Unspecified(), 0)
-
 type ruleParams struct {
 	fwmark         int
 	tableID        int
@@ -118,7 +115,7 @@ func cleanupRouting() error {
 	return result.ErrorOrNil()
 }
 
-func addToRouteTable(prefix netip.Prefix, addr string, intf string) error {
+func addToRouteTable(prefix netip.Prefix, _ string, intf string) error {
 	// TODO remove this once we have ipv6 support
 	if prefix == defaultv4 {
 		if err := addUnreachableRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
@@ -131,7 +128,7 @@ func addToRouteTable(prefix netip.Prefix, addr string, intf string) error {
 	return nil
 }
 
-func removeFromRouteTable(prefix netip.Prefix, addr string, intf string) error {
+func removeFromRouteTable(prefix netip.Prefix, _ string, intf string) error {
 	// TODO remove this once we have ipv6 support
 	if prefix == defaultv4 {
 		if err := removeUnreachableRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
@@ -145,7 +142,7 @@ func removeFromRouteTable(prefix netip.Prefix, addr string, intf string) error {
 }
 
 func getRoutesFromTable() ([]netip.Prefix, error) {
-	return getRoutes(syscall.RT_TABLE_MAIN, netlink.FAMILY_V4)
+	return getRoutes(NetbirdVPNTableID, netlink.FAMILY_V4)
 }
 
 // addRoute adds a route to a specific routing table identified by tableID.

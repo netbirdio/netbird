@@ -3,6 +3,7 @@
 package routemanager
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -25,13 +26,13 @@ func addToRouteTableIfNoExists(prefix netip.Prefix, addr string, intf string) er
 
 	ok, err = isSubRange(prefix)
 	if err != nil {
-		return err
+		return fmt.Errorf("sub range: %w", err)
 	}
 
 	if ok {
 		err := addRouteForCurrentDefaultGateway(prefix)
 		if err != nil {
-			log.Warnf("unable to add route for current default gateway route. Will proceed without it. error: %s", err)
+			log.Warnf("Unable to add route for current default gateway route. Will proceed without it. error: %s", err)
 		}
 	}
 
@@ -39,8 +40,8 @@ func addToRouteTableIfNoExists(prefix netip.Prefix, addr string, intf string) er
 }
 
 func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
-	defaultGateway, err := getExistingRIBRouteGateway(netip.MustParsePrefix("0.0.0.0/0"))
-	if err != nil && err != errRouteNotFound {
+	defaultGateway, err := getExistingRIBRouteGateway(defaultv4)
+	if err != nil && !errors.Is(err, errRouteNotFound) {
 		return err
 	}
 
@@ -64,7 +65,7 @@ func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 	}
 
 	gatewayHop, err := getExistingRIBRouteGateway(gatewayPrefix)
-	if err != nil && err != errRouteNotFound {
+	if err != nil && !errors.Is(err, errRouteNotFound) {
 		return fmt.Errorf("unable to get the next hop for the default gateway address. error: %s", err)
 	}
 	log.Debugf("adding a new route for gateway %s with next hop %s", gatewayPrefix, gatewayHop)
@@ -90,7 +91,7 @@ func isSubRange(prefix netip.Prefix) (bool, error) {
 		return false, fmt.Errorf("get routes from table: %w", err)
 	}
 	for _, tableRoute := range routes {
-		if tableRoute.Bits() > minRangeBits && tableRoute.Contains(prefix.Addr()) && tableRoute.Bits() < prefix.Bits() {
+		if isPrefixSupported(tableRoute) && tableRoute.Contains(prefix.Addr()) && tableRoute.Bits() < prefix.Bits() {
 			return true, nil
 		}
 	}
@@ -104,11 +105,11 @@ func removeFromRouteTableIfNonSystem(prefix netip.Prefix, addr string, intf stri
 func getExistingRIBRouteGateway(prefix netip.Prefix) (net.IP, error) {
 	r, err := netroute.New()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("new netroute: %w", err)
 	}
 	_, gateway, preferredSrc, err := r.Route(prefix.Addr().AsSlice())
 	if err != nil {
-		log.Errorf("getting routes returned an error: %v", err)
+		log.Errorf("Getting routes returned an error: %v", err)
 		return nil, errRouteNotFound
 	}
 
