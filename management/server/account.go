@@ -455,6 +455,11 @@ func (a *Account) GetNextPeerExpiration() (time.Duration, bool) {
 		}
 		_, duration := peer.LoginExpired(a.Settings.PeerLoginExpiration)
 		if nextExpiry == nil || duration < *nextExpiry {
+			// if expiration is below 1s return 1s duration
+			// this avoids issues with ticker that can't be set to < 0
+			if duration < time.Second {
+				return time.Second, true
+			}
 			nextExpiry = &duration
 		}
 	}
