@@ -520,8 +520,8 @@ func (r *router) cleanUpDefaultForwardRules() error {
 	return r.conn.Flush()
 }
 func (r *router) cleanUpDefaultForwardRules6() error {
-	if r.filterTable == nil {
-		r.isDefaultFwdRulesEnabled = false
+	if r.filterTable6 == nil {
+		r.isDefaultFwdRulesEnabled6 = false
 		return nil
 	}
 
