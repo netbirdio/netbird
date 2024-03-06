@@ -42,6 +42,8 @@ type Peer struct {
 	LoginExpirationEnabled bool
 	// LastLogin the time when peer performed last login operation
 	LastLogin time.Time
+	// CreatedAt records the time the peer was created
+	CreatedAt time.Time
 	// Indicate ephemeral peer attribute
 	Ephemeral bool
 	// Geolocation based on connection IP
@@ -61,7 +63,7 @@ const (
 	V6Disabled V6Status = "disabled"
 )
 
-type PeerStatus struct {
+type PeerStatus struct { //nolint:revive
 	// LastSeen is the last time peer was connected to the management service
 	LastSeen time.Time
 	// Connected indicates whether peer is connected to the management service or not
@@ -86,8 +88,14 @@ type NetworkAddress struct {
 	Mac   string
 }
 
+// Environment is a system environment information
+type Environment struct {
+	Cloud    string
+	Platform string
+}
+
 // PeerSystemMeta is a metadata of a Peer machine system
-type PeerSystemMeta struct {
+type PeerSystemMeta struct { //nolint:revive
 	Hostname           string
 	GoOS               string
 	Kernel             string
@@ -102,6 +110,7 @@ type PeerSystemMeta struct {
 	SystemSerialNumber string
 	SystemProductName  string
 	SystemManufacturer string
+	Environment        Environment `gorm:"serializer:json"`
 	Ipv6Supported      bool
 }
 
@@ -136,6 +145,8 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		p.SystemSerialNumber == other.SystemSerialNumber &&
 		p.SystemProductName == other.SystemProductName &&
 		p.SystemManufacturer == other.SystemManufacturer &&
+		p.Environment.Cloud == other.Environment.Cloud &&
+		p.Environment.Platform == other.Environment.Platform &&
 		p.Ipv6Supported == other.Ipv6Supported
 }
 
@@ -166,6 +177,7 @@ func (p *Peer) Copy() *Peer {
 		SSHEnabled:             p.SSHEnabled,
 		LoginExpirationEnabled: p.LoginExpirationEnabled,
 		LastLogin:              p.LastLogin,
+		CreatedAt:              p.CreatedAt,
 		Ephemeral:              p.Ephemeral,
 		Location:               p.Location,
 		V6Setting:              p.V6Setting,
@@ -223,7 +235,7 @@ func (p *Peer) FQDN(dnsDomain string) string {
 
 // EventMeta returns activity event meta related to the peer
 func (p *Peer) EventMeta(dnsDomain string) map[string]any {
-	return map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP}
+	return map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP, "created_at": p.CreatedAt}
 }
 
 // Copy PeerStatus

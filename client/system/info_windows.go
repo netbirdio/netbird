@@ -166,6 +166,10 @@ func sysProductName() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// `ComputerSystemProduct` could be empty on some virtualized systems
+	if len(dst) < 1 {
+		return "unknown", nil
+	}
 	return dst[0].Name, nil
 }
 

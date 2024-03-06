@@ -20,6 +20,27 @@ const (
 	GeoSqliteDBFile = "geonames.db"
 )
 
+type GeoNames struct {
+	GeoNameID           int    `gorm:"column:geoname_id"`
+	LocaleCode          string `gorm:"column:locale_code"`
+	ContinentCode       string `gorm:"column:continent_code"`
+	ContinentName       string `gorm:"column:continent_name"`
+	CountryIsoCode      string `gorm:"column:country_iso_code"`
+	CountryName         string `gorm:"column:country_name"`
+	Subdivision1IsoCode string `gorm:"column:subdivision_1_iso_code"`
+	Subdivision1Name    string `gorm:"column:subdivision_1_name"`
+	Subdivision2IsoCode string `gorm:"column:subdivision_2_iso_code"`
+	Subdivision2Name    string `gorm:"column:subdivision_2_name"`
+	CityName            string `gorm:"column:city_name"`
+	MetroCode           string `gorm:"column:metro_code"`
+	TimeZone            string `gorm:"column:time_zone"`
+	IsInEuropeanUnion   string `gorm:"column:is_in_european_union"`
+}
+
+func (*GeoNames) TableName() string {
+	return "geonames"
+}
+
 // SqliteStore represents a location storage backed by a Sqlite DB.
 type SqliteStore struct {
 	db        *gorm.DB
@@ -37,7 +58,7 @@ func NewSqliteStore(dataDir string) (*SqliteStore, error) {
 		return nil, err
 	}
 
-	sha256sum, err := getSha256sum(file)
+	sha256sum, err := calculateFileSHA256(file)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +81,7 @@ func (s *SqliteStore) GetAllCountries() ([]Country, error) {
 	}
 
 	var countries []Country
-	result := s.db.Table("geonames").
+	result := s.db.Model(&GeoNames{}).
 		Select("country_iso_code", "country_name").
 		Group("country_name").
 		Scan(&countries)
@@ -81,7 +102,7 @@ func (s *SqliteStore) GetCitiesByCountry(countryISOCode string) ([]City, error) 
 	}
 
 	var cities []City
-	result := s.db.Table("geonames").
+	result := s.db.Model(&GeoNames{}).
 		Select("geoname_id", "city_name").
 		Where("country_iso_code = ?", countryISOCode).
 		Group("city_name").
@@ -98,7 +119,7 @@ func (s *SqliteStore) reload() error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	newSha256sum1, err := getSha256sum(s.filePath)
+	newSha256sum1, err := calculateFileSHA256(s.filePath)
 	if err != nil {
 		log.Errorf("failed to calculate sha256 sum for '%s': %s", s.filePath, err)
 	}
@@ -107,7 +128,7 @@ func (s *SqliteStore) reload() error {
 		// we check sum twice just to avoid possible case when we reload during update of the file
 		// considering the frequency of file update (few times a week) checking sum twice should be enough
 		time.Sleep(50 * time.Millisecond)
-		newSha256sum2, err := getSha256sum(s.filePath)
+		newSha256sum2, err := calculateFileSHA256(s.filePath)
 		if err != nil {
 			return fmt.Errorf("failed to calculate sha256 sum for '%s': %s", s.filePath, err)
 		}

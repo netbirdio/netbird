@@ -9,7 +9,7 @@ const (
 )
 
 // ActivityDescriber is an interface that describes an activity
-type ActivityDescriber interface {
+type ActivityDescriber interface { //nolint:revive
 	StringCode() string
 	Message() string
 }

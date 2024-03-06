@@ -95,6 +95,10 @@ func verifyNewAccountHasDefaultFields(t *testing.T, account *Account, createdBy 
 		t.Errorf("expecting newly created account to be created by user %s, got %s", createdBy, account.CreatedBy)
 	}
 
+	if account.CreatedAt.IsZero() {
+		t.Errorf("expecting newly created account to have a non-zero creation time")
+	}
+
 	if account.Domain != domain {
 		t.Errorf("expecting newly created account to have domain %s, got %s", domain, account.Domain)
 	}
@@ -1474,6 +1478,7 @@ func TestAccount_Copy(t *testing.T) {
 	account := &Account{
 		Id:                     "account1",
 		CreatedBy:              "tester",
+		CreatedAt:              time.Now().UTC(),
 		Domain:                 "test.com",
 		DomainCategory:         "public",
 		IsDomainPrimaryAccount: true,

@@ -9,17 +9,17 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
-func TestPrivateNetworkCheck_Check(t *testing.T) {
+func TestPeerNetworkRangeCheck_Check(t *testing.T) {
 	tests := []struct {
 		name    string
-		check   PrivateNetworkCheck
+		check   PeerNetworkRangeCheck
 		peer    nbpeer.Peer
 		wantErr bool
 		isValid bool
 	}{
 		{
-			name: "Peer private networks matches the allowed range",
-			check: PrivateNetworkCheck{
+			name: "Peer networks range matches the allowed range",
+			check: PeerNetworkRangeCheck{
 				Action: CheckActionAllow,
 				Ranges: []netip.Prefix{
 					netip.MustParsePrefix("192.168.0.0/24"),
@@ -42,8 +42,8 @@ func TestPrivateNetworkCheck_Check(t *testing.T) {
 			isValid: true,
 		},
 		{
-			name: "Peer private networks doesn't matches the allowed range",
-			check: PrivateNetworkCheck{
+			name: "Peer networks range doesn't matches the allowed range",
+			check: PeerNetworkRangeCheck{
 				Action: CheckActionAllow,
 				Ranges: []netip.Prefix{
 					netip.MustParsePrefix("192.168.0.0/24"),
@@ -63,8 +63,8 @@ func TestPrivateNetworkCheck_Check(t *testing.T) {
 			isValid: false,
 		},
 		{
-			name: "Peer with no privates network in the allow range",
-			check: PrivateNetworkCheck{
+			name: "Peer with no network range in the allow range",
+			check: PeerNetworkRangeCheck{
 				Action: CheckActionAllow,
 				Ranges: []netip.Prefix{
 					netip.MustParsePrefix("192.168.0.0/16"),
@@ -76,8 +76,8 @@ func TestPrivateNetworkCheck_Check(t *testing.T) {
 			isValid: false,
 		},
 		{
-			name: "Peer private networks matches the denied range",
-			check: PrivateNetworkCheck{
+			name: "Peer networks range matches the denied range",
+			check: PeerNetworkRangeCheck{
 				Action: CheckActionDeny,
 				Ranges: []netip.Prefix{
 					netip.MustParsePrefix("192.168.0.0/24"),
@@ -100,8 +100,8 @@ func TestPrivateNetworkCheck_Check(t *testing.T) {
 			isValid: false,
 		},
 		{
-			name: "Peer private networks doesn't matches the denied range",
-			check: PrivateNetworkCheck{
+			name: "Peer networks range doesn't matches the denied range",
+			check: PeerNetworkRangeCheck{
 				Action: CheckActionDeny,
 				Ranges: []netip.Prefix{
 					netip.MustParsePrefix("192.168.0.0/24"),
@@ -121,8 +121,8 @@ func TestPrivateNetworkCheck_Check(t *testing.T) {
 			isValid: true,
 		},
 		{
-			name: "Peer with no private networks in the denied range",
-			check: PrivateNetworkCheck{
+			name: "Peer with no networks range in the denied range",
+			check: PeerNetworkRangeCheck{
 				Action: CheckActionDeny,
 				Ranges: []netip.Prefix{
 					netip.MustParsePrefix("192.168.0.0/16"),
