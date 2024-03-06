@@ -205,7 +205,6 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 
 	// If no route is chosen, remove the route from the peer and system
 	if chosen == "" {
-		// TODO: fail-close on default route
 		if err := c.removeRouteFromPeerAndSystem(); err != nil {
 			return fmt.Errorf("remove route from peer and system: %v", err)
 		}

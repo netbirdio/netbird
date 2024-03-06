@@ -121,7 +121,7 @@ func cleanupRouting() error {
 func addToRouteTable(prefix netip.Prefix, addr string, intf string) error {
 	// TODO remove this once we have ipv6 support
 	if prefix == defaultv4 {
-		if err := addBlackholeRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
+		if err := addUnreachableRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
 			return fmt.Errorf("add blackhole: %w", err)
 		}
 	}
@@ -134,8 +134,8 @@ func addToRouteTable(prefix netip.Prefix, addr string, intf string) error {
 func removeFromRouteTable(prefix netip.Prefix, addr string, intf string) error {
 	// TODO remove this once we have ipv6 support
 	if prefix == defaultv4 {
-		if err := removeBlackholeRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
-			return fmt.Errorf("remove blackhole: %w", err)
+		if err := removeUnreachableRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
+			return fmt.Errorf("remove unreachable route: %w", err)
 		}
 	}
 	if err := removeRoute(&prefix, nil, &intf, NetbirdVPNTableID, netlink.FAMILY_V4); err != nil {
@@ -168,51 +168,51 @@ func addRoute(prefix *netip.Prefix, addr, intf *string, tableID, family int) err
 		return fmt.Errorf("add gateway and device: %w", err)
 	}
 
-	if err := netlink.RouteAdd(route); err != nil {
+	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) {
 		return fmt.Errorf("netlink add route: %w", err)
 	}
 
 	return nil
 }
 
-// addBlackholeRoute adds a blackhole route for the specified IP family and routing table.
+// addUnreachableRoute adds an unreachable route for the specified IP family and routing table.
 // ipFamily should be netlink.FAMILY_V4 for IPv4 or netlink.FAMILY_V6 for IPv6.
-// tableID specifies the routing table to which the blackhole route will be added.
-func addBlackholeRoute(prefix *netip.Prefix, tableID, ipFamily int) error {
+// tableID specifies the routing table to which the unreachable route will be added.
+func addUnreachableRoute(prefix *netip.Prefix, tableID, ipFamily int) error {
 	_, ipNet, err := net.ParseCIDR(prefix.String())
 	if err != nil {
 		return fmt.Errorf("parse prefix %s: %w", prefix, err)
 	}
 
 	route := &netlink.Route{
-		Type:   syscall.RTN_BLACKHOLE,
+		Type:   syscall.RTN_UNREACHABLE,
 		Table:  tableID,
 		Family: ipFamily,
 		Dst:    ipNet,
 	}
 
-	if err := netlink.RouteAdd(route); err != nil {
-		return fmt.Errorf("netlink add blackhole route: %w", err)
+	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) {
+		return fmt.Errorf("netlink add unreachable route: %w", err)
 	}
 
 	return nil
 }
 
-func removeBlackholeRoute(prefix *netip.Prefix, tableID, ipFamily int) error {
+func removeUnreachableRoute(prefix *netip.Prefix, tableID, ipFamily int) error {
 	_, ipNet, err := net.ParseCIDR(prefix.String())
 	if err != nil {
 		return fmt.Errorf("parse prefix %s: %w", prefix, err)
 	}
 
 	route := &netlink.Route{
-		Type:   syscall.RTN_BLACKHOLE,
+		Type:   syscall.RTN_UNREACHABLE,
 		Table:  tableID,
 		Family: ipFamily,
 		Dst:    ipNet,
 	}
 
-	if err := netlink.RouteDel(route); err != nil {
-		return fmt.Errorf("netlink remove blackhole route: %w", err)
+	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ENOENT) {
+		return fmt.Errorf("netlink remove unreachable route: %w", err)
 	}
 
 	return nil
