@@ -2,8 +2,6 @@ package server
 
 import (
 	"fmt"
-	"slices"
-
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -142,9 +140,9 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 	// Need to check whether IPv6 status has changed for all potentially affected peers.
 	peersToUpdate := removedPeers
 	if exists && oldGroup.IPv6Enabled != newGroup.IPv6Enabled {
-		peersToUpdate = slices.Concat(peersToUpdate, newGroup.Peers)
+		peersToUpdate = append(peersToUpdate, newGroup.Peers...)
 	} else {
-		peersToUpdate = slices.Concat(peersToUpdate, addedPeers)
+		peersToUpdate = append(peersToUpdate, addedPeers...)
 	}
 
 	for _, peer := range peersToUpdate {
