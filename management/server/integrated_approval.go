@@ -6,6 +6,7 @@ import (
 	"github.com/google/martian/v3/log"
 
 	"github.com/netbirdio/netbird/management/server/account"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
 // UpdateIntegratedApprovalGroups updates the integrated approval groups for a specified account.
@@ -49,6 +50,10 @@ func (am *DefaultAccountManager) UpdateIntegratedApprovalGroups(accountID string
 	}
 	extra.IntegratedApprovalGroups = groups
 	return am.Store.SaveAccount(a)
+}
+
+func (am *DefaultAccountManager) IsPeerRequiresApproval(accountID string, peer *nbpeer.Peer) bool {
+	return am.integratedPeerValidator.IsRequiresApproval(accountID, peer, nil, nil)
 }
 
 func (am *DefaultAccountManager) GroupValidation(accountId string, groups []string) (bool, error) {

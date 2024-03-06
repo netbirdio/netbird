@@ -128,6 +128,7 @@ type AccountManager interface {
 	ListPostureChecks(accountID, userID string) ([]*posture.Checks, error)
 	GetIdpManager() idp.Manager
 	UpdateIntegratedApprovalGroups(accountID string, userID string, groups []string) error
+	IsRequiresApproval(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) bool
 	GroupValidation(accountId string, groups []string) (bool, error)
 }
 

@@ -63,8 +63,8 @@ func (h *PeersHandler) getPeer(account *server.Account, peerID, userID string, w
 
 	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain())
 	accessiblePeers := toAccessiblePeers(netMap, dnsDomain)
-
-	util.WriteJSONObject(w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, accessiblePeers))
+	isRequiresApproval := h.accountManager.IsRequiresApproval(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
+	util.WriteJSONObject(w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, accessiblePeers, isRequiresApproval))
 }
 
 func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, peerID string, w http.ResponseWriter, r *http.Request) {
@@ -94,7 +94,8 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain())
 	accessiblePeers := toAccessiblePeers(netMap, dnsDomain)
 
-	util.WriteJSONObject(w, toSinglePeerResponse(peer, groupMinimumInfo, dnsDomain, accessiblePeers))
+	// todo return with valid peer approval status
+	util.WriteJSONObject(w, toSinglePeerResponse(peer, groupMinimumInfo, dnsDomain, accessiblePeers, false))
 }
 
 func (h *PeersHandler) deletePeer(accountID, userID string, peerID string, w http.ResponseWriter) {
@@ -166,6 +167,7 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 			accessiblePeerNumbers := h.accessiblePeersNumber(account, peer.ID)
 
+			// todo extend with peer approval status
 			respBody = append(respBody, toPeerListItemResponse(peerToReturn, groupMinimumInfo, dnsDomain, accessiblePeerNumbers))
 		}
 		util.WriteJSONObject(w, respBody)
@@ -230,7 +232,7 @@ func toGroupsInfo(groups map[string]*server.Group, peerID string) []api.GroupMin
 	return groupsInfo
 }
 
-func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeer []api.AccessiblePeer) *api.Peer {
+func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeer []api.AccessiblePeer, approval bool) *api.Peer {
 	osVersion := peer.Meta.OSVersion
 	if osVersion == "" {
 		osVersion = peer.Meta.Core
@@ -257,7 +259,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		LastLogin:              peer.LastLogin,
 		LoginExpired:           peer.Status.LoginExpired,
 		AccessiblePeers:        accessiblePeer,
-		ApprovalRequired:       &peer.Status.RequiresApproval,
+		ApprovalRequired:       &approval,
 		CountryCode:            peer.Location.CountryCode,
 		CityName:               peer.Location.CityName,
 	}
