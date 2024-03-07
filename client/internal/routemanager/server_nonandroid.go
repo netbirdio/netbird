@@ -67,19 +67,13 @@ func (m *defaultServerRouter) updateRoutes(routesMap map[string]*route.Route) er
 	}
 
 	if len(m.routes) > 0 {
-		err := enableIPForwarding()
+		err := enableIPForwarding(m.wgInterface.Address6() != nil)
 		if err != nil {
 			return err
 		}
 	}
 
 	return nil
-}
-
-// Handles a reset of the IPv6 firewall table (necessary if IPv6 address changes).
-func (m *defaultServerRouter) handleV6FirewallReset() {
-	m.mux.Lock()
-	defer m.mux.Unlock()
 }
 
 func (m *defaultServerRouter) removeFromServerNetwork(rt *route.Route) error {

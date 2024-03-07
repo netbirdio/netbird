@@ -111,10 +111,6 @@ func (m *DefaultManager) ResetV6Routes() {
 			delete(m.clientNetworks, id)
 		}
 	}
-
-	if m.serverRouter != nil {
-		m.serverRouter.handleV6FirewallReset()
-	}
 }
 
 // SetRouteChangeListener set RouteListener for route change notifier

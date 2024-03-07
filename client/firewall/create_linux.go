@@ -70,6 +70,8 @@ func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, 
 			return nil, errUsp
 		}
 
+		// Note for devs: When adding IPv6 support to userspace bind, the implementation of AllowNetbird() has to be
+		// adjusted accordingly.
 		if err := fm.AllowNetbird(); err != nil {
 			log.Errorf("failed to allow netbird interface traffic: %v", err)
 		}
@@ -83,6 +85,8 @@ func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, 
 	return fm, nil
 }
 
+// Returns true if the current firewall implementation supports IPv6.
+// Currently true if the firewall is nftables.
 func SupportsIPv6() bool {
 	return check() == NFTABLES
 }

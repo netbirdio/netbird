@@ -96,13 +96,13 @@ func newAclManager(table *nftables.Table, table6 *nftables.Table, wgIface iFaceM
 		rules:       make(map[string]*Rule),
 	}
 
-	err = m.createDefaultChains()
+	err = m.createDefaultChains(false)
 	if err != nil {
 		return nil, err
 	}
 
 	if m.v6Active {
-		err = m.createDefaultChains6()
+		err = m.createDefaultChains(true)
 		if err != nil {
 			return nil, err
 		}
@@ -111,6 +111,8 @@ func newAclManager(table *nftables.Table, table6 *nftables.Table, wgIface iFaceM
 	return m, nil
 }
 
+// PrepareV6Reset prepares the ACL manager for a full V6 table reset (necessary if IPv6 address changes).
+// Deletes all IPv6 rules and sets, and sets the V6 active status to false.
 func (m *AclManager) PrepareV6Reset() (*nftables.Table, error) {
 	if m.workTable6 != nil {
 		for k, r := range m.rules {
@@ -130,20 +132,26 @@ func (m *AclManager) PrepareV6Reset() (*nftables.Table, error) {
 		}
 		m.ipsetStore6 = newIpsetStore()
 	}
-	m.v6Active = m.wgIface.Address6() != nil
+	// Set to false just in case of concurrent accesses (will be set to actual values in ReinitAfterV6Reset()).
+	m.v6Active = false
 
+	// return the current work table.
 	return m.workTable6, nil
 }
 
+// ReinitAfterV6Reset reinitializes the IPv6 table after an IPv6 address change.
 func (m *AclManager) ReinitAfterV6Reset(workTable6 *nftables.Table) error {
+	// If we have an IPv6 address after the address update, initialize firewall table, else not.
 	if m.wgIface.Address6() != nil {
 		m.workTable6 = workTable6
-		err := m.createDefaultChains6()
+		err := m.createDefaultChains(true)
 		if err != nil {
 			return err
 		}
+		m.v6Active = true
 	} else {
 		m.workTable6 = nil
+		m.v6Active = false
 	}
 	return nil
 }
@@ -200,6 +208,11 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 		return fmt.Errorf("invalid rule type")
 	}
 
+	ipsetStorage := m.ipsetStore
+	if r.ip.To4() == nil {
+		ipsetStorage = m.ipsetStore6
+	}
+
 	if r.nftSet == nil {
 		err := m.rConn.DelRule(r.nftRule)
 		if err != nil {
@@ -209,7 +222,7 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 		return m.rConn.Flush()
 	}
 
-	ips, ok := m.ipsetStore.ips(r.nftSet.Name)
+	ips, ok := ipsetStorage.ips(r.nftSet.Name)
 	if !ok {
 		err := m.rConn.DelRule(r.nftRule)
 		if err != nil {
@@ -231,7 +244,7 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 			log.Debugf("flush error of set delete element, %s", r.nftSet.Name)
 			return err
 		}
-		m.ipsetStore.DeleteIpFromSet(r.nftSet.Name, r.ip)
+		ipsetStorage.DeleteIpFromSet(r.nftSet.Name, r.ip)
 	}
 
 	// if after delete, set still contains other IPs,
@@ -250,9 +263,9 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 	}
 
 	delete(m.rules, r.GetRuleID())
-	m.ipsetStore.DeleteReferenceFromIpSet(r.nftSet.Name)
+	ipsetStorage.DeleteReferenceFromIpSet(r.nftSet.Name)
 
-	if m.ipsetStore.HasReferenceToSet(r.nftSet.Name) {
+	if ipsetStorage.HasReferenceToSet(r.nftSet.Name) {
 		return nil
 	}
 
@@ -260,7 +273,7 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 	// set itself and associated firewall rule too
 	m.rConn.FlushSet(r.nftSet)
 	m.rConn.DelSet(r.nftSet)
-	m.ipsetStore.deleteIpset(r.nftSet.Name)
+	ipsetStorage.deleteIpset(r.nftSet.Name)
 	return nil
 }
 
@@ -360,7 +373,7 @@ func (m *AclManager) Flush() error {
 	}
 
 	if err := m.refreshRuleHandles(m.workTable6, m.chainInputRules6); err != nil {
-		log.Errorf("failed to refresh rule handles ipv6 input chain: %v", err)
+		log.Errorf("failed to refresh rule handles IPv6 input chain: %v", err)
 	}
 
 	if err := m.refreshRuleHandles(m.workTable6, m.chainOutputRules6); err != nil {
@@ -422,24 +435,35 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 		})
 	}
 
+	workTable := m.workTable
+	// Raw bytes of IP to match (if IPv4).
 	rawIP := ip.To4()
-	table := m.workTable
+	// source address position (in IPv4)
+	srcAddrOffset := uint32(12)
+	// destination address position (in IPv4)
+	dstAddrOffset := uint32(16)
+	// address length
+	addrLen := uint32(4)
+	// IP set storage for IPv4.
+	ipsetStorage := m.ipsetStore
+
+	// If rawIP == nil, we have an IPv6 address, replace previously defined values with IPv6 counterparts.
 	if rawIP == nil {
 		rawIP = ip.To16()
-		table = m.workTable6
+		srcAddrOffset = uint32(8)
+		dstAddrOffset = uint32(24)
+		addrLen = 16
+		workTable = m.workTable6
+		ipsetStorage = m.ipsetStore6
 	}
+
 	// check if rawIP contains zeroed IP address value
 	// in that case not add IP match expression into the rule definition
 	if !bytes.HasPrefix(anyIP, rawIP) {
-		addrLen := uint32(len(rawIP))
-		// source address position
-		addrOffset := uint32(12)
-		if addrLen == 16 {
-			addrOffset = uint32(8)
-		}
 
+		addrOffset := srcAddrOffset
 		if direction == firewall.RuleDirectionOUT {
-			addrOffset += addrLen
+			addrOffset = dstAddrOffset
 		}
 
 		expressions = append(expressions,
@@ -518,7 +542,7 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 		chain = m.chainOutputRules
 	}
 	nftRule := m.rConn.InsertRule(&nftables.Rule{
-		Table:    table,
+		Table:    workTable,
 		Chain:    chain,
 		Position: 0,
 		Exprs:    expressions,
@@ -533,7 +557,7 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 	}
 	m.rules[ruleId] = rule
 	if ipset != nil {
-		m.ipsetStore.AddReferenceToIpset(ipset.Name)
+		ipsetStorage.AddReferenceToIpset(ipset.Name)
 	}
 	return rule, nil
 }
@@ -551,6 +575,35 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 		return nil, fmt.Errorf("unsupported protocol: %s", proto)
 	}
 
+	// Raw bytes of IP to match (if IPv4).
+	rawIP := ip.To4()
+	// source address position (in IPv4)
+	srcAddrOffset := uint32(12)
+	// destination address position (in IPv4)
+	dstAddrOffset := uint32(16)
+	// address length
+	addrLen := uint32(4)
+	// Raw bytes of the wireguard interface's IPv4 address.
+	ifaceRawIP := m.wgIface.Address().IP.To4()
+	// table to insert rule in
+	workTable := m.workTable
+	// chain to insert rule in
+	preroutingChain := m.chainPrerouting
+	// IP set store to use
+	ipsetStorage := m.ipsetStore
+
+	// If rawIP == nil, we have an IPv6 address, replace previously defined values with IPv6 counterparts.
+	if rawIP == nil {
+		rawIP = ip.To16()
+		srcAddrOffset = uint32(8)
+		dstAddrOffset = uint32(24)
+		addrLen = 16
+		ifaceRawIP = m.wgIface.Address6().IP.To16()
+		workTable = m.workTable6
+		preroutingChain = m.chainPrerouting6
+		ipsetStorage = m.ipsetStore6
+	}
+
 	ruleId := generateRuleIdForMangle(ipset, ip, proto, port)
 	if r, ok := m.rules[ruleId]; ok {
 		return &Rule{
@@ -563,19 +616,6 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 
 	var ipExpression expr.Any
 	// add individual IP for match if no ipset defined
-	rawIP := ip.To4()
-	if rawIP == nil {
-		rawIP = ip.To16()
-	}
-	addrLen := uint32(len(rawIP))
-	// source address position
-	srcAddrOffset := uint32(12)
-	dstAddrOffset := uint32(16)
-	if addrLen == 16 {
-		srcAddrOffset = uint32(8)
-		dstAddrOffset = uint32(24)
-	}
-
 	if ipset == nil {
 		ipExpression = &expr.Cmp{
 			Op:       expr.CmpOpEq,
@@ -588,11 +628,6 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 			SetName:        ipset.Name,
 			SetID:          ipset.ID,
 		}
-	}
-
-	ifaceRawIP := m.wgIface.Address().IP.To4()
-	if addrLen == 16 {
-		ifaceRawIP = m.wgIface.Address6().IP.To16()
 	}
 
 	expressions := []expr.Any{
@@ -654,8 +689,8 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 	)
 
 	nftRule := m.rConn.InsertRule(&nftables.Rule{
-		Table:    m.workTable,
-		Chain:    m.chainPrerouting,
+		Table:    workTable,
+		Chain:    preroutingChain,
 		Position: 0,
 		Exprs:    expressions,
 		UserData: []byte(ruleId),
@@ -674,45 +709,65 @@ func (m *AclManager) addPreroutingFiltering(ipset *nftables.Set, proto firewall.
 
 	m.rules[ruleId] = rule
 	if ipset != nil {
-		m.ipsetStore.AddReferenceToIpset(ipset.Name)
+		ipsetStorage.AddReferenceToIpset(ipset.Name)
 	}
 	return rule, nil
 }
 
-func (m *AclManager) createDefaultChains() (err error) {
+func (m *AclManager) createDefaultChains(forV6 bool) (err error) {
+	workTable := m.workTable
+	if forV6 {
+		workTable = m.workTable6
+	}
+
 	// chainNameInputRules
-	chain := m.createChain(chainNameInputRules, m.workTable)
+	chain := m.createChain(chainNameInputRules, workTable)
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", chain.Name, err)
 		return err
 	}
-	m.chainInputRules = chain
+	chainInputRules := chain
+	if forV6 {
+		m.chainInputRules6 = chainInputRules
+	} else {
+		m.chainInputRules = chainInputRules
+	}
 
 	// chainNameOutputRules
-	chain = m.createChain(chainNameOutputRules, m.workTable)
+	chain = m.createChain(chainNameOutputRules, workTable)
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", chainNameOutputRules, err)
 		return err
 	}
-	m.chainOutputRules = chain
+	chainOutputRules := chain
+	if forV6 {
+		m.chainOutputRules6 = chainOutputRules
+	} else {
+		m.chainOutputRules = chainOutputRules
+	}
 
 	// netbird-acl-input-filter
 	// type filter hook input priority filter; policy accept;
-	chain = m.createFilterChainWithHook(chainNameInputFilter, nftables.ChainHookInput, m.workTable)
+	chain = m.createFilterChainWithHook(chainNameInputFilter, nftables.ChainHookInput, workTable)
 	//netbird-acl-input-filter iifname "wt0" ip saddr 100.72.0.0/16 ip daddr != 100.72.0.0/16 accept
 	m.addRouteAllowRule(chain, expr.MetaKeyIIFNAME)
 	m.addFwdAllow(chain, expr.MetaKeyIIFNAME)
-	m.addJumpRule(chain, m.chainInputRules.Name, expr.MetaKeyIIFNAME) // to netbird-acl-input-rules
+	m.addJumpRule(chain, chainInputRules.Name, expr.MetaKeyIIFNAME) // to netbird-acl-input-rules
 	m.addDropExpressions(chain, expr.MetaKeyIIFNAME)
+	err = m.rConn.Flush()
+	if err != nil {
+		log.Debugf("failed to create chain (%s): %s", chainNameInputFilter, err)
+		return err
+	}
 
 	// netbird-acl-output-filter
 	// type filter hook output priority filter; policy accept;
-	chain = m.createFilterChainWithHook(chainNameOutputFilter, nftables.ChainHookOutput, m.workTable)
+	chain = m.createFilterChainWithHook(chainNameOutputFilter, nftables.ChainHookOutput, workTable)
 	m.addRouteAllowRule(chain, expr.MetaKeyOIFNAME)
 	m.addFwdAllow(chain, expr.MetaKeyOIFNAME)
-	m.addJumpRule(chain, m.chainOutputRules.Name, expr.MetaKeyOIFNAME) // to netbird-acl-output-rules
+	m.addJumpRule(chain, chainOutputRules.Name, expr.MetaKeyOIFNAME) // to netbird-acl-output-rules
 	m.addDropExpressions(chain, expr.MetaKeyOIFNAME)
 	err = m.rConn.Flush()
 	if err != nil {
@@ -721,90 +776,36 @@ func (m *AclManager) createDefaultChains() (err error) {
 	}
 
 	// netbird-acl-forward-filter
-	m.chainFwFilter = m.createFilterChainWithHook(chainNameForwardFilter, nftables.ChainHookForward, m.workTable)
-	m.addJumpRulesToRtForward(m.workTable, m.chainFwFilter) // to
-	m.addMarkAccept(m.workTable, m.chainFwFilter)
-	m.addJumpRuleToInputChain(m.workTable, m.chainFwFilter, m.chainInputRules) // to netbird-acl-input-rules
-	m.addDropExpressions(m.chainFwFilter, expr.MetaKeyIIFNAME)
+	chain = m.createFilterChainWithHook(chainNameForwardFilter, nftables.ChainHookForward, workTable)
+	m.addJumpRulesToRtForward(workTable, chain) // to
+	m.addMarkAccept(workTable, chain)
+	m.addJumpRuleToInputChain(workTable, chain, chainInputRules) // to netbird-acl-input-rules
+	m.addDropExpressions(chain, expr.MetaKeyIIFNAME)
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", chainNameForwardFilter, err)
 		return err
 	}
+	if forV6 {
+		m.chainFwFilter6 = chain
+	} else {
+		m.chainFwFilter = chain
+	}
 
 	// netbird-acl-output-filter
 	// type filter hook output priority filter; policy accept;
-	m.chainPrerouting = m.createPreroutingMangle(m.workTable, false)
-	err = m.rConn.Flush()
-	if err != nil {
-		log.Debugf("failed to create chain (%s): %s", m.chainPrerouting.Name, err)
-		return err
-	}
-	return nil
-}
-
-func (m *AclManager) createDefaultChains6() (err error) {
-
-	// chainNameInputRules
-	chain := m.createChain(chainNameInputRules, m.workTable6)
+	chain = m.createPreroutingMangle(forV6)
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", chain.Name, err)
 		return err
 	}
-	m.chainInputRules6 = chain
-
-	// chainNameOutputRules
-	chain = m.createChain(chainNameOutputRules, m.workTable6)
-	err = m.rConn.Flush()
-	if err != nil {
-		log.Debugf("failed to create chain (%s): %s", chainNameOutputRules, err)
-		return err
-	}
-	m.chainOutputRules6 = chain
-
-	// netbird-acl-input-filter
-	// type filter hook input priority filter; policy accept;
-	chain = m.createFilterChainWithHook(chainNameInputFilter, nftables.ChainHookInput, m.workTable6)
-	//netbird-acl-input-filter iifname "wt0" ip saddr 100.72.0.0/16 ip daddr != 100.72.0.0/16 accept
-	m.addRouteAllowRule(chain, expr.MetaKeyIIFNAME)
-	m.addFwdAllow(chain, expr.MetaKeyIIFNAME)
-	m.addJumpRule(chain, m.chainInputRules6.Name, expr.MetaKeyIIFNAME) // to netbird-acl-input-rules
-	m.addDropExpressions(chain, expr.MetaKeyIIFNAME)
-
-	// netbird-acl-output-filter
-	// type filter hook output priority filter; policy accept;
-	chain = m.createFilterChainWithHook(chainNameOutputFilter, nftables.ChainHookOutput, m.workTable6)
-	m.addRouteAllowRule(chain, expr.MetaKeyOIFNAME)
-	m.addFwdAllow(chain, expr.MetaKeyOIFNAME)
-	m.addJumpRule(chain, m.chainOutputRules6.Name, expr.MetaKeyOIFNAME) // to netbird-acl-output-rules
-	m.addDropExpressions(chain, expr.MetaKeyOIFNAME)
-	err = m.rConn.Flush()
-	if err != nil {
-		log.Debugf("failed to create chain (%s): %s", chainNameOutputFilter, err)
-		return err
+	if forV6 {
+		m.chainPrerouting6 = chain
+	} else {
+		m.chainPrerouting = chain
 	}
 
-	// netbird-acl-forward-filter
-	m.chainFwFilter6 = m.createFilterChainWithHook(chainNameForwardFilter, nftables.ChainHookForward, m.workTable6)
-	m.addJumpRulesToRtForward(m.workTable6, m.chainFwFilter6) // to
-	m.addMarkAccept(m.workTable6, m.chainFwFilter6)
-	m.addJumpRuleToInputChain(m.workTable6, m.chainFwFilter6, m.chainInputRules6) // to netbird-acl-input-rules
-	m.addDropExpressions(m.chainFwFilter6, expr.MetaKeyIIFNAME)
-	err = m.rConn.Flush()
-	if err != nil {
-		log.Debugf("failed to create chain (%s): %s", chainNameForwardFilter, err)
-		return err
-	}
-
-	// netbird-acl-output-filter
-	// type filter hook output priority filter; policy accept;
-	m.chainPrerouting6 = m.createPreroutingMangle(m.workTable6, true)
-	err = m.rConn.Flush()
-	if err != nil {
-		log.Debugf("failed to create chain (%s): %s", m.chainPrerouting.Name, err)
-		return err
-	}
 	return nil
 }
 
@@ -909,11 +910,36 @@ func (m *AclManager) createFilterChainWithHook(name string, hookNum nftables.Cha
 	return m.rConn.AddChain(chain)
 }
 
-func (m *AclManager) createPreroutingMangle(table *nftables.Table, forV6 bool) *nftables.Chain {
+func (m *AclManager) createPreroutingMangle(forV6 bool) *nftables.Chain {
+	workTable := m.workTable
+	// Raw bytes of the wireguard interface's IPv4 address.
+	rawIP := m.wgIface.Address().Network.IP.To4()
+	// Subnet mask of the wireguard interface's network.
+	mask := m.wgIface.Address().Network.Mask
+	// Length of an IPv4 address
+	addrLen := uint32(4)
+	// source address position
+	srcAddrOffset := uint32(12)
+	// destination address position
+	dstAddrOffset := uint32(16)
+	// An array representing a null address in IPv4 (0.0.0.0)
+	nullAddressArray := nullAddress4
+
+	// If prerouting mangle should be created for IPv6 table, replace previously defined values with IPv6 counterparts.
+	if forV6 {
+		workTable = m.workTable6
+		rawIP = m.wgIface.Address6().Network.IP.To16()
+		mask = m.wgIface.Address6().Network.Mask
+		addrLen = 16
+		srcAddrOffset = uint32(8)
+		dstAddrOffset = uint32(24)
+		nullAddressArray = nullAddress6 // corresponds to ::
+	}
+
 	polAccept := nftables.ChainPolicyAccept
 	chain := &nftables.Chain{
 		Name:     "netbird-acl-prerouting-filter",
-		Table:    table,
+		Table:    workTable,
 		Hooknum:  nftables.ChainHookPrerouting,
 		Priority: nftables.ChainPriorityMangle,
 		Type:     nftables.ChainTypeFilter,
@@ -922,22 +948,6 @@ func (m *AclManager) createPreroutingMangle(table *nftables.Table, forV6 bool) *
 
 	chain = m.rConn.AddChain(chain)
 
-	rawIP := m.wgIface.Address().Network.IP.To4()
-	mask := m.wgIface.Address().Network.Mask
-	addrLen := uint32(4)
-	// source address position
-	srcAddrOffset := uint32(12)
-	dstAddrOffset := uint32(16)
-	nullArray := nullAddress4
-
-	if forV6 {
-		rawIP = m.wgIface.Address6().Network.IP.To16()
-		addrLen = 16
-		mask = m.wgIface.Address6().Network.Mask
-		srcAddrOffset = uint32(8)
-		dstAddrOffset = uint32(24)
-		nullArray = nullAddress6
-	}
 	ip, _ := netip.AddrFromSlice(rawIP)
 
 	expressions := []expr.Any{
@@ -957,7 +967,7 @@ func (m *AclManager) createPreroutingMangle(table *nftables.Table, forV6 bool) *
 			SourceRegister: 2,
 			DestRegister:   2,
 			Len:            addrLen,
-			Xor:            nullArray,
+			Xor:            nullAddressArray,
 			Mask:           mask,
 		},
 		&expr.Cmp{
@@ -987,7 +997,7 @@ func (m *AclManager) createPreroutingMangle(table *nftables.Table, forV6 bool) *
 		},
 	}
 	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: table,
+		Table: workTable,
 		Chain: chain,
 		Exprs: expressions,
 	})
@@ -1034,20 +1044,30 @@ func (m *AclManager) addJumpRuleToInputChain(table *nftables.Table, chain *nftab
 }
 
 func (m *AclManager) addRouteAllowRule(chain *nftables.Chain, netIfName expr.MetaKey) {
-	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
-	addrLen := uint32(4)
-	srcAddrOffset := uint32(12)
-	dstAddrOffset := uint32(16)
+	// Raw bytes of the wireguard interface's IPv4 address.
+	rawIP := m.wgIface.Address().Network.IP.To4()
+	// Subnet mask of the wireguard interface's network.
 	mask := m.wgIface.Address().Network.Mask
-	nullArray := nullAddress4
+	// Length of an IPv4 address
+	addrLen := uint32(4)
+	// source address position
+	srcAddrOffset := uint32(12)
+	// destination address position
+	dstAddrOffset := uint32(16)
+	// An array representing a null address in IPv4 (0.0.0.0)
+	nullAddressArray := nullAddress4
+
+	// If route allow rule should be created for IPv6 table, replace previously defined values with IPv6 counterparts.
 	if chain.Table.Family == nftables.TableFamilyIPv6 {
-		ip, _ = netip.AddrFromSlice(m.wgIface.Address6().Network.IP.To16())
+		rawIP = m.wgIface.Address6().Network.IP.To16()
+		mask = m.wgIface.Address6().Network.Mask
 		addrLen = 16
 		srcAddrOffset = 8
 		dstAddrOffset = 24
-		mask = m.wgIface.Address6().Network.Mask
-		nullArray = nullAddress6
+		nullAddressArray = nullAddress6 // corresponds to ::
 	}
+
+	ip, _ := netip.AddrFromSlice(rawIP)
 
 	var srcOp, dstOp expr.CmpOp
 	if netIfName == expr.MetaKeyIIFNAME {
@@ -1074,7 +1094,7 @@ func (m *AclManager) addRouteAllowRule(chain *nftables.Chain, netIfName expr.Met
 			SourceRegister: 2,
 			DestRegister:   2,
 			Len:            addrLen,
-			Xor:            nullArray,
+			Xor:            nullAddressArray,
 			Mask:           mask,
 		},
 		&expr.Cmp{
@@ -1092,7 +1112,7 @@ func (m *AclManager) addRouteAllowRule(chain *nftables.Chain, netIfName expr.Met
 			SourceRegister: 2,
 			DestRegister:   2,
 			Len:            addrLen,
-			Xor:            nullArray,
+			Xor:            nullAddressArray,
 			Mask:           mask,
 		},
 		&expr.Cmp{
@@ -1112,20 +1132,30 @@ func (m *AclManager) addRouteAllowRule(chain *nftables.Chain, netIfName expr.Met
 }
 
 func (m *AclManager) addFwdAllow(chain *nftables.Chain, iifname expr.MetaKey) {
-	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
-	addrLen := uint32(4)
-	srcAddrOffset := uint32(12)
-	dstAddrOffset := uint32(16)
+	// Raw bytes of the wireguard interface's IPv4 address.
+	rawIP := m.wgIface.Address().Network.IP.To4()
+	// Subnet mask of the wireguard interface's network.
 	mask := m.wgIface.Address().Network.Mask
-	nullArray := nullAddress4
+	// Length of an IPv4 address
+	addrLen := uint32(4)
+	// source address position
+	srcAddrOffset := uint32(12)
+	// destination address position
+	dstAddrOffset := uint32(16)
+	// An array representing a null address in IPv4 (0.0.0.0)
+	nullAddressArray := nullAddress4
+
+	// If forward allow rule should be created for IPv6 table, replace previously defined values with IPv6 counterparts.
 	if chain.Table.Family == nftables.TableFamilyIPv6 {
-		ip, _ = netip.AddrFromSlice(m.wgIface.Address6().Network.IP.To16())
+		rawIP = m.wgIface.Address6().Network.IP.To16()
+		mask = m.wgIface.Address6().Network.Mask
 		addrLen = 16
 		srcAddrOffset = 8
 		dstAddrOffset = 24
-		mask = m.wgIface.Address6().Network.Mask
-		nullArray = nullAddress6
+		nullAddressArray = nullAddress6 // corresponds to ::
 	}
+
+	ip, _ := netip.AddrFromSlice(rawIP)
 
 	var srcOp, dstOp expr.CmpOp
 	if iifname == expr.MetaKeyIIFNAME {
@@ -1152,7 +1182,7 @@ func (m *AclManager) addFwdAllow(chain *nftables.Chain, iifname expr.MetaKey) {
 			SourceRegister: 2,
 			DestRegister:   2,
 			Len:            addrLen,
-			Xor:            nullArray,
+			Xor:            nullAddressArray,
 			Mask:           mask,
 		},
 		&expr.Cmp{
@@ -1170,7 +1200,7 @@ func (m *AclManager) addFwdAllow(chain *nftables.Chain, iifname expr.MetaKey) {
 			SourceRegister: 2,
 			DestRegister:   2,
 			Len:            addrLen,
-			Xor:            nullArray,
+			Xor:            nullAddressArray,
 			Mask:           mask,
 		},
 		&expr.Cmp{
@@ -1190,20 +1220,30 @@ func (m *AclManager) addFwdAllow(chain *nftables.Chain, iifname expr.MetaKey) {
 }
 
 func (m *AclManager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr.MetaKey) {
-	ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
-	addrLen := uint32(4)
-	srcAddrOffset := uint32(12)
-	dstAddrOffset := uint32(16)
+	// Raw bytes of the wireguard interface's IPv4 address.
+	rawIP := m.wgIface.Address().Network.IP.To4()
+	// Subnet mask of the wireguard interface's network.
 	mask := m.wgIface.Address().Network.Mask
-	nullArray := nullAddress4
+	// Length of an IPv4 address
+	addrLen := uint32(4)
+	// source address position
+	srcAddrOffset := uint32(12)
+	// destination address position
+	dstAddrOffset := uint32(16)
+	// An array representing a null address in IPv4 (0.0.0.0)
+	nullAddressArray := nullAddress4
+
+	// If jump rule should be created for IPv6 table, replace previously defined values with IPv6 counterparts.
 	if chain.Table.Family == nftables.TableFamilyIPv6 {
-		ip, _ = netip.AddrFromSlice(m.wgIface.Address6().Network.IP.To16())
+		rawIP = m.wgIface.Address6().Network.IP.To16()
+		mask = m.wgIface.Address6().Network.Mask
 		addrLen = 16
 		srcAddrOffset = 8
 		dstAddrOffset = 24
-		mask = m.wgIface.Address6().Network.Mask
-		nullArray = nullAddress6
+		nullAddressArray = nullAddress6 // corresponds to ::
 	}
+
+	ip, _ := netip.AddrFromSlice(rawIP)
 
 	expressions := []expr.Any{
 		&expr.Meta{Key: ifaceKey, Register: 1},
@@ -1222,7 +1262,7 @@ func (m *AclManager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr
 			SourceRegister: 2,
 			DestRegister:   2,
 			Len:            addrLen,
-			Xor:            nullArray,
+			Xor:            nullAddressArray,
 			Mask:           mask,
 		},
 		&expr.Cmp{
@@ -1240,7 +1280,7 @@ func (m *AclManager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr
 			SourceRegister: 2,
 			DestRegister:   2,
 			Len:            addrLen,
-			Xor:            nullArray,
+			Xor:            nullAddressArray,
 			Mask:           mask,
 		},
 		&expr.Cmp{
@@ -1261,63 +1301,47 @@ func (m *AclManager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr
 }
 
 func (m *AclManager) addIpToSet(ipsetName string, ip net.IP) (*nftables.Set, error) {
+
+	workTable := m.workTable
+	// Raw bytes of the IPv4 address to add
 	rawIP := ip.To4()
+	// Type of set to add to
 	ipsetType := nftables.TypeIPAddr
+	// IP set store to use
+	ipsetStorage := m.ipsetStore
+
+	// If rawIP == nil, we have an IPv6 address, replace previously defined values with IPv6 counterparts.
 	if rawIP == nil {
+		workTable = m.workTable6
 		rawIP = ip.To16()
 		ipsetType = nftables.TypeIP6Addr
+		ipsetStorage = m.ipsetStore6
 	}
-	if ipsetType == nftables.TypeIPAddr {
-		ipset, err := m.rConn.GetSetByName(m.workTable, ipsetName)
-		if err != nil {
-			if ipset, err = m.createSet(m.workTable, ipsetName, ipsetType); err != nil {
-				return nil, fmt.Errorf("get set name: %v", err)
-			}
 
-			m.ipsetStore.newIpset(ipset.Name)
+	ipset, err := m.rConn.GetSetByName(workTable, ipsetName)
+	if err != nil {
+		if ipset, err = m.createSet(workTable, ipsetName, ipsetType); err != nil {
+			return nil, fmt.Errorf("get set name: %v", err)
 		}
 
-		if m.ipsetStore.IsIpInSet(ipset.Name, ip) {
-			return ipset, nil
-		}
+		ipsetStorage.newIpset(ipset.Name)
+	}
 
-		if err := m.sConn.SetAddElements(ipset, []nftables.SetElement{{Key: rawIP}}); err != nil {
-			return nil, fmt.Errorf("add set element for the first time: %v", err)
-		}
-
-		m.ipsetStore.AddIpToSet(ipset.Name, ip)
-
-		if err := m.sConn.Flush(); err != nil {
-			return nil, fmt.Errorf("flush add elements: %v", err)
-		}
-
-		return ipset, nil
-	} else {
-		ipset, err := m.rConn.GetSetByName(m.workTable6, ipsetName)
-		if err != nil {
-			if ipset, err = m.createSet(m.workTable6, ipsetName, ipsetType); err != nil {
-				return nil, fmt.Errorf("get set name: %v", err)
-			}
-
-			m.ipsetStore6.newIpset(ipset.Name)
-		}
-
-		if m.ipsetStore6.IsIpInSet(ipset.Name, ip) {
-			return ipset, nil
-		}
-
-		if err := m.sConn.SetAddElements(ipset, []nftables.SetElement{{Key: rawIP}}); err != nil {
-			return nil, fmt.Errorf("add set element for the first time: %v", err)
-		}
-
-		m.ipsetStore6.AddIpToSet(ipset.Name, ip)
-
-		if err := m.sConn.Flush(); err != nil {
-			return nil, fmt.Errorf("flush add elements: %v", err)
-		}
-
+	if ipsetStorage.IsIpInSet(ipset.Name, ip) {
 		return ipset, nil
 	}
+
+	if err := m.sConn.SetAddElements(ipset, []nftables.SetElement{{Key: rawIP}}); err != nil {
+		return nil, fmt.Errorf("add set element for the first time: %v", err)
+	}
+
+	ipsetStorage.AddIpToSet(ipset.Name, ip)
+
+	if err := m.sConn.Flush(); err != nil {
+		return nil, fmt.Errorf("flush add elements: %v", err)
+	}
+
+	return ipset, nil
 }
 
 // createSet in given table by name
@@ -1419,10 +1443,14 @@ func generateRuleIdForMangle(ipset *nftables.Set, ip net.IP, proto firewall.Prot
 	if port != nil {
 		p = port.String()
 	}
+	ipver := "v4"
+	if ipset.Table.Family == nftables.TableFamilyIPv6 {
+		ipver = "v6"
+	}
 	if ipset != nil {
-		return fmt.Sprintf("p:set:%s:%s:%v", ipset.Name, proto, p)
+		return fmt.Sprintf("p:set:%s:%s:%s:%v", ipver, ipset.Name, proto, p)
 	} else {
-		return fmt.Sprintf("p:ip:%s:%s:%v", ip.String(), proto, p)
+		return fmt.Sprintf("p:ip:%s:%s:%s:%v", ipver, ip.String(), proto, p)
 	}
 }
 

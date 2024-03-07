@@ -36,14 +36,14 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 		wgIface: wgIface,
 	}
 
-	workTable, err := m.createWorkTable()
+	workTable, err := m.createWorkTable(nftables.TableFamilyIPv4)
 	if err != nil {
 		return nil, err
 	}
 
 	var workTable6 *nftables.Table
 	if wgIface.Address6() != nil {
-		workTable6, err = m.createWorkTable6()
+		workTable6, err = m.createWorkTable(nftables.TableFamilyIPv6)
 		if err != nil {
 			return nil, err
 		}
@@ -65,31 +65,36 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 // Resets the IPv6 Firewall Table to adapt to changes in IP addresses
 func (m *Manager) ResetV6Firewall() error {
 
+	// First, prepare reset by deleting all currently active rules.
 	workTable6, err := m.aclManager.PrepareV6Reset()
 	if err != nil {
 		return err
 	}
 
+	// Depending on whether we now have an IPv6 address, we now either have to create/empty an IPv6 table, or delete it.
 	if m.wgIface.Address6() != nil {
 		if workTable6 != nil {
 			m.rConn.FlushTable(workTable6)
 		} else {
-			workTable6, err = m.createWorkTable6()
-			m.rConn.Flush()
-			if err != nil {
-				return err
-			}
+			workTable6, err = m.createWorkTable(nftables.TableFamilyIPv6)
 		}
 	} else {
 		m.rConn.DelTable(workTable6)
 		workTable6 = nil
 	}
+	err = m.rConn.Flush()
+	if err != nil {
+		return err
+	}
 
+	// Restore routing rules.
 	err = m.router.RestoreAfterV6Reset(workTable6)
 	if err != nil {
 		return err
 	}
 
+	// Restore basic firewall chains (needs to happen after routes because chains from router must exist).
+	// Does not restore rules (will be done later during the update, when UpdateFiltering will be called at some point)
 	err = m.aclManager.ReinitAfterV6Reset(workTable6)
 	if err != nil {
 		return err
@@ -162,6 +167,8 @@ func (m *Manager) AllowNetbird() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	// Note for devs: When adding IPv6 support to uspfilter, the implementation of createDefaultAllowRules()
+	// must be adjusted to include IPv6 rules.
 	err := m.aclManager.createDefaultAllowRules()
 	if err != nil {
 		return fmt.Errorf("failed to create default allow rules: %v", err)
@@ -259,8 +266,8 @@ func (m *Manager) Flush() error {
 	return m.aclManager.Flush()
 }
 
-func (m *Manager) createWorkTable() (*nftables.Table, error) {
-	tables, err := m.rConn.ListTablesOfFamily(nftables.TableFamilyIPv4)
+func (m *Manager) createWorkTable(tableFamily nftables.TableFamily) (*nftables.Table, error) {
+	tables, err := m.rConn.ListTablesOfFamily(tableFamily)
 	if err != nil {
 		return nil, fmt.Errorf("list of tables: %w", err)
 	}
@@ -271,26 +278,9 @@ func (m *Manager) createWorkTable() (*nftables.Table, error) {
 		}
 	}
 
-	table := m.rConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv4})
+	table := m.rConn.AddTable(&nftables.Table{Name: tableName, Family: tableFamily})
 	err = m.rConn.Flush()
 	return table, err
-}
-
-func (m *Manager) createWorkTable6() (*nftables.Table, error) {
-	tables6, err := m.rConn.ListTablesOfFamily(nftables.TableFamilyIPv6)
-	if err != nil {
-		return nil, fmt.Errorf("list of v6 tables: %w", err)
-	}
-
-	for _, t := range tables6 {
-		if t.Name == tableName {
-			m.rConn.DelTable(t)
-		}
-	}
-
-	table6 := m.rConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv6})
-	err = m.rConn.Flush()
-	return table6, err
 }
 
 func (m *Manager) applyAllowNetbirdRules(chain *nftables.Chain) {

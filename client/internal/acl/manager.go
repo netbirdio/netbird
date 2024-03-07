@@ -400,7 +400,8 @@ func (d *DefaultManager) squashAcceptRules(
 		// it means that rules for that protocol was already optimized on the
 		// management side
 		if r.PeerIP == "0.0.0.0" {
-			// TODO IPv6?
+			// I don't _think_ that IPv6 is relevant here, as any optimization that has r.PeerIP6 == "::" should also
+			// implicitly have r.PeerIP == "0.0.0.0".
 			squashedRules = append(squashedRules, r)
 			squashedProtocols[r.Protocol] = struct{}{}
 			return
