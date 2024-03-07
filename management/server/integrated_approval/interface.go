@@ -8,6 +8,7 @@ import (
 // IntegratedApproval interface exists to avoid the circle dependencies
 type IntegratedApproval interface {
 	PreparePeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer
-	IsRequiresApproval(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) bool
+	IsRequiresApproval(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (bool, bool)
+	ApprovedPeersList(id string) (map[string]struct{}, error)
 	Stop()
 }

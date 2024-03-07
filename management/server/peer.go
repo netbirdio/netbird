@@ -521,9 +521,10 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *Network
 		return nil, nil, status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
 	}
 
-	requiresApproval := am.integratedPeerValidator.IsRequiresApproval(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
-	if peer.Status.RequiresApproval != requiresApproval {
+	requiresApproval, requiresIntegratedApproval := am.integratedPeerValidator.IsRequiresApproval(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
+	if peer.Status.RequiresApproval != requiresApproval || peer.Status.RequiresIntegratedApproval != requiresIntegratedApproval {
 		peer.Status.RequiresApproval = requiresApproval
+		peer.Status.RequiresIntegratedApproval = requiresIntegratedApproval
 		err = am.Store.SaveAccount(account)
 		if err != nil {
 			return nil, nil, err
@@ -596,8 +597,10 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 		am.StoreEvent(login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
 	}
 
-	isRequiresApproval := am.integratedPeerValidator.IsRequiresApproval(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
-	if peer.Status.RequiresApproval != isRequiresApproval {
+	isRequiresApproval, isRequiresIntegratedApproval := am.integratedPeerValidator.IsRequiresApproval(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
+	if peer.Status.RequiresApproval != isRequiresApproval || peer.Status.RequiresIntegratedApproval != isRequiresIntegratedApproval {
+		peer.Status.RequiresApproval = isRequiresApproval
+		peer.Status.RequiresIntegratedApproval = isRequiresIntegratedApproval
 		shouldStoreAccount = true
 	}
 

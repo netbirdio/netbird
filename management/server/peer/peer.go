@@ -57,6 +57,8 @@ type PeerStatus struct { //nolint:revive
 	LoginExpired bool
 	// RequiresApproval indicates whether peer requires approval or not
 	RequiresApproval bool
+	// RequiresIntegratedApproval indicates whether peer requires integrated approval or not
+	RequiresIntegratedApproval bool
 }
 
 // Location is a geo location information of a Peer based on public connection IP
@@ -222,10 +224,11 @@ func (p *Peer) EventMeta(dnsDomain string) map[string]any {
 // Copy PeerStatus
 func (p *PeerStatus) Copy() *PeerStatus {
 	return &PeerStatus{
-		LastSeen:         p.LastSeen,
-		Connected:        p.Connected,
-		LoginExpired:     p.LoginExpired,
-		RequiresApproval: p.RequiresApproval,
+		LastSeen:                   p.LastSeen,
+		Connected:                  p.Connected,
+		LoginExpired:               p.LoginExpired,
+		RequiresApproval:           p.RequiresApproval,
+		RequiresIntegratedApproval: p.RequiresIntegratedApproval,
 	}
 }
 
