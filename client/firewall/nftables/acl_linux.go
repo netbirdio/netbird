@@ -1444,7 +1444,7 @@ func generateRuleIdForMangle(ipset *nftables.Set, ip net.IP, proto firewall.Prot
 		p = port.String()
 	}
 	ipver := "v4"
-	if ipset.Table.Family == nftables.TableFamilyIPv6 {
+	if (ipset != nil && ipset.Table.Family == nftables.TableFamilyIPv6) || ip.To4() == nil {
 		ipver = "v6"
 	}
 	if ipset != nil {

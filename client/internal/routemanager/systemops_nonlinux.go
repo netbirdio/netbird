@@ -37,7 +37,7 @@ func removeFromRouteTable(prefix netip.Prefix, addr string, devName string) erro
 	return nil
 }
 
-func enableIPForwarding() error {
+func enableIPForwarding(forV6 bool) error {
 	log.Infof("enable IP forwarding is not implemented on %s", runtime.GOOS)
 	return nil
 }
