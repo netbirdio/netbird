@@ -424,7 +424,7 @@ Peers count: 2/2 Connected
 }
 
 func TestParsingToShortVersion(t *testing.T) {
-	shortVersion := parseGeneralSummary(overview, false, false)
+	shortVersion := parseGeneralSummary(overview, false, false, false)
 
 	expectedString :=
 		`Daemon version: 0.14.1

@@ -20,6 +20,10 @@ type localResolver struct {
 func (d *localResolver) stop() {
 }
 
+func (u *localResolver) getServers() []string {
+	return nil
+}
+
 // ServeDNS handles a DNS request
 func (d *localResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	log.Tracef("received question: %#v", r.Question[0])

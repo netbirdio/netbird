@@ -58,6 +58,16 @@ type RosenpassState struct {
 	Permissive bool
 }
 
+// NSGroupState represents the status of a DNS server group, including associated domains,
+// whether it's enabled, and the last error message encountered during probing.
+type NSGroupState struct {
+	ID      string
+	Servers []string
+	Domains []string
+	Enabled bool
+	Error   error
+}
+
 // FullStatus contains the full state held by the Status instance
 type FullStatus struct {
 	Peers           []State
@@ -66,6 +76,7 @@ type FullStatus struct {
 	LocalPeerState  LocalPeerState
 	RosenpassState  RosenpassState
 	Relays          []relay.ProbeResult
+	NSGroupStates   []NSGroupState
 }
 
 // Status holds a state of peers, signal, management connections and relays
@@ -85,6 +96,7 @@ type Status struct {
 	notifier            *notifier
 	rosenpassEnabled    bool
 	rosenpassPermissive bool
+	nsGroupStates       []NSGroupState
 
 	// To reduce the number of notification invocation this bool will be true when need to call the notification
 	// Some Peer actions mostly used by in a batch when the network map has been synchronized. In these type of events
@@ -374,6 +386,12 @@ func (d *Status) UpdateRelayStates(relayResults []relay.ProbeResult) {
 	d.relayStates = relayResults
 }
 
+func (d *Status) UpdateDNSStates(dnsStates []NSGroupState) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.nsGroupStates = dnsStates
+}
+
 func (d *Status) GetRosenpassState() RosenpassState {
 	return RosenpassState{
 		d.rosenpassEnabled,
@@ -401,6 +419,10 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 	return d.relayStates
 }
 
+func (d *Status) GetDNSStates() []NSGroupState {
+	return d.nsGroupStates
+}
+
 // GetFullStatus gets full status
 func (d *Status) GetFullStatus() FullStatus {
 	d.mux.Lock()
@@ -412,6 +434,7 @@ func (d *Status) GetFullStatus() FullStatus {
 		LocalPeerState:  d.localPeer,
 		Relays:          d.GetRelayStates(),
 		RosenpassState:  d.GetRosenpassState(),
+		NSGroupStates:   d.GetDNSStates(),
 	}
 
 	for _, status := range d.peers {

@@ -550,7 +550,6 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 		SignalState:     &proto.SignalState{},
 		LocalPeerState:  &proto.LocalPeerState{},
 		Peers:           []*proto.PeerState{},
-		Relays:          []*proto.RelayState{},
 	}
 
 	pbFullStatus.ManagementState.URL = fullStatus.ManagementState.URL
@@ -604,6 +603,20 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			pbRelayState.Error = err.Error()
 		}
 		pbFullStatus.Relays = append(pbFullStatus.Relays, pbRelayState)
+	}
+
+	for _, dnsState := range fullStatus.NSGroupStates {
+		var err string
+		if dnsState.Error != nil {
+			err = dnsState.Error.Error()
+		}
+		pbDnsState := &proto.NSGroupState{
+			Servers: dnsState.Servers,
+			Domains: dnsState.Domains,
+			Enabled: dnsState.Enabled,
+			Error:   err,
+		}
+		pbFullStatus.DnsServers = append(pbFullStatus.DnsServers, pbDnsState)
 	}
 
 	return &pbFullStatus
