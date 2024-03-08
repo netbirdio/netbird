@@ -263,119 +263,120 @@ func TestParsingToJSON(t *testing.T) {
 	jsonString, _ := parseToJSON(overview)
 
 	//@formatter:off
-	expectedJSONString := `    {
-      "peers": {
-        "total": 2,
-        "connected": 2,
-        "details": [
-          {
-            "fqdn": "peer-1.awesome-domain.com",
-            "netbirdIp": "192.168.178.101",
-            "publicKey": "Pubkey1",
-            "status": "Connected",
-            "lastStatusUpdate": "2001-01-01T01:01:01Z",
-            "connectionType": "P2P",
-            "direct": true,
-            "iceCandidateType": {
-              "local": "",
-              "remote": ""
-            },
-            "iceCandidateEndpoint": {
-              "local": "",
-              "remote": ""
-            },
-            "lastWireguardHandshake": "2001-01-01T01:01:02Z",
-            "transferReceived": 200,
-            "transferSent": 100,
-            "quantumResistance": false,
-            "routes": [
-              "10.1.0.0/24"
+	expectedJSONString := `
+        {
+          "peers": {
+            "total": 2,
+            "connected": 2,
+            "details": [
+              {
+                "fqdn": "peer-1.awesome-domain.com",
+                "netbirdIp": "192.168.178.101",
+                "publicKey": "Pubkey1",
+                "status": "Connected",
+                "lastStatusUpdate": "2001-01-01T01:01:01Z",
+                "connectionType": "P2P",
+                "direct": true,
+                "iceCandidateType": {
+                  "local": "",
+                  "remote": ""
+                },
+                "iceCandidateEndpoint": {
+                  "local": "",
+                  "remote": ""
+                },
+                "lastWireguardHandshake": "2001-01-01T01:01:02Z",
+                "transferReceived": 200,
+                "transferSent": 100,
+                "quantumResistance": false,
+                "routes": [
+                  "10.1.0.0/24"
+                ]
+              },
+              {
+                "fqdn": "peer-2.awesome-domain.com",
+                "netbirdIp": "192.168.178.102",
+                "publicKey": "Pubkey2",
+                "status": "Connected",
+                "lastStatusUpdate": "2002-02-02T02:02:02Z",
+                "connectionType": "Relayed",
+                "direct": false,
+                "iceCandidateType": {
+                  "local": "relay",
+                  "remote": "prflx"
+                },
+                "iceCandidateEndpoint": {
+                  "local": "10.0.0.1:10001",
+                  "remote": "10.0.10.1:10002"
+                },
+                "lastWireguardHandshake": "2002-02-02T02:02:03Z",
+                "transferReceived": 2000,
+                "transferSent": 1000,
+                "quantumResistance": false,
+                "routes": null
+              }
             ]
           },
-          {
-            "fqdn": "peer-2.awesome-domain.com",
-            "netbirdIp": "192.168.178.102",
-            "publicKey": "Pubkey2",
-            "status": "Connected",
-            "lastStatusUpdate": "2002-02-02T02:02:02Z",
-            "connectionType": "Relayed",
-            "direct": false,
-            "iceCandidateType": {
-              "local": "relay",
-              "remote": "prflx"
-            },
-            "iceCandidateEndpoint": {
-              "local": "10.0.0.1:10001",
-              "remote": "10.0.10.1:10002"
-            },
-            "lastWireguardHandshake": "2002-02-02T02:02:03Z",
-            "transferReceived": 2000,
-            "transferSent": 1000,
-            "quantumResistance": false,
-            "routes": null
-          }
-        ]
-      },
-      "cliVersion": "development",
-      "daemonVersion": "0.14.1",
-      "management": {
-        "url": "my-awesome-management.com:443",
-        "connected": true,
-        "error": ""
-      },
-      "signal": {
-        "url": "my-awesome-signal.com:443",
-        "connected": true,
-        "error": ""
-      },
-      "relays": {
-        "total": 2,
-        "available": 1,
-        "details": [
-          {
-            "uri": "stun:my-awesome-stun.com:3478",
-            "available": true,
+          "cliVersion": "development",
+          "daemonVersion": "0.14.1",
+          "management": {
+            "url": "my-awesome-management.com:443",
+            "connected": true,
             "error": ""
           },
-          {
-            "uri": "turns:my-awesome-turn.com:443?transport=tcp",
-            "available": false,
-            "error": "context: deadline exceeded"
-          }
-        ]
-      },
-      "netbirdIp": "192.168.178.100/16",
-      "publicKey": "Some-Pub-Key",
-      "usesKernelInterface": true,
-      "fqdn": "some-localhost.awesome-domain.com",
-      "quantumResistance": false,
-      "quantumResistancePermissive": false,
-      "routes": [
-        "10.10.0.0/24"
-      ],
-      "dnsServers": [
-        {
-          "servers": [
-            "8.8.8.8:53"
+          "signal": {
+            "url": "my-awesome-signal.com:443",
+            "connected": true,
+            "error": ""
+          },
+          "relays": {
+            "total": 2,
+            "available": 1,
+            "details": [
+              {
+                "uri": "stun:my-awesome-stun.com:3478",
+                "available": true,
+                "error": ""
+              },
+              {
+                "uri": "turns:my-awesome-turn.com:443?transport=tcp",
+                "available": false,
+                "error": "context: deadline exceeded"
+              }
+            ]
+          },
+          "netbirdIp": "192.168.178.100/16",
+          "publicKey": "Some-Pub-Key",
+          "usesKernelInterface": true,
+          "fqdn": "some-localhost.awesome-domain.com",
+          "quantumResistance": false,
+          "quantumResistancePermissive": false,
+          "routes": [
+            "10.10.0.0/24"
           ],
-          "domains": null,
-          "enabled": true,
-          "error": ""
-        },
-        {
-          "servers": [
-            "1.1.1.1:53",
-            "2.2.2.2:53"
-          ],
-          "domains": [
-            "example.com",
-            "example.net"
-          ],
-          "enabled": false,
-          "error": "timeout"
-        }
-      ]
-    }`
+          "dnsServers": [
+            {
+              "servers": [
+                "8.8.8.8:53"
+              ],
+              "domains": null,
+              "enabled": true,
+              "error": ""
+            },
+            {
+              "servers": [
+                "1.1.1.1:53",
+                "2.2.2.2:53"
+              ],
+              "domains": [
+                "example.com",
+                "example.net"
+              ],
+              "enabled": false,
+              "error": "timeout"
+            }
+          ]
+        }`
 	// @formatter:on
 
 	var expectedJSON bytes.Buffer
