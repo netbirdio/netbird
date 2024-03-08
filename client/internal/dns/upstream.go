@@ -51,7 +51,6 @@ type upstreamResolverBase struct {
 	deactivate     func(error)
 	reactivate     func()
 	statusRecorder *peer.Status
-	lastError      error
 }
 
 func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status) *upstreamResolverBase {
