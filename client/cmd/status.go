@@ -480,6 +480,7 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 
 	routes := "-"
 	if len(overview.Routes) > 0 {
+		sort.Strings(overview.Routes)
 		routes = strings.Join(overview.Routes, ", ")
 	}
 
@@ -619,6 +620,7 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 
 		routes := "-"
 		if len(peerState.Routes) > 0 {
+			sort.Strings(peerState.Routes)
 			routes = strings.Join(peerState.Routes, ", ")
 		}
 
