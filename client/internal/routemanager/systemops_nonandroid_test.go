@@ -370,10 +370,15 @@ func TestExistsInRouteTable(t *testing.T) {
 		t.Fatal("shouldn't return error when fetching interface addresses: ", err)
 	}
 
+	hasV6DefaultRoute, err := EnvironmentHasIPv6DefaultRoute()
+	shouldIncludeV6Routes := iface.SupportsIPv6() && firewall.SupportsIPv6() && hasV6DefaultRoute && err == nil
+
 	var addressPrefixes []netip.Prefix
 	for _, address := range addresses {
 		p := netip.MustParsePrefix(address.String())
-		addressPrefixes = append(addressPrefixes, p.Masked())
+		if p.Addr().Is4() || shouldIncludeV6Routes {
+			addressPrefixes = append(addressPrefixes, p.Masked())
+		}
 	}
 
 	for _, prefix := range addressPrefixes {
@@ -388,6 +393,9 @@ func TestExistsInRouteTable(t *testing.T) {
 }
 
 func TestIsSubRange(t *testing.T) {
+	hasV6DefaultRoute, err := EnvironmentHasIPv6DefaultRoute()
+	shouldIncludeV6Routes := iface.SupportsIPv6() && firewall.SupportsIPv6() && hasV6DefaultRoute && err == nil
+
 	addresses, err := net.InterfaceAddrs()
 	if err != nil {
 		t.Fatal("shouldn't return error when fetching interface addresses: ", err)
@@ -397,7 +405,7 @@ func TestIsSubRange(t *testing.T) {
 	var nonSubRangeAddressPrefixes []netip.Prefix
 	for _, address := range addresses {
 		p := netip.MustParsePrefix(address.String())
-		if !p.Addr().IsLoopback() && p.Addr().Is4() && p.Bits() < 32 {
+		if !p.Addr().IsLoopback() && (p.Addr().Is4() && p.Bits() < 32) || (p.Addr().Is6() && shouldIncludeV6Routes && p.Bits() < 128) {
 			p2 := netip.PrefixFrom(p.Masked().Addr(), p.Bits()+1)
 			subRangeAddressPrefixes = append(subRangeAddressPrefixes, p2)
 			nonSubRangeAddressPrefixes = append(nonSubRangeAddressPrefixes, p.Masked())
