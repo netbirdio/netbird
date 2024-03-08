@@ -42,3 +42,7 @@ func (w *WGIface) CreateOnAndroid([]string, string, []string) error {
 func (w *WGIface) GetInterfaceGUIDString() (string, error) {
 	return w.tun.(*tunDevice).getInterfaceGUIDString()
 }
+
+func SupportsIPv6() bool {
+	return false
+}
