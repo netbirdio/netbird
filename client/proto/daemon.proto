@@ -141,6 +141,7 @@ message PeerState {
   int64 bytesRx = 13;
   int64 bytesTx = 14;
   bool rosenpassEnabled = 15;
+  repeated string routes = 16;
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -151,6 +152,7 @@ message LocalPeerState {
   string fqdn = 4;
   bool rosenpassEnabled = 5;
   bool rosenpassPermissive = 6;
+  repeated string routes = 7;
 }
 
 // SignalState contains the latest state of a signal connection

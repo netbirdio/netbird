@@ -35,6 +35,7 @@ type peerStateDetailOutput struct {
 	TransferReceived       int64            `json:"transferReceived" yaml:"transferReceived"`
 	TransferSent           int64            `json:"transferSent" yaml:"transferSent"`
 	RosenpassEnabled       bool             `json:"quantumResistance" yaml:"quantumResistance"`
+	Routes                 []string         `json:"routes" yaml:"routes"`
 }
 
 type peersStateOutput struct {
@@ -85,6 +86,7 @@ type statusOutputOverview struct {
 	FQDN                string                `json:"fqdn" yaml:"fqdn"`
 	RosenpassEnabled    bool                  `json:"quantumResistance" yaml:"quantumResistance"`
 	RosenpassPermissive bool                  `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
+	Routes              []string              `json:"routes" yaml:"routes"`
 }
 
 var (
@@ -268,6 +270,7 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 		FQDN:                pbFullStatus.GetLocalPeerState().GetFqdn(),
 		RosenpassEnabled:    pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
 		RosenpassPermissive: pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
+		Routes:              pbFullStatus.GetLocalPeerState().GetRoutes(),
 	}
 
 	return overview
@@ -352,6 +355,7 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 			TransferReceived:       transferReceived,
 			TransferSent:           transferSent,
 			RosenpassEnabled:       pbPeerState.GetRosenpassEnabled(),
+			Routes:                 pbPeerState.GetRoutes(),
 		}
 
 		peersStateDetail = append(peersStateDetail, peerState)
@@ -465,6 +469,11 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 		}
 	}
 
+	routes := "-"
+	if len(overview.Routes) > 0 {
+		routes = strings.Join(overview.Routes, ", ")
+	}
+
 	summary := fmt.Sprintf(
 		"Daemon version: %s\n"+
 			"CLI version: %s\n"+
@@ -475,7 +484,8 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 			"NetBird IP: %s\n"+
 			"Interface type: %s\n"+
 			"Quantum resistance: %s\n"+
-			"Peers count: %s\n",
+			"Peers count: %s\n"+
+			"Routes: %s\n",
 		overview.DaemonVersion,
 		version.NetbirdVersion(),
 		managementConnString,
@@ -486,6 +496,7 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 		interfaceTypeString,
 		rosenpassEnabledStatus,
 		peersCountString,
+		routes,
 	)
 	return summary
 }
@@ -556,6 +567,11 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			}
 		}
 
+		routes := "-"
+		if len(peerState.Routes) > 0 {
+			routes = strings.Join(peerState.Routes, ", ")
+		}
+
 		peerString := fmt.Sprintf(
 			"\n %s:\n"+
 				"  NetBird IP: %s\n"+
@@ -569,7 +585,8 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 				"  Last connection update: %s\n"+
 				"  Last WireGuard handshake: %s\n"+
 				"  Transfer status (received/sent) %s/%s\n"+
-				"  Quantum resistance: %s\n",
+				"  Quantum resistance: %s\n"+
+				"  Routes: %s\n",
 			peerState.FQDN,
 			peerState.IP,
 			peerState.PubKey,
@@ -585,6 +602,7 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			toIEC(peerState.TransferReceived),
 			toIEC(peerState.TransferSent),
 			rosenpassEnabledStatus,
+			routes,
 		)
 
 		peersString += peerString

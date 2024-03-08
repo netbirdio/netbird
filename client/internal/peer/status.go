@@ -26,6 +26,7 @@ type State struct {
 	BytesTx                    int64
 	BytesRx                    int64
 	RosenpassEnabled           bool
+	Routes                     map[string]struct{}
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -34,6 +35,7 @@ type LocalPeerState struct {
 	PubKey          string
 	KernelInterface bool
 	FQDN            string
+	Routes          map[string]struct{}
 }
 
 // SignalState contains the latest state of a signal connection
@@ -171,6 +173,10 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		peerState.IP = receivedState.IP
 	}
 
+	if receivedState.Routes != nil {
+		peerState.Routes = receivedState.Routes
+	}
+
 	skipNotification := shouldSkipNotify(receivedState, peerState)
 
 	if receivedState.ConnStatus != peerState.ConnStatus {
@@ -273,6 +279,13 @@ func (d *Status) GetPeerStateChangeNotifier(peer string) <-chan struct{} {
 		d.changeNotify[peer] = ch
 	}
 	return ch
+}
+
+// GetLocalPeerState returns the local peer state
+func (d *Status) GetLocalPeerState() LocalPeerState {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	return d.localPeer
 }
 
 // UpdateLocalPeerState updates local peer status
