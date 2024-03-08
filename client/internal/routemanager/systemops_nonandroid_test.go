@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -425,9 +426,15 @@ func TestIsSubRange(t *testing.T) {
 }
 
 func EnvironmentHasIPv6DefaultRoute() (bool, error) {
+	//goland:noinspection GoBoolExpressions
+	if runtime.GOOS != "linux" {
+		// TODO when implementing IPv6 for other operating systems, this should be replaced with code that determines
+		// 		whether a default route for IPv6 exists (routing.Router panics on non-linux).
+		return false, nil
+	}
 	router, err := routing.New()
 	if err != nil {
-		return false, nil
+		return false, err
 	}
 	routeIface, _, _, err := router.Route(netip.MustParsePrefix("::/0").Addr().AsSlice())
 	if err != nil {
