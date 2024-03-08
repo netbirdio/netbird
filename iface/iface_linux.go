@@ -6,6 +6,7 @@ package iface
 import (
 	"fmt"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/nettest"
 
 	"github.com/pion/transport/v3"
 
@@ -58,4 +59,8 @@ func NewWGIFace(iFaceName string, address string, address6 string, wgPort int, w
 // CreateOnAndroid this function make sense on mobile only
 func (w *WGIface) CreateOnAndroid([]string, string, []string) error {
 	return fmt.Errorf("this function has not implemented on this platform")
+}
+
+func SupportsIPv6() bool {
+	return nettest.SupportsIPv6() && WireGuardModuleIsLoaded() && !netstack.IsEnabled()
 }

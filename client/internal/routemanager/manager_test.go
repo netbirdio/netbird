@@ -823,7 +823,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 
 			v6Addr := ""
 			//goland:noinspection GoBoolExpressions
-			if runtime.GOOS != "linux" && testCase.isV6 {
+			if !iface.SupportsIPv6() && testCase.isV6 {
 				t.Skip("Platform does not support IPv6, skipping IPv6 test...")
 			} else if testCase.isV6 {
 				v6Addr = "2001:db8::4242:4711/128"

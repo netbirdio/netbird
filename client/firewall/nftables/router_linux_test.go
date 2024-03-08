@@ -4,6 +4,7 @@ package nftables
 
 import (
 	"context"
+	"github.com/netbirdio/netbird/iface"
 	"testing"
 
 	"github.com/coreos/go-iptables/iptables"
@@ -11,6 +12,7 @@ import (
 	"github.com/google/nftables/expr"
 	"github.com/stretchr/testify/require"
 
+	fw "github.com/netbirdio/netbird/client/firewall"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/test"
 )
@@ -38,6 +40,9 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 
 	for _, testCase := range test.InsertRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
+			if testCase.IsV6 && table6 == nil {
+				t.Skip("Environment does not support IPv6, skipping IPv6 test...")
+			}
 			manager, err := newRouter(context.TODO(), table, table6)
 			require.NoError(t, err, "failed to create router")
 
@@ -145,6 +150,9 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 
 	for _, testCase := range test.RemoveRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
+			if testCase.IsV6 && table6 == nil {
+				t.Skip("Environment does not support IPv6, skipping IPv6 test...")
+			}
 			manager, err := newRouter(context.TODO(), table, table6)
 			require.NoError(t, err, "failed to create router")
 
@@ -273,7 +281,10 @@ func createWorkTables() (*nftables.Table, *nftables.Table, error) {
 	}
 
 	table := sConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv4})
-	table6 := sConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv6})
+	var table6 *nftables.Table
+	if iface.SupportsIPv6() && fw.SupportsIPv6() {
+		table6 = sConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv6})
+	}
 	err = sConn.Flush()
 
 	return table, table6, err

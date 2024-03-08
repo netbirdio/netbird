@@ -5,10 +5,10 @@ package routemanager
 import (
 	"bytes"
 	"fmt"
+	"github.com/netbirdio/netbird/client/firewall"
 	"net"
 	"net/netip"
 	"os"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -58,7 +58,7 @@ func TestAddRemoveRoutes(t *testing.T) {
 
 			v6Addr := ""
 			//goland:noinspection GoBoolExpressions
-			if runtime.GOOS != "linux" && testCase.prefix.Addr().Is6() {
+			if (!iface.SupportsIPv6() || !firewall.SupportsIPv6()) && testCase.prefix.Addr().Is6() {
 				t.Skip("Platform does not support IPv6, skipping IPv6 test...")
 			} else if testCase.prefix.Addr().Is6() {
 				v6Addr = "2001:db8::4242:4711/128"
@@ -160,7 +160,7 @@ func TestGetExistingRIBRouteGateway(t *testing.T) {
 
 func TestGetExistingRIBRouteGateway6(t *testing.T) {
 	//goland:noinspection GoBoolExpressions
-	if runtime.GOOS != "linux" {
+	if !iface.SupportsIPv6() {
 		t.Skip("Platform does not support IPv6, skipping IPv6 test...")
 	}
 
@@ -213,7 +213,7 @@ func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
 	}
 	var defaultGateway6 net.IP
 	//goland:noinspection GoBoolExpressions
-	if runtime.GOOS == "linux" {
+	if iface.SupportsIPv6() && firewall.SupportsIPv6() {
 		defaultGateway6, err = getExistingRIBRouteGateway(netip.MustParsePrefix("::/0"))
 		t.Log("defaultGateway6: ", defaultGateway6)
 		if err != nil {

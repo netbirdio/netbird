@@ -145,11 +145,12 @@ loop:
 			}
 
 			var is6 bool
-			if rt.Family == syscall.AF_INET {
+			switch rt.Family {
+			case syscall.AF_INET:
 				is6 = false
-			} else if rt.Family == syscall.AF_INET6 {
+			case syscall.AF_INET6:
 				is6 = true
-			} else {
+			default:
 				continue loop
 			}
 

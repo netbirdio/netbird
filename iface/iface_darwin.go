@@ -41,3 +41,7 @@ func NewWGIFace(iFaceName string, address string, address6 string, wgPort int, w
 func (w *WGIface) CreateOnAndroid([]string, string, []string) error {
 	return fmt.Errorf("this function has not implemented on this platform")
 }
+
+func SupportsIPv6() bool {
+	return false
+}

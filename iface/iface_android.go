@@ -43,3 +43,7 @@ func (w *WGIface) CreateOnAndroid(routes []string, dns string, searchDomains []s
 func (w *WGIface) Create() error {
 	return fmt.Errorf("this function has not implemented on this platform")
 }
+
+func SupportsIPv6() bool {
+	return false
+}
