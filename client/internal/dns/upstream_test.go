@@ -131,7 +131,7 @@ func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
 	}
 
 	failed := false
-	resolver.deactivate = func() {
+	resolver.deactivate = func(error) {
 		failed = true
 	}
 

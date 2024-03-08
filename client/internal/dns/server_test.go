@@ -563,7 +563,7 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 		},
 	}, nil)
 
-	deactivate()
+	deactivate(nil)
 	expected := "domain0,domain2"
 	domains := []string{}
 	for _, item := range server.currentConfig.Domains {
