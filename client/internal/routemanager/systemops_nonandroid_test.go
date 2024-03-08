@@ -5,6 +5,7 @@ package routemanager
 import (
 	"bytes"
 	"fmt"
+	"github.com/google/gopacket/routing"
 	"github.com/netbirdio/netbird/client/firewall"
 	"net"
 	"net/netip"
@@ -57,8 +58,9 @@ func TestAddRemoveRoutes(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 
 			v6Addr := ""
+			hasV6DefaultRoute, err := EnvironmentHasIPv6DefaultRoute()
 			//goland:noinspection GoBoolExpressions
-			if (!iface.SupportsIPv6() || !firewall.SupportsIPv6()) && testCase.prefix.Addr().Is6() {
+			if (!iface.SupportsIPv6() || !firewall.SupportsIPv6() || !hasV6DefaultRoute || err != nil) && testCase.prefix.Addr().Is6() {
 				t.Skip("Platform does not support IPv6, skipping IPv6 test...")
 			} else if testCase.prefix.Addr().Is6() {
 				v6Addr = "2001:db8::4242:4711/128"
@@ -160,7 +162,9 @@ func TestGetExistingRIBRouteGateway(t *testing.T) {
 
 func TestGetExistingRIBRouteGateway6(t *testing.T) {
 	//goland:noinspection GoBoolExpressions
-	if !iface.SupportsIPv6() {
+	hasV6DefaultRoute, err := EnvironmentHasIPv6DefaultRoute()
+	//goland:noinspection GoBoolExpressions
+	if !iface.SupportsIPv6() || !firewall.SupportsIPv6() || !hasV6DefaultRoute || err != nil {
 		t.Skip("Platform does not support IPv6, skipping IPv6 test...")
 	}
 
@@ -212,8 +216,9 @@ func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
 		t.Fatal("shouldn't return error when fetching the gateway: ", err)
 	}
 	var defaultGateway6 net.IP
+	hasV6DefaultRoute, err := EnvironmentHasIPv6DefaultRoute()
 	//goland:noinspection GoBoolExpressions
-	if iface.SupportsIPv6() && firewall.SupportsIPv6() {
+	if iface.SupportsIPv6() && firewall.SupportsIPv6() && hasV6DefaultRoute && err == nil {
 		defaultGateway6, err = getExistingRIBRouteGateway(netip.MustParsePrefix("::/0"))
 		t.Log("defaultGateway6: ", defaultGateway6)
 		if err != nil {
@@ -417,4 +422,16 @@ func TestIsSubRange(t *testing.T) {
 			t.Fatalf("address %s should not be sub-range of an existing route in the table", prefix)
 		}
 	}
+}
+
+func EnvironmentHasIPv6DefaultRoute() (bool, error) {
+	router, err := routing.New()
+	if err != nil {
+		return false, nil
+	}
+	routeIface, _, _, err := router.Route(netip.MustParsePrefix("::/0").Addr().AsSlice())
+	if err != nil {
+		return false, err
+	}
+	return routeIface != nil, nil
 }

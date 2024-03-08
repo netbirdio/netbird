@@ -5,12 +5,10 @@ package iface
 
 import (
 	"fmt"
+	"github.com/netbirdio/netbird/iface/netstack"
+	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/nettest"
-
-	"github.com/pion/transport/v3"
-
-	"github.com/netbirdio/netbird/iface/netstack"
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
