@@ -428,7 +428,13 @@ func (r *router) RemoveRoutingRules(pair manager.RouterPair) error {
 func (r *router) removeRoutingRule(format string, pair manager.RouterPair) error {
 	ruleKey := manager.GenKey(format, pair.ID)
 
-	rule, found := r.rules[ruleKey]
+	parsedIp, _, _ := net.ParseCIDR(pair.Source)
+	rules := r.rules
+	if parsedIp.To4() == nil {
+		rules = r.rules6
+	}
+
+	rule, found := rules[ruleKey]
 	if found {
 		ruleType := "forwarding"
 		if rule.Chain.Type == nftables.ChainTypeNAT {
@@ -442,7 +448,7 @@ func (r *router) removeRoutingRule(format string, pair manager.RouterPair) error
 
 		log.Debugf("nftables: removing %s rule for %s", ruleType, pair.Destination)
 
-		delete(r.rules, ruleKey)
+		delete(rules, ruleKey)
 	}
 	return nil
 }

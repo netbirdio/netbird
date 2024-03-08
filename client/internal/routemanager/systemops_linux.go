@@ -143,7 +143,13 @@ loop:
 			if err != nil {
 				return nil, err
 			}
-			if rt.Family != syscall.AF_INET {
+
+			var is6 bool
+			if rt.Family == syscall.AF_INET {
+				is6 = false
+			} else if rt.Family == syscall.AF_INET6 {
+				is6 = true
+			} else {
 				continue loop
 			}
 
@@ -156,7 +162,7 @@ loop:
 					mask := net.CIDRMask(int(rt.DstLen), len(attr.Value)*8)
 					cidr, _ := mask.Size()
 					routePrefix := netip.PrefixFrom(addr, cidr)
-					if routePrefix.IsValid() && routePrefix.Addr().Is4() {
+					if routePrefix.IsValid() && ((!is6 && routePrefix.Addr().Is4()) || (is6 && routePrefix.Addr().Is6())) {
 						prefixList = append(prefixList, routePrefix)
 					}
 				}

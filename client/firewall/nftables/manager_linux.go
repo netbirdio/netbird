@@ -77,6 +77,9 @@ func (m *Manager) ResetV6Firewall() error {
 			m.rConn.FlushTable(workTable6)
 		} else {
 			workTable6, err = m.createWorkTable(nftables.TableFamilyIPv6)
+			if err != nil {
+				return err
+			}
 		}
 	} else {
 		m.rConn.DelTable(workTable6)

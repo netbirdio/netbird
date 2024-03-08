@@ -85,6 +85,14 @@ func addRouteForCurrentDefaultGateway(prefix netip.Prefix, devName string) error
 }
 
 func existsInRouteTable(prefix netip.Prefix) (bool, error) {
+	linkLocalPrefix, err := netip.ParsePrefix("fe80::/10")
+	if err != nil {
+		return false, err
+	}
+	if prefix.Addr().Is6() && linkLocalPrefix.Contains(prefix.Addr()) {
+		// The link local prefix is not explicitly part of the routing table, but should be considered as such.
+		return true, nil
+	}
 	routes, err := getRoutesFromTable()
 	if err != nil {
 		return false, err
@@ -127,6 +135,25 @@ func getExistingRIBRouteGateway(prefix netip.Prefix) (net.IP, error) {
 
 	if gateway == nil {
 		return preferredSrc, nil
+	}
+
+	// For IPv6, the gateway may not be nil even when the requested prefix is local.
+	// Therefore, we need to check explicitly whether the route is a local one.
+	if prefix.Addr().Is6() {
+		addresses, err := net.InterfaceAddrs()
+		if err != nil {
+			return nil, err
+		}
+
+		for _, address := range addresses {
+			if address.Network() != "ip+net" {
+				continue
+			}
+			interfaceAddrPrefix := netip.MustParsePrefix(address.String())
+			if interfaceAddrPrefix.Masked() == prefix.Masked() {
+				return preferredSrc, nil
+			}
+		}
 	}
 
 	return gateway, nil
