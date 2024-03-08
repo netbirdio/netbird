@@ -12,7 +12,6 @@ import (
 	"github.com/google/nftables/expr"
 	"github.com/stretchr/testify/require"
 
-	fw "github.com/netbirdio/netbird/client/firewall"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/test"
 )
@@ -282,7 +281,7 @@ func createWorkTables() (*nftables.Table, *nftables.Table, error) {
 
 	table := sConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv4})
 	var table6 *nftables.Table
-	if iface.SupportsIPv6() && fw.SupportsIPv6() {
+	if iface.SupportsIPv6() {
 		table6 = sConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv6})
 	}
 	err = sConn.Flush()

@@ -3,7 +3,6 @@ package nftables
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/firewall"
 	"net"
 	"net/netip"
 	"testing"
@@ -162,7 +161,7 @@ func TestNftablesManager(t *testing.T) {
 
 func TestNftablesManager6(t *testing.T) {
 
-	if !iface.SupportsIPv6() || !firewall.SupportsIPv6() {
+	if !iface.SupportsIPv6() {
 		t.Skip("Environment does not support IPv6, skipping IPv6 test...")
 	}
 	mock := &iFaceMock{
