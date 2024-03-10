@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
+
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/system"
 
@@ -43,11 +45,13 @@ type Server struct {
 	statusRecorder *peer.Status
 	sessionWatcher *internal.SessionWatcher
 
-	mgmProbe    *internal.Probe
-	signalProbe *internal.Probe
-	relayProbe  *internal.Probe
-	wgProbe     *internal.Probe
-	lastProbe   time.Time
+	mgmProbe         *internal.Probe
+	signalProbe      *internal.Probe
+	relayProbe       *internal.Probe
+	wgProbe          *internal.Probe
+	lastProbe        time.Time
+	retryStartedOnce bool
+	cancelRetry      bool
 }
 
 type oauthAuthFlow struct {
@@ -125,14 +129,54 @@ func (s *Server) Start() error {
 	}
 
 	if !config.DisableAutoConnect {
-		go func() {
-			if err := internal.RunClientWithProbes(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe); err != nil {
-				log.Errorf("init connections: %v", err)
-			}
-		}()
+		go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe)
 	}
 
 	return nil
+}
+
+// connectWithRetryRuns runs the client connection with a backoff strategy where we retry the operation as additional
+// mechanism to keep the client connected even when the connection is lost.
+// we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
+func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Config, statusRecorder *peer.Status,
+	mgmProbe *internal.Probe, signalProbe *internal.Probe, relayProbe *internal.Probe, wgProbe *internal.Probe) {
+	backOff := getConnectWithBackoff(ctx)
+
+	runOperation := func() error {
+		err := internal.RunClientWithProbes(ctx, config, statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe)
+		if err != nil {
+			log.Errorf("run client connection: %v", err)
+		}
+
+		if s.cancelRetry || config.DisableAutoConnect {
+			return backoff.Permanent(err)
+		}
+
+		if !s.retryStartedOnce {
+			s.retryStartedOnce = true
+			backOff.Reset()
+		}
+
+		return fmt.Errorf("client connection exited")
+	}
+
+	err := backoff.Retry(runOperation, backOff)
+	if err != nil {
+		log.Errorf("received an error when trying to connect: %v", err)
+	}
+}
+
+// getConnectWithBackoff returns a backoff with exponential backoff strategy for connection retries
+func getConnectWithBackoff(ctx context.Context) backoff.BackOff {
+	return backoff.WithContext(&backoff.ExponentialBackOff{
+		InitialInterval:     5 * time.Minute,
+		RandomizationFactor: 1,
+		Multiplier:          1.7,
+		MaxInterval:         60 * time.Minute,
+		MaxElapsedTime:      7 * 24 * time.Hour, // 7 days
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}, ctx)
 }
 
 // loginAttempt attempts to login using the provided information. it returns a status in case something fails
@@ -445,12 +489,9 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
-	go func() {
-		if err := internal.RunClientWithProbes(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe); err != nil {
-			log.Errorf("run client connection: %v", err)
-			return
-		}
-	}()
+	s.cancelRetry = false
+
+	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe)
 
 	return &proto.UpResponse{}, nil
 }
@@ -466,6 +507,8 @@ func (s *Server) Down(_ context.Context, _ *proto.DownRequest) (*proto.DownRespo
 	s.actCancel()
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusIdle)
+
+	s.cancelRetry = true
 
 	return &proto.DownResponse{}, nil
 }
