@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -291,7 +292,10 @@ func (s *SqliteStore) GetAccountByPrivateDomain(domain string) (*Account, error)
 	result := s.db.First(&account, "domain = ? and is_domain_primary_account = ? and domain_category = ?",
 		strings.ToLower(domain), true, PrivateCategory)
 	if result.Error != nil {
-		return nil, status.Errorf(status.NotFound, "account not found: provided domain is not registered or is not private")
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "account not found: provided domain is not registered or is not private")
+		}
+		return nil, status.Errorf(status.Internal, "issue getting account from store")
 	}
 
 	// TODO:  rework to not call GetAccount
@@ -302,7 +306,10 @@ func (s *SqliteStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 	var key SetupKey
 	result := s.db.Select("account_id").First(&key, "key = ?", strings.ToUpper(setupKey))
 	if result.Error != nil {
-		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+		}
+		return nil, status.Errorf(status.Internal, "issue getting setup key from store")
 	}
 
 	if key.AccountID == "" {
@@ -316,7 +323,11 @@ func (s *SqliteStore) GetTokenIDByHashedToken(hashedToken string) (string, error
 	var token PersonalAccessToken
 	result := s.db.First(&token, "hashed_token = ?", hashedToken)
 	if result.Error != nil {
-		return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
+		log.Errorf("when getting token from the store: %s", result.Error)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
+		}
+		return "", status.Errorf(status.Internal, "issue getting account from store")
 	}
 
 	return token.ID, nil
@@ -326,7 +337,11 @@ func (s *SqliteStore) GetUserByTokenID(tokenID string) (*User, error) {
 	var token PersonalAccessToken
 	result := s.db.First(&token, "id = ?", tokenID)
 	if result.Error != nil {
-		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+		log.Errorf("when getting token from the store: %s", result.Error)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+		}
+		return nil, status.Errorf(status.Internal, "issue getting account from store")
 	}
 
 	if token.UserID == "" {
@@ -371,7 +386,10 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 		First(&account, "id = ?", accountID)
 	if result.Error != nil {
 		log.Errorf("when getting account from the store: %s", result.Error)
-		return nil, status.Errorf(status.NotFound, "account not found")
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "account not found")
+		}
+		return nil, status.Errorf(status.Internal, "issue getting account from store")
 	}
 
 	// we have to manually preload policy rules as it seems that gorm preloading doesn't do it for us
@@ -431,7 +449,11 @@ func (s *SqliteStore) GetAccountByUser(userID string) (*Account, error) {
 	var user User
 	result := s.db.Select("account_id").First(&user, "id = ?", userID)
 	if result.Error != nil {
-		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+		log.Errorf("when getting user from the store: %s", result.Error)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+		}
+		return nil, status.Errorf(status.Internal, "issue getting account from store")
 	}
 
 	if user.AccountID == "" {
@@ -445,7 +467,11 @@ func (s *SqliteStore) GetAccountByPeerID(peerID string) (*Account, error) {
 	var peer nbpeer.Peer
 	result := s.db.Select("account_id").First(&peer, "id = ?", peerID)
 	if result.Error != nil {
-		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+		log.Errorf("when getting peer from the store: %s", result.Error)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+		}
+		return nil, status.Errorf(status.Internal, "issue getting account from store")
 	}
 
 	if peer.AccountID == "" {
@@ -460,7 +486,11 @@ func (s *SqliteStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 
 	result := s.db.Select("account_id").First(&peer, "key = ?", peerKey)
 	if result.Error != nil {
-		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+		log.Errorf("when getting peer from the store: %s", result.Error)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+		}
+		return nil, status.Errorf(status.Internal, "issue getting account from store")
 	}
 
 	if peer.AccountID == "" {
@@ -476,7 +506,11 @@ func (s *SqliteStore) SaveUserLastLogin(accountID, userID string, lastLogin time
 
 	result := s.db.First(&user, "account_id = ? and id = ?", accountID, userID)
 	if result.Error != nil {
-		return status.Errorf(status.NotFound, "user %s not found", userID)
+		log.Errorf("when getting user from the store: %s", result.Error)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return status.Errorf(status.NotFound, "user %s not found", userID)
+		}
+		return status.Errorf(status.Internal, "issue getting user from store")
 	}
 
 	user.LastLogin = lastLogin
