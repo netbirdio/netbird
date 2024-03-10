@@ -45,13 +45,13 @@ type Server struct {
 	statusRecorder *peer.Status
 	sessionWatcher *internal.SessionWatcher
 
-	mgmProbe         *internal.Probe
-	signalProbe      *internal.Probe
-	relayProbe       *internal.Probe
-	wgProbe          *internal.Probe
-	lastProbe        time.Time
-	retryStartedOnce bool
-	cancelRetry      bool
+	mgmProbe     *internal.Probe
+	signalProbe  *internal.Probe
+	relayProbe   *internal.Probe
+	wgProbe      *internal.Probe
+	lastProbe    time.Time
+	retryStarted bool
+	cancelRetry  bool
 }
 
 type oauthAuthFlow struct {
@@ -141,6 +141,26 @@ func (s *Server) Start() error {
 func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Config, statusRecorder *peer.Status,
 	mgmProbe *internal.Probe, signalProbe *internal.Probe, relayProbe *internal.Probe, wgProbe *internal.Probe) {
 	backOff := getConnectWithBackoff(ctx)
+	updateRetryCounterChan := make(chan struct{})
+
+	go func() {
+		t := time.NewTicker(24 * time.Hour)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-updateRetryCounterChan:
+				return
+			case <-t.C:
+				if !s.cancelRetry && s.retryStarted {
+					mgmtState := statusRecorder.GetManagementState()
+					if mgmtState.Connected {
+						s.retryStarted = false
+					}
+				}
+			}
+		}
+	}()
 
 	runOperation := func() error {
 		err := internal.RunClientWithProbes(ctx, config, statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe)
@@ -152,8 +172,8 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 			return backoff.Permanent(err)
 		}
 
-		if !s.retryStartedOnce {
-			s.retryStartedOnce = true
+		if !s.retryStarted {
+			s.retryStarted = true
 			backOff.Reset()
 		}
 
@@ -164,6 +184,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 	if err != nil {
 		log.Errorf("received an error when trying to connect: %v", err)
 	}
+	close(updateRetryCounterChan)
 }
 
 // getConnectWithBackoff returns a backoff with exponential backoff strategy for connection retries
