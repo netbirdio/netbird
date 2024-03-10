@@ -85,6 +85,11 @@ func (wm *DefaultScheduler) Schedule(in time.Duration, ID string, job func() (ne
 		return
 	}
 
+	if in < time.Second {
+		log.Warnf("job for %s was scheduled to run in %s which is under 1s. Adjusting that.", ID, in.String())
+		in = time.Second
+	}
+
 	ticker := time.NewTicker(in)
 
 	wm.jobs[ID] = cancel
@@ -112,6 +117,10 @@ func (wm *DefaultScheduler) Schedule(in time.Duration, ID string, job func() (ne
 				}
 				// we need this comparison to avoid resetting the ticker with the same duration and missing the current elapsesed time
 				if runIn != in {
+					if runIn < time.Second {
+						log.Warnf("job for %s was rescheduled to run in %s which is under 1s. Adjusting that.", ID, runIn.String())
+						runIn = time.Second
+					}
 					ticker.Reset(runIn)
 				}
 			case <-cancel:
