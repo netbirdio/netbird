@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"runtime"
 	"sync"
 	"time"
 
@@ -39,6 +41,7 @@ type Server struct {
 	proto.UnimplementedDaemonServiceServer
 
 	statusRecorder *peer.Status
+	sessionWatcher *internal.SessionWatcher
 
 	mgmProbe    *internal.Probe
 	signalProbe *internal.Probe
@@ -115,6 +118,11 @@ func (s *Server) Start() error {
 	}
 	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
+
+	if s.sessionWatcher == nil {
+		s.sessionWatcher = internal.NewSessionWatcher(s.rootCtx, s.statusRecorder)
+		s.sessionWatcher.SetOnExpireListener(s.onSessionExpire)
+	}
 
 	if !config.DisableAutoConnect {
 		go func() {
@@ -542,6 +550,17 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 	}, nil
 }
 
+func (s *Server) onSessionExpire() {
+	if runtime.GOOS != "windows" {
+		isUIActive := internal.CheckUIApp()
+		if !isUIActive {
+			if err := sendTerminalNotification(); err != nil {
+				log.Errorf("send session expire terminal notification: %v", err)
+			}
+		}
+	}
+}
+
 func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	pbFullStatus := proto.FullStatus{
 		ManagementState: &proto.ManagementState{},
@@ -603,4 +622,32 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	}
 
 	return &pbFullStatus
+}
+
+// sendTerminalNotification sends a terminal notification message
+// to inform the user that the NetBird connection session has expired.
+func sendTerminalNotification() error {
+	message := "NetBird connection session expired\n\nPlease re-authenticate to connect to the network."
+	echoCmd := exec.Command("echo", message)
+	wallCmd := exec.Command("sudo", "wall")
+
+	echoCmdStdout, err := echoCmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	wallCmd.Stdin = echoCmdStdout
+
+	if err := echoCmd.Start(); err != nil {
+		return err
+	}
+
+	if err := wallCmd.Start(); err != nil {
+		return err
+	}
+
+	if err := echoCmd.Wait(); err != nil {
+		return err
+	}
+
+	return wallCmd.Wait()
 }

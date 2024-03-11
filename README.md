@@ -106,8 +106,8 @@ export NETBIRD_DOMAIN=netbird.example.com; curl -fsSL https://github.com/netbird
 See a complete [architecture overview](https://docs.netbird.io/about-netbird/how-netbird-works#architecture) for details.
 
 ### Community projects
--  [NetBird on OpenWRT](https://github.com/messense/openwrt-netbird)
 -  [NetBird installer script](https://github.com/physk/netbird-installer)
+-  [NetBird ansible collection by Dominion Solutions](https://galaxy.ansible.com/ui/repo/published/dominion_solutions/netbird/)
 
 **Note**: The `main` branch may be in an *unstable or even broken state* during development.
 For stable versions, see [releases](https://github.com/netbirdio/netbird/releases).
