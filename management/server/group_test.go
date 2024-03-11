@@ -161,14 +161,16 @@ func TestDefaultAccountManager_GroupIPv6Consistency(t *testing.T) {
 	require.NotNil(t, account.Peers[peer2Id].IP6, "peer2 should have an IPv6 address as it is a member of the IPv6-enabled group.")
 
 	// Force disable IPv6.
-	account.GetPeer(peer1Id).V6Setting = nbpeer.V6Disabled
-	account.GetPeer(peer2Id).V6Setting = nbpeer.V6Disabled
-	account.UpdatePeer(account.Peers[peer1Id])
-	account.UpdatePeer(account.Peers[peer2Id])
-	err = am.Store.SaveAccount(account)
-	require.NoError(t, err, "unable to update account")
+	peer1 := account.GetPeer(peer1Id)
+	peer2 := account.GetPeer(peer2Id)
+	peer1.V6Setting = nbpeer.V6Disabled
+	peer2.V6Setting = nbpeer.V6Disabled
+	_, err = am.UpdatePeer(account.Id, groupAdminUserID, peer1)
+	require.NoError(t, err, "unable to update peer1")
+	_, err = am.UpdatePeer(account.Id, groupAdminUserID, peer2)
+	require.NoError(t, err, "unable to update peer2")
 	account, err = am.Store.GetAccount(account.Id)
-	require.NoError(t, err, "unable to update account")
+	require.NoError(t, err, "unable to fetch updated account")
 	group = account.GetGroup("grp-for-ipv6")
 	require.Nil(t, account.GetPeer(peer1Id).IP6, "peer1 should not have an IPv6 address as it is force disabled.")
 	require.Nil(t, account.GetPeer(peer2Id).IP6, "peer2 should not have an IPv6 address as it is force disabled.")

@@ -221,7 +221,7 @@ func TestDefaultAccountManager_DeterminePeerV6(t *testing.T) {
 	_, err = manager.DeterminePeerV6(account, peer1)
 	require.NoError(t, err, "unable to determine effective peer IPv6 status")
 	_, err = manager.DeterminePeerV6(account, peer2)
-	require.NoError(t, err, "unable to determine effective peer IPv6 status")
+	require.Error(t, err, "determining peer2 IPv6 address should fail as it is force enabled, but unsupported.")
 	require.NotNil(t, peer1.IP6, "peer1 IPv6 address is nil even though it is force enabled.")
 	require.Nil(t, peer2.IP6, "peer2 IPv6 address is not nil even though it is unsupported.")
 
