@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
@@ -29,11 +30,13 @@ import (
 const (
 	probeThreshold          = time.Second * 5
 	retryInitialIntervalVar = "NB_CONN_RETRY_INTERVAL_TIME"
-	maxRetryInterval        = "NB_CONN_MAX_RETRY_INTERVAL_TIME"
-	maxRetryTime            = "NB_CONN_MAX_RETRY_TIME_TIME"
+	maxRetryIntervalVar     = "NB_CONN_MAX_RETRY_INTERVAL_TIME"
+	maxRetryTimeVar         = "NB_CONN_MAX_RETRY_TIME_TIME"
+	retryMultiplierVar      = "NB_CONN_RETRY_MULTIPLIER"
 	defaultInitialRetryTime = 14 * 24 * time.Hour
 	defaultMaxRetryInterval = 60 * time.Minute
 	defaultMaxRetryTime     = 14 * 24 * time.Hour
+	defaultRetryMultiplier  = 1.7
 )
 
 // Server for service control.
@@ -204,12 +207,24 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 // getConnectWithBackoff returns a backoff with exponential backoff strategy for connection retries
 func getConnectWithBackoff(ctx context.Context) backoff.BackOff {
 	initialInterval := parseEnvDuration(retryInitialIntervalVar, defaultInitialRetryTime)
-	maxInterval := parseEnvDuration(maxRetryInterval, defaultMaxRetryInterval)
-	maxElapsedTime := parseEnvDuration(maxRetryTime, defaultMaxRetryTime)
+	maxInterval := parseEnvDuration(maxRetryIntervalVar, defaultMaxRetryInterval)
+	maxElapsedTime := parseEnvDuration(maxRetryTimeVar, defaultMaxRetryTime)
+	multiplier := defaultRetryMultiplier
+
+	if envValue := os.Getenv(retryMultiplierVar); envValue != "" {
+		// parse the multiplier from the environment variable string value to float64
+		value, err := strconv.ParseFloat(envValue, 64)
+		if err != nil {
+			log.Warnf("unable to parse environment variable %s: %s. using default: %f", retryMultiplierVar, envValue, multiplier)
+		} else {
+			multiplier = value
+		}
+	}
+
 	return backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     initialInterval,
 		RandomizationFactor: 1,
-		Multiplier:          1.7,
+		Multiplier:          multiplier,
 		MaxInterval:         maxInterval,
 		MaxElapsedTime:      maxElapsedTime, // 14 days
 		Stop:                backoff.Stop,
