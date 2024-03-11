@@ -154,7 +154,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 					mgmtState := statusRecorder.GetManagementState()
 					signalState := statusRecorder.GetSignalState()
 					if mgmtState.Connected && signalState.Connected {
-						log.Tracef("reseting status")
+						log.Tracef("resetting status")
 						retryStarted = false
 					} else {
 						log.Tracef("not resetting status: mgmt: %v, signal: %v", mgmtState.Connected, signalState.Connected)
