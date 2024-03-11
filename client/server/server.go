@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"sync"
@@ -25,7 +26,15 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
-const probeThreshold = time.Second * 5
+const (
+	probeThreshold          = time.Second * 5
+	retryInitialIntervalVar = "NB_CONN_RETRY_INTERVAL_TIME"
+	maxRetryInterval        = "NB_CONN_MAX_RETRY_INTERVAL_TIME"
+	maxRetryTime            = "NB_CONN_MAX_RETRY_TIME_TIME"
+	defaultInitialRetryTime = 14 * 24 * time.Hour
+	defaultMaxRetryInterval = 60 * time.Minute
+	defaultMaxRetryTime     = 14 * 24 * time.Hour
+)
 
 // Server for service control.
 type Server struct {
@@ -194,15 +203,29 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 
 // getConnectWithBackoff returns a backoff with exponential backoff strategy for connection retries
 func getConnectWithBackoff(ctx context.Context) backoff.BackOff {
+	initialInterval := parseEnvDuration(retryInitialIntervalVar, defaultInitialRetryTime)
+	maxInterval := parseEnvDuration(maxRetryInterval, defaultMaxRetryInterval)
+	maxElapsedTime := parseEnvDuration(maxRetryTime, defaultMaxRetryTime)
 	return backoff.WithContext(&backoff.ExponentialBackOff{
-		InitialInterval:     5 * time.Minute,
+		InitialInterval:     initialInterval,
 		RandomizationFactor: 1,
 		Multiplier:          1.7,
-		MaxInterval:         60 * time.Minute,
-		MaxElapsedTime:      14 * 24 * time.Hour, // 14 days
+		MaxInterval:         maxInterval,
+		MaxElapsedTime:      maxElapsedTime, // 14 days
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
+}
+
+// parseEnvDuration parses the environment variable and returns the duration
+func parseEnvDuration(envVar string, defaultDuration time.Duration) time.Duration {
+	if envValue := os.Getenv(envVar); envValue != "" {
+		if duration, err := time.ParseDuration(envValue); err == nil {
+			return duration
+		}
+		log.Warnf("unable to parse environment variable %s: %s. using default: %s", envVar, envValue, defaultDuration)
+	}
+	return defaultDuration
 }
 
 // loginAttempt attempts to login using the provided information. it returns a status in case something fails
