@@ -157,7 +157,6 @@ func TestDefaultAccountManager_GroupIPv6Consistency(t *testing.T) {
 	require.NoError(t, err, "unable to update group")
 	account, err = am.Store.GetAccount(account.Id)
 	require.NoError(t, err, "unable to update account")
-	group = account.GetGroup("grp-for-ipv6")
 	require.NotNil(t, account.Peers[peer1Id].IP6, "peer1 should have an IPv6 address as it is a member of the IPv6-enabled group.")
 	require.NotNil(t, account.Peers[peer2Id].IP6, "peer2 should have an IPv6 address as it is a member of the IPv6-enabled group.")
 

@@ -210,14 +210,18 @@ func TestDefaultAccountManager_DeterminePeerV6(t *testing.T) {
 	peer1.V6Setting = nbpeer.V6Disabled
 	peer2.V6Setting = nbpeer.V6Disabled
 	_, err = manager.DeterminePeerV6(account, peer1)
+	require.NoError(t, err, "unable to determine effective peer IPv6 status")
 	_, err = manager.DeterminePeerV6(account, peer2)
+	require.NoError(t, err, "unable to determine effective peer IPv6 status")
 	require.Nil(t, peer1.IP6, "peer1 IPv6 address is not nil even though it is force disabled.")
 	require.Nil(t, peer2.IP6, "peer2 IPv6 address is not nil even though it is force disabled and unsupported.")
 
 	peer1.V6Setting = nbpeer.V6Enabled
 	peer2.V6Setting = nbpeer.V6Enabled
 	_, err = manager.DeterminePeerV6(account, peer1)
+	require.NoError(t, err, "unable to determine effective peer IPv6 status")
 	_, err = manager.DeterminePeerV6(account, peer2)
+	require.NoError(t, err, "unable to determine effective peer IPv6 status")
 	require.NotNil(t, peer1.IP6, "peer1 IPv6 address is nil even though it is force enabled.")
 	require.Nil(t, peer2.IP6, "peer2 IPv6 address is not nil even though it is unsupported.")
 
@@ -229,7 +233,7 @@ func TestDefaultAccountManager_DeterminePeerV6(t *testing.T) {
 	require.True(t, route.Enabled, "created IPv6 test route should be enabled")
 
 	peer1.V6Setting = nbpeer.V6Disabled
-	peer1, err = manager.UpdatePeer(account.Id, userID, peer1)
+	_, err = manager.UpdatePeer(account.Id, userID, peer1)
 	require.NoError(t, err, "unable to update peer")
 
 	account, err = manager.Store.GetAccount(account.Id)

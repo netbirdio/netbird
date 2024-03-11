@@ -387,7 +387,7 @@ func TestNftablesManagerAddressReset6(t *testing.T) {
 
 	testClient := &nftables.Conn{}
 
-	rule, err := manager.AddFiltering(
+	_, err = manager.AddFiltering(
 		ip,
 		fw.ProtocolTCP,
 		nil,
@@ -443,7 +443,7 @@ func TestNftablesManagerAddressReset6(t *testing.T) {
 
 	require.True(t, manager.V6Active(), "IPv6 is not active even though it should be.")
 
-	rule, err = manager.AddFiltering(
+	rule, err := manager.AddFiltering(
 		ip,
 		fw.ProtocolTCP,
 		nil,

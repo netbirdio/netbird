@@ -117,7 +117,7 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 			util.WriteError(status.Errorf(status.InvalidArgument, "updating group ALL is not allowed"), w)
 			return
 		}
-		for peer, _ := range deduplicatedPeers {
+		for peer := range deduplicatedPeers {
 			if slices.Contains(allGroup.Peers, peer) {
 				continue
 			}

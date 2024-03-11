@@ -703,17 +703,6 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
 }
 
-// Applies changes to IPv6 addresses
-func applyIPv6SupportStatus(account *Account, peer *nbpeer.Peer) bool {
-	if !peer.Meta.Ipv6Supported && peer.IP6 != nil {
-		peer.IP6 = nil
-		// Reset V6 setting to default "auto" so that we maintain consistent state if IPv6 is ever supported again.
-		peer.V6Setting = nbpeer.V6Auto
-		return true
-	}
-	return false
-}
-
 func checkIfPeerOwnerIsBlocked(peer *nbpeer.Peer, account *Account) error {
 	if peer.AddedWithSSOLogin() {
 		user, err := account.FindUser(peer.UserID)
