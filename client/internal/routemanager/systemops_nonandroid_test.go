@@ -393,6 +393,8 @@ func TestExistsInRouteTable(t *testing.T) {
 }
 
 func TestIsSubRange(t *testing.T) {
+	// Note: This test may fail for IPv6 in some environments, where there actually exists another route that the
+	// determined prefix is a sub-range of.
 	hasV6DefaultRoute, err := EnvironmentHasIPv6DefaultRoute()
 	shouldIncludeV6Routes := iface.SupportsIPv6() && firewall.SupportsIPv6() && hasV6DefaultRoute && err == nil
 

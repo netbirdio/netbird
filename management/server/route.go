@@ -242,6 +242,16 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 		return status.Errorf(status.InvalidArgument, "peer with ID and peer groups should not be provided at the same time")
 	}
 
+	if routeToSave.Peer != "" {
+		peer := account.GetPeer(routeToSave.Peer)
+		if peer == nil {
+			return status.Errorf(status.InvalidArgument, "provided peer does not exist")
+		}
+		if routeToSave.NetworkType == route.IPv6Network && routeToSave.Enabled && (!peer.Meta.Ipv6Supported || peer.V6Setting == nbpeer.V6Disabled) {
+			return status.Errorf(status.InvalidArgument, "peer with IPv6 disabled can't be used for IPv6 route")
+		}
+	}
+
 	if len(routeToSave.PeerGroups) > 0 {
 		err = validateGroups(routeToSave.PeerGroups, account.Groups)
 		if err != nil {
@@ -330,8 +340,8 @@ func (am *DefaultAccountManager) DeleteRoute(accountID, routeID, userID string) 
 	}
 	delete(account.Routes, routeID)
 
-	// IPv6 route must only be created with IPv6 enabled peers, creating an IPv6 enabled route may enable IPv6 for
-	// peers with V6Setting = Auto.
+	// If the route was an IPv6 route, deleting it may update the automatic IPv6 enablement status of its routing peers,
+	// check if this is the case and update accordingly.
 	if routy.Peer != "" && routy.Enabled && routy.NetworkType == route.IPv6Network {
 		oldPeer := account.GetPeer(routy.Peer)
 		if oldPeer.V6Setting == nbpeer.V6Auto {

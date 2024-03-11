@@ -13,16 +13,20 @@ import (
 )
 
 func TestAccount_getPeersByPolicy(t *testing.T) {
+	peerAIP6 := net.ParseIP("2001:db8:abcd:1234::2")
+	peerBIP6 := net.ParseIP("2001:db8:abcd:1234::3")
 	account := &Account{
 		Peers: map[string]*nbpeer.Peer{
 			"peerA": {
 				ID:     "peerA",
 				IP:     net.ParseIP("100.65.14.88"),
+				IP6:    &peerAIP6,
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerB": {
 				ID:     "peerB",
 				IP:     net.ParseIP("100.65.80.39"),
+				IP6:    &peerBIP6,
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerC": {
@@ -171,6 +175,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 			},
 			{
 				PeerIP:    "100.65.14.88",
+				PeerIP6:   "2001:db8:abcd:1234::2",
 				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
 				Protocol:  "all",
@@ -178,6 +183,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 			},
 			{
 				PeerIP:    "100.65.14.88",
+				PeerIP6:   "2001:db8:abcd:1234::2",
 				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
 				Protocol:  "all",

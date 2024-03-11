@@ -151,9 +151,11 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 
 // Determines the current IPv6 status of the peer (including checks for inheritance) and generates a new or removes an
 // existing IPv6 address if necessary.
+// Additionally, disables IPv6 routes if peer no longer has an IPv6 address.
 // Note that this change does not get persisted here.
 //
-// Returns a boolean that indicates whether the peer changed and needs to be updated in the data source.
+// Returns a boolean that indicates whether the peer and/or the account changed and needs to be updated in the data
+// source.
 func (am *DefaultAccountManager) DeterminePeerV6(account *Account, peer *nbpeer.Peer) (bool, error) {
 	v6Setting := peer.V6Setting
 	if peer.V6Setting == nbpeer.V6Auto {
@@ -194,6 +196,13 @@ func (am *DefaultAccountManager) DeterminePeerV6(account *Account, peer *nbpeer.
 		return true, nil
 	} else if v6Setting == nbpeer.V6Disabled && peer.IP6 != nil {
 		peer.IP6 = nil
+
+		for _, route := range account.Routes {
+			if route.NetworkType == nbroute.IPv6Network {
+				route.Enabled = false
+				account.Routes[route.ID] = route
+			}
+		}
 		return true, nil
 	}
 	return false, nil
@@ -230,14 +239,6 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *nb
 			am.StoreEvent(userID, peer.IP6.String(), account.Id, activity.PeerIPv6Enabled, peer.EventMeta(am.GetDNSDomain()))
 		} else if v6StatusChanged && peer.IP6 == nil {
 			am.StoreEvent(userID, prevV6.String(), account.Id, activity.PeerIPv6Disabled, peer.EventMeta(am.GetDNSDomain()))
-
-			for _, route := range account.Routes {
-				if route.Peer == peer.ID && route.NetworkType == nbroute.IPv6Network {
-					route.Enabled = false
-					account.Routes[route.ID] = route
-					am.StoreEvent(userID, prevV6.String(), account.Id, activity.RouteDisabledByDisablingV6, peer.EventMeta(am.GetDNSDomain()))
-				}
-			}
 		}
 	}
 
@@ -503,7 +504,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 		CreatedAt:              registrationTime,
 		LoginExpirationEnabled: addedByUser,
 		Ephemeral:              ephemeral,
-		V6Setting:              "", // corresponds to "auto"
+		V6Setting:              peer.V6Setting, // empty string "" corresponds to "auto"
 	}
 
 	if account.Settings.Extra != nil {
@@ -676,7 +677,10 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 		shouldStoreAccount = true
 	}
 
-	updated = disableNoLongerSupportedFeatures(account, peer)
+	updated, err = am.DeterminePeerV6(account, peer)
+	if err != nil {
+		return nil, nil, err
+	}
 	if updated {
 		shouldStoreAccount = true
 	}
@@ -699,17 +703,12 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
 }
 
-func disableNoLongerSupportedFeatures(account *Account, peer *nbpeer.Peer) bool {
+// Applies changes to IPv6 addresses
+func applyIPv6SupportStatus(account *Account, peer *nbpeer.Peer) bool {
 	if !peer.Meta.Ipv6Supported && peer.IP6 != nil {
 		peer.IP6 = nil
 		// Reset V6 setting to default "auto" so that we maintain consistent state if IPv6 is ever supported again.
 		peer.V6Setting = nbpeer.V6Auto
-		for _, route := range account.Routes {
-			if route.NetworkType == nbroute.IPv6Network {
-				route.Enabled = false
-				account.Routes[route.ID] = route
-			}
-		}
 		return true
 	}
 	return false
