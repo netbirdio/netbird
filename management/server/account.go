@@ -21,7 +21,6 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/management-integrations/additions"
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
@@ -129,6 +128,7 @@ type AccountManager interface {
 	GetIdpManager() idp.Manager
 	UpdateIntegratedApprovalGroups(accountID string, userID string, groups []string) error
 	GroupValidation(accountId string, groups []string) (bool, error)
+	GetApprovedPeers(accountID string, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error)
 }
 
 type DefaultAccountManager struct {
@@ -386,7 +386,7 @@ func (a *Account) GetGroup(groupID string) *Group {
 }
 
 // GetPeerNetworkMap returns a group by ID if exists, nil otherwise
-func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
+func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string, approvedPeersMap map[string]struct{}) *NetworkMap {
 	peer := a.Peers[peerID]
 	if peer == nil {
 		return &NetworkMap{
@@ -394,14 +394,19 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 		}
 	}
 
-	validatedPeers := additions.ValidatePeers([]*nbpeer.Peer{peer})
-	if len(validatedPeers) == 0 {
+	if _, ok := approvedPeersMap[peerID]; !ok {
 		return &NetworkMap{
 			Network: a.Network.Copy(),
 		}
 	}
 
-	aclPeers, firewallRules := a.getPeerConnectionResources(peerID)
+	if len(approvedPeersMap) == 0 {
+		return &NetworkMap{
+			Network: a.Network.Copy(),
+		}
+	}
+
+	aclPeers, firewallRules := a.getPeerConnectionResources(peerID, approvedPeersMap)
 	// exclude expired peers
 	var peersToConnect []*nbpeer.Peer
 	var expiredPeers []*nbpeer.Peer
@@ -960,7 +965,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
 	}
 
-	err = additions.ValidateExtraSettings(newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID, am.eventStore)
+	err = am.integratedPeerValidator.UpdatePeerApprovalSetting(newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID)
 	if err != nil {
 		return nil, err
 	}
