@@ -45,13 +45,11 @@ type Server struct {
 	statusRecorder *peer.Status
 	sessionWatcher *internal.SessionWatcher
 
-	mgmProbe     *internal.Probe
-	signalProbe  *internal.Probe
-	relayProbe   *internal.Probe
-	wgProbe      *internal.Probe
-	lastProbe    time.Time
-	retryStarted bool
-	cancelRetry  bool
+	mgmProbe    *internal.Probe
+	signalProbe *internal.Probe
+	relayProbe  *internal.Probe
+	wgProbe     *internal.Probe
+	lastProbe   time.Time
 }
 
 type oauthAuthFlow struct {
@@ -141,21 +139,25 @@ func (s *Server) Start() error {
 func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Config, statusRecorder *peer.Status,
 	mgmProbe *internal.Probe, signalProbe *internal.Probe, relayProbe *internal.Probe, wgProbe *internal.Probe) {
 	backOff := getConnectWithBackoff(ctx)
-	updateRetryCounterChan := make(chan struct{})
+	retryStarted := false
 
 	go func() {
 		t := time.NewTicker(24 * time.Hour)
 		for {
 			select {
 			case <-ctx.Done():
-				return
-			case <-updateRetryCounterChan:
+				t.Stop()
 				return
 			case <-t.C:
-				if !s.cancelRetry && s.retryStarted {
+				if retryStarted {
+
 					mgmtState := statusRecorder.GetManagementState()
-					if mgmtState.Connected {
-						s.retryStarted = false
+					signalState := statusRecorder.GetSignalState()
+					if mgmtState.Connected && signalState.Connected {
+						log.Tracef("reseting status")
+						retryStarted = false
+					} else {
+						log.Tracef("not resetting status: mgmt: %v, signal: %v", mgmtState.Connected, signalState.Connected)
 					}
 				}
 			}
@@ -163,28 +165,31 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 	}()
 
 	runOperation := func() error {
+		log.Tracef("running client connection")
 		err := internal.RunClientWithProbes(ctx, config, statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe)
 		if err != nil {
-			log.Errorf("run client connection: %v", err)
+			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
 		}
 
-		if s.cancelRetry || config.DisableAutoConnect {
+		if config.DisableAutoConnect {
 			return backoff.Permanent(err)
 		}
 
-		if !s.retryStarted {
-			s.retryStarted = true
+		if !retryStarted {
+			retryStarted = true
 			backOff.Reset()
 		}
 
+		log.Tracef("client connection exited")
 		return fmt.Errorf("client connection exited")
 	}
 
 	err := backoff.Retry(runOperation, backOff)
-	if err != nil {
+	if s, ok := gstatus.FromError(err); ok && s.Code() != codes.Canceled {
 		log.Errorf("received an error when trying to connect: %v", err)
+	} else {
+		log.Tracef("retry canceled")
 	}
-	close(updateRetryCounterChan)
 }
 
 // getConnectWithBackoff returns a backoff with exponential backoff strategy for connection retries
@@ -194,7 +199,7 @@ func getConnectWithBackoff(ctx context.Context) backoff.BackOff {
 		RandomizationFactor: 1,
 		Multiplier:          1.7,
 		MaxInterval:         60 * time.Minute,
-		MaxElapsedTime:      7 * 24 * time.Hour, // 7 days
+		MaxElapsedTime:      14 * 24 * time.Hour, // 14 days
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
@@ -510,8 +515,6 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
-	s.cancelRetry = false
-
 	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe)
 
 	return &proto.UpResponse{}, nil
@@ -528,8 +531,6 @@ func (s *Server) Down(_ context.Context, _ *proto.DownRequest) (*proto.DownRespo
 	s.actCancel()
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusIdle)
-
-	s.cancelRetry = true
 
 	return &proto.DownResponse{}, nil
 }
