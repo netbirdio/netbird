@@ -316,7 +316,7 @@ delete_auto_service_user() {
 
 init_zitadel() {
   echo -e "\nInitializing Zitadel with NetBird's applications\n"
-  INSTANCE_URL="$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+  INSTANCE_URL="$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT"
 
   TOKEN_PATH=./machinekey/zitadel-admin-sa.token
 
@@ -337,7 +337,7 @@ init_zitadel() {
   PROJECT_ID=$(create_new_project "$INSTANCE_URL" "$PAT")
 
   ZITADEL_DEV_MODE=false
-  BASE_REDIRECT_URL=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
+  BASE_REDIRECT_URL=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT
   if [[ $NETBIRD_HTTP_PROTOCOL == "http" ]]; then
     ZITADEL_DEV_MODE=true
   fi
@@ -415,18 +415,35 @@ get_turn_external_ip() {
   echo "$TURN_EXTERNAL_IP_CONFIG"
 }
 
+init_ports(){
+  if [ -z "$NETBIRD_HTTP_PORT" ]; then
+      NETBIRD_HTTP_PORT=80
+  fi
+  if [ -z "$NETBIRD_HTTPS_PORT" ]; then
+      NETBIRD_HTTPS_PORT=443
+  fi
+  if [ -z "$TURN_MIN_PORT" ]; then
+      TURN_MIN_PORT=49152
+  fi
+  if [ -z "$TURN_MAX_PORT" ]; then
+      TURN_MAX_PORT=65535
+  fi
+  if [ -z "$TURN_LISTENING_PORT" ]; then
+      TURN_LISTENING_PORT=3478
+  fi  
+}
+
 initEnvironment() {
   CADDY_SECURE_DOMAIN=""
   ZITADEL_EXTERNALSECURE="false"
   ZITADEL_TLS_MODE="disabled"
   ZITADEL_MASTERKEY="$(openssl rand -base64 32 | head -c 32)"
-  NETBIRD_PORT=80
   NETBIRD_HTTP_PROTOCOL="http"
   TURN_USER="self"
   TURN_PASSWORD=$(openssl rand -base64 32 | sed 's/=//g')
-  TURN_MIN_PORT=49152
-  TURN_MAX_PORT=65535
   TURN_EXTERNAL_IP_CONFIG=$(get_turn_external_ip)
+
+  init_ports
 
   if ! check_nb_domain "$NETBIRD_DOMAIN"; then
     NETBIRD_DOMAIN=$(read_nb_domain)
@@ -434,11 +451,13 @@ initEnvironment() {
 
   if [ "$NETBIRD_DOMAIN" == "use-ip" ]; then
     NETBIRD_DOMAIN=$(get_main_ip_address)
+	  NETBIRD_PORT=$NETBIRD_HTTP_PORT
+	  CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN"
   else
     ZITADEL_EXTERNALSECURE="true"
     ZITADEL_TLS_MODE="external"
-    NETBIRD_PORT=443
-    CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:$NETBIRD_PORT"
+    NETBIRD_PORT=$NETBIRD_HTTPS_PORT
+    CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:443"
     NETBIRD_HTTP_PROTOCOL="https"
   fi
 
@@ -468,6 +487,17 @@ initEnvironment() {
   echo "" > dashboard.env
   echo "" > turnserver.conf
   echo "" > management.json
+  
+  if [ "$CUSTOM_INITIAL_FILES" = "true" ]; then
+    echo "Customizing the initial profile..."
+    echo "Open a new terminal and make your changes in a new terminal."
+    echo "Please verify that the modified configuration file is correct"
+    echo "When you're done customizing the initial profile, Press any key to continue."
+
+    read -n 1 -s userInput
+
+    echo "You pressed '$userInput'. Continuing with the script."
+  fi
 
   mkdir -p machinekey
   chmod 777 machinekey
@@ -486,7 +516,7 @@ initEnvironment() {
   echo -e "\nStarting NetBird services\n"
   $DOCKER_COMPOSE_COMMAND up -d
   echo -e "\nDone!\n"
-  echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+  echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT"
   echo "Login with the following credentials:"
   echo "Username: $ZITADEL_ADMIN_USERNAME" | tee .env
   echo "Password: $ZITADEL_ADMIN_PASSWORD" | tee -a .env
@@ -575,7 +605,7 @@ EOF
 
 renderTurnServerConf() {
   cat <<EOF
-listening-port=3478
+listening-port=$TURN_LISTENING_PORT
 $TURN_EXTERNAL_IP_CONFIG
 tls-listening-port=5349
 min-port=$TURN_MIN_PORT
@@ -599,14 +629,14 @@ renderManagementJson() {
     "Stuns": [
         {
             "Proto": "udp",
-            "URI": "stun:$NETBIRD_DOMAIN:3478"
+            "URI": "stun:$NETBIRD_DOMAIN:$TURN_LISTENING_PORT"
         }
     ],
     "TURNConfig": {
         "Turns": [
             {
                 "Proto": "udp",
-                "URI": "turn:$NETBIRD_DOMAIN:3478",
+                "URI": "turn:$NETBIRD_DOMAIN:$TURN_LISTENING_PORT",
                 "Username": "$TURN_USER",
                 "Password": "$TURN_PASSWORD"
             }
@@ -620,19 +650,19 @@ renderManagementJson() {
     "HttpConfig": {
         "AuthIssuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN",
         "AuthAudience": "$NETBIRD_AUTH_CLIENT_ID",
-        "OIDCConfigEndpoint":"$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/.well-known/openid-configuration"
+        "OIDCConfigEndpoint":"$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT/.well-known/openid-configuration"
     },
     "IdpManagerConfig": {
         "ManagerType": "zitadel",
         "ClientConfig": {
-            "Issuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN",
-            "TokenEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth/v2/token",
+            "Issuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT",
+            "TokenEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT/oauth/v2/token",
             "ClientID": "$NETBIRD_IDP_MGMT_CLIENT_ID",
             "ClientSecret": "$NETBIRD_IDP_MGMT_CLIENT_SECRET",
             "GrantType": "client_credentials"
         },
         "ExtraConfig": {
-            "ManagementEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/management/v1"
+            "ManagementEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT/management/v1"
         }
      },
    "DeviceAuthorizationFlow": {
@@ -658,18 +688,18 @@ EOF
 renderDashboardEnv() {
   cat <<EOF
 # Endpoints
-NETBIRD_MGMT_API_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
-NETBIRD_MGMT_GRPC_API_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
+NETBIRD_MGMT_API_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT
+NETBIRD_MGMT_GRPC_API_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT
 # OIDC
 AUTH_AUDIENCE=$NETBIRD_AUTH_CLIENT_ID
 AUTH_CLIENT_ID=$NETBIRD_AUTH_CLIENT_ID
-AUTH_AUTHORITY=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
+AUTH_AUTHORITY=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT
 USE_AUTH0=false
 AUTH_SUPPORTED_SCOPES="openid profile email offline_access"
 AUTH_REDIRECT_URI=/nb-auth
 AUTH_SILENT_REDIRECT_URI=/nb-silent-auth
 # SSL
-NGINX_SSL_PORT=443
+NGINX_SSL_PORT=$NETBIRD_PORT
 # Letsencrypt
 LETSENCRYPT_DOMAIN=none
 EOF
@@ -711,8 +741,8 @@ services:
     restart: unless-stopped
     networks: [ netbird ]
     ports:
-      - '443:443'
-      - '80:80'
+      - '$NETBIRD_HTTPS_PORT:443'
+      - '$NETBIRD_HTTP_PORT:80'
       - '8080:8080'
     volumes:
       - netbird_caddy_data:/data
