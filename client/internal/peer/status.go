@@ -5,6 +5,9 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
+
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/iface"
 )
@@ -405,6 +408,24 @@ func (d *Status) GetManagementState() ManagementState {
 		d.managementState,
 		d.managementError,
 	}
+}
+
+// IsLoginRequired determines if a peer's login has expired.
+func (d *Status) IsLoginRequired() bool {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	// if peer is connected to the management then login is not expired
+	if d.managementState {
+		return false
+	}
+
+	s, ok := gstatus.FromError(d.managementError)
+	if ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
+		return true
+
+	}
+	return false
 }
 
 func (d *Status) GetSignalState() SignalState {
