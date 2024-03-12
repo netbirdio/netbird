@@ -74,10 +74,38 @@ const (
 	NameserverNsTypeUdp NameserverNsType = "udp"
 )
 
+// Defines values for PeerIpv6Enabled.
+const (
+	PeerIpv6EnabledAuto     PeerIpv6Enabled = "auto"
+	PeerIpv6EnabledDisabled PeerIpv6Enabled = "disabled"
+	PeerIpv6EnabledEnabled  PeerIpv6Enabled = "enabled"
+)
+
+// Defines values for PeerBaseIpv6Enabled.
+const (
+	PeerBaseIpv6EnabledAuto     PeerBaseIpv6Enabled = "auto"
+	PeerBaseIpv6EnabledDisabled PeerBaseIpv6Enabled = "disabled"
+	PeerBaseIpv6EnabledEnabled  PeerBaseIpv6Enabled = "enabled"
+)
+
+// Defines values for PeerBatchIpv6Enabled.
+const (
+	PeerBatchIpv6EnabledAuto     PeerBatchIpv6Enabled = "auto"
+	PeerBatchIpv6EnabledDisabled PeerBatchIpv6Enabled = "disabled"
+	PeerBatchIpv6EnabledEnabled  PeerBatchIpv6Enabled = "enabled"
+)
+
 // Defines values for PeerNetworkRangeCheckAction.
 const (
 	PeerNetworkRangeCheckActionAllow PeerNetworkRangeCheckAction = "allow"
 	PeerNetworkRangeCheckActionDeny  PeerNetworkRangeCheckAction = "deny"
+)
+
+// Defines values for PeerRequestIpv6Enabled.
+const (
+	PeerRequestIpv6EnabledAuto     PeerRequestIpv6Enabled = "auto"
+	PeerRequestIpv6EnabledDisabled PeerRequestIpv6Enabled = "disabled"
+	PeerRequestIpv6EnabledEnabled  PeerRequestIpv6Enabled = "enabled"
 )
 
 // Defines values for PolicyRuleAction.
@@ -283,6 +311,9 @@ type Group struct {
 	// Id Group ID
 	Id string `json:"id"`
 
+	// Ipv6Enabled Whether IPv6 should be enabled for all members with IPv6 set to "auto"
+	Ipv6Enabled bool `json:"ipv6_enabled"`
+
 	// Issued How group was issued by API or from JWT token
 	Issued *string `json:"issued,omitempty"`
 
@@ -313,6 +344,9 @@ type GroupMinimum struct {
 
 // GroupRequest defines model for GroupRequest.
 type GroupRequest struct {
+	// Ipv6Enabled Whether IPv6 should be enabled for all members with IPv6 set to "auto"
+	Ipv6Enabled bool `json:"ipv6_enabled"`
+
 	// Name Group name identifier
 	Name string `json:"name"`
 
@@ -472,6 +506,15 @@ type Peer struct {
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
 
+	// Ip6 Peer's IPv6 address
+	Ip6 *string `json:"ip6,omitempty"`
+
+	// Ipv6Enabled Whether IPv6 is enabled for this peer.
+	Ipv6Enabled PeerIpv6Enabled `json:"ipv6_enabled"`
+
+	// Ipv6Supported Whether this peer supports IPv6
+	Ipv6Supported bool `json:"ipv6_supported"`
+
 	// KernelVersion Peer's operating system kernel version
 	KernelVersion string `json:"kernel_version"`
 
@@ -505,6 +548,9 @@ type Peer struct {
 	// Version Peer's daemon or cli version
 	Version string `json:"version"`
 }
+
+// PeerIpv6Enabled Whether IPv6 is enabled for this peer.
+type PeerIpv6Enabled string
 
 // PeerBase defines model for PeerBase.
 type PeerBase struct {
@@ -541,6 +587,15 @@ type PeerBase struct {
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
 
+	// Ip6 Peer's IPv6 address
+	Ip6 *string `json:"ip6,omitempty"`
+
+	// Ipv6Enabled Whether IPv6 is enabled for this peer.
+	Ipv6Enabled PeerBaseIpv6Enabled `json:"ipv6_enabled"`
+
+	// Ipv6Supported Whether this peer supports IPv6
+	Ipv6Supported bool `json:"ipv6_supported"`
+
 	// KernelVersion Peer's operating system kernel version
 	KernelVersion string `json:"kernel_version"`
 
@@ -574,6 +629,9 @@ type PeerBase struct {
 	// Version Peer's daemon or cli version
 	Version string `json:"version"`
 }
+
+// PeerBaseIpv6Enabled Whether IPv6 is enabled for this peer.
+type PeerBaseIpv6Enabled string
 
 // PeerBatch defines model for PeerBatch.
 type PeerBatch struct {
@@ -613,6 +671,15 @@ type PeerBatch struct {
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
 
+	// Ip6 Peer's IPv6 address
+	Ip6 *string `json:"ip6,omitempty"`
+
+	// Ipv6Enabled Whether IPv6 is enabled for this peer.
+	Ipv6Enabled PeerBatchIpv6Enabled `json:"ipv6_enabled"`
+
+	// Ipv6Supported Whether this peer supports IPv6
+	Ipv6Supported bool `json:"ipv6_supported"`
+
 	// KernelVersion Peer's operating system kernel version
 	KernelVersion string `json:"kernel_version"`
 
@@ -647,6 +714,9 @@ type PeerBatch struct {
 	Version string `json:"version"`
 }
 
+// PeerBatchIpv6Enabled Whether IPv6 is enabled for this peer.
+type PeerBatchIpv6Enabled string
+
 // PeerMinimum defines model for PeerMinimum.
 type PeerMinimum struct {
 	// Id Peer ID
@@ -671,11 +741,15 @@ type PeerNetworkRangeCheckAction string
 // PeerRequest defines model for PeerRequest.
 type PeerRequest struct {
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
-	ApprovalRequired       *bool  `json:"approval_required,omitempty"`
-	LoginExpirationEnabled bool   `json:"login_expiration_enabled"`
-	Name                   string `json:"name"`
-	SshEnabled             bool   `json:"ssh_enabled"`
+	ApprovalRequired       *bool                  `json:"approval_required,omitempty"`
+	Ipv6Enabled            PeerRequestIpv6Enabled `json:"ipv6_enabled"`
+	LoginExpirationEnabled bool                   `json:"login_expiration_enabled"`
+	Name                   string                 `json:"name"`
+	SshEnabled             bool                   `json:"ssh_enabled"`
 }
+
+// PeerRequestIpv6Enabled defines model for PeerRequest.Ipv6Enabled.
+type PeerRequestIpv6Enabled string
 
 // PersonalAccessToken defines model for PersonalAccessToken.
 type PersonalAccessToken struct {

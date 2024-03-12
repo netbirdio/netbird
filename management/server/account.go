@@ -260,7 +260,8 @@ func (a *Account) getRoutesToSync(peerID string, aclPeers []*nbpeer.Peer) []*rou
 	groupListMap := a.getPeerGroups(peerID)
 	for _, peer := range aclPeers {
 		activeRoutes, _ := a.getRoutingPeerRoutes(peer.ID)
-		groupFilteredRoutes := a.filterRoutesByGroups(activeRoutes, groupListMap)
+		addressFamilyFilteredRoutes := a.filterRoutesByIPv6Enabled(activeRoutes, a.GetPeer(peerID).IP6 != nil && peer.IP6 != nil)
+		groupFilteredRoutes := a.filterRoutesByGroups(addressFamilyFilteredRoutes, groupListMap)
 		filteredRoutes := a.filterRoutesFromPeersOfSameHAGroup(groupFilteredRoutes, peerRoutesMembership)
 		routes = append(routes, filteredRoutes...)
 	}
@@ -290,6 +291,20 @@ func (a *Account) filterRoutesByGroups(routes []*route.Route, groupListMap looku
 				filteredRoutes = append(filteredRoutes, r)
 				break
 			}
+		}
+	}
+	return filteredRoutes
+}
+
+// Filters out IPv6 routes if the peer does not support them.
+func (a *Account) filterRoutesByIPv6Enabled(routes []*route.Route, v6Supported bool) []*route.Route {
+	if v6Supported {
+		return routes
+	}
+	var filteredRoutes []*route.Route
+	for _, rt := range routes {
+		if rt.Network.Addr().Is4() {
+			filteredRoutes = append(filteredRoutes, rt)
 		}
 	}
 	return filteredRoutes
@@ -328,6 +343,10 @@ func (a *Account) getRoutingPeerRoutes(peerID string) (enabledRoutes []*route.Ro
 	}
 
 	for _, r := range a.Routes {
+		// Skip IPv6 routes if IPv6 is currently not enabled.
+		if peer.IP6 == nil && r.NetworkType == route.IPv6Network {
+			continue
+		}
 		for _, groupID := range r.PeerGroups {
 			group := a.GetGroup(groupID)
 			if group == nil {
@@ -408,7 +427,7 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 
 	if dnsManagementStatus {
 		var zones []nbdns.CustomZone
-		peersCustomZone := getPeersCustomZone(a, dnsDomain)
+		peersCustomZone := getPeersCustomZone(a, dnsDomain, peer.IP6 != nil)
 		if peersCustomZone.Domain != "" {
 			zones = append(zones, peersCustomZone)
 		}
@@ -615,6 +634,17 @@ func (a *Account) getTakenIPs() []net.IP {
 	var takenIps []net.IP
 	for _, existingPeer := range a.Peers {
 		takenIps = append(takenIps, existingPeer.IP)
+	}
+
+	return takenIps
+}
+
+func (a *Account) getTakenIP6s() []net.IP {
+	var takenIps []net.IP
+	for _, existingPeer := range a.Peers {
+		if existingPeer.IP6 != nil {
+			takenIps = append(takenIps, *existingPeer.IP6)
+		}
 	}
 
 	return takenIps
@@ -957,7 +987,6 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 	}
 
 	updatedAccount := account.UpdateSettings(newSettings)
-
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, err
@@ -1848,7 +1877,7 @@ func addAllGroup(account *Account) error {
 func newAccountWithId(accountID, userID, domain string) *Account {
 	log.Debugf("creating new account")
 
-	network := NewNetwork()
+	network := NewNetwork(true)
 	peers := make(map[string]*nbpeer.Peer)
 	users := make(map[string]*User)
 	routes := make(map[string]*route.Route)

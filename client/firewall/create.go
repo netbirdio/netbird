@@ -30,3 +30,9 @@ func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, 
 	}
 	return fm, nil
 }
+
+// Returns true if the current firewall implementation supports IPv6.
+// Currently false for anything non-linux.
+func SupportsIPv6() bool {
+	return false
+}

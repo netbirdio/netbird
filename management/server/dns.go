@@ -149,7 +149,7 @@ func toProtocolDNSConfig(update nbdns.Config) *proto.DNSConfig {
 	return protoUpdate
 }
 
-func getPeersCustomZone(account *Account, dnsDomain string) nbdns.CustomZone {
+func getPeersCustomZone(account *Account, dnsDomain string, enableIPv6 bool) nbdns.CustomZone {
 	if dnsDomain == "" {
 		log.Errorf("no dns domain is set, returning empty zone")
 		return nbdns.CustomZone{}
@@ -172,6 +172,16 @@ func getPeersCustomZone(account *Account, dnsDomain string) nbdns.CustomZone {
 			TTL:   defaultTTL,
 			RData: peer.IP.String(),
 		})
+
+		if peer.IP6 != nil && enableIPv6 {
+			customZone.Records = append(customZone.Records, nbdns.SimpleRecord{
+				Name:  dns.Fqdn(peer.DNSLabel + "." + dnsDomain),
+				Type:  int(dns.TypeAAAA),
+				Class: nbdns.DefaultClass,
+				TTL:   defaultTTL,
+				RData: peer.IP6.String(),
+			})
+		}
 	}
 
 	return customZone
@@ -179,6 +189,7 @@ func getPeersCustomZone(account *Account, dnsDomain string) nbdns.CustomZone {
 
 func getPeerNSGroups(account *Account, peerID string) []*nbdns.NameServerGroup {
 	groupList := account.getPeerGroups(peerID)
+	peer := account.GetPeer(peerID)
 
 	var peerNSGroups []*nbdns.NameServerGroup
 
@@ -189,8 +200,18 @@ func getPeerNSGroups(account *Account, peerID string) []*nbdns.NameServerGroup {
 		for _, gID := range nsGroup.Groups {
 			_, found := groupList[gID]
 			if found {
-				if !peerIsNameserver(account.GetPeer(peerID), nsGroup) {
-					peerNSGroups = append(peerNSGroups, nsGroup.Copy())
+				if !peerIsNameserver(peer, nsGroup) {
+					filteredNsGroup := nsGroup.Copy()
+					var newNameserverList []nbdns.NameServer
+					for _, nameserver := range filteredNsGroup.NameServers {
+						if nameserver.IP.Is4() || peer.IP6 != nil {
+							newNameserverList = append(newNameserverList, nameserver)
+						}
+					}
+					if len(newNameserverList) > 0 {
+						filteredNsGroup.NameServers = newNameserverList
+						peerNSGroups = append(peerNSGroups, filteredNsGroup)
+					}
 					break
 				}
 			}

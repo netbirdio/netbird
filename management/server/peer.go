@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
+	nbroute "github.com/netbirdio/netbird/route"
 
 	log "github.com/sirupsen/logrus"
 
@@ -147,7 +149,66 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 	return nil
 }
 
-// UpdatePeer updates peer. Only Peer.Name, Peer.SSHEnabled, and Peer.LoginExpirationEnabled can be updated.
+// Determines the current IPv6 status of the peer (including checks for inheritance) and generates a new or removes an
+// existing IPv6 address if necessary.
+// Additionally, disables IPv6 routes if peer no longer has an IPv6 address.
+// Note that this change does not get persisted here.
+//
+// Returns a boolean that indicates whether the peer and/or the account changed and needs to be updated in the data
+// source.
+func (am *DefaultAccountManager) DeterminePeerV6(account *Account, peer *nbpeer.Peer) (bool, error) {
+	v6Setting := peer.V6Setting
+	if peer.V6Setting == nbpeer.V6Auto {
+		if peer.Meta.Ipv6Supported {
+			for _, group := range account.Groups {
+				if group.IPv6Enabled && slices.Contains(group.Peers, peer.ID) {
+					v6Setting = nbpeer.V6Enabled
+					break
+				}
+			}
+			if v6Setting == nbpeer.V6Auto {
+				for _, route := range account.Routes {
+					if route.Peer == peer.ID && route.NetworkType == nbroute.IPv6Network {
+						v6Setting = nbpeer.V6Enabled
+						break
+					}
+				}
+			}
+		}
+
+		if v6Setting == nbpeer.V6Auto {
+			v6Setting = nbpeer.V6Disabled
+		}
+	}
+
+	if v6Setting == nbpeer.V6Enabled && peer.IP6 == nil {
+		if !peer.Meta.Ipv6Supported {
+			return false, status.Errorf(status.PreconditionFailed, "failed allocating new IPv6 for peer %s - peer does not support IPv6", peer.Name)
+		}
+		if account.Network.Net6 == nil {
+			account.Network.Net6 = GenerateNetwork6()
+		}
+		v6tmp, err := AllocatePeerIP6(*account.Network.Net6, account.getTakenIP6s())
+		if err != nil {
+			return false, err
+		}
+		peer.IP6 = &v6tmp
+		return true, nil
+	} else if v6Setting == nbpeer.V6Disabled && peer.IP6 != nil {
+		peer.IP6 = nil
+
+		for _, route := range account.Routes {
+			if route.NetworkType == nbroute.IPv6Network {
+				route.Enabled = false
+				account.Routes[route.ID] = route
+			}
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+// UpdatePeer updates peer. Only Peer.Name, Peer.SSHEnabled, Peer.V6Setting and Peer.LoginExpirationEnabled can be updated.
 func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *nbpeer.Peer) (*nbpeer.Peer, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
@@ -165,6 +226,20 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *nb
 	update, err = additions.ValidatePeersUpdateRequest(update, peer, userID, accountID, am.eventStore, am.GetDNSDomain())
 	if err != nil {
 		return nil, err
+	}
+
+	if peer.V6Setting != update.V6Setting {
+		peer.V6Setting = update.V6Setting
+		prevV6 := peer.IP6
+		v6StatusChanged, err := am.DeterminePeerV6(account, peer)
+		if err != nil {
+			return nil, err
+		}
+		if v6StatusChanged && peer.IP6 != nil {
+			am.StoreEvent(userID, peer.IP6.String(), account.Id, activity.PeerIPv6Enabled, peer.EventMeta(am.GetDNSDomain()))
+		} else if v6StatusChanged && peer.IP6 == nil {
+			am.StoreEvent(userID, prevV6.String(), account.Id, activity.PeerIPv6Disabled, peer.EventMeta(am.GetDNSDomain()))
+		}
 	}
 
 	if peer.SSHEnabled != update.SSHEnabled {
@@ -417,6 +492,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 		Key:                    peer.Key,
 		SetupKey:               upperKey,
 		IP:                     nextIp,
+		IP6:                    nil,
 		Meta:                   peer.Meta,
 		Name:                   peer.Meta.Hostname,
 		DNSLabel:               newLabel,
@@ -428,6 +504,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 		CreatedAt:              registrationTime,
 		LoginExpirationEnabled: addedByUser,
 		Ephemeral:              ephemeral,
+		V6Setting:              peer.V6Setting, // empty string "" corresponds to "auto"
 	}
 
 	if account.Settings.Extra != nil {
@@ -460,6 +537,11 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 				g.Peers = append(g.Peers, newPeer.ID)
 			}
 		}
+	}
+
+	_, err = am.DeterminePeerV6(account, newPeer)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	if addedByUser {
@@ -591,6 +673,14 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 	}
 
 	peer, updated := updatePeerMeta(peer, login.Meta, account)
+	if updated {
+		shouldStoreAccount = true
+	}
+
+	updated, err = am.DeterminePeerV6(account, peer)
+	if err != nil {
+		return nil, nil, err
+	}
 	if updated {
 		shouldStoreAccount = true
 	}

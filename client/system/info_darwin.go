@@ -61,6 +61,7 @@ func GetInfo(ctx context.Context) *Info {
 		SystemProductName:  prodName,
 		SystemManufacturer: manufacturer,
 		Environment:        env,
+		Ipv6Supported:      false,
 	}
 
 	systemHostname, _ := os.Hostname()

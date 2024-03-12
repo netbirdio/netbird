@@ -19,6 +19,7 @@ import (
 type tunKernelDevice struct {
 	name         string
 	address      WGAddress
+	address6     *WGAddress
 	wgPort       int
 	key          string
 	mtu          int
@@ -31,13 +32,14 @@ type tunKernelDevice struct {
 	udpMux     *bind.UniversalUDPMuxDefault
 }
 
-func newTunDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net) wgTunDevice {
+func newTunDevice(name string, address WGAddress, address6 *WGAddress, wgPort int, key string, mtu int, transportNet transport.Net) wgTunDevice {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &tunKernelDevice{
 		ctx:          ctx,
 		ctxCancel:    cancel,
 		name:         name,
 		address:      address,
+		address6:     address6,
 		wgPort:       wgPort,
 		key:          key,
 		mtu:          mtu,
@@ -136,6 +138,11 @@ func (t *tunKernelDevice) UpdateAddr(address WGAddress) error {
 	return t.assignAddr()
 }
 
+func (t *tunKernelDevice) UpdateAddr6(address6 *WGAddress) error {
+	t.address6 = address6
+	return t.assignAddr()
+}
+
 func (t *tunKernelDevice) Close() error {
 	if t.link == nil {
 		return nil
@@ -166,6 +173,10 @@ func (t *tunKernelDevice) Close() error {
 
 func (t *tunKernelDevice) WgAddress() WGAddress {
 	return t.address
+}
+
+func (t *tunKernelDevice) WgAddress6() *WGAddress {
+	return t.address6
 }
 
 func (t *tunKernelDevice) DeviceName() string {
@@ -203,6 +214,19 @@ func (t *tunKernelDevice) assignAddr() error {
 	} else if err != nil {
 		return err
 	}
+
+	// Configure the optional additional IPv6 address if available.
+	if t.address6 != nil {
+		log.Debugf("adding IPv6 address %s to interface: %s", t.address6.String(), t.name)
+		addr6, _ := netlink.ParseAddr(t.address6.String())
+		err = netlink.AddrAdd(link, addr6)
+		if os.IsExist(err) {
+			log.Infof("interface %s already has the address: %s", t.name, t.address.String())
+		} else if err != nil {
+			return err
+		}
+	}
+
 	// On linux, the link must be brought up
 	err = netlink.LinkSetUp(link)
 	return err

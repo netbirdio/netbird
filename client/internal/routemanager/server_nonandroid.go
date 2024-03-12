@@ -4,6 +4,7 @@ package routemanager
 
 import (
 	"context"
+	"fmt"
 	"net/netip"
 	"sync"
 
@@ -66,7 +67,7 @@ func (m *defaultServerRouter) updateRoutes(routesMap map[string]*route.Route) er
 	}
 
 	if len(m.routes) > 0 {
-		err := enableIPForwarding()
+		err := enableIPForwarding(m.wgInterface.Address6() != nil)
 		if err != nil {
 			return err
 		}
@@ -75,7 +76,7 @@ func (m *defaultServerRouter) updateRoutes(routesMap map[string]*route.Route) er
 	return nil
 }
 
-func (m *defaultServerRouter) removeFromServerNetwork(route *route.Route) error {
+func (m *defaultServerRouter) removeFromServerNetwork(rt *route.Route) error {
 	select {
 	case <-m.ctx.Done():
 		log.Infof("not removing from server network because context is done")
@@ -83,16 +84,23 @@ func (m *defaultServerRouter) removeFromServerNetwork(route *route.Route) error 
 	default:
 		m.mux.Lock()
 		defer m.mux.Unlock()
-		err := m.firewall.RemoveRoutingRules(routeToRouterPair(m.wgInterface.Address().String(), route))
+		routingAddress := m.wgInterface.Address().String()
+		if rt.NetworkType == route.IPv6Network {
+			if m.wgInterface.Address6() == nil {
+				return fmt.Errorf("attempted to add route for IPv6 even though device has no v6 address")
+			}
+			routingAddress = m.wgInterface.Address6().String()
+		}
+		err := m.firewall.RemoveRoutingRules(routeToRouterPair(routingAddress, rt))
 		if err != nil {
 			return err
 		}
-		delete(m.routes, route.ID)
+		delete(m.routes, rt.ID)
 		return nil
 	}
 }
 
-func (m *defaultServerRouter) addToServerNetwork(route *route.Route) error {
+func (m *defaultServerRouter) addToServerNetwork(rt *route.Route) error {
 	select {
 	case <-m.ctx.Done():
 		log.Infof("not adding to server network because context is done")
@@ -100,11 +108,18 @@ func (m *defaultServerRouter) addToServerNetwork(route *route.Route) error {
 	default:
 		m.mux.Lock()
 		defer m.mux.Unlock()
-		err := m.firewall.InsertRoutingRules(routeToRouterPair(m.wgInterface.Address().String(), route))
+		routingAddress := m.wgInterface.Address().String()
+		if rt.NetworkType == route.IPv6Network {
+			if m.wgInterface.Address6() == nil {
+				return fmt.Errorf("attempted to add route for IPv6 even though device has no v6 address")
+			}
+			routingAddress = m.wgInterface.Address6().String()
+		}
+		err := m.firewall.InsertRoutingRules(routeToRouterPair(routingAddress, rt))
 		if err != nil {
 			return err
 		}
-		m.routes[route.ID] = route
+		m.routes[rt.ID] = rt
 		return nil
 	}
 }
@@ -113,7 +128,15 @@ func (m *defaultServerRouter) cleanUp() {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 	for _, r := range m.routes {
-		err := m.firewall.RemoveRoutingRules(routeToRouterPair(m.wgInterface.Address().String(), r))
+		routingAddress := m.wgInterface.Address().String()
+		if r.NetworkType == route.IPv6Network {
+			if m.wgInterface.Address6() == nil {
+				log.Errorf("attempted to remove route for IPv6 even though device has no v6 address")
+				continue
+			}
+			routingAddress = m.wgInterface.Address6().String()
+		}
+		err := m.firewall.RemoveRoutingRules(routeToRouterPair(routingAddress, r))
 		if err != nil {
 			log.Warnf("failed to remove clean up route: %s", r.ID)
 		}

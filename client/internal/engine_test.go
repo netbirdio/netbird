@@ -214,7 +214,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine.wgInterface, err = iface.NewWGIFace("utun102", "100.64.0.1/24", engine.config.WgPort, key.String(), iface.DefaultMTU, newNet, nil)
+	engine.wgInterface, err = iface.NewWGIFace("utun102", "100.64.0.1/24", "", engine.config.WgPort, key.String(), iface.DefaultMTU, newNet, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,6 +561,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
+				WgAddr6:      "",
 				WgPrivateKey: key,
 				WgPort:       33100,
 			}, MobileDependency{}, peer.NewRecorder("https://mgm"))
@@ -568,7 +569,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			engine.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, engine.config.WgPort, key.String(), iface.DefaultMTU, newNet, nil)
+			engine.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, engine.config.WgAddr6, engine.config.WgPort, key.String(), iface.DefaultMTU, newNet, nil)
 			assert.NoError(t, err, "shouldn't return error")
 			input := struct {
 				inputSerial uint64
@@ -730,6 +731,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
+				WgAddr6:      "",
 				WgPrivateKey: key,
 				WgPort:       33100,
 			}, MobileDependency{}, peer.NewRecorder("https://mgm"))
@@ -737,7 +739,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			engine.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, 33100, key.String(), iface.DefaultMTU, newNet, nil)
+			engine.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, engine.config.WgAddr6, 33100, key.String(), iface.DefaultMTU, newNet, nil)
 			assert.NoError(t, err, "shouldn't return error")
 
 			mockRouteManager := &routemanager.MockManager{

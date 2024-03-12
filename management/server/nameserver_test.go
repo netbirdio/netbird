@@ -787,6 +787,7 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error
 			OS:        "Ubuntu",
 			WtVersion: "development",
 			UIVersion: "development",
+			Ipv6Supported: false,
 		},
 	}
 	peer2 := &nbpeer.Peer{
@@ -801,6 +802,7 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error
 			OS:        "Ubuntu",
 			WtVersion: "development",
 			UIVersion: "development",
+			Ipv6Supported: false,
 		},
 	}
 	existingNSGroup := nbdns.NameServerGroup{

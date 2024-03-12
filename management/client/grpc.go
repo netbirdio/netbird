@@ -480,5 +480,6 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			Cloud:    info.Environment.Cloud,
 			Platform: info.Environment.Platform,
 		},
+		Ipv6Supported:      info.Ipv6Supported,
 	}
 }

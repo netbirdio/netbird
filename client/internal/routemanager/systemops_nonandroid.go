@@ -13,7 +13,14 @@ import (
 
 var errRouteNotFound = fmt.Errorf("route not found")
 
-func addToRouteTableIfNoExists(prefix netip.Prefix, addr string) error {
+// Adds a route for a prefix to the routing table, if such a route doesn't already exist.
+//
+// Note: depending on the address family and operating system, one of addr or devName may be ignored, and addr should
+// always be the local address of the wireguard interface and not an explicit gateway address.
+// addr will then be used by some implementations/operating systems to determine the correct device (for OSes that can
+// not use devName directly).
+// See the concrete implementations of addToRouteTable to see what exactly is done for each OS.
+func addToRouteTableIfNoExists(prefix netip.Prefix, addr string, devName string) error {
 	ok, err := existsInRouteTable(prefix)
 	if err != nil {
 		return err
@@ -29,17 +36,23 @@ func addToRouteTableIfNoExists(prefix netip.Prefix, addr string) error {
 	}
 
 	if ok {
-		err := addRouteForCurrentDefaultGateway(prefix)
+		err := addRouteForCurrentDefaultGateway(prefix, devName)
 		if err != nil {
 			log.Warnf("unable to add route for current default gateway route. Will proceed without it. error: %s", err)
 		}
 	}
 
-	return addToRouteTable(prefix, addr)
+	return addToRouteTable(prefix, addr, devName)
 }
 
-func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
-	defaultGateway, err := getExistingRIBRouteGateway(netip.MustParsePrefix("0.0.0.0/0"))
+func addRouteForCurrentDefaultGateway(prefix netip.Prefix, devName string) error {
+	defaultRoutePrefix := netip.MustParsePrefix("0.0.0.0/0")
+	defaultPrefixSize := 32
+	if prefix.Addr().Is6() {
+		defaultRoutePrefix = netip.MustParsePrefix("::/0")
+		defaultPrefixSize = 128
+	}
+	defaultGateway, err := getExistingRIBRouteGateway(defaultRoutePrefix)
 	if err != nil && err != errRouteNotFound {
 		return err
 	}
@@ -51,7 +64,7 @@ func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 		return nil
 	}
 
-	gatewayPrefix := netip.PrefixFrom(addr, 32)
+	gatewayPrefix := netip.PrefixFrom(addr, defaultPrefixSize)
 
 	ok, err := existsInRouteTable(gatewayPrefix)
 	if err != nil {
@@ -68,10 +81,18 @@ func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 		return fmt.Errorf("unable to get the next hop for the default gateway address. error: %s", err)
 	}
 	log.Debugf("adding a new route for gateway %s with next hop %s", gatewayPrefix, gatewayHop)
-	return addToRouteTable(gatewayPrefix, gatewayHop.String())
+	return addToRouteTable(gatewayPrefix, gatewayHop.String(), devName)
 }
 
 func existsInRouteTable(prefix netip.Prefix) (bool, error) {
+	linkLocalPrefix, err := netip.ParsePrefix("fe80::/10")
+	if err != nil {
+		return false, err
+	}
+	if prefix.Addr().Is6() && linkLocalPrefix.Contains(prefix.Addr()) {
+		// The link local prefix is not explicitly part of the routing table, but should be considered as such.
+		return true, nil
+	}
 	routes, err := getRoutesFromTable()
 	if err != nil {
 		return false, err
@@ -97,8 +118,8 @@ func isSubRange(prefix netip.Prefix) (bool, error) {
 	return false, nil
 }
 
-func removeFromRouteTableIfNonSystem(prefix netip.Prefix, addr string) error {
-	return removeFromRouteTable(prefix, addr)
+func removeFromRouteTableIfNonSystem(prefix netip.Prefix, addr string, devName string) error {
+	return removeFromRouteTable(prefix, addr, devName)
 }
 
 func getExistingRIBRouteGateway(prefix netip.Prefix) (net.IP, error) {
@@ -114,6 +135,25 @@ func getExistingRIBRouteGateway(prefix netip.Prefix) (net.IP, error) {
 
 	if gateway == nil {
 		return preferredSrc, nil
+	}
+
+	// For IPv6, the gateway may not be nil even when the requested prefix is local.
+	// Therefore, we need to check explicitly whether the route is a local one.
+	if prefix.Addr().Is6() {
+		addresses, err := net.InterfaceAddrs()
+		if err != nil {
+			return nil, err
+		}
+
+		for _, address := range addresses {
+			if address.Network() != "ip+net" {
+				continue
+			}
+			interfaceAddrPrefix := netip.MustParsePrefix(address.String())
+			if interfaceAddrPrefix.Masked() == prefix.Masked() {
+				return preferredSrc, nil
+			}
+		}
 	}
 
 	return gateway, nil

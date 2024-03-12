@@ -48,6 +48,7 @@ type Info struct {
 	SystemProductName  string
 	SystemManufacturer string
 	Environment        Environment
+	Ipv6Supported      bool
 }
 
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context

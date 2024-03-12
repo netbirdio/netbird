@@ -34,6 +34,7 @@ type State struct {
 // LocalPeerState contains the latest state of the local peer
 type LocalPeerState struct {
 	IP              string
+	IP6             string
 	PubKey          string
 	KernelInterface bool
 	FQDN            string

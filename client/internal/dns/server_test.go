@@ -37,6 +37,13 @@ func (w *mocWGIface) Address() iface.WGAddress {
 		Network: network,
 	}
 }
+func (w *mocWGIface) Address6() *iface.WGAddress {
+	ip, network, _ := net.ParseCIDR("fd00:1234:dead:beef::/64")
+	return &iface.WGAddress{
+		IP:      ip,
+		Network: network,
+	}
+}
 
 func (w *mocWGIface) GetFilter() iface.PacketFilter {
 	return w.filter
@@ -260,7 +267,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgIface, err := iface.NewWGIFace(fmt.Sprintf("utun230%d", n), fmt.Sprintf("100.66.100.%d/32", n+1), 33100, privKey.String(), iface.DefaultMTU, newNet, nil)
+			wgIface, err := iface.NewWGIFace(fmt.Sprintf("utun230%d", n), fmt.Sprintf("100.66.100.%d/32", n+1), fmt.Sprintf("fd00:1234:dead:beef::%d/128", n+1), 33100, privKey.String(), iface.DefaultMTU, newNet, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -338,7 +345,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 	}
 
 	privKey, _ := wgtypes.GeneratePrivateKey()
-	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.1/32", 33100, privKey.String(), iface.DefaultMTU, newNet, nil)
+	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.1/32", "", 33100, privKey.String(), iface.DefaultMTU, newNet, nil)
 	if err != nil {
 		t.Errorf("build interface wireguard: %v", err)
 		return
@@ -593,7 +600,7 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 }
 
 func TestDNSPermanent_updateHostDNS_emptyUpstream(t *testing.T) {
-	wgIFace, err := createWgInterfaceWithBind(t)
+	wgIFace, err := createWgInterfaceWithBind(t, false)
 	if err != nil {
 		t.Fatal("failed to initialize wg interface")
 	}
@@ -619,7 +626,7 @@ func TestDNSPermanent_updateHostDNS_emptyUpstream(t *testing.T) {
 }
 
 func TestDNSPermanent_updateUpstream(t *testing.T) {
-	wgIFace, err := createWgInterfaceWithBind(t)
+	wgIFace, err := createWgInterfaceWithBind(t, false)
 	if err != nil {
 		t.Fatal("failed to initialize wg interface")
 	}
@@ -711,7 +718,7 @@ func TestDNSPermanent_updateUpstream(t *testing.T) {
 }
 
 func TestDNSPermanent_matchOnly(t *testing.T) {
-	wgIFace, err := createWgInterfaceWithBind(t)
+	wgIFace, err := createWgInterfaceWithBind(t, false)
 	if err != nil {
 		t.Fatal("failed to initialize wg interface")
 	}
@@ -777,7 +784,7 @@ func TestDNSPermanent_matchOnly(t *testing.T) {
 	}
 }
 
-func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
+func createWgInterfaceWithBind(t *testing.T, enableV6 bool) (*iface.WGIface, error) {
 	t.Helper()
 	ov := os.Getenv("NB_WG_KERNEL_DISABLED")
 	defer t.Setenv("NB_WG_KERNEL_DISABLED", ov)
@@ -790,7 +797,11 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 	}
 
 	privKey, _ := wgtypes.GeneratePrivateKey()
-	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.2/24", 33100, privKey.String(), iface.DefaultMTU, newNet, nil)
+	v6Addr := ""
+	if enableV6 {
+		v6Addr = "fd00:1234:dead:beef::1/128"
+	}
+	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.2/24", v6Addr, 33100, privKey.String(), iface.DefaultMTU, newNet, nil)
 	if err != nil {
 		t.Fatalf("build interface wireguard: %v", err)
 		return nil, err
