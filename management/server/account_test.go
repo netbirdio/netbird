@@ -28,6 +28,22 @@ import (
 type MocIntegratedApproval struct {
 }
 
+func (a MocIntegratedApproval) UpdatePeerApprovalSetting(newExtraSettings *account.ExtraSettings, oldExtraSettings *account.ExtraSettings, peers map[string]*nbpeer.Peer, userID string, accountID string) error {
+	return nil
+}
+
+func (a MocIntegratedApproval) ApprovePeer(update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, error) {
+	return update, nil
+}
+
+func (a MocIntegratedApproval) GetApprovedPeers(accountID string, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
+	approvedPeers := make(map[string]struct{})
+	for _, peer := range peers {
+		approvedPeers[peer.ID] = struct{}{}
+	}
+	return approvedPeers, nil
+}
+
 func (MocIntegratedApproval) PreparePeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer {
 	return peer
 }
@@ -37,7 +53,6 @@ func (MocIntegratedApproval) IsRequiresApproval(accountID string, peer *nbpeer.P
 }
 
 func (MocIntegratedApproval) Stop() {
-
 }
 
 func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Account, userID string) {

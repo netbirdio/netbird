@@ -2,8 +2,6 @@ package server_test
 
 import (
 	"context"
-	"github.com/netbirdio/netbird/management/server/account"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"math/rand"
 	"net"
 	"os"
@@ -24,7 +22,9 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -448,6 +448,22 @@ var _ = Describe("Management service", func() {
 type MocIntegratedApproval struct {
 }
 
+func (a MocIntegratedApproval) UpdatePeerApprovalSetting(newExtraSettings *account.ExtraSettings, oldExtraSettings *account.ExtraSettings, peers map[string]*nbpeer.Peer, userID string, accountID string) error {
+	return nil
+}
+
+func (a MocIntegratedApproval) ApprovePeer(update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, error) {
+	return update, nil
+}
+
+func (a MocIntegratedApproval) GetApprovedPeers(accountID string, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
+	approvedPeers := make(map[string]struct{})
+	for p := range peers {
+		approvedPeers[p] = struct{}{}
+	}
+	return approvedPeers, nil
+}
+
 func (MocIntegratedApproval) PreparePeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer {
 	return peer
 }
@@ -456,9 +472,7 @@ func (MocIntegratedApproval) IsRequiresApproval(accountID string, peer *nbpeer.P
 	return false
 }
 
-func (MocIntegratedApproval) Stop() {
-
-}
+func (MocIntegratedApproval) Stop() {}
 
 func loginPeerWithValidSetupKey(serverPubKey wgtypes.Key, key wgtypes.Key, client mgmtProto.ManagementServiceClient) *mgmtProto.LoginResponse {
 	defer GinkgoRecover()

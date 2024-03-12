@@ -211,8 +211,6 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	h.setApprovalRequiredFlag(respBody, approvedPeersMap)
 
 	util.WriteJSONObject(w, respBody)
-	return
-
 }
 
 func (h *PeersHandler) accessiblePeersNumber(account *server.Account, peerID string) (int, error) {
