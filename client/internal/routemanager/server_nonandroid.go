@@ -10,24 +10,27 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 )
 
 type defaultServerRouter struct {
-	mux         sync.Mutex
-	ctx         context.Context
-	routes      map[string]*route.Route
-	firewall    firewall.Manager
-	wgInterface *iface.WGIface
+	mux            sync.Mutex
+	ctx            context.Context
+	routes         map[string]*route.Route
+	firewall       firewall.Manager
+	wgInterface    *iface.WGIface
+	statusRecorder *peer.Status
 }
 
-func newServerRouter(ctx context.Context, wgInterface *iface.WGIface, firewall firewall.Manager) (serverRouter, error) {
+func newServerRouter(ctx context.Context, wgInterface *iface.WGIface, firewall firewall.Manager, statusRecorder *peer.Status) (serverRouter, error) {
 	return &defaultServerRouter{
-		ctx:         ctx,
-		routes:      make(map[string]*route.Route),
-		firewall:    firewall,
-		wgInterface: wgInterface,
+		ctx:            ctx,
+		routes:         make(map[string]*route.Route),
+		firewall:       firewall,
+		wgInterface:    wgInterface,
+		statusRecorder: statusRecorder,
 	}, nil
 }
 
@@ -88,6 +91,11 @@ func (m *defaultServerRouter) removeFromServerNetwork(route *route.Route) error 
 			return err
 		}
 		delete(m.routes, route.ID)
+
+		state := m.statusRecorder.GetLocalPeerState()
+		delete(state.Routes, route.Network.String())
+		m.statusRecorder.UpdateLocalPeerState(state)
+
 		return nil
 	}
 }
@@ -105,6 +113,14 @@ func (m *defaultServerRouter) addToServerNetwork(route *route.Route) error {
 			return err
 		}
 		m.routes[route.ID] = route
+
+		state := m.statusRecorder.GetLocalPeerState()
+		if state.Routes == nil {
+			state.Routes = map[string]struct{}{}
+		}
+		state.Routes[route.Network.String()] = struct{}{}
+		m.statusRecorder.UpdateLocalPeerState(state)
+
 		return nil
 	}
 }
@@ -117,6 +133,10 @@ func (m *defaultServerRouter) cleanUp() {
 		if err != nil {
 			log.Warnf("failed to remove clean up route: %s", r.ID)
 		}
+
+		state := m.statusRecorder.GetLocalPeerState()
+		state.Routes = nil
+		m.statusRecorder.UpdateLocalPeerState(state)
 	}
 }
 

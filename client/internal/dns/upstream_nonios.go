@@ -8,14 +8,22 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+
+	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
 type upstreamResolverNonIOS struct {
 	*upstreamResolverBase
 }
 
-func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net.IP, net *net.IPNet) (*upstreamResolverNonIOS, error) {
-	upstreamResolverBase := newUpstreamResolverBase(parentCTX)
+func newUpstreamResolver(
+	ctx context.Context,
+	_ string,
+	_ net.IP,
+	_ *net.IPNet,
+	statusRecorder *peer.Status,
+) (*upstreamResolverNonIOS, error) {
+	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder)
 	nonIOS := &upstreamResolverNonIOS{
 		upstreamResolverBase: upstreamResolverBase,
 	}
