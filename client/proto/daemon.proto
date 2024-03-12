@@ -141,6 +141,7 @@ message PeerState {
   int64 bytesRx = 13;
   int64 bytesTx = 14;
   bool rosenpassEnabled = 15;
+  repeated string routes = 16;
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -151,6 +152,7 @@ message LocalPeerState {
   string fqdn = 4;
   bool rosenpassEnabled = 5;
   bool rosenpassPermissive = 6;
+  repeated string routes = 7;
 }
 
 // SignalState contains the latest state of a signal connection
@@ -174,6 +176,13 @@ message RelayState {
   string error = 3;
 }
 
+message NSGroupState {
+  repeated string servers = 1;
+  repeated string domains = 2;
+  bool enabled = 3;
+  string error = 4;
+}
+
 // FullStatus contains the full state held by the Status instance
 message FullStatus {
   ManagementState managementState = 1;
@@ -181,4 +190,5 @@ message FullStatus {
   LocalPeerState  localPeerState = 3;
   repeated PeerState peers = 4;
   repeated RelayState relays = 5;
+  repeated NSGroupState dns_servers = 6;
 }
