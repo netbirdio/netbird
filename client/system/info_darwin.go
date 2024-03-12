@@ -15,14 +15,12 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/system/detect_cloud"
 	"github.com/netbirdio/netbird/client/system/detect_platform"
 	"github.com/netbirdio/netbird/version"
 )
 
-// GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context, config internal.Config) *Info {
+func getInfo(ctx context.Context) *Info {
 	utsname := unix.Utsname{}
 	err := unix.Uname(&utsname)
 	if err != nil {
@@ -50,24 +48,18 @@ func GetInfo(ctx context.Context, config internal.Config) *Info {
 	}
 
 	gio := &Info{
-		Kernel:              sysName,
-		OSVersion:           strings.TrimSpace(string(swVersion)),
-		Platform:            machine,
-		OS:                  sysName,
-		GoOS:                runtime.GOOS,
-		CPUs:                runtime.NumCPU(),
-		KernelVersion:       release,
-		NetworkAddresses:    addrs,
-		SystemSerialNumber:  serialNum,
-		SystemProductName:   prodName,
-		SystemManufacturer:  manufacturer,
-		Environment:         env,
-		RosenpassEnabled:    config.RosenpassEnabled,
-		RosenpassPermissive: config.RosenpassPermissive,
-	}
-
-	if config.ServerSSHAllowed != nil {
-		gio.ServerSSHAllowed = *config.ServerSSHAllowed
+		Kernel:             sysName,
+		OSVersion:          strings.TrimSpace(string(swVersion)),
+		Platform:           machine,
+		OS:                 sysName,
+		GoOS:               runtime.GOOS,
+		CPUs:               runtime.NumCPU(),
+		KernelVersion:      release,
+		NetworkAddresses:   addrs,
+		SystemSerialNumber: serialNum,
+		SystemProductName:  prodName,
+		SystemManufacturer: manufacturer,
+		Environment:        env,
 	}
 
 	systemHostname, _ := os.Hostname()

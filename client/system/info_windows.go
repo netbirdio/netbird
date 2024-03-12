@@ -31,8 +31,7 @@ type Win32_BIOS struct {
 	SerialNumber string
 }
 
-// GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context, config internal.Config) *Info {
+func getInfo(ctx context.Context) *Info {
 	osName, osVersion := getOSNameAndVersion()
 	buildVersion := getBuildVersion()
 
@@ -62,24 +61,18 @@ func GetInfo(ctx context.Context, config internal.Config) *Info {
 	}
 
 	gio := &Info{
-		Kernel:              "windows",
-		OSVersion:           osVersion,
-		Platform:            "unknown",
-		OS:                  osName,
-		GoOS:                runtime.GOOS,
-		CPUs:                runtime.NumCPU(),
-		KernelVersion:       buildVersion,
-		NetworkAddresses:    addrs,
-		SystemSerialNumber:  serialNum,
-		SystemProductName:   prodName,
-		SystemManufacturer:  manufacturer,
-		Environment:         env,
-		RosenpassEnabled:    config.RosenpassEnabled,
-		RosenpassPermissive: config.RosenpassPermissive,
-	}
-
-	if config.ServerSSHAllowed != nil {
-		gio.ServerSSHAllowed = *config.ServerSSHAllowed
+		Kernel:             "windows",
+		OSVersion:          osVersion,
+		Platform:           "unknown",
+		OS:                 osName,
+		GoOS:               runtime.GOOS,
+		CPUs:               runtime.NumCPU(),
+		KernelVersion:      buildVersion,
+		NetworkAddresses:   addrs,
+		SystemSerialNumber: serialNum,
+		SystemProductName:  prodName,
+		SystemManufacturer: manufacturer,
+		Environment:        env,
 	}
 
 	systemHostname, _ := os.Hostname()

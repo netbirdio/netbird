@@ -8,6 +8,7 @@ import (
 
 	"google.golang.org/grpc/metadata"
 
+	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -51,6 +52,17 @@ type Info struct {
 	RosenpassEnabled    bool
 	RosenpassPermissive bool
 	ServerSSHAllowed    bool
+}
+
+// GetInfo retrieves and parses the system information
+func GetInfo(ctx context.Context, config internal.Config) *Info {
+	info := getInfo(ctx)
+	info.RosenpassEnabled = config.RosenpassEnabled
+	info.RosenpassPermissive = config.RosenpassPermissive
+	if config.ServerSSHAllowed != nil {
+		info.ServerSSHAllowed = *config.ServerSSHAllowed
+	}
+	return info
 }
 
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context

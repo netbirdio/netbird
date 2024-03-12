@@ -12,12 +12,10 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/version"
 )
 
-// GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context, config internal.Config) *Info {
+func getInfo(ctx context.Context) *Info {
 	kernel := "android"
 	osInfo := uname()
 	if len(osInfo) == 2 {
@@ -30,18 +28,13 @@ func GetInfo(ctx context.Context, config internal.Config) *Info {
 	}
 
 	gio := &Info{
-		Kernel:              kernel,
-		Platform:            "unknown",
-		OS:                  "android",
-		OSVersion:           osVersion(),
-		GoOS:                runtime.GOOS,
-		CPUs:                runtime.NumCPU(),
-		KernelVersion:       kernelVersion,
-		RosenpassEnabled:    config.RosenpassEnabled,
-		RosenpassPermissive: config.RosenpassPermissive,
-	}
-	if config.ServerSSHAllowed != nil {
-		gio.ServerSSHAllowed = true
+		Kernel:        kernel,
+		Platform:      "unknown",
+		OS:            "android",
+		OSVersion:     osVersion(),
+		GoOS:          runtime.GOOS,
+		CPUs:          runtime.NumCPU(),
+		KernelVersion: kernelVersion,
 	}
 
 	gio.Hostname = extractDeviceName(ctx, "android")

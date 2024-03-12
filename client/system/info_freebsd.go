@@ -10,14 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/system/detect_cloud"
 	"github.com/netbirdio/netbird/client/system/detect_platform"
 	"github.com/netbirdio/netbird/version"
 )
 
-// GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context, config internal.Config) *Info {
+func getInfo(ctx context.Context) *Info {
 	out := _getInfo()
 	for strings.Contains(out, "broken pipe") {
 		out = _getInfo()
@@ -33,19 +31,13 @@ func GetInfo(ctx context.Context, config internal.Config) *Info {
 	}
 
 	gio := &Info{
-		Kernel:              osInfo[0],
-		Platform:            runtime.GOARCH,
-		OS:                  osInfo[2],
-		GoOS:                runtime.GOOS,
-		CPUs:                runtime.NumCPU(),
-		KernelVersion:       osInfo[1],
-		Environment:         env,
-		RosenpassEnabled:    config.RosenpassEnabled,
-		RosenpassPermissive: config.RosenpassPermissive,
-	}
-
-	if config.ServerSSHAllowed != nil {
-		gio.ServerSSHAllowed = true
+		Kernel:        osInfo[0],
+		Platform:      runtime.GOARCH,
+		OS:            osInfo[2],
+		GoOS:          runtime.GOOS,
+		CPUs:          runtime.NumCPU(),
+		KernelVersion: osInfo[1],
+		Environment:   env,
 	}
 
 	systemHostname, _ := os.Hostname()
