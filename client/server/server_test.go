@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"net"
-	"os"
 	"testing"
 	"time"
 
@@ -64,22 +63,11 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	s.config = config
 
 	s.statusRecorder = peer.NewRecorder(config.ManagementURL.String())
-	err = os.Setenv(retryInitialIntervalVar, "1s")
-	if err != nil {
-		t.Fatalf("failed to set env var: %v", err)
-	}
-	err = os.Setenv(maxRetryIntervalVar, "2s")
-	if err != nil {
-		t.Fatalf("failed to set env var: %v", err)
-	}
-	err = os.Setenv(maxRetryTimeVar, "5s")
-	if err != nil {
-		t.Fatalf("failed to set env var: %v", err)
-	}
-	err = os.Setenv(retryMultiplierVar, "1")
-	if err != nil {
-		t.Fatalf("failed to set env var: %v", err)
-	}
+	t.Setenv(retryInitialIntervalVar, "1s")
+	t.Setenv(maxRetryIntervalVar, "2s")
+	t.Setenv(maxRetryTimeVar, "5s")
+	t.Setenv(retryMultiplierVar, "1")
+
 	s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe)
 	if counter < 2 || counter > 6 {
 		t.Fatalf("expected 2 < counter < 6, got %d", counter)
@@ -97,6 +85,7 @@ func (m *mockServer) Login(ctx context.Context, req *mgmtProto.EncryptedMessage)
 }
 
 func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Server, string, error) {
+	t.Helper()
 	dataDir := t.TempDir()
 
 	config := &server.Config{
