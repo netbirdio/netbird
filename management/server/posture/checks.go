@@ -14,6 +14,7 @@ const (
 	OSVersionCheckName        = "OSVersionCheck"
 	GeoLocationCheckName      = "GeoLocationCheck"
 	PeerNetworkRangeCheckName = "PeerNetworkRangeCheck"
+	ProcessCheckName          = "ProcessCheck"
 
 	CheckActionAllow string = "allow"
 	CheckActionDeny  string = "deny"
@@ -48,6 +49,7 @@ type ChecksDefinition struct {
 	OSVersionCheck        *OSVersionCheck        `json:",omitempty"`
 	GeoLocationCheck      *GeoLocationCheck      `json:",omitempty"`
 	PeerNetworkRangeCheck *PeerNetworkRangeCheck `json:",omitempty"`
+	ProcessCheck          *ProcessCheck          `json:"process_check"`
 }
 
 // Copy returns a copy of a checks definition.
@@ -93,6 +95,13 @@ func (cd ChecksDefinition) Copy() ChecksDefinition {
 		}
 		copy(cdCopy.PeerNetworkRangeCheck.Ranges, peerNetRangeCheck.Ranges)
 	}
+	if cd.ProcessCheck != nil {
+		processCheck := cd.ProcessCheck
+		cdCopy.ProcessCheck = &ProcessCheck{
+			Processes: make([]Process, len(processCheck.Processes)),
+		}
+		copy(cdCopy.ProcessCheck.Processes, processCheck.Processes)
+	}
 	return cdCopy
 }
 
@@ -132,6 +141,9 @@ func (pc *Checks) GetChecks() []Check {
 	}
 	if pc.Checks.PeerNetworkRangeCheck != nil {
 		checks = append(checks, pc.Checks.PeerNetworkRangeCheck)
+	}
+	if pc.Checks.ProcessCheck != nil {
+		checks = append(checks, pc.Checks.ProcessCheck)
 	}
 	return checks
 }
