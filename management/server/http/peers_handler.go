@@ -72,8 +72,8 @@ func (h *PeersHandler) getPeer(account *server.Account, peerID, userID string, w
 	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain(), approvedPeers)
 	accessiblePeers := toAccessiblePeers(netMap, dnsDomain)
 
-	// todo: fix approval flag in response
-	util.WriteJSONObject(w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, accessiblePeers))
+	_, approved := approvedPeers[peer.ID]
+	util.WriteJSONObject(w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, accessiblePeers, approved))
 }
 
 func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, peerID string, w http.ResponseWriter, r *http.Request) {
@@ -110,7 +110,9 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain(), approvedPeers)
 	accessiblePeers := toAccessiblePeers(netMap, dnsDomain)
 
-	util.WriteJSONObject(w, toSinglePeerResponse(peer, groupMinimumInfo, dnsDomain, accessiblePeers))
+	_, approved := approvedPeers[peer.ID]
+
+	util.WriteJSONObject(w, toSinglePeerResponse(peer, groupMinimumInfo, dnsDomain, accessiblePeers, approved))
 }
 
 func (h *PeersHandler) deletePeer(accountID, userID string, peerID string, w http.ResponseWriter) {
@@ -271,10 +273,15 @@ func toGroupsInfo(groups map[string]*server.Group, peerID string) []api.GroupMin
 	return groupsInfo
 }
 
-func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeer []api.AccessiblePeer) *api.Peer {
+func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeer []api.AccessiblePeer, approved bool) *api.Peer {
 	osVersion := peer.Meta.OSVersion
 	if osVersion == "" {
 		osVersion = peer.Meta.Core
+	}
+
+	var approvalRequired bool
+	if !approved {
+		approvalRequired = true
 	}
 
 	return &api.Peer{
@@ -298,6 +305,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		LastLogin:              peer.LastLogin,
 		LoginExpired:           peer.Status.LoginExpired,
 		AccessiblePeers:        accessiblePeer,
+		ApprovalRequired:       &approvalRequired,
 		CountryCode:            peer.Location.CountryCode,
 		CityName:               peer.Location.CityName,
 	}
