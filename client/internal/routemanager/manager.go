@@ -77,7 +77,7 @@ func (m *DefaultManager) Init() error {
 
 func (m *DefaultManager) EnableServerRouter(firewall firewall.Manager) error {
 	var err error
-	m.serverRouter, err = newServerRouter(m.ctx, m.wgInterface, firewall)
+	m.serverRouter, err = newServerRouter(m.ctx, m.wgInterface, firewall, m.statusRecorder)
 	if err != nil {
 		return err
 	}

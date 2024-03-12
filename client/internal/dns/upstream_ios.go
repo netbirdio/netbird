@@ -11,6 +11,8 @@ import (
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
+
+	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
 type upstreamResolverIOS struct {
@@ -20,8 +22,14 @@ type upstreamResolverIOS struct {
 	iIndex int
 }
 
-func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net.IP, net *net.IPNet) (*upstreamResolverIOS, error) {
-	upstreamResolverBase := newUpstreamResolverBase(parentCTX)
+func newUpstreamResolver(
+	ctx context.Context,
+	interfaceName string,
+	ip net.IP,
+	net *net.IPNet,
+	statusRecorder *peer.Status,
+) (*upstreamResolverIOS, error) {
+	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder)
 
 	index, err := getInterfaceIndex(interfaceName)
 	if err != nil {
