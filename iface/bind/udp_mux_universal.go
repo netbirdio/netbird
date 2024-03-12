@@ -85,6 +85,13 @@ func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
 				log.Errorf("error while reading packet: %s", err)
 				continue
 			}
+
+			if isHealthCheckMessage(buf[:n]) {
+				log.Debugf("received healthcheck request from %s", a.String())
+				m.HandleHeathCheckMessage(buf[:n], m.params.UDPConn, a)
+				return
+			}
+
 			msg := &stun.Message{
 				Raw: append([]byte{}, buf[:n]...),
 			}
@@ -129,6 +136,21 @@ func (m *UniversalUDPMuxDefault) GetRelayedAddr(turnAddr net.Addr, deadline time
 // and return a unique connection per server.
 func (m *UniversalUDPMuxDefault) GetConnForURL(ufrag string, url string, addr net.Addr) (net.PacketConn, error) {
 	return m.UDPMuxDefault.GetConn(fmt.Sprintf("%s%s", ufrag, url), addr)
+}
+
+// HandleHeathCheckMessage responds to the healthcheck request by setting the first byte of the message to 0x02
+func (m *UniversalUDPMuxDefault) HandleHeathCheckMessage(buffer []byte, conn net.PacketConn, addr net.Addr) error {
+	buffer[9] = 0x02
+
+	_, err := conn.WriteTo(buffer[:], addr)
+	if err != nil {
+		log.Debugf("failed to respond to healthcheck request: %s", err)
+		return err
+	}
+
+	log.Tracef("responded to healthcheck request from %s", addr.String())
+
+	return nil
 }
 
 // HandleSTUNMessage discovers STUN packets that carry a XOR mapped address from a STUN server.

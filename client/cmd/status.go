@@ -34,6 +34,9 @@ type peerStateDetailOutput struct {
 	LastWireguardHandshake time.Time        `json:"lastWireguardHandshake" yaml:"lastWireguardHandshake"`
 	TransferReceived       int64            `json:"transferReceived" yaml:"transferReceived"`
 	TransferSent           int64            `json:"transferSent" yaml:"transferSent"`
+	Latency                time.Duration    `json:"latency" yaml:"latency"`
+	Healthy                bool             `json:"healthy" yaml:"healthy"`
+	LastHealthCheck        time.Time        `json:"lastHealthCheck" yaml:"lastHealthCheck"`
 	RosenpassEnabled       bool             `json:"quantumResistance" yaml:"quantumResistance"`
 }
 
@@ -351,6 +354,9 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 			LastWireguardHandshake: lastHandshake,
 			TransferReceived:       transferReceived,
 			TransferSent:           transferSent,
+			Latency:                pbPeerState.GetLatency().AsDuration(),
+			Healthy:                pbPeerState.GetHealthy(),
+			LastHealthCheck:        pbPeerState.GetLastHealthCheck().AsTime().Local(),
 			RosenpassEnabled:       pbPeerState.GetRosenpassEnabled(),
 		}
 
@@ -556,6 +562,20 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			}
 		}
 
+		healthState := "-"
+		if peerState.Status == "Connected" {
+			if peerState.Healthy {
+				healthState = "healthy"
+			} else {
+				healthState = "unhealthy"
+			}
+		}
+
+		lastHealthCheck := "-"
+		if !peerState.LastHealthCheck.IsZero() && peerState.LastHealthCheck != time.Unix(0, 0) {
+			lastHealthCheck = peerState.LastHealthCheck.Format("2006-01-02 15:04:05")
+		}
+
 		peerString := fmt.Sprintf(
 			"\n %s:\n"+
 				"  NetBird IP: %s\n"+
@@ -568,7 +588,10 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 				"  ICE candidate endpoints (Local/Remote): %s/%s\n"+
 				"  Last connection update: %s\n"+
 				"  Last WireGuard handshake: %s\n"+
-				"  Transfer status (received/sent) %s/%s\n"+
+				"  Transfer status (received/sent): %s/%s\n"+
+				"  Latency: %s\n"+
+				"  Heath state: %s\n"+
+				"  Last health check: %s\n"+
 				"  Quantum resistance: %s\n",
 			peerState.FQDN,
 			peerState.IP,
@@ -584,6 +607,9 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			lastWireGuardHandshake,
 			toIEC(peerState.TransferReceived),
 			toIEC(peerState.TransferSent),
+			peerState.Latency.String(),
+			healthState,
+			lastHealthCheck,
 			rosenpassEnabledStatus,
 		)
 

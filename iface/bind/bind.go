@@ -1,6 +1,7 @@
 package bind
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"runtime"
@@ -94,6 +95,13 @@ func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketC
 				sizes[i] = msg.N
 			}
 
+			ok, _ = s.filterOutHealthCheckMessages(msg.Buffers, msg.N, msg.Addr, conn)
+			if ok {
+				sizes[i] = 0
+			} else {
+				sizes[i] = msg.N
+			}
+
 			addrPort := msg.Addr.(*net.UDPAddr).AddrPort()
 			ep := &wgConn.StdNetEndpoint{AddrPort: addrPort} // TODO: remove allocation
 			wgConn.GetSrcFromControl(msg.OOB[:msg.NN], ep)
@@ -124,6 +132,37 @@ func (s *ICEBind) filterOutStunMessages(buffers [][]byte, n int, addr net.Addr) 
 		return true, nil
 	}
 	return false, nil
+}
+
+func (s *ICEBind) filterOutHealthCheckMessages(buffers [][]byte, n int, addr net.Addr, conn net.PacketConn) (bool, error) {
+
+	for i := range buffers {
+		if !isHealthCheckMessage(buffers[i]) {
+			continue
+		}
+
+		log.Tracef("received healthcheck request from %s", addr.String())
+
+		buffers[i][9] = 0x02
+
+		_, err := conn.WriteTo(buffers[i][:n], addr)
+		if err != nil {
+			log.Debugf("failed to respond to healthcheck request: %s", err)
+			return false, err
+		}
+
+		log.Tracef("responded to healthcheck request from %s", addr.String())
+
+		buffers[i] = []byte{}
+		return true, nil
+	}
+	return false, nil
+}
+
+func isHealthCheckMessage(b []byte) bool {
+	magicCookie := uint32(0x2112A441)
+	messageHeaderSize := 20
+	return len(b) >= messageHeaderSize && binary.BigEndian.Uint32(b[4:8]) == magicCookie && b[9] == 0x01
 }
 
 func (s *ICEBind) parseSTUNMessage(raw []byte) (*stun.Message, error) {
