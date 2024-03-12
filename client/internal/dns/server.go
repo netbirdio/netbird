@@ -68,7 +68,6 @@ type DefaultServer struct {
 type handlerWithStop interface {
 	dns.Handler
 	stop()
-	getServers() []string
 	probeAvailability()
 }
 

@@ -71,10 +71,6 @@ func (u *upstreamResolverBase) stop() {
 	u.cancel()
 }
 
-func (u *upstreamResolverBase) getServers() []string {
-	return u.upstreamServers
-}
-
 // ServeDNS handles a DNS request
 func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	var err error
