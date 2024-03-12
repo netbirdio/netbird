@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/yusufpapurcu/wmi"
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/netbirdio/netbird/client/system/detect_cloud"
@@ -33,7 +32,7 @@ type Win32_BIOS struct {
 }
 
 // GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context) *Info {
+func GetInfo(ctx context.Context, config internal.Config) *Info {
 	osName, osVersion := getOSNameAndVersion()
 	buildVersion := getBuildVersion()
 
@@ -63,18 +62,24 @@ func GetInfo(ctx context.Context) *Info {
 	}
 
 	gio := &Info{
-		Kernel:             "windows",
-		OSVersion:          osVersion,
-		Platform:           "unknown",
-		OS:                 osName,
-		GoOS:               runtime.GOOS,
-		CPUs:               runtime.NumCPU(),
-		KernelVersion:      buildVersion,
-		NetworkAddresses:   addrs,
-		SystemSerialNumber: serialNum,
-		SystemProductName:  prodName,
-		SystemManufacturer: manufacturer,
-		Environment:        env,
+		Kernel:              "windows",
+		OSVersion:           osVersion,
+		Platform:            "unknown",
+		OS:                  osName,
+		GoOS:                runtime.GOOS,
+		CPUs:                runtime.NumCPU(),
+		KernelVersion:       buildVersion,
+		NetworkAddresses:    addrs,
+		SystemSerialNumber:  serialNum,
+		SystemProductName:   prodName,
+		SystemManufacturer:  manufacturer,
+		Environment:         env,
+		RosenpassEnabled:    config.RosenpassEnabled,
+		RosenpassPermissive: config.RosenpassPermissive,
+	}
+
+	if config.ServerSSHAllowed != nil {
+		gio.ServerSSHAllowed = *config.ServerSSHAllowed
 	}
 
 	systemHostname, _ := os.Hostname()

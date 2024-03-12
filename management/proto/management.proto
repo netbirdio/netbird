@@ -117,6 +117,9 @@ message PeerSystemMeta {
   string sysProductName = 13;
   string sysManufacturer = 14;
   Environment environment = 15;
+  bool   rosenpassEnabled = 16;
+  bool   rosenpassPermissive = 17;
+  bool   serverSSHAllowed = 18;
 }
 
 message LoginResponse {

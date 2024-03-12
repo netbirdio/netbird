@@ -33,21 +33,24 @@ type Environment struct {
 // Info is an object that contains machine information
 // Most of the code is taken from https://github.com/matishsiao/goInfo
 type Info struct {
-	GoOS               string
-	Kernel             string
-	Platform           string
-	OS                 string
-	OSVersion          string
-	Hostname           string
-	CPUs               int
-	WiretrusteeVersion string
-	UIVersion          string
-	KernelVersion      string
-	NetworkAddresses   []NetworkAddress
-	SystemSerialNumber string
-	SystemProductName  string
-	SystemManufacturer string
-	Environment        Environment
+	GoOS                string
+	Kernel              string
+	Platform            string
+	OS                  string
+	OSVersion           string
+	Hostname            string
+	CPUs                int
+	WiretrusteeVersion  string
+	UIVersion           string
+	KernelVersion       string
+	NetworkAddresses    []NetworkAddress
+	SystemSerialNumber  string
+	SystemProductName   string
+	SystemManufacturer  string
+	Environment         Environment
+	RosenpassEnabled    bool
+	RosenpassPermissive bool
+	ServerSSHAllowed    bool
 }
 
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context

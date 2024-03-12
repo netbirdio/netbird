@@ -15,13 +15,14 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/zcalusic/sysinfo"
 
+	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/system/detect_cloud"
 	"github.com/netbirdio/netbird/client/system/detect_platform"
 	"github.com/netbirdio/netbird/version"
 )
 
 // GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context) *Info {
+func GetInfo(ctx context.Context, config internal.Config) *Info {
 	info := _getInfo()
 	for strings.Contains(info, "broken pipe") {
 		info = _getInfo()
@@ -69,21 +70,27 @@ func GetInfo(ctx context.Context) *Info {
 	}
 
 	gio := &Info{
-		Kernel:             osInfo[0],
-		Platform:           osInfo[2],
-		OS:                 osName,
-		OSVersion:          osVer,
-		Hostname:           extractDeviceName(ctx, systemHostname),
-		GoOS:               runtime.GOOS,
-		CPUs:               runtime.NumCPU(),
-		WiretrusteeVersion: version.NetbirdVersion(),
-		UIVersion:          extractUserAgent(ctx),
-		KernelVersion:      osInfo[1],
-		NetworkAddresses:   addrs,
-		SystemSerialNumber: serialNum,
-		SystemProductName:  prodName,
-		SystemManufacturer: manufacturer,
-		Environment:        env,
+		Kernel:              osInfo[0],
+		Platform:            osInfo[2],
+		OS:                  osName,
+		OSVersion:           osVer,
+		Hostname:            extractDeviceName(ctx, systemHostname),
+		GoOS:                runtime.GOOS,
+		CPUs:                runtime.NumCPU(),
+		WiretrusteeVersion:  version.NetbirdVersion(),
+		UIVersion:           extractUserAgent(ctx),
+		KernelVersion:       osInfo[1],
+		NetworkAddresses:    addrs,
+		SystemSerialNumber:  serialNum,
+		SystemProductName:   prodName,
+		SystemManufacturer:  manufacturer,
+		Environment:         env,
+		RosenpassEnabled:    config.RosenpassEnabled,
+		RosenpassPermissive: config.RosenpassPermissive,
+	}
+
+	if config.ServerSSHAllowed != nil {
+		gio.ServerSSHAllowed = *config.ServerSSHAllowed
 	}
 
 	return gio

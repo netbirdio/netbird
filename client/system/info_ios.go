@@ -7,17 +7,31 @@ import (
 	"context"
 	"runtime"
 
+	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/version"
 )
 
 // GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context) *Info {
+func GetInfo(ctx context.Context, config internal.Config) *Info {
 
 	// Convert fixed-size byte arrays to Go strings
 	sysName := extractOsName(ctx, "sysName")
 	swVersion := extractOsVersion(ctx, "swVersion")
 
-	gio := &Info{Kernel: sysName, OSVersion: swVersion, Platform: "unknown", OS: sysName, GoOS: runtime.GOOS, CPUs: runtime.NumCPU(), KernelVersion: swVersion}
+	gio := &Info{
+		Kernel:              sysName,
+		OSVersion:           swVersion,
+		Platform:            "unknown",
+		OS:                  sysName,
+		GoOS:                runtime.GOOS,
+		CPUs:                runtime.NumCPU(),
+		KernelVersion:       swVersion,
+		RosenpassEnabled:    config.RosenpassEnabled,
+		RosenpassPermissive: config.RosenpassPermissive,
+	}
+	if config.ServerSSHAllowed != nil {
+		gio.ServerSSHAllowed = true
+	}
 	gio.Hostname = extractDeviceName(ctx, "hostname")
 	gio.WiretrusteeVersion = version.NetbirdVersion()
 	gio.UIVersion = extractUserAgent(ctx)
