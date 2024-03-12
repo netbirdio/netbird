@@ -221,6 +221,10 @@ func (p *PostureChecksHandler) savePostureChecks(
 		}
 	}
 
+	if processCheck := req.Checks.ProcessCheck; processCheck != nil {
+		postureChecks.Checks.ProcessCheck = toProcessCheck(processCheck)
+	}
+
 	if err := p.accountManager.SavePostureChecks(account.Id, user.Id, &postureChecks); err != nil {
 		util.WriteError(err, w)
 		return
@@ -235,7 +239,7 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 	}
 
 	if req.Checks == nil || (req.Checks.NbVersionCheck == nil && req.Checks.OsVersionCheck == nil &&
-		req.Checks.GeoLocationCheck == nil && req.Checks.PeerNetworkRangeCheck == nil) {
+		req.Checks.GeoLocationCheck == nil && req.Checks.PeerNetworkRangeCheck == nil && req.Checks.ProcessCheck == nil) {
 		return status.Errorf(status.InvalidArgument, "posture checks shouldn't be empty")
 	}
 
@@ -292,6 +296,21 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 		}
 	}
 
+	if processCheck := req.Checks.ProcessCheck; processCheck != nil {
+		if len(processCheck.Processes) == 0 {
+			return status.Errorf(status.InvalidArgument, "processes for process check shouldn't be empty")
+		}
+
+		for _, process := range processCheck.Processes {
+			if process.WindowsPath == "" {
+				return status.Errorf(status.InvalidArgument, "windows path for process check shouldn't be empty")
+			}
+			if process.Path == "" {
+				return status.Errorf(status.InvalidArgument, "path for process check shouldn't be empty")
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -320,6 +339,10 @@ func toPostureChecksResponse(postureChecks *posture.Checks) *api.PostureCheck {
 
 	if postureChecks.Checks.PeerNetworkRangeCheck != nil {
 		checks.PeerNetworkRangeCheck = toPeerNetworkRangeCheckResponse(postureChecks.Checks.PeerNetworkRangeCheck)
+	}
+
+	if postureChecks.Checks.ProcessCheck != nil {
+		checks.ProcessCheck = toProcessCheckResponse(postureChecks.Checks.ProcessCheck)
 	}
 
 	return &api.PostureCheck{
@@ -395,4 +418,29 @@ func toPeerNetworkRangeCheck(check *api.PeerNetworkRangeCheck) (*posture.PeerNet
 		Ranges: prefixes,
 		Action: string(check.Action),
 	}, nil
+}
+
+func toProcessCheckResponse(check *posture.ProcessCheck) *api.ProcessCheck {
+	processes := make([]api.Process, 0, len(check.Processes))
+	for _, process := range check.Processes {
+		processes = append(processes, (api.Process)(process))
+	}
+
+	return &api.ProcessCheck{
+		Processes: processes,
+	}
+}
+
+func toProcessCheck(check *api.ProcessCheck) *posture.ProcessCheck {
+	processes := make([]posture.Process, 0, len(check.Processes))
+	for _, process := range check.Processes {
+		processes = append(processes, posture.Process{
+			Path:        process.Path,
+			WindowsPath: process.WindowsPath,
+		})
+	}
+
+	return &posture.ProcessCheck{
+		Processes: processes,
+	}
 }

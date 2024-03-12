@@ -434,6 +434,43 @@ func TestPostureCheckUpdate(t *testing.T) {
 			},
 		},
 		{
+			name:        "Create Posture Checks Process Check",
+			requestType: http.MethodPost,
+			requestPath: "/api/posture-checks",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{
+					"name": "default",
+					"description": "default",
+					"checks": {
+						"process_check": {
+							"processes": [
+								{ 
+									"path": "/usr/local/bin/netbird",
+									"windows_path": "C:\\ProgramData\\NetBird\\netbird.exe"
+								}
+							]
+						}
+					}
+					}`)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedPostureCheck: &api.PostureCheck{
+				Id:          "postureCheck",
+				Name:        "default",
+				Description: str("default"),
+				Checks: api.Checks{
+					ProcessCheck: &api.ProcessCheck{
+						Processes: []api.Process{
+							{
+								Path:        "/usr/local/bin/netbird",
+								WindowsPath: "C:\\ProgramData\\NetBird\\netbird.exe",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
 			name:        "Create Posture Checks Invalid Check",
 			requestType: http.MethodPost,
 			requestPath: "/api/posture-checks",
@@ -936,5 +973,46 @@ func TestPostureCheck_validatePostureChecksUpdate(t *testing.T) {
 			},
 		},
 	)
+	assert.Error(t, err)
+
+	// valid process check
+	processCheck := api.ProcessCheck{
+		Processes: []api.Process{
+			{
+				Path:        "/usr/local/bin/netbird",
+				WindowsPath: "C:\\ProgramData\\NetBird\\netbird.exe",
+			},
+		},
+	}
+	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{ProcessCheck: &processCheck}})
+	assert.NoError(t, err)
+
+	// invalid process check
+	processCheck = api.ProcessCheck{
+		Processes: make([]api.Process, 0),
+	}
+	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{ProcessCheck: &processCheck}})
+	assert.Error(t, err)
+
+	// invalid process check
+	processCheck = api.ProcessCheck{
+		Processes: []api.Process{
+			{
+				Path: "/usr/local/bin/netbird",
+			},
+		},
+	}
+	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{ProcessCheck: &processCheck}})
+	assert.Error(t, err)
+
+	// invalid process check
+	processCheck = api.ProcessCheck{
+		Processes: []api.Process{
+			{
+				WindowsPath: "C:\\ProgramData\\NetBird\\netbird.exe",
+			},
+		},
+	}
+	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{ProcessCheck: &processCheck}})
 	assert.Error(t, err)
 }
