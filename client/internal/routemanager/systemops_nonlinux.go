@@ -12,6 +12,14 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+func setupRouting() error {
+	return nil
+}
+
+func cleanupRouting() error {
+	return nil
+}
+
 func addToRouteTable(prefix netip.Prefix, addr string) error {
 	cmd := exec.Command("route", "add", prefix.String(), addr)
 	out, err := cmd.Output()
