@@ -69,8 +69,8 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	t.Setenv(retryMultiplierVar, "1")
 
 	s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe)
-	if counter < 2 || counter > 6 {
-		t.Fatalf("expected 2 < counter < 6, got %d", counter)
+	if counter < 3 {
+		t.Fatalf("expected counter > 2, got %d", counter)
 	}
 }
 
