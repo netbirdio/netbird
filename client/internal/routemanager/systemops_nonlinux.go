@@ -20,7 +20,7 @@ func cleanupRouting() error {
 	return nil
 }
 
-func addToRouteTable(prefix netip.Prefix, addr string) error {
+func addToRouteTable(prefix netip.Prefix, addr, _ string) error {
 	cmd := exec.Command("route", "add", prefix.String(), addr)
 	out, err := cmd.Output()
 	if err != nil {
@@ -30,7 +30,7 @@ func addToRouteTable(prefix netip.Prefix, addr string) error {
 	return nil
 }
 
-func removeFromRouteTable(prefix netip.Prefix, addr string) error {
+func removeFromRouteTable(prefix netip.Prefix, addr, _ string) error {
 	args := []string{"delete", prefix.String()}
 	if runtime.GOOS == "darwin" {
 		args = append(args, addr)
