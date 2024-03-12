@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/management/server/integrated_approval"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -84,17 +86,27 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 		return
 	}
 
-	update := &nbpeer.Peer{ID: peerID, SSHEnabled: req.SshEnabled, Name: req.Name,
-		LoginExpirationEnabled: req.LoginExpirationEnabled}
+	update := &nbpeer.Peer{
+		ID:                     peerID,
+		SSHEnabled:             req.SshEnabled,
+		Name:                   req.Name,
+		LoginExpirationEnabled: req.LoginExpirationEnabled,
+	}
 
 	if req.ApprovalRequired != nil {
 		// todo: looks like that we reset all status property, is it right?
-		update.Status = &nbpeer.PeerStatus{RequiresApproval: *req.ApprovalRequired}
+		update.Status = &nbpeer.PeerStatus{
+			RequiresApproval: *req.ApprovalRequired,
+		}
 	}
 
 	peer, err := h.accountManager.UpdatePeer(account.Id, user.Id, update)
 	if err != nil {
-		util.WriteError(err, w)
+		if errors.Is(err, integrated_approval.ErrForceUpdateNotAllowed) {
+			util.WriteErrorResponse(err.Error(), http.StatusBadRequest, w)
+		} else {
+			util.WriteError(err, w)
+		}
 		return
 	}
 	dnsDomain := h.accountManager.GetDNSDomain()

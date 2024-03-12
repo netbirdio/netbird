@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/management/server/integrated_approval"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
 )
@@ -97,7 +99,11 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 
 	updatedAccount, err := h.accountManager.UpdateAccountSettings(accountID, user.Id, settings)
 	if err != nil {
-		util.WriteError(err, w)
+		if errors.Is(err, integrated_approval.ErrPeerApprovalNotAllowed) {
+			util.WriteErrorResponse(err.Error(), http.StatusBadRequest, w)
+		} else {
+			util.WriteError(err, w)
+		}
 		return
 	}
 
