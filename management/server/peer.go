@@ -302,7 +302,7 @@ func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, erro
 		return nil, status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
 	}
 
-	approvedPeers, err := am.integratedPeerValidator.GetApprovedPeers(account.Id, nil, account.Settings.Extra)
+	approvedPeers, err := am.integratedPeerValidator.GetApprovedPeers(account.Id, account.Peers, account.Settings.Extra)
 	if err != nil {
 		return nil, err
 	}
