@@ -8,7 +8,6 @@ import (
 
 	"google.golang.org/grpc/metadata"
 
-	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -31,37 +30,37 @@ type Environment struct {
 	Platform string
 }
 
-// Info is an object that contains machine information
-// Most of the code is taken from https://github.com/matishsiao/goInfo
-type Info struct {
-	GoOS                string
-	Kernel              string
-	Platform            string
-	OS                  string
-	OSVersion           string
-	Hostname            string
-	CPUs                int
-	WiretrusteeVersion  string
-	UIVersion           string
-	KernelVersion       string
-	NetworkAddresses    []NetworkAddress
-	SystemSerialNumber  string
-	SystemProductName   string
-	SystemManufacturer  string
-	Environment         Environment
+type Config struct {
 	RosenpassEnabled    bool
 	RosenpassPermissive bool
 	ServerSSHAllowed    bool
 }
 
+// Info is an object that contains machine information
+// Most of the code is taken from https://github.com/matishsiao/goInfo
+type Info struct {
+	GoOS               string
+	Kernel             string
+	Platform           string
+	OS                 string
+	OSVersion          string
+	Hostname           string
+	CPUs               int
+	WiretrusteeVersion string
+	UIVersion          string
+	KernelVersion      string
+	NetworkAddresses   []NetworkAddress
+	SystemSerialNumber string
+	SystemProductName  string
+	SystemManufacturer string
+	Environment        Environment
+	Config             Config
+}
+
 // GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context, config internal.Config) *Info {
+func GetInfo(ctx context.Context, config Config) *Info {
 	info := getInfo(ctx)
-	info.RosenpassEnabled = config.RosenpassEnabled
-	info.RosenpassPermissive = config.RosenpassPermissive
-	if config.ServerSSHAllowed != nil {
-		info.ServerSSHAllowed = *config.ServerSSHAllowed
-	}
+	info.Config = config
 	return info
 }
 
