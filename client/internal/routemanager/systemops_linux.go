@@ -62,7 +62,7 @@ func getSetupRules() []ruleParams {
 // to redirect the management traffic via the VPN.
 //
 // Rule 2 (Local Route Precedence): Safeguards locally installed routes by giving them precedence over
-// a potential default route received and configured for the VPN.
+// potential routes received and configured for the VPN.
 //
 // Rule 3 (VPN Traffic Routing): Directs all remaining traffic to the 'NetbirdVPNTableID' custom routing table.
 // This table is where a default route or other specific routes received from the management server are configured,
@@ -115,7 +115,9 @@ func cleanupRouting() error {
 	return result.ErrorOrNil()
 }
 
-func addToRouteTable(prefix netip.Prefix, _ string, intf string) error {
+func addToRouteTableIfNoExists(prefix netip.Prefix, _ string, intf string) error {
+	// No need to check if routes exist as main table takes precedence over the VPN table via Rule 2
+
 	// TODO remove this once we have ipv6 support
 	if prefix == defaultv4 {
 		if err := addUnreachableRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
@@ -128,7 +130,7 @@ func addToRouteTable(prefix netip.Prefix, _ string, intf string) error {
 	return nil
 }
 
-func removeFromRouteTable(prefix netip.Prefix, _ string, intf string) error {
+func removeFromRouteTableIfNonSystem(prefix netip.Prefix, _ string, intf string) error {
 	// TODO remove this once we have ipv6 support
 	if prefix == defaultv4 {
 		if err := removeUnreachableRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
