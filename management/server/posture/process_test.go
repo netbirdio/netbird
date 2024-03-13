@@ -116,7 +116,7 @@ func TestProcessCheck_Check(t *testing.T) {
 			isValid: false,
 		},
 		{
-			name: "unsupported Ios operating system with matching processes",
+			name: "unsupported ios operating system with matching processes",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
 					GoOS: "ios",

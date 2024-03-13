@@ -49,7 +49,7 @@ type ChecksDefinition struct {
 	OSVersionCheck        *OSVersionCheck        `json:",omitempty"`
 	GeoLocationCheck      *GeoLocationCheck      `json:",omitempty"`
 	PeerNetworkRangeCheck *PeerNetworkRangeCheck `json:",omitempty"`
-	ProcessCheck          *ProcessCheck          `json:"process_check"`
+	ProcessCheck          *ProcessCheck          `json:",omitempty"`
 }
 
 // Copy returns a copy of a checks definition.
