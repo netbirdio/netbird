@@ -252,6 +252,15 @@ func flushRoutes(tableID, family int) error {
 
 	var result *multierror.Error
 	for i := range routes {
+		route := routes[i]
+		// unreachable default routes don't come back with Dst set
+		if route.Gw == nil && route.Src == nil && route.Dst == nil {
+			if family == netlink.FAMILY_V4 {
+				routes[i].Dst = &net.IPNet{IP: net.IPv4zero, Mask: net.CIDRMask(0, 32)}
+			} else {
+				routes[i].Dst = &net.IPNet{IP: net.IPv6zero, Mask: net.CIDRMask(0, 128)}
+			}
+		}
 		if err := netlink.RouteDel(&routes[i]); err != nil {
 			result = multierror.Append(result, fmt.Errorf("failed to delete route %v from table %d: %w", routes[i], tableID, err))
 		}
