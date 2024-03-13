@@ -224,11 +224,10 @@ func (h *PeersHandler) accessiblePeersNumber(account *server.Account, peerID str
 }
 
 func (h *PeersHandler) setApprovalRequiredFlag(respBody []*api.PeerBatch, approvedPeersMap map[string]struct{}) {
-	var ApprovalRequired = true
 	for _, peer := range respBody {
 		_, ok := approvedPeersMap[peer.Id]
 		if !ok {
-			peer.ApprovalRequired = &ApprovalRequired
+			peer.ApprovalRequired = true
 		}
 	}
 }
@@ -289,11 +288,6 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		osVersion = peer.Meta.Core
 	}
 
-	var approvalRequired bool
-	if !approved {
-		approvalRequired = true
-	}
-
 	return &api.Peer{
 		Id:                     peer.ID,
 		Name:                   peer.Name,
@@ -315,7 +309,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		LastLogin:              peer.LastLogin,
 		LoginExpired:           peer.Status.LoginExpired,
 		AccessiblePeers:        accessiblePeer,
-		ApprovalRequired:       &approvalRequired,
+		ApprovalRequired:       !approved,
 		CountryCode:            peer.Location.CountryCode,
 		CityName:               peer.Location.CityName,
 	}
