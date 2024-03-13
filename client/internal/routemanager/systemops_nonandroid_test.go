@@ -46,7 +46,6 @@ func assertWGOutInterface(t *testing.T, prefix netip.Prefix, wgIface *iface.WGIf
 }
 
 func getOutgoingInterfaceLinux(destination string) (string, error) {
-	log.Errorf("destination: %s", destination)
 	cmd := exec.Command("ip", "route", "get", destination)
 	output, err := cmd.Output()
 	if err != nil {

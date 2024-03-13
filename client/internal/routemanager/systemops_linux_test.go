@@ -90,7 +90,7 @@ func TestEntryExists(t *testing.T) {
 	}
 }
 
-func TestRoutingWithTableTesting(t *testing.T) {
+func TestRoutingWithTables(t *testing.T) {
 	testCases := []struct {
 		name              string
 		destination       string
@@ -219,7 +219,12 @@ func createAndSetupDummyInterface(t *testing.T, interfaceName, ipAddressCIDR str
 	t.Helper()
 
 	dummy := &netlink.Dummy{LinkAttrs: netlink.LinkAttrs{Name: interfaceName}}
-	err := netlink.LinkAdd(dummy)
+	err := netlink.LinkDel(dummy)
+	if err != nil {
+		t.Logf("Failed to delete dummy interface: %v", err)
+	}
+
+	err = netlink.LinkAdd(dummy)
 	require.NoError(t, err)
 
 	err = netlink.LinkSetUp(dummy)
@@ -245,6 +250,10 @@ func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, linkIndex int) {
 		Dst:       dstIPNet,
 		Gw:        gw,
 		LinkIndex: linkIndex,
+	}
+	err = netlink.RouteDel(route)
+	if err != nil {
+		t.Logf("Failed to delete route: %v", err)
 	}
 
 	err = netlink.RouteAdd(route)
