@@ -212,7 +212,7 @@ type FirewallRule struct {
 // getPeerConnectionResources for a given peer
 //
 // This function returns the list of peers and firewall rules that are applicable to a given peer.
-func (a *Account) getPeerConnectionResources(peerID string, approvedPeersMap map[string]struct{}) ([]*nbpeer.Peer, []*FirewallRule) {
+func (a *Account) getPeerConnectionResources(peerID string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, []*FirewallRule) {
 
 	generateResources, getAccumulatedResources := a.connResourcesGenerator()
 	for _, policy := range a.Policies {
@@ -225,8 +225,8 @@ func (a *Account) getPeerConnectionResources(peerID string, approvedPeersMap map
 				continue
 			}
 
-			sourcePeers, peerInSources := getAllPeersFromGroups(a, rule.Sources, peerID, policy.SourcePostureChecks, approvedPeersMap)
-			destinationPeers, peerInDestinations := getAllPeersFromGroups(a, rule.Destinations, peerID, nil, approvedPeersMap)
+			sourcePeers, peerInSources := getAllPeersFromGroups(a, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
+			destinationPeers, peerInDestinations := getAllPeersFromGroups(a, rule.Destinations, peerID, nil, validatedPeersMap)
 
 			if rule.Bidirectional {
 				if peerInSources {
@@ -491,7 +491,7 @@ func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
 //
 // Important: Posture checks are applicable only to source group peers,
 // for destination group peers, call this method with an empty list of sourcePostureChecksIDs
-func getAllPeersFromGroups(account *Account, groups []string, peerID string, sourcePostureChecksIDs []string, approvedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
+func getAllPeersFromGroups(account *Account, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
 	peerInGroups := false
 	filteredPeers := make([]*nbpeer.Peer, 0, len(groups))
 	for _, g := range groups {
@@ -512,7 +512,7 @@ func getAllPeersFromGroups(account *Account, groups []string, peerID string, sou
 				continue
 			}
 
-			if _, ok := approvedPeersMap[peer.ID]; !ok {
+			if _, ok := validatedPeersMap[peer.ID]; !ok {
 				continue
 			}
 

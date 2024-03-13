@@ -445,34 +445,34 @@ var _ = Describe("Management service", func() {
 	})
 })
 
-type MocIntegratedApproval struct {
+type MocIntegratedValidator struct {
 }
 
-func (a MocIntegratedApproval) UpdatePeerApprovalSetting(newExtraSettings *account.ExtraSettings, oldExtraSettings *account.ExtraSettings, peers map[string]*nbpeer.Peer, userID string, accountID string) error {
+func (a MocIntegratedValidator) ValidateExtraSettings(newExtraSettings *account.ExtraSettings, oldExtraSettings *account.ExtraSettings, peers map[string]*nbpeer.Peer, userID string, accountID string) error {
 	return nil
 }
 
-func (a MocIntegratedApproval) ApprovePeer(update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, error) {
+func (a MocIntegratedValidator) ValidatePeer(update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, error) {
 	return update, nil
 }
 
-func (a MocIntegratedApproval) GetApprovedPeers(accountID string, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
-	approvedPeers := make(map[string]struct{})
+func (a MocIntegratedValidator) GetValidatedPeers(accountID string, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
+	validatedPeers := make(map[string]struct{})
 	for p := range peers {
-		approvedPeers[p] = struct{}{}
+		validatedPeers[p] = struct{}{}
 	}
-	return approvedPeers, nil
+	return validatedPeers, nil
 }
 
-func (MocIntegratedApproval) PreparePeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer {
+func (MocIntegratedValidator) PreparePeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer {
 	return peer
 }
 
-func (MocIntegratedApproval) IsRequiresApproval(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) bool {
+func (MocIntegratedValidator) IsNotValidPeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) bool {
 	return false
 }
 
-func (MocIntegratedApproval) Stop() {}
+func (MocIntegratedValidator) Stop() {}
 
 func loginPeerWithValidSetupKey(serverPubKey wgtypes.Key, key wgtypes.Key, client mgmtProto.ManagementServiceClient) *mgmtProto.LoginResponse {
 	defer GinkgoRecover()
@@ -530,7 +530,7 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "",
-		eventStore, nil, false, MocIntegratedApproval{})
+		eventStore, nil, false, MocIntegratedValidator{})
 	if err != nil {
 		log.Fatalf("failed creating a manager: %v", err)
 	}

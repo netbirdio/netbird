@@ -76,7 +76,7 @@ func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Liste
 
 	peersUpdateManager := mgmt.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
-	iv, _ := integrations.NewIntegratedApproval(eventStore)
+	iv, _ := integrations.NewIntegratedValidator(eventStore)
 	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "", eventStore, nil, false, iv)
 	if err != nil {
 		t.Fatal(err)

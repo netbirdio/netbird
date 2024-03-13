@@ -2,7 +2,6 @@ package http
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
-	"github.com/netbirdio/netbird/management/server/integrated_approval"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -64,18 +62,18 @@ func (h *PeersHandler) getPeer(account *server.Account, peerID, userID string, w
 
 	groupsInfo := toGroupsInfo(account.Groups, peer.ID)
 
-	approvedPeers, err := h.accountManager.GetApprovedPeers(account.Id, account.Peers, account.Settings.Extra)
+	validPeers, err := h.accountManager.GetValidatedPeers(account.Id, account.Peers, account.Settings.Extra)
 	if err != nil {
 		log.Errorf("failed to list appreoved peers: %v", err)
 		util.WriteError(fmt.Errorf("internal error"), w)
 		return
 	}
 
-	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain(), approvedPeers)
+	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain(), validPeers)
 	accessiblePeers := toAccessiblePeers(netMap, dnsDomain)
 
-	_, approved := approvedPeers[peer.ID]
-	util.WriteJSONObject(w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, accessiblePeers, approved))
+	_, valid := validPeers[peer.ID]
+	util.WriteJSONObject(w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, accessiblePeers, valid))
 }
 
 func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, peerID string, w http.ResponseWriter, r *http.Request) {
@@ -102,29 +100,25 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 
 	peer, err := h.accountManager.UpdatePeer(account.Id, user.Id, update)
 	if err != nil {
-		if errors.Is(err, integrated_approval.ErrForceUpdateNotAllowed) {
-			util.WriteErrorResponse(err.Error(), http.StatusBadRequest, w)
-		} else {
-			util.WriteError(err, w)
-		}
+		util.WriteError(err, w)
 		return
 	}
 	dnsDomain := h.accountManager.GetDNSDomain()
 
 	groupMinimumInfo := toGroupsInfo(account.Groups, peer.ID)
 
-	approvedPeers, err := h.accountManager.GetApprovedPeers(account.Id, account.Peers, account.Settings.Extra)
+	validPeers, err := h.accountManager.GetValidatedPeers(account.Id, account.Peers, account.Settings.Extra)
 	if err != nil {
 		log.Errorf("failed to list appreoved peers: %v", err)
 		util.WriteError(fmt.Errorf("internal error"), w)
 		return
 	}
-	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain(), approvedPeers)
+	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain(), validPeers)
 	accessiblePeers := toAccessiblePeers(netMap, dnsDomain)
 
-	_, approved := approvedPeers[peer.ID]
+	_, valid := validPeers[peer.ID]
 
-	util.WriteJSONObject(w, toSinglePeerResponse(peer, groupMinimumInfo, dnsDomain, accessiblePeers, approved))
+	util.WriteJSONObject(w, toSinglePeerResponse(peer, groupMinimumInfo, dnsDomain, accessiblePeers, valid))
 }
 
 func (h *PeersHandler) deletePeer(accountID, userID string, peerID string, w http.ResponseWriter) {
@@ -202,24 +196,24 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		respBody = append(respBody, toPeerListItemResponse(peerToReturn, groupMinimumInfo, dnsDomain, accessiblePeerNumbers))
 	}
 
-	approvedPeersMap, err := h.accountManager.GetApprovedPeers(account.Id, account.Peers, account.Settings.Extra)
+	validPeersMap, err := h.accountManager.GetValidatedPeers(account.Id, account.Peers, account.Settings.Extra)
 	if err != nil {
 		log.Errorf("failed to list appreoved peers: %v", err)
 		util.WriteError(fmt.Errorf("internal error"), w)
 		return
 	}
-	h.setApprovalRequiredFlag(respBody, approvedPeersMap)
+	h.setApprovalRequiredFlag(respBody, validPeersMap)
 
 	util.WriteJSONObject(w, respBody)
 }
 
 func (h *PeersHandler) accessiblePeersNumber(account *server.Account, peerID string) (int, error) {
-	approvedPeersMap, err := h.accountManager.GetApprovedPeers(account.Id, account.Peers, account.Settings.Extra)
+	validatedPeersMap, err := h.accountManager.GetValidatedPeers(account.Id, account.Peers, account.Settings.Extra)
 	if err != nil {
 		return 0, err
 	}
 
-	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain(), approvedPeersMap)
+	netMap := account.GetPeerNetworkMap(peerID, h.accountManager.GetDNSDomain(), validatedPeersMap)
 	return len(netMap.Peers) + len(netMap.OfflinePeers), nil
 }
 

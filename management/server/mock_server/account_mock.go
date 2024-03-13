@@ -23,84 +23,84 @@ type MockAccountManager struct {
 	GetOrCreateAccountByUserFunc func(userId, domain string) (*server.Account, error)
 	CreateSetupKeyFunc           func(accountId string, keyName string, keyType server.SetupKeyType,
 		expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool) (*server.SetupKey, error)
-	GetSetupKeyFunc                    func(accountID, userID, keyID string) (*server.SetupKey, error)
-	GetAccountByUserOrAccountIdFunc    func(userId, accountId, domain string) (*server.Account, error)
-	GetUserFunc                        func(claims jwtclaims.AuthorizationClaims) (*server.User, error)
-	ListUsersFunc                      func(accountID string) ([]*server.User, error)
-	GetPeersFunc                       func(accountID, userID string) ([]*nbpeer.Peer, error)
-	MarkPeerConnectedFunc              func(peerKey string, connected bool, realIP net.IP) error
-	DeletePeerFunc                     func(accountID, peerKey, userID string) error
-	GetNetworkMapFunc                  func(peerKey string) (*server.NetworkMap, error)
-	GetPeerNetworkFunc                 func(peerKey string) (*server.Network, error)
-	AddPeerFunc                        func(setupKey string, userId string, peer *nbpeer.Peer) (*nbpeer.Peer, *server.NetworkMap, error)
-	GetGroupFunc                       func(accountID, groupID string) (*server.Group, error)
-	GetGroupByNameFunc                 func(accountID, groupName string) (*server.Group, error)
-	SaveGroupFunc                      func(accountID, userID string, group *server.Group) error
-	DeleteGroupFunc                    func(accountID, userId, groupID string) error
-	ListGroupsFunc                     func(accountID string) ([]*server.Group, error)
-	GroupAddPeerFunc                   func(accountID, groupID, peerID string) error
-	GroupDeletePeerFunc                func(accountID, groupID, peerID string) error
-	GetRuleFunc                        func(accountID, ruleID, userID string) (*server.Rule, error)
-	SaveRuleFunc                       func(accountID, userID string, rule *server.Rule) error
-	DeleteRuleFunc                     func(accountID, ruleID, userID string) error
-	ListRulesFunc                      func(accountID, userID string) ([]*server.Rule, error)
-	GetPolicyFunc                      func(accountID, policyID, userID string) (*server.Policy, error)
-	SavePolicyFunc                     func(accountID, userID string, policy *server.Policy) error
-	DeletePolicyFunc                   func(accountID, policyID, userID string) error
-	ListPoliciesFunc                   func(accountID, userID string) ([]*server.Policy, error)
-	GetUsersFromAccountFunc            func(accountID, userID string) ([]*server.UserInfo, error)
-	GetAccountFromPATFunc              func(pat string) (*server.Account, *server.User, *server.PersonalAccessToken, error)
-	MarkPATUsedFunc                    func(pat string) error
-	UpdatePeerMetaFunc                 func(peerID string, meta nbpeer.PeerSystemMeta) error
-	UpdatePeerSSHKeyFunc               func(peerID string, sshKey string) error
-	UpdatePeerFunc                     func(accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
-	CreateRouteFunc                    func(accountID, prefix, peer string, peerGroups []string, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
-	GetRouteFunc                       func(accountID, routeID, userID string) (*route.Route, error)
-	SaveRouteFunc                      func(accountID, userID string, route *route.Route) error
-	DeleteRouteFunc                    func(accountID, routeID, userID string) error
-	ListRoutesFunc                     func(accountID, userID string) ([]*route.Route, error)
-	SaveSetupKeyFunc                   func(accountID string, key *server.SetupKey, userID string) (*server.SetupKey, error)
-	ListSetupKeysFunc                  func(accountID, userID string) ([]*server.SetupKey, error)
-	SaveUserFunc                       func(accountID, userID string, user *server.User) (*server.UserInfo, error)
-	SaveOrAddUserFunc                  func(accountID, userID string, user *server.User, addIfNotExists bool) (*server.UserInfo, error)
-	DeleteUserFunc                     func(accountID string, initiatorUserID string, targetUserID string) error
-	CreatePATFunc                      func(accountID string, initiatorUserID string, targetUserId string, tokenName string, expiresIn int) (*server.PersonalAccessTokenGenerated, error)
-	DeletePATFunc                      func(accountID string, initiatorUserID string, targetUserId string, tokenID string) error
-	GetPATFunc                         func(accountID string, initiatorUserID string, targetUserId string, tokenID string) (*server.PersonalAccessToken, error)
-	GetAllPATsFunc                     func(accountID string, initiatorUserID string, targetUserId string) ([]*server.PersonalAccessToken, error)
-	GetNameServerGroupFunc             func(accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error)
-	CreateNameServerGroupFunc          func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainsEnabled bool) (*nbdns.NameServerGroup, error)
-	SaveNameServerGroupFunc            func(accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
-	DeleteNameServerGroupFunc          func(accountID, nsGroupID, userID string) error
-	ListNameServerGroupsFunc           func(accountID string, userID string) ([]*nbdns.NameServerGroup, error)
-	CreateUserFunc                     func(accountID, userID string, key *server.UserInfo) (*server.UserInfo, error)
-	GetAccountFromTokenFunc            func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error)
-	CheckUserAccessByJWTGroupsFunc     func(claims jwtclaims.AuthorizationClaims) error
-	DeleteAccountFunc                  func(accountID, userID string) error
-	GetDNSDomainFunc                   func() string
-	StoreEventFunc                     func(initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
-	GetEventsFunc                      func(accountID, userID string) ([]*activity.Event, error)
-	GetDNSSettingsFunc                 func(accountID, userID string) (*server.DNSSettings, error)
-	SaveDNSSettingsFunc                func(accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
-	GetPeerFunc                        func(accountID, peerID, userID string) (*nbpeer.Peer, error)
-	UpdateAccountSettingsFunc          func(accountID, userID string, newSettings *server.Settings) (*server.Account, error)
-	LoginPeerFunc                      func(login server.PeerLogin) (*nbpeer.Peer, *server.NetworkMap, error)
-	SyncPeerFunc                       func(sync server.PeerSync) (*nbpeer.Peer, *server.NetworkMap, error)
-	InviteUserFunc                     func(accountID string, initiatorUserID string, targetUserEmail string) error
-	GetAllConnectedPeersFunc           func() (map[string]struct{}, error)
-	HasConnectedChannelFunc            func(peerID string) bool
-	GetExternalCacheManagerFunc        func() server.ExternalCacheManager
-	GetPostureChecksFunc               func(accountID, postureChecksID, userID string) (*posture.Checks, error)
-	SavePostureChecksFunc              func(accountID, userID string, postureChecks *posture.Checks) error
-	DeletePostureChecksFunc            func(accountID, postureChecksID, userID string) error
-	ListPostureChecksFunc              func(accountID, userID string) ([]*posture.Checks, error)
-	GetUsageFunc                       func(ctx context.Context, accountID string, start, end time.Time) (*server.AccountUsageStats, error)
-	GetIdpManagerFunc                  func() idp.Manager
-	UpdateIntegratedApprovalGroupsFunc func(accountID string, userID string, groups []string) error
-	GroupValidationFunc                func(accountId string, groups []string) (bool, error)
+	GetSetupKeyFunc                     func(accountID, userID, keyID string) (*server.SetupKey, error)
+	GetAccountByUserOrAccountIdFunc     func(userId, accountId, domain string) (*server.Account, error)
+	GetUserFunc                         func(claims jwtclaims.AuthorizationClaims) (*server.User, error)
+	ListUsersFunc                       func(accountID string) ([]*server.User, error)
+	GetPeersFunc                        func(accountID, userID string) ([]*nbpeer.Peer, error)
+	MarkPeerConnectedFunc               func(peerKey string, connected bool, realIP net.IP) error
+	DeletePeerFunc                      func(accountID, peerKey, userID string) error
+	GetNetworkMapFunc                   func(peerKey string) (*server.NetworkMap, error)
+	GetPeerNetworkFunc                  func(peerKey string) (*server.Network, error)
+	AddPeerFunc                         func(setupKey string, userId string, peer *nbpeer.Peer) (*nbpeer.Peer, *server.NetworkMap, error)
+	GetGroupFunc                        func(accountID, groupID string) (*server.Group, error)
+	GetGroupByNameFunc                  func(accountID, groupName string) (*server.Group, error)
+	SaveGroupFunc                       func(accountID, userID string, group *server.Group) error
+	DeleteGroupFunc                     func(accountID, userId, groupID string) error
+	ListGroupsFunc                      func(accountID string) ([]*server.Group, error)
+	GroupAddPeerFunc                    func(accountID, groupID, peerID string) error
+	GroupDeletePeerFunc                 func(accountID, groupID, peerID string) error
+	GetRuleFunc                         func(accountID, ruleID, userID string) (*server.Rule, error)
+	SaveRuleFunc                        func(accountID, userID string, rule *server.Rule) error
+	DeleteRuleFunc                      func(accountID, ruleID, userID string) error
+	ListRulesFunc                       func(accountID, userID string) ([]*server.Rule, error)
+	GetPolicyFunc                       func(accountID, policyID, userID string) (*server.Policy, error)
+	SavePolicyFunc                      func(accountID, userID string, policy *server.Policy) error
+	DeletePolicyFunc                    func(accountID, policyID, userID string) error
+	ListPoliciesFunc                    func(accountID, userID string) ([]*server.Policy, error)
+	GetUsersFromAccountFunc             func(accountID, userID string) ([]*server.UserInfo, error)
+	GetAccountFromPATFunc               func(pat string) (*server.Account, *server.User, *server.PersonalAccessToken, error)
+	MarkPATUsedFunc                     func(pat string) error
+	UpdatePeerMetaFunc                  func(peerID string, meta nbpeer.PeerSystemMeta) error
+	UpdatePeerSSHKeyFunc                func(peerID string, sshKey string) error
+	UpdatePeerFunc                      func(accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
+	CreateRouteFunc                     func(accountID, prefix, peer string, peerGroups []string, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
+	GetRouteFunc                        func(accountID, routeID, userID string) (*route.Route, error)
+	SaveRouteFunc                       func(accountID, userID string, route *route.Route) error
+	DeleteRouteFunc                     func(accountID, routeID, userID string) error
+	ListRoutesFunc                      func(accountID, userID string) ([]*route.Route, error)
+	SaveSetupKeyFunc                    func(accountID string, key *server.SetupKey, userID string) (*server.SetupKey, error)
+	ListSetupKeysFunc                   func(accountID, userID string) ([]*server.SetupKey, error)
+	SaveUserFunc                        func(accountID, userID string, user *server.User) (*server.UserInfo, error)
+	SaveOrAddUserFunc                   func(accountID, userID string, user *server.User, addIfNotExists bool) (*server.UserInfo, error)
+	DeleteUserFunc                      func(accountID string, initiatorUserID string, targetUserID string) error
+	CreatePATFunc                       func(accountID string, initiatorUserID string, targetUserId string, tokenName string, expiresIn int) (*server.PersonalAccessTokenGenerated, error)
+	DeletePATFunc                       func(accountID string, initiatorUserID string, targetUserId string, tokenID string) error
+	GetPATFunc                          func(accountID string, initiatorUserID string, targetUserId string, tokenID string) (*server.PersonalAccessToken, error)
+	GetAllPATsFunc                      func(accountID string, initiatorUserID string, targetUserId string) ([]*server.PersonalAccessToken, error)
+	GetNameServerGroupFunc              func(accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error)
+	CreateNameServerGroupFunc           func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainsEnabled bool) (*nbdns.NameServerGroup, error)
+	SaveNameServerGroupFunc             func(accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
+	DeleteNameServerGroupFunc           func(accountID, nsGroupID, userID string) error
+	ListNameServerGroupsFunc            func(accountID string, userID string) ([]*nbdns.NameServerGroup, error)
+	CreateUserFunc                      func(accountID, userID string, key *server.UserInfo) (*server.UserInfo, error)
+	GetAccountFromTokenFunc             func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error)
+	CheckUserAccessByJWTGroupsFunc      func(claims jwtclaims.AuthorizationClaims) error
+	DeleteAccountFunc                   func(accountID, userID string) error
+	GetDNSDomainFunc                    func() string
+	StoreEventFunc                      func(initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
+	GetEventsFunc                       func(accountID, userID string) ([]*activity.Event, error)
+	GetDNSSettingsFunc                  func(accountID, userID string) (*server.DNSSettings, error)
+	SaveDNSSettingsFunc                 func(accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
+	GetPeerFunc                         func(accountID, peerID, userID string) (*nbpeer.Peer, error)
+	UpdateAccountSettingsFunc           func(accountID, userID string, newSettings *server.Settings) (*server.Account, error)
+	LoginPeerFunc                       func(login server.PeerLogin) (*nbpeer.Peer, *server.NetworkMap, error)
+	SyncPeerFunc                        func(sync server.PeerSync) (*nbpeer.Peer, *server.NetworkMap, error)
+	InviteUserFunc                      func(accountID string, initiatorUserID string, targetUserEmail string) error
+	GetAllConnectedPeersFunc            func() (map[string]struct{}, error)
+	HasConnectedChannelFunc             func(peerID string) bool
+	GetExternalCacheManagerFunc         func() server.ExternalCacheManager
+	GetPostureChecksFunc                func(accountID, postureChecksID, userID string) (*posture.Checks, error)
+	SavePostureChecksFunc               func(accountID, userID string, postureChecks *posture.Checks) error
+	DeletePostureChecksFunc             func(accountID, postureChecksID, userID string) error
+	ListPostureChecksFunc               func(accountID, userID string) ([]*posture.Checks, error)
+	GetUsageFunc                        func(ctx context.Context, accountID string, start, end time.Time) (*server.AccountUsageStats, error)
+	GetIdpManagerFunc                   func() idp.Manager
+	UpdateIntegratedValidatorGroupsFunc func(accountID string, userID string, groups []string) error
+	GroupValidationFunc                 func(accountId string, groups []string) (bool, error)
 }
 
-func (am *MockAccountManager) GetApprovedPeers(accountID string, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
+func (am *MockAccountManager) GetValidatedPeers(accountID string, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
 	approvedPeers := make(map[string]struct{})
 	for id := range peers {
 		approvedPeers[id] = struct{}{}
@@ -734,12 +734,12 @@ func (am *MockAccountManager) GetIdpManager() idp.Manager {
 	return nil
 }
 
-// UpdateIntegratedApprovalGroups mocks UpdateIntegratedApprovalGroups of the AccountManager interface
-func (am *MockAccountManager) UpdateIntegratedApprovalGroups(accountID string, userID string, groups []string) error {
-	if am.UpdateIntegratedApprovalGroupsFunc != nil {
-		return am.UpdateIntegratedApprovalGroupsFunc(accountID, userID, groups)
+// UpdateIntegratedValidatedGroups mocks UpdateIntegratedApprovalGroups of the AccountManager interface
+func (am *MockAccountManager) UpdateIntegratedValidatorGroups(accountID string, userID string, groups []string) error {
+	if am.UpdateIntegratedValidatorGroupsFunc != nil {
+		return am.UpdateIntegratedValidatorGroupsFunc(accountID, userID, groups)
 	}
-	return status.Errorf(codes.Unimplemented, "method UpdateIntegratedApprovalGroups is not implemented")
+	return status.Errorf(codes.Unimplemented, "method UpdateIntegratedValidatorGroups is not implemented")
 }
 
 // GroupValidation mocks GroupValidation of the AccountManager interface

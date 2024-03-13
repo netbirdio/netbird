@@ -1014,7 +1014,7 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "", eventStore, nil, false, MocIntegratedApproval{})
+	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "", eventStore, nil, false, MocIntegratedValidator{})
 }
 
 func createRouterStore(t *testing.T) (Store, error) {

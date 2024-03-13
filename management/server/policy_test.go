@@ -135,21 +135,21 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 		},
 	}
 
-	approvedPeers := make(map[string]struct{})
+	validatedPeers := make(map[string]struct{})
 	for p := range account.Peers {
-		approvedPeers[p] = struct{}{}
+		validatedPeers[p] = struct{}{}
 	}
 
 	t.Run("check that all peers get map", func(t *testing.T) {
 		for _, p := range account.Peers {
-			peers, firewallRules := account.getPeerConnectionResources(p.ID, approvedPeers)
+			peers, firewallRules := account.getPeerConnectionResources(p.ID, validatedPeers)
 			assert.GreaterOrEqual(t, len(peers), 2, "minimum number peers should present")
 			assert.GreaterOrEqual(t, len(firewallRules), 2, "minimum number of firewall rules should present")
 		}
 	})
 
 	t.Run("check first peer map details", func(t *testing.T) {
-		peers, firewallRules := account.getPeerConnectionResources("peerB", approvedPeers)
+		peers, firewallRules := account.getPeerConnectionResources("peerB", validatedPeers)
 		assert.Len(t, peers, 7)
 		assert.Contains(t, peers, account.Peers["peerA"])
 		assert.Contains(t, peers, account.Peers["peerC"])

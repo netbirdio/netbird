@@ -9,18 +9,18 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
-// UpdateIntegratedApprovalGroups updates the integrated approval groups for a specified account.
-// It retrieves the account associated with the provided userID, then updates the integrated approval groups
+// UpdateIntegratedValidatorGroups updates the integrated validator groups for a specified account.
+// It retrieves the account associated with the provided userID, then updates the integrated validator groups
 // with the provided list of group ids. The updated account is then saved.
 //
 // Parameters:
-//   - accountID: The ID of the account for which integrated approval groups are to be updated.
+//   - accountID: The ID of the account for which integrated validator groups are to be updated.
 //   - userID: The ID of the user whose account is being updated.
-//   - groups: A slice of strings representing the ids of integrated approval groups to be updated.
+//   - groups: A slice of strings representing the ids of integrated validator groups to be updated.
 //
 // Returns:
 //   - error: An error if any occurred during the process, otherwise returns nil
-func (am *DefaultAccountManager) UpdateIntegratedApprovalGroups(accountID string, userID string, groups []string) error {
+func (am *DefaultAccountManager) UpdateIntegratedValidatorGroups(accountID string, userID string, groups []string) error {
 	ok, err := am.GroupValidation(accountID, groups)
 	if err != nil {
 		log.Debugf("error validating groups: %s", err.Error())
@@ -48,7 +48,7 @@ func (am *DefaultAccountManager) UpdateIntegratedApprovalGroups(accountID string
 		extra = &account.ExtraSettings{}
 		a.Settings.Extra = extra
 	}
-	extra.IntegratedApprovalGroups = groups
+	extra.IntegratedValidatorGroups = groups
 	return am.Store.SaveAccount(a)
 }
 
@@ -76,6 +76,6 @@ func (am *DefaultAccountManager) GroupValidation(accountId string, groups []stri
 	return true, nil
 }
 
-func (am *DefaultAccountManager) GetApprovedPeers(accountID string, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
-	return am.integratedPeerValidator.GetApprovedPeers(accountID, peers, extraSettings)
+func (am *DefaultAccountManager) GetValidatedPeers(accountID string, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
+	return am.integratedPeerValidator.GetValidatedPeers(accountID, peers, extraSettings)
 }

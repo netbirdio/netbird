@@ -48,7 +48,7 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*nbpeer.P
 		return nil, err
 	}
 
-	approvedPeersMap, err := am.GetApprovedPeers(account.Id, nil, account.Settings.Extra)
+	approvedPeersMap, err := am.GetValidatedPeers(account.Id, nil, account.Settings.Extra)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +162,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *nb
 		return nil, status.Errorf(status.NotFound, "peer %s not found", update.ID)
 	}
 
-	update, err = am.integratedPeerValidator.ApprovePeer(update, peer, userID, accountID, am.GetDNSDomain(), account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
+	update, err = am.integratedPeerValidator.ValidatePeer(update, peer, userID, accountID, am.GetDNSDomain(), account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
 	if err != nil {
 		return nil, err
 	}
@@ -300,11 +300,11 @@ func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, erro
 		return nil, status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
 	}
 
-	approvedPeers, err := am.integratedPeerValidator.GetApprovedPeers(account.Id, account.Peers, account.Settings.Extra)
+	validatedPeers, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, account.Peers, account.Settings.Extra)
 	if err != nil {
 		return nil, err
 	}
-	return account.GetPeerNetworkMap(peer.ID, am.dnsDomain, approvedPeers), nil
+	return account.GetPeerNetworkMap(peer.ID, am.dnsDomain, validatedPeers), nil
 }
 
 // GetPeerNetwork returns the Network for a given peer
@@ -490,7 +490,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 
 	am.updateAccountPeers(account)
 
-	approvedPeersMap, err := am.GetApprovedPeers(account.Id, account.Peers, account.Settings.Extra)
+	approvedPeersMap, err := am.GetValidatedPeers(account.Id, account.Peers, account.Settings.Extra)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -532,7 +532,7 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *Network
 		return nil, nil, status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
 	}
 
-	requiresApproval := am.integratedPeerValidator.IsRequiresApproval(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
+	requiresApproval := am.integratedPeerValidator.IsNotValidPeer(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
 	if requiresApproval {
 		emptyMap := &NetworkMap{
 			Network: account.Network.Copy(),
@@ -540,7 +540,7 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *Network
 		return peer, emptyMap, nil
 	}
 
-	approvedPeersMap, err := am.GetApprovedPeers(account.Id, account.Peers, account.Settings.Extra)
+	approvedPeersMap, err := am.GetValidatedPeers(account.Id, account.Peers, account.Settings.Extra)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -610,13 +610,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 		am.StoreEvent(login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
 	}
 
-	isRequiresApproval := am.integratedPeerValidator.IsRequiresApproval(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
-	if isRequiresApproval {
-		emptyMap := &NetworkMap{
-			Network: account.Network.Copy(),
-		}
-		return peer, emptyMap, nil
-	}
+	isRequiresApproval := am.integratedPeerValidator.IsNotValidPeer(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
 	peer, updated := updatePeerMeta(peer, login.Meta, account)
 	if updated {
 		shouldStoreAccount = true
@@ -638,7 +632,14 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 		am.updateAccountPeers(account)
 	}
 
-	approvedPeersMap, err := am.GetApprovedPeers(account.Id, account.Peers, account.Settings.Extra)
+	if isRequiresApproval {
+		emptyMap := &NetworkMap{
+			Network: account.Network.Copy(),
+		}
+		return peer, emptyMap, nil
+	}
+
+	approvedPeersMap, err := am.GetValidatedPeers(account.Id, account.Peers, account.Settings.Extra)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -788,7 +789,7 @@ func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*nbp
 		return nil, err
 	}
 
-	approvedPeersMap, err := am.GetApprovedPeers(account.Id, account.Peers, account.Settings.Extra)
+	approvedPeersMap, err := am.GetValidatedPeers(account.Id, account.Peers, account.Settings.Extra)
 	if err != nil {
 		return nil, err
 	}
@@ -818,7 +819,7 @@ func updatePeerMeta(peer *nbpeer.Peer, meta nbpeer.PeerSystemMeta, account *Acco
 func (am *DefaultAccountManager) updateAccountPeers(account *Account) {
 	peers := account.GetPeers()
 
-	approvedPeersMap, err := am.GetApprovedPeers(account.Id, account.Peers, account.Settings.Extra)
+	approvedPeersMap, err := am.GetValidatedPeers(account.Id, account.Peers, account.Settings.Extra)
 	if err != nil {
 		log.Errorf("failed send out updates to peers, failed to validate peer: %v", err)
 		return

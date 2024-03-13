@@ -25,34 +25,34 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-type MocIntegratedApproval struct {
+type MocIntegratedValidator struct {
 }
 
-func (a MocIntegratedApproval) UpdatePeerApprovalSetting(newExtraSettings *account.ExtraSettings, oldExtraSettings *account.ExtraSettings, peers map[string]*nbpeer.Peer, userID string, accountID string) error {
+func (a MocIntegratedValidator) ValidateExtraSettings(newExtraSettings *account.ExtraSettings, oldExtraSettings *account.ExtraSettings, peers map[string]*nbpeer.Peer, userID string, accountID string) error {
 	return nil
 }
 
-func (a MocIntegratedApproval) ApprovePeer(update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, error) {
+func (a MocIntegratedValidator) ValidatePeer(update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, error) {
 	return update, nil
 }
 
-func (a MocIntegratedApproval) GetApprovedPeers(accountID string, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
-	approvedPeers := make(map[string]struct{})
+func (a MocIntegratedValidator) GetValidatedPeers(accountID string, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
+	validatedPeers := make(map[string]struct{})
 	for _, peer := range peers {
-		approvedPeers[peer.ID] = struct{}{}
+		validatedPeers[peer.ID] = struct{}{}
 	}
-	return approvedPeers, nil
+	return validatedPeers, nil
 }
 
-func (MocIntegratedApproval) PreparePeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer {
+func (MocIntegratedValidator) PreparePeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer {
 	return peer
 }
 
-func (MocIntegratedApproval) IsRequiresApproval(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) bool {
+func (MocIntegratedValidator) IsNotValidPeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) bool {
 	return false
 }
 
-func (MocIntegratedApproval) Stop() {
+func (MocIntegratedValidator) Stop() {
 }
 
 func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Account, userID string) {
@@ -396,12 +396,12 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 			account.Groups[all.ID].Peers = append(account.Groups[all.ID].Peers, peer.ID)
 		}
 
-		approvedPeers := map[string]struct{}{}
+		validatedPeers := map[string]struct{}{}
 		for p := range account.Peers {
-			approvedPeers[p] = struct{}{}
+			validatedPeers[p] = struct{}{}
 		}
 
-		networkMap := account.GetPeerNetworkMap(testCase.peerID, "netbird.io", approvedPeers)
+		networkMap := account.GetPeerNetworkMap(testCase.peerID, "netbird.io", validatedPeers)
 		assert.Len(t, networkMap.Peers, len(testCase.expectedPeers))
 		assert.Len(t, networkMap.OfflinePeers, len(testCase.expectedOfflinePeers))
 	}
@@ -2257,7 +2257,7 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedApproval{})
+	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{})
 }
 
 func createStore(t *testing.T) (Store, error) {

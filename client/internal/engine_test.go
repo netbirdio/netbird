@@ -1048,7 +1048,7 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
-	ia, _ := integrations.NewIntegratedApproval(eventStore)
+	ia, _ := integrations.NewIntegratedValidator(eventStore)
 	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "", eventStore, nil, false, ia)
 	if err != nil {
 		return nil, "", err

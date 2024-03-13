@@ -605,7 +605,7 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 	am := DefaultAccountManager{
 		Store:                   store,
 		eventStore:              &activity.InMemoryEventStore{},
-		integratedPeerValidator: MocIntegratedApproval{},
+		integratedPeerValidator: MocIntegratedValidator{},
 	}
 
 	testCases := []struct {
