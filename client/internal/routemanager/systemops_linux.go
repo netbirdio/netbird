@@ -58,11 +58,12 @@ func getSetupRules() []ruleParams {
 // to ensure proper traffic flow for management, locally configured routes, and VPN traffic.
 //
 // Rule 1 (Management Traffic Priority): Ensures that traffic marked with the 'nbnet.NetbirdFwmark' is always
-// prioritized and routed via the main routing table. This rule prevents potential routes in the netbird routing table
-// to redirect the management traffic via the VPN.
+// prioritized and routed via the main routing table. This rule prevents any non-local routes in any table to match the
+// management traffic.
 //
-// Rule 2 (Local Route Precedence): Safeguards locally installed routes by giving them precedence over
-// potential routes received and configured for the VPN.
+// Rule 2 (Main Route Precedence): Safeguards locally installed routes by giving them precedence over
+// potential routes received and configured for the VPN.  This rule is skipped for the default route and routes
+// that are not in the main table.
 //
 // Rule 3 (VPN Traffic Routing): Directs all remaining traffic to the 'NetbirdVPNTableID' custom routing table.
 // This table is where a default route or other specific routes received from the management server are configured,
