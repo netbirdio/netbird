@@ -162,11 +162,9 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *nb
 		return nil, status.Errorf(status.NotFound, "peer %s not found", update.ID)
 	}
 
-	if update.Status != nil && !update.Status.RequiresApproval {
-		update, err = am.integratedPeerValidator.ApprovePeer(update, peer, userID, accountID, am.GetDNSDomain(), account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
-		if err != nil {
-			return nil, err
-		}
+	update, err = am.integratedPeerValidator.ApprovePeer(update, peer, userID, accountID, am.GetDNSDomain(), account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
+	if err != nil {
+		return nil, err
 	}
 
 	if peer.SSHEnabled != update.SSHEnabled {
