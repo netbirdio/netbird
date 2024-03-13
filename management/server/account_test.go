@@ -396,7 +396,12 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 			account.Groups[all.ID].Peers = append(account.Groups[all.ID].Peers, peer.ID)
 		}
 
-		networkMap := account.GetPeerNetworkMap(testCase.peerID, "netbird.io", nil)
+		approvedPeers := map[string]struct{}{}
+		for p := range account.Peers {
+			approvedPeers[p] = struct{}{}
+		}
+
+		networkMap := account.GetPeerNetworkMap(testCase.peerID, "netbird.io", approvedPeers)
 		assert.Len(t, networkMap.Peers, len(testCase.expectedPeers))
 		assert.Len(t, networkMap.OfflinePeers, len(testCase.expectedOfflinePeers))
 	}
