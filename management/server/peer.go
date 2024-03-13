@@ -542,7 +542,7 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *Network
 		return peer, emptyMap, nil
 	}
 
-	approvedPeersMap, err := am.GetApprovedPeers(account.Id, nil, account.Settings.Extra)
+	approvedPeersMap, err := am.GetApprovedPeers(account.Id, account.Peers, account.Settings.Extra)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -790,7 +790,7 @@ func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*nbp
 		return nil, err
 	}
 
-	approvedPeersMap, err := am.GetApprovedPeers(account.Id, nil, account.Settings.Extra)
+	approvedPeersMap, err := am.GetApprovedPeers(account.Id, account.Peers, account.Settings.Extra)
 	if err != nil {
 		return nil, err
 	}
