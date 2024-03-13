@@ -1,5 +1,4 @@
 //go:build windows
-// +build windows
 
 package routemanager
 
@@ -47,4 +46,12 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 		}
 	}
 	return prefixList, nil
+}
+
+func addToRouteTableIfNoExists(prefix netip.Prefix, addr string, intf string) error {
+	return genericAddToRouteTableIfNoExists(prefix, addr, intf)
+}
+
+func removeFromRouteTableIfNonSystem(prefix netip.Prefix, addr string, intf string) error {
+	return genericRemoveFromRouteTableIfNonSystem(prefix, addr, intf)
 }

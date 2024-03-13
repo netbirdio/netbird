@@ -18,6 +18,8 @@ import (
 )
 
 var defaultv4 = netip.PrefixFrom(netip.IPv4Unspecified(), 0)
+
+// nolint:unused
 var defaultv6 = netip.PrefixFrom(netip.IPv6Unspecified(), 0)
 
 // Manager is a route manager interface
