@@ -166,6 +166,7 @@ func TestChecks_Validate(t *testing.T) {
 		{
 			name: "Valid checks version",
 			checks: Checks{
+				Name: "default",
 				Checks: ChecksDefinition{
 					NBVersionCheck: &NBVersionCheck{
 						MinVersion: "0.25.0",
