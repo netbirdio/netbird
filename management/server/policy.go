@@ -53,6 +53,17 @@ const (
 )
 
 const (
+	// DefaultRuleName is a name for the Default rule that is created for every account
+	DefaultRuleName = "Default"
+	// DefaultRuleDescription is a description for the Default rule that is created for every account
+	DefaultRuleDescription = "This is a default rule that allows connections between all the resources"
+	// DefaultPolicyName is a name for the Default policy that is created for every account
+	DefaultPolicyName = "Default"
+	// DefaultPolicyDescription is a description for the Default policy that is created for every account
+	DefaultPolicyDescription = "This is a default policy that allows connections between all the resources"
+)
+
+const (
 	firewallRuleDirectionIN  = 0
 	firewallRuleDirectionOUT = 1
 )
@@ -117,19 +128,6 @@ func (pm *PolicyRule) Copy() *PolicyRule {
 	copy(rule.Sources, pm.Sources)
 	copy(rule.Ports, pm.Ports)
 	return rule
-}
-
-// ToRule converts the PolicyRule to a legacy representation of the Rule (for backwards compatibility)
-func (pm *PolicyRule) ToRule() *Rule {
-	return &Rule{
-		ID:          pm.ID,
-		Name:        pm.Name,
-		Description: pm.Description,
-		Disabled:    !pm.Enabled,
-		Flow:        TrafficFlowBidirect,
-		Destination: pm.Destinations,
-		Source:      pm.Sources,
-	}
 }
 
 // Policy of the Rego query
