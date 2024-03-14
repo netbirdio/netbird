@@ -89,7 +89,7 @@ func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
 			if isHealthCheckMessage(buf[:n]) {
 				log.Debugf("received healthcheck request from %s", a.String())
 				m.HandleHeathCheckMessage(buf[:n], m.params.UDPConn, a)
-				return
+				continue
 			}
 
 			msg := &stun.Message{
