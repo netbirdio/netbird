@@ -100,6 +100,13 @@ message Environment {
   string platform = 2;
 }
 
+// Config is a message with local configuration settings of the peer
+message Config {
+  bool   rosenpassEnabled = 1;
+  bool   rosenpassPermissive = 2;
+  bool   serverSSHAllowed = 3;
+}
+
 // PeerSystemMeta is machine meta data like OS and version.
 message PeerSystemMeta {
   string hostname = 1;
@@ -117,9 +124,7 @@ message PeerSystemMeta {
   string sysProductName = 13;
   string sysManufacturer = 14;
   Environment environment = 15;
-  bool   rosenpassEnabled = 16;
-  bool   rosenpassPermissive = 17;
-  bool   serverSSHAllowed = 18;
+  Config config = 16;
 }
 
 message LoginResponse {
