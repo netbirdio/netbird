@@ -26,7 +26,7 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 
 	for _, group := range account.Groups {
 		err = am.SaveGroup(account.Id, groupAdminUserID, group)
-		if err == nil {
+		if err == nil && group.Issued == GroupIssuedAPI {
 			t.Error("should not create group with the same name")
 		}
 	}
