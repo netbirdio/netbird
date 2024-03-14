@@ -227,9 +227,6 @@ type Account struct {
 	PostureChecks          []*posture.Checks                 `gorm:"foreignKey:AccountID;references:id"`
 	// Settings is a dictionary of Account settings
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
-	// deprecated on store and api level
-	Rules  map[string]*Rule `json:"-" gorm:"-"`
-	RulesG []Rule           `json:"-" gorm:"-"`
 }
 
 type UserInfo struct {
