@@ -34,6 +34,8 @@ type peerStateDetailOutput struct {
 	LastWireguardHandshake time.Time        `json:"lastWireguardHandshake" yaml:"lastWireguardHandshake"`
 	TransferReceived       int64            `json:"transferReceived" yaml:"transferReceived"`
 	TransferSent           int64            `json:"transferSent" yaml:"transferSent"`
+	RosenpassEnabled       bool             `json:"quantumResistance" yaml:"quantumResistance"`
+	Routes                 []string         `json:"routes" yaml:"routes"`
 }
 
 type peersStateOutput struct {
@@ -71,17 +73,28 @@ type iceCandidateType struct {
 	Remote string `json:"remote" yaml:"remote"`
 }
 
+type nsServerGroupStateOutput struct {
+	Servers []string `json:"servers" yaml:"servers"`
+	Domains []string `json:"domains" yaml:"domains"`
+	Enabled bool     `json:"enabled" yaml:"enabled"`
+	Error   string   `json:"error" yaml:"error"`
+}
+
 type statusOutputOverview struct {
-	Peers           peersStateOutput      `json:"peers" yaml:"peers"`
-	CliVersion      string                `json:"cliVersion" yaml:"cliVersion"`
-	DaemonVersion   string                `json:"daemonVersion" yaml:"daemonVersion"`
-	ManagementState managementStateOutput `json:"management" yaml:"management"`
-	SignalState     signalStateOutput     `json:"signal" yaml:"signal"`
-	Relays          relayStateOutput      `json:"relays" yaml:"relays"`
-	IP              string                `json:"netbirdIp" yaml:"netbirdIp"`
-	PubKey          string                `json:"publicKey" yaml:"publicKey"`
-	KernelInterface bool                  `json:"usesKernelInterface" yaml:"usesKernelInterface"`
-	FQDN            string                `json:"fqdn" yaml:"fqdn"`
+	Peers               peersStateOutput           `json:"peers" yaml:"peers"`
+	CliVersion          string                     `json:"cliVersion" yaml:"cliVersion"`
+	DaemonVersion       string                     `json:"daemonVersion" yaml:"daemonVersion"`
+	ManagementState     managementStateOutput      `json:"management" yaml:"management"`
+	SignalState         signalStateOutput          `json:"signal" yaml:"signal"`
+	Relays              relayStateOutput           `json:"relays" yaml:"relays"`
+	IP                  string                     `json:"netbirdIp" yaml:"netbirdIp"`
+	PubKey              string                     `json:"publicKey" yaml:"publicKey"`
+	KernelInterface     bool                       `json:"usesKernelInterface" yaml:"usesKernelInterface"`
+	FQDN                string                     `json:"fqdn" yaml:"fqdn"`
+	RosenpassEnabled    bool                       `json:"quantumResistance" yaml:"quantumResistance"`
+	RosenpassPermissive bool                       `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
+	Routes              []string                   `json:"routes" yaml:"routes"`
+	NSServerGroups      []nsServerGroupStateOutput `json:"dnsServers" yaml:"dnsServers"`
 }
 
 var (
@@ -165,7 +178,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 	case yamlFlag:
 		statusOutputString, err = parseToYAML(outputInformationHolder)
 	default:
-		statusOutputString = parseGeneralSummary(outputInformationHolder, false, false)
+		statusOutputString = parseGeneralSummary(outputInformationHolder, false, false, false)
 	}
 
 	if err != nil {
@@ -253,16 +266,20 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 	peersOverview := mapPeers(resp.GetFullStatus().GetPeers())
 
 	overview := statusOutputOverview{
-		Peers:           peersOverview,
-		CliVersion:      version.NetbirdVersion(),
-		DaemonVersion:   resp.GetDaemonVersion(),
-		ManagementState: managementOverview,
-		SignalState:     signalOverview,
-		Relays:          relayOverview,
-		IP:              pbFullStatus.GetLocalPeerState().GetIP(),
-		PubKey:          pbFullStatus.GetLocalPeerState().GetPubKey(),
-		KernelInterface: pbFullStatus.GetLocalPeerState().GetKernelInterface(),
-		FQDN:            pbFullStatus.GetLocalPeerState().GetFqdn(),
+		Peers:               peersOverview,
+		CliVersion:          version.NetbirdVersion(),
+		DaemonVersion:       resp.GetDaemonVersion(),
+		ManagementState:     managementOverview,
+		SignalState:         signalOverview,
+		Relays:              relayOverview,
+		IP:                  pbFullStatus.GetLocalPeerState().GetIP(),
+		PubKey:              pbFullStatus.GetLocalPeerState().GetPubKey(),
+		KernelInterface:     pbFullStatus.GetLocalPeerState().GetKernelInterface(),
+		FQDN:                pbFullStatus.GetLocalPeerState().GetFqdn(),
+		RosenpassEnabled:    pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
+		RosenpassPermissive: pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
+		Routes:              pbFullStatus.GetLocalPeerState().GetRoutes(),
+		NSServerGroups:      mapNSGroups(pbFullStatus.GetDnsServers()),
 	}
 
 	return overview
@@ -292,6 +309,19 @@ func mapRelays(relays []*proto.RelayState) relayStateOutput {
 		Available: relaysAvailable,
 		Details:   relayStateDetail,
 	}
+}
+
+func mapNSGroups(servers []*proto.NSGroupState) []nsServerGroupStateOutput {
+	mappedNSGroups := make([]nsServerGroupStateOutput, 0, len(servers))
+	for _, pbNsGroupServer := range servers {
+		mappedNSGroups = append(mappedNSGroups, nsServerGroupStateOutput{
+			Servers: pbNsGroupServer.GetServers(),
+			Domains: pbNsGroupServer.GetDomains(),
+			Enabled: pbNsGroupServer.GetEnabled(),
+			Error:   pbNsGroupServer.GetError(),
+		})
+	}
+	return mappedNSGroups
 }
 
 func mapPeers(peers []*proto.PeerState) peersStateOutput {
@@ -346,6 +376,8 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 			LastWireguardHandshake: lastHandshake,
 			TransferReceived:       transferReceived,
 			TransferSent:           transferSent,
+			RosenpassEnabled:       pbPeerState.GetRosenpassEnabled(),
+			Routes:                 pbPeerState.GetRoutes(),
 		}
 
 		peersStateDetail = append(peersStateDetail, peerState)
@@ -395,8 +427,7 @@ func parseToYAML(overview statusOutputOverview) (string, error) {
 	return string(yamlBytes), nil
 }
 
-func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays bool) string {
-
+func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays bool, showNameServers bool) string {
 	var managementConnString string
 	if overview.ManagementState.Connected {
 		managementConnString = "Connected"
@@ -432,7 +463,7 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 		interfaceIP = "N/A"
 	}
 
-	var relayAvailableString string
+	var relaysString string
 	if showRelays {
 		for _, relay := range overview.Relays.Details {
 			available := "Available"
@@ -441,12 +472,53 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 				available = "Unavailable"
 				reason = fmt.Sprintf(", reason: %s", relay.Error)
 			}
-			relayAvailableString += fmt.Sprintf("\n  [%s] is %s%s", relay.URI, available, reason)
-
+			relaysString += fmt.Sprintf("\n  [%s] is %s%s", relay.URI, available, reason)
 		}
 	} else {
+		relaysString = fmt.Sprintf("%d/%d Available", overview.Relays.Available, overview.Relays.Total)
+	}
 
-		relayAvailableString = fmt.Sprintf("%d/%d Available", overview.Relays.Available, overview.Relays.Total)
+	routes := "-"
+	if len(overview.Routes) > 0 {
+		sort.Strings(overview.Routes)
+		routes = strings.Join(overview.Routes, ", ")
+	}
+
+	var dnsServersString string
+	if showNameServers {
+		for _, nsServerGroup := range overview.NSServerGroups {
+			enabled := "Available"
+			if !nsServerGroup.Enabled {
+				enabled = "Unavailable"
+			}
+			errorString := ""
+			if nsServerGroup.Error != "" {
+				errorString = fmt.Sprintf(", reason: %s", nsServerGroup.Error)
+				errorString = strings.TrimSpace(errorString)
+			}
+
+			domainsString := strings.Join(nsServerGroup.Domains, ", ")
+			if domainsString == "" {
+				domainsString = "." // Show "." for the default zone
+			}
+			dnsServersString += fmt.Sprintf(
+				"\n  [%s] for [%s] is %s%s",
+				strings.Join(nsServerGroup.Servers, ", "),
+				domainsString,
+				enabled,
+				errorString,
+			)
+		}
+	} else {
+		dnsServersString = fmt.Sprintf("%d/%d Available", countEnabled(overview.NSServerGroups), len(overview.NSServerGroups))
+	}
+
+	rosenpassEnabledStatus := "false"
+	if overview.RosenpassEnabled {
+		rosenpassEnabledStatus = "true"
+		if overview.RosenpassPermissive {
+			rosenpassEnabledStatus = "true (permissive)" //nolint:gosec
+		}
 	}
 
 	peersCountString := fmt.Sprintf("%d/%d Connected", overview.Peers.Connected, overview.Peers.Total)
@@ -457,26 +529,32 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 			"Management: %s\n"+
 			"Signal: %s\n"+
 			"Relays: %s\n"+
+			"Nameservers: %s\n"+
 			"FQDN: %s\n"+
 			"NetBird IP: %s\n"+
 			"Interface type: %s\n"+
+			"Quantum resistance: %s\n"+
+			"Routes: %s\n"+
 			"Peers count: %s\n",
 		overview.DaemonVersion,
 		version.NetbirdVersion(),
 		managementConnString,
 		signalConnString,
-		relayAvailableString,
+		relaysString,
+		dnsServersString,
 		overview.FQDN,
 		interfaceIP,
 		interfaceTypeString,
+		rosenpassEnabledStatus,
+		routes,
 		peersCountString,
 	)
 	return summary
 }
 
 func parseToFullDetailSummary(overview statusOutputOverview) string {
-	parsedPeersString := parsePeers(overview.Peers)
-	summary := parseGeneralSummary(overview, true, true)
+	parsedPeersString := parsePeers(overview.Peers, overview.RosenpassEnabled, overview.RosenpassPermissive)
+	summary := parseGeneralSummary(overview, true, true, true)
 
 	return fmt.Sprintf(
 		"Peers detail:"+
@@ -487,7 +565,7 @@ func parseToFullDetailSummary(overview statusOutputOverview) string {
 	)
 }
 
-func parsePeers(peers peersStateOutput) string {
+func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bool) string {
 	var (
 		peersString = ""
 	)
@@ -518,9 +596,32 @@ func parsePeers(peers peersStateOutput) string {
 			lastStatusUpdate = peerState.LastStatusUpdate.Format("2006-01-02 15:04:05")
 		}
 
-		lastWireguardHandshake := "-"
+		lastWireGuardHandshake := "-"
 		if !peerState.LastWireguardHandshake.IsZero() && peerState.LastWireguardHandshake != time.Unix(0, 0) {
-			lastWireguardHandshake = peerState.LastWireguardHandshake.Format("2006-01-02 15:04:05")
+			lastWireGuardHandshake = peerState.LastWireguardHandshake.Format("2006-01-02 15:04:05")
+		}
+
+		rosenpassEnabledStatus := "false"
+		if rosenpassEnabled {
+			if peerState.RosenpassEnabled {
+				rosenpassEnabledStatus = "true"
+			} else {
+				if rosenpassPermissive {
+					rosenpassEnabledStatus = "false (remote didn't enable quantum resistance)"
+				} else {
+					rosenpassEnabledStatus = "false (connection won't work without a permissive mode)"
+				}
+			}
+		} else {
+			if peerState.RosenpassEnabled {
+				rosenpassEnabledStatus = "false (connection might not work without a remote permissive mode)"
+			}
+		}
+
+		routes := "-"
+		if len(peerState.Routes) > 0 {
+			sort.Strings(peerState.Routes)
+			routes = strings.Join(peerState.Routes, ", ")
 		}
 
 		peerString := fmt.Sprintf(
@@ -534,8 +635,10 @@ func parsePeers(peers peersStateOutput) string {
 				"  ICE candidate (Local/Remote): %s/%s\n"+
 				"  ICE candidate endpoints (Local/Remote): %s/%s\n"+
 				"  Last connection update: %s\n"+
-				"  Last Wireguard handshake: %s\n"+
-				"  Transfer status (received/sent) %s/%s\n",
+				"  Last WireGuard handshake: %s\n"+
+				"  Transfer status (received/sent) %s/%s\n"+
+				"  Quantum resistance: %s\n"+
+				"  Routes: %s\n",
 			peerState.FQDN,
 			peerState.IP,
 			peerState.PubKey,
@@ -547,9 +650,11 @@ func parsePeers(peers peersStateOutput) string {
 			localICEEndpoint,
 			remoteICEEndpoint,
 			lastStatusUpdate,
-			lastWireguardHandshake,
+			lastWireGuardHandshake,
 			toIEC(peerState.TransferReceived),
 			toIEC(peerState.TransferSent),
+			rosenpassEnabledStatus,
+			routes,
 		)
 
 		peersString += peerString
@@ -602,4 +707,14 @@ func toIEC(b int64) string {
 	}
 	return fmt.Sprintf("%.1f %ciB",
 		float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+func countEnabled(dnsServers []nsServerGroupStateOutput) int {
+	count := 0
+	for _, server := range dnsServers {
+		if server.Enabled {
+			count++
+		}
+	}
+	return count
 }

@@ -110,7 +110,7 @@ type AccountManager interface {
 	DeleteNameServerGroup(accountID, nsGroupID, userID string) error
 	ListNameServerGroups(accountID string, userID string) ([]*nbdns.NameServerGroup, error)
 	GetDNSDomain() string
-	StoreEvent(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any)
+	StoreEvent(initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
 	GetEvents(accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettings(accountID string, userID string) (*DNSSettings, error)
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
@@ -125,6 +125,7 @@ type AccountManager interface {
 	SavePostureChecks(accountID, userID string, postureChecks *posture.Checks) error
 	DeletePostureChecks(accountID, postureChecksID, userID string) error
 	ListPostureChecks(accountID, userID string) ([]*posture.Checks, error)
+	GetIdpManager() idp.Manager
 }
 
 type DefaultAccountManager struct {
@@ -204,6 +205,7 @@ type Account struct {
 
 	// User.Id it was created by
 	CreatedBy              string
+	CreatedAt              time.Time
 	Domain                 string `gorm:"index"`
 	DomainCategory         string
 	IsDomainPrimaryAccount bool
@@ -453,6 +455,11 @@ func (a *Account) GetNextPeerExpiration() (time.Duration, bool) {
 		}
 		_, duration := peer.LoginExpired(a.Settings.PeerLoginExpiration)
 		if nextExpiry == nil || duration < *nextExpiry {
+			// if expiration is below 1s return 1s duration
+			// this avoids issues with ticker that can't be set to < 0
+			if duration < time.Second {
+				return time.Second, true
+			}
 			nextExpiry = &duration
 		}
 	}
@@ -674,6 +681,7 @@ func (a *Account) Copy() *Account {
 	return &Account{
 		Id:                     a.Id,
 		CreatedBy:              a.CreatedBy,
+		CreatedAt:              a.CreatedAt,
 		Domain:                 a.Domain,
 		DomainCategory:         a.DomainCategory,
 		IsDomainPrimaryAccount: a.IsDomainPrimaryAccount,
@@ -891,6 +899,10 @@ func (am *DefaultAccountManager) GetExternalCacheManager() ExternalCacheManager 
 	return am.externalCacheManager
 }
 
+func (am *DefaultAccountManager) GetIdpManager() idp.Manager {
+	return am.idpManager
+}
+
 // UpdateAccountSettings updates Account settings.
 // Only users with role UserRoleAdmin can update the account.
 // User that performs the update has to belong to the account.
@@ -908,12 +920,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccountByUser(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	err = additions.ValidateExtraSettings(newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID, am.eventStore)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -925,6 +932,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 
 	if !user.HasAdminPower() {
 		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
+	}
+
+	err = additions.ValidateExtraSettings(newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID, am.eventStore)
+	if err != nil {
+		return nil, err
 	}
 
 	oldSettings := account.Settings
@@ -1107,6 +1119,7 @@ func (am *DefaultAccountManager) DeleteAccount(accountID, userID string) error {
 
 // GetAccountByUserOrAccountID looks for an account by user or accountID, if no account is provided and
 // userID doesn't have an account associated with it, one account is created
+// domain is used to create a new account if no account is found
 func (am *DefaultAccountManager) GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error) {
 	if accountID != "" {
 		return am.Store.GetAccount(accountID)
@@ -1348,16 +1361,21 @@ func (am *DefaultAccountManager) removeUserFromCache(accountID, userID string) e
 func (am *DefaultAccountManager) updateAccountDomainAttributes(account *Account, claims jwtclaims.AuthorizationClaims,
 	primaryDomain bool,
 ) error {
-	account.IsDomainPrimaryAccount = primaryDomain
 
-	lowerDomain := strings.ToLower(claims.Domain)
-	userObj := account.Users[claims.UserId]
-	if account.Domain != lowerDomain && userObj.Role == UserRoleAdmin {
-		account.Domain = lowerDomain
-	}
-	// prevent updating category for different domain until admin logs in
-	if account.Domain == lowerDomain {
-		account.DomainCategory = claims.DomainCategory
+	if claims.Domain != "" {
+		account.IsDomainPrimaryAccount = primaryDomain
+
+		lowerDomain := strings.ToLower(claims.Domain)
+		userObj := account.Users[claims.UserId]
+		if account.Domain != lowerDomain && userObj.Role == UserRoleAdmin {
+			account.Domain = lowerDomain
+		}
+		// prevent updating category for different domain until admin logs in
+		if account.Domain == lowerDomain {
+			account.DomainCategory = claims.DomainCategory
+		}
+	} else {
+		log.Errorf("claims don't contain a valid domain, skipping domain attributes update. Received claims: %v", claims)
 	}
 
 	err := am.Store.SaveAccount(account)
@@ -1791,7 +1809,7 @@ func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(claims jwtclaims.Aut
 	return nil
 }
 
-// addAllGroup to account object if it doesn't exists
+// addAllGroup to account object if it doesn't exist
 func addAllGroup(account *Account) error {
 	if len(account.Groups) == 0 {
 		allGroup := &Group{
@@ -1849,6 +1867,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 
 	acc := &Account{
 		Id:               accountID,
+		CreatedAt:        time.Now().UTC(),
 		SetupKeys:        setupKeys,
 		Network:          network,
 		Peers:            peers,

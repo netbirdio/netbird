@@ -74,6 +74,12 @@ const (
 	NameserverNsTypeUdp NameserverNsType = "udp"
 )
 
+// Defines values for PeerNetworkRangeCheckAction.
+const (
+	PeerNetworkRangeCheckActionAllow PeerNetworkRangeCheckAction = "allow"
+	PeerNetworkRangeCheckActionDeny  PeerNetworkRangeCheckAction = "deny"
+)
+
 // Defines values for PolicyRuleAction.
 const (
 	PolicyRuleActionAccept PolicyRuleAction = "accept"
@@ -186,10 +192,15 @@ type AccountSettings struct {
 type Checks struct {
 	// GeoLocationCheck Posture check for geo location
 	GeoLocationCheck *GeoLocationCheck `json:"geo_location_check,omitempty"`
-	NbVersionCheck   *NBVersionCheck   `json:"nb_version_check,omitempty"`
+
+	// NbVersionCheck Posture check for the version of operating system
+	NbVersionCheck *NBVersionCheck `json:"nb_version_check,omitempty"`
 
 	// OsVersionCheck Posture check for the version of operating system
 	OsVersionCheck *OSVersionCheck `json:"os_version_check,omitempty"`
+
+	// PeerNetworkRangeCheck Posture check for allow or deny access based on peer local network addresses
+	PeerNetworkRangeCheck *PeerNetworkRangeCheck `json:"peer_network_range_check,omitempty"`
 }
 
 // City Describe city geographical location information
@@ -324,13 +335,13 @@ type MinKernelVersionCheck struct {
 	MinKernelVersion string `json:"min_kernel_version"`
 }
 
-// MinVersionCheck defines model for MinVersionCheck.
+// MinVersionCheck Posture check for the version of operating system
 type MinVersionCheck struct {
 	// MinVersion Minimum acceptable version
 	MinVersion string `json:"min_version"`
 }
 
-// NBVersionCheck defines model for NBVersionCheck.
+// NBVersionCheck Posture check for the version of operating system
 type NBVersionCheck = MinVersionCheck
 
 // Nameserver defines model for Nameserver.
@@ -407,9 +418,14 @@ type NameserverGroupRequest struct {
 
 // OSVersionCheck Posture check for the version of operating system
 type OSVersionCheck struct {
+	// Android Posture check for the version of operating system
 	Android *MinVersionCheck `json:"android,omitempty"`
-	Darwin  *MinVersionCheck `json:"darwin,omitempty"`
-	Ios     *MinVersionCheck `json:"ios,omitempty"`
+
+	// Darwin Posture check for the version of operating system
+	Darwin *MinVersionCheck `json:"darwin,omitempty"`
+
+	// Ios Posture check for the version of operating system
+	Ios *MinVersionCheck `json:"ios,omitempty"`
 
 	// Linux Posture check with the kernel version
 	Linux *MinKernelVersionCheck `json:"linux,omitempty"`
@@ -427,22 +443,22 @@ type Peer struct {
 	ApprovalRequired *bool `json:"approval_required,omitempty"`
 
 	// CityName Commonly used English name of the city
-	CityName *CityName `json:"city_name,omitempty"`
+	CityName CityName `json:"city_name"`
 
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
 	// ConnectionIp Peer's public connection IP address
-	ConnectionIp *string `json:"connection_ip,omitempty"`
+	ConnectionIp string `json:"connection_ip"`
 
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
-	CountryCode *CountryCode `json:"country_code,omitempty"`
+	CountryCode CountryCode `json:"country_code"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
 	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
-	GeonameId *int `json:"geoname_id,omitempty"`
+	GeonameId int `json:"geoname_id"`
 
 	// Groups Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
@@ -457,7 +473,7 @@ type Peer struct {
 	Ip string `json:"ip"`
 
 	// KernelVersion Peer's operating system kernel version
-	KernelVersion *string `json:"kernel_version,omitempty"`
+	KernelVersion string `json:"kernel_version"`
 
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
@@ -481,10 +497,10 @@ type Peer struct {
 	SshEnabled bool `json:"ssh_enabled"`
 
 	// UiVersion Peer's desktop UI version
-	UiVersion *string `json:"ui_version,omitempty"`
+	UiVersion string `json:"ui_version"`
 
 	// UserId User ID of the user that enrolled this peer
-	UserId *string `json:"user_id,omitempty"`
+	UserId string `json:"user_id"`
 
 	// Version Peer's daemon or cli version
 	Version string `json:"version"`
@@ -496,22 +512,22 @@ type PeerBase struct {
 	ApprovalRequired *bool `json:"approval_required,omitempty"`
 
 	// CityName Commonly used English name of the city
-	CityName *CityName `json:"city_name,omitempty"`
+	CityName CityName `json:"city_name"`
 
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
 	// ConnectionIp Peer's public connection IP address
-	ConnectionIp *string `json:"connection_ip,omitempty"`
+	ConnectionIp string `json:"connection_ip"`
 
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
-	CountryCode *CountryCode `json:"country_code,omitempty"`
+	CountryCode CountryCode `json:"country_code"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
 	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
-	GeonameId *int `json:"geoname_id,omitempty"`
+	GeonameId int `json:"geoname_id"`
 
 	// Groups Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
@@ -526,7 +542,7 @@ type PeerBase struct {
 	Ip string `json:"ip"`
 
 	// KernelVersion Peer's operating system kernel version
-	KernelVersion *string `json:"kernel_version,omitempty"`
+	KernelVersion string `json:"kernel_version"`
 
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
@@ -550,10 +566,10 @@ type PeerBase struct {
 	SshEnabled bool `json:"ssh_enabled"`
 
 	// UiVersion Peer's desktop UI version
-	UiVersion *string `json:"ui_version,omitempty"`
+	UiVersion string `json:"ui_version"`
 
 	// UserId User ID of the user that enrolled this peer
-	UserId *string `json:"user_id,omitempty"`
+	UserId string `json:"user_id"`
 
 	// Version Peer's daemon or cli version
 	Version string `json:"version"`
@@ -568,22 +584,22 @@ type PeerBatch struct {
 	ApprovalRequired *bool `json:"approval_required,omitempty"`
 
 	// CityName Commonly used English name of the city
-	CityName *CityName `json:"city_name,omitempty"`
+	CityName CityName `json:"city_name"`
 
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
 	// ConnectionIp Peer's public connection IP address
-	ConnectionIp *string `json:"connection_ip,omitempty"`
+	ConnectionIp string `json:"connection_ip"`
 
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
-	CountryCode *CountryCode `json:"country_code,omitempty"`
+	CountryCode CountryCode `json:"country_code"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
 	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
-	GeonameId *int `json:"geoname_id,omitempty"`
+	GeonameId int `json:"geoname_id"`
 
 	// Groups Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
@@ -598,7 +614,7 @@ type PeerBatch struct {
 	Ip string `json:"ip"`
 
 	// KernelVersion Peer's operating system kernel version
-	KernelVersion *string `json:"kernel_version,omitempty"`
+	KernelVersion string `json:"kernel_version"`
 
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
@@ -622,10 +638,10 @@ type PeerBatch struct {
 	SshEnabled bool `json:"ssh_enabled"`
 
 	// UiVersion Peer's desktop UI version
-	UiVersion *string `json:"ui_version,omitempty"`
+	UiVersion string `json:"ui_version"`
 
 	// UserId User ID of the user that enrolled this peer
-	UserId *string `json:"user_id,omitempty"`
+	UserId string `json:"user_id"`
 
 	// Version Peer's daemon or cli version
 	Version string `json:"version"`
@@ -639,6 +655,18 @@ type PeerMinimum struct {
 	// Name Peer's hostname
 	Name string `json:"name"`
 }
+
+// PeerNetworkRangeCheck Posture check for allow or deny access based on peer local network addresses
+type PeerNetworkRangeCheck struct {
+	// Action Action to take upon policy match
+	Action PeerNetworkRangeCheckAction `json:"action"`
+
+	// Ranges List of peer network ranges in CIDR notation
+	Ranges []string `json:"ranges"`
+}
+
+// PeerNetworkRangeCheckAction Action to take upon policy match
+type PeerNetworkRangeCheckAction string
 
 // PeerRequest defines model for PeerRequest.
 type PeerRequest struct {

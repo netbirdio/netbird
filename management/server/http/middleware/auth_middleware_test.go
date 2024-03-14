@@ -10,6 +10,7 @@ import (
 	"github.com/golang-jwt/jwt"
 
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
@@ -88,38 +89,67 @@ func mockCheckUserAccessByJWTGroups(claims jwtclaims.AuthorizationClaims) error 
 func TestAuthMiddleware_Handler(t *testing.T) {
 	tt := []struct {
 		name               string
+		path               string
 		authHeader         string
 		expectedStatusCode int
+		shouldBypassAuth   bool
 	}{
 		{
 			name:               "Valid PAT Token",
+			path:               "/test",
 			authHeader:         "Token " + PAT,
 			expectedStatusCode: 200,
 		},
 		{
 			name:               "Invalid PAT Token",
+			path:               "/test",
 			authHeader:         "Token " + wrongToken,
 			expectedStatusCode: 401,
 		},
 		{
 			name:               "Fallback to PAT Token",
+			path:               "/test",
 			authHeader:         "Bearer " + PAT,
 			expectedStatusCode: 200,
 		},
 		{
 			name:               "Valid JWT Token",
+			path:               "/test",
 			authHeader:         "Bearer " + JWT,
 			expectedStatusCode: 200,
 		},
 		{
 			name:               "Invalid JWT Token",
+			path:               "/test",
 			authHeader:         "Bearer " + wrongToken,
 			expectedStatusCode: 401,
 		},
 		{
 			name:               "Basic Auth",
+			path:               "/test",
 			authHeader:         "Basic  " + PAT,
 			expectedStatusCode: 401,
+		},
+		{
+			name:               "Webhook Path Bypass",
+			path:               "/webhook",
+			authHeader:         "",
+			expectedStatusCode: 200,
+			shouldBypassAuth:   true,
+		},
+		{
+			name:               "Webhook Path Bypass with Subpath",
+			path:               "/webhook/test",
+			authHeader:         "",
+			expectedStatusCode: 200,
+			shouldBypassAuth:   true,
+		},
+		{
+			name:               "Different Webhook Path",
+			path:               "/webhooktest",
+			authHeader:         "",
+			expectedStatusCode: 401,
+			shouldBypassAuth:   false,
 		},
 	}
 
@@ -146,7 +176,14 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "http://testing", nil)
+			if tc.shouldBypassAuth {
+				err := bypass.AddBypassPath(tc.path)
+				if err != nil {
+					t.Fatalf("failed to add bypass path: %v", err)
+				}
+			}
+
+			req := httptest.NewRequest("GET", "http://testing"+tc.path, nil)
 			req.Header.Set("Authorization", tc.authHeader)
 			rec := httptest.NewRecorder()
 
@@ -159,5 +196,4 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 			}
 		})
 	}
-
 }

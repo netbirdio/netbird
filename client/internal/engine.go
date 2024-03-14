@@ -1188,14 +1188,21 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		dnsServer := dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, *dnsConfig, e.mobileDep.NetworkChangeListener)
+		dnsServer := dns.NewDefaultServerPermanentUpstream(
+			e.ctx,
+			e.wgInterface,
+			e.mobileDep.HostDNSAddresses,
+			*dnsConfig,
+			e.mobileDep.NetworkChangeListener,
+			e.statusRecorder,
+		)
 		go e.mobileDep.DnsReadyListener.OnReady()
 		return routes, dnsServer, nil
 	case "ios":
-		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager)
+		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.statusRecorder)
 		return nil, dnsServer, nil
 	default:
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1286,7 +1293,7 @@ func (e *Engine) receiveProbeEvents() {
 					log.Debugf("failed to get wg stats for peer %s: %s", key, err)
 				}
 				// wgStats could be zero value, in which case we just reset the stats
-				if err := e.statusRecorder.UpdateWireguardPeerState(key, wgStats); err != nil {
+				if err := e.statusRecorder.UpdateWireGuardPeerState(key, wgStats); err != nil {
 					log.Debugf("failed to update wg stats for peer %s: %s", key, err)
 				}
 			}

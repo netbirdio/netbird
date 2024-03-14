@@ -363,10 +363,11 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 		WiretrusteeVersion: info.WiretrusteeVersion,
 		KernelVersion:      info.KernelVersion,
 
-		NetworkAddresses:   protoNetAddr,
-		SysSerialNumber:    info.SystemSerialNumber,
-		SysProductName:     info.SystemProductName,
-		SysManufacturer:    info.SystemManufacturer,
+		NetworkAddresses: protoNetAddr,
+		SysSerialNumber:  info.SystemSerialNumber,
+		SysProductName:   info.SystemProductName,
+		SysManufacturer:  info.SystemManufacturer,
+		Environment:      &mgmtProto.Environment{Cloud: info.Environment.Cloud, Platform: info.Environment.Platform},
 	}
 
 	assert.Equal(t, ValidKey, actualValidKey)
@@ -407,7 +408,9 @@ func isEqual(a, b *mgmtProto.PeerSystemMeta) bool {
 		a.GetUiVersion() == b.GetUiVersion() &&
 		a.GetSysSerialNumber() == b.GetSysSerialNumber() &&
 		a.GetSysProductName() == b.GetSysProductName() &&
-		a.GetSysManufacturer() == b.GetSysManufacturer()
+		a.GetSysManufacturer() == b.GetSysManufacturer() &&
+		a.GetEnvironment().Cloud == b.GetEnvironment().Cloud &&
+		a.GetEnvironment().Platform == b.GetEnvironment().Platform
 }
 
 func Test_GetDeviceAuthorizationFlow(t *testing.T) {

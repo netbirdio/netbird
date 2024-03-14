@@ -10,6 +10,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -75,7 +76,7 @@ type MockAccountManager struct {
 	CheckUserAccessByJWTGroupsFunc  func(claims jwtclaims.AuthorizationClaims) error
 	DeleteAccountFunc               func(accountID, userID string) error
 	GetDNSDomainFunc                func() string
-	StoreEventFunc                  func(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any)
+	StoreEventFunc                  func(initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
 	GetEventsFunc                   func(accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettingsFunc              func(accountID, userID string) (*server.DNSSettings, error)
 	SaveDNSSettingsFunc             func(accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
@@ -91,6 +92,7 @@ type MockAccountManager struct {
 	SavePostureChecksFunc           func(accountID, userID string, postureChecks *posture.Checks) error
 	DeletePostureChecksFunc         func(accountID, postureChecksID, userID string) error
 	ListPostureChecksFunc           func(accountID, userID string) ([]*posture.Checks, error)
+	GetIdpManagerFunc               func() idp.Manager
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -646,7 +648,7 @@ func (am *MockAccountManager) GetAllConnectedPeers() (map[string]struct{}, error
 	return nil, status.Errorf(codes.Unimplemented, "method GetAllConnectedPeers is not implemented")
 }
 
-// HasconnectedChannel mocks HasConnectedChannel of the AccountManager interface
+// HasConnectedChannel mocks HasConnectedChannel of the AccountManager interface
 func (am *MockAccountManager) HasConnectedChannel(peerID string) bool {
 	if am.HasConnectedChannelFunc != nil {
 		return am.HasConnectedChannelFunc(peerID)
@@ -655,7 +657,7 @@ func (am *MockAccountManager) HasConnectedChannel(peerID string) bool {
 }
 
 // StoreEvent mocks StoreEvent of the AccountManager interface
-func (am *MockAccountManager) StoreEvent(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any) {
+func (am *MockAccountManager) StoreEvent(initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
 	if am.StoreEventFunc != nil {
 		am.StoreEventFunc(initiatorID, targetID, accountID, activityID, meta)
 	}
@@ -701,4 +703,12 @@ func (am *MockAccountManager) ListPostureChecks(accountID, userID string) ([]*po
 		return am.ListPostureChecksFunc(accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method ListPostureChecks is not implemented")
+}
+
+// GetIdpManager mocks GetIdpManager of the AccountManager interface
+func (am *MockAccountManager) GetIdpManager() idp.Manager {
+	if am.GetIdpManagerFunc != nil {
+		return am.GetIdpManagerFunc()
+	}
+	return nil
 }
