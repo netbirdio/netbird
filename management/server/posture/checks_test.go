@@ -151,6 +151,19 @@ func TestChecks_Validate(t *testing.T) {
 		expectedError bool
 	}{
 		{
+			name:          "Empty name",
+			checks:        Checks{},
+			expectedError: true,
+		},
+		{
+			name: "Empty checks",
+			checks: Checks{
+				Name:   "Default",
+				Checks: ChecksDefinition{},
+			},
+			expectedError: true,
+		},
+		{
 			name: "Valid checks version",
 			checks: Checks{
 				Checks: ChecksDefinition{
