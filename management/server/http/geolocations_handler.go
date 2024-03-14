@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"regexp"
 
 	"github.com/gorilla/mux"
 
@@ -11,6 +12,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
+)
+
+var (
+	countryCodeRegex = regexp.MustCompile("^[a-zA-Z]{2}$")
 )
 
 // GeolocationsHandler is a handler that returns locations.
@@ -73,8 +78,8 @@ func (l *GeolocationsHandler) GetCitiesByCountry(w http.ResponseWriter, r *http.
 	}
 
 	if l.geolocationManager == nil {
-		// TODO: update error message to include geo db self hosted doc link when ready
-		util.WriteError(status.Errorf(status.PreconditionFailed, "Geo location database is not initialized"), w)
+		util.WriteError(status.Errorf(status.PreconditionFailed, "Geo location database is not initialized. "+
+			"Check the self-hosted Geo database documentation at https://docs.netbird.io/selfhosted/geo-support"), w)
 		return
 	}
 

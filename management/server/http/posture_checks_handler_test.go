@@ -43,6 +43,11 @@ func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksH
 			SavePostureChecksFunc: func(accountID, userID string, postureChecks *posture.Checks) error {
 				postureChecks.ID = "postureCheck"
 				testPostureChecks[postureChecks.ID] = postureChecks
+
+				if err := postureChecks.Validate(); err != nil {
+					return status.Errorf(status.InvalidArgument, err.Error())
+				}
+
 				return nil
 			},
 			DeletePostureChecksFunc: func(accountID, postureChecksID, userID string) error {
@@ -483,7 +488,7 @@ func TestPostureCheckUpdate(t *testing.T) {
                    	}
 					}
 				}`)),
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
@@ -498,7 +503,7 @@ func TestPostureCheckUpdate(t *testing.T) {
                    	}
 					}
 				}`)),
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
@@ -512,7 +517,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 						"nb_version_check": {}
 					}
 				}`)),
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
@@ -526,7 +531,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 						"geo_location_check": {}
 					}
 				}`)),
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
@@ -700,11 +705,8 @@ func TestPostureCheckUpdate(t *testing.T) {
 						}
 					}
 					}`)),
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
-			setupHandlerFunc: func(handler *PostureChecksHandler) {
-				handler.geolocationManager = nil
-			},
 		},
 		{
 			name:        "Update Posture Checks Invalid Check",
@@ -719,7 +721,7 @@ func TestPostureCheckUpdate(t *testing.T) {
                    	}
 					}
 				}`)),
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
@@ -734,7 +736,7 @@ func TestPostureCheckUpdate(t *testing.T) {
                    	}
 					}
 				}`)),
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
@@ -748,7 +750,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 						"nb_version_check": {}
 					}
 				}`)),
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
@@ -877,144 +879,4 @@ func TestPostureCheckUpdate(t *testing.T) {
 			assert.Equal(t, strings.Trim(string(content), " \n"), string(expected), "content mismatch")
 		})
 	}
-}
-
-func TestPostureCheck_validatePostureChecksUpdate(t *testing.T) {
-	str := func(s string) *string { return &s }
-
-	// empty name
-	err := validatePostureChecksUpdate(api.PostureCheckUpdate{})
-	assert.Error(t, err)
-
-	// empty checks
-	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default"})
-	assert.Error(t, err)
-	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{}})
-	assert.Error(t, err)
-
-	// not valid NbVersionCheck
-	nbVersionCheck := api.NBVersionCheck{}
-	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{NbVersionCheck: &nbVersionCheck}})
-	assert.Error(t, err)
-
-	// valid NbVersionCheck
-	nbVersionCheck = api.NBVersionCheck{MinVersion: "1.0"}
-	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{NbVersionCheck: &nbVersionCheck}})
-	assert.NoError(t, err)
-
-	// not valid OsVersionCheck
-	osVersionCheck := api.OSVersionCheck{}
-	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{OsVersionCheck: &osVersionCheck}})
-	assert.Error(t, err)
-
-	// not valid OsVersionCheck
-	osVersionCheck = api.OSVersionCheck{Linux: &api.MinKernelVersionCheck{}}
-	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{OsVersionCheck: &osVersionCheck}})
-	assert.Error(t, err)
-
-	// not valid OsVersionCheck
-	osVersionCheck = api.OSVersionCheck{Linux: &api.MinKernelVersionCheck{}, Darwin: &api.MinVersionCheck{MinVersion: "14.2"}}
-	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{OsVersionCheck: &osVersionCheck}})
-	assert.Error(t, err)
-
-	// valid OsVersionCheck
-	osVersionCheck = api.OSVersionCheck{Linux: &api.MinKernelVersionCheck{MinKernelVersion: "6.0"}}
-	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{OsVersionCheck: &osVersionCheck}})
-	assert.NoError(t, err)
-
-	// valid OsVersionCheck
-	osVersionCheck = api.OSVersionCheck{
-		Linux:  &api.MinKernelVersionCheck{MinKernelVersion: "6.0"},
-		Darwin: &api.MinVersionCheck{MinVersion: "14.2"},
-	}
-	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{OsVersionCheck: &osVersionCheck}})
-	assert.NoError(t, err)
-
-	// valid peer network range check
-	peerNetworkRangeCheck := api.PeerNetworkRangeCheck{
-		Action: api.PeerNetworkRangeCheckActionAllow,
-		Ranges: []string{
-			"192.168.1.0/24", "10.0.0.0/8",
-		},
-	}
-	err = validatePostureChecksUpdate(
-		api.PostureCheckUpdate{
-			Name: "Default",
-			Checks: &api.Checks{
-				PeerNetworkRangeCheck: &peerNetworkRangeCheck,
-			},
-		},
-	)
-	assert.NoError(t, err)
-
-	// invalid peer network range check
-	peerNetworkRangeCheck = api.PeerNetworkRangeCheck{
-		Action: api.PeerNetworkRangeCheckActionDeny,
-		Ranges: []string{},
-	}
-	err = validatePostureChecksUpdate(
-		api.PostureCheckUpdate{
-			Name: "Default",
-			Checks: &api.Checks{
-				PeerNetworkRangeCheck: &peerNetworkRangeCheck,
-			},
-		},
-	)
-	assert.Error(t, err)
-
-	// invalid peer network range check
-	peerNetworkRangeCheck = api.PeerNetworkRangeCheck{
-		Action: "unknownAction",
-		Ranges: []string{},
-	}
-	err = validatePostureChecksUpdate(
-		api.PostureCheckUpdate{
-			Name: "Default",
-			Checks: &api.Checks{
-				PeerNetworkRangeCheck: &peerNetworkRangeCheck,
-			},
-		},
-	)
-	assert.Error(t, err)
-
-	// valid process check
-	processCheck := api.ProcessCheck{
-		Processes: []api.Process{
-			{
-				Path:        str("/usr/local/bin/netbird"),
-				WindowsPath: str("C:\\ProgramData\\NetBird\\netbird.exe"),
-			},
-		},
-	}
-	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{ProcessCheck: &processCheck}})
-	assert.NoError(t, err)
-
-	// invalid process check
-	processCheck = api.ProcessCheck{
-		Processes: make([]api.Process, 0),
-	}
-	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{ProcessCheck: &processCheck}})
-	assert.Error(t, err)
-
-	// invalid process check
-	processCheck = api.ProcessCheck{
-		Processes: []api.Process{
-			{
-				Path: str("/usr/local/bin/netbird"),
-			},
-		},
-	}
-	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{ProcessCheck: &processCheck}})
-	assert.Error(t, err)
-
-	// invalid process check
-	processCheck = api.ProcessCheck{
-		Processes: []api.Process{
-			{
-				WindowsPath: str("C:\\ProgramData\\NetBird\\netbird.exe"),
-			},
-		},
-	}
-	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{ProcessCheck: &processCheck}})
-	assert.Error(t, err)
 }
