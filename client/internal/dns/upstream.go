@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
 const (
@@ -45,12 +48,13 @@ type upstreamResolverBase struct {
 	reactivatePeriod time.Duration
 	upstreamTimeout  time.Duration
 
-	deactivate func()
-	reactivate func()
+	deactivate     func(error)
+	reactivate     func()
+	statusRecorder *peer.Status
 }
 
-func newUpstreamResolverBase(parentCTX context.Context) *upstreamResolverBase {
-	ctx, cancel := context.WithCancel(parentCTX)
+func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status) *upstreamResolverBase {
+	ctx, cancel := context.WithCancel(ctx)
 
 	return &upstreamResolverBase{
 		ctx:              ctx,
@@ -58,6 +62,7 @@ func newUpstreamResolverBase(parentCTX context.Context) *upstreamResolverBase {
 		upstreamTimeout:  upstreamTimeout,
 		reactivatePeriod: reactivatePeriod,
 		failsTillDeact:   failsTillDeact,
+		statusRecorder:   statusRecorder,
 	}
 }
 
@@ -68,7 +73,10 @@ func (u *upstreamResolverBase) stop() {
 
 // ServeDNS handles a DNS request
 func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
-	defer u.checkUpstreamFails()
+	var err error
+	defer func() {
+		u.checkUpstreamFails(err)
+	}()
 
 	log.WithField("question", r.Question[0]).Trace("received an upstream question")
 
@@ -81,7 +89,6 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	for _, upstream := range u.upstreamServers {
 		var rm *dns.Msg
 		var t time.Duration
-		var err error
 
 		func() {
 			ctx, cancel := context.WithTimeout(u.ctx, u.upstreamTimeout)
@@ -132,7 +139,7 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 // If fails count is greater that failsTillDeact, upstream resolving
 // will be disabled for reactivatePeriod, after that time period fails counter
 // will be reset and upstream will be reactivated.
-func (u *upstreamResolverBase) checkUpstreamFails() {
+func (u *upstreamResolverBase) checkUpstreamFails(err error) {
 	u.mutex.Lock()
 	defer u.mutex.Unlock()
 
@@ -146,7 +153,7 @@ func (u *upstreamResolverBase) checkUpstreamFails() {
 	default:
 	}
 
-	u.disable()
+	u.disable(err)
 }
 
 // probeAvailability tests all upstream servers simultaneously and
@@ -165,13 +172,16 @@ func (u *upstreamResolverBase) probeAvailability() {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
+	var errors *multierror.Error
 	for _, upstream := range u.upstreamServers {
 		upstream := upstream
 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := u.testNameserver(upstream); err != nil {
+			err := u.testNameserver(upstream)
+			if err != nil {
+				errors = multierror.Append(errors, err)
 				log.Warnf("probing upstream nameserver %s: %s", upstream, err)
 				return
 			}
@@ -186,7 +196,7 @@ func (u *upstreamResolverBase) probeAvailability() {
 
 	// didn't find a working upstream server, let's disable and try later
 	if !success {
-		u.disable()
+		u.disable(errors.ErrorOrNil())
 	}
 }
 
@@ -245,15 +255,15 @@ func isTimeout(err error) bool {
 	return false
 }
 
-func (u *upstreamResolverBase) disable() {
+func (u *upstreamResolverBase) disable(err error) {
 	if u.disabled {
 		return
 	}
 
 	// todo test the deactivation logic, it seems to affect the client
 	if runtime.GOOS != "ios" {
-		log.Warnf("upstream resolving is Disabled for %v", reactivatePeriod)
-		u.deactivate()
+		log.Warnf("Upstream resolving is Disabled for %v", reactivatePeriod)
+		u.deactivate(err)
 		u.disabled = true
 		go u.waitUntilResponse()
 	}
