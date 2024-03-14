@@ -352,11 +352,10 @@ func toPostureChecksResponse(postureChecks *posture.Checks) *api.PostureCheck {
 
 func toGeoLocationCheckResponse(geoLocationCheck *posture.GeoLocationCheck) *api.GeoLocationCheck {
 	locations := make([]api.Location, 0, len(geoLocationCheck.Locations))
-	for _, loc := range geoLocationCheck.Locations {
-		l := loc // make G601 happy
+	for i, loc := range geoLocationCheck.Locations {
 		var cityName *string
 		if loc.CityName != "" {
-			cityName = &l.CityName
+			cityName = &geoLocationCheck.Locations[i].CityName
 		}
 		locations = append(locations, api.Location{
 			CityName:    cityName,
@@ -419,10 +418,10 @@ func toPeerNetworkRangeCheck(check *api.PeerNetworkRangeCheck) (*posture.PeerNet
 
 func toProcessCheckResponse(check *posture.ProcessCheck) *api.ProcessCheck {
 	processes := make([]api.Process, 0, len(check.Processes))
-	for _, process := range check.Processes {
+	for i := range check.Processes {
 		processes = append(processes, api.Process{
-			Path:        &process.Path,
-			WindowsPath: &process.WindowsPath,
+			Path:        &check.Processes[i].Path,
+			WindowsPath: &check.Processes[i].WindowsPath,
 		})
 	}
 
