@@ -976,9 +976,6 @@ components:
           description: Path to the process executable file in a Windows operating system
           type: string
           example: "C:\ProgramData\NetBird\netbird.exe"
-      required:
-        - path
-        - windows_path
     Location:
       description: Describe geographical location information
       type: object

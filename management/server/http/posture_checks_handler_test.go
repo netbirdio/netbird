@@ -462,8 +462,8 @@ func TestPostureCheckUpdate(t *testing.T) {
 					ProcessCheck: &api.ProcessCheck{
 						Processes: []api.Process{
 							{
-								Path:        "/usr/local/bin/netbird",
-								WindowsPath: "C:\\ProgramData\\NetBird\\netbird.exe",
+								Path:        str("/usr/local/bin/netbird"),
+								WindowsPath: str("C:\\ProgramData\\NetBird\\netbird.exe"),
 							},
 						},
 					},
@@ -880,6 +880,8 @@ func TestPostureCheckUpdate(t *testing.T) {
 }
 
 func TestPostureCheck_validatePostureChecksUpdate(t *testing.T) {
+	str := func(s string) *string { return &s }
+
 	// empty name
 	err := validatePostureChecksUpdate(api.PostureCheckUpdate{})
 	assert.Error(t, err)
@@ -979,8 +981,8 @@ func TestPostureCheck_validatePostureChecksUpdate(t *testing.T) {
 	processCheck := api.ProcessCheck{
 		Processes: []api.Process{
 			{
-				Path:        "/usr/local/bin/netbird",
-				WindowsPath: "C:\\ProgramData\\NetBird\\netbird.exe",
+				Path:        str("/usr/local/bin/netbird"),
+				WindowsPath: str("C:\\ProgramData\\NetBird\\netbird.exe"),
 			},
 		},
 	}
@@ -998,7 +1000,7 @@ func TestPostureCheck_validatePostureChecksUpdate(t *testing.T) {
 	processCheck = api.ProcessCheck{
 		Processes: []api.Process{
 			{
-				Path: "/usr/local/bin/netbird",
+				Path: str("/usr/local/bin/netbird"),
 			},
 		},
 	}
@@ -1009,7 +1011,7 @@ func TestPostureCheck_validatePostureChecksUpdate(t *testing.T) {
 	processCheck = api.ProcessCheck{
 		Processes: []api.Process{
 			{
-				WindowsPath: "C:\\ProgramData\\NetBird\\netbird.exe",
+				WindowsPath: str("C:\\ProgramData\\NetBird\\netbird.exe"),
 			},
 		},
 	}

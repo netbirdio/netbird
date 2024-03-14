@@ -302,10 +302,7 @@ func validatePostureChecksUpdate(req api.PostureCheckUpdate) error {
 		}
 
 		for _, process := range processCheck.Processes {
-			if process.WindowsPath == "" {
-				return status.Errorf(status.InvalidArgument, "windows path for process check shouldn't be empty")
-			}
-			if process.Path == "" {
+			if process.Path == nil && process.WindowsPath == nil {
 				return status.Errorf(status.InvalidArgument, "path for process check shouldn't be empty")
 			}
 		}
@@ -423,7 +420,10 @@ func toPeerNetworkRangeCheck(check *api.PeerNetworkRangeCheck) (*posture.PeerNet
 func toProcessCheckResponse(check *posture.ProcessCheck) *api.ProcessCheck {
 	processes := make([]api.Process, 0, len(check.Processes))
 	for _, process := range check.Processes {
-		processes = append(processes, (api.Process)(process))
+		processes = append(processes, api.Process{
+			Path:        &process.Path,
+			WindowsPath: &process.WindowsPath,
+		})
 	}
 
 	return &api.ProcessCheck{
@@ -434,10 +434,15 @@ func toProcessCheckResponse(check *posture.ProcessCheck) *api.ProcessCheck {
 func toProcessCheck(check *api.ProcessCheck) *posture.ProcessCheck {
 	processes := make([]posture.Process, 0, len(check.Processes))
 	for _, process := range check.Processes {
-		processes = append(processes, posture.Process{
-			Path:        process.Path,
-			WindowsPath: process.WindowsPath,
-		})
+		var p posture.Process
+		if process.Path != nil {
+			p.Path = *process.Path
+		}
+		if process.WindowsPath != nil {
+			p.WindowsPath = *process.WindowsPath
+		}
+
+		processes = append(processes, p)
 	}
 
 	return &posture.ProcessCheck{

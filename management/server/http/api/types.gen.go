@@ -916,10 +916,10 @@ type PostureCheckUpdate struct {
 // Process Describe the operational activity within peer's system.
 type Process struct {
 	// Path Path to the process executable file in a Unix-like operating system
-	Path string `json:"path"`
+	Path *string `json:"path,omitempty"`
 
 	// WindowsPath Path to the process executable file in a Windows operating system
-	WindowsPath string `json:"windows_path"`
+	WindowsPath *string `json:"windows_path,omitempty"`
 }
 
 // ProcessCheck Posture Check for binaries exist and are running in the peer’s system
