@@ -1,8 +1,9 @@
 package posture
 
 import (
-	"fmt"
+	"errors"
 	"net/netip"
+	"regexp"
 
 	"github.com/hashicorp/go-version"
 
@@ -20,10 +21,15 @@ const (
 	CheckActionDeny  string = "deny"
 )
 
+var (
+	countryCodeRegex = regexp.MustCompile("^[a-zA-Z]{2}$")
+)
+
 // Check represents an interface for performing a check on a peer.
 type Check interface {
-	Check(peer nbpeer.Peer) (bool, error)
 	Name() string
+	Check(peer nbpeer.Peer) (bool, error)
+	Validate() error
 }
 
 type Checks struct {
@@ -148,47 +154,43 @@ func (pc *Checks) GetChecks() []Check {
 	return checks
 }
 
+// Validate checks the validity of a posture checks.
 func (pc *Checks) Validate() error {
-	if check := pc.Checks.NBVersionCheck; check != nil {
-		if !isVersionValid(check.MinVersion) {
-			return fmt.Errorf("%s version: %s is not valid", check.Name(), check.MinVersion)
-		}
+	if pc.Name == "" {
+		return errors.New("posture checks name shouldn't be empty")
 	}
 
-	if osCheck := pc.Checks.OSVersionCheck; osCheck != nil {
-		if osCheck.Android != nil {
-			if !isVersionValid(osCheck.Android.MinVersion) {
-				return fmt.Errorf("%s android version: %s is not valid", osCheck.Name(), osCheck.Android.MinVersion)
-			}
-		}
-
-		if osCheck.Ios != nil {
-			if !isVersionValid(osCheck.Ios.MinVersion) {
-				return fmt.Errorf("%s ios version: %s is not valid", osCheck.Name(), osCheck.Ios.MinVersion)
-			}
-		}
-
-		if osCheck.Darwin != nil {
-			if !isVersionValid(osCheck.Darwin.MinVersion) {
-				return fmt.Errorf("%s  darwin version: %s is not valid", osCheck.Name(), osCheck.Darwin.MinVersion)
-			}
-		}
-
-		if osCheck.Linux != nil {
-			if !isVersionValid(osCheck.Linux.MinKernelVersion) {
-				return fmt.Errorf("%s  linux kernel version: %s is not valid", osCheck.Name(),
-					osCheck.Linux.MinKernelVersion)
-			}
-		}
-
-		if osCheck.Windows != nil {
-			if !isVersionValid(osCheck.Windows.MinKernelVersion) {
-				return fmt.Errorf("%s  windows kernel version: %s is not valid", osCheck.Name(),
-					osCheck.Windows.MinKernelVersion)
-			}
-		}
+	// posture check should contain at least one check
+	if pc.Checks.NBVersionCheck == nil && pc.Checks.OSVersionCheck == nil &&
+		pc.Checks.GeoLocationCheck == nil && pc.Checks.PeerNetworkRangeCheck == nil && pc.Checks.ProcessCheck == nil {
+		return errors.New("posture checks shouldn't be empty")
 	}
 
+	if pc.Checks.NBVersionCheck != nil {
+		if err := pc.Checks.NBVersionCheck.Validate(); err != nil {
+			return err
+		}
+	}
+	if pc.Checks.OSVersionCheck != nil {
+		if err := pc.Checks.OSVersionCheck.Validate(); err != nil {
+			return err
+		}
+	}
+	if pc.Checks.GeoLocationCheck != nil {
+		if err := pc.Checks.GeoLocationCheck.Validate(); err != nil {
+			return err
+		}
+	}
+	if pc.Checks.PeerNetworkRangeCheck != nil {
+		if err := pc.Checks.PeerNetworkRangeCheck.Validate(); err != nil {
+			return err
+		}
+	}
+	if pc.Checks.ProcessCheck != nil {
+		if err := pc.Checks.ProcessCheck.Validate(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
