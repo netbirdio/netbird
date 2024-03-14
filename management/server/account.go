@@ -1375,7 +1375,7 @@ func (am *DefaultAccountManager) updateAccountDomainAttributes(account *Account,
 			account.DomainCategory = claims.DomainCategory
 		}
 	} else {
-		log.Errorf("claims doesn't contain domain, skipping domain attributes update")
+		log.Errorf("claims don't contain a valid domain, skipping domain attributes update. Received claims: %v", claims)
 	}
 
 	err := am.Store.SaveAccount(account)
