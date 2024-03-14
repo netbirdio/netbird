@@ -989,14 +989,7 @@ func TestPostureCheck_validatePostureChecksUpdate(t *testing.T) {
 	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{ProcessCheck: &processCheck}})
 	assert.NoError(t, err)
 
-	// invalid process check
-	processCheck = api.ProcessCheck{
-		Processes: make([]api.Process, 0),
-	}
-	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{ProcessCheck: &processCheck}})
-	assert.Error(t, err)
-
-	// invalid process check
+	// valid unix process check
 	processCheck = api.ProcessCheck{
 		Processes: []api.Process{
 			{
@@ -1005,15 +998,22 @@ func TestPostureCheck_validatePostureChecksUpdate(t *testing.T) {
 		},
 	}
 	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{ProcessCheck: &processCheck}})
-	assert.Error(t, err)
+	assert.NoError(t, err)
 
-	// invalid process check
+	// valid window process check
 	processCheck = api.ProcessCheck{
 		Processes: []api.Process{
 			{
 				WindowsPath: str("C:\\ProgramData\\NetBird\\netbird.exe"),
 			},
 		},
+	}
+	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{ProcessCheck: &processCheck}})
+	assert.NoError(t, err)
+
+	// invalid process check
+	processCheck = api.ProcessCheck{
+		Processes: make([]api.Process, 0),
 	}
 	err = validatePostureChecksUpdate(api.PostureCheckUpdate{Name: "Default", Checks: &api.Checks{ProcessCheck: &processCheck}})
 	assert.Error(t, err)
