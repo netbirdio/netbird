@@ -965,7 +965,7 @@ components:
       required:
         - processes
     Process:
-      description: Describe the operational activity within peer's system.
+      description: Describes the operational activity within a peer's system.
       type: object
       properties:
         path:

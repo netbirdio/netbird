@@ -913,7 +913,7 @@ type PostureCheckUpdate struct {
 	Name string `json:"name"`
 }
 
-// Process Describe the operational activity within peer's system.
+// Process Describes the operational activity within a peer's system.
 type Process struct {
 	// Path Path to the process executable file in a Unix-like operating system
 	Path *string `json:"path,omitempty"`
