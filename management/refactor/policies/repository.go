@@ -1,4 +1,4 @@
 package policies
 
-type repository interface {
+type Repository interface {
 }

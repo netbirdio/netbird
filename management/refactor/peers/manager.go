@@ -12,11 +12,11 @@ type Manager interface {
 }
 
 type DefaultManager struct {
-	repository      repository
+	repository      Repository
 	settingsManager settings.Manager
 }
 
-func NewDefaultManager(repository repository, settingsManager settings.Manager) *DefaultManager {
+func NewDefaultManager(repository Repository, settingsManager settings.Manager) *DefaultManager {
 	return &DefaultManager{
 		repository:      repository,
 		settingsManager: settingsManager,

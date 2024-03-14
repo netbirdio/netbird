@@ -31,22 +31,22 @@ type DefaultSqliteStore struct {
 	installationPK    int
 }
 
-func (s *DefaultSqliteStore) FindSettings(accountID string) (*settings.Settings, error) {
+func (s *DefaultSqliteStore) FindSettings(accountID string) (settings.Settings, error) {
 	// TODO implement me
 	panic("implement me")
 }
 
-func (s *DefaultSqliteStore) FindPeerByPubKey(pubKey string) (*peers.Peer, error) {
+func (s *DefaultSqliteStore) FindPeerByPubKey(pubKey string) (peers.Peer, error) {
 	// TODO implement me
 	panic("implement me")
 }
 
-func (s *DefaultSqliteStore) FindPeerByID(id string) (*peers.Peer, error) {
+func (s *DefaultSqliteStore) FindPeerByID(id string) (peers.Peer, error) {
 	// TODO implement me
 	panic("implement me")
 }
 
-func (s *DefaultSqliteStore) FindAllPeersInAccount(id string) ([]*peers.Peer, error) {
+func (s *DefaultSqliteStore) FindAllPeersInAccount(id string) ([]peers.Peer, error) {
 	// TODO implement me
 	panic("implement me")
 }

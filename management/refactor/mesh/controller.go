@@ -27,8 +27,8 @@ type DefaultController struct {
 
 func NewDefaultController() *DefaultController {
 	storeStore, _ := store.NewDefaultStore(store.SqliteStoreEngine, "", nil)
-	peersManager := peers.NewDefaultManager(storeStore, nil)
 	settingsManager := settings.NewDefaultManager(storeStore)
+	peersManager := peers.NewDefaultManager(storeStore, settingsManager)
 	usersManager := users.NewDefaultManager(storeStore, peersManager)
 	policiesManager := policies.NewDefaultManager(storeStore, peersManager)
 
@@ -60,7 +60,7 @@ func (c *DefaultController) LoginPeer(login peers.PeerLogin) {
 		}
 	}
 
-	account, err := pm.accountManager.GetAccount(peer.AccountID)
+	account, err := pm.accountManager.GetAccount(peer.GetAccountID())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -117,8 +117,8 @@ func (c *DefaultController) GetPeerNetworkMap(peerID, dnsDomain string) *Network
 
 	aclPeers, firewallRules := c.policiesManager.GetAccessiblePeersAndFirewallRules(peerID)
 	// exclude expired peers
-	var peersToConnect []*peers.Peer
-	var expiredPeers []*peers.Peer
+	var peersToConnect []peers.Peer
+	var expiredPeers []peers.Peer
 	accSettings, _ := c.settingsManager.GetSettings(peer.GetAccountID())
 	for _, p := range aclPeers {
 		expired, _ := p.LoginExpired(accSettings.GetPeerLoginExpiration())

@@ -12,22 +12,22 @@ const (
 type DefaultPostgresStore struct {
 }
 
-func (s *DefaultPostgresStore) FindSettings(accountID string) (*settings.Settings, error) {
+func (s *DefaultPostgresStore) FindSettings(accountID string) (settings.Settings, error) {
 	// TODO implement me
 	panic("implement me")
 }
 
-func (s *DefaultPostgresStore) FindPeerByPubKey(pubKey string) (*peers.Peer, error) {
+func (s *DefaultPostgresStore) FindPeerByPubKey(pubKey string) (peers.Peer, error) {
 	// TODO implement me
 	panic("implement me")
 }
 
-func (s *DefaultPostgresStore) FindPeerByID(id string) (*peers.Peer, error) {
+func (s *DefaultPostgresStore) FindPeerByID(id string) (peers.Peer, error) {
 	// TODO implement me
 	panic("implement me")
 }
 
-func (s *DefaultPostgresStore) FindAllPeersInAccount(id string) ([]*peers.Peer, error) {
+func (s *DefaultPostgresStore) FindAllPeersInAccount(id string) ([]peers.Peer, error) {
 	// TODO implement me
 	panic("implement me")
 }

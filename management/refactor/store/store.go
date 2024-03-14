@@ -14,18 +14,18 @@ import (
 
 type Store interface {
 	GetLicense() string
-	FindPeerByPubKey(pubKey string) (*peers.Peer, error)
-	FindPeerByID(id string) (*peers.Peer, error)
-	FindAllPeersInAccount(id string) ([]*peers.Peer, error)
+	FindPeerByPubKey(pubKey string) (peers.Peer, error)
+	FindPeerByID(id string) (peers.Peer, error)
+	FindAllPeersInAccount(id string) ([]peers.Peer, error)
 	UpdatePeer(peer peers.Peer) error
 	FindSettings(accountID string) (settings.Settings, error)
 }
 
 type DefaultStore interface {
 	GetLicense() string
-	FindPeerByPubKey(pubKey string) (*peers.Peer, error)
-	FindPeerByID(id string) (*peers.Peer, error)
-	FindAllPeersInAccount(id string) ([]*peers.Peer, error)
+	FindPeerByPubKey(pubKey string) (peers.Peer, error)
+	FindPeerByID(id string) (peers.Peer, error)
+	FindAllPeersInAccount(id string) ([]peers.Peer, error)
 	UpdatePeer(peer peers.Peer) error
 	FindSettings(accountID string) (settings.Settings, error)
 }

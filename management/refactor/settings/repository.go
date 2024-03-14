@@ -1,5 +1,5 @@
 package settings
 
-type repository interface {
+type Repository interface {
 	FindSettings(accountID string) (Settings, error)
 }
