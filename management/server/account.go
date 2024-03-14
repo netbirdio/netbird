@@ -1361,16 +1361,21 @@ func (am *DefaultAccountManager) removeUserFromCache(accountID, userID string) e
 func (am *DefaultAccountManager) updateAccountDomainAttributes(account *Account, claims jwtclaims.AuthorizationClaims,
 	primaryDomain bool,
 ) error {
-	account.IsDomainPrimaryAccount = primaryDomain
 
-	lowerDomain := strings.ToLower(claims.Domain)
-	userObj := account.Users[claims.UserId]
-	if account.Domain != lowerDomain && userObj.Role == UserRoleAdmin {
-		account.Domain = lowerDomain
-	}
-	// prevent updating category for different domain until admin logs in
-	if account.Domain == lowerDomain {
-		account.DomainCategory = claims.DomainCategory
+	if claims.Domain != "" {
+		account.IsDomainPrimaryAccount = primaryDomain
+
+		lowerDomain := strings.ToLower(claims.Domain)
+		userObj := account.Users[claims.UserId]
+		if account.Domain != lowerDomain && userObj.Role == UserRoleAdmin {
+			account.Domain = lowerDomain
+		}
+		// prevent updating category for different domain until admin logs in
+		if account.Domain == lowerDomain {
+			account.DomainCategory = claims.DomainCategory
+		}
+	} else {
+		log.Errorf("claims don't contain a valid domain, skipping domain attributes update. Received claims: %v", claims)
 	}
 
 	err := am.Store.SaveAccount(account)
