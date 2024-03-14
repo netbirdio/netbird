@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -12,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/server/status"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/util"
@@ -175,6 +176,26 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 
 }
 
+func TestSqlite_GetAccount(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	store := newSqliteStoreFromFile(t, "testdata/store.json")
+
+	id := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	account, err := store.GetAccount(id)
+	require.NoError(t, err)
+	require.Equal(t, id, account.Id, "account id should match")
+
+	_, err = store.GetAccount("non-existing-account")
+	assert.Error(t, err)
+	parsedErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+}
+
 func TestSqlite_SavePeerStatus(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
@@ -189,6 +210,9 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 	newStatus := nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()}
 	err = store.SavePeerStatus(account.Id, "non-existing-peer", newStatus)
 	assert.Error(t, err)
+	parsedErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 
 	// save new status of existing peer
 	account.Peers["testpeer"] = &nbpeer.Peer{
@@ -255,6 +279,13 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 
 	actual := account.Peers[peer.ID].Location
 	assert.Equal(t, peer.Location, actual)
+
+	peer.ID = "non-existing-peer"
+	err = store.SavePeerLocation(account.Id, peer)
+	assert.Error(t, err)
+	parsedErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 }
 
 func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {
@@ -272,6 +303,9 @@ func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {
 
 	_, err = store.GetAccountByPrivateDomain("missing-domain.com")
 	require.Error(t, err, "should return error on domain lookup")
+	parsedErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 }
 
 func TestSqlite_GetTokenIDByHashedToken(t *testing.T) {
@@ -287,6 +321,12 @@ func TestSqlite_GetTokenIDByHashedToken(t *testing.T) {
 	token, err := store.GetTokenIDByHashedToken(hashed)
 	require.NoError(t, err)
 	require.Equal(t, id, token)
+
+	_, err = store.GetTokenIDByHashedToken("non-existing-hash")
+	require.Error(t, err)
+	parsedErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 }
 
 func TestSqlite_GetUserByTokenID(t *testing.T) {
@@ -301,6 +341,12 @@ func TestSqlite_GetUserByTokenID(t *testing.T) {
 	user, err := store.GetUserByTokenID(id)
 	require.NoError(t, err)
 	require.Equal(t, id, user.PATs[id].ID)
+
+	_, err = store.GetUserByTokenID("non-existing-id")
+	require.Error(t, err)
+	parsedErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 }
 
 func newSqliteStore(t *testing.T) *SqliteStore {
@@ -346,30 +392,4 @@ func newAccount(store Store, id int) error {
 	}
 
 	return store.SaveAccount(account)
-}
-
-func TestSqliteStore_CalculateUsageStats(t *testing.T) {
-	store := newSqliteStoreFromFile(t, "testdata/store_stats.json")
-	t.Cleanup(func() {
-		require.NoError(t, store.Close())
-	})
-
-	startDate := time.Date(2024, time.February, 1, 0, 0, 0, 0, time.UTC)
-	endDate := startDate.AddDate(0, 1, 0).Add(-time.Nanosecond)
-
-	stats1, err := store.CalculateUsageStats(context.TODO(), "account-1", startDate, endDate)
-	require.NoError(t, err)
-
-	assert.Equal(t, int64(2), stats1.ActiveUsers)
-	assert.Equal(t, int64(4), stats1.TotalUsers)
-	assert.Equal(t, int64(3), stats1.ActivePeers)
-	assert.Equal(t, int64(7), stats1.TotalPeers)
-
-	stats2, err := store.CalculateUsageStats(context.TODO(), "account-2", startDate, endDate)
-	require.NoError(t, err)
-
-	assert.Equal(t, int64(1), stats2.ActiveUsers)
-	assert.Equal(t, int64(2), stats2.TotalUsers)
-	assert.Equal(t, int64(1), stats2.ActivePeers)
-	assert.Equal(t, int64(2), stats2.TotalPeers)
 }
