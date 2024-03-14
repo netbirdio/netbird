@@ -3,6 +3,7 @@ package peer
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"time"
 )
 
@@ -39,11 +40,15 @@ type Peer struct {
 	LoginExpirationEnabled bool
 	// LastLogin the time when peer performed last login operation
 	LastLogin time.Time
+	// CreatedAt records the time the peer was created
+	CreatedAt time.Time
 	// Indicate ephemeral peer attribute
 	Ephemeral bool
+	// Geo location based on connection IP
+	Location Location `gorm:"embedded;embeddedPrefix:location_"`
 }
 
-type PeerStatus struct {
+type PeerStatus struct { //nolint:revive
 	// LastSeen is the last time peer was connected to the management service
 	LastSeen time.Time
 	// Connected indicates whether peer is connected to the management service or not
@@ -54,27 +59,78 @@ type PeerStatus struct {
 	RequiresApproval bool
 }
 
+// Location is a geo location information of a Peer based on public connection IP
+type Location struct {
+	ConnectionIP net.IP // from grpc peer or reverse proxy headers depends on setup
+	CountryCode  string
+	CityName     string
+	GeoNameID    uint // city level geoname id
+}
+
+// NetworkAddress is the IP address with network and MAC address of a network interface
+type NetworkAddress struct {
+	NetIP netip.Prefix `gorm:"serializer:json"`
+	Mac   string
+}
+
+// Environment is a system environment information
+type Environment struct {
+	Cloud    string
+	Platform string
+}
+
 // PeerSystemMeta is a metadata of a Peer machine system
-type PeerSystemMeta struct {
-	Hostname  string
-	GoOS      string
-	Kernel    string
-	Core      string
-	Platform  string
-	OS        string
-	WtVersion string
-	UIVersion string
+type PeerSystemMeta struct { //nolint:revive
+	Hostname           string
+	GoOS               string
+	Kernel             string
+	Core               string
+	Platform           string
+	OS                 string
+	OSVersion          string
+	WtVersion          string
+	UIVersion          string
+	KernelVersion      string
+	NetworkAddresses   []NetworkAddress `gorm:"serializer:json"`
+	SystemSerialNumber string
+	SystemProductName  string
+	SystemManufacturer string
+	Environment        Environment `gorm:"serializer:json"`
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
+	if len(p.NetworkAddresses) != len(other.NetworkAddresses) {
+		return false
+	}
+
+	for _, addr := range p.NetworkAddresses {
+		var found bool
+		for _, oAddr := range other.NetworkAddresses {
+			if addr.Mac == oAddr.Mac && addr.NetIP == oAddr.NetIP {
+				found = true
+				continue
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
 	return p.Hostname == other.Hostname &&
 		p.GoOS == other.GoOS &&
 		p.Kernel == other.Kernel &&
+		p.KernelVersion == other.KernelVersion &&
 		p.Core == other.Core &&
 		p.Platform == other.Platform &&
 		p.OS == other.OS &&
+		p.OSVersion == other.OSVersion &&
 		p.WtVersion == other.WtVersion &&
-		p.UIVersion == other.UIVersion
+		p.UIVersion == other.UIVersion &&
+		p.SystemSerialNumber == other.SystemSerialNumber &&
+		p.SystemProductName == other.SystemProductName &&
+		p.SystemManufacturer == other.SystemManufacturer &&
+		p.Environment.Cloud == other.Environment.Cloud &&
+		p.Environment.Platform == other.Environment.Platform
 }
 
 // AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
@@ -103,7 +159,9 @@ func (p *Peer) Copy() *Peer {
 		SSHEnabled:             p.SSHEnabled,
 		LoginExpirationEnabled: p.LoginExpirationEnabled,
 		LastLogin:              p.LastLogin,
+		CreatedAt:              p.CreatedAt,
 		Ephemeral:              p.Ephemeral,
+		Location:               p.Location,
 	}
 }
 
@@ -158,7 +216,7 @@ func (p *Peer) FQDN(dnsDomain string) string {
 
 // EventMeta returns activity event meta related to the peer
 func (p *Peer) EventMeta(dnsDomain string) map[string]any {
-	return map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP}
+	return map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP, "created_at": p.CreatedAt}
 }
 
 // Copy PeerStatus

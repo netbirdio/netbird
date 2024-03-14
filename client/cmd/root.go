@@ -25,12 +25,15 @@ import (
 )
 
 const (
-	externalIPMapFlag   = "external-ip-map"
-	dnsResolverAddress  = "dns-resolver-address"
-	enableRosenpassFlag = "enable-rosenpass"
-	preSharedKeyFlag    = "preshared-key"
-	interfaceNameFlag   = "interface-name"
-	wireguardPortFlag   = "wireguard-port"
+	externalIPMapFlag       = "external-ip-map"
+	dnsResolverAddress      = "dns-resolver-address"
+	enableRosenpassFlag     = "enable-rosenpass"
+	rosenpassPermissiveFlag = "rosenpass-permissive"
+	preSharedKeyFlag        = "preshared-key"
+	interfaceNameFlag       = "interface-name"
+	wireguardPortFlag       = "wireguard-port"
+	disableAutoConnectFlag  = "disable-auto-connect"
+	serverSSHAllowedFlag    = "allow-server-ssh"
 )
 
 var (
@@ -54,8 +57,12 @@ var (
 	natExternalIPs          []string
 	customDNSAddress        string
 	rosenpassEnabled        bool
+	rosenpassPermissive     bool
+	serverSSHAllowed        bool
 	interfaceName           string
 	wireguardPort           uint16
+	serviceName             string
+	autoConnectDisabled     bool
 	rootCmd                 = &cobra.Command{
 		Use:          "netbird",
 		Short:        "",
@@ -94,9 +101,16 @@ func init() {
 	if runtime.GOOS == "windows" {
 		defaultDaemonAddr = "tcp://127.0.0.1:41731"
 	}
+
+	defaultServiceName := "netbird"
+	if runtime.GOOS == "windows" {
+		defaultServiceName = "Netbird"
+	}
+
 	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
 	rootCmd.PersistentFlags().StringVarP(&managementURL, "management-url", "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", internal.DefaultManagementURL))
 	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "", fmt.Sprintf("Admin Panel URL [http|https]://[host]:[port] (default \"%s\")", internal.DefaultAdminURL))
+	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "Netbird config file location")
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets Netbird log level")
 	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the log will be output to stdout")
@@ -126,6 +140,9 @@ func init() {
 			`E.g. --dns-resolver-address 127.0.0.1:5053 or --dns-resolver-address ""`,
 	)
 	upCmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "[Experimental] Enable Rosenpass feature. If enabled, the connection will be post-quantum secured via Rosenpass.")
+	upCmd.PersistentFlags().BoolVar(&rosenpassPermissive, rosenpassPermissiveFlag, false, "[Experimental] Enable Rosenpass in permissive mode to allow this peer to accept WireGuard connections without requiring Rosenpass functionality from peers that do not have Rosenpass enabled.")
+	upCmd.PersistentFlags().BoolVar(&serverSSHAllowed, serverSSHAllowedFlag, false, "Allow SSH server on peer. If enabled, the SSH server will be permitted")
+	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
@@ -176,7 +193,7 @@ func FlagNameToEnvVar(cmdFlag string, prefix string) string {
 	return prefix + upper
 }
 
-// DialClientGRPCServer returns client connection to the dameno server.
+// DialClientGRPCServer returns client connection to the daemon server.
 func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*3)
 	defer cancel()

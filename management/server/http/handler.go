@@ -1,6 +1,8 @@
 package http
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -9,10 +11,13 @@ import (
 	"github.com/netbirdio/management-integrations/integrations"
 
 	s "github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
+
+const apiPrefix = "/api"
 
 // AuthCfg contains parameters for authentication middleware
 type AuthCfg struct {
@@ -23,9 +28,10 @@ type AuthCfg struct {
 }
 
 type apiHandler struct {
-	Router         *mux.Router
-	AccountManager s.AccountManager
-	AuthCfg        AuthCfg
+	Router             *mux.Router
+	AccountManager     s.AccountManager
+	geolocationManager *geolocation.Geolocation
+	AuthCfg            AuthCfg
 }
 
 // EmptyObject is an empty struct used to return empty JSON object
@@ -33,7 +39,7 @@ type emptyObject struct {
 }
 
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg AuthCfg) (http.Handler, error) {
+func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationManager *geolocation.Geolocation, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg AuthCfg) (http.Handler, error) {
 	claimsExtractor := jwtclaims.NewClaimsExtractor(
 		jwtclaims.WithAudience(authCfg.Audience),
 		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
@@ -59,28 +65,34 @@ func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValid
 	rootRouter := mux.NewRouter()
 	metricsMiddleware := appMetrics.HTTPMiddleware()
 
-	router := rootRouter.PathPrefix("/api").Subrouter()
+	prefix := apiPrefix
+	router := rootRouter.PathPrefix(prefix).Subrouter()
 	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler, acMiddleware.Handler)
 
 	api := apiHandler{
-		Router:         router,
-		AccountManager: accountManager,
-		AuthCfg:        authCfg,
+		Router:             router,
+		AccountManager:     accountManager,
+		geolocationManager: LocationManager,
+		AuthCfg:            authCfg,
 	}
 
-	integrations.RegisterHandlers(api.Router, accountManager, claimsExtractor)
+	if _, err := integrations.RegisterHandlers(ctx, prefix, api.Router, accountManager, claimsExtractor); err != nil {
+		return nil, fmt.Errorf("register integrations endpoints: %w", err)
+	}
+
 	api.addAccountsEndpoint()
 	api.addPeersEndpoint()
 	api.addUsersEndpoint()
 	api.addUsersTokensEndpoint()
 	api.addSetupKeysEndpoint()
-	api.addRulesEndpoint()
 	api.addPoliciesEndpoint()
 	api.addGroupsEndpoint()
 	api.addRoutesEndpoint()
 	api.addDNSNameserversEndpoint()
 	api.addDNSSettingEndpoint()
 	api.addEventsEndpoint()
+	api.addPostureCheckEndpoint()
+	api.addLocationsEndpoint()
 
 	err := api.Router.Walk(func(route *mux.Route, _ *mux.Router, _ []*mux.Route) error {
 		methods, err := route.GetMethods()
@@ -145,15 +157,6 @@ func (apiHandler *apiHandler) addSetupKeysEndpoint() {
 	apiHandler.Router.HandleFunc("/setup-keys/{keyId}", keysHandler.UpdateSetupKey).Methods("PUT", "OPTIONS")
 }
 
-func (apiHandler *apiHandler) addRulesEndpoint() {
-	rulesHandler := NewRulesHandler(apiHandler.AccountManager, apiHandler.AuthCfg)
-	apiHandler.Router.HandleFunc("/rules", rulesHandler.GetAllRules).Methods("GET", "OPTIONS")
-	apiHandler.Router.HandleFunc("/rules", rulesHandler.CreateRule).Methods("POST", "OPTIONS")
-	apiHandler.Router.HandleFunc("/rules/{ruleId}", rulesHandler.UpdateRule).Methods("PUT", "OPTIONS")
-	apiHandler.Router.HandleFunc("/rules/{ruleId}", rulesHandler.GetRule).Methods("GET", "OPTIONS")
-	apiHandler.Router.HandleFunc("/rules/{ruleId}", rulesHandler.DeleteRule).Methods("DELETE", "OPTIONS")
-}
-
 func (apiHandler *apiHandler) addPoliciesEndpoint() {
 	policiesHandler := NewPoliciesHandler(apiHandler.AccountManager, apiHandler.AuthCfg)
 	apiHandler.Router.HandleFunc("/policies", policiesHandler.GetAllPolicies).Methods("GET", "OPTIONS")
@@ -199,4 +202,19 @@ func (apiHandler *apiHandler) addDNSSettingEndpoint() {
 func (apiHandler *apiHandler) addEventsEndpoint() {
 	eventsHandler := NewEventsHandler(apiHandler.AccountManager, apiHandler.AuthCfg)
 	apiHandler.Router.HandleFunc("/events", eventsHandler.GetAllEvents).Methods("GET", "OPTIONS")
+}
+
+func (apiHandler *apiHandler) addPostureCheckEndpoint() {
+	postureCheckHandler := NewPostureChecksHandler(apiHandler.AccountManager, apiHandler.geolocationManager, apiHandler.AuthCfg)
+	apiHandler.Router.HandleFunc("/posture-checks", postureCheckHandler.GetAllPostureChecks).Methods("GET", "OPTIONS")
+	apiHandler.Router.HandleFunc("/posture-checks", postureCheckHandler.CreatePostureCheck).Methods("POST", "OPTIONS")
+	apiHandler.Router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.UpdatePostureCheck).Methods("PUT", "OPTIONS")
+	apiHandler.Router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.GetPostureCheck).Methods("GET", "OPTIONS")
+	apiHandler.Router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.DeletePostureCheck).Methods("DELETE", "OPTIONS")
+}
+
+func (apiHandler *apiHandler) addLocationsEndpoint() {
+	locationHandler := NewGeolocationsHandlerHandler(apiHandler.AccountManager, apiHandler.geolocationManager, apiHandler.AuthCfg)
+	apiHandler.Router.HandleFunc("/locations/countries", locationHandler.GetAllCountries).Methods("GET", "OPTIONS")
+	apiHandler.Router.HandleFunc("/locations/countries/{country}/cities", locationHandler.GetCitiesByCountry).Methods("GET", "OPTIONS")
 }

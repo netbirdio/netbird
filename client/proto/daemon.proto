@@ -34,7 +34,7 @@ message LoginRequest {
 
   // This is the old PreSharedKey field which will be deprecated in favor of optionalPreSharedKey field that is defined as optional
   // to allow clearing of preshared key while being able to persist in the config file.
-  string preSharedKey = 2 [deprecated=true];
+  string preSharedKey = 2 [deprecated = true];
 
   // managementUrl to authenticate.
   string managementUrl = 3;
@@ -63,6 +63,12 @@ message LoginRequest {
   optional int64 wireguardPort = 12;
 
   optional string optionalPreSharedKey = 13;
+
+  optional bool disableAutoConnect = 14;
+
+  optional bool serverSSHAllowed = 15;
+
+  optional bool rosenpassPermissive = 16;
 }
 
 message LoginResponse {
@@ -134,6 +140,8 @@ message PeerState {
   google.protobuf.Timestamp lastWireguardHandshake = 12;
   int64 bytesRx = 13;
   int64 bytesTx = 14;
+  bool rosenpassEnabled = 15;
+  repeated string routes = 16;
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -142,6 +150,9 @@ message LocalPeerState {
   string pubKey = 2;
   bool  kernelInterface = 3;
   string fqdn = 4;
+  bool rosenpassEnabled = 5;
+  bool rosenpassPermissive = 6;
+  repeated string routes = 7;
 }
 
 // SignalState contains the latest state of a signal connection
@@ -165,6 +176,13 @@ message RelayState {
   string error = 3;
 }
 
+message NSGroupState {
+  repeated string servers = 1;
+  repeated string domains = 2;
+  bool enabled = 3;
+  string error = 4;
+}
+
 // FullStatus contains the full state held by the Status instance
 message FullStatus {
   ManagementState managementState = 1;
@@ -172,4 +190,5 @@ message FullStatus {
   LocalPeerState  localPeerState = 3;
   repeated PeerState peers = 4;
   repeated RelayState relays = 5;
+  repeated NSGroupState dns_servers = 6;
 }

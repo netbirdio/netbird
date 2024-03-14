@@ -16,6 +16,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/route"
 
 	"github.com/stretchr/testify/assert"
@@ -93,18 +94,12 @@ func verifyNewAccountHasDefaultFields(t *testing.T, account *Account, createdBy 
 		t.Errorf("expecting newly created account to be created by user %s, got %s", createdBy, account.CreatedBy)
 	}
 
+	if account.CreatedAt.IsZero() {
+		t.Errorf("expecting newly created account to have a non-zero creation time")
+	}
+
 	if account.Domain != domain {
 		t.Errorf("expecting newly created account to have domain %s, got %s", domain, account.Domain)
-	}
-
-	if len(account.Rules) != 1 {
-		t.Errorf("expecting newly created account to have 1 rule, got %d", len(account.Rules))
-	}
-
-	for _, rule := range account.Rules {
-		if rule.Name != "Default" {
-			t.Errorf("expecting newly created account to have Default rule, got %s", rule.Name)
-		}
 	}
 }
 
@@ -1482,6 +1477,7 @@ func TestAccount_Copy(t *testing.T) {
 	account := &Account{
 		Id:                     "account1",
 		CreatedBy:              "tester",
+		CreatedAt:              time.Now().UTC(),
 		Domain:                 "test.com",
 		DomainCategory:         "public",
 		IsDomainPrimaryAccount: true,
@@ -1528,18 +1524,12 @@ func TestAccount_Copy(t *testing.T) {
 				Peers: []string{"peer1"},
 			},
 		},
-		Rules: map[string]*Rule{
-			"rule1": {
-				ID:          "rule1",
-				Destination: []string{},
-				Source:      []string{},
-			},
-		},
 		Policies: []*Policy{
 			{
-				ID:      "policy1",
-				Enabled: true,
-				Rules:   make([]*PolicyRule, 0),
+				ID:                  "policy1",
+				Enabled:             true,
+				Rules:               make([]*PolicyRule, 0),
+				SourcePostureChecks: make([]string, 0),
 			},
 		},
 		Routes: map[string]*route.Route{
@@ -1558,7 +1548,12 @@ func TestAccount_Copy(t *testing.T) {
 			},
 		},
 		DNSSettings: DNSSettings{DisabledManagementGroups: []string{}},
-		Settings:    &Settings{},
+		PostureChecks: []*posture.Checks{
+			{
+				ID: "posture Checks1",
+			},
+		},
+		Settings: &Settings{},
 	}
 	err := hasNilField(account)
 	if err != nil {
@@ -1630,7 +1625,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 		LoginExpirationEnabled: true,
 	})
 	require.NoError(t, err, "unable to add peer")
-	err = manager.MarkPeerConnected(key.PublicKey().String(), true)
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil)
 	require.NoError(t, err, "unable to mark peer connected")
 	account, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
@@ -1697,7 +1692,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	}
 
 	// when we mark peer as connected, the peer login expiration routine should trigger
-	err = manager.MarkPeerConnected(key.PublicKey().String(), true)
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	failed := waitTimeout(wg, time.Second)
@@ -1720,7 +1715,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 		LoginExpirationEnabled: true,
 	})
 	require.NoError(t, err, "unable to add peer")
-	err = manager.MarkPeerConnected(key.PublicKey().String(), true)
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	wg := &sync.WaitGroup{}
@@ -2228,7 +2223,7 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, false)
+	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false)
 }
 
 func createStore(t *testing.T) (Store, error) {

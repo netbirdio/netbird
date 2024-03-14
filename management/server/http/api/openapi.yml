@@ -1,4 +1,4 @@
-openapi: 3.0.1
+openapi: 3.1.0
 servers:
   - url: https://api.netbird.io
     description: Default server
@@ -17,10 +17,10 @@ tags:
     description: Interact with and view information about setup keys.
   - name: Groups
     description: Interact with and view information about groups.
-  - name: Rules
-    description: Interact with and view information about rules.
   - name: Policies
     description: Interact with and view information about policies.
+  - name: Posture Checks
+    description: Interact with and view information about posture checks.
   - name: Routes
     description: Interact with and view information about routes.
   - name: DNS
@@ -119,7 +119,7 @@ components:
           description: Last time this user performed a login to the dashboard
           type: string
           format: date-time
-          example: 2023-05-05T09:00:35.477782Z
+          example: "2023-05-05T09:00:35.477782Z"
         auto_groups:
           description: Group IDs to auto-assign to peers registered by this user
           type: array
@@ -245,6 +245,10 @@ components:
               description: Peer's IP address
               type: string
               example: 10.64.0.1
+            connection_ip:
+              description: Peer's public connection IP address
+              type: string
+              example: 35.64.0.1
             connected:
               description: Peer to Management connection status
               type: boolean
@@ -253,11 +257,19 @@ components:
               description: Last time peer connected to Netbird's management service
               type: string
               format: date-time
-              example: 2023-05-05T10:05:26.420578Z
+              example: "2023-05-05T10:05:26.420578Z"
             os:
               description: Peer's operating system and version
               type: string
               example: Darwin 13.2.1
+            kernel_version:
+              description: Peer's operating system kernel version
+              type: string
+              example: 23.2.0
+            geoname_id:
+              description: Unique identifier from the GeoNames database for a specific geographical location.
+              type: integer
+              example: 2643743
             version:
               description: Peer's daemon or cli version
               type: string
@@ -299,24 +311,35 @@ components:
               description: Last time this peer performed log in (authentication). E.g., user authenticated.
               type: string
               format: date-time
-              example: 2023-05-05T09:00:35.477782Z
+              example: "2023-05-05T09:00:35.477782Z"
             approval_required:
               description: (Cloud only) Indicates whether peer needs approval
               type: boolean
               example: true
+            country_code:
+              $ref: '#/components/schemas/CountryCode'
+            city_name:
+              $ref: '#/components/schemas/CityName'
           required:
-            - ip
+            - city_name
             - connected
-            - last_seen
-            - os
-            - version
-            - groups
-            - ssh_enabled
-            - hostname
+            - connection_ip
+            - country_code
             - dns_label
+            - geoname_id
+            - groups
+            - hostname
+            - ip
+            - kernel_version
+            - last_login
+            - last_seen
             - login_expiration_enabled
             - login_expired
-            - last_login
+            - os
+            - ssh_enabled
+            - user_id
+            - version
+            - ui_version
     AccessiblePeer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -380,7 +403,7 @@ components:
           description: Setup Key expiration date
           type: string
           format: date-time
-          example: 2023-06-01T14:47:22.291057Z
+          example: "2023-06-01T14:47:22.291057Z"
         type:
           description: Setup key type, one-off for single time usage and reusable
           type: string
@@ -401,7 +424,7 @@ components:
           description: Setup key last usage date
           type: string
           format: date-time
-          example: 2023-05-05T09:00:35.477782Z
+          example: "2023-05-05T09:00:35.477782Z"
         state:
           description: Setup key status, "valid", "overused","expired" or "revoked"
           type: string
@@ -416,7 +439,7 @@ components:
           description: Setup key last update date
           type: string
           format: date-time
-          example: 2023-05-05T09:00:35.477782Z
+          example: "2023-05-05T09:00:35.477782Z"
         usage_limit:
           description: A number of times this key can be used. The value of 0 indicates the unlimited usage.
           type: integer
@@ -497,7 +520,7 @@ components:
           description: Date the token expires
           type: string
           format: date-time
-          example: 2023-05-05T14:38:28.977616Z
+          example: "2023-05-05T14:38:28.977616Z"
         created_by:
           description: User ID of the user who created the token
           type: string
@@ -506,12 +529,12 @@ components:
           description: Date the token was created
           type: string
           format: date-time
-          example: 2023-05-02T14:48:20.465209Z
+          example: "2023-05-02T14:48:20.465209Z"
         last_used:
           description: Date the token was last used
           type: string
           format: date-time
-          example: 2023-05-04T12:45:25.9723616Z
+          example: "2023-05-04T12:45:25.9723616Z"
       required:
         - id
         - name
@@ -599,73 +622,6 @@ components:
                 $ref: '#/components/schemas/PeerMinimum'
           required:
             - peers
-    RuleMinimum:
-      type: object
-      properties:
-        name:
-          description: Rule name identifier
-          type: string
-          example: Default
-        description:
-          description: Rule friendly description
-          type: string
-          example: This is a default rule that allows connections between all the resources
-        disabled:
-          description: Rules status
-          type: boolean
-          example: false
-        flow:
-          description: Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-          type: string
-          example: bidirect
-      required:
-        - name
-        - description
-        - disabled
-        - flow
-    RuleRequest:
-      allOf:
-        - $ref: '#/components/schemas/RuleMinimum'
-        - type: object
-          properties:
-            sources:
-              type: array
-              description: List of source group IDs
-              items:
-                type: string
-                example: "ch8i4ug6lnn4g9hqv7m1"
-            destinations:
-              type: array
-              description: List of destination group IDs
-              items:
-                type: string
-                example: "ch8i4ug6lnn4g9hqv7m0"
-    Rule:
-      allOf:
-        - type: object
-          properties:
-            id:
-              description: Rule ID
-              type: string
-              example: ch8i4ug6lnn4g9hqv7mg
-          required:
-            - id
-        - $ref: '#/components/schemas/RuleMinimum'
-        - type: object
-          properties:
-            sources:
-              description: Rule source group IDs
-              type: array
-              items:
-                $ref: '#/components/schemas/GroupMinimum'
-            destinations:
-              description: Rule destination group IDs
-              type: array
-              items:
-                $ref: '#/components/schemas/GroupMinimum'
-          required:
-            - sources
-            - destinations
     PolicyRuleMinimum:
       type: object
       properties:
@@ -777,6 +733,12 @@ components:
         - $ref: '#/components/schemas/PolicyMinimum'
         - type: object
           properties:
+            source_posture_checks:
+              description: Posture checks ID's applied to policy source groups
+              type: array
+              items:
+                type: string
+                example: "chacdk86lnnboviihd70"
             rules:
               description: Policy rule object for policy UI editor
               type: array
@@ -789,6 +751,12 @@ components:
         - $ref: '#/components/schemas/PolicyMinimum'
         - type: object
           properties:
+            source_posture_checks:
+              description: Posture checks ID's applied to policy source groups
+              type: array
+              items:
+                type: string
+                example: "chacdk86lnnboviihd70"
             rules:
               description: Policy rule object for policy UI editor
               type: array
@@ -796,6 +764,190 @@ components:
                 $ref: '#/components/schemas/PolicyRule'
           required:
             - rules
+            - source_posture_checks
+    PostureCheck:
+      type: object
+      properties:
+        id:
+          description: Posture check ID
+          type: string
+          example: ch8i4ug6lnn4g9hqv7mg
+        name:
+          description: Posture check unique name identifier
+          type: string
+          example: Default
+        description:
+          description: Posture check friendly description
+          type: string
+          example: This checks if the peer is running required NetBird's version
+        checks:
+          $ref: '#/components/schemas/Checks'
+      required:
+        - id
+        - name
+        - checks
+    Checks:
+      description: List of objects that perform the actual checks
+      type: object
+      properties:
+        nb_version_check:
+          $ref: '#/components/schemas/NBVersionCheck'
+        os_version_check:
+          $ref: '#/components/schemas/OSVersionCheck'
+        geo_location_check:
+          $ref: '#/components/schemas/GeoLocationCheck'
+        peer_network_range_check:
+          $ref: '#/components/schemas/PeerNetworkRangeCheck'
+    NBVersionCheck:
+      description: Posture check for the version of NetBird
+      type: object
+      $ref: '#/components/schemas/MinVersionCheck'
+    OSVersionCheck:
+      description: Posture check for the version of operating system
+      type: object
+      properties:
+        android:
+          description: Minimum version of Android
+          $ref: '#/components/schemas/MinVersionCheck'
+        darwin:
+          $ref: '#/components/schemas/MinVersionCheck'
+        ios:
+          description: Minimum version of iOS
+          $ref: '#/components/schemas/MinVersionCheck'
+        linux:
+          description: Minimum Linux kernel version
+          $ref: '#/components/schemas/MinKernelVersionCheck'
+        windows:
+          description: Minimum Windows kernel build version
+          $ref: '#/components/schemas/MinKernelVersionCheck'
+      example:
+        android:
+          min_version: "13"
+        ios:
+          min_version: "17.3.1"
+        darwin:
+          min_version: "14.2.1"
+        linux:
+          min_kernel_version: "5.3.3"
+        windows:
+          min_kernel_version: "10.0.1234"
+    MinVersionCheck:
+      description: Posture check for the version of operating system
+      type: object
+      properties:
+        min_version:
+          description: Minimum acceptable version
+          type: string
+          example: "14.3"
+      required:
+        - min_version
+    MinKernelVersionCheck:
+      description: Posture check with the kernel version
+      type: object
+      properties:
+        min_kernel_version:
+          description: Minimum acceptable version
+          type: string
+          example: "6.6.12"
+      required:
+        - min_kernel_version
+    GeoLocationCheck:
+      description: Posture check for geo location
+      type: object
+      properties:
+        locations:
+          description: List of geo locations to which the policy applies
+          type: array
+          items:
+            $ref: '#/components/schemas/Location'
+        action:
+          description: Action to take upon policy match
+          type: string
+          enum: [ "allow", "deny" ]
+          example: "allow"
+      required:
+        - locations
+        - action
+    PeerNetworkRangeCheck:
+      description: Posture check for allow or deny access based on peer local network addresses
+      type: object
+      properties:
+        ranges:
+          description: List of peer network ranges in CIDR notation
+          type: array
+          items:
+            type: string
+            example: ["192.168.1.0/24", "10.0.0.0/8", "2001:db8:1234:1a00::/56"]
+        action:
+          description: Action to take upon policy match
+          type: string
+          enum: [ "allow", "deny" ]
+          example: "allow"
+      required:
+        - ranges
+        - action
+    Location:
+      description: Describe geographical location information
+      type: object
+      properties:
+        country_code:
+          $ref: '#/components/schemas/CountryCode'
+        city_name:
+          $ref: '#/components/schemas/CityName'
+      required:
+        - country_code
+    CountryCode:
+      description: 2-letter ISO 3166-1 alpha-2 code that represents the country
+      type: string
+      example: "DE"
+    CityName:
+      description: Commonly used English name of the city
+      type: string
+      example: "Berlin"
+    Country:
+      description: Describe country geographical location information
+      type: object
+      properties:
+        country_name:
+          description: Commonly used English name of the country
+          type: string
+          example: "Germany"
+        country_code:
+          $ref: '#/components/schemas/CountryCode'
+      required:
+        - country_name
+        - country_code
+    City:
+      description: Describe city geographical location information
+      type: object
+      properties:
+        geoname_id:
+          description: Integer ID of the record in GeoNames database
+          type: integer
+          example: 2950158
+        city_name:
+          description: Commonly used English name of the city
+          type: string
+          example: "Berlin"
+      required:
+        - geoname_id
+        - city_name
+    PostureCheckUpdate:
+      type: object
+      properties:
+        name:
+          description: Posture check name identifier
+          type: string
+          example: Default
+        description:
+          description: Posture check friendly description
+          type: string
+          example: This checks if the peer is running required NetBird's version
+        checks:
+          $ref: '#/components/schemas/Checks'
+      required:
+        - name
+        - description
     RouteRequest:
       type: object
       properties:
@@ -907,7 +1059,7 @@ components:
         nameservers:
           description: Nameserver list
           minLength: 1
-          maxLength: 2
+          maxLength: 3
           type: array
           items:
             $ref: '#/components/schemas/Nameserver'
@@ -979,7 +1131,7 @@ components:
           description: The date and time when the event occurred
           type: string
           format: date-time
-          example: 2023-05-05T10:04:37.473542Z
+          example: "2023-05-05T10:04:37.473542Z"
         activity:
           description: The activity that occurred during the event
           type: string
@@ -1817,147 +1969,6 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/rules:
-    get:
-      summary: List all Rules
-      description: Returns a list of all rules. This will be deprecated in favour of `/api/policies`.
-      tags: [ Rules ]
-      deprecated: true
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      responses:
-        '200':
-          description: A JSON Array of Rules
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Rule'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    post:
-      summary: Create a Rule
-      description: Creates a rule. This will be deprecated in favour of `/api/policies`.
-      deprecated: true
-      tags: [ Rules ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      requestBody:
-        description: New Rule request
-        content:
-          'application/json':
-            schema:
-              $ref: '#/components/schemas/RuleRequest'
-      responses:
-        '200':
-          description: A Rule Object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Rule'
-  /api/rules/{ruleId}:
-    get:
-      summary: Retrieve a Rule
-      description: Get information about a rules. This will be deprecated in favour of `/api/policies/{policyID}`.
-      deprecated: true
-      tags: [ Rules ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: ruleId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a rule
-      responses:
-        '200':
-          description: A Rule object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Rule'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    put:
-      summary: Update a Rule
-      description: Update/Replace a rule. This will be deprecated in favour of `/api/policies/{policyID}`.
-      deprecated: true
-      tags: [ Rules ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: ruleId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a rule
-      requestBody:
-        description: Update Rule request
-        content:
-          'application/json':
-            schema:
-              $ref: '#/components/schemas/RuleRequest'
-      responses:
-        '200':
-          description: A Rule object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Rule'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    delete:
-      summary: Delete a Rule
-      description: Delete a rule. This will be deprecated in favour of `/api/policies/{policyID}`.
-      deprecated: true
-      tags: [ Rules ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: ruleId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a rule
-      responses:
-        '200':
-          description: Delete status code
-          content: { }
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
   /api/policies:
     get:
       summary: List all Policies
@@ -2147,7 +2158,6 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-
   /api/routes/{routeId}:
     get:
       summary: Retrieve a Route
@@ -2292,7 +2302,6 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-
   /api/dns/nameservers/{nsgroupId}:
     get:
       summary: Retrieve a Nameserver Group
@@ -2384,7 +2393,6 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-
   /api/dns/settings:
     get:
       summary: Retrieve DNS settings
@@ -2454,6 +2462,197 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Event'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/posture-checks:
+    get:
+      summary: List all Posture Checks
+      description: Returns a list of all posture checks
+      tags: [ "Posture Checks" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of posture checks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PostureCheck'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a Posture Check
+      description: Creates a posture check
+      tags: [ "Posture Checks" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: New posture check request
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/PostureCheckUpdate'
+      responses:
+        '200':
+          description: A posture check Object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostureCheck'
+  /api/posture-checks/{postureCheckId}:
+    get:
+      summary: Retrieve a Posture Check
+      description: Get information about a posture check
+      tags: [ "Posture Checks" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: postureCheckId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a posture check
+      responses:
+        '200':
+          description: A posture check object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostureCheck'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update a Posture Check
+      description: Update/Replace a posture check
+      tags: [ "Posture Checks" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: postureCheckId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a posture check
+      requestBody:
+        description: Update Rule request
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/PostureCheckUpdate'
+      responses:
+        '200':
+          description: A posture check object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostureCheck'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a Posture Check
+      description: Delete a posture check
+      tags: [ "Posture Checks" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: postureCheckId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a posture check
+      responses:
+        '200':
+          description: Delete status code
+          content: { }
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/locations/countries:
+    get:
+      summary: List all country codes
+      description: Get list of all country in 2-letter ISO 3166-1 alpha-2 codes
+      tags: [ "Geo Locations" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: List of country codes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  example: "DE"
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/locations/countries/{country}/cities:
+    get:
+      summary: List all city names by country
+      description: Get a list of all English city names for a given country code
+      tags: [ "Geo Locations" ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: country
+          required: true
+          schema:
+            $ref: '#/components/schemas/Country'
+      responses:
+        '200':
+          description: List of city names
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/City'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

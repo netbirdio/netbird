@@ -1,12 +1,14 @@
 package activity
 
+import "maps"
+
 // Activity that triggered an Event
 type Activity int
 
 // Code is an activity string representation
 type Code struct {
-	message string
-	code    string
+	Message string
+	Code    string
 }
 
 const (
@@ -130,6 +132,12 @@ const (
 	PeerApprovalRevoked
 	// TransferredOwnerRole indicates that the user transferred the owner role of the account
 	TransferredOwnerRole
+	// PostureCheckCreated indicates that the user created a posture check
+	PostureCheckCreated
+	// PostureCheckUpdated indicates that the user updated a posture check
+	PostureCheckUpdated
+	// PostureCheckDeleted indicates that the user deleted a posture check
+	PostureCheckDeleted
 )
 
 var activityMap = map[Activity]Code{
@@ -193,12 +201,15 @@ var activityMap = map[Activity]Code{
 	PeerApproved:                              {"Peer approved", "peer.approve"},
 	PeerApprovalRevoked:                       {"Peer approval revoked", "peer.approval.revoke"},
 	TransferredOwnerRole:                      {"Transferred owner role", "transferred.owner.role"},
+	PostureCheckCreated:                       {"Posture check created", "posture.check.created"},
+	PostureCheckUpdated:                       {"Posture check updated", "posture.check.updated"},
+	PostureCheckDeleted:                       {"Posture check deleted", "posture.check.deleted"},
 }
 
 // StringCode returns a string code of the activity
 func (a Activity) StringCode() string {
 	if code, ok := activityMap[a]; ok {
-		return code.code
+		return code.Code
 	}
 	return "UNKNOWN_ACTIVITY"
 }
@@ -206,7 +217,12 @@ func (a Activity) StringCode() string {
 // Message returns a string representation of an activity
 func (a Activity) Message() string {
 	if code, ok := activityMap[a]; ok {
-		return code.message
+		return code.Message
 	}
 	return "UNKNOWN_ACTIVITY"
+}
+
+// RegisterActivityMap adds new codes to the activity map
+func RegisterActivityMap(codes map[Activity]Code) {
+	maps.Copy(activityMap, codes)
 }

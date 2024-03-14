@@ -11,6 +11,8 @@ import (
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
+
+	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
 type upstreamResolverIOS struct {
@@ -20,8 +22,14 @@ type upstreamResolverIOS struct {
 	iIndex int
 }
 
-func newUpstreamResolver(parentCTX context.Context, interfaceName string, ip net.IP, net *net.IPNet) (*upstreamResolverIOS, error) {
-	upstreamResolverBase := newUpstreamResolverBase(parentCTX)
+func newUpstreamResolver(
+	ctx context.Context,
+	interfaceName string,
+	ip net.IP,
+	net *net.IPNet,
+	statusRecorder *peer.Status,
+) (*upstreamResolverIOS, error) {
+	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder)
 
 	index, err := getInterfaceIndex(interfaceName)
 	if err != nil {
@@ -46,24 +54,32 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 	if err != nil {
 		log.Errorf("error while parsing upstream host: %s", err)
 	}
+
+	timeout := upstreamTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		timeout = time.Until(deadline)
+	}
+	client.DialTimeout = timeout
+
 	upstreamIP := net.ParseIP(upstreamHost)
 	if u.lNet.Contains(upstreamIP) || net.IP.IsPrivate(upstreamIP) {
 		log.Debugf("using private client to query upstream: %s", upstream)
-		client = u.getClientPrivate()
+		client = u.getClientPrivate(timeout)
 	}
 
-	return client.ExchangeContext(ctx, r, upstream)
+	// Cannot use client.ExchangeContext because it overwrites our Dialer
+	return client.Exchange(r, upstream)
 }
 
 // getClientPrivate returns a new DNS client bound to the local IP address of the Netbird interface
 // This method is needed for iOS
-func (u *upstreamResolverIOS) getClientPrivate() *dns.Client {
+func (u *upstreamResolverIOS) getClientPrivate(dialTimeout time.Duration) *dns.Client {
 	dialer := &net.Dialer{
 		LocalAddr: &net.UDPAddr{
 			IP:   u.lIP,
 			Port: 0, // Let the OS pick a free port
 		},
-		Timeout: upstreamTimeout,
+		Timeout: dialTimeout,
 		Control: func(network, address string, c syscall.RawConn) error {
 			var operr error
 			fn := func(s uintptr) {

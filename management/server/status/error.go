@@ -1,6 +1,7 @@
 package status
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -68,7 +69,8 @@ func FromError(err error) (s *Error, ok bool) {
 	if err == nil {
 		return nil, true
 	}
-	if e, ok := err.(*Error); ok {
+	var e *Error
+	if errors.As(err, &e) {
 		return e, true
 	}
 	return nil, false

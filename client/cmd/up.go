@@ -94,6 +94,14 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		ic.RosenpassEnabled = &rosenpassEnabled
 	}
 
+	if cmd.Flag(rosenpassPermissiveFlag).Changed {
+		ic.RosenpassPermissive = &rosenpassPermissive
+	}
+
+	if cmd.Flag(serverSSHAllowedFlag).Changed {
+		ic.ServerSSHAllowed = &serverSSHAllowed
+	}
+
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
 			return err
@@ -108,6 +116,18 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
 		ic.PreSharedKey = &preSharedKey
+	}
+
+	if cmd.Flag(disableAutoConnectFlag).Changed {
+		ic.DisableAutoConnect = &autoConnectDisabled
+
+		if autoConnectDisabled {
+			cmd.Println("Autoconnect has been disabled. The client won't connect automatically when the service starts.")
+		}
+
+		if !autoConnectDisabled {
+			cmd.Println("Autoconnect has been enabled. The client will connect automatically when the service starts.")
+		}
 	}
 
 	config, err := internal.UpdateOrCreateConfig(ic)
@@ -178,6 +198,18 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if cmd.Flag(enableRosenpassFlag).Changed {
 		loginRequest.RosenpassEnabled = &rosenpassEnabled
+	}
+
+	if cmd.Flag(rosenpassPermissiveFlag).Changed {
+		loginRequest.RosenpassPermissive = &rosenpassPermissive
+	}
+
+	if cmd.Flag(serverSSHAllowedFlag).Changed {
+		loginRequest.ServerSSHAllowed = &serverSSHAllowed
+	}
+
+	if cmd.Flag(disableAutoConnectFlag).Changed {
+		loginRequest.DisableAutoConnect = &autoConnectDisabled
 	}
 
 	if cmd.Flag(interfaceNameFlag).Changed {

@@ -2,11 +2,12 @@ package server
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/assert"
 	"math/rand"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestScheduler_Performance(t *testing.T) {
@@ -36,15 +37,24 @@ func TestScheduler_Cancel(t *testing.T) {
 	jobID1 := "test-scheduler-job-1"
 	jobID2 := "test-scheduler-job-2"
 	scheduler := NewDefaultScheduler()
-	scheduler.Schedule(2*time.Second, jobID1, func() (nextRunIn time.Duration, reschedule bool) {
-		return 0, false
+	tChan := make(chan struct{})
+	p := []string{jobID1, jobID2}
+	scheduler.Schedule(2*time.Millisecond, jobID1, func() (nextRunIn time.Duration, reschedule bool) {
+		tt := p[0]
+		<-tChan
+		t.Logf("job %s", tt)
+		return 2 * time.Millisecond, true
 	})
-	scheduler.Schedule(2*time.Second, jobID2, func() (nextRunIn time.Duration, reschedule bool) {
-		return 0, false
+	scheduler.Schedule(2*time.Millisecond, jobID2, func() (nextRunIn time.Duration, reschedule bool) {
+		return 2 * time.Millisecond, true
 	})
 
+	time.Sleep(4 * time.Millisecond)
 	assert.Len(t, scheduler.jobs, 2)
 	scheduler.Cancel([]string{jobID1})
+	close(tChan)
+	p = []string{}
+	time.Sleep(4 * time.Millisecond)
 	assert.Len(t, scheduler.jobs, 1)
 	assert.NotNil(t, scheduler.jobs[jobID2])
 }

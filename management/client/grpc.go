@@ -26,6 +26,8 @@ import (
 	"github.com/netbirdio/netbird/management/proto"
 )
 
+const ConnectTimeout = 10 * time.Second
+
 // ConnStateNotifier is a wrapper interface of the status recorders
 type ConnStateNotifier interface {
 	MarkManagementDisconnected(error)
@@ -49,7 +51,7 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
 	}
 
-	mgmCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
 	defer cancel()
 	conn, err := grpc.DialContext(
 		mgmCtx,
@@ -318,7 +320,7 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 		log.Errorf("failed to encrypt message: %s", err)
 		return nil, err
 	}
-	mgmCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
+	mgmCtx, cancel := context.WithTimeout(c.ctx, ConnectTimeout)
 	defer cancel()
 	resp, err := c.realClient.Login(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
@@ -450,14 +452,33 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 	if info == nil {
 		return nil
 	}
+
+	addresses := make([]*proto.NetworkAddress, 0, len(info.NetworkAddresses))
+	for _, addr := range info.NetworkAddresses {
+		addresses = append(addresses, &proto.NetworkAddress{
+			NetIP: addr.NetIP.String(),
+			Mac:   addr.Mac,
+		})
+	}
+
 	return &proto.PeerSystemMeta{
 		Hostname:           info.Hostname,
 		GoOS:               info.GoOS,
 		OS:                 info.OS,
 		Core:               info.OSVersion,
+		OSVersion:          info.OSVersion,
 		Platform:           info.Platform,
 		Kernel:             info.Kernel,
 		WiretrusteeVersion: info.WiretrusteeVersion,
 		UiVersion:          info.UIVersion,
+		KernelVersion:      info.KernelVersion,
+		NetworkAddresses:   addresses,
+		SysSerialNumber:    info.SystemSerialNumber,
+		SysManufacturer:    info.SystemManufacturer,
+		SysProductName:     info.SystemProductName,
+		Environment: &proto.Environment{
+			Cloud:    info.Environment.Cloud,
+			Platform: info.Environment.Platform,
+		},
 	}
 }

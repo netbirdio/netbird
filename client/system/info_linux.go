@@ -13,7 +13,10 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/zcalusic/sysinfo"
 
+	"github.com/netbirdio/netbird/client/system/detect_cloud"
+	"github.com/netbirdio/netbird/client/system/detect_platform"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -50,11 +53,38 @@ func GetInfo(ctx context.Context) *Info {
 	if osName == "" {
 		osName = osInfo[3]
 	}
-	gio := &Info{Kernel: osInfo[0], Core: osInfo[1], Platform: osInfo[2], OS: osName, OSVersion: osVer, GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
+
 	systemHostname, _ := os.Hostname()
-	gio.Hostname = extractDeviceName(ctx, systemHostname)
-	gio.WiretrusteeVersion = version.NetbirdVersion()
-	gio.UIVersion = extractUserAgent(ctx)
+
+	addrs, err := networkAddresses()
+	if err != nil {
+		log.Warnf("failed to discover network addresses: %s", err)
+	}
+
+	serialNum, prodName, manufacturer := sysInfo()
+
+	env := Environment{
+		Cloud:    detect_cloud.Detect(ctx),
+		Platform: detect_platform.Detect(ctx),
+	}
+
+	gio := &Info{
+		Kernel:             osInfo[0],
+		Platform:           osInfo[2],
+		OS:                 osName,
+		OSVersion:          osVer,
+		Hostname:           extractDeviceName(ctx, systemHostname),
+		GoOS:               runtime.GOOS,
+		CPUs:               runtime.NumCPU(),
+		WiretrusteeVersion: version.NetbirdVersion(),
+		UIVersion:          extractUserAgent(ctx),
+		KernelVersion:      osInfo[1],
+		NetworkAddresses:   addrs,
+		SystemSerialNumber: serialNum,
+		SystemProductName:  prodName,
+		SystemManufacturer: manufacturer,
+		Environment:        env,
+	}
 
 	return gio
 }
@@ -85,4 +115,10 @@ func _getReleaseInfo() string {
 		log.Warnf("geucwReleaseInfo: %s", err)
 	}
 	return out.String()
+}
+
+func sysInfo() (serialNumber string, productName string, manufacturer string) {
+	var si sysinfo.SysInfo
+	si.GetSysInfo()
+	return si.Product.Version, si.Product.Name, si.Product.Vendor
 }

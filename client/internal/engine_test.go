@@ -74,6 +74,7 @@ func TestEngine_SSH(t *testing.T) {
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
+		ServerSSHAllowed: true,
 	}, MobileDependency{}, peer.NewRecorder("https://mgm"))
 
 	engine.dnsServer = &dns.MockServer{
@@ -1049,8 +1050,7 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "",
-		eventStore, false)
+	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "", eventStore, nil, false)
 	if err != nil {
 		return nil, "", err
 	}

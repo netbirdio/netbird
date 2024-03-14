@@ -79,7 +79,10 @@ type EngineConfig struct {
 
 	CustomDNSAddress string
 
-	RosenpassEnabled bool
+	RosenpassEnabled    bool
+	RosenpassPermissive bool
+
+	ServerSSHAllowed bool
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -234,6 +237,11 @@ func (e *Engine) Start() error {
 
 	if e.config.RosenpassEnabled {
 		log.Infof("rosenpass is enabled")
+		if e.config.RosenpassPermissive {
+			log.Infof("running rosenpass in permissive mode")
+		} else {
+			log.Infof("running rosenpass in strict mode")
+		}
 		e.rpManager, err = rosenpass.NewManager(e.config.PreSharedKey, e.config.WgIfaceName)
 		if err != nil {
 			return err
@@ -482,44 +490,52 @@ func isNil(server nbssh.Server) bool {
 }
 
 func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
-	if sshConf.GetSshEnabled() {
-		if runtime.GOOS == "windows" {
-			log.Warnf("running SSH server on Windows is not supported")
-			return nil
-		}
-		// start SSH server if it wasn't running
-		if isNil(e.sshServer) {
-			// nil sshServer means it has not yet been started
-			var err error
-			e.sshServer, err = e.sshServerFunc(e.config.SSHKey,
-				fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort))
-			if err != nil {
-				return err
+
+	if !e.config.ServerSSHAllowed {
+		log.Warnf("running SSH server is not permitted")
+		return nil
+	} else {
+
+		if sshConf.GetSshEnabled() {
+			if runtime.GOOS == "windows" {
+				log.Warnf("running SSH server on Windows is not supported")
+				return nil
 			}
-			go func() {
-				// blocking
-				err = e.sshServer.Start()
+			// start SSH server if it wasn't running
+			if isNil(e.sshServer) {
+				// nil sshServer means it has not yet been started
+				var err error
+				e.sshServer, err = e.sshServerFunc(e.config.SSHKey,
+					fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort))
 				if err != nil {
-					// will throw error when we stop it even if it is a graceful stop
-					log.Debugf("stopped SSH server with error %v", err)
+					return err
 				}
-				e.syncMsgMux.Lock()
-				defer e.syncMsgMux.Unlock()
-				e.sshServer = nil
-				log.Infof("stopped SSH server")
-			}()
-		} else {
-			log.Debugf("SSH server is already running")
+				go func() {
+					// blocking
+					err = e.sshServer.Start()
+					if err != nil {
+						// will throw error when we stop it even if it is a graceful stop
+						log.Debugf("stopped SSH server with error %v", err)
+					}
+					e.syncMsgMux.Lock()
+					defer e.syncMsgMux.Unlock()
+					e.sshServer = nil
+					log.Infof("stopped SSH server")
+				}()
+			} else {
+				log.Debugf("SSH server is already running")
+			}
+		} else if !isNil(e.sshServer) {
+			// Disable SSH server request, so stop it if it was running
+			err := e.sshServer.Stop()
+			if err != nil {
+				log.Warnf("failed to stop SSH server %v", err)
+			}
+			e.sshServer = nil
 		}
-	} else if !isNil(e.sshServer) {
-		// Disable SSH server request, so stop it if it was running
-		err := e.sshServer.Stop()
-		if err != nil {
-			log.Warnf("failed to stop SSH server %v", err)
-		}
-		e.sshServer = nil
+		return nil
+
 	}
-	return nil
 }
 
 func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
@@ -860,7 +876,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		PreSharedKey: e.config.PreSharedKey,
 	}
 
-	if e.config.RosenpassEnabled {
+	if e.config.RosenpassEnabled && !e.config.RosenpassPermissive {
 		lk := []byte(e.config.WgPrivateKey.PublicKey().String())
 		rk := []byte(wgConfig.RemoteKey)
 		var keyInput []byte
@@ -1172,14 +1188,21 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		dnsServer := dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, *dnsConfig, e.mobileDep.NetworkChangeListener)
+		dnsServer := dns.NewDefaultServerPermanentUpstream(
+			e.ctx,
+			e.wgInterface,
+			e.mobileDep.HostDNSAddresses,
+			*dnsConfig,
+			e.mobileDep.NetworkChangeListener,
+			e.statusRecorder,
+		)
 		go e.mobileDep.DnsReadyListener.OnReady()
 		return routes, dnsServer, nil
 	case "ios":
-		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager)
+		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.statusRecorder)
 		return nil, dnsServer, nil
 	default:
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1270,7 +1293,7 @@ func (e *Engine) receiveProbeEvents() {
 					log.Debugf("failed to get wg stats for peer %s: %s", key, err)
 				}
 				// wgStats could be zero value, in which case we just reset the stats
-				if err := e.statusRecorder.UpdateWireguardPeerState(key, wgStats); err != nil {
+				if err := e.statusRecorder.UpdateWireGuardPeerState(key, wgStats); err != nil {
 					log.Debugf("failed to update wg stats for peer %s: %s", key, err)
 				}
 			}

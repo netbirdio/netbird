@@ -35,15 +35,18 @@ var defaultInterfaceBlacklist = []string{iface.WgInterfaceDefault, "wt", "utun",
 
 // ConfigInput carries configuration changes to the client
 type ConfigInput struct {
-	ManagementURL    string
-	AdminURL         string
-	ConfigPath       string
-	PreSharedKey     *string
-	NATExternalIPs   []string
-	CustomDNSAddress []byte
-	RosenpassEnabled *bool
-	InterfaceName    *string
-	WireguardPort    *int
+	ManagementURL       string
+	AdminURL            string
+	ConfigPath          string
+	PreSharedKey        *string
+	ServerSSHAllowed    *bool
+	NATExternalIPs      []string
+	CustomDNSAddress    []byte
+	RosenpassEnabled    *bool
+	RosenpassPermissive *bool
+	InterfaceName       *string
+	WireguardPort       *int
+	DisableAutoConnect  *bool
 }
 
 // Config Configuration type
@@ -58,6 +61,8 @@ type Config struct {
 	IFaceBlackList       []string
 	DisableIPv6Discovery bool
 	RosenpassEnabled     bool
+	RosenpassPermissive  bool
+	ServerSSHAllowed     *bool
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey string
 
@@ -79,6 +84,10 @@ type Config struct {
 	NATExternalIPs []string
 	// CustomDNSAddress sets the DNS resolver listening address in format ip:port
 	CustomDNSAddress string
+
+	// DisableAutoConnect determines whether the client should not start with the service
+	// it's set to false by default due to backwards compatibility
+	DisableAutoConnect bool
 }
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
@@ -88,6 +97,7 @@ func ReadConfig(configPath string) (*Config, error) {
 		if _, err := util.ReadJson(configPath, config); err != nil {
 			return nil, err
 		}
+
 		return config, nil
 	}
 
@@ -152,6 +162,8 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		DisableIPv6Discovery: false,
 		NATExternalIPs:       input.NATExternalIPs,
 		CustomDNSAddress:     string(input.CustomDNSAddress),
+		ServerSSHAllowed:     util.False(),
+		DisableAutoConnect:   false,
 	}
 
 	defaultManagementURL, err := parseURL("Management URL", DefaultManagementURL)
@@ -184,6 +196,14 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 
 	if input.RosenpassEnabled != nil {
 		config.RosenpassEnabled = *input.RosenpassEnabled
+	}
+
+	if input.RosenpassPermissive != nil {
+		config.RosenpassPermissive = *input.RosenpassPermissive
+	}
+
+	if input.ServerSSHAllowed != nil {
+		config.ServerSSHAllowed = input.ServerSSHAllowed
 	}
 
 	defaultAdminURL, err := parseURL("Admin URL", DefaultAdminURL)
@@ -277,6 +297,26 @@ func update(input ConfigInput) (*Config, error) {
 
 	if input.RosenpassEnabled != nil {
 		config.RosenpassEnabled = *input.RosenpassEnabled
+		refresh = true
+	}
+
+	if input.RosenpassPermissive != nil {
+		config.RosenpassPermissive = *input.RosenpassPermissive
+		refresh = true
+	}
+
+	if input.DisableAutoConnect != nil {
+		config.DisableAutoConnect = *input.DisableAutoConnect
+		refresh = true
+	}
+
+	if input.ServerSSHAllowed != nil {
+		config.ServerSSHAllowed = input.ServerSSHAllowed
+		refresh = true
+	}
+
+	if config.ServerSSHAllowed == nil {
+		config.ServerSSHAllowed = util.True()
 		refresh = true
 	}
 

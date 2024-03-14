@@ -1,6 +1,7 @@
 package mock_server
 
 import (
+	"net"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -9,8 +10,10 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -23,7 +26,7 @@ type MockAccountManager struct {
 	GetUserFunc                     func(claims jwtclaims.AuthorizationClaims) (*server.User, error)
 	ListUsersFunc                   func(accountID string) ([]*server.User, error)
 	GetPeersFunc                    func(accountID, userID string) ([]*nbpeer.Peer, error)
-	MarkPeerConnectedFunc           func(peerKey string, connected bool) error
+	MarkPeerConnectedFunc           func(peerKey string, connected bool, realIP net.IP) error
 	DeletePeerFunc                  func(accountID, peerKey, userID string) error
 	GetNetworkMapFunc               func(peerKey string) (*server.NetworkMap, error)
 	GetPeerNetworkFunc              func(peerKey string) (*server.Network, error)
@@ -35,10 +38,7 @@ type MockAccountManager struct {
 	ListGroupsFunc                  func(accountID string) ([]*server.Group, error)
 	GroupAddPeerFunc                func(accountID, groupID, peerID string) error
 	GroupDeletePeerFunc             func(accountID, groupID, peerID string) error
-	GetRuleFunc                     func(accountID, ruleID, userID string) (*server.Rule, error)
-	SaveRuleFunc                    func(accountID, userID string, rule *server.Rule) error
 	DeleteRuleFunc                  func(accountID, ruleID, userID string) error
-	ListRulesFunc                   func(accountID, userID string) ([]*server.Rule, error)
 	GetPolicyFunc                   func(accountID, policyID, userID string) (*server.Policy, error)
 	SavePolicyFunc                  func(accountID, userID string, policy *server.Policy) error
 	DeletePolicyFunc                func(accountID, policyID, userID string) error
@@ -73,7 +73,7 @@ type MockAccountManager struct {
 	CheckUserAccessByJWTGroupsFunc  func(claims jwtclaims.AuthorizationClaims) error
 	DeleteAccountFunc               func(accountID, userID string) error
 	GetDNSDomainFunc                func() string
-	StoreEventFunc                  func(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any)
+	StoreEventFunc                  func(initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
 	GetEventsFunc                   func(accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettingsFunc              func(accountID, userID string) (*server.DNSSettings, error)
 	SaveDNSSettingsFunc             func(accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
@@ -85,6 +85,11 @@ type MockAccountManager struct {
 	GetAllConnectedPeersFunc        func() (map[string]struct{}, error)
 	HasConnectedChannelFunc         func(peerID string) bool
 	GetExternalCacheManagerFunc     func() server.ExternalCacheManager
+	GetPostureChecksFunc            func(accountID, postureChecksID, userID string) (*posture.Checks, error)
+	SavePostureChecksFunc           func(accountID, userID string, postureChecks *posture.Checks) error
+	DeletePostureChecksFunc         func(accountID, postureChecksID, userID string) error
+	ListPostureChecksFunc           func(accountID, userID string) ([]*posture.Checks, error)
+	GetIdpManagerFunc               func() idp.Manager
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -147,9 +152,9 @@ func (am *MockAccountManager) GetAccountByUserOrAccountID(
 }
 
 // MarkPeerConnected mock implementation of MarkPeerConnected from server.AccountManager interface
-func (am *MockAccountManager) MarkPeerConnected(peerKey string, connected bool) error {
+func (am *MockAccountManager) MarkPeerConnected(peerKey string, connected bool, realIP net.IP) error {
 	if am.MarkPeerConnectedFunc != nil {
-		return am.MarkPeerConnectedFunc(peerKey, connected)
+		return am.MarkPeerConnectedFunc(peerKey, connected, realIP)
 	}
 	return status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
 }
@@ -294,36 +299,12 @@ func (am *MockAccountManager) GroupDeletePeer(accountID, groupID, peerID string)
 	return status.Errorf(codes.Unimplemented, "method GroupDeletePeer is not implemented")
 }
 
-// GetRule mock implementation of GetRule from server.AccountManager interface
-func (am *MockAccountManager) GetRule(accountID, ruleID, userID string) (*server.Rule, error) {
-	if am.GetRuleFunc != nil {
-		return am.GetRuleFunc(accountID, ruleID, userID)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetRule is not implemented")
-}
-
-// SaveRule mock implementation of SaveRule from server.AccountManager interface
-func (am *MockAccountManager) SaveRule(accountID, userID string, rule *server.Rule) error {
-	if am.SaveRuleFunc != nil {
-		return am.SaveRuleFunc(accountID, userID, rule)
-	}
-	return status.Errorf(codes.Unimplemented, "method SaveRule is not implemented")
-}
-
 // DeleteRule mock implementation of DeleteRule from server.AccountManager interface
 func (am *MockAccountManager) DeleteRule(accountID, ruleID, userID string) error {
 	if am.DeleteRuleFunc != nil {
 		return am.DeleteRuleFunc(accountID, ruleID, userID)
 	}
 	return status.Errorf(codes.Unimplemented, "method DeleteRule is not implemented")
-}
-
-// ListRules mock implementation of ListRules from server.AccountManager interface
-func (am *MockAccountManager) ListRules(accountID, userID string) ([]*server.Rule, error) {
-	if am.ListRulesFunc != nil {
-		return am.ListRulesFunc(accountID, userID)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method ListRules is not implemented")
 }
 
 // GetPolicy mock implementation of GetPolicy from server.AccountManager interface
@@ -640,7 +621,7 @@ func (am *MockAccountManager) GetAllConnectedPeers() (map[string]struct{}, error
 	return nil, status.Errorf(codes.Unimplemented, "method GetAllConnectedPeers is not implemented")
 }
 
-// HasconnectedChannel mocks HasConnectedChannel of the AccountManager interface
+// HasConnectedChannel mocks HasConnectedChannel of the AccountManager interface
 func (am *MockAccountManager) HasConnectedChannel(peerID string) bool {
 	if am.HasConnectedChannelFunc != nil {
 		return am.HasConnectedChannelFunc(peerID)
@@ -649,7 +630,7 @@ func (am *MockAccountManager) HasConnectedChannel(peerID string) bool {
 }
 
 // StoreEvent mocks StoreEvent of the AccountManager interface
-func (am *MockAccountManager) StoreEvent(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any) {
+func (am *MockAccountManager) StoreEvent(initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
 	if am.StoreEventFunc != nil {
 		am.StoreEventFunc(initiatorID, targetID, accountID, activityID, meta)
 	}
@@ -659,6 +640,48 @@ func (am *MockAccountManager) StoreEvent(initiatorID, targetID, accountID string
 func (am *MockAccountManager) GetExternalCacheManager() server.ExternalCacheManager {
 	if am.GetExternalCacheManagerFunc() != nil {
 		return am.GetExternalCacheManagerFunc()
+	}
+	return nil
+}
+
+// GetPostureChecks mocks GetPostureChecks of the AccountManager interface
+func (am *MockAccountManager) GetPostureChecks(accountID, postureChecksID, userID string) (*posture.Checks, error) {
+	if am.GetPostureChecksFunc != nil {
+		return am.GetPostureChecksFunc(accountID, postureChecksID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetPostureChecks is not implemented")
+
+}
+
+// SavePostureChecks mocks SavePostureChecks of the AccountManager interface
+func (am *MockAccountManager) SavePostureChecks(accountID, userID string, postureChecks *posture.Checks) error {
+	if am.SavePostureChecksFunc != nil {
+		return am.SavePostureChecksFunc(accountID, userID, postureChecks)
+	}
+	return status.Errorf(codes.Unimplemented, "method SavePostureChecks is not implemented")
+}
+
+// DeletePostureChecks mocks DeletePostureChecks of the AccountManager interface
+func (am *MockAccountManager) DeletePostureChecks(accountID, postureChecksID, userID string) error {
+	if am.DeletePostureChecksFunc != nil {
+		return am.DeletePostureChecksFunc(accountID, postureChecksID, userID)
+	}
+	return status.Errorf(codes.Unimplemented, "method DeletePostureChecks is not implemented")
+
+}
+
+// ListPostureChecks mocks ListPostureChecks of the AccountManager interface
+func (am *MockAccountManager) ListPostureChecks(accountID, userID string) ([]*posture.Checks, error) {
+	if am.ListPostureChecksFunc != nil {
+		return am.ListPostureChecksFunc(accountID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method ListPostureChecks is not implemented")
+}
+
+// GetIdpManager mocks GetIdpManager of the AccountManager interface
+func (am *MockAccountManager) GetIdpManager() idp.Manager {
+	if am.GetIdpManagerFunc != nil {
+		return am.GetIdpManagerFunc()
 	}
 	return nil
 }

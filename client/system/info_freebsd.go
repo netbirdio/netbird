@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netbirdio/netbird/client/system/detect_cloud"
+	"github.com/netbirdio/netbird/client/system/detect_platform"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -23,7 +25,14 @@ func GetInfo(ctx context.Context) *Info {
 	osStr := strings.Replace(out, "\n", "", -1)
 	osStr = strings.Replace(osStr, "\r\n", "", -1)
 	osInfo := strings.Split(osStr, " ")
-	gio := &Info{Kernel: osInfo[0], Core: osInfo[1], Platform: runtime.GOARCH, OS: osInfo[2], GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
+
+	env := Environment{
+		Cloud:    detect_cloud.Detect(ctx),
+		Platform: detect_platform.Detect(ctx),
+	}
+
+	gio := &Info{Kernel: osInfo[0], Platform: runtime.GOARCH, OS: osInfo[2], GoOS: runtime.GOOS, CPUs: runtime.NumCPU(), KernelVersion: osInfo[1], Environment: env}
+
 	systemHostname, _ := os.Hostname()
 	gio.Hostname = extractDeviceName(ctx, systemHostname)
 	gio.WiretrusteeVersion = version.NetbirdVersion()

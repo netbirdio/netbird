@@ -63,9 +63,21 @@ const (
 	EventActivityCodeUserUnblock                              EventActivityCode = "user.unblock"
 )
 
+// Defines values for GeoLocationCheckAction.
+const (
+	GeoLocationCheckActionAllow GeoLocationCheckAction = "allow"
+	GeoLocationCheckActionDeny  GeoLocationCheckAction = "deny"
+)
+
 // Defines values for NameserverNsType.
 const (
 	NameserverNsTypeUdp NameserverNsType = "udp"
+)
+
+// Defines values for PeerNetworkRangeCheckAction.
+const (
+	PeerNetworkRangeCheckActionAllow PeerNetworkRangeCheckAction = "allow"
+	PeerNetworkRangeCheckActionDeny  PeerNetworkRangeCheckAction = "deny"
 )
 
 // Defines values for PolicyRuleAction.
@@ -176,6 +188,45 @@ type AccountSettings struct {
 	PeerLoginExpirationEnabled bool `json:"peer_login_expiration_enabled"`
 }
 
+// Checks List of objects that perform the actual checks
+type Checks struct {
+	// GeoLocationCheck Posture check for geo location
+	GeoLocationCheck *GeoLocationCheck `json:"geo_location_check,omitempty"`
+
+	// NbVersionCheck Posture check for the version of operating system
+	NbVersionCheck *NBVersionCheck `json:"nb_version_check,omitempty"`
+
+	// OsVersionCheck Posture check for the version of operating system
+	OsVersionCheck *OSVersionCheck `json:"os_version_check,omitempty"`
+
+	// PeerNetworkRangeCheck Posture check for allow or deny access based on peer local network addresses
+	PeerNetworkRangeCheck *PeerNetworkRangeCheck `json:"peer_network_range_check,omitempty"`
+}
+
+// City Describe city geographical location information
+type City struct {
+	// CityName Commonly used English name of the city
+	CityName string `json:"city_name"`
+
+	// GeonameId Integer ID of the record in GeoNames database
+	GeonameId int `json:"geoname_id"`
+}
+
+// CityName Commonly used English name of the city
+type CityName = string
+
+// Country Describe country geographical location information
+type Country struct {
+	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
+	CountryCode CountryCode `json:"country_code"`
+
+	// CountryName Commonly used English name of the country
+	CountryName string `json:"country_name"`
+}
+
+// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
+type CountryCode = string
+
 // DNSSettings defines model for DNSSettings.
 type DNSSettings struct {
 	// DisabledManagementGroups Groups whose DNS management is disabled
@@ -214,6 +265,18 @@ type Event struct {
 
 // EventActivityCode The string code of the activity that occurred during the event
 type EventActivityCode string
+
+// GeoLocationCheck Posture check for geo location
+type GeoLocationCheck struct {
+	// Action Action to take upon policy match
+	Action GeoLocationCheckAction `json:"action"`
+
+	// Locations List of geo locations to which the policy applies
+	Locations []Location `json:"locations"`
+}
+
+// GeoLocationCheckAction Action to take upon policy match
+type GeoLocationCheckAction string
 
 // Group defines model for Group.
 type Group struct {
@@ -256,6 +319,30 @@ type GroupRequest struct {
 	// Peers List of peers ids
 	Peers *[]string `json:"peers,omitempty"`
 }
+
+// Location Describe geographical location information
+type Location struct {
+	// CityName Commonly used English name of the city
+	CityName *CityName `json:"city_name,omitempty"`
+
+	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
+	CountryCode CountryCode `json:"country_code"`
+}
+
+// MinKernelVersionCheck Posture check with the kernel version
+type MinKernelVersionCheck struct {
+	// MinKernelVersion Minimum acceptable version
+	MinKernelVersion string `json:"min_kernel_version"`
+}
+
+// MinVersionCheck Posture check for the version of operating system
+type MinVersionCheck struct {
+	// MinVersion Minimum acceptable version
+	MinVersion string `json:"min_version"`
+}
+
+// NBVersionCheck Posture check for the version of operating system
+type NBVersionCheck = MinVersionCheck
 
 // Nameserver defines model for Nameserver.
 type Nameserver struct {
@@ -329,6 +416,24 @@ type NameserverGroupRequest struct {
 	SearchDomainsEnabled bool `json:"search_domains_enabled"`
 }
 
+// OSVersionCheck Posture check for the version of operating system
+type OSVersionCheck struct {
+	// Android Posture check for the version of operating system
+	Android *MinVersionCheck `json:"android,omitempty"`
+
+	// Darwin Posture check for the version of operating system
+	Darwin *MinVersionCheck `json:"darwin,omitempty"`
+
+	// Ios Posture check for the version of operating system
+	Ios *MinVersionCheck `json:"ios,omitempty"`
+
+	// Linux Posture check with the kernel version
+	Linux *MinKernelVersionCheck `json:"linux,omitempty"`
+
+	// Windows Posture check with the kernel version
+	Windows *MinKernelVersionCheck `json:"windows,omitempty"`
+}
+
 // Peer defines model for Peer.
 type Peer struct {
 	// AccessiblePeers List of accessible peers
@@ -337,11 +442,23 @@ type Peer struct {
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
 	ApprovalRequired *bool `json:"approval_required,omitempty"`
 
+	// CityName Commonly used English name of the city
+	CityName CityName `json:"city_name"`
+
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
+	// ConnectionIp Peer's public connection IP address
+	ConnectionIp string `json:"connection_ip"`
+
+	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
+	CountryCode CountryCode `json:"country_code"`
+
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
+
+	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
+	GeonameId int `json:"geoname_id"`
 
 	// Groups Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
@@ -354,6 +471,9 @@ type Peer struct {
 
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
+
+	// KernelVersion Peer's operating system kernel version
+	KernelVersion string `json:"kernel_version"`
 
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
@@ -377,10 +497,10 @@ type Peer struct {
 	SshEnabled bool `json:"ssh_enabled"`
 
 	// UiVersion Peer's desktop UI version
-	UiVersion *string `json:"ui_version,omitempty"`
+	UiVersion string `json:"ui_version"`
 
 	// UserId User ID of the user that enrolled this peer
-	UserId *string `json:"user_id,omitempty"`
+	UserId string `json:"user_id"`
 
 	// Version Peer's daemon or cli version
 	Version string `json:"version"`
@@ -391,11 +511,23 @@ type PeerBase struct {
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
 	ApprovalRequired *bool `json:"approval_required,omitempty"`
 
+	// CityName Commonly used English name of the city
+	CityName CityName `json:"city_name"`
+
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
+	// ConnectionIp Peer's public connection IP address
+	ConnectionIp string `json:"connection_ip"`
+
+	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
+	CountryCode CountryCode `json:"country_code"`
+
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
+
+	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
+	GeonameId int `json:"geoname_id"`
 
 	// Groups Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
@@ -408,6 +540,9 @@ type PeerBase struct {
 
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
+
+	// KernelVersion Peer's operating system kernel version
+	KernelVersion string `json:"kernel_version"`
 
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
@@ -431,10 +566,10 @@ type PeerBase struct {
 	SshEnabled bool `json:"ssh_enabled"`
 
 	// UiVersion Peer's desktop UI version
-	UiVersion *string `json:"ui_version,omitempty"`
+	UiVersion string `json:"ui_version"`
 
 	// UserId User ID of the user that enrolled this peer
-	UserId *string `json:"user_id,omitempty"`
+	UserId string `json:"user_id"`
 
 	// Version Peer's daemon or cli version
 	Version string `json:"version"`
@@ -448,11 +583,23 @@ type PeerBatch struct {
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
 	ApprovalRequired *bool `json:"approval_required,omitempty"`
 
+	// CityName Commonly used English name of the city
+	CityName CityName `json:"city_name"`
+
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
+	// ConnectionIp Peer's public connection IP address
+	ConnectionIp string `json:"connection_ip"`
+
+	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
+	CountryCode CountryCode `json:"country_code"`
+
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
+
+	// GeonameId Unique identifier from the GeoNames database for a specific geographical location.
+	GeonameId int `json:"geoname_id"`
 
 	// Groups Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
@@ -465,6 +612,9 @@ type PeerBatch struct {
 
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
+
+	// KernelVersion Peer's operating system kernel version
+	KernelVersion string `json:"kernel_version"`
 
 	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
 	LastLogin time.Time `json:"last_login"`
@@ -488,10 +638,10 @@ type PeerBatch struct {
 	SshEnabled bool `json:"ssh_enabled"`
 
 	// UiVersion Peer's desktop UI version
-	UiVersion *string `json:"ui_version,omitempty"`
+	UiVersion string `json:"ui_version"`
 
 	// UserId User ID of the user that enrolled this peer
-	UserId *string `json:"user_id,omitempty"`
+	UserId string `json:"user_id"`
 
 	// Version Peer's daemon or cli version
 	Version string `json:"version"`
@@ -505,6 +655,18 @@ type PeerMinimum struct {
 	// Name Peer's hostname
 	Name string `json:"name"`
 }
+
+// PeerNetworkRangeCheck Posture check for allow or deny access based on peer local network addresses
+type PeerNetworkRangeCheck struct {
+	// Action Action to take upon policy match
+	Action PeerNetworkRangeCheckAction `json:"action"`
+
+	// Ranges List of peer network ranges in CIDR notation
+	Ranges []string `json:"ranges"`
+}
+
+// PeerNetworkRangeCheckAction Action to take upon policy match
+type PeerNetworkRangeCheckAction string
 
 // PeerRequest defines model for PeerRequest.
 type PeerRequest struct {
@@ -569,6 +731,9 @@ type Policy struct {
 
 	// Rules Policy rule object for policy UI editor
 	Rules []PolicyRule `json:"rules"`
+
+	// SourcePostureChecks Posture checks ID's applied to policy source groups
+	SourcePostureChecks []string `json:"source_posture_checks"`
 }
 
 // PolicyMinimum defines model for PolicyMinimum.
@@ -713,6 +878,36 @@ type PolicyUpdate struct {
 
 	// Rules Policy rule object for policy UI editor
 	Rules []PolicyRuleUpdate `json:"rules"`
+
+	// SourcePostureChecks Posture checks ID's applied to policy source groups
+	SourcePostureChecks *[]string `json:"source_posture_checks,omitempty"`
+}
+
+// PostureCheck defines model for PostureCheck.
+type PostureCheck struct {
+	// Checks List of objects that perform the actual checks
+	Checks Checks `json:"checks"`
+
+	// Description Posture check friendly description
+	Description *string `json:"description,omitempty"`
+
+	// Id Posture check ID
+	Id string `json:"id"`
+
+	// Name Posture check unique name identifier
+	Name string `json:"name"`
+}
+
+// PostureCheckUpdate defines model for PostureCheckUpdate.
+type PostureCheckUpdate struct {
+	// Checks List of objects that perform the actual checks
+	Checks *Checks `json:"checks,omitempty"`
+
+	// Description Posture check friendly description
+	Description string `json:"description"`
+
+	// Name Posture check name identifier
+	Name string `json:"name"`
 }
 
 // Route defines model for Route.
@@ -779,66 +974,6 @@ type RouteRequest struct {
 
 	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
 	PeerGroups *[]string `json:"peer_groups,omitempty"`
-}
-
-// Rule defines model for Rule.
-type Rule struct {
-	// Description Rule friendly description
-	Description string `json:"description"`
-
-	// Destinations Rule destination group IDs
-	Destinations []GroupMinimum `json:"destinations"`
-
-	// Disabled Rules status
-	Disabled bool `json:"disabled"`
-
-	// Flow Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"flow"`
-
-	// Id Rule ID
-	Id string `json:"id"`
-
-	// Name Rule name identifier
-	Name string `json:"name"`
-
-	// Sources Rule source group IDs
-	Sources []GroupMinimum `json:"sources"`
-}
-
-// RuleMinimum defines model for RuleMinimum.
-type RuleMinimum struct {
-	// Description Rule friendly description
-	Description string `json:"description"`
-
-	// Disabled Rules status
-	Disabled bool `json:"disabled"`
-
-	// Flow Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"flow"`
-
-	// Name Rule name identifier
-	Name string `json:"name"`
-}
-
-// RuleRequest defines model for RuleRequest.
-type RuleRequest struct {
-	// Description Rule friendly description
-	Description string `json:"description"`
-
-	// Destinations List of destination group IDs
-	Destinations *[]string `json:"destinations,omitempty"`
-
-	// Disabled Rules status
-	Disabled bool `json:"disabled"`
-
-	// Flow Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"flow"`
-
-	// Name Rule name identifier
-	Name string `json:"name"`
-
-	// Sources List of source group IDs
-	Sources *[]string `json:"sources,omitempty"`
 }
 
 // SetupKey defines model for SetupKey.
@@ -1012,17 +1147,17 @@ type PostApiPoliciesJSONRequestBody = PolicyUpdate
 // PutApiPoliciesPolicyIdJSONRequestBody defines body for PutApiPoliciesPolicyId for application/json ContentType.
 type PutApiPoliciesPolicyIdJSONRequestBody = PolicyUpdate
 
+// PostApiPostureChecksJSONRequestBody defines body for PostApiPostureChecks for application/json ContentType.
+type PostApiPostureChecksJSONRequestBody = PostureCheckUpdate
+
+// PutApiPostureChecksPostureCheckIdJSONRequestBody defines body for PutApiPostureChecksPostureCheckId for application/json ContentType.
+type PutApiPostureChecksPostureCheckIdJSONRequestBody = PostureCheckUpdate
+
 // PostApiRoutesJSONRequestBody defines body for PostApiRoutes for application/json ContentType.
 type PostApiRoutesJSONRequestBody = RouteRequest
 
 // PutApiRoutesRouteIdJSONRequestBody defines body for PutApiRoutesRouteId for application/json ContentType.
 type PutApiRoutesRouteIdJSONRequestBody = RouteRequest
-
-// PostApiRulesJSONRequestBody defines body for PostApiRules for application/json ContentType.
-type PostApiRulesJSONRequestBody = RuleRequest
-
-// PutApiRulesRuleIdJSONRequestBody defines body for PutApiRulesRuleId for application/json ContentType.
-type PutApiRulesRuleIdJSONRequestBody = RuleRequest
 
 // PostApiSetupKeysJSONRequestBody defines body for PostApiSetupKeys for application/json ContentType.
 type PostApiSetupKeysJSONRequestBody = SetupKeyRequest

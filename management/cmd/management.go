@@ -19,8 +19,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netbirdio/management-integrations/integrations"
-
 	"github.com/google/uuid"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
@@ -33,15 +31,19 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
+	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/version"
 )
 
 // ManagementLegacyPort is the port that was used before by the Management gRPC server.
@@ -163,8 +165,15 @@ var (
 				}
 			}
 
+			geo, err := geolocation.NewGeolocation(config.Datadir)
+			if err != nil {
+				log.Warnf("could not initialize geo location service: %v, we proceed without geo support", err)
+			} else {
+				log.Infof("geo location service has been initialized from %s", config.Datadir)
+			}
+
 			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
-				dnsDomain, eventStore, userDeleteFromIDPEnabled)
+				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}
@@ -183,17 +192,17 @@ var (
 				log.Warn("TrustedHTTPProxies and TrustedHTTPProxiesCount both are configured. " +
 					"This is not recommended way to extract X-Forwarded-For. Consider using one of these options.")
 			}
-			realipOpts := realip.Opts{
-				TrustedPeers:        trustedPeers,
-				TrustedProxies:      trustedHTTPProxies,
-				TrustedProxiesCount: trustedProxiesCount,
-				Headers:             []string{realip.XForwardedFor, realip.XRealIp},
+			realipOpts := []realip.Option{
+				realip.WithTrustedPeers(trustedPeers),
+				realip.WithTrustedProxies(trustedHTTPProxies),
+				realip.WithTrustedProxiesCount(trustedProxiesCount),
+				realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
 			}
 			gRPCOpts := []grpc.ServerOption{
 				grpc.KeepaliveEnforcementPolicy(kaep),
 				grpc.KeepaliveParams(kasp),
-				grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts)),
-				grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts)),
+				grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...)),
+				grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...)),
 			}
 
 			var certManager *autocert.Manager
@@ -234,7 +243,10 @@ var (
 				UserIDClaim:  config.HttpConfig.AuthUserIDClaim,
 				KeysLocation: config.HttpConfig.AuthKeysLocation,
 			}
-			httpAPIHandler, err := httpapi.APIHandler(accountManager, *jwtValidator, appMetrics, httpAPIAuthCfg)
+
+			ctx, cancel := context.WithCancel(cmd.Context())
+			defer cancel()
+			httpAPIHandler, err := httpapi.APIHandler(ctx, accountManager, geo, *jwtValidator, appMetrics, httpAPIAuthCfg)
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}
@@ -256,8 +268,6 @@ var (
 			}
 
 			if !disableMetrics {
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
 				idpManager := "disabled"
 				if config.IdpManagerConfig != nil && config.IdpManagerConfig.ManagerType != "" {
 					idpManager = config.IdpManagerConfig.ManagerType
@@ -306,12 +316,16 @@ var (
 				}
 			}
 
+			log.Infof("management server version %s", version.NetbirdVersion())
 			log.Infof("running HTTP server and gRPC server on the same port: %s", listener.Addr().String())
 			serveGRPCWithHTTP(listener, rootHandler, tlsEnabled)
 
 			SetupCloseHandler()
 
 			<-stopCh
+			if geo != nil {
+				_ = geo.Stop()
+			}
 			ephemeralManager.Stop()
 			_ = appMetrics.Close()
 			_ = listener.Close()

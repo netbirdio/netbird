@@ -160,6 +160,12 @@ func (c *clientNetwork) removeRouteFromWireguardPeer(peerKey string) error {
 	if err != nil {
 		return err
 	}
+
+	delete(state.Routes, c.network.String())
+	if err := c.statusRecorder.UpdatePeerState(state); err != nil {
+		log.Warnf("Failed to update peer state: %v", err)
+	}
+
 	if state.ConnStatus != peer.StatusConnected {
 		return nil
 	}
@@ -225,6 +231,20 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 	}
 
 	c.chosenRoute = c.routes[chosen]
+
+	state, err := c.statusRecorder.GetPeer(c.chosenRoute.Peer)
+	if err != nil {
+		log.Errorf("Failed to get peer state: %v", err)
+	} else {
+		if state.Routes == nil {
+			state.Routes = map[string]struct{}{}
+		}
+		state.Routes[c.network.String()] = struct{}{}
+		if err := c.statusRecorder.UpdatePeerState(state); err != nil {
+			log.Warnf("Failed to update peer state: %v", err)
+		}
+	}
+
 	err = c.wgInterface.AddAllowedIP(c.chosenRoute.Peer, c.network.String())
 	if err != nil {
 		log.Errorf("couldn't add allowed IP %s added for peer %s, err: %v",

@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/server/status"
+
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/util"
 )
@@ -174,6 +176,26 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 
 }
 
+func TestSqlite_GetAccount(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	store := newSqliteStoreFromFile(t, "testdata/store.json")
+
+	id := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	account, err := store.GetAccount(id)
+	require.NoError(t, err)
+	require.Equal(t, id, account.Id, "account id should match")
+
+	_, err = store.GetAccount("non-existing-account")
+	assert.Error(t, err)
+	parsedErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+}
+
 func TestSqlite_SavePeerStatus(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
@@ -188,6 +210,9 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 	newStatus := nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()}
 	err = store.SavePeerStatus(account.Id, "non-existing-peer", newStatus)
 	assert.Error(t, err)
+	parsedErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 
 	// save new status of existing peer
 	account.Peers["testpeer"] = &nbpeer.Peer{
@@ -212,6 +237,56 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 	actual := account.Peers["testpeer"].Status
 	assert.Equal(t, newStatus, *actual)
 }
+func TestSqlite_SavePeerLocation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	store := newSqliteStoreFromFile(t, "testdata/store.json")
+
+	account, err := store.GetAccount("bf1c8084-ba50-4ce7-9439-34653001fc3b")
+	require.NoError(t, err)
+
+	peer := &nbpeer.Peer{
+		AccountID: account.Id,
+		ID:        "testpeer",
+		Location: nbpeer.Location{
+			ConnectionIP: net.ParseIP("0.0.0.0"),
+			CountryCode:  "YY",
+			CityName:     "City",
+			GeoNameID:    1,
+		},
+		Meta: nbpeer.PeerSystemMeta{},
+	}
+	// error is expected as peer is not in store yet
+	err = store.SavePeerLocation(account.Id, peer)
+	assert.Error(t, err)
+
+	account.Peers[peer.ID] = peer
+	err = store.SaveAccount(account)
+	require.NoError(t, err)
+
+	peer.Location.ConnectionIP = net.ParseIP("35.1.1.1")
+	peer.Location.CountryCode = "DE"
+	peer.Location.CityName = "Berlin"
+	peer.Location.GeoNameID = 2950159
+
+	err = store.SavePeerLocation(account.Id, account.Peers[peer.ID])
+	assert.NoError(t, err)
+
+	account, err = store.GetAccount(account.Id)
+	require.NoError(t, err)
+
+	actual := account.Peers[peer.ID].Location
+	assert.Equal(t, peer.Location, actual)
+
+	peer.ID = "non-existing-peer"
+	err = store.SavePeerLocation(account.Id, peer)
+	assert.Error(t, err)
+	parsedErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+}
 
 func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -228,6 +303,9 @@ func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {
 
 	_, err = store.GetAccountByPrivateDomain("missing-domain.com")
 	require.Error(t, err, "should return error on domain lookup")
+	parsedErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 }
 
 func TestSqlite_GetTokenIDByHashedToken(t *testing.T) {
@@ -243,6 +321,12 @@ func TestSqlite_GetTokenIDByHashedToken(t *testing.T) {
 	token, err := store.GetTokenIDByHashedToken(hashed)
 	require.NoError(t, err)
 	require.Equal(t, id, token)
+
+	_, err = store.GetTokenIDByHashedToken("non-existing-hash")
+	require.Error(t, err)
+	parsedErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 }
 
 func TestSqlite_GetUserByTokenID(t *testing.T) {
@@ -257,6 +341,12 @@ func TestSqlite_GetUserByTokenID(t *testing.T) {
 	user, err := store.GetUserByTokenID(id)
 	require.NoError(t, err)
 	require.Equal(t, id, user.PATs[id].ID)
+
+	_, err = store.GetUserByTokenID("non-existing-id")
+	require.Error(t, err)
+	parsedErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 }
 
 func newSqliteStore(t *testing.T) *SqliteStore {

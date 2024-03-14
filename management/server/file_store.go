@@ -159,18 +159,6 @@ func restore(file string) (*FileStore, error) {
 		if account.Policies == nil {
 			account.Policies = make([]*Policy, 0)
 		}
-		for _, rule := range account.Rules {
-			policy, err := RuleToPolicy(rule)
-			if err != nil {
-				log.Errorf("unable to migrate rule to policy: %v", err)
-				continue
-			}
-			// don't update policies from rules, rules deprecated,
-			// only append not existed rules as part of the migration process
-			if _, ok := policies[policy.ID]; !ok {
-				account.Policies = append(account.Policies, policy)
-			}
-		}
 
 		// for data migration. Can be removed once most base will be with labels
 		existingLabels := account.getPeerDNSLabels()
@@ -340,13 +328,6 @@ func (s *FileStore) SaveAccount(account *Account) error {
 
 	if accountCopy.DomainCategory == PrivateCategory && accountCopy.IsDomainPrimaryAccount {
 		s.PrivateDomain2AccountID[accountCopy.Domain] = accountCopy.Id
-	}
-
-	accountCopy.Rules = make(map[string]*Rule)
-	for _, policy := range accountCopy.Policies {
-		for _, rule := range policy.Rules {
-			accountCopy.Rules[rule.ID] = rule.ToRule()
-		}
 	}
 
 	return s.persist(s.storeFile)
@@ -622,6 +603,27 @@ func (s *FileStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.P
 	}
 
 	peer.Status = &peerStatus
+
+	return nil
+}
+
+// SavePeerLocation stores the PeerStatus in memory. It doesn't attempt to persist data to speed up things.
+// Peer.Location will be saved eventually when some other changes occur.
+func (s *FileStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	peer := account.Peers[peerWithLocation.ID]
+	if peer == nil {
+		return status.Errorf(status.NotFound, "peer %s not found", peerWithLocation.ID)
+	}
+
+	peer.Location = peerWithLocation.Location
 
 	return nil
 }

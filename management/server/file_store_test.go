@@ -193,18 +193,18 @@ func TestStore(t *testing.T) {
 		Name:  "all",
 		Peers: []string{"testpeer"},
 	}
-	account.Rules["all"] = &Rule{
-		ID:          "all",
-		Name:        "all",
-		Source:      []string{"all"},
-		Destination: []string{"all"},
-		Flow:        TrafficFlowBidirect,
-	}
 	account.Policies = append(account.Policies, &Policy{
 		ID:      "all",
 		Name:    "all",
 		Enabled: true,
-		Rules:   []*PolicyRule{account.Rules["all"].ToPolicyRule()},
+		Rules: []*PolicyRule{
+			{
+				ID:           "all",
+				Name:         "all",
+				Sources:      []string{"all"},
+				Destinations: []string{"all"},
+			},
+		},
 	})
 	account.Policies = append(account.Policies, &Policy{
 		ID:      "dmz",
@@ -258,18 +258,6 @@ func TestStore(t *testing.T) {
 		t.Errorf("failed to restore a FileStore file - missing Group all")
 	}
 
-	if restoredAccount.Rules["all"] == nil {
-		t.Errorf("failed to restore a FileStore file - missing Rule all")
-		return
-	}
-
-	if restoredAccount.Rules["dmz"] == nil {
-		t.Errorf("failed to restore a FileStore file - missing Rule dmz")
-		return
-	}
-	assert.Equal(t, account.Rules["all"], restoredAccount.Rules["all"], "failed to restore a FileStore file - missing Rule all")
-	assert.Equal(t, account.Rules["dmz"], restoredAccount.Rules["dmz"], "failed to restore a FileStore file - missing Rule dmz")
-
 	if len(restoredAccount.Policies) != 2 {
 		t.Errorf("failed to restore a FileStore file - missing Policies")
 		return
@@ -315,41 +303,6 @@ func TestRestore(t *testing.T) {
 	require.Len(t, store.HashedPAT2TokenID, 1, "failed to restore a FileStore wrong HashedPAT2TokenID mapping length")
 
 	require.Len(t, store.TokenID2UserID, 1, "failed to restore a FileStore wrong TokenID2UserID mapping length")
-}
-
-// TODO: outdated, delete this
-func TestRestorePolicies_Migration(t *testing.T) {
-	storeDir := t.TempDir()
-
-	err := util.CopyFileContents("testdata/store_policy_migrate.json", filepath.Join(storeDir, "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	store, err := NewFileStore(storeDir, nil)
-	if err != nil {
-		return
-	}
-
-	account := store.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
-	require.Len(t, account.Groups, 1, "failed to restore a FileStore file - missing Account Groups")
-	require.Len(t, account.Rules, 1, "failed to restore a FileStore file - missing Account Rules")
-	require.Len(t, account.Policies, 1, "failed to restore a FileStore file - missing Account Policies")
-
-	policy := account.Policies[0]
-	require.Equal(t, policy.Name, "Default", "failed to restore a FileStore file - missing Account Policies Name")
-	require.Equal(t, policy.Description,
-		"This is a default rule that allows connections between all the resources",
-		"failed to restore a FileStore file - missing Account Policies Description")
-	require.NoError(t, err, "failed to upldate query")
-	require.Len(t, policy.Rules, 1, "failed to restore a FileStore file - missing Account Policy Rules")
-	require.Equal(t, policy.Rules[0].Action, PolicyTrafficActionAccept, "failed to restore a FileStore file - missing Account Policies Action")
-	require.Equal(t, policy.Rules[0].Destinations,
-		[]string{"cfefqs706sqkneg59g3g"},
-		"failed to restore a FileStore file - missing Account Policies Destinations")
-	require.Equal(t, policy.Rules[0].Sources,
-		[]string{"cfefqs706sqkneg59g3g"},
-		"failed to restore a FileStore file - missing Account Policies Sources")
 }
 
 func TestRestoreGroups_Migration(t *testing.T) {
@@ -446,7 +399,6 @@ func TestFileStore_GetAccount(t *testing.T) {
 	assert.Len(t, account.Peers, len(expected.Peers))
 	assert.Len(t, account.Users, len(expected.Users))
 	assert.Len(t, account.SetupKeys, len(expected.SetupKeys))
-	assert.Len(t, account.Rules, len(expected.Rules))
 	assert.Len(t, account.Routes, len(expected.Routes))
 	assert.Len(t, account.NameServerGroups, len(expected.NameServerGroups))
 }
@@ -632,6 +584,55 @@ func TestFileStore_SavePeerStatus(t *testing.T) {
 
 	actual := account.Peers["testpeer"].Status
 	assert.Equal(t, newStatus, *actual)
+}
+
+func TestFileStore_SavePeerLocation(t *testing.T) {
+	storeDir := t.TempDir()
+
+	err := util.CopyFileContents("testdata/store.json", filepath.Join(storeDir, "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewFileStore(storeDir, nil)
+	if err != nil {
+		return
+	}
+	account, err := store.GetAccount("bf1c8084-ba50-4ce7-9439-34653001fc3b")
+	require.NoError(t, err)
+
+	peer := &nbpeer.Peer{
+		AccountID: account.Id,
+		ID:        "testpeer",
+		Location: nbpeer.Location{
+			ConnectionIP: net.ParseIP("10.0.0.0"),
+			CountryCode:  "YY",
+			CityName:     "City",
+			GeoNameID:    1,
+		},
+		Meta: nbpeer.PeerSystemMeta{},
+	}
+	// error is expected as peer is not in store yet
+	err = store.SavePeerLocation(account.Id, peer)
+	assert.Error(t, err)
+
+	account.Peers[peer.ID] = peer
+	err = store.SaveAccount(account)
+	require.NoError(t, err)
+
+	peer.Location.ConnectionIP = net.ParseIP("35.1.1.1")
+	peer.Location.CountryCode = "DE"
+	peer.Location.CityName = "Berlin"
+	peer.Location.GeoNameID = 2950159
+
+	err = store.SavePeerLocation(account.Id, account.Peers[peer.ID])
+	assert.NoError(t, err)
+
+	account, err = store.GetAccount(account.Id)
+	require.NoError(t, err)
+
+	actual := account.Peers[peer.ID].Location
+	assert.Equal(t, peer.Location, actual)
 }
 
 func newStore(t *testing.T) *FileStore {

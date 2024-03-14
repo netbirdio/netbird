@@ -9,6 +9,7 @@ import (
 	"golang.org/x/exp/slices"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 )
 
 func TestAccount_getPeersByPolicy(t *testing.T) {
@@ -83,40 +84,56 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				},
 			},
 		},
-		Rules: map[string]*Rule{
-			"RuleDefault": {
+		Policies: []*Policy{
+			{
 				ID:          "RuleDefault",
 				Name:        "Default",
 				Description: "This is a default rule that allows connections between all the resources",
-				Source: []string{
-					"GroupAll",
-				},
-				Destination: []string{
-					"GroupAll",
+				Enabled:     true,
+				Rules: []*PolicyRule{
+					{
+						ID:            "RuleDefault",
+						Name:          "Default",
+						Description:   "This is a default rule that allows connections between all the resources",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      PolicyRuleProtocolALL,
+						Action:        PolicyTrafficActionAccept,
+						Sources: []string{
+							"GroupAll",
+						},
+						Destinations: []string{
+							"GroupAll",
+						},
+					},
 				},
 			},
-			"RuleSwarm": {
+			{
 				ID:          "RuleSwarm",
 				Name:        "Swarm",
-				Description: "",
-				Source: []string{
-					"GroupSwarm",
-					"GroupAll",
-				},
-				Destination: []string{
-					"GroupSwarm",
+				Description: "No description",
+				Enabled:     true,
+				Rules: []*PolicyRule{
+					{
+						ID:            "RuleSwarm",
+						Name:          "Swarm",
+						Description:   "No description",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      PolicyRuleProtocolALL,
+						Action:        PolicyTrafficActionAccept,
+						Sources: []string{
+							"GroupSwarm",
+							"GroupAll",
+						},
+						Destinations: []string{
+							"GroupSwarm",
+						},
+					},
 				},
 			},
 		},
 	}
-
-	rule1, err := RuleToPolicy(account.Rules["RuleDefault"])
-	assert.NoError(t, err)
-
-	rule2, err := RuleToPolicy(account.Rules["RuleSwarm"])
-	assert.NoError(t, err)
-
-	account.Policies = append(account.Policies, rule1, rule2)
 
 	t.Run("check that all peers get map", func(t *testing.T) {
 		for _, p := range account.Peers {
@@ -307,40 +324,55 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				},
 			},
 		},
-		Rules: map[string]*Rule{
-			"RuleDefault": {
+		Policies: []*Policy{
+			{
 				ID:          "RuleDefault",
 				Name:        "Default",
-				Disabled:    true,
 				Description: "This is a default rule that allows connections between all the resources",
-				Source: []string{
-					"GroupAll",
-				},
-				Destination: []string{
-					"GroupAll",
+				Enabled:     false,
+				Rules: []*PolicyRule{
+					{
+						ID:            "RuleDefault",
+						Name:          "Default",
+						Description:   "This is a default rule that allows connections between all the resources",
+						Bidirectional: true,
+						Enabled:       false,
+						Protocol:      PolicyRuleProtocolALL,
+						Action:        PolicyTrafficActionAccept,
+						Sources: []string{
+							"GroupAll",
+						},
+						Destinations: []string{
+							"GroupAll",
+						},
+					},
 				},
 			},
-			"RuleSwarm": {
+			{
 				ID:          "RuleSwarm",
 				Name:        "Swarm",
-				Description: "",
-				Source: []string{
-					"GroupSwarm",
-				},
-				Destination: []string{
-					"peerF",
+				Description: "No description",
+				Enabled:     true,
+				Rules: []*PolicyRule{
+					{
+						ID:            "RuleSwarm",
+						Name:          "Swarm",
+						Description:   "No description",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      PolicyRuleProtocolALL,
+						Action:        PolicyTrafficActionAccept,
+						Sources: []string{
+							"GroupSwarm",
+						},
+						Destinations: []string{
+							"peerF",
+						},
+					},
 				},
 			},
 		},
 	}
-
-	rule1, err := RuleToPolicy(account.Rules["RuleDefault"])
-	assert.NoError(t, err)
-
-	rule2, err := RuleToPolicy(account.Rules["RuleSwarm"])
-	assert.NoError(t, err)
-
-	account.Policies = append(account.Policies, rule1, rule2)
 
 	t.Run("check first peer map", func(t *testing.T) {
 		peers, firewallRules := account.getPeerConnectionResources("peerB")
@@ -440,6 +472,323 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 		for i := range firewallRules {
 			assert.Equal(t, epectedFirewallRules[i], firewallRules[i])
 		}
+	})
+}
+
+func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
+	account := &Account{
+		Peers: map[string]*nbpeer.Peer{
+			"peerA": {
+				ID:     "peerA",
+				IP:     net.ParseIP("100.65.14.88"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS:          "linux",
+					KernelVersion: "6.6.7",
+					WtVersion:     "0.25.9",
+				},
+			},
+			"peerB": {
+				ID:     "peerB",
+				IP:     net.ParseIP("100.65.80.39"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS:          "linux",
+					KernelVersion: "6.6.1",
+					WtVersion:     "0.23.0",
+				},
+			},
+			"peerC": {
+				ID:     "peerC",
+				IP:     net.ParseIP("100.65.254.139"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS:          "linux",
+					KernelVersion: "6.6.1",
+					WtVersion:     "0.25.8",
+				},
+			},
+			"peerD": {
+				ID:     "peerD",
+				IP:     net.ParseIP("100.65.62.5"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS:          "linux",
+					KernelVersion: "6.6.0",
+					WtVersion:     "0.25.9",
+				},
+			},
+			"peerE": {
+				ID:     "peerE",
+				IP:     net.ParseIP("100.65.32.206"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS:          "linux",
+					KernelVersion: "6.6.1",
+					WtVersion:     "0.24.0",
+				},
+			},
+			"peerF": {
+				ID:     "peerF",
+				IP:     net.ParseIP("100.65.250.202"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS:          "linux",
+					KernelVersion: "6.6.1",
+					WtVersion:     "0.25.9",
+				},
+			},
+			"peerG": {
+				ID:     "peerG",
+				IP:     net.ParseIP("100.65.13.186"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS:          "linux",
+					KernelVersion: "6.6.1",
+					WtVersion:     "0.23.2",
+				},
+			},
+			"peerH": {
+				ID:     "peerH",
+				IP:     net.ParseIP("100.65.29.55"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS:          "linux",
+					KernelVersion: "6.6.1",
+					WtVersion:     "0.23.1",
+				},
+			},
+			"peerI": {
+				ID:     "peerI",
+				IP:     net.ParseIP("100.65.21.56"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS:          "windows",
+					KernelVersion: "10.0.14393.2430",
+					WtVersion:     "0.25.1",
+				},
+			},
+		},
+		Groups: map[string]*Group{
+			"GroupAll": {
+				ID:   "GroupAll",
+				Name: "All",
+				Peers: []string{
+					"peerB",
+					"peerA",
+					"peerD",
+					"peerC",
+					"peerF",
+					"peerG",
+					"peerH",
+					"peerI",
+				},
+			},
+			"GroupSwarm": {
+				ID:   "GroupSwarm",
+				Name: "swarm",
+				Peers: []string{
+					"peerB",
+					"peerA",
+					"peerD",
+					"peerE",
+					"peerG",
+					"peerH",
+					"peerI",
+				},
+			},
+		},
+		PostureChecks: []*posture.Checks{
+			{
+				ID:          "PostureChecksDefault",
+				Name:        "Default",
+				Description: "This is a posture checks that check if peer is running required versions",
+				Checks: posture.ChecksDefinition{
+					NBVersionCheck: &posture.NBVersionCheck{
+						MinVersion: "0.25",
+					},
+					OSVersionCheck: &posture.OSVersionCheck{
+						Linux: &posture.MinKernelVersionCheck{
+							MinKernelVersion: "6.6.0",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	account.Policies = append(account.Policies, &Policy{
+		ID:          "PolicyPostureChecks",
+		Name:        "",
+		Description: "This is the policy with posture checks applied",
+		Enabled:     true,
+		Rules: []*PolicyRule{
+			{
+				ID:      "RuleSwarm",
+				Name:    "Swarm",
+				Enabled: true,
+				Action:  PolicyTrafficActionAccept,
+				Destinations: []string{
+					"GroupSwarm",
+				},
+				Sources: []string{
+					"GroupAll",
+				},
+				Bidirectional: false,
+				Protocol:      PolicyRuleProtocolTCP,
+				Ports:         []string{"80"},
+			},
+		},
+		SourcePostureChecks: []string{
+			"PostureChecksDefault",
+		},
+	})
+
+	t.Run("verify peer's network map with default group peer list", func(t *testing.T) {
+		// peerB doesn't fulfill the NB posture check but is included in the destination group Swarm,
+		// will establish a connection with all source peers satisfying the NB posture check.
+		peers, firewallRules := account.getPeerConnectionResources("peerB")
+		assert.Len(t, peers, 4)
+		assert.Len(t, firewallRules, 4)
+		assert.Contains(t, peers, account.Peers["peerA"])
+		assert.Contains(t, peers, account.Peers["peerC"])
+		assert.Contains(t, peers, account.Peers["peerD"])
+		assert.Contains(t, peers, account.Peers["peerF"])
+
+		// peerC satisfy the NB posture check, should establish connection to all destination group peer's
+		// We expect a single permissive firewall rule which all outgoing connections
+		peers, firewallRules = account.getPeerConnectionResources("peerC")
+		assert.Len(t, peers, len(account.Groups["GroupSwarm"].Peers))
+		assert.Len(t, firewallRules, 1)
+		expectedFirewallRules := []*FirewallRule{
+			{
+				PeerIP:    "0.0.0.0",
+				Direction: firewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "80",
+			},
+		}
+		assert.ElementsMatch(t, firewallRules, expectedFirewallRules)
+
+		// peerE doesn't fulfill the NB posture check and exists in only destination group Swarm,
+		// all source group peers satisfying the NB posture check should establish connection
+		peers, firewallRules = account.getPeerConnectionResources("peerE")
+		assert.Len(t, peers, 4)
+		assert.Len(t, firewallRules, 4)
+		assert.Contains(t, peers, account.Peers["peerA"])
+		assert.Contains(t, peers, account.Peers["peerC"])
+		assert.Contains(t, peers, account.Peers["peerD"])
+		assert.Contains(t, peers, account.Peers["peerF"])
+
+		// peerI doesn't fulfill the OS version posture check and exists in only destination group Swarm,
+		// all source group peers satisfying the NB posture check should establish connection
+		peers, firewallRules = account.getPeerConnectionResources("peerI")
+		assert.Len(t, peers, 4)
+		assert.Len(t, firewallRules, 4)
+		assert.Contains(t, peers, account.Peers["peerA"])
+		assert.Contains(t, peers, account.Peers["peerC"])
+		assert.Contains(t, peers, account.Peers["peerD"])
+		assert.Contains(t, peers, account.Peers["peerF"])
+	})
+
+	t.Run("verify peer's network map with modified group peer list", func(t *testing.T) {
+		//  Removing peerB as the part of destination group Swarm
+		account.Groups["GroupSwarm"].Peers = []string{"peerA", "peerD", "peerE", "peerG", "peerH"}
+
+		// peerB doesn't satisfy the NB posture check, and doesn't exist in destination group peer's
+		// no connection should be established to any peer of destination group
+		peers, firewallRules := account.getPeerConnectionResources("peerB")
+		assert.Len(t, peers, 0)
+		assert.Len(t, firewallRules, 0)
+
+		// peerI doesn't satisfy the OS version posture check, and doesn't exist in destination group peer's
+		// no connection should be established to any peer of destination group
+		peers, firewallRules = account.getPeerConnectionResources("peerI")
+		assert.Len(t, peers, 0)
+		assert.Len(t, firewallRules, 0)
+
+		// peerC satisfy the NB posture check, should establish connection to all destination group peer's
+		// We expect a single permissive firewall rule which all outgoing connections
+		peers, firewallRules = account.getPeerConnectionResources("peerC")
+		assert.Len(t, peers, len(account.Groups["GroupSwarm"].Peers))
+		assert.Len(t, firewallRules, len(account.Groups["GroupSwarm"].Peers))
+
+		peerIDs := make([]string, 0, len(peers))
+		for _, peer := range peers {
+			peerIDs = append(peerIDs, peer.ID)
+		}
+		assert.ElementsMatch(t, peerIDs, account.Groups["GroupSwarm"].Peers)
+
+		// Removing peerF as the part of source group All
+		account.Groups["GroupAll"].Peers = []string{"peerB", "peerA", "peerD", "peerC", "peerG", "peerH"}
+
+		// peerE doesn't fulfill the NB posture check and exists in only destination group Swarm,
+		// all source group peers satisfying the NB posture check should establish connection
+		peers, firewallRules = account.getPeerConnectionResources("peerE")
+		assert.Len(t, peers, 3)
+		assert.Len(t, firewallRules, 3)
+		assert.Contains(t, peers, account.Peers["peerA"])
+		assert.Contains(t, peers, account.Peers["peerC"])
+		assert.Contains(t, peers, account.Peers["peerD"])
+
+		peers, firewallRules = account.getPeerConnectionResources("peerA")
+		assert.Len(t, peers, 5)
+		// assert peers from Group Swarm
+		assert.Contains(t, peers, account.Peers["peerD"])
+		assert.Contains(t, peers, account.Peers["peerE"])
+		assert.Contains(t, peers, account.Peers["peerG"])
+		assert.Contains(t, peers, account.Peers["peerH"])
+
+		// assert peers from Group All
+		assert.Contains(t, peers, account.Peers["peerC"])
+
+		expectedFirewallRules := []*FirewallRule{
+			{
+				PeerIP:    "100.65.62.5",
+				Direction: firewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "80",
+			},
+			{
+				PeerIP:    "100.65.32.206",
+				Direction: firewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "80",
+			},
+			{
+				PeerIP:    "100.65.13.186",
+				Direction: firewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "80",
+			},
+			{
+				PeerIP:    "100.65.29.55",
+				Direction: firewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "80",
+			},
+			{
+				PeerIP:    "100.65.254.139",
+				Direction: firewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "80",
+			},
+			{
+				PeerIP:    "100.65.62.5",
+				Direction: firewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "80",
+			},
+		}
+		assert.Len(t, firewallRules, len(expectedFirewallRules))
+		assert.ElementsMatch(t, firewallRules, expectedFirewallRules)
 	})
 }
 

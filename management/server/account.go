@@ -27,9 +27,11 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 )
@@ -71,7 +73,7 @@ type AccountManager interface {
 	GetUser(claims jwtclaims.AuthorizationClaims) (*User, error)
 	ListUsers(accountID string) ([]*User, error)
 	GetPeers(accountID, userID string) ([]*nbpeer.Peer, error)
-	MarkPeerConnected(peerKey string, connected bool) error
+	MarkPeerConnected(peerKey string, connected bool, realIP net.IP) error
 	DeletePeer(accountID, peerID, userID string) error
 	UpdatePeer(accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
 	GetNetworkMap(peerID string) (*NetworkMap, error)
@@ -105,7 +107,7 @@ type AccountManager interface {
 	DeleteNameServerGroup(accountID, nsGroupID, userID string) error
 	ListNameServerGroups(accountID string, userID string) ([]*nbdns.NameServerGroup, error)
 	GetDNSDomain() string
-	StoreEvent(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any)
+	StoreEvent(initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
 	GetEvents(accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettings(accountID string, userID string) (*DNSSettings, error)
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
@@ -116,6 +118,11 @@ type AccountManager interface {
 	GetAllConnectedPeers() (map[string]struct{}, error)
 	HasConnectedChannel(peerID string) bool
 	GetExternalCacheManager() ExternalCacheManager
+	GetPostureChecks(accountID, postureChecksID, userID string) (*posture.Checks, error)
+	SavePostureChecks(accountID, userID string, postureChecks *posture.Checks) error
+	DeletePostureChecks(accountID, postureChecksID, userID string) error
+	ListPostureChecks(accountID, userID string) ([]*posture.Checks, error)
+	GetIdpManager() idp.Manager
 }
 
 type DefaultAccountManager struct {
@@ -130,6 +137,7 @@ type DefaultAccountManager struct {
 	externalCacheManager ExternalCacheManager
 	ctx                  context.Context
 	eventStore           activity.Store
+	geo                  *geolocation.Geolocation
 
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
@@ -194,6 +202,7 @@ type Account struct {
 
 	// User.Id it was created by
 	CreatedBy              string
+	CreatedAt              time.Time
 	Domain                 string `gorm:"index"`
 	DomainCategory         string
 	IsDomainPrimaryAccount bool
@@ -206,14 +215,13 @@ type Account struct {
 	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Groups                 map[string]*Group                 `gorm:"-"`
 	GroupsG                []Group                           `json:"-" gorm:"foreignKey:AccountID;references:id"`
-	Rules                  map[string]*Rule                  `gorm:"-"`
-	RulesG                 []Rule                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
 	Routes                 map[string]*route.Route           `gorm:"-"`
 	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	NameServerGroups       map[string]*nbdns.NameServerGroup `gorm:"-"`
 	NameServerGroupsG      []nbdns.NameServerGroup           `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	DNSSettings            DNSSettings                       `gorm:"embedded;embeddedPrefix:dns_settings_"`
+	PostureChecks          []*posture.Checks                 `gorm:"foreignKey:AccountID;references:id"`
 	// Settings is a dictionary of Account settings
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
 }
@@ -441,6 +449,11 @@ func (a *Account) GetNextPeerExpiration() (time.Duration, bool) {
 		}
 		_, duration := peer.LoginExpired(a.Settings.PeerLoginExpiration)
 		if nextExpiry == nil || duration < *nextExpiry {
+			// if expiration is below 1s return 1s duration
+			// this avoids issues with ticker that can't be set to < 0
+			if duration < time.Second {
+				return time.Second, true
+			}
 			nextExpiry = &duration
 		}
 	}
@@ -642,11 +655,6 @@ func (a *Account) Copy() *Account {
 		groups[id] = group.Copy()
 	}
 
-	rules := map[string]*Rule{}
-	for id, rule := range a.Rules {
-		rules[id] = rule.Copy()
-	}
-
 	policies := []*Policy{}
 	for _, policy := range a.Policies {
 		policies = append(policies, policy.Copy())
@@ -669,9 +677,15 @@ func (a *Account) Copy() *Account {
 		settings = a.Settings.Copy()
 	}
 
+	postureChecks := []*posture.Checks{}
+	for _, postureCheck := range a.PostureChecks {
+		postureChecks = append(postureChecks, postureCheck.Copy())
+	}
+
 	return &Account{
 		Id:                     a.Id,
 		CreatedBy:              a.CreatedBy,
+		CreatedAt:              a.CreatedAt,
 		Domain:                 a.Domain,
 		DomainCategory:         a.DomainCategory,
 		IsDomainPrimaryAccount: a.IsDomainPrimaryAccount,
@@ -680,11 +694,11 @@ func (a *Account) Copy() *Account {
 		Peers:                  peers,
 		Users:                  users,
 		Groups:                 groups,
-		Rules:                  rules,
 		Policies:               policies,
 		Routes:                 routes,
 		NameServerGroups:       nsGroups,
 		DNSSettings:            dnsSettings,
+		PostureChecks:          postureChecks,
 		Settings:               settings,
 	}
 }
@@ -811,10 +825,12 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
 func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
-	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store, userDeleteFromIDPEnabled bool,
+	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store, geo *geolocation.Geolocation,
+	userDeleteFromIDPEnabled bool,
 ) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
 		Store:                    store,
+		geo:                      geo,
 		peersUpdateManager:       peersUpdateManager,
 		idpManager:               idpManager,
 		ctx:                      context.Background(),
@@ -887,6 +903,10 @@ func (am *DefaultAccountManager) GetExternalCacheManager() ExternalCacheManager 
 	return am.externalCacheManager
 }
 
+func (am *DefaultAccountManager) GetIdpManager() idp.Manager {
+	return am.idpManager
+}
+
 // UpdateAccountSettings updates Account settings.
 // Only users with role UserRoleAdmin can update the account.
 // User that performs the update has to belong to the account.
@@ -904,12 +924,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccountByUser(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	err = additions.ValidateExtraSettings(newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID, am.eventStore)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -921,6 +936,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 
 	if !user.HasAdminPower() {
 		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
+	}
+
+	err = additions.ValidateExtraSettings(newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID, am.eventStore)
+	if err != nil {
+		return nil, err
 	}
 
 	oldSettings := account.Settings
@@ -1103,6 +1123,7 @@ func (am *DefaultAccountManager) DeleteAccount(accountID, userID string) error {
 
 // GetAccountByUserOrAccountID looks for an account by user or accountID, if no account is provided and
 // userID doesn't have an account associated with it, one account is created
+// domain is used to create a new account if no account is found
 func (am *DefaultAccountManager) GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error) {
 	if accountID != "" {
 		return am.Store.GetAccount(accountID)
@@ -1344,16 +1365,21 @@ func (am *DefaultAccountManager) removeUserFromCache(accountID, userID string) e
 func (am *DefaultAccountManager) updateAccountDomainAttributes(account *Account, claims jwtclaims.AuthorizationClaims,
 	primaryDomain bool,
 ) error {
-	account.IsDomainPrimaryAccount = primaryDomain
 
-	lowerDomain := strings.ToLower(claims.Domain)
-	userObj := account.Users[claims.UserId]
-	if account.Domain != lowerDomain && userObj.Role == UserRoleAdmin {
-		account.Domain = lowerDomain
-	}
-	// prevent updating category for different domain until admin logs in
-	if account.Domain == lowerDomain {
-		account.DomainCategory = claims.DomainCategory
+	if claims.Domain != "" {
+		account.IsDomainPrimaryAccount = primaryDomain
+
+		lowerDomain := strings.ToLower(claims.Domain)
+		userObj := account.Users[claims.UserId]
+		if account.Domain != lowerDomain && userObj.Role == UserRoleAdmin {
+			account.Domain = lowerDomain
+		}
+		// prevent updating category for different domain until admin logs in
+		if account.Domain == lowerDomain {
+			account.DomainCategory = claims.DomainCategory
+		}
+	} else {
+		log.Errorf("claims don't contain a valid domain, skipping domain attributes update. Received claims: %v", claims)
 	}
 
 	err := am.Store.SaveAccount(account)
@@ -1787,7 +1813,7 @@ func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(claims jwtclaims.Aut
 	return nil
 }
 
-// addAllGroup to account object if it doesn't exists
+// addAllGroup to account object if it doesn't exist
 func addAllGroup(account *Account) error {
 	if len(account.Groups) == 0 {
 		allGroup := &Group{
@@ -1800,21 +1826,28 @@ func addAllGroup(account *Account) error {
 		}
 		account.Groups = map[string]*Group{allGroup.ID: allGroup}
 
-		defaultRule := &Rule{
-			ID:          xid.New().String(),
+		id := xid.New().String()
+
+		defaultPolicy := &Policy{
+			ID:          id,
 			Name:        DefaultRuleName,
 			Description: DefaultRuleDescription,
-			Disabled:    false,
-			Source:      []string{allGroup.ID},
-			Destination: []string{allGroup.ID},
+			Enabled:     true,
+			Rules: []*PolicyRule{
+				{
+					ID:            id,
+					Name:          DefaultRuleName,
+					Description:   DefaultRuleDescription,
+					Enabled:       true,
+					Sources:       []string{allGroup.ID},
+					Destinations:  []string{allGroup.ID},
+					Bidirectional: true,
+					Protocol:      PolicyRuleProtocolALL,
+					Action:        PolicyTrafficActionAccept,
+				},
+			},
 		}
-		account.Rules = map[string]*Rule{defaultRule.ID: defaultRule}
 
-		// TODO: after migration we need to drop rule and create policy directly
-		defaultPolicy, err := RuleToPolicy(defaultRule)
-		if err != nil {
-			return fmt.Errorf("convert rule to policy: %w", err)
-		}
 		account.Policies = []*Policy{defaultPolicy}
 	}
 	return nil
@@ -1838,6 +1871,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 
 	acc := &Account{
 		Id:               accountID,
+		CreatedAt:        time.Now().UTC(),
 		SetupKeys:        setupKeys,
 		Network:          network,
 		Peers:            peers,
