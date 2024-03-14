@@ -156,7 +156,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 	groupForIntegration := &Group{
 		ID:        "grp-for-integration",
 		AccountID: "account-id",
-		Name:      "Group for users",
+		Name:      "Group for users integration",
 		Issued:    GroupIssuedIntegration,
 		Peers:     make([]string, 0),
 	}
