@@ -27,14 +27,14 @@ func (p *ProcessCheck) Check(peer nbpeer.Peer) (bool, error) {
 	switch peer.Meta.GoOS {
 	case "darwin", "linux":
 		for _, process := range p.Processes {
-			if !slices.Contains(peerActiveProcesses, process.Path) {
+			if process.Path == "" || !slices.Contains(peerActiveProcesses, process.Path) {
 				return false, nil
 			}
 		}
 		return true, nil
 	case "windows":
 		for _, process := range p.Processes {
-			if !slices.Contains(peerActiveProcesses, process.WindowsPath) {
+			if process.WindowsPath == "" || !slices.Contains(peerActiveProcesses, process.WindowsPath) {
 				return false, nil
 			}
 		}

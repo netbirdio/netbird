@@ -36,6 +36,26 @@ func TestProcessCheck_Check(t *testing.T) {
 			isValid: true,
 		},
 		{
+			name: "darwin with windows process paths",
+			input: peer.Peer{
+				Meta: peer.PeerSystemMeta{
+					GoOS: "darwin",
+					Processes: []peer.Process{
+						{Path: "process1"},
+						{Path: "process2"},
+					},
+				},
+			},
+			check: ProcessCheck{
+				Processes: []Process{
+					{WindowsPath: "process1"},
+					{WindowsPath: "process2"},
+				},
+			},
+			wantErr: false,
+			isValid: false,
+		},
+		{
 			name: "linux with matching processes",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
@@ -54,6 +74,26 @@ func TestProcessCheck_Check(t *testing.T) {
 			},
 			wantErr: false,
 			isValid: true,
+		},
+		{
+			name: "linux with windows process paths",
+			input: peer.Peer{
+				Meta: peer.PeerSystemMeta{
+					GoOS: "linux",
+					Processes: []peer.Process{
+						{Path: "process1"},
+						{Path: "process2"},
+					},
+				},
+			},
+			check: ProcessCheck{
+				Processes: []Process{
+					{WindowsPath: "process1"},
+					{WindowsPath: "process2"},
+				},
+			},
+			wantErr: false,
+			isValid: false,
 		},
 		{
 			name: "linux with non-matching processes",
@@ -94,6 +134,26 @@ func TestProcessCheck_Check(t *testing.T) {
 			},
 			wantErr: false,
 			isValid: true,
+		},
+		{
+			name: "windows with darwin process paths",
+			input: peer.Peer{
+				Meta: peer.PeerSystemMeta{
+					GoOS: "windows",
+					Processes: []peer.Process{
+						{Path: "process1"},
+						{Path: "process2"},
+					},
+				},
+			},
+			check: ProcessCheck{
+				Processes: []Process{
+					{Path: "process1"},
+					{Path: "process2"},
+				},
+			},
+			wantErr: false,
+			isValid: false,
 		},
 		{
 			name: "windows with non-matching processes",
