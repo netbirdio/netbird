@@ -47,3 +47,16 @@ func (p *ProcessCheck) Check(peer nbpeer.Peer) (bool, error) {
 func (p *ProcessCheck) Name() string {
 	return ProcessCheckName
 }
+
+func (p *ProcessCheck) Validate() error {
+	if len(p.Processes) == 0 {
+		return fmt.Errorf("%s processes shouldn't be empty", p.Name())
+	}
+
+	for _, process := range p.Processes {
+		if process.Path == "" && process.WindowsPath == "" {
+			return fmt.Errorf("%s path shouldn't be empty", p.Name())
+		}
+	}
+	return nil
+}

@@ -22,14 +22,14 @@ func TestProcessCheck_Check(t *testing.T) {
 				Meta: peer.PeerSystemMeta{
 					GoOS: "darwin",
 					Processes: []peer.Process{
-						{Path: "process1"},
-						{Path: "process2"}},
+						{Path: "/Applications/process1.app"},
+						{Path: "/Applications/process2.app"}},
 				},
 			},
 			check: ProcessCheck{
 				Processes: []Process{
-					{Path: "process1"},
-					{Path: "process2"},
+					{Path: "/Applications/process1.app"},
+					{Path: "/Applications/process2.app"},
 				},
 			},
 			wantErr: false,
@@ -41,15 +41,15 @@ func TestProcessCheck_Check(t *testing.T) {
 				Meta: peer.PeerSystemMeta{
 					GoOS: "darwin",
 					Processes: []peer.Process{
-						{Path: "process1"},
-						{Path: "process2"},
+						{Path: "/Applications/process1.app"},
+						{Path: "/Applications/process2.app"},
 					},
 				},
 			},
 			check: ProcessCheck{
 				Processes: []Process{
-					{WindowsPath: "process1"},
-					{WindowsPath: "process2"},
+					{WindowsPath: "C:\\Program Files\\process1.exe"},
+					{WindowsPath: "C:\\Program Files\\process2.exe"},
 				},
 			},
 			wantErr: false,
@@ -61,15 +61,15 @@ func TestProcessCheck_Check(t *testing.T) {
 				Meta: peer.PeerSystemMeta{
 					GoOS: "linux",
 					Processes: []peer.Process{
-						{Path: "process1"},
-						{Path: "process2"},
+						{Path: "/usr/bin/process1"},
+						{Path: "/usr/bin/process2"},
 					},
 				},
 			},
 			check: ProcessCheck{
 				Processes: []Process{
-					{Path: "process1"},
-					{Path: "process2"},
+					{Path: "/usr/bin/process1"},
+					{Path: "/usr/bin/process2"},
 				},
 			},
 			wantErr: false,
@@ -81,15 +81,15 @@ func TestProcessCheck_Check(t *testing.T) {
 				Meta: peer.PeerSystemMeta{
 					GoOS: "linux",
 					Processes: []peer.Process{
-						{Path: "process1"},
-						{Path: "process2"},
+						{Path: "/usr/bin/process1"},
+						{Path: "/usr/bin/process2"},
 					},
 				},
 			},
 			check: ProcessCheck{
 				Processes: []Process{
-					{WindowsPath: "process1"},
-					{WindowsPath: "process2"},
+					{WindowsPath: "C:\\Program Files\\process1.exe"},
+					{WindowsPath: "C:\\Program Files\\process2.exe"},
 				},
 			},
 			wantErr: false,
@@ -101,15 +101,15 @@ func TestProcessCheck_Check(t *testing.T) {
 				Meta: peer.PeerSystemMeta{
 					GoOS: "linux",
 					Processes: []peer.Process{
-						{Path: "process3"},
-						{Path: "process4"},
+						{Path: "/usr/bin/process3"},
+						{Path: "/usr/bin/process4"},
 					},
 				},
 			},
 			check: ProcessCheck{
 				Processes: []Process{
-					{Path: "process1"},
-					{Path: "process2"},
+					{Path: "/usr/bin/process1"},
+					{Path: "/usr/bin/process2"},
 				},
 			},
 			wantErr: false,
@@ -121,15 +121,15 @@ func TestProcessCheck_Check(t *testing.T) {
 				Meta: peer.PeerSystemMeta{
 					GoOS: "windows",
 					Processes: []peer.Process{
-						{Path: "process1"},
-						{Path: "process2"},
+						{Path: "C:\\Program Files\\process1.exe"},
+						{Path: "C:\\Program Files\\process1.exe"},
 					},
 				},
 			},
 			check: ProcessCheck{
 				Processes: []Process{
-					{WindowsPath: "process1"},
-					{WindowsPath: "process2"},
+					{WindowsPath: "C:\\Program Files\\process1.exe"},
+					{WindowsPath: "C:\\Program Files\\process1.exe"},
 				},
 			},
 			wantErr: false,
@@ -141,15 +141,15 @@ func TestProcessCheck_Check(t *testing.T) {
 				Meta: peer.PeerSystemMeta{
 					GoOS: "windows",
 					Processes: []peer.Process{
-						{Path: "process1"},
-						{Path: "process2"},
+						{Path: "C:\\Program Files\\process1.exe"},
+						{Path: "C:\\Program Files\\process1.exe"},
 					},
 				},
 			},
 			check: ProcessCheck{
 				Processes: []Process{
-					{Path: "process1"},
-					{Path: "process2"},
+					{Path: "/Applications/process1.app"},
+					{Path: "/Applications/process2.app"},
 				},
 			},
 			wantErr: false,
@@ -161,22 +161,22 @@ func TestProcessCheck_Check(t *testing.T) {
 				Meta: peer.PeerSystemMeta{
 					GoOS: "windows",
 					Processes: []peer.Process{
-						{Path: "process3"},
-						{Path: "process4"},
+						{Path: "C:\\Program Files\\process3.exe"},
+						{Path: "C:\\Program Files\\process4.exe"},
 					},
 				},
 			},
 			check: ProcessCheck{
 				Processes: []Process{
-					{WindowsPath: "process1"},
-					{WindowsPath: "process2"},
+					{WindowsPath: "C:\\Program Files\\process1.exe"},
+					{WindowsPath: "C:\\Program Files\\process2.exe"},
 				},
 			},
 			wantErr: false,
 			isValid: false,
 		},
 		{
-			name: "unsupported ios operating system with matching processes",
+			name: "unsupported ios operating system",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
 					GoOS: "ios",
@@ -184,8 +184,8 @@ func TestProcessCheck_Check(t *testing.T) {
 			},
 			check: ProcessCheck{
 				Processes: []Process{
-					{Path: "process1"},
-					{Path: "process2"},
+					{Path: "C:\\Program Files\\process1.exe"},
+					{Path: "C:\\Program Files\\process2.exe"},
 				},
 			},
 			wantErr: true,
@@ -200,8 +200,8 @@ func TestProcessCheck_Check(t *testing.T) {
 			},
 			check: ProcessCheck{
 				Processes: []Process{
-					{Path: "process1"},
-					{Path: "process2"},
+					{Path: "/usr/bin/process1"},
+					{Path: "/usr/bin/process2"},
 				},
 			},
 			wantErr: true,
@@ -218,6 +218,67 @@ func TestProcessCheck_Check(t *testing.T) {
 				assert.NoError(t, err)
 			}
 			assert.Equal(t, tt.isValid, isValid)
+		})
+	}
+}
+
+func TestProcessCheck_Validate(t *testing.T) {
+	testCases := []struct {
+		name          string
+		check         ProcessCheck
+		expectedError bool
+	}{
+		{
+			name: "Valid unix and windows processes",
+			check: ProcessCheck{
+				Processes: []Process{
+					{
+						Path:        "/usr/local/bin/netbird",
+						WindowsPath: "C:\\ProgramData\\NetBird\\netbird.exe",
+					},
+				},
+			},
+			expectedError: false,
+		},
+		{
+			name: "Valid unix process",
+			check: ProcessCheck{
+				Processes: []Process{
+					{
+						Path: "/usr/local/bin/netbird",
+					},
+				},
+			},
+			expectedError: false,
+		},
+		{
+			name: "Valid windows process",
+			check: ProcessCheck{
+				Processes: []Process{
+					{
+						WindowsPath: "C:\\ProgramData\\NetBird\\netbird.exe",
+					},
+				},
+			},
+			expectedError: false,
+		},
+		{
+			name: "Invalid empty processes",
+			check: ProcessCheck{
+				Processes: []Process{},
+			},
+			expectedError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.check.Validate()
+			if tc.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
 		})
 	}
 }

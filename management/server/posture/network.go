@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/status"
 )
 
 type PeerNetworkRangeCheck struct {
@@ -51,4 +52,20 @@ func (p *PeerNetworkRangeCheck) Check(peer nbpeer.Peer) (bool, error) {
 
 func (p *PeerNetworkRangeCheck) Name() string {
 	return PeerNetworkRangeCheckName
+}
+
+func (p *PeerNetworkRangeCheck) Validate() error {
+	if p.Action == "" {
+		return status.Errorf(status.InvalidArgument, "action for peer network range check shouldn't be empty")
+	}
+
+	allowedActions := []string{CheckActionAllow, CheckActionDeny}
+	if !slices.Contains(allowedActions, p.Action) {
+		return fmt.Errorf("%s action is not valid", p.Name())
+	}
+
+	if len(p.Ranges) == 0 {
+		return fmt.Errorf("%s network ranges shouldn't be empty", p.Name())
+	}
+	return nil
 }

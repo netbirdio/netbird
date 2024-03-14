@@ -147,3 +147,52 @@ func TestPeerNetworkRangeCheck_Check(t *testing.T) {
 		})
 	}
 }
+
+func TestNetworkCheck_Validate(t *testing.T) {
+	testCases := []struct {
+		name          string
+		check         PeerNetworkRangeCheck
+		expectedError bool
+	}{
+		{
+			name: "Valid network range",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionAllow,
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("192.168.1.0/24"),
+					netip.MustParsePrefix("10.0.0.0/8"),
+				},
+			},
+			expectedError: false,
+		},
+		{
+			name: "Invalid empty network range",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionDeny,
+				Ranges: []netip.Prefix{},
+			},
+			expectedError: true,
+		},
+		{
+			name: "Invalid check action",
+			check: PeerNetworkRangeCheck{
+				Action: "unknownAction",
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("10.0.0.0/8"),
+				},
+			},
+			expectedError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.check.Validate()
+			if tc.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
