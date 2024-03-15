@@ -75,6 +75,27 @@ type zitadelProfile struct {
 	Human              *zitadelUser `json:"human"`
 }
 
+// zitadelUserDetails represents the metadata for the new user that was created
+type zitadelUserDetails struct {
+	Sequence      string `json:"sequence"`     // uint64 as a string
+	CreationDate  string `json:"creationDate"` // ISO format
+	ChangeDate    string `json:"changeDate"`   // ISO format
+	ResourceOwner string
+}
+
+// zitadelPasswordlessRegistration represents the information for the user to complete signup
+type zitadelPasswordlessRegistration struct {
+	Link       string `json:"link"`
+	Expiration string `json:"expiration"` // ex: 3600s
+}
+
+// zitadelUser represents an zitadel create user response
+type zitadelUserResponse struct {
+	UserId                   string                          `json:"userId"`
+	Details                  zitadelUserDetails              `json:"details"`
+	PasswordlessRegistration zitadelPasswordlessRegistration `json:"passwordlessRegistration"`
+}
+
 // NewZitadelManager creates a new instance of the ZitadelManager.
 func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetrics) (*ZitadelManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
@@ -224,9 +245,57 @@ func (zc *ZitadelCredentials) Authenticate() (JWTToken, error) {
 	return zc.jwtToken, nil
 }
 
-// CreateUser creates a new user in zitadel Idp and sends an invite.
-func (zm *ZitadelManager) CreateUser(_, _, _, _ string) (*UserData, error) {
-	return nil, fmt.Errorf("method CreateUser not implemented")
+// CreateUser creates a new user in zitadel Idp and sends an invite via Zitadel.
+func (zm *ZitadelManager) CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error) {
+	firstLast := strings.SplitN(name, " ", 2)
+
+	var addUser = map[string]any{
+		"userName": email,
+		"profile": map[string]string{
+			"firstName":   firstLast[0],
+			"lastName":    firstLast[0],
+			"displayName": name,
+		},
+		"email": map[string]any{
+			"email":           email,
+			"isEmailVerified": false,
+		},
+		"passwordChangeRequired":          true,
+		"requestPasswordlessRegistration": false, // let Zitadel send the invite for us
+	}
+
+	payload, err := zm.helper.Marshal(addUser)
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := zm.post("users/human/_import", string(payload))
+	if err != nil {
+		return nil, err
+	}
+
+	if zm.appMetrics != nil {
+		zm.appMetrics.IDPMetrics().CountCreateUser()
+	}
+
+	var newUser zitadelUserResponse
+	err = zm.helper.Unmarshal(body, &newUser)
+	if err != nil {
+		return nil, err
+	}
+
+	var pending bool = true
+	ret := &UserData{
+		Email: email,
+		Name:  name,
+		ID:    newUser.UserId,
+		AppMetadata: AppMetadata{
+			WTAccountID:     accountID,
+			WTPendingInvite: &pending,
+			WTInvitedBy:     invitedByEmail,
+		},
+	}
+	return ret, nil
 }
 
 // GetUserByEmail searches users with a given email.
@@ -354,10 +423,25 @@ func (zm *ZitadelManager) UpdateUserAppMetadata(_ string, _ AppMetadata) error {
 	return nil
 }
 
+type inviteUserRequest struct {
+	Email string `json:"email"`
+}
+
 // InviteUserByID resend invitations to users who haven't activated,
 // their accounts prior to the expiration period.
-func (zm *ZitadelManager) InviteUserByID(_ string) error {
-	return fmt.Errorf("method InviteUserByID not implemented")
+func (zm *ZitadelManager) InviteUserByID(userID string) error {
+	inviteUser := inviteUserRequest{
+		Email: userID,
+	}
+
+	payload, err := zm.helper.Marshal(inviteUser)
+	if err != nil {
+		return err
+	}
+
+	// don't care about the body in the response
+	_, err = zm.post(fmt.Sprintf("users/%s/_resend_initialization", userID), string(payload))
+	return err
 }
 
 // DeleteUser from Zitadel
@@ -411,7 +495,38 @@ func (zm *ZitadelManager) post(resource string, body string) ([]byte, error) {
 }
 
 // delete perform Delete requests.
-func (zm *ZitadelManager) delete(_ string) error {
+func (zm *ZitadelManager) delete(resource string) error {
+	jwtToken, err := zm.credentials.Authenticate()
+	if err != nil {
+		return err
+	}
+
+	reqURL := fmt.Sprintf("%s/%s", zm.managementEndpoint, resource)
+	req, err := http.NewRequest(http.MethodDelete, reqURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	resp, err := zm.httpClient.Do(req)
+	if err != nil {
+		if zm.appMetrics != nil {
+			zm.appMetrics.IDPMetrics().CountRequestError()
+		}
+
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		if zm.appMetrics != nil {
+			zm.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+
+		return fmt.Errorf("unable to get %s, statusCode %d", reqURL, resp.StatusCode)
+	}
+
 	return nil
 }
 
