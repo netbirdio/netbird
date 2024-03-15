@@ -750,6 +750,11 @@ func TestDNSPermanent_matchOnly(t *testing.T) {
 						NSType: nbdns.UDPNameServerType,
 						Port:   53,
 					},
+					{
+						IP:     netip.MustParseAddr("9.9.9.9"),
+						NSType: nbdns.UDPNameServerType,
+						Port:   53,
+					},
 				},
 				Domains: []string{"customdomain.com"},
 				Primary: false,
