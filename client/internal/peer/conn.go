@@ -2,7 +2,6 @@ package peer
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"net"
 	"runtime"
@@ -237,6 +236,15 @@ func (conn *Conn) reCreateAgent() error {
 	if err != nil {
 		return err
 	}
+
+	err = conn.agent.OnSuccessfulSelectedPairBindingResponse(func(p *ice.CandidatePair) {
+		log.Debugf("Updating latency: %s", p.Latency().String())
+		err := conn.statusRecorder.UpdateLatency(conn.config.Key, p.Latency())
+		if err != nil {
+			log.Debugf("failed to update latency for peer %s: %s", conn.config.Key, err)
+			return
+		}
+	})
 
 	return nil
 }
@@ -750,89 +758,4 @@ func (conn *Conn) GetKey() string {
 func (conn *Conn) RegisterProtoSupportMeta(support []uint32) {
 	protoSupport := signal.ParseFeaturesSupported(support)
 	conn.meta.protoSupport = protoSupport
-}
-
-func (conn *Conn) HealthCheck() {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-
-	if conn.status != StatusConnected {
-		return
-	}
-
-	// ip := strings.Split(conn.config.WgConfig.AllowedIps, "/")[0]
-	// addr := fmt.Sprintf("%s:%d", ip, conn.config.WgConfig.WgListenPort)
-	candidatePair, err := conn.agent.GetSelectedCandidatePair()
-	if err != nil {
-		log.Warnf("healthcheck failed: failed to get selected candidate pair: %s", err)
-		return
-	}
-	addr := fmt.Sprintf("%s:%d", candidatePair.Remote.Address(), candidatePair.Remote.Port())
-
-	log.Tracef("sending health check to peer %s", conn.remoteEndpoint)
-
-	startTime := time.Now()
-	err = conn.sendUDPWithMagicCookie(addr)
-	duration := time.Since(startTime)
-	if err != nil {
-		log.Debugf("health check to peer %s failed: %s", addr, err)
-		err = conn.statusRecorder.UpdatePeerHealthState(conn.config.Key, false, 0)
-		if err != nil {
-			log.Debugf("failed to update peer health state: %s", err)
-			return
-		}
-		return
-	}
-
-	log.Tracef("health check to peer %s succeeded and took %s", addr, duration)
-	err = conn.statusRecorder.UpdatePeerHealthState(conn.config.Key, true, duration)
-	if err != nil {
-		log.Debugf("failed to update peer health state: %s", err)
-		return
-	}
-}
-
-func (conn *Conn) sendUDPWithMagicCookie(address string) error {
-	// Resolve the UDP address
-	// udpAddr, err := net.ResolveUDPAddr("udp", address)
-	// if err != nil {
-	// 	return fmt.Errorf("resolving UDP address failed: %w", err)
-	// }
-
-	// Dial the UDP connection
-	// c, err := net.DialUDP("udp", nil, conn.remoteEndpoint)
-	// // conn, err := net.DialUDP("udp", nil, udpAddr)
-	// if err != nil {
-	// 	return fmt.Errorf("dialing UDP failed: %w", err)
-	// }
-	// defer c.Close()
-
-	// Set a deadline for reading the response
-	// c.SetReadDeadline(time.Now().Add(5 * time.Second))
-
-	// Construct the packet
-	messageHeaderSize := 20
-	packet := make([]byte, messageHeaderSize)
-	// Set the magic cookie in big-endian format
-	magicCookie := uint32(0x2112A441)
-	binary.BigEndian.PutUint32(packet[4:8], magicCookie)
-	packet[9] = 0x01
-
-	_, err := conn.remoteConn.Write(packet)
-
-	// Send the packet with the magic cookie
-	// _, err = c.Write(packet)
-	if err != nil {
-		return fmt.Errorf("sending UDP packet failed: %w", err)
-	}
-
-	// Buffer to hold the incoming response
-	buffer := make([]byte, 1024)
-	_, err = conn.remoteConn.Read(buffer)
-	// _, _, err = c.ReadFromUDP(buffer)
-	if err != nil {
-		return fmt.Errorf("reading UDP response failed: %w", err)
-	}
-
-	return nil
 }

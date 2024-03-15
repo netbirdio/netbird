@@ -21,7 +21,6 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
-	"github.com/netbirdio/netbird/client/internal/healthcheck"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
@@ -96,8 +95,6 @@ type Engine struct {
 	peerConns map[string]*peer.Conn
 	// rpManager is a Rosenpass manager
 	rpManager *rosenpass.Manager
-	// healthcheckScheduler schedules periodic health checks for all the peerConns
-	healthcheckScheduler *healthcheck.Scheduler
 
 	// syncMsgMux is used to guarantee sequential Management Service message processing
 	syncMsgMux *sync.Mutex
@@ -301,9 +298,6 @@ func (e *Engine) Start() error {
 		e.close()
 		return err
 	}
-
-	e.healthcheckScheduler = healthcheck.NewScheduler(&e.peerConns)
-	e.healthcheckScheduler.Start()
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
@@ -1134,10 +1128,6 @@ func (e *Engine) close() {
 
 	if e.rpManager != nil {
 		_ = e.rpManager.Close()
-	}
-
-	if e.healthcheckScheduler != nil {
-		e.healthcheckScheduler.Stop()
 	}
 }
 
