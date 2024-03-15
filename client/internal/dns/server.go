@@ -278,9 +278,15 @@ func (s *DefaultServer) SearchDomains() []string {
 // ProbeAvailability tests each upstream group's servers for availability
 // and deactivates the group if no server responds
 func (s *DefaultServer) ProbeAvailability() {
+	var wg sync.WaitGroup
 	for _, mux := range s.dnsMuxMap {
-		mux.probeAvailability()
+		wg.Add(1)
+		go func(mux handlerWithStop) {
+			defer wg.Done()
+			mux.probeAvailability()
+		}(mux)
 	}
+	wg.Wait()
 }
 
 func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
