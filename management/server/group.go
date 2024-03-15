@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -122,18 +123,27 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 		return err
 	}
 
-	group, err := account.FindGroupByName(newGroup.Name)
-	if err != nil {
-		s, ok := status.FromError(err)
-		if !ok || s.ErrorType != status.NotFound {
-			return err
-		}
+	if newGroup.ID == "" && newGroup.Issued == GroupIssuedAPI {
+		return status.Errorf(status.InvalidArgument, "%s group without ID set", newGroup.Issued)
 	}
 
-	// avoid duplicate groups only for the API issued groups. Integration or JWT groups can be duplicated as they are
-	// coming from the IdP that we don't have control of.
-	if group != nil && group.Issued == GroupIssuedAPI {
-		return status.Errorf(status.AlreadyExists, "group with name %s already exists", newGroup.Name)
+	if newGroup.ID == "" && newGroup.Issued == GroupIssuedAPI {
+
+		existingGroup, err := account.FindGroupByName(newGroup.Name)
+		if err != nil {
+			s, ok := status.FromError(err)
+			if !ok || s.ErrorType != status.NotFound {
+				return err
+			}
+		}
+
+		// avoid duplicate groups only for the API issued groups. Integration or JWT groups can be duplicated as they are
+		// coming from the IdP that we don't have control of.
+		if existingGroup != nil {
+			return status.Errorf(status.AlreadyExists, "group with name %s already exists", newGroup.Name)
+		}
+
+		newGroup.ID = xid.New().String()
 	}
 
 	for _, peerID := range newGroup.Peers {

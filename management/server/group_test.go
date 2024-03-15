@@ -25,9 +25,27 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 	}
 
 	for _, group := range account.Groups {
+		group.Issued = GroupIssuedAPI
+		group.ID = ""
 		err = am.SaveGroup(account.Id, groupAdminUserID, group)
-		if err == nil && group.Issued == GroupIssuedAPI {
-			t.Error("should not create group with the same name")
+		if err == nil {
+			t.Errorf("should not create api group with the same name, %s", group.Name)
+		}
+	}
+
+	for _, group := range account.Groups {
+		group.Issued = GroupIssuedIntegration
+		err = am.SaveGroup(account.Id, groupAdminUserID, group)
+		if err != nil {
+			t.Errorf("should allow to create %s groups", GroupIssuedIntegration)
+		}
+	}
+
+	for _, group := range account.Groups {
+		group.Issued = GroupIssuedJWT
+		err = am.SaveGroup(account.Id, groupAdminUserID, group)
+		if err != nil {
+			t.Errorf("should allow to create %s groups", GroupIssuedJWT)
 		}
 	}
 }
