@@ -340,6 +340,9 @@ func entryExists(file *os.File, id int) (bool, error) {
 func addRoutingTableName() error {
 	file, err := os.Open(rtTablesPath)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
 		return fmt.Errorf("open rt_tables: %w", err)
 	}
 	defer func() {
