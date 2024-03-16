@@ -284,7 +284,9 @@ func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, linkIndex int) {
 	}
 
 	err = netlink.RouteAdd(route)
-	require.NoError(t, err)
+	if err != nil && !errors.Is(err, syscall.EEXIST) {
+		t.Fatalf("Failed to add route: %v", err)
+	}
 }
 
 func setupDummyInterfacesAndRoutes(t *testing.T) (string, string) {
