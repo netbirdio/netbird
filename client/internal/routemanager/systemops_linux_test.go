@@ -3,11 +3,13 @@
 package routemanager
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -142,6 +144,22 @@ func TestRoutingWithTables(t *testing.T) {
 			dialer:            &net.Dialer{},
 			packetExpectation: createPacketExpectation("100.64.0.1", 12345, "172.16.0.1", 53),
 		},
+
+		{
+			name:              "To more specific route without fwmark via vpn interface",
+			destination:       "10.10.0.1:53",
+			captureInterface:  "dummyint0",
+			dialer:            &net.Dialer{},
+			packetExpectation: createPacketExpectation("192.168.1.1", 12345, "10.10.0.1", 53),
+		},
+
+		{
+			name:              "To more specific route (local) without fwmark via physical interface",
+			destination:       "127.0.10.1:53",
+			captureInterface:  "lo",
+			dialer:            &net.Dialer{},
+			packetExpectation: createPacketExpectation("127.0.0.1", 12345, "127.0.10.1", 53),
+		},
 	}
 
 	for _, tc := range testCases {
@@ -154,6 +172,14 @@ func TestRoutingWithTables(t *testing.T) {
 
 			// 10.0.0.0/8 route exists in main table and vpn table
 			err = addToRouteTableIfNoExists(netip.MustParsePrefix("10.0.0.0/8"), wgIface.Address().IP.String(), wgIface.Name())
+			require.NoError(t, err, "addToRouteTableIfNoExists should not return err")
+
+			// 10.10.0.0/24 more specific route exists in vpn table
+			err = addToRouteTableIfNoExists(netip.MustParsePrefix("10.10.0.0/24"), wgIface.Address().IP.String(), wgIface.Name())
+			require.NoError(t, err, "addToRouteTableIfNoExists should not return err")
+
+			// 127.0.10.0/24 more specific route exists in vpn table
+			err = addToRouteTableIfNoExists(netip.MustParsePrefix("127.0.10.0/24"), wgIface.Address().IP.String(), wgIface.Name())
 			require.NoError(t, err, "addToRouteTableIfNoExists should not return err")
 
 			// unique route in vpn table
@@ -177,28 +203,6 @@ func TestRoutingWithTables(t *testing.T) {
 func verifyPacket(t *testing.T, packet gopacket.Packet, exp PacketExpectation) {
 	t.Helper()
 
-	if exp.UDP {
-		udpLayer := packet.Layer(layers.LayerTypeUDP)
-		require.NotNil(t, udpLayer, "Expected UDP layer not found in packet")
-
-		udp, ok := udpLayer.(*layers.UDP)
-		require.True(t, ok, "Failed to cast to UDP layer")
-
-		require.Equal(t, layers.UDPPort(exp.SrcPort), udp.SrcPort, "UDP source port mismatch")
-		require.Equal(t, layers.UDPPort(exp.DstPort), udp.DstPort, "UDP destination port mismatch")
-	}
-
-	if exp.TCP {
-		tcpLayer := packet.Layer(layers.LayerTypeTCP)
-		require.NotNil(t, tcpLayer, "Expected TCP layer not found in packet")
-
-		tcp, ok := tcpLayer.(*layers.TCP)
-		require.True(t, ok, "Failed to cast to TCP layer")
-
-		require.Equal(t, layers.TCPPort(exp.SrcPort), tcp.SrcPort, "TCP source port mismatch")
-		require.Equal(t, layers.TCPPort(exp.DstPort), tcp.DstPort, "TCP destination port mismatch")
-	}
-
 	ipLayer := packet.Layer(layers.LayerTypeIPv4)
 	require.NotNil(t, ipLayer, "Expected IPv4 layer not found in packet")
 
@@ -208,11 +212,34 @@ func verifyPacket(t *testing.T, packet gopacket.Packet, exp PacketExpectation) {
 	// Convert both source and destination IP addresses to 16-byte representation
 	expectedSrcIP := exp.SrcIP.To16()
 	actualSrcIP := ip.SrcIP.To16()
-	require.Equal(t, expectedSrcIP, actualSrcIP, "Source IP mismatch")
+	assert.Equal(t, expectedSrcIP, actualSrcIP, "Source IP mismatch")
 
 	expectedDstIP := exp.DstIP.To16()
 	actualDstIP := ip.DstIP.To16()
-	require.Equal(t, expectedDstIP, actualDstIP, "Destination IP mismatch")
+	assert.Equal(t, expectedDstIP, actualDstIP, "Destination IP mismatch")
+
+	if exp.UDP {
+		udpLayer := packet.Layer(layers.LayerTypeUDP)
+		require.NotNil(t, udpLayer, "Expected UDP layer not found in packet")
+
+		udp, ok := udpLayer.(*layers.UDP)
+		require.True(t, ok, "Failed to cast to UDP layer")
+
+		assert.Equal(t, layers.UDPPort(exp.SrcPort), udp.SrcPort, "UDP source port mismatch")
+		assert.Equal(t, layers.UDPPort(exp.DstPort), udp.DstPort, "UDP destination port mismatch")
+	}
+
+	if exp.TCP {
+		tcpLayer := packet.Layer(layers.LayerTypeTCP)
+		require.NotNil(t, tcpLayer, "Expected TCP layer not found in packet")
+
+		tcp, ok := tcpLayer.(*layers.TCP)
+		require.True(t, ok, "Failed to cast to TCP layer")
+
+		assert.Equal(t, layers.TCPPort(exp.SrcPort), tcp.SrcPort, "TCP source port mismatch")
+		assert.Equal(t, layers.TCPPort(exp.DstPort), tcp.DstPort, "TCP destination port mismatch")
+	}
+
 }
 
 func createAndSetupDummyInterface(t *testing.T, interfaceName, ipAddressCIDR string) *netlink.Dummy {
@@ -220,7 +247,7 @@ func createAndSetupDummyInterface(t *testing.T, interfaceName, ipAddressCIDR str
 
 	dummy := &netlink.Dummy{LinkAttrs: netlink.LinkAttrs{Name: interfaceName}}
 	err := netlink.LinkDel(dummy)
-	if err != nil {
+	if err != nil && !errors.Is(err, syscall.EINVAL) {
 		t.Logf("Failed to delete dummy interface: %v", err)
 	}
 
@@ -252,7 +279,7 @@ func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, linkIndex int) {
 		LinkIndex: linkIndex,
 	}
 	err = netlink.RouteDel(route)
-	if err != nil {
+	if err != nil && !errors.Is(err, syscall.ESRCH) {
 		t.Logf("Failed to delete route: %v", err)
 	}
 

@@ -49,23 +49,17 @@ func getSetupRules() []ruleParams {
 		{nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V6, -1, true, -1, "add rule v6 netbird"},
 		{-1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, -1, false, 0, "add rule with suppress prefixlen v4"},
 		{-1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V6, -1, false, 0, "add rule with suppress prefixlen v6"},
-		{nbnet.NetbirdFwmark, syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, -1, false, -1, "add rule v4 main"},
-		{nbnet.NetbirdFwmark, syscall.RT_TABLE_MAIN, netlink.FAMILY_V6, -1, false, -1, "add rule v6 main"},
 	}
 }
 
 // setupRouting establishes the routing configuration for the VPN, including essential rules
 // to ensure proper traffic flow for management, locally configured routes, and VPN traffic.
 //
-// Rule 1 (Management Traffic Priority): Ensures that traffic marked with the 'nbnet.NetbirdFwmark' is always
-// prioritized and routed via the main routing table. This rule prevents any non-local routes in any table to match the
-// management traffic.
-//
-// Rule 2 (Main Route Precedence): Safeguards locally installed routes by giving them precedence over
+// Rule 1 (Main Route Precedence): Safeguards locally installed routes by giving them precedence over
 // potential routes received and configured for the VPN.  This rule is skipped for the default route and routes
 // that are not in the main table.
 //
-// Rule 3 (VPN Traffic Routing): Directs all remaining traffic to the 'NetbirdVPNTableID' custom routing table.
+// Rule 2 (VPN Traffic Routing): Directs all remaining traffic to the 'NetbirdVPNTableID' custom routing table.
 // This table is where a default route or other specific routes received from the management server are configured,
 // enabling VPN connectivity.
 //
@@ -211,7 +205,7 @@ func removeUnreachableRoute(prefix *netip.Prefix, tableID, ipFamily int) error {
 		Dst:    ipNet,
 	}
 
-	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ENOENT) {
+	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return fmt.Errorf("netlink remove unreachable route: %w", err)
 	}
 
@@ -237,7 +231,7 @@ func removeRoute(prefix *netip.Prefix, addr, intf *string, tableID, family int) 
 		return fmt.Errorf("add gateway and device: %w", err)
 	}
 
-	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ENOENT) {
+	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return fmt.Errorf("netlink remove route: %w", err)
 	}
 
