@@ -123,7 +123,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 		return err
 	}
 
-	if newGroup.ID == "" && newGroup.Issued == GroupIssuedAPI {
+	if newGroup.ID == "" && newGroup.Issued != GroupIssuedAPI {
 		return status.Errorf(status.InvalidArgument, "%s group without ID set", newGroup.Issued)
 	}
 

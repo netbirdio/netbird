@@ -23,16 +23,6 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 	if err != nil {
 		t.Error("failed to init testing account")
 	}
-
-	for _, group := range account.Groups {
-		group.Issued = GroupIssuedAPI
-		group.ID = ""
-		err = am.SaveGroup(account.Id, groupAdminUserID, group)
-		if err == nil {
-			t.Errorf("should not create api group with the same name, %s", group.Name)
-		}
-	}
-
 	for _, group := range account.Groups {
 		group.Issued = GroupIssuedIntegration
 		err = am.SaveGroup(account.Id, groupAdminUserID, group)
@@ -46,6 +36,14 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 		err = am.SaveGroup(account.Id, groupAdminUserID, group)
 		if err != nil {
 			t.Errorf("should allow to create %s groups", GroupIssuedJWT)
+		}
+	}
+	for _, group := range account.Groups {
+		group.Issued = GroupIssuedAPI
+		group.ID = ""
+		err = am.SaveGroup(account.Id, groupAdminUserID, group)
+		if err == nil {
+			t.Errorf("should not create api group with the same name, %s", group.Name)
 		}
 	}
 }
