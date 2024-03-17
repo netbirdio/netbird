@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"math/rand"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -25,7 +26,13 @@ func TestScheduler_Performance(t *testing.T) {
 			return 0, false
 		})
 	}
-	failed := waitTimeout(wg, 3*time.Second)
+	timeout := 3 * time.Second
+	if runtime.GOOS == "windows" {
+		// sleep and ticker are slower on windows see https://github.com/golang/go/issues/44343
+		timeout = 5 * time.Second
+	}
+
+	failed := waitTimeout(wg, timeout)
 	if failed {
 		t.Fatal("timed out while waiting for test to finish")
 		return
@@ -39,22 +46,29 @@ func TestScheduler_Cancel(t *testing.T) {
 	scheduler := NewDefaultScheduler()
 	tChan := make(chan struct{})
 	p := []string{jobID1, jobID2}
-	scheduler.Schedule(2*time.Millisecond, jobID1, func() (nextRunIn time.Duration, reschedule bool) {
+	scheduletime := 2 * time.Millisecond
+	sleepTime := 4 * time.Millisecond
+	if runtime.GOOS == "windows" {
+		// sleep and ticker are slower on windows see https://github.com/golang/go/issues/44343
+		sleepTime = 20 * time.Millisecond
+	}
+
+	scheduler.Schedule(scheduletime, jobID1, func() (nextRunIn time.Duration, reschedule bool) {
 		tt := p[0]
 		<-tChan
 		t.Logf("job %s", tt)
-		return 2 * time.Millisecond, true
+		return scheduletime, true
 	})
-	scheduler.Schedule(2*time.Millisecond, jobID2, func() (nextRunIn time.Duration, reschedule bool) {
-		return 2 * time.Millisecond, true
+	scheduler.Schedule(scheduletime, jobID2, func() (nextRunIn time.Duration, reschedule bool) {
+		return scheduletime, true
 	})
 
-	time.Sleep(4 * time.Millisecond)
+	time.Sleep(sleepTime)
 	assert.Len(t, scheduler.jobs, 2)
 	scheduler.Cancel([]string{jobID1})
 	close(tChan)
 	p = []string{}
-	time.Sleep(4 * time.Millisecond)
+	time.Sleep(sleepTime)
 	assert.Len(t, scheduler.jobs, 1)
 	assert.NotNil(t, scheduler.jobs[jobID2])
 }
