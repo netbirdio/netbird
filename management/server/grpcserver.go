@@ -377,6 +377,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	loginResp := &proto.LoginResponse{
 		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil),
 		PeerConfig:        toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain()),
+		PostureChecks:     toPeerPostureChecks(s.accountManager, peerKey.String()),
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
@@ -638,4 +639,35 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(_ context.Context, req *proto.Encr
 		WgPubKey: s.wgKey.PublicKey().String(),
 		Body:     encryptedResp,
 	}, nil
+}
+
+// toPeerPostureChecks returns posture checks for the peer that needs to be evaluated on the client side.
+func toPeerPostureChecks(accountManager AccountManager, peerKey string) []*proto.PostureChecks {
+	postureChecks, err := accountManager.GetPeerAppliedPostureChecks(peerKey)
+	if err != nil {
+		log.Errorf("failed getting peer's: %s posture checks: %v", peerKey, err)
+		return nil
+	}
+
+	protoChecks := make([]*proto.PostureChecks, 0)
+	for _, postureCheck := range postureChecks {
+		var protoCheck proto.PostureChecks
+
+		// send process checks path is not empty
+		// TODO: separate the process unix path and window paths
+		if check := postureCheck.Checks.ProcessCheck; check != nil {
+			for _, process := range check.Processes {
+				if process.Path != "" {
+					protoCheck.ProcessCheck.Files = append(protoCheck.ProcessCheck.Files, process.Path)
+				}
+				if process.WindowsPath != "" {
+					protoCheck.ProcessCheck.Files = append(protoCheck.ProcessCheck.Files, process.Path)
+				}
+			}
+		}
+
+		protoChecks = append(protoChecks, &protoCheck)
+	}
+
+	return protoChecks
 }

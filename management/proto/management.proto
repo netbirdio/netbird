@@ -124,6 +124,8 @@ message LoginResponse {
   WiretrusteeConfig wiretrusteeConfig = 1;
   // Peer local config
   PeerConfig peerConfig = 2;
+  // Posture checks to be evaluated by client
+  repeated PostureChecks PostureChecks = 3;
 }
 
 message ServerKeyResponse {
@@ -370,4 +372,12 @@ message FirewallRule {
 message NetworkAddress {
   string netIP = 1;
   string mac = 2;
+}
+
+message ProcessCheck {
+  repeated string Files = 1;
+}
+
+message PostureChecks {
+  ProcessCheck ProcessCheck = 1;
 }
