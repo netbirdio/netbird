@@ -238,7 +238,6 @@ func (conn *Conn) reCreateAgent() error {
 	}
 
 	err = conn.agent.OnSuccessfulSelectedPairBindingResponse(func(p *ice.CandidatePair) {
-		log.Debugf("Updating latency: %s", p.Latency().String())
 		err := conn.statusRecorder.UpdateLatency(conn.config.Key, p.Latency())
 		if err != nil {
 			log.Debugf("failed to update latency for peer %s: %s", conn.config.Key, err)
