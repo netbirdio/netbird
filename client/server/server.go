@@ -713,8 +713,6 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			BytesTx:                    peerState.BytesTx,
 			RosenpassEnabled:           peerState.RosenpassEnabled,
 			Routes:                     maps.Keys(peerState.Routes),
-			LastHealthCheck:            timestamppb.New(peerState.LastHealthCheck),
-			Healthy:                    peerState.Healthy,
 			Latency:                    durationpb.New(peerState.Latency),
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)

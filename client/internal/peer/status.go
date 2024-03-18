@@ -29,8 +29,6 @@ type State struct {
 	BytesTx                    int64
 	BytesRx                    int64
 	Latency                    time.Duration
-	LastHealthCheck            time.Time
-	Healthy                    bool
 	RosenpassEnabled           bool
 	Routes                     map[string]struct{}
 }
@@ -238,25 +236,6 @@ func (d *Status) UpdateWireGuardPeerState(pubKey string, wgStats iface.WGStats) 
 	peerState.LastWireguardHandshake = wgStats.LastHandshake
 	peerState.BytesRx = wgStats.RxBytes
 	peerState.BytesTx = wgStats.TxBytes
-
-	d.peers[pubKey] = peerState
-
-	return nil
-}
-
-// UpdatePeerHealthState updates the health of a peer
-func (d *Status) UpdatePeerHealthState(pubKey string, healthy bool, latency time.Duration) error {
-	d.mux.Lock()
-	defer d.mux.Unlock()
-
-	peerState, ok := d.peers[pubKey]
-	if !ok {
-		return errors.New("peer doesn't exist")
-	}
-
-	peerState.Latency = latency
-	peerState.Healthy = healthy
-	peerState.LastHealthCheck = time.Now()
 
 	d.peers[pubKey] = peerState
 

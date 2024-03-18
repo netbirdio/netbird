@@ -143,9 +143,7 @@ message PeerState {
   int64 bytesTx = 14;
   bool rosenpassEnabled = 15;
   repeated string routes = 16;
-  google.protobuf.Timestamp lastHealthCheck = 17;
-  bool healthy = 18;
-  google.protobuf.Duration latency = 19;
+  google.protobuf.Duration latency = 17;
 }
 
 // LocalPeerState contains the latest state of the local peer
