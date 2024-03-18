@@ -258,18 +258,6 @@ func TestStore(t *testing.T) {
 		t.Errorf("failed to restore a FileStore file - missing Group all")
 	}
 
-	if restoredAccount.Rules["all"] == nil {
-		t.Errorf("failed to restore a FileStore file - missing Rule all")
-		return
-	}
-
-	if restoredAccount.Rules["dmz"] == nil {
-		t.Errorf("failed to restore a FileStore file - missing Rule dmz")
-		return
-	}
-	assert.Equal(t, account.Rules["all"], restoredAccount.Rules["all"], "failed to restore a FileStore file - missing Rule all")
-	assert.Equal(t, account.Rules["dmz"], restoredAccount.Rules["dmz"], "failed to restore a FileStore file - missing Rule dmz")
-
 	if len(restoredAccount.Policies) != 2 {
 		t.Errorf("failed to restore a FileStore file - missing Policies")
 		return
@@ -411,7 +399,6 @@ func TestFileStore_GetAccount(t *testing.T) {
 	assert.Len(t, account.Peers, len(expected.Peers))
 	assert.Len(t, account.Users, len(expected.Users))
 	assert.Len(t, account.SetupKeys, len(expected.SetupKeys))
-	assert.Len(t, account.Rules, len(expected.Rules))
 	assert.Len(t, account.Routes, len(expected.Routes))
 	assert.Len(t, account.NameServerGroups, len(expected.NameServerGroups))
 }

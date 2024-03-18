@@ -55,6 +55,9 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 			GetPeersFunc: func(accountID, userID string) ([]*nbpeer.Peer, error) {
 				return peers, nil
 			},
+			GetDNSDomainFunc: func() string {
+				return "netbird.selfhosted"
+			},
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				user := server.NewAdminUser("test_user")
 				return &server.Account{

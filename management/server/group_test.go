@@ -13,6 +13,41 @@ const (
 	groupAdminUserID = "testingAdminUser"
 )
 
+func TestDefaultAccountManager_CreateGroup(t *testing.T) {
+	am, err := createManager(t)
+	if err != nil {
+		t.Error("failed to create account manager")
+	}
+
+	account, err := initTestGroupAccount(am)
+	if err != nil {
+		t.Error("failed to init testing account")
+	}
+	for _, group := range account.Groups {
+		group.Issued = GroupIssuedIntegration
+		err = am.SaveGroup(account.Id, groupAdminUserID, group)
+		if err != nil {
+			t.Errorf("should allow to create %s groups", GroupIssuedIntegration)
+		}
+	}
+
+	for _, group := range account.Groups {
+		group.Issued = GroupIssuedJWT
+		err = am.SaveGroup(account.Id, groupAdminUserID, group)
+		if err != nil {
+			t.Errorf("should allow to create %s groups", GroupIssuedJWT)
+		}
+	}
+	for _, group := range account.Groups {
+		group.Issued = GroupIssuedAPI
+		group.ID = ""
+		err = am.SaveGroup(account.Id, groupAdminUserID, group)
+		if err == nil {
+			t.Errorf("should not create api group with the same name, %s", group.Name)
+		}
+	}
+}
+
 func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 	am, err := createManager(t)
 	if err != nil {
@@ -137,7 +172,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 	groupForIntegration := &Group{
 		ID:        "grp-for-integration",
 		AccountID: "account-id",
-		Name:      "Group for users",
+		Name:      "Group for users integration",
 		Issued:    GroupIssuedIntegration,
 		Peers:     make([]string, 0),
 	}

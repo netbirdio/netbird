@@ -8,8 +8,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/status"
 
-	"github.com/rs/xid"
-
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 
@@ -151,7 +149,6 @@ func (h *GroupsHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		peers = *req.Peers
 	}
 	group := server.Group{
-		ID:     xid.New().String(),
 		Name:   req.Name,
 		Peers:  peers,
 		Issued: server.GroupIssuedAPI,
