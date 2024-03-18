@@ -7,27 +7,26 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/refactor/peers"
-	"github.com/netbirdio/netbird/management/refactor/settings"
+	peerTypes "github.com/netbirdio/netbird/management/refactor/resources/peers/types"
+	settingsTypes "github.com/netbirdio/netbird/management/refactor/resources/settings/types"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
 type Store interface {
+	AcquireAccountLock(id string) func()
+	AcquireGlobalLock() func()
+	LoadAccount(id string) error
+	WriteAccount(id string) error
 	GetLicense() string
-	FindPeerByPubKey(pubKey string) (peers.Peer, error)
-	FindPeerByID(id string) (peers.Peer, error)
-	FindAllPeersInAccount(id string) ([]peers.Peer, error)
-	UpdatePeer(peer peers.Peer) error
-	FindSettings(accountID string) (settings.Settings, error)
+	FindPeerByPubKey(pubKey string) (peerTypes.Peer, error)
+	FindPeerByID(id string) (peerTypes.Peer, error)
+	FindAllPeersInAccount(id string) ([]peerTypes.Peer, error)
+	UpdatePeer(peer peerTypes.Peer) error
+	FindSettings(accountID string) (settingsTypes.Settings, error)
 }
 
 type DefaultStore interface {
-	GetLicense() string
-	FindPeerByPubKey(pubKey string) (peers.Peer, error)
-	FindPeerByID(id string) (peers.Peer, error)
-	FindAllPeersInAccount(id string) ([]peers.Peer, error)
-	UpdatePeer(peer peers.Peer) error
-	FindSettings(accountID string) (settings.Settings, error)
+	Store
 }
 
 type StoreEngine string

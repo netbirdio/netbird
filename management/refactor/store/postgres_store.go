@@ -1,8 +1,8 @@
 package store
 
 import (
-	"github.com/netbirdio/netbird/management/refactor/peers"
-	"github.com/netbirdio/netbird/management/refactor/settings"
+	peerTypes "github.com/netbirdio/netbird/management/refactor/resources/peers/types"
+	settingsTypes "github.com/netbirdio/netbird/management/refactor/resources/settings/types"
 )
 
 const (
@@ -12,27 +12,27 @@ const (
 type DefaultPostgresStore struct {
 }
 
-func (s *DefaultPostgresStore) FindSettings(accountID string) (settings.Settings, error) {
+func (s *DefaultPostgresStore) FindSettings(accountID string) (settingsTypes.Settings, error) {
 	// TODO implement me
 	panic("implement me")
 }
 
-func (s *DefaultPostgresStore) FindPeerByPubKey(pubKey string) (peers.Peer, error) {
+func (s *DefaultPostgresStore) FindPeerByPubKey(pubKey string) (peerTypes.Peer, error) {
 	// TODO implement me
 	panic("implement me")
 }
 
-func (s *DefaultPostgresStore) FindPeerByID(id string) (peers.Peer, error) {
+func (s *DefaultPostgresStore) FindPeerByID(id string) (peerTypes.Peer, error) {
 	// TODO implement me
 	panic("implement me")
 }
 
-func (s *DefaultPostgresStore) FindAllPeersInAccount(id string) ([]peers.Peer, error) {
+func (s *DefaultPostgresStore) FindAllPeersInAccount(id string) ([]peerTypes.Peer, error) {
 	// TODO implement me
 	panic("implement me")
 }
 
-func (s *DefaultPostgresStore) UpdatePeer(peer peers.Peer) error {
+func (s *DefaultPostgresStore) UpdatePeer(peer peerTypes.Peer) error {
 	// TODO implement me
 	panic("implement me")
 }

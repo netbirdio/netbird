@@ -3,11 +3,16 @@ package mesh
 import (
 	"github.com/netbirdio/management-integrations/integrations"
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/refactor/peers"
-	"github.com/netbirdio/netbird/management/refactor/policies"
-	"github.com/netbirdio/netbird/management/refactor/settings"
+	"github.com/netbirdio/netbird/management/refactor/api/http"
+	"github.com/netbirdio/netbird/management/refactor/resources/network"
+	networkTypes "github.com/netbirdio/netbird/management/refactor/resources/network/types"
+	"github.com/netbirdio/netbird/management/refactor/resources/peers"
+	peerTypes "github.com/netbirdio/netbird/management/refactor/resources/peers/types"
+	"github.com/netbirdio/netbird/management/refactor/resources/policies"
+	"github.com/netbirdio/netbird/management/refactor/resources/routes"
+	"github.com/netbirdio/netbird/management/refactor/resources/settings"
+	"github.com/netbirdio/netbird/management/refactor/resources/users"
 	"github.com/netbirdio/netbird/management/refactor/store"
-	"github.com/netbirdio/netbird/management/refactor/users"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
 )
@@ -23,16 +28,22 @@ type DefaultController struct {
 	userManager     users.Manager
 	policiesManager policies.Manager
 	settingsManager settings.Manager
+	networkManager  network.Manager
+	routesManager   routes.Manager
 }
 
 func NewDefaultController() *DefaultController {
 	storeStore, _ := store.NewDefaultStore(store.SqliteStoreEngine, "", nil)
 	settingsManager := settings.NewDefaultManager(storeStore)
+	networkManager := network.NewDefaultManager()
 	peersManager := peers.NewDefaultManager(storeStore, settingsManager)
+	routesManager := routes.NewDefaultManager(storeStore, peersManager)
 	usersManager := users.NewDefaultManager(storeStore, peersManager)
 	policiesManager := policies.NewDefaultManager(storeStore, peersManager)
 
-	peersManager, settingsManager, usersManager, policiesManager, storeStore = integrations.InjectCloud(peersManager, policiesManager, settingsManager, usersManager, storeStore)
+	apiHandler, _ := http.NewDefaultAPIHandler()
+
+	peersManager, settingsManager, usersManager, policiesManager, storeStore, apiHandler = integrations.InjectCloud(peersManager, policiesManager, settingsManager, usersManager, storeStore)
 
 	return &DefaultController{
 		store:           storeStore,
@@ -40,10 +51,12 @@ func NewDefaultController() *DefaultController {
 		userManager:     usersManager,
 		policiesManager: policiesManager,
 		settingsManager: settingsManager,
+		networkManager:  networkManager,
+		routesManager:   routesManager,
 	}
 }
 
-func (c *DefaultController) LoginPeer(login peers.PeerLogin) {
+func (c *DefaultController) LoginPeer(login peerTypes.PeerLogin) (*peerTypes.Peer, *networkTypes.NetworkMap, error) {
 
 	peer, err := c.peersManager.GetPeerByPubKey(login.WireGuardPubKey)
 	if err != nil {
@@ -60,7 +73,7 @@ func (c *DefaultController) LoginPeer(login peers.PeerLogin) {
 		}
 	}
 
-	account, err := pm.accountManager.GetAccount(peer.GetAccountID())
+	settings, err := c.settingsManager.GetSettings(peer.GetAccountID())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -68,7 +81,7 @@ func (c *DefaultController) LoginPeer(login peers.PeerLogin) {
 	// this flag prevents unnecessary calls to the persistent store.
 	shouldStorePeer := false
 	updateRemotePeers := false
-	if peerLoginExpired(peer, account) {
+	if peerLoginExpired(peer, settings) {
 		err = checkAuth(login.UserID, peer)
 		if err != nil {
 			return nil, nil, err
@@ -79,7 +92,7 @@ func (c *DefaultController) LoginPeer(login peers.PeerLogin) {
 		updateRemotePeers = true
 		shouldStorePeer = true
 
-		pm.eventsManager.StoreEvent(login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(pm.accountManager.GetDNSDomain()))
+		pm.eventsManager.StoreEvent(login.UserID, peer.GetID(), peer.GetAccountID(), activity.UserLoggedInPeer, peer.EventMeta(pm.accountManager.GetDNSDomain()))
 	}
 
 	if peer.UpdateMetaIfNew(login.Meta) {
@@ -107,29 +120,37 @@ func (c *DefaultController) SyncPeer() {
 
 }
 
-func (c *DefaultController) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
+func (c *DefaultController) GetPeerNetworkMap(accountID, peerID, dnsDomain string) (*networkTypes.NetworkMap, error) {
+	unlock := c.store.AcquireAccountLock(accountID)
+	defer unlock()
+
+	network, err := c.networkManager.GetNetwork(accountID)
+	if err != nil {
+		return nil, err
+	}
+
 	peer, err := c.peersManager.GetNetworkPeerByID(peerID)
 	if err != nil {
-		return &NetworkMap{
-			Network: a.Network.Copy(),
-		}
+		return &networkTypes.NetworkMap{
+			Network: network.Copy(),
+		}, nil
 	}
 
 	aclPeers, firewallRules := c.policiesManager.GetAccessiblePeersAndFirewallRules(peerID)
 	// exclude expired peers
-	var peersToConnect []peers.Peer
-	var expiredPeers []peers.Peer
+	var peersToConnect []*peerTypes.Peer
+	var expiredPeers []*peerTypes.Peer
 	accSettings, _ := c.settingsManager.GetSettings(peer.GetAccountID())
 	for _, p := range aclPeers {
 		expired, _ := p.LoginExpired(accSettings.GetPeerLoginExpiration())
 		if accSettings.GetPeerLoginExpirationEnabled() && expired {
-			expiredPeers = append(expiredPeers, p)
+			expiredPeers = append(expiredPeers, &p)
 			continue
 		}
-		peersToConnect = append(peersToConnect, p)
+		peersToConnect = append(peersToConnect, &p)
 	}
 
-	routesUpdate := a.getRoutesToSync(peerID, peersToConnect)
+	routesUpdate := c.routesManager.GetRoutesToSync(peerID, peersToConnect, accountID)
 
 	dnsManagementStatus := a.getPeerDNSManagementStatus(peerID)
 	dnsUpdate := nbdns.Config{
@@ -146,12 +167,12 @@ func (c *DefaultController) GetPeerNetworkMap(peerID, dnsDomain string) *Network
 		dnsUpdate.NameServerGroups = getPeerNSGroups(a, peerID)
 	}
 
-	return &NetworkMap{
+	return &networkTypes.NetworkMap{
 		Peers:         peersToConnect,
-		Network:       a.Network.Copy(),
+		Network:       network.Copy(),
 		Routes:        routesUpdate,
 		DNSConfig:     dnsUpdate,
 		OfflinePeers:  expiredPeers,
 		FirewallRules: firewallRules,
-	}
+	}, nil
 }
