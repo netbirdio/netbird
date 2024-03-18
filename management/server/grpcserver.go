@@ -377,7 +377,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	loginResp := &proto.LoginResponse{
 		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil),
 		PeerConfig:        toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain()),
-		PostureChecks:     toPeerPostureChecks(s.accountManager, peerKey.String()),
+		Checks:            toPeerChecks(s.accountManager, peerKey.String()),
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
@@ -641,17 +641,17 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(_ context.Context, req *proto.Encr
 	}, nil
 }
 
-// toPeerPostureChecks returns posture checks for the peer that needs to be evaluated on the client side.
-func toPeerPostureChecks(accountManager AccountManager, peerKey string) []*proto.PostureChecks {
+// toPeerChecks returns posture checks for the peer that needs to be evaluated on the client side.
+func toPeerChecks(accountManager AccountManager, peerKey string) []*proto.Checks {
 	postureChecks, err := accountManager.GetPeerAppliedPostureChecks(peerKey)
 	if err != nil {
 		log.Errorf("failed getting peer's: %s posture checks: %v", peerKey, err)
 		return nil
 	}
 
-	protoChecks := make([]*proto.PostureChecks, 0)
+	protoChecks := make([]*proto.Checks, 0)
 	for _, postureCheck := range postureChecks {
-		var protoCheck proto.PostureChecks
+		var protoCheck proto.Checks
 
 		// send process checks path is not empty
 		// TODO: separate the process unix path and window paths

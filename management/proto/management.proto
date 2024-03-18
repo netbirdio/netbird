@@ -125,7 +125,7 @@ message LoginResponse {
   // Peer local config
   PeerConfig peerConfig = 2;
   // Posture checks to be evaluated by client
-  repeated PostureChecks PostureChecks = 3;
+  repeated Checks Checks = 3;
 }
 
 message ServerKeyResponse {
@@ -378,6 +378,6 @@ message ProcessCheck {
   repeated string Files = 1;
 }
 
-message PostureChecks {
+message Checks {
   ProcessCheck ProcessCheck = 1;
 }
