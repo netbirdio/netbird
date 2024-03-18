@@ -69,7 +69,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	peersUpdateManager := mgmt.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 	ia, _ := integrations.NewIntegratedValidator(eventStore)
-	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "", eventStore, nil, false, ia)
+	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia)
 	if err != nil {
 		t.Fatal(err)
 	}

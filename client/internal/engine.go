@@ -698,14 +698,15 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Errorf("failed to update dns server, err: %v", err)
 	}
 
-	// Test received (upstream) servers for availability right away instead of upon usage.
-	// If no server of a server group responds this will disable the respective handler and retry later.
-	e.dnsServer.ProbeAvailability()
-
 	if e.acl != nil {
 		e.acl.ApplyFiltering(networkMap)
 	}
+
 	e.networkSerial = serial
+
+	// Test received (upstream) servers for availability right away instead of upon usage.
+	// If no server of a server group responds this will disable the respective handler and retry later.
+	e.dnsServer.ProbeAvailability()
 
 	return nil
 }
@@ -1188,14 +1189,21 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		dnsServer := dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, *dnsConfig, e.mobileDep.NetworkChangeListener)
+		dnsServer := dns.NewDefaultServerPermanentUpstream(
+			e.ctx,
+			e.wgInterface,
+			e.mobileDep.HostDNSAddresses,
+			*dnsConfig,
+			e.mobileDep.NetworkChangeListener,
+			e.statusRecorder,
+		)
 		go e.mobileDep.DnsReadyListener.OnReady()
 		return routes, dnsServer, nil
 	case "ios":
-		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager)
+		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.statusRecorder)
 		return nil, dnsServer, nil
 	default:
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder)
 		if err != nil {
 			return nil, nil, err
 		}

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -42,7 +41,6 @@ type Store interface {
 	// GetStoreEngine should return StoreEngine of the current store implementation.
 	// This is also a method of metrics.DataSource interface.
 	GetStoreEngine() StoreEngine
-	CalculateUsageStats(ctx context.Context, accountID string, start time.Time, end time.Time) (*AccountUsageStats, error)
 }
 
 type StoreEngine string
@@ -105,7 +103,14 @@ func NewStoreFromJson(dataDir string, metrics telemetry.AppMetrics) (Store, erro
 		return nil, err
 	}
 
-	switch kind := getStoreEngineFromEnv(); kind {
+	// if store engine is not set in the config we first try to evaluate NETBIRD_STORE_ENGINE
+	kind := getStoreEngineFromEnv()
+	if kind == "" {
+		// NETBIRD_STORE_ENGINE is not set we evaluate default based on dataDir
+		kind = getStoreEngineFromDatadir(dataDir)
+	}
+
+	switch kind {
 	case FileStoreEngine:
 		return fstore, nil
 	case SqliteStoreEngine:

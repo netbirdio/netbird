@@ -3,8 +3,15 @@ package server
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"runtime"
+	"strconv"
 	"sync"
 	"time"
+
+	"github.com/cenkalti/backoff/v4"
+	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/system"
@@ -21,7 +28,17 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
-const probeThreshold = time.Second * 5
+const (
+	probeThreshold          = time.Second * 5
+	retryInitialIntervalVar = "NB_CONN_RETRY_INTERVAL_TIME"
+	maxRetryIntervalVar     = "NB_CONN_MAX_RETRY_INTERVAL_TIME"
+	maxRetryTimeVar         = "NB_CONN_MAX_RETRY_TIME_TIME"
+	retryMultiplierVar      = "NB_CONN_RETRY_MULTIPLIER"
+	defaultInitialRetryTime = 14 * 24 * time.Hour
+	defaultMaxRetryInterval = 60 * time.Minute
+	defaultMaxRetryTime     = 14 * 24 * time.Hour
+	defaultRetryMultiplier  = 1.7
+)
 
 // Server for service control.
 type Server struct {
@@ -39,6 +56,7 @@ type Server struct {
 	proto.UnimplementedDaemonServiceServer
 
 	statusRecorder *peer.Status
+	sessionWatcher *internal.SessionWatcher
 
 	mgmProbe    *internal.Probe
 	signalProbe *internal.Probe
@@ -116,15 +134,114 @@ func (s *Server) Start() error {
 	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
 
+	if s.sessionWatcher == nil {
+		s.sessionWatcher = internal.NewSessionWatcher(s.rootCtx, s.statusRecorder)
+		s.sessionWatcher.SetOnExpireListener(s.onSessionExpire)
+	}
+
 	if !config.DisableAutoConnect {
-		go func() {
-			if err := internal.RunClientWithProbes(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe); err != nil {
-				log.Errorf("init connections: %v", err)
-			}
-		}()
+		go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe)
 	}
 
 	return nil
+}
+
+// connectWithRetryRuns runs the client connection with a backoff strategy where we retry the operation as additional
+// mechanism to keep the client connected even when the connection is lost.
+// we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
+func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Config, statusRecorder *peer.Status,
+	mgmProbe *internal.Probe, signalProbe *internal.Probe, relayProbe *internal.Probe, wgProbe *internal.Probe) {
+	backOff := getConnectWithBackoff(ctx)
+	retryStarted := false
+
+	go func() {
+		t := time.NewTicker(24 * time.Hour)
+		for {
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return
+			case <-t.C:
+				if retryStarted {
+
+					mgmtState := statusRecorder.GetManagementState()
+					signalState := statusRecorder.GetSignalState()
+					if mgmtState.Connected && signalState.Connected {
+						log.Tracef("resetting status")
+						retryStarted = false
+					} else {
+						log.Tracef("not resetting status: mgmt: %v, signal: %v", mgmtState.Connected, signalState.Connected)
+					}
+				}
+			}
+		}
+	}()
+
+	runOperation := func() error {
+		log.Tracef("running client connection")
+		err := internal.RunClientWithProbes(ctx, config, statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe)
+		if err != nil {
+			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
+		}
+
+		if config.DisableAutoConnect {
+			return backoff.Permanent(err)
+		}
+
+		if !retryStarted {
+			retryStarted = true
+			backOff.Reset()
+		}
+
+		log.Tracef("client connection exited")
+		return fmt.Errorf("client connection exited")
+	}
+
+	err := backoff.Retry(runOperation, backOff)
+	if s, ok := gstatus.FromError(err); ok && s.Code() != codes.Canceled {
+		log.Errorf("received an error when trying to connect: %v", err)
+	} else {
+		log.Tracef("retry canceled")
+	}
+}
+
+// getConnectWithBackoff returns a backoff with exponential backoff strategy for connection retries
+func getConnectWithBackoff(ctx context.Context) backoff.BackOff {
+	initialInterval := parseEnvDuration(retryInitialIntervalVar, defaultInitialRetryTime)
+	maxInterval := parseEnvDuration(maxRetryIntervalVar, defaultMaxRetryInterval)
+	maxElapsedTime := parseEnvDuration(maxRetryTimeVar, defaultMaxRetryTime)
+	multiplier := defaultRetryMultiplier
+
+	if envValue := os.Getenv(retryMultiplierVar); envValue != "" {
+		// parse the multiplier from the environment variable string value to float64
+		value, err := strconv.ParseFloat(envValue, 64)
+		if err != nil {
+			log.Warnf("unable to parse environment variable %s: %s. using default: %f", retryMultiplierVar, envValue, multiplier)
+		} else {
+			multiplier = value
+		}
+	}
+
+	return backoff.WithContext(&backoff.ExponentialBackOff{
+		InitialInterval:     initialInterval,
+		RandomizationFactor: 1,
+		Multiplier:          multiplier,
+		MaxInterval:         maxInterval,
+		MaxElapsedTime:      maxElapsedTime, // 14 days
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}, ctx)
+}
+
+// parseEnvDuration parses the environment variable and returns the duration
+func parseEnvDuration(envVar string, defaultDuration time.Duration) time.Duration {
+	if envValue := os.Getenv(envVar); envValue != "" {
+		if duration, err := time.ParseDuration(envValue); err == nil {
+			return duration
+		}
+		log.Warnf("unable to parse environment variable %s: %s. using default: %s", envVar, envValue, defaultDuration)
+	}
+	return defaultDuration
 }
 
 // loginAttempt attempts to login using the provided information. it returns a status in case something fails
@@ -437,12 +554,7 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
-	go func() {
-		if err := internal.RunClientWithProbes(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe); err != nil {
-			log.Errorf("run client connection: %v", err)
-			return
-		}
-	}()
+	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe)
 
 	return &proto.UpResponse{}, nil
 }
@@ -542,13 +654,23 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 	}, nil
 }
 
+func (s *Server) onSessionExpire() {
+	if runtime.GOOS != "windows" {
+		isUIActive := internal.CheckUIApp()
+		if !isUIActive {
+			if err := sendTerminalNotification(); err != nil {
+				log.Errorf("send session expire terminal notification: %v", err)
+			}
+		}
+	}
+}
+
 func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	pbFullStatus := proto.FullStatus{
 		ManagementState: &proto.ManagementState{},
 		SignalState:     &proto.SignalState{},
 		LocalPeerState:  &proto.LocalPeerState{},
 		Peers:           []*proto.PeerState{},
-		Relays:          []*proto.RelayState{},
 	}
 
 	pbFullStatus.ManagementState.URL = fullStatus.ManagementState.URL
@@ -569,6 +691,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	pbFullStatus.LocalPeerState.Fqdn = fullStatus.LocalPeerState.FQDN
 	pbFullStatus.LocalPeerState.RosenpassPermissive = fullStatus.RosenpassState.Permissive
 	pbFullStatus.LocalPeerState.RosenpassEnabled = fullStatus.RosenpassState.Enabled
+	pbFullStatus.LocalPeerState.Routes = maps.Keys(fullStatus.LocalPeerState.Routes)
 
 	for _, peerState := range fullStatus.Peers {
 		pbPeerState := &proto.PeerState{
@@ -587,6 +710,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			BytesRx:                    peerState.BytesRx,
 			BytesTx:                    peerState.BytesTx,
 			RosenpassEnabled:           peerState.RosenpassEnabled,
+			Routes:                     maps.Keys(peerState.Routes),
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}
@@ -602,5 +726,47 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 		pbFullStatus.Relays = append(pbFullStatus.Relays, pbRelayState)
 	}
 
+	for _, dnsState := range fullStatus.NSGroupStates {
+		var err string
+		if dnsState.Error != nil {
+			err = dnsState.Error.Error()
+		}
+		pbDnsState := &proto.NSGroupState{
+			Servers: dnsState.Servers,
+			Domains: dnsState.Domains,
+			Enabled: dnsState.Enabled,
+			Error:   err,
+		}
+		pbFullStatus.DnsServers = append(pbFullStatus.DnsServers, pbDnsState)
+	}
+
 	return &pbFullStatus
+}
+
+// sendTerminalNotification sends a terminal notification message
+// to inform the user that the NetBird connection session has expired.
+func sendTerminalNotification() error {
+	message := "NetBird connection session expired\n\nPlease re-authenticate to connect to the network."
+	echoCmd := exec.Command("echo", message)
+	wallCmd := exec.Command("sudo", "wall")
+
+	echoCmdStdout, err := echoCmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	wallCmd.Stdin = echoCmdStdout
+
+	if err := echoCmd.Start(); err != nil {
+		return err
+	}
+
+	if err := wallCmd.Start(); err != nil {
+		return err
+	}
+
+	if err := echoCmd.Wait(); err != nil {
+		return err
+	}
+
+	return wallCmd.Wait()
 }

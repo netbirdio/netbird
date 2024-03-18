@@ -5,6 +5,9 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
+
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/iface"
 )
@@ -26,6 +29,7 @@ type State struct {
 	BytesTx                    int64
 	BytesRx                    int64
 	RosenpassEnabled           bool
+	Routes                     map[string]struct{}
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -34,6 +38,7 @@ type LocalPeerState struct {
 	PubKey          string
 	KernelInterface bool
 	FQDN            string
+	Routes          map[string]struct{}
 }
 
 // SignalState contains the latest state of a signal connection
@@ -56,6 +61,16 @@ type RosenpassState struct {
 	Permissive bool
 }
 
+// NSGroupState represents the status of a DNS server group, including associated domains,
+// whether it's enabled, and the last error message encountered during probing.
+type NSGroupState struct {
+	ID      string
+	Servers []string
+	Domains []string
+	Enabled bool
+	Error   error
+}
+
 // FullStatus contains the full state held by the Status instance
 type FullStatus struct {
 	Peers           []State
@@ -64,6 +79,7 @@ type FullStatus struct {
 	LocalPeerState  LocalPeerState
 	RosenpassState  RosenpassState
 	Relays          []relay.ProbeResult
+	NSGroupStates   []NSGroupState
 }
 
 // Status holds a state of peers, signal, management connections and relays
@@ -83,6 +99,7 @@ type Status struct {
 	notifier            *notifier
 	rosenpassEnabled    bool
 	rosenpassPermissive bool
+	nsGroupStates       []NSGroupState
 
 	// To reduce the number of notification invocation this bool will be true when need to call the notification
 	// Some Peer actions mostly used by in a batch when the network map has been synchronized. In these type of events
@@ -169,6 +186,10 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 
 	if receivedState.IP != "" {
 		peerState.IP = receivedState.IP
+	}
+
+	if receivedState.Routes != nil {
+		peerState.Routes = receivedState.Routes
 	}
 
 	skipNotification := shouldSkipNotify(receivedState, peerState)
@@ -275,6 +296,13 @@ func (d *Status) GetPeerStateChangeNotifier(peer string) <-chan struct{} {
 	return ch
 }
 
+// GetLocalPeerState returns the local peer state
+func (d *Status) GetLocalPeerState() LocalPeerState {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	return d.localPeer
+}
+
 // UpdateLocalPeerState updates local peer status
 func (d *Status) UpdateLocalPeerState(localPeerState LocalPeerState) {
 	d.mux.Lock()
@@ -361,6 +389,12 @@ func (d *Status) UpdateRelayStates(relayResults []relay.ProbeResult) {
 	d.relayStates = relayResults
 }
 
+func (d *Status) UpdateDNSStates(dnsStates []NSGroupState) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.nsGroupStates = dnsStates
+}
+
 func (d *Status) GetRosenpassState() RosenpassState {
 	return RosenpassState{
 		d.rosenpassEnabled,
@@ -376,6 +410,24 @@ func (d *Status) GetManagementState() ManagementState {
 	}
 }
 
+// IsLoginRequired determines if a peer's login has expired.
+func (d *Status) IsLoginRequired() bool {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	// if peer is connected to the management then login is not expired
+	if d.managementState {
+		return false
+	}
+
+	s, ok := gstatus.FromError(d.managementError)
+	if ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
+		return true
+
+	}
+	return false
+}
+
 func (d *Status) GetSignalState() SignalState {
 	return SignalState{
 		d.signalAddress,
@@ -386,6 +438,10 @@ func (d *Status) GetSignalState() SignalState {
 
 func (d *Status) GetRelayStates() []relay.ProbeResult {
 	return d.relayStates
+}
+
+func (d *Status) GetDNSStates() []NSGroupState {
+	return d.nsGroupStates
 }
 
 // GetFullStatus gets full status
@@ -399,6 +455,7 @@ func (d *Status) GetFullStatus() FullStatus {
 		LocalPeerState:  d.localPeer,
 		Relays:          d.GetRelayStates(),
 		RosenpassState:  d.GetRosenpassState(),
+		NSGroupStates:   d.GetDNSStates(),
 	}
 
 	for _, status := range d.peers {

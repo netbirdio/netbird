@@ -976,66 +976,6 @@ type RouteRequest struct {
 	PeerGroups *[]string `json:"peer_groups,omitempty"`
 }
 
-// Rule defines model for Rule.
-type Rule struct {
-	// Description Rule friendly description
-	Description string `json:"description"`
-
-	// Destinations Rule destination group IDs
-	Destinations []GroupMinimum `json:"destinations"`
-
-	// Disabled Rules status
-	Disabled bool `json:"disabled"`
-
-	// Flow Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"flow"`
-
-	// Id Rule ID
-	Id string `json:"id"`
-
-	// Name Rule name identifier
-	Name string `json:"name"`
-
-	// Sources Rule source group IDs
-	Sources []GroupMinimum `json:"sources"`
-}
-
-// RuleMinimum defines model for RuleMinimum.
-type RuleMinimum struct {
-	// Description Rule friendly description
-	Description string `json:"description"`
-
-	// Disabled Rules status
-	Disabled bool `json:"disabled"`
-
-	// Flow Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"flow"`
-
-	// Name Rule name identifier
-	Name string `json:"name"`
-}
-
-// RuleRequest defines model for RuleRequest.
-type RuleRequest struct {
-	// Description Rule friendly description
-	Description string `json:"description"`
-
-	// Destinations List of destination group IDs
-	Destinations *[]string `json:"destinations,omitempty"`
-
-	// Disabled Rules status
-	Disabled bool `json:"disabled"`
-
-	// Flow Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"flow"`
-
-	// Name Rule name identifier
-	Name string `json:"name"`
-
-	// Sources List of source group IDs
-	Sources *[]string `json:"sources,omitempty"`
-}
-
 // SetupKey defines model for SetupKey.
 type SetupKey struct {
 	// AutoGroups List of group IDs to auto-assign to peers registered with this key
@@ -1218,12 +1158,6 @@ type PostApiRoutesJSONRequestBody = RouteRequest
 
 // PutApiRoutesRouteIdJSONRequestBody defines body for PutApiRoutesRouteId for application/json ContentType.
 type PutApiRoutesRouteIdJSONRequestBody = RouteRequest
-
-// PostApiRulesJSONRequestBody defines body for PostApiRules for application/json ContentType.
-type PostApiRulesJSONRequestBody = RuleRequest
-
-// PutApiRulesRuleIdJSONRequestBody defines body for PutApiRulesRuleId for application/json ContentType.
-type PutApiRulesRuleIdJSONRequestBody = RuleRequest
 
 // PostApiSetupKeysJSONRequestBody defines body for PostApiSetupKeys for application/json ContentType.
 type PostApiSetupKeysJSONRequestBody = SetupKeyRequest

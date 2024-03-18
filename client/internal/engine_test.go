@@ -1048,8 +1048,11 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
+	if err != nil {
+		return nil, "", err
+	}
 	ia, _ := integrations.NewIntegratedValidator(eventStore)
-	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "", eventStore, nil, false, ia)
+	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia)
 	if err != nil {
 		return nil, "", err
 	}

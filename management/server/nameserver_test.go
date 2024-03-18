@@ -759,7 +759,7 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "", eventStore, nil, false, MocIntegratedValidator{})
+	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{})
 }
 
 func createNSStore(t *testing.T) (Store, error) {
