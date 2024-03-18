@@ -244,6 +244,9 @@ func (conn *Conn) reCreateAgent() error {
 			return
 		}
 	})
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
