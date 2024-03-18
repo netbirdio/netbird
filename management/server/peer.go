@@ -25,6 +25,8 @@ import (
 type PeerSync struct {
 	// WireGuardPubKey is a peers WireGuard public key
 	WireGuardPubKey string
+	// Meta is the system information passed by peer, must be always present
+	Meta nbpeer.PeerSystemMeta
 }
 
 // PeerLogin used as a data object between the gRPC API and AccountManager on Login request.
@@ -526,6 +528,15 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *Network
 	if peerLoginExpired(peer, account) {
 		return nil, nil, status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
 	}
+
+	peer, updated := updatePeerMeta(peer, sync.Meta, account)
+	if updated {
+		err = am.Store.SaveAccount(account)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
 	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
 }
 
@@ -784,7 +795,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) {
 
 	for _, peer := range peers {
 		remotePeerNetworkMap := account.GetPeerNetworkMap(peer.ID, am.dnsDomain)
-		update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain())
+		update := toSyncResponse(am, nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain())
 		am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})
 	}
 }

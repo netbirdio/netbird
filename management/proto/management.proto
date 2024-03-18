@@ -50,7 +50,10 @@ message EncryptedMessage {
   int32 version = 3;
 }
 
-message SyncRequest {}
+message SyncRequest {
+  // Meta data of the peer
+  PeerSystemMeta meta = 1;
+}
 
 // SyncResponse represents a state that should be applied to the local peer (e.g. Wiretrustee servers config as well as local peer and remote peers configs)
 message SyncResponse {
@@ -69,6 +72,9 @@ message SyncResponse {
   bool remotePeersIsEmpty = 4;
 
   NetworkMap NetworkMap = 5;
+
+  // Posture checks to be evaluated by client
+  repeated Checks Checks = 6;
 }
 
 message LoginRequest {
