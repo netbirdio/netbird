@@ -79,6 +79,11 @@ type Environment struct {
 	Platform string
 }
 
+// Process represents an active process on the peer's system.
+type Process struct {
+	Path string
+}
+
 // PeerSystemMeta is a metadata of a Peer machine system
 type PeerSystemMeta struct { //nolint:revive
 	Hostname           string
@@ -96,6 +101,7 @@ type PeerSystemMeta struct { //nolint:revive
 	SystemProductName  string
 	SystemManufacturer string
 	Environment        Environment `gorm:"serializer:json"`
+	Processes          []Process   `gorm:"-"`
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {

@@ -795,6 +795,8 @@ components:
           $ref: '#/components/schemas/GeoLocationCheck'
         peer_network_range_check:
           $ref: '#/components/schemas/PeerNetworkRangeCheck'
+        process_check:
+          $ref: '#/components/schemas/ProcessCheck'
     NBVersionCheck:
       description: Posture check for the version of NetBird
       type: object
@@ -883,6 +885,28 @@ components:
       required:
         - ranges
         - action
+    ProcessCheck:
+      description: Posture Check for binaries exist and are running in the peer’s system
+      type: object
+      properties:
+        processes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Process'
+      required:
+        - processes
+    Process:
+      description: Describes the operational activity within a peer's system.
+      type: object
+      properties:
+        path:
+          description: Path to the process executable file in a Unix-like operating system
+          type: string
+          example: "/usr/local/bin/netbird"
+        windows_path:
+          description: Path to the process executable file in a Windows operating system
+          type: string
+          example: "C:\ProgramData\NetBird\netbird.exe"
     Location:
       description: Describe geographical location information
       type: object
