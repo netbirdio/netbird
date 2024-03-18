@@ -440,7 +440,7 @@ type Peer struct {
 	AccessiblePeers []AccessiblePeer `json:"accessible_peers"`
 
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
-	ApprovalRequired *bool `json:"approval_required,omitempty"`
+	ApprovalRequired bool `json:"approval_required"`
 
 	// CityName Commonly used English name of the city
 	CityName CityName `json:"city_name"`
@@ -509,7 +509,7 @@ type Peer struct {
 // PeerBase defines model for PeerBase.
 type PeerBase struct {
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
-	ApprovalRequired *bool `json:"approval_required,omitempty"`
+	ApprovalRequired bool `json:"approval_required"`
 
 	// CityName Commonly used English name of the city
 	CityName CityName `json:"city_name"`
@@ -581,7 +581,7 @@ type PeerBatch struct {
 	AccessiblePeersCount int `json:"accessible_peers_count"`
 
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
-	ApprovalRequired *bool `json:"approval_required,omitempty"`
+	ApprovalRequired bool `json:"approval_required"`
 
 	// CityName Commonly used English name of the city
 	CityName CityName `json:"city_name"`

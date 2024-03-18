@@ -274,11 +274,11 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 		}
 	}
 
-	// check integrated peer approval
+	// check integrated peer validator groups
 	if account.Settings.Extra != nil {
-		for _, integratedPeerApprovalGroups := range account.Settings.Extra.IntegratedApprovalGroups {
-			if groupID == integratedPeerApprovalGroups {
-				return &GroupLinkError{"integrated approval", g.Name}
+		for _, integratedPeerValidatorGroups := range account.Settings.Extra.IntegratedValidatorGroups {
+			if groupID == integratedPeerValidatorGroups {
+				return &GroupLinkError{"integrated validator", g.Name}
 			}
 		}
 	}
