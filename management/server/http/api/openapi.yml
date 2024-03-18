@@ -585,7 +585,10 @@ components:
           type: integer
           example: 2
         issued:
-          description: How group was issued by API or from JWT token
+          description: How the group was issued (api, integration, jwt)
+          type: string
+          enum: ["api", "integration", "jwt"]
+          example: api
           type: string
           example: api
       required:
@@ -1270,7 +1273,7 @@ paths:
   /api/accounts/{accountId}:
     delete:
       summary: Delete an Account
-      description: Deletes an account and all its resources. Only administrators and account owners can delete accounts.
+      description: Deletes an account and all its resources. Only account owners can delete accounts.
       tags: [ Accounts ]
       security:
         - BearerAuth: [ ]
