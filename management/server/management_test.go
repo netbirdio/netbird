@@ -503,7 +503,7 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	}
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
-	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "",
+	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted",
 		eventStore, nil, false)
 	if err != nil {
 		log.Fatalf("failed creating a manager: %v", err)

@@ -40,9 +40,6 @@ const (
 	PublicCategory             = "public"
 	PrivateCategory            = "private"
 	UnknownCategory            = "unknown"
-	GroupIssuedAPI             = "api"
-	GroupIssuedJWT             = "jwt"
-	GroupIssuedIntegration     = "integration"
 	CacheExpirationMax         = 7 * 24 * 3600 * time.Second // 7 days
 	CacheExpirationMin         = 3 * 24 * 3600 * time.Second // 3 days
 	DefaultPeerLoginExpiration = 24 * time.Hour
@@ -227,9 +224,6 @@ type Account struct {
 	PostureChecks          []*posture.Checks                 `gorm:"foreignKey:AccountID;references:id"`
 	// Settings is a dictionary of Account settings
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
-	// deprecated on store and api level
-	Rules  map[string]*Rule `json:"-" gorm:"-"`
-	RulesG []Rule           `json:"-" gorm:"-"`
 }
 
 type UserInfo struct {
@@ -557,6 +551,16 @@ func (a *Account) FindUser(userID string) (*User, error) {
 	}
 
 	return user, nil
+}
+
+// FindGroupByName looks for a given group in the Account by name or returns error if the group wasn't found.
+func (a *Account) FindGroupByName(groupName string) (*Group, error) {
+	for _, group := range a.Groups {
+		if group.Name == groupName {
+			return group, nil
+		}
+	}
+	return nil, status.Errorf(status.NotFound, "group %s not found", groupName)
 }
 
 // FindSetupKey looks for a given SetupKey in the Account or returns error if it wasn't found.
@@ -1361,16 +1365,21 @@ func (am *DefaultAccountManager) removeUserFromCache(accountID, userID string) e
 func (am *DefaultAccountManager) updateAccountDomainAttributes(account *Account, claims jwtclaims.AuthorizationClaims,
 	primaryDomain bool,
 ) error {
-	account.IsDomainPrimaryAccount = primaryDomain
 
-	lowerDomain := strings.ToLower(claims.Domain)
-	userObj := account.Users[claims.UserId]
-	if account.Domain != lowerDomain && userObj.Role == UserRoleAdmin {
-		account.Domain = lowerDomain
-	}
-	// prevent updating category for different domain until admin logs in
-	if account.Domain == lowerDomain {
-		account.DomainCategory = claims.DomainCategory
+	if claims.Domain != "" {
+		account.IsDomainPrimaryAccount = primaryDomain
+
+		lowerDomain := strings.ToLower(claims.Domain)
+		userObj := account.Users[claims.UserId]
+		if account.Domain != lowerDomain && userObj.Role == UserRoleAdmin {
+			account.Domain = lowerDomain
+		}
+		// prevent updating category for different domain until admin logs in
+		if account.Domain == lowerDomain {
+			account.DomainCategory = claims.DomainCategory
+		}
+	} else {
+		log.Errorf("claims don't contain a valid domain, skipping domain attributes update. Received claims: %v", claims)
 	}
 
 	err := am.Store.SaveAccount(account)

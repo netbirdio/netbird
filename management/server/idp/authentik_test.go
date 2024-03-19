@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
 func TestNewAuthentikManager(t *testing.T) {
@@ -25,6 +26,7 @@ func TestNewAuthentikManager(t *testing.T) {
 		Username:      "username",
 		Password:      "password",
 		TokenEndpoint: "https://localhost:8080/application/o/token/",
+		Issuer:        "https://localhost:8080/application/o/netbird/",
 		GrantType:     "client_credentials",
 	}
 
@@ -75,7 +77,17 @@ func TestNewAuthentikManager(t *testing.T) {
 		assertErrFuncMessage: "should return error when field empty",
 	}
 
-	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5} {
+	testCase6Config := defaultTestConfig
+	testCase6Config.Issuer = ""
+
+	testCase6 := test{
+		name:                 "Missing Issuer Configuration",
+		inputConfig:          testCase6Config,
+		assertErrFunc:        require.Error,
+		assertErrFuncMessage: "should return error when field empty",
+	}
+
+	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5, testCase6} {
 		t.Run(testCase.name, func(t *testing.T) {
 			_, err := NewAuthentikManager(testCase.inputConfig, &telemetry.MockAppMetrics{})
 			testCase.assertErrFunc(t, err, testCase.assertErrFuncMessage)

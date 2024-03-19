@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -18,6 +19,12 @@ func (e *GroupLinkError) Error() string {
 	return fmt.Sprintf("group has been linked to %s: %s", e.Resource, e.Name)
 }
 
+const (
+	GroupIssuedAPI         = "api"
+	GroupIssuedJWT         = "jwt"
+	GroupIssuedIntegration = "integration"
+)
+
 // Group of the peers for ACL
 type Group struct {
 	// ID of the group
@@ -29,7 +36,7 @@ type Group struct {
 	// Name visible in the UI
 	Name string
 
-	// Issued of the group
+	// Issued defines how this group was created (enum of "api", "integration" or "jwt")
 	Issued string
 
 	// Peers list of the group
@@ -114,6 +121,29 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return err
+	}
+
+	if newGroup.ID == "" && newGroup.Issued != GroupIssuedAPI {
+		return status.Errorf(status.InvalidArgument, "%s group without ID set", newGroup.Issued)
+	}
+
+	if newGroup.ID == "" && newGroup.Issued == GroupIssuedAPI {
+
+		existingGroup, err := account.FindGroupByName(newGroup.Name)
+		if err != nil {
+			s, ok := status.FromError(err)
+			if !ok || s.ErrorType != status.NotFound {
+				return err
+			}
+		}
+
+		// avoid duplicate groups only for the API issued groups. Integration or JWT groups can be duplicated as they are
+		// coming from the IdP that we don't have control of.
+		if existingGroup != nil {
+			return status.Errorf(status.AlreadyExists, "group with name %s already exists", newGroup.Name)
+		}
+
+		newGroup.ID = xid.New().String()
 	}
 
 	for _, peerID := range newGroup.Peers {

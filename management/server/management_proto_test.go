@@ -412,7 +412,7 @@ func startManagement(t *testing.T, config *Config) (*grpc.Server, string, error)
 	}
 	peersUpdateManager := NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
-	accountManager, err := BuildManager(store, peersUpdateManager, nil, "", "",
+	accountManager, err := BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted",
 		eventStore, nil, false)
 	if err != nil {
 		return nil, "", err
