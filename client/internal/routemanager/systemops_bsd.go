@@ -10,6 +10,7 @@ import (
 
 	"golang.org/x/net/route"
 
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/iface"
 )
 
@@ -28,8 +29,8 @@ const (
 	RTF_MULTICAST = 0x800000
 )
 
-func setupRouting([]net.IP, *iface.WGIface) error {
-	return nil
+func setupRouting([]net.IP, *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+	return nil, nil, nil
 }
 
 func cleanupRouting() error {

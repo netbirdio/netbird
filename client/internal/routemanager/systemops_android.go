@@ -1,13 +1,15 @@
 package routemanager
 
 import (
+	"net"
 	"net/netip"
 
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/iface"
 )
 
-func setupRouting([]net.IP, *iface.WGIface) error {
-	return nil
+func setupRouting([]net.IP, *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+	return nil, nil, nil
 }
 
 func cleanupRouting() error {
