@@ -134,6 +134,8 @@ func TestRouting(t *testing.T) {
 }
 
 func testRoute(t *testing.T, destination string, dialer dialer) *FindNetRouteOutput {
+	t.Helper()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
@@ -162,8 +164,9 @@ func testRoute(t *testing.T, destination string, dialer dialer) *FindNetRouteOut
 	return combinedOutput
 }
 func createAndSetupDummyInterface(t *testing.T, interfaceName, ipAddressCIDR string) string {
-	const defaultInterfaceName = "Ethernet"
 	t.Helper()
+
+	const defaultInterfaceName = "Ethernet"
 
 	_, err := exec.Command("devcon64.exe", "install", `c:\windows\inf\netloop.inf`, "*msloop").CombinedOutput()
 	require.NoError(t, err, "Failed to create loopback adapter")
@@ -178,7 +181,8 @@ func createAndSetupDummyInterface(t *testing.T, interfaceName, ipAddressCIDR str
 	require.NoError(t, err)
 	subnetMaskSize, _ := ipNet.Mask.Size()
 	script := fmt.Sprintf(`New-NetIPAddress -InterfaceAlias "%s" -IPAddress "%s" -PrefixLength %d -Confirm:$False`, interfaceName, ip.String(), subnetMaskSize)
-	exec.Command("powershell", "-Command", script).CombinedOutput()
+	_, err = exec.Command("powershell", "-Command", script).CombinedOutput()
+	require.NoError(t, err, "Failed to assign IP address to loopback adapter")
 
 	// Wait for the IP address to be applied
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -194,6 +198,8 @@ func createAndSetupDummyInterface(t *testing.T, interfaceName, ipAddressCIDR str
 }
 
 func cleanupInterfaces(t *testing.T) {
+	t.Helper()
+
 	_, err := exec.Command("devcon64.exe", "/r", "remove", "=net", `@ROOT\NET\*`).CombinedOutput()
 	assert.NoError(t, err, "Failed to remove loopback adapter")
 }

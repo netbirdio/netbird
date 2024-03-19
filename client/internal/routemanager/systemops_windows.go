@@ -178,7 +178,7 @@ func addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIface, intialNex
 	}
 
 	// If the nexthop is our vpn gateway, we take the initial default gateway as nexthop
-	if bytes.Compare(exitNextHop, vpnIntf.Address().IP) == 0 || exitIntf == vpnIntf.Name() {
+	if bytes.Equal(exitNextHop, vpnIntf.Address().IP) || exitIntf == vpnIntf.Name() {
 		log.Debugf("Nexthop %s/%s is our vpn gateway, using initial next hop %s/%v", exitNextHop, exitIntf, intialNextHop, initialIntf)
 		exitNextHop = intialNextHop
 		if initialIntf != nil {
