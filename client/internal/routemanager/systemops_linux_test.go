@@ -116,25 +116,30 @@ func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, intf string) {
 	require.NoError(t, err)
 
 	// Handle existing routes with metric 0
+
+	var originalNexthop net.IP
+	var originalLinkIndex int
 	if dstIPNet.String() == "0.0.0.0/0" {
-		gw, linkIndex, err := fetchOriginalGateway(netlink.FAMILY_V4)
+		var err error
+		originalNexthop, originalLinkIndex, err = fetchOriginalGateway(netlink.FAMILY_V4)
 		if err != nil {
 			t.Logf("Failed to fetch original gateway: %v", err)
 		}
 
 		// Handle existing routes with metric 0
-		err = netlink.RouteDel(&netlink.Route{Dst: dstIPNet, Priority: 0})
-		if err == nil {
-			t.Cleanup(func() {
-				err := netlink.RouteAdd(&netlink.Route{Dst: dstIPNet, Gw: gw, LinkIndex: linkIndex, Priority: 0})
-				if err != nil && !errors.Is(err, syscall.EEXIST) {
-					t.Fatalf("Failed to add route: %v", err)
-				}
-			})
-		} else if !errors.Is(err, syscall.ESRCH) {
+		if err = netlink.RouteDel(&netlink.Route{Dst: dstIPNet, Priority: 0}); err != nil && !errors.Is(err, syscall.ESRCH) {
 			t.Logf("Failed to delete route: %v", err)
 		}
 	}
+
+	t.Cleanup(func() {
+		if originalNexthop != nil {
+			err := netlink.RouteAdd(&netlink.Route{Dst: dstIPNet, Gw: originalNexthop, LinkIndex: originalLinkIndex, Priority: 0})
+			if err != nil && !errors.Is(err, syscall.EEXIST) {
+				t.Fatalf("Failed to add route: %v", err)
+			}
+		}
+	})
 
 	link, err := netlink.LinkByName(intf)
 	require.NoError(t, err)
