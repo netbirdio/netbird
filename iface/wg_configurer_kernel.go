@@ -5,6 +5,7 @@ package iface
 import (
 	"fmt"
 	"net"
+	"runtime"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -31,7 +32,7 @@ func (c *wgKernelConfigurer) configureInterface(privateKey string, port int) err
 	if err != nil {
 		return err
 	}
-	fwmark := nbnet.NetbirdFwmark
+	fwmark := getFwmark()
 	config := wgtypes.Config{
 		PrivateKey:   &key,
 		ReplacePeers: true,
@@ -228,4 +229,11 @@ func (c *wgKernelConfigurer) getStats(peerKey string) (WGStats, error) {
 		TxBytes:       peer.TransmitBytes,
 		RxBytes:       peer.ReceiveBytes,
 	}, nil
+}
+
+func getFwmark() int {
+	if runtime.GOOS == "linux" {
+		return nbnet.NetbirdFwmark
+	}
+	return 0
 }
