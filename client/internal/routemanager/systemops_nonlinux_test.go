@@ -50,7 +50,8 @@ func TestIsSubRange(t *testing.T) {
 }
 
 func TestExistsInRouteTable(t *testing.T) {
-	require.NoError(t, setupRouting())
+	_, _, err := setupRouting(nil, nil)
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		assert.NoError(t, cleanupRouting())
 	})

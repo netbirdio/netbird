@@ -28,14 +28,14 @@ const remotePeerKey2 = "remote1"
 
 func TestManagerUpdateRoutes(t *testing.T) {
 	testCases := []struct {
-		name                               string
-		inputInitRoutes                    []*route.Route
-		inputRoutes                        []*route.Route
-		inputSerial                        uint64
-		removeSrvRouter                    bool
-		serverRoutesExpected               int
-		clientNetworkWatchersExpected      int
-		clientNetworkWatchersExpectedLinux int
+		name                                 string
+		inputInitRoutes                      []*route.Route
+		inputRoutes                          []*route.Route
+		inputSerial                          uint64
+		removeSrvRouter                      bool
+		serverRoutesExpected                 int
+		clientNetworkWatchersExpected        int
+		clientNetworkWatchersExpectedAllowed int
 	}{
 		{
 			name:            "Should create 2 client networks",
@@ -201,9 +201,9 @@ func TestManagerUpdateRoutes(t *testing.T) {
 					Enabled:     true,
 				},
 			},
-			inputSerial:                        1,
-			clientNetworkWatchersExpected:      0,
-			clientNetworkWatchersExpectedLinux: 1,
+			inputSerial:                          1,
+			clientNetworkWatchersExpected:        0,
+			clientNetworkWatchersExpectedAllowed: 1,
 		},
 		{
 			name: "Remove 1 Client Route",
@@ -436,8 +436,8 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			require.NoError(t, err, "should update routes")
 
 			expectedWatchers := testCase.clientNetworkWatchersExpected
-			if runtime.GOOS == "linux" && testCase.clientNetworkWatchersExpectedLinux != 0 {
-				expectedWatchers = testCase.clientNetworkWatchersExpectedLinux
+			if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && testCase.clientNetworkWatchersExpectedAllowed != 0 {
+				expectedWatchers = testCase.clientNetworkWatchersExpectedAllowed
 			}
 			require.Len(t, routeManager.clientNetworks, expectedWatchers, "client networks size should match")
 
