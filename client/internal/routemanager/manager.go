@@ -239,9 +239,7 @@ func resolveURLsToIPs(urls []string) []net.IP {
 			log.Errorf("Failed to resolve host %s: %v", u.Hostname(), err)
 			continue
 		}
-		for _, ipAddr := range ipAddrs {
-			ips = append(ips, ipAddr)
-		}
+		ips = append(ips, ipAddrs...)
 	}
 	return ips
 }
