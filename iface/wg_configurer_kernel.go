@@ -167,14 +167,6 @@ func (c *wgKernelConfigurer) removeAllowedIP(peerKey string, allowedIP string) e
 	return nil
 }
 
-func (c *wgKernelConfigurer) setFwmark(fwmark int) error {
-	config := wgtypes.Config{
-		FirewallMark: &fwmark,
-	}
-
-	return c.configure(config)
-}
-
 func (c *wgKernelConfigurer) getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
 	wg, err := wgctrl.New()
 	if err != nil {

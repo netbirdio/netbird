@@ -171,12 +171,6 @@ func (c *wgUSPConfigurer) removeAllowedIP(peerKey string, ip string) error {
 	}
 }
 
-func (c *wgUSPConfigurer) setFwmark(fwmark int) error {
-	fwmarkConfig := fmt.Sprintf("fwmark=%d\n", fwmark)
-
-	return c.device.IpcSet(fwmarkConfig)
-}
-
 // startUAPI starts the UAPI listener for managing the WireGuard interface via external tool
 func (t *wgUSPConfigurer) startUAPI() {
 	var err error
