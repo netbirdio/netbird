@@ -39,7 +39,7 @@ func (c *wgUSPConfigurer) configureInterface(privateKey string, port int) error 
 	if err != nil {
 		return err
 	}
-	fwmark := nbnet.NetbirdFwmark
+	fwmark := getFwmark()
 	config := wgtypes.Config{
 		PrivateKey:   &key,
 		ReplacePeers: true,
@@ -346,4 +346,11 @@ func toWgUserspaceString(wgCfg wgtypes.Config) string {
 		}
 	}
 	return sb.String()
+}
+
+func getFwmark() int {
+	if runtime.GOOS == "linux" {
+		return nbnet.NetbirdFwmark
+	}
+	return 0
 }
