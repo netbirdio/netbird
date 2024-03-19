@@ -36,6 +36,17 @@ func AddListenerCloseHook(hook ListenerCloseHookFunc) {
 	listenerCloseHooks = append(listenerCloseHooks, hook)
 }
 
+// RemoveListenerHook removes all dialer hooks.
+func RemoveListenerHooks() {
+	listenerWriteHooksMutex.Lock()
+	defer listenerWriteHooksMutex.Unlock()
+	listenerWriteHooks = nil
+
+	listenerCloseHooksMutex.Lock()
+	defer listenerCloseHooksMutex.Unlock()
+	listenerCloseHooks = nil
+}
+
 func (l *ListenerConfig) init() {
 }
 

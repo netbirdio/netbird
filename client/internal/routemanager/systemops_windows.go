@@ -72,7 +72,7 @@ func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAd
 		}
 	}
 
-	nbnet.AddDialHook(func(ctx context.Context, connID nbnet.ConnectionID, resolvedIPs []net.IPAddr) error {
+	nbnet.AddDialerHook(func(ctx context.Context, connID nbnet.ConnectionID, resolvedIPs []net.IPAddr) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -103,6 +103,10 @@ func cleanupRouting() error {
 	if routeManager == nil {
 		return nil
 	}
+
+	// TODO: Remove hooks selectively
+	nbnet.RemoveDialerHooks()
+	nbnet.RemoveListenerHooks()
 
 	if err := routeManager.Flush(); err != nil {
 		return fmt.Errorf("flush route manager: %w", err)

@@ -10,21 +10,21 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type DialHookFunc func(ctx context.Context, connID ConnectionID, resolvedAddresses []net.IPAddr) error
+type DialerDialHookFunc func(ctx context.Context, connID ConnectionID, resolvedAddresses []net.IPAddr) error
 type DialerCloseHookFunc func(connID ConnectionID, conn *net.Conn) error
 
 var (
-	dialHooksMutex        sync.RWMutex
-	dialHooks             []DialHookFunc
+	dialerDialHooksMutex  sync.RWMutex
+	dialerDialHooks       []DialerDialHookFunc
 	dialerCloseHooksMutex sync.RWMutex
 	dialerCloseHooks      []DialerCloseHookFunc
 )
 
-// AddDialHook allows adding a new hook to be executed before dialing.
-func AddDialHook(hook DialHookFunc) {
-	dialHooksMutex.Lock()
-	defer dialHooksMutex.Unlock()
-	dialHooks = append(dialHooks, hook)
+// AddDialerHook allows adding a new hook to be executed before dialing.
+func AddDialerHook(hook DialerDialHookFunc) {
+	dialerDialHooksMutex.Lock()
+	defer dialerDialHooksMutex.Unlock()
+	dialerDialHooks = append(dialerDialHooks, hook)
 }
 
 // AddDialerCloseHook allows adding a new hook to be executed on connection close.
@@ -32,6 +32,17 @@ func AddDialerCloseHook(hook DialerCloseHookFunc) {
 	dialerCloseHooksMutex.Lock()
 	defer dialerCloseHooksMutex.Unlock()
 	dialerCloseHooks = append(dialerCloseHooks, hook)
+}
+
+// RemoveDialerHook removes all dialer hooks.
+func RemoveDialerHooks() {
+	dialerDialHooksMutex.Lock()
+	defer dialerDialHooksMutex.Unlock()
+	dialerDialHooks = nil
+
+	dialerCloseHooksMutex.Lock()
+	defer dialerCloseHooksMutex.Unlock()
+	dialerCloseHooks = nil
 }
 
 func (d *Dialer) init() {
@@ -45,7 +56,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 	}
 
 	connID := GenerateConnID()
-	if dialHooks != nil {
+	if dialerDialHooks != nil {
 		if err := calliDialerHooks(ctx, connID, address, resolver); err != nil {
 			log.Errorf("Failed to call dialer hooks: %v", err)
 		}
@@ -101,9 +112,9 @@ func calliDialerHooks(ctx context.Context, connID ConnectionID, address string, 
 
 	var result *multierror.Error
 
-	dialHooksMutex.RLock()
-	defer dialHooksMutex.RUnlock()
-	for _, hook := range dialHooks {
+	dialerDialHooksMutex.RLock()
+	defer dialerDialHooksMutex.RUnlock()
+	for _, hook := range dialerDialHooks {
 		if err := hook(ctx, connID, ips); err != nil {
 			result = multierror.Append(result, fmt.Errorf("executing dial hook: %w", err))
 		}
