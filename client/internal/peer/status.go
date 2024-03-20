@@ -28,6 +28,7 @@ type State struct {
 	LastWireguardHandshake     time.Time
 	BytesTx                    int64
 	BytesRx                    int64
+	Latency                    time.Duration
 	RosenpassEnabled           bool
 	Routes                     map[string]struct{}
 }
@@ -408,6 +409,22 @@ func (d *Status) GetManagementState() ManagementState {
 		d.managementState,
 		d.managementError,
 	}
+}
+
+func (d *Status) UpdateLatency(pubKey string, latency time.Duration) error {
+	if latency <= 0 {
+		return nil
+	}
+
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	peerState, ok := d.peers[pubKey]
+	if !ok {
+		return errors.New("peer doesn't exist")
+	}
+	peerState.Latency = latency
+	d.peers[pubKey] = peerState
+	return nil
 }
 
 // IsLoginRequired determines if a peer's login has expired.

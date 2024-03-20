@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/proto"
@@ -45,6 +46,7 @@ var resp = &proto.StatusResponse{
 				Routes: []string{
 					"10.1.0.0/24",
 				},
+				Latency: durationpb.New(time.Duration(10000000)),
 			},
 			{
 				IP:                         "192.168.178.102",
@@ -61,6 +63,7 @@ var resp = &proto.StatusResponse{
 				LastWireguardHandshake:     timestamppb.New(time.Date(2002, time.Month(2), 2, 2, 2, 3, 0, time.UTC)),
 				BytesRx:                    2000,
 				BytesTx:                    1000,
+				Latency:                    durationpb.New(time.Duration(10000000)),
 			},
 		},
 		ManagementState: &proto.ManagementState{
@@ -147,6 +150,7 @@ var overview = statusOutputOverview{
 				Routes: []string{
 					"10.1.0.0/24",
 				},
+				Latency: time.Duration(10000000),
 			},
 			{
 				IP:               "192.168.178.102",
@@ -167,6 +171,7 @@ var overview = statusOutputOverview{
 				LastWireguardHandshake: time.Date(2002, 2, 2, 2, 2, 3, 0, time.UTC),
 				TransferReceived:       2000,
 				TransferSent:           1000,
+				Latency:                time.Duration(10000000),
 			},
 		},
 	},
@@ -288,6 +293,7 @@ func TestParsingToJSON(t *testing.T) {
                 "lastWireguardHandshake": "2001-01-01T01:01:02Z",
                 "transferReceived": 200,
                 "transferSent": 100,
+				"latency": 10000000,
                 "quantumResistance": false,
                 "routes": [
                   "10.1.0.0/24"
@@ -312,6 +318,7 @@ func TestParsingToJSON(t *testing.T) {
                 "lastWireguardHandshake": "2002-02-02T02:02:03Z",
                 "transferReceived": 2000,
                 "transferSent": 1000,
+				"latency": 10000000,
                 "quantumResistance": false,
                 "routes": null
               }
@@ -409,6 +416,7 @@ func TestParsingToYAML(t *testing.T) {
           lastWireguardHandshake: 2001-01-01T01:01:02Z
           transferReceived: 200
           transferSent: 100
+          latency: 10ms
           quantumResistance: false
           routes:
             - 10.1.0.0/24
@@ -428,6 +436,7 @@ func TestParsingToYAML(t *testing.T) {
           lastWireguardHandshake: 2002-02-02T02:02:03Z
           transferReceived: 2000
           transferSent: 1000
+          latency: 10ms
           quantumResistance: false
           routes: []
 cliVersion: development
@@ -496,6 +505,7 @@ func TestParsingToDetail(t *testing.T) {
   Transfer status (received/sent) 200 B/100 B
   Quantum resistance: false
   Routes: 10.1.0.0/24
+  Latency: 10ms
 
  peer-2.awesome-domain.com:
   NetBird IP: 192.168.178.102
@@ -511,6 +521,7 @@ func TestParsingToDetail(t *testing.T) {
   Transfer status (received/sent) 2.0 KiB/1000 B
   Quantum resistance: false
   Routes: -
+  Latency: 10ms
 
 Daemon version: 0.14.1
 CLI version: development

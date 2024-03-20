@@ -13,6 +13,8 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"golang.org/x/exp/maps"
 
+	"google.golang.org/protobuf/types/known/durationpb"
+
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/system"
 
@@ -711,6 +713,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			BytesTx:                    peerState.BytesTx,
 			RosenpassEnabled:           peerState.RosenpassEnabled,
 			Routes:                     maps.Keys(peerState.Routes),
+			Latency:                    durationpb.New(peerState.Latency),
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}

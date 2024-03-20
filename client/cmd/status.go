@@ -34,6 +34,7 @@ type peerStateDetailOutput struct {
 	LastWireguardHandshake time.Time        `json:"lastWireguardHandshake" yaml:"lastWireguardHandshake"`
 	TransferReceived       int64            `json:"transferReceived" yaml:"transferReceived"`
 	TransferSent           int64            `json:"transferSent" yaml:"transferSent"`
+	Latency                time.Duration    `json:"latency" yaml:"latency"`
 	RosenpassEnabled       bool             `json:"quantumResistance" yaml:"quantumResistance"`
 	Routes                 []string         `json:"routes" yaml:"routes"`
 }
@@ -376,6 +377,7 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 			LastWireguardHandshake: lastHandshake,
 			TransferReceived:       transferReceived,
 			TransferSent:           transferSent,
+			Latency:                pbPeerState.GetLatency().AsDuration(),
 			RosenpassEnabled:       pbPeerState.GetRosenpassEnabled(),
 			Routes:                 pbPeerState.GetRoutes(),
 		}
@@ -638,7 +640,8 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 				"  Last WireGuard handshake: %s\n"+
 				"  Transfer status (received/sent) %s/%s\n"+
 				"  Quantum resistance: %s\n"+
-				"  Routes: %s\n",
+				"  Routes: %s\n"+
+				"  Latency: %s\n",
 			peerState.FQDN,
 			peerState.IP,
 			peerState.PubKey,
@@ -655,6 +658,7 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			toIEC(peerState.TransferSent),
 			rosenpassEnabledStatus,
 			routes,
+			peerState.Latency.String(),
 		)
 
 		peersString += peerString
