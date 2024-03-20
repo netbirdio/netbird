@@ -8,6 +8,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
@@ -831,12 +832,12 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error
 
 	account.NameServerGroups[existingNSGroup.ID] = &existingNSGroup
 
-	newGroup1 := &Group{
+	newGroup1 := &nbgroup.Group{
 		ID:   group1ID,
 		Name: group1ID,
 	}
 
-	newGroup2 := &Group{
+	newGroup2 := &nbgroup.Group{
 		ID:   group2ID,
 		Name: group2ID,
 	}

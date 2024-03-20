@@ -10,6 +10,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/integration_reference"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -49,23 +50,6 @@ type UserStatus string
 // UserRole is the role of a User
 type UserRole string
 
-// IntegrationReference holds the reference to a particular integration
-type IntegrationReference struct {
-	ID              int
-	IntegrationType string
-}
-
-func (ir IntegrationReference) String() string {
-	return fmt.Sprintf("%s:%d", ir.IntegrationType, ir.ID)
-}
-
-func (ir IntegrationReference) CacheKey(path ...string) string {
-	if len(path) == 0 {
-		return ir.String()
-	}
-	return fmt.Sprintf("%s:%s", ir.String(), strings.Join(path, ":"))
-}
-
 // User represents a user of the system
 type User struct {
 	Id string `gorm:"primaryKey"`
@@ -91,7 +75,7 @@ type User struct {
 	// Issued of the user
 	Issued string `gorm:"default:api"`
 
-	IntegrationReference IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
+	IntegrationReference integration_reference.IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
 }
 
 // IsBlocked returns true if the user is blocked, false otherwise

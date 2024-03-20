@@ -4,15 +4,15 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
-	"github.com/netbirdio/netbird/management/server/status"
-
-	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
-
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/status"
 )
 
 // GroupsHandler is a handler that returns groups of the account
@@ -104,7 +104,7 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	} else {
 		peers = *req.Peers
 	}
-	group := server.Group{
+	group := nbgroup.Group{
 		ID:                   groupID,
 		Name:                 req.Name,
 		Peers:                peers,
@@ -148,10 +148,10 @@ func (h *GroupsHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	} else {
 		peers = *req.Peers
 	}
-	group := server.Group{
+	group := nbgroup.Group{
 		Name:   req.Name,
 		Peers:  peers,
-		Issued: server.GroupIssuedAPI,
+		Issued: nbgroup.GroupIssuedAPI,
 	}
 
 	err = h.accountManager.SaveGroup(account.Id, user.Id, &group)
@@ -234,7 +234,7 @@ func (h *GroupsHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func toGroupResponse(account *server.Account, group *server.Group) *api.Group {
+func toGroupResponse(account *server.Account, group *nbgroup.Group) *api.Group {
 	cache := make(map[string]api.PeerMinimum)
 	gr := api.Group{
 		Id:     group.ID,

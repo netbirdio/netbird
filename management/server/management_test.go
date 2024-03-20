@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/util"
 )
@@ -456,7 +457,7 @@ func (a MocIntegratedValidator) ValidatePeer(update *nbpeer.Peer, peer *nbpeer.P
 	return update, nil
 }
 
-func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groupsOfPeers map[string][]string, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
+func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups map[string]*group.Group, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
 	validatedPeers := make(map[string]struct{})
 	for p := range peers {
 		validatedPeers[p] = struct{}{}

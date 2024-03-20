@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 )
@@ -24,22 +25,22 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 		t.Error("failed to init testing account")
 	}
 	for _, group := range account.Groups {
-		group.Issued = GroupIssuedIntegration
+		group.Issued = nbgroup.GroupIssuedIntegration
 		err = am.SaveGroup(account.Id, groupAdminUserID, group)
 		if err != nil {
-			t.Errorf("should allow to create %s groups", GroupIssuedIntegration)
+			t.Errorf("should allow to create %s groups", nbgroup.GroupIssuedIntegration)
 		}
 	}
 
 	for _, group := range account.Groups {
-		group.Issued = GroupIssuedJWT
+		group.Issued = nbgroup.GroupIssuedJWT
 		err = am.SaveGroup(account.Id, groupAdminUserID, group)
 		if err != nil {
-			t.Errorf("should allow to create %s groups", GroupIssuedJWT)
+			t.Errorf("should allow to create %s groups", nbgroup.GroupIssuedJWT)
 		}
 	}
 	for _, group := range account.Groups {
-		group.Issued = GroupIssuedAPI
+		group.Issued = nbgroup.GroupIssuedAPI
 		group.ID = ""
 		err = am.SaveGroup(account.Id, groupAdminUserID, group)
 		if err == nil {
@@ -129,51 +130,51 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 	accountID := "testingAcc"
 	domain := "example.com"
 
-	groupForRoute := &Group{
+	groupForRoute := &nbgroup.Group{
 		ID:        "grp-for-route",
 		AccountID: "account-id",
 		Name:      "Group for route",
-		Issued:    GroupIssuedAPI,
+		Issued:    nbgroup.GroupIssuedAPI,
 		Peers:     make([]string, 0),
 	}
 
-	groupForNameServerGroups := &Group{
+	groupForNameServerGroups := &nbgroup.Group{
 		ID:        "grp-for-name-server-grp",
 		AccountID: "account-id",
 		Name:      "Group for name server groups",
-		Issued:    GroupIssuedAPI,
+		Issued:    nbgroup.GroupIssuedAPI,
 		Peers:     make([]string, 0),
 	}
 
-	groupForPolicies := &Group{
+	groupForPolicies := &nbgroup.Group{
 		ID:        "grp-for-policies",
 		AccountID: "account-id",
 		Name:      "Group for policies",
-		Issued:    GroupIssuedAPI,
+		Issued:    nbgroup.GroupIssuedAPI,
 		Peers:     make([]string, 0),
 	}
 
-	groupForSetupKeys := &Group{
+	groupForSetupKeys := &nbgroup.Group{
 		ID:        "grp-for-keys",
 		AccountID: "account-id",
 		Name:      "Group for setup keys",
-		Issued:    GroupIssuedAPI,
+		Issued:    nbgroup.GroupIssuedAPI,
 		Peers:     make([]string, 0),
 	}
 
-	groupForUsers := &Group{
+	groupForUsers := &nbgroup.Group{
 		ID:        "grp-for-users",
 		AccountID: "account-id",
 		Name:      "Group for users",
-		Issued:    GroupIssuedAPI,
+		Issued:    nbgroup.GroupIssuedAPI,
 		Peers:     make([]string, 0),
 	}
 
-	groupForIntegration := &Group{
+	groupForIntegration := &nbgroup.Group{
 		ID:        "grp-for-integration",
 		AccountID: "account-id",
 		Name:      "Group for users integration",
-		Issued:    GroupIssuedIntegration,
+		Issued:    nbgroup.GroupIssuedIntegration,
 		Peers:     make([]string, 0),
 	}
 

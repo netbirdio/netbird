@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/exp/slices"
 
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 )
@@ -56,7 +57,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Status: &nbpeer.PeerStatus{},
 			},
 		},
-		Groups: map[string]*Group{
+		Groups: map[string]*nbgroup.Group{
 			"GroupAll": {
 				ID:   "GroupAll",
 				Name: "All",
@@ -304,7 +305,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				Status: &nbpeer.PeerStatus{},
 			},
 		},
-		Groups: map[string]*Group{
+		Groups: map[string]*nbgroup.Group{
 			"GroupAll": {
 				ID:   "GroupAll",
 				Name: "All",
@@ -579,7 +580,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				},
 			},
 		},
-		Groups: map[string]*Group{
+		Groups: map[string]*nbgroup.Group{
 			"GroupAll": {
 				ID:   "GroupAll",
 				Name: "All",

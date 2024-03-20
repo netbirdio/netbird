@@ -19,6 +19,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -35,7 +36,7 @@ func (a MocIntegratedValidator) ValidateExtraSettings(newExtraSettings *account.
 func (a MocIntegratedValidator) ValidatePeer(update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, error) {
 	return update, nil
 }
-func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groupsOfPeers map[string][]string, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
+func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups map[string]*group.Group, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
 	validatedPeers := make(map[string]struct{})
 	for _, peer := range peers {
 		validatedPeers[peer.ID] = struct{}{}
@@ -700,7 +701,7 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 		require.NoError(t, err, "get account by token failed")
 		require.Len(t, account.Groups, 3, "groups should be added to the account")
 
-		groupsByNames := map[string]*Group{}
+		groupsByNames := map[string]*group.Group{}
 		for _, g := range account.Groups {
 			groupsByNames[g.Name] = g
 		}
@@ -708,12 +709,12 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 		g1, ok := groupsByNames["group1"]
 		require.True(t, ok, "group1 should be added to the account")
 		require.Equal(t, g1.Name, "group1", "group1 name should match")
-		require.Equal(t, g1.Issued, GroupIssuedJWT, "group1 issued should match")
+		require.Equal(t, g1.Issued, group.GroupIssuedJWT, "group1 issued should match")
 
 		g2, ok := groupsByNames["group2"]
 		require.True(t, ok, "group2 should be added to the account")
 		require.Equal(t, g2.Name, "group2", "group2 name should match")
-		require.Equal(t, g2.Issued, GroupIssuedJWT, "group2 issued should match")
+		require.Equal(t, g2.Issued, group.GroupIssuedJWT, "group2 issued should match")
 	})
 }
 
@@ -833,7 +834,7 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 		t.Fatalf("expected to create an account for a user %s", userId)
 	}
 
-	if account.Domain != domain {
+	if account != nil && account.Domain != domain {
 		t.Errorf("setting account domain failed, expected %s, got %s", domain, account.Domain)
 	}
 
@@ -848,7 +849,7 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 		t.Fatalf("expected to get an account for a user %s", userId)
 	}
 
-	if account.Domain != domain {
+	if account != nil && account.Domain != domain {
 		t.Errorf("updating domain. expected %s got %s", domain, account.Domain)
 	}
 }
@@ -868,13 +869,12 @@ func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
 	}
 	if account == nil {
 		t.Fatalf("expected to create an account for a user %s", userId)
+		return
 	}
 
-	accountId := account.Id
-
-	_, err = manager.GetAccountByUserOrAccountID("", accountId, "")
+	_, err = manager.GetAccountByUserOrAccountID("", account.Id, "")
 	if err != nil {
-		t.Errorf("expected to get existing account after creation using userid, no account was found for a account %s", accountId)
+		t.Errorf("expected to get existing account after creation using userid, no account was found for a account %s", account.Id)
 	}
 
 	_, err = manager.GetAccountByUserOrAccountID("", "", "")
@@ -1157,7 +1157,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 	updMsg := manager.peersUpdateManager.CreateChannel(peer1.ID)
 	defer manager.peersUpdateManager.CloseChannel(peer1.ID)
 
-	group := Group{
+	group := group.Group{
 		ID:    "group-id",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
@@ -1450,7 +1450,7 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 		Peers: map[string]*nbpeer.Peer{
 			"peer-1": {Key: "peer-1", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}}, "peer-2": {Key: "peer-2", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}}, "peer-3": {Key: "peer-1", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}},
 		},
-		Groups: map[string]*Group{"group1": {ID: "group1", Peers: []string{"peer-1", "peer-2"}}},
+		Groups: map[string]*group.Group{"group1": {ID: "group1", Peers: []string{"peer-1", "peer-2"}}},
 		Routes: map[string]*route.Route{
 			"route-1": {
 				ID:          "route-1",
@@ -1551,7 +1551,7 @@ func TestAccount_Copy(t *testing.T) {
 				},
 			},
 		},
-		Groups: map[string]*Group{
+		Groups: map[string]*group.Group{
 			"group1": {
 				ID:    "group1",
 				Peers: []string{"peer1"},
@@ -2145,8 +2145,8 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 			"peer4": {ID: "peer4", Key: "key4", UserID: "user2"},
 			"peer5": {ID: "peer5", Key: "key5", UserID: "user2"},
 		},
-		Groups: map[string]*Group{
-			"group1": {ID: "group1", Name: "group1", Issued: GroupIssuedAPI, Peers: []string{}},
+		Groups: map[string]*group.Group{
+			"group1": {ID: "group1", Name: "group1", Issued: group.GroupIssuedAPI, Peers: []string{}},
 		},
 		Settings: &Settings{GroupsPropagationEnabled: true},
 		Users: map[string]*User{
@@ -2193,10 +2193,10 @@ func TestAccount_UserGroupsAddToPeers(t *testing.T) {
 			"peer4": {ID: "peer4", Key: "key4", UserID: "user2"},
 			"peer5": {ID: "peer5", Key: "key5", UserID: "user2"},
 		},
-		Groups: map[string]*Group{
-			"group1": {ID: "group1", Name: "group1", Issued: GroupIssuedAPI, Peers: []string{}},
-			"group2": {ID: "group2", Name: "group2", Issued: GroupIssuedAPI, Peers: []string{}},
-			"group3": {ID: "group3", Name: "group3", Issued: GroupIssuedAPI, Peers: []string{}},
+		Groups: map[string]*group.Group{
+			"group1": {ID: "group1", Name: "group1", Issued: group.GroupIssuedAPI, Peers: []string{}},
+			"group2": {ID: "group2", Name: "group2", Issued: group.GroupIssuedAPI, Peers: []string{}},
+			"group3": {ID: "group3", Name: "group3", Issued: group.GroupIssuedAPI, Peers: []string{}},
 		},
 		Users: map[string]*User{"user1": {Id: "user1"}, "user2": {Id: "user2"}},
 	}
@@ -2229,10 +2229,10 @@ func TestAccount_UserGroupsRemoveFromPeers(t *testing.T) {
 			"peer4": {ID: "peer4", Key: "key4", UserID: "user2"},
 			"peer5": {ID: "peer5", Key: "key5", UserID: "user2"},
 		},
-		Groups: map[string]*Group{
-			"group1": {ID: "group1", Name: "group1", Issued: GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3"}},
-			"group2": {ID: "group2", Name: "group2", Issued: GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3", "peer4", "peer5"}},
-			"group3": {ID: "group3", Name: "group3", Issued: GroupIssuedAPI, Peers: []string{"peer4", "peer5"}},
+		Groups: map[string]*group.Group{
+			"group1": {ID: "group1", Name: "group1", Issued: group.GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3"}},
+			"group2": {ID: "group2", Name: "group2", Issued: group.GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3", "peer4", "peer5"}},
+			"group3": {ID: "group3", Name: "group3", Issued: group.GroupIssuedAPI, Peers: []string{"peer4", "peer5"}},
 		},
 		Users: map[string]*User{"user1": {Id: "user1"}, "user2": {Id: "user2"}},
 	}

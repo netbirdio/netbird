@@ -5,6 +5,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/route"
@@ -32,7 +33,7 @@ func (mockDatasource) GetAllAccounts() []*server.Account {
 					UsedTimes: 1,
 				},
 			},
-			Groups: map[string]*server.Group{
+			Groups: map[string]*group.Group{
 				"1": {},
 				"2": {},
 			},
@@ -117,7 +118,7 @@ func (mockDatasource) GetAllAccounts() []*server.Account {
 					UsedTimes: 1,
 				},
 			},
-			Groups: map[string]*server.Group{
+			Groups: map[string]*group.Group{
 				"1": {},
 				"2": {},
 			},

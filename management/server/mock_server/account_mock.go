@@ -10,6 +10,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -31,11 +32,11 @@ type MockAccountManager struct {
 	GetNetworkMapFunc                   func(peerKey string) (*server.NetworkMap, error)
 	GetPeerNetworkFunc                  func(peerKey string) (*server.Network, error)
 	AddPeerFunc                         func(setupKey string, userId string, peer *nbpeer.Peer) (*nbpeer.Peer, *server.NetworkMap, error)
-	GetGroupFunc                        func(accountID, groupID string) (*server.Group, error)
-	GetGroupByNameFunc                  func(accountID, groupName string) (*server.Group, error)
-	SaveGroupFunc                       func(accountID, userID string, group *server.Group) error
+	GetGroupFunc                        func(accountID, groupID string) (*group.Group, error)
+	GetGroupByNameFunc                  func(accountID, groupName string) (*group.Group, error)
+	SaveGroupFunc                       func(accountID, userID string, group *group.Group) error
 	DeleteGroupFunc                     func(accountID, userId, groupID string) error
-	ListGroupsFunc                      func(accountID string) ([]*server.Group, error)
+	ListGroupsFunc                      func(accountID string) ([]*group.Group, error)
 	GroupAddPeerFunc                    func(accountID, groupID, peerID string) error
 	GroupDeletePeerFunc                 func(accountID, groupID, peerID string) error
 	DeleteRuleFunc                      func(accountID, ruleID, userID string) error
@@ -254,7 +255,7 @@ func (am *MockAccountManager) AddPeer(
 }
 
 // GetGroup mock implementation of GetGroup from server.AccountManager interface
-func (am *MockAccountManager) GetGroup(accountID, groupID string) (*server.Group, error) {
+func (am *MockAccountManager) GetGroup(accountID, groupID string) (*group.Group, error) {
 	if am.GetGroupFunc != nil {
 		return am.GetGroupFunc(accountID, groupID)
 	}
@@ -262,7 +263,7 @@ func (am *MockAccountManager) GetGroup(accountID, groupID string) (*server.Group
 }
 
 // GetGroupByName mock implementation of GetGroupByName from server.AccountManager interface
-func (am *MockAccountManager) GetGroupByName(accountID, groupName string) (*server.Group, error) {
+func (am *MockAccountManager) GetGroupByName(accountID, groupName string) (*group.Group, error) {
 	if am.GetGroupFunc != nil {
 		return am.GetGroupByNameFunc(accountID, groupName)
 	}
@@ -270,7 +271,7 @@ func (am *MockAccountManager) GetGroupByName(accountID, groupName string) (*serv
 }
 
 // SaveGroup mock implementation of SaveGroup from server.AccountManager interface
-func (am *MockAccountManager) SaveGroup(accountID, userID string, group *server.Group) error {
+func (am *MockAccountManager) SaveGroup(accountID, userID string, group *group.Group) error {
 	if am.SaveGroupFunc != nil {
 		return am.SaveGroupFunc(accountID, userID, group)
 	}
@@ -286,7 +287,7 @@ func (am *MockAccountManager) DeleteGroup(accountId, userId, groupID string) err
 }
 
 // ListGroups mock implementation of ListGroups from server.AccountManager interface
-func (am *MockAccountManager) ListGroups(accountID string) ([]*server.Group, error) {
+func (am *MockAccountManager) ListGroups(accountID string) ([]*group.Group, error) {
 	if am.ListGroupsFunc != nil {
 		return am.ListGroupsFunc(accountID)
 	}

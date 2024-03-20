@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -252,7 +253,7 @@ func toAccessiblePeers(netMap *server.NetworkMap, dnsDomain string) []api.Access
 	return accessiblePeers
 }
 
-func toGroupsInfo(groups map[string]*server.Group, peerID string) []api.GroupMinimum {
+func toGroupsInfo(groups map[string]*nbgroup.Group, peerID string) []api.GroupMinimum {
 	var groupsInfo []api.GroupMinimum
 	groupsChecked := make(map[string]struct{})
 	for _, group := range groups {

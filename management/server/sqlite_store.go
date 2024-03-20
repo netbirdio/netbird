@@ -17,6 +17,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -64,7 +65,7 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 	sql.SetMaxOpenConns(conns) // TODO: make it configurable
 
 	err = db.AutoMigrate(
-		&SetupKey{}, &nbpeer.Peer{}, &User{}, &PersonalAccessToken{}, &Group{},
+		&SetupKey{}, &nbpeer.Peer{}, &User{}, &PersonalAccessToken{}, &nbgroup.Group{},
 		&Account{}, &Policy{}, &PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &account.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 	)
@@ -434,7 +435,7 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 	}
 	account.UsersG = nil
 
-	account.Groups = make(map[string]*Group, len(account.GroupsG))
+	account.Groups = make(map[string]*nbgroup.Group, len(account.GroupsG))
 	for _, group := range account.GroupsG {
 		account.Groups[group.ID] = group.Copy()
 	}

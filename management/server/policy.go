@@ -9,6 +9,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -262,7 +263,7 @@ func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*nbpeer.Peer, in
 	all, err := a.GetGroupAll()
 	if err != nil {
 		log.Errorf("failed to get group all: %v", err)
-		all = &Group{}
+		all = &nbgroup.Group{}
 	}
 
 	return func(rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) {

@@ -26,8 +26,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/geolocation"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrated_validator"
+	"github.com/netbirdio/netbird/management/server/integration_reference"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -84,11 +86,11 @@ type AccountManager interface {
 	GetAllPATs(accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error)
 	UpdatePeerSSHKey(peerID string, sshKey string) error
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
-	GetGroup(accountId, groupID string) (*Group, error)
-	GetGroupByName(groupName, accountID string) (*Group, error)
-	SaveGroup(accountID, userID string, group *Group) error
+	GetGroup(accountId, groupID string) (*nbgroup.Group, error)
+	GetGroupByName(groupName, accountID string) (*nbgroup.Group, error)
+	SaveGroup(accountID, userID string, group *nbgroup.Group) error
 	DeleteGroup(accountId, userId, groupID string) error
-	ListGroups(accountId string) ([]*Group, error)
+	ListGroups(accountId string) ([]*nbgroup.Group, error)
 	GroupAddPeer(accountId, groupID, peerID string) error
 	GroupDeletePeer(accountId, groupID, peerID string) error
 	GetPolicy(accountID, policyID, userID string) (*Policy, error)
@@ -217,8 +219,8 @@ type Account struct {
 	PeersG                 []nbpeer.Peer                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Users                  map[string]*User                  `gorm:"-"`
 	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
-	Groups                 map[string]*Group                 `gorm:"-"`
-	GroupsG                []Group                           `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	Groups                 map[string]*nbgroup.Group         `gorm:"-"`
+	GroupsG                []nbgroup.Group                   `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
 	Routes                 map[string]*route.Route           `gorm:"-"`
 	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
@@ -231,18 +233,18 @@ type Account struct {
 }
 
 type UserInfo struct {
-	ID                   string               `json:"id"`
-	Email                string               `json:"email"`
-	Name                 string               `json:"name"`
-	Role                 string               `json:"role"`
-	AutoGroups           []string             `json:"auto_groups"`
-	Status               string               `json:"-"`
-	IsServiceUser        bool                 `json:"is_service_user"`
-	IsBlocked            bool                 `json:"is_blocked"`
-	NonDeletable         bool                 `json:"non_deletable"`
-	LastLogin            time.Time            `json:"last_login"`
-	Issued               string               `json:"issued"`
-	IntegrationReference IntegrationReference `json:"-"`
+	ID                   string                                     `json:"id"`
+	Email                string                                     `json:"email"`
+	Name                 string                                     `json:"name"`
+	Role                 string                                     `json:"role"`
+	AutoGroups           []string                                   `json:"auto_groups"`
+	Status               string                                     `json:"-"`
+	IsServiceUser        bool                                       `json:"is_service_user"`
+	IsBlocked            bool                                       `json:"is_blocked"`
+	NonDeletable         bool                                       `json:"non_deletable"`
+	LastLogin            time.Time                                  `json:"last_login"`
+	Issued               string                                     `json:"issued"`
+	IntegrationReference integration_reference.IntegrationReference `json:"-"`
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
@@ -366,7 +368,7 @@ func (a *Account) GetRoutesByPrefix(prefix netip.Prefix) []*route.Route {
 }
 
 // GetGroup returns a group by ID if exists, nil otherwise
-func (a *Account) GetGroup(groupID string) *Group {
+func (a *Account) GetGroup(groupID string) *nbgroup.Group {
 	return a.Groups[groupID]
 }
 
@@ -559,7 +561,7 @@ func (a *Account) FindUser(userID string) (*User, error) {
 }
 
 // FindGroupByName looks for a given group in the Account by name or returns error if the group wasn't found.
-func (a *Account) FindGroupByName(groupName string) (*Group, error) {
+func (a *Account) FindGroupByName(groupName string) (*nbgroup.Group, error) {
 	for _, group := range a.Groups {
 		if group.Name == groupName {
 			return group, nil
@@ -669,7 +671,7 @@ func (a *Account) Copy() *Account {
 		setupKeys[id] = key.Copy()
 	}
 
-	groups := map[string]*Group{}
+	groups := map[string]*nbgroup.Group{}
 	for id, group := range a.Groups {
 		groups[id] = group.Copy()
 	}
@@ -722,7 +724,7 @@ func (a *Account) Copy() *Account {
 	}
 }
 
-func (a *Account) GetGroupAll() (*Group, error) {
+func (a *Account) GetGroupAll() (*nbgroup.Group, error) {
 	for _, g := range a.Groups {
 		if g.Name == "All" {
 			return g, nil
@@ -743,7 +745,7 @@ func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
 		return false
 	}
 
-	existedGroupsByName := make(map[string]*Group)
+	existedGroupsByName := make(map[string]*nbgroup.Group)
 	for _, group := range a.Groups {
 		existedGroupsByName[group.Name] = group
 	}
@@ -752,7 +754,7 @@ func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
 	removed := 0
 	jwtAutoGroups := make(map[string]struct{})
 	for i, id := range user.AutoGroups {
-		if group, ok := a.Groups[id]; ok && group.Issued == GroupIssuedJWT {
+		if group, ok := a.Groups[id]; ok && group.Issued == nbgroup.GroupIssuedJWT {
 			jwtAutoGroups[group.Name] = struct{}{}
 			user.AutoGroups = append(user.AutoGroups[:i-removed], user.AutoGroups[i-removed+1:]...)
 			removed++
@@ -765,15 +767,15 @@ func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
 	for _, name := range groupsNames {
 		group, ok := existedGroupsByName[name]
 		if !ok {
-			group = &Group{
+			group = &nbgroup.Group{
 				ID:     xid.New().String(),
 				Name:   name,
-				Issued: GroupIssuedJWT,
+				Issued: nbgroup.GroupIssuedJWT,
 			}
 			a.Groups[group.ID] = group
 		}
 		// only JWT groups will be synced
-		if group.Issued == GroupIssuedJWT {
+		if group.Issued == nbgroup.GroupIssuedJWT {
 			user.AutoGroups = append(user.AutoGroups, group.ID)
 			if _, ok := jwtAutoGroups[name]; !ok {
 				modified = true
@@ -1837,15 +1839,15 @@ func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(claims jwtclaims.Aut
 // addAllGroup to account object if it doesn't exist
 func addAllGroup(account *Account) error {
 	if len(account.Groups) == 0 {
-		allGroup := &Group{
+		allGroup := &nbgroup.Group{
 			ID:     xid.New().String(),
 			Name:   "All",
-			Issued: GroupIssuedAPI,
+			Issued: nbgroup.GroupIssuedAPI,
 		}
 		for _, peer := range account.Peers {
 			allGroup.Peers = append(allGroup.Peers, peer.ID)
 		}
-		account.Groups = map[string]*Group{allGroup.ID: allGroup}
+		account.Groups = map[string]*nbgroup.Group{allGroup.ID: allGroup}
 
 		id := xid.New().String()
 

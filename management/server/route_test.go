@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
 )
@@ -858,7 +859,7 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 
 	groups, err := am.ListGroups(account.Id)
 	require.NoError(t, err)
-	var groupHA1, groupHA2 *Group
+	var groupHA1, groupHA2 *nbgroup.Group
 	for _, group := range groups {
 		switch group.Name {
 		case routeGroupHA1:
@@ -967,7 +968,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	require.Len(t, peer2Routes.Routes, 1, "we should receive one route")
 	require.True(t, peer1Routes.Routes[0].IsEqual(peer2Routes.Routes[0]), "routes should be the same for peers in the same group")
 
-	newGroup := &Group{
+	newGroup := &nbgroup.Group{
 		ID:    xid.New().String(),
 		Name:  "peer1 group",
 		Peers: []string{peer1ID},
@@ -1195,7 +1196,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		return nil, err
 	}
 
-	newGroup := []*Group{
+	newGroup := []*nbgroup.Group{
 		{
 			ID:    routeGroup1,
 			Name:  routeGroup1,
