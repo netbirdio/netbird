@@ -76,13 +76,5 @@ func (am *DefaultAccountManager) GroupValidation(accountId string, groups []stri
 }
 
 func (am *DefaultAccountManager) GetValidatedPeers(account *Account) (map[string]struct{}, error) {
-	/*
-		groups := make(map[string][]string)
-		for groupID, group := range account.Groups {
-			groups[groupID] = group.Peers
-		}
-
-	*/
-
 	return am.integratedPeerValidator.GetValidatedPeers(account.Id, account.Groups, account.Peers, account.Settings.Extra)
 }
