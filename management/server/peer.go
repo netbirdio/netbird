@@ -808,19 +808,10 @@ func (am *DefaultAccountManager) GetPeerAppliedPostureChecks(peerKey string) ([]
 		return nil, err
 	}
 
-	unlock := am.Store.AcquireAccountLock(account.Id)
-	defer unlock()
-
-	account, err = am.Store.GetAccount(account.Id)
-	if err != nil {
-		return nil, err
-	}
-
 	peer, err := account.FindPeerByPubKey(peerKey)
 	if err != nil {
 		return nil, status.Errorf(status.NotFound, "peer is not registered")
 	}
-
 	if peer == nil {
 		return nil, nil
 	}
