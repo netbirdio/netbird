@@ -245,7 +245,7 @@ func (conn *Conn) reCreateAgent() error {
 		}
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed setting binding response callback: %w", err)
 	}
 
 	return nil
@@ -439,8 +439,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 		LocalIceCandidateEndpoint:  fmt.Sprintf("%s:%d", pair.Local.Address(), pair.Local.Port()),
 		RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Local.Port()),
 		Direct:                     !isRelayCandidate(pair.Local),
-		// CurrentRoundTripTime:       ,
-		RosenpassEnabled: rosenpassEnabled,
+		RosenpassEnabled:           rosenpassEnabled,
 	}
 	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
 		peerState.Relayed = true
