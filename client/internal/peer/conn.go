@@ -133,6 +133,9 @@ type Conn struct {
 	adapter        iface.TunAdapter
 	iFaceDiscover  stdnet.ExternalIFaceDiscover
 	sentExtraSrflx bool
+
+	remoteEndpoint *net.UDPAddr
+	remoteConn     *ice.Conn
 }
 
 // meta holds meta information about a connection
@@ -232,6 +235,17 @@ func (conn *Conn) reCreateAgent() error {
 	err = conn.agent.OnSelectedCandidatePairChange(conn.onICESelectedCandidatePair)
 	if err != nil {
 		return err
+	}
+
+	err = conn.agent.OnSuccessfulSelectedPairBindingResponse(func(p *ice.CandidatePair) {
+		err := conn.statusRecorder.UpdateLatency(conn.config.Key, p.Latency())
+		if err != nil {
+			log.Debugf("failed to update latency for peer %s: %s", conn.config.Key, err)
+			return
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("failed setting binding response callback: %w", err)
 	}
 
 	return nil
@@ -348,6 +362,9 @@ func (conn *Conn) Open() error {
 	if remoteOfferAnswer.WgListenPort != 0 {
 		remoteWgPort = remoteOfferAnswer.WgListenPort
 	}
+
+	conn.remoteConn = remoteConn
+
 	// the ice connection has been established successfully so we are ready to start the proxy
 	remoteAddr, err := conn.configureConnection(remoteConn, remoteWgPort, remoteOfferAnswer.RosenpassPubKey,
 		remoteOfferAnswer.RosenpassAddr)
@@ -397,6 +414,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 	}
 
 	endpointUdpAddr, _ := net.ResolveUDPAddr(endpoint.Network(), endpoint.String())
+	conn.remoteEndpoint = endpointUdpAddr
 
 	err = conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, endpointUdpAddr, conn.config.WgConfig.PreSharedKey)
 	if err != nil {

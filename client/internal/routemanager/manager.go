@@ -71,7 +71,6 @@ func (m *DefaultManager) Stop() {
 	if m.serverRouter != nil {
 		m.serverRouter.cleanUp()
 	}
-	m.ctx = nil
 }
 
 // UpdateRoutes compares received routes with existing routes and remove, update or add them to the client and server maps
