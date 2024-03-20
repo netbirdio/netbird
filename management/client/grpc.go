@@ -111,7 +111,7 @@ func (c *GrpcClient) ready() bool {
 
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
-func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
+func (c *GrpcClient) Sync(sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
 	backOff := defaultBackoff(c.ctx)
 
 	operation := func() error {
@@ -133,7 +133,7 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 
 		ctx, cancelStream := context.WithCancel(c.ctx)
 		defer cancelStream()
-		stream, err := c.connectToStream(ctx, *serverPubKey)
+		stream, err := c.connectToStream(ctx, *serverPubKey, sysInfo)
 		if err != nil {
 			log.Debugf("failed to open Management Service stream: %s", err)
 			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
@@ -175,7 +175,7 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 }
 
 // GetNetworkMap return with the network map
-func (c *GrpcClient) GetNetworkMap() (*proto.NetworkMap, error) {
+func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, error) {
 	serverPubKey, err := c.GetServerPublicKey()
 	if err != nil {
 		log.Debugf("failed getting Management Service public key: %s", err)
@@ -184,7 +184,7 @@ func (c *GrpcClient) GetNetworkMap() (*proto.NetworkMap, error) {
 
 	ctx, cancelStream := context.WithCancel(c.ctx)
 	defer cancelStream()
-	stream, err := c.connectToStream(ctx, *serverPubKey)
+	stream, err := c.connectToStream(ctx, *serverPubKey, sysInfo)
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
 		return nil, err
@@ -217,8 +217,8 @@ func (c *GrpcClient) GetNetworkMap() (*proto.NetworkMap, error) {
 	return decryptedResp.GetNetworkMap(), nil
 }
 
-func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.Key) (proto.ManagementService_SyncClient, error) {
-	req := &proto.SyncRequest{}
+func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info) (proto.ManagementService_SyncClient, error) {
+	req := &proto.SyncRequest{Meta: infoToMetaData(sysInfo)}
 
 	myPrivateKey := c.key
 	myPublicKey := myPrivateKey.PublicKey()

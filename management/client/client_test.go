@@ -246,7 +246,7 @@ func TestClient_Sync(t *testing.T) {
 	ch := make(chan *mgmtProto.SyncResponse, 1)
 
 	go func() {
-		err = client.Sync(func(msg *mgmtProto.SyncResponse) error {
+		err = client.Sync(info, func(msg *mgmtProto.SyncResponse) error {
 			ch <- msg
 			return nil
 		})
