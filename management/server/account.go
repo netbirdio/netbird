@@ -124,7 +124,7 @@ type AccountManager interface {
 	GetIdpManager() idp.Manager
 	UpdateIntegratedValidatorGroups(accountID string, userID string, groups []string) error
 	GroupValidation(accountId string, groups []string) (bool, error)
-	GetValidatedPeers(accountID string, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error)
+	GetValidatedPeers(account *Account) (map[string]struct{}, error)
 }
 
 type DefaultAccountManager struct {

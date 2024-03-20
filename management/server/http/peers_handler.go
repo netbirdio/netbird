@@ -62,7 +62,7 @@ func (h *PeersHandler) getPeer(account *server.Account, peerID, userID string, w
 
 	groupsInfo := toGroupsInfo(account.Groups, peer.ID)
 
-	validPeers, err := h.accountManager.GetValidatedPeers(account.Id, account.Peers, account.Settings.Extra)
+	validPeers, err := h.accountManager.GetValidatedPeers(account)
 	if err != nil {
 		log.Errorf("failed to list appreoved peers: %v", err)
 		util.WriteError(fmt.Errorf("internal error"), w)
@@ -107,7 +107,7 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 
 	groupMinimumInfo := toGroupsInfo(account.Groups, peer.ID)
 
-	validPeers, err := h.accountManager.GetValidatedPeers(account.Id, account.Peers, account.Settings.Extra)
+	validPeers, err := h.accountManager.GetValidatedPeers(account)
 	if err != nil {
 		log.Errorf("failed to list appreoved peers: %v", err)
 		util.WriteError(fmt.Errorf("internal error"), w)
@@ -196,7 +196,7 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		respBody = append(respBody, toPeerListItemResponse(peerToReturn, groupMinimumInfo, dnsDomain, accessiblePeerNumbers))
 	}
 
-	validPeersMap, err := h.accountManager.GetValidatedPeers(account.Id, account.Peers, account.Settings.Extra)
+	validPeersMap, err := h.accountManager.GetValidatedPeers(account)
 	if err != nil {
 		log.Errorf("failed to list appreoved peers: %v", err)
 		util.WriteError(fmt.Errorf("internal error"), w)
@@ -208,7 +208,7 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PeersHandler) accessiblePeersNumber(account *server.Account, peerID string) (int, error) {
-	validatedPeersMap, err := h.accountManager.GetValidatedPeers(account.Id, account.Peers, account.Settings.Extra)
+	validatedPeersMap, err := h.accountManager.GetValidatedPeers(account)
 	if err != nil {
 		return 0, err
 	}

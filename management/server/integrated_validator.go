@@ -6,7 +6,6 @@ import (
 	"github.com/google/martian/v3/log"
 
 	"github.com/netbirdio/netbird/management/server/account"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
 // UpdateIntegratedValidatorGroups updates the integrated validator groups for a specified account.
@@ -76,6 +75,11 @@ func (am *DefaultAccountManager) GroupValidation(accountId string, groups []stri
 	return true, nil
 }
 
-func (am *DefaultAccountManager) GetValidatedPeers(accountID string, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
-	return am.integratedPeerValidator.GetValidatedPeers(accountID, peers, extraSettings)
+func (am *DefaultAccountManager) GetValidatedPeers(account *Account) (map[string]struct{}, error) {
+	groups := make(map[string][]string)
+	for groupID, group := range account.Groups {
+		groups[groupID] = group.Peers
+	}
+
+	return am.integratedPeerValidator.GetValidatedPeers(account.Id, groups, account.Peers, account.Settings.Extra)
 }

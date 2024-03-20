@@ -456,7 +456,7 @@ func (a MocIntegratedValidator) ValidatePeer(update *nbpeer.Peer, peer *nbpeer.P
 	return update, nil
 }
 
-func (a MocIntegratedValidator) GetValidatedPeers(accountID string, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
+func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groupsOfPeers map[string][]string, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
 	validatedPeers := make(map[string]struct{})
 	for p := range peers {
 		validatedPeers[p] = struct{}{}
