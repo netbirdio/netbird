@@ -33,6 +33,8 @@ type PeerLogin struct {
 	UserID string
 	// SetupKey references to a server.SetupKey to log in. Can be empty when UserID is used or auth is not required.
 	SetupKey string
+	// ConnectionIP is the real IP of the peer
+	ConnectionIP net.IP
 }
 
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
@@ -438,6 +440,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 		CreatedAt:              registrationTime,
 		LoginExpirationEnabled: addedByUser,
 		Ephemeral:              ephemeral,
+		Location:               peer.Location,
 	}
 
 	// add peer to 'All' group
@@ -556,16 +559,29 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *Network
 // If peer doesn't exist the function checks whether a setup key or a user is present and registers a new peer if so.
 func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *NetworkMap, error) {
 	account, err := am.Store.GetAccountByPeerPubKey(login.WireGuardPubKey)
-
 	if err != nil {
 		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
 			// we couldn't find this peer by its public key which can mean that peer hasn't been registered yet.
 			// Try registering it.
-			return am.AddPeer(login.SetupKey, login.UserID, &nbpeer.Peer{
+			newPeer := &nbpeer.Peer{
 				Key:    login.WireGuardPubKey,
 				Meta:   login.Meta,
 				SSHKey: login.SSHKey,
-			})
+			}
+			if am.geo != nil && login.ConnectionIP != nil {
+				location, err := am.geo.Lookup(login.ConnectionIP)
+				if err != nil {
+					log.Warnf("failed to get location for new peer realip: [%s]: %v", login.ConnectionIP.String(), err)
+				} else {
+					newPeer.Location.ConnectionIP = login.ConnectionIP
+					newPeer.Location.CountryCode = location.Country.ISOCode
+					newPeer.Location.CityName = location.City.Names.En
+					newPeer.Location.GeoNameID = location.City.GeonameID
+
+				}
+			}
+
+			return am.AddPeer(login.SetupKey, login.UserID, newPeer)
 		}
 		log.Errorf("failed while logging in peer %s: %v", login.WireGuardPubKey, err)
 		return nil, nil, status.Errorf(status.Internal, "failed while logging in peer")
