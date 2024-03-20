@@ -99,17 +99,17 @@ func NewSqliteStoreFromFileStore(filestore *FileStore, dataDir string, metrics t
 
 // AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
 func (s *SqliteStore) AcquireGlobalLock() (unlock func()) {
-	log.Debugf("acquiring global lock")
+	log.Tracef("acquiring global lock")
 	start := time.Now()
 	s.globalAccountLock.Lock()
 
 	unlock = func() {
 		s.globalAccountLock.Unlock()
-		log.Debugf("released global lock in %v", time.Since(start))
+		log.Tracef("released global lock in %v", time.Since(start))
 	}
 
 	took := time.Since(start)
-	log.Debugf("took %v to acquire global lock", took)
+	log.Tracef("took %v to acquire global lock", took)
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountGlobalLockAcquisitionDuration(took)
 	}
@@ -118,7 +118,7 @@ func (s *SqliteStore) AcquireGlobalLock() (unlock func()) {
 }
 
 func (s *SqliteStore) AcquireAccountLock(accountID string) (unlock func()) {
-	log.Debugf("acquiring lock for account %s", accountID)
+	log.Tracef("acquiring lock for account %s", accountID)
 
 	start := time.Now()
 	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.Mutex{})
@@ -127,7 +127,7 @@ func (s *SqliteStore) AcquireAccountLock(accountID string) (unlock func()) {
 
 	unlock = func() {
 		mtx.Unlock()
-		log.Debugf("released lock for account %s in %v", accountID, time.Since(start))
+		log.Tracef("released lock for account %s in %v", accountID, time.Since(start))
 	}
 
 	return unlock
