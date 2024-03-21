@@ -94,6 +94,9 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 	if req.Settings.JwtAllowGroups != nil {
 		settings.JWTAllowGroups = *req.Settings.JwtAllowGroups
 	}
+	if req.Settings.PeerViewBlocked != nil {
+		settings.PeerViewBlocked = *req.Settings.PeerViewBlocked
+	}
 
 	updatedAccount, err := h.accountManager.UpdateAccountSettings(accountID, user.Id, settings)
 	if err != nil {
@@ -143,6 +146,7 @@ func toAccountResponse(account *server.Account) *api.Account {
 		JwtGroupsEnabled:           &account.Settings.JWTGroupsEnabled,
 		JwtGroupsClaimName:         &account.Settings.JWTGroupsClaimName,
 		JwtAllowGroups:             &jwtAllowGroups,
+		PeerViewBlocked:            &account.Settings.PeerViewBlocked,
 	}
 
 	if account.Settings.Extra != nil {

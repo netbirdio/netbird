@@ -162,6 +162,9 @@ type Settings struct {
 	// Applies to all peers that have Peer.LoginExpirationEnabled set to true.
 	PeerLoginExpiration time.Duration
 
+	// PeerViewBlocked allows to block regular users from viewing even their own peers
+	PeerViewBlocked bool
+
 	// GroupsPropagationEnabled allows to propagate auto groups from the user to the peer
 	GroupsPropagationEnabled bool
 
@@ -188,6 +191,7 @@ func (s *Settings) Copy() *Settings {
 		JWTGroupsClaimName:         s.JWTGroupsClaimName,
 		GroupsPropagationEnabled:   s.GroupsPropagationEnabled,
 		JWTAllowGroups:             s.JWTAllowGroups,
+		PeerViewBlocked:            s.PeerViewBlocked,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()
@@ -226,6 +230,10 @@ type Account struct {
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
 }
 
+type UserPermissions struct {
+	DashboardView string `json:"dashboard_view"`
+}
+
 type UserInfo struct {
 	ID                   string               `json:"id"`
 	Email                string               `json:"email"`
@@ -239,6 +247,7 @@ type UserInfo struct {
 	LastLogin            time.Time            `json:"last_login"`
 	Issued               string               `json:"issued"`
 	IntegrationReference IntegrationReference `json:"-"`
+	Permissions          UserPermissions      `json:"permissions"`
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
@@ -923,6 +932,8 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
+
+	log.Debugf("Dashboard view blocked: %v", newSettings.PeerViewBlocked)
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -1885,6 +1896,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 			PeerLoginExpirationEnabled: true,
 			PeerLoginExpiration:        DefaultPeerLoginExpiration,
 			GroupsPropagationEnabled:   true,
+			PeerViewBlocked:            true,
 		},
 	}
 

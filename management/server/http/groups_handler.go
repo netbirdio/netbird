@@ -239,7 +239,7 @@ func toGroupResponse(account *server.Account, group *server.Group) *api.Group {
 	gr := api.Group{
 		Id:     group.ID,
 		Name:   group.Name,
-		Issued: &group.Issued,
+		Issued: (*api.GroupIssued)(&group.Issued),
 	}
 
 	for _, pid := range group.Peers {
