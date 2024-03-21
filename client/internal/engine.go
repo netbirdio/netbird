@@ -266,11 +266,11 @@ func (e *Engine) Start() error {
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, initialRoutes)
 	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
 	if err != nil {
-		e.close()
-		return fmt.Errorf("init route manager: %w", err)
+		log.Errorf("Failed to initialize route manager: %s", err)
+	} else {
+		e.beforePeerHook = beforePeerHook
+		e.afterPeerHook = afterPeerHook
 	}
-	e.beforePeerHook = beforePeerHook
-	e.afterPeerHook = afterPeerHook
 
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
