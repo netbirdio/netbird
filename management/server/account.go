@@ -933,8 +933,6 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
-	log.Debugf("Dashboard view blocked: %v", newSettings.RegularUsersViewBlocked)
-
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, err
