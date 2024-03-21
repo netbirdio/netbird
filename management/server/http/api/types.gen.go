@@ -208,8 +208,8 @@ type AccountSettings struct {
 	// PeerLoginExpirationEnabled Enables or disables peer login expiration globally. After peer's login has expired the user has to log in (authenticate). Applies only to peers that were added by a user (interactive SSO login).
 	PeerLoginExpirationEnabled bool `json:"peer_login_expiration_enabled"`
 
-	// PeerViewBlocked Allows blocking regular users from viewing any peers.
-	PeerViewBlocked bool `json:"peer_view_blocked"`
+	// RegularUsersViewBlocked Allows blocking regular users from viewing parts of the system.
+	RegularUsersViewBlocked bool `json:"regular_users_view_blocked"`
 }
 
 // Checks List of objects that perform the actual checks

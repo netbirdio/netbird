@@ -54,8 +54,8 @@ components:
           description: Period of time after which peer login expires (seconds).
           type: integer
           example: 43200
-        peer_view_blocked:
-          description: Allows blocking regular users from viewing any peers.
+        regular_users_view_blocked:
+          description: Allows blocking regular users from viewing parts of the system.
           type: boolean
           example: true
         groups_propagation_enabled:
@@ -81,7 +81,7 @@ components:
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
-        - peer_view_blocked
+        - regular_users_view_blocked
     AccountExtraSettings:
       type: object
       properties:

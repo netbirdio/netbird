@@ -76,7 +76,7 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 	settings := &server.Settings{
 		PeerLoginExpirationEnabled: req.Settings.PeerLoginExpirationEnabled,
 		PeerLoginExpiration:        time.Duration(float64(time.Second.Nanoseconds()) * float64(req.Settings.PeerLoginExpiration)),
-		RegularUsersViewBlocked:    req.Settings.PeerViewBlocked,
+		RegularUsersViewBlocked:    req.Settings.RegularUsersViewBlocked,
 	}
 
 	if req.Settings.Extra != nil {
@@ -144,7 +144,7 @@ func toAccountResponse(account *server.Account) *api.Account {
 		JwtGroupsEnabled:           &account.Settings.JWTGroupsEnabled,
 		JwtGroupsClaimName:         &account.Settings.JWTGroupsClaimName,
 		JwtAllowGroups:             &jwtAllowGroups,
-		PeerViewBlocked:            account.Settings.RegularUsersViewBlocked,
+		RegularUsersViewBlocked:    account.Settings.RegularUsersViewBlocked,
 	}
 
 	if account.Settings.Extra != nil {
