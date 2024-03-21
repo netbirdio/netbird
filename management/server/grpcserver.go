@@ -134,7 +134,17 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		return err
 	}
 
-	peer, netMap, err := s.accountManager.SyncPeer(PeerSync{WireGuardPubKey: peerKey.String()})
+	if syncReq.GetMeta() == nil {
+		msg := status.Errorf(codes.FailedPrecondition,
+			"peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
+		log.Warn(msg)
+		return msg
+	}
+
+	peer, netMap, err := s.accountManager.SyncPeer(PeerSync{
+		WireGuardPubKey: peerKey.String(),
+		Meta:            extractPeerMeta(syncReq.GetMeta()),
+	})
 	if err != nil {
 		return mapError(err)
 	}
@@ -255,14 +265,14 @@ func mapError(err error) error {
 	return status.Errorf(codes.Internal, "failed handling request")
 }
 
-func extractPeerMeta(loginReq *proto.LoginRequest) nbpeer.PeerSystemMeta {
-	osVersion := loginReq.GetMeta().GetOSVersion()
+func extractPeerMeta(meta *proto.PeerSystemMeta) nbpeer.PeerSystemMeta {
+	osVersion := meta.GetOSVersion()
 	if osVersion == "" {
-		osVersion = loginReq.GetMeta().GetCore()
+		osVersion = meta.GetCore()
 	}
 
-	networkAddresses := make([]nbpeer.NetworkAddress, 0, len(loginReq.GetMeta().GetNetworkAddresses()))
-	for _, addr := range loginReq.GetMeta().GetNetworkAddresses() {
+	networkAddresses := make([]nbpeer.NetworkAddress, 0, len(meta.GetNetworkAddresses()))
+	for _, addr := range meta.GetNetworkAddresses() {
 		netAddr, err := netip.ParsePrefix(addr.GetNetIP())
 		if err != nil {
 			log.Warnf("failed to parse netip address, %s: %v", addr.GetNetIP(), err)
@@ -275,22 +285,22 @@ func extractPeerMeta(loginReq *proto.LoginRequest) nbpeer.PeerSystemMeta {
 	}
 
 	return nbpeer.PeerSystemMeta{
-		Hostname:           loginReq.GetMeta().GetHostname(),
-		GoOS:               loginReq.GetMeta().GetGoOS(),
-		Kernel:             loginReq.GetMeta().GetKernel(),
-		Platform:           loginReq.GetMeta().GetPlatform(),
-		OS:                 loginReq.GetMeta().GetOS(),
+		Hostname:           meta.GetHostname(),
+		GoOS:               meta.GetGoOS(),
+		Kernel:             meta.GetKernel(),
+		Platform:           meta.GetPlatform(),
+		OS:                 meta.GetOS(),
 		OSVersion:          osVersion,
-		WtVersion:          loginReq.GetMeta().GetWiretrusteeVersion(),
-		UIVersion:          loginReq.GetMeta().GetUiVersion(),
-		KernelVersion:      loginReq.GetMeta().GetKernelVersion(),
+		WtVersion:          meta.GetWiretrusteeVersion(),
+		UIVersion:          meta.GetUiVersion(),
+		KernelVersion:      meta.GetKernelVersion(),
 		NetworkAddresses:   networkAddresses,
-		SystemSerialNumber: loginReq.GetMeta().GetSysSerialNumber(),
-		SystemProductName:  loginReq.GetMeta().GetSysProductName(),
-		SystemManufacturer: loginReq.GetMeta().GetSysManufacturer(),
+		SystemSerialNumber: meta.GetSysSerialNumber(),
+		SystemProductName:  meta.GetSysProductName(),
+		SystemManufacturer: meta.GetSysManufacturer(),
 		Environment: nbpeer.Environment{
-			Cloud:    loginReq.GetMeta().GetEnvironment().GetCloud(),
-			Platform: loginReq.GetMeta().GetEnvironment().GetPlatform(),
+			Cloud:    meta.GetEnvironment().GetCloud(),
+			Platform: meta.GetEnvironment().GetPlatform(),
 		},
 	}
 }
@@ -358,7 +368,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	peer, netMap, err := s.accountManager.LoginPeer(PeerLogin{
 		WireGuardPubKey: peerKey.String(),
 		SSHKey:          string(sshKey),
-		Meta:            extractPeerMeta(loginReq),
+		Meta:            extractPeerMeta(loginReq.GetMeta()),
 		UserID:          userID,
 		SetupKey:        loginReq.GetSetupKey(),
 	})
@@ -377,6 +387,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	loginResp := &proto.LoginResponse{
 		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil),
 		PeerConfig:        toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain()),
+		Checks:            toPeerChecks(s.accountManager, peerKey.String()),
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
@@ -473,7 +484,7 @@ func toRemotePeerConfig(peers []*nbpeer.Peer, dnsName string) []*proto.RemotePee
 	return remotePeers
 }
 
-func toSyncResponse(config *Config, peer *nbpeer.Peer, turnCredentials *TURNCredentials, networkMap *NetworkMap, dnsName string) *proto.SyncResponse {
+func toSyncResponse(accountManager AccountManager, config *Config, peer *nbpeer.Peer, turnCredentials *TURNCredentials, networkMap *NetworkMap, dnsName string) *proto.SyncResponse {
 	wtConfig := toWiretrusteeConfig(config, turnCredentials)
 
 	pConfig := toPeerConfig(peer, networkMap.Network, dnsName)
@@ -504,6 +515,7 @@ func toSyncResponse(config *Config, peer *nbpeer.Peer, turnCredentials *TURNCred
 			FirewallRules:        firewallRules,
 			FirewallRulesIsEmpty: len(firewallRules) == 0,
 		},
+		Checks: toPeerChecks(accountManager, peer.Key),
 	}
 }
 
@@ -522,7 +534,7 @@ func (s *GRPCServer) sendInitialSync(peerKey wgtypes.Key, peer *nbpeer.Peer, net
 	} else {
 		turnCredentials = nil
 	}
-	plainResp := toSyncResponse(s.config, peer, turnCredentials, networkMap, s.accountManager.GetDNSDomain())
+	plainResp := toSyncResponse(s.accountManager, s.config, peer, turnCredentials, networkMap, s.accountManager.GetDNSDomain())
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {
@@ -638,4 +650,31 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(_ context.Context, req *proto.Encr
 		WgPubKey: s.wgKey.PublicKey().String(),
 		Body:     encryptedResp,
 	}, nil
+}
+
+// toPeerChecks returns posture checks for the peer that needs to be evaluated on the client side.
+func toPeerChecks(accountManager AccountManager, peerKey string) []*proto.Checks {
+	postureChecks, err := accountManager.GetPeerAppliedPostureChecks(peerKey)
+	if err != nil {
+		log.Errorf("failed getting peer's: %s posture checks: %v", peerKey, err)
+		return nil
+	}
+
+	protoChecks := make([]*proto.Checks, 0)
+	for _, postureCheck := range postureChecks {
+		protoCheck := &proto.Checks{}
+
+		if check := postureCheck.Checks.ProcessCheck; check != nil {
+			for _, process := range check.Processes {
+				if process.Path != "" {
+					protoCheck.ProcessCheck.Files = append(protoCheck.ProcessCheck.Files, process.Path)
+				} else if process.WindowsPath != "" {
+					protoCheck.ProcessCheck.Files = append(protoCheck.ProcessCheck.Files, process.Path)
+				}
+			}
+		}
+		protoChecks = append(protoChecks, protoCheck)
+	}
+
+	return protoChecks
 }

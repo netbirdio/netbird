@@ -390,7 +390,7 @@ func TestEngine_Sync(t *testing.T) {
 	// feed updates to Engine via mocked Management client
 	updates := make(chan *mgmtProto.SyncResponse)
 	defer close(updates)
-	syncFunc := func(msgHandler func(msg *mgmtProto.SyncResponse) error) error {
+	syncFunc := func(info *system.Info, msgHandler func(msg *mgmtProto.SyncResponse) error) error {
 		for msg := range updates {
 			err := msgHandler(msg)
 			if err != nil {
