@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/client"
 	"github.com/netbirdio/netbird/signal/proto"
+	nbgrpc "github.com/netbirdio/netbird/util/grpc"
 )
 
 // ConnStateNotifier is a wrapper interface of the status recorder
@@ -76,6 +77,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		sigCtx,
 		addr,
 		transportOption,
+		nbgrpc.WithCustomDialer(),
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    30 * time.Second,
