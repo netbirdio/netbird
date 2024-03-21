@@ -15,6 +15,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 
+	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/iface"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -64,7 +66,7 @@ func getSetupRules() []ruleParams {
 // enabling VPN connectivity.
 //
 // The rules are inserted in reverse order, as rules are added from the bottom up in the rule list.
-func setupRouting() (err error) {
+func setupRouting([]net.IP, *iface.WGIface) (_ peer.BeforeAddPeerHookFunc, _ peer.AfterRemovePeerHookFunc, err error) {
 	if err = addRoutingTableName(); err != nil {
 		log.Errorf("Error adding routing table name: %v", err)
 	}
@@ -80,11 +82,11 @@ func setupRouting() (err error) {
 	rules := getSetupRules()
 	for _, rule := range rules {
 		if err := addRule(rule); err != nil {
-			return fmt.Errorf("%s: %w", rule.description, err)
+			return nil, nil, fmt.Errorf("%s: %w", rule.description, err)
 		}
 	}
 
-	return nil
+	return nil, nil, nil
 }
 
 // cleanupRouting performs a thorough cleanup of the routing configuration established by 'setupRouting'.

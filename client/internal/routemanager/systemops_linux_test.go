@@ -27,6 +27,10 @@ import (
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
+type dialer interface {
+	Dial(network, address string) (net.Conn, error)
+}
+
 type PacketExpectation struct {
 	SrcIP   net.IP
 	DstIP   net.IP
@@ -97,7 +101,7 @@ func TestRoutingWithTables(t *testing.T) {
 		name              string
 		destination       string
 		captureInterface  string
-		dialer            *net.Dialer
+		dialer            dialer
 		packetExpectation PacketExpectation
 	}{
 		{
@@ -376,7 +380,7 @@ func setupTestEnv(t *testing.T) (*iface.WGIface, string, string) {
 		assert.NoError(t, wgIface.Close())
 	})
 
-	err := setupRouting()
+	_, _, err := setupRouting(nil, nil)
 	require.NoError(t, err, "setupRouting should not return err")
 	t.Cleanup(func() {
 		assert.NoError(t, cleanupRouting())
@@ -411,7 +415,7 @@ func startPacketCapture(t *testing.T, intf, filter string) *pcap.Handle {
 	return handle
 }
 
-func sendTestPacket(t *testing.T, destination string, sourcePort int, dialer *net.Dialer) {
+func sendTestPacket(t *testing.T, destination string, sourcePort int, dialer dialer) {
 	t.Helper()
 
 	if dialer == nil {
@@ -423,7 +427,14 @@ func sendTestPacket(t *testing.T, destination string, sourcePort int, dialer *ne
 			IP:   net.IPv4zero,
 			Port: sourcePort,
 		}
-		dialer.LocalAddr = localUDPAddr
+		switch dialer := dialer.(type) {
+		case *nbnet.Dialer:
+			dialer.LocalAddr = localUDPAddr
+		case *net.Dialer:
+			dialer.LocalAddr = localUDPAddr
+		default:
+			t.Fatal("Unsupported dialer type")
+		}
 	}
 
 	msg := new(dns.Msg)

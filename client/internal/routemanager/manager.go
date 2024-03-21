@@ -3,7 +3,9 @@ package routemanager
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/netip"
+	"net/url"
 	"runtime"
 	"sync"
 
@@ -24,7 +26,7 @@ var defaultv6 = netip.PrefixFrom(netip.IPv6Unspecified(), 0)
 
 // Manager is a route manager interface
 type Manager interface {
-	Init() error
+	Init() (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error)
 	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
@@ -65,16 +67,21 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 }
 
 // Init sets up the routing
-func (m *DefaultManager) Init() error {
+func (m *DefaultManager) Init() (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
 	if err := cleanupRouting(); err != nil {
 		log.Warnf("Failed cleaning up routing: %v", err)
 	}
 
-	if err := setupRouting(); err != nil {
-		return fmt.Errorf("setup routing: %w", err)
+	mgmtAddress := m.statusRecorder.GetManagementState().URL
+	signalAddress := m.statusRecorder.GetSignalState().URL
+	ips := resolveURLsToIPs([]string{mgmtAddress, signalAddress})
+
+	beforePeerHook, afterPeerHook, err := setupRouting(ips, m.wgInterface)
+	if err != nil {
+		return nil, nil, fmt.Errorf("setup routing: %w", err)
 	}
 	log.Info("Routing setup complete")
-	return nil
+	return beforePeerHook, afterPeerHook, nil
 }
 
 func (m *DefaultManager) EnableServerRouter(firewall firewall.Manager) error {
@@ -203,7 +210,8 @@ func (m *DefaultManager) clientRoutes(initialRoutes []*route.Route) []*route.Rou
 }
 
 func isPrefixSupported(prefix netip.Prefix) bool {
-	if runtime.GOOS == "linux" {
+	switch runtime.GOOS {
+	case "linux", "windows":
 		return true
 	}
 
@@ -215,4 +223,25 @@ func isPrefixSupported(prefix netip.Prefix) bool {
 		return false
 	}
 	return true
+}
+
+// resolveURLsToIPs takes a slice of URLs, resolves them to IP addresses and returns a slice of IPs.
+func resolveURLsToIPs(urls []string) []net.IP {
+	var ips []net.IP
+	for _, rawurl := range urls {
+		u, err := url.Parse(rawurl)
+		if err != nil {
+			log.Errorf("Failed to parse url %s: %v", rawurl, err)
+			continue
+		}
+		ipAddrs, err := net.LookupIP(u.Hostname())
+		if err != nil {
+			log.Errorf("Failed to resolve host %s: %v", u.Hostname(), err)
+			continue
+		}
+		for _, ipAddr := range ipAddrs {
+			ips = append(ips, ipAddr)
+		}
+	}
+	return ips
 }

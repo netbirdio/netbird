@@ -417,7 +417,9 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			statusRecorder := peer.NewRecorder("https://mgm")
 			ctx := context.TODO()
 			routeManager := NewManager(ctx, localPeerKey, wgInterface, statusRecorder, nil)
-			err = routeManager.Init()
+
+			_, _, err = routeManager.Init()
+
 			require.NoError(t, err, "should init route manager")
 			defer routeManager.Stop()
 

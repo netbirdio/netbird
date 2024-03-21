@@ -17,13 +17,17 @@ import (
 
 var errRouteNotFound = fmt.Errorf("route not found")
 
+// TODO: fix: for default our wg address now appears as the default gw
 func genericAddRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 	defaultGateway, err := getExistingRIBRouteGateway(defaultv4)
 	if err != nil && !errors.Is(err, errRouteNotFound) {
 		return fmt.Errorf("get existing route gateway: %s", err)
 	}
 
-	addr := netip.MustParseAddr(defaultGateway.String())
+	addr, ok := netip.AddrFromSlice(defaultGateway)
+	if !ok {
+		return fmt.Errorf("parse IP address: %s", defaultGateway)
+	}
 
 	if !prefix.Contains(addr) {
 		log.Debugf("Skipping adding a new route for gateway %s because it is not in the network %s", addr, prefix)
@@ -32,7 +36,7 @@ func genericAddRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 
 	gatewayPrefix := netip.PrefixFrom(addr, 32)
 
-	ok, err := existsInRouteTable(gatewayPrefix)
+	ok, err = existsInRouteTable(gatewayPrefix)
 	if err != nil {
 		return fmt.Errorf("unable to check if there is an existing route for gateway %s. error: %s", gatewayPrefix, err)
 	}
@@ -42,12 +46,17 @@ func genericAddRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 		return nil
 	}
 
-	gatewayHop, err := getExistingRIBRouteGateway(gatewayPrefix)
+	var exitIntf string
+	gatewayHop, intf, err := getNextHop(gatewayPrefix.Addr())
 	if err != nil && !errors.Is(err, errRouteNotFound) {
 		return fmt.Errorf("unable to get the next hop for the default gateway address. error: %s", err)
 	}
+	if intf != nil {
+		exitIntf = intf.Name
+	}
+
 	log.Debugf("Adding a new route for gateway %s with next hop %s", gatewayPrefix, gatewayHop)
-	return genericAddToRouteTable(gatewayPrefix, gatewayHop.String(), "")
+	return genericAddToRouteTable(gatewayPrefix, gatewayHop.String(), exitIntf)
 }
 
 func genericAddToRouteTableIfNoExists(prefix netip.Prefix, addr string, intf string) error {
@@ -79,46 +88,67 @@ func genericRemoveFromRouteTableIfNonSystem(prefix netip.Prefix, addr string, in
 	return genericRemoveFromRouteTable(prefix, addr, intf)
 }
 
-func genericAddToRouteTable(prefix netip.Prefix, addr, _ string) error {
-	cmd := exec.Command("route", "add", prefix.String(), addr)
-	out, err := cmd.Output()
-	if err != nil {
-		return fmt.Errorf("add route: %w", err)
+func genericAddToRouteTable(prefix netip.Prefix, nexthop, intf string) error {
+	if intf != "" && runtime.GOOS == "windows" {
+		script := fmt.Sprintf(
+			`New-NetRoute -DestinationPrefix "%s" -InterfaceAlias "%s" -NextHop "%s" -Confirm:$False`,
+			prefix,
+			intf,
+			nexthop,
+		)
+		_, err := exec.Command("powershell", "-Command", script).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("PowerShell add route: %w", err)
+		}
+	} else {
+		args := []string{"route", "add", prefix.String(), nexthop}
+		out, err := exec.Command(args[0], args[1:]...).CombinedOutput()
+		log.Debugf("route add output: %s", string(out))
+		if err != nil {
+			return fmt.Errorf("route add: %w", err)
+		}
 	}
-	log.Debugf(string(out))
 	return nil
 }
 
-func genericRemoveFromRouteTable(prefix netip.Prefix, addr, _ string) error {
-	args := []string{"delete", prefix.String()}
-	if runtime.GOOS == "darwin" {
-		args = append(args, addr)
+func genericRemoveFromRouteTable(prefix netip.Prefix, nexthop, intf string) error {
+	args := []string{"route", "delete", prefix.String()}
+	if runtime.GOOS != "windows" {
+		args = append(args, nexthop)
 	}
-	cmd := exec.Command("route", args...)
-	out, err := cmd.Output()
+
+	out, err := exec.Command(args[0], args[1:]...).CombinedOutput()
+	log.Debugf("route delete: %s", string(out))
+
 	if err != nil {
 		return fmt.Errorf("remove route: %w", err)
 	}
-	log.Debugf(string(out))
 	return nil
 }
 
 func getExistingRIBRouteGateway(prefix netip.Prefix) (net.IP, error) {
+	gateway, _, err := getNextHop(prefix.Addr())
+	return gateway, err
+}
+
+func getNextHop(ip netip.Addr) (net.IP, *net.Interface, error) {
 	r, err := netroute.New()
 	if err != nil {
-		return nil, fmt.Errorf("new netroute: %w", err)
+		return nil, nil, fmt.Errorf("new netroute: %w", err)
 	}
-	_, gateway, preferredSrc, err := r.Route(prefix.Addr().AsSlice())
+	intf, gateway, preferredSrc, err := r.Route(ip.AsSlice())
 	if err != nil {
 		log.Errorf("Getting routes returned an error: %v", err)
-		return nil, errRouteNotFound
+		return nil, nil, errRouteNotFound
 	}
 
+	log.Debugf("Route for %s: interface %v, nexthop %v, preferred source %v", ip, intf, gateway, preferredSrc)
 	if gateway == nil {
-		return preferredSrc, nil
+		log.Debugf("No next hop found for ip %s, using preferred source %s", ip, preferredSrc)
+		return preferredSrc, intf, nil
 	}
 
-	return gateway, nil
+	return gateway, intf, nil
 }
 
 func existsInRouteTable(prefix netip.Prefix) (bool, error) {
