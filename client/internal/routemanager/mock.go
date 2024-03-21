@@ -16,6 +16,10 @@ type MockManager struct {
 	StopFunc         func()
 }
 
+func (m *MockManager) Init() error {
+	return nil
+}
+
 // InitialRouteRange mock implementation of InitialRouteRange from Manager interface
 func (m *MockManager) InitialRouteRange() []string {
 	return nil
