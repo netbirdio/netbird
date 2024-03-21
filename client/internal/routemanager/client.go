@@ -87,6 +87,7 @@ func (c *clientNetwork) getRouterPeerStatuses() map[string]routerPeerStatus {
 // * Non-relayed: Routes without relays are preferred.
 // * Direct connections: Routes with direct peer connections are favored.
 // * Stability: In case of equal scores, the currently active route (if any) is maintained.
+// * Latency: Routes with lower latency are prioritized.
 //
 // It returns the ID of the selected optimal route.
 func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]routerPeerStatus) string {
