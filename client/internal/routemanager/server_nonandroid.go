@@ -88,7 +88,7 @@ func (m *defaultServerRouter) removeFromServerNetwork(route *route.Route) error 
 		m.mux.Lock()
 		defer m.mux.Unlock()
 
-		routerPair, err := routeToRouterPair(m.wgInterface.Address().String(), route)
+		routerPair, err := routeToRouterPair(m.wgInterface.Address().Masked().String(), route)
 		if err != nil {
 			return fmt.Errorf("parse prefix: %w", err)
 		}
@@ -117,7 +117,7 @@ func (m *defaultServerRouter) addToServerNetwork(route *route.Route) error {
 		m.mux.Lock()
 		defer m.mux.Unlock()
 
-		routerPair, err := routeToRouterPair(m.wgInterface.Address().String(), route)
+		routerPair, err := routeToRouterPair(m.wgInterface.Address().Masked().String(), route)
 		if err != nil {
 			return fmt.Errorf("parse prefix: %w", err)
 		}
@@ -144,7 +144,7 @@ func (m *defaultServerRouter) cleanUp() {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 	for _, r := range m.routes {
-		routerPair, err := routeToRouterPair(m.wgInterface.Address().String(), r)
+		routerPair, err := routeToRouterPair(m.wgInterface.Address().Masked().String(), r)
 		if err != nil {
 			log.Errorf("Failed to convert route to router pair: %v", err)
 			continue
