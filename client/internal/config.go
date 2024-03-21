@@ -223,6 +223,7 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		config.AdminURL = newURL
 	}
 
+	// nolint:gocritic
 	config.IFaceBlackList = append(defaultInterfaceBlacklist, input.ExtraIFaceBlackList...)
 	return config, nil
 }
