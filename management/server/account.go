@@ -162,8 +162,8 @@ type Settings struct {
 	// Applies to all peers that have Peer.LoginExpirationEnabled set to true.
 	PeerLoginExpiration time.Duration
 
-	// PeerViewBlocked allows to block regular users from viewing even their own peers
-	PeerViewBlocked bool
+	// RegularUsersViewBlocked allows to block regular users from viewing even their own peers and some UI elements
+	RegularUsersViewBlocked bool
 
 	// GroupsPropagationEnabled allows to propagate auto groups from the user to the peer
 	GroupsPropagationEnabled bool
@@ -191,7 +191,7 @@ func (s *Settings) Copy() *Settings {
 		JWTGroupsClaimName:         s.JWTGroupsClaimName,
 		GroupsPropagationEnabled:   s.GroupsPropagationEnabled,
 		JWTAllowGroups:             s.JWTAllowGroups,
-		PeerViewBlocked:            s.PeerViewBlocked,
+		RegularUsersViewBlocked:    s.RegularUsersViewBlocked,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()
@@ -933,7 +933,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
-	log.Debugf("Dashboard view blocked: %v", newSettings.PeerViewBlocked)
+	log.Debugf("Dashboard view blocked: %v", newSettings.RegularUsersViewBlocked)
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -1896,7 +1896,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 			PeerLoginExpirationEnabled: true,
 			PeerLoginExpiration:        DefaultPeerLoginExpiration,
 			GroupsPropagationEnabled:   true,
-			PeerViewBlocked:            true,
+			RegularUsersViewBlocked:    true,
 		},
 	}
 

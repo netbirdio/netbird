@@ -69,7 +69,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 		Settings: &server.Settings{
 			PeerLoginExpirationEnabled: false,
 			PeerLoginExpiration:        time.Hour,
-			PeerViewBlocked:            true,
+			RegularUsersViewBlocked:    true,
 		},
 	}, adminUser)
 

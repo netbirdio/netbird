@@ -55,7 +55,7 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*nbpeer.P
 	peers := make([]*nbpeer.Peer, 0)
 	peersMap := make(map[string]*nbpeer.Peer)
 
-	if !user.HasAdminPower() && !user.IsServiceUser && account.Settings.PeerViewBlocked {
+	if !user.HasAdminPower() && !user.IsServiceUser && account.Settings.RegularUsersViewBlocked {
 		return peers, nil
 	}
 
@@ -743,7 +743,7 @@ func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*nbp
 		return nil, err
 	}
 
-	if !user.HasAdminPower() && !user.IsServiceUser && account.Settings.PeerViewBlocked {
+	if !user.HasAdminPower() && !user.IsServiceUser && account.Settings.RegularUsersViewBlocked {
 		return nil, status.Errorf(status.Internal, "user %s has no access to his own peer %s under account %s", userID, peerID, accountID)
 	}
 

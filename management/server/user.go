@@ -122,7 +122,7 @@ func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo
 	dashboardViewPermissions := "full"
 	if !u.HasAdminPower() {
 		dashboardViewPermissions = "limited"
-		if settings.PeerViewBlocked {
+		if settings.RegularUsersViewBlocked {
 			dashboardViewPermissions = "blocked"
 		}
 	}

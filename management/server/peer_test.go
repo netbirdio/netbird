@@ -392,7 +392,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 		Id:   someUser,
 		Role: UserRoleUser,
 	}
-	account.Settings.PeerViewBlocked = false
+	account.Settings.RegularUsersViewBlocked = false
 
 	err = manager.Store.SaveAccount(account)
 	if err != nil {
