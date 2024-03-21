@@ -153,12 +153,16 @@ func calculateLatencyScores(routePeerStatuses map[string]routerPeerStatus) map[s
 	}
 
 	sort.Slice(latencies, func(i, j int) bool {
-		return latencies[i].Latency < latencies[j].Latency
+		return latencies[i].Latency > latencies[j].Latency
 	})
 
 	positions := make(map[string]int)
 	for i, latencyInfo := range latencies {
-		positions[latencyInfo.ID] = i + 1
+		score := 0
+		if latencyInfo.Latency > 0 {
+			score = i + 1
+		}
+		positions[latencyInfo.ID] = score
 	}
 
 	return positions

@@ -3,6 +3,7 @@ package routemanager
 import (
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/netbirdio/netbird/route"
 )
@@ -178,6 +179,60 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 			},
 			currentRoute:    nil,
 			expectedRouteID: "route1",
+		},
+		{
+			name: "multiple connected peers with different latencies",
+			statuses: map[string]routerPeerStatus{
+				"route1": {
+					connected: true,
+					latency:   30 * time.Millisecond,
+				},
+				"route2": {
+					connected: true,
+					latency:   10 * time.Millisecond,
+				},
+			},
+			existingRoutes: map[string]*route.Route{
+				"route1": {
+					ID:     "route1",
+					Metric: route.MaxMetric,
+					Peer:   "peer1",
+				},
+				"route2": {
+					ID:     "route2",
+					Metric: route.MaxMetric,
+					Peer:   "peer2",
+				},
+			},
+			currentRoute:    nil,
+			expectedRouteID: "route2",
+		},
+		{
+			name: "should ignore routes with latency 0",
+			statuses: map[string]routerPeerStatus{
+				"route1": {
+					connected: true,
+					latency:   0 * time.Millisecond,
+				},
+				"route2": {
+					connected: true,
+					latency:   10 * time.Millisecond,
+				},
+			},
+			existingRoutes: map[string]*route.Route{
+				"route1": {
+					ID:     "route1",
+					Metric: route.MaxMetric,
+					Peer:   "peer1",
+				},
+				"route2": {
+					ID:     "route2",
+					Metric: route.MaxMetric,
+					Peer:   "peer2",
+				},
+			},
+			currentRoute:    nil,
+			expectedRouteID: "route2",
 		},
 	}
 
