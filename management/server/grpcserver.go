@@ -662,22 +662,18 @@ func toPeerChecks(accountManager AccountManager, peerKey string) []*proto.Checks
 
 	protoChecks := make([]*proto.Checks, 0)
 	for _, postureCheck := range postureChecks {
-		var protoCheck proto.Checks
+		protoCheck := &proto.Checks{}
 
-		// send process checks path is not empty
-		// TODO: separate the process unix path and window paths
 		if check := postureCheck.Checks.ProcessCheck; check != nil {
 			for _, process := range check.Processes {
 				if process.Path != "" {
 					protoCheck.ProcessCheck.Files = append(protoCheck.ProcessCheck.Files, process.Path)
-				}
-				if process.WindowsPath != "" {
+				} else if process.WindowsPath != "" {
 					protoCheck.ProcessCheck.Files = append(protoCheck.ProcessCheck.Files, process.Path)
 				}
 			}
 		}
-
-		protoChecks = append(protoChecks, &protoCheck)
+		protoChecks = append(protoChecks, protoCheck)
 	}
 
 	return protoChecks
