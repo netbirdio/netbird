@@ -2,6 +2,8 @@ package routemanager
 
 import (
 	"context"
+	"fmt"
+	"net/netip"
 	"runtime"
 	"sync"
 
@@ -15,8 +17,14 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+var defaultv4 = netip.PrefixFrom(netip.IPv4Unspecified(), 0)
+
+// nolint:unused
+var defaultv6 = netip.PrefixFrom(netip.IPv6Unspecified(), 0)
+
 // Manager is a route manager interface
 type Manager interface {
+	Init() error
 	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
@@ -56,6 +64,19 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 	return dm
 }
 
+// Init sets up the routing
+func (m *DefaultManager) Init() error {
+	if err := cleanupRouting(); err != nil {
+		log.Warnf("Failed cleaning up routing: %v", err)
+	}
+
+	if err := setupRouting(); err != nil {
+		return fmt.Errorf("setup routing: %w", err)
+	}
+	log.Info("Routing setup complete")
+	return nil
+}
+
 func (m *DefaultManager) EnableServerRouter(firewall firewall.Manager) error {
 	var err error
 	m.serverRouter, err = newServerRouter(m.ctx, m.wgInterface, firewall, m.statusRecorder)
@@ -71,10 +92,15 @@ func (m *DefaultManager) Stop() {
 	if m.serverRouter != nil {
 		m.serverRouter.cleanUp()
 	}
+	if err := cleanupRouting(); err != nil {
+		log.Errorf("Error cleaning up routing: %v", err)
+	} else {
+		log.Info("Routing cleanup complete")
+	}
 	m.ctx = nil
 }
 
-// UpdateRoutes compares received routes with existing routes and remove, update or add them to the client and server maps
+// UpdateRoutes compares received routes with existing routes and removes, updates or adds them to the client and server maps
 func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error {
 	select {
 	case <-m.ctx.Done():
@@ -92,7 +118,7 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 		if m.serverRouter != nil {
 			err := m.serverRouter.updateRoutes(newServerRoutesMap)
 			if err != nil {
-				return err
+				return fmt.Errorf("update routes: %w", err)
 			}
 		}
 
@@ -157,11 +183,7 @@ func (m *DefaultManager) classifiesRoutes(newRoutes []*route.Route) (map[string]
 	for _, newRoute := range newRoutes {
 		networkID := route.GetHAUniqueID(newRoute)
 		if !ownNetworkIDs[networkID] {
-			// if prefix is too small, lets assume is a possible default route which is not yet supported
-			// we skip this route management
-			if newRoute.Network.Bits() < minRangeBits {
-				log.Errorf("this agent version: %s, doesn't support default routes, received %s, skipping this route",
-					version.NetbirdVersion(), newRoute.Network)
+			if !isPrefixSupported(newRoute.Network) {
 				continue
 			}
 			newClientRoutesIDMap[networkID] = append(newClientRoutesIDMap[networkID], newRoute)
@@ -178,4 +200,19 @@ func (m *DefaultManager) clientRoutes(initialRoutes []*route.Route) []*route.Rou
 		rs = append(rs, routes...)
 	}
 	return rs
+}
+
+func isPrefixSupported(prefix netip.Prefix) bool {
+	if runtime.GOOS == "linux" {
+		return true
+	}
+
+	// If prefix is too small, lets assume it is a possible default prefix which is not yet supported
+	// we skip this prefix management
+	if prefix.Bits() < minRangeBits {
+		log.Warnf("This agent version: %s, doesn't support default routes, received %s, skipping this prefix",
+			version.NetbirdVersion(), prefix)
+		return false
+	}
+	return true
 }
