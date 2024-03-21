@@ -95,7 +95,8 @@ var _ = Describe("Management service", func() {
 				key, _ := wgtypes.GenerateKey()
 				loginPeerWithValidSetupKey(serverPubKey, key, client)
 
-				encryptedBytes, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.SyncRequest{})
+				syncReq := &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}}
+				encryptedBytes, err := encryption.EncryptMessage(serverPubKey, key, syncReq)
 				Expect(err).NotTo(HaveOccurred())
 
 				sync, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
@@ -145,7 +146,7 @@ var _ = Describe("Management service", func() {
 				loginPeerWithValidSetupKey(serverPubKey, key1, client)
 				loginPeerWithValidSetupKey(serverPubKey, key2, client)
 
-				messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{})
+				messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}})
 				Expect(err).NotTo(HaveOccurred())
 				encryptedBytes, err := encryption.Encrypt(messageBytes, serverPubKey, key)
 				Expect(err).NotTo(HaveOccurred())
@@ -178,7 +179,7 @@ var _ = Describe("Management service", func() {
 				key, _ := wgtypes.GenerateKey()
 				loginPeerWithValidSetupKey(serverPubKey, key, client)
 
-				messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{})
+				messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}})
 				Expect(err).NotTo(HaveOccurred())
 				encryptedBytes, err := encryption.Encrypt(messageBytes, serverPubKey, key)
 				Expect(err).NotTo(HaveOccurred())
@@ -331,7 +332,7 @@ var _ = Describe("Management service", func() {
 
 				var clients []mgmtProto.ManagementService_SyncClient
 				for _, peer := range peers {
-					messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{})
+					messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}})
 					Expect(err).NotTo(HaveOccurred())
 					encryptedBytes, err := encryption.Encrypt(messageBytes, serverPubKey, peer)
 					Expect(err).NotTo(HaveOccurred())
@@ -396,7 +397,8 @@ var _ = Describe("Management service", func() {
 					defer GinkgoRecover()
 					key, _ := wgtypes.GenerateKey()
 					loginPeerWithValidSetupKey(serverPubKey, key, client)
-					encryptedBytes, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.SyncRequest{})
+					syncReq := &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}}
+					encryptedBytes, err := encryption.EncryptMessage(serverPubKey, key, syncReq)
 					Expect(err).NotTo(HaveOccurred())
 
 					// open stream
