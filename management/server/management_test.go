@@ -473,6 +473,10 @@ func (MocIntegratedValidator) IsNotValidPeer(accountID string, peer *nbpeer.Peer
 	return false
 }
 
+func (MocIntegratedValidator) PeerDeleted(_, _ string) error {
+	return nil
+}
+
 func (MocIntegratedValidator) Stop() {}
 
 func loginPeerWithValidSetupKey(serverPubKey wgtypes.Key, key wgtypes.Key, client mgmtProto.ManagementServiceClient) *mgmtProto.LoginResponse {

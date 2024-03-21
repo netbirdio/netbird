@@ -52,6 +52,10 @@ func (MocIntegratedValidator) IsNotValidPeer(accountID string, peer *nbpeer.Peer
 	return false
 }
 
+func (MocIntegratedValidator) PeerDeleted(_, _ string) error {
+	return nil
+}
+
 func (MocIntegratedValidator) Stop() {
 }
 

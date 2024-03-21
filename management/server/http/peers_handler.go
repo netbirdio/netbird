@@ -125,6 +125,7 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 func (h *PeersHandler) deletePeer(accountID, userID string, peerID string, w http.ResponseWriter) {
 	err := h.accountManager.DeletePeer(accountID, peerID, userID)
 	if err != nil {
+		log.Errorf("failed to delete peer: %v", err)
 		util.WriteError(err, w)
 		return
 	}

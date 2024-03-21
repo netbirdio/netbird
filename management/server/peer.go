@@ -241,6 +241,12 @@ func (am *DefaultAccountManager) deletePeers(account *Account, peerIDs []string,
 
 	// the 2nd loop performs the actual modification
 	for _, peer := range peers {
+
+		err := am.integratedPeerValidator.PeerDeleted(account.Id, peer.ID)
+		if err != nil {
+			return err
+		}
+
 		account.DeletePeer(peer.ID)
 		am.peersUpdateManager.SendUpdate(peer.ID,
 			&UpdateMessage{
