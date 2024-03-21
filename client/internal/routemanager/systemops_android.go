@@ -4,10 +4,10 @@ import (
 	"net/netip"
 )
 
-func addToRouteTableIfNoExists(prefix netip.Prefix, addr string) error {
+func addToRouteTableIfNoExists(prefix netip.Prefix, addr, intf string) error {
 	return nil
 }
 
-func removeFromRouteTableIfNonSystem(prefix netip.Prefix, addr string) error {
+func removeFromRouteTableIfNonSystem(prefix netip.Prefix, addr, intf string) error {
 	return nil
 }

@@ -23,6 +23,24 @@ func parseWGAddress(address string) (WGAddress, error) {
 	}, nil
 }
 
+// Masked returns the WGAddress with the IP address part masked according to its network mask.
+func (addr WGAddress) Masked() WGAddress {
+	ip := addr.IP.To4()
+	if ip == nil {
+		ip = addr.IP.To16()
+	}
+
+	maskedIP := make(net.IP, len(ip))
+	for i := range ip {
+		maskedIP[i] = ip[i] & addr.Network.Mask[i]
+	}
+
+	return WGAddress{
+		IP:      maskedIP,
+		Network: addr.Network,
+	}
+}
+
 func (addr WGAddress) String() string {
 	maskSize, _ := addr.Network.Mask.Size()
 	return fmt.Sprintf("%s/%d", addr.IP.String(), maskSize)
