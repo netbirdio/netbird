@@ -81,6 +81,7 @@ components:
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
+        - peer_view_blocked
     AccountExtraSettings:
       type: object
       properties:

@@ -209,7 +209,7 @@ type AccountSettings struct {
 	PeerLoginExpirationEnabled bool `json:"peer_login_expiration_enabled"`
 
 	// PeerViewBlocked Allows blocking regular users from viewing any peers.
-	PeerViewBlocked *bool `json:"peer_view_blocked,omitempty"`
+	PeerViewBlocked bool `json:"peer_view_blocked"`
 }
 
 // Checks List of objects that perform the actual checks
