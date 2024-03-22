@@ -919,6 +919,8 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 		}()
 	}
 
+	am.integratedPeerValidator.SetPeerInvalidationListener(am.onPeersInvalidated)
+
 	return am, nil
 }
 
@@ -1834,6 +1836,15 @@ func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(claims jwtclaims.Aut
 	}
 
 	return nil
+}
+
+func (am *DefaultAccountManager) onPeersInvalidated(accountID string) {
+	updatedAccount, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		log.Errorf("failed to get account %s: %v", accountID, err)
+		return
+	}
+	am.updateAccountPeers(updatedAccount)
 }
 
 // addAllGroup to account object if it doesn't exist

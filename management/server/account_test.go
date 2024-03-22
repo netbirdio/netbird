@@ -56,6 +56,10 @@ func (MocIntegratedValidator) PeerDeleted(_, _ string) error {
 	return nil
 }
 
+func (MocIntegratedValidator) SetPeerInvalidationListener(func(accountID string)) {
+
+}
+
 func (MocIntegratedValidator) Stop() {
 }
 

@@ -14,5 +14,6 @@ type IntegratedValidator interface {
 	IsNotValidPeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) bool
 	GetValidatedPeers(accountID string, groups map[string]*nbgroup.Group, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error)
 	PeerDeleted(accountID, peerID string) error
+	SetPeerInvalidationListener(fn func(accountID string))
 	Stop()
 }
