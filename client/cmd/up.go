@@ -191,6 +191,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		CustomDNSAddress:     customDNSAddressConverted,
 		IsLinuxDesktopClient: isLinuxRunningDesktop(),
 		Hostname:             hostName,
+		ExtraIFaceBlacklist:  extraIFaceBlackList,
 	}
 
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
