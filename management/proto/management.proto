@@ -38,6 +38,12 @@ service ManagementService {
   // EncryptedMessage of the request has a body of PKCEAuthorizationFlowRequest.
   // EncryptedMessage of the response has a body of PKCEAuthorizationFlow.
   rpc GetPKCEAuthorizationFlow(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // SyncMeta is used to sync metadata of the peer.
+  // After sync the peer if there is a change in peer posture check which  needs to be evaluated by the client,
+  // sync meta will evaluate the checks and update the peer meta with the result.
+  // EncryptedMessage of the request has a body of SyncMetaRequest.
+  rpc  SyncMeta(EncryptedMessage) returns (Empty) {}
 }
 
 message EncryptedMessage {
@@ -77,6 +83,11 @@ message SyncResponse {
   repeated Checks Checks = 6;
 }
 
+message  SyncMetaRequest {
+  // Meta data of the peer
+  PeerSystemMeta meta = 1;
+}
+
 message LoginRequest {
   // Pre-authorized setup key (can be empty)
   string setupKey = 1;
@@ -88,6 +99,7 @@ message LoginRequest {
   PeerKeys peerKeys = 4;
 
 }
+
 // PeerKeys is additional peer info like SSH pub key and WireGuard public key.
 // This message is sent on Login or register requests, or when a key rotation has to happen.
 message PeerKeys {

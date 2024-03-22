@@ -652,6 +652,36 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(_ context.Context, req *proto.Encr
 	}, nil
 }
 
+// SyncMeta endpoint is used to synchronize peer's system metadata and notifies the connected,
+// peer's under the same account of any updates.
+func (s *GRPCServer) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*proto.Empty, error) {
+	realIP := getRealIP(ctx)
+	log.Debugf("Sync meta request from peer [%s] [%s]", req.WgPubKey, realIP.String())
+
+	syncMetaReq := &proto.SyncMetaRequest{}
+	peerKey, err := s.parseRequest(req, syncMetaReq)
+	if err != nil {
+		return nil, err
+	}
+
+	if syncMetaReq.GetMeta() == nil {
+		msg := status.Errorf(codes.FailedPrecondition,
+			"peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
+		log.Warn(msg)
+		return nil, msg
+	}
+
+	_, _, err = s.accountManager.SyncPeer(PeerSync{
+		WireGuardPubKey: peerKey.String(),
+		Meta:            extractPeerMeta(syncMetaReq.GetMeta()),
+	})
+	if err != nil {
+		return nil, mapError(err)
+	}
+
+	return &proto.Empty{}, nil
+}
+
 // toPeerChecks returns posture checks for the peer that needs to be evaluated on the client side.
 func toPeerChecks(accountManager AccountManager, peerKey string) []*proto.Checks {
 	postureChecks, err := accountManager.GetPeerAppliedPostureChecks(peerKey)
