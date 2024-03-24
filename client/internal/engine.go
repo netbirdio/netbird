@@ -230,8 +230,8 @@ func (e *Engine) Start() error {
 
 	wgIface, err := e.newWgIface()
 	if err != nil {
-		log.Errorf("failed creating wireguard interface instance %s: [%s]", e.config.WgIfaceName, err.Error())
-		return err
+		log.Errorf("failed creating wireguard interface instance %s: [%s]", e.config.WgIfaceName, err)
+		return fmt.Errorf("new wg interface: %w", err)
 	}
 	e.wgInterface = wgIface
 
@@ -244,29 +244,33 @@ func (e *Engine) Start() error {
 		}
 		e.rpManager, err = rosenpass.NewManager(e.config.PreSharedKey, e.config.WgIfaceName)
 		if err != nil {
-			return err
+			return fmt.Errorf("create rosenpass manager: %w", err)
 		}
 		err := e.rpManager.Run()
 		if err != nil {
-			return err
+			return fmt.Errorf("run rosenpass manager: %w", err)
 		}
 	}
 
 	initialRoutes, dnsServer, err := e.newDnsServer()
 	if err != nil {
 		e.close()
-		return err
+		return fmt.Errorf("create dns server: %w", err)
 	}
 	e.dnsServer = dnsServer
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, initialRoutes)
+	if err := e.routeManager.Init(); err != nil {
+		e.close()
+		return fmt.Errorf("init route manager: %w", err)
+	}
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
 	err = e.wgInterfaceCreate()
 	if err != nil {
 		log.Errorf("failed creating tunnel interface %s: [%s]", e.config.WgIfaceName, err.Error())
 		e.close()
-		return err
+		return fmt.Errorf("create wg interface: %w", err)
 	}
 
 	e.firewall, err = firewall.NewFirewall(e.ctx, e.wgInterface)
@@ -278,7 +282,7 @@ func (e *Engine) Start() error {
 		err = e.routeManager.EnableServerRouter(e.firewall)
 		if err != nil {
 			e.close()
-			return err
+			return fmt.Errorf("enable server router: %w", err)
 		}
 	}
 
@@ -286,7 +290,7 @@ func (e *Engine) Start() error {
 	if err != nil {
 		log.Errorf("failed to pull up wgInterface [%s]: %s", e.wgInterface.Name(), err.Error())
 		e.close()
-		return err
+		return fmt.Errorf("up wg interface: %w", err)
 	}
 
 	if e.firewall != nil {
@@ -296,7 +300,7 @@ func (e *Engine) Start() error {
 	err = e.dnsServer.Initialize()
 	if err != nil {
 		e.close()
-		return err
+		return fmt.Errorf("initialize dns server: %w", err)
 	}
 
 	e.receiveSignalEvents()

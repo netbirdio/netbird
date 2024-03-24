@@ -13,6 +13,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type wgUSPConfigurer struct {
@@ -37,7 +39,7 @@ func (c *wgUSPConfigurer) configureInterface(privateKey string, port int) error 
 	if err != nil {
 		return err
 	}
-	fwmark := 0
+	fwmark := getFwmark()
 	config := wgtypes.Config{
 		PrivateKey:   &key,
 		ReplacePeers: true,
@@ -344,4 +346,11 @@ func toWgUserspaceString(wgCfg wgtypes.Config) string {
 		}
 	}
 	return sb.String()
+}
+
+func getFwmark() int {
+	if runtime.GOOS == "linux" {
+		return nbnet.NetbirdFwmark
+	}
+	return 0
 }
