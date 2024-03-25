@@ -301,7 +301,8 @@ func TestExistsInRouteTable(t *testing.T) {
 	var addressPrefixes []netip.Prefix
 	for _, address := range addresses {
 		p := netip.MustParsePrefix(address.String())
-		if p.Addr().Is4() {
+		// Windows sometimes has hidden interface link local addrs that don't turn up on any interface
+		if p.Addr().Is4() && !p.Addr().IsLinkLocalUnicast() {
 			addressPrefixes = append(addressPrefixes, p.Masked())
 		}
 	}
