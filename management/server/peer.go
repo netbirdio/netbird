@@ -546,12 +546,16 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *Network
 		return nil, nil, status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
 	}
 
-	requiresApproval := am.integratedPeerValidator.IsNotValidPeer(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
+	requiresApproval, isStatusChanged := am.integratedPeerValidator.IsNotValidPeer(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
 	if requiresApproval {
 		emptyMap := &NetworkMap{
 			Network: account.Network.Copy(),
 		}
 		return peer, emptyMap, nil
+	}
+
+	if isStatusChanged {
+		am.updateAccountPeers(account)
 	}
 
 	approvedPeersMap, err := am.GetValidatedPeers(account)
@@ -637,7 +641,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 		am.StoreEvent(login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
 	}
 
-	isRequiresApproval := am.integratedPeerValidator.IsNotValidPeer(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
+	isRequiresApproval, isStatusChanged := am.integratedPeerValidator.IsNotValidPeer(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
 	peer, updated := updatePeerMeta(peer, login.Meta, account)
 	if updated {
 		shouldStoreAccount = true
@@ -655,7 +659,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 		}
 	}
 
-	if updateRemotePeers {
+	if updateRemotePeers || isStatusChanged {
 		am.updateAccountPeers(account)
 	}
 
