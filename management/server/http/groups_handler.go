@@ -35,16 +35,17 @@ func NewGroupsHandler(accountManager server.AccountManager, authCfg AuthCfg) *Gr
 // GetAllGroups list for the account
 func (h *GroupsHandler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
-	var groups []*api.Group
-	for _, g := range account.Groups {
-		groups = append(groups, toGroupResponse(account, g))
+	groups, err := h.accountManager.GetAllGroups(account.Id, user.Id)
+	if err != nil {
+		util.WriteError(err, w)
+		return
 	}
 
 	util.WriteJSONObject(w, groups)
@@ -207,7 +208,7 @@ func (h *GroupsHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 // GetGroup returns a group
 func (h *GroupsHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -221,7 +222,7 @@ func (h *GroupsHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		group, err := h.accountManager.GetGroup(account.Id, groupID)
+		group, err := h.accountManager.GetGroup(account.Id, groupID, user.Id)
 		if err != nil {
 			util.WriteError(err, w)
 			return

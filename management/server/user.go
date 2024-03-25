@@ -1038,6 +1038,15 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 			if localUser.IsServiceUser {
 				name = localUser.ServiceUserName
 			}
+
+			dashboardViewPermissions := "full"
+			if !user.HasAdminPower() {
+				dashboardViewPermissions = "limited"
+				if account.Settings.RegularUsersViewBlocked {
+					dashboardViewPermissions = "blocked"
+				}
+			}
+
 			info = &UserInfo{
 				ID:            localUser.Id,
 				Email:         "",
@@ -1047,6 +1056,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 				Status:        string(UserStatusActive),
 				IsServiceUser: localUser.IsServiceUser,
 				NonDeletable:  localUser.NonDeletable,
+				Permissions:   UserPermissions{DashboardView: dashboardViewPermissions},
 			}
 		}
 		userInfos = append(userInfos, info)

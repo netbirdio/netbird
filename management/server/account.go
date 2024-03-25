@@ -85,7 +85,8 @@ type AccountManager interface {
 	GetAllPATs(accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error)
 	UpdatePeerSSHKey(peerID string, sshKey string) error
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
-	GetGroup(accountId, groupID string) (*Group, error)
+	GetGroup(accountId, groupID, userID string) (*Group, error)
+	GetAllGroups(accountID, userID string) ([]*Group, error)
 	GetGroupByName(groupName, accountID string) (*Group, error)
 	SaveGroup(accountID, userID string, group *Group) error
 	DeleteGroup(accountId, userId, groupID string) error
