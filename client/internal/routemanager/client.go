@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
-	"sort"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -92,17 +91,15 @@ func (c *clientNetwork) getRouterPeerStatuses() map[string]routerPeerStatus {
 // It returns the ID of the selected optimal route.
 func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]routerPeerStatus) string {
 	chosen := ""
-	chosenScore := 0
+	chosenScore := float64(0)
 
 	currID := ""
 	if c.chosenRoute != nil {
 		currID = c.chosenRoute.ID
 	}
 
-	latencyScores := calculateLatencyScores(routePeerStatuses)
-
 	for _, r := range c.routes {
-		tempScore := 0
+		tempScore := float64(0)
 		peerStatus, found := routePeerStatuses[r.ID]
 		if !found || !peerStatus.connected {
 			continue
@@ -110,10 +107,15 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 
 		if r.Metric < route.MaxMetric {
 			metricDiff := route.MaxMetric - r.Metric
-			tempScore = metricDiff * 10
+			tempScore = float64(metricDiff) * 10
 		}
 
-		tempScore += latencyScores[r.ID]
+		// in some temporal cases, latency can be 0, so we set it to 100ms as a default value to avoid false results
+		latency := 100 * time.Millisecond
+		if peerStatus.latency != 0 {
+			latency = peerStatus.latency
+		}
+		tempScore -= latency.Seconds()
 
 		if !peerStatus.relayed {
 			tempScore++
@@ -143,43 +145,10 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 		log.Warnf("the network %s has not been assigned a routing peer as no peers from the list %s are currently connected", c.network, peers)
 
 	} else if chosen != currID {
-		log.Infof("new chosen route is %s with peer %s with score %d for network %s", chosen, c.routes[chosen].Peer, chosenScore, c.network)
+		log.Infof("new chosen route is %s with peer %s with score %f for network %s", chosen, c.routes[chosen].Peer, chosenScore, c.network)
 	}
 
 	return chosen
-}
-
-// calculateLatencyScores calculates the latency scores for route based on the latency of the peers.
-// The output will return a map of peer ID to latency score. The lower the latency, the lower the score.
-// The highest latency will have a score of 1, the second highest will have a score of 2, and so on.
-// The lowest latency will have the highest score.
-func calculateLatencyScores(routePeerStatuses map[string]routerPeerStatus) map[string]int {
-	latencies := make([]struct {
-		ID      string
-		Latency time.Duration
-	}, 0, len(routePeerStatuses))
-
-	for id, status := range routePeerStatuses {
-		latencies = append(latencies, struct {
-			ID      string
-			Latency time.Duration
-		}{ID: id, Latency: status.latency})
-	}
-
-	sort.Slice(latencies, func(i, j int) bool {
-		return latencies[i].Latency > latencies[j].Latency
-	})
-
-	positions := make(map[string]int)
-	for i, latencyInfo := range latencies {
-		score := 0
-		if latencyInfo.Latency > 0 {
-			score = i + 1
-		}
-		positions[latencyInfo.ID] = score
-	}
-
-	return positions
 }
 
 func (c *clientNetwork) watchPeerStatusChanges(ctx context.Context, peerKey string, peerStateUpdate chan struct{}, closer chan struct{}) {
