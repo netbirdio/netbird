@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"net/netip"
 	"os/exec"
 	"strings"
 	"testing"
@@ -41,6 +40,8 @@ type testCase struct {
 	dialer             dialer
 }
 
+var expectedVPNint = "wgtest0"
+
 var testCases = []testCase{
 	{
 		name:               "To external host without custom dialer via vpn",
@@ -66,7 +67,7 @@ var testCases = []testCase{
 		destination:        "10.0.0.2:53",
 		expectedSourceIP:   "192.168.0.1",
 		expectedDestPrefix: "10.0.0.2/32",
-		expectedNextHop:    "192.168.0.10",
+		expectedNextHop:    "0.0.0.0",
 		expectedInterface:  "dummyext0",
 		dialer:             nbnet.NewDialer(),
 	},
@@ -75,7 +76,7 @@ var testCases = []testCase{
 		destination:        "10.0.0.2:53",
 		expectedSourceIP:   "192.168.0.1",
 		expectedDestPrefix: "10.0.0.0/8",
-		expectedNextHop:    "192.168.0.10",
+		expectedNextHop:    "0.0.0.0",
 		expectedInterface:  "dummyext0",
 		dialer:             &net.Dialer{},
 	},
@@ -163,6 +164,7 @@ func testRoute(t *testing.T, destination string, dialer dialer) *FindNetRouteOut
 
 	return combinedOutput
 }
+
 func createAndSetupDummyInterface(t *testing.T, interfaceName, ipAddressCIDR string) string {
 	t.Helper()
 
@@ -221,14 +223,11 @@ func fetchOriginalGateway(t *testing.T) *RouteInfo {
 func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, intf string) {
 	t.Helper()
 
-	prefix, err := netip.ParsePrefix(dstCIDR)
-	require.NoError(t, err)
-
 	var originalRoute *RouteInfo
-	if prefix.String() == "0.0.0.0/0" {
+	if dstCIDR == "0.0.0.0/0" {
 		originalRoute = fetchOriginalGateway(t)
 
-		script := fmt.Sprintf(`Remove-NetRoute -DestinationPrefix "%s" -Confirm:$False`, prefix)
+		script := fmt.Sprintf(`Remove-NetRoute -DestinationPrefix "%s" -Confirm:$False`, dstCIDR)
 		_, err := exec.Command("powershell", "-Command", script).CombinedOutput()
 		require.NoError(t, err, "Failed to remove existing route")
 	}
@@ -249,12 +248,12 @@ func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, intf string) {
 
 	script := fmt.Sprintf(
 		`New-NetRoute -DestinationPrefix "%s" -InterfaceAlias "%s" -NextHop "%s" -RouteMetric %d -PolicyStore ActiveStore -Confirm:$False`,
-		prefix,
+		dstCIDR,
 		intf,
 		gw,
-		1,
+		235,
 	)
-	_, err = exec.Command("powershell", "-Command", script).CombinedOutput()
+	_, err := exec.Command("powershell", "-Command", script).CombinedOutput()
 	require.NoError(t, err, "Failed to add route")
 }
 
@@ -324,5 +323,5 @@ func setupDummyInterfacesAndRoutes(t *testing.T) {
 	// Can't use two interfaces as windows will always pick the default route even if there is a more specific one
 	dummy := createAndSetupDummyInterface(t, "dummyext0", "192.168.0.1/24")
 	addDummyRoute(t, "0.0.0.0/0", net.IPv4(192, 168, 0, 1), dummy)
-	addDummyRoute(t, "10.0.0.0/8", net.IPv4(192, 168, 0, 10), dummy)
+	addDummyRoute(t, "10.0.0.0/8", net.IPv4(192, 168, 0, 1), dummy)
 }

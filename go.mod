@@ -52,7 +52,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-secure-stdlib/base62 v0.1.2
 	github.com/hashicorp/go-version v1.6.0
-	github.com/libp2p/go-netroute v0.2.0
+	github.com/libp2p/go-netroute v0.2.1
 	github.com/magiconair/properties v1.8.5
 	github.com/mattn/go-sqlite3 v1.14.19
 	github.com/mdlayher/socket v0.4.1

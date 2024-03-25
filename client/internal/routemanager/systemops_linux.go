@@ -112,7 +112,7 @@ func cleanupRouting() error {
 	return result.ErrorOrNil()
 }
 
-func addToRouteTableIfNoExists(prefix netip.Prefix, _ string, intf string) error {
+func addVPNRoute(prefix netip.Prefix, intf string) error {
 	// No need to check if routes exist as main table takes precedence over the VPN table via Rule 2
 
 	// TODO remove this once we have ipv6 support
@@ -127,7 +127,7 @@ func addToRouteTableIfNoExists(prefix netip.Prefix, _ string, intf string) error
 	return nil
 }
 
-func removeFromRouteTableIfNonSystem(prefix netip.Prefix, _ string, intf string) error {
+func removeVPNRoute(prefix netip.Prefix, intf string) error {
 	// TODO remove this once we have ipv6 support
 	if prefix == defaultv4 {
 		if err := removeUnreachableRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {

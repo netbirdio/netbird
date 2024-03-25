@@ -9,9 +9,6 @@ import (
 	"syscall"
 
 	"golang.org/x/net/route"
-
-	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/iface"
 )
 
 // selected BSD Route flags.
@@ -28,14 +25,6 @@ const (
 	RTF_BROADCAST = 0x400000
 	RTF_MULTICAST = 0x800000
 )
-
-func setupRouting([]net.IP, *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
-	return nil, nil, nil
-}
-
-func cleanupRouting() error {
-	return nil
-}
 
 func getRoutesFromTable() ([]netip.Prefix, error) {
 	tab, err := route.FetchRIB(syscall.AF_UNSPEC, route.RIBTypeRoute, 0)

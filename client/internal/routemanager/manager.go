@@ -211,13 +211,13 @@ func (m *DefaultManager) clientRoutes(initialRoutes []*route.Route) []*route.Rou
 
 func isPrefixSupported(prefix netip.Prefix) bool {
 	switch runtime.GOOS {
-	case "linux", "windows":
+	case "linux", "windows", "darwin":
 		return true
 	}
 
 	// If prefix is too small, lets assume it is a possible default prefix which is not yet supported
 	// we skip this prefix management
-	if prefix.Bits() < minRangeBits {
+	if prefix.Bits() <= minRangeBits {
 		log.Warnf("This agent version: %s, doesn't support default routes, received %s, skipping this prefix",
 			version.NetbirdVersion(), prefix)
 		return false

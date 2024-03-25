@@ -1119,6 +1119,10 @@ func (e *Engine) close() {
 		e.dnsServer.Stop()
 	}
 
+	if e.routeManager != nil {
+		e.routeManager.Stop()
+	}
+
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
 	if e.wgInterface != nil {
 		if err := e.wgInterface.Close(); err != nil {
@@ -1131,10 +1135,6 @@ func (e *Engine) close() {
 		if err != nil {
 			log.Warnf("failed stopping the SSH server: %v", err)
 		}
-	}
-
-	if e.routeManager != nil {
-		e.routeManager.Stop()
 	}
 
 	if e.firewall != nil {
