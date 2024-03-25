@@ -1,12 +1,13 @@
 //go:build windows
-// +build windows
 
 package routemanager
 
 import (
+	"fmt"
 	"net"
 	"net/netip"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/yusufpapurcu/wmi"
 )
 
@@ -21,17 +22,19 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 
 	err := wmi.Query(query, &routes)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get routes: %w", err)
 	}
 
 	var prefixList []netip.Prefix
 	for _, route := range routes {
 		addr, err := netip.ParseAddr(route.Destination)
 		if err != nil {
+			log.Warnf("Unable to parse route destination %s: %v", route.Destination, err)
 			continue
 		}
 		maskSlice := net.ParseIP(route.Mask).To4()
 		if maskSlice == nil {
+			log.Warnf("Unable to parse route mask %s", route.Mask)
 			continue
 		}
 		mask := net.IPv4Mask(maskSlice[0], maskSlice[1], maskSlice[2], maskSlice[3])
@@ -43,4 +46,12 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 		}
 	}
 	return prefixList, nil
+}
+
+func addToRouteTableIfNoExists(prefix netip.Prefix, addr string, intf string) error {
+	return genericAddToRouteTableIfNoExists(prefix, addr, intf)
+}
+
+func removeFromRouteTableIfNonSystem(prefix netip.Prefix, addr string, intf string) error {
+	return genericRemoveFromRouteTableIfNonSystem(prefix, addr, intf)
 }
