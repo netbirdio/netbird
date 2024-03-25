@@ -336,9 +336,7 @@ func setupRoutingWithRouteManager(routeManager **RouteManager, initAddresses []n
 			}
 			return addRouteToNonVPNIntf(prefix, wgIface, nexthop, intf)
 		},
-		func(prefix netip.Prefix, nexthop netip.Addr, intf string) error {
-			return removeFromRouteTable(prefix, nexthop, intf)
-		},
+		removeFromRouteTable,
 	)
 
 	return setupHooks(*routeManager, initAddresses)

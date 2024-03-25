@@ -33,16 +33,6 @@ func assertWGOutInterface(t *testing.T, prefix netip.Prefix, wgIface *iface.WGIf
 	}
 }
 
-func parseOutgoingInterface(routeGetOutput string) string {
-	fields := strings.Fields(routeGetOutput)
-	for i, field := range fields {
-		if field == "dev" && i+1 < len(fields) {
-			return fields[i+1]
-		}
-	}
-	return ""
-}
-
 func TestAddRemoveRoutes(t *testing.T) {
 	testCases := []struct {
 		name                   string

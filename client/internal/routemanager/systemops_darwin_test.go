@@ -16,7 +16,6 @@ import (
 var expectedVPNint = "utun100"
 var expectedExternalInt = "lo0"
 var expectedInternalInt = "lo0"
-var expectedLoopbackInt = "lo0"
 
 func init() {
 	testCases = append(testCases, []testCase{

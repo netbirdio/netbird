@@ -140,10 +140,6 @@ func removeVPNRoute(prefix netip.Prefix, intf string) error {
 	return nil
 }
 
-func getRoutesFromTable() ([]netip.Prefix, error) {
-	return getRoutes(NetbirdVPNTableID, netlink.FAMILY_V4)
-}
-
 // addRoute adds a route to a specific routing table identified by tableID.
 func addRoute(prefix *netip.Prefix, addr, intf *string, tableID, family int) error {
 	route := &netlink.Route{
