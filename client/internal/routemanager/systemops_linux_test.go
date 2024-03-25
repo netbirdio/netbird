@@ -21,6 +21,8 @@ var expectedLoopbackInt = "lo"
 var expectedExternalInt = "dummyext0"
 var expectedInternalInt = "dummyint0"
 
+var errRouteNotFound = fmt.Errorf("route not found")
+
 func init() {
 	testCases = append(testCases, []testCase{
 		{
@@ -133,30 +135,31 @@ func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, intf string) {
 	require.NoError(t, err)
 
 	// Handle existing routes with metric 0
-
 	var originalNexthop net.IP
 	var originalLinkIndex int
 	if dstIPNet.String() == "0.0.0.0/0" {
 		var err error
 		originalNexthop, originalLinkIndex, err = fetchOriginalGateway(netlink.FAMILY_V4)
-		if err != nil {
+		if err != nil && !errors.Is(err, errRouteNotFound) {
 			t.Logf("Failed to fetch original gateway: %v", err)
 		}
 
-		// Handle existing routes with metric 0
-		if err = netlink.RouteDel(&netlink.Route{Dst: dstIPNet, Priority: 0}); err != nil && !errors.Is(err, syscall.ESRCH) {
-			t.Logf("Failed to delete route: %v", err)
-		}
-	}
-
-	t.Cleanup(func() {
 		if originalNexthop != nil {
-			err := netlink.RouteAdd(&netlink.Route{Dst: dstIPNet, Gw: originalNexthop, LinkIndex: originalLinkIndex, Priority: 0})
-			if err != nil && !errors.Is(err, syscall.EEXIST) {
-				t.Fatalf("Failed to add route: %v", err)
+			err = netlink.RouteDel(&netlink.Route{Dst: dstIPNet, Priority: 0})
+			if !errors.Is(err, syscall.ESRCH) {
+				t.Logf("Failed to delete route: %v", err)
+			} else if err == nil {
+				t.Cleanup(func() {
+					err := netlink.RouteAdd(&netlink.Route{Dst: dstIPNet, Gw: originalNexthop, LinkIndex: originalLinkIndex, Priority: 0})
+					if err != nil && !errors.Is(err, syscall.EEXIST) {
+						t.Fatalf("Failed to add route: %v", err)
+					}
+				})
+			} else {
+				t.Logf("Failed to delete route: %v", err)
 			}
 		}
-	})
+	}
 
 	link, err := netlink.LinkByName(intf)
 	require.NoError(t, err)
@@ -186,12 +189,12 @@ func fetchOriginalGateway(family int) (net.IP, int, error) {
 	}
 
 	for _, route := range routes {
-		if route.Dst == nil {
+		if route.Dst == nil && route.Priority == 0 {
 			return route.Gw, route.LinkIndex, nil
 		}
 	}
 
-	return nil, 0, fmt.Errorf("default route not found")
+	return nil, 0, errRouteNotFound
 }
 
 func setupDummyInterfacesAndRoutes(t *testing.T) {

@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -239,9 +238,7 @@ func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
 			t.Log("Buffer string: ", buf.String())
 			require.NoError(t, err, "should not return err")
 
-			// Linux uses a separate routing table, so the route can exist in both tables.
-			// The main routing table takes precedence over the wireguard routing table.
-			if !strings.Contains(buf.String(), "because it already exists") && runtime.GOOS != "linux" {
+			if !strings.Contains(buf.String(), "because it already exists") {
 				require.False(t, ok, "route should not exist")
 			}
 		})
