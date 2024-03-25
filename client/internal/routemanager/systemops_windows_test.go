@@ -19,6 +19,7 @@ import (
 type RouteInfo struct {
 	NextHop        string `json:"nexthop"`
 	InterfaceAlias string `json:"interfacealias"`
+	RouteMetric    int    `json:"routemetric"`
 }
 
 type FindNetRouteOutput struct {
@@ -206,52 +207,58 @@ func cleanupInterfaces(t *testing.T) {
 	assert.NoError(t, err, "Failed to remove loopback adapter")
 }
 
-func fetchOriginalGateway(t *testing.T) *RouteInfo {
-	t.Helper()
-
-	cmd := exec.Command("powershell", "-Command", "Get-NetRoute -DestinationPrefix 0.0.0.0/0 | Select-Object NextHop, InterfaceAlias | ConvertTo-Json")
+func fetchOriginalGateway() (*RouteInfo, error) {
+	cmd := exec.Command("powershell", "-Command", "Get-NetRoute -DestinationPrefix 0.0.0.0/0 | Select-Object NextHop, RouteMetric, InterfaceAlias | ConvertTo-Json")
 	output, err := cmd.CombinedOutput()
-	require.NoError(t, err, "Failed to execute Get-NetRoute")
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Get-NetRoute: %w", err)
+	}
 
 	var routeInfo RouteInfo
 	err = json.Unmarshal(output, &routeInfo)
-	require.NoError(t, err, "Failed to parse JSON output from Get-NetRoute")
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse JSON output: %w", err)
+	}
 
-	return &routeInfo
+	return &routeInfo, nil
+}
+
+func setRouteMetric(t *testing.T, route *RouteInfo, prefix string, metric int) {
+	t.Helper()
+
+	script := fmt.Sprintf(
+		`Set-NetRoute -DestinationPrefix "%s" -InterfaceAlias "%s" -NextHop "%s" -RouteMetric %d -PolicyStore ActiveStore -Confirm:$False`,
+		prefix,
+		route.InterfaceAlias,
+		route.NextHop,
+		metric,
+	)
+	_, err := exec.Command("powershell", "-Command", script).CombinedOutput()
+	require.NoError(t, err, "Failed to re-add original route")
 }
 
 func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, intf string) {
 	t.Helper()
 
-	var originalRoute *RouteInfo
 	if dstCIDR == "0.0.0.0/0" {
-		originalRoute = fetchOriginalGateway(t)
+		originalRoute, err := fetchOriginalGateway()
+		require.NoError(t, err, "Failed to fetch original route")
 
-		script := fmt.Sprintf(`Remove-NetRoute -DestinationPrefix "%s" -Confirm:$False`, dstCIDR)
-		_, err := exec.Command("powershell", "-Command", script).CombinedOutput()
-		require.NoError(t, err, "Failed to remove existing route")
-	}
-
-	t.Cleanup(func() {
+		// change to higher route metric if a route exists with metric 0
 		if originalRoute != nil {
-			script := fmt.Sprintf(
-				`New-NetRoute -DestinationPrefix "0.0.0.0/0" -InterfaceAlias "%s" -NextHop "%s" -Confirm:$False`,
-				originalRoute.InterfaceAlias,
-				originalRoute.NextHop,
-			)
-			_, err := exec.Command("powershell", "-Command", script).CombinedOutput()
-			if err != nil {
-				t.Logf("Failed to restore original route: %v", err)
-			}
+			setRouteMetric(t, originalRoute, dstCIDR, 10)
+			t.Cleanup(func() {
+				setRouteMetric(t, originalRoute, dstCIDR, 0)
+			})
 		}
-	})
+	}
 
 	script := fmt.Sprintf(
 		`New-NetRoute -DestinationPrefix "%s" -InterfaceAlias "%s" -NextHop "%s" -RouteMetric %d -PolicyStore ActiveStore -Confirm:$False`,
 		dstCIDR,
 		intf,
 		gw,
-		235,
+		1,
 	)
 	_, err := exec.Command("powershell", "-Command", script).CombinedOutput()
 	require.NoError(t, err, "Failed to add route")
