@@ -146,16 +146,17 @@ func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, intf string) {
 
 		if originalNexthop != nil {
 			err = netlink.RouteDel(&netlink.Route{Dst: dstIPNet, Priority: 0})
-			if !errors.Is(err, syscall.ESRCH) {
+			switch {
+			case err != nil && !errors.Is(err, syscall.ESRCH):
 				t.Logf("Failed to delete route: %v", err)
-			} else if err == nil {
+			case err == nil:
 				t.Cleanup(func() {
 					err := netlink.RouteAdd(&netlink.Route{Dst: dstIPNet, Gw: originalNexthop, LinkIndex: originalLinkIndex, Priority: 0})
 					if err != nil && !errors.Is(err, syscall.EEXIST) {
 						t.Fatalf("Failed to add route: %v", err)
 					}
 				})
-			} else {
+			default:
 				t.Logf("Failed to delete route: %v", err)
 			}
 		}
