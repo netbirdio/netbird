@@ -1040,7 +1040,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 			}
 
 			dashboardViewPermissions := "full"
-			if !user.HasAdminPower() {
+			if !localUser.HasAdminPower() {
 				dashboardViewPermissions = "limited"
 				if account.Settings.RegularUsersViewBlocked {
 					dashboardViewPermissions = "blocked"
