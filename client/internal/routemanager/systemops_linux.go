@@ -261,34 +261,6 @@ func flushRoutes(tableID, family int) error {
 	return result.ErrorOrNil()
 }
 
-// getRoutes fetches routes from a specific routing table identified by tableID.
-func getRoutes(tableID, family int) ([]netip.Prefix, error) {
-	var prefixList []netip.Prefix
-
-	routes, err := netlink.RouteListFiltered(family, &netlink.Route{Table: tableID}, netlink.RT_FILTER_TABLE)
-	if err != nil {
-		return nil, fmt.Errorf("list routes from table %d: %v", tableID, err)
-	}
-
-	for _, route := range routes {
-		if route.Dst != nil {
-			addr, ok := netip.AddrFromSlice(route.Dst.IP)
-			if !ok {
-				return nil, fmt.Errorf("parse route destination IP: %v", route.Dst.IP)
-			}
-
-			ones, _ := route.Dst.Mask.Size()
-
-			prefix := netip.PrefixFrom(addr, ones)
-			if prefix.IsValid() {
-				prefixList = append(prefixList, prefix)
-			}
-		}
-	}
-
-	return prefixList, nil
-}
-
 func enableIPForwarding() error {
 	bytes, err := os.ReadFile(ipv4ForwardingPath)
 	if err != nil {
