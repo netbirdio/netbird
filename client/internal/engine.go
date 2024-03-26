@@ -487,7 +487,27 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		}
 	}
 
-	return nil
+	// TODO: save the client posture checks on state to have reference to previous response on login
+	// TODO: compare the updated posture checks on sync if there is changes then evaluate the checks
+
+	// evaluate checks and see if there is client evaluates posture check to be check
+	processCheckPaths := make([]string, 0)
+	for _, check := range update.Checks {
+		if processCheck := check.ProcessCheck; processCheck != nil {
+			processCheckPaths = append(processCheckPaths, processCheck.GetFiles()...)
+		}
+	}
+
+	files, err := system.CheckFileAndProcess(processCheckPaths)
+	if err != nil {
+		log.Warnf("failed to check files and processes: %v", err)
+		return nil
+	}
+
+	info := system.GetInfo(e.ctx)
+	info.Files = files
+
+	return e.mgmClient.SyncMeta(info)
 }
 
 func isNil(server nbssh.Server) bool {
