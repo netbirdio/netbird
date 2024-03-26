@@ -30,6 +30,12 @@ type Environment struct {
 	Platform string
 }
 
+type File struct {
+	Path             string
+	Exists           bool
+	ProcessIsRunning bool
+}
+
 // Info is an object that contains machine information
 // Most of the code is taken from https://github.com/matishsiao/goInfo
 type Info struct {
@@ -48,6 +54,7 @@ type Info struct {
 	SystemProductName  string
 	SystemManufacturer string
 	Environment        Environment
+	Files              []File
 }
 
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context

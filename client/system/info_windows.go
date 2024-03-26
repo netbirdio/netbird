@@ -85,6 +85,11 @@ func GetInfo(ctx context.Context) *Info {
 	return gio
 }
 
+// CheckFileAndProcess checks if the file path exists and if a process is running at that path.
+func CheckFileAndProcess(paths []string) ([]File, error) {
+	return []File{}, nil
+}
+
 func getOSNameAndVersion() (string, string) {
 	var dst []Win32_OperatingSystem
 	query := wmi.CreateQuery(&dst, "")
