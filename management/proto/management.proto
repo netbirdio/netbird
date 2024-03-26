@@ -118,6 +118,16 @@ message Environment {
   string platform = 2;
 }
 
+// File represents a file on the system.
+message File {
+  // path is the path to the file.
+  string path = 1;
+  // exist indicate whether the file exists.
+  bool exist = 2;
+  // processIsRunning indicates whether the file is a running process or not.
+  bool processIsRunning = 3;
+}
+
 // PeerSystemMeta is machine meta data like OS and version.
 message PeerSystemMeta {
   string hostname = 1;
@@ -135,6 +145,7 @@ message PeerSystemMeta {
   string sysProductName = 13;
   string sysManufacturer = 14;
   Environment environment = 15;
+  repeated File files = 16;
 }
 
 message LoginResponse {
