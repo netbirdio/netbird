@@ -48,6 +48,11 @@ func (h *GroupsHandler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	groupsResponse := make([]*api.Group, 0, len(groups))
+	for _, group := range groups {
+		groupsResponse = append(groupsResponse, toGroupResponse(account, group))
+	}
+
 	util.WriteJSONObject(w, groups)
 }
 
