@@ -284,6 +284,15 @@ func extractPeerMeta(meta *proto.PeerSystemMeta) nbpeer.PeerSystemMeta {
 		})
 	}
 
+	files := make([]nbpeer.File, 0, len(meta.GetFiles()))
+	for _, file := range meta.GetFiles() {
+		files = append(files, nbpeer.File{
+			Path:             file.GetPath(),
+			Exist:            file.GetExist(),
+			ProcessIsRunning: file.GetProcessIsRunning(),
+		})
+	}
+
 	return nbpeer.PeerSystemMeta{
 		Hostname:           meta.GetHostname(),
 		GoOS:               meta.GetGoOS(),
@@ -302,6 +311,7 @@ func extractPeerMeta(meta *proto.PeerSystemMeta) nbpeer.PeerSystemMeta {
 			Cloud:    meta.GetEnvironment().GetCloud(),
 			Platform: meta.GetEnvironment().GetPlatform(),
 		},
+		Files: files,
 	}
 }
 

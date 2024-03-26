@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"time"
 )
 
@@ -79,9 +80,11 @@ type Environment struct {
 	Platform string
 }
 
-// Process represents an active process on the peer's system.
-type Process struct {
-	Path string
+// File is a file on the system.
+type File struct {
+	Path             string
+	Exist            bool
+	ProcessIsRunning bool
 }
 
 // PeerSystemMeta is a metadata of a Peer machine system
@@ -101,26 +104,17 @@ type PeerSystemMeta struct { //nolint:revive
 	SystemProductName  string
 	SystemManufacturer string
 	Environment        Environment `gorm:"serializer:json"`
-	Processes          []Process   `gorm:"-"`
+	Files              []File      `gorm:"-"`
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
-	if len(p.NetworkAddresses) != len(other.NetworkAddresses) {
-		return false
-	}
+	slices.EqualFunc(p.NetworkAddresses, other.NetworkAddresses, func(addr NetworkAddress, oAddr NetworkAddress) bool {
+		return addr.Mac == oAddr.Mac && addr.NetIP == oAddr.NetIP
+	})
 
-	for _, addr := range p.NetworkAddresses {
-		var found bool
-		for _, oAddr := range other.NetworkAddresses {
-			if addr.Mac == oAddr.Mac && addr.NetIP == oAddr.NetIP {
-				found = true
-				continue
-			}
-		}
-		if !found {
-			return false
-		}
-	}
+	slices.EqualFunc(p.Files, other.Files, func(file File, oFile File) bool {
+		return file.Path == oFile.Path && file.Exist == oFile.Exist && file.ProcessIsRunning == oFile.ProcessIsRunning
+	})
 
 	return p.Hostname == other.Hostname &&
 		p.GoOS == other.GoOS &&

@@ -32,7 +32,7 @@ type Environment struct {
 
 type File struct {
 	Path             string
-	Exists           bool
+	Exist            bool
 	ProcessIsRunning bool
 }
 

@@ -491,6 +491,15 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		})
 	}
 
+	files := make([]*proto.File, 0, len(info.Files))
+	for _, file := range info.Files {
+		files = append(files, &proto.File{
+			Path:             file.Path,
+			Exist:            file.Exist,
+			ProcessIsRunning: file.ProcessIsRunning,
+		})
+	}
+
 	return &proto.PeerSystemMeta{
 		Hostname:           info.Hostname,
 		GoOS:               info.GoOS,
@@ -510,5 +519,6 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			Cloud:    info.Environment.Cloud,
 			Platform: info.Environment.Platform,
 		},
+		Files: files,
 	}
 }
