@@ -16,6 +16,8 @@ import (
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
+var expectedExtInt = "Ethernet1"
+
 type RouteInfo struct {
 	NextHop        string `json:"nexthop"`
 	InterfaceAlias string `json:"interfacealias"`
@@ -56,39 +58,33 @@ var testCases = []testCase{
 	{
 		name:               "To external host with custom dialer via physical interface",
 		destination:        "192.0.2.1:53",
-		expectedSourceIP:   "192.168.0.1",
 		expectedDestPrefix: "192.0.2.1/32",
-		expectedNextHop:    "0.0.0.0",
-		expectedInterface:  "dummyext0",
+		expectedInterface:  expectedExtInt,
 		dialer:             nbnet.NewDialer(),
 	},
 
 	{
 		name:               "To duplicate internal route with custom dialer via physical interface",
 		destination:        "10.0.0.2:53",
-		expectedSourceIP:   "192.168.0.1",
 		expectedDestPrefix: "10.0.0.2/32",
-		expectedNextHop:    "0.0.0.0",
-		expectedInterface:  "dummyext0",
+		expectedInterface:  expectedExtInt,
 		dialer:             nbnet.NewDialer(),
 	},
 	{
 		name:               "To duplicate internal route without custom dialer via physical interface", // local route takes precedence
 		destination:        "10.0.0.2:53",
-		expectedSourceIP:   "192.168.0.1",
+		expectedSourceIP:   "10.0.0.1",
 		expectedDestPrefix: "10.0.0.0/8",
 		expectedNextHop:    "0.0.0.0",
-		expectedInterface:  "dummyext0",
+		expectedInterface:  "Loopback Pseudo-Interface 1",
 		dialer:             &net.Dialer{},
 	},
 
 	{
 		name:               "To unique vpn route with custom dialer via physical interface",
 		destination:        "172.16.0.2:53",
-		expectedSourceIP:   "192.168.0.1",
 		expectedDestPrefix: "172.16.0.2/32",
-		expectedNextHop:    "0.0.0.0",
-		expectedInterface:  "dummyext0",
+		expectedInterface:  expectedExtInt,
 		dialer:             nbnet.NewDialer(),
 	},
 	{
@@ -114,7 +110,7 @@ var testCases = []testCase{
 	{
 		name:               "To more specific route (local) without custom dialer via physical interface",
 		destination:        "127.0.10.2:53",
-		expectedSourceIP:   "127.0.0.1",
+		expectedSourceIP:   "10.0.0.1",
 		expectedDestPrefix: "127.0.0.0/8",
 		expectedNextHop:    "0.0.0.0",
 		expectedInterface:  "Loopback Pseudo-Interface 1",
@@ -123,16 +119,35 @@ var testCases = []testCase{
 }
 
 func TestRouting(t *testing.T) {
-	cleanupInterfaces(t)
-
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			setupTestEnv(t)
 
+			route, err := fetchOriginalGateway()
+			require.NoError(t, err, "Failed to fetch original gateway")
+			ip, err := fetchInterfaceIP(route.InterfaceAlias)
+			require.NoError(t, err, "Failed to fetch interface IP")
+
 			output := testRoute(t, tc.destination, tc.dialer)
-			verifyOutput(t, output, tc.expectedSourceIP, tc.expectedDestPrefix, tc.expectedNextHop, tc.expectedInterface)
+			if tc.expectedInterface == expectedExtInt {
+				verifyOutput(t, output, ip, tc.expectedDestPrefix, route.NextHop, route.InterfaceAlias)
+			} else {
+				verifyOutput(t, output, tc.expectedSourceIP, tc.expectedDestPrefix, tc.expectedNextHop, tc.expectedInterface)
+			}
 		})
 	}
+}
+
+// fetchInterfaceIP fetches the IPv4 address of the specified interface.
+func fetchInterfaceIP(interfaceAlias string) (string, error) {
+	script := fmt.Sprintf(`Get-NetIPAddress -InterfaceAlias "%s" | Where-Object AddressFamily -eq 2 | Select-Object -ExpandProperty IPAddress`, interfaceAlias)
+	out, err := exec.Command("powershell", "-Command", script).Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to execute Get-NetIPAddress: %w", err)
+	}
+
+	ip := strings.TrimSpace(string(out))
+	return ip, nil
 }
 
 func testRoute(t *testing.T, destination string, dialer dialer) *FindNetRouteOutput {
@@ -169,21 +184,10 @@ func testRoute(t *testing.T, destination string, dialer dialer) *FindNetRouteOut
 func createAndSetupDummyInterface(t *testing.T, interfaceName, ipAddressCIDR string) string {
 	t.Helper()
 
-	const defaultInterfaceName = "Ethernet"
-
-	_, err := exec.Command("devcon64.exe", "install", `c:\windows\inf\netloop.inf`, "*msloop").CombinedOutput()
-	require.NoError(t, err, "Failed to create loopback adapter")
-
-	// Give the system a moment to register the new adapter
-	time.Sleep(time.Second * 1)
-
-	_, err = exec.Command("powershell", "-Command", fmt.Sprintf(`Rename-NetAdapter -Name "%s" -NewName "%s"`, defaultInterfaceName, interfaceName)).CombinedOutput()
-	require.NoError(t, err, "Failed to rename loopback adapter")
-
 	ip, ipNet, err := net.ParseCIDR(ipAddressCIDR)
 	require.NoError(t, err)
 	subnetMaskSize, _ := ipNet.Mask.Size()
-	script := fmt.Sprintf(`New-NetIPAddress -InterfaceAlias "%s" -IPAddress "%s" -PrefixLength %d -Confirm:$False`, interfaceName, ip.String(), subnetMaskSize)
+	script := fmt.Sprintf(`New-NetIPAddress -InterfaceAlias "%s" -IPAddress "%s" -PrefixLength %d -PolicyStore ActiveStore -Confirm:$False`, interfaceName, ip.String(), subnetMaskSize)
 	_, err = exec.Command("powershell", "-Command", script).CombinedOutput()
 	require.NoError(t, err, "Failed to assign IP address to loopback adapter")
 
@@ -194,17 +198,12 @@ func createAndSetupDummyInterface(t *testing.T, interfaceName, ipAddressCIDR str
 	require.NoError(t, err, "IP address not applied within timeout")
 
 	t.Cleanup(func() {
-		cleanupInterfaces(t)
+		script = fmt.Sprintf(`Remove-NetIPAddress -InterfaceAlias "%s" -IPAddress "%s" -Confirm:$False`, interfaceName, ip.String())
+		_, err = exec.Command("powershell", "-Command", script).CombinedOutput()
+		require.NoError(t, err, "Failed to remove IP address from loopback adapter")
 	})
 
 	return interfaceName
-}
-
-func cleanupInterfaces(t *testing.T) {
-	t.Helper()
-
-	_, err := exec.Command("devcon64.exe", "/r", "remove", "=net", `@ROOT\NET\*`).CombinedOutput()
-	assert.NoError(t, err, "Failed to remove loopback adapter")
 }
 
 func fetchOriginalGateway() (*RouteInfo, error) {
@@ -221,47 +220,6 @@ func fetchOriginalGateway() (*RouteInfo, error) {
 	}
 
 	return &routeInfo, nil
-}
-
-func setRouteMetric(t *testing.T, route *RouteInfo, prefix string, metric int) {
-	t.Helper()
-
-	script := fmt.Sprintf(
-		`Set-NetRoute -DestinationPrefix "%s" -InterfaceAlias "%s" -NextHop "%s" -RouteMetric %d -PolicyStore ActiveStore -Confirm:$False`,
-		prefix,
-		route.InterfaceAlias,
-		route.NextHop,
-		metric,
-	)
-	_, err := exec.Command("powershell", "-Command", script).CombinedOutput()
-	require.NoError(t, err, "Failed to re-add original route")
-}
-
-func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, intf string) {
-	t.Helper()
-
-	if dstCIDR == "0.0.0.0/0" {
-		originalRoute, err := fetchOriginalGateway()
-		require.NoError(t, err, "Failed to fetch original route")
-
-		// change to higher route metric if a route exists with metric 0
-		if originalRoute != nil {
-			setRouteMetric(t, originalRoute, dstCIDR, 10)
-			t.Cleanup(func() {
-				setRouteMetric(t, originalRoute, dstCIDR, 0)
-			})
-		}
-	}
-
-	script := fmt.Sprintf(
-		`New-NetRoute -DestinationPrefix "%s" -InterfaceAlias "%s" -NextHop "%s" -RouteMetric %d -PolicyStore ActiveStore -Confirm:$False`,
-		dstCIDR,
-		intf,
-		gw,
-		1,
-	)
-	_, err := exec.Command("powershell", "-Command", script).CombinedOutput()
-	require.NoError(t, err, "Failed to add route")
 }
 
 func verifyOutput(t *testing.T, output *FindNetRouteOutput, sourceIP, destPrefix, nextHop, intf string) {
@@ -327,8 +285,5 @@ func combineOutputs(outputs []FindNetRouteOutput) *FindNetRouteOutput {
 func setupDummyInterfacesAndRoutes(t *testing.T) {
 	t.Helper()
 
-	// Can't use two interfaces as windows will always pick the default route even if there is a more specific one
-	dummy := createAndSetupDummyInterface(t, "dummyext0", "192.168.0.1/24")
-	addDummyRoute(t, "0.0.0.0/0", net.IPv4(192, 168, 0, 1), dummy)
-	addDummyRoute(t, "10.0.0.0/8", net.IPv4(192, 168, 0, 1), dummy)
+	createAndSetupDummyInterface(t, "Loopback Pseudo-Interface 1", "10.0.0.1/8")
 }
