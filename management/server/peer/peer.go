@@ -104,17 +104,23 @@ type PeerSystemMeta struct { //nolint:revive
 	SystemProductName  string
 	SystemManufacturer string
 	Environment        Environment `gorm:"serializer:json"`
-	Files              []File      `gorm:"-"`
+	Files              []File      `gorm:"serializer:json"`
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
-	slices.EqualFunc(p.NetworkAddresses, other.NetworkAddresses, func(addr NetworkAddress, oAddr NetworkAddress) bool {
+	equalNetworkAddresses := slices.EqualFunc(p.NetworkAddresses, other.NetworkAddresses, func(addr NetworkAddress, oAddr NetworkAddress) bool {
 		return addr.Mac == oAddr.Mac && addr.NetIP == oAddr.NetIP
 	})
+	if !equalNetworkAddresses {
+		return false
+	}
 
-	slices.EqualFunc(p.Files, other.Files, func(file File, oFile File) bool {
+	equalFiles := slices.EqualFunc(p.Files, other.Files, func(file File, oFile File) bool {
 		return file.Path == oFile.Path && file.Exist == oFile.Exist && file.ProcessIsRunning == oFile.ProcessIsRunning
 	})
+	if !equalFiles {
+		return false
+	}
 
 	return p.Hostname == other.Hostname &&
 		p.GoOS == other.GoOS &&
