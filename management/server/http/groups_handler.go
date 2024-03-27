@@ -53,7 +53,7 @@ func (h *GroupsHandler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 		groupsResponse = append(groupsResponse, toGroupResponse(account, group))
 	}
 
-	util.WriteJSONObject(w, groups)
+	util.WriteJSONObject(w, groupsResponse)
 }
 
 // UpdateGroup handles update to a group identified by a given ID
