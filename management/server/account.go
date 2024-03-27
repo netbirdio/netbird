@@ -86,7 +86,8 @@ type AccountManager interface {
 	GetAllPATs(accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error)
 	UpdatePeerSSHKey(peerID string, sshKey string) error
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
-	GetGroup(accountId, groupID string) (*nbgroup.Group, error)
+	GetGroup(accountId, groupID, userID string) (*nbgroup.Group, error)
+	GetAllGroups(accountID, userID string) ([]*nbgroup.Group, error)
 	GetGroupByName(groupName, accountID string) (*nbgroup.Group, error)
 	SaveGroup(accountID, userID string, group *nbgroup.Group) error
 	DeleteGroup(accountId, userId, groupID string) error
@@ -168,6 +169,9 @@ type Settings struct {
 	// Applies to all peers that have Peer.LoginExpirationEnabled set to true.
 	PeerLoginExpiration time.Duration
 
+	// RegularUsersViewBlocked allows to block regular users from viewing even their own peers and some UI elements
+	RegularUsersViewBlocked bool
+
 	// GroupsPropagationEnabled allows to propagate auto groups from the user to the peer
 	GroupsPropagationEnabled bool
 
@@ -194,6 +198,7 @@ func (s *Settings) Copy() *Settings {
 		JWTGroupsClaimName:         s.JWTGroupsClaimName,
 		GroupsPropagationEnabled:   s.GroupsPropagationEnabled,
 		JWTAllowGroups:             s.JWTAllowGroups,
+		RegularUsersViewBlocked:    s.RegularUsersViewBlocked,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()
@@ -232,19 +237,24 @@ type Account struct {
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
 }
 
+type UserPermissions struct {
+	DashboardView string `json:"dashboard_view"`
+}
+
 type UserInfo struct {
-	ID                   string                                     `json:"id"`
-	Email                string                                     `json:"email"`
-	Name                 string                                     `json:"name"`
-	Role                 string                                     `json:"role"`
-	AutoGroups           []string                                   `json:"auto_groups"`
-	Status               string                                     `json:"-"`
-	IsServiceUser        bool                                       `json:"is_service_user"`
-	IsBlocked            bool                                       `json:"is_blocked"`
-	NonDeletable         bool                                       `json:"non_deletable"`
-	LastLogin            time.Time                                  `json:"last_login"`
-	Issued               string                                     `json:"issued"`
+	ID                   string               `json:"id"`
+	Email                string               `json:"email"`
+	Name                 string               `json:"name"`
+	Role                 string               `json:"role"`
+	AutoGroups           []string             `json:"auto_groups"`
+	Status               string               `json:"-"`
+	IsServiceUser        bool                 `json:"is_service_user"`
+	IsBlocked            bool                 `json:"is_blocked"`
+	NonDeletable         bool                 `json:"non_deletable"`
+	LastLogin            time.Time            `json:"last_login"`
+	Issued               string               `json:"issued"`
 	IntegrationReference integration_reference.IntegrationReference `json:"-"`
+	Permissions          UserPermissions      `json:"permissions"`
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
@@ -1613,7 +1623,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 		// We override incoming domain claims to group users under a single account.
 		claims.Domain = am.singleAccountModeDomain
 		claims.DomainCategory = PrivateCategory
-		log.Infof("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
+		log.Debugf("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
 	}
 
 	newAcc, err := am.getAccountWithAuthorizationClaims(claims)
@@ -1919,6 +1929,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 			PeerLoginExpirationEnabled: true,
 			PeerLoginExpiration:        DefaultPeerLoginExpiration,
 			GroupsPropagationEnabled:   true,
+			RegularUsersViewBlocked:    true,
 		},
 	}
 

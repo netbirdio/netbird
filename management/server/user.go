@@ -97,10 +97,18 @@ func (u *User) HasAdminPower() bool {
 }
 
 // ToUserInfo converts a User object to a UserInfo object.
-func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
+func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo, error) {
 	autoGroups := u.AutoGroups
 	if autoGroups == nil {
 		autoGroups = []string{}
+	}
+
+	dashboardViewPermissions := "full"
+	if !u.HasAdminPower() {
+		dashboardViewPermissions = "limited"
+		if settings.RegularUsersViewBlocked {
+			dashboardViewPermissions = "blocked"
+		}
 	}
 
 	if userData == nil {
@@ -115,6 +123,9 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 			IsBlocked:     u.Blocked,
 			LastLogin:     u.LastLogin,
 			Issued:        u.Issued,
+			Permissions: UserPermissions{
+				DashboardView: dashboardViewPermissions,
+			},
 		}, nil
 	}
 	if userData.ID != u.Id {
@@ -137,6 +148,9 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 		IsBlocked:     u.Blocked,
 		LastLogin:     u.LastLogin,
 		Issued:        u.Issued,
+		Permissions: UserPermissions{
+			DashboardView: dashboardViewPermissions,
+		},
 	}, nil
 }
 
@@ -342,7 +356,7 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 
 	am.StoreEvent(userID, newUser.Id, accountID, activity.UserInvited, nil)
 
-	return newUser.ToUserInfo(idpUser)
+	return newUser.ToUserInfo(idpUser, account.Settings)
 }
 
 // GetUser looks up a user by provided authorization claims.
@@ -889,9 +903,9 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 		if err != nil {
 			return nil, err
 		}
-		return newUser.ToUserInfo(userData)
+		return newUser.ToUserInfo(userData, account.Settings)
 	}
-	return newUser.ToUserInfo(nil)
+	return newUser.ToUserInfo(nil, account.Settings)
 }
 
 // GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
@@ -982,7 +996,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 				// if user is not an admin then show only current user and do not show other users
 				continue
 			}
-			info, err := accountUser.ToUserInfo(nil)
+			info, err := accountUser.ToUserInfo(nil, account.Settings)
 			if err != nil {
 				return nil, err
 			}
@@ -999,7 +1013,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 
 		var info *UserInfo
 		if queriedUser, contains := findUserInIDPUserdata(localUser.Id, queriedUsers); contains {
-			info, err = localUser.ToUserInfo(queriedUser)
+			info, err = localUser.ToUserInfo(queriedUser, account.Settings)
 			if err != nil {
 				return nil, err
 			}
@@ -1008,6 +1022,15 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 			if localUser.IsServiceUser {
 				name = localUser.ServiceUserName
 			}
+
+			dashboardViewPermissions := "full"
+			if !localUser.HasAdminPower() {
+				dashboardViewPermissions = "limited"
+				if account.Settings.RegularUsersViewBlocked {
+					dashboardViewPermissions = "blocked"
+				}
+			}
+
 			info = &UserInfo{
 				ID:            localUser.Id,
 				Email:         "",
@@ -1017,6 +1040,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 				Status:        string(UserStatusActive),
 				IsServiceUser: localUser.IsServiceUser,
 				NonDeletable:  localUser.NonDeletable,
+				Permissions:   UserPermissions{DashboardView: dashboardViewPermissions},
 			}
 		}
 		userInfos = append(userInfos, info)

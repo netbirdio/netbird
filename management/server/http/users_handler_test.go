@@ -105,7 +105,7 @@ func initUsersTestData() *UsersHandler {
 					return nil, status.Errorf(status.NotFound, "user with ID %s does not exists", userID)
 				}
 
-				info, err := update.Copy().ToUserInfo(nil)
+				info, err := update.Copy().ToUserInfo(nil, &server.Settings{RegularUsersViewBlocked: false})
 				if err != nil {
 					return nil, err
 				}
