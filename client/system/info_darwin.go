@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -73,7 +74,43 @@ func GetInfo(ctx context.Context) *Info {
 
 // CheckFileAndProcess checks if the file path exists and if a process is running at that path.
 func CheckFileAndProcess(paths []string) ([]File, error) {
-	return []File{}, nil
+	files := make([]File, len(paths))
+	runningProcesses, err := getRunningProcesses()
+	if err != nil {
+		return nil, err
+	}
+
+	for i, path := range paths {
+		file := File{Path: path}
+
+		_, err := os.Stat(path)
+		file.Exist = !os.IsNotExist(err)
+
+		file.ProcessIsRunning = slices.Contains(runningProcesses, path)
+		files[i] = file
+	}
+
+	return files, nil
+}
+
+// getRunningProcesses returns a list of running processes.
+func getRunningProcesses() ([]string, error) {
+	out, err := exec.Command("ps", "-eo", "comm").Output()
+	if err != nil {
+		return nil, err
+	}
+
+	processMap := make(map[string]bool)
+	for _, line := range strings.Split(string(out), "\n") {
+		processMap[strings.TrimSpace(line)] = true
+	}
+
+	uniqueProcesses := make([]string, 0, len(processMap))
+	for process := range processMap {
+		uniqueProcesses = append(uniqueProcesses, process)
+	}
+
+	return uniqueProcesses, nil
 }
 
 func sysInfo() (serialNumber string, productName string, manufacturer string) {
