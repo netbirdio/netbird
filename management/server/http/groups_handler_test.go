@@ -37,7 +37,7 @@ func initGroupTestData(user *server.User, groups ...*server.Group) *GroupsHandle
 				}
 				return nil
 			},
-			GetGroupFunc: func(_, groupID string) (*server.Group, error) {
+			GetGroupFunc: func(_, groupID, _ string) (*server.Group, error) {
 				if groupID != "idofthegroup" {
 					return nil, status.Errorf(status.NotFound, "not found")
 				}
