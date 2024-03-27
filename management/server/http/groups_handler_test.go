@@ -37,7 +37,7 @@ func initGroupTestData(user *server.User, groups ...*server.Group) *GroupsHandle
 				}
 				return nil
 			},
-			GetGroupFunc: func(_, groupID string) (*server.Group, error) {
+			GetGroupFunc: func(_, groupID, _ string) (*server.Group, error) {
 				if groupID != "idofthegroup" {
 					return nil, status.Errorf(status.NotFound, "not found")
 				}
@@ -187,7 +187,7 @@ func TestWriteGroup(t *testing.T) {
 			expectedGroup: &api.Group{
 				Id:     "id-was-set",
 				Name:   "Default POSTed Group",
-				Issued: &groupIssuedAPI,
+				Issued: (*api.GroupIssued)(&groupIssuedAPI),
 			},
 		},
 		{
@@ -209,7 +209,7 @@ func TestWriteGroup(t *testing.T) {
 			expectedGroup: &api.Group{
 				Id:     "id-existed",
 				Name:   "Default POSTed Group",
-				Issued: &groupIssuedAPI,
+				Issued: (*api.GroupIssued)(&groupIssuedAPI),
 			},
 		},
 		{
@@ -240,7 +240,7 @@ func TestWriteGroup(t *testing.T) {
 			expectedGroup: &api.Group{
 				Id:     "id-jwt-group",
 				Name:   "changed",
-				Issued: &groupIssuedJWT,
+				Issued: (*api.GroupIssued)(&groupIssuedJWT),
 			},
 		},
 	}

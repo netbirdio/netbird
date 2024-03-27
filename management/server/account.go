@@ -85,7 +85,8 @@ type AccountManager interface {
 	GetAllPATs(accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error)
 	UpdatePeerSSHKey(peerID string, sshKey string) error
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
-	GetGroup(accountId, groupID string) (*Group, error)
+	GetGroup(accountId, groupID, userID string) (*Group, error)
+	GetAllGroups(accountID, userID string) ([]*Group, error)
 	GetGroupByName(groupName, accountID string) (*Group, error)
 	SaveGroup(accountID, userID string, group *Group) error
 	DeleteGroup(accountId, userId, groupID string) error
@@ -162,6 +163,9 @@ type Settings struct {
 	// Applies to all peers that have Peer.LoginExpirationEnabled set to true.
 	PeerLoginExpiration time.Duration
 
+	// RegularUsersViewBlocked allows to block regular users from viewing even their own peers and some UI elements
+	RegularUsersViewBlocked bool
+
 	// GroupsPropagationEnabled allows to propagate auto groups from the user to the peer
 	GroupsPropagationEnabled bool
 
@@ -188,6 +192,7 @@ func (s *Settings) Copy() *Settings {
 		JWTGroupsClaimName:         s.JWTGroupsClaimName,
 		GroupsPropagationEnabled:   s.GroupsPropagationEnabled,
 		JWTAllowGroups:             s.JWTAllowGroups,
+		RegularUsersViewBlocked:    s.RegularUsersViewBlocked,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()
@@ -226,6 +231,10 @@ type Account struct {
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
 }
 
+type UserPermissions struct {
+	DashboardView string `json:"dashboard_view"`
+}
+
 type UserInfo struct {
 	ID                   string               `json:"id"`
 	Email                string               `json:"email"`
@@ -239,6 +248,7 @@ type UserInfo struct {
 	LastLogin            time.Time            `json:"last_login"`
 	Issued               string               `json:"issued"`
 	IntegrationReference IntegrationReference `json:"-"`
+	Permissions          UserPermissions      `json:"permissions"`
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
@@ -1885,6 +1895,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 			PeerLoginExpirationEnabled: true,
 			PeerLoginExpiration:        DefaultPeerLoginExpiration,
 			GroupsPropagationEnabled:   true,
+			RegularUsersViewBlocked:    true,
 		},
 	}
 
