@@ -31,7 +31,8 @@ type MockAccountManager struct {
 	GetNetworkMapFunc               func(peerKey string) (*server.NetworkMap, error)
 	GetPeerNetworkFunc              func(peerKey string) (*server.Network, error)
 	AddPeerFunc                     func(setupKey string, userId string, peer *nbpeer.Peer) (*nbpeer.Peer, *server.NetworkMap, error)
-	GetGroupFunc                    func(accountID, groupID string) (*server.Group, error)
+	GetGroupFunc                    func(accountID, groupID, userID string) (*server.Group, error)
+	GetAllGroupsFunc                func(accountID, userID string) ([]*server.Group, error)
 	GetGroupByNameFunc              func(accountID, groupName string) (*server.Group, error)
 	SaveGroupFunc                   func(accountID, userID string, group *server.Group) error
 	DeleteGroupFunc                 func(accountID, userId, groupID string) error
@@ -90,6 +91,22 @@ type MockAccountManager struct {
 	DeletePostureChecksFunc         func(accountID, postureChecksID, userID string) error
 	ListPostureChecksFunc           func(accountID, userID string) ([]*posture.Checks, error)
 	GetIdpManagerFunc               func() idp.Manager
+}
+
+// GetGroup mock implementation of GetGroup from server.AccountManager interface
+func (am *MockAccountManager) GetGroup(accountId, groupID, userID string) (*server.Group, error) {
+	if am.GetGroupFunc != nil {
+		return am.GetGroupFunc(accountId, groupID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetGroup is not implemented")
+}
+
+// GetAllGroups mock implementation of GetAllGroups from server.AccountManager interface
+func (am *MockAccountManager) GetAllGroups(accountID, userID string) ([]*server.Group, error) {
+	if am.GetAllGroupsFunc != nil {
+		return am.GetAllGroupsFunc(accountID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetAllGroups is not implemented")
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -241,14 +258,6 @@ func (am *MockAccountManager) AddPeer(
 		return am.AddPeerFunc(setupKey, userId, peer)
 	}
 	return nil, nil, status.Errorf(codes.Unimplemented, "method AddPeer is not implemented")
-}
-
-// GetGroup mock implementation of GetGroup from server.AccountManager interface
-func (am *MockAccountManager) GetGroup(accountID, groupID string) (*server.Group, error) {
-	if am.GetGroupFunc != nil {
-		return am.GetGroupFunc(accountID, groupID)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetGroup is not implemented")
 }
 
 // GetGroupByName mock implementation of GetGroupByName from server.AccountManager interface
