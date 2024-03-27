@@ -13,13 +13,12 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/status"
-
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
-
 	"github.com/netbirdio/netbird/management/server"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/status"
 )
 
 const (
@@ -44,7 +43,7 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 					SetupKeys: map[string]*server.SetupKey{
 						defaultKey.Key: defaultKey,
 					},
-					Groups: map[string]*server.Group{
+					Groups: map[string]*nbgroup.Group{
 						"group-1": {ID: "group-1", Peers: []string{"A", "B"}},
 						"id-all":  {ID: "id-all", Name: "All"},
 					},

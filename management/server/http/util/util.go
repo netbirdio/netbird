@@ -99,6 +99,8 @@ func WriteError(err error, w http.ResponseWriter) {
 			httpStatus = http.StatusUnprocessableEntity
 		case status.Unauthorized:
 			httpStatus = http.StatusUnauthorized
+		case status.BadRequest:
+			httpStatus = http.StatusBadRequest
 		default:
 		}
 		msg = strings.ToLower(err.Error())

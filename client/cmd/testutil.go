@@ -13,6 +13,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/netbirdio/management-integrations/integrations"
 	clientProto "github.com/netbirdio/netbird/client/proto"
 	client "github.com/netbirdio/netbird/client/server"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
@@ -78,7 +79,8 @@ func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Liste
 	if err != nil {
 		return nil, nil
 	}
-	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false)
+	iv, _ := integrations.NewIntegratedValidator(eventStore)
+	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, iv)
 	if err != nil {
 		t.Fatal(err)
 	}

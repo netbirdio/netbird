@@ -16,6 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/integration_reference"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
@@ -276,7 +277,7 @@ func TestUser_Copy(t *testing.T) {
 		LastLogin: time.Now().UTC(),
 		CreatedAt: time.Now().UTC(),
 		Issued:    "test",
-		IntegrationReference: IntegrationReference{
+		IntegrationReference: integration_reference.IntegrationReference{
 			ID:              0,
 			IntegrationType: "test",
 		},
@@ -603,8 +604,9 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 	}
 
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:                   store,
+		eventStore:              &activity.InMemoryEventStore{},
+		integratedPeerValidator: MocIntegratedValidator{},
 	}
 
 	testCases := []struct {
@@ -793,7 +795,7 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 		Id:     "externalUser",
 		Role:   UserRoleUser,
 		Issued: UserIssuedIntegration,
-		IntegrationReference: IntegrationReference{
+		IntegrationReference: integration_reference.IntegrationReference{
 			ID:              1,
 			IntegrationType: "external",
 		},
