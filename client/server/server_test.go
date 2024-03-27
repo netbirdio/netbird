@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"github.com/netbirdio/management-integrations/integrations"
 	"net"
 	"testing"
 	"time"
@@ -114,7 +115,8 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	if err != nil {
 		return nil, "", err
 	}
-	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false)
+	ia, _ := integrations.NewIntegratedValidator(eventStore)
+	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia)
 	if err != nil {
 		return nil, "", err
 	}

@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
@@ -1050,7 +1051,8 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false)
+	ia, _ := integrations.NewIntegratedValidator(eventStore)
+	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia)
 	if err != nil {
 		return nil, "", err
 	}

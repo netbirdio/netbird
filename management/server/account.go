@@ -21,14 +21,15 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/management-integrations/additions"
-
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/geolocation"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/integrated_validator"
+	"github.com/netbirdio/netbird/management/server/integration_reference"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -85,12 +86,12 @@ type AccountManager interface {
 	GetAllPATs(accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error)
 	UpdatePeerSSHKey(peerID string, sshKey string) error
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
-	GetGroup(accountId, groupID, userID string) (*Group, error)
-	GetAllGroups(accountID, userID string) ([]*Group, error)
-	GetGroupByName(groupName, accountID string) (*Group, error)
-	SaveGroup(accountID, userID string, group *Group) error
+	GetGroup(accountId, groupID, userID string) (*nbgroup.Group, error)
+	GetAllGroups(accountID, userID string) ([]*nbgroup.Group, error)
+	GetGroupByName(groupName, accountID string) (*nbgroup.Group, error)
+	SaveGroup(accountID, userID string, group *nbgroup.Group) error
 	DeleteGroup(accountId, userId, groupID string) error
-	ListGroups(accountId string) ([]*Group, error)
+	ListGroups(accountId string) ([]*nbgroup.Group, error)
 	GroupAddPeer(accountId, groupID, peerID string) error
 	GroupDeletePeer(accountId, groupID, peerID string) error
 	GetPolicy(accountID, policyID, userID string) (*Policy, error)
@@ -124,6 +125,9 @@ type AccountManager interface {
 	DeletePostureChecks(accountID, postureChecksID, userID string) error
 	ListPostureChecks(accountID, userID string) ([]*posture.Checks, error)
 	GetIdpManager() idp.Manager
+	UpdateIntegratedValidatorGroups(accountID string, userID string, groups []string) error
+	GroupValidation(accountId string, groups []string) (bool, error)
+	GetValidatedPeers(account *Account) (map[string]struct{}, error)
 }
 
 type DefaultAccountManager struct {
@@ -152,6 +156,8 @@ type DefaultAccountManager struct {
 
 	// userDeleteFromIDPEnabled allows to delete user from IDP when user is deleted from account
 	userDeleteFromIDPEnabled bool
+
+	integratedPeerValidator integrated_validator.IntegratedValidator
 }
 
 // Settings represents Account settings structure that can be modified via API and Dashboard
@@ -218,8 +224,8 @@ type Account struct {
 	PeersG                 []nbpeer.Peer                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Users                  map[string]*User                  `gorm:"-"`
 	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
-	Groups                 map[string]*Group                 `gorm:"-"`
-	GroupsG                []Group                           `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	Groups                 map[string]*nbgroup.Group         `gorm:"-"`
+	GroupsG                []nbgroup.Group                   `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
 	Routes                 map[string]*route.Route           `gorm:"-"`
 	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
@@ -247,7 +253,7 @@ type UserInfo struct {
 	NonDeletable         bool                 `json:"non_deletable"`
 	LastLogin            time.Time            `json:"last_login"`
 	Issued               string               `json:"issued"`
-	IntegrationReference IntegrationReference `json:"-"`
+	IntegrationReference integration_reference.IntegrationReference `json:"-"`
 	Permissions          UserPermissions      `json:"permissions"`
 }
 
@@ -372,25 +378,26 @@ func (a *Account) GetRoutesByPrefix(prefix netip.Prefix) []*route.Route {
 }
 
 // GetGroup returns a group by ID if exists, nil otherwise
-func (a *Account) GetGroup(groupID string) *Group {
+func (a *Account) GetGroup(groupID string) *nbgroup.Group {
 	return a.Groups[groupID]
 }
 
 // GetPeerNetworkMap returns a group by ID if exists, nil otherwise
-func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
+func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string, validatedPeersMap map[string]struct{}) *NetworkMap {
 	peer := a.Peers[peerID]
 	if peer == nil {
 		return &NetworkMap{
 			Network: a.Network.Copy(),
 		}
 	}
-	validatedPeers := additions.ValidatePeers([]*nbpeer.Peer{peer})
-	if len(validatedPeers) == 0 {
+
+	if _, ok := validatedPeersMap[peerID]; !ok {
 		return &NetworkMap{
 			Network: a.Network.Copy(),
 		}
 	}
-	aclPeers, firewallRules := a.getPeerConnectionResources(peerID)
+
+	aclPeers, firewallRules := a.getPeerConnectionResources(peerID, validatedPeersMap)
 	// exclude expired peers
 	var peersToConnect []*nbpeer.Peer
 	var expiredPeers []*nbpeer.Peer
@@ -564,7 +571,7 @@ func (a *Account) FindUser(userID string) (*User, error) {
 }
 
 // FindGroupByName looks for a given group in the Account by name or returns error if the group wasn't found.
-func (a *Account) FindGroupByName(groupName string) (*Group, error) {
+func (a *Account) FindGroupByName(groupName string) (*nbgroup.Group, error) {
 	for _, group := range a.Groups {
 		if group.Name == groupName {
 			return group, nil
@@ -581,6 +588,20 @@ func (a *Account) FindSetupKey(setupKey string) (*SetupKey, error) {
 	}
 
 	return key, nil
+}
+
+// GetPeerGroupsList return with the list of groups ID.
+func (a *Account) GetPeerGroupsList(peerID string) []string {
+	var grps []string
+	for groupID, group := range a.Groups {
+		for _, id := range group.Peers {
+			if id == peerID {
+				grps = append(grps, groupID)
+				break
+			}
+		}
+	}
+	return grps
 }
 
 func (a *Account) getUserGroups(userID string) ([]string, error) {
@@ -660,7 +681,7 @@ func (a *Account) Copy() *Account {
 		setupKeys[id] = key.Copy()
 	}
 
-	groups := map[string]*Group{}
+	groups := map[string]*nbgroup.Group{}
 	for id, group := range a.Groups {
 		groups[id] = group.Copy()
 	}
@@ -713,7 +734,7 @@ func (a *Account) Copy() *Account {
 	}
 }
 
-func (a *Account) GetGroupAll() (*Group, error) {
+func (a *Account) GetGroupAll() (*nbgroup.Group, error) {
 	for _, g := range a.Groups {
 		if g.Name == "All" {
 			return g, nil
@@ -734,7 +755,7 @@ func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
 		return false
 	}
 
-	existedGroupsByName := make(map[string]*Group)
+	existedGroupsByName := make(map[string]*nbgroup.Group)
 	for _, group := range a.Groups {
 		existedGroupsByName[group.Name] = group
 	}
@@ -743,7 +764,7 @@ func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
 	removed := 0
 	jwtAutoGroups := make(map[string]struct{})
 	for i, id := range user.AutoGroups {
-		if group, ok := a.Groups[id]; ok && group.Issued == GroupIssuedJWT {
+		if group, ok := a.Groups[id]; ok && group.Issued == nbgroup.GroupIssuedJWT {
 			jwtAutoGroups[group.Name] = struct{}{}
 			user.AutoGroups = append(user.AutoGroups[:i-removed], user.AutoGroups[i-removed+1:]...)
 			removed++
@@ -756,15 +777,15 @@ func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
 	for _, name := range groupsNames {
 		group, ok := existedGroupsByName[name]
 		if !ok {
-			group = &Group{
+			group = &nbgroup.Group{
 				ID:     xid.New().String(),
 				Name:   name,
-				Issued: GroupIssuedJWT,
+				Issued: nbgroup.GroupIssuedJWT,
 			}
 			a.Groups[group.ID] = group
 		}
 		// only JWT groups will be synced
-		if group.Issued == GroupIssuedJWT {
+		if group.Issued == nbgroup.GroupIssuedJWT {
 			user.AutoGroups = append(user.AutoGroups, group.ID)
 			if _, ok := jwtAutoGroups[name]; !ok {
 				modified = true
@@ -837,6 +858,7 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
 func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
 	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store, geo *geolocation.Geolocation,
 	userDeleteFromIDPEnabled bool,
+	integratedPeerValidator integrated_validator.IntegratedValidator,
 ) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
 		Store:                    store,
@@ -850,6 +872,7 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 		eventStore:               eventStore,
 		peerLoginExpiry:          NewDefaultScheduler(),
 		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
+		integratedPeerValidator:  integratedPeerValidator,
 	}
 	allAccounts := store.GetAllAccounts()
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
@@ -906,6 +929,8 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 		}()
 	}
 
+	am.integratedPeerValidator.SetPeerInvalidationListener(am.onPeersInvalidated)
+
 	return am, nil
 }
 
@@ -948,7 +973,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
 	}
 
-	err = additions.ValidateExtraSettings(newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID, am.eventStore)
+	err = am.integratedPeerValidator.ValidateExtraSettings(newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -1823,18 +1848,27 @@ func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(claims jwtclaims.Aut
 	return nil
 }
 
+func (am *DefaultAccountManager) onPeersInvalidated(accountID string) {
+	updatedAccount, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		log.Errorf("failed to get account %s: %v", accountID, err)
+		return
+	}
+	am.updateAccountPeers(updatedAccount)
+}
+
 // addAllGroup to account object if it doesn't exist
 func addAllGroup(account *Account) error {
 	if len(account.Groups) == 0 {
-		allGroup := &Group{
+		allGroup := &nbgroup.Group{
 			ID:     xid.New().String(),
 			Name:   "All",
-			Issued: GroupIssuedAPI,
+			Issued: nbgroup.GroupIssuedAPI,
 		}
 		for _, peer := range account.Peers {
 			allGroup.Peers = append(allGroup.Peers, peer.ID)
 		}
-		account.Groups = map[string]*Group{allGroup.ID: allGroup}
+		account.Groups = map[string]*nbgroup.Group{allGroup.ID: allGroup}
 
 		id := xid.New().String()
 

@@ -10,6 +10,7 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -170,7 +171,7 @@ func restore(file string) (*FileStore, error) {
 		// Set API as issuer for groups which has not this field
 		for _, group := range account.Groups {
 			if group.Issued == "" {
-				group.Issued = GroupIssuedAPI
+				group.Issued = nbgroup.GroupIssuedAPI
 			}
 		}
 

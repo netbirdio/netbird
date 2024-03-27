@@ -355,6 +355,7 @@ components:
             - user_id
             - version
             - ui_version
+            - approval_required
     AccessiblePeer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'

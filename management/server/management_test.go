@@ -10,24 +10,22 @@ import (
 	sync2 "sync"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/activity"
-
-	"google.golang.org/grpc/credentials/insecure"
-
-	"github.com/netbirdio/netbird/management/server"
-
 	pb "github.com/golang/protobuf/proto" //nolint
-	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/encryption"
-
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/group"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -448,6 +446,43 @@ var _ = Describe("Management service", func() {
 	})
 })
 
+type MocIntegratedValidator struct {
+}
+
+func (a MocIntegratedValidator) ValidateExtraSettings(newExtraSettings *account.ExtraSettings, oldExtraSettings *account.ExtraSettings, peers map[string]*nbpeer.Peer, userID string, accountID string) error {
+	return nil
+}
+
+func (a MocIntegratedValidator) ValidatePeer(update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, error) {
+	return update, nil
+}
+
+func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups map[string]*group.Group, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
+	validatedPeers := make(map[string]struct{})
+	for p := range peers {
+		validatedPeers[p] = struct{}{}
+	}
+	return validatedPeers, nil
+}
+
+func (MocIntegratedValidator) PreparePeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer {
+	return peer
+}
+
+func (MocIntegratedValidator) IsNotValidPeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (bool, bool) {
+	return false, false
+}
+
+func (MocIntegratedValidator) PeerDeleted(_, _ string) error {
+	return nil
+}
+
+func (MocIntegratedValidator) SetPeerInvalidationListener(func(accountID string)) {
+
+}
+
+func (MocIntegratedValidator) Stop() {}
+
 func loginPeerWithValidSetupKey(serverPubKey wgtypes.Key, key wgtypes.Key, client mgmtProto.ManagementServiceClient) *mgmtProto.LoginResponse {
 	defer GinkgoRecover()
 
@@ -504,7 +539,7 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted",
-		eventStore, nil, false)
+		eventStore, nil, false, MocIntegratedValidator{})
 	if err != nil {
 		log.Fatalf("failed creating a manager: %v", err)
 	}

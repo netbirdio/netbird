@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/activity"
-
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
@@ -19,6 +17,7 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -413,7 +412,7 @@ func startManagement(t *testing.T, config *Config) (*grpc.Server, string, error)
 	peersUpdateManager := NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 	accountManager, err := BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted",
-		eventStore, nil, false)
+		eventStore, nil, false, MocIntegratedValidator{})
 	if err != nil {
 		return nil, "", err
 	}

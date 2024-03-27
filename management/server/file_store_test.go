@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/util"
 )
@@ -188,7 +189,7 @@ func TestStore(t *testing.T) {
 		Name:     "peer name",
 		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
-	account.Groups["all"] = &Group{
+	account.Groups["all"] = &group.Group{
 		ID:    "all",
 		Name:  "all",
 		Peers: []string{"testpeer"},
@@ -320,7 +321,7 @@ func TestRestoreGroups_Migration(t *testing.T) {
 
 	// create default group
 	account := store.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
-	account.Groups = map[string]*Group{
+	account.Groups = map[string]*group.Group{
 		"cfefqs706sqkneg59g3g": {
 			ID:   "cfefqs706sqkneg59g3g",
 			Name: "All",
@@ -336,7 +337,7 @@ func TestRestoreGroups_Migration(t *testing.T) {
 	account = store.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
 
 	require.Contains(t, account.Groups, "cfefqs706sqkneg59g3g", "failed to restore a FileStore file - missing Account Groups")
-	require.Equal(t, GroupIssuedAPI, account.Groups["cfefqs706sqkneg59g3g"].Issued, "default group should has API issued mark")
+	require.Equal(t, group.GroupIssuedAPI, account.Groups["cfefqs706sqkneg59g3g"].Issued, "default group should has API issued mark")
 }
 
 func TestGetAccountByPrivateDomain(t *testing.T) {
@@ -384,6 +385,7 @@ func TestFileStore_GetAccount(t *testing.T) {
 	expected := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
 	if expected == nil {
 		t.Fatalf("expected account doesn't exist")
+		return
 	}
 
 	account, err := store.GetAccount(expected.Id)

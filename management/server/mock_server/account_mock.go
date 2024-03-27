@@ -10,6 +10,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -31,12 +32,12 @@ type MockAccountManager struct {
 	GetNetworkMapFunc               func(peerKey string) (*server.NetworkMap, error)
 	GetPeerNetworkFunc              func(peerKey string) (*server.Network, error)
 	AddPeerFunc                     func(setupKey string, userId string, peer *nbpeer.Peer) (*nbpeer.Peer, *server.NetworkMap, error)
-	GetGroupFunc                    func(accountID, groupID, userID string) (*server.Group, error)
-	GetAllGroupsFunc                func(accountID, userID string) ([]*server.Group, error)
-	GetGroupByNameFunc              func(accountID, groupName string) (*server.Group, error)
-	SaveGroupFunc                   func(accountID, userID string, group *server.Group) error
+	GetGroupFunc                    func(accountID, groupID, userID string) (*group.Group, error)
+	GetAllGroupsFunc                func(accountID, userID string) ([]*group.Group, error)
+	GetGroupByNameFunc              func(accountID, groupName string) (*group.Group, error)
+	SaveGroupFunc                   func(accountID, userID string, group *group.Group) error
 	DeleteGroupFunc                 func(accountID, userId, groupID string) error
-	ListGroupsFunc                  func(accountID string) ([]*server.Group, error)
+	ListGroupsFunc                  func(accountID string) ([]*group.Group, error)
 	GroupAddPeerFunc                func(accountID, groupID, peerID string) error
 	GroupDeletePeerFunc             func(accountID, groupID, peerID string) error
 	DeleteRuleFunc                  func(accountID, ruleID, userID string) error
@@ -91,10 +92,20 @@ type MockAccountManager struct {
 	DeletePostureChecksFunc         func(accountID, postureChecksID, userID string) error
 	ListPostureChecksFunc           func(accountID, userID string) ([]*posture.Checks, error)
 	GetIdpManagerFunc               func() idp.Manager
+	UpdateIntegratedValidatorGroupsFunc func(accountID string, userID string, groups []string) error
+	GroupValidationFunc                 func(accountId string, groups []string) (bool, error)
+}
+
+func (am *MockAccountManager) GetValidatedPeers(account *server.Account) (map[string]struct{}, error) {
+	approvedPeers := make(map[string]struct{})
+	for id := range account.Peers {
+		approvedPeers[id] = struct{}{}
+	}
+	return approvedPeers, nil
 }
 
 // GetGroup mock implementation of GetGroup from server.AccountManager interface
-func (am *MockAccountManager) GetGroup(accountId, groupID, userID string) (*server.Group, error) {
+func (am *MockAccountManager) GetGroup(accountId, groupID, userID string) (*group.Group, error) {
 	if am.GetGroupFunc != nil {
 		return am.GetGroupFunc(accountId, groupID, userID)
 	}
@@ -102,7 +113,7 @@ func (am *MockAccountManager) GetGroup(accountId, groupID, userID string) (*serv
 }
 
 // GetAllGroups mock implementation of GetAllGroups from server.AccountManager interface
-func (am *MockAccountManager) GetAllGroups(accountID, userID string) ([]*server.Group, error) {
+func (am *MockAccountManager) GetAllGroups(accountID, userID string) ([]*group.Group, error) {
 	if am.GetAllGroupsFunc != nil {
 		return am.GetAllGroupsFunc(accountID, userID)
 	}
@@ -261,7 +272,7 @@ func (am *MockAccountManager) AddPeer(
 }
 
 // GetGroupByName mock implementation of GetGroupByName from server.AccountManager interface
-func (am *MockAccountManager) GetGroupByName(accountID, groupName string) (*server.Group, error) {
+func (am *MockAccountManager) GetGroupByName(accountID, groupName string) (*group.Group, error) {
 	if am.GetGroupFunc != nil {
 		return am.GetGroupByNameFunc(accountID, groupName)
 	}
@@ -269,7 +280,7 @@ func (am *MockAccountManager) GetGroupByName(accountID, groupName string) (*serv
 }
 
 // SaveGroup mock implementation of SaveGroup from server.AccountManager interface
-func (am *MockAccountManager) SaveGroup(accountID, userID string, group *server.Group) error {
+func (am *MockAccountManager) SaveGroup(accountID, userID string, group *group.Group) error {
 	if am.SaveGroupFunc != nil {
 		return am.SaveGroupFunc(accountID, userID, group)
 	}
@@ -285,7 +296,7 @@ func (am *MockAccountManager) DeleteGroup(accountId, userId, groupID string) err
 }
 
 // ListGroups mock implementation of ListGroups from server.AccountManager interface
-func (am *MockAccountManager) ListGroups(accountID string) ([]*server.Group, error) {
+func (am *MockAccountManager) ListGroups(accountID string) ([]*group.Group, error) {
 	if am.ListGroupsFunc != nil {
 		return am.ListGroupsFunc(accountID)
 	}
@@ -693,4 +704,20 @@ func (am *MockAccountManager) GetIdpManager() idp.Manager {
 		return am.GetIdpManagerFunc()
 	}
 	return nil
+}
+
+// UpdateIntegratedValidatedGroups mocks UpdateIntegratedApprovalGroups of the AccountManager interface
+func (am *MockAccountManager) UpdateIntegratedValidatorGroups(accountID string, userID string, groups []string) error {
+	if am.UpdateIntegratedValidatorGroupsFunc != nil {
+		return am.UpdateIntegratedValidatorGroupsFunc(accountID, userID, groups)
+	}
+	return status.Errorf(codes.Unimplemented, "method UpdateIntegratedValidatorGroups is not implemented")
+}
+
+// GroupValidation mocks GroupValidation of the AccountManager interface
+func (am *MockAccountManager) GroupValidation(accountId string, groups []string) (bool, error) {
+	if am.GroupValidationFunc != nil {
+		return am.GroupValidationFunc(accountId, groups)
+	}
+	return false, status.Errorf(codes.Unimplemented, "method GroupValidation is not implemented")
 }
