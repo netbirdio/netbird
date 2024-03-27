@@ -41,6 +41,11 @@ func GetInfo(ctx context.Context) *Info {
 	return gio
 }
 
+// CheckFileAndProcess checks if the file path exists and if a process is running at that path.
+func CheckFileAndProcess(paths []string) ([]File, error) {
+	return []File{}, nil
+}
+
 func _getInfo() string {
 	cmd := exec.Command("uname", "-sri")
 	cmd.Stdin = strings.NewReader("some input")
