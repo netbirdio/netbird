@@ -273,6 +273,7 @@ func (conn *Conn) Open() error {
 		IP:               strings.Split(conn.config.WgConfig.AllowedIps, "/")[0],
 		ConnStatusUpdate: time.Now(),
 		ConnStatus:       conn.status,
+		Mux:              new(sync.RWMutex),
 	}
 	err := conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -332,6 +333,7 @@ func (conn *Conn) Open() error {
 		PubKey:           conn.config.Key,
 		ConnStatus:       conn.status,
 		ConnStatusUpdate: time.Now(),
+		Mux:              new(sync.RWMutex),
 	}
 	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -440,6 +442,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 		RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Local.Port()),
 		Direct:                     !isRelayCandidate(pair.Local),
 		RosenpassEnabled:           rosenpassEnabled,
+		Mux:						new(sync.RWMutex),
 	}
 	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
 		peerState.Relayed = true
@@ -521,6 +524,7 @@ func (conn *Conn) cleanup() error {
 		PubKey:           conn.config.Key,
 		ConnStatus:       conn.status,
 		ConnStatusUpdate: time.Now(),
+		Mux:			  new(sync.RWMutex),
 	}
 	err := conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
