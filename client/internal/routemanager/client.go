@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -18,6 +19,7 @@ type routerPeerStatus struct {
 	connected bool
 	relayed   bool
 	direct    bool
+	latency   time.Duration
 }
 
 type routesUpdate struct {
@@ -68,6 +70,7 @@ func (c *clientNetwork) getRouterPeerStatuses() map[string]routerPeerStatus {
 			connected: peerStatus.ConnStatus == peer.StatusConnected,
 			relayed:   peerStatus.Relayed,
 			direct:    peerStatus.Direct,
+			latency:   peerStatus.Latency,
 		}
 	}
 	return routePeerStatuses
@@ -83,11 +86,12 @@ func (c *clientNetwork) getRouterPeerStatuses() map[string]routerPeerStatus {
 // * Non-relayed: Routes without relays are preferred.
 // * Direct connections: Routes with direct peer connections are favored.
 // * Stability: In case of equal scores, the currently active route (if any) is maintained.
+// * Latency: Routes with lower latency are prioritized.
 //
 // It returns the ID of the selected optimal route.
 func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]routerPeerStatus) string {
 	chosen := ""
-	chosenScore := 0
+	chosenScore := float64(0)
 
 	currID := ""
 	if c.chosenRoute != nil {
@@ -95,7 +99,7 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 	}
 
 	for _, r := range c.routes {
-		tempScore := 0
+		tempScore := float64(0)
 		peerStatus, found := routePeerStatuses[r.ID]
 		if !found || !peerStatus.connected {
 			continue
@@ -103,8 +107,15 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 
 		if r.Metric < route.MaxMetric {
 			metricDiff := route.MaxMetric - r.Metric
-			tempScore = metricDiff * 10
+			tempScore = float64(metricDiff) * 10
 		}
+
+		// in some temporal cases, latency can be 0, so we set it to 100ms as a default value to avoid false results
+		latency := 100 * time.Millisecond
+		if peerStatus.latency != 0 {
+			latency = peerStatus.latency
+		}
+		tempScore -= latency.Seconds()
 
 		if !peerStatus.relayed {
 			tempScore++
@@ -134,7 +145,7 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 		log.Warnf("the network %s has not been assigned a routing peer as no peers from the list %s are currently connected", c.network, peers)
 
 	} else if chosen != currID {
-		log.Infof("new chosen route is %s with peer %s with score %d for network %s", chosen, c.routes[chosen].Peer, chosenScore, c.network)
+		log.Infof("new chosen route is %s with peer %s with score %f for network %s", chosen, c.routes[chosen].Peer, chosenScore, c.network)
 	}
 
 	return chosen
