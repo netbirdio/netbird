@@ -52,7 +52,7 @@ func (am *DefaultAccountManager) SavePostureChecks(accountID, userID string, pos
 	}
 
 	if err := postureChecks.Validate(); err != nil {
-		return status.Errorf(status.BadRequest, err.Error())
+		return status.Errorf(status.InvalidArgument, err.Error())
 	}
 
 	exists, uniqName := am.savePostureChecks(account, postureChecks)

@@ -2,6 +2,7 @@ package posture
 
 import (
 	"fmt"
+	"slices"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
@@ -59,4 +60,29 @@ func (g *GeoLocationCheck) Check(peer nbpeer.Peer) (bool, error) {
 
 func (g *GeoLocationCheck) Name() string {
 	return GeoLocationCheckName
+}
+
+func (g *GeoLocationCheck) Validate() error {
+	if g.Action == "" {
+		return fmt.Errorf("%s action shouldn't be empty", g.Name())
+	}
+
+	allowedActions := []string{CheckActionAllow, CheckActionDeny}
+	if !slices.Contains(allowedActions, g.Action) {
+		return fmt.Errorf("%s action is not valid", g.Name())
+	}
+
+	if len(g.Locations) == 0 {
+		return fmt.Errorf("%s locations shouldn't be empty", g.Name())
+	}
+
+	for _, loc := range g.Locations {
+		if loc.CountryCode == "" {
+			return fmt.Errorf("%s country code shouldn't be empty", g.Name())
+		}
+		if !countryCodeRegex.MatchString(loc.CountryCode) {
+			return fmt.Errorf("%s country code must be 2 letters (ISO 3166-1 alpha-2 format)", g.Name())
+		}
+	}
+	return nil
 }

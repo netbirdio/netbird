@@ -1,11 +1,13 @@
 package posture
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/hashicorp/go-version"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	log "github.com/sirupsen/logrus"
+
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
 type MinVersionCheck struct {
@@ -46,6 +48,40 @@ func (c *OSVersionCheck) Check(peer nbpeer.Peer) (bool, error) {
 
 func (c *OSVersionCheck) Name() string {
 	return OSVersionCheckName
+}
+
+func (c *OSVersionCheck) Validate() error {
+	emptyOS := c.Android == nil && c.Darwin == nil && c.Ios == nil &&
+		c.Linux == nil && c.Windows == nil
+	emptyMinVersion := c.Android != nil && c.Android.MinVersion == "" || c.Darwin != nil && c.Darwin.MinVersion == "" ||
+		c.Ios != nil && c.Ios.MinVersion == "" || c.Linux != nil && c.Linux.MinKernelVersion == "" || c.Windows != nil &&
+		c.Windows.MinKernelVersion == ""
+	if emptyOS || emptyMinVersion {
+		return fmt.Errorf("%s minimum version for at least one OS shouldn't be empty", c.Name())
+	}
+
+	if c.Android != nil && !isVersionValid(c.Android.MinVersion) {
+		return fmt.Errorf("%s android version: %s is not valid", c.Name(), c.Android.MinVersion)
+	}
+
+	if c.Ios != nil && !isVersionValid(c.Ios.MinVersion) {
+		return fmt.Errorf("%s ios version: %s is not valid", c.Name(), c.Ios.MinVersion)
+	}
+
+	if c.Darwin != nil && !isVersionValid(c.Darwin.MinVersion) {
+		return fmt.Errorf("%s  darwin version: %s is not valid", c.Name(), c.Darwin.MinVersion)
+	}
+
+	if c.Linux != nil && !isVersionValid(c.Linux.MinKernelVersion) {
+		return fmt.Errorf("%s  linux kernel version: %s is not valid", c.Name(),
+			c.Linux.MinKernelVersion)
+	}
+
+	if c.Windows != nil && !isVersionValid(c.Windows.MinKernelVersion) {
+		return fmt.Errorf("%s  windows kernel version: %s is not valid", c.Name(),
+			c.Windows.MinKernelVersion)
+	}
+	return nil
 }
 
 func checkMinVersion(peerGoOS, peerVersion string, check *MinVersionCheck) (bool, error) {

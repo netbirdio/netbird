@@ -1,6 +1,8 @@
 package posture
 
 import (
+	"fmt"
+
 	"github.com/hashicorp/go-version"
 	log "github.com/sirupsen/logrus"
 
@@ -36,4 +38,14 @@ func (n *NBVersionCheck) Check(peer nbpeer.Peer) (bool, error) {
 
 func (n *NBVersionCheck) Name() string {
 	return NBVersionCheckName
+}
+
+func (n *NBVersionCheck) Validate() error {
+	if n.MinVersion == "" {
+		return fmt.Errorf("%s minimum version shouldn't be empty", n.Name())
+	}
+	if !isVersionValid(n.MinVersion) {
+		return fmt.Errorf("%s version: %s is not valid", n.Name(), n.MinVersion)
+	}
+	return nil
 }
