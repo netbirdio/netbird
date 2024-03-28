@@ -18,7 +18,6 @@ func TestGetConfig(t *testing.T) {
 	config, err := UpdateOrCreateConfig(ConfigInput{
 		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
 	})
-
 	if err != nil {
 		return
 	}
@@ -86,6 +85,26 @@ func TestGetConfig(t *testing.T) {
 	assert.Equal(t, readConf.(*Config).ManagementURL.String(), newManagementURL)
 }
 
+func TestExtraIFaceBlackList(t *testing.T) {
+	extraIFaceBlackList := []string{"eth1"}
+	path := filepath.Join(t.TempDir(), "config.json")
+	config, err := UpdateOrCreateConfig(ConfigInput{
+		ConfigPath:          path,
+		ExtraIFaceBlackList: extraIFaceBlackList,
+	})
+	if err != nil {
+		return
+	}
+
+	assert.Contains(t, config.IFaceBlackList, "eth1")
+	readConf, err := util.ReadJson(path, config)
+	if err != nil {
+		return
+	}
+
+	assert.Contains(t, readConf.(*Config).IFaceBlackList, "eth1")
+}
+
 func TestHiddenPreSharedKey(t *testing.T) {
 	hidden := "**********"
 	samplePreSharedKey := "mysecretpresharedkey"
@@ -111,7 +130,6 @@ func TestHiddenPreSharedKey(t *testing.T) {
 				ConfigPath:   cfgFile,
 				PreSharedKey: tt.preSharedKey,
 			})
-
 			if err != nil {
 				t.Fatalf("failed to get cfg: %s", err)
 			}
