@@ -162,7 +162,7 @@ func addRoute(prefix *netip.Prefix, addr, intf *string, tableID, family int) err
 		return fmt.Errorf("add gateway and device: %w", err)
 	}
 
-	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) {
+	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) && !errors.Is(err, syscall.EAFNOSUPPORT) {
 		return fmt.Errorf("netlink add route: %w", err)
 	}
 
@@ -185,7 +185,7 @@ func addUnreachableRoute(prefix *netip.Prefix, tableID, ipFamily int) error {
 		Dst:    ipNet,
 	}
 
-	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) {
+	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) && !errors.Is(err, syscall.EAFNOSUPPORT) {
 		return fmt.Errorf("netlink add unreachable route: %w", err)
 	}
 
@@ -205,7 +205,7 @@ func removeUnreachableRoute(prefix *netip.Prefix, tableID, ipFamily int) error {
 		Dst:    ipNet,
 	}
 
-	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ESRCH) && !errors.Is(err, syscall.EAFNOSUPPORT) {
 		return fmt.Errorf("netlink remove unreachable route: %w", err)
 	}
 
@@ -231,7 +231,7 @@ func removeRoute(prefix *netip.Prefix, addr, intf *string, tableID, family int) 
 		return fmt.Errorf("add gateway and device: %w", err)
 	}
 
-	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ESRCH) && !errors.Is(err, syscall.EAFNOSUPPORT) {
 		return fmt.Errorf("netlink remove route: %w", err)
 	}
 
@@ -255,7 +255,7 @@ func flushRoutes(tableID, family int) error {
 				routes[i].Dst = &net.IPNet{IP: net.IPv6zero, Mask: net.CIDRMask(0, 128)}
 			}
 		}
-		if err := netlink.RouteDel(&routes[i]); err != nil {
+		if err := netlink.RouteDel(&routes[i]); err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
 			result = multierror.Append(result, fmt.Errorf("failed to delete route %v from table %d: %w", routes[i], tableID, err))
 		}
 	}
@@ -385,7 +385,7 @@ func addRule(params ruleParams) error {
 	rule.Invert = params.invert
 	rule.SuppressPrefixlen = params.suppressPrefix
 
-	if err := netlink.RuleAdd(rule); err != nil {
+	if err := netlink.RuleAdd(rule); err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
 		return fmt.Errorf("add routing rule: %w", err)
 	}
 
@@ -402,7 +402,7 @@ func removeRule(params ruleParams) error {
 	rule.Priority = params.priority
 	rule.SuppressPrefixlen = params.suppressPrefix
 
-	if err := netlink.RuleDel(rule); err != nil {
+	if err := netlink.RuleDel(rule); err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
 		return fmt.Errorf("remove routing rule: %w", err)
 	}
 
