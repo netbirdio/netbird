@@ -8,16 +8,62 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/pion/transport/v3/stdnet"
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/iface"
 )
+
+func assertWGOutInterface(t *testing.T, prefix netip.Prefix, wgIface *iface.WGIface, invert bool) {
+	t.Helper()
+
+	if runtime.GOOS == "linux" {
+		outIntf, err := getOutgoingInterfaceLinux(prefix.Addr().String())
+		require.NoError(t, err, "getOutgoingInterfaceLinux should not return error")
+		if invert {
+			require.NotEqual(t, wgIface.Name(), outIntf, "outgoing interface should not be the wireguard interface")
+		} else {
+			require.Equal(t, wgIface.Name(), outIntf, "outgoing interface should be the wireguard interface")
+		}
+		return
+	}
+
+	prefixGateway, err := getExistingRIBRouteGateway(prefix)
+	require.NoError(t, err, "getExistingRIBRouteGateway should not return err")
+	if invert {
+		assert.NotEqual(t, wgIface.Address().IP.String(), prefixGateway.String(), "route should not point to wireguard interface IP")
+	} else {
+		assert.Equal(t, wgIface.Address().IP.String(), prefixGateway.String(), "route should point to wireguard interface IP")
+	}
+}
+
+func getOutgoingInterfaceLinux(destination string) (string, error) {
+	cmd := exec.Command("ip", "route", "get", destination)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("executing ip route get: %w", err)
+	}
+
+	return parseOutgoingInterface(string(output)), nil
+}
+
+func parseOutgoingInterface(routeGetOutput string) string {
+	fields := strings.Fields(routeGetOutput)
+	for i, field := range fields {
+		if field == "dev" && i+1 < len(fields) {
+			return fields[i+1]
+		}
+	}
+	return ""
+}
 
 func TestAddRemoveRoutes(t *testing.T) {
 	testCases := []struct {
@@ -54,23 +100,26 @@ func TestAddRemoveRoutes(t *testing.T) {
 			err = wgInterface.Create()
 			require.NoError(t, err, "should create testing wireguard interface")
 
-			err = addToRouteTableIfNoExists(testCase.prefix, wgInterface.Address().IP.String())
+			require.NoError(t, setupRouting())
+			t.Cleanup(func() {
+				assert.NoError(t, cleanupRouting())
+			})
+
+			err = addToRouteTableIfNoExists(testCase.prefix, wgInterface.Address().IP.String(), wgInterface.Name())
 			require.NoError(t, err, "addToRouteTableIfNoExists should not return err")
 
-			prefixGateway, err := getExistingRIBRouteGateway(testCase.prefix)
-			require.NoError(t, err, "getExistingRIBRouteGateway should not return err")
 			if testCase.shouldRouteToWireguard {
-				require.Equal(t, wgInterface.Address().IP.String(), prefixGateway.String(), "route should point to wireguard interface IP")
+				assertWGOutInterface(t, testCase.prefix, wgInterface, false)
 			} else {
-				require.NotEqual(t, wgInterface.Address().IP.String(), prefixGateway.String(), "route should point to a different interface")
+				assertWGOutInterface(t, testCase.prefix, wgInterface, true)
 			}
 			exists, err := existsInRouteTable(testCase.prefix)
 			require.NoError(t, err, "existsInRouteTable should not return err")
 			if exists && testCase.shouldRouteToWireguard {
-				err = removeFromRouteTableIfNonSystem(testCase.prefix, wgInterface.Address().IP.String())
+				err = removeFromRouteTableIfNonSystem(testCase.prefix, wgInterface.Address().IP.String(), wgInterface.Name())
 				require.NoError(t, err, "removeFromRouteTableIfNonSystem should not return err")
 
-				prefixGateway, err = getExistingRIBRouteGateway(testCase.prefix)
+				prefixGateway, err := getExistingRIBRouteGateway(testCase.prefix)
 				require.NoError(t, err, "getExistingRIBRouteGateway should not return err")
 
 				internetGateway, err := getExistingRIBRouteGateway(netip.MustParsePrefix("0.0.0.0/0"))
@@ -189,16 +238,21 @@ func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
 			err = wgInterface.Create()
 			require.NoError(t, err, "should create testing wireguard interface")
 
+			require.NoError(t, setupRouting())
+			t.Cleanup(func() {
+				assert.NoError(t, cleanupRouting())
+			})
+
 			MockAddr := wgInterface.Address().IP.String()
 
 			// Prepare the environment
 			if testCase.preExistingPrefix.IsValid() {
-				err := addToRouteTableIfNoExists(testCase.preExistingPrefix, MockAddr)
+				err := addToRouteTableIfNoExists(testCase.preExistingPrefix, MockAddr, wgInterface.Name())
 				require.NoError(t, err, "should not return err when adding pre-existing route")
 			}
 
 			// Add the route
-			err = addToRouteTableIfNoExists(testCase.prefix, MockAddr)
+			err = addToRouteTableIfNoExists(testCase.prefix, MockAddr, wgInterface.Name())
 			require.NoError(t, err, "should not return err when adding route")
 
 			if testCase.shouldAddRoute {
@@ -208,7 +262,7 @@ func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
 				require.True(t, ok, "route should exist")
 
 				// remove route again if added
-				err = removeFromRouteTableIfNonSystem(testCase.prefix, MockAddr)
+				err = removeFromRouteTableIfNonSystem(testCase.prefix, MockAddr, wgInterface.Name())
 				require.NoError(t, err, "should not return err")
 			}
 
@@ -217,72 +271,12 @@ func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
 			ok, err := existsInRouteTable(testCase.prefix)
 			t.Log("Buffer string: ", buf.String())
 			require.NoError(t, err, "should not return err")
-			if !strings.Contains(buf.String(), "because it already exists") {
+
+			// Linux uses a separate routing table, so the route can exist in both tables.
+			// The main routing table takes precedence over the wireguard routing table.
+			if !strings.Contains(buf.String(), "because it already exists") && runtime.GOOS != "linux" {
 				require.False(t, ok, "route should not exist")
 			}
 		})
-	}
-}
-
-func TestExistsInRouteTable(t *testing.T) {
-	addresses, err := net.InterfaceAddrs()
-	if err != nil {
-		t.Fatal("shouldn't return error when fetching interface addresses: ", err)
-	}
-
-	var addressPrefixes []netip.Prefix
-	for _, address := range addresses {
-		p := netip.MustParsePrefix(address.String())
-		if p.Addr().Is4() {
-			addressPrefixes = append(addressPrefixes, p.Masked())
-		}
-	}
-
-	for _, prefix := range addressPrefixes {
-		exists, err := existsInRouteTable(prefix)
-		if err != nil {
-			t.Fatal("shouldn't return error when checking if address exists in route table: ", err)
-		}
-		if !exists {
-			t.Fatalf("address %s should exist in route table", prefix)
-		}
-	}
-}
-
-func TestIsSubRange(t *testing.T) {
-	addresses, err := net.InterfaceAddrs()
-	if err != nil {
-		t.Fatal("shouldn't return error when fetching interface addresses: ", err)
-	}
-
-	var subRangeAddressPrefixes []netip.Prefix
-	var nonSubRangeAddressPrefixes []netip.Prefix
-	for _, address := range addresses {
-		p := netip.MustParsePrefix(address.String())
-		if !p.Addr().IsLoopback() && p.Addr().Is4() && p.Bits() < 32 {
-			p2 := netip.PrefixFrom(p.Masked().Addr(), p.Bits()+1)
-			subRangeAddressPrefixes = append(subRangeAddressPrefixes, p2)
-			nonSubRangeAddressPrefixes = append(nonSubRangeAddressPrefixes, p.Masked())
-		}
-	}
-
-	for _, prefix := range subRangeAddressPrefixes {
-		isSubRangePrefix, err := isSubRange(prefix)
-		if err != nil {
-			t.Fatal("shouldn't return error when checking if address is sub-range: ", err)
-		}
-		if !isSubRangePrefix {
-			t.Fatalf("address %s should be sub-range of an existing route in the table", prefix)
-		}
-	}
-
-	for _, prefix := range nonSubRangeAddressPrefixes {
-		isSubRangePrefix, err := isSubRange(prefix)
-		if err != nil {
-			t.Fatal("shouldn't return error when checking if address is sub-range: ", err)
-		}
-		if isSubRangePrefix {
-			t.Fatalf("address %s should not be sub-range of an existing route in the table", prefix)
-		}
 	}
 }

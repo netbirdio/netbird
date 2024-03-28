@@ -8,6 +8,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
@@ -759,7 +760,7 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false)
+	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{})
 }
 
 func createNSStore(t *testing.T) (Store, error) {
@@ -831,12 +832,12 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error
 
 	account.NameServerGroups[existingNSGroup.ID] = &existingNSGroup
 
-	newGroup1 := &Group{
+	newGroup1 := &nbgroup.Group{
 		ID:   group1ID,
 		Name: group1ID,
 	}
 
-	newGroup2 := &Group{
+	newGroup2 := &nbgroup.Group{
 		ID:   group2ID,
 		Name: group2ID,
 	}

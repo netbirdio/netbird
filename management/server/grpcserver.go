@@ -361,6 +361,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		Meta:            extractPeerMeta(loginReq),
 		UserID:          userID,
 		SetupKey:        loginReq.GetSetupKey(),
+		ConnectionIP:    realIP,
 	})
 
 	if err != nil {

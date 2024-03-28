@@ -15,6 +15,7 @@ import (
 	"github.com/magiconair/properties/assert"
 
 	"github.com/netbirdio/netbird/management/server"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -28,30 +29,30 @@ var TestPeers = map[string]*nbpeer.Peer{
 	"B": {Key: "B", ID: "peer-B-ID", IP: net.ParseIP("200.200.200.200")},
 }
 
-func initGroupTestData(user *server.User, groups ...*server.Group) *GroupsHandler {
+func initGroupTestData(user *server.User, _ ...*nbgroup.Group) *GroupsHandler {
 	return &GroupsHandler{
 		accountManager: &mock_server.MockAccountManager{
-			SaveGroupFunc: func(accountID, userID string, group *server.Group) error {
+			SaveGroupFunc: func(accountID, userID string, group *nbgroup.Group) error {
 				if !strings.HasPrefix(group.ID, "id-") {
 					group.ID = "id-was-set"
 				}
 				return nil
 			},
-			GetGroupFunc: func(_, groupID string) (*server.Group, error) {
+			GetGroupFunc: func(_, groupID, _ string) (*nbgroup.Group, error) {
 				if groupID != "idofthegroup" {
 					return nil, status.Errorf(status.NotFound, "not found")
 				}
 				if groupID == "id-jwt-group" {
-					return &server.Group{
+					return &nbgroup.Group{
 						ID:     "id-jwt-group",
 						Name:   "Default Group",
-						Issued: server.GroupIssuedJWT,
+						Issued: nbgroup.GroupIssuedJWT,
 					}, nil
 				}
-				return &server.Group{
+				return &nbgroup.Group{
 					ID:     "idofthegroup",
 					Name:   "Group",
-					Issued: server.GroupIssuedAPI,
+					Issued: nbgroup.GroupIssuedAPI,
 				}, nil
 			},
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
@@ -62,10 +63,10 @@ func initGroupTestData(user *server.User, groups ...*server.Group) *GroupsHandle
 					Users: map[string]*server.User{
 						user.Id: user,
 					},
-					Groups: map[string]*server.Group{
-						"id-jwt-group": {ID: "id-jwt-group", Name: "From JWT", Issued: server.GroupIssuedJWT},
-						"id-existed":   {ID: "id-existed", Peers: []string{"A", "B"}, Issued: server.GroupIssuedAPI},
-						"id-all":       {ID: "id-all", Name: "All", Issued: server.GroupIssuedAPI},
+					Groups: map[string]*nbgroup.Group{
+						"id-jwt-group": {ID: "id-jwt-group", Name: "From JWT", Issued: nbgroup.GroupIssuedJWT},
+						"id-existed":   {ID: "id-existed", Peers: []string{"A", "B"}, Issued: nbgroup.GroupIssuedAPI},
+						"id-all":       {ID: "id-all", Name: "All", Issued: nbgroup.GroupIssuedAPI},
 					},
 				}, user, nil
 			},
@@ -118,7 +119,7 @@ func TestGetGroup(t *testing.T) {
 		},
 	}
 
-	group := &server.Group{
+	group := &nbgroup.Group{
 		ID:   "idofthegroup",
 		Name: "Group",
 	}
@@ -153,7 +154,7 @@ func TestGetGroup(t *testing.T) {
 				t.Fatalf("I don't know what I expected; %v", err)
 			}
 
-			got := &server.Group{}
+			got := &nbgroup.Group{}
 			if err = json.Unmarshal(content, &got); err != nil {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
@@ -187,7 +188,7 @@ func TestWriteGroup(t *testing.T) {
 			expectedGroup: &api.Group{
 				Id:     "id-was-set",
 				Name:   "Default POSTed Group",
-				Issued: &groupIssuedAPI,
+				Issued: (*api.GroupIssued)(&groupIssuedAPI),
 			},
 		},
 		{
@@ -209,7 +210,7 @@ func TestWriteGroup(t *testing.T) {
 			expectedGroup: &api.Group{
 				Id:     "id-existed",
 				Name:   "Default POSTed Group",
-				Issued: &groupIssuedAPI,
+				Issued: (*api.GroupIssued)(&groupIssuedAPI),
 			},
 		},
 		{
@@ -240,7 +241,7 @@ func TestWriteGroup(t *testing.T) {
 			expectedGroup: &api.Group{
 				Id:     "id-jwt-group",
 				Name:   "changed",
-				Issued: &groupIssuedJWT,
+				Issued: (*api.GroupIssued)(&groupIssuedJWT),
 			},
 		},
 	}
