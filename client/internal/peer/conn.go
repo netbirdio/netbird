@@ -26,7 +26,7 @@ import (
 const (
 	iceKeepAliveDefault              = 4 * time.Second
 	iceDisconnectedTimeoutDefault    = 10 * time.Second
-	iceRelayAcceptanceMinWaitDefault = 2000 * time.Millisecond
+	iceRelayAcceptanceMinWaitDefault = 10 * time.Second
 
 	defaultWgKeepAlive = 25 * time.Second
 )
