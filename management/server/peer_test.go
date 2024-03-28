@@ -4,11 +4,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/rs/xid"
+	"github.com/stretchr/testify/assert"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
@@ -200,8 +200,8 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 		return
 	}
 	var (
-		group1 Group
-		group2 Group
+		group1 nbgroup.Group
+		group2 nbgroup.Group
 		policy Policy
 	)
 
@@ -392,6 +392,8 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 		Id:   someUser,
 		Role: UserRoleUser,
 	}
+	account.Settings.RegularUsersViewBlocked = false
+
 	err = manager.Store.SaveAccount(account)
 	if err != nil {
 		t.Fatal(err)
@@ -479,4 +481,154 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 		return
 	}
 	assert.NotNil(t, peer)
+}
+
+func TestDefaultAccountManager_GetPeers(t *testing.T) {
+	testCases := []struct {
+		name                string
+		role                UserRole
+		limitedViewSettings bool
+		isServiceUser       bool
+		expectedPeerCount   int
+	}{
+		{
+			name:                "Regular user, no limited view settings, not a service user",
+			role:                UserRoleUser,
+			limitedViewSettings: false,
+			isServiceUser:       false,
+			expectedPeerCount:   1,
+		},
+		{
+			name:                "Service user, no limited view settings",
+			role:                UserRoleUser,
+			limitedViewSettings: false,
+			isServiceUser:       true,
+			expectedPeerCount:   2,
+		},
+		{
+			name:                "Regular user, limited view settings",
+			role:                UserRoleUser,
+			limitedViewSettings: true,
+			isServiceUser:       false,
+			expectedPeerCount:   0,
+		},
+		{
+			name:                "Service user, limited view settings",
+			role:                UserRoleUser,
+			limitedViewSettings: true,
+			isServiceUser:       true,
+			expectedPeerCount:   2,
+		},
+		{
+			name:                "Admin, no limited view settings, not a service user",
+			role:                UserRoleAdmin,
+			limitedViewSettings: false,
+			isServiceUser:       false,
+			expectedPeerCount:   2,
+		},
+		{
+			name:                "Admin service user, no limited view settings",
+			role:                UserRoleAdmin,
+			limitedViewSettings: false,
+			isServiceUser:       true,
+			expectedPeerCount:   2,
+		},
+		{
+			name:                "Admin, limited view settings",
+			role:                UserRoleAdmin,
+			limitedViewSettings: true,
+			isServiceUser:       false,
+			expectedPeerCount:   2,
+		},
+		{
+			name:                "Admin Service user, limited view settings",
+			role:                UserRoleAdmin,
+			limitedViewSettings: true,
+			isServiceUser:       true,
+			expectedPeerCount:   2,
+		},
+		{
+			name:                "Owner, no limited view settings",
+			role:                UserRoleOwner,
+			limitedViewSettings: true,
+			isServiceUser:       false,
+			expectedPeerCount:   2,
+		},
+		{
+			name:                "Owner, limited view settings",
+			role:                UserRoleOwner,
+			limitedViewSettings: true,
+			isServiceUser:       false,
+			expectedPeerCount:   2,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			manager, err := createManager(t)
+			if err != nil {
+				t.Fatal(err)
+				return
+			}
+
+			// account with an admin and a regular user
+			accountID := "test_account"
+			adminUser := "account_creator"
+			someUser := "some_user"
+			account := newAccountWithId(accountID, adminUser, "")
+			account.Users[someUser] = &User{
+				Id:            someUser,
+				Role:          testCase.role,
+				IsServiceUser: testCase.isServiceUser,
+			}
+			account.Policies = []*Policy{}
+			account.Settings.RegularUsersViewBlocked = testCase.limitedViewSettings
+
+			err = manager.Store.SaveAccount(account)
+			if err != nil {
+				t.Fatal(err)
+				return
+			}
+
+			peerKey1, err := wgtypes.GeneratePrivateKey()
+			if err != nil {
+				t.Fatal(err)
+				return
+			}
+
+			peerKey2, err := wgtypes.GeneratePrivateKey()
+			if err != nil {
+				t.Fatal(err)
+				return
+			}
+
+			_, _, err = manager.AddPeer("", someUser, &nbpeer.Peer{
+				Key:  peerKey1.PublicKey().String(),
+				Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-1"},
+			})
+			if err != nil {
+				t.Errorf("expecting peer to be added, got failure %v", err)
+				return
+			}
+
+			_, _, err = manager.AddPeer("", adminUser, &nbpeer.Peer{
+				Key:  peerKey2.PublicKey().String(),
+				Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
+			})
+			if err != nil {
+				t.Errorf("expecting peer to be added, got failure %v", err)
+				return
+			}
+
+			peers, err := manager.GetPeers(accountID, someUser)
+			if err != nil {
+				t.Fatal(err)
+				return
+			}
+			assert.NotNil(t, peers)
+
+			assert.Len(t, peers, testCase.expectedPeerCount)
+
+		})
+	}
+
 }

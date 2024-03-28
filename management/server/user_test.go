@@ -16,6 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/integration_reference"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
@@ -276,7 +277,7 @@ func TestUser_Copy(t *testing.T) {
 		LastLogin: time.Now().UTC(),
 		CreatedAt: time.Now().UTC(),
 		Issued:    "test",
-		IntegrationReference: IntegrationReference{
+		IntegrationReference: integration_reference.IntegrationReference{
 			ID:              0,
 			IntegrationType: "test",
 		},
@@ -603,8 +604,9 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 	}
 
 	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
+		Store:                   store,
+		eventStore:              &activity.InMemoryEventStore{},
+		integratedPeerValidator: MocIntegratedValidator{},
 	}
 
 	testCases := []struct {
@@ -709,6 +711,83 @@ func TestDefaultAccountManager_ListUsers(t *testing.T) {
 	assert.Equal(t, 2, regular)
 }
 
+func TestDefaultAccountManager_ListUsers_DashboardPermissions(t *testing.T) {
+	testCases := []struct {
+		name                         string
+		role                         UserRole
+		limitedViewSettings          bool
+		expectedDashboardPermissions string
+	}{
+		{
+			name:                         "Regular user, no limited view settings",
+			role:                         UserRoleUser,
+			limitedViewSettings:          false,
+			expectedDashboardPermissions: "limited",
+		},
+		{
+			name:                         "Admin user, no limited view settings",
+			role:                         UserRoleAdmin,
+			limitedViewSettings:          false,
+			expectedDashboardPermissions: "full",
+		},
+		{
+			name:                         "Owner, no limited view settings",
+			role:                         UserRoleOwner,
+			limitedViewSettings:          false,
+			expectedDashboardPermissions: "full",
+		},
+		{
+			name:                         "Regular user, limited view settings",
+			role:                         UserRoleUser,
+			limitedViewSettings:          true,
+			expectedDashboardPermissions: "blocked",
+		},
+		{
+			name:                         "Admin user, limited view settings",
+			role:                         UserRoleAdmin,
+			limitedViewSettings:          true,
+			expectedDashboardPermissions: "full",
+		},
+		{
+			name:                         "Owner, limited view settings",
+			role:                         UserRoleOwner,
+			limitedViewSettings:          true,
+			expectedDashboardPermissions: "full",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			store := newStore(t)
+			account := newAccountWithId(mockAccountID, mockUserID, "")
+			account.Users["normal_user1"] = NewUser("normal_user1", testCase.role, false, false, "", []string{}, UserIssuedAPI)
+			account.Settings.RegularUsersViewBlocked = testCase.limitedViewSettings
+			delete(account.Users, mockUserID)
+
+			err := store.SaveAccount(account)
+			if err != nil {
+				t.Fatalf("Error when saving account: %s", err)
+			}
+
+			am := DefaultAccountManager{
+				Store:      store,
+				eventStore: &activity.InMemoryEventStore{},
+			}
+
+			users, err := am.ListUsers(mockAccountID)
+			if err != nil {
+				t.Fatalf("Error when checking user role: %s", err)
+			}
+
+			assert.Equal(t, 1, len(users))
+
+			userInfo, _ := users[0].ToUserInfo(nil, account.Settings)
+			assert.Equal(t, testCase.expectedDashboardPermissions, userInfo.Permissions.DashboardView)
+		})
+	}
+
+}
+
 func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	store := newStore(t)
 	account := newAccountWithId(mockAccountID, mockUserID, "")
@@ -716,7 +795,7 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 		Id:     "externalUser",
 		Role:   UserRoleUser,
 		Issued: UserIssuedIntegration,
-		IntegrationReference: IntegrationReference{
+		IntegrationReference: integration_reference.IntegrationReference{
 			ID:              1,
 			IntegrationType: "external",
 		},

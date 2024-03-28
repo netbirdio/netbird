@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 )
 
 func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
@@ -24,7 +25,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(account.Id, userID, &Group{
+	err = manager.SaveGroup(account.Id, userID, &nbgroup.Group{
 		ID:    "group_1",
 		Name:  "group_name_1",
 		Peers: []string{},
@@ -82,7 +83,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(account.Id, userID, &Group{
+	err = manager.SaveGroup(account.Id, userID, &nbgroup.Group{
 		ID:    "group_1",
 		Name:  "group_name_1",
 		Peers: []string{},
@@ -91,7 +92,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(account.Id, userID, &Group{
+	err = manager.SaveGroup(account.Id, userID, &nbgroup.Group{
 		ID:    "group_2",
 		Name:  "group_name_2",
 		Peers: []string{},
@@ -164,6 +165,37 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		})
 	}
 
+}
+
+func TestGetSetupKeys(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	userID := "testingUser"
+	account, err := manager.GetOrCreateAccountByUser(userID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = manager.SaveGroup(account.Id, userID, &nbgroup.Group{
+		ID:    "group_1",
+		Name:  "group_name_1",
+		Peers: []string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = manager.SaveGroup(account.Id, userID, &nbgroup.Group{
+		ID:    "group_2",
+		Name:  "group_name_2",
+		Peers: []string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestGenerateDefaultSetupKey(t *testing.T) {

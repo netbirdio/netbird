@@ -288,5 +288,8 @@ func toUserResponse(user *server.UserInfo, currenUserID string) *api.User {
 		IsBlocked:     user.IsBlocked,
 		LastLogin:     &user.LastLogin,
 		Issued:        &user.Issued,
+		Permissions: &api.UserPermissions{
+			DashboardView: (*api.UserPermissionsDashboardView)(&user.Permissions.DashboardView),
+		},
 	}
 }
