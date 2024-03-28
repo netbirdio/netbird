@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/yusufpapurcu/wmi"
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/netbirdio/netbird/client/system/detect_cloud"
@@ -32,8 +31,7 @@ type Win32_BIOS struct {
 	SerialNumber string
 }
 
-// GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context) *Info {
+func getInfo(ctx context.Context) *Info {
 	osName, osVersion := getOSNameAndVersion()
 	buildVersion := getBuildVersion()
 

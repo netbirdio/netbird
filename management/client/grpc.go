@@ -482,5 +482,10 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			Cloud:    info.Environment.Cloud,
 			Platform: info.Environment.Platform,
 		},
+		Config: &proto.Config{
+			RosenpassEnabled:    info.Config.RosenpassEnabled,
+			RosenpassPermissive: info.Config.RosenpassPermissive,
+			ServerSSHAllowed:    info.Config.ServerSSHAllowed,
+		},
 	}
 }

@@ -292,6 +292,9 @@ func extractPeerMeta(loginReq *proto.LoginRequest) nbpeer.PeerSystemMeta {
 			Cloud:    loginReq.GetMeta().GetEnvironment().GetCloud(),
 			Platform: loginReq.GetMeta().GetEnvironment().GetPlatform(),
 		},
+		RosenpassEnabled:    loginReq.GetMeta().GetRosenpassEnabled(),
+		RosenpassPermissive: loginReq.GetMeta().GetRosenpassPermissive(),
+		ServerSSHAllowed:    loginReq.GetMeta().GetServerSSHAllowed(),
 	}
 }
 

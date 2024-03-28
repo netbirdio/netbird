@@ -38,7 +38,7 @@ func IsLoginRequired(ctx context.Context, privateKey string, mgmURL *url.URL, ss
 		return false, err
 	}
 
-	_, err = doMgmLogin(ctx, mgmClient, pubSSHKey)
+	_, err = doMgmLogin(ctx, mgmClient, pubSSHKey, &Config{})
 	if isLoginNeeded(err) {
 		return true, nil
 	}
@@ -67,7 +67,7 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 		return err
 	}
 
-	serverKey, err := doMgmLogin(ctx, mgmClient, pubSSHKey)
+	serverKey, err := doMgmLogin(ctx, mgmClient, pubSSHKey, config)
 	if isRegistrationNeeded(err) {
 		log.Debugf("peer registration required")
 		_, err = registerPeer(ctx, *serverKey, mgmClient, setupKey, jwtToken, pubSSHKey)
@@ -99,14 +99,14 @@ func getMgmClient(ctx context.Context, privateKey string, mgmURL *url.URL) (*mgm
 	return mgmClient, err
 }
 
-func doMgmLogin(ctx context.Context, mgmClient *mgm.GrpcClient, pubSSHKey []byte) (*wgtypes.Key, error) {
+func doMgmLogin(ctx context.Context, mgmClient *mgm.GrpcClient, pubSSHKey []byte, config *Config) (*wgtypes.Key, error) {
 	serverKey, err := mgmClient.GetServerPublicKey()
 	if err != nil {
 		log.Errorf("failed while getting Management Service public key: %v", err)
 		return nil, err
 	}
 
-	sysInfo := system.GetInfo(ctx)
+	sysInfo := system.GetInfo(ctx, *config)
 	_, err = mgmClient.Login(*serverKey, sysInfo, pubSSHKey)
 	return serverKey, err
 }
@@ -120,7 +120,7 @@ func registerPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.
 	}
 
 	log.Debugf("sending peer registration request to Management Service")
-	info := system.GetInfo(ctx)
+	info := system.GetInfo(ctx, Config{})
 	loginResp, err := client.Register(serverPublicKey, validSetupKey.String(), jwtToken, info, pubSSHKey)
 	if err != nil {
 		log.Errorf("failed registering peer %v,%s", err, validSetupKey.String())

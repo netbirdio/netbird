@@ -20,8 +20,7 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
-// GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context) *Info {
+func getInfo(ctx context.Context) *Info {
 	info := _getInfo()
 	for strings.Contains(info, "broken pipe") {
 		info = _getInfo()

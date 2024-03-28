@@ -81,21 +81,24 @@ type Environment struct {
 
 // PeerSystemMeta is a metadata of a Peer machine system
 type PeerSystemMeta struct { //nolint:revive
-	Hostname           string
-	GoOS               string
-	Kernel             string
-	Core               string
-	Platform           string
-	OS                 string
-	OSVersion          string
-	WtVersion          string
-	UIVersion          string
-	KernelVersion      string
-	NetworkAddresses   []NetworkAddress `gorm:"serializer:json"`
-	SystemSerialNumber string
-	SystemProductName  string
-	SystemManufacturer string
-	Environment        Environment `gorm:"serializer:json"`
+	Hostname            string
+	GoOS                string
+	Kernel              string
+	Core                string
+	Platform            string
+	OS                  string
+	OSVersion           string
+	WtVersion           string
+	UIVersion           string
+	KernelVersion       string
+	NetworkAddresses    []NetworkAddress `gorm:"serializer:json"`
+	SystemSerialNumber  string
+	SystemProductName   string
+	SystemManufacturer  string
+	Environment         Environment `gorm:"serializer:json"`
+	RosenpassEnabled    bool
+	RosenpassPermissive bool
+	ServerSSHAllowed    bool
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
@@ -130,7 +133,10 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		p.SystemProductName == other.SystemProductName &&
 		p.SystemManufacturer == other.SystemManufacturer &&
 		p.Environment.Cloud == other.Environment.Cloud &&
-		p.Environment.Platform == other.Environment.Platform
+		p.Environment.Platform == other.Environment.Platform &&
+		p.RosenpassEnabled == other.RosenpassEnabled &&
+		p.RosenpassPermissive == other.RosenpassPermissive &&
+		p.ServerSSHAllowed == other.ServerSSHAllowed
 }
 
 // AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.

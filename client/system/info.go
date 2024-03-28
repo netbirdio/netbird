@@ -30,6 +30,12 @@ type Environment struct {
 	Platform string
 }
 
+type Config struct {
+	RosenpassEnabled    bool
+	RosenpassPermissive bool
+	ServerSSHAllowed    bool
+}
+
 // Info is an object that contains machine information
 // Most of the code is taken from https://github.com/matishsiao/goInfo
 type Info struct {
@@ -48,6 +54,14 @@ type Info struct {
 	SystemProductName  string
 	SystemManufacturer string
 	Environment        Environment
+	Config             Config
+}
+
+// GetInfo retrieves and parses the system information
+func GetInfo(ctx context.Context, config Config) *Info {
+	info := getInfo(ctx)
+	info.Config = config
+	return info
 }
 
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context
