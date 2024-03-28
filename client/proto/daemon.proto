@@ -70,6 +70,8 @@ message LoginRequest {
   optional bool serverSSHAllowed = 15;
 
   optional bool rosenpassPermissive = 16;
+
+  repeated string extraIFaceBlacklist = 17;
 }
 
 message LoginResponse {

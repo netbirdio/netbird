@@ -30,8 +30,10 @@ const (
 	DefaultAdminURL = "https://app.netbird.io:443"
 )
 
-var defaultInterfaceBlacklist = []string{iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
-	"Tailscale", "tailscale", "docker", "veth", "br-", "lo"}
+var defaultInterfaceBlacklist = []string{
+	iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
+	"Tailscale", "tailscale", "docker", "veth", "br-", "lo",
+}
 
 // ConfigInput carries configuration changes to the client
 type ConfigInput struct {
@@ -47,6 +49,7 @@ type ConfigInput struct {
 	InterfaceName       *string
 	WireguardPort       *int
 	DisableAutoConnect  *bool
+	ExtraIFaceBlackList []string
 }
 
 // Config Configuration type
@@ -220,7 +223,8 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		config.AdminURL = newURL
 	}
 
-	config.IFaceBlackList = defaultInterfaceBlacklist
+	// nolint:gocritic
+	config.IFaceBlackList = append(defaultInterfaceBlacklist, input.ExtraIFaceBlackList...)
 	return config, nil
 }
 
@@ -320,6 +324,13 @@ func update(input ConfigInput) (*Config, error) {
 		refresh = true
 	}
 
+	if len(input.ExtraIFaceBlackList) > 0 {
+		for _, iFace := range util.SliceDiff(input.ExtraIFaceBlackList, config.IFaceBlackList) {
+			config.IFaceBlackList = append(config.IFaceBlackList, iFace)
+			refresh = true
+		}
+	}
+
 	if refresh {
 		// since we have new management URL, we need to update config file
 		if err := util.WriteJson(input.ConfigPath, config); err != nil {
@@ -384,7 +395,6 @@ func configFileIsExists(path string) bool {
 // If it can switch, then it updates the config and returns a new one. Otherwise, it returns the provided config.
 // The check is performed only for the NetBird's managed version.
 func UpdateOldManagementURL(ctx context.Context, config *Config, configPath string) (*Config, error) {
-
 	defaultManagementURL, err := parseURL("Management URL", DefaultManagementURL)
 	if err != nil {
 		return nil, err
