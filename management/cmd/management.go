@@ -32,14 +32,14 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 
-	"github.com/netbirdio/management-integrations/integrations"
-
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/integrations"
+	"github.com/netbirdio/netbird/management/server/integrations/validator"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -173,7 +173,7 @@ var (
 				log.Infof("geo location service has been initialized from %s", config.Datadir)
 			}
 
-			integratedPeerValidator, err := integrations.NewIntegratedValidator(eventStore)
+			integratedPeerValidator, err := validator.NewIntegratedValidator(eventStore)
 			if err != nil {
 				return fmt.Errorf("failed to initialize integrated peer validator: %v", err)
 			}

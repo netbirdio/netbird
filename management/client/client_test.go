@@ -9,24 +9,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/activity"
-
-	"github.com/netbirdio/netbird/client/system"
-
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
-
-	"github.com/netbirdio/management-integrations/integrations"
-	"github.com/netbirdio/netbird/encryption"
-	mgmtProto "github.com/netbirdio/netbird/management/proto"
-	mgmt "github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/mock_server"
-
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/encryption"
+	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	mgmt "github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/integrations/validator"
+	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -68,7 +64,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 
 	peersUpdateManager := mgmt.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
-	ia, _ := integrations.NewIntegratedValidator(eventStore)
+	ia, _ := validator.NewIntegratedValidator(eventStore)
 	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia)
 	if err != nil {
 		t.Fatal(err)

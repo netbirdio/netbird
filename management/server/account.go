@@ -28,8 +28,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integration_reference"
+	"github.com/netbirdio/netbird/management/server/integrations/validator"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -157,7 +157,7 @@ type DefaultAccountManager struct {
 	// userDeleteFromIDPEnabled allows to delete user from IDP when user is deleted from account
 	userDeleteFromIDPEnabled bool
 
-	integratedPeerValidator integrated_validator.IntegratedValidator
+	integratedPeerValidator validator.IntegratedValidator
 }
 
 // Settings represents Account settings structure that can be modified via API and Dashboard
@@ -242,19 +242,19 @@ type UserPermissions struct {
 }
 
 type UserInfo struct {
-	ID                   string               `json:"id"`
-	Email                string               `json:"email"`
-	Name                 string               `json:"name"`
-	Role                 string               `json:"role"`
-	AutoGroups           []string             `json:"auto_groups"`
-	Status               string               `json:"-"`
-	IsServiceUser        bool                 `json:"is_service_user"`
-	IsBlocked            bool                 `json:"is_blocked"`
-	NonDeletable         bool                 `json:"non_deletable"`
-	LastLogin            time.Time            `json:"last_login"`
-	Issued               string               `json:"issued"`
+	ID                   string                                     `json:"id"`
+	Email                string                                     `json:"email"`
+	Name                 string                                     `json:"name"`
+	Role                 string                                     `json:"role"`
+	AutoGroups           []string                                   `json:"auto_groups"`
+	Status               string                                     `json:"-"`
+	IsServiceUser        bool                                       `json:"is_service_user"`
+	IsBlocked            bool                                       `json:"is_blocked"`
+	NonDeletable         bool                                       `json:"non_deletable"`
+	LastLogin            time.Time                                  `json:"last_login"`
+	Issued               string                                     `json:"issued"`
 	IntegrationReference integration_reference.IntegrationReference `json:"-"`
-	Permissions          UserPermissions      `json:"permissions"`
+	Permissions          UserPermissions                            `json:"permissions"`
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
@@ -858,7 +858,7 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
 func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
 	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store, geo *geolocation.Geolocation,
 	userDeleteFromIDPEnabled bool,
-	integratedPeerValidator integrated_validator.IntegratedValidator,
+	integratedPeerValidator validator.IntegratedValidator,
 ) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
 		Store:                    store,
