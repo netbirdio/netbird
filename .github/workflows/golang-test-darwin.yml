@@ -32,6 +32,9 @@ jobs:
           restore-keys: |
             macos-go-
 
+      - name: Install libpcap
+        run: brew install libpcap
+
       - name: Install modules
         run: go mod tidy
 

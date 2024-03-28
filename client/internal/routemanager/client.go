@@ -193,7 +193,7 @@ func (c *clientNetwork) removeRouteFromWireguardPeer(peerKey string) error {
 
 func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 	if c.chosenRoute != nil {
-		if err := removeFromRouteTableIfNonSystem(c.network, c.wgInterface.Address().IP.String(), c.wgInterface.Name()); err != nil {
+		if err := removeVPNRoute(c.network, c.wgInterface.Name()); err != nil {
 			return fmt.Errorf("remove route %s from system, err: %v", c.network, err)
 		}
 
@@ -234,7 +234,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 		}
 	} else {
 		// otherwise add the route to the system
-		if err := addToRouteTableIfNoExists(c.network, c.wgInterface.Address().IP.String(), c.wgInterface.Name()); err != nil {
+		if err := addVPNRoute(c.network, c.wgInterface.Name()); err != nil {
 			return fmt.Errorf("route %s couldn't be added for peer %s, err: %v",
 				c.network.String(), c.wgInterface.Address().IP.String(), err)
 		}
