@@ -794,6 +794,7 @@ func (e *Engine) updateOfflinePeers(offlinePeers []*mgmProto.RemotePeerConfig) {
 			FQDN:             offlinePeer.GetFqdn(),
 			ConnStatus:       peer.StatusDisconnected,
 			ConnStatusUpdate: time.Now(),
+			Mux:              new(sync.RWMutex),
 		}
 	}
 	e.statusRecorder.ReplaceOfflinePeers(replacement)

@@ -174,7 +174,7 @@ func (c *clientNetwork) removeRouteFromWireguardPeer(peerKey string) error {
 		return fmt.Errorf("get peer state: %v", err)
 	}
 
-	delete(state.Routes, c.network.String())
+	state.DeleteRoute(c.network.String())
 	if err := c.statusRecorder.UpdatePeerState(state); err != nil {
 		log.Warnf("Failed to update peer state: %v", err)
 	}
@@ -246,10 +246,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 	if err != nil {
 		log.Errorf("Failed to get peer state: %v", err)
 	} else {
-		if state.Routes == nil {
-			state.Routes = map[string]struct{}{}
-		}
-		state.Routes[c.network.String()] = struct{}{}
+		state.AddRoute(c.network.String())
 		if err := c.statusRecorder.UpdatePeerState(state); err != nil {
 			log.Warnf("Failed to update peer state: %v", err)
 		}
