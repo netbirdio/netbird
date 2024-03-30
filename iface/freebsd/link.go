@@ -1,6 +1,7 @@
 package freebsd
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -117,8 +118,10 @@ func (l *Link) isExist() (bool, error) {
 func (l *Link) create(groupName string) (string, error) {
 	cmd := exec.Command("ifconfig", groupName, "create")
 
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
+		log.Debugf("out", output)
+
 		return "", fmt.Errorf("create %s interface: %w", groupName, err)
 	}
 
@@ -133,8 +136,10 @@ func (l *Link) create(groupName string) (string, error) {
 func (l *Link) rename(oldName, newName string) (string, error) {
 	cmd := exec.Command("ifconfig", oldName, "name", newName)
 
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
+		log.Debugf("out", output)
+
 		return "", fmt.Errorf("change name %q -> %q: %w", oldName, newName, err)
 	}
 
@@ -147,10 +152,15 @@ func (l *Link) rename(oldName, newName string) (string, error) {
 }
 
 func (l *Link) del(name string) error {
+	var stderr bytes.Buffer
+
 	cmd := exec.Command("ifconfig", name, "destroy")
+	cmd.Stderr = &stderr
 
 	err := cmd.Run()
 	if err != nil {
+		log.Debugf("out", stderr.String())
+
 		return fmt.Errorf("destroy %s interface: %w", name, err)
 	}
 
@@ -158,8 +168,14 @@ func (l *Link) del(name string) error {
 }
 
 func (l *Link) setMTU(mtu int) error {
+	var stderr bytes.Buffer
+
 	cmd := exec.Command("ifconfig", l.name, "mtu", strconv.Itoa(mtu))
+	cmd.Stderr = &stderr
+
 	if err := cmd.Run(); err != nil {
+		log.Debugf("out", stderr.String())
+
 		return fmt.Errorf("set interface mtu: %w", err)
 	}
 
@@ -167,8 +183,14 @@ func (l *Link) setMTU(mtu int) error {
 }
 
 func (l *Link) setAddr(ip, netmask string) error {
+	var stderr bytes.Buffer
+
 	cmd := exec.Command("ifconfig", l.name, "inet", ip, "netmask", netmask)
+	cmd.Stderr = &stderr
+
 	if err := cmd.Run(); err != nil {
+		log.Debugf("out", stderr.String())
+
 		return fmt.Errorf("set interface addr: %w", err)
 	}
 
