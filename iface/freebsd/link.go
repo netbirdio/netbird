@@ -102,11 +102,11 @@ func (l *Link) AssignAddr(ip, netmask string) error {
 }
 
 func (l *Link) Up() error {
-	return l.up()
+	return l.up(l.name)
 }
 
 func (l *Link) Down() error {
-	return l.down()
+	return l.down(l.name)
 }
 
 func (l *Link) isExist() (bool, error) {
