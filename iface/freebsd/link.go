@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strconv"
+
+	"gvisor.dev/gvisor/pkg/log"
 )
 
 const wgIFGroup = "wg"
@@ -22,12 +24,13 @@ func NewLink(name string) *Link {
 
 // LinkByName retrieves a network interface by its name.
 func LinkByName(name string) (*Link, error) {
-	out, err := exec.Command("ifconfig", name).Output()
+	out, err := exec.Command("ifconfig", name).CombinedOutput()
 	if err != nil {
 		if pErr := parseError(out); pErr != nil {
 			return nil, pErr
 		}
 
+		log.Debugf("out", out)
 		return nil, fmt.Errorf("command run: %w", err)
 	}
 
@@ -114,7 +117,7 @@ func (l *Link) isExist() (bool, error) {
 func (l *Link) create(groupName string) (string, error) {
 	cmd := exec.Command("ifconfig", groupName, "create")
 
-	output, err := cmd.CombinedOutput()
+	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("create %s interface: %w", groupName, err)
 	}
@@ -130,7 +133,7 @@ func (l *Link) create(groupName string) (string, error) {
 func (l *Link) rename(oldName, newName string) (string, error) {
 	cmd := exec.Command("ifconfig", oldName, "name", newName)
 
-	output, err := cmd.CombinedOutput()
+	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("change name %q -> %q: %w", oldName, newName, err)
 	}
