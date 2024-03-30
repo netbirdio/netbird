@@ -76,7 +76,7 @@ func (c *PacketConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 // Close overrides the net.PacketConn Close method to execute all registered hooks before closing the connection.
 func (c *PacketConn) Close() error {
 	c.seenAddrs = &sync.Map{}
-	return close(c.ID, c.PacketConn)
+	return closeConn(c.ID, c.PacketConn)
 }
 
 // UDPConn wraps net.UDPConn to override its WriteTo and Close methods to include hook functionality.
@@ -95,7 +95,7 @@ func (c *UDPConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 // Close overrides the net.UDPConn Close method to execute all registered hooks before closing the connection.
 func (c *UDPConn) Close() error {
 	c.seenAddrs = &sync.Map{}
-	return close(c.ID, c.UDPConn)
+	return closeConn(c.ID, c.UDPConn)
 }
 
 func callWriteHooks(id ConnectionID, seenAddrs *sync.Map, b []byte, addr net.Addr) {
@@ -127,7 +127,7 @@ func callWriteHooks(id ConnectionID, seenAddrs *sync.Map, b []byte, addr net.Add
 	}
 }
 
-func close(id ConnectionID, conn net.PacketConn) error {
+func closeConn(id ConnectionID, conn net.PacketConn) error {
 	err := conn.Close()
 
 	listenerCloseHooksMutex.RLock()
