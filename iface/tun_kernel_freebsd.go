@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+        "time"
 
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
@@ -169,7 +170,9 @@ func (t *tunKernelDevice) Wrapper() *DeviceWrapper {
 // assignAddr Adds IP address to the tunnel interface
 func (t *tunKernelDevice) assignAddr() error {
 	ip := t.address.IP.String()
-	mask := t.address.Network.Mask.String()
+	mask := "0x"+t.address.Network.Mask.String()
+
+	log.Infof("assign addr %s mask %s to %s interface", ip, mask, t.name)
 
 	err := t.link.AssignAddr(ip, mask)
 	if err != nil {
@@ -177,6 +180,10 @@ func (t *tunKernelDevice) assignAddr() error {
 		log.Errorf("error setting MTU on interface: %s", t.name)
 		return fmt.Errorf("assign addr: %w", err)
 	}
+
+	// FIXME: debug
+        log.Infof("wg interface created: %s, sleep for 5sec", t.name)
+	time.Sleep(5*time.Second)
 
 	return nil
 }
