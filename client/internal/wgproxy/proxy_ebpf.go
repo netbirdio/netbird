@@ -68,7 +68,7 @@ func (p *WGEBPFProxy) Listen() error {
 		IP:   net.ParseIP("127.0.0.1"),
 	}
 
-	p.conn, err = nbnet.ListenUDP("udp", &addr)
+	conn, err := nbnet.ListenUDP("udp", &addr)
 	if err != nil {
 		cErr := p.Free()
 		if cErr != nil {
@@ -76,6 +76,7 @@ func (p *WGEBPFProxy) Listen() error {
 		}
 		return err
 	}
+	p.conn = conn
 
 	go p.proxyToRemote()
 	log.Infof("local wg proxy listening on: %d", wgPorxyPort)
