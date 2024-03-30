@@ -84,11 +84,12 @@ func parseIfconfigOutput(output string) (*iface, error) {
 
 func parseIFName(output string) (string, error) {
 	lines := strings.Split(output, "\n")
-	if len(lines) == 0 {
+	if len(lines) == 0 || lines[0] == "" {
 		return "", fmt.Errorf("no output returned")
 	}
+
 	fields := strings.Fields(lines[0])
-	if len(fields) < 1 {
+	if len(fields) > 1 {
 		return "", fmt.Errorf("invalid output")
 	}
 

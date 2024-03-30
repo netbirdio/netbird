@@ -39,7 +39,12 @@ func TestParseIFName(t *testing.T) {
 	}{
 		{
 			name:     "ValidOutput",
-			output:   "eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500\ninet 192.168.0.10  netmask 255.255.255.0  broadcast 192.168.0.255",
+			output:   "eth0\n",
+			expected: "eth0",
+		},
+		{
+			name:     "ValidOutputOneLine",
+			output:   "eth0",
 			expected: "eth0",
 		},
 		{
@@ -49,7 +54,7 @@ func TestParseIFName(t *testing.T) {
 		},
 		{
 			name:        "InvalidOutput",
-			output:      "This is an invalid output",
+			output:      "This is an invalid output\n",
 			expectedErr: fmt.Errorf("invalid output"),
 		},
 	}
