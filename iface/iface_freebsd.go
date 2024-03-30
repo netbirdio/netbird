@@ -22,6 +22,8 @@ func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, 
 
 	// move the kernel/usp/netstack preference evaluation to upper layer
 	if netstack.IsEnabled() {
+        // FIXME: debug
+        fmt.Printf("IFACE DEBUG: netstack Enabled\n")
 		wgIFace.tun = newTunNetstackDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, transportNet, netstack.ListenAddr())
 		wgIFace.userspaceBind = true
 		return wgIFace, nil
@@ -36,8 +38,10 @@ func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, 
 	if !tunModuleIsLoaded() {
 		return nil, fmt.Errorf("couldn't check or load tun module")
 	}
+
 	wgIFace.tun = newTunUSPDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, transportNet)
 	wgIFace.userspaceBind = true
+
 	return wgIFace, nil
 }
 

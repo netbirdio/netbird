@@ -3,10 +3,11 @@
 
 package iface
 
-// WireGuardModuleIsLoaded check if we can load WireGuard mod (linux only)
+// WireGuardModuleIsLoaded check if kernel support wireguard
 func WireGuardModuleIsLoaded() bool {
     // NOTE: need manually install  https://github.com/WireGuard/wireguard-freebsd
     // pkg install wireguard
+    // FIXME: proper implement me
     return true
 }
 

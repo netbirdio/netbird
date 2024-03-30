@@ -33,6 +33,7 @@ type tunKernelDevice struct {
 
 func newTunDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net) wgTunDevice {
 	ctx, cancel := context.WithCancel(context.Background())
+
 	return &tunKernelDevice{
 		ctx:          ctx,
 		ctxCancel:    cancel,
@@ -48,19 +49,28 @@ func newTunDevice(name string, address WGAddress, wgPort int, key string, mtu in
 func (t *tunKernelDevice) Create() (wgConfigurer, error) {
 	link := newWGLink(t.name)
 
+    // FIXME: debug
+    fmt.Printf("TUN DEBUG: netlink creating...\n")
+
 	// check if interface exists
 	l, err := netlink.LinkByName(t.name)
 	if err != nil {
 		switch err.(type) {
 		case netlink.LinkNotFoundError:
+            // FIXME: debug
+            fmt.Printf("TUN DEBUG: link not found\n")
 			break
 		default:
+            // FIXME: debug
+            fmt.Printf("TUN DEBUG: link error: %s\n", err)
 			return nil, err
 		}
 	}
 
 	// remove if interface exists
 	if l != nil {
+        // FIXME: debug
+        fmt.Printf("TUN DEBUG: remove exist iface\n")
 		err = netlink.LinkDel(link)
 		if err != nil {
 			return nil, err
