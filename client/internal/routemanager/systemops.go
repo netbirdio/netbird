@@ -77,7 +77,7 @@ func getNextHop(ip netip.Addr) (netip.Addr, *net.Interface, error) {
 	}
 	intf, gateway, preferredSrc, err := r.Route(ip.AsSlice())
 	if err != nil {
-		log.Errorf("Failed to get route for %s: %v", ip, err)
+		log.Warnf("Failed to get route for %s: %v", ip, err)
 		return netip.Addr{}, nil, errRouteNotFound
 	}
 
@@ -156,7 +156,7 @@ func addRouteToNonVPNIntf(
 	// Determine the exit interface and next hop for the prefix, so we can add a specific route
 	nexthop, intf, err := getNextHop(addr)
 	if err != nil {
-		return netip.Addr{}, "", fmt.Errorf("get next hop: %s", err)
+		return netip.Addr{}, "", fmt.Errorf("get next hop: %w", err)
 	}
 
 	log.Debugf("Found next hop %s for prefix %s with interface %v", nexthop, prefix, intf)
@@ -316,11 +316,11 @@ func getPrefixFromIP(ip net.IP) (*netip.Prefix, error) {
 
 func setupRoutingWithRouteManager(routeManager **RouteManager, initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
 	initialNextHopV4, initialIntfV4, err := getNextHop(netip.IPv4Unspecified())
-	if err != nil {
+	if err != nil && !errors.Is(err, errRouteNotFound) {
 		log.Errorf("Unable to get initial v4 default next hop: %v", err)
 	}
 	initialNextHopV6, initialIntfV6, err := getNextHop(netip.IPv6Unspecified())
-	if err != nil {
+	if err != nil && !errors.Is(err, errRouteNotFound) {
 		log.Errorf("Unable to get initial v6 default next hop: %v", err)
 	}
 
