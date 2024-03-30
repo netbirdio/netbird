@@ -19,7 +19,7 @@ func TestParseIfconfigOutput(t *testing.T) {
 		Group: "wg",
 	}
 
-	result, err := parseIfconfigOutput(testOutput)
+	result, err := parseIfconfigOutput(([]byte)(testOutput))
 	if err != nil {
 		t.Errorf("Error parsing ifconfig output: %v", err)
 		return
@@ -61,7 +61,7 @@ func TestParseIFName(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result, err := parseIFName(test.output)
+			result, err := parseIFName(([]byte)(test.output))
 
 			assert.Equal(t, test.expected, result, "Interface names should match")
 
