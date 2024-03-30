@@ -10,9 +10,9 @@ import (
 
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
-	"github.com/vishvananda/netlink"
 
 	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/netbirdio/netbird/iface/freebsd"
 	"github.com/netbirdio/netbird/sharedsock"
 )
 
@@ -26,7 +26,7 @@ type tunKernelDevice struct {
 	ctxCancel    context.CancelFunc
 	transportNet transport.Net
 
-	link       *wgLink
+	link       *freebsd.Link
 	udpMuxConn net.PacketConn
 	udpMux     *bind.UniversalUDPMuxDefault
 }
@@ -47,42 +47,21 @@ func newTunDevice(name string, address WGAddress, wgPort int, key string, mtu in
 }
 
 func (t *tunKernelDevice) Create() (wgConfigurer, error) {
-	link := newWGLink(t.name)
+	// Get the effective user ID
+	euid := os.Geteuid()
+	// Check if the effective user ID is 0 (root)
+	if euid != 0 {
+		return nil, fmt.Errorf("netbird must run as root on FreeBSD to be able to create wg interface")
+	}
 
-    // FIXME: debug
-    fmt.Printf("TUN DEBUG: netlink creating...\n")
+	link := freebsd.NewLink(t.name)
 
-	// check if interface exists
-	l, err := netlink.LinkByName(t.name)
+	// FIXME: debug
+	fmt.Printf("TUN DEBUG: netlink creating...\n")
+
+	err := link.Recreate()
 	if err != nil {
-		switch err.(type) {
-		case netlink.LinkNotFoundError:
-            // FIXME: debug
-            fmt.Printf("TUN DEBUG: link not found\n")
-			break
-		default:
-            // FIXME: debug
-            fmt.Printf("TUN DEBUG: link error: %s\n", err)
-			return nil, err
-		}
-	}
-
-	// remove if interface exists
-	if l != nil {
-        // FIXME: debug
-        fmt.Printf("TUN DEBUG: remove exist iface\n")
-		err = netlink.LinkDel(link)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	log.Debugf("adding device: %s", t.name)
-	err = netlink.LinkAdd(link)
-	if os.IsExist(err) {
-		log.Infof("interface %s already exists. Will reuse.", t.name)
-	} else if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("recreate: %w", err)
 	}
 
 	t.link = link
@@ -94,7 +73,7 @@ func (t *tunKernelDevice) Create() (wgConfigurer, error) {
 
 	// todo do a discovery
 	log.Debugf("setting MTU: %d interface: %s", t.mtu, t.name)
-	err = netlink.LinkSetMTU(link, t.mtu)
+	err = link.SetMTU(t.mtu)
 	if err != nil {
 		log.Errorf("error setting MTU on interface: %s", t.name)
 		return nil, err
@@ -105,6 +84,7 @@ func (t *tunKernelDevice) Create() (wgConfigurer, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return configurer, nil
 }
 
@@ -117,12 +97,12 @@ func (t *tunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		return nil, fmt.Errorf("device is not ready yet")
 	}
 
-	log.Debugf("bringing up interface: %s", t.name)
-	err := netlink.LinkSetUp(t.link)
-	if err != nil {
-		log.Errorf("error bringing up interface: %s", t.name)
-		return nil, err
-	}
+	// log.Debugf("bringing up interface: %s", t.name)
+	// err := netlink.LinkSetUp(t.link)
+	// if err != nil {
+	// 	log.Errorf("error bringing up interface: %s", t.name)
+	// 	return nil, err
+	// }
 
 	rawSock, err := sharedsock.Listen(t.wgPort, sharedsock.NewIncomingSTUNFilter())
 	if err != nil {
@@ -154,7 +134,7 @@ func (t *tunKernelDevice) Close() error {
 	t.ctxCancel()
 
 	var closErr error
-	if err := t.link.Close(); err != nil {
+	if err := t.link.Del(); err != nil {
 		log.Debugf("failed to close link: %s", err)
 		closErr = err
 	}
@@ -188,32 +168,15 @@ func (t *tunKernelDevice) Wrapper() *DeviceWrapper {
 
 // assignAddr Adds IP address to the tunnel interface
 func (t *tunKernelDevice) assignAddr() error {
-	link := newWGLink(t.name)
+	ip := t.address.IP.String()
+	mask := t.address.Network.Mask.String()
 
-	//delete existing addresses
-	list, err := netlink.AddrList(link, 0)
+	err := t.link.AssignAddr(ip, mask)
 	if err != nil {
-		return err
-	}
-	if len(list) > 0 {
-		for _, a := range list {
-			addr := a
-			err = netlink.AddrDel(link, &addr)
-			if err != nil {
-				return err
-			}
-		}
+		// FIXME: debug
+		log.Errorf("error setting MTU on interface: %s", t.name)
+		return fmt.Errorf("assign addr: %w", err)
 	}
 
-	log.Debugf("adding address %s to interface: %s", t.address.String(), t.name)
-	addr, _ := netlink.ParseAddr(t.address.String())
-	err = netlink.AddrAdd(link, addr)
-	if os.IsExist(err) {
-		log.Infof("interface %s already has the address: %s", t.name, t.address.String())
-	} else if err != nil {
-		return err
-	}
-	// On linux, the link must be brought up
-	err = netlink.LinkSetUp(link)
-	return err
+	return nil
 }
