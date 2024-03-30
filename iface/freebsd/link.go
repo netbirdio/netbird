@@ -24,10 +24,14 @@ func NewLink(name string) *Link {
 func LinkByName(name string) (*Link, error) {
 	out, err := exec.Command("ifconfig", name).Output()
 	if err != nil {
+		if pErr := parseError(out); pErr != nil {
+			return nil, pErr
+		}
+
 		return nil, fmt.Errorf("command run: %w", err)
 	}
 
-	i, err := parseIfconfigOutput(string(out))
+	i, err := parseIfconfigOutput(out)
 	if err != nil {
 		return nil, fmt.Errorf("parse ifconfig output: %w", err)
 	}
@@ -115,7 +119,7 @@ func (l *Link) create(groupName string) (string, error) {
 		return "", fmt.Errorf("create %s interface: %w", groupName, err)
 	}
 
-	interfaceName, err := parseIFName(string(output))
+	interfaceName, err := parseIFName(output)
 	if err != nil {
 		return "", fmt.Errorf("parse interface name: %w", err)
 	}
@@ -131,7 +135,7 @@ func (l *Link) rename(oldName, newName string) (string, error) {
 		return "", fmt.Errorf("change name %q -> %q: %w", oldName, newName, err)
 	}
 
-	interfaceName, err := parseIFName(string(output))
+	interfaceName, err := parseIFName(output)
 	if err != nil {
 		return "", fmt.Errorf("parse new name: %w", err)
 	}

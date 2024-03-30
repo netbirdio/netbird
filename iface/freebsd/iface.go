@@ -14,12 +14,22 @@ type iface struct {
 	IPAddrs []string
 }
 
-func parseIfconfigOutput(output string) (*iface, error) {
-	if strings.Contains(output, "does not exist") {
-		return nil, ErrDoesNotExist
+func parseError(output []byte) error {
+	// TODO: implement without allocations
+	lines := string(output)
+
+	if strings.Contains(lines, "does not exist") {
+		return ErrDoesNotExist
 	}
 
-	scanner := bufio.NewScanner(strings.NewReader(output))
+	return nil
+}
+
+func parseIfconfigOutput(output []byte) (*iface, error) {
+	// TODO: implement without allocations
+	lines := string(output)
+
+	scanner := bufio.NewScanner(strings.NewReader(lines))
 
 	var name, mtu, group string
 	var ips []string
@@ -82,8 +92,9 @@ func parseIfconfigOutput(output string) (*iface, error) {
 	}, nil
 }
 
-func parseIFName(output string) (string, error) {
-	lines := strings.Split(output, "\n")
+func parseIFName(output []byte) (string, error) {
+	// TODO: implement without allocations
+	lines := strings.Split(string(output), "\n")
 	if len(lines) == 0 || lines[0] == "" {
 		return "", fmt.Errorf("no output returned")
 	}
