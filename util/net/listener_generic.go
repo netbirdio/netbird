@@ -1,4 +1,4 @@
-//go:build !linux && !ios
+//go:build !android && !ios
 
 package net
 
@@ -38,7 +38,7 @@ func AddListenerCloseHook(hook ListenerCloseHookFunc) {
 	listenerCloseHooks = append(listenerCloseHooks, hook)
 }
 
-// RemoveListenerHook removes all dialer hooks.
+// RemoveListenerHooks removes all dialer hooks.
 func RemoveListenerHooks() {
 	listenerWriteHooksMutex.Lock()
 	defer listenerWriteHooksMutex.Unlock()
@@ -47,9 +47,6 @@ func RemoveListenerHooks() {
 	listenerCloseHooksMutex.Lock()
 	defer listenerCloseHooksMutex.Unlock()
 	listenerCloseHooks = nil
-}
-
-func (l *ListenerConfig) init() {
 }
 
 // ListenPacket listens on the network address and returns a PacketConn
@@ -63,8 +60,7 @@ func (l *ListenerConfig) ListenPacket(ctx context.Context, network, address stri
 	return &PacketConn{PacketConn: pc, ID: connID, seenAddrs: &sync.Map{}}, nil
 }
 
-// PacketConn wraps net.PacketConn to override its WriteTo method
-// to include write hook functionality.
+// PacketConn wraps net.PacketConn to override its WriteTo and Close methods to include hook functionality.
 type PacketConn struct {
 	net.PacketConn
 	ID        ConnectionID
@@ -73,18 +69,48 @@ type PacketConn struct {
 
 // WriteTo writes a packet with payload b to addr, executing registered write hooks beforehand.
 func (c *PacketConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
+	callWriteHooks(c.ID, c.seenAddrs, b, addr)
+	return c.PacketConn.WriteTo(b, addr)
+}
+
+// Close overrides the net.PacketConn Close method to execute all registered hooks before closing the connection.
+func (c *PacketConn) Close() error {
+	c.seenAddrs = &sync.Map{}
+	return close(c.ID, c.PacketConn)
+}
+
+// UDPConn wraps net.UDPConn to override its WriteTo and Close methods to include hook functionality.
+type UDPConn struct {
+	*net.UDPConn
+	ID        ConnectionID
+	seenAddrs *sync.Map
+}
+
+// WriteTo writes a packet with payload b to addr, executing registered write hooks beforehand.
+func (c *UDPConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
+	callWriteHooks(c.ID, c.seenAddrs, b, addr)
+	return c.UDPConn.WriteTo(b, addr)
+}
+
+// Close overrides the net.UDPConn Close method to execute all registered hooks before closing the connection.
+func (c *UDPConn) Close() error {
+	c.seenAddrs = &sync.Map{}
+	return close(c.ID, c.UDPConn)
+}
+
+func callWriteHooks(id ConnectionID, seenAddrs *sync.Map, b []byte, addr net.Addr) {
 	// Lookup the address in the seenAddrs map to avoid calling the hooks for every write
-	if _, loaded := c.seenAddrs.LoadOrStore(addr.String(), true); !loaded {
+	if _, loaded := seenAddrs.LoadOrStore(addr.String(), true); !loaded {
 		ipStr, _, splitErr := net.SplitHostPort(addr.String())
 		if splitErr != nil {
 			log.Errorf("Error splitting IP address and port: %v", splitErr)
-			goto conn
+			return
 		}
 
 		ip, err := net.ResolveIPAddr("ip", ipStr)
 		if err != nil {
 			log.Errorf("Error resolving IP address: %v", err)
-			goto conn
+			return
 		}
 		log.Debugf("Listener resolved IP for %s: %s", addr, ip)
 
@@ -93,31 +119,36 @@ func (c *PacketConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 			defer listenerWriteHooksMutex.RUnlock()
 
 			for _, hook := range listenerWriteHooks {
-				if err := hook(c.ID, ip, b); err != nil {
+				if err := hook(id, ip, b); err != nil {
 					log.Errorf("Error executing listener write hook: %v", err)
 				}
 			}
 		}()
 	}
-
-conn:
-	return c.PacketConn.WriteTo(b, addr)
 }
 
-// Close overrides the net.PacketConn Close method to execute all registered hooks before closing the connection.
-func (c *PacketConn) Close() error {
-	err := c.PacketConn.Close()
+func close(id ConnectionID, conn net.PacketConn) error {
+	err := conn.Close()
 
 	listenerCloseHooksMutex.RLock()
 	defer listenerCloseHooksMutex.RUnlock()
 
 	for _, hook := range listenerCloseHooks {
-		if err := hook(c.ID, c.PacketConn); err != nil {
+		if err := hook(id, conn); err != nil {
 			log.Errorf("Error executing listener close hook: %v", err)
 		}
 	}
 
-	c.seenAddrs = &sync.Map{}
-
 	return err
+}
+
+// ListenUDP listens on the network address and returns a transport.UDPConn
+// which includes support for write and close hooks.
+func ListenUDP(network string, laddr *net.UDPAddr) (*UDPConn, error) {
+	udpConn, err := net.ListenUDP(network, laddr)
+	if err != nil {
+		return nil, fmt.Errorf("listen UDP: %w", err)
+	}
+	connID := GenerateConnID()
+	return &UDPConn{UDPConn: udpConn, ID: connID, seenAddrs: &sync.Map{}}, nil
 }

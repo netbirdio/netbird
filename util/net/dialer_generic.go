@@ -1,4 +1,4 @@
-//go:build !linux && !ios
+//go:build !android && !ios
 
 package net
 
@@ -45,9 +45,6 @@ func RemoveDialerHooks() {
 	dialerCloseHooksMutex.Lock()
 	defer dialerCloseHooksMutex.Unlock()
 	dialerCloseHooks = nil
-}
-
-func (d *Dialer) init() {
 }
 
 // DialContext wraps the net.Dialer's DialContext method to use the custom connection

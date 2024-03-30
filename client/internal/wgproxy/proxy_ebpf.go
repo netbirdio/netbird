@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/ebpf"
@@ -29,7 +30,7 @@ type WGEBPFProxy struct {
 	turnConnMutex sync.Mutex
 
 	rawConn net.PacketConn
-	conn    *net.UDPConn
+	conn    transport.UDPConn
 }
 
 // NewWGEBPFProxy create new WGEBPFProxy instance

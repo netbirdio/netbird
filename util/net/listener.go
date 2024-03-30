@@ -1,8 +1,6 @@
 package net
 
 import (
-	"context"
-	"fmt"
 	"net"
 )
 
@@ -20,19 +18,4 @@ func NewListener() *ListenerConfig {
 	listener.init()
 
 	return listener
-}
-
-// ListenUDP is a convenience function that wraps ListenPacket for UDP networks.
-func ListenUDP(network string, laddr *net.UDPAddr) (*net.UDPConn, error) {
-	l := NewListener()
-	pc, err := l.ListenPacket(context.Background(), network, laddr.String())
-	if err != nil {
-		return nil, fmt.Errorf("listening on %s:%s: %w", network, laddr, err)
-	}
-
-	udpConn, ok := pc.(*net.UDPConn)
-	if !ok {
-		return nil, fmt.Errorf("packetConn is not a *net.UDPConn")
-	}
-	return udpConn, nil
 }

@@ -1,4 +1,4 @@
-//go:build android || ios
+//go:build !linux || android
 
 package net
 
