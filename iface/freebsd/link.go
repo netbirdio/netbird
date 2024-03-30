@@ -4,10 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"strconv"
-
-	"gvisor.dev/gvisor/pkg/log"
 )
 
 const wgIFGroup = "wg"
@@ -31,7 +30,8 @@ func LinkByName(name string) (*Link, error) {
 			return nil, pErr
 		}
 
-		log.Debugf("out", out)
+		slog.Debug("out", out)
+
 		return nil, fmt.Errorf("command run: %w", err)
 	}
 
@@ -120,7 +120,7 @@ func (l *Link) create(groupName string) (string, error) {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Debugf("out", output)
+		slog.Debug("out", output)
 
 		return "", fmt.Errorf("create %s interface: %w", groupName, err)
 	}
@@ -138,7 +138,7 @@ func (l *Link) rename(oldName, newName string) (string, error) {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Debugf("out", output)
+		slog.Debug("out", output)
 
 		return "", fmt.Errorf("change name %q -> %q: %w", oldName, newName, err)
 	}
@@ -159,7 +159,7 @@ func (l *Link) del(name string) error {
 
 	err := cmd.Run()
 	if err != nil {
-		log.Debugf("out", stderr.String())
+		slog.Debug("out", stderr.String())
 
 		return fmt.Errorf("destroy %s interface: %w", name, err)
 	}
@@ -174,7 +174,7 @@ func (l *Link) setMTU(mtu int) error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		log.Debugf("out", stderr.String())
+		slog.Debug("out", stderr.String())
 
 		return fmt.Errorf("set interface mtu: %w", err)
 	}
@@ -189,7 +189,7 @@ func (l *Link) setAddr(ip, netmask string) error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		log.Debugf("out", stderr.String())
+		slog.Debug("out", stderr.String())
 
 		return fmt.Errorf("set interface addr: %w", err)
 	}
