@@ -51,7 +51,7 @@ func (t *tunKernelDevice) Create() (wgConfigurer, error) {
 	euid := os.Geteuid()
 	// Check if the effective user ID is 0 (root)
 	if euid != 0 {
-		return nil, fmt.Errorf("netbird must run as root on FreeBSD to be able to create wg interface")
+		log.Warn("tunKernelDevice: on freebsd netbird must run as root to be able to create wg interface with ifconfig")
 	}
 
 	link := freebsd.NewLink(t.name)
