@@ -21,8 +21,6 @@ var expectedLoopbackInt = "lo"
 var expectedExternalInt = "dummyext0"
 var expectedInternalInt = "dummyint0"
 
-var errRouteNotFound = fmt.Errorf("route not found")
-
 func init() {
 	testCases = append(testCases, []testCase{
 		{
