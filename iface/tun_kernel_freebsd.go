@@ -7,14 +7,13 @@ import (
 	"fmt"
 	"net"
 	"os"
-        "time"
+	"time"
 
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/iface/bind"
 	"github.com/netbirdio/netbird/iface/freebsd"
-	"github.com/netbirdio/netbird/sharedsock"
 )
 
 type tunKernelDevice struct {
@@ -26,6 +25,7 @@ type tunKernelDevice struct {
 	ctx          context.Context
 	ctxCancel    context.CancelFunc
 	transportNet transport.Net
+	iceBind      *bind.ICEBind
 
 	link       *freebsd.Link
 	udpMuxConn net.PacketConn
@@ -43,6 +43,7 @@ func newTunDevice(name string, address WGAddress, wgPort int, key string, mtu in
 		wgPort:       wgPort,
 		key:          key,
 		mtu:          mtu,
+		iceBind:      bind.NewICEBind(transportNet),
 		transportNet: transportNet,
 	}
 }
@@ -105,21 +106,31 @@ func (t *tunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	// 	return nil, err
 	// }
 
-	rawSock, err := sharedsock.Listen(t.wgPort, sharedsock.NewIncomingSTUNFilter())
+	// TODO: for now use userspace socket
+	udpMux, err := t.iceBind.GetICEMux()
 	if err != nil {
 		return nil, err
 	}
-	bindParams := bind.UniversalUDPMuxParams{
-		UDPConn: rawSock,
-		Net:     t.transportNet,
-	}
-	mux := bind.NewUniversalUDPMuxDefault(bindParams)
-	go mux.ReadFromConn(t.ctx)
-	t.udpMuxConn = rawSock
-	t.udpMux = mux
+	t.udpMux = udpMux
 
 	log.Debugf("device is ready to use: %s", t.name)
-	return t.udpMux, nil
+	return udpMux, nil
+
+	// rawSock, err := sharedsock.Listen(t.wgPort, sharedsock.NewIncomingSTUNFilter())
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// bindParams := bind.UniversalUDPMuxParams{
+	// 	UDPConn: rawSock,
+	// 	Net:     t.transportNet,
+	// }
+	// mux := bind.NewUniversalUDPMuxDefault(bindParams)
+	// go mux.ReadFromConn(t.ctx)
+	// t.udpMuxConn = rawSock
+	// t.udpMux = mux
+
+	// log.Debugf("device is ready to use: %s", t.name)
+	// return t.udpMux, nil
 }
 
 func (t *tunKernelDevice) UpdateAddr(address WGAddress) error {
@@ -146,10 +157,10 @@ func (t *tunKernelDevice) Close() error {
 			closErr = err
 		}
 
-		if err := t.udpMuxConn.Close(); err != nil {
-			log.Debugf("failed to close udp mux connection: %s", err)
-			closErr = err
-		}
+		// if err := t.udpMuxConn.Close(); err != nil {
+		// 	log.Debugf("failed to close udp mux connection: %s", err)
+		// 	closErr = err
+		// }
 	}
 
 	return closErr
@@ -170,7 +181,7 @@ func (t *tunKernelDevice) Wrapper() *DeviceWrapper {
 // assignAddr Adds IP address to the tunnel interface
 func (t *tunKernelDevice) assignAddr() error {
 	ip := t.address.IP.String()
-	mask := "0x"+t.address.Network.Mask.String()
+	mask := "0x" + t.address.Network.Mask.String()
 
 	log.Infof("assign addr %s mask %s to %s interface", ip, mask, t.name)
 
@@ -182,8 +193,8 @@ func (t *tunKernelDevice) assignAddr() error {
 	}
 
 	// FIXME: debug
-        log.Infof("wg interface created: %s, sleep for 5sec", t.name)
-	time.Sleep(5*time.Second)
+	log.Infof("wg interface created: %s, sleep for 5sec", t.name)
+	time.Sleep(5 * time.Second)
 
 	return nil
 }
