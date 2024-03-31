@@ -101,6 +101,14 @@ func (l *Link) AssignAddr(ip, netmask string) error {
 	return l.setAddr(ip, netmask)
 }
 
+func (l *Link) Up() error {
+	return l.up()
+}
+
+func (l *Link) Down() error {
+	return l.down()
+}
+
 func (l *Link) isExist() (bool, error) {
 	_, err := LinkByName(l.name)
 	if errors.Is(err, ErrDoesNotExist) {
@@ -191,6 +199,38 @@ func (l *Link) setAddr(ip, netmask string) error {
 		fmt.Printf("ifconfig out: %s", stderr.String())
 
 		return fmt.Errorf("set interface addr: %w", err)
+	}
+
+	return nil
+}
+
+func (l *Link) up(name string) error {
+	var stderr bytes.Buffer
+
+	cmd := exec.Command("ifconfig", name, "up")
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		fmt.Printf("ifconfig out: %s", stderr.String())
+
+		return fmt.Errorf("up %s interface: %w", name, err)
+	}
+
+	return nil
+}
+
+func (l *Link) down(name string) error {
+	var stderr bytes.Buffer
+
+	cmd := exec.Command("ifconfig", name, "down")
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		fmt.Printf("ifconfig out: %s", stderr.String())
+
+		return fmt.Errorf("down %s interface: %w", name, err)
 	}
 
 	return nil

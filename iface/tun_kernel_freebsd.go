@@ -99,12 +99,13 @@ func (t *tunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		return nil, fmt.Errorf("device is not ready yet")
 	}
 
-	// log.Debugf("bringing up interface: %s", t.name)
-	// err := netlink.LinkSetUp(t.link)
-	// if err != nil {
-	// 	log.Errorf("error bringing up interface: %s", t.name)
-	// 	return nil, err
-	// }
+	log.Debugf("bringing up interface: %s", t.name)
+
+	err := t.link.Up()
+	if err != nil {
+		log.Errorf("error bringing up interface: %s", t.name)
+		return nil, err
+	}
 
 	// TODO: for now use userspace socket
 	udpMux, err := t.iceBind.GetICEMux()
