@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/pion/transport/v3"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/iface/netstack"
 )
@@ -22,22 +23,28 @@ func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, 
 
 	// move the kernel/usp/netstack preference evaluation to upper layer
 	if netstack.IsEnabled() {
-        // FIXME: debug
-        fmt.Printf("IFACE DEBUG: netstack Enabled\n")
+		log.Info("use netstack mode")
+
 		wgIFace.tun = newTunNetstackDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, transportNet, netstack.ListenAddr())
 		wgIFace.userspaceBind = true
+
 		return wgIFace, nil
 	}
 
 	if WireGuardModuleIsLoaded() {
+		log.Info("use kernel mode")
+
 		wgIFace.tun = newTunDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, transportNet)
 		wgIFace.userspaceBind = false
+
 		return wgIFace, nil
 	}
 
 	if !tunModuleIsLoaded() {
 		return nil, fmt.Errorf("couldn't check or load tun module")
 	}
+
+	log.Info("use userspace mode")
 
 	wgIFace.tun = newTunUSPDevice(iFaceName, wgAddress, wgPort, wgPrivKey, mtu, transportNet)
 	wgIFace.userspaceBind = true
@@ -49,4 +56,3 @@ func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, 
 func (w *WGIface) CreateOnAndroid([]string, string, []string) error {
 	return fmt.Errorf("this function has not implemented on freebsd platform")
 }
-

@@ -1,3 +1,6 @@
+//go:build freebsd
+// +build freebsd
+
 package system
 
 import (
@@ -22,8 +25,8 @@ func GetInfo(ctx context.Context) *Info {
 		out = _getInfo()
 		time.Sleep(500 * time.Millisecond)
 	}
-	osStr := strings.Replace(out, "\n", "", -1)
-	osStr = strings.Replace(osStr, "\r\n", "", -1)
+	osStr := strings.ReplaceAll(out, "\n", "")
+	osStr = strings.ReplaceAll(osStr, "\r\n", "")
 	osInfo := strings.Split(osStr, " ")
 
 	env := Environment{

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strconv"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const wgIFGroup = "wg"
@@ -29,7 +31,7 @@ func LinkByName(name string) (*Link, error) {
 			return nil, pErr
 		}
 
-		fmt.Printf("ifconfig out: %s", out)
+		log.Debugf("ifconfig out: %s", out)
 
 		return nil, fmt.Errorf("command run: %w", err)
 	}
@@ -127,7 +129,7 @@ func (l *Link) create(groupName string) (string, error) {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		fmt.Printf("ifconfig out: %s", output)
+		log.Debugf("ifconfig out: %s", output)
 
 		return "", fmt.Errorf("create %s interface: %w", groupName, err)
 	}
@@ -145,7 +147,7 @@ func (l *Link) rename(oldName, newName string) (string, error) {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		fmt.Printf("ifconfig out: %s", output)
+		log.Debugf("ifconfig out: %s", output)
 
 		return "", fmt.Errorf("change name %q -> %q: %w", oldName, newName, err)
 	}
@@ -166,7 +168,7 @@ func (l *Link) del(name string) error {
 
 	err := cmd.Run()
 	if err != nil {
-		fmt.Printf("ifconfig out: %s", stderr.String())
+		log.Debugf("ifconfig out: %s", stderr.String())
 
 		return fmt.Errorf("destroy %s interface: %w", name, err)
 	}
@@ -181,7 +183,7 @@ func (l *Link) setMTU(mtu int) error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("ifconfig out: %s", stderr.String())
+		log.Debugf("ifconfig out: %s", stderr.String())
 
 		return fmt.Errorf("set interface mtu: %w", err)
 	}
@@ -196,7 +198,7 @@ func (l *Link) setAddr(ip, netmask string) error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("ifconfig out: %s", stderr.String())
+		log.Debugf("ifconfig out: %s", stderr.String())
 
 		return fmt.Errorf("set interface addr: %w", err)
 	}
@@ -212,7 +214,7 @@ func (l *Link) up(name string) error {
 
 	err := cmd.Run()
 	if err != nil {
-		fmt.Printf("ifconfig out: %s", stderr.String())
+		log.Debugf("ifconfig out: %s", stderr.String())
 
 		return fmt.Errorf("up %s interface: %w", name, err)
 	}
@@ -228,7 +230,7 @@ func (l *Link) down(name string) error {
 
 	err := cmd.Run()
 	if err != nil {
-		fmt.Printf("ifconfig out: %s", stderr.String())
+		log.Debugf("ifconfig out: %s", stderr.String())
 
 		return fmt.Errorf("down %s interface: %w", name, err)
 	}

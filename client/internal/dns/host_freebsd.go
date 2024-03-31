@@ -51,14 +51,12 @@ func newHostManager(wgInterface string) (hostManager, error) {
 	}
 
 	log.Debugf("discovered mode is: %s", osManager)
+
 	return newHostManagerFromType(wgInterface, osManager)
 }
 
 func newHostManagerFromType(wgInterface string, osManager osManagerType) (hostManager, error) {
-	switch osManager {
-	default:
-		return newFileConfigurator()
-	}
+	return newFileConfigurator()
 }
 
 func getOSDNSManagerType() (osManagerType, error) {
@@ -91,4 +89,3 @@ func getOSDNSManagerType() (osManagerType, error) {
 
 	return fileManager, nil
 }
-

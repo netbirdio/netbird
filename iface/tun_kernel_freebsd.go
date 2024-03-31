@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"time"
 
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
@@ -33,6 +32,11 @@ type tunKernelDevice struct {
 }
 
 func newTunDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net) wgTunDevice {
+	euid := os.Geteuid()
+	if euid != 0 {
+		log.Warn("tunKernelDevice: on freebsd netbird must run as root to be able to create wg interface with ifconfig")
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &tunKernelDevice{
@@ -48,17 +52,9 @@ func newTunDevice(name string, address WGAddress, wgPort int, key string, mtu in
 }
 
 func (t *tunKernelDevice) Create() (wgConfigurer, error) {
-	// Get the effective user ID
-	euid := os.Geteuid()
-	// Check if the effective user ID is 0 (root)
-	if euid != 0 {
-		log.Warn("tunKernelDevice: on freebsd netbird must run as root to be able to create wg interface with ifconfig")
-	}
-
 	link := freebsd.NewLink(t.name)
 
-	// FIXME: debug
-	fmt.Printf("TUN DEBUG: netlink creating...\n")
+	log.Info("create wg interface")
 
 	err := link.Recreate()
 	if err != nil {
@@ -72,8 +68,9 @@ func (t *tunKernelDevice) Create() (wgConfigurer, error) {
 		return nil, err
 	}
 
-	// todo do a discovery
+	// TODO: do a MTU discovery
 	log.Debugf("setting MTU: %d interface: %s", t.mtu, t.name)
+
 	err = link.SetMTU(t.mtu)
 	if err != nil {
 		log.Errorf("error setting MTU on interface: %s", t.name)
@@ -110,16 +107,21 @@ func (t *tunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	bindParams := bind.UniversalUDPMuxParams{
 		UDPConn: rawSock,
 		Net:     t.transportNet,
 	}
+
 	mux := bind.NewUniversalUDPMuxDefault(bindParams)
+
 	go mux.ReadFromConn(t.ctx)
+
 	t.udpMuxConn = rawSock
 	t.udpMux = mux
 
 	log.Debugf("device is ready to use: %s", t.name)
+
 	return t.udpMux, nil
 }
 
@@ -177,14 +179,8 @@ func (t *tunKernelDevice) assignAddr() error {
 
 	err := t.link.AssignAddr(ip, mask)
 	if err != nil {
-		// FIXME: debug
-		log.Errorf("failed to assign addr to interface: %s", t.name)
 		return fmt.Errorf("assign addr: %w", err)
 	}
-
-	// FIXME: debug
-	log.Infof("wg interface created: %s, sleep for 5sec", t.name)
-	time.Sleep(5 * time.Second)
 
 	return nil
 }

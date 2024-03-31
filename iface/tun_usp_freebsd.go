@@ -4,7 +4,7 @@ package iface
 
 import (
 	"fmt"
-	"time"
+	"os"
 
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
@@ -30,7 +30,10 @@ type tunUSPDevice struct {
 }
 
 func newTunUSPDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net) wgTunDevice {
-	log.Infof("using userspace bind mode")
+	euid := os.Geteuid()
+	if euid != 0 {
+		log.Warn("tunUSPDevice: on freebsd netbird must run as root to be able to assign address to the tun interface with ifconfig")
+	}
 
 	return &tunUSPDevice{
 		name:    name,
@@ -44,11 +47,13 @@ func newTunUSPDevice(name string, address WGAddress, port int, key string, mtu i
 
 func (t *tunUSPDevice) Create() (wgConfigurer, error) {
 	log.Info("create tun interface")
+
 	tunIface, err := tun.CreateTUN(t.name, t.mtu)
 	if err != nil {
 		log.Debugf("failed to create tun unterface (%s, %d): %s", t.name, t.mtu, err)
 		return nil, err
 	}
+
 	t.wrapper = newDeviceWrapper(tunIface)
 
 	// We need to create a wireguard-go device and listen to configuration requests
@@ -61,16 +66,20 @@ func (t *tunUSPDevice) Create() (wgConfigurer, error) {
 	err = t.assignAddr()
 	if err != nil {
 		t.device.Close()
+
 		return nil, err
 	}
 
 	t.configurer = newWGUSPConfigurer(t.device, t.name)
+
 	err = t.configurer.configureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
 		t.configurer.close()
+
 		return nil, err
 	}
+
 	return t.configurer, nil
 }
 
@@ -88,14 +97,17 @@ func (t *tunUSPDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	t.udpMux = udpMux
 
 	log.Debugf("device is ready to use: %s", t.name)
+
 	return udpMux, nil
 }
 
 func (t *tunUSPDevice) UpdateAddr(address WGAddress) error {
 	t.address = address
+
 	return t.assignAddr()
 }
 
@@ -111,6 +123,7 @@ func (t *tunUSPDevice) Close() error {
 	if t.udpMux != nil {
 		return t.udpMux.Close()
 	}
+
 	return nil
 }
 
@@ -140,48 +153,13 @@ func (t *tunUSPDevice) assignAddr() error {
 
 	err = link.AssignAddr(ip, mask)
 	if err != nil {
-		// FIXME: debug
-		log.Errorf("failed to assign addr to interface: %s", t.name)
 		return fmt.Errorf("assign addr: %w", err)
 	}
 
 	err = link.Up()
 	if err != nil {
-		// FIXME: debug
-		log.Errorf("error bringing up interface: %s", t.name)
 		return fmt.Errorf("up: %w", err)
 	}
 
-	// FIXME: debug
-	log.Infof("tun interface created: %s, sleep for 5sec", t.name)
-	time.Sleep(5 * time.Second)
-
 	return nil
-
-	// //delete existing addresses
-	// list, err := netlink.AddrList(link, 0)
-	// if err != nil {
-	// 	return err
-	// }
-	// if len(list) > 0 {
-	// 	for _, a := range list {
-	// 		addr := a
-	// 		err = netlink.AddrDel(link, &addr)
-	// 		if err != nil {
-	// 			return err
-	// 		}
-	// 	}
-	// }
-
-	// log.Debugf("adding address %s to interface: %s", t.address.String(), t.name)
-	// addr, _ := netlink.ParseAddr(t.address.String())
-	// err = netlink.AddrAdd(link, addr)
-	// if os.IsExist(err) {
-	// 	log.Infof("interface %s already has the address: %s", t.name, t.address.String())
-	// } else if err != nil {
-	// 	return err
-	// }
-	// // On linux, the link must be brought up
-	// err = netlink.LinkSetUp(link)
-	// return err
 }
