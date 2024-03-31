@@ -24,9 +24,10 @@ import (
 )
 
 const (
-	iceKeepAliveDefault              = 4 * time.Second
-	iceDisconnectedTimeoutDefault    = 10 * time.Second
-	iceRelayAcceptanceMinWaitDefault = 10 * time.Second
+	iceKeepAliveDefault           = 4 * time.Second
+	iceDisconnectedTimeoutDefault = 6 * time.Second
+	// iceRelayAcceptanceMinWaitDefault is the same as in the Pion ICE package
+	iceRelayAcceptanceMinWaitDefault = 2 * time.Second
 
 	defaultWgKeepAlive = 25 * time.Second
 )
