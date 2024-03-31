@@ -26,6 +26,8 @@ import (
 const (
 	iceKeepAliveDefault           = 4 * time.Second
 	iceDisconnectedTimeoutDefault = 6 * time.Second
+	// iceRelayAcceptanceMinWaitDefault is the same as in the Pion ICE package
+	iceRelayAcceptanceMinWaitDefault = 2 * time.Second
 
 	defaultWgKeepAlive = 25 * time.Second
 )
@@ -196,20 +198,22 @@ func (conn *Conn) reCreateAgent() error {
 
 	iceKeepAlive := iceKeepAlive()
 	iceDisconnectedTimeout := iceDisconnectedTimeout()
+	iceRelayAcceptanceMinWait := iceRelayAcceptanceMinWait()
 
 	agentConfig := &ice.AgentConfig{
-		MulticastDNSMode:    ice.MulticastDNSModeDisabled,
-		NetworkTypes:        []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
-		Urls:                conn.config.StunTurn,
-		CandidateTypes:      conn.candidateTypes(),
-		FailedTimeout:       &failedTimeout,
-		InterfaceFilter:     stdnet.InterfaceFilter(conn.config.InterfaceBlackList),
-		UDPMux:              conn.config.UDPMux,
-		UDPMuxSrflx:         conn.config.UDPMuxSrflx,
-		NAT1To1IPs:          conn.config.NATExternalIPs,
-		Net:                 transportNet,
-		DisconnectedTimeout: &iceDisconnectedTimeout,
-		KeepaliveInterval:   &iceKeepAlive,
+		MulticastDNSMode:       ice.MulticastDNSModeDisabled,
+		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
+		Urls:                   conn.config.StunTurn,
+		CandidateTypes:         conn.candidateTypes(),
+		FailedTimeout:          &failedTimeout,
+		InterfaceFilter:        stdnet.InterfaceFilter(conn.config.InterfaceBlackList),
+		UDPMux:                 conn.config.UDPMux,
+		UDPMuxSrflx:            conn.config.UDPMuxSrflx,
+		NAT1To1IPs:             conn.config.NATExternalIPs,
+		Net:                    transportNet,
+		DisconnectedTimeout:    &iceDisconnectedTimeout,
+		KeepaliveInterval:      &iceKeepAlive,
+		RelayAcceptanceMinWait: &iceRelayAcceptanceMinWait,
 	}
 
 	if conn.config.DisableIPv6Discovery {
