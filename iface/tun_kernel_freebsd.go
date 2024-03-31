@@ -178,7 +178,7 @@ func (t *tunKernelDevice) assignAddr() error {
 	err := t.link.AssignAddr(ip, mask)
 	if err != nil {
 		// FIXME: debug
-		log.Errorf("error setting MTU on interface: %s", t.name)
+		log.Errorf("failed to assign addr to interface: %s", t.name)
 		return fmt.Errorf("assign addr: %w", err)
 	}
 

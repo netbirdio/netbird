@@ -3,8 +3,8 @@
 package iface
 
 import (
-	"errors"
 	"fmt"
+	"time"
 
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
@@ -12,6 +12,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 
 	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/netbirdio/netbird/iface/freebsd"
 )
 
 type tunUSPDevice struct {
@@ -127,9 +128,35 @@ func (t *tunUSPDevice) Wrapper() *DeviceWrapper {
 
 // assignAddr Adds IP address to the tunnel interface
 func (t *tunUSPDevice) assignAddr() error {
-	return errors.New("not implemented usp on freebsd")
+	link, err := freebsd.LinkByName(t.name)
+	if err != nil {
+		return fmt.Errorf("link by name: %w", err)
+	}
 
-	// link := newWGLink(t.name)
+	ip := t.address.IP.String()
+	mask := "0x" + t.address.Network.Mask.String()
+
+	log.Infof("assign addr %s mask %s to %s interface", ip, mask, t.name)
+
+	err = link.AssignAddr(ip, mask)
+	if err != nil {
+		// FIXME: debug
+		log.Errorf("failed to assign addr to interface: %s", t.name)
+		return fmt.Errorf("assign addr: %w", err)
+	}
+
+	err = link.Up()
+	if err != nil {
+		// FIXME: debug
+		log.Errorf("error bringing up interface: %s", t.name)
+		return fmt.Errorf("up: %w", err)
+	}
+
+	// FIXME: debug
+	log.Infof("tun interface created: %s, sleep for 5sec", t.name)
+	time.Sleep(5 * time.Second)
+
+	return nil
 
 	// //delete existing addresses
 	// list, err := netlink.AddrList(link, 0)
