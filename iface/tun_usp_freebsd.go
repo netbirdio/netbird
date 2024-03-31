@@ -30,6 +30,7 @@ type tunUSPDevice struct {
 
 func newTunUSPDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net) wgTunDevice {
 	log.Infof("using userspace bind mode")
+
 	return &tunUSPDevice{
 		name:    name,
 		address: address,
