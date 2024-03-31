@@ -14,6 +14,7 @@ import (
 
 	"github.com/netbirdio/netbird/iface/bind"
 	"github.com/netbirdio/netbird/iface/freebsd"
+	"github.com/netbirdio/netbird/sharedsock"
 )
 
 type tunKernelDevice struct {
@@ -25,7 +26,6 @@ type tunKernelDevice struct {
 	ctx          context.Context
 	ctxCancel    context.CancelFunc
 	transportNet transport.Net
-	iceBind      *bind.ICEBind
 
 	link       *freebsd.Link
 	udpMuxConn net.PacketConn
@@ -43,7 +43,6 @@ func newTunDevice(name string, address WGAddress, wgPort int, key string, mtu in
 		wgPort:       wgPort,
 		key:          key,
 		mtu:          mtu,
-		iceBind:      bind.NewICEBind(transportNet),
 		transportNet: transportNet,
 	}
 }
@@ -107,31 +106,21 @@ func (t *tunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		return nil, err
 	}
 
-	// TODO: for now use userspace socket
-	udpMux, err := t.iceBind.GetICEMux()
+	rawSock, err := sharedsock.Listen(t.wgPort, sharedsock.NewIncomingSTUNFilter())
 	if err != nil {
 		return nil, err
 	}
-	t.udpMux = udpMux
+	bindParams := bind.UniversalUDPMuxParams{
+		UDPConn: rawSock,
+		Net:     t.transportNet,
+	}
+	mux := bind.NewUniversalUDPMuxDefault(bindParams)
+	go mux.ReadFromConn(t.ctx)
+	t.udpMuxConn = rawSock
+	t.udpMux = mux
 
 	log.Debugf("device is ready to use: %s", t.name)
-	return udpMux, nil
-
-	// rawSock, err := sharedsock.Listen(t.wgPort, sharedsock.NewIncomingSTUNFilter())
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// bindParams := bind.UniversalUDPMuxParams{
-	// 	UDPConn: rawSock,
-	// 	Net:     t.transportNet,
-	// }
-	// mux := bind.NewUniversalUDPMuxDefault(bindParams)
-	// go mux.ReadFromConn(t.ctx)
-	// t.udpMuxConn = rawSock
-	// t.udpMux = mux
-
-	// log.Debugf("device is ready to use: %s", t.name)
-	// return t.udpMux, nil
+	return t.udpMux, nil
 }
 
 func (t *tunKernelDevice) UpdateAddr(address WGAddress) error {
@@ -158,10 +147,10 @@ func (t *tunKernelDevice) Close() error {
 			closErr = err
 		}
 
-		// if err := t.udpMuxConn.Close(); err != nil {
-		// 	log.Debugf("failed to close udp mux connection: %s", err)
-		// 	closErr = err
-		// }
+		if err := t.udpMuxConn.Close(); err != nil {
+			log.Debugf("failed to close udp mux connection: %s", err)
+			closErr = err
+		}
 	}
 
 	return closErr
