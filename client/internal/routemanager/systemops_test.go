@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -138,7 +139,7 @@ func TestGetNextHop(t *testing.T) {
 	}
 }
 
-func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
+func TestAddExistAndRemoveRoute(t *testing.T) {
 	defaultGateway, _, err := getNextHop(netip.MustParseAddr("0.0.0.0"))
 	t.Log("defaultGateway: ", defaultGateway)
 	if err != nil {
@@ -198,12 +199,6 @@ func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
 
 			err = wgInterface.Create()
 			require.NoError(t, err, "should create testing wireguard interface")
-
-			_, _, err = setupRouting(nil, nil)
-			require.NoError(t, err)
-			t.Cleanup(func() {
-				assert.NoError(t, cleanupRouting())
-			})
 
 			// Prepare the environment
 			if testCase.preExistingPrefix.IsValid() {
@@ -278,12 +273,6 @@ func TestIsSubRange(t *testing.T) {
 }
 
 func TestExistsInRouteTable(t *testing.T) {
-	_, _, err := setupRouting(nil, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		assert.NoError(t, cleanupRouting())
-	})
-
 	addresses, err := net.InterfaceAddrs()
 	if err != nil {
 		t.Fatal("shouldn't return error when fetching interface addresses: ", err)
@@ -292,10 +281,19 @@ func TestExistsInRouteTable(t *testing.T) {
 	var addressPrefixes []netip.Prefix
 	for _, address := range addresses {
 		p := netip.MustParsePrefix(address.String())
-		// Windows sometimes has hidden interface link local addrs that don't turn up on any interface
-		if p.Addr().Is4() && !p.Addr().IsLinkLocalUnicast() {
-			addressPrefixes = append(addressPrefixes, p.Masked())
+		if p.Addr().Is6() {
+			continue
 		}
+		// Windows sometimes has hidden interface link local addrs that don't turn up on any interface
+		if runtime.GOOS == "windows" && p.Addr().IsLinkLocalUnicast() {
+			continue
+		}
+		// Linux loopback 127/8 is in the local table, not in the main table and always takes precedence
+		if runtime.GOOS == "linux" && p.Addr().IsLoopback() {
+			continue
+		}
+
+		addressPrefixes = append(addressPrefixes, p.Masked())
 	}
 
 	for _, prefix := range addressPrefixes {
@@ -390,6 +388,9 @@ func setupTestEnv(t *testing.T) {
 
 func assertWGOutInterface(t *testing.T, prefix netip.Prefix, wgIface *iface.WGIface, invert bool) {
 	t.Helper()
+	if runtime.GOOS == "linux" && prefix.Addr().IsLoopback() {
+		return
+	}
 
 	prefixGateway, _, err := getNextHop(prefix.Addr())
 	require.NoError(t, err, "getNextHop should not return err")
