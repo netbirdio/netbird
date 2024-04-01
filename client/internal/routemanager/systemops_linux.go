@@ -174,7 +174,16 @@ func removeVPNRoute(prefix netip.Prefix, intf string) error {
 }
 
 func getRoutesFromTable() ([]netip.Prefix, error) {
-	return getRoutes(syscall.RT_TABLE_MAIN, netlink.FAMILY_V4)
+	v4Routes, err := getRoutes(syscall.RT_TABLE_MAIN, netlink.FAMILY_V4)
+	if err != nil {
+		return nil, fmt.Errorf("get v4 routes: %w", err)
+	}
+	v6Routes, err := getRoutes(syscall.RT_TABLE_MAIN, netlink.FAMILY_V6)
+	if err != nil {
+		return nil, fmt.Errorf("get v6 routes: %w", err)
+
+	}
+	return append(v4Routes, v6Routes...), nil
 }
 
 // getRoutes fetches routes from a specific routing table identified by tableID.
