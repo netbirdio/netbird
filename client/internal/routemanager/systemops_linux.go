@@ -121,7 +121,7 @@ func cleanupRouting() error {
 
 	rules := getSetupRules()
 	for _, rule := range rules {
-		if err := removeAllRules(rule); err != nil {
+		if err := removeAllRules(rule); err != nil && !errors.Is(err, syscall.EOPNOTSUPP) {
 			result = multierror.Append(result, fmt.Errorf("%s: %w", rule.description, err))
 		}
 	}
@@ -142,7 +142,7 @@ func addVPNRoute(prefix netip.Prefix, intf string) error {
 		return genericAddVPNRoute(prefix, intf)
 	}
 
-	// No need to check if routes exist as main table takes precedence over the VPN table via Rule 2
+	// No need to check if routes exist as main table takes precedence over the VPN table via Rule 1
 
 	// TODO remove this once we have ipv6 support
 	if prefix == defaultv4 {
