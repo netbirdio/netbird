@@ -374,7 +374,7 @@ func removeRule(params ruleParams) error {
 	rule.Priority = params.priority
 	rule.SuppressPrefixlen = params.suppressPrefix
 
-	if err := netlink.RuleDel(rule); err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
+	if err := netlink.RuleDel(rule); err != nil {
 		return fmt.Errorf("remove routing rule: %w", err)
 	}
 
@@ -393,7 +393,7 @@ func removeAllRules(params ruleParams) error {
 				return
 			}
 			if err := removeRule(params); err != nil {
-				if errors.Is(err, syscall.ENOENT) {
+				if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.EAFNOSUPPORT) {
 					done <- nil
 					return
 				}
