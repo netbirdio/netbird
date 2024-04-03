@@ -4,12 +4,14 @@ package routemanager
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"os"
 	"syscall"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
@@ -444,7 +446,7 @@ func removeRule(params ruleParams) error {
 	rule.Priority = params.priority
 	rule.SuppressPrefixlen = params.suppressPrefix
 
-	if err := netlink.RuleDel(rule); err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
+	if err := netlink.RuleDel(rule); err != nil {
 		return fmt.Errorf("remove routing rule: %w", err)
 	}
 
@@ -452,15 +454,33 @@ func removeRule(params ruleParams) error {
 }
 
 func removeAllRules(params ruleParams) error {
-	for {
-		if err := removeRule(params); err != nil {
-			if errors.Is(err, syscall.ENOENT) {
-				break
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		for {
+			if ctx.Err() != nil {
+				done <- ctx.Err()
+				return
 			}
-			return err
+			if err := removeRule(params); err != nil {
+				if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.EAFNOSUPPORT) {
+					done <- nil
+					return
+				}
+				done <- err
+				return
+			}
 		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-done:
+		return err
 	}
-	return nil
 }
 
 // addNextHop adds the gateway and device to the route.
