@@ -23,7 +23,8 @@ var splitDefaultv4_2 = netip.PrefixFrom(netip.AddrFrom4([4]byte{128}), 1)
 var splitDefaultv6_1 = netip.PrefixFrom(netip.IPv6Unspecified(), 1)
 var splitDefaultv6_2 = netip.PrefixFrom(netip.AddrFrom16([16]byte{0x80}), 1)
 
-var errRouteNotFound = fmt.Errorf("route not found")
+var ErrRouteNotFound = errors.New("route not found")
+var ErrRouteNotAllowed = errors.New("route not allowed")
 
 // TODO: fix: for default our wg address now appears as the default gw
 func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
@@ -33,7 +34,7 @@ func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 	}
 
 	defaultGateway, _, err := getNextHop(addr)
-	if err != nil && !errors.Is(err, errRouteNotFound) {
+	if err != nil && !errors.Is(err, ErrRouteNotFound) {
 		return fmt.Errorf("get existing route gateway: %s", err)
 	}
 
@@ -59,7 +60,7 @@ func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 
 	var exitIntf string
 	gatewayHop, intf, err := getNextHop(defaultGateway)
-	if err != nil && !errors.Is(err, errRouteNotFound) {
+	if err != nil && !errors.Is(err, ErrRouteNotFound) {
 		return fmt.Errorf("unable to get the next hop for the default gateway address. error: %s", err)
 	}
 	if intf != nil {
@@ -78,13 +79,13 @@ func getNextHop(ip netip.Addr) (netip.Addr, *net.Interface, error) {
 	intf, gateway, preferredSrc, err := r.Route(ip.AsSlice())
 	if err != nil {
 		log.Warnf("Failed to get route for %s: %v", ip, err)
-		return netip.Addr{}, nil, errRouteNotFound
+		return netip.Addr{}, nil, ErrRouteNotFound
 	}
 
 	log.Debugf("Route for %s: interface %v, nexthop %v, preferred source %v", ip, intf, gateway, preferredSrc)
 	if gateway == nil {
 		if preferredSrc == nil {
-			return netip.Addr{}, nil, errRouteNotFound
+      return netip.Addr{}, nil, ErrRouteNotFound
 		}
 		log.Debugf("No next hop found for ip %s, using preferred source %s", ip, preferredSrc)
 
@@ -129,8 +130,8 @@ func isSubRange(prefix netip.Prefix) (bool, error) {
 	return false, nil
 }
 
-// getRouteToNonVPNIntf returns the next hop and interface for the given prefix.
-// If the next hop or interface is pointing to the VPN interface, it will return an error
+// addRouteToNonVPNIntf adds a new route to the routing table for the given prefix and returns the next hop and interface.
+// If the next hop or interface is pointing to the VPN interface, it will return the initial values.
 func addRouteToNonVPNIntf(
 	prefix netip.Prefix,
 	vpnIntf *iface.WGIface,
@@ -139,18 +140,14 @@ func addRouteToNonVPNIntf(
 ) (netip.Addr, string, error) {
 	addr := prefix.Addr()
 	switch {
-	case addr.IsLoopback():
-		return netip.Addr{}, "", fmt.Errorf("adding route for loopback address %s is not allowed", prefix)
-	case addr.IsLinkLocalUnicast():
-		return netip.Addr{}, "", fmt.Errorf("adding route for link-local unicast address %s is not allowed", prefix)
-	case addr.IsLinkLocalMulticast():
-		return netip.Addr{}, "", fmt.Errorf("adding route for link-local multicast address %s is not allowed", prefix)
-	case addr.IsInterfaceLocalMulticast():
-		return netip.Addr{}, "", fmt.Errorf("adding route for interface-local multicast address %s is not allowed", prefix)
-	case addr.IsUnspecified():
-		return netip.Addr{}, "", fmt.Errorf("adding route for unspecified address %s is not allowed", prefix)
-	case addr.IsMulticast():
-		return netip.Addr{}, "", fmt.Errorf("adding route for multicast address %s is not allowed", prefix)
+	case addr.IsLoopback(),
+		addr.IsLinkLocalUnicast(),
+		addr.IsLinkLocalMulticast(),
+		addr.IsInterfaceLocalMulticast(),
+		addr.IsUnspecified(),
+		addr.IsMulticast():
+
+		return netip.Addr{}, "", ErrRouteNotAllowed
 	}
 
 	// Determine the exit interface and next hop for the prefix, so we can add a specific route
@@ -316,11 +313,11 @@ func getPrefixFromIP(ip net.IP) (*netip.Prefix, error) {
 
 func setupRoutingWithRouteManager(routeManager **RouteManager, initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
 	initialNextHopV4, initialIntfV4, err := getNextHop(netip.IPv4Unspecified())
-	if err != nil && !errors.Is(err, errRouteNotFound) {
+	if err != nil && !errors.Is(err, ErrRouteNotFound) {
 		log.Errorf("Unable to get initial v4 default next hop: %v", err)
 	}
 	initialNextHopV6, initialIntfV6, err := getNextHop(netip.IPv6Unspecified())
-	if err != nil && !errors.Is(err, errRouteNotFound) {
+	if err != nil && !errors.Is(err, ErrRouteNotFound) {
 		log.Errorf("Unable to get initial v6 default next hop: %v", err)
 	}
 

@@ -138,7 +138,7 @@ func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, intf string) {
 	if dstIPNet.String() == "0.0.0.0/0" {
 		var err error
 		originalNexthop, originalLinkIndex, err = fetchOriginalGateway(netlink.FAMILY_V4)
-		if err != nil && !errors.Is(err, errRouteNotFound) {
+		if err != nil && !errors.Is(err, ErrRouteNotFound) {
 			t.Logf("Failed to fetch original gateway: %v", err)
 		}
 
@@ -193,7 +193,7 @@ func fetchOriginalGateway(family int) (net.IP, int, error) {
 		}
 	}
 
-	return nil, 0, errRouteNotFound
+	return nil, 0, ErrRouteNotFound
 }
 
 func setupDummyInterfacesAndRoutes(t *testing.T) {

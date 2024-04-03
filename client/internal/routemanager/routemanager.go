@@ -54,8 +54,11 @@ func (rm *RouteManager) AddRouteRef(connID nbnet.ConnectionID, prefix netip.Pref
 	if ref.count == 0 {
 		log.Debugf("Adding route for prefix %s", prefix)
 		nexthop, intf, err := rm.addRoute(prefix)
-		if errors.Is(err, errRouteNotFound) {
+		if errors.Is(err, ErrRouteNotFound) {
 			return nil
+		}
+		if errors.Is(err, ErrRouteNotAllowed) {
+			log.Debugf("Adding route for prefix %s: %s", prefix, err)
 		}
 		if err != nil {
 			return fmt.Errorf("failed to add route for prefix %s: %w", prefix, err)
