@@ -35,7 +35,7 @@ func DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
 	udpConn, ok := conn.(*net.UDPConn)
 	if !ok {
 		if err := conn.Close(); err != nil {
-			log.Errorf("Failed to closeConn connection: %v", err)
+			log.Errorf("Failed to close connection: %v", err)
 		}
 		return nil, fmt.Errorf("expected UDP connection, got different type")
 	}

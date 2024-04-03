@@ -85,7 +85,7 @@ func getNextHop(ip netip.Addr) (netip.Addr, *net.Interface, error) {
 	log.Debugf("Route for %s: interface %v, nexthop %v, preferred source %v", ip, intf, gateway, preferredSrc)
 	if gateway == nil {
 		if preferredSrc == nil {
-			return netip.Addr{}, nil, ErrRouteNotFound
+      return netip.Addr{}, nil, ErrRouteNotFound
 		}
 		log.Debugf("No next hop found for ip %s, using preferred source %s", ip, preferredSrc)
 
