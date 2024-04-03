@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/iface/bind"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
+	nbnet "github.com/netbirdio/netbird/util/net"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -100,6 +101,9 @@ type IceCredentials struct {
 	Pwd   string
 }
 
+type BeforeAddPeerHookFunc func(connID nbnet.ConnectionID, IP net.IP) error
+type AfterRemovePeerHookFunc func(connID nbnet.ConnectionID) error
+
 type Conn struct {
 	config ConnConfig
 	mu     sync.Mutex
@@ -138,6 +142,10 @@ type Conn struct {
 
 	remoteEndpoint *net.UDPAddr
 	remoteConn     *ice.Conn
+
+	connID               nbnet.ConnectionID
+	beforeAddPeerHooks   []BeforeAddPeerHookFunc
+	afterRemovePeerHooks []AfterRemovePeerHookFunc
 }
 
 // meta holds meta information about a connection
@@ -393,6 +401,14 @@ func isRelayCandidate(candidate ice.Candidate) bool {
 	return candidate.Type() == ice.CandidateTypeRelay
 }
 
+func (conn *Conn) AddBeforeAddPeerHook(hook BeforeAddPeerHookFunc) {
+	conn.beforeAddPeerHooks = append(conn.beforeAddPeerHooks, hook)
+}
+
+func (conn *Conn) AddAfterRemovePeerHook(hook AfterRemovePeerHookFunc) {
+	conn.afterRemovePeerHooks = append(conn.afterRemovePeerHooks, hook)
+}
+
 // configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
 func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, remoteRosenpassPubKey []byte, remoteRosenpassAddr string) (net.Addr, error) {
 	conn.mu.Lock()
@@ -419,6 +435,14 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 
 	endpointUdpAddr, _ := net.ResolveUDPAddr(endpoint.Network(), endpoint.String())
 	conn.remoteEndpoint = endpointUdpAddr
+	log.Debugf("Conn resolved IP for %s: %s", endpoint, endpointUdpAddr.IP)
+
+	conn.connID = nbnet.GenerateConnID()
+	for _, hook := range conn.beforeAddPeerHooks {
+		if err := hook(conn.connID, endpointUdpAddr.IP); err != nil {
+			log.Errorf("Before add peer hook failed: %v", err)
+		}
+	}
 
 	err = conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, endpointUdpAddr, conn.config.WgConfig.PreSharedKey)
 	if err != nil {
@@ -509,6 +533,15 @@ func (conn *Conn) cleanup() error {
 
 	// todo: is it problem if we try to remove a peer what is never existed?
 	err3 = conn.config.WgConfig.WgInterface.RemovePeer(conn.config.WgConfig.RemoteKey)
+
+	if conn.connID != "" {
+		for _, hook := range conn.afterRemovePeerHooks {
+			if err := hook(conn.connID); err != nil {
+				log.Errorf("After remove peer hook failed: %v", err)
+			}
+		}
+	}
+	conn.connID = ""
 
 	if conn.notifyDisconnected != nil {
 		conn.notifyDisconnected()
