@@ -4,12 +4,14 @@ package routemanager
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"os"
 	"syscall"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
@@ -380,15 +382,29 @@ func removeRule(params ruleParams) error {
 }
 
 func removeAllRules(params ruleParams) error {
-	for {
-		if err := removeRule(params); err != nil {
-			if errors.Is(err, syscall.ENOENT) {
-				break
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		for {
+			if err := removeRule(params); err != nil {
+				if errors.Is(err, syscall.ENOENT) {
+					done <- nil
+					return
+				}
+				done <- err
+				return
 			}
-			return err
 		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-done:
+		return err
 	}
-	return nil
 }
 
 // addNextHop adds the gateway and device to the route.
