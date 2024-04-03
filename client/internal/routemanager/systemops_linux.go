@@ -388,6 +388,10 @@ func removeAllRules(params ruleParams) error {
 	done := make(chan error, 1)
 	go func() {
 		for {
+			if ctx.Err() != nil {
+				done <- ctx.Err()
+				return
+			}
 			if err := removeRule(params); err != nil {
 				if errors.Is(err, syscall.ENOENT) {
 					done <- nil
