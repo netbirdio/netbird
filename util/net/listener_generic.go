@@ -156,7 +156,7 @@ func ListenUDP(network string, laddr *net.UDPAddr) (*UDPConn, error) {
 		if err := packetConn.Close(); err != nil {
 			log.Errorf("Failed to close connection: %v", err)
 		}
-		return nil, fmt.Errorf("expected UDPConn, got different type")
+		return nil, fmt.Errorf("expected UDPConn, got different type: %T", udpConn)
 	}
 
 	return &UDPConn{UDPConn: udpConn, ID: packetConn.ID, seenAddrs: &sync.Map{}}, nil
