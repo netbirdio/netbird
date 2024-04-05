@@ -24,7 +24,6 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
-	nbgrpc "github.com/netbirdio/netbird/util/grpc"
 )
 
 const ConnectTimeout = 10 * time.Second
@@ -58,7 +57,6 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		mgmCtx,
 		addr,
 		transportOption,
-		nbgrpc.WithCustomDialer(),
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    30 * time.Second,

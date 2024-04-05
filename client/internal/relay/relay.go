@@ -12,7 +12,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/stdnet"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 // ProbeResult holds the info about the result of a relay probe request
@@ -96,13 +95,15 @@ func ProbeTURN(ctx context.Context, uri *stun.URI) (addr string, probeErr error)
 	switch uri.Proto {
 	case stun.ProtoTypeUDP:
 		var err error
-		conn, err = nbnet.NewListener().ListenPacket(ctx, "udp", "")
+		listener := &net.ListenConfig{}
+		conn, err = listener.ListenPacket(ctx, "udp", "")
 		if err != nil {
 			probeErr = fmt.Errorf("listen: %w", err)
 			return
 		}
 	case stun.ProtoTypeTCP:
-		tcpConn, err := nbnet.NewDialer().DialContext(ctx, "tcp", turnServerAddr)
+		dialer := &net.Dialer{}
+		tcpConn, err := dialer.DialContext(ctx, "tcp", turnServerAddr)
 		if err != nil {
 			probeErr = fmt.Errorf("dial: %w", err)
 			return
