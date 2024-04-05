@@ -17,7 +17,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/ebpf"
 	ebpfMgr "github.com/netbirdio/netbird/client/internal/ebpf/manager"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 // WGEBPFProxy definition for proxy with EBPF support
@@ -68,7 +67,7 @@ func (p *WGEBPFProxy) Listen() error {
 		IP:   net.ParseIP("127.0.0.1"),
 	}
 
-	conn, err := nbnet.ListenUDP("udp", &addr)
+	conn, err := net.ListenUDP("udp", &addr)
 	if err != nil {
 		cErr := p.Free()
 		if cErr != nil {
@@ -227,12 +226,6 @@ func (p *WGEBPFProxy) prepareSenderRawSocket() (net.PacketConn, error) {
 	err = syscall.SetsockoptString(fd, syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, "lo")
 	if err != nil {
 		return nil, fmt.Errorf("binding to lo interface failed: %w", err)
-	}
-
-	// Set the fwmark on the socket.
-	err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, nbnet.NetbirdFwmark)
-	if err != nil {
-		return nil, fmt.Errorf("setting fwmark failed: %w", err)
 	}
 
 	// Convert the file descriptor to a PacketConn.

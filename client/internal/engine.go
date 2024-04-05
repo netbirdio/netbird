@@ -94,9 +94,6 @@ type Engine struct {
 	// peerConns is a map that holds all the peers that are known to this peer
 	peerConns map[string]*peer.Conn
 
-	beforePeerHook peer.BeforeAddPeerHookFunc
-	afterPeerHook  peer.AfterRemovePeerHookFunc
-
 	// rpManager is a Rosenpass manager
 	rpManager *rosenpass.Manager
 
@@ -264,14 +261,6 @@ func (e *Engine) Start() error {
 	e.dnsServer = dnsServer
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, initialRoutes)
-	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
-	if err != nil {
-		log.Errorf("Failed to initialize route manager: %s", err)
-	} else {
-		e.beforePeerHook = beforePeerHook
-		e.afterPeerHook = afterPeerHook
-	}
-
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
 	err = e.wgInterfaceCreate()
@@ -820,11 +809,6 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 			return fmt.Errorf("create peer connection: %w", err)
 		}
 		e.peerConns[peerKey] = conn
-
-		if e.beforePeerHook != nil && e.afterPeerHook != nil {
-			conn.AddBeforeAddPeerHook(e.beforePeerHook)
-			conn.AddAfterRemovePeerHook(e.afterPeerHook)
-		}
 
 		err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn)
 		if err != nil {
