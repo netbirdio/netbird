@@ -36,11 +36,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
-
-      - name: Install 32-bit libpcap
-        if: matrix.arch == '386'
-        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt-get install -y libpcap0.8-dev:i386
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib
 
       - name: Install modules
         run: go mod tidy
@@ -71,7 +67,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib
 
       - name: Install modules
         run: go mod tidy
@@ -86,7 +82,7 @@ jobs:
         run: CGO_ENABLED=0 go test -c -o sharedsock-testing.bin ./sharedsock
 
       - name: Generate RouteManager Test bin
-        run: CGO_ENABLED=1 go test -c -o routemanager-testing.bin -tags netgo -ldflags '-w -extldflags "-static -ldbus-1 -lpcap"' ./client/internal/routemanager/...
+        run: CGO_ENABLED=0 go test -c -o routemanager-testing.bin ./client/internal/routemanager/...
 
       - name: Generate nftables Manager Test bin
         run: CGO_ENABLED=0 go test -c -o nftablesmanager-testing.bin ./client/firewall/nftables/...
