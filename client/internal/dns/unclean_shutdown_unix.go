@@ -1,4 +1,4 @@
-//go:build freebsd
+//go:build (linux && !android) || freebsd
 
 package dns
 
@@ -12,11 +12,6 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-)
-
-const (
-	fileUncleanShutdownResolvConfLocation  = "/var/db/netbird/resolv.conf"
-	fileUncleanShutdownManagerTypeLocation = "/var/db/netbird/manager"
 )
 
 func CheckUncleanShutdown(wgIface string) error {
