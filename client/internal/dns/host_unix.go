@@ -1,4 +1,4 @@
-//go:build !android
+//go:build (linux && !android) || freebsd
 
 package dns
 
@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -26,6 +27,17 @@ var ErrUnknownOsManagerType = errors.New("unknown os manager type")
 type osManagerType int
 
 func newOsManagerType(osManager string) (osManagerType, error) {
+	if runtime.GOOS == "freebsd" {
+		switch osManager {
+		case "netbird":
+			return fileManager, nil
+		case "file":
+			return netbirdManager, nil
+		default:
+			return 0, ErrUnknownOsManagerType
+		}
+	}
+
 	switch osManager {
 	case "netbird":
 		return fileManager, nil
