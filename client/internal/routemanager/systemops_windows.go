@@ -63,7 +63,7 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 	return prefixList, nil
 }
 
-func addRoutePowershell(prefix netip.Prefix, nexthop netip.Addr, intf string) error {
+func addRoutePowershell(prefix netip.Prefix, nexthop netip.Addr, intf, intfIdx string) error {
 	destinationPrefix := prefix.String()
 	psCmd := "New-NetRoute"
 
@@ -73,9 +73,19 @@ func addRoutePowershell(prefix netip.Prefix, nexthop netip.Addr, intf string) er
 	}
 
 	script := fmt.Sprintf(
-		`%s -AddressFamily "%s" -DestinationPrefix "%s" -InterfaceAlias "%s" -Confirm:$False -ErrorAction Stop`,
-		psCmd, addressFamily, destinationPrefix, intf,
+		`%s -AddressFamily "%s" -DestinationPrefix "%s" -Confirm:$False -ErrorAction Stop`,
+		psCmd, addressFamily, destinationPrefix,
 	)
+
+	if intfIdx != "" {
+		script = fmt.Sprintf(
+			`%s -InterfaceIndex %s`, script, intfIdx,
+		)
+	} else {
+		script = fmt.Sprintf(
+			`%s -InterfaceAlias "%s"`, script, intf,
+		)
+	}
 
 	if nexthop.IsValid() {
 		script = fmt.Sprintf(
@@ -107,9 +117,15 @@ func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, _ string) error {
 }
 
 func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf string) error {
+	var intfIdx string
+	if nexthop.Zone() != "" {
+		intfIdx = nexthop.Zone()
+		nexthop.WithZone("")
+	}
+
 	// Powershell doesn't support adding routes without an interface but allows to add interface by name
-	if intf != "" {
-		return addRoutePowershell(prefix, nexthop, intf)
+	if intf != "" || intfIdx != "" {
+		return addRoutePowershell(prefix, nexthop, intf, intfIdx)
 	}
 	return addRouteCmd(prefix, nexthop, intf)
 }
@@ -117,6 +133,7 @@ func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf string) error
 func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, _ string) error {
 	args := []string{"delete", prefix.String()}
 	if nexthop.IsValid() {
+		nexthop.WithZone("")
 		args = append(args, nexthop.Unmap().String())
 	}
 
