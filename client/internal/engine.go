@@ -487,10 +487,10 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		}
 	}
 
-	// TODO: save the client posture checks on state to have reference to previous response on login
+	// TODO: save the client posture checks on state (peer recorder) to have reference to previous response on login
 	// TODO: compare the updated posture checks on sync if there is changes then evaluate the checks
 
-	// evaluate checks and see if there is client evaluates posture check to be check
+	// evaluate checks and see if there is a client evaluates posture check to be check
 	processCheckPaths := make([]string, 0)
 	for _, check := range update.Checks {
 		if processCheck := check.ProcessCheck; processCheck != nil {
@@ -507,7 +507,13 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	info := system.GetInfo(e.ctx)
 	info.Files = files
 
-	return e.mgmClient.SyncMeta(info)
+	resp, err := e.mgmClient.SyncMeta(info)
+	if err != nil {
+		log.Errorf("could not sync meta: error %s", err)
+		return err
+	}
+
+	return e.updateNetworkMap(resp.GetNetworkMap())
 }
 
 func isNil(server nbssh.Server) bool {
