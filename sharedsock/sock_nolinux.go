@@ -1,4 +1,4 @@
-//go:build (!linux && !freebsd) || android
+//go:build !linux || android
 
 package sharedsock
 
