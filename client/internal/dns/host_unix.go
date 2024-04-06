@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -27,17 +26,6 @@ var ErrUnknownOsManagerType = errors.New("unknown os manager type")
 type osManagerType int
 
 func newOsManagerType(osManager string) (osManagerType, error) {
-	if runtime.GOOS == "freebsd" {
-		switch osManager {
-		case "netbird":
-			return fileManager, nil
-		case "file":
-			return netbirdManager, nil
-		default:
-			return 0, ErrUnknownOsManagerType
-		}
-	}
-
 	switch osManager {
 	case "netbird":
 		return fileManager, nil
@@ -120,7 +108,7 @@ func getOSDNSManagerType() (osManagerType, error) {
 		if strings.Contains(text, "NetworkManager") && isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) && isNetworkManagerSupported() {
 			return networkManager, nil
 		}
-		if strings.Contains(text, "systemd-resolved") && isDbusListenerRunning(systemdResolvedDest, systemdDbusObjectNode) {
+		if strings.Contains(text, "systemd-resolved") && isSystemdResolvedRunning() {
 			if checkStub() {
 				return systemdManager, nil
 			} else {
@@ -128,16 +116,10 @@ func getOSDNSManagerType() (osManagerType, error) {
 			}
 		}
 		if strings.Contains(text, "resolvconf") {
-			if isDbusListenerRunning(systemdResolvedDest, systemdDbusObjectNode) {
-				var value string
-				err = getSystemdDbusProperty(systemdDbusResolvConfModeProperty, &value)
-				if err == nil {
-					if value == systemdDbusResolvConfModeForeign {
-						return systemdManager, nil
-					}
-				}
-				log.Errorf("got an error while checking systemd resolv conf mode, error: %s", err)
+			if isSystemdResolveConfMode() {
+				return systemdManager, nil
 			}
+
 			return resolvConfManager, nil
 		}
 	}

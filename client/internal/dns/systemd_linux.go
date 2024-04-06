@@ -242,3 +242,22 @@ func getSystemdDbusProperty(property string, store any) error {
 
 	return v.Store(store)
 }
+
+func isSystemdResolvedRunning() bool {
+	return isDbusListenerRunning(systemdResolvedDest, systemdDbusObjectNode)
+}
+
+func isSystemdResolveConfMode() bool {
+	if isDbusListenerRunning(systemdResolvedDest, systemdDbusObjectNode) {
+		var value string
+		if err := getSystemdDbusProperty(systemdDbusResolvConfModeProperty, &value); err == nil {
+			if value == systemdDbusResolvConfModeForeign {
+				return true
+			}
+		}
+
+		log.Errorf("got an error while checking systemd resolv conf mode, error: %s", err)
+	}
+
+	return false
+}
