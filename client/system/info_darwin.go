@@ -75,6 +75,10 @@ func GetInfo(ctx context.Context) *Info {
 // CheckFileAndProcess checks if the file path exists and if a process is running at that path.
 func CheckFileAndProcess(paths []string) ([]File, error) {
 	files := make([]File, len(paths))
+	if len(paths) == 0 {
+		return files, nil
+	}
+
 	runningProcesses, err := getRunningProcesses()
 	if err != nil {
 		return nil, err
