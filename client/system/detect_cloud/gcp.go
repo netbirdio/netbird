@@ -6,7 +6,7 @@ import (
 )
 
 func detectGCP(ctx context.Context) string {
-	req, err := http.NewRequestWithContext(ctx, "GET", "http://metadata.google.internal", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://169.254.169.254", nil)
 	if err != nil {
 		return ""
 	}
