@@ -28,13 +28,14 @@ const remotePeerKey2 = "remote1"
 
 func TestManagerUpdateRoutes(t *testing.T) {
 	testCases := []struct {
-		name                          string
-		inputInitRoutes               []*route.Route
-		inputRoutes                   []*route.Route
-		inputSerial                   uint64
-		removeSrvRouter               bool
-		serverRoutesExpected          int
-		clientNetworkWatchersExpected int
+		name                                 string
+		inputInitRoutes                      []*route.Route
+		inputRoutes                          []*route.Route
+		inputSerial                          uint64
+		removeSrvRouter                      bool
+		serverRoutesExpected                 int
+		clientNetworkWatchersExpected        int
+		clientNetworkWatchersExpectedAllowed int
 	}{
 		{
 			name:            "Should create 2 client networks",
@@ -200,8 +201,9 @@ func TestManagerUpdateRoutes(t *testing.T) {
 					Enabled:     true,
 				},
 			},
-			inputSerial:                   1,
-			clientNetworkWatchersExpected: 0,
+			inputSerial:                          1,
+			clientNetworkWatchersExpected:        0,
+			clientNetworkWatchersExpectedAllowed: 1,
 		},
 		{
 			name: "Remove 1 Client Route",
@@ -415,6 +417,10 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			statusRecorder := peer.NewRecorder("https://mgm")
 			ctx := context.TODO()
 			routeManager := NewManager(ctx, localPeerKey, wgInterface, statusRecorder, nil)
+
+			_, _, err = routeManager.Init()
+
+			require.NoError(t, err, "should init route manager")
 			defer routeManager.Stop()
 
 			if testCase.removeSrvRouter {
@@ -429,7 +435,11 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			err = routeManager.UpdateRoutes(testCase.inputSerial+uint64(len(testCase.inputInitRoutes)), testCase.inputRoutes)
 			require.NoError(t, err, "should update routes")
 
-			require.Len(t, routeManager.clientNetworks, testCase.clientNetworkWatchersExpected, "client networks size should match")
+			expectedWatchers := testCase.clientNetworkWatchersExpected
+			if (runtime.GOOS == "linux" || runtime.GOOS == "windows" || runtime.GOOS == "darwin") && testCase.clientNetworkWatchersExpectedAllowed != 0 {
+				expectedWatchers = testCase.clientNetworkWatchersExpectedAllowed
+			}
+			require.Len(t, routeManager.clientNetworks, expectedWatchers, "client networks size should match")
 
 			if runtime.GOOS == "linux" && routeManager.serverRouter != nil {
 				sr := routeManager.serverRouter.(*defaultServerRouter)

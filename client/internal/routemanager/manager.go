@@ -2,6 +2,10 @@ package routemanager
 
 import (
 	"context"
+	"fmt"
+	"net"
+	"net/netip"
+	"net/url"
 	"runtime"
 	"sync"
 
@@ -15,8 +19,14 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+var defaultv4 = netip.PrefixFrom(netip.IPv4Unspecified(), 0)
+
+// nolint:unused
+var defaultv6 = netip.PrefixFrom(netip.IPv6Unspecified(), 0)
+
 // Manager is a route manager interface
 type Manager interface {
+	Init() (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error)
 	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
@@ -56,6 +66,24 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 	return dm
 }
 
+// Init sets up the routing
+func (m *DefaultManager) Init() (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+	if err := cleanupRouting(); err != nil {
+		log.Warnf("Failed cleaning up routing: %v", err)
+	}
+
+	mgmtAddress := m.statusRecorder.GetManagementState().URL
+	signalAddress := m.statusRecorder.GetSignalState().URL
+	ips := resolveURLsToIPs([]string{mgmtAddress, signalAddress})
+
+	beforePeerHook, afterPeerHook, err := setupRouting(ips, m.wgInterface)
+	if err != nil {
+		return nil, nil, fmt.Errorf("setup routing: %w", err)
+	}
+	log.Info("Routing setup complete")
+	return beforePeerHook, afterPeerHook, nil
+}
+
 func (m *DefaultManager) EnableServerRouter(firewall firewall.Manager) error {
 	var err error
 	m.serverRouter, err = newServerRouter(m.ctx, m.wgInterface, firewall, m.statusRecorder)
@@ -71,9 +99,15 @@ func (m *DefaultManager) Stop() {
 	if m.serverRouter != nil {
 		m.serverRouter.cleanUp()
 	}
+	if err := cleanupRouting(); err != nil {
+		log.Errorf("Error cleaning up routing: %v", err)
+	} else {
+		log.Info("Routing cleanup complete")
+	}
+	m.ctx = nil
 }
 
-// UpdateRoutes compares received routes with existing routes and remove, update or add them to the client and server maps
+// UpdateRoutes compares received routes with existing routes and removes, updates or adds them to the client and server maps
 func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error {
 	select {
 	case <-m.ctx.Done():
@@ -91,7 +125,7 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 		if m.serverRouter != nil {
 			err := m.serverRouter.updateRoutes(newServerRoutesMap)
 			if err != nil {
-				return err
+				return fmt.Errorf("update routes: %w", err)
 			}
 		}
 
@@ -156,11 +190,7 @@ func (m *DefaultManager) classifiesRoutes(newRoutes []*route.Route) (map[string]
 	for _, newRoute := range newRoutes {
 		networkID := route.GetHAUniqueID(newRoute)
 		if !ownNetworkIDs[networkID] {
-			// if prefix is too small, lets assume is a possible default route which is not yet supported
-			// we skip this route management
-			if newRoute.Network.Bits() < minRangeBits {
-				log.Errorf("this agent version: %s, doesn't support default routes, received %s, skipping this route",
-					version.NetbirdVersion(), newRoute.Network)
+			if !isPrefixSupported(newRoute.Network) {
 				continue
 			}
 			newClientRoutesIDMap[networkID] = append(newClientRoutesIDMap[networkID], newRoute)
@@ -177,4 +207,39 @@ func (m *DefaultManager) clientRoutes(initialRoutes []*route.Route) []*route.Rou
 		rs = append(rs, routes...)
 	}
 	return rs
+}
+
+func isPrefixSupported(prefix netip.Prefix) bool {
+	switch runtime.GOOS {
+	case "linux", "windows", "darwin":
+		return true
+	}
+
+	// If prefix is too small, lets assume it is a possible default prefix which is not yet supported
+	// we skip this prefix management
+	if prefix.Bits() <= minRangeBits {
+		log.Warnf("This agent version: %s, doesn't support default routes, received %s, skipping this prefix",
+			version.NetbirdVersion(), prefix)
+		return false
+	}
+	return true
+}
+
+// resolveURLsToIPs takes a slice of URLs, resolves them to IP addresses and returns a slice of IPs.
+func resolveURLsToIPs(urls []string) []net.IP {
+	var ips []net.IP
+	for _, rawurl := range urls {
+		u, err := url.Parse(rawurl)
+		if err != nil {
+			log.Errorf("Failed to parse url %s: %v", rawurl, err)
+			continue
+		}
+		ipAddrs, err := net.LookupIP(u.Hostname())
+		if err != nil {
+			log.Errorf("Failed to resolve host %s: %v", u.Hostname(), err)
+			continue
+		}
+		ips = append(ips, ipAddrs...)
+	}
+	return ips
 }

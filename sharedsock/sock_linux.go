@@ -21,6 +21,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
+
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 // ErrSharedSockStopped indicates that shared socket has been stopped
@@ -82,10 +84,18 @@ func Listen(port int, filter BPFFilter) (_ net.PacketConn, err error) {
 		return nil, fmt.Errorf("failed to create ipv4 raw socket: %w", err)
 	}
 
+	if err = nbnet.SetSocketMark(rawSock.conn4); err != nil {
+		return nil, fmt.Errorf("failed to set SO_MARK on ipv4 socket: %w", err)
+	}
+
 	var sockErr error
 	rawSock.conn6, sockErr = socket.Socket(unix.AF_INET6, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp6", nil)
 	if sockErr != nil {
 		log.Errorf("Failed to create ipv6 raw socket: %v", err)
+	} else {
+		if err = nbnet.SetSocketMark(rawSock.conn6); err != nil {
+			return nil, fmt.Errorf("failed to set SO_MARK on ipv6 socket: %w", err)
+		}
 	}
 
 	ipv4Instructions, ipv6Instructions, err := filter.GetInstructions(uint32(rawSock.port))
