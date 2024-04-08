@@ -491,21 +491,11 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	// TODO: compare the updated posture checks on sync if there is changes then evaluate the checks
 
 	// evaluate checks and see if there is a client evaluates posture check to be check
-	processCheckPaths := make([]string, 0)
-	for _, check := range update.Checks {
-		if processCheck := check.ProcessCheck; processCheck != nil {
-			processCheckPaths = append(processCheckPaths, processCheck.GetFiles()...)
-		}
-	}
-
-	files, err := system.CheckFileAndProcess(processCheckPaths)
+	info, err := system.GetInfoWithChecks(e.ctx, update.Checks)
 	if err != nil {
-		log.Warnf("failed to check files and processes: %v", err)
-		return nil
+		log.Warnf("failed to get client info with checks: %v", err)
+		info = system.GetInfo(e.ctx)
 	}
-
-	info := system.GetInfo(e.ctx)
-	info.Files = files
 
 	resp, err := e.mgmClient.SyncMeta(info)
 	if err != nil {

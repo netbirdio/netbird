@@ -8,6 +8,7 @@ import (
 
 	"google.golang.org/grpc/metadata"
 
+	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -135,4 +136,24 @@ func isDuplicated(addresses []NetworkAddress, addr NetworkAddress) bool {
 		}
 	}
 	return false
+}
+
+// GetInfoWithChecks retrieves and parses the system information with applied checks.
+func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks) (*Info, error) {
+	processCheckPaths := make([]string, 0)
+	for _, check := range checks {
+		if processCheck := check.ProcessCheck; processCheck != nil {
+			processCheckPaths = append(processCheckPaths, processCheck.GetFiles()...)
+		}
+	}
+
+	files, err := checkFileAndProcess(processCheckPaths)
+	if err != nil {
+		return nil, err
+	}
+
+	info := GetInfo(ctx)
+	info.Files = files
+
+	return info, nil
 }

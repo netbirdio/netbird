@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/yusufpapurcu/wmi"
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/netbirdio/netbird/client/system/detect_cloud"
@@ -85,8 +84,8 @@ func GetInfo(ctx context.Context) *Info {
 	return gio
 }
 
-// CheckFileAndProcess checks if the file path exists and if a process is running at that path.
-func CheckFileAndProcess(paths []string) ([]File, error) {
+// checkFileAndProcess checks if the file path exists and if a process is running at that path.
+func checkFileAndProcess(paths []string) ([]File, error) {
 	return []File{}, nil
 }
 
