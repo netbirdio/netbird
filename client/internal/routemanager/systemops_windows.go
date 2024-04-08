@@ -94,7 +94,7 @@ func addRoutePowershell(prefix netip.Prefix, nexthop netip.Addr, intf, intfIdx s
 	}
 
 	out, err := exec.Command("powershell", "-Command", script).CombinedOutput()
-	log.Tracef("PowerShell add route: %s", string(out))
+	log.Tracef("PowerShell %s: %s", script, string(out))
 
 	if err != nil {
 		return fmt.Errorf("PowerShell add route: %w", err)
@@ -108,7 +108,7 @@ func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, _ string) error {
 
 	out, err := exec.Command("route", args...).CombinedOutput()
 
-	log.Tracef("route %s output: %s", strings.Join(args, " "), out)
+	log.Tracef("route %s: %s", strings.Join(args, " "), out)
 	if err != nil {
 		return fmt.Errorf("route add: %w", err)
 	}
@@ -138,7 +138,7 @@ func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, _ string) err
 	}
 
 	out, err := exec.Command("route", args...).CombinedOutput()
-	log.Tracef("route %s output: %s", strings.Join(args, " "), out)
+	log.Tracef("route %s: %s", strings.Join(args, " "), out)
 
 	if err != nil {
 		return fmt.Errorf("remove route: %w", err)
