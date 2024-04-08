@@ -4,6 +4,7 @@ package routemanager
 
 import (
 	"context"
+	"fmt"
 	"net/netip"
 	"sync"
 
@@ -48,7 +49,7 @@ func (m *defaultServerRouter) updateRoutes(routesMap map[string]*route.Route) er
 		oldRoute := m.routes[routeID]
 		err := m.removeFromServerNetwork(oldRoute)
 		if err != nil {
-			log.Errorf("unable to remove route id: %s, network %s, from server, got: %v",
+			log.Errorf("Unable to remove route id: %s, network %s, from server, got: %v",
 				oldRoute.ID, oldRoute.Network, err)
 		}
 		delete(m.routes, routeID)
@@ -62,7 +63,7 @@ func (m *defaultServerRouter) updateRoutes(routesMap map[string]*route.Route) er
 
 		err := m.addToServerNetwork(newRoute)
 		if err != nil {
-			log.Errorf("unable to add route %s from server, got: %v", newRoute.ID, err)
+			log.Errorf("Unable to add route %s from server, got: %v", newRoute.ID, err)
 			continue
 		}
 		m.routes[id] = newRoute
@@ -81,15 +82,22 @@ func (m *defaultServerRouter) updateRoutes(routesMap map[string]*route.Route) er
 func (m *defaultServerRouter) removeFromServerNetwork(route *route.Route) error {
 	select {
 	case <-m.ctx.Done():
-		log.Infof("not removing from server network because context is done")
+		log.Infof("Not removing from server network because context is done")
 		return m.ctx.Err()
 	default:
 		m.mux.Lock()
 		defer m.mux.Unlock()
-		err := m.firewall.RemoveRoutingRules(routeToRouterPair(m.wgInterface.Address().String(), route))
+
+		routerPair, err := routeToRouterPair(m.wgInterface.Address().Masked().String(), route)
 		if err != nil {
-			return err
+			return fmt.Errorf("parse prefix: %w", err)
 		}
+
+		err = m.firewall.RemoveRoutingRules(routerPair)
+		if err != nil {
+			return fmt.Errorf("remove routing rules: %w", err)
+		}
+
 		delete(m.routes, route.ID)
 
 		state := m.statusRecorder.GetLocalPeerState()
@@ -103,15 +111,22 @@ func (m *defaultServerRouter) removeFromServerNetwork(route *route.Route) error 
 func (m *defaultServerRouter) addToServerNetwork(route *route.Route) error {
 	select {
 	case <-m.ctx.Done():
-		log.Infof("not adding to server network because context is done")
+		log.Infof("Not adding to server network because context is done")
 		return m.ctx.Err()
 	default:
 		m.mux.Lock()
 		defer m.mux.Unlock()
-		err := m.firewall.InsertRoutingRules(routeToRouterPair(m.wgInterface.Address().String(), route))
+
+		routerPair, err := routeToRouterPair(m.wgInterface.Address().Masked().String(), route)
 		if err != nil {
-			return err
+			return fmt.Errorf("parse prefix: %w", err)
 		}
+
+		err = m.firewall.InsertRoutingRules(routerPair)
+		if err != nil {
+			return fmt.Errorf("insert routing rules: %w", err)
+		}
+
 		m.routes[route.ID] = route
 
 		state := m.statusRecorder.GetLocalPeerState()
@@ -129,23 +144,33 @@ func (m *defaultServerRouter) cleanUp() {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 	for _, r := range m.routes {
-		err := m.firewall.RemoveRoutingRules(routeToRouterPair(m.wgInterface.Address().String(), r))
+		routerPair, err := routeToRouterPair(m.wgInterface.Address().Masked().String(), r)
 		if err != nil {
-			log.Warnf("failed to remove clean up route: %s", r.ID)
+			log.Errorf("Failed to convert route to router pair: %v", err)
+			continue
 		}
 
-		state := m.statusRecorder.GetLocalPeerState()
-		state.Routes = nil
-		m.statusRecorder.UpdateLocalPeerState(state)
+		err = m.firewall.RemoveRoutingRules(routerPair)
+		if err != nil {
+			log.Errorf("Failed to remove cleanup route: %v", err)
+		}
+
 	}
+
+	state := m.statusRecorder.GetLocalPeerState()
+	state.Routes = nil
+	m.statusRecorder.UpdateLocalPeerState(state)
 }
 
-func routeToRouterPair(source string, route *route.Route) firewall.RouterPair {
-	parsed := netip.MustParsePrefix(source).Masked()
+func routeToRouterPair(source string, route *route.Route) (firewall.RouterPair, error) {
+	parsed, err := netip.ParsePrefix(source)
+	if err != nil {
+		return firewall.RouterPair{}, err
+	}
 	return firewall.RouterPair{
 		ID:          route.ID,
 		Source:      parsed.String(),
 		Destination: route.Network.Masked().String(),
 		Masquerade:  route.Masquerade,
-	}
+	}, nil
 }

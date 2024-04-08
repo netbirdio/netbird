@@ -6,6 +6,7 @@ import (
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/listener"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 )
@@ -14,6 +15,10 @@ import (
 type MockManager struct {
 	UpdateRoutesFunc func(updateSerial uint64, newRoutes []*route.Route) error
 	StopFunc         func()
+}
+
+func (m *MockManager) Init() (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+	return nil, nil, nil
 }
 
 // InitialRouteRange mock implementation of InitialRouteRange from Manager interface
