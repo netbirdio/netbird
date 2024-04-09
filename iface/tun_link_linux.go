@@ -54,14 +54,14 @@ func (l *wgLink) recreate() error {
 
 	// remove if interface exists
 	if link != nil {
-		err = netlink.LinkDel(link)
+		err = netlink.LinkDel(l)
 		if err != nil {
 			return err
 		}
 	}
 
 	log.Debugf("adding device: %s", name)
-	err = netlink.LinkAdd(link)
+	err = netlink.LinkAdd(l)
 	if os.IsExist(err) {
 		log.Infof("interface %s already exists. Will reuse.", name)
 	} else if err != nil {
