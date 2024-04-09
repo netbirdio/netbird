@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	"slices"
 	"strings"
 	"time"
 
@@ -88,51 +87,6 @@ func GetInfo(ctx context.Context) *Info {
 	}
 
 	return gio
-}
-
-// checkFileAndProcess checks if the file path exists and if a process is running at that path.
-func checkFileAndProcess(paths []string) ([]File, error) {
-	files := make([]File, len(paths))
-	if len(paths) == 0 {
-		return files, nil
-	}
-
-	runningProcesses, err := getRunningProcesses()
-	if err != nil {
-		return nil, err
-	}
-
-	for i, path := range paths {
-		file := File{Path: path}
-
-		_, err := os.Stat(path)
-		file.Exist = !os.IsNotExist(err)
-
-		file.ProcessIsRunning = slices.Contains(runningProcesses, path)
-		files[i] = file
-	}
-
-	return files, nil
-}
-
-// getRunningProcesses returns a list of running processes.
-func getRunningProcesses() ([]string, error) {
-	out, err := exec.Command("ps", "-eo", "comm").Output()
-	if err != nil {
-		return nil, err
-	}
-
-	processMap := make(map[string]bool)
-	for _, line := range strings.Split(string(out), "\n") {
-		processMap[strings.TrimSpace(line)] = true
-	}
-
-	uniqueProcesses := make([]string, 0, len(processMap))
-	for process := range processMap {
-		uniqueProcesses = append(uniqueProcesses, process)
-	}
-
-	return uniqueProcesses, nil
 }
 
 func _getInfo() string {
