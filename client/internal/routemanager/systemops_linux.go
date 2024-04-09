@@ -487,6 +487,9 @@ func removeAllRules(params ruleParams) error {
 func addNextHop(addr netip.Addr, intf string, route *netlink.Route) error {
 	if addr.IsValid() {
 		route.Gw = addr.AsSlice()
+		if intf == "" {
+			intf = addr.Zone()
+		}
 	}
 
 	if intf != "" {

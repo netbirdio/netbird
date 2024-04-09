@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 
@@ -93,7 +94,7 @@ func runClient(
 	relayProbe *Probe,
 	wgProbe *Probe,
 ) error {
-	log.Infof("starting NetBird client version %s", version.NetbirdVersion())
+	log.Infof("starting NetBird client version %s on %s/%s", version.NetbirdVersion(), runtime.GOOS, runtime.GOARCH)
 
 	// Check if client was not shut down in a clean way and restore DNS config if required.
 	// Otherwise, we might not be able to connect to the management server to retrieve new config.

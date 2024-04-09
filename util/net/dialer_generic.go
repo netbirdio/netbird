@@ -56,7 +56,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 
 	connID := GenerateConnID()
 	if dialerDialHooks != nil {
-		if err := calliDialerHooks(ctx, connID, address, resolver); err != nil {
+		if err := callDialerHooks(ctx, connID, address, resolver); err != nil {
 			log.Errorf("Failed to call dialer hooks: %v", err)
 		}
 	}
@@ -97,7 +97,7 @@ func (c *Conn) Close() error {
 	return err
 }
 
-func calliDialerHooks(ctx context.Context, connID ConnectionID, address string, resolver *net.Resolver) error {
+func callDialerHooks(ctx context.Context, connID ConnectionID, address string, resolver *net.Resolver) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
 		return fmt.Errorf("split host and port: %w", err)

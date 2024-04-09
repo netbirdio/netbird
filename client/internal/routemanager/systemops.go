@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"runtime"
+	"strconv"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/libp2p/go-netroute"
@@ -85,23 +87,42 @@ func getNextHop(ip netip.Addr) (netip.Addr, *net.Interface, error) {
 	log.Debugf("Route for %s: interface %v, nexthop %v, preferred source %v", ip, intf, gateway, preferredSrc)
 	if gateway == nil {
 		if preferredSrc == nil {
-      return netip.Addr{}, nil, ErrRouteNotFound
+			return netip.Addr{}, nil, ErrRouteNotFound
 		}
 		log.Debugf("No next hop found for ip %s, using preferred source %s", ip, preferredSrc)
 
-		addr, ok := netip.AddrFromSlice(preferredSrc)
-		if !ok {
-			return netip.Addr{}, nil, fmt.Errorf("failed to parse IP address: %s", preferredSrc)
+		addr, err := ipToAddr(preferredSrc, intf)
+		if err != nil {
+			return netip.Addr{}, nil, fmt.Errorf("convert preferred source to address: %w", err)
 		}
 		return addr.Unmap(), intf, nil
 	}
 
-	addr, ok := netip.AddrFromSlice(gateway)
-	if !ok {
-		return netip.Addr{}, nil, fmt.Errorf("failed to parse IP address: %s", gateway)
+	addr, err := ipToAddr(gateway, intf)
+	if err != nil {
+		return netip.Addr{}, nil, fmt.Errorf("convert gateway to address: %w", err)
 	}
 
-	return addr.Unmap(), intf, nil
+	return addr, intf, nil
+}
+
+// converts a net.IP to a netip.Addr including the zone based on the passed interface
+func ipToAddr(ip net.IP, intf *net.Interface) (netip.Addr, error) {
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return netip.Addr{}, fmt.Errorf("failed to convert IP address to netip.Addr: %s", ip)
+	}
+
+	if intf != nil && (addr.IsLinkLocalMulticast() || addr.IsLinkLocalUnicast()) {
+		log.Tracef("Adding zone %s to address %s", intf.Name, addr)
+		if runtime.GOOS == "windows" {
+			addr = addr.WithZone(strconv.Itoa(intf.Index))
+		} else {
+			addr = addr.WithZone(intf.Name)
+		}
+	}
+
+	return addr.Unmap(), nil
 }
 
 func existsInRouteTable(prefix netip.Prefix) (bool, error) {
