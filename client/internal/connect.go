@@ -229,7 +229,10 @@ func runClient(
 			return wrapErr(err)
 		}
 
-		engine := NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe)
+		checks := loginResp.GetChecks()
+
+		engine := NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, engineConfig,
+			mobileDependency, statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe, checks)
 		err = engine.Start()
 		if err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)

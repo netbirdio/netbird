@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -135,6 +136,9 @@ type Engine struct {
 	signalProbe *Probe
 	relayProbe  *Probe
 	wgProbe     *Probe
+
+	// checks are the client-applied posture checks that need to be evaluated on the client
+	checks []*mgmProto.Checks
 }
 
 // Peer is an instance of the Connection Peer
@@ -152,6 +156,7 @@ func NewEngine(
 	config *EngineConfig,
 	mobileDep MobileDependency,
 	statusRecorder *peer.Status,
+	checks []*mgmProto.Checks,
 ) *Engine {
 	return NewEngineWithProbes(
 		ctx,
@@ -165,6 +170,7 @@ func NewEngine(
 		nil,
 		nil,
 		nil,
+		checks,
 	)
 }
 
@@ -181,6 +187,7 @@ func NewEngineWithProbes(
 	signalProbe *Probe,
 	relayProbe *Probe,
 	wgProbe *Probe,
+	checks []*mgmProto.Checks,
 ) *Engine {
 	return &Engine{
 		ctx:            ctx,
@@ -201,6 +208,7 @@ func NewEngineWithProbes(
 		signalProbe:    signalProbe,
 		relayProbe:     relayProbe,
 		wgProbe:        wgProbe,
+		checks:         checks,
 	}
 }
 
@@ -479,6 +487,10 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		// todo update signal
 	}
 
+	if err := e.updateChecksIfNew(update.Checks); err != nil {
+		return err
+	}
+
 	if update.GetNetworkMap() != nil {
 		// only apply new changes and ignore old ones
 		err := e.updateNetworkMap(update.GetNetworkMap())
@@ -486,12 +498,18 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 			return err
 		}
 	}
+	return nil
+}
 
-	// TODO: save the client posture checks on state (peer recorder) to have reference to previous response on login
-	// TODO: compare the updated posture checks on sync if there is changes then evaluate the checks
+// updateChecksIfNew updates checks if there are changes and sync new meta with management
+func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
+	// if checks are equal, we skip the update
+	if isChecksEqual(e.checks, checks) {
+		return nil
+	}
+	e.checks = checks
 
-	// evaluate checks and see if there is a client evaluates posture check to be check
-	info, err := system.GetInfoWithChecks(e.ctx, update.Checks)
+	info, err := system.GetInfoWithChecks(e.ctx, checks)
 	if err != nil {
 		log.Warnf("failed to get client info with checks: %v", err)
 		info = system.GetInfo(e.ctx)
@@ -501,7 +519,6 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		log.Errorf("could not sync meta: error %s", err)
 		return err
 	}
-
 	return nil
 }
 
@@ -1332,4 +1349,11 @@ func (e *Engine) probeSTUNs() []relay.ProbeResult {
 
 func (e *Engine) probeTURNs() []relay.ProbeResult {
 	return relay.ProbeAll(e.ctx, relay.ProbeTURN, e.TURNs)
+}
+
+// isChecksEqual checks if two slices of checks are equal.
+func isChecksEqual(checks []*mgmProto.Checks, oChecks []*mgmProto.Checks) bool {
+	return slices.EqualFunc(checks, oChecks, func(checks, oChecks *mgmProto.Checks) bool {
+		return slices.Equal(checks.Files, oChecks.Files)
+	})
 }
