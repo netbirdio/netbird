@@ -242,19 +242,19 @@ type UserPermissions struct {
 }
 
 type UserInfo struct {
-	ID                   string               `json:"id"`
-	Email                string               `json:"email"`
-	Name                 string               `json:"name"`
-	Role                 string               `json:"role"`
-	AutoGroups           []string             `json:"auto_groups"`
-	Status               string               `json:"-"`
-	IsServiceUser        bool                 `json:"is_service_user"`
-	IsBlocked            bool                 `json:"is_blocked"`
-	NonDeletable         bool                 `json:"non_deletable"`
-	LastLogin            time.Time            `json:"last_login"`
-	Issued               string               `json:"issued"`
+	ID                   string                                     `json:"id"`
+	Email                string                                     `json:"email"`
+	Name                 string                                     `json:"name"`
+	Role                 string                                     `json:"role"`
+	AutoGroups           []string                                   `json:"auto_groups"`
+	Status               string                                     `json:"-"`
+	IsServiceUser        bool                                       `json:"is_service_user"`
+	IsBlocked            bool                                       `json:"is_blocked"`
+	NonDeletable         bool                                       `json:"non_deletable"`
+	LastLogin            time.Time                                  `json:"last_login"`
+	Issued               string                                     `json:"issued"`
 	IntegrationReference integration_reference.IntegrationReference `json:"-"`
-	Permissions          UserPermissions      `json:"permissions"`
+	Permissions          UserPermissions                            `json:"permissions"`
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
@@ -1849,6 +1849,7 @@ func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(claims jwtclaims.Aut
 }
 
 func (am *DefaultAccountManager) onPeersInvalidated(accountID string) {
+	log.Debugf("validated peers has been invalidated for account %s", accountID)
 	updatedAccount, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		log.Errorf("failed to get account %s: %v", accountID, err)
