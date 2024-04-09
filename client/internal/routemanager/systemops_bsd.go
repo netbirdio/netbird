@@ -59,7 +59,6 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 
 		addr, ok := toNetIPAddr(m.Addrs[0])
 		if !ok {
-			log.Debugf("Unexpected RIB message Addrs[0]: %v", m.Addrs[0])
 			continue
 		}
 
