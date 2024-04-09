@@ -64,6 +64,10 @@ var installCmd = &cobra.Command{
 			}
 		}
 
+		if runtime.GOOS == "windows" {
+			svcConfig.Option["OnFailure"] = "restart"
+		}
+
 		ctx, cancel := context.WithCancel(cmd.Context())
 
 		s, err := newSVC(newProgram(ctx, cancel), svcConfig)
