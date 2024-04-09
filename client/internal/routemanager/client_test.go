@@ -14,7 +14,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 		name            string
 		statuses        map[string]routerPeerStatus
 		expectedRouteID string
-		currentRoute    *route.Route
+		currentRoute    string
 		existingRoutes  map[string]*route.Route
 	}{
 		{
@@ -33,7 +33,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					Peer:   "peer1",
 				},
 			},
-			currentRoute:    nil,
+			currentRoute:    "",
 			expectedRouteID: "route1",
 		},
 		{
@@ -52,7 +52,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					Peer:   "peer1",
 				},
 			},
-			currentRoute:    nil,
+			currentRoute:    "",
 			expectedRouteID: "route1",
 		},
 		{
@@ -71,7 +71,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					Peer:   "peer1",
 				},
 			},
-			currentRoute:    nil,
+			currentRoute:    "",
 			expectedRouteID: "route1",
 		},
 		{
@@ -90,7 +90,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					Peer:   "peer1",
 				},
 			},
-			currentRoute:    nil,
+			currentRoute:    "",
 			expectedRouteID: "",
 		},
 		{
@@ -119,7 +119,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					Peer:   "peer2",
 				},
 			},
-			currentRoute:    nil,
+			currentRoute:    "",
 			expectedRouteID: "route1",
 		},
 		{
@@ -148,7 +148,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					Peer:   "peer2",
 				},
 			},
-			currentRoute:    nil,
+			currentRoute:    "",
 			expectedRouteID: "route1",
 		},
 		{
@@ -177,7 +177,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					Peer:   "peer2",
 				},
 			},
-			currentRoute:    nil,
+			currentRoute:    "",
 			expectedRouteID: "route1",
 		},
 		{
@@ -185,7 +185,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 			statuses: map[string]routerPeerStatus{
 				"route1": {
 					connected: true,
-					latency:   30 * time.Millisecond,
+					latency:   300 * time.Millisecond,
 				},
 				"route2": {
 					connected: true,
@@ -204,7 +204,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					Peer:   "peer2",
 				},
 			},
-			currentRoute:    nil,
+			currentRoute:    "",
 			expectedRouteID: "route2",
 		},
 		{
@@ -231,18 +231,87 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					Peer:   "peer2",
 				},
 			},
-			currentRoute:    nil,
+			currentRoute:    "",
+			expectedRouteID: "route2",
+		},
+		{
+			name: "current route with similar score and similar but slightly worse latency should not change",
+			statuses: map[string]routerPeerStatus{
+				"route1": {
+					connected: true,
+					relayed:   false,
+					direct:    true,
+					latency:   12 * time.Millisecond,
+				},
+				"route2": {
+					connected: true,
+					relayed:   false,
+					direct:    true,
+					latency:   10 * time.Millisecond,
+				},
+			},
+			existingRoutes: map[string]*route.Route{
+				"route1": {
+					ID:     "route1",
+					Metric: route.MaxMetric,
+					Peer:   "peer1",
+				},
+				"route2": {
+					ID:     "route2",
+					Metric: route.MaxMetric,
+					Peer:   "peer2",
+				},
+			},
+			currentRoute:    "route1",
+			expectedRouteID: "route1",
+		},
+		{
+			name: "current chosen route doesn't exist anymore",
+			statuses: map[string]routerPeerStatus{
+				"route1": {
+					connected: true,
+					relayed:   false,
+					direct:    true,
+					latency:   20 * time.Millisecond,
+				},
+				"route2": {
+					connected: true,
+					relayed:   false,
+					direct:    true,
+					latency:   10 * time.Millisecond,
+				},
+			},
+			existingRoutes: map[string]*route.Route{
+				"route1": {
+					ID:     "route1",
+					Metric: route.MaxMetric,
+					Peer:   "peer1",
+				},
+				"route2": {
+					ID:     "route2",
+					Metric: route.MaxMetric,
+					Peer:   "peer2",
+				},
+			},
+			currentRoute:    "routeDoesntExistAnymore",
 			expectedRouteID: "route2",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			currentRoute := &route.Route{
+				ID: "routeDoesntExistAnymore",
+			}
+			if tc.currentRoute != "" {
+				currentRoute = tc.existingRoutes[tc.currentRoute]
+			}
+
 			// create new clientNetwork
 			client := &clientNetwork{
 				network:     netip.MustParsePrefix("192.168.0.0/24"),
 				routes:      tc.existingRoutes,
-				chosenRoute: tc.currentRoute,
+				chosenRoute: currentRoute,
 			}
 
 			chosenRoute := client.getBestRouteFromStatuses(tc.statuses)

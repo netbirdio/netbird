@@ -92,6 +92,7 @@ func (c *clientNetwork) getRouterPeerStatuses() map[string]routerPeerStatus {
 func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]routerPeerStatus) string {
 	chosen := ""
 	chosenScore := float64(0)
+	currScore := float64(0)
 
 	currID := ""
 	if c.chosenRoute != nil {
@@ -110,12 +111,12 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 			tempScore = float64(metricDiff) * 10
 		}
 
-		// in some temporal cases, latency can be 0, so we set it to 100ms as a default value to avoid false results
-		latency := 100 * time.Millisecond
+		// in some temporal cases, latency can be 0, so we set it to 1s to not block but try to avoid this route
+		latency := time.Second
 		if peerStatus.latency != 0 {
 			latency = peerStatus.latency
 		}
-		tempScore -= latency.Seconds()
+		tempScore += 1 - latency.Seconds()
 
 		if !peerStatus.relayed {
 			tempScore++
@@ -125,7 +126,7 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 			tempScore++
 		}
 
-		if tempScore > chosenScore || (tempScore == chosenScore && r.ID == currID) {
+		if tempScore > chosenScore || (tempScore == chosenScore && chosen == "") {
 			chosen = r.ID
 			chosenScore = tempScore
 		}
@@ -133,6 +134,10 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 		if chosen == "" && currID == "" {
 			chosen = r.ID
 			chosenScore = tempScore
+		}
+
+		if r.ID == currID {
+			currScore = tempScore
 		}
 	}
 
@@ -144,8 +149,14 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 
 		log.Warnf("the network %s has not been assigned a routing peer as no peers from the list %s are currently connected", c.network, peers)
 
+	} else if currID == "" {
+		return chosen
 	} else if chosen != currID {
-		log.Infof("new chosen route is %s with peer %s with score %f for network %s", chosen, c.routes[chosen].Peer, chosenScore, c.network)
+		if currScore != 0 && currScore < chosenScore+0.1 {
+			return currID
+		} else {
+			log.Infof("new chosen route is %s with peer %s with score %f for network %s", chosen, c.routes[chosen].Peer, chosenScore, c.network)
+		}
 	}
 
 	return chosen
