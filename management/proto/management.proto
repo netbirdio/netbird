@@ -403,10 +403,6 @@ message NetworkAddress {
   string mac = 2;
 }
 
-message ProcessCheck {
-  repeated string Files = 1;
-}
-
 message Checks {
-  ProcessCheck ProcessCheck = 1;
+  repeated string Files= 1;
 }

@@ -142,9 +142,7 @@ func isDuplicated(addresses []NetworkAddress, addr NetworkAddress) bool {
 func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks) (*Info, error) {
 	processCheckPaths := make([]string, 0)
 	for _, check := range checks {
-		if processCheck := check.ProcessCheck; processCheck != nil {
-			processCheckPaths = append(processCheckPaths, processCheck.GetFiles()...)
-		}
+		processCheckPaths = append(processCheckPaths, check.GetFiles()...)
 	}
 
 	files, err := checkFileAndProcess(processCheckPaths)
