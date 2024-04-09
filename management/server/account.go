@@ -278,7 +278,7 @@ func (a *Account) getRoutesToSync(peerID string, aclPeers []*nbpeer.Peer) []*rou
 	return routes
 }
 
-// filterRoutesByHAMembership filters and returns a list of routes that don't share the same HA route membership
+// filterRoutesFromPeersOfSameHAGroup filters and returns a list of routes that don't share the same HA route membership
 func (a *Account) filterRoutesFromPeersOfSameHAGroup(routes []*route.Route, peerMemberships lookupMap) []*route.Route {
 	var filteredRoutes []*route.Route
 	for _, r := range routes {
