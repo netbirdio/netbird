@@ -35,6 +35,10 @@ func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf string) 
 
 func routeCmd(action string, prefix netip.Prefix, nexthop netip.Addr, intf string) error {
 	inet := "-inet"
+	network := prefix.String()
+	if prefix.IsSingleIP() {
+		network = prefix.Addr().String()
+	}
 	if prefix.Addr().Is6() {
 		inet = "-inet6"
 		// Special case for IPv6 split default route, pointing to the wg interface fails
@@ -44,7 +48,7 @@ func routeCmd(action string, prefix netip.Prefix, nexthop netip.Addr, intf strin
 		}
 	}
 
-	args := []string{"-n", action, inet, prefix.String()}
+	args := []string{"-n", action, inet, network}
 	if nexthop.IsValid() {
 		args = append(args, nexthop.Unmap().String())
 	} else if intf != "" {
