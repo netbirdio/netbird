@@ -115,6 +115,8 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 		latency := time.Second
 		if peerStatus.latency != 0 {
 			latency = peerStatus.latency
+		} else {
+			log.Warnf("peer %s has 0 latency", r.Peer)
 		}
 		tempScore += 1 - latency.Seconds()
 
