@@ -1,8 +1,10 @@
+//go:build windows || linux || (darwin && !ios && !android)
+// +build windows linux darwin,!ios,!android
+
 package system
 
 import (
 	"os"
-	"runtime"
 	"slices"
 
 	"github.com/shirou/gopsutil/v3/process"
@@ -33,10 +35,6 @@ func getRunningProcesses() ([]string, error) {
 
 // checkFileAndProcess checks if the file path exists and if a process is running at that path.
 func checkFileAndProcess(paths []string) ([]File, error) {
-	if runtime.GOOS == "android" || runtime.GOOS == "ios" {
-		return []File{}, nil
-	}
-
 	files := make([]File, len(paths))
 	if len(paths) == 0 {
 		return files, nil
