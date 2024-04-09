@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"slices"
 
-	"github.com/shirou/gopsutil/process"
+	"github.com/shirou/gopsutil/v3/process"
 )
 
 // getRunningProcesses returns a list of running process paths.
