@@ -5,8 +5,10 @@ package routemanager
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"os/exec"
 	"regexp"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,6 +29,42 @@ func init() {
 			expectedPacket:    createPacketExpectation("100.64.0.1", 12345, "10.10.0.2", 53),
 		},
 	}...)
+}
+
+func TestConcurrentRoutes(t *testing.T) {
+	baseIP := netip.MustParseAddr("192.0.2.0")
+	intf := "lo0"
+
+	var wg sync.WaitGroup
+	for i := 0; i < 1024; i++ {
+		wg.Add(1)
+		go func(ip netip.Addr) {
+			defer wg.Done()
+			prefix := netip.PrefixFrom(ip, 32)
+			if err := addToRouteTable(prefix, netip.Addr{}, intf); err != nil {
+				t.Errorf("Failed to add route for %s: %v", prefix, err)
+			}
+		}(baseIP)
+		baseIP = baseIP.Next()
+	}
+
+	wg.Wait()
+
+	baseIP = netip.MustParseAddr("192.0.2.0")
+
+	for i := 0; i < 1024; i++ {
+		wg.Add(1)
+		go func(ip netip.Addr) {
+			defer wg.Done()
+			prefix := netip.PrefixFrom(ip, 32)
+			if err := removeFromRouteTable(prefix, netip.Addr{}, intf); err != nil {
+				t.Errorf("Failed to remove route for %s: %v", prefix, err)
+			}
+		}(baseIP)
+		baseIP = baseIP.Next()
+	}
+
+	wg.Wait()
 }
 
 func createAndSetupDummyInterface(t *testing.T, intf string, ipAddressCIDR string) string {
