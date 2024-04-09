@@ -273,7 +273,7 @@ func (om *OktaManager) DeleteUser(userID string) error {
 	return nil
 }
 
-// parseOktaUserToUserData parse okta user to UserData.
+// parseOktaUser parse okta user to UserData.
 func parseOktaUser(user *okta.User) (*UserData, error) {
 	var oktaUser struct {
 		Email     string `json:"email"`

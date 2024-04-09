@@ -706,7 +706,7 @@ func (am *MockAccountManager) GetIdpManager() idp.Manager {
 	return nil
 }
 
-// UpdateIntegratedValidatedGroups mocks UpdateIntegratedApprovalGroups of the AccountManager interface
+// UpdateIntegratedValidatorGroups mocks UpdateIntegratedApprovalGroups of the AccountManager interface
 func (am *MockAccountManager) UpdateIntegratedValidatorGroups(accountID string, userID string, groups []string) error {
 	if am.UpdateIntegratedValidatorGroupsFunc != nil {
 		return am.UpdateIntegratedValidatorGroupsFunc(accountID, userID, groups)
