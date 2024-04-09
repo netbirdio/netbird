@@ -664,7 +664,7 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(_ context.Context, req *proto.Encr
 
 // SyncMeta endpoint is used to synchronize peer's system metadata and notifies the connected,
 // peer's under the same account of any updates.
-func (s *GRPCServer) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+func (s *GRPCServer) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*proto.Empty, error) {
 	realIP := getRealIP(ctx)
 	log.Debugf("Sync meta request from peer [%s] [%s]", req.WgPubKey, realIP.String())
 
@@ -681,7 +681,7 @@ func (s *GRPCServer) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) 
 		return nil, msg
 	}
 
-	peer, networkMap, err := s.accountManager.SyncPeer(PeerSync{
+	_, _, err = s.accountManager.SyncPeer(PeerSync{
 		WireGuardPubKey:    peerKey.String(),
 		Meta:               extractPeerMeta(syncMetaReq.GetMeta()),
 		UpdateAccountPeers: true,
@@ -690,44 +690,7 @@ func (s *GRPCServer) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) 
 		return nil, mapError(err)
 	}
 
-	resp := toSyncMetaResponse(peer, networkMap, s.accountManager.GetDNSDomain())
-	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, resp)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "error handling request")
-	}
-
-	return &proto.EncryptedMessage{
-		WgPubKey: s.wgKey.PublicKey().String(),
-		Body:     encryptedResp,
-	}, nil
-}
-
-func toSyncMetaResponse(peer *nbpeer.Peer, networkMap *NetworkMap, dnsName string) *proto.SyncMetaResponse {
-	pConfig := toPeerConfig(peer, networkMap.Network, dnsName)
-
-	remotePeers := toRemotePeerConfig(networkMap.Peers, dnsName)
-
-	routesUpdate := toProtocolRoutes(networkMap.Routes)
-
-	dnsUpdate := toProtocolDNSConfig(networkMap.DNSConfig)
-
-	offlinePeers := toRemotePeerConfig(networkMap.OfflinePeers, dnsName)
-
-	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules)
-
-	return &proto.SyncMetaResponse{
-		NetworkMap: &proto.NetworkMap{
-			Serial:               networkMap.Network.CurrentSerial(),
-			PeerConfig:           pConfig,
-			RemotePeers:          remotePeers,
-			OfflinePeers:         offlinePeers,
-			RemotePeersIsEmpty:   len(remotePeers) == 0,
-			Routes:               routesUpdate,
-			DNSConfig:            dnsUpdate,
-			FirewallRules:        firewallRules,
-			FirewallRulesIsEmpty: len(firewallRules) == 0,
-		},
-	}
+	return &proto.Empty{}, nil
 }
 
 // toPeerChecks returns posture checks for the peer that needs to be evaluated on the client side.

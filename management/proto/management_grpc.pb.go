@@ -46,8 +46,8 @@ type ManagementServiceClient interface {
 	// SyncMeta is used to sync metadata of the peer.
 	// After sync the peer if there is a change in peer posture check which  needs to be evaluated by the client,
 	// sync meta will evaluate the checks and update the peer meta with the result.
-	// EncryptedMessage of the request has a body of SyncMetaRequest.
-	SyncMeta(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
+	// EncryptedMessage of the request has a body of Empty.
+	SyncMeta(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type managementServiceClient struct {
@@ -135,8 +135,8 @@ func (c *managementServiceClient) GetPKCEAuthorizationFlow(ctx context.Context, 
 	return out, nil
 }
 
-func (c *managementServiceClient) SyncMeta(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error) {
-	out := new(EncryptedMessage)
+func (c *managementServiceClient) SyncMeta(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
 	err := c.cc.Invoke(ctx, "/management.ManagementService/SyncMeta", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -176,8 +176,8 @@ type ManagementServiceServer interface {
 	// SyncMeta is used to sync metadata of the peer.
 	// After sync the peer if there is a change in peer posture check which  needs to be evaluated by the client,
 	// sync meta will evaluate the checks and update the peer meta with the result.
-	// EncryptedMessage of the request has a body of SyncMetaRequest.
-	SyncMeta(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
+	// EncryptedMessage of the request has a body of Empty.
+	SyncMeta(context.Context, *EncryptedMessage) (*Empty, error)
 	mustEmbedUnimplementedManagementServiceServer()
 }
 
@@ -203,7 +203,7 @@ func (UnimplementedManagementServiceServer) GetDeviceAuthorizationFlow(context.C
 func (UnimplementedManagementServiceServer) GetPKCEAuthorizationFlow(context.Context, *EncryptedMessage) (*EncryptedMessage, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPKCEAuthorizationFlow not implemented")
 }
-func (UnimplementedManagementServiceServer) SyncMeta(context.Context, *EncryptedMessage) (*EncryptedMessage, error) {
+func (UnimplementedManagementServiceServer) SyncMeta(context.Context, *EncryptedMessage) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SyncMeta not implemented")
 }
 func (UnimplementedManagementServiceServer) mustEmbedUnimplementedManagementServiceServer() {}

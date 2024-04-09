@@ -15,7 +15,7 @@ type MockClient struct {
 	LoginFunc                      func(serverKey wgtypes.Key, info *system.Info, sshKey []byte) (*proto.LoginResponse, error)
 	GetDeviceAuthorizationFlowFunc func(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error)
 	GetPKCEAuthorizationFlowFunc   func(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error)
-	SyncMetaFunc                   func(sysInfo *system.Info) (*proto.SyncMetaResponse, error)
+	SyncMetaFunc                   func(sysInfo *system.Info) error
 }
 
 func (m *MockClient) IsHealthy() bool {
@@ -76,9 +76,9 @@ func (m *MockClient) GetNetworkMap(_ *system.Info) (*proto.NetworkMap, error) {
 	return nil, nil
 }
 
-func (m *MockClient) SyncMeta(sysInfo *system.Info) (*proto.SyncMetaResponse, error) {
+func (m *MockClient) SyncMeta(sysInfo *system.Info) error {
 	if m.SyncMetaFunc == nil {
-		return nil, nil
+		return nil
 	}
 	return m.SyncMetaFunc(sysInfo)
 }

@@ -19,5 +19,5 @@ type Client interface {
 	GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error)
 	GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, error)
 	IsHealthy() bool
-	SyncMeta(sysInfo *system.Info) (*proto.SyncMetaResponse, error)
+	SyncMeta(sysInfo *system.Info) error
 }

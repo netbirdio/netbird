@@ -18,7 +18,7 @@ type ManagementServiceServerMock struct {
 	IsHealthyFunc                  func(context.Context, *proto.Empty) (*proto.Empty, error)
 	GetDeviceAuthorizationFlowFunc func(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error)
 	GetPKCEAuthorizationFlowFunc   func(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error)
-	SyncMetaFunc                   func(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error)
+	SyncMetaFunc                   func(ctx context.Context, req *proto.EncryptedMessage) (*proto.Empty, error)
 }
 
 func (m ManagementServiceServerMock) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
@@ -63,7 +63,7 @@ func (m ManagementServiceServerMock) GetPKCEAuthorizationFlow(ctx context.Contex
 	return nil, status.Errorf(codes.Unimplemented, "method GetPKCEAuthorizationFlow not implemented")
 }
 
-func (m ManagementServiceServerMock) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+func (m ManagementServiceServerMock) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*proto.Empty, error) {
 	if m.SyncMetaFunc != nil {
 		return m.SyncMetaFunc(ctx, req)
 	}

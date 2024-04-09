@@ -497,13 +497,12 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		info = system.GetInfo(e.ctx)
 	}
 
-	resp, err := e.mgmClient.SyncMeta(info)
-	if err != nil {
+	if err := e.mgmClient.SyncMeta(info); err != nil {
 		log.Errorf("could not sync meta: error %s", err)
 		return err
 	}
 
-	return e.updateNetworkMap(resp.GetNetworkMap())
+	return nil
 }
 
 func isNil(server nbssh.Server) bool {

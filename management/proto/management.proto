@@ -42,8 +42,8 @@ service ManagementService {
   // SyncMeta is used to sync metadata of the peer.
   // After sync the peer if there is a change in peer posture check which  needs to be evaluated by the client,
   // sync meta will evaluate the checks and update the peer meta with the result.
-  // EncryptedMessage of the request has a body of SyncMetaRequest.
-  rpc  SyncMeta(EncryptedMessage) returns (EncryptedMessage) {}
+  // EncryptedMessage of the request has a body of Empty.
+  rpc  SyncMeta(EncryptedMessage) returns (Empty) {}
 }
 
 message EncryptedMessage {
@@ -86,10 +86,6 @@ message SyncResponse {
 message  SyncMetaRequest {
   // Meta data of the peer
   PeerSystemMeta meta = 1;
-}
-
-message SyncMetaResponse {
-  NetworkMap NetworkMap = 1;
 }
 
 message LoginRequest {

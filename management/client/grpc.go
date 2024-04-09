@@ -432,42 +432,31 @@ func (c *GrpcClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKC
 
 // SyncMeta sends updated system metadata to the Management Service.
 // It should be used if there is changes on peer posture check after initial sync.
-func (c *GrpcClient) SyncMeta(sysInfo *system.Info) (*proto.SyncMetaResponse, error) {
+func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
 	if !c.ready() {
-		return nil, fmt.Errorf("no connection to management")
+		return fmt.Errorf("no connection to management")
 	}
 
 	serverPubKey, err := c.GetServerPublicKey()
 	if err != nil {
 		log.Debugf("failed getting Management Service public key: %s", err)
-		return nil, err
+		return err
 	}
 
 	syncMetaReq, err := encryption.EncryptMessage(*serverPubKey, c.key, &proto.SyncMetaRequest{Meta: infoToMetaData(sysInfo)})
 	if err != nil {
 		log.Errorf("failed to encrypt message: %s", err)
-		return nil, err
+		return err
 	}
 
 	mgmCtx, cancel := context.WithTimeout(c.ctx, ConnectTimeout)
 	defer cancel()
-	resp, err := c.realClient.SyncMeta(mgmCtx, &proto.EncryptedMessage{
+
+	_, err = c.realClient.SyncMeta(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     syncMetaReq,
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	syncMetaResp := &proto.SyncMetaResponse{}
-	err = encryption.DecryptMessage(*serverPubKey, c.key, resp.Body, syncMetaResp)
-	if err != nil {
-		errWithMSG := fmt.Errorf("failed to decrypt sync meta message: %s", err)
-		log.Error(errWithMSG)
-		return nil, errWithMSG
-	}
-
-	return syncMetaResp, nil
+	return err
 }
 
 func (c *GrpcClient) notifyDisconnected(err error) {
