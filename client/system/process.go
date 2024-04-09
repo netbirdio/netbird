@@ -1,4 +1,5 @@
-//go:build !ios || !android
+//go:build windows || linux || darwin || !ios || !android
+// +build windows linux darwin !ios !android
 
 package system
 
