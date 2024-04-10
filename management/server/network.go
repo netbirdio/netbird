@@ -86,29 +86,40 @@ func (n *Network) Copy() *Network {
 	}
 }
 
-// AllocatePeerIP pics an available IP from an net.IPNet.
-// This method considers already taken IPs and reuses IPs if there are gaps in takenIps
-// E.g. if ipNet=100.30.0.0/16 and takenIps=[100.30.0.1, 100.30.0.4] then the result would be 100.30.0.2 or 100.30.0.3
+
+// AllocatePeerIP picks an available IP from a net.IPNet.
+// If sequential IPs assigning is enabled, it assigns the smallest available IP address.
+// Otherwise, it assigns a random available IP address.
 func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
-	takenIPMap := make(map[string]struct{})
-	takenIPMap[ipNet.IP.String()] = struct{}{}
-	for _, ip := range takenIps {
-		takenIPMap[ip.String()] = struct{}{}
-	}
+    takenIPMap := make(map[string]struct{})
+    takenIPMap[ipNet.IP.String()] = struct{}{}
+    for _, ip := range takenIps {
+        takenIPMap[ip.String()] = struct{}{}
+    }
 
-	ips, _ := generateIPs(&ipNet, takenIPMap)
+    // Check if sequential IP assignment is enabled
+    assignSequentialIPs, _ := strconv.ParseBool(os.Getenv("NETBIRD_ASSIGN_SEQUENTIAL_IPS"))
 
-	if len(ips) == 0 {
-		return nil, status.Errorf(status.PreconditionFailed, "failed allocating new IP for the ipNet %s - network is out of IPs", ipNet.String())
-	}
+    ips, _ := generateIPs(&ipNet, takenIPMap)
 
-	// pick a random IP
-	s := rand.NewSource(time.Now().Unix())
-	r := rand.New(s)
-	intn := r.Intn(len(ips))
+    if len(ips) == 0 {
+        return nil, status.Errorf(status.PreconditionFailed, "failed allocating new IP for the ipNet %s - network is out of IPs", ipNet.String())
+    }
 
-	return ips[intn], nil
+    // pick the smallest available IP if sequential assignment is enabled
+    if assignSequentialIPs {
+        return ips[0], nil
+    }
+
+    // pick a random IP
+    s := rand.NewSource(time.Now().Unix())
+    r := rand.New(s)
+    intn := r.Intn(len(ips))
+
+    return ips[intn], nil
 }
+
+
 
 // generateIPs generates a list of all possible IPs of the given network excluding IPs specified in the exclusion list
 func generateIPs(ipNet *net.IPNet, exclusions map[string]struct{}) ([]net.IP, int) {
