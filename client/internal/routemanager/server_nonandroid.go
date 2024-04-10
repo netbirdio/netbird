@@ -155,11 +155,13 @@ func (m *defaultServerRouter) cleanUp() {
 			log.Errorf("Failed to remove cleanup route: %v", err)
 		}
 
-		state := m.statusRecorder.GetLocalPeerState()
-		state.Routes = nil
-		m.statusRecorder.UpdateLocalPeerState(state)
 	}
+
+	state := m.statusRecorder.GetLocalPeerState()
+	state.Routes = nil
+	m.statusRecorder.UpdateLocalPeerState(state)
 }
+
 func routeToRouterPair(source string, route *route.Route) (firewall.RouterPair, error) {
 	parsed, err := netip.ParsePrefix(source)
 	if err != nil {

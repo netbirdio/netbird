@@ -343,10 +343,18 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	userID := ""
 	// JWT token is not always provided, it is fine for userID to be empty cuz it might be that peer is already registered,
 	// or it uses a setup key to register.
+
 	if loginReq.GetJwtToken() != "" {
-		userID, err = s.validateToken(loginReq.GetJwtToken())
+		for i := 0; i < 3; i++ {
+			userID, err = s.validateToken(loginReq.GetJwtToken())
+			if err == nil {
+				break
+			}
+			log.Warnf("failed validating JWT token sent from peer %s with error %v. "+
+				"Trying again as it may be due to the IdP cache issue", peerKey, err)
+			time.Sleep(200 * time.Millisecond)
+		}
 		if err != nil {
-			log.Warnf("failed validating JWT token sent from peer %s", peerKey)
 			return nil, err
 		}
 	}
@@ -361,6 +369,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		Meta:            extractPeerMeta(loginReq),
 		UserID:          userID,
 		SetupKey:        loginReq.GetSetupKey(),
+		ConnectionIP:    realIP,
 	})
 
 	if err != nil {

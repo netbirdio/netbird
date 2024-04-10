@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"syscall"
 
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/route"
 )
 
@@ -51,16 +52,24 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 			continue
 		}
 
+		if len(m.Addrs) < 3 {
+			log.Warnf("Unexpected RIB message Addrs: %v", m.Addrs)
+			continue
+		}
+
 		addr, ok := toNetIPAddr(m.Addrs[0])
 		if !ok {
 			continue
 		}
 
-		mask, ok := toNetIPMASK(m.Addrs[2])
-		if !ok {
-			continue
+		cidr := 32
+		if mask := m.Addrs[2]; mask != nil {
+			cidr, ok = toCIDR(mask)
+			if !ok {
+				log.Debugf("Unexpected RIB message Addrs[2]: %v", mask)
+				continue
+			}
 		}
-		cidr, _ := mask.Size()
 
 		routePrefix := netip.PrefixFrom(addr, cidr)
 		if routePrefix.IsValid() {
@@ -73,20 +82,19 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 func toNetIPAddr(a route.Addr) (netip.Addr, bool) {
 	switch t := a.(type) {
 	case *route.Inet4Addr:
-		ip := net.IPv4(t.IP[0], t.IP[1], t.IP[2], t.IP[3])
-		addr := netip.MustParseAddr(ip.String())
-		return addr, true
+		return netip.AddrFrom4(t.IP), true
 	default:
 		return netip.Addr{}, false
 	}
 }
 
-func toNetIPMASK(a route.Addr) (net.IPMask, bool) {
+func toCIDR(a route.Addr) (int, bool) {
 	switch t := a.(type) {
 	case *route.Inet4Addr:
 		mask := net.IPv4Mask(t.IP[0], t.IP[1], t.IP[2], t.IP[3])
-		return mask, true
+		cidr, _ := mask.Size()
+		return cidr, true
 	default:
-		return nil, false
+		return 0, false
 	}
 }

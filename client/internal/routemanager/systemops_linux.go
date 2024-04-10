@@ -4,17 +4,21 @@ package routemanager
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"os"
 	"syscall"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 
+	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/iface"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -33,6 +37,9 @@ const (
 
 var ErrTableIDExists = errors.New("ID exists with different name")
 
+var routeManager = &RouteManager{}
+var isLegacy = os.Getenv("NB_USE_LEGACY_ROUTING") == "true"
+
 type ruleParams struct {
 	fwmark         int
 	tableID        int
@@ -45,10 +52,10 @@ type ruleParams struct {
 
 func getSetupRules() []ruleParams {
 	return []ruleParams{
-		{nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V4, -1, true, -1, "add rule v4 netbird"},
-		{nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V6, -1, true, -1, "add rule v6 netbird"},
-		{-1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, -1, false, 0, "add rule with suppress prefixlen v4"},
-		{-1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V6, -1, false, 0, "add rule with suppress prefixlen v6"},
+		{nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V4, -1, true, -1, "rule v4 netbird"},
+		{nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V6, -1, true, -1, "rule v6 netbird"},
+		{-1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, -1, false, 0, "rule with suppress prefixlen v4"},
+		{-1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V6, -1, false, 0, "rule with suppress prefixlen v6"},
 	}
 }
 
@@ -64,7 +71,12 @@ func getSetupRules() []ruleParams {
 // enabling VPN connectivity.
 //
 // The rules are inserted in reverse order, as rules are added from the bottom up in the rule list.
-func setupRouting() (err error) {
+func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.BeforeAddPeerHookFunc, _ peer.AfterRemovePeerHookFunc, err error) {
+	if isLegacy {
+		log.Infof("Using legacy routing setup")
+		return setupRoutingWithRouteManager(&routeManager, initAddresses, wgIface)
+	}
+
 	if err = addRoutingTableName(); err != nil {
 		log.Errorf("Error adding routing table name: %v", err)
 	}
@@ -80,17 +92,26 @@ func setupRouting() (err error) {
 	rules := getSetupRules()
 	for _, rule := range rules {
 		if err := addRule(rule); err != nil {
-			return fmt.Errorf("%s: %w", rule.description, err)
+			if errors.Is(err, syscall.EOPNOTSUPP) {
+				log.Warnf("Rule operations are not supported, falling back to the legacy routing setup")
+				isLegacy = true
+				return setupRoutingWithRouteManager(&routeManager, initAddresses, wgIface)
+			}
+			return nil, nil, fmt.Errorf("%s: %w", rule.description, err)
 		}
 	}
 
-	return nil
+	return nil, nil, nil
 }
 
 // cleanupRouting performs a thorough cleanup of the routing configuration established by 'setupRouting'.
 // It systematically removes the three rules and any associated routing table entries to ensure a clean state.
 // The function uses error aggregation to report any errors encountered during the cleanup process.
 func cleanupRouting() error {
+	if isLegacy {
+		return cleanupRoutingWithRouteManager(routeManager)
+	}
+
 	var result *multierror.Error
 
 	if err := flushRoutes(NetbirdVPNTableID, netlink.FAMILY_V4); err != nil {
@@ -102,7 +123,7 @@ func cleanupRouting() error {
 
 	rules := getSetupRules()
 	for _, rule := range rules {
-		if err := removeAllRules(rule); err != nil {
+		if err := removeAllRules(rule); err != nil && !errors.Is(err, syscall.EOPNOTSUPP) {
 			result = multierror.Append(result, fmt.Errorf("%s: %w", rule.description, err))
 		}
 	}
@@ -110,157 +131,61 @@ func cleanupRouting() error {
 	return result.ErrorOrNil()
 }
 
-func addToRouteTableIfNoExists(prefix netip.Prefix, _ string, intf string) error {
-	// No need to check if routes exist as main table takes precedence over the VPN table via Rule 2
+func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf string) error {
+	return addRoute(prefix, nexthop, intf, syscall.RT_TABLE_MAIN)
+}
+
+func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf string) error {
+	return removeRoute(prefix, nexthop, intf, syscall.RT_TABLE_MAIN)
+}
+
+func addVPNRoute(prefix netip.Prefix, intf string) error {
+	if isLegacy {
+		return genericAddVPNRoute(prefix, intf)
+	}
+
+	// No need to check if routes exist as main table takes precedence over the VPN table via Rule 1
 
 	// TODO remove this once we have ipv6 support
 	if prefix == defaultv4 {
-		if err := addUnreachableRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
+		if err := addUnreachableRoute(defaultv6, NetbirdVPNTableID); err != nil {
 			return fmt.Errorf("add blackhole: %w", err)
 		}
 	}
-	if err := addRoute(&prefix, nil, &intf, NetbirdVPNTableID, netlink.FAMILY_V4); err != nil {
+	if err := addRoute(prefix, netip.Addr{}, intf, NetbirdVPNTableID); err != nil {
 		return fmt.Errorf("add route: %w", err)
 	}
 	return nil
 }
 
-func removeFromRouteTableIfNonSystem(prefix netip.Prefix, _ string, intf string) error {
+func removeVPNRoute(prefix netip.Prefix, intf string) error {
+	if isLegacy {
+		return genericRemoveVPNRoute(prefix, intf)
+	}
+
 	// TODO remove this once we have ipv6 support
 	if prefix == defaultv4 {
-		if err := removeUnreachableRoute(&defaultv6, NetbirdVPNTableID, netlink.FAMILY_V6); err != nil {
+		if err := removeUnreachableRoute(defaultv6, NetbirdVPNTableID); err != nil {
 			return fmt.Errorf("remove unreachable route: %w", err)
 		}
 	}
-	if err := removeRoute(&prefix, nil, &intf, NetbirdVPNTableID, netlink.FAMILY_V4); err != nil {
+	if err := removeRoute(prefix, netip.Addr{}, intf, NetbirdVPNTableID); err != nil {
 		return fmt.Errorf("remove route: %w", err)
 	}
 	return nil
 }
 
 func getRoutesFromTable() ([]netip.Prefix, error) {
-	return getRoutes(NetbirdVPNTableID, netlink.FAMILY_V4)
-}
-
-// addRoute adds a route to a specific routing table identified by tableID.
-func addRoute(prefix *netip.Prefix, addr, intf *string, tableID, family int) error {
-	route := &netlink.Route{
-		Scope:  netlink.SCOPE_UNIVERSE,
-		Table:  tableID,
-		Family: family,
-	}
-
-	if prefix != nil {
-		_, ipNet, err := net.ParseCIDR(prefix.String())
-		if err != nil {
-			return fmt.Errorf("parse prefix %s: %w", prefix, err)
-		}
-		route.Dst = ipNet
-	}
-
-	if err := addNextHop(addr, intf, route); err != nil {
-		return fmt.Errorf("add gateway and device: %w", err)
-	}
-
-	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) {
-		return fmt.Errorf("netlink add route: %w", err)
-	}
-
-	return nil
-}
-
-// addUnreachableRoute adds an unreachable route for the specified IP family and routing table.
-// ipFamily should be netlink.FAMILY_V4 for IPv4 or netlink.FAMILY_V6 for IPv6.
-// tableID specifies the routing table to which the unreachable route will be added.
-func addUnreachableRoute(prefix *netip.Prefix, tableID, ipFamily int) error {
-	_, ipNet, err := net.ParseCIDR(prefix.String())
+	v4Routes, err := getRoutes(syscall.RT_TABLE_MAIN, netlink.FAMILY_V4)
 	if err != nil {
-		return fmt.Errorf("parse prefix %s: %w", prefix, err)
+		return nil, fmt.Errorf("get v4 routes: %w", err)
 	}
-
-	route := &netlink.Route{
-		Type:   syscall.RTN_UNREACHABLE,
-		Table:  tableID,
-		Family: ipFamily,
-		Dst:    ipNet,
-	}
-
-	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) {
-		return fmt.Errorf("netlink add unreachable route: %w", err)
-	}
-
-	return nil
-}
-
-func removeUnreachableRoute(prefix *netip.Prefix, tableID, ipFamily int) error {
-	_, ipNet, err := net.ParseCIDR(prefix.String())
+	v6Routes, err := getRoutes(syscall.RT_TABLE_MAIN, netlink.FAMILY_V6)
 	if err != nil {
-		return fmt.Errorf("parse prefix %s: %w", prefix, err)
+		return nil, fmt.Errorf("get v6 routes: %w", err)
+
 	}
-
-	route := &netlink.Route{
-		Type:   syscall.RTN_UNREACHABLE,
-		Table:  tableID,
-		Family: ipFamily,
-		Dst:    ipNet,
-	}
-
-	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ESRCH) {
-		return fmt.Errorf("netlink remove unreachable route: %w", err)
-	}
-
-	return nil
-
-}
-
-// removeRoute removes a route from a specific routing table identified by tableID.
-func removeRoute(prefix *netip.Prefix, addr, intf *string, tableID, family int) error {
-	_, ipNet, err := net.ParseCIDR(prefix.String())
-	if err != nil {
-		return fmt.Errorf("parse prefix %s: %w", prefix, err)
-	}
-
-	route := &netlink.Route{
-		Scope:  netlink.SCOPE_UNIVERSE,
-		Table:  tableID,
-		Family: family,
-		Dst:    ipNet,
-	}
-
-	if err := addNextHop(addr, intf, route); err != nil {
-		return fmt.Errorf("add gateway and device: %w", err)
-	}
-
-	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ESRCH) {
-		return fmt.Errorf("netlink remove route: %w", err)
-	}
-
-	return nil
-}
-
-func flushRoutes(tableID, family int) error {
-	routes, err := netlink.RouteListFiltered(family, &netlink.Route{Table: tableID}, netlink.RT_FILTER_TABLE)
-	if err != nil {
-		return fmt.Errorf("list routes from table %d: %w", tableID, err)
-	}
-
-	var result *multierror.Error
-	for i := range routes {
-		route := routes[i]
-		// unreachable default routes don't come back with Dst set
-		if route.Gw == nil && route.Src == nil && route.Dst == nil {
-			if family == netlink.FAMILY_V4 {
-				routes[i].Dst = &net.IPNet{IP: net.IPv4zero, Mask: net.CIDRMask(0, 32)}
-			} else {
-				routes[i].Dst = &net.IPNet{IP: net.IPv6zero, Mask: net.CIDRMask(0, 128)}
-			}
-		}
-		if err := netlink.RouteDel(&routes[i]); err != nil {
-			result = multierror.Append(result, fmt.Errorf("failed to delete route %v from table %d: %w", routes[i], tableID, err))
-		}
-	}
-
-	return result.ErrorOrNil()
+	return append(v4Routes, v6Routes...), nil
 }
 
 // getRoutes fetches routes from a specific routing table identified by tableID.
@@ -289,6 +214,125 @@ func getRoutes(tableID, family int) ([]netip.Prefix, error) {
 	}
 
 	return prefixList, nil
+}
+
+// addRoute adds a route to a specific routing table identified by tableID.
+func addRoute(prefix netip.Prefix, addr netip.Addr, intf string, tableID int) error {
+	route := &netlink.Route{
+		Scope:  netlink.SCOPE_UNIVERSE,
+		Table:  tableID,
+		Family: getAddressFamily(prefix),
+	}
+
+	_, ipNet, err := net.ParseCIDR(prefix.String())
+	if err != nil {
+		return fmt.Errorf("parse prefix %s: %w", prefix, err)
+	}
+	route.Dst = ipNet
+
+	if err := addNextHop(addr, intf, route); err != nil {
+		return fmt.Errorf("add gateway and device: %w", err)
+	}
+
+	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) && !errors.Is(err, syscall.EAFNOSUPPORT) {
+		return fmt.Errorf("netlink add route: %w", err)
+	}
+
+	return nil
+}
+
+// addUnreachableRoute adds an unreachable route for the specified IP family and routing table.
+// ipFamily should be netlink.FAMILY_V4 for IPv4 or netlink.FAMILY_V6 for IPv6.
+// tableID specifies the routing table to which the unreachable route will be added.
+func addUnreachableRoute(prefix netip.Prefix, tableID int) error {
+	_, ipNet, err := net.ParseCIDR(prefix.String())
+	if err != nil {
+		return fmt.Errorf("parse prefix %s: %w", prefix, err)
+	}
+
+	route := &netlink.Route{
+		Type:   syscall.RTN_UNREACHABLE,
+		Table:  tableID,
+		Family: getAddressFamily(prefix),
+		Dst:    ipNet,
+	}
+
+	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) && !errors.Is(err, syscall.EAFNOSUPPORT) {
+		return fmt.Errorf("netlink add unreachable route: %w", err)
+	}
+
+	return nil
+}
+
+func removeUnreachableRoute(prefix netip.Prefix, tableID int) error {
+	_, ipNet, err := net.ParseCIDR(prefix.String())
+	if err != nil {
+		return fmt.Errorf("parse prefix %s: %w", prefix, err)
+	}
+
+	route := &netlink.Route{
+		Type:   syscall.RTN_UNREACHABLE,
+		Table:  tableID,
+		Family: getAddressFamily(prefix),
+		Dst:    ipNet,
+	}
+
+	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ESRCH) && !errors.Is(err, syscall.EAFNOSUPPORT) {
+		return fmt.Errorf("netlink remove unreachable route: %w", err)
+	}
+
+	return nil
+
+}
+
+// removeRoute removes a route from a specific routing table identified by tableID.
+func removeRoute(prefix netip.Prefix, addr netip.Addr, intf string, tableID int) error {
+	_, ipNet, err := net.ParseCIDR(prefix.String())
+	if err != nil {
+		return fmt.Errorf("parse prefix %s: %w", prefix, err)
+	}
+
+	route := &netlink.Route{
+		Scope:  netlink.SCOPE_UNIVERSE,
+		Table:  tableID,
+		Family: getAddressFamily(prefix),
+		Dst:    ipNet,
+	}
+
+	if err := addNextHop(addr, intf, route); err != nil {
+		return fmt.Errorf("add gateway and device: %w", err)
+	}
+
+	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ESRCH) && !errors.Is(err, syscall.EAFNOSUPPORT) {
+		return fmt.Errorf("netlink remove route: %w", err)
+	}
+
+	return nil
+}
+
+func flushRoutes(tableID, family int) error {
+	routes, err := netlink.RouteListFiltered(family, &netlink.Route{Table: tableID}, netlink.RT_FILTER_TABLE)
+	if err != nil {
+		return fmt.Errorf("list routes from table %d: %w", tableID, err)
+	}
+
+	var result *multierror.Error
+	for i := range routes {
+		route := routes[i]
+		// unreachable default routes don't come back with Dst set
+		if route.Gw == nil && route.Src == nil && route.Dst == nil {
+			if family == netlink.FAMILY_V4 {
+				routes[i].Dst = &net.IPNet{IP: net.IPv4zero, Mask: net.CIDRMask(0, 32)}
+			} else {
+				routes[i].Dst = &net.IPNet{IP: net.IPv6zero, Mask: net.CIDRMask(0, 128)}
+			}
+		}
+		if err := netlink.RouteDel(&routes[i]); err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
+			result = multierror.Append(result, fmt.Errorf("failed to delete route %v from table %d: %w", routes[i], tableID, err))
+		}
+	}
+
+	return result.ErrorOrNil()
 }
 
 func enableIPForwarding() error {
@@ -385,7 +429,7 @@ func addRule(params ruleParams) error {
 	rule.Invert = params.invert
 	rule.SuppressPrefixlen = params.suppressPrefix
 
-	if err := netlink.RuleAdd(rule); err != nil {
+	if err := netlink.RuleAdd(rule); err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
 		return fmt.Errorf("add routing rule: %w", err)
 	}
 
@@ -410,35 +454,58 @@ func removeRule(params ruleParams) error {
 }
 
 func removeAllRules(params ruleParams) error {
-	for {
-		if err := removeRule(params); err != nil {
-			if errors.Is(err, syscall.ENOENT) {
-				break
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		for {
+			if ctx.Err() != nil {
+				done <- ctx.Err()
+				return
 			}
-			return err
+			if err := removeRule(params); err != nil {
+				if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.EAFNOSUPPORT) {
+					done <- nil
+					return
+				}
+				done <- err
+				return
+			}
 		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-done:
+		return err
 	}
-	return nil
 }
 
 // addNextHop adds the gateway and device to the route.
-func addNextHop(addr *string, intf *string, route *netlink.Route) error {
-	if addr != nil {
-		ip := net.ParseIP(*addr)
-		if ip == nil {
-			return fmt.Errorf("parsing address %s failed", *addr)
+func addNextHop(addr netip.Addr, intf string, route *netlink.Route) error {
+	if addr.IsValid() {
+		route.Gw = addr.AsSlice()
+		if intf == "" {
+			intf = addr.Zone()
 		}
-
-		route.Gw = ip
 	}
 
-	if intf != nil {
-		link, err := netlink.LinkByName(*intf)
+	if intf != "" {
+		link, err := netlink.LinkByName(intf)
 		if err != nil {
-			return fmt.Errorf("set interface %s: %w", *intf, err)
+			return fmt.Errorf("set interface %s: %w", intf, err)
 		}
 		route.LinkIndex = link.Attrs().Index
 	}
 
 	return nil
+}
+
+func getAddressFamily(prefix netip.Prefix) int {
+	if prefix.Addr().Is4() {
+		return netlink.FAMILY_V4
+	}
+	return netlink.FAMILY_V6
 }

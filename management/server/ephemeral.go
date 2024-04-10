@@ -165,7 +165,7 @@ func (e *EphemeralManager) cleanup() {
 		log.Debugf("delete ephemeral peer: %s", id)
 		err := e.accountManager.DeletePeer(p.account.Id, id, activity.SystemInitiator)
 		if err != nil {
-			log.Tracef("failed to delete ephemeral peer: %s", err)
+			log.Errorf("failed to delete ephemeral peer: %s", err)
 		}
 	}
 }

@@ -339,6 +339,10 @@ func (am *DefaultAccountManager) ListSetupKeys(accountID, userID string) ([]*Set
 		return nil, err
 	}
 
+	if !user.HasAdminPower() && !user.IsServiceUser {
+		return nil, status.Errorf(status.Unauthorized, "only users with admin power can view policies")
+	}
+
 	keys := make([]*SetupKey, 0, len(account.SetupKeys))
 	for _, key := range account.SetupKeys {
 		var k *SetupKey
@@ -366,6 +370,10 @@ func (am *DefaultAccountManager) GetSetupKey(accountID, userID, keyID string) (*
 	user, err := account.FindUser(userID)
 	if err != nil {
 		return nil, err
+	}
+
+	if !user.HasAdminPower() && !user.IsServiceUser {
+		return nil, status.Errorf(status.Unauthorized, "only users with admin power can view policies")
 	}
 
 	var foundKey *SetupKey

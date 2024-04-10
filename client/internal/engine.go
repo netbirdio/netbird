@@ -93,6 +93,10 @@ type Engine struct {
 	mgmClient mgm.Client
 	// peerConns is a map that holds all the peers that are known to this peer
 	peerConns map[string]*peer.Conn
+
+	beforePeerHook peer.BeforeAddPeerHookFunc
+	afterPeerHook  peer.AfterRemovePeerHookFunc
+
 	// rpManager is a Rosenpass manager
 	rpManager *rosenpass.Manager
 
@@ -260,10 +264,14 @@ func (e *Engine) Start() error {
 	e.dnsServer = dnsServer
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, initialRoutes)
-	if err := e.routeManager.Init(); err != nil {
-		e.close()
-		return fmt.Errorf("init route manager: %w", err)
+	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
+	if err != nil {
+		log.Errorf("Failed to initialize route manager: %s", err)
+	} else {
+		e.beforePeerHook = beforePeerHook
+		e.afterPeerHook = afterPeerHook
 	}
+
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
 	err = e.wgInterfaceCreate()
@@ -809,9 +817,14 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	if _, ok := e.peerConns[peerKey]; !ok {
 		conn, err := e.createPeerConn(peerKey, strings.Join(peerIPs, ","))
 		if err != nil {
-			return err
+			return fmt.Errorf("create peer connection: %w", err)
 		}
 		e.peerConns[peerKey] = conn
+
+		if e.beforePeerHook != nil && e.afterPeerHook != nil {
+			conn.AddBeforeAddPeerHook(e.beforePeerHook)
+			conn.AddAfterRemovePeerHook(e.afterPeerHook)
+		}
 
 		err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn)
 		if err != nil {
@@ -1106,6 +1119,10 @@ func (e *Engine) close() {
 		e.dnsServer.Stop()
 	}
 
+	if e.routeManager != nil {
+		e.routeManager.Stop()
+	}
+
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
 	if e.wgInterface != nil {
 		if err := e.wgInterface.Close(); err != nil {
@@ -1118,10 +1135,6 @@ func (e *Engine) close() {
 		if err != nil {
 			log.Warnf("failed stopping the SSH server: %v", err)
 		}
-	}
-
-	if e.routeManager != nil {
-		e.routeManager.Stop()
 	}
 
 	if e.firewall != nil {

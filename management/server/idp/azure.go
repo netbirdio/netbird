@@ -115,7 +115,15 @@ func (ac *AzureCredentials) requestJWTToken() (*http.Response, error) {
 	data.Set("client_id", ac.clientConfig.ClientID)
 	data.Set("client_secret", ac.clientConfig.ClientSecret)
 	data.Set("grant_type", ac.clientConfig.GrantType)
-	data.Set("scope", "https://graph.microsoft.com/.default")
+	parsedURL, err := url.Parse(ac.clientConfig.GraphAPIEndpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	// get base url and add "/.default" as scope
+	baseURL := parsedURL.Scheme + "://" + parsedURL.Host
+	scopeURL := baseURL + "/.default"
+	data.Set("scope", scopeURL)
 
 	payload := strings.NewReader(data.Encode())
 	req, err := http.NewRequest(http.MethodPost, ac.clientConfig.TokenEndpoint, payload)

@@ -120,5 +120,5 @@ func _getReleaseInfo() string {
 func sysInfo() (serialNumber string, productName string, manufacturer string) {
 	var si sysinfo.SysInfo
 	si.GetSysInfo()
-	return si.Product.Version, si.Product.Name, si.Product.Vendor
+	return si.Chassis.Serial, si.Product.Name, si.Product.Vendor
 }
