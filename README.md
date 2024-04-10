@@ -45,7 +45,7 @@
 ### Open-Source Network Security in a Single Platform
 
 
-![image](https://github.com/netbirdio/netbird/assets/700848/58598982-2995-4092-a18c-6f803d48bfdc)
+![netbird_2](https://github.com/netbirdio/netbird/assets/700848/46bc3b73-508d-4a0e-bb9a-f465d68646ab)
 
 
 ### Key features
