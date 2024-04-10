@@ -9,7 +9,6 @@ import (
 	"github.com/rs/cors"
 
 	"github.com/netbirdio/management-integrations/integrations"
-
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/middleware"

@@ -31,6 +31,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
+
 	"github.com/netbirdio/management-integrations/integrations"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -172,8 +173,12 @@ var (
 				log.Infof("geo location service has been initialized from %s", config.Datadir)
 			}
 
+			integratedPeerValidator, err := integrations.NewIntegratedValidator(eventStore)
+			if err != nil {
+				return fmt.Errorf("failed to initialize integrated peer validator: %v", err)
+			}
 			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
-				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled)
+				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}
@@ -323,6 +328,7 @@ var (
 			SetupCloseHandler()
 
 			<-stopCh
+			integratedPeerValidator.Stop()
 			if geo != nil {
 				_ = geo.Stop()
 			}

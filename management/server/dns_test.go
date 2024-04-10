@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 )
@@ -193,7 +194,7 @@ func createDNSManager(t *testing.T) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.test", eventStore, nil, false)
+	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.test", eventStore, nil, false, MocIntegratedValidator{})
 }
 
 func createDNSStore(t *testing.T) (Store, error) {
@@ -278,13 +279,13 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 		return nil, err
 	}
 
-	newGroup1 := &Group{
+	newGroup1 := &group.Group{
 		ID:    dnsGroup1ID,
 		Peers: []string{peer1.ID},
 		Name:  dnsGroup1ID,
 	}
 
-	newGroup2 := &Group{
+	newGroup2 := &group.Group{
 		ID:   dnsGroup2ID,
 		Name: dnsGroup2ID,
 	}

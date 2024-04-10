@@ -1,10 +1,8 @@
 package wgproxy
 
 import (
-	"context"
 	"fmt"
-
-	nbnet "github.com/netbirdio/netbird/util/net"
+	"net"
 )
 
 const (
@@ -25,7 +23,7 @@ func (pl portLookup) searchFreePort() (int, error) {
 }
 
 func (pl portLookup) tryToBind(port int) error {
-	l, err := nbnet.NewListener().ListenPacket(context.Background(), "udp", fmt.Sprintf(":%d", port))
+	l, err := net.ListenPacket("udp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return err
 	}

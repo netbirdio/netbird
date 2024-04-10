@@ -10,6 +10,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
@@ -261,7 +262,7 @@ func validateNSList(list []nbdns.NameServer) error {
 	return nil
 }
 
-func validateGroups(list []string, groups map[string]*Group) error {
+func validateGroups(list []string, groups map[string]*nbgroup.Group) error {
 	if len(list) == 0 {
 		return status.Errorf(status.InvalidArgument, "the list of group IDs should not be empty")
 	}

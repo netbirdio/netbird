@@ -54,6 +54,10 @@ components:
           description: Period of time after which peer login expires (seconds).
           type: integer
           example: 43200
+        regular_users_view_blocked:
+          description: Allows blocking regular users from viewing parts of the system.
+          type: boolean
+          example: true
         groups_propagation_enabled:
           description: Allows propagate the new user auto groups to peers that belongs to the user
           type: boolean
@@ -77,6 +81,7 @@ components:
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
+        - regular_users_view_blocked
     AccountExtraSettings:
       type: object
       properties:
@@ -144,6 +149,8 @@ components:
           description: How user was issued by API or Integration
           type: string
           example: api
+        permissions:
+            $ref: '#/components/schemas/UserPermissions'
       required:
         - id
         - email
@@ -152,6 +159,14 @@ components:
         - auto_groups
         - status
         - is_blocked
+    UserPermissions:
+      type: object
+      properties:
+        dashboard_view:
+          description: User's permission to view the dashboard
+          type: string
+          enum: [ "limited", "blocked", "full" ]
+          example: limited
     UserRequest:
       type: object
       properties:
@@ -340,6 +355,7 @@ components:
             - user_id
             - version
             - ui_version
+            - approval_required
     AccessiblePeer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -588,8 +604,6 @@ components:
           description: How the group was issued (api, integration, jwt)
           type: string
           enum: ["api", "integration", "jwt"]
-          example: api
-          type: string
           example: api
       required:
         - id

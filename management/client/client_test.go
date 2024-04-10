@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"net"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	mgmt "github.com/netbirdio/netbird/management/server"
@@ -29,6 +31,12 @@ import (
 )
 
 const ValidKey = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
+
+func TestMain(m *testing.M) {
+	_ = util.InitLog("debug", "console")
+	code := m.Run()
+	os.Exit(code)
+}
 
 func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	t.Helper()
@@ -60,7 +68,8 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 
 	peersUpdateManager := mgmt.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
-	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false)
+	ia, _ := integrations.NewIntegratedValidator(eventStore)
+	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia)
 	if err != nil {
 		t.Fatal(err)
 	}
