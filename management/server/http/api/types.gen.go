@@ -69,6 +69,20 @@ const (
 	GeoLocationCheckActionDeny  GeoLocationCheckAction = "deny"
 )
 
+// Defines values for GroupIssued.
+const (
+	GroupIssuedApi         GroupIssued = "api"
+	GroupIssuedIntegration GroupIssued = "integration"
+	GroupIssuedJwt         GroupIssued = "jwt"
+)
+
+// Defines values for GroupMinimumIssued.
+const (
+	GroupMinimumIssuedApi         GroupMinimumIssued = "api"
+	GroupMinimumIssuedIntegration GroupMinimumIssued = "integration"
+	GroupMinimumIssuedJwt         GroupMinimumIssued = "jwt"
+)
+
 // Defines values for NameserverNsType.
 const (
 	NameserverNsTypeUdp NameserverNsType = "udp"
@@ -129,6 +143,13 @@ const (
 	UserStatusInvited UserStatus = "invited"
 )
 
+// Defines values for UserPermissionsDashboardView.
+const (
+	UserPermissionsDashboardViewBlocked UserPermissionsDashboardView = "blocked"
+	UserPermissionsDashboardViewFull    UserPermissionsDashboardView = "full"
+	UserPermissionsDashboardViewLimited UserPermissionsDashboardView = "limited"
+)
+
 // AccessiblePeer defines model for AccessiblePeer.
 type AccessiblePeer struct {
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
@@ -186,6 +207,9 @@ type AccountSettings struct {
 
 	// PeerLoginExpirationEnabled Enables or disables peer login expiration globally. After peer's login has expired the user has to log in (authenticate). Applies only to peers that were added by a user (interactive SSO login).
 	PeerLoginExpirationEnabled bool `json:"peer_login_expiration_enabled"`
+
+	// RegularUsersViewBlocked Allows blocking regular users from viewing parts of the system.
+	RegularUsersViewBlocked bool `json:"regular_users_view_blocked"`
 }
 
 // Checks List of objects that perform the actual checks
@@ -286,8 +310,8 @@ type Group struct {
 	// Id Group ID
 	Id string `json:"id"`
 
-	// Issued How group was issued by API or from JWT token
-	Issued *string `json:"issued,omitempty"`
+	// Issued How the group was issued (api, integration, jwt)
+	Issued *GroupIssued `json:"issued,omitempty"`
 
 	// Name Group Name identifier
 	Name string `json:"name"`
@@ -299,13 +323,16 @@ type Group struct {
 	PeersCount int `json:"peers_count"`
 }
 
+// GroupIssued How the group was issued (api, integration, jwt)
+type GroupIssued string
+
 // GroupMinimum defines model for GroupMinimum.
 type GroupMinimum struct {
 	// Id Group ID
 	Id string `json:"id"`
 
-	// Issued How group was issued by API or from JWT token
-	Issued *string `json:"issued,omitempty"`
+	// Issued How the group was issued (api, integration, jwt)
+	Issued *GroupMinimumIssued `json:"issued,omitempty"`
 
 	// Name Group Name identifier
 	Name string `json:"name"`
@@ -313,6 +340,9 @@ type GroupMinimum struct {
 	// PeersCount Count of peers associated to the group
 	PeersCount int `json:"peers_count"`
 }
+
+// GroupMinimumIssued How the group was issued (api, integration, jwt)
+type GroupMinimumIssued string
 
 // GroupRequest defines model for GroupRequest.
 type GroupRequest struct {
@@ -443,7 +473,7 @@ type Peer struct {
 	AccessiblePeers []AccessiblePeer `json:"accessible_peers"`
 
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
-	ApprovalRequired *bool `json:"approval_required,omitempty"`
+	ApprovalRequired bool `json:"approval_required"`
 
 	// CityName Commonly used English name of the city
 	CityName CityName `json:"city_name"`
@@ -512,7 +542,7 @@ type Peer struct {
 // PeerBase defines model for PeerBase.
 type PeerBase struct {
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
-	ApprovalRequired *bool `json:"approval_required,omitempty"`
+	ApprovalRequired bool `json:"approval_required"`
 
 	// CityName Commonly used English name of the city
 	CityName CityName `json:"city_name"`
@@ -584,7 +614,7 @@ type PeerBatch struct {
 	AccessiblePeersCount int `json:"accessible_peers_count"`
 
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
-	ApprovalRequired *bool `json:"approval_required,omitempty"`
+	ApprovalRequired bool `json:"approval_required"`
 
 	// CityName Commonly used English name of the city
 	CityName CityName `json:"city_name"`
@@ -1089,7 +1119,8 @@ type User struct {
 	LastLogin *time.Time `json:"last_login,omitempty"`
 
 	// Name User's name from idp provider
-	Name string `json:"name"`
+	Name        string           `json:"name"`
+	Permissions *UserPermissions `json:"permissions,omitempty"`
 
 	// Role User's NetBird account role
 	Role string `json:"role"`
@@ -1118,6 +1149,15 @@ type UserCreateRequest struct {
 	// Role User's NetBird account role
 	Role string `json:"role"`
 }
+
+// UserPermissions defines model for UserPermissions.
+type UserPermissions struct {
+	// DashboardView User's permission to view the dashboard
+	DashboardView *UserPermissionsDashboardView `json:"dashboard_view,omitempty"`
+}
+
+// UserPermissionsDashboardView User's permission to view the dashboard
+type UserPermissionsDashboardView string
 
 // UserRequest defines model for UserRequest.
 type UserRequest struct {

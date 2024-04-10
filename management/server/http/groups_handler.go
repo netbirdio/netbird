@@ -4,15 +4,15 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
-	"github.com/netbirdio/netbird/management/server/status"
-
-	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
-
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/status"
 )
 
 // GroupsHandler is a handler that returns groups of the account
@@ -35,19 +35,25 @@ func NewGroupsHandler(accountManager server.AccountManager, authCfg AuthCfg) *Gr
 // GetAllGroups list for the account
 func (h *GroupsHandler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
-	var groups []*api.Group
-	for _, g := range account.Groups {
-		groups = append(groups, toGroupResponse(account, g))
+	groups, err := h.accountManager.GetAllGroups(account.Id, user.Id)
+	if err != nil {
+		util.WriteError(err, w)
+		return
 	}
 
-	util.WriteJSONObject(w, groups)
+	groupsResponse := make([]*api.Group, 0, len(groups))
+	for _, group := range groups {
+		groupsResponse = append(groupsResponse, toGroupResponse(account, group))
+	}
+
+	util.WriteJSONObject(w, groupsResponse)
 }
 
 // UpdateGroup handles update to a group identified by a given ID
@@ -104,7 +110,7 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	} else {
 		peers = *req.Peers
 	}
-	group := server.Group{
+	group := nbgroup.Group{
 		ID:                   groupID,
 		Name:                 req.Name,
 		Peers:                peers,
@@ -148,10 +154,10 @@ func (h *GroupsHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	} else {
 		peers = *req.Peers
 	}
-	group := server.Group{
+	group := nbgroup.Group{
 		Name:   req.Name,
 		Peers:  peers,
-		Issued: server.GroupIssuedAPI,
+		Issued: nbgroup.GroupIssuedAPI,
 	}
 
 	err = h.accountManager.SaveGroup(account.Id, user.Id, &group)
@@ -207,7 +213,7 @@ func (h *GroupsHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 // GetGroup returns a group
 func (h *GroupsHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -221,7 +227,7 @@ func (h *GroupsHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		group, err := h.accountManager.GetGroup(account.Id, groupID)
+		group, err := h.accountManager.GetGroup(account.Id, groupID, user.Id)
 		if err != nil {
 			util.WriteError(err, w)
 			return
@@ -234,12 +240,12 @@ func (h *GroupsHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func toGroupResponse(account *server.Account, group *server.Group) *api.Group {
+func toGroupResponse(account *server.Account, group *nbgroup.Group) *api.Group {
 	cache := make(map[string]api.PeerMinimum)
 	gr := api.Group{
 		Id:     group.ID,
 		Name:   group.Name,
-		Issued: &group.Issued,
+		Issued: (*api.GroupIssued)(&group.Issued),
 	}
 
 	for _, pid := range group.Peers {

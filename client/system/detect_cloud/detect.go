@@ -25,8 +25,6 @@ func Detect(ctx context.Context) string {
 		detectDigitalOcean,
 		detectGCP,
 		detectOracle,
-		detectIBMCloud,
-		detectSoftlayer,
 		detectVultr,
 	}
 

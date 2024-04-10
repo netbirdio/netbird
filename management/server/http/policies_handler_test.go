@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/status"
 
@@ -51,7 +52,7 @@ func initPoliciesTestData(policies ...*server.Policy) *Policies {
 					Policies: []*server.Policy{
 						{ID: "id-existed"},
 					},
-					Groups: map[string]*server.Group{
+					Groups: map[string]*nbgroup.Group{
 						"F": {ID: "F"},
 						"G": {ID: "G"},
 					},

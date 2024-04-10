@@ -5,11 +5,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/netbirdio/management-integrations/additions"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -211,7 +211,8 @@ type FirewallRule struct {
 // getPeerConnectionResources for a given peer
 //
 // This function returns the list of peers and firewall rules that are applicable to a given peer.
-func (a *Account) getPeerConnectionResources(peerID string) ([]*nbpeer.Peer, []*FirewallRule) {
+func (a *Account) getPeerConnectionResources(peerID string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, []*FirewallRule) {
+
 	generateResources, getAccumulatedResources := a.connResourcesGenerator()
 	for _, policy := range a.Policies {
 		if !policy.Enabled {
@@ -223,10 +224,8 @@ func (a *Account) getPeerConnectionResources(peerID string) ([]*nbpeer.Peer, []*
 				continue
 			}
 
-			sourcePeers, peerInSources := getAllPeersFromGroups(a, rule.Sources, peerID, policy.SourcePostureChecks)
-			destinationPeers, peerInDestinations := getAllPeersFromGroups(a, rule.Destinations, peerID, nil)
-			sourcePeers = additions.ValidatePeers(sourcePeers)
-			destinationPeers = additions.ValidatePeers(destinationPeers)
+			sourcePeers, peerInSources := getAllPeersFromGroups(a, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
+			destinationPeers, peerInDestinations := getAllPeersFromGroups(a, rule.Destinations, peerID, nil, validatedPeersMap)
 
 			if rule.Bidirectional {
 				if peerInSources {
@@ -264,7 +263,7 @@ func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*nbpeer.Peer, in
 	all, err := a.GetGroupAll()
 	if err != nil {
 		log.Errorf("failed to get group all: %v", err)
-		all = &Group{}
+		all = &nbgroup.Group{}
 	}
 
 	return func(rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) {
@@ -491,7 +490,7 @@ func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
 //
 // Important: Posture checks are applicable only to source group peers,
 // for destination group peers, call this method with an empty list of sourcePostureChecksIDs
-func getAllPeersFromGroups(account *Account, groups []string, peerID string, sourcePostureChecksIDs []string) ([]*nbpeer.Peer, bool) {
+func getAllPeersFromGroups(account *Account, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
 	peerInGroups := false
 	filteredPeers := make([]*nbpeer.Peer, 0, len(groups))
 	for _, g := range groups {
@@ -509,6 +508,10 @@ func getAllPeersFromGroups(account *Account, groups []string, peerID string, sou
 			// validate the peer based on policy posture checks applied
 			isValid := account.validatePostureChecksOnPeer(sourcePostureChecksIDs, peer.ID)
 			if !isValid {
+				continue
+			}
+
+			if _, ok := validatedPeersMap[peer.ID]; !ok {
 				continue
 			}
 

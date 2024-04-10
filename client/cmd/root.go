@@ -34,6 +34,7 @@ const (
 	wireguardPortFlag       = "wireguard-port"
 	disableAutoConnectFlag  = "disable-auto-connect"
 	serverSSHAllowedFlag    = "allow-server-ssh"
+	extraIFaceBlackListFlag = "extra-iface-blacklist"
 )
 
 var (
@@ -63,6 +64,7 @@ var (
 	wireguardPort           uint16
 	serviceName             string
 	autoConnectDisabled     bool
+	extraIFaceBlackList     []string
 	rootCmd                 = &cobra.Command{
 		Use:          "netbird",
 		Short:        "",
