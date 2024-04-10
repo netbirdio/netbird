@@ -4,13 +4,15 @@ on:
   push:
     branches:
       - main
-  pull_request:
+  pull_request: labeled
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
   cancel-in-progress: true
 
 jobs:
+  check-label:
+    if: ${{ github.event.label.name == 'test-darwin' }}
   test:
     strategy:
       matrix:

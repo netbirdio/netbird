@@ -7,6 +7,8 @@ on:
   pull_request:
     paths:
       - "release_files/install.sh"
+    branches:
+      - 'disabled/**'
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
   cancel-in-progress: true

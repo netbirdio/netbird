@@ -6,6 +6,9 @@ on:
       - 'v*'
     paths:
       - 'management/server/http/api/openapi.yml'
+  pull_request:
+    branches:
+      - 'disabled/**'
 
 jobs:
   trigger_docs_api_update:

@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  pull_request:
+  pull_request: labeled
 
 env:
   downloadPath: '${{ github.workspace }}\temp'
@@ -13,6 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-label:
+    if: ${{ github.event.label.name == 'test-win' }}
   test:
     runs-on: windows-latest
     steps:

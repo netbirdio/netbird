@@ -18,6 +18,8 @@ on:
       - '**/Dockerfile'
       - '**/Dockerfile.*'
       - 'client/ui/**'
+    branches:
+      - 'disabled/**'
 
 env:
   SIGN_PIPE_VER: "v0.0.11"
