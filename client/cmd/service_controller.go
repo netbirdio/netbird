@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/signal"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -20,6 +23,11 @@ import (
 )
 
 func (p *program) Start(svc service.Service) error {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Panicf("Panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
+		}
+	}()
 	// Start should not block. Do the actual work async.
 	log.Info("starting Netbird service") //nolint
 	// in any case, even if configuration does not exists we run daemon to serve CLI gRPC API.
@@ -44,8 +52,15 @@ func (p *program) Start(svc service.Service) error {
 	if err != nil {
 		return fmt.Errorf("failed to listen daemon interface: %w", err)
 	}
+
+	setupSignalHandler()
 	go func() {
 		defer listen.Close()
+		defer func() {
+			if r := recover(); r != nil {
+				log.Panicf("Panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
+			}
+		}()
 
 		if split[0] == "unix" {
 			err = os.Chmod(split[1], 0666)
@@ -79,6 +94,33 @@ func (p *program) Stop(srv service.Service) error {
 	time.Sleep(time.Second * 2)
 	log.Info("stopped Netbird service") //nolint
 	return nil
+}
+
+func dumpStacks() {
+	buf := make([]byte, 1<<20) // Adjust size according to your needs
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			buf = buf[:n]
+			break
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+	log.Println("=== BEGIN STACK TRACE ===")
+	log.Println(string(buf))
+	log.Println("=== END STACK TRACE ===")
+}
+
+func setupSignalHandler() {
+	c := make(chan os.Signal, 1)
+	// Although SIGQUIT is not supported in Windows, os.Interrupt can be used as an alternative
+	signal.Notify(c, os.Interrupt)
+	go func() {
+		for range c {
+			dumpStacks()
+			os.Exit(1)
+		}
+	}()
 }
 
 var runCmd = &cobra.Command{

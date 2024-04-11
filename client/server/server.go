@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"time"
@@ -92,6 +93,11 @@ func New(ctx context.Context, configPath, logFile string) *Server {
 func (s *Server) Start() error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+	defer func() {
+		if r := recover(); r != nil {
+			log.Panicf("Panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
+		}
+	}()
 	state := internal.CtxGetState(s.rootCtx)
 
 	// if current state contains any error, return it
@@ -156,8 +162,18 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 ) {
 	backOff := getConnectWithBackoff(ctx)
 	retryStarted := false
+	defer func() {
+		if r := recover(); r != nil {
+			log.Panicf("Panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
+		}
+	}()
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Panicf("Panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
+			}
+		}()
 		t := time.NewTicker(24 * time.Hour)
 		for {
 			select {
@@ -181,6 +197,11 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 	}()
 
 	runOperation := func() error {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Panicf("Panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
+			}
+		}()
 		log.Tracef("running client connection")
 		err := internal.RunClientWithProbes(ctx, config, statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe)
 		if err != nil {

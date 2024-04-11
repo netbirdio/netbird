@@ -157,6 +157,7 @@ func SetupCloseHandler(ctx context.Context, cancel context.CancelFunc) {
 		case <-done:
 		case <-termCh:
 		}
+		dumpStacks()
 
 		log.Info("shutdown signal received")
 		cancel()
