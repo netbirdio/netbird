@@ -38,7 +38,7 @@ const (
 var ErrTableIDExists = errors.New("ID exists with different name")
 
 var routeManager = &RouteManager{}
-var isLegacy = os.Getenv("NB_USE_LEGACY_ROUTING") == "true"
+var isLegacy = os.Getenv("NB_USE_LEGACY_ROUTING") == "true" || nbnet.CustomRoutingDisabled()
 
 type ruleParams struct {
 	fwmark         int

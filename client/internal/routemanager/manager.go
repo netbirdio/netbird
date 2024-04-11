@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
+	nbnet "github.com/netbirdio/netbird/util/net"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -68,6 +69,10 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 
 // Init sets up the routing
 func (m *DefaultManager) Init() (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+	if nbnet.CustomRoutingDisabled() {
+		return nil, nil, nil
+	}
+
 	if err := cleanupRouting(); err != nil {
 		log.Warnf("Failed cleaning up routing: %v", err)
 	}
@@ -99,11 +104,15 @@ func (m *DefaultManager) Stop() {
 	if m.serverRouter != nil {
 		m.serverRouter.cleanUp()
 	}
-	if err := cleanupRouting(); err != nil {
-		log.Errorf("Error cleaning up routing: %v", err)
-	} else {
-		log.Info("Routing cleanup complete")
+
+	if !nbnet.CustomRoutingDisabled() {
+		if err := cleanupRouting(); err != nil {
+			log.Errorf("Error cleaning up routing: %v", err)
+		} else {
+			log.Info("Routing cleanup complete")
+		}
 	}
+
 	m.ctx = nil
 }
 
@@ -210,9 +219,11 @@ func (m *DefaultManager) clientRoutes(initialRoutes []*route.Route) []*route.Rou
 }
 
 func isPrefixSupported(prefix netip.Prefix) bool {
-	switch runtime.GOOS {
-	case "linux", "windows", "darwin":
-		return true
+	if !nbnet.CustomRoutingDisabled() {
+		switch runtime.GOOS {
+		case "linux", "windows", "darwin":
+			return true
+		}
 	}
 
 	// If prefix is too small, lets assume it is a possible default prefix which is not yet supported

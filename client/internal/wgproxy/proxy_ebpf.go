@@ -230,7 +230,7 @@ func (p *WGEBPFProxy) prepareSenderRawSocket() (net.PacketConn, error) {
 	}
 
 	// Set the fwmark on the socket.
-	err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, nbnet.NetbirdFwmark)
+	err = nbnet.SetSocketOpt(fd)
 	if err != nil {
 		return nil, fmt.Errorf("setting fwmark failed: %w", err)
 	}
