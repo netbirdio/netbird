@@ -242,19 +242,19 @@ type UserPermissions struct {
 }
 
 type UserInfo struct {
-	ID                   string               `json:"id"`
-	Email                string               `json:"email"`
-	Name                 string               `json:"name"`
-	Role                 string               `json:"role"`
-	AutoGroups           []string             `json:"auto_groups"`
-	Status               string               `json:"-"`
-	IsServiceUser        bool                 `json:"is_service_user"`
-	IsBlocked            bool                 `json:"is_blocked"`
-	NonDeletable         bool                 `json:"non_deletable"`
-	LastLogin            time.Time            `json:"last_login"`
-	Issued               string               `json:"issued"`
+	ID                   string                                     `json:"id"`
+	Email                string                                     `json:"email"`
+	Name                 string                                     `json:"name"`
+	Role                 string                                     `json:"role"`
+	AutoGroups           []string                                   `json:"auto_groups"`
+	Status               string                                     `json:"-"`
+	IsServiceUser        bool                                       `json:"is_service_user"`
+	IsBlocked            bool                                       `json:"is_blocked"`
+	NonDeletable         bool                                       `json:"non_deletable"`
+	LastLogin            time.Time                                  `json:"last_login"`
+	Issued               string                                     `json:"issued"`
 	IntegrationReference integration_reference.IntegrationReference `json:"-"`
-	Permissions          UserPermissions      `json:"permissions"`
+	Permissions          UserPermissions                            `json:"permissions"`
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
@@ -1120,7 +1120,7 @@ func (am *DefaultAccountManager) DeleteAccount(accountID, userID string) error {
 		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account")
 	}
 
-	if user.Id != account.CreatedBy {
+	if user.Role != UserRoleOwner {
 		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account. Only account owner can delete account")
 	}
 	for _, otherUser := range account.Users {
