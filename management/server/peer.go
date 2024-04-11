@@ -551,8 +551,8 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *Network
 		return nil, nil, status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
 	}
 
-	requiresApproval, isStatusChanged := am.integratedPeerValidator.IsNotValidPeer(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
-	if requiresApproval {
+	peerNotValid, isStatusChanged := am.integratedPeerValidator.IsNotValidPeer(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
+	if peerNotValid {
 		emptyMap := &NetworkMap{
 			Network: account.Network.Copy(),
 		}
@@ -563,11 +563,11 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *Network
 		am.updateAccountPeers(account)
 	}
 
-	approvedPeersMap, err := am.GetValidatedPeers(account)
+	validPeersMap, err := am.GetValidatedPeers(account)
 	if err != nil {
 		return nil, nil, err
 	}
-	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain, approvedPeersMap), nil
+	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain, validPeersMap), nil
 }
 
 // LoginPeer logs in or registers a peer.
