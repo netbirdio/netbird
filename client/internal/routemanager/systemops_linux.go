@@ -119,7 +119,7 @@ func cleanupRouting() error {
 
 	rules := getSetupRules()
 	for _, rule := range rules {
-		if err := removeRule(rule); err != nil && !errors.Is(err, syscall.EOPNOTSUPP) {
+		if err := removeRule(rule); err != nil {
 			result = multierror.Append(result, fmt.Errorf("%s: %w", rule.description, err))
 		}
 	}
@@ -442,7 +442,7 @@ func removeRule(params ruleParams) error {
 	rule.Priority = params.priority
 	rule.SuppressPrefixlen = params.suppressPrefix
 
-	if err := netlink.RuleDel(rule); err != nil {
+	if err := netlink.RuleDel(rule); err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
 		return fmt.Errorf("remove routing rule: %w", err)
 	}
 
