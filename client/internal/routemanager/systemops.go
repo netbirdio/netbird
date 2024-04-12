@@ -256,8 +256,7 @@ func addNonExistingRoute(prefix netip.Prefix, intf string) error {
 		return fmt.Errorf("exists in route table: %w", err)
 	}
 	if ok {
-		log.Warnf("Skipping adding a new route for network %s because it already exists", prefix)
-		return nil
+		return fmt.Errorf("Skipping adding a new route for network %s because it already exists", prefix)
 	}
 
 	ok, err = isSubRange(prefix)
