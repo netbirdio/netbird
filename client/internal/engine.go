@@ -138,6 +138,7 @@ type Engine struct {
 	signalProbe *Probe
 	relayProbe  *Probe
 	wgProbe     *Probe
+	turnRelay   *relay.PermanentTurn
 }
 
 // Peer is an instance of the Connection Peer
@@ -452,10 +453,19 @@ func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKe
 		t = sProto.Body_OFFER
 	}
 
-	msg, err := signal.MarshalCredential(myKey, offerAnswer.WgListenPort, remoteKey, &signal.Credential{
-		UFrag: offerAnswer.IceCredentials.UFrag,
-		Pwd:   offerAnswer.IceCredentials.Pwd,
-	}, t, offerAnswer.RosenpassPubKey, offerAnswer.RosenpassAddr)
+	msg, err := signal.MarshalCredential(
+		myKey,
+		offerAnswer.WgListenPort,
+		remoteKey, &signal.Credential{
+			UFrag: offerAnswer.IceCredentials.UFrag,
+			Pwd:   offerAnswer.IceCredentials.Pwd,
+		},
+		t,
+		offerAnswer.RosenpassPubKey,
+		offerAnswer.RosenpassAddr,
+		offerAnswer.RelayedAddr.String(),
+		offerAnswer.RemoteAddr.String(),
+	)
 	if err != nil {
 		return err
 	}
@@ -482,6 +492,13 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		if err != nil {
 			return err
 		}
+
+		turnRelay := relay.NewPermanentTurn(e.STUNs[0], e.TURNs[0])
+		err = turnRelay.Open()
+		if err != nil {
+			return fmt.Errorf("faile to open turn relay: %w", err)
+		}
+		e.turnRelay = turnRelay
 
 		// todo update signal
 	}
@@ -603,6 +620,7 @@ func (e *Engine) updateSTUNs(stuns []*mgmProto.HostConfig) error {
 	var newSTUNs []*stun.URI
 	log.Debugf("got STUNs update from Management Service, updating")
 	for _, s := range stuns {
+		log.Debugf("-----updated TURN: %s", s.Uri)
 		url, err := stun.ParseURI(s.Uri)
 		if err != nil {
 			return err
@@ -621,6 +639,7 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 	var newTURNs []*stun.URI
 	log.Debugf("got TURNs update from Management Service, updating")
 	for _, turn := range turns {
+		log.Debugf("-----updated Turn %v, %s, %s", turn.HostConfig.Uri, turn.User, turn.Password)
 		url, err := stun.ParseURI(turn.HostConfig.Uri)
 		if err != nil {
 			return err
@@ -630,7 +649,6 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 		newTURNs = append(newTURNs, url)
 	}
 	e.TURNs = newTURNs
-
 	return nil
 }
 
@@ -934,7 +952,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		RosenpassAddr:        e.getRosenpassAddr(),
 	}
 
-	peerConn, err := peer.NewConn(config, e.statusRecorder, e.wgProxyFactory, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover)
+	peerConn, err := peer.NewConn(config, e.statusRecorder, e.wgProxyFactory, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover, e.turnRelay)
 	if err != nil {
 		return nil, err
 	}
@@ -1000,6 +1018,17 @@ func (e *Engine) receiveSignalEvents() {
 					rosenpassPubKey = msg.GetBody().GetRosenpassConfig().GetRosenpassPubKey()
 					rosenpassAddr = msg.GetBody().GetRosenpassConfig().GetRosenpassServerAddr()
 				}
+
+				relayedAddr, err := net.ResolveUDPAddr("udp", msg.GetBody().GetRelay().GetRelayedAddress())
+				if err != nil {
+					return err
+				}
+
+				remoteAddr, err := net.ResolveUDPAddr("udp", msg.GetBody().GetRelay().GetSrvRefAddress())
+				if err != nil {
+					return err
+				}
+
 				conn.OnRemoteOffer(peer.OfferAnswer{
 					IceCredentials: peer.IceCredentials{
 						UFrag: remoteCred.UFrag,
@@ -1009,6 +1038,8 @@ func (e *Engine) receiveSignalEvents() {
 					Version:         msg.GetBody().GetNetBirdVersion(),
 					RosenpassPubKey: rosenpassPubKey,
 					RosenpassAddr:   rosenpassAddr,
+					RelayedAddr:     relayedAddr,
+					RemoteAddr:      remoteAddr,
 				})
 			case sProto.Body_ANSWER:
 				remoteCred, err := signal.UnMarshalCredential(msg)
@@ -1024,6 +1055,17 @@ func (e *Engine) receiveSignalEvents() {
 					rosenpassPubKey = msg.GetBody().GetRosenpassConfig().GetRosenpassPubKey()
 					rosenpassAddr = msg.GetBody().GetRosenpassConfig().GetRosenpassServerAddr()
 				}
+
+				relayedAddr, err := net.ResolveUDPAddr("udp", msg.GetBody().GetRelay().GetRelayedAddress())
+				if err != nil {
+					return err
+				}
+
+				remoteAddr, err := net.ResolveUDPAddr("udp", msg.GetBody().GetRelay().GetSrvRefAddress())
+				if err != nil {
+					return err
+				}
+
 				conn.OnRemoteAnswer(peer.OfferAnswer{
 					IceCredentials: peer.IceCredentials{
 						UFrag: remoteCred.UFrag,
@@ -1033,6 +1075,8 @@ func (e *Engine) receiveSignalEvents() {
 					Version:         msg.GetBody().GetNetBirdVersion(),
 					RosenpassPubKey: rosenpassPubKey,
 					RosenpassAddr:   rosenpassAddr,
+					RelayedAddr:     relayedAddr,
+					RemoteAddr:      remoteAddr,
 				})
 			case sProto.Body_CANDIDATE:
 				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)
@@ -1043,7 +1087,6 @@ func (e *Engine) receiveSignalEvents() {
 				conn.OnRemoteCandidate(candidate)
 			case sProto.Body_MODE:
 			}
-
 			return nil
 		})
 		if err != nil {

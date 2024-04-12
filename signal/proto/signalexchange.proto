@@ -49,22 +49,33 @@ message Body {
     MODE = 4;
   }
   Type type = 1;
+  // these will be set in OFFER, ANSWER, CANDIDATE only
   string payload = 2;
   // wgListenPort is an actual WireGuard listen port
+  // these will be set in OFFER, ANSWER, CANDIDATE only
   uint32 wgListenPort = 3;
+  // these will be set in OFFER, ANSWER, CANDIDATE only
   string netBirdVersion = 4;
+
   Mode mode = 5;
 
   // featuresSupported list of supported features by the client of this protocol
   repeated uint32 featuresSupported = 6;
 
   // RosenpassConfig is a Rosenpass config of the remote peer our peer tries to connect to
+  // is this optional or mandatory?
   RosenpassConfig rosenpassConfig = 7;
+
+  Relay relay = 8;
 }
 
 // Mode indicates a connection mode
 message Mode {
-  optional bool direct = 1;
+}
+
+message Relay {
+  string relayedAddress = 1;
+  string srvRefAddress = 2;
 }
 
 message RosenpassConfig {

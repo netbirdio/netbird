@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	"github.com/netbirdio/netbird/iface"
@@ -93,6 +93,10 @@ type OfferAnswer struct {
 	// RosenpassAddr is the Rosenpass server address (IP:port) of the remote peer when receiving this message
 	// This value is the local Rosenpass server address when sending the message
 	RosenpassAddr string
+
+	// Turn Relay
+	RelayedAddr net.Addr
+	RemoteAddr  net.Addr
 }
 
 // IceCredentials ICE protocol credentials struct
@@ -141,11 +145,11 @@ type Conn struct {
 	sentExtraSrflx bool
 
 	remoteEndpoint *net.UDPAddr
-	remoteConn     *ice.Conn
 
 	connID               nbnet.ConnectionID
 	beforeAddPeerHooks   []BeforeAddPeerHookFunc
 	afterRemovePeerHooks []AfterRemovePeerHookFunc
+	turnRelay            *relay.PermanentTurn
 }
 
 // meta holds meta information about a connection
@@ -176,7 +180,7 @@ func (conn *Conn) UpdateStunTurn(turnStun []*stun.URI) {
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
-func NewConn(config ConnConfig, statusRecorder *Status, wgProxyFactory *wgproxy.Factory, adapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) (*Conn, error) {
+func NewConn(config ConnConfig, statusRecorder *Status, wgProxyFactory *wgproxy.Factory, adapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover, turnRelay *relay.PermanentTurn) (*Conn, error) {
 	return &Conn{
 		config:         config,
 		mu:             sync.Mutex{},
@@ -189,6 +193,7 @@ func NewConn(config ConnConfig, statusRecorder *Status, wgProxyFactory *wgproxy.
 		wgProxyFactory: wgProxyFactory,
 		adapter:        adapter,
 		iFaceDiscover:  iFaceDiscover,
+		turnRelay:      turnRelay,
 	}, nil
 }
 
@@ -212,7 +217,7 @@ func (conn *Conn) reCreateAgent() error {
 		MulticastDNSMode:       ice.MulticastDNSModeDisabled,
 		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
 		Urls:                   conn.config.StunTurn,
-		CandidateTypes:         conn.candidateTypes(),
+		CandidateTypes:         []ice.CandidateType{},
 		FailedTimeout:          &failedTimeout,
 		InterfaceFilter:        stdnet.InterfaceFilter(conn.config.InterfaceBlackList),
 		UDPMux:                 conn.config.UDPMux,
@@ -260,17 +265,6 @@ func (conn *Conn) reCreateAgent() error {
 	}
 
 	return nil
-}
-
-func (conn *Conn) candidateTypes() []ice.CandidateType {
-	if hasICEForceRelayConn() {
-		return []ice.CandidateType{ice.CandidateTypeRelay}
-	}
-	// TODO: remove this once we have refactored userspace proxy into the bind package
-	if runtime.GOOS == "ios" {
-		return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive}
-	}
-	return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay}
 }
 
 // Open opens connection to the remote peer starting ICE candidate gathering process.
@@ -351,23 +345,12 @@ func (conn *Conn) Open() error {
 		log.Warnf("error while updating the state of peer %s,err: %v", conn.config.Key, err)
 	}
 
-	err = conn.agent.GatherCandidates()
-	if err != nil {
-		return err
-	}
-
-	// will block until connection succeeded
-	// but it won't release if ICE Agent went into Disconnected or Failed state,
-	// so we have to cancel it with the provided context once agent detected a broken connection
 	isControlling := conn.config.LocalKey > conn.config.Key
-	var remoteConn *ice.Conn
 	if isControlling {
-		remoteConn, err = conn.agent.Dial(conn.ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
-	} else {
-		remoteConn, err = conn.agent.Accept(conn.ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
-	}
-	if err != nil {
-		return err
+		err = conn.turnRelay.PunchHole(remoteOfferAnswer.RemoteAddr)
+		if err != nil {
+			log.Errorf("failed to punch hole: %v", err)
+		}
 	}
 
 	// dynamically set remote WireGuard port is other side specified a different one from the default one
@@ -376,7 +359,11 @@ func (conn *Conn) Open() error {
 		remoteWgPort = remoteOfferAnswer.WgListenPort
 	}
 
-	conn.remoteConn = remoteConn
+	// todo configure the wg with proper address
+	remoteConn, err := net.Dial("udp", remoteOfferAnswer.RemoteAddr.String())
+	if err != nil {
+		log.Errorf("failed to dial remote peer %s: %v", conn.config.Key, err)
+	}
 
 	// the ice connection has been established successfully so we are ready to start the proxy
 	remoteAddr, err := conn.configureConnection(remoteConn, remoteWgPort, remoteOfferAnswer.RosenpassPubKey,
@@ -415,23 +402,12 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	pair, err := conn.agent.GetSelectedCandidatePair()
+	var endpoint net.Addr
+	log.Debugf("setup relay connection")
+	conn.wgProxy = conn.wgProxyFactory.GetProxy()
+	endpoint, err := conn.wgProxy.AddTurnConn(remoteConn)
 	if err != nil {
 		return nil, err
-	}
-
-	var endpoint net.Addr
-	if isRelayCandidate(pair.Local) {
-		log.Debugf("setup relay connection")
-		conn.wgProxy = conn.wgProxyFactory.GetProxy()
-		endpoint, err = conn.wgProxy.AddTurnConn(remoteConn)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		// To support old version's with direct mode we attempt to punch an additional role with the remote WireGuard port
-		go conn.punchRemoteWGPort(pair, remoteWgPort)
-		endpoint = remoteConn.RemoteAddr()
 	}
 
 	endpointUdpAddr, _ := net.ResolveUDPAddr(endpoint.Network(), endpoint.String())
@@ -454,31 +430,33 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 	}
 
 	conn.status = StatusConnected
-	rosenpassEnabled := false
-	if remoteRosenpassPubKey != nil {
-		rosenpassEnabled = true
-	}
+	/*
+		rosenpassEnabled := false
+		if remoteRosenpassPubKey != nil {
+			rosenpassEnabled = true
+		}
 
-	peerState := State{
-		PubKey:                     conn.config.Key,
-		ConnStatus:                 conn.status,
-		ConnStatusUpdate:           time.Now(),
-		LocalIceCandidateType:      pair.Local.Type().String(),
-		RemoteIceCandidateType:     pair.Remote.Type().String(),
-		LocalIceCandidateEndpoint:  fmt.Sprintf("%s:%d", pair.Local.Address(), pair.Local.Port()),
-		RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Local.Port()),
-		Direct:                     !isRelayCandidate(pair.Local),
-		RosenpassEnabled:           rosenpassEnabled,
-		Mux:                        new(sync.RWMutex),
-	}
-	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
-		peerState.Relayed = true
-	}
+			peerState := State{
+				PubKey:                     conn.config.Key,
+				ConnStatus:                 conn.status,
+				ConnStatusUpdate:           time.Now(),
+				LocalIceCandidateType:      pair.Local.Type().String(),
+				RemoteIceCandidateType:     pair.Remote.Type().String(),
+				LocalIceCandidateEndpoint:  fmt.Sprintf("%s:%d", pair.Local.Address(), pair.Local.Port()),
+				RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Local.Port()),
+				Direct:                     !isRelayCandidate(pair.Local),
+				RosenpassEnabled:           rosenpassEnabled,
+				Mux:                        new(sync.RWMutex),
+			}
+			if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
+				peerState.Relayed = true
+			}
 
-	err = conn.statusRecorder.UpdatePeerState(peerState)
-	if err != nil {
-		log.Warnf("unable to save peer's state, got error: %v", err)
-	}
+			err = conn.statusRecorder.UpdatePeerState(peerState)
+			if err != nil {
+				log.Warnf("unable to save peer's state, got error: %v", err)
+			}
+	*/
 
 	_, ipNet, err := net.ParseCIDR(conn.config.WgConfig.AllowedIps)
 	if err != nil {
@@ -680,6 +658,8 @@ func (conn *Conn) sendAnswer() error {
 		Version:         version.NetbirdVersion(),
 		RosenpassPubKey: conn.config.RosenpassPubKey,
 		RosenpassAddr:   conn.config.RosenpassAddr,
+		RelayedAddr:     conn.turnRelay.RelayedAddress(),
+		RemoteAddr:      conn.turnRelay.SrvRefAddr(),
 	})
 	if err != nil {
 		return err
@@ -703,6 +683,8 @@ func (conn *Conn) sendOffer() error {
 		Version:         version.NetbirdVersion(),
 		RosenpassPubKey: conn.config.RosenpassPubKey,
 		RosenpassAddr:   conn.config.RosenpassAddr,
+		RelayedAddr:     conn.turnRelay.RelayedAddress(),
+		RemoteAddr:      conn.turnRelay.SrvRefAddr(),
 	})
 	if err != nil {
 		return err
@@ -740,6 +722,10 @@ func (conn *Conn) Status() ConnStatus {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 	return conn.status
+}
+
+func (conn *Conn) OnRemoteRelayRequest(relayedAddr string, remoteIP string) {
+
 }
 
 // OnRemoteOffer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
