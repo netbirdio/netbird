@@ -21,7 +21,7 @@ func SetRawSocketMark(conn syscall.RawConn) error {
 	var setErr error
 
 	err := conn.Control(func(fd uintptr) {
-		setErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_MARK, NetbirdFwmark)
+		setErr = SetSocketOpt(int(fd))
 	})
 	if err != nil {
 		return fmt.Errorf("control: %w", err)
@@ -32,4 +32,12 @@ func SetRawSocketMark(conn syscall.RawConn) error {
 	}
 
 	return nil
+}
+
+func SetSocketOpt(fd int) error {
+	if CustomRoutingDisabled() {
+		return nil
+	}
+
+	return syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, NetbirdFwmark)
 }
