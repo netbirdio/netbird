@@ -351,28 +351,39 @@ func (conn *Conn) Open() error {
 		if err != nil {
 			log.Errorf("failed to punch hole: %v", err)
 		}
-	}
+	} else {
+		/*
+			remoteConn, err := net.Dial("udp", remoteOfferAnswer.RemoteAddr.String())
+			if err != nil {
+				log.Errorf("failed to dial remote peer %s: %v", conn.config.Key, err)
+			}
 
-	// dynamically set remote WireGuard port is other side specified a different one from the default one
-	remoteWgPort := iface.DefaultWgPort
-	if remoteOfferAnswer.WgListenPort != 0 {
-		remoteWgPort = remoteOfferAnswer.WgListenPort
-	}
+		*/
 
-	// todo configure the wg with proper address
-	remoteConn, err := net.Dial("udp", remoteOfferAnswer.RemoteAddr.String())
-	if err != nil {
-		log.Errorf("failed to dial remote peer %s: %v", conn.config.Key, err)
-	}
+		addr, ok := remoteOfferAnswer.RelayedAddr.(*net.UDPAddr)
+		if !ok {
+			return fmt.Errorf("failed to cast addr to udp addr")
+		}
+		err := conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, addr, conn.config.WgConfig.PreSharedKey)
+		if err != nil {
+			if conn.wgProxy != nil {
+				_ = conn.wgProxy.CloseConn()
+			}
+			// todo close
+			return err
+		}
 
-	// the ice connection has been established successfully so we are ready to start the proxy
-	remoteAddr, err := conn.configureConnection(remoteConn, remoteWgPort, remoteOfferAnswer.RosenpassPubKey,
-		remoteOfferAnswer.RosenpassAddr)
-	if err != nil {
-		return err
-	}
+		// the ice connection has been established successfully so we are ready to start the proxy
+		/*
+			remoteAddr, err := conn.configureConnection(remoteOfferAnswer.RelayedAddr, remoteWgPort, remoteOfferAnswer.RosenpassPubKey,
+				remoteOfferAnswer.RosenpassAddr)
+			if err != nil {
+				return err
+			}
 
-	log.Infof("connected to peer %s, endpoint address: %s", conn.config.Key, remoteAddr.String())
+		*/
+		log.Infof("connected to peer %s, endpoint address: %s", conn.config.Key, addr.String())
+	}
 
 	// wait until connection disconnected or has been closed externally (upper layer, e.g. engine)
 	select {
