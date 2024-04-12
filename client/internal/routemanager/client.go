@@ -39,6 +39,7 @@ type clientNetwork struct {
 	chosenRoute         *route.Route
 	network             netip.Prefix
 	updateSerial        uint64
+	systemUpdated       bool
 }
 
 func newClientNetworkWatcher(ctx context.Context, wgInterface *iface.WGIface, statusRecorder *peer.Status, network netip.Prefix) *clientNetwork {
@@ -215,8 +216,11 @@ func (c *clientNetwork) removeRouteFromWireguardPeer(peerKey string) error {
 
 func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 	if c.chosenRoute != nil {
-		if err := removeVPNRoute(c.network, c.wgInterface.Name()); err != nil {
-			return fmt.Errorf("remove route %s from system, err: %v", c.network, err)
+		if c.systemUpdated {
+			if err := removeVPNRoute(c.network, c.wgInterface.Name()); err != nil {
+				return fmt.Errorf("remove route %s from system, err: %v", c.network, err)
+			}
+			c.systemUpdated = false
 		}
 
 		if err := c.removeRouteFromWireguardPeer(c.chosenRoute.Peer); err != nil {
@@ -260,6 +264,8 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 			return fmt.Errorf("route %s couldn't be added for peer %s, err: %v",
 				c.network.String(), c.wgInterface.Address().IP.String(), err)
 		}
+
+		c.systemUpdated = true
 	}
 
 	c.chosenRoute = c.routes[chosen]
