@@ -168,7 +168,7 @@ func addVPNRoute(prefix netip.Prefix, intf string) error {
 	}
 
 	if sysctlFailed && (prefix == defaultv4 || prefix == defaultv6) {
-		log.Warnf("Default route is configured but sysctl operations failed, VPN traffic may not be routed correctly, consider using NB_USE_LEGACY_ROUTING=true")
+		log.Warnf("Default route is configured but sysctl operations failed, VPN traffic may not be routed correctly, consider using NB_USE_LEGACY_ROUTING=true or setting net.ipv4.conf.*.rp_filter to 2 (loose) or 0 (off)")
 	}
 
 	// No need to check if routes exist as main table takes precedence over the VPN table via Rule 1
