@@ -4,14 +4,12 @@ package routemanager
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"os"
 	"syscall"
-	"time"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
@@ -41,10 +39,10 @@ var routeManager = &RouteManager{}
 var isLegacy = os.Getenv("NB_USE_LEGACY_ROUTING") == "true"
 
 type ruleParams struct {
+	priority       int
 	fwmark         int
 	tableID        int
 	family         int
-	priority       int
 	invert         bool
 	suppressPrefix int
 	description    string
@@ -52,10 +50,10 @@ type ruleParams struct {
 
 func getSetupRules() []ruleParams {
 	return []ruleParams{
-		{nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V4, -1, true, -1, "rule v4 netbird"},
-		{nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V6, -1, true, -1, "rule v6 netbird"},
-		{-1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, -1, false, 0, "rule with suppress prefixlen v4"},
-		{-1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V6, -1, false, 0, "rule with suppress prefixlen v6"},
+		{100, -1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, false, 0, "rule with suppress prefixlen v4"},
+		{100, -1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V6, false, 0, "rule with suppress prefixlen v6"},
+		{110, nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V4, true, -1, "rule v4 netbird"},
+		{110, nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V6, true, -1, "rule v6 netbird"},
 	}
 }
 
@@ -69,8 +67,6 @@ func getSetupRules() []ruleParams {
 // Rule 2 (VPN Traffic Routing): Directs all remaining traffic to the 'NetbirdVPNTableID' custom routing table.
 // This table is where a default route or other specific routes received from the management server are configured,
 // enabling VPN connectivity.
-//
-// The rules are inserted in reverse order, as rules are added from the bottom up in the rule list.
 func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.BeforeAddPeerHookFunc, _ peer.AfterRemovePeerHookFunc, err error) {
 	if isLegacy {
 		log.Infof("Using legacy routing setup")
@@ -123,7 +119,7 @@ func cleanupRouting() error {
 
 	rules := getSetupRules()
 	for _, rule := range rules {
-		if err := removeAllRules(rule); err != nil && !errors.Is(err, syscall.EOPNOTSUPP) {
+		if err := removeRule(rule); err != nil {
 			result = multierror.Append(result, fmt.Errorf("%s: %w", rule.description, err))
 		}
 	}
@@ -429,7 +425,7 @@ func addRule(params ruleParams) error {
 	rule.Invert = params.invert
 	rule.SuppressPrefixlen = params.suppressPrefix
 
-	if err := netlink.RuleAdd(rule); err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
+	if err := netlink.RuleAdd(rule); err != nil && !errors.Is(err, syscall.EEXIST) && !errors.Is(err, syscall.EAFNOSUPPORT) {
 		return fmt.Errorf("add routing rule: %w", err)
 	}
 
@@ -446,41 +442,11 @@ func removeRule(params ruleParams) error {
 	rule.Priority = params.priority
 	rule.SuppressPrefixlen = params.suppressPrefix
 
-	if err := netlink.RuleDel(rule); err != nil {
+	if err := netlink.RuleDel(rule); err != nil && !errors.Is(err, syscall.ENOENT) && !errors.Is(err, syscall.EAFNOSUPPORT) {
 		return fmt.Errorf("remove routing rule: %w", err)
 	}
 
 	return nil
-}
-
-func removeAllRules(params ruleParams) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	done := make(chan error, 1)
-	go func() {
-		for {
-			if ctx.Err() != nil {
-				done <- ctx.Err()
-				return
-			}
-			if err := removeRule(params); err != nil {
-				if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.EAFNOSUPPORT) {
-					done <- nil
-					return
-				}
-				done <- err
-				return
-			}
-		}
-	}()
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case err := <-done:
-		return err
-	}
 }
 
 // addNextHop adds the gateway and device to the route.
