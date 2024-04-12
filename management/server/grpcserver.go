@@ -135,10 +135,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	}
 
 	if syncReq.GetMeta() == nil {
-		msg := status.Errorf(codes.FailedPrecondition,
-			"peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
-		log.Warn(msg)
-		return msg
+		log.Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
 	}
 
 	peer, netMap, err := s.accountManager.SyncPeer(PeerSync{
@@ -266,6 +263,10 @@ func mapError(err error) error {
 }
 
 func extractPeerMeta(meta *proto.PeerSystemMeta) nbpeer.PeerSystemMeta {
+	if meta == nil {
+		return nbpeer.PeerSystemMeta{}
+	}
+
 	osVersion := meta.GetOSVersion()
 	if osVersion == "" {
 		osVersion = meta.GetCore()

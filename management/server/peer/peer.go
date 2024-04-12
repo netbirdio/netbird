@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"reflect"
 	"slices"
 	"time"
 )
@@ -139,6 +140,10 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		p.Environment.Platform == other.Environment.Platform
 }
 
+func (p PeerSystemMeta) isEmpty() bool {
+	return reflect.DeepEqual(p, PeerSystemMeta{})
+}
+
 // AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
 func (p *Peer) AddedWithSSOLogin() bool {
 	return p.UserID != ""
@@ -174,6 +179,10 @@ func (p *Peer) Copy() *Peer {
 // UpdateMetaIfNew updates peer's system metadata if new information is provided
 // returns true if meta was updated, false otherwise
 func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) bool {
+	if meta.isEmpty() {
+		return false
+	}
+
 	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
 	if meta.UIVersion == "" {
 		meta.UIVersion = p.Meta.UIVersion
