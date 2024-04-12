@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"reflect"
 	"slices"
 	"time"
 )
@@ -141,7 +140,23 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 }
 
 func (p PeerSystemMeta) isEmpty() bool {
-	return reflect.DeepEqual(p, PeerSystemMeta{})
+	return p.Hostname == "" &&
+		p.GoOS == "" &&
+		p.Kernel == "" &&
+		p.Core == "" &&
+		p.Platform == "" &&
+		p.OS == "" &&
+		p.OSVersion == "" &&
+		p.WtVersion == "" &&
+		p.UIVersion == "" &&
+		p.KernelVersion == "" &&
+		len(p.NetworkAddresses) == 0 &&
+		p.SystemSerialNumber == "" &&
+		p.SystemProductName == "" &&
+		p.SystemManufacturer == "" &&
+		p.Environment.Cloud == "" &&
+		p.Environment.Platform == "" &&
+		len(p.Files) == 0
 }
 
 // AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
