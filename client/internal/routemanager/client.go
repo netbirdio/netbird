@@ -221,6 +221,8 @@ func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 				return fmt.Errorf("remove route %s from system, err: %v", c.network, err)
 			}
 			c.systemUpdated = false
+		} else {
+			log.Debugf("system is not updated for network %s, skiping removal from system route table", c.network)
 		}
 
 		if err := c.removeRouteFromWireguardPeer(c.chosenRoute.Peer); err != nil {
