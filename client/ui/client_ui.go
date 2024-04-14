@@ -58,11 +58,18 @@ func main() {
 
 	var showSettings bool
 	flag.BoolVar(&showSettings, "settings", false, "run settings windows")
+	var errorMSG string
+	flag.StringVar(&errorMSG, "error-msg", "", "displays a error message window")
 
 	flag.Parse()
 
 	a := app.NewWithID("NetBird")
 	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnectedPNG))
+
+	if errorMSG != "" {
+		showErrorMSG(errorMSG)
+		return
+	}
 
 	client := newServiceClient(daemonAddr, a, showSettings)
 	if showSettings {
@@ -207,6 +214,16 @@ func (s *serviceClient) showUIElements() {
 	s.getSrvConfig()
 
 	s.wSettings.Show()
+}
+
+// showErrorMSG opens a fyne app window to display the supplied message
+func showErrorMSG(msg string) {
+	app := app.New()
+	w := app.NewWindow("NetBird error")
+	w.SetContent(widget.NewLabel(msg))
+	w.Resize(fyne.NewSize(300, 100))
+	w.Show()
+	app.Run()
 }
 
 // getSettingsForm to embed it into settings window.
@@ -504,16 +521,22 @@ func (s *serviceClient) onTrayReady() {
 			case <-s.mAdminPanel.ClickedCh:
 				err = open.Run(s.adminURL)
 			case <-s.mUp.ClickedCh:
+				s.mUp.Disabled()
 				go func() {
+					defer s.mUp.Enable()
 					err := s.menuUpClick()
 					if err != nil {
+						s.runSelfCommand("error-msg", err.Error())
 						return
 					}
 				}()
 			case <-s.mDown.ClickedCh:
+				s.mDown.Disable()
 				go func() {
+					defer s.mDown.Enable()
 					err := s.menuDownClick()
 					if err != nil {
+						s.runSelfCommand("error-msg", err.Error())
 						return
 					}
 				}()
@@ -521,24 +544,8 @@ func (s *serviceClient) onTrayReady() {
 				s.mSettings.Disable()
 				go func() {
 					defer s.mSettings.Enable()
-					proc, err := os.Executable()
-					if err != nil {
-						log.Errorf("show settings: %v", err)
-						return
-					}
-
-					cmd := exec.Command(proc, "--settings=true")
-					out, err := cmd.CombinedOutput()
-					if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-						log.Errorf("start settings UI: %v, %s", err, string(out))
-						return
-					}
-					if len(out) != 0 {
-						log.Info("settings change:", string(out))
-					}
-
-					// update config in systray when settings windows closed
-					s.getSrvConfig()
+					defer s.getSrvConfig()
+					s.runSelfCommand("settings", "true")
 				}()
 			case <-s.mQuit.ClickedCh:
 				systray.Quit()
@@ -554,6 +561,24 @@ func (s *serviceClient) onTrayReady() {
 			}
 		}
 	}()
+}
+
+func (s *serviceClient) runSelfCommand(command, arg string) {
+	proc, err := os.Executable()
+	if err != nil {
+		log.Errorf("show %s failed with error: %v", command, err)
+		return
+	}
+
+	cmd := exec.Command(proc, fmt.Sprintf("--%s=%s", command, arg))
+	out, err := cmd.CombinedOutput()
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		log.Errorf("start %s UI: %v, %s", command, err, string(out))
+		return
+	}
+	if len(out) != 0 {
+		log.Infof("command %s executed: %s", command, string(out))
+	}
 }
 
 func normalizedVersion(version string) string {
