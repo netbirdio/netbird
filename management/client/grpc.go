@@ -113,7 +113,7 @@ func (c *GrpcClient) ready() bool {
 
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
-func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
+func (c *GrpcClient) Sync(sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
 	backOff := defaultBackoff(c.ctx)
 
 	operation := func() error {
@@ -135,7 +135,7 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 
 		ctx, cancelStream := context.WithCancel(c.ctx)
 		defer cancelStream()
-		stream, err := c.connectToStream(ctx, *serverPubKey)
+		stream, err := c.connectToStream(ctx, *serverPubKey, sysInfo)
 		if err != nil {
 			log.Debugf("failed to open Management Service stream: %s", err)
 			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
@@ -177,7 +177,7 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 }
 
 // GetNetworkMap return with the network map
-func (c *GrpcClient) GetNetworkMap() (*proto.NetworkMap, error) {
+func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, error) {
 	serverPubKey, err := c.GetServerPublicKey()
 	if err != nil {
 		log.Debugf("failed getting Management Service public key: %s", err)
@@ -186,7 +186,7 @@ func (c *GrpcClient) GetNetworkMap() (*proto.NetworkMap, error) {
 
 	ctx, cancelStream := context.WithCancel(c.ctx)
 	defer cancelStream()
-	stream, err := c.connectToStream(ctx, *serverPubKey)
+	stream, err := c.connectToStream(ctx, *serverPubKey, sysInfo)
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
 		return nil, err
@@ -219,8 +219,8 @@ func (c *GrpcClient) GetNetworkMap() (*proto.NetworkMap, error) {
 	return decryptedResp.GetNetworkMap(), nil
 }
 
-func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.Key) (proto.ManagementService_SyncClient, error) {
-	req := &proto.SyncRequest{}
+func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info) (proto.ManagementService_SyncClient, error) {
+	req := &proto.SyncRequest{Meta: infoToMetaData(sysInfo)}
 
 	myPrivateKey := c.key
 	myPublicKey := myPrivateKey.PublicKey()
@@ -430,6 +430,35 @@ func (c *GrpcClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKC
 	return flowInfoResp, nil
 }
 
+// SyncMeta sends updated system metadata to the Management Service.
+// It should be used if there is changes on peer posture check after initial sync.
+func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
+	if !c.ready() {
+		return fmt.Errorf("no connection to management")
+	}
+
+	serverPubKey, err := c.GetServerPublicKey()
+	if err != nil {
+		log.Debugf("failed getting Management Service public key: %s", err)
+		return err
+	}
+
+	syncMetaReq, err := encryption.EncryptMessage(*serverPubKey, c.key, &proto.SyncMetaRequest{Meta: infoToMetaData(sysInfo)})
+	if err != nil {
+		log.Errorf("failed to encrypt message: %s", err)
+		return err
+	}
+
+	mgmCtx, cancel := context.WithTimeout(c.ctx, ConnectTimeout)
+	defer cancel()
+
+	_, err = c.realClient.SyncMeta(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     syncMetaReq,
+	})
+	return err
+}
+
 func (c *GrpcClient) notifyDisconnected(err error) {
 	c.connStateCallbackLock.RLock()
 	defer c.connStateCallbackLock.RUnlock()
@@ -463,6 +492,15 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		})
 	}
 
+	files := make([]*proto.File, 0, len(info.Files))
+	for _, file := range info.Files {
+		files = append(files, &proto.File{
+			Path:             file.Path,
+			Exist:            file.Exist,
+			ProcessIsRunning: file.ProcessIsRunning,
+		})
+	}
+
 	return &proto.PeerSystemMeta{
 		Hostname:           info.Hostname,
 		GoOS:               info.GoOS,
@@ -482,5 +520,6 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			Cloud:    info.Environment.Cloud,
 			Platform: info.Environment.Platform,
 		},
+		Files: files,
 	}
 }

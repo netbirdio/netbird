@@ -134,7 +134,8 @@ func Test_SyncProtocol(t *testing.T) {
 	// take the first registered peer as a base for the test. Total four.
 	key := *peers[0]
 
-	message, err := encryption.EncryptMessage(*serverKey, key, &mgmtProto.SyncRequest{})
+	syncReq := &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}}
+	message, err := encryption.EncryptMessage(*serverKey, key, syncReq)
 	if err != nil {
 		t.Fatal(err)
 		return

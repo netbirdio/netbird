@@ -80,6 +80,7 @@ type MockAccountManager struct {
 	GetDNSSettingsFunc              func(accountID, userID string) (*server.DNSSettings, error)
 	SaveDNSSettingsFunc             func(accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
 	GetPeerFunc                     func(accountID, peerID, userID string) (*nbpeer.Peer, error)
+	GetPeerAppliedPostureChecksFunc func(peerKey string) ([]posture.Checks, error)
 	UpdateAccountSettingsFunc       func(accountID, userID string, newSettings *server.Settings) (*server.Account, error)
 	LoginPeerFunc                   func(login server.PeerLogin) (*nbpeer.Peer, *server.NetworkMap, error)
 	SyncPeerFunc                    func(sync server.PeerSync) (*nbpeer.Peer, *server.NetworkMap, error)
@@ -607,6 +608,14 @@ func (am *MockAccountManager) GetPeer(accountID, peerID, userID string) (*nbpeer
 		return am.GetPeerFunc(accountID, peerID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeer is not implemented")
+}
+
+// GetPeerAppliedPostureChecks mocks GetPeerAppliedPostureChecks of the AccountManager interface
+func (am *MockAccountManager) GetPeerAppliedPostureChecks(peerKey string) ([]posture.Checks, error) {
+	if am.GetPeerAppliedPostureChecksFunc != nil {
+		return am.GetPeerAppliedPostureChecksFunc(peerKey)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetPeerAppliedPostureChecks is not implemented")
 }
 
 // UpdateAccountSettings mocks UpdateAccountSettings of the AccountManager interface

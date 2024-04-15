@@ -76,7 +76,7 @@ func TestEngine_SSH(t *testing.T) {
 		WgPrivateKey:     key,
 		WgPort:           33100,
 		ServerSSHAllowed: true,
-	}, MobileDependency{}, peer.NewRecorder("https://mgm"))
+	}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
 
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
@@ -210,7 +210,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
-	}, MobileDependency{}, peer.NewRecorder("https://mgm"))
+	}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
 	newNet, err := stdnet.NewNet()
 	if err != nil {
 		t.Fatal(err)
@@ -391,7 +391,7 @@ func TestEngine_Sync(t *testing.T) {
 	// feed updates to Engine via mocked Management client
 	updates := make(chan *mgmtProto.SyncResponse)
 	defer close(updates)
-	syncFunc := func(msgHandler func(msg *mgmtProto.SyncResponse) error) error {
+	syncFunc := func(info *system.Info, msgHandler func(msg *mgmtProto.SyncResponse) error) error {
 		for msg := range updates {
 			err := msgHandler(msg)
 			if err != nil {
@@ -406,7 +406,7 @@ func TestEngine_Sync(t *testing.T) {
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
-	}, MobileDependency{}, peer.NewRecorder("https://mgm"))
+	}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
 
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
@@ -564,7 +564,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				WgAddr:       wgAddr,
 				WgPrivateKey: key,
 				WgPort:       33100,
-			}, MobileDependency{}, peer.NewRecorder("https://mgm"))
+			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
 			newNet, err := stdnet.NewNet()
 			if err != nil {
 				t.Fatal(err)
@@ -733,7 +733,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 				WgAddr:       wgAddr,
 				WgPrivateKey: key,
 				WgPort:       33100,
-			}, MobileDependency{}, peer.NewRecorder("https://mgm"))
+			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
 			newNet, err := stdnet.NewNet()
 			if err != nil {
 				t.Fatal(err)
@@ -1002,7 +1002,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		WgPort:       wgPort,
 	}
 
-	return NewEngine(ctx, cancel, signalClient, mgmtClient, conf, MobileDependency{}, peer.NewRecorder("https://mgm")), nil
+	return NewEngine(ctx, cancel, signalClient, mgmtClient, conf, MobileDependency{}, peer.NewRecorder("https://mgm"), nil), nil
 }
 
 func startSignal() (*grpc.Server, string, error) {

@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
@@ -19,6 +21,11 @@ import (
 type PeerSync struct {
 	// WireGuardPubKey is a peers WireGuard public key
 	WireGuardPubKey string
+	// Meta is the system information passed by peer, must be always present
+	Meta nbpeer.PeerSystemMeta
+	// UpdateAccountPeers indicate updating account peers,
+	// which occurs when the peer's metadata is updated
+	UpdateAccountPeers bool
 }
 
 // PeerLogin used as a data object between the gRPC API and AccountManager on Login request.
@@ -551,6 +558,18 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *Network
 		return nil, nil, status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
 	}
 
+	peer, updated := updatePeerMeta(peer, sync.Meta, account)
+	if updated {
+		err = am.Store.SaveAccount(account)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if sync.UpdateAccountPeers {
+			am.updateAccountPeers(account)
+		}
+	}
+
 	requiresApproval, isStatusChanged := am.integratedPeerValidator.IsNotValidPeer(account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
 	if requiresApproval {
 		emptyMap := &NetworkMap{
@@ -866,7 +885,65 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) {
 	}
 	for _, peer := range peers {
 		remotePeerNetworkMap := account.GetPeerNetworkMap(peer.ID, am.dnsDomain, approvedPeersMap)
-		update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain())
+		update := toSyncResponse(am, nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain())
 		am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})
 	}
+}
+
+// GetPeerAppliedPostureChecks returns posture checks that are applied to the peer.
+func (am *DefaultAccountManager) GetPeerAppliedPostureChecks(peerKey string) ([]posture.Checks, error) {
+	account, err := am.Store.GetAccountByPeerPubKey(peerKey)
+	if err != nil {
+		log.Errorf("failed while getting peer %s: %v", peerKey, err)
+		return nil, err
+	}
+
+	peer, err := account.FindPeerByPubKey(peerKey)
+	if err != nil {
+		return nil, status.Errorf(status.NotFound, "peer is not registered")
+	}
+	if peer == nil {
+		return nil, nil
+	}
+
+	peerPostureChecks := make(map[string]posture.Checks)
+	for _, policy := range account.Policies {
+		if !policy.Enabled {
+			continue
+		}
+
+	outerLoop:
+		for _, rule := range policy.Rules {
+			if !rule.Enabled {
+				continue
+			}
+
+			for _, sourceGroup := range rule.Sources {
+				group, ok := account.Groups[sourceGroup]
+				if !ok {
+					continue
+				}
+
+				// check if peer is in the rule source group
+				if slices.Contains(group.Peers, peer.ID) {
+					for _, sourcePostureCheckID := range policy.SourcePostureChecks {
+						for _, postureChecks := range account.PostureChecks {
+							if postureChecks.ID == sourcePostureCheckID {
+								peerPostureChecks[sourcePostureCheckID] = *postureChecks
+							}
+						}
+					}
+
+					break outerLoop
+				}
+			}
+		}
+	}
+
+	postureChecksList := make([]posture.Checks, 0, len(peerPostureChecks))
+	for _, check := range peerPostureChecks {
+		postureChecksList = append(postureChecksList, check)
+	}
+
+	return postureChecksList, nil
 }
