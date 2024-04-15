@@ -14,6 +14,7 @@ import (
 
 // State contains the latest state of a peer
 type State struct {
+	Mux                        *sync.RWMutex
 	IP                         string
 	PubKey                     string
 	FQDN                       string
@@ -30,7 +31,38 @@ type State struct {
 	BytesRx                    int64
 	Latency                    time.Duration
 	RosenpassEnabled           bool
-	Routes                     map[string]struct{}
+	routes                     map[string]struct{}
+}
+
+// AddRoute add a single route to routes map
+func (s *State) AddRoute(network string) {
+	s.Mux.Lock()
+	if s.routes == nil {
+		s.routes = make(map[string]struct{})
+	}
+	s.routes[network] = struct{}{}
+	s.Mux.Unlock()
+}
+
+// SetRoutes set state routes
+func (s *State) SetRoutes(routes map[string]struct{}) {
+	s.Mux.Lock()
+	s.routes = routes
+	s.Mux.Unlock()
+}
+
+// DeleteRoute removes a route from the network amp
+func (s *State) DeleteRoute(network string) {
+	s.Mux.Lock()
+	delete(s.routes, network)
+	s.Mux.Unlock()
+}
+
+// GetRoutes return routes map
+func (s *State) GetRoutes() map[string]struct{} {
+	s.Mux.RLock()
+	defer s.Mux.RUnlock()
+	return s.routes
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -143,6 +175,7 @@ func (d *Status) AddPeer(peerPubKey string, fqdn string) error {
 		PubKey:     peerPubKey,
 		ConnStatus: StatusDisconnected,
 		FQDN:       fqdn,
+		Mux:        new(sync.RWMutex),
 	}
 	d.peerListChangedForNotification = true
 	return nil
@@ -189,8 +222,8 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		peerState.IP = receivedState.IP
 	}
 
-	if receivedState.Routes != nil {
-		peerState.Routes = receivedState.Routes
+	if receivedState.GetRoutes() != nil {
+		peerState.SetRoutes(receivedState.GetRoutes())
 	}
 
 	skipNotification := shouldSkipNotify(receivedState, peerState)
@@ -440,7 +473,6 @@ func (d *Status) IsLoginRequired() bool {
 	s, ok := gstatus.FromError(d.managementError)
 	if ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 		return true
-
 	}
 	return false
 }

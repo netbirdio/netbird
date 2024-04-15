@@ -33,6 +33,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+      - name: Check for duplicate constants
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          ! awk '/const \(/,/)/{print $0}' management/server/activity/codes.go | grep -o '= [0-9]*' | sort | uniq -d | grep .
       - name: Install Go
         uses: actions/setup-go@v4
         with:

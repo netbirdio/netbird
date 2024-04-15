@@ -61,7 +61,7 @@ func TestAddRemoveRoutes(t *testing.T) {
 
 			err = wgInterface.Create()
 			require.NoError(t, err, "should create testing wireguard interface")
-			_, _, err = setupRouting(nil, nil)
+			_, _, err = setupRouting(nil, wgInterface)
 			require.NoError(t, err)
 			t.Cleanup(func() {
 				assert.NoError(t, cleanupRouting())
