@@ -13,14 +13,6 @@ import (
 	wgConn "golang.zx2c4.com/wireguard/conn"
 )
 
-type receiverCreator struct {
-	iceBind *ICEBind
-}
-
-func (rc receiverCreator) CreateIPv4ReceiverFn(msgPool *sync.Pool, pc *ipv4.PacketConn, conn *net.UDPConn) wgConn.ReceiveFunc {
-	return rc.iceBind.createIPv4ReceiverFn(msgPool, pc, conn)
-}
-
 type ICEBind struct {
 	*wgConn.StdNetBind
 
@@ -35,9 +27,8 @@ func NewICEBind(transportNet transport.Net) *ICEBind {
 		transportNet: transportNet,
 	}
 
-	rc := receiverCreator{
-		ib,
-	}
+	rc := newReceiverCreator(ib)
+
 	ib.StdNetBind = wgConn.NewStdNetBindWithReceiverCreator(rc)
 	return ib
 }
