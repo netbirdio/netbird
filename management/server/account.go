@@ -1849,6 +1849,7 @@ func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(claims jwtclaims.Aut
 }
 
 func (am *DefaultAccountManager) onPeersInvalidated(accountID string) {
+	log.Debugf("validated peers has been invalidated for account %s", accountID)
 	updatedAccount, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		log.Errorf("failed to get account %s: %v", accountID, err)
