@@ -1784,6 +1784,9 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		unlockAccount := am.Store.AcquireAccountLock(account.Id)
 		defer unlockAccount()
 		account, err = am.Store.GetAccountByUser(claims.UserId)
+		if err != nil {
+			return nil, err
+		}
 		err = am.handleExistingUserAccount(account, domainAccount, claims)
 		if err != nil {
 			return nil, err
@@ -1793,6 +1796,9 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		unlockAccount := am.Store.AcquireAccountLock(domainAccount.Id)
 		defer unlockAccount()
 		account, err = am.Store.GetAccountByUser(claims.UserId)
+		if err != nil {
+			return nil, err
+		}
 		return am.handleNewUserAccount(domainAccount, claims)
 	} else {
 		// other error
