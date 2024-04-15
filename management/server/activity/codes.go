@@ -11,6 +11,7 @@ type Code struct {
 	Code    string
 }
 
+// Existing consts must not be changed, as this will break the compatibility with the existing data
 const (
 	// PeerAddedByUser indicates that a user added a new peer to the system
 	PeerAddedByUser Activity = 0
