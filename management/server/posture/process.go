@@ -19,9 +19,11 @@ type ProcessCheck struct {
 var _ Check = (*ProcessCheck)(nil)
 
 func (p *ProcessCheck) Check(peer nbpeer.Peer) (bool, error) {
-	peerActiveProcesses := make([]string, 0, len(peer.Meta.Processes))
-	for _, process := range peer.Meta.Processes {
-		peerActiveProcesses = append(peerActiveProcesses, process.Path)
+	peerActiveProcesses := make([]string, 0, len(peer.Meta.Files))
+	for _, file := range peer.Meta.Files {
+		if file.ProcessIsRunning {
+			peerActiveProcesses = append(peerActiveProcesses, file.Path)
+		}
 	}
 
 	switch peer.Meta.GoOS {

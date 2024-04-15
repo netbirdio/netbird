@@ -430,6 +430,35 @@ func (c *GrpcClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKC
 	return flowInfoResp, nil
 }
 
+// SyncMeta sends updated system metadata to the Management Service.
+// It should be used if there is changes on peer posture check after initial sync.
+func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
+	if !c.ready() {
+		return fmt.Errorf("no connection to management")
+	}
+
+	serverPubKey, err := c.GetServerPublicKey()
+	if err != nil {
+		log.Debugf("failed getting Management Service public key: %s", err)
+		return err
+	}
+
+	syncMetaReq, err := encryption.EncryptMessage(*serverPubKey, c.key, &proto.SyncMetaRequest{Meta: infoToMetaData(sysInfo)})
+	if err != nil {
+		log.Errorf("failed to encrypt message: %s", err)
+		return err
+	}
+
+	mgmCtx, cancel := context.WithTimeout(c.ctx, ConnectTimeout)
+	defer cancel()
+
+	_, err = c.realClient.SyncMeta(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     syncMetaReq,
+	})
+	return err
+}
+
 func (c *GrpcClient) notifyDisconnected(err error) {
 	c.connStateCallbackLock.RLock()
 	defer c.connStateCallbackLock.RUnlock()
@@ -463,6 +492,15 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		})
 	}
 
+	files := make([]*proto.File, 0, len(info.Files))
+	for _, file := range info.Files {
+		files = append(files, &proto.File{
+			Path:             file.Path,
+			Exist:            file.Exist,
+			ProcessIsRunning: file.ProcessIsRunning,
+		})
+	}
+
 	return &proto.PeerSystemMeta{
 		Hostname:           info.Hostname,
 		GoOS:               info.GoOS,
@@ -482,5 +520,6 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			Cloud:    info.Environment.Cloud,
 			Platform: info.Environment.Platform,
 		},
+		Files: files,
 	}
 }

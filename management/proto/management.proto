@@ -38,6 +38,12 @@ service ManagementService {
   // EncryptedMessage of the request has a body of PKCEAuthorizationFlowRequest.
   // EncryptedMessage of the response has a body of PKCEAuthorizationFlow.
   rpc GetPKCEAuthorizationFlow(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // SyncMeta is used to sync metadata of the peer.
+  // After sync the peer if there is a change in peer posture check which  needs to be evaluated by the client,
+  // sync meta will evaluate the checks and update the peer meta with the result.
+  // EncryptedMessage of the request has a body of Empty.
+  rpc  SyncMeta(EncryptedMessage) returns (Empty) {}
 }
 
 message EncryptedMessage {
@@ -77,6 +83,11 @@ message SyncResponse {
   repeated Checks Checks = 6;
 }
 
+message  SyncMetaRequest {
+  // Meta data of the peer
+  PeerSystemMeta meta = 1;
+}
+
 message LoginRequest {
   // Pre-authorized setup key (can be empty)
   string setupKey = 1;
@@ -88,6 +99,7 @@ message LoginRequest {
   PeerKeys peerKeys = 4;
 
 }
+
 // PeerKeys is additional peer info like SSH pub key and WireGuard public key.
 // This message is sent on Login or register requests, or when a key rotation has to happen.
 message PeerKeys {
@@ -104,6 +116,16 @@ message Environment {
   string cloud = 1;
   // platform is the platform the agent is running on if applicable.
   string platform = 2;
+}
+
+// File represents a file on the system.
+message File {
+  // path is the path to the file.
+  string path = 1;
+  // exist indicate whether the file exists.
+  bool exist = 2;
+  // processIsRunning indicates whether the file is a running process or not.
+  bool processIsRunning = 3;
 }
 
 // PeerSystemMeta is machine meta data like OS and version.
@@ -123,6 +145,7 @@ message PeerSystemMeta {
   string sysProductName = 13;
   string sysManufacturer = 14;
   Environment environment = 15;
+  repeated File files = 16;
 }
 
 message LoginResponse {
@@ -380,10 +403,6 @@ message NetworkAddress {
   string mac = 2;
 }
 
-message ProcessCheck {
-  repeated string Files = 1;
-}
-
 message Checks {
-  ProcessCheck ProcessCheck = 1;
+  repeated string Files= 1;
 }

@@ -23,6 +23,9 @@ type PeerSync struct {
 	WireGuardPubKey string
 	// Meta is the system information passed by peer, must be always present
 	Meta nbpeer.PeerSystemMeta
+	// UpdateAccountPeers indicate updating account peers,
+	// which occurs when the peer's metadata is updated
+	UpdateAccountPeers bool
 }
 
 // PeerLogin used as a data object between the gRPC API and AccountManager on Login request.
@@ -560,6 +563,10 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *Network
 		err = am.Store.SaveAccount(account)
 		if err != nil {
 			return nil, nil, err
+		}
+
+		if sync.UpdateAccountPeers {
+			am.updateAccountPeers(account)
 		}
 	}
 

@@ -17,13 +17,14 @@ func TestProcessCheck_Check(t *testing.T) {
 		isValid bool
 	}{
 		{
-			name: "darwin with matching processes",
+			name: "darwin with matching running processes",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
 					GoOS: "darwin",
-					Processes: []peer.Process{
-						{Path: "/Applications/process1.app"},
-						{Path: "/Applications/process2.app"}},
+					Files: []peer.File{
+						{Path: "/Applications/process1.app", ProcessIsRunning: true},
+						{Path: "/Applications/process2.app", ProcessIsRunning: true},
+					},
 				},
 			},
 			check: ProcessCheck{
@@ -40,9 +41,9 @@ func TestProcessCheck_Check(t *testing.T) {
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
 					GoOS: "darwin",
-					Processes: []peer.Process{
-						{Path: "/Applications/process1.app"},
-						{Path: "/Applications/process2.app"},
+					Files: []peer.File{
+						{Path: "/Applications/process1.app", ProcessIsRunning: true},
+						{Path: "/Applications/process2.app", ProcessIsRunning: true},
 					},
 				},
 			},
@@ -56,13 +57,13 @@ func TestProcessCheck_Check(t *testing.T) {
 			isValid: false,
 		},
 		{
-			name: "linux with matching processes",
+			name: "linux with matching running processes",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
 					GoOS: "linux",
-					Processes: []peer.Process{
-						{Path: "/usr/bin/process1"},
-						{Path: "/usr/bin/process2"},
+					Files: []peer.File{
+						{Path: "/usr/bin/process1", ProcessIsRunning: true},
+						{Path: "/usr/bin/process2", ProcessIsRunning: true},
 					},
 				},
 			},
@@ -76,12 +77,32 @@ func TestProcessCheck_Check(t *testing.T) {
 			isValid: true,
 		},
 		{
+			name: "linux with matching no running processes",
+			input: peer.Peer{
+				Meta: peer.PeerSystemMeta{
+					GoOS: "linux",
+					Files: []peer.File{
+						{Path: "/usr/bin/process1", ProcessIsRunning: true},
+						{Path: "/usr/bin/process2", ProcessIsRunning: false},
+					},
+				},
+			},
+			check: ProcessCheck{
+				Processes: []Process{
+					{Path: "/usr/bin/process1"},
+					{Path: "/usr/bin/process2"},
+				},
+			},
+			wantErr: false,
+			isValid: false,
+		},
+		{
 			name: "linux with windows process paths",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
 					GoOS: "linux",
-					Processes: []peer.Process{
-						{Path: "/usr/bin/process1"},
+					Files: []peer.File{
+						{Path: "/usr/bin/process1", ProcessIsRunning: true},
 						{Path: "/usr/bin/process2"},
 					},
 				},
@@ -100,7 +121,7 @@ func TestProcessCheck_Check(t *testing.T) {
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
 					GoOS: "linux",
-					Processes: []peer.Process{
+					Files: []peer.File{
 						{Path: "/usr/bin/process3"},
 						{Path: "/usr/bin/process4"},
 					},
@@ -116,13 +137,13 @@ func TestProcessCheck_Check(t *testing.T) {
 			isValid: false,
 		},
 		{
-			name: "windows with matching processes",
+			name: "windows with matching running processes",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
 					GoOS: "windows",
-					Processes: []peer.Process{
-						{Path: "C:\\Program Files\\process1.exe"},
-						{Path: "C:\\Program Files\\process1.exe"},
+					Files: []peer.File{
+						{Path: "C:\\Program Files\\process1.exe", ProcessIsRunning: true},
+						{Path: "C:\\Program Files\\process1.exe", ProcessIsRunning: true},
 					},
 				},
 			},
@@ -140,7 +161,7 @@ func TestProcessCheck_Check(t *testing.T) {
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
 					GoOS: "windows",
-					Processes: []peer.Process{
+					Files: []peer.File{
 						{Path: "C:\\Program Files\\process1.exe"},
 						{Path: "C:\\Program Files\\process1.exe"},
 					},
@@ -160,7 +181,7 @@ func TestProcessCheck_Check(t *testing.T) {
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
 					GoOS: "windows",
-					Processes: []peer.Process{
+					Files: []peer.File{
 						{Path: "C:\\Program Files\\process3.exe"},
 						{Path: "C:\\Program Files\\process4.exe"},
 					},

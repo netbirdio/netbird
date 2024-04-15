@@ -135,10 +135,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	}
 
 	if syncReq.GetMeta() == nil {
-		msg := status.Errorf(codes.FailedPrecondition,
-			"peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
-		log.Warn(msg)
-		return msg
+		log.Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
 	}
 
 	peer, netMap, err := s.accountManager.SyncPeer(PeerSync{
@@ -266,6 +263,10 @@ func mapError(err error) error {
 }
 
 func extractPeerMeta(meta *proto.PeerSystemMeta) nbpeer.PeerSystemMeta {
+	if meta == nil {
+		return nbpeer.PeerSystemMeta{}
+	}
+
 	osVersion := meta.GetOSVersion()
 	if osVersion == "" {
 		osVersion = meta.GetCore()
@@ -281,6 +282,15 @@ func extractPeerMeta(meta *proto.PeerSystemMeta) nbpeer.PeerSystemMeta {
 		networkAddresses = append(networkAddresses, nbpeer.NetworkAddress{
 			NetIP: netAddr,
 			Mac:   addr.GetMac(),
+		})
+	}
+
+	files := make([]nbpeer.File, 0, len(meta.GetFiles()))
+	for _, file := range meta.GetFiles() {
+		files = append(files, nbpeer.File{
+			Path:             file.GetPath(),
+			Exist:            file.GetExist(),
+			ProcessIsRunning: file.GetProcessIsRunning(),
 		})
 	}
 
@@ -302,6 +312,7 @@ func extractPeerMeta(meta *proto.PeerSystemMeta) nbpeer.PeerSystemMeta {
 			Cloud:    meta.GetEnvironment().GetCloud(),
 			Platform: meta.GetEnvironment().GetPlatform(),
 		},
+		Files: files,
 	}
 }
 
@@ -661,6 +672,37 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(_ context.Context, req *proto.Encr
 	}, nil
 }
 
+// SyncMeta endpoint is used to synchronize peer's system metadata and notifies the connected,
+// peer's under the same account of any updates.
+func (s *GRPCServer) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*proto.Empty, error) {
+	realIP := getRealIP(ctx)
+	log.Debugf("Sync meta request from peer [%s] [%s]", req.WgPubKey, realIP.String())
+
+	syncMetaReq := &proto.SyncMetaRequest{}
+	peerKey, err := s.parseRequest(req, syncMetaReq)
+	if err != nil {
+		return nil, err
+	}
+
+	if syncMetaReq.GetMeta() == nil {
+		msg := status.Errorf(codes.FailedPrecondition,
+			"peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
+		log.Warn(msg)
+		return nil, msg
+	}
+
+	_, _, err = s.accountManager.SyncPeer(PeerSync{
+		WireGuardPubKey:    peerKey.String(),
+		Meta:               extractPeerMeta(syncMetaReq.GetMeta()),
+		UpdateAccountPeers: true,
+	})
+	if err != nil {
+		return nil, mapError(err)
+	}
+
+	return &proto.Empty{}, nil
+}
+
 // toPeerChecks returns posture checks for the peer that needs to be evaluated on the client side.
 func toPeerChecks(accountManager AccountManager, peerKey string) []*proto.Checks {
 	postureChecks, err := accountManager.GetPeerAppliedPostureChecks(peerKey)
@@ -676,9 +718,10 @@ func toPeerChecks(accountManager AccountManager, peerKey string) []*proto.Checks
 		if check := postureCheck.Checks.ProcessCheck; check != nil {
 			for _, process := range check.Processes {
 				if process.Path != "" {
-					protoCheck.ProcessCheck.Files = append(protoCheck.ProcessCheck.Files, process.Path)
-				} else if process.WindowsPath != "" {
-					protoCheck.ProcessCheck.Files = append(protoCheck.ProcessCheck.Files, process.Path)
+					protoCheck.Files = append(protoCheck.Files, process.Path)
+				}
+				if process.WindowsPath != "" {
+					protoCheck.Files = append(protoCheck.Files, process.WindowsPath)
 				}
 			}
 		}
