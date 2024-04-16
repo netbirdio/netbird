@@ -466,7 +466,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 		LocalIceCandidateType:      pair.Local.Type().String(),
 		RemoteIceCandidateType:     pair.Remote.Type().String(),
 		LocalIceCandidateEndpoint:  fmt.Sprintf("%s:%d", pair.Local.Address(), pair.Local.Port()),
-		RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Local.Port()),
+		RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Remote.Port()),
 		Direct:                     !isRelayCandidate(pair.Local),
 		RosenpassEnabled:           rosenpassEnabled,
 		Mux:                        new(sync.RWMutex),
