@@ -85,23 +85,27 @@ func tunModuleIsLoaded() bool {
 
 // WireGuardModuleIsLoaded check if we can load WireGuard mod (linux only)
 func WireGuardModuleIsLoaded() bool {
+	return false
 
-	if os.Getenv(envDisableWireGuardKernel) == "true" {
-		log.Debugf("WireGuard kernel module disabled because the %s env is set to true", envDisableWireGuardKernel)
-		return false
-	}
+	/*
+		if os.Getenv(envDisableWireGuardKernel) == "true" {
+			log.Debugf("WireGuard kernel module disabled because the %s env is set to true", envDisableWireGuardKernel)
+			return false
+		}
 
-	if canCreateFakeWireGuardInterface() {
-		return true
-	}
+		if canCreateFakeWireGuardInterface() {
+			return true
+		}
 
-	loaded, err := tryToLoadModule("wireguard")
-	if err != nil {
-		log.Info(err)
-		return false
-	}
+		loaded, err := tryToLoadModule("wireguard")
+		if err != nil {
+			log.Info(err)
+			return false
+		}
 
-	return loaded
+		return loaded
+
+	*/
 }
 
 func canCreateFakeWireGuardInterface() bool {

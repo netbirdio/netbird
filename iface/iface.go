@@ -150,3 +150,10 @@ func (w *WGIface) GetDevice() *DeviceWrapper {
 func (w *WGIface) GetStats(peerKey string) (WGStats, error) {
 	return w.configurer.getStats(peerKey)
 }
+
+func (w *WGIface) SetRelayConn(conn interface{}) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.tun.SetTurnConn(conn)
+}

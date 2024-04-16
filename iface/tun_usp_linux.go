@@ -54,7 +54,7 @@ func (t *tunUSPDevice) Create() (wgConfigurer, error) {
 	t.device = device.NewDevice(
 		t.wrapper,
 		t.iceBind,
-		device.NewLogger(device.LogLevelSilent, "[netbird] "),
+		device.NewLogger(device.LogLevelVerbose, "[netbird] "),
 	)
 
 	err = t.assignAddr()
@@ -70,6 +70,7 @@ func (t *tunUSPDevice) Create() (wgConfigurer, error) {
 		t.configurer.close()
 		return nil, err
 	}
+	log.Debugf("configuration done")
 	return t.configurer, nil
 }
 
@@ -123,6 +124,14 @@ func (t *tunUSPDevice) DeviceName() string {
 
 func (t *tunUSPDevice) Wrapper() *DeviceWrapper {
 	return t.wrapper
+}
+
+func (t *tunUSPDevice) SetTurnConn(conn interface{}) {
+	t.iceBind.SetTurnConn(conn)
+	err := t.device.BindUpdate()
+	if err != nil {
+		log.Errorf("failed to update bind: %v", err)
+	}
 }
 
 // assignAddr Adds IP address to the tunnel interface

@@ -78,6 +78,15 @@ func (r *PermanentTurn) SrvRefAddr() net.Addr {
 	return r.srvReflexiveAddress
 }
 
+func (r *PermanentTurn) PunchHole(mappedAddr net.Addr) error {
+	_, err := r.relayConn.WriteTo([]byte("Hello"), mappedAddr)
+	return err
+}
+
+func (r *PermanentTurn) RelayConn() net.PacketConn {
+	return r.relayConn
+}
+
 func (r *PermanentTurn) discoverPublicIP() (*net.UDPAddr, error) {
 	addr, err := r.turnClient.SendBindingRequest()
 	if err != nil {
@@ -117,11 +126,6 @@ func (r *PermanentTurn) listen() {
 			}
 		}
 	}()
-}
-
-func (r *PermanentTurn) PunchHole(mappedAddr net.Addr) error {
-	_, err := r.relayConn.WriteTo([]byte("Hello"), mappedAddr)
-	return err
 }
 
 func toURL(uri *stun.URI) string {

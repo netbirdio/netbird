@@ -200,7 +200,6 @@ func NewEngineWithProbes(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
-		wgProxyFactory: wgproxy.NewFactory(config.WgPort),
 		mgmProbe:       mgmProbe,
 		signalProbe:    signalProbe,
 		relayProbe:     relayProbe,
@@ -499,6 +498,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 			return fmt.Errorf("faile to open turn relay: %w", err)
 		}
 		e.turnRelay = turnRelay
+		e.wgInterface.SetRelayConn(e.turnRelay.RelayConn())
 
 		// todo update signal
 	}
@@ -620,7 +620,6 @@ func (e *Engine) updateSTUNs(stuns []*mgmProto.HostConfig) error {
 	var newSTUNs []*stun.URI
 	log.Debugf("got STUNs update from Management Service, updating")
 	for _, s := range stuns {
-		log.Debugf("-----updated TURN: %s", s.Uri)
 		url, err := stun.ParseURI(s.Uri)
 		if err != nil {
 			return err

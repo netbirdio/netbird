@@ -20,6 +20,8 @@ type ICEBind struct {
 
 	transportNet transport.Net
 	udpMux       *UniversalUDPMuxDefault
+
+	receiverCreator *receiverCreator
 }
 
 func NewICEBind(transportNet transport.Net) *ICEBind {
@@ -28,6 +30,7 @@ func NewICEBind(transportNet transport.Net) *ICEBind {
 	}
 
 	rc := newReceiverCreator(ib)
+	ib.receiverCreator = rc
 
 	ib.StdNetBind = wgConn.NewStdNetBindWithReceiverCreator(rc)
 	return ib
@@ -44,16 +47,22 @@ func (s *ICEBind) GetICEMux() (*UniversalUDPMuxDefault, error) {
 	return s.udpMux, nil
 }
 
-func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketConn, conn *net.UDPConn) wgConn.ReceiveFunc {
+func (s *ICEBind) SetTurnConn(conn interface{}) {
+	s.receiverCreator.setTurnConn(conn)
+}
+
+func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketConn, conn *net.UDPConn, netConn net.PacketConn) wgConn.ReceiveFunc {
 	s.muUDPMux.Lock()
 	defer s.muUDPMux.Unlock()
 
-	s.udpMux = NewUniversalUDPMuxDefault(
-		UniversalUDPMuxParams{
-			UDPConn: conn,
-			Net:     s.transportNet,
-		},
-	)
+	if conn != nil {
+		s.udpMux = NewUniversalUDPMuxDefault(
+			UniversalUDPMuxParams{
+				UDPConn: conn,
+				Net:     s.transportNet,
+			},
+		)
+	}
 	return func(bufs [][]byte, sizes []int, eps []wgConn.Endpoint) (n int, err error) {
 		msgs := ipv4MsgsPool.Get().(*[]ipv4.Message)
 		defer ipv4MsgsPool.Put(msgs)
@@ -62,9 +71,22 @@ func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketC
 		}
 		var numMsgs int
 		if runtime.GOOS == "linux" {
-			numMsgs, err = pc.ReadBatch(*msgs, 0)
-			if err != nil {
-				return 0, err
+			if netConn != nil {
+				log.Debugf("----read from turn conn...")
+				msg := &(*msgs)[0]
+				msg.N, msg.Addr, err = netConn.ReadFrom(msg.Buffers[0])
+				if err != nil {
+					log.Debugf("read err from turn server: %v", err)
+					return 0, err
+				}
+				log.Debugf("----msg address is: %s, size: %d", msg.Addr.String(), msg.N)
+				numMsgs = 1
+			} else {
+				log.Debugf("----read from pc...")
+				numMsgs, err = pc.ReadBatch(*msgs, 0)
+				if err != nil {
+					return 0, err
+				}
 			}
 		} else {
 			msg := &(*msgs)[0]
@@ -86,7 +108,10 @@ func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketC
 			}
 
 			addrPort := msg.Addr.(*net.UDPAddr).AddrPort()
-			ep := &wgConn.StdNetEndpoint{AddrPort: addrPort} // TODO: remove allocation
+			ep := &wgConn.StdNetEndpoint{
+				AddrPort: addrPort,
+				Conn:     netConn,
+			}
 			wgConn.GetSrcFromControl(msg.OOB[:msg.NN], ep)
 			eps[i] = ep
 		}

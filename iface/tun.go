@@ -15,4 +15,5 @@ type wgTunDevice interface {
 	DeviceName() string
 	Close() error
 	Wrapper() *DeviceWrapper // todo eliminate this function
+	SetTurnConn(conn interface{})
 }

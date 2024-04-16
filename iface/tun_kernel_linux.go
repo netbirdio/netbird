@@ -31,6 +31,11 @@ type tunKernelDevice struct {
 	udpMux     *bind.UniversalUDPMuxDefault
 }
 
+func (t *tunKernelDevice) SetTurnConn(interface{}) {
+	//TODO implement me
+	panic("implement me")
+}
+
 func newTunDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net) wgTunDevice {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &tunKernelDevice{

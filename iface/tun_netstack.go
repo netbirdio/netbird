@@ -30,6 +30,11 @@ type tunNetstackDevice struct {
 	configurer wgConfigurer
 }
 
+func (t *tunNetstackDevice) SetTurnConn(interface{}) {
+	//TODO implement me
+	panic("implement me")
+}
+
 func newTunNetstackDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net, listenAddress string) wgTunDevice {
 	return &tunNetstackDevice{
 		name:          name,

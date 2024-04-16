@@ -345,21 +345,28 @@ func (conn *Conn) Open() error {
 		log.Warnf("error while updating the state of peer %s,err: %v", conn.config.Key, err)
 	}
 
-	isControlling := conn.config.LocalKey > conn.config.Key
+	isControlling := conn.config.LocalKey < conn.config.Key
 	if isControlling {
+		log.Debugf("---- use this peer's tunr connection")
 		err = conn.turnRelay.PunchHole(remoteOfferAnswer.RemoteAddr)
 		if err != nil {
 			log.Errorf("failed to punch hole: %v", err)
 		}
-	} else {
-		/*
-			remoteConn, err := net.Dial("udp", remoteOfferAnswer.RemoteAddr.String())
-			if err != nil {
-				log.Errorf("failed to dial remote peer %s: %v", conn.config.Key, err)
+		addr, ok := remoteOfferAnswer.RemoteAddr.(*net.UDPAddr)
+		if !ok {
+			return fmt.Errorf("failed to cast addr to udp addr")
+		}
+		addr.Port = remoteOfferAnswer.WgListenPort
+		err := conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, addr, conn.config.WgConfig.PreSharedKey)
+		if err != nil {
+			if conn.wgProxy != nil {
+				_ = conn.wgProxy.CloseConn()
 			}
-
-		*/
-
+			// todo close
+			return err
+		}
+	} else {
+		log.Debugf("---- use remote peer tunr connection")
 		addr, ok := remoteOfferAnswer.RelayedAddr.(*net.UDPAddr)
 		if !ok {
 			return fmt.Errorf("failed to cast addr to udp addr")
@@ -414,13 +421,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 	defer conn.mu.Unlock()
 
 	var endpoint net.Addr
-	log.Debugf("setup relay connection")
-	conn.wgProxy = conn.wgProxyFactory.GetProxy()
-	endpoint, err := conn.wgProxy.AddTurnConn(remoteConn)
-	if err != nil {
-		return nil, err
-	}
-
+	endpoint = remoteConn.RemoteAddr()
 	endpointUdpAddr, _ := net.ResolveUDPAddr(endpoint.Network(), endpoint.String())
 	conn.remoteEndpoint = endpointUdpAddr
 	log.Debugf("Conn resolved IP for %s: %s", endpoint, endpointUdpAddr.IP)
@@ -432,7 +433,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 		}
 	}
 
-	err = conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, endpointUdpAddr, conn.config.WgConfig.PreSharedKey)
+	err := conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, endpointUdpAddr, conn.config.WgConfig.PreSharedKey)
 	if err != nil {
 		if conn.wgProxy != nil {
 			_ = conn.wgProxy.CloseConn()
