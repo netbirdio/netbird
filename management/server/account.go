@@ -1797,12 +1797,6 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		}
 		return account, nil
 	} else if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
-		unlockAccount := am.Store.AcquireAccountLock(domainAccount.Id)
-		defer unlockAccount()
-		domainAccount, err = am.Store.GetAccountByPrivateDomain(claims.Domain)
-		if err != nil {
-			return nil, err
-		}
 		return am.handleNewUserAccount(domainAccount, claims)
 	} else {
 		// other error
