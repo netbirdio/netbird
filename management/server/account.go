@@ -1789,7 +1789,11 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		}
 		domainAccount, err = am.Store.GetAccountByPrivateDomain(claims.Domain)
 		if err != nil {
-			return nil, err
+			// if NotFound we are good to continue, otherwise return error
+			e, ok := status.FromError(err)
+			if !ok || e.Type() != status.NotFound {
+				return nil, err
+			}
 		}
 		err = am.handleExistingUserAccount(account, domainAccount, claims)
 		if err != nil {
