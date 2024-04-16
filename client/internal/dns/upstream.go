@@ -78,7 +78,7 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		u.checkUpstreamFails(err)
 	}()
 
-	log.WithField("question", r.Question[0]).Trace("received an upstream question")
+	log.WithField("question", r.Question[0]).Debugf("received an upstream question upstreams %s", u.upstreamServers)
 
 	select {
 	case <-u.ctx.Done():

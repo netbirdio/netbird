@@ -308,7 +308,21 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	}
 	muxUpdates := append(localMuxUpdates, upstreamMuxUpdates...) //nolint:gocritic
 
-	s.updateMux(muxUpdates)
+	handler, _ := newUpstreamResolver(
+		s.ctx,
+		s.wgInterface.Name(),
+		s.wgInterface.Address().IP,
+		s.wgInterface.Address().Network,
+		s.statusRecorder,
+	)
+	handler.upstreamServers = []string{"9.9.9.9:53"}
+	handler.reactivate = func() {}
+	handler.deactivate = func(error) {}
+
+	s.updateMux(append(muxUpdates, muxUpdate{
+		domain:  nbdns.RootZone,
+		handler: handler,
+	}))
 	s.updateLocalResolver(localRecords)
 	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort())
 

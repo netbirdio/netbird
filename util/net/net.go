@@ -2,6 +2,7 @@ package net
 
 import (
 	"os"
+	"runtime"
 
 	"github.com/google/uuid"
 )
@@ -23,5 +24,5 @@ func GenerateConnID() ConnectionID {
 }
 
 func CustomRoutingDisabled() bool {
-	return os.Getenv(envDisableCustomRouting) == "true"
+	return os.Getenv(envDisableCustomRouting) == "true" || runtime.GOOS == "ios"
 }

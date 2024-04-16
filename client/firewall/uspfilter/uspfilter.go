@@ -250,11 +250,16 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet, isInco
 
 	switch ipLayer {
 	case layers.LayerTypeIPv4:
+		// log srcIP and DstIP
+		log.Infof("--------- srcIP: %v, dstIP: %v", d.ip4.SrcIP, d.ip4.DstIP)
 		if !m.wgNetwork.Contains(d.ip4.SrcIP) || !m.wgNetwork.Contains(d.ip4.DstIP) {
+			log.Infof("--------- srcIP: %v, dstIP: %v dropped", d.ip4.SrcIP, d.ip4.DstIP)
 			return false
 		}
 	case layers.LayerTypeIPv6:
+		log.Infof("--------- srcIP: %v, dstIP: %v", d.ip6.SrcIP, d.ip6.DstIP)
 		if !m.wgNetwork.Contains(d.ip6.SrcIP) || !m.wgNetwork.Contains(d.ip6.DstIP) {
+			log.Infof("--------- srcIP: %v, dstIP: %v dropped", d.ip6.SrcIP, d.ip6.DstIP)
 			return false
 		}
 	default:
@@ -265,18 +270,22 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet, isInco
 	var ip net.IP
 	switch ipLayer {
 	case layers.LayerTypeIPv4:
+		log.Infof("--------- srcIP: %v, dstIP: %v", d.ip4.SrcIP, d.ip4.DstIP)
 		if isIncomingPacket {
 			ip = d.ip4.SrcIP
 		} else {
 			ip = d.ip4.DstIP
 		}
 	case layers.LayerTypeIPv6:
+		log.Infof("--------- srcIP: %v, dstIP: %v", d.ip6.SrcIP, d.ip6.DstIP)
 		if isIncomingPacket {
 			ip = d.ip6.SrcIP
 		} else {
 			ip = d.ip6.DstIP
 		}
 	}
+
+	//
 
 	filter, ok := validateRule(ip, packetData, rules[ip.String()], d)
 	if ok {
@@ -295,8 +304,30 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet, isInco
 	return true
 }
 
-func validateRule(ip net.IP, packetData []byte, rules map[string]Rule, d *decoder) (bool, bool) {
+func validateRule(ip net.IP, packetData []byte, rules map[string]Rule, d *decoder) (f bool, o bool) {
+	ipLayer := d.decoded[0]
 	payloadLayer := d.decoded[1]
+	defer func() {
+		var src, dst net.IP
+		switch ipLayer {
+		case layers.LayerTypeIPv4:
+			src = d.ip4.SrcIP
+			dst = d.ip4.DstIP
+		case layers.LayerTypeIPv6:
+			src = d.ip6.SrcIP
+			dst = d.ip6.DstIP
+		}
+
+		switch payloadLayer {
+		case layers.LayerTypeTCP:
+			log.Infof("--------- TCP srcIP-Port: %v:%d, dstIP-Port: %v:%d Ver: %t,%t", src, uint16(d.tcp.SrcPort), dst, uint16(d.tcp.DstPort), f, o)
+		case layers.LayerTypeUDP:
+			log.Infof("--------- UDP srcIP-Port: %v:%d, dstIP-Port: %v:%d Ver: %t,%t", src, uint16(d.udp.SrcPort), dst, uint16(d.udp.DstPort), f, o)
+		default:
+			log.Infof("--------- srcIP: %v, dstIP: %v Ver: %t,%t", src, dst, f, o)
+		}
+	}()
+
 	for _, rule := range rules {
 		if rule.matchByIP && !ip.Equal(rule.ip) {
 			continue
