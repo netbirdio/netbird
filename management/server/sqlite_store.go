@@ -201,7 +201,7 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 	accCopy.RoutesG = make([]route.Route, 0, len(accCopy.Routes))
 	for id, route := range accCopy.Routes {
 		route.ID = id
-		//we need an explicit reference to the account as it is missing for some reason
+		//we need an explicit reference to the account for gorm
 		route.AccountID = accCopy.Id
 		accCopy.RoutesG = append(accCopy.RoutesG, *route)
 	}
