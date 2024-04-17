@@ -520,7 +520,7 @@ func newAccount(store Store, id int) error {
 }
 
 func randomIPv4() net.IP {
-	rand.Seed(time.Now().UnixNano())
+	rand.New(rand.NewSource(time.Now().UnixNano()))
 	b := make([]byte, 4)
 	for i := range b {
 		b[i] = byte(rand.Intn(256))
