@@ -110,7 +110,7 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	store := newSqliteStore(t)
 
 	testUserID := "testuser"
-	user := NewAdminUser(testUserID)
+	user := NewAdminUser(testUserID, "account_id")
 	user.PATs = map[string]*PersonalAccessToken{"testtoken": {
 		ID:   "testtoken",
 		Name: "test token",
