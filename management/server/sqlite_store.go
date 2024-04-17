@@ -141,6 +141,22 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 		account.SetupKeysG = append(account.SetupKeysG, *key)
 	}
 
+	const batchSize = 500
+
+	// Function to batch insert peers
+	batchInsertPeers := func(peers []nbpeer.Peer, tx *gorm.DB) error {
+		for i := 0; i < len(peers); i += batchSize {
+			end := i + batchSize
+			if end > len(peers) {
+				end = len(peers)
+			}
+			if err := tx.CreateInBatches(peers[i:end], batchSize).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	for id, peer := range account.Peers {
 		peer.ID = id
 		account.PeersG = append(account.PeersG, *peer)
@@ -188,18 +204,21 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 
 		result = tx.
 			Session(&gorm.Session{FullSaveAssociations: true}).
-			Clauses(clause.OnConflict{UpdateAll: true}).Create(account)
+			Clauses(clause.OnConflict{UpdateAll: true}).
+			Omit("PeersG").
+			Create(account)
 		if result.Error != nil {
 			return result.Error
 		}
-		return nil
+
+		return batchInsertPeers(account.PeersG, tx)
 	})
 
 	took := time.Since(start)
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountPersistenceDuration(took)
 	}
-	log.Debugf("took %d ms to persist an account to the SQLite", took.Milliseconds())
+	log.Debugf("took %d ms to persist an account %s to the SQLite store", took.Milliseconds(), account.Id)
 
 	return err
 }
