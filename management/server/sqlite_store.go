@@ -172,7 +172,7 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 	accCopy.PeersG = make([]nbpeer.Peer, 0, len(accCopy.Peers))
 	for id, peer := range accCopy.Peers {
 		peer.ID = id
-		//we need an explicit reference to the account as it is missing for some reason
+		//we need an explicit reference to the account for gorm
 		peer.AccountID = accCopy.Id
 		accCopy.PeersG = append(accCopy.PeersG, *peer)
 	}
