@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -134,27 +135,33 @@ func (s *SqliteStore) AcquireAccountLock(accountID string) (unlock func()) {
 	return unlock
 }
 
+func batchInsert(records interface{}, batchSize int, tx *gorm.DB) error {
+	// Get the reflect.Value of the records slice
+	v := reflect.ValueOf(records)
+	if v.Kind() != reflect.Slice {
+		return fmt.Errorf("provided input is not a slice")
+	}
+
+	// Insert records in batches
+	for i := 0; i < v.Len(); i += batchSize {
+		end := i + batchSize
+		if end > v.Len() {
+			end = v.Len()
+		}
+		// Use reflect.Slice to get a slice of the records for the current batch
+		batch := v.Slice(i, end).Interface()
+		if err := tx.CreateInBatches(batch, end-i).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *SqliteStore) SaveAccount(account *Account) error {
 	start := time.Now()
 
 	for _, key := range account.SetupKeys {
 		account.SetupKeysG = append(account.SetupKeysG, *key)
-	}
-
-	const batchSize = 500
-
-	// Function to batch insert peers
-	batchInsertPeers := func(peers []nbpeer.Peer, tx *gorm.DB) error {
-		for i := 0; i < len(peers); i += batchSize {
-			end := i + batchSize
-			if end > len(peers) {
-				end = len(peers)
-			}
-			if err := tx.CreateInBatches(peers[i:end], batchSize).Error; err != nil {
-				return err
-			}
-		}
-		return nil
 	}
 
 	for id, peer := range account.Peers {
@@ -205,13 +212,30 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 		result = tx.
 			Session(&gorm.Session{FullSaveAssociations: true}).
 			Clauses(clause.OnConflict{UpdateAll: true}).
-			Omit("PeersG").
+			Omit("PeersG", "GroupsG", "UsersG", "SetupKeysG", "RoutesG").
 			Create(account)
 		if result.Error != nil {
 			return result.Error
 		}
 
-		return batchInsertPeers(account.PeersG, tx)
+		const batchSize = 500
+		err := batchInsert(account.PeersG, batchSize, tx)
+		if err != nil {
+			return err
+		}
+		err = batchInsert(account.UsersG, batchSize, tx)
+		if err != nil {
+			return err
+		}
+		err = batchInsert(account.GroupsG, batchSize, tx)
+		if err != nil {
+			return err
+		}
+		err = batchInsert(account.RoutesG, batchSize, tx)
+		if err != nil {
+			return err
+		}
+		return batchInsert(account.SetupKeysG, batchSize, tx)
 	})
 
 	took := time.Since(start)
