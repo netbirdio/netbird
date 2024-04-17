@@ -180,7 +180,7 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 	accCopy.UsersG = make([]User, 0, len(accCopy.Users))
 	for id, user := range accCopy.Users {
 		user.Id = id
-		//we need an explicit reference to an account as it is missing for some reason
+		//we need an explicit reference to the account for gorm
 		user.AccountID = accCopy.Id
 		user.PATsG = make([]PersonalAccessToken, 0, len(user.PATs))
 		for id, pat := range user.PATs {
