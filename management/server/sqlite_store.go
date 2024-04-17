@@ -212,6 +212,14 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 		accCopy.NameServerGroupsG = append(accCopy.NameServerGroupsG, *ns)
 	}
 
+	accCopy.SetupKeysG = make([]SetupKey, 0, len(accCopy.SetupKeys))
+	for id, key := range accCopy.SetupKeys {
+		key.Id = id
+		//we need an explicit reference to the account as it is missing for some reason
+		key.AccountID = accCopy.Id
+		accCopy.SetupKeysG = append(accCopy.SetupKeysG, *key)
+	}
+
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.Select(clause.Associations).Delete(accCopy.Policies, "account_id = ?", accCopy.Id)
 		if result.Error != nil {
@@ -231,7 +239,7 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 		result = tx.
 			Session(&gorm.Session{FullSaveAssociations: true}).
 			Clauses(clause.OnConflict{UpdateAll: true}).
-			Omit("PeersG", "GroupsG", "UsersG", "SetupKeysG", "RoutesG").
+			Omit("PeersG", "GroupsG", "UsersG", "SetupKeysG", "RoutesG", "NameServerGroupsG").
 			Create(accCopy)
 		if result.Error != nil {
 			return result.Error
@@ -254,7 +262,11 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 		if err != nil {
 			return err
 		}
-		return batchInsert(accCopy.SetupKeysG, batchSize, tx)
+		err = batchInsert(accCopy.SetupKeysG, batchSize, tx)
+		if err != nil {
+			return err
+		}
+		return batchInsert(accCopy.NameServerGroupsG, batchSize, tx)
 	})
 
 	took := time.Since(start)
