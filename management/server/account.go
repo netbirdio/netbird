@@ -1092,13 +1092,15 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	}
 	delete(userData, idp.UnsetAccountID)
 
+	rcvdUsers := 0
 	for accountID, users := range userData {
+		rcvdUsers += len(users)
 		err = am.cacheManager.Set(am.ctx, accountID, users, cacheStore.WithExpiration(cacheEntryExpiration()))
 		if err != nil {
 			return err
 		}
 	}
-	log.Infof("warmed up IDP cache with %d entries", len(userData))
+	log.Infof("warmed up IDP cache with %d entries for %d accounts", rcvdUsers, len(userData))
 	return nil
 }
 
@@ -1649,7 +1651,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 		return nil, nil, status.Errorf(status.NotFound, "user %s not found", claims.UserId)
 	}
 
-	if !user.IsServiceUser {
+	if !user.IsServiceUser && claims.Invited {
 		err = am.redeemInvite(account, claims.UserId)
 		if err != nil {
 			return nil, nil, err
