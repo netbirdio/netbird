@@ -1473,7 +1473,7 @@ func (am *DefaultAccountManager) handleNewUserAccount(domainAcc *Account, claims
 	// if domain already has a primary account, add regular user
 	if domainAcc != nil {
 		account = domainAcc
-		account.Users[claims.UserId] = NewRegularUser(claims.UserId)
+		account.Users[claims.UserId] = NewRegularUser(claims.UserId, account.Id)
 		err = am.Store.SaveAccount(account)
 		if err != nil {
 			return nil, err
@@ -1862,9 +1862,10 @@ func (am *DefaultAccountManager) onPeersInvalidated(accountID string) {
 func addAllGroup(account *Account) error {
 	if len(account.Groups) == 0 {
 		allGroup := &nbgroup.Group{
-			ID:     xid.New().String(),
-			Name:   "All",
-			Issued: nbgroup.GroupIssuedAPI,
+			ID:        xid.New().String(),
+			Name:      "All",
+			Issued:    nbgroup.GroupIssuedAPI,
+			AccountID: account.Id,
 		}
 		for _, peer := range account.Peers {
 			allGroup.Peers = append(allGroup.Peers, peer.ID)
@@ -1908,7 +1909,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 	routes := make(map[string]*route.Route)
 	setupKeys := map[string]*SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
-	users[userID] = NewOwnerUser(userID)
+	users[userID] = NewOwnerUser(userID, accountID)
 	dnsSettings := DNSSettings{
 		DisabledManagementGroups: make([]string, 0),
 	}

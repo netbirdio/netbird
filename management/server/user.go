@@ -180,9 +180,11 @@ func (u *User) Copy() *User {
 }
 
 // NewUser creates a new user
-func NewUser(id string, role UserRole, isServiceUser bool, nonDeletable bool, serviceUserName string, autoGroups []string, issued string) *User {
+func NewUser(ID string, role UserRole, isServiceUser bool, nonDeletable bool, serviceUserName string, autoGroups []string, issued string,
+	accountID string) *User {
 	return &User{
-		Id:              id,
+		Id:              ID,
+		AccountID:       accountID,
 		Role:            role,
 		IsServiceUser:   isServiceUser,
 		NonDeletable:    nonDeletable,
@@ -194,22 +196,26 @@ func NewUser(id string, role UserRole, isServiceUser bool, nonDeletable bool, se
 }
 
 // NewRegularUser creates a new user with role UserRoleUser
-func NewRegularUser(id string) *User {
-	return NewUser(id, UserRoleUser, false, false, "", []string{}, UserIssuedAPI)
+func NewRegularUser(ID, accountID string) *User {
+	return NewUser(ID, UserRoleUser, false, false, "", []string{}, UserIssuedAPI,
+		accountID)
 }
 
 // NewAdminUser creates a new user with role UserRoleAdmin
-func NewAdminUser(id string) *User {
-	return NewUser(id, UserRoleAdmin, false, false, "", []string{}, UserIssuedAPI)
+func NewAdminUser(ID, accountID string) *User {
+	return NewUser(ID, UserRoleAdmin, false, false, "", []string{}, UserIssuedAPI,
+		accountID)
 }
 
 // NewOwnerUser creates a new user with role UserRoleOwner
-func NewOwnerUser(id string) *User {
-	return NewUser(id, UserRoleOwner, false, false, "", []string{}, UserIssuedAPI)
+func NewOwnerUser(ID, accountID string) *User {
+	return NewUser(ID, UserRoleOwner, false, false, "", []string{}, UserIssuedAPI,
+		accountID)
 }
 
 // createServiceUser creates a new service user under the given account.
-func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUserID string, role UserRole, serviceUserName string, nonDeletable bool, autoGroups []string) (*UserInfo, error) {
+func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUserID string, role UserRole,
+	serviceUserName string, nonDeletable bool, autoGroups []string) (*UserInfo, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -231,7 +237,7 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUs
 	}
 
 	newUserID := uuid.New().String()
-	newUser := NewUser(newUserID, role, true, nonDeletable, serviceUserName, autoGroups, UserIssuedAPI)
+	newUser := NewUser(newUserID, role, true, nonDeletable, serviceUserName, autoGroups, UserIssuedAPI, accountID)
 	log.Debugf("New User: %v", newUser)
 	account.Users[newUserID] = newUser
 
