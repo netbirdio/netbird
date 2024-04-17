@@ -170,13 +170,15 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 	accCopy.PeersG = make([]nbpeer.Peer, 0, len(accCopy.Peers))
 	for id, peer := range accCopy.Peers {
 		peer.ID = id
-		peer.AccountID = account.Id
+		//we need an explicit reference to the account as it is missing for some reason
+		peer.AccountID = accCopy.Id
 		accCopy.PeersG = append(accCopy.PeersG, *peer)
 	}
 
 	accCopy.UsersG = make([]User, 0, len(accCopy.Users))
 	for id, user := range accCopy.Users {
 		user.Id = id
+		//we need an explicit reference to an account as it is missing for some reason
 		user.AccountID = accCopy.Id
 		user.PATsG = make([]PersonalAccessToken, 0, len(user.PATs))
 		for id, pat := range user.PATs {
@@ -189,6 +191,7 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 	accCopy.GroupsG = make([]nbgroup.Group, 0, len(accCopy.Groups))
 	for id, group := range accCopy.Groups {
 		group.ID = id
+		//we need an explicit reference to the account as it is missing for some reason
 		group.AccountID = accCopy.Id
 		accCopy.GroupsG = append(accCopy.GroupsG, *group)
 	}
@@ -196,6 +199,7 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 	accCopy.RoutesG = make([]route.Route, 0, len(accCopy.Routes))
 	for id, route := range accCopy.Routes {
 		route.ID = id
+		//we need an explicit reference to the account as it is missing for some reason
 		route.AccountID = accCopy.Id
 		accCopy.RoutesG = append(accCopy.RoutesG, *route)
 	}
@@ -203,6 +207,7 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 	accCopy.NameServerGroupsG = make([]nbdns.NameServerGroup, 0, len(accCopy.NameServerGroups))
 	for id, ns := range accCopy.NameServerGroups {
 		ns.ID = id
+		//we need an explicit reference to the account as it is missing for some reason
 		ns.AccountID = accCopy.Id
 		accCopy.NameServerGroupsG = append(accCopy.NameServerGroupsG, *ns)
 	}
