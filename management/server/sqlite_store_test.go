@@ -107,6 +107,9 @@ func TestSqlite_SaveAccount_Large(t *testing.T) {
 			SearchDomainsEnabled: false,
 		}
 		account.NameServerGroups[nameserver.ID] = nameserver
+
+		setupKey := GenerateDefaultSetupKey()
+		account.SetupKeys[setupKey.Id] = setupKey
 	}
 
 	err = store.SaveAccount(account)
@@ -151,6 +154,18 @@ func TestSqlite_SaveAccount_Large(t *testing.T) {
 	if a != nil && len(a.NameServerGroups) != numPerAccount {
 		t.Errorf("expecting Account to have %d NameServerGroups stored after SaveAccount(), got %d",
 			numPerAccount, len(a.NameServerGroups))
+		return
+	}
+
+	if a != nil && len(a.NameServerGroups) != numPerAccount {
+		t.Errorf("expecting Account to have %d NameServerGroups stored after SaveAccount(), got %d",
+			numPerAccount, len(a.NameServerGroups))
+		return
+	}
+
+	if a != nil && len(a.SetupKeys) != numPerAccount+1 {
+		t.Errorf("expecting Account to have %d SetupKeys stored after SaveAccount(), got %d",
+			numPerAccount+1, len(a.SetupKeys))
 		return
 	}
 }

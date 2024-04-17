@@ -163,7 +163,10 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 	// operate over a fresh copy as we will modify its fields
 	accCopy := account.Copy()
 	accCopy.SetupKeysG = make([]SetupKey, 0, len(accCopy.SetupKeys))
-	for _, key := range accCopy.SetupKeys {
+	for id, key := range accCopy.SetupKeys {
+		key.Id = id
+		//we need an explicit reference to the account as it is missing for some reason
+		key.AccountID = accCopy.Id
 		accCopy.SetupKeysG = append(accCopy.SetupKeysG, *key)
 	}
 
