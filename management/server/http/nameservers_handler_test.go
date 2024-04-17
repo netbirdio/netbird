@@ -32,7 +32,7 @@ var testingNSAccount = &server.Account{
 	Id:     testNSGroupAccountID,
 	Domain: "hotmail.com",
 	Users: map[string]*server.User{
-		"test_user": server.NewAdminUser("test_user"),
+		"test_user": server.NewAdminUser("test_user", "account_id"),
 	},
 }
 

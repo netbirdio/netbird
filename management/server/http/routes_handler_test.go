@@ -75,7 +75,7 @@ var testingAccount = &server.Account{
 		},
 	},
 	Users: map[string]*server.User{
-		"test_user": server.NewAdminUser("test_user"),
+		"test_user": server.NewAdminUser("test_user", "account_id"),
 	},
 }
 

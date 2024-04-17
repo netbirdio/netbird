@@ -196,7 +196,7 @@ func TestEvents_GetEvents(t *testing.T) {
 		},
 	}
 	accountID := "test_account"
-	adminUser := server.NewAdminUser("test_user")
+	adminUser := server.NewAdminUser("test_user", "account_id")
 	events := generateEvents(accountID, adminUser.Id)
 	handler := initEventsTestData(accountID, adminUser, events...)
 
