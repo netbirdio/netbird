@@ -281,6 +281,19 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 func (s *SqliteStore) DeleteAccount(account *Account) error {
 	start := time.Now()
 
+	account.UsersG = make([]User, 0, len(account.Users))
+	for id, user := range account.Users {
+		user.Id = id
+		//we need an explicit reference to an account as it is missing for some reason
+		user.AccountID = account.Id
+		user.PATsG = make([]PersonalAccessToken, 0, len(user.PATs))
+		for id, pat := range user.PATs {
+			pat.ID = id
+			user.PATsG = append(user.PATsG, *pat)
+		}
+		account.UsersG = append(account.UsersG, *user)
+	}
+
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.Select(clause.Associations).Delete(account.Policies, "account_id = ?", account.Id)
 		if result.Error != nil {
