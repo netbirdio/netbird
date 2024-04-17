@@ -95,18 +95,18 @@ func (wm *DefaultScheduler) Schedule(in time.Duration, ID string, job func() (ne
 			case <-ticker.C:
 				select {
 				case <-cancel:
-					log.Debugf("scheduled job %s was canceled, stop timer", ID)
+					log.Tracef("scheduled job %s was canceled, stop timer", ID)
 					ticker.Stop()
 					return
 				default:
-					log.Debugf("time to do a scheduled job %s", ID)
+					log.Tracef("time to do a scheduled job %s", ID)
 				}
 				runIn, reschedule := job()
 				if !reschedule {
 					wm.mu.Lock()
 					defer wm.mu.Unlock()
 					delete(wm.jobs, ID)
-					log.Debugf("job %s is not scheduled to run again", ID)
+					log.Tracef("job %s is not scheduled to run again", ID)
 					ticker.Stop()
 					return
 				}
@@ -115,7 +115,7 @@ func (wm *DefaultScheduler) Schedule(in time.Duration, ID string, job func() (ne
 					ticker.Reset(runIn)
 				}
 			case <-cancel:
-				log.Debugf("job %s was canceled, stopping timer", ID)
+				log.Tracef("job %s was canceled, stopping timer", ID)
 				ticker.Stop()
 				return
 			}
