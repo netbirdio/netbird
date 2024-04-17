@@ -193,7 +193,7 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 	accCopy.GroupsG = make([]nbgroup.Group, 0, len(accCopy.Groups))
 	for id, group := range accCopy.Groups {
 		group.ID = id
-		//we need an explicit reference to the account as it is missing for some reason
+		//we need an explicit reference to the account for gorm
 		group.AccountID = accCopy.Id
 		accCopy.GroupsG = append(accCopy.GroupsG, *group)
 	}
