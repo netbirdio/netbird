@@ -214,14 +214,6 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 		accCopy.NameServerGroupsG = append(accCopy.NameServerGroupsG, *ns)
 	}
 
-	accCopy.SetupKeysG = make([]SetupKey, 0, len(accCopy.SetupKeys))
-	for id, key := range accCopy.SetupKeys {
-		key.Id = id
-		//we need an explicit reference to the account as it is missing for some reason
-		key.AccountID = accCopy.Id
-		accCopy.SetupKeysG = append(accCopy.SetupKeysG, *key)
-	}
-
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.Select(clause.Associations).Delete(accCopy.Policies, "account_id = ?", accCopy.Id)
 		if result.Error != nil {
