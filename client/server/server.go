@@ -15,14 +15,14 @@ import (
 
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	"github.com/netbirdio/netbird/client/internal/auth"
-	"github.com/netbirdio/netbird/client/system"
-
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/system"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -57,6 +57,10 @@ type Server struct {
 	config *internal.Config
 	proto.UnimplementedDaemonServiceServer
 
+	engine *internal.Engine
+
+	routeSelector *RouteSelector
+
 	statusRecorder *peer.Status
 	sessionWatcher *internal.SessionWatcher
 
@@ -81,11 +85,12 @@ func New(ctx context.Context, configPath, logFile string) *Server {
 		latestConfigInput: internal.ConfigInput{
 			ConfigPath: configPath,
 		},
-		logFile:     logFile,
-		mgmProbe:    internal.NewProbe(),
-		signalProbe: internal.NewProbe(),
-		relayProbe:  internal.NewProbe(),
-		wgProbe:     internal.NewProbe(),
+		logFile:       logFile,
+		routeSelector: NewRouteSelector(),
+		mgmProbe:      internal.NewProbe(),
+		signalProbe:   internal.NewProbe(),
+		relayProbe:    internal.NewProbe(),
+		wgProbe:       internal.NewProbe(),
 	}
 }
 
@@ -141,8 +146,11 @@ func (s *Server) Start() error {
 		s.sessionWatcher.SetOnExpireListener(s.onSessionExpire)
 	}
 
+	engineChan := make(chan *internal.Engine, 1)
+	go s.watchEngine(ctx, engineChan)
+
 	if !config.DisableAutoConnect {
-		go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe)
+		go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe, engineChan)
 	}
 
 	return nil
@@ -153,6 +161,7 @@ func (s *Server) Start() error {
 // we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
 func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Config, statusRecorder *peer.Status,
 	mgmProbe *internal.Probe, signalProbe *internal.Probe, relayProbe *internal.Probe, wgProbe *internal.Probe,
+	engineChan chan<- *internal.Engine,
 ) {
 	backOff := getConnectWithBackoff(ctx)
 	retryStarted := false
@@ -182,7 +191,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 
 	runOperation := func() error {
 		log.Tracef("running client connection")
-		err := internal.RunClientWithProbes(ctx, config, statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe)
+		err := internal.RunClientWithProbes(ctx, config, statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe, engineChan)
 		if err != nil {
 			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
 		}
@@ -562,7 +571,10 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
-	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe)
+	engineChan := make(chan *internal.Engine, 1)
+	go s.watchEngine(ctx, engineChan)
+
+	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe, engineChan)
 
 	return &proto.UpResponse{}, nil
 }
@@ -578,6 +590,8 @@ func (s *Server) Down(_ context.Context, _ *proto.DownRequest) (*proto.DownRespo
 	s.actCancel()
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusIdle)
+
+	s.engine = nil
 
 	return &proto.DownResponse{}, nil
 }
@@ -661,7 +675,6 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 		PreSharedKey:  preSharedKey,
 	}, nil
 }
-
 func (s *Server) onSessionExpire() {
 	if runtime.GOOS != "windows" {
 		isUIActive := internal.CheckUIApp()
@@ -669,6 +682,22 @@ func (s *Server) onSessionExpire() {
 			if err := sendTerminalNotification(); err != nil {
 				log.Errorf("send session expire terminal notification: %v", err)
 			}
+		}
+	}
+}
+
+// watchEngine watches the engine channel and updates the engine state
+func (s *Server) watchEngine(ctx context.Context, engineChan chan *internal.Engine) {
+	log.Tracef("Started watching engine")
+	for {
+		select {
+		case <-ctx.Done():
+			s.engine = nil
+			log.Tracef("Stopped watching engine")
+			return
+		case engine := <-engineChan:
+			log.Tracef("Received engine from watcher")
+			s.engine = engine
 		}
 	}
 }

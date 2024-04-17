@@ -111,6 +111,9 @@ type Engine struct {
 	// TURNs is a list of STUN servers used by ICE
 	TURNs []*stun.URI
 
+	// clientRoutes is the most recent list of clientRoutes received from the Management Service
+	clientRoutes map[string][]*route.Route
+
 	cancel context.CancelFunc
 
 	ctx context.Context
@@ -215,6 +218,8 @@ func (e *Engine) Stop() error {
 	if err != nil {
 		return err
 	}
+
+	e.clientRoutes = nil
 
 	// very ugly but we want to remove peers from the WireGuard interface first before removing interface.
 	// Removing peers happens in the conn.CLose() asynchronously
@@ -695,10 +700,13 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	if protoRoutes == nil {
 		protoRoutes = []*mgmProto.Route{}
 	}
-	err := e.routeManager.UpdateRoutes(serial, toRoutes(protoRoutes))
+
+	_, clientRoutes, err := e.routeManager.UpdateRoutes(serial, toRoutes(protoRoutes))
 	if err != nil {
-		log.Errorf("failed to update routes, err: %v", err)
+		log.Errorf("failed to update clientRoutes, err: %v", err)
 	}
+
+	e.clientRoutes = clientRoutes
 
 	protoDNSConfig := networkMap.GetDNSConfig()
 	if protoDNSConfig == nil {
@@ -1328,4 +1336,8 @@ func (e *Engine) probeSTUNs() []relay.ProbeResult {
 
 func (e *Engine) probeTURNs() []relay.ProbeResult {
 	return relay.ProbeAll(e.ctx, relay.ProbeTURN, e.TURNs)
+}
+
+func (e *Engine) GetRoutes() map[string][]*route.Route {
+	return e.clientRoutes
 }

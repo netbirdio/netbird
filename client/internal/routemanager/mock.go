@@ -13,7 +13,7 @@ import (
 
 // MockManager is the mock instance of a route manager
 type MockManager struct {
-	UpdateRoutesFunc func(updateSerial uint64, newRoutes []*route.Route) error
+	UpdateRoutesFunc func(updateSerial uint64, newRoutes []*route.Route) (map[string]*route.Route, map[string][]*route.Route, error)
 	StopFunc         func()
 }
 
@@ -27,11 +27,11 @@ func (m *MockManager) InitialRouteRange() []string {
 }
 
 // UpdateRoutes mock implementation of UpdateRoutes from Manager interface
-func (m *MockManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error {
+func (m *MockManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[string]*route.Route, map[string][]*route.Route, error) {
 	if m.UpdateRoutesFunc != nil {
 		return m.UpdateRoutesFunc(updateSerial, newRoutes)
 	}
-	return fmt.Errorf("method UpdateRoutes is not implemented")
+	return nil, nil, fmt.Errorf("method UpdateRoutes is not implemented")
 }
 
 // Start mock implementation of Start from Manager interface

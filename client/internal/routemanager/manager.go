@@ -28,7 +28,7 @@ var defaultv6 = netip.PrefixFrom(netip.IPv6Unspecified(), 0)
 // Manager is a route manager interface
 type Manager interface {
 	Init() (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error)
-	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error
+	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[string]*route.Route, map[string][]*route.Route, error)
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
 	EnableServerRouter(firewall firewall.Manager) error
@@ -117,11 +117,11 @@ func (m *DefaultManager) Stop() {
 }
 
 // UpdateRoutes compares received routes with existing routes and removes, updates or adds them to the client and server maps
-func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error {
+func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[string]*route.Route, map[string][]*route.Route, error) {
 	select {
 	case <-m.ctx.Done():
 		log.Infof("not updating routes as context is closed")
-		return m.ctx.Err()
+		return nil, nil, m.ctx.Err()
 	default:
 		m.mux.Lock()
 		defer m.mux.Unlock()
@@ -134,11 +134,11 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 		if m.serverRouter != nil {
 			err := m.serverRouter.updateRoutes(newServerRoutesMap)
 			if err != nil {
-				return fmt.Errorf("update routes: %w", err)
+				return nil, nil, fmt.Errorf("update routes: %w", err)
 			}
 		}
 
-		return nil
+		return newServerRoutesMap, newClientRoutesIDMap, nil
 	}
 }
 
