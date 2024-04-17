@@ -109,7 +109,7 @@ func TestSqlite_SaveAccount_Large(t *testing.T) {
 		account.NameServerGroups[nameserver.ID] = nameserver
 
 		setupKey := GenerateDefaultSetupKey()
-		account.SetupKeys[setupKey.Id] = setupKey
+		account.SetupKeys[setupKey.Key] = setupKey
 	}
 
 	err = store.SaveAccount(account)
