@@ -67,7 +67,7 @@ func TestMigrateFieldFromGobToJSON_WithGobData(t *testing.T) {
 
 	var jsonStr string
 	db.Model(&server.Account{}).Select("network_net").First(&jsonStr)
-	assert.JSONEq(t, `{"IP":"10.0.0.0","Mask":"////AA=="}`, jsonStr, "Data should be unchanged")
+	assert.JSONEq(t, `{"IP":"10.0.0.0","Mask":"////AA=="}`, jsonStr, "Data should be migrated")
 }
 
 func TestMigrateFieldFromGobToJSON_WithJSONData(t *testing.T) {
