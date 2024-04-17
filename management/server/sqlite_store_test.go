@@ -173,6 +173,12 @@ func TestSqlite_SaveAccount(t *testing.T) {
 		Name:     "peer name",
 		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
+	admin := account.Users["testuser"]
+	admin.PATs = map[string]*PersonalAccessToken{"testtoken": {
+		ID:          "testtoken",
+		Name:        "test token",
+		HashedToken: "hashed token",
+	}}
 
 	err := store.SaveAccount(account)
 	require.NoError(t, err)
