@@ -52,7 +52,7 @@ func TestMigrateFieldFromGobToJSON_WithGobData(t *testing.T) {
 		Network *network `gorm:"embedded;embeddedPrefix:network_"`
 	}
 
-	err = db.Save(&account{Network: &network{Net: *ipnet}}).Error
+	err = db.Save(&account{Account: server.Account{Id: "123"}, Network: &network{Net: *ipnet}}).Error
 	require.NoError(t, err, "Failed to insert Gob data")
 
 	var gobStr string
