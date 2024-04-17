@@ -209,7 +209,7 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 	accCopy.NameServerGroupsG = make([]nbdns.NameServerGroup, 0, len(accCopy.NameServerGroups))
 	for id, ns := range accCopy.NameServerGroups {
 		ns.ID = id
-		//we need an explicit reference to the account as it is missing for some reason
+		//we need an explicit reference to the account for gorm
 		ns.AccountID = accCopy.Id
 		accCopy.NameServerGroupsG = append(accCopy.NameServerGroupsG, *ns)
 	}
