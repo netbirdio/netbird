@@ -12,7 +12,8 @@ import (
 )
 
 // MigrateFieldFromGobToJSON migrates a column from Gob encoding to JSON encoding.
-// T is the type of the data expected in the Gob-encoded column.
+// T is the type of the model that contains the field to be migrated.
+// S is the type of the field to be migrated.
 func MigrateFieldFromGobToJSON[T any, S any](db *gorm.DB, fieldName string) error {
 
 	oldColumnName := fieldName
