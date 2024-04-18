@@ -54,7 +54,7 @@ func (t *tunUSPDevice) Create() (wgConfigurer, error) {
 	t.device = device.NewDevice(
 		t.wrapper,
 		t.iceBind,
-		device.NewLogger(device.LogLevelVerbose, "[netbird] "),
+		device.NewLogger(device.LogLevelError, "[netbird] "),
 	)
 
 	err = t.assignAddr()

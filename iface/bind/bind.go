@@ -76,7 +76,6 @@ func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketC
 				msg := &(*msgs)[0]
 				msg.N, msg.Addr, err = netConn.ReadFrom(msg.Buffers[0])
 				if err != nil {
-					log.Debugf("read err from turn server: %v", err)
 					return 0, err
 				}
 				log.Debugf("----msg address is: %s, size: %d", msg.Addr.String(), msg.N)

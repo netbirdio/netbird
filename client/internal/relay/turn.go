@@ -87,6 +87,20 @@ func (r *PermanentTurn) RelayConn() net.PacketConn {
 	return r.relayConn
 }
 
+func (r *PermanentTurn) Close() {
+	r.turnClient.Close()
+
+	err := r.relayConn.Close()
+	if err != nil {
+		log.Errorf("failed to close relayConn: %s", err.Error())
+	}
+
+	err = r.stunConn.Close()
+	if err != nil {
+		log.Errorf("failed to close stunConn: %s", err.Error())
+	}
+}
+
 func (r *PermanentTurn) discoverPublicIP() (*net.UDPAddr, error) {
 	addr, err := r.turnClient.SendBindingRequest()
 	if err != nil {

@@ -200,6 +200,7 @@ func NewEngineWithProbes(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
+		wgProxyFactory: &wgproxy.Factory{},
 		mgmProbe:       mgmProbe,
 		signalProbe:    signalProbe,
 		relayProbe:     relayProbe,
@@ -1156,6 +1157,8 @@ func (e *Engine) close() {
 	if err := e.wgProxyFactory.Free(); err != nil {
 		log.Errorf("failed closing ebpf proxy: %s", err)
 	}
+
+	e.turnRelay.Close()
 
 	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
 	if e.dnsServer != nil {

@@ -143,7 +143,7 @@ func (m *Manager) AllowNetbird() error {
 	}
 
 	if rule := m.detectAllowNetbirdRule(rules); rule != nil {
-		log.Debugf("allow netbird rule already exists: %v", rule)
+		log.Debugf("allow netbird rule already exists: %#v", rule)
 		return nil
 	}
 
