@@ -124,7 +124,7 @@ func TestGetGroup(t *testing.T) {
 		Name: "Group",
 	}
 
-	adminUser := server.NewAdminUser("test_user")
+	adminUser := server.NewAdminUser("test_user", "account_id")
 	p := initGroupTestData(adminUser, group)
 
 	for _, tc := range tt {
@@ -246,7 +246,7 @@ func TestWriteGroup(t *testing.T) {
 		},
 	}
 
-	adminUser := server.NewAdminUser("test_user")
+	adminUser := server.NewAdminUser("test_user", "account_id")
 	p := initGroupTestData(adminUser)
 
 	for _, tc := range tt {
@@ -324,7 +324,7 @@ func TestDeleteGroup(t *testing.T) {
 		},
 	}
 
-	adminUser := server.NewAdminUser("test_user")
+	adminUser := server.NewAdminUser("test_user", "account_id")
 	p := initGroupTestData(adminUser)
 
 	for _, tc := range tt {

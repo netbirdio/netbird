@@ -97,7 +97,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 	defaultSetupKey := server.GenerateDefaultSetupKey()
 	defaultSetupKey.Id = existingSetupKeyID
 
-	adminUser := server.NewAdminUser("test_user")
+	adminUser := server.NewAdminUser("test_user", "account_id")
 
 	newSetupKey := server.GenerateSetupKey(newSetupKeyName, server.SetupKeyReusable, 0, []string{"group-1"},
 		server.SetupKeyUnlimitedUsage, true)

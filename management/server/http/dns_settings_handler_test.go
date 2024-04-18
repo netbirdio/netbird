@@ -34,7 +34,7 @@ var testingDNSSettingsAccount = &server.Account{
 	Id:     testDNSSettingsAccountID,
 	Domain: "hotmail.com",
 	Users: map[string]*server.User{
-		testDNSSettingsUserID: server.NewAdminUser("test_user"),
+		testDNSSettingsUserID: server.NewAdminUser("test_user", "account_id"),
 	},
 	DNSSettings: baseExistingDNSSettings,
 }

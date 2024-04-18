@@ -679,8 +679,8 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 func TestDefaultAccountManager_ListUsers(t *testing.T) {
 	store := newStore(t)
 	account := newAccountWithId(mockAccountID, mockUserID, "")
-	account.Users["normal_user1"] = NewRegularUser("normal_user1")
-	account.Users["normal_user2"] = NewRegularUser("normal_user2")
+	account.Users["normal_user1"] = NewRegularUser("normal_user1", mockAccountID)
+	account.Users["normal_user2"] = NewRegularUser("normal_user2", mockAccountID)
 
 	err := store.SaveAccount(account)
 	if err != nil {
@@ -760,7 +760,7 @@ func TestDefaultAccountManager_ListUsers_DashboardPermissions(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			store := newStore(t)
 			account := newAccountWithId(mockAccountID, mockUserID, "")
-			account.Users["normal_user1"] = NewUser("normal_user1", testCase.role, false, false, "", []string{}, UserIssuedAPI)
+			account.Users["normal_user1"] = NewUser("normal_user1", testCase.role, false, false, "", []string{}, UserIssuedAPI, mockAccountID)
 			account.Settings.RegularUsersViewBlocked = testCase.limitedViewSettings
 			delete(account.Users, mockUserID)
 
@@ -844,10 +844,10 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 
 func TestUser_IsAdmin(t *testing.T) {
 
-	user := NewAdminUser(mockUserID)
+	user := NewAdminUser(mockUserID, mockAccountID)
 	assert.True(t, user.HasAdminPower())
 
-	user = NewRegularUser(mockUserID)
+	user = NewRegularUser(mockUserID, mockAccountID)
 	assert.False(t, user.HasAdminPower())
 }
 
@@ -1055,8 +1055,8 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 			}
 
 			// create other users
-			account.Users[regularUserID] = NewRegularUser(regularUserID)
-			account.Users[adminUserID] = NewAdminUser(adminUserID)
+			account.Users[regularUserID] = NewRegularUser(regularUserID, account.Id)
+			account.Users[adminUserID] = NewAdminUser(adminUserID, account.Id)
 			account.Users[serviceUserID] = &User{IsServiceUser: true, Id: serviceUserID, Role: UserRoleAdmin, ServiceUserName: "service"}
 			err = manager.Store.SaveAccount(account)
 			if err != nil {

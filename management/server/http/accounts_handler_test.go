@@ -54,7 +54,7 @@ func initAccountsTestData(account *server.Account, admin *server.User) *Accounts
 
 func TestAccounts_AccountsHandler(t *testing.T) {
 	accountID := "test_account"
-	adminUser := server.NewAdminUser("test_user")
+	adminUser := server.NewAdminUser("test_user", "account_id")
 
 	sr := func(v string) *string { return &v }
 	br := func(v bool) *bool { return &v }

@@ -67,7 +67,7 @@ func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksH
 				return accountPostureChecks, nil
 			},
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
-				user := server.NewAdminUser("test_user")
+				user := server.NewAdminUser("test_user", "account_id")
 				return &server.Account{
 					Id: claims.AccountId,
 					Users: map[string]*server.User{

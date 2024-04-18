@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -134,78 +135,158 @@ func (s *SqliteStore) AcquireAccountLock(accountID string) (unlock func()) {
 	return unlock
 }
 
+func batchInsert(records interface{}, batchSize int, tx *gorm.DB) error {
+	// Get the reflect.Value of the records slice
+	v := reflect.ValueOf(records)
+	if v.Kind() != reflect.Slice {
+		return fmt.Errorf("provided input is not a slice")
+	}
+
+	// Insert records in batches
+	for i := 0; i < v.Len(); i += batchSize {
+		end := i + batchSize
+		if end > v.Len() {
+			end = v.Len()
+		}
+		// Use reflect.Slice to get a slice of the records for the current batch
+		batch := v.Slice(i, end).Interface()
+		if err := tx.CreateInBatches(batch, end-i).Debug().Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *SqliteStore) SaveAccount(account *Account) error {
 	start := time.Now()
 
-	for _, key := range account.SetupKeys {
-		account.SetupKeysG = append(account.SetupKeysG, *key)
+	// operate over a fresh copy as we will modify its fields
+	accCopy := account.Copy()
+	accCopy.SetupKeysG = make([]SetupKey, 0, len(accCopy.SetupKeys))
+	for _, key := range accCopy.SetupKeys {
+		//we need an explicit reference to the account for gorm
+		key.AccountID = accCopy.Id
+		accCopy.SetupKeysG = append(accCopy.SetupKeysG, *key)
 	}
 
-	for id, peer := range account.Peers {
+	accCopy.PeersG = make([]nbpeer.Peer, 0, len(accCopy.Peers))
+	for id, peer := range accCopy.Peers {
 		peer.ID = id
-		account.PeersG = append(account.PeersG, *peer)
+		//we need an explicit reference to the account for gorm
+		peer.AccountID = accCopy.Id
+		accCopy.PeersG = append(accCopy.PeersG, *peer)
 	}
 
-	for id, user := range account.Users {
+	accCopy.UsersG = make([]User, 0, len(accCopy.Users))
+	for id, user := range accCopy.Users {
 		user.Id = id
+		//we need an explicit reference to the account for gorm
+		user.AccountID = accCopy.Id
+		user.PATsG = make([]PersonalAccessToken, 0, len(user.PATs))
 		for id, pat := range user.PATs {
 			pat.ID = id
 			user.PATsG = append(user.PATsG, *pat)
 		}
-		account.UsersG = append(account.UsersG, *user)
+		accCopy.UsersG = append(accCopy.UsersG, *user)
 	}
 
-	for id, group := range account.Groups {
+	accCopy.GroupsG = make([]nbgroup.Group, 0, len(accCopy.Groups))
+	for id, group := range accCopy.Groups {
 		group.ID = id
-		account.GroupsG = append(account.GroupsG, *group)
+		//we need an explicit reference to the account for gorm
+		group.AccountID = accCopy.Id
+		accCopy.GroupsG = append(accCopy.GroupsG, *group)
 	}
 
-	for id, route := range account.Routes {
+	accCopy.RoutesG = make([]route.Route, 0, len(accCopy.Routes))
+	for id, route := range accCopy.Routes {
 		route.ID = id
-		account.RoutesG = append(account.RoutesG, *route)
+		//we need an explicit reference to the account for gorm
+		route.AccountID = accCopy.Id
+		accCopy.RoutesG = append(accCopy.RoutesG, *route)
 	}
 
-	for id, ns := range account.NameServerGroups {
+	accCopy.NameServerGroupsG = make([]nbdns.NameServerGroup, 0, len(accCopy.NameServerGroups))
+	for id, ns := range accCopy.NameServerGroups {
 		ns.ID = id
-		account.NameServerGroupsG = append(account.NameServerGroupsG, *ns)
+		//we need an explicit reference to the account for gorm
+		ns.AccountID = accCopy.Id
+		accCopy.NameServerGroupsG = append(accCopy.NameServerGroupsG, *ns)
 	}
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		result := tx.Select(clause.Associations).Delete(account.Policies, "account_id = ?", account.Id)
+		result := tx.Select(clause.Associations).Delete(accCopy.Policies, "account_id = ?", accCopy.Id)
 		if result.Error != nil {
 			return result.Error
 		}
 
-		result = tx.Select(clause.Associations).Delete(account.UsersG, "account_id = ?", account.Id)
+		result = tx.Select(clause.Associations).Delete(accCopy.UsersG, "account_id = ?", accCopy.Id)
 		if result.Error != nil {
 			return result.Error
 		}
 
-		result = tx.Select(clause.Associations).Delete(account)
+		result = tx.Select(clause.Associations).Delete(accCopy)
 		if result.Error != nil {
 			return result.Error
 		}
 
 		result = tx.
 			Session(&gorm.Session{FullSaveAssociations: true}).
-			Clauses(clause.OnConflict{UpdateAll: true}).Create(account)
+			Clauses(clause.OnConflict{UpdateAll: true}).
+			Omit("PeersG", "GroupsG", "UsersG", "SetupKeysG", "RoutesG", "NameServerGroupsG").
+			Create(accCopy)
 		if result.Error != nil {
 			return result.Error
 		}
-		return nil
+
+		const batchSize = 500
+		err := batchInsert(accCopy.PeersG, batchSize, tx)
+		if err != nil {
+			return err
+		}
+		err = batchInsert(accCopy.UsersG, batchSize, tx)
+		if err != nil {
+			return err
+		}
+		err = batchInsert(accCopy.GroupsG, batchSize, tx)
+		if err != nil {
+			return err
+		}
+		err = batchInsert(accCopy.RoutesG, batchSize, tx)
+		if err != nil {
+			return err
+		}
+		err = batchInsert(accCopy.SetupKeysG, batchSize, tx)
+		if err != nil {
+			return err
+		}
+		return batchInsert(accCopy.NameServerGroupsG, batchSize, tx)
 	})
 
 	took := time.Since(start)
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountPersistenceDuration(took)
 	}
-	log.Debugf("took %d ms to persist an account to the SQLite", took.Milliseconds())
+	log.Debugf("took %d ms to persist an account %s to the SQLite store", took.Milliseconds(), accCopy.Id)
 
 	return err
 }
 
 func (s *SqliteStore) DeleteAccount(account *Account) error {
 	start := time.Now()
+
+	account.UsersG = make([]User, 0, len(account.Users))
+	for id, user := range account.Users {
+		user.Id = id
+		//we need an explicit reference to an account as it is missing for some reason
+		user.AccountID = account.Id
+		user.PATsG = make([]PersonalAccessToken, 0, len(user.PATs))
+		for id, pat := range user.PATs {
+			pat.ID = id
+			user.PATsG = append(user.PATsG, *pat)
+		}
+		account.UsersG = append(account.UsersG, *user)
+	}
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.Select(clause.Associations).Delete(account.Policies, "account_id = ?", account.Id)

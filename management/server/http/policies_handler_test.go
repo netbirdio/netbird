@@ -45,7 +45,7 @@ func initPoliciesTestData(policies ...*server.Policy) *Policies {
 				return nil
 			},
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
-				user := server.NewAdminUser("test_user")
+				user := server.NewAdminUser("test_user", "account_id")
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
