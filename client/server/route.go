@@ -18,7 +18,8 @@ func (s *Server) ListRoutes(context.Context, *proto.ListRoutesRequest) (*proto.L
 		return nil, fmt.Errorf("not connected")
 	}
 
-	routes := s.engine.GetRoutes()
+	routes := s.engine.GetClientRoutes()
+	routeSelector := s.engine.GetRouteManager().GetRouteSelector()
 	var pbRoutes []*proto.Route
 	for id, rt := range routes {
 		if len(rt) == 0 {
@@ -28,7 +29,7 @@ func (s *Server) ListRoutes(context.Context, *proto.ListRoutesRequest) (*proto.L
 		pbRoutes = append(pbRoutes, &proto.Route{
 			ID:       id,
 			Network:  rt[0].Network.String(),
-			Selected: s.routeSelector.IsSelected(id),
+			Selected: routeSelector.IsSelected(id),
 		})
 	}
 
@@ -42,13 +43,16 @@ func (s *Server) SelectRoutes(_ context.Context, req *proto.SelectRoutesRequest)
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	routeManager := s.engine.GetRouteManager()
+	routeSelector := routeManager.GetRouteSelector()
 	if req.GetAll() {
-		s.routeSelector.SelectAllRoutes()
+		routeSelector.SelectAllRoutes()
 	} else {
-		if err := s.routeSelector.SelectRoutes(req.GetRouteIDs(), req.GetAppend(), maps.Keys(s.engine.GetRoutes())); err != nil {
+		if err := routeSelector.SelectRoutes(req.GetRouteIDs(), req.GetAppend(), maps.Keys(s.engine.GetClientRoutes())); err != nil {
 			return nil, fmt.Errorf("select routes: %w", err)
 		}
 	}
+	routeManager.TriggerSelection(s.engine.GetClientRoutes())
 
 	return &proto.SelectRoutesResponse{}, nil
 }
@@ -58,13 +62,16 @@ func (s *Server) DeselectRoutes(_ context.Context, req *proto.SelectRoutesReques
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	routeManager := s.engine.GetRouteManager()
+	routeSelector := routeManager.GetRouteSelector()
 	if req.GetAll() {
-		s.routeSelector.DeselectAllRoutes()
+		routeSelector.DeselectAllRoutes()
 	} else {
-		if err := s.routeSelector.DeselectRoutes(req.GetRouteIDs(), maps.Keys(s.engine.GetRoutes())); err != nil {
+		if err := routeSelector.DeselectRoutes(req.GetRouteIDs(), maps.Keys(s.engine.GetClientRoutes())); err != nil {
 			return nil, fmt.Errorf("deselect routes: %w", err)
 		}
 	}
+	routeManager.TriggerSelection(s.engine.GetClientRoutes())
 
 	return &proto.SelectRoutesResponse{}, nil
 }

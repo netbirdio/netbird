@@ -59,8 +59,6 @@ type Server struct {
 
 	engine *internal.Engine
 
-	routeSelector *RouteSelector
-
 	statusRecorder *peer.Status
 	sessionWatcher *internal.SessionWatcher
 
@@ -85,12 +83,11 @@ func New(ctx context.Context, configPath, logFile string) *Server {
 		latestConfigInput: internal.ConfigInput{
 			ConfigPath: configPath,
 		},
-		logFile:       logFile,
-		routeSelector: NewRouteSelector(),
-		mgmProbe:      internal.NewProbe(),
-		signalProbe:   internal.NewProbe(),
-		relayProbe:    internal.NewProbe(),
-		wgProbe:       internal.NewProbe(),
+		logFile:     logFile,
+		mgmProbe:    internal.NewProbe(),
+		signalProbe: internal.NewProbe(),
+		relayProbe:  internal.NewProbe(),
+		wgProbe:     internal.NewProbe(),
 	}
 }
 

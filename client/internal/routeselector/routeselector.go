@@ -1,8 +1,12 @@
-package server
+package routeselector
 
 import (
 	"fmt"
 	"slices"
+
+	"golang.org/x/exp/maps"
+
+	route "github.com/netbirdio/netbird/route"
 )
 
 type RouteSelector struct {
@@ -73,4 +77,19 @@ func (rs *RouteSelector) IsSelected(routeID string) bool {
 	}
 	_, selected := rs.selectedRoutes[routeID]
 	return selected
+}
+
+// FilterSelected removes unselected routes from the provided map.
+func (rs *RouteSelector) FilterSelected(routes map[string][]*route.Route) map[string][]*route.Route {
+	if rs.selectAll {
+		return maps.Clone(routes)
+	}
+
+	filtered := map[string][]*route.Route{}
+	for id, rt := range routes {
+		if rs.IsSelected(id) {
+			filtered[id] = rt
+		}
+	}
+	return filtered
 }

@@ -7,14 +7,17 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routeselector"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 )
 
 // MockManager is the mock instance of a route manager
 type MockManager struct {
-	UpdateRoutesFunc func(updateSerial uint64, newRoutes []*route.Route) (map[string]*route.Route, map[string][]*route.Route, error)
-	StopFunc         func()
+	UpdateRoutesFunc     func(updateSerial uint64, newRoutes []*route.Route) (map[string]*route.Route, map[string][]*route.Route, error)
+	TriggerSelectionFunc func(map[string][]*route.Route)
+	GetRouteSelectorFunc func() *routeselector.RouteSelector
+	StopFunc             func()
 }
 
 func (m *MockManager) Init() (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
@@ -32,6 +35,20 @@ func (m *MockManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route
 		return m.UpdateRoutesFunc(updateSerial, newRoutes)
 	}
 	return nil, nil, fmt.Errorf("method UpdateRoutes is not implemented")
+}
+
+func (m *MockManager) TriggerSelection(networks map[string][]*route.Route) {
+	if m.TriggerSelectionFunc != nil {
+		m.TriggerSelectionFunc(networks)
+	}
+}
+
+// GetRouteSelector mock implementation of GetRouteSelector from Manager interface
+func (m *MockManager) GetRouteSelector() *routeselector.RouteSelector {
+	if m.GetRouteSelectorFunc != nil {
+		return m.GetRouteSelectorFunc()
+	}
+	return nil
 }
 
 // Start mock implementation of Start from Manager interface

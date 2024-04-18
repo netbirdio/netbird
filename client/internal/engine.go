@@ -1237,6 +1237,16 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 	}
 }
 
+// GetClientRoutes returns the current routes from the route map
+func (e *Engine) GetClientRoutes() map[string][]*route.Route {
+	return e.clientRoutes
+}
+
+// GetRouteManager returns the route manager
+func (e *Engine) GetRouteManager() routemanager.Manager {
+	return e.routeManager
+}
+
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
 	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {
@@ -1336,8 +1346,4 @@ func (e *Engine) probeSTUNs() []relay.ProbeResult {
 
 func (e *Engine) probeTURNs() []relay.ProbeResult {
 	return relay.ProbeAll(e.ctx, relay.ProbeTURN, e.TURNs)
-}
-
-func (e *Engine) GetRoutes() map[string][]*route.Route {
-	return e.clientRoutes
 }
