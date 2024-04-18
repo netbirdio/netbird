@@ -68,11 +68,11 @@ type Route struct {
 	ID string `gorm:"primaryKey"`
 	// AccountID is a reference to Account that this object belongs
 	AccountID   string       `gorm:"index"`
-	Network     netip.Prefix `gorm:"serializer:gob"`
+	Network     netip.Prefix `gorm:"serializer:json"`
 	NetID       string
 	Description string
 	Peer        string
-	PeerGroups  []string `gorm:"serializer:gob"`
+	PeerGroups  []string `gorm:"serializer:json"`
 	NetworkType NetworkType
 	Masquerade  bool
 	Metric      int

@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -11,6 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	route2 "github.com/netbirdio/netbird/route"
 
 	"github.com/netbirdio/netbird/management/server/status"
 
@@ -347,6 +350,60 @@ func TestSqlite_GetUserByTokenID(t *testing.T) {
 	parsedErr, ok := status.FromError(err)
 	require.True(t, ok)
 	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+}
+
+func TestMigrate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	store := newSqliteStore(t)
+
+	err := migrate(store.db)
+	require.NoError(t, err, "Migration should not fail on empty db")
+
+	_, ipnet, err := net.ParseCIDR("10.0.0.0/24")
+	require.NoError(t, err, "Failed to parse CIDR")
+
+	type network struct {
+		Network
+		Net net.IPNet `gorm:"serializer:gob"`
+	}
+
+	type account struct {
+		Account
+		Network *network `gorm:"embedded;embeddedPrefix:network_"`
+	}
+
+	act := &account{
+		Network: &network{
+			Net: *ipnet,
+		},
+	}
+
+	err = store.db.Save(act).Error
+	require.NoError(t, err, "Failed to insert Gob data")
+
+	type route struct {
+		route2.Route
+		Network    netip.Prefix `gorm:"serializer:gob"`
+		PeerGroups []string     `gorm:"serializer:gob"`
+	}
+
+	prefix := netip.MustParsePrefix("11.0.0.0/24")
+	rt := &route{
+		Network:    prefix,
+		PeerGroups: []string{"group1", "group2"},
+	}
+
+	err = store.db.Save(rt).Error
+	require.NoError(t, err, "Failed to insert Gob data")
+
+	err = migrate(store.db)
+	require.NoError(t, err, "Migration should not fail on gob populated db")
+
+	err = migrate(store.db)
+	require.NoError(t, err, "Migration should not fail on migrated db")
 }
 
 func newSqliteStore(t *testing.T) *SqliteStore {
