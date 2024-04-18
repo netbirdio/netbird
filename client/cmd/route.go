@@ -32,8 +32,8 @@ var routesListCmd = &cobra.Command{
 var routesSelectCmd = &cobra.Command{
 	Use:     "select route...|all",
 	Short:   "Select routes",
-	Long:    "Select a list of comma-separated routes by identifiers or 'all' to clear all selections and to accept all (new) routes.",
-	Example: "  netbird routes select all\n  netbird routes select route1 route2",
+	Long:    "Select a list of routes by identifiers or 'all' to clear all selections and to accept all (including new) routes.\nDefault mode is replace, use -a to append to already selected routes.",
+	Example: "  netbird routes select all\n  netbird routes select route1 route2\n  netbird routes select -a route3",
 	Args:    cobra.MinimumNArgs(1),
 	RunE:    routesSelect,
 }
