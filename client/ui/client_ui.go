@@ -479,7 +479,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mAdminPanel = systray.AddMenuItem("Admin Panel", "Netbird Admin Panel")
 	systray.AddSeparator()
 	s.mSettings = systray.AddMenuItem("Settings", "Settings of the application")
-	s.mRoutes = systray.AddMenuItem("Manage Routes", "Open the routes management window")
+	s.mRoutes = systray.AddMenuItem("Network Routes", "Open the routes management window")
 	s.mRoutes.Disable()
 	systray.AddSeparator()
 
