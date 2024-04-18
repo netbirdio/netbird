@@ -23,8 +23,8 @@ func NewRouteSelector() *RouteSelector {
 }
 
 // SelectRoutes updates the selected routes based on provided route IDs.
-func (rs *RouteSelector) SelectRoutes(routes []string, append bool, allRoutes []string) error {
-	if !append {
+func (rs *RouteSelector) SelectRoutes(routes []string, appendRoute bool, allRoutes []string) error {
+	if !appendRoute {
 		rs.selectedRoutes = map[string]struct{}{}
 	}
 	for _, route := range routes {
