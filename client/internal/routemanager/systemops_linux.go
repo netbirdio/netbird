@@ -304,7 +304,10 @@ func removeUnreachableRoute(prefix netip.Prefix, tableID int) error {
 		Dst:    ipNet,
 	}
 
-	if err := netlink.RouteDel(route); err != nil && !errors.Is(err, syscall.ESRCH) && !errors.Is(err, syscall.EAFNOSUPPORT) {
+	if err := netlink.RouteDel(route); err != nil &&
+		!errors.Is(err, syscall.ESRCH) &&
+		!errors.Is(err, syscall.ENOENT) &&
+		!errors.Is(err, syscall.EAFNOSUPPORT) {
 		return fmt.Errorf("netlink remove unreachable route: %w", err)
 	}
 
