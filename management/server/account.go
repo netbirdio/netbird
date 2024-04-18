@@ -46,6 +46,8 @@ const (
 	DefaultPeerLoginExpiration = 24 * time.Hour
 )
 
+type userLoggedInOnce bool
+
 type ExternalCacheManager cache.CacheInterface[*idp.UserData]
 
 func cacheEntryExpiration() time.Duration {
@@ -1265,7 +1267,7 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountI
 
 // lookupUserInCache looks up user in the IdP cache and returns it. If the user wasn't found, the function returns nil
 func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Account) (*idp.UserData, error) {
-	users := make(map[string]struct{}, len(account.Users))
+	users := make(map[string]userLoggedInOnce, len(account.Users))
 	// ignore service users and users provisioned by integrations than are never logged in
 	for _, user := range account.Users {
 		if user.IsServiceUser {
@@ -1274,7 +1276,7 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 		if user.Issued == UserIssuedIntegration {
 			continue
 		}
-		users[user.Id] = struct{}{}
+		users[user.Id] = userLoggedInOnce(!user.LastLogin.IsZero())
 	}
 	log.Debugf("looking up user %s of account %s in cache", userID, account.Id)
 	userData, err := am.lookupCache(users, account.Id)
@@ -1347,22 +1349,28 @@ func (am *DefaultAccountManager) getAccountFromCache(accountID string, forceRelo
 	}
 }
 
-func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, accountID string) ([]*idp.UserData, error) {
+func (am *DefaultAccountManager) lookupCache(accountUsers map[string]userLoggedInOnce, accountID string) ([]*idp.UserData, error) {
 	data, err := am.getAccountFromCache(accountID, false)
 	if err != nil {
 		return nil, err
 	}
 
-	userDataMap := make(map[string]struct{})
+	userDataMap := make(map[string]*idp.UserData, len(data))
 	for _, datum := range data {
-		userDataMap[datum.ID] = struct{}{}
+		userDataMap[datum.ID] = datum
 	}
+
+	mustRefreshInviteStatus := false
 
 	// the accountUsers ID list of non integration users from store, we check if cache has all of them
 	// as result of for loop knownUsersCount will have number of users are not presented in the cashed
 	knownUsersCount := len(accountUsers)
-	for user := range accountUsers {
-		if _, ok := userDataMap[user]; ok {
+	for user, loggedInOnce := range accountUsers {
+		if datum, ok := userDataMap[user]; ok {
+			if datum.AppMetadata.WTPendingInvite != nil && *datum.AppMetadata.WTPendingInvite && loggedInOnce == true {
+				mustRefreshInviteStatus = true
+				break
+			}
 			knownUsersCount--
 			continue
 		}
@@ -1370,8 +1378,8 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, a
 	}
 
 	// if we know users that are not yet in cache more likely cache is outdated
-	if knownUsersCount > 0 {
-		log.Debugf("cache doesn't know about %d users from store, reloading", knownUsersCount)
+	if knownUsersCount > 0 && mustRefreshInviteStatus {
+		log.Debugf("reloading cache with IDP manager. Users unkonw to the cache: %d, Must refresh invite status? %t", knownUsersCount, mustRefreshInviteStatus)
 		// reload cache once avoiding loops
 		data, err = am.refreshCache(accountID)
 		if err != nil {
