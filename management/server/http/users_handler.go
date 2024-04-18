@@ -198,8 +198,6 @@ func (h *UsersHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 
 	serviceUser := r.URL.Query().Get("service_user")
 
-	log.Debugf("UserCount: %v", len(data))
-
 	users := make([]*api.User, 0)
 	for _, r := range data {
 		if r.NonDeletable {
