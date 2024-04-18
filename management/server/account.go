@@ -1425,29 +1425,14 @@ func (am *DefaultAccountManager) updateAccountDomainAttributes(account *Account,
 }
 
 // handleExistingUserAccount handles existing User accounts and update its domain attributes.
-//
-// If there is no primary domain account yet, we set the account as primary for the domain. Otherwise,
-// we compare the account's ID with the domain account ID, and if they don't match, we set the account as
-// non-primary account for the domain. We don't merge accounts at this stage, because of cases when a domain
-// was previously unclassified or classified as public so N users that logged int that time, has they own account
-// and peers that shouldn't be lost.
 func (am *DefaultAccountManager) handleExistingUserAccount(
 	existingAcc *Account,
-	domainAcc *Account,
+	primaryDomain bool,
 	claims jwtclaims.AuthorizationClaims,
 ) error {
-	var err error
-
-	if domainAcc != nil && existingAcc.Id != domainAcc.Id {
-		err = am.updateAccountDomainAttributes(existingAcc, claims, false)
-		if err != nil {
-			return err
-		}
-	} else {
-		err = am.updateAccountDomainAttributes(existingAcc, claims, true)
-		if err != nil {
-			return err
-		}
+	err := am.updateAccountDomainAttributes(existingAcc, claims, primaryDomain)
+	if err != nil {
+		return err
 	}
 
 	// we should register the account ID to this user's metadata in our IDP manager
@@ -1787,15 +1772,14 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		if err != nil {
 			return nil, err
 		}
-		domainAccount, err = am.Store.GetAccountByPrivateDomain(claims.Domain)
-		if err != nil {
-			// if NotFound we are good to continue, otherwise return error
-			e, ok := status.FromError(err)
-			if !ok || e.Type() != status.NotFound {
-				return nil, err
-			}
-		}
-		err = am.handleExistingUserAccount(account, domainAccount, claims)
+		// If there is no primary domain account yet, we set the account as primary for the domain. Otherwise,
+		// we compare the account's ID with the domain account ID, and if they don't match, we set the account as
+		// non-primary account for the domain. We don't merge accounts at this stage, because of cases when a domain
+		// was previously unclassified or classified as public so N users that logged int that time, has they own account
+		// and peers that shouldn't be lost.
+		primaryDomain := domainAccount == nil || account.Id == account.Id
+
+		err = am.handleExistingUserAccount(account, primaryDomain, claims)
 		if err != nil {
 			return nil, err
 		}
@@ -1804,6 +1788,10 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		if domainAccount != nil {
 			unlockAccount := am.Store.AcquireAccountLock(domainAccount.Id)
 			defer unlockAccount()
+			domainAccount, err = am.Store.GetAccountByPrivateDomain(claims.Domain)
+			if err != nil {
+				return nil, err
+			}
 		}
 		return am.handleNewUserAccount(domainAccount, claims)
 	} else {
