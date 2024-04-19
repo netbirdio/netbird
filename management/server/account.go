@@ -1367,7 +1367,8 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]userLoggedI
 	knownUsersCount := len(accountUsers)
 	for user, loggedInOnce := range accountUsers {
 		if datum, ok := userDataMap[user]; ok {
-			if datum.AppMetadata.WTPendingInvite != nil && *datum.AppMetadata.WTPendingInvite && loggedInOnce == true {
+			// check if the matching user data has a pending invite and if the user has logged in once, forcing the cache to be refreshed
+			if datum.AppMetadata.WTPendingInvite != nil && *datum.AppMetadata.WTPendingInvite && loggedInOnce == true { //nolint:gosimple
 				mustRefreshInviteStatus = true
 				break
 			}
@@ -1379,7 +1380,7 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]userLoggedI
 
 	// if we know users that are not yet in cache more likely cache is outdated
 	if knownUsersCount > 0 && mustRefreshInviteStatus {
-		log.Debugf("reloading cache with IDP manager. Users unkonw to the cache: %d, Must refresh invite status? %t", knownUsersCount, mustRefreshInviteStatus)
+		log.Debugf("reloading cache with IDP manager. Users unkonwn to the cache: %d, Must refresh invite status? %t", knownUsersCount, mustRefreshInviteStatus)
 		// reload cache once avoiding loops
 		data, err = am.refreshCache(accountID)
 		if err != nil {
