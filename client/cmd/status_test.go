@@ -3,6 +3,8 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"runtime"
 	"testing"
 	"time"
 
@@ -523,6 +525,7 @@ func TestParsingToDetail(t *testing.T) {
   Routes: -
   Latency: 10ms
 
+` + fmt.Sprintf("OS: %s/%s", runtime.GOOS, runtime.GOARCH) + `
 Daemon version: 0.14.1
 CLI version: development
 Management: Connected to my-awesome-management.com:443
@@ -547,8 +550,8 @@ Peers count: 2/2 Connected
 func TestParsingToShortVersion(t *testing.T) {
 	shortVersion := parseGeneralSummary(overview, false, false, false)
 
-	expectedString :=
-		`Daemon version: 0.14.1
+	expectedString := fmt.Sprintf("OS: %s/%s", runtime.GOOS, runtime.GOARCH) + `
+Daemon version: 0.14.1
 CLI version: development
 Management: Connected
 Signal: Connected

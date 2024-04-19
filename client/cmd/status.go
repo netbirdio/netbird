@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -534,8 +536,16 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 
 	peersCountString := fmt.Sprintf("%d/%d Connected", overview.Peers.Connected, overview.Peers.Total)
 
+	goos := runtime.GOOS
+	goarch := runtime.GOARCH
+	goarm := ""
+	if goarch == "arm" {
+		goarm = fmt.Sprintf(" (ARMv%s)", os.Getenv("GOARM"))
+	}
+
 	summary := fmt.Sprintf(
-		"Daemon version: %s\n"+
+		"OS: %s\n"+
+			"Daemon version: %s\n"+
 			"CLI version: %s\n"+
 			"Management: %s\n"+
 			"Signal: %s\n"+
@@ -547,6 +557,7 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 			"Quantum resistance: %s\n"+
 			"Routes: %s\n"+
 			"Peers count: %s\n",
+		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
 		overview.DaemonVersion,
 		version.NetbirdVersion(),
 		managementConnString,
