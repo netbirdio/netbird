@@ -1380,7 +1380,7 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]userLoggedI
 
 	// if we know users that are not yet in cache more likely cache is outdated
 	if knownUsersCount > 0 && mustRefreshInviteStatus {
-		log.Debugf("reloading cache with IDP manager. Users unkonwn to the cache: %d, Must refresh invite status? %t", knownUsersCount, mustRefreshInviteStatus)
+		log.Debugf("reloading cache with IDP manager. Users unkown to the cache: %d, Must refresh invite status? %t", knownUsersCount, mustRefreshInviteStatus)
 		// reload cache once avoiding loops
 		data, err = am.refreshCache(accountID)
 		if err != nil {
