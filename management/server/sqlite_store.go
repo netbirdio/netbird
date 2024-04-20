@@ -55,8 +55,9 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 
 	file := filepath.Join(dataDir, storeStr)
 	db, err := gorm.Open(sqlite.Open(file), &gorm.Config{
-		Logger:      logger.Default.LogMode(logger.Silent),
-		PrepareStmt: true,
+		Logger:          logger.Default.LogMode(logger.Silent),
+		CreateBatchSize: 400,
+		PrepareStmt:     true,
 	})
 	if err != nil {
 		return nil, err
@@ -196,7 +197,8 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 
 		result = tx.
 			Session(&gorm.Session{FullSaveAssociations: true}).
-			Clauses(clause.OnConflict{UpdateAll: true}).Create(account)
+			Clauses(clause.OnConflict{UpdateAll: true}).
+			Create(account)
 		if result.Error != nil {
 			return result.Error
 		}
