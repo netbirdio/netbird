@@ -2,7 +2,11 @@ package server
 
 import (
 	"fmt"
+	nbdns "github.com/netbirdio/netbird/dns"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	"math/rand"
 	"net"
+	"net/netip"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -11,6 +15,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	route2 "github.com/netbirdio/netbird/route"
 
 	"github.com/netbirdio/netbird/management/server/status"
 
@@ -28,6 +34,151 @@ func TestSqlite_NewStore(t *testing.T) {
 	if len(store.GetAllAccounts()) != 0 {
 		t.Errorf("expected to create a new empty Accounts map when creating a new FileStore")
 	}
+}
+
+func TestSqlite_SaveAccount_Large(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	store := newSqliteStore(t)
+
+	account := newAccountWithId("account_id", "testuser", "")
+	groupALL, err := account.GetGroupAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	setupKey := GenerateDefaultSetupKey()
+	account.SetupKeys[setupKey.Key] = setupKey
+	const numPerAccount = 2000
+	for n := 0; n < numPerAccount; n++ {
+		netIP := randomIPv4()
+		peerID := fmt.Sprintf("%s-peer-%d", account.Id, n)
+
+		peer := &nbpeer.Peer{
+			ID:         peerID,
+			Key:        peerID,
+			SetupKey:   "",
+			IP:         netIP,
+			Name:       peerID,
+			DNSLabel:   peerID,
+			UserID:     userID,
+			Status:     &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
+			SSHEnabled: false,
+		}
+		account.Peers[peerID] = peer
+		group, _ := account.GetGroupAll()
+		group.Peers = append(group.Peers, peerID)
+		user := &User{
+			Id:        fmt.Sprintf("%s-user-%d", account.Id, n),
+			AccountID: account.Id,
+		}
+		account.Users[user.Id] = user
+		route := &route2.Route{
+			ID:          fmt.Sprintf("network-id-%d", n),
+			Description: "base route",
+			NetID:       fmt.Sprintf("network-id-%d", n),
+			Network:     netip.MustParsePrefix(netIP.String() + "/24"),
+			NetworkType: route2.IPv4Network,
+			Metric:      9999,
+			Masquerade:  false,
+			Enabled:     true,
+			Groups:      []string{groupALL.ID},
+		}
+		account.Routes[route.ID] = route
+
+		group = &nbgroup.Group{
+			ID:        fmt.Sprintf("group-id-%d", n),
+			AccountID: account.Id,
+			Name:      fmt.Sprintf("group-id-%d", n),
+			Issued:    "api",
+			Peers:     nil,
+		}
+		account.Groups[group.ID] = group
+
+		nameserver := &nbdns.NameServerGroup{
+			ID:                   fmt.Sprintf("nameserver-id-%d", n),
+			AccountID:            account.Id,
+			Name:                 fmt.Sprintf("nameserver-id-%d", n),
+			Description:          "",
+			NameServers:          []nbdns.NameServer{{IP: netip.MustParseAddr(netIP.String()), NSType: nbdns.UDPNameServerType}},
+			Groups:               []string{group.ID},
+			Primary:              false,
+			Domains:              nil,
+			Enabled:              false,
+			SearchDomainsEnabled: false,
+		}
+		account.NameServerGroups[nameserver.ID] = nameserver
+
+		setupKey := GenerateDefaultSetupKey()
+		account.SetupKeys[setupKey.Key] = setupKey
+	}
+
+	err = store.SaveAccount(account)
+	require.NoError(t, err)
+
+	if len(store.GetAllAccounts()) != 1 {
+		t.Errorf("expecting 1 Accounts to be stored after SaveAccount()")
+	}
+
+	a, err := store.GetAccount(account.Id)
+	if a == nil {
+		t.Errorf("expecting Account to be stored after SaveAccount(): %v", err)
+	}
+
+	if a != nil && len(a.Policies) != 1 {
+		t.Errorf("expecting Account to have one policy stored after SaveAccount(), got %d", len(a.Policies))
+	}
+
+	if a != nil && len(a.Policies[0].Rules) != 1 {
+		t.Errorf("expecting Account to have one policy rule stored after SaveAccount(), got %d", len(a.Policies[0].Rules))
+		return
+	}
+
+	if a != nil && len(a.Peers) != numPerAccount {
+		t.Errorf("expecting Account to have %d peers stored after SaveAccount(), got %d",
+			numPerAccount, len(a.Peers))
+		return
+	}
+
+	if a != nil && len(a.Users) != numPerAccount+1 {
+		t.Errorf("expecting Account to have %d users stored after SaveAccount(), got %d",
+			numPerAccount+1, len(a.Users))
+		return
+	}
+
+	if a != nil && len(a.Routes) != numPerAccount {
+		t.Errorf("expecting Account to have %d routes stored after SaveAccount(), got %d",
+			numPerAccount, len(a.Routes))
+		return
+	}
+
+	if a != nil && len(a.NameServerGroups) != numPerAccount {
+		t.Errorf("expecting Account to have %d NameServerGroups stored after SaveAccount(), got %d",
+			numPerAccount, len(a.NameServerGroups))
+		return
+	}
+
+	if a != nil && len(a.NameServerGroups) != numPerAccount {
+		t.Errorf("expecting Account to have %d NameServerGroups stored after SaveAccount(), got %d",
+			numPerAccount, len(a.NameServerGroups))
+		return
+	}
+
+	if a != nil && len(a.SetupKeys) != numPerAccount+1 {
+		t.Errorf("expecting Account to have %d SetupKeys stored after SaveAccount(), got %d",
+			numPerAccount+1, len(a.SetupKeys))
+		return
+	}
+}
+
+func randomIPv4() net.IP {
+	rand.New(rand.NewSource(time.Now().UnixNano()))
+	b := make([]byte, 4)
+	for i := range b {
+		b[i] = byte(rand.Intn(256))
+	}
+	return net.IP(b)
 }
 
 func TestSqlite_SaveAccount(t *testing.T) {
@@ -347,6 +498,60 @@ func TestSqlite_GetUserByTokenID(t *testing.T) {
 	parsedErr, ok := status.FromError(err)
 	require.True(t, ok)
 	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+}
+
+func TestMigrate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	store := newSqliteStore(t)
+
+	err := migrate(store.db)
+	require.NoError(t, err, "Migration should not fail on empty db")
+
+	_, ipnet, err := net.ParseCIDR("10.0.0.0/24")
+	require.NoError(t, err, "Failed to parse CIDR")
+
+	type network struct {
+		Network
+		Net net.IPNet `gorm:"serializer:gob"`
+	}
+
+	type account struct {
+		Account
+		Network *network `gorm:"embedded;embeddedPrefix:network_"`
+	}
+
+	act := &account{
+		Network: &network{
+			Net: *ipnet,
+		},
+	}
+
+	err = store.db.Save(act).Error
+	require.NoError(t, err, "Failed to insert Gob data")
+
+	type route struct {
+		route2.Route
+		Network    netip.Prefix `gorm:"serializer:gob"`
+		PeerGroups []string     `gorm:"serializer:gob"`
+	}
+
+	prefix := netip.MustParsePrefix("11.0.0.0/24")
+	rt := &route{
+		Network:    prefix,
+		PeerGroups: []string{"group1", "group2"},
+	}
+
+	err = store.db.Save(rt).Error
+	require.NoError(t, err, "Failed to insert Gob data")
+
+	err = migrate(store.db)
+	require.NoError(t, err, "Migration should not fail on gob populated db")
+
+	err = migrate(store.db)
+	require.NoError(t, err, "Migration should not fail on migrated db")
 }
 
 func newSqliteStore(t *testing.T) *SqliteStore {

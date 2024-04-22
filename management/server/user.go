@@ -960,7 +960,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 
 	queriedUsers := make([]*idp.UserData, 0)
 	if !isNil(am.idpManager) {
-		users := make(map[string]struct{}, len(account.Users))
+		users := make(map[string]userLoggedInOnce, len(account.Users))
 		usersFromIntegration := make([]*idp.UserData, 0)
 		for _, user := range account.Users {
 			if user.Issued == UserIssuedIntegration {
@@ -968,14 +968,14 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 				info, err := am.externalCacheManager.Get(am.ctx, key)
 				if err != nil {
 					log.Infof("Get ExternalCache for key: %s, error: %s", key, err)
-					users[user.Id] = struct{}{}
+					users[user.Id] = true
 					continue
 				}
 				usersFromIntegration = append(usersFromIntegration, info)
 				continue
 			}
 			if !user.IsServiceUser {
-				users[user.Id] = struct{}{}
+				users[user.Id] = userLoggedInOnce(!user.LastLogin.IsZero())
 			}
 		}
 		queriedUsers, err = am.lookupCache(users, accountID)
