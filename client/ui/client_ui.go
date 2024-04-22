@@ -219,7 +219,7 @@ func (s *serviceClient) showUIElements() {
 // showErrorMSG opens a fyne app window to display the supplied message
 func showErrorMSG(msg string) {
 	app := app.New()
-	w := app.NewWindow("NetBird error")
+	w := app.NewWindow("NetBird Error")
 	content := widget.NewLabel(msg)
 	content.Wrapping = fyne.TextWrapWord
 	w.SetContent(content)
