@@ -613,15 +613,6 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 		if peerState.IceCandidateEndpoint.Remote != "" {
 			remoteICEEndpoint = peerState.IceCandidateEndpoint.Remote
 		}
-		lastStatusUpdate := "-"
-		if !peerState.LastStatusUpdate.IsZero() {
-			lastStatusUpdate = peerState.LastStatusUpdate.Format("2006-01-02 15:04:05")
-		}
-
-		lastWireGuardHandshake := "-"
-		if !peerState.LastWireguardHandshake.IsZero() && peerState.LastWireguardHandshake != time.Unix(0, 0) {
-			lastWireGuardHandshake = peerState.LastWireguardHandshake.Format("2006-01-02 15:04:05")
-		}
 
 		rosenpassEnabledStatus := "false"
 		if rosenpassEnabled {
@@ -672,8 +663,8 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			remoteICE,
 			localICEEndpoint,
 			remoteICEEndpoint,
-			lastStatusUpdate,
-			lastWireGuardHandshake,
+			timeAgo(peerState.LastStatusUpdate),
+			timeAgo(peerState.LastWireguardHandshake),
 			toIEC(peerState.TransferReceived),
 			toIEC(peerState.TransferSent),
 			rosenpassEnabledStatus,
@@ -741,4 +732,38 @@ func countEnabled(dnsServers []nsServerGroupStateOutput) int {
 		}
 	}
 	return count
+}
+
+// timeAgo returns a string representing the duration since the provided time in a human-readable format.
+func timeAgo(t time.Time) string {
+	if t.IsZero() || t.Equal(time.Unix(0, 0)) {
+		return "-"
+	}
+	duration := time.Since(t)
+	switch {
+	case duration < time.Second:
+		return "Now"
+	case duration < time.Minute:
+		return fmt.Sprintf("%d seconds ago", int(duration.Seconds()))
+	case duration < time.Hour:
+		minutes := int(duration.Minutes())
+		seconds := int(duration.Seconds()) % 60
+		if seconds > 0 {
+			return fmt.Sprintf("%d minutes, %d seconds ago", minutes, seconds)
+		}
+		return fmt.Sprintf("%d minutes ago", minutes)
+	case duration < 24*time.Hour:
+		hours := int(duration.Hours())
+		minutes := int(duration.Minutes()) % 60
+		if minutes > 0 {
+			return fmt.Sprintf("%d hours, %d minutes ago", hours, minutes)
+		}
+	}
+
+	days := int(duration.Hours()) / 24
+	hours := int(duration.Hours()) % 24
+	if hours > 0 {
+		return fmt.Sprintf("%d days, %d hours ago", days, hours)
+	}
+	return fmt.Sprintf("%d days ago", days)
 }
