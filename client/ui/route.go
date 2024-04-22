@@ -33,11 +33,11 @@ func (s *serviceClient) showRoutesUI() {
 		widget.NewButton("Refresh", func() {
 			s.updateRoutes(grid)
 		}),
-		widget.NewButton("Enable all", func() {
+		widget.NewButton("Select all", func() {
 			s.selectAllRoutes()
 			s.updateRoutes(grid)
 		}),
-		widget.NewButton("Disable All", func() {
+		widget.NewButton("Deselect All", func() {
 			s.deselectAllRoutes()
 			s.updateRoutes(grid)
 		}),
