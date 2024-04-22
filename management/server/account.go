@@ -46,6 +46,8 @@ const (
 	DefaultPeerLoginExpiration = 24 * time.Hour
 )
 
+type userLoggedInOnce bool
+
 type ExternalCacheManager cache.CacheInterface[*idp.UserData]
 
 func cacheEntryExpiration() time.Duration {
@@ -1092,13 +1094,15 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	}
 	delete(userData, idp.UnsetAccountID)
 
+	rcvdUsers := 0
 	for accountID, users := range userData {
+		rcvdUsers += len(users)
 		err = am.cacheManager.Set(am.ctx, accountID, users, cacheStore.WithExpiration(cacheEntryExpiration()))
 		if err != nil {
 			return err
 		}
 	}
-	log.Infof("warmed up IDP cache with %d entries", len(userData))
+	log.Infof("warmed up IDP cache with %d entries for %d accounts", rcvdUsers, len(userData))
 	return nil
 }
 
@@ -1263,7 +1267,7 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountI
 
 // lookupUserInCache looks up user in the IdP cache and returns it. If the user wasn't found, the function returns nil
 func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Account) (*idp.UserData, error) {
-	users := make(map[string]struct{}, len(account.Users))
+	users := make(map[string]userLoggedInOnce, len(account.Users))
 	// ignore service users and users provisioned by integrations than are never logged in
 	for _, user := range account.Users {
 		if user.IsServiceUser {
@@ -1272,7 +1276,7 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 		if user.Issued == UserIssuedIntegration {
 			continue
 		}
-		users[user.Id] = struct{}{}
+		users[user.Id] = userLoggedInOnce(!user.LastLogin.IsZero())
 	}
 	log.Debugf("looking up user %s of account %s in cache", userID, account.Id)
 	userData, err := am.lookupCache(users, account.Id)
@@ -1345,22 +1349,30 @@ func (am *DefaultAccountManager) getAccountFromCache(accountID string, forceRelo
 	}
 }
 
-func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, accountID string) ([]*idp.UserData, error) {
+func (am *DefaultAccountManager) lookupCache(accountUsers map[string]userLoggedInOnce, accountID string) ([]*idp.UserData, error) {
 	data, err := am.getAccountFromCache(accountID, false)
 	if err != nil {
 		return nil, err
 	}
 
-	userDataMap := make(map[string]struct{})
+	userDataMap := make(map[string]*idp.UserData, len(data))
 	for _, datum := range data {
-		userDataMap[datum.ID] = struct{}{}
+		userDataMap[datum.ID] = datum
 	}
+
+	mustRefreshInviteStatus := false
 
 	// the accountUsers ID list of non integration users from store, we check if cache has all of them
 	// as result of for loop knownUsersCount will have number of users are not presented in the cashed
 	knownUsersCount := len(accountUsers)
-	for user := range accountUsers {
-		if _, ok := userDataMap[user]; ok {
+	for user, loggedInOnce := range accountUsers {
+		if datum, ok := userDataMap[user]; ok {
+			// check if the matching user data has a pending invite and if the user has logged in once, forcing the cache to be refreshed
+			if datum.AppMetadata.WTPendingInvite != nil && *datum.AppMetadata.WTPendingInvite && loggedInOnce == true { //nolint:gosimple
+				mustRefreshInviteStatus = true
+				log.Infof("user %s has a pending invite and has logged in once, forcing cache refresh", user)
+				break
+			}
 			knownUsersCount--
 			continue
 		}
@@ -1368,8 +1380,10 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, a
 	}
 
 	// if we know users that are not yet in cache more likely cache is outdated
-	if knownUsersCount > 0 {
-		log.Debugf("cache doesn't know about %d users from store, reloading", knownUsersCount)
+	if knownUsersCount > 0 || mustRefreshInviteStatus {
+		if !mustRefreshInviteStatus {
+			log.Infof("reloading cache with IDP manager. Users unknown to the cache: %d", knownUsersCount)
+		}
 		// reload cache once avoiding loops
 		data, err = am.refreshCache(accountID)
 		if err != nil {
@@ -1649,7 +1663,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 		return nil, nil, status.Errorf(status.NotFound, "user %s not found", claims.UserId)
 	}
 
-	if !user.IsServiceUser {
+	if !user.IsServiceUser && claims.Invited {
 		err = am.redeemInvite(account, claims.UserId)
 		if err != nil {
 			return nil, nil, err

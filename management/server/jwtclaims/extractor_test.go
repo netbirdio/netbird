@@ -30,6 +30,10 @@ func newTestRequestWithJWT(t *testing.T, claims AuthorizationClaims, audience st
 	if claims.LastLogin != (time.Time{}) {
 		claimMaps[audience+LastLoginSuffix] = claims.LastLogin.Format(layout)
 	}
+
+	if claims.Invited {
+		claimMaps[audience+Invited] = true
+	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claimMaps)
 	r, err := http.NewRequest(http.MethodGet, "http://localhost", nil)
 	require.NoError(t, err, "creating testing request failed")
@@ -59,12 +63,14 @@ func TestExtractClaimsFromRequestContext(t *testing.T) {
 			AccountId:      "testAcc",
 			LastLogin:      lastLogin,
 			DomainCategory: "public",
+			Invited:        true,
 			Raw: jwt.MapClaims{
 				"https://login/wt_account_domain":          "test.com",
 				"https://login/wt_account_domain_category": "public",
 				"https://login/wt_account_id":              "testAcc",
 				"https://login/nb_last_login":              lastLogin.Format(layout),
 				"sub":                                      "test",
+				"https://login/" + Invited:                 true,
 			},
 		},
 		testingFunc: require.EqualValues,
