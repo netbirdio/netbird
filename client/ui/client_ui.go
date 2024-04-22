@@ -220,8 +220,10 @@ func (s *serviceClient) showUIElements() {
 func showErrorMSG(msg string) {
 	app := app.New()
 	w := app.NewWindow("NetBird error")
-	w.SetContent(widget.NewLabel(msg))
-	w.Resize(fyne.NewSize(300, 100))
+	content := widget.NewLabel(msg)
+	content.Wrapping = fyne.TextWrapWord
+	w.SetContent(content)
+	w.Resize(fyne.NewSize(400, 100))
 	w.Show()
 	app.Run()
 }
