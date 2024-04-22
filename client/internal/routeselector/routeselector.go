@@ -105,7 +105,11 @@ func (rs *RouteSelector) FilterSelected(routes map[string][]*route.Route) map[st
 
 	filtered := map[string][]*route.Route{}
 	for id, rt := range routes {
-		if rs.IsSelected(id) {
+		netID := id
+		if i := strings.LastIndex(id, "-"); i != -1 {
+			netID = id[:i]
+		}
+		if rs.IsSelected(netID) {
 			filtered[id] = rt
 		}
 	}

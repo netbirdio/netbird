@@ -133,7 +133,7 @@ func TestRouteSelector_SelectAllRoutes(t *testing.T) {
 	}
 }
 
-func TestRouteSelector_DeelectRoutes(t *testing.T) {
+func TestRouteSelector_DeselectRoutes(t *testing.T) {
 	allRoutes := []string{"route1", "route2", "route3"}
 
 	tests := []struct {
@@ -261,15 +261,15 @@ func TestRouteSelector_FilterSelected(t *testing.T) {
 	require.NoError(t, err)
 
 	routes := map[string][]*route.Route{
-		"route1": {},
-		"route2": {},
-		"route3": {},
+		"route1-10.0.0.0/8":     {},
+		"route2-192.168.0.0/16": {},
+		"route3-172.16.0.0/12":  {},
 	}
 
 	filtered := rs.FilterSelected(routes)
 
 	assert.Equal(t, map[string][]*route.Route{
-		"route1": {},
-		"route2": {},
+		"route1-10.0.0.0/8":     {},
+		"route2-192.168.0.0/16": {},
 	}, filtered)
 }

@@ -1242,6 +1242,18 @@ func (e *Engine) GetClientRoutes() map[string][]*route.Route {
 	return e.clientRoutes
 }
 
+// GetClientRoutesWithNetID returns the current routes from the route map, but the keys consist of the network ID only
+func (e *Engine) GetClientRoutesWithNetID() map[string][]*route.Route {
+	routes := make(map[string][]*route.Route, len(e.clientRoutes))
+	for id, v := range e.clientRoutes {
+		if i := strings.LastIndex(id, "-"); i != -1 {
+			id = id[:i]
+		}
+		routes[id] = v
+	}
+	return routes
+}
+
 // GetRouteManager returns the route manager
 func (e *Engine) GetRouteManager() routemanager.Manager {
 	return e.routeManager

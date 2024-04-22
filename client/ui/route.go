@@ -72,12 +72,8 @@ func (s *serviceClient) updateRoutes(grid *fyne.Container) {
 	grid.Add(networkHeader)
 	for _, route := range routes {
 		r := route
-		id := r.ID
-		if i := strings.LastIndex(id, "-"); i != -1 {
-			id = id[:i]
-		}
 
-		checkBox := widget.NewCheck(id, func(checked bool) {
+		checkBox := widget.NewCheck(r.ID, func(checked bool) {
 			s.selectRoute(r.ID, checked)
 		})
 		checkBox.Checked = route.Selected

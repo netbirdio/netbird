@@ -18,7 +18,7 @@ func (s *Server) ListRoutes(context.Context, *proto.ListRoutesRequest) (*proto.L
 		return nil, fmt.Errorf("not connected")
 	}
 
-	routes := s.engine.GetClientRoutes()
+	routes := s.engine.GetClientRoutesWithNetID()
 	routeSelector := s.engine.GetRouteManager().GetRouteSelector()
 	var pbRoutes []*proto.Route
 	for id, rt := range routes {
@@ -48,7 +48,7 @@ func (s *Server) SelectRoutes(_ context.Context, req *proto.SelectRoutesRequest)
 	if req.GetAll() {
 		routeSelector.SelectAllRoutes()
 	} else {
-		if err := routeSelector.SelectRoutes(req.GetRouteIDs(), req.GetAppend(), maps.Keys(s.engine.GetClientRoutes())); err != nil {
+		if err := routeSelector.SelectRoutes(req.GetRouteIDs(), req.GetAppend(), maps.Keys(s.engine.GetClientRoutesWithNetID())); err != nil {
 			return nil, fmt.Errorf("select routes: %w", err)
 		}
 	}
@@ -67,7 +67,7 @@ func (s *Server) DeselectRoutes(_ context.Context, req *proto.SelectRoutesReques
 	if req.GetAll() {
 		routeSelector.DeselectAllRoutes()
 	} else {
-		if err := routeSelector.DeselectRoutes(req.GetRouteIDs(), maps.Keys(s.engine.GetClientRoutes())); err != nil {
+		if err := routeSelector.DeselectRoutes(req.GetRouteIDs(), maps.Keys(s.engine.GetClientRoutesWithNetID())); err != nil {
 			return nil, fmt.Errorf("deselect routes: %w", err)
 		}
 	}
