@@ -1777,7 +1777,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		// non-primary account for the domain. We don't merge accounts at this stage, because of cases when a domain
 		// was previously unclassified or classified as public so N users that logged int that time, has they own account
 		// and peers that shouldn't be lost.
-		primaryDomain := domainAccount == nil || account.Id == account.Id
+		primaryDomain := domainAccount == nil || account.Id == domainAccount.Id
 
 		err = am.handleExistingUserAccount(account, primaryDomain, claims)
 		if err != nil {
