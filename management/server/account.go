@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	b64 "encoding/base64"
-	"errors"
 	"fmt"
 	"hash/crc32"
 	"math/rand"
@@ -54,16 +53,6 @@ type ExternalCacheManager cache.CacheInterface[*idp.UserData]
 func cacheEntryExpiration() time.Duration {
 	r := rand.Intn(int(CacheExpirationMax.Milliseconds()-CacheExpirationMin.Milliseconds())) + int(CacheExpirationMin.Milliseconds())
 	return time.Duration(r) * time.Millisecond
-}
-
-// UserNotFoundError is a custom error type for representing user-not-found errors.
-type UserNotFoundError struct {
-	UserID string
-}
-
-// Error implements the error interface for UserNotFoundError.
-func (e *UserNotFoundError) Error() string {
-	return fmt.Sprintf("user '%s' not found in cache", e.UserID)
 }
 
 type AccountManager interface {
@@ -1239,15 +1228,6 @@ func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interf
 	if err != nil {
 		return nil, err
 	}
-	if len(userData) == 0 {
-		log.Debugf("no entries received from IdP management for account %s, going to retry in 200ms", accountIDString)
-		// wait for the data to be populated as sometimes the IdP can be to slow
-		time.Sleep(200 * time.Millisecond)
-		userData, err = am.idpManager.GetAccount(accountIDString)
-		if err != nil {
-			return nil, err
-		}
-	}
 	log.Debugf("%d entries received from IdP management", len(userData))
 
 	dataMap := make(map[string]*idp.UserData, len(userData))
@@ -1299,20 +1279,15 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 		users[user.Id] = userLoggedInOnce(!user.LastLogin.IsZero())
 	}
 	log.Debugf("looking up user %s of account %s in cache", userID, account.Id)
-	userData, err := am.getUserDataFromCache(users, account.Id, userID)
+	userData, err := am.lookupCache(users, account.Id)
 	if err != nil {
-		var userNotFoundError *UserNotFoundError
-		if errors.As(err, &userNotFoundError) {
-			time.Sleep(200 * time.Millisecond)
-			userData, err = am.getUserDataFromCache(users, account.Id, userID)
-			if err != nil {
-				return nil, err
-			}
-		}
+		return nil, err
 	}
 
-	if userData != nil {
-		return userData, nil
+	for _, datum := range userData {
+		if datum.ID == userID {
+			return datum, nil
+		}
 	}
 
 	// add extra check on external cache manager. We may get to this point when the user is not yet findable in IDP,
@@ -1330,21 +1305,6 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 	}
 
 	return ud, nil
-}
-
-func (am *DefaultAccountManager) getUserDataFromCache(users map[string]userLoggedInOnce, accountID, userID string) (*idp.UserData, error) {
-	userData, err := am.lookupCache(users, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, datum := range userData {
-		if datum.ID == userID {
-			return datum, nil
-		}
-	}
-
-	return nil, &UserNotFoundError{UserID: userID}
 }
 
 func (am *DefaultAccountManager) refreshCache(accountID string) ([]*idp.UserData, error) {
@@ -1395,12 +1355,29 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]userLoggedI
 		return nil, err
 	}
 
+	if !am.validateCache(accountUsers, data) {
+		data, err = am.refreshCache(accountID)
+		if err != nil {
+			return nil, err
+		}
+		if !am.validateCache(accountUsers, data) {
+			time.Sleep(200 * time.Millisecond)
+			data, err = am.refreshCache(accountID)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return data, err
+}
+
+// validateCache checks if the cache is valid by comparing the accountUsers with the cache data by user count and user invite status
+func (am *DefaultAccountManager) validateCache(accountUsers map[string]userLoggedInOnce, data []*idp.UserData) bool {
 	userDataMap := make(map[string]*idp.UserData, len(data))
 	for _, datum := range data {
 		userDataMap[datum.ID] = datum
 	}
-
-	mustRefreshInviteStatus := false
 
 	// the accountUsers ID list of non integration users from store, we check if cache has all of them
 	// as result of for loop knownUsersCount will have number of users are not presented in the cashed
@@ -1409,9 +1386,8 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]userLoggedI
 		if datum, ok := userDataMap[user]; ok {
 			// check if the matching user data has a pending invite and if the user has logged in once, forcing the cache to be refreshed
 			if datum.AppMetadata.WTPendingInvite != nil && *datum.AppMetadata.WTPendingInvite && loggedInOnce == true { //nolint:gosimple
-				mustRefreshInviteStatus = true
-				log.Infof("user %s has a pending invite and has logged in once, forcing cache refresh", user)
-				break
+				log.Infof("user %s has a pending invite and has logged in once, cache invalid", user)
+				return false
 			}
 			knownUsersCount--
 			continue
@@ -1420,18 +1396,12 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]userLoggedI
 	}
 
 	// if we know users that are not yet in cache more likely cache is outdated
-	if knownUsersCount > 0 || mustRefreshInviteStatus {
-		if !mustRefreshInviteStatus {
-			log.Infof("reloading cache with IDP manager. Users unknown to the cache: %d", knownUsersCount)
-		}
-		// reload cache once avoiding loops
-		data, err = am.refreshCache(accountID)
-		if err != nil {
-			return nil, err
-		}
+	if knownUsersCount > 0 {
+		log.Infof("cache invlaid. Users unknown to the cache: %d", knownUsersCount)
+		return false
 	}
 
-	return data, err
+	return true
 }
 
 func (am *DefaultAccountManager) removeUserFromCache(accountID, userID string) error {
