@@ -262,7 +262,7 @@ func (m *DefaultManager) clientRoutes(initialRoutes []*route.Route) []*route.Rou
 func isPrefixSupported(prefix netip.Prefix) bool {
 	if !nbnet.CustomRoutingDisabled() {
 		switch runtime.GOOS {
-		case "linux", "windows", "darwin":
+		case "linux", "windows", "darwin", "ios":
 			return true
 		}
 	}
