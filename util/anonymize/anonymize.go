@@ -168,6 +168,9 @@ func (a *Anonymizer) AnonymizeDNSLogLine(logEntry string) string {
 		parts := strings.Split(match, `"`)
 		if len(parts) >= 2 {
 			domain := parts[1]
+			if strings.HasSuffix(domain, ".domain") {
+				return match
+			}
 			randomDomain := generateRandomString(10) + ".domain"
 			return strings.Replace(match, domain, randomDomain, 1)
 		}
