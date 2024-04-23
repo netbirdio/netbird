@@ -1350,27 +1350,32 @@ func (am *DefaultAccountManager) getAccountFromCache(accountID string, forceRelo
 }
 
 func (am *DefaultAccountManager) lookupCache(accountUsers map[string]userLoggedInOnce, accountID string) ([]*idp.UserData, error) {
-	data, err := am.getAccountFromCache(accountID, false)
+	var data []*idp.UserData
+	var err error
+
+	maxAttempts := 2
+
+	data, err = am.getAccountFromCache(accountID, false)
 	if err != nil {
 		return nil, err
 	}
 
-	if !am.validateCache(accountUsers, data) {
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if am.validateCache(accountUsers, data) {
+			return data, nil
+		}
+
+		if attempt > 1 {
+			time.Sleep(200 * time.Millisecond)
+		}
+
 		data, err = am.refreshCache(accountID)
 		if err != nil {
 			return nil, err
 		}
-		if !am.validateCache(accountUsers, data) {
-			// if the cache is still invalid after the refresh, we wait for a bit and try again as IdP sometimes is slow to update
-			time.Sleep(200 * time.Millisecond)
-			data, err = am.refreshCache(accountID)
-			if err != nil {
-				return nil, err
-			}
-		}
 	}
 
-	return data, err
+	return data, nil
 }
 
 // validateCache checks if the cache is valid by comparing the accountUsers with the cache data by user count and user invite status
