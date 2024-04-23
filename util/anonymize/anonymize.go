@@ -195,11 +195,7 @@ func isWellKnown(addr netip.Addr) bool {
 	cgnatRangeStart := netip.AddrFrom4([4]byte{100, 64, 0, 0})
 	cgnatRange := netip.PrefixFrom(cgnatRangeStart, 10)
 
-	if cgnatRange.Contains(addr) {
-		return true
-	}
-
-	return false
+	return cgnatRange.Contains(addr)
 }
 
 func generateRandomString(length int) string {
