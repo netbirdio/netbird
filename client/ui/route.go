@@ -4,7 +4,6 @@ package main
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -59,10 +58,6 @@ func (s *serviceClient) updateRoutes(grid *fyne.Container) {
 		s.showError(fmt.Errorf("get client: %v", err))
 		return
 	}
-
-	sort.Slice(routes, func(i, j int) bool {
-		return routes[i].ID < routes[j].ID
-	})
 
 	grid.Objects = nil
 	idHeader := widget.NewLabelWithStyle("      ID", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})

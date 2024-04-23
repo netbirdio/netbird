@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
@@ -68,10 +67,6 @@ func routesList(cmd *cobra.Command, _ []string) error {
 		cmd.Println("No routes available.")
 		return nil
 	}
-
-	sort.Slice(resp.Routes, func(i, j int) bool {
-		return resp.Routes[i].ID < resp.Routes[j].ID
-	})
 
 	cmd.Println("Available Routes:")
 	for _, route := range resp.Routes {
