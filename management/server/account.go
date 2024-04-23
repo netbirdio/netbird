@@ -1229,6 +1229,7 @@ func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interf
 		return nil, err
 	}
 	if len(userData) == 0 {
+		log.Debugf("no entries received from IdP management for account %s, going to retry in 200ms", accountIDString)
 		// wait for the data to be populated as sometimes the IdP can be to slow
 		time.Sleep(200 * time.Millisecond)
 		userData, err = am.idpManager.GetAccount(accountIDString)
