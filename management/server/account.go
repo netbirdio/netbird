@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	b64 "encoding/base64"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"math/rand"
@@ -53,6 +54,16 @@ type ExternalCacheManager cache.CacheInterface[*idp.UserData]
 func cacheEntryExpiration() time.Duration {
 	r := rand.Intn(int(CacheExpirationMax.Milliseconds()-CacheExpirationMin.Milliseconds())) + int(CacheExpirationMin.Milliseconds())
 	return time.Duration(r) * time.Millisecond
+}
+
+// UserNotFoundError is a custom error type for representing user-not-found errors.
+type UserNotFoundError struct {
+	UserID string
+}
+
+// Error implements the error interface for UserNotFoundError.
+func (e *UserNotFoundError) Error() string {
+	return fmt.Sprintf("user '%s' not found in cache", e.UserID)
 }
 
 type AccountManager interface {
@@ -1288,15 +1299,20 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 		users[user.Id] = userLoggedInOnce(!user.LastLogin.IsZero())
 	}
 	log.Debugf("looking up user %s of account %s in cache", userID, account.Id)
-	userData, err := am.lookupCache(users, account.Id)
+	userData, err := am.getUserDataFromCache(users, account.Id, userID)
 	if err != nil {
-		return nil, err
+		var userNotFoundError *UserNotFoundError
+		if errors.As(err, &userNotFoundError) {
+			time.Sleep(200 * time.Millisecond)
+			userData, err = am.getUserDataFromCache(users, account.Id, userID)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
-	for _, datum := range userData {
-		if datum.ID == userID {
-			return datum, nil
-		}
+	if userData != nil {
+		return userData, nil
 	}
 
 	// add extra check on external cache manager. We may get to this point when the user is not yet findable in IDP,
@@ -1314,6 +1330,21 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 	}
 
 	return ud, nil
+}
+
+func (am *DefaultAccountManager) getUserDataFromCache(users map[string]userLoggedInOnce, accountID, userID string) (*idp.UserData, error) {
+	userData, err := am.lookupCache(users, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, datum := range userData {
+		if datum.ID == userID {
+			return datum, nil
+		}
+	}
+
+	return nil, &UserNotFoundError{UserID: userID}
 }
 
 func (am *DefaultAccountManager) refreshCache(accountID string) ([]*idp.UserData, error) {
