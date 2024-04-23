@@ -1229,7 +1229,7 @@ func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interf
 		return nil, err
 	}
 	if len(userData) == 0 {
-		// wait for the data to be populated as sometimes the cache can be to slow
+		// wait for the data to be populated as sometimes the IdP can be to slow
 		time.Sleep(200 * time.Millisecond)
 		userData, err = am.idpManager.GetAccount(accountIDString)
 		if err != nil {
