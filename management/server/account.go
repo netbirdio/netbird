@@ -1350,17 +1350,45 @@ func (am *DefaultAccountManager) getAccountFromCache(accountID string, forceRelo
 }
 
 func (am *DefaultAccountManager) lookupCache(accountUsers map[string]userLoggedInOnce, accountID string) ([]*idp.UserData, error) {
-	data, err := am.getAccountFromCache(accountID, false)
+	var data []*idp.UserData
+	var err error
+
+	maxAttempts := 2
+
+	data, err = am.getAccountFromCache(accountID, false)
 	if err != nil {
 		return nil, err
 	}
 
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if am.isCacheFresh(accountUsers, data) {
+			return data, nil
+		}
+
+		if attempt > 1 {
+			time.Sleep(200 * time.Millisecond)
+		}
+
+		log.Infof("refreshing cache for account %s", accountID)
+		data, err = am.refreshCache(accountID)
+		if err != nil {
+			return nil, err
+		}
+
+		if attempt == maxAttempts {
+			log.Warnf("cache for account %s reached maximum refresh attempts (%d)", accountID, maxAttempts)
+		}
+	}
+
+	return data, nil
+}
+
+// isCacheFresh checks if the cache is refreshed already by comparing the accountUsers with the cache data by user count and user invite status
+func (am *DefaultAccountManager) isCacheFresh(accountUsers map[string]userLoggedInOnce, data []*idp.UserData) bool {
 	userDataMap := make(map[string]*idp.UserData, len(data))
 	for _, datum := range data {
 		userDataMap[datum.ID] = datum
 	}
-
-	mustRefreshInviteStatus := false
 
 	// the accountUsers ID list of non integration users from store, we check if cache has all of them
 	// as result of for loop knownUsersCount will have number of users are not presented in the cashed
@@ -1369,9 +1397,8 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]userLoggedI
 		if datum, ok := userDataMap[user]; ok {
 			// check if the matching user data has a pending invite and if the user has logged in once, forcing the cache to be refreshed
 			if datum.AppMetadata.WTPendingInvite != nil && *datum.AppMetadata.WTPendingInvite && loggedInOnce == true { //nolint:gosimple
-				mustRefreshInviteStatus = true
-				log.Infof("user %s has a pending invite and has logged in once, forcing cache refresh", user)
-				break
+				log.Infof("user %s has a pending invite and has logged in once, cache invalid", user)
+				return false
 			}
 			knownUsersCount--
 			continue
@@ -1380,18 +1407,12 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]userLoggedI
 	}
 
 	// if we know users that are not yet in cache more likely cache is outdated
-	if knownUsersCount > 0 || mustRefreshInviteStatus {
-		if !mustRefreshInviteStatus {
-			log.Infof("reloading cache with IDP manager. Users unknown to the cache: %d", knownUsersCount)
-		}
-		// reload cache once avoiding loops
-		data, err = am.refreshCache(accountID)
-		if err != nil {
-			return nil, err
-		}
+	if knownUsersCount > 0 {
+		log.Infof("cache invalid. Users unknown to the cache: %d", knownUsersCount)
+		return false
 	}
 
-	return data, err
+	return true
 }
 
 func (am *DefaultAccountManager) removeUserFromCache(accountID, userID string) error {
