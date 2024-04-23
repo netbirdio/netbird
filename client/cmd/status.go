@@ -106,7 +106,6 @@ var (
 	ipv4Flag             bool
 	jsonFlag             bool
 	yamlFlag             bool
-	anonymizeFlag        bool
 	ipsFilter            []string
 	prefixNamesFilter    []string
 	statusFilter         string
@@ -131,7 +130,6 @@ func init() {
 	statusCmd.PersistentFlags().StringSliceVar(&ipsFilter, "filter-by-ips", []string{}, "filters the detailed output by a list of one or more IPs, e.g., --filter-by-ips 100.64.0.100,100.64.0.200")
 	statusCmd.PersistentFlags().StringSliceVar(&prefixNamesFilter, "filter-by-names", []string{}, "filters the detailed output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud")
 	statusCmd.PersistentFlags().StringVar(&statusFilter, "filter-by-status", "", "filters the detailed output by connection status(connected|disconnected), e.g., --filter-by-status connected")
-	statusCmd.PersistentFlags().BoolVarP(&anonymizeFlag, "anonymize", "a", false, "anonymize IP addresses and non-netbird.io domains")
 }
 
 func statusFunc(cmd *cobra.Command, args []string) error {
@@ -289,10 +287,8 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 	}
 
 	if anonymizeFlag {
-		anonymizer, err := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
-		if err == nil {
-			anonymizeOverview(anonymizer, &overview)
-		}
+		anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+		anonymizeOverview(anonymizer, &overview)
 	}
 
 	return overview
@@ -797,14 +793,14 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *statusOutputOverview) 
 	}
 
 	overview.ManagementState.URL = a.AnonymizeURI(overview.ManagementState.URL)
-	overview.ManagementState.Error = a.AnonymizeError(overview.ManagementState.Error)
+	overview.ManagementState.Error = a.AnonymizeString(overview.ManagementState.Error)
 	overview.SignalState.URL = a.AnonymizeURI(overview.SignalState.URL)
-	overview.SignalState.Error = a.AnonymizeError(overview.SignalState.Error)
+	overview.SignalState.Error = a.AnonymizeString(overview.SignalState.Error)
 
 	overview.IP = a.AnonymizeIPString(overview.IP)
 	for i, detail := range overview.Relays.Details {
 		detail.URI = a.AnonymizeURI(detail.URI)
-		detail.Error = a.AnonymizeError(detail.Error)
+		detail.Error = a.AnonymizeString(detail.Error)
 		overview.Relays.Details[i] = detail
 	}
 

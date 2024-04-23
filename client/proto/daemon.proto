@@ -36,6 +36,8 @@ service DaemonService {
 
   // Deselect specific routes
   rpc DeselectRoutes(SelectRoutesRequest) returns (SelectRoutesResponse) {}
+
+  rpc DebugBundle(DebugBundleRequest) returns (DebugBundleResponse) {}
 };
 
 message LoginRequest {
@@ -226,4 +228,12 @@ message Route {
   string ID = 1;
   string network = 2;
   bool selected = 3;
+}
+
+message DebugBundleRequest {
+  bool anonymize = 1;
+}
+
+message DebugBundleResponse {
+  string path = 1;
 }

@@ -17,28 +17,24 @@ type Anonymizer struct {
 	domainAnonymizer map[string]string
 	currentAnonIPv4  netip.Addr
 	currentAnonIPv6  netip.Addr
+	startAnonIPv4    netip.Addr
+	startAnonIPv6    netip.Addr
 }
 
-func DefaultAddresses() (string, string) {
-	return "198.51.100.0", "100::"
+func DefaultAddresses() (netip.Addr, netip.Addr) {
+	// 192.51.100.0, 100::
+	return netip.AddrFrom4([4]byte{198, 51, 100, 0}), netip.AddrFrom16([16]byte{0x01})
 }
 
-func NewAnonymizer(startIPv4, startIPv6 string) (*Anonymizer, error) {
-	ipv4, err := netip.ParseAddr(startIPv4)
-	if err != nil {
-		return nil, fmt.Errorf("parse IPv4 address: %w", err)
-	}
-	ipv6, err := netip.ParseAddr(startIPv6)
-	if err != nil {
-		return nil, fmt.Errorf("parse IPv6 address: %w", err)
-	}
-
+func NewAnonymizer(startIPv4, startIPv6 netip.Addr) *Anonymizer {
 	return &Anonymizer{
 		ipAnonymizer:     map[netip.Addr]netip.Addr{},
 		domainAnonymizer: map[string]string{},
-		currentAnonIPv4:  ipv4,
-		currentAnonIPv6:  ipv6,
-	}, nil
+		currentAnonIPv4:  startIPv4,
+		currentAnonIPv6:  startIPv6,
+		startAnonIPv4:    startIPv4,
+		startAnonIPv6:    startIPv6,
+	}
 }
 
 func (a *Anonymizer) AnonymizeIP(ip netip.Addr) netip.Addr {
@@ -49,7 +45,9 @@ func (a *Anonymizer) AnonymizeIP(ip netip.Addr) netip.Addr {
 		ip.IsPrivate() ||
 		ip.IsUnspecified() ||
 		ip.IsMulticast() ||
-		isWellKnown(ip) {
+		isWellKnown(ip) ||
+		a.isInAnonymizedRange(ip) {
+
 		return ip
 	}
 
@@ -65,20 +63,31 @@ func (a *Anonymizer) AnonymizeIP(ip netip.Addr) netip.Addr {
 	return a.ipAnonymizer[ip]
 }
 
+// isInAnonymizedRange checks if an IP is within the range of already assigned anonymized IPs
+func (a *Anonymizer) isInAnonymizedRange(ip netip.Addr) bool {
+	if ip.Is4() && ip.Compare(a.startAnonIPv4) >= 0 && ip.Compare(a.currentAnonIPv4) <= 0 {
+		return true
+	} else if !ip.Is4() && ip.Compare(a.startAnonIPv6) >= 0 && ip.Compare(a.currentAnonIPv6) <= 0 {
+		return true
+	}
+	return false
+}
+
 func (a *Anonymizer) AnonymizeIPString(ip string) string {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
 		return ip
 	}
 
-	return a.ipAnonymizer[a.AnonymizeIP(addr)].String()
+	return a.AnonymizeIP(addr).String()
 }
 
 func (a *Anonymizer) AnonymizeDomain(domain string) string {
 	if strings.HasSuffix(domain, "netbird.io") ||
 		strings.HasSuffix(domain, "netbird.selfhosted") ||
 		strings.HasSuffix(domain, "netbird.cloud") ||
-		strings.HasSuffix(domain, "netbird.stage") {
+		strings.HasSuffix(domain, "netbird.stage") ||
+		strings.HasSuffix(domain, ".domain") {
 		return domain
 	}
 
@@ -104,32 +113,66 @@ func (a *Anonymizer) AnonymizeURI(uri string) string {
 	if err != nil {
 		return uri
 	}
+
+	var anonymizedHost string
 	if u.Opaque != "" {
 		host, port, err := net.SplitHostPort(u.Opaque)
 		if err == nil {
-			u.Opaque = fmt.Sprintf("%s:%s", a.AnonymizeDomain(host), port)
+			anonymizedHost = fmt.Sprintf("%s:%s", a.AnonymizeDomain(host), port)
+		} else {
+			anonymizedHost = a.AnonymizeDomain(u.Opaque)
 		}
+		u.Opaque = anonymizedHost
 	} else if u.Host != "" {
 		host, port, err := net.SplitHostPort(u.Host)
 		if err == nil {
-			u.Host = fmt.Sprintf("%s:%s", a.AnonymizeDomain(host), port)
+			anonymizedHost = fmt.Sprintf("%s:%s", a.AnonymizeDomain(host), port)
+		} else {
+			anonymizedHost = a.AnonymizeDomain(u.Host)
 		}
+		u.Host = anonymizedHost
 	}
 	return u.String()
 }
 
-func (a *Anonymizer) AnonymizeError(errMsg string) string {
+func (a *Anonymizer) AnonymizeString(str string) string {
 	ipv4Regex := regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`)
-	ipv6Regex := regexp.MustCompile(`\b(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]+|::(fff(:0{1,4})?:)?((25[0-5]|(2[0-4]|1?[0-9])?[0-9])\.){3}(25[0-5]|(2[0-4]|1?[0-9])?[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1?[0-9])?[0-9])\.){3}(25[0-5]|(2[0-4]|1?[0-9])?[0-9]))\b`)
+	ipv6Regex := regexp.MustCompile(`\b([0-9a-fA-F:]+:+[0-9a-fA-F]{0,4})(?:%[0-9a-zA-Z]+)?(?:\/[0-9]{1,3})?(?::[0-9]{1,5})?\b`)
 
-	errMsg = ipv4Regex.ReplaceAllStringFunc(errMsg, a.AnonymizeIPString)
-	errMsg = ipv6Regex.ReplaceAllStringFunc(errMsg, a.AnonymizeIPString)
+	str = ipv4Regex.ReplaceAllStringFunc(str, a.AnonymizeIPString)
+	str = ipv6Regex.ReplaceAllStringFunc(str, a.AnonymizeIPString)
 
 	for domain, anonDomain := range a.domainAnonymizer {
-		errMsg = strings.ReplaceAll(errMsg, domain, anonDomain)
+		str = strings.ReplaceAll(str, domain, anonDomain)
 	}
 
-	return errMsg
+	str = a.AnonymizeSchemeURI(str)
+	str = a.AnonymizeDNSLogLine(str)
+
+	return str
+}
+
+// AnonymizeSchemeURI finds and anonymizes URIs with stun, stuns, turn, and turns schemes.
+func (a *Anonymizer) AnonymizeSchemeURI(text string) string {
+	re := regexp.MustCompile(`(?i)\b(stuns?:|turns?:|https?://)\S+\b`)
+
+	return re.ReplaceAllStringFunc(text, a.AnonymizeURI)
+}
+
+// AnonymizeDNSLogLine anonymizes domain names in DNS log entries by replacing them with a random string.
+func (a *Anonymizer) AnonymizeDNSLogLine(logEntry string) string {
+	domainPattern := `dns\.Question{Name:"([^"]+)",`
+	domainRegex := regexp.MustCompile(domainPattern)
+
+	return domainRegex.ReplaceAllStringFunc(logEntry, func(match string) string {
+		parts := strings.Split(match, `"`)
+		if len(parts) >= 2 {
+			domain := parts[1]
+			randomDomain := generateRandomString(10) + ".domain"
+			return strings.Replace(match, domain, randomDomain, 1)
+		}
+		return match
+	})
 }
 
 func isWellKnown(addr netip.Addr) bool {
@@ -142,7 +185,18 @@ func isWellKnown(addr netip.Addr) bool {
 		"2620:fe::fe", "2620:fe::9", // Quad9 DNS IPv6
 	}
 
-	return slices.Contains(wellKnown, addr.String())
+	if slices.Contains(wellKnown, addr.String()) {
+		return true
+	}
+
+	cgnatRangeStart := netip.AddrFrom4([4]byte{100, 64, 0, 0})
+	cgnatRange := netip.PrefixFrom(cgnatRangeStart, 10)
+
+	if cgnatRange.Contains(addr) {
+		return true
+	}
+
+	return false
 }
 
 func generateRandomString(length int) string {
