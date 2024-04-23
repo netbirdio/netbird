@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/util/anonymize"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -288,9 +289,9 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 	}
 
 	if anonymizeFlag {
-		anonymizer, err := NewAnonymizer("198.51.100.0", "100::")
+		anonymizer, err := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
 		if err == nil {
-			anonymizer.AnonymizeOverview(&overview)
+			anonymizeOverview(anonymizer, &overview)
 		}
 	}
 
@@ -766,4 +767,66 @@ func timeAgo(t time.Time) string {
 		return fmt.Sprintf("%d days, %d hours ago", days, hours)
 	}
 	return fmt.Sprintf("%d days ago", days)
+}
+
+func anonymizePeerDetail(a *anonymize.Anonymizer, peer *peerStateDetailOutput) {
+	peer.FQDN = a.AnonymizeDomain(peer.FQDN)
+	if localIP, port, err := net.SplitHostPort(peer.IceCandidateEndpoint.Local); err == nil {
+		peer.IceCandidateEndpoint.Local = fmt.Sprintf("%s:%s", a.AnonymizeIPString(localIP), port)
+	}
+	if remoteIP, port, err := net.SplitHostPort(peer.IceCandidateEndpoint.Remote); err == nil {
+		peer.IceCandidateEndpoint.Remote = fmt.Sprintf("%s:%s", a.AnonymizeIPString(remoteIP), port)
+	}
+	for i, route := range peer.Routes {
+		peer.Routes[i] = a.AnonymizeIPString(route)
+	}
+
+	for i, route := range peer.Routes {
+		prefix, err := netip.ParsePrefix(route)
+		if err == nil {
+			ip := a.AnonymizeIPString(prefix.Addr().String())
+			peer.Routes[i] = fmt.Sprintf("%s/%d", ip, prefix.Bits())
+		}
+	}
+}
+
+func anonymizeOverview(a *anonymize.Anonymizer, overview *statusOutputOverview) {
+	for i, peer := range overview.Peers.Details {
+		anonymizePeerDetail(a, &peer)
+		overview.Peers.Details[i] = peer
+	}
+
+	overview.ManagementState.URL = a.AnonymizeURI(overview.ManagementState.URL)
+	overview.ManagementState.Error = a.AnonymizeError(overview.ManagementState.Error)
+	overview.SignalState.URL = a.AnonymizeURI(overview.SignalState.URL)
+	overview.SignalState.Error = a.AnonymizeError(overview.SignalState.Error)
+
+	overview.IP = a.AnonymizeIPString(overview.IP)
+	for i, detail := range overview.Relays.Details {
+		detail.URI = a.AnonymizeURI(detail.URI)
+		detail.Error = a.AnonymizeError(detail.Error)
+		overview.Relays.Details[i] = detail
+	}
+
+	for i, nsGroup := range overview.NSServerGroups {
+		for j, domain := range nsGroup.Domains {
+			overview.NSServerGroups[i].Domains[j] = a.AnonymizeDomain(domain)
+		}
+		for j, ns := range nsGroup.Servers {
+			host, port, err := net.SplitHostPort(ns)
+			if err == nil {
+				overview.NSServerGroups[i].Servers[j] = fmt.Sprintf("%s:%s", a.AnonymizeIPString(host), port)
+			}
+		}
+	}
+
+	for i, route := range overview.Routes {
+		prefix, err := netip.ParsePrefix(route)
+		if err == nil {
+			ip := a.AnonymizeIPString(prefix.Addr().String())
+			overview.Routes[i] = fmt.Sprintf("%s/%d", ip, prefix.Bits())
+		}
+	}
+
+	overview.FQDN = a.AnonymizeDomain(overview.FQDN)
 }

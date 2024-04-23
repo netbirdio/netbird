@@ -1,4 +1,4 @@
-package cmd
+package anonymize
 
 import (
 	"crypto/rand"
@@ -19,6 +19,10 @@ type Anonymizer struct {
 	currentAnonIPv6  netip.Addr
 }
 
+func DefaultAddresses() (string, string) {
+	return "198.51.100.0", "100::"
+}
+
 func NewAnonymizer(startIPv4, startIPv6 string) (*Anonymizer, error) {
 	ipv4, err := netip.ParseAddr(startIPv4)
 	if err != nil {
@@ -37,33 +41,37 @@ func NewAnonymizer(startIPv4, startIPv6 string) (*Anonymizer, error) {
 	}, nil
 }
 
-func (a *Anonymizer) AnonymizeIP(ip string) string {
+func (a *Anonymizer) AnonymizeIP(ip netip.Addr) netip.Addr {
+	if ip.IsLoopback() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsInterfaceLocalMulticast() ||
+		ip.IsPrivate() ||
+		ip.IsUnspecified() ||
+		ip.IsMulticast() ||
+		isWellKnown(ip) {
+		return ip
+	}
+
+	if _, ok := a.ipAnonymizer[ip]; !ok {
+		if ip.Is4() {
+			a.ipAnonymizer[ip] = a.currentAnonIPv4
+			a.currentAnonIPv4 = a.currentAnonIPv4.Next()
+		} else {
+			a.ipAnonymizer[ip] = a.currentAnonIPv6
+			a.currentAnonIPv6 = a.currentAnonIPv6.Next()
+		}
+	}
+	return a.ipAnonymizer[ip]
+}
+
+func (a *Anonymizer) AnonymizeIPString(ip string) string {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
 		return ip
 	}
 
-	if addr.IsLoopback() ||
-		addr.IsLinkLocalUnicast() ||
-		addr.IsLinkLocalMulticast() ||
-		addr.IsInterfaceLocalMulticast() ||
-		addr.IsPrivate() ||
-		addr.IsUnspecified() ||
-		addr.IsMulticast() ||
-		isWellKnown(addr) {
-		return ip
-	}
-
-	if _, ok := a.ipAnonymizer[addr]; !ok {
-		if addr.Is4() {
-			a.ipAnonymizer[addr] = a.currentAnonIPv4
-			a.currentAnonIPv4 = a.currentAnonIPv4.Next()
-		} else {
-			a.ipAnonymizer[addr] = a.currentAnonIPv6
-			a.currentAnonIPv6 = a.currentAnonIPv6.Next()
-		}
-	}
-	return a.ipAnonymizer[addr].String()
+	return a.ipAnonymizer[a.AnonymizeIP(addr)].String()
 }
 
 func (a *Anonymizer) AnonymizeDomain(domain string) string {
@@ -114,76 +122,14 @@ func (a *Anonymizer) AnonymizeError(errMsg string) string {
 	ipv4Regex := regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`)
 	ipv6Regex := regexp.MustCompile(`\b(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]+|::(fff(:0{1,4})?:)?((25[0-5]|(2[0-4]|1?[0-9])?[0-9])\.){3}(25[0-5]|(2[0-4]|1?[0-9])?[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1?[0-9])?[0-9])\.){3}(25[0-5]|(2[0-4]|1?[0-9])?[0-9]))\b`)
 
-	errMsg = ipv4Regex.ReplaceAllStringFunc(errMsg, a.AnonymizeIP)
-	errMsg = ipv6Regex.ReplaceAllStringFunc(errMsg, a.AnonymizeIP)
+	errMsg = ipv4Regex.ReplaceAllStringFunc(errMsg, a.AnonymizeIPString)
+	errMsg = ipv6Regex.ReplaceAllStringFunc(errMsg, a.AnonymizeIPString)
 
 	for domain, anonDomain := range a.domainAnonymizer {
 		errMsg = strings.ReplaceAll(errMsg, domain, anonDomain)
 	}
 
 	return errMsg
-}
-
-func (a *Anonymizer) AnonymizePeerDetail(peer *peerStateDetailOutput) {
-	peer.FQDN = a.AnonymizeDomain(peer.FQDN)
-	if localIP, port, err := net.SplitHostPort(peer.IceCandidateEndpoint.Local); err == nil {
-		peer.IceCandidateEndpoint.Local = fmt.Sprintf("%s:%s", a.AnonymizeIP(localIP), port)
-	}
-	if remoteIP, port, err := net.SplitHostPort(peer.IceCandidateEndpoint.Remote); err == nil {
-		peer.IceCandidateEndpoint.Remote = fmt.Sprintf("%s:%s", a.AnonymizeIP(remoteIP), port)
-	}
-	for i, route := range peer.Routes {
-		peer.Routes[i] = a.AnonymizeIP(route)
-	}
-
-	for i, route := range peer.Routes {
-		prefix, err := netip.ParsePrefix(route)
-		if err == nil {
-			ip := a.AnonymizeIP(prefix.Addr().String())
-			peer.Routes[i] = fmt.Sprintf("%s/%d", ip, prefix.Bits())
-		}
-	}
-}
-
-func (a *Anonymizer) AnonymizeOverview(overview *statusOutputOverview) {
-	for i, peer := range overview.Peers.Details {
-		a.AnonymizePeerDetail(&peer)
-		overview.Peers.Details[i] = peer
-	}
-
-	overview.ManagementState.URL = a.AnonymizeURI(overview.ManagementState.URL)
-	overview.ManagementState.Error = a.AnonymizeError(overview.ManagementState.Error)
-	overview.SignalState.URL = a.AnonymizeURI(overview.SignalState.URL)
-	overview.SignalState.Error = a.AnonymizeError(overview.SignalState.Error)
-
-	overview.IP = a.AnonymizeIP(overview.IP)
-	for i, detail := range overview.Relays.Details {
-		detail.URI = a.AnonymizeURI(detail.URI)
-		detail.Error = a.AnonymizeError(detail.Error)
-		overview.Relays.Details[i] = detail
-	}
-
-	for i, nsGroup := range overview.NSServerGroups {
-		for j, domain := range nsGroup.Domains {
-			overview.NSServerGroups[i].Domains[j] = a.AnonymizeDomain(domain)
-		}
-		for j, ns := range nsGroup.Servers {
-			host, port, err := net.SplitHostPort(ns)
-			if err == nil {
-				overview.NSServerGroups[i].Servers[j] = fmt.Sprintf("%s:%s", a.AnonymizeIP(host), port)
-			}
-		}
-	}
-
-	for i, route := range overview.Routes {
-		prefix, err := netip.ParsePrefix(route)
-		if err == nil {
-			ip := a.AnonymizeIP(prefix.Addr().String())
-			overview.Routes[i] = fmt.Sprintf("%s/%d", ip, prefix.Bits())
-		}
-	}
-
-	overview.FQDN = a.AnonymizeDomain(overview.FQDN)
 }
 
 func isWellKnown(addr netip.Addr) bool {
