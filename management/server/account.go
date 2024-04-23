@@ -1361,7 +1361,7 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]userLoggedI
 	}
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if am.validateCache(accountUsers, data) {
+		if am.isCacheFresh(accountUsers, data) {
 			return data, nil
 		}
 
@@ -1369,17 +1369,22 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]userLoggedI
 			time.Sleep(200 * time.Millisecond)
 		}
 
+		log.Infof("refreshing cache for account %s", accountID)
 		data, err = am.refreshCache(accountID)
 		if err != nil {
 			return nil, err
+		}
+
+		if attempt == maxAttempts {
+			log.Warnf("cache for account %s reached maximum refresh attempts (%d)", accountID, maxAttempts)
 		}
 	}
 
 	return data, nil
 }
 
-// validateCache checks if the cache is valid by comparing the accountUsers with the cache data by user count and user invite status
-func (am *DefaultAccountManager) validateCache(accountUsers map[string]userLoggedInOnce, data []*idp.UserData) bool {
+// isCacheFresh checks if the cache is refreshed already by comparing the accountUsers with the cache data by user count and user invite status
+func (am *DefaultAccountManager) isCacheFresh(accountUsers map[string]userLoggedInOnce, data []*idp.UserData) bool {
 	userDataMap := make(map[string]*idp.UserData, len(data))
 	for _, datum := range data {
 		userDataMap[datum.ID] = datum
