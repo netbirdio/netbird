@@ -1,7 +1,5 @@
 //go:build !(linux && 386)
-// +build !linux !386
 
-// skipping linux 32 bits build and tests
 package main
 
 import (
@@ -58,6 +56,8 @@ func main() {
 
 	var showSettings bool
 	flag.BoolVar(&showSettings, "settings", false, "run settings windows")
+	var showRoutes bool
+	flag.BoolVar(&showRoutes, "routes", false, "run routes windows")
 	var errorMSG string
 	flag.StringVar(&errorMSG, "error-msg", "", "displays a error message window")
 
@@ -71,8 +71,8 @@ func main() {
 		return
 	}
 
-	client := newServiceClient(daemonAddr, a, showSettings)
-	if showSettings {
+	client := newServiceClient(daemonAddr, a, showSettings, showRoutes)
+	if showSettings || showRoutes {
 		a.Run()
 	} else {
 		if err := checkPIDFile(); err != nil {
@@ -135,6 +135,7 @@ type serviceClient struct {
 	mVersionDaemon *systray.MenuItem
 	mUpdate        *systray.MenuItem
 	mQuit          *systray.MenuItem
+	mRoutes        *systray.MenuItem
 
 	// application with main windows.
 	app              fyne.App
@@ -159,12 +160,15 @@ type serviceClient struct {
 	daemonVersion        string
 	updateIndicationLock sync.Mutex
 	isUpdateIconActive   bool
+
+	showRoutes bool
+	wRoutes    fyne.Window
 }
 
 // newServiceClient instance constructor
 //
 // This constructor also builds the UI elements for the settings window.
-func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient {
+func newServiceClient(addr string, a fyne.App, showSettings bool, showRoutes bool) *serviceClient {
 	s := &serviceClient{
 		ctx:              context.Background(),
 		addr:             addr,
@@ -172,6 +176,7 @@ func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient
 		sendNotification: false,
 
 		showSettings: showSettings,
+		showRoutes:   showRoutes,
 		update:       version.NewUpdate(),
 	}
 
@@ -191,14 +196,16 @@ func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient
 	}
 
 	if showSettings {
-		s.showUIElements()
+		s.showSettingsUI()
 		return s
+	} else if showRoutes {
+		s.showRoutesUI()
 	}
 
 	return s
 }
 
-func (s *serviceClient) showUIElements() {
+func (s *serviceClient) showSettingsUI() {
 	// add settings window UI elements.
 	s.wSettings = s.app.NewWindow("NetBird Settings")
 	s.iMngURL = widget.NewEntry()
@@ -416,6 +423,7 @@ func (s *serviceClient) updateStatus() error {
 			s.mStatus.SetTitle("Connected")
 			s.mUp.Disable()
 			s.mDown.Enable()
+			s.mRoutes.Enable()
 			systrayIconState = true
 		} else if status.Status != string(internal.StatusConnected) && s.mUp.Disabled() {
 			s.connected = false
@@ -428,6 +436,7 @@ func (s *serviceClient) updateStatus() error {
 			s.mStatus.SetTitle("Disconnected")
 			s.mDown.Disable()
 			s.mUp.Enable()
+			s.mRoutes.Disable()
 			systrayIconState = false
 		}
 
@@ -483,9 +492,11 @@ func (s *serviceClient) onTrayReady() {
 	s.mUp = systray.AddMenuItem("Connect", "Connect")
 	s.mDown = systray.AddMenuItem("Disconnect", "Disconnect")
 	s.mDown.Disable()
-	s.mAdminPanel = systray.AddMenuItem("Admin Panel", "Wiretrustee Admin Panel")
+	s.mAdminPanel = systray.AddMenuItem("Admin Panel", "Netbird Admin Panel")
 	systray.AddSeparator()
 	s.mSettings = systray.AddMenuItem("Settings", "Settings of the application")
+	s.mRoutes = systray.AddMenuItem("Network Routes", "Open the routes management window")
+	s.mRoutes.Disable()
 	systray.AddSeparator()
 
 	s.mAbout = systray.AddMenuItem("About", "About")
@@ -557,6 +568,12 @@ func (s *serviceClient) onTrayReady() {
 				if err != nil {
 					log.Errorf("%s", err)
 				}
+			case <-s.mRoutes.ClickedCh:
+				s.mRoutes.Disable()
+				go func() {
+					defer s.mRoutes.Enable()
+					s.runSelfCommand("routes", "true")
+				}()
 			}
 			if err != nil {
 				log.Errorf("process connection: %v", err)

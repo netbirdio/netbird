@@ -111,6 +111,9 @@ type Engine struct {
 	// TURNs is a list of STUN servers used by ICE
 	TURNs []*stun.URI
 
+	// clientRoutes is the most recent list of clientRoutes received from the Management Service
+	clientRoutes map[string][]*route.Route
+
 	cancel context.CancelFunc
 
 	ctx context.Context
@@ -215,6 +218,8 @@ func (e *Engine) Stop() error {
 	if err != nil {
 		return err
 	}
+
+	e.clientRoutes = nil
 
 	// very ugly but we want to remove peers from the WireGuard interface first before removing interface.
 	// Removing peers happens in the conn.CLose() asynchronously
@@ -695,10 +700,13 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	if protoRoutes == nil {
 		protoRoutes = []*mgmProto.Route{}
 	}
-	err := e.routeManager.UpdateRoutes(serial, toRoutes(protoRoutes))
+
+	_, clientRoutes, err := e.routeManager.UpdateRoutes(serial, toRoutes(protoRoutes))
 	if err != nil {
-		log.Errorf("failed to update routes, err: %v", err)
+		log.Errorf("failed to update clientRoutes, err: %v", err)
 	}
+
+	e.clientRoutes = clientRoutes
 
 	protoDNSConfig := networkMap.GetDNSConfig()
 	if protoDNSConfig == nil {
@@ -1227,6 +1235,28 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 		}
 		return nil, dnsServer, nil
 	}
+}
+
+// GetClientRoutes returns the current routes from the route map
+func (e *Engine) GetClientRoutes() map[string][]*route.Route {
+	return e.clientRoutes
+}
+
+// GetClientRoutesWithNetID returns the current routes from the route map, but the keys consist of the network ID only
+func (e *Engine) GetClientRoutesWithNetID() map[string][]*route.Route {
+	routes := make(map[string][]*route.Route, len(e.clientRoutes))
+	for id, v := range e.clientRoutes {
+		if i := strings.LastIndex(id, "-"); i != -1 {
+			id = id[:i]
+		}
+		routes[id] = v
+	}
+	return routes
+}
+
+// GetRouteManager returns the route manager
+func (e *Engine) GetRouteManager() routemanager.Manager {
+	return e.routeManager
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
