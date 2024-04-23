@@ -1228,6 +1228,14 @@ func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interf
 	if err != nil {
 		return nil, err
 	}
+	if len(userData) == 0 {
+		// wait for the data to be populated as sometimes the cache can be to slow
+		time.Sleep(200 * time.Millisecond)
+		userData, err = am.idpManager.GetAccount(accountIDString)
+		if err != nil {
+			return nil, err
+		}
+	}
 	log.Debugf("%d entries received from IdP management", len(userData))
 
 	dataMap := make(map[string]*idp.UserData, len(userData))
