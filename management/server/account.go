@@ -1361,6 +1361,7 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]userLoggedI
 			return nil, err
 		}
 		if !am.validateCache(accountUsers, data) {
+			// if the cache is still invalid after the refresh, we wait for a bit and try again as IdP sometimes is slow to update
 			time.Sleep(200 * time.Millisecond)
 			data, err = am.refreshCache(accountID)
 			if err != nil {
@@ -1397,7 +1398,7 @@ func (am *DefaultAccountManager) validateCache(accountUsers map[string]userLogge
 
 	// if we know users that are not yet in cache more likely cache is outdated
 	if knownUsersCount > 0 {
-		log.Infof("cache invlaid. Users unknown to the cache: %d", knownUsersCount)
+		log.Infof("cache invalid. Users unknown to the cache: %d", knownUsersCount)
 		return false
 	}
 
