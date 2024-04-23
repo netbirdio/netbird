@@ -499,7 +499,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 			return fmt.Errorf("faile to open turn relay: %w", err)
 		}
 		e.turnRelay = turnRelay
-		e.wgInterface.SetRelayConn(e.turnRelay.RelayConn())
+		//e.wgInterface.SetRelayConn(e.turnRelay.RelayConn())
 
 		// todo update signal
 	}
@@ -649,6 +649,7 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 		newTURNs = append(newTURNs, url)
 	}
 	e.TURNs = newTURNs
+
 	return nil
 }
 

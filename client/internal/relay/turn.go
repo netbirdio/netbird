@@ -31,6 +31,7 @@ func NewPermanentTurn(stunURL, turnURL *stun.URI) *PermanentTurn {
 }
 
 func (r *PermanentTurn) Open() error {
+	log.Debugf("Opening permanent turn connection")
 	stunConn, err := net.ListenPacket("udp4", "0.0.0.0:0")
 	if err != nil {
 		return err
@@ -52,7 +53,11 @@ func (r *PermanentTurn) Open() error {
 		return err
 	}
 	r.turnClient = client
-	r.listen()
+	err = r.turnClient.Listen()
+	if err != nil {
+		log.Errorf("failed to listen: %v", err)
+	}
+	//r.listen()
 
 	relayConn, err := client.Allocate()
 	if err != nil {

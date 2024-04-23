@@ -55,14 +55,12 @@ func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketC
 	s.muUDPMux.Lock()
 	defer s.muUDPMux.Unlock()
 
-	if conn != nil {
-		s.udpMux = NewUniversalUDPMuxDefault(
-			UniversalUDPMuxParams{
-				UDPConn: conn,
-				Net:     s.transportNet,
-			},
-		)
-	}
+	s.udpMux = NewUniversalUDPMuxDefault(
+		UniversalUDPMuxParams{
+			UDPConn: conn,
+			Net:     s.transportNet,
+		},
+	)
 	return func(bufs [][]byte, sizes []int, eps []wgConn.Endpoint) (n int, err error) {
 		msgs := ipv4MsgsPool.Get().(*[]ipv4.Message)
 		defer ipv4MsgsPool.Put(msgs)
@@ -71,21 +69,9 @@ func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketC
 		}
 		var numMsgs int
 		if runtime.GOOS == "linux" {
-			if netConn != nil {
-				log.Debugf("----read from turn conn...")
-				msg := &(*msgs)[0]
-				msg.N, msg.Addr, err = netConn.ReadFrom(msg.Buffers[0])
-				if err != nil {
-					return 0, err
-				}
-				log.Debugf("----msg address is: %s, size: %d", msg.Addr.String(), msg.N)
-				numMsgs = 1
-			} else {
-				log.Debugf("----read from pc...")
-				numMsgs, err = pc.ReadBatch(*msgs, 0)
-				if err != nil {
-					return 0, err
-				}
+			numMsgs, err = pc.ReadBatch(*msgs, 0)
+			if err != nil {
+				return 0, err
 			}
 		} else {
 			msg := &(*msgs)[0]
@@ -107,10 +93,7 @@ func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketC
 			}
 
 			addrPort := msg.Addr.(*net.UDPAddr).AddrPort()
-			ep := &wgConn.StdNetEndpoint{
-				AddrPort: addrPort,
-				Conn:     netConn,
-			}
+			ep := &wgConn.StdNetEndpoint{AddrPort: addrPort} // TODO: remove allocation
 			wgConn.GetSrcFromControl(msg.OOB[:msg.NN], ep)
 			eps[i] = ep
 		}

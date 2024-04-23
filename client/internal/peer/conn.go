@@ -135,7 +135,7 @@ type Conn struct {
 	statusRecorder *Status
 
 	wgProxyFactory *wgproxy.Factory
-	wgProxy        wgproxy.Proxy
+	wgProxy        *wgproxy.WGUserSpaceProxy
 
 	remoteModeCh chan ModeMessage
 	meta         meta
@@ -347,17 +347,28 @@ func (conn *Conn) Open() error {
 
 	isControlling := conn.config.LocalKey < conn.config.Key
 	if isControlling {
-		log.Debugf("---- use this peer's tunr connection")
+		log.Debugf("send punchole to: %s", remoteOfferAnswer.RemoteAddr.String())
 		err = conn.turnRelay.PunchHole(remoteOfferAnswer.RemoteAddr)
 		if err != nil {
 			log.Errorf("failed to punch hole: %v", err)
 		}
+
 		addr, ok := remoteOfferAnswer.RemoteAddr.(*net.UDPAddr)
 		if !ok {
 			return fmt.Errorf("failed to cast addr to udp addr")
 		}
 		addr.Port = remoteOfferAnswer.WgListenPort
-		err := conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, addr, conn.config.WgConfig.PreSharedKey)
+
+		conn.wgProxy = wgproxy.NewWGUserSpaceProxy(conn.config.LocalWgPort)
+		myNetConn := NewMyNetConn(conn.turnRelay.RelayConn(), addr)
+		endpoint, err := conn.wgProxy.AddTurnConn(myNetConn)
+		if err != nil {
+			return err
+		}
+		proxyedAddr, _ := net.ResolveUDPAddr(endpoint.Network(), endpoint.String())
+
+		log.Debugf("---- use this peer's tunr connection: %s", addr)
+		err = conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, proxyedAddr, conn.config.WgConfig.PreSharedKey)
 		if err != nil {
 			if conn.wgProxy != nil {
 				_ = conn.wgProxy.CloseConn()
@@ -366,11 +377,12 @@ func (conn *Conn) Open() error {
 			return err
 		}
 	} else {
-		log.Debugf("---- use remote peer tunr connection")
 		addr, ok := remoteOfferAnswer.RelayedAddr.(*net.UDPAddr)
 		if !ok {
 			return fmt.Errorf("failed to cast addr to udp addr")
 		}
+		log.Debugf("---- use remote peer tunr connection: %s", addr)
+
 		err := conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, addr, conn.config.WgConfig.PreSharedKey)
 		if err != nil {
 			if conn.wgProxy != nil {
@@ -380,15 +392,6 @@ func (conn *Conn) Open() error {
 			return err
 		}
 
-		// the ice connection has been established successfully so we are ready to start the proxy
-		/*
-			remoteAddr, err := conn.configureConnection(remoteOfferAnswer.RelayedAddr, remoteWgPort, remoteOfferAnswer.RosenpassPubKey,
-				remoteOfferAnswer.RosenpassAddr)
-			if err != nil {
-				return err
-			}
-
-		*/
 		log.Infof("connected to peer %s, endpoint address: %s", conn.config.Key, addr.String())
 	}
 

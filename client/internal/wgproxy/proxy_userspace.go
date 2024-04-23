@@ -76,7 +76,8 @@ func (p *WGUserSpaceProxy) proxyToRemote() {
 				continue
 			}
 
-			_, err = p.remoteConn.Write(buf[:n])
+			log.Debugf("read from local conn %d bytes and forward to relay", n)
+			n, err = p.remoteConn.Write(buf[:n])
 			if err != nil {
 				continue
 			}
