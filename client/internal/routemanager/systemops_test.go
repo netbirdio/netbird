@@ -67,7 +67,7 @@ func TestAddRemoveRoutes(t *testing.T) {
 				assert.NoError(t, cleanupRouting())
 			})
 
-			err = genericAddVPNRoute(testCase.prefix, wgInterface.Name())
+			err = addVPNRoute(testCase.prefix, wgInterface.Name())
 			require.NoError(t, err, "genericAddVPNRoute should not return err")
 
 			if testCase.shouldRouteToWireguard {
@@ -78,7 +78,7 @@ func TestAddRemoveRoutes(t *testing.T) {
 			exists, err := existsInRouteTable(testCase.prefix)
 			require.NoError(t, err, "existsInRouteTable should not return err")
 			if exists && testCase.shouldRouteToWireguard {
-				err = genericRemoveVPNRoute(testCase.prefix, wgInterface.Name())
+				err = removeVPNRoute(testCase.prefix, wgInterface.Name())
 				require.NoError(t, err, "genericRemoveVPNRoute should not return err")
 
 				prefixGateway, _, err := getNextHop(testCase.prefix.Addr())
@@ -202,12 +202,12 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 
 			// Prepare the environment
 			if testCase.preExistingPrefix.IsValid() {
-				err := genericAddVPNRoute(testCase.preExistingPrefix, wgInterface.Name())
+				err := addVPNRoute(testCase.preExistingPrefix, wgInterface.Name())
 				require.NoError(t, err, "should not return err when adding pre-existing route")
 			}
 
 			// Add the route
-			err = genericAddVPNRoute(testCase.prefix, wgInterface.Name())
+			err = addVPNRoute(testCase.prefix, wgInterface.Name())
 			require.NoError(t, err, "should not return err when adding route")
 
 			if testCase.shouldAddRoute {
@@ -217,7 +217,7 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 				require.True(t, ok, "route should exist")
 
 				// remove route again if added
-				err = genericRemoveVPNRoute(testCase.prefix, wgInterface.Name())
+				err = removeVPNRoute(testCase.prefix, wgInterface.Name())
 				require.NoError(t, err, "should not return err")
 			}
 
