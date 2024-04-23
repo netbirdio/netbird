@@ -63,51 +63,24 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 	return prefixList, nil
 }
 
-func addRoutePowershell(prefix netip.Prefix, nexthop netip.Addr, intf, intfIdx string) error {
-	destinationPrefix := prefix.String()
-	psCmd := "New-NetRoute"
-
-	addressFamily := "IPv4"
-	if prefix.Addr().Is6() {
-		addressFamily = "IPv6"
-	}
-
-	script := fmt.Sprintf(
-		`%s -AddressFamily "%s" -DestinationPrefix "%s" -Confirm:$False -ErrorAction Stop -PolicyStore ActiveStore`,
-		psCmd, addressFamily, destinationPrefix,
-	)
-
-	if intfIdx != "" {
-		script = fmt.Sprintf(
-			`%s -InterfaceIndex %s`, script, intfIdx,
-		)
-	} else {
-		script = fmt.Sprintf(
-			`%s -InterfaceAlias "%s"`, script, intf,
-		)
-	}
+func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, intfIndex string) error {
+	args := []string{"add", prefix.String()}
 
 	if nexthop.IsValid() {
-		script = fmt.Sprintf(
-			`%s -NextHop "%s"`, script, nexthop,
-		)
+		args = append(args, nexthop.Unmap().String())
+	} else {
+		addr := "0.0.0.0"
+		if prefix.Addr().Is6() {
+			addr = "::"
+		}
+		args = append(args, addr)
 	}
 
-	out, err := exec.Command("powershell", "-Command", script).CombinedOutput()
-	log.Tracef("PowerShell %s: %s", script, string(out))
-
-	if err != nil {
-		return fmt.Errorf("PowerShell add route: %w", err)
+	if intfIndex != "" {
+		args = append(args, "if", intfIndex)
 	}
-
-	return nil
-}
-
-func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, _ string) error {
-	args := []string{"add", prefix.String(), nexthop.Unmap().String()}
 
 	out, err := exec.Command("route", args...).CombinedOutput()
-
 	log.Tracef("route %s: %s", strings.Join(args, " "), out)
 	if err != nil {
 		return fmt.Errorf("route add: %w", err)
@@ -117,16 +90,11 @@ func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, _ string) error {
 }
 
 func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf string) error {
-	var intfIdx string
-	if nexthop.Zone() != "" {
-		intfIdx = nexthop.Zone()
+	if nexthop.Zone() != "" && intf == "" {
+		intf = nexthop.Zone()
 		nexthop.WithZone("")
 	}
 
-	// Powershell doesn't support adding routes without an interface but allows to add interface by name
-	if intf != "" || intfIdx != "" {
-		return addRoutePowershell(prefix, nexthop, intf, intfIdx)
-	}
 	return addRouteCmd(prefix, nexthop, intf)
 }
 

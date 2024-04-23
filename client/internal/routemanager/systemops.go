@@ -65,9 +65,7 @@ func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 	if err != nil && !errors.Is(err, ErrRouteNotFound) {
 		return fmt.Errorf("unable to get the next hop for the default gateway address. error: %s", err)
 	}
-	if intf != nil {
-		exitIntf = intf.Name
-	}
+	exitIntf = getInterface(intf)
 
 	log.Debugf("Adding a new route for gateway %s with next hop %s", gatewayPrefix, gatewayHop)
 	return addToRouteTable(gatewayPrefix, gatewayHop, exitIntf)
@@ -179,10 +177,7 @@ func addRouteToNonVPNIntf(
 
 	log.Debugf("Found next hop %s for prefix %s with interface %v", nexthop, prefix, intf)
 	exitNextHop := nexthop
-	var exitIntf string
-	if intf != nil {
-		exitIntf = intf.Name
-	}
+	exitIntf := getInterface(intf)
 
 	vpnAddr, ok := netip.AddrFromSlice(vpnIntf.Address().IP)
 	if !ok {
@@ -193,9 +188,7 @@ func addRouteToNonVPNIntf(
 	if exitNextHop == vpnAddr || exitIntf == vpnIntf.Name() {
 		log.Debugf("Route for prefix %s is pointing to the VPN interface", prefix)
 		exitNextHop = initialNextHop
-		if initialIntf != nil {
-			exitIntf = initialIntf.Name
-		}
+		exitIntf = getInterface(initialIntf)
 	}
 
 	log.Debugf("Adding a new route for prefix %s with next hop %s", prefix, exitNextHop)
@@ -425,4 +418,15 @@ func setupHooks(routeManager *RouteManager, initAddresses []net.IP) (peer.Before
 	})
 
 	return beforeHook, afterHook, nil
+}
+
+// getInterface returns the interface name, for windows it returns the interface index as string
+func getInterface(intf *net.Interface) string {
+	if intf == nil {
+		return ""
+	}
+	if runtime.GOOS == "windows" {
+		return strconv.Itoa(intf.Index)
+	}
+	return intf.Name
 }
