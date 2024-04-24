@@ -489,9 +489,15 @@ dnsServers:
 }
 
 func TestParsingToDetail(t *testing.T) {
+	// Calculate time ago based on the fixture dates
+	lastConnectionUpdate1 := timeAgo(overview.Peers.Details[0].LastStatusUpdate)
+	lastHandshake1 := timeAgo(overview.Peers.Details[0].LastWireguardHandshake)
+	lastConnectionUpdate2 := timeAgo(overview.Peers.Details[1].LastStatusUpdate)
+	lastHandshake2 := timeAgo(overview.Peers.Details[1].LastWireguardHandshake)
+
 	detail := parseToFullDetailSummary(overview)
 
-	expectedDetail :=
+	expectedDetail := fmt.Sprintf(
 		`Peers detail:
  peer-1.awesome-domain.com:
   NetBird IP: 192.168.178.101
@@ -502,8 +508,8 @@ func TestParsingToDetail(t *testing.T) {
   Direct: true
   ICE candidate (Local/Remote): -/-
   ICE candidate endpoints (Local/Remote): -/-
-  Last connection update: 2001-01-01 01:01:01
-  Last WireGuard handshake: 2001-01-01 01:01:02
+  Last connection update: %s
+  Last WireGuard handshake: %s
   Transfer status (received/sent) 200 B/100 B
   Quantum resistance: false
   Routes: 10.1.0.0/24
@@ -518,16 +524,16 @@ func TestParsingToDetail(t *testing.T) {
   Direct: false
   ICE candidate (Local/Remote): relay/prflx
   ICE candidate endpoints (Local/Remote): 10.0.0.1:10001/10.0.10.1:10002
-  Last connection update: 2002-02-02 02:02:02
-  Last WireGuard handshake: 2002-02-02 02:02:03
+  Last connection update: %s
+  Last WireGuard handshake: %s
   Transfer status (received/sent) 2.0 KiB/1000 B
   Quantum resistance: false
   Routes: -
   Latency: 10ms
 
-` + fmt.Sprintf("OS: %s/%s", runtime.GOOS, runtime.GOARCH) + `
+OS: %s/%s
 Daemon version: 0.14.1
-CLI version: development
+CLI version: %s
 Management: Connected to my-awesome-management.com:443
 Signal: Connected to my-awesome-signal.com:443
 Relays: 
@@ -542,7 +548,7 @@ Interface type: Kernel
 Quantum resistance: false
 Routes: 10.10.0.0/24
 Peers count: 2/2 Connected
-`
+`, lastConnectionUpdate1, lastHandshake1, lastConnectionUpdate2, lastHandshake2, runtime.GOOS, runtime.GOARCH, overview.CliVersion)
 
 	assert.Equal(t, expectedDetail, detail)
 }
