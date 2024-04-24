@@ -741,10 +741,22 @@ func timeAgo(t time.Time) string {
 	case duration < time.Second:
 		return "Now"
 	case duration < time.Minute:
-		return fmt.Sprintf("%d seconds ago", int(duration.Seconds()))
+		seconds := int(duration.Seconds())
+		if seconds == 1 {
+			return "1 second ago"
+		}
+		return fmt.Sprintf("%d seconds ago", seconds)
 	case duration < time.Hour:
 		minutes := int(duration.Minutes())
 		seconds := int(duration.Seconds()) % 60
+		if minutes == 1 {
+			if seconds == 1 {
+				return "1 minute, 1 second ago"
+			} else if seconds > 0 {
+				return fmt.Sprintf("1 minute, %d seconds ago", seconds)
+			}
+			return "1 minute ago"
+		}
 		if seconds > 0 {
 			return fmt.Sprintf("%d minutes, %d seconds ago", minutes, seconds)
 		}
@@ -752,13 +764,30 @@ func timeAgo(t time.Time) string {
 	case duration < 24*time.Hour:
 		hours := int(duration.Hours())
 		minutes := int(duration.Minutes()) % 60
+		if hours == 1 {
+			if minutes == 1 {
+				return "1 hour, 1 minute ago"
+			} else if minutes > 0 {
+				return fmt.Sprintf("1 hour, %d minutes ago", minutes)
+			}
+			return "1 hour ago"
+		}
 		if minutes > 0 {
 			return fmt.Sprintf("%d hours, %d minutes ago", hours, minutes)
 		}
+		return fmt.Sprintf("%d hours ago", hours)
 	}
 
 	days := int(duration.Hours()) / 24
 	hours := int(duration.Hours()) % 24
+	if days == 1 {
+		if hours == 1 {
+			return "1 day, 1 hour ago"
+		} else if hours > 0 {
+			return fmt.Sprintf("1 day, %d hours ago", hours)
+		}
+		return "1 day ago"
+	}
 	if hours > 0 {
 		return fmt.Sprintf("%d days, %d hours ago", days, hours)
 	}

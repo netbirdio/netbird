@@ -588,10 +588,10 @@ func TestTimeAgo(t *testing.T) {
 		{"Seconds ago", now.Add(-10 * time.Second), "10 seconds ago"},
 		{"One minute ago", now.Add(-1 * time.Minute), "1 minute ago"},
 		{"Minutes and seconds ago", now.Add(-(1*time.Minute + 30*time.Second)), "1 minute, 30 seconds ago"},
-		{"One hour ago", now.Add(-1 * time.Hour), "1 hour, 0 minutes ago"},
+		{"One hour ago", now.Add(-1 * time.Hour), "1 hour ago"},
 		{"Hours and minutes ago", now.Add(-(2*time.Hour + 15*time.Minute)), "2 hours, 15 minutes ago"},
-		{"One day ago", now.Add(-24 * time.Hour), "1 day, 0 hours ago"},
-		{"Multiple days ago", now.Add(-(72*time.Hour + 20*time.Minute)), "3 days, 0 hours ago"},
+		{"One day ago", now.Add(-24 * time.Hour), "1 day ago"},
+		{"Multiple days ago", now.Add(-(72*time.Hour + 20*time.Minute)), "3 days ago"},
 		{"Zero time", time.Time{}, "-"},
 		{"Unix zero time", time.Unix(0, 0), "-"},
 	}
@@ -599,9 +599,7 @@ func TestTimeAgo(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := timeAgo(tc.input)
-			if result != tc.expected {
-				t.Errorf("Failed %s: expected %s, got %s", tc.name, tc.expected, result)
-			}
+			assert.Equal(t, tc.expected, result, "Failed %s", tc.name)
 		})
 	}
 }
