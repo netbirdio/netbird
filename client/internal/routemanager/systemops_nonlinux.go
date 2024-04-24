@@ -3,11 +3,9 @@
 package routemanager
 
 import (
-	"fmt"
 	"net"
 	"net/netip"
 	"runtime"
-	"strconv"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -17,17 +15,10 @@ func enableIPForwarding() error {
 	return nil
 }
 
-func addVPNRoute(prefix netip.Prefix, intf string) error {
-	if runtime.GOOS == "windows" {
-		i, err := net.InterfaceByName(intf)
-		if err != nil {
-			return fmt.Errorf("get interface: %w", err)
-		}
-		intf = strconv.Itoa(i.Index)
-	}
+func addVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	return genericAddVPNRoute(prefix, intf)
 }
 
-func removeVPNRoute(prefix netip.Prefix, intf string) error {
+func removeVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	return genericRemoveVPNRoute(prefix, intf)
 }

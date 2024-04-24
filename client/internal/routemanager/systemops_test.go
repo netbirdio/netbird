@@ -67,7 +67,11 @@ func TestAddRemoveRoutes(t *testing.T) {
 				assert.NoError(t, cleanupRouting())
 			})
 
-			err = addVPNRoute(testCase.prefix, wgInterface.Name())
+			index, err := net.InterfaceByName(wgInterface.Name())
+			require.NoError(t, err, "InterfaceByName should not return err")
+			intf := &net.Interface{Index: index.Index, Name: wgInterface.Name()}
+
+			err = addVPNRoute(testCase.prefix, intf)
 			require.NoError(t, err, "genericAddVPNRoute should not return err")
 
 			if testCase.shouldRouteToWireguard {
@@ -78,7 +82,7 @@ func TestAddRemoveRoutes(t *testing.T) {
 			exists, err := existsInRouteTable(testCase.prefix)
 			require.NoError(t, err, "existsInRouteTable should not return err")
 			if exists && testCase.shouldRouteToWireguard {
-				err = removeVPNRoute(testCase.prefix, wgInterface.Name())
+				err = removeVPNRoute(testCase.prefix, intf)
 				require.NoError(t, err, "genericRemoveVPNRoute should not return err")
 
 				prefixGateway, _, err := getNextHop(testCase.prefix.Addr())
@@ -200,14 +204,18 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 			err = wgInterface.Create()
 			require.NoError(t, err, "should create testing wireguard interface")
 
+			index, err := net.InterfaceByName(wgInterface.Name())
+			require.NoError(t, err, "InterfaceByName should not return err")
+			intf := &net.Interface{Index: index.Index, Name: wgInterface.Name()}
+
 			// Prepare the environment
 			if testCase.preExistingPrefix.IsValid() {
-				err := addVPNRoute(testCase.preExistingPrefix, wgInterface.Name())
+				err := addVPNRoute(testCase.preExistingPrefix, intf)
 				require.NoError(t, err, "should not return err when adding pre-existing route")
 			}
 
 			// Add the route
-			err = addVPNRoute(testCase.prefix, wgInterface.Name())
+			err = addVPNRoute(testCase.prefix, intf)
 			require.NoError(t, err, "should not return err when adding route")
 
 			if testCase.shouldAddRoute {
@@ -217,7 +225,7 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 				require.True(t, ok, "route should exist")
 
 				// remove route again if added
-				err = removeVPNRoute(testCase.prefix, wgInterface.Name())
+				err = removeVPNRoute(testCase.prefix, intf)
 				require.NoError(t, err, "should not return err")
 			}
 
@@ -345,43 +353,47 @@ func setupTestEnv(t *testing.T) {
 		assert.NoError(t, cleanupRouting())
 	})
 
+	index, err := net.InterfaceByName(wgIface.Name())
+	require.NoError(t, err, "InterfaceByName should not return err")
+	intf := &net.Interface{Index: index.Index, Name: wgIface.Name()}
+
 	// default route exists in main table and vpn table
-	err = addVPNRoute(netip.MustParsePrefix("0.0.0.0/0"), wgIface.Name())
+	err = addVPNRoute(netip.MustParsePrefix("0.0.0.0/0"), intf)
 	require.NoError(t, err, "addVPNRoute should not return err")
 	t.Cleanup(func() {
-		err = removeVPNRoute(netip.MustParsePrefix("0.0.0.0/0"), wgIface.Name())
+		err = removeVPNRoute(netip.MustParsePrefix("0.0.0.0/0"), intf)
 		assert.NoError(t, err, "removeVPNRoute should not return err")
 	})
 
 	// 10.0.0.0/8 route exists in main table and vpn table
-	err = addVPNRoute(netip.MustParsePrefix("10.0.0.0/8"), wgIface.Name())
+	err = addVPNRoute(netip.MustParsePrefix("10.0.0.0/8"), intf)
 	require.NoError(t, err, "addVPNRoute should not return err")
 	t.Cleanup(func() {
-		err = removeVPNRoute(netip.MustParsePrefix("10.0.0.0/8"), wgIface.Name())
+		err = removeVPNRoute(netip.MustParsePrefix("10.0.0.0/8"), intf)
 		assert.NoError(t, err, "removeVPNRoute should not return err")
 	})
 
 	// 10.10.0.0/24 more specific route exists in vpn table
-	err = addVPNRoute(netip.MustParsePrefix("10.10.0.0/24"), wgIface.Name())
+	err = addVPNRoute(netip.MustParsePrefix("10.10.0.0/24"), intf)
 	require.NoError(t, err, "addVPNRoute should not return err")
 	t.Cleanup(func() {
-		err = removeVPNRoute(netip.MustParsePrefix("10.10.0.0/24"), wgIface.Name())
+		err = removeVPNRoute(netip.MustParsePrefix("10.10.0.0/24"), intf)
 		assert.NoError(t, err, "removeVPNRoute should not return err")
 	})
 
 	// 127.0.10.0/24 more specific route exists in vpn table
-	err = addVPNRoute(netip.MustParsePrefix("127.0.10.0/24"), wgIface.Name())
+	err = addVPNRoute(netip.MustParsePrefix("127.0.10.0/24"), intf)
 	require.NoError(t, err, "addVPNRoute should not return err")
 	t.Cleanup(func() {
-		err = removeVPNRoute(netip.MustParsePrefix("127.0.10.0/24"), wgIface.Name())
+		err = removeVPNRoute(netip.MustParsePrefix("127.0.10.0/24"), intf)
 		assert.NoError(t, err, "removeVPNRoute should not return err")
 	})
 
 	// unique route in vpn table
-	err = addVPNRoute(netip.MustParsePrefix("172.16.0.0/12"), wgIface.Name())
+	err = addVPNRoute(netip.MustParsePrefix("172.16.0.0/12"), intf)
 	require.NoError(t, err, "addVPNRoute should not return err")
 	t.Cleanup(func() {
-		err = removeVPNRoute(netip.MustParsePrefix("172.16.0.0/12"), wgIface.Name())
+		err = removeVPNRoute(netip.MustParsePrefix("172.16.0.0/12"), intf)
 		assert.NoError(t, err, "removeVPNRoute should not return err")
 	})
 }

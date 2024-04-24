@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -77,7 +78,7 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 	return prefixList, nil
 }
 
-func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, intfIndex string) error {
+func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
 	args := []string{"add", prefix.String()}
 
 	if nexthop.IsValid() {
@@ -90,8 +91,8 @@ func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, intfIndex string) erro
 		args = append(args, addr)
 	}
 
-	if intfIndex != "" {
-		args = append(args, "if", intfIndex)
+	if intf != nil {
+		args = append(args, "if", strconv.Itoa(intf.Index))
 	}
 
 	out, err := exec.Command("route", args...).CombinedOutput()
@@ -103,16 +104,20 @@ func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, intfIndex string) erro
 	return nil
 }
 
-func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf string) error {
-	if nexthop.Zone() != "" && intf == "" {
-		intf = nexthop.Zone()
+func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
+	if nexthop.Zone() != "" && intf == nil {
+		zone, err := strconv.Atoi(nexthop.Zone())
+		if err != nil {
+			return fmt.Errorf("invalid zone: %w", err)
+		}
+		intf = &net.Interface{Index: zone}
 		nexthop.WithZone("")
 	}
 
 	return addRouteCmd(prefix, nexthop, intf)
 }
 
-func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, _ string) error {
+func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, _ *net.Interface) error {
 	args := []string{"delete", prefix.String()}
 	if nexthop.IsValid() {
 		nexthop.WithZone("")

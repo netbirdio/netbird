@@ -154,15 +154,15 @@ func cleanupRouting() error {
 	return result.ErrorOrNil()
 }
 
-func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf string) error {
+func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
 	return addRoute(prefix, nexthop, intf, syscall.RT_TABLE_MAIN)
 }
 
-func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf string) error {
+func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
 	return removeRoute(prefix, nexthop, intf, syscall.RT_TABLE_MAIN)
 }
 
-func addVPNRoute(prefix netip.Prefix, intf string) error {
+func addVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if isLegacy {
 		return genericAddVPNRoute(prefix, intf)
 	}
@@ -185,7 +185,7 @@ func addVPNRoute(prefix netip.Prefix, intf string) error {
 	return nil
 }
 
-func removeVPNRoute(prefix netip.Prefix, intf string) error {
+func removeVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if isLegacy {
 		return genericRemoveVPNRoute(prefix, intf)
 	}
@@ -244,7 +244,7 @@ func getRoutes(tableID, family int) ([]netip.Prefix, error) {
 }
 
 // addRoute adds a route to a specific routing table identified by tableID.
-func addRoute(prefix netip.Prefix, addr netip.Addr, intf string, tableID int) error {
+func addRoute(prefix netip.Prefix, addr netip.Addr, intf *net.Interface, tableID int) error {
 	route := &netlink.Route{
 		Scope:  netlink.SCOPE_UNIVERSE,
 		Table:  tableID,
@@ -313,7 +313,7 @@ func removeUnreachableRoute(prefix netip.Prefix, tableID int) error {
 }
 
 // removeRoute removes a route from a specific routing table identified by tableID.
-func removeRoute(prefix netip.Prefix, addr netip.Addr, intf string, tableID int) error {
+func removeRoute(prefix netip.Prefix, addr netip.Addr, intf *net.Interface, tableID int) error {
 	_, ipNet, err := net.ParseCIDR(prefix.String())
 	if err != nil {
 		return fmt.Errorf("parse prefix %s: %w", prefix, err)
@@ -467,20 +467,22 @@ func removeRule(params ruleParams) error {
 }
 
 // addNextHop adds the gateway and device to the route.
-func addNextHop(addr netip.Addr, intf string, route *netlink.Route) error {
-	if addr.IsValid() {
-		route.Gw = addr.AsSlice()
-		if intf == "" {
-			intf = addr.Zone()
-		}
+func addNextHop(addr netip.Addr, intf *net.Interface, route *netlink.Route) error {
+	if intf != nil {
+		route.LinkIndex = intf.Index
 	}
 
-	if intf != "" {
-		link, err := netlink.LinkByName(intf)
-		if err != nil {
-			return fmt.Errorf("set interface %s: %w", intf, err)
+	if addr.IsValid() {
+		route.Gw = addr.AsSlice()
+
+		// if zone is set, it means the gateway is a link-local address, so we set the link index
+		if addr.Zone() != "" && intf == nil {
+			link, err := netlink.LinkByName(addr.Zone())
+			if err != nil {
+				return fmt.Errorf("get link by name for zone %s: %w", addr.Zone(), err)
+			}
+			route.LinkIndex = link.Attrs().Index
 		}
-		route.LinkIndex = link.Attrs().Index
 	}
 
 	return nil

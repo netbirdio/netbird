@@ -60,15 +60,13 @@ func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 		return nil
 	}
 
-	var exitIntf string
 	gatewayHop, intf, err := getNextHop(defaultGateway)
 	if err != nil && !errors.Is(err, ErrRouteNotFound) {
 		return fmt.Errorf("unable to get the next hop for the default gateway address. error: %s", err)
 	}
-	exitIntf = getInterface(intf)
 
 	log.Debugf("Adding a new route for gateway %s with next hop %s", gatewayPrefix, gatewayHop)
-	return addToRouteTable(gatewayPrefix, gatewayHop, exitIntf)
+	return addToRouteTable(gatewayPrefix, gatewayHop, intf)
 }
 
 func getNextHop(ip netip.Addr) (netip.Addr, *net.Interface, error) {
@@ -82,7 +80,7 @@ func getNextHop(ip netip.Addr) (netip.Addr, *net.Interface, error) {
 		return netip.Addr{}, nil, ErrRouteNotFound
 	}
 
-	log.Debugf("Route for %s: interface %v, nexthop %v, preferred source %v", ip, intf, gateway, preferredSrc)
+	log.Debugf("Route for %s: interface %v nexthop %v, preferred source %v", ip, intf, gateway, preferredSrc)
 	if gateway == nil {
 		if preferredSrc == nil {
 			return netip.Addr{}, nil, ErrRouteNotFound
@@ -151,12 +149,7 @@ func isSubRange(prefix netip.Prefix) (bool, error) {
 
 // addRouteToNonVPNIntf adds a new route to the routing table for the given prefix and returns the next hop and interface.
 // If the next hop or interface is pointing to the VPN interface, it will return the initial values.
-func addRouteToNonVPNIntf(
-	prefix netip.Prefix,
-	vpnIntf *iface.WGIface,
-	initialNextHop netip.Addr,
-	initialIntf *net.Interface,
-) (netip.Addr, string, error) {
+func addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIface, initialNextHop netip.Addr, initialIntf *net.Interface) (netip.Addr, *net.Interface, error) {
 	addr := prefix.Addr()
 	switch {
 	case addr.IsLoopback(),
@@ -166,34 +159,34 @@ func addRouteToNonVPNIntf(
 		addr.IsUnspecified(),
 		addr.IsMulticast():
 
-		return netip.Addr{}, "", ErrRouteNotAllowed
+		return netip.Addr{}, nil, ErrRouteNotAllowed
 	}
 
 	// Determine the exit interface and next hop for the prefix, so we can add a specific route
 	nexthop, intf, err := getNextHop(addr)
 	if err != nil {
-		return netip.Addr{}, "", fmt.Errorf("get next hop: %w", err)
+		return netip.Addr{}, nil, fmt.Errorf("get next hop: %w", err)
 	}
 
 	log.Debugf("Found next hop %s for prefix %s with interface %v", nexthop, prefix, intf)
 	exitNextHop := nexthop
-	exitIntf := getInterface(intf)
+	exitIntf := intf
 
 	vpnAddr, ok := netip.AddrFromSlice(vpnIntf.Address().IP)
 	if !ok {
-		return netip.Addr{}, "", fmt.Errorf("failed to convert vpn address to netip.Addr")
+		return netip.Addr{}, nil, fmt.Errorf("failed to convert vpn address to netip.Addr")
 	}
 
 	// if next hop is the VPN address or the interface is the VPN interface, we should use the initial values
-	if exitNextHop == vpnAddr || exitIntf == vpnIntf.Name() {
+	if exitNextHop == vpnAddr || exitIntf != nil && exitIntf.Name == vpnIntf.Name() {
 		log.Debugf("Route for prefix %s is pointing to the VPN interface", prefix)
 		exitNextHop = initialNextHop
-		exitIntf = getInterface(initialIntf)
+		exitIntf = initialIntf
 	}
 
 	log.Debugf("Adding a new route for prefix %s with next hop %s", prefix, exitNextHop)
 	if err := addToRouteTable(prefix, exitNextHop, exitIntf); err != nil {
-		return netip.Addr{}, "", fmt.Errorf("add route to table: %w", err)
+		return netip.Addr{}, nil, fmt.Errorf("add route to table: %w", err)
 	}
 
 	return exitNextHop, exitIntf, nil
@@ -201,7 +194,7 @@ func addRouteToNonVPNIntf(
 
 // genericAddVPNRoute adds a new route to the vpn interface, it splits the default prefix
 // in two /1 prefixes to avoid replacing the existing default route
-func genericAddVPNRoute(prefix netip.Prefix, intf string) error {
+func genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if prefix == defaultv4 {
 		if err := addToRouteTable(splitDefaultv4_1, netip.Addr{}, intf); err != nil {
 			return err
@@ -243,7 +236,7 @@ func genericAddVPNRoute(prefix netip.Prefix, intf string) error {
 }
 
 // addNonExistingRoute adds a new route to the vpn interface if it doesn't exist in the current routing table
-func addNonExistingRoute(prefix netip.Prefix, intf string) error {
+func addNonExistingRoute(prefix netip.Prefix, intf *net.Interface) error {
 	ok, err := existsInRouteTable(prefix)
 	if err != nil {
 		return fmt.Errorf("exists in route table: %w", err)
@@ -270,7 +263,7 @@ func addNonExistingRoute(prefix netip.Prefix, intf string) error {
 
 // genericRemoveVPNRoute removes the route from the vpn interface. If a default prefix is given,
 // it will remove the split /1 prefixes
-func genericRemoveVPNRoute(prefix netip.Prefix, intf string) error {
+func genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if prefix == defaultv4 {
 		var result *multierror.Error
 		if err := removeFromRouteTable(splitDefaultv4_1, netip.Addr{}, intf); err != nil {
@@ -336,7 +329,7 @@ func setupRoutingWithRouteManager(routeManager **RouteManager, initAddresses []n
 	}
 
 	*routeManager = NewRouteManager(
-		func(prefix netip.Prefix) (netip.Addr, string, error) {
+		func(prefix netip.Prefix) (netip.Addr, *net.Interface, error) {
 			addr := prefix.Addr()
 			nexthop, intf := initialNextHopV4, initialIntfV4
 			if addr.Is6() {
@@ -418,15 +411,4 @@ func setupHooks(routeManager *RouteManager, initAddresses []net.IP) (peer.Before
 	})
 
 	return beforeHook, afterHook, nil
-}
-
-// getInterface returns the interface name, for windows it returns the interface index as string
-func getInterface(intf *net.Interface) string {
-	if intf == nil {
-		return ""
-	}
-	if runtime.GOOS == "windows" {
-		return strconv.Itoa(intf.Index)
-	}
-	return intf.Name
 }
