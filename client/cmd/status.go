@@ -817,6 +817,7 @@ func anonymizePeerDetail(a *anonymize.Anonymizer, peer *peerStateDetailOutput) {
 
 func anonymizeOverview(a *anonymize.Anonymizer, overview *statusOutputOverview) {
 	for i, peer := range overview.Peers.Details {
+		peer := peer
 		anonymizePeerDetail(a, &peer)
 		overview.Peers.Details[i] = peer
 	}
