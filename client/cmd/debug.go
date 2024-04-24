@@ -10,9 +10,8 @@ import (
 )
 
 var debugCmd = &cobra.Command{
-	Use:              "debug",
-	Short:            "Debugging commands",
-	TraverseChildren: true,
+	Use:   "debug",
+	Short: "Debugging commands",
 }
 
 var debugBundleCmd = &cobra.Command{

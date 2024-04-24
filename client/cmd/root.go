@@ -67,11 +67,10 @@ var (
 	extraIFaceBlackList     []string
 	anonymizeFlag           bool
 	rootCmd                 = &cobra.Command{
-		Use:              "netbird",
-		Short:            "",
-		Long:             "",
-		SilenceUsage:     true,
-		TraverseChildren: true,
+		Use:          "netbird",
+		Short:        "",
+		Long:         "",
+		SilenceUsage: true,
 	}
 )
 
