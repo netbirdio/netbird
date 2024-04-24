@@ -86,9 +86,6 @@ jobs:
         with:
           version: ${{ env.GORELEASER_VER }}
           args: release --rm-dist ${{ env.flags }}
-      - name: upload non tags for debug purposes
-        uses: actions/upload-artifact@v3
-        with:
-          name: release
-          path: dist/
-          retention-days: 365
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  
+      
