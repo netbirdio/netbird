@@ -210,7 +210,7 @@ func (conn *Conn) reCreateAgent() error {
 
 	agentConfig := &ice.AgentConfig{
 		MulticastDNSMode:       ice.MulticastDNSModeDisabled,
-		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
+		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP6, ice.NetworkTypeUDP4},
 		Urls:                   conn.config.StunTurn,
 		CandidateTypes:         conn.candidateTypes(),
 		FailedTimeout:          &failedTimeout,
