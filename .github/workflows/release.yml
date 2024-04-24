@@ -81,10 +81,14 @@ jobs:
         run: rsrc -arch arm -ico client/ui/netbird.ico -manifest client/manifest.xml -o client/resources_windows_arm.syso
       - name: Generate windows rsrc 386
         run: rsrc -arch 386 -ico client/ui/netbird.ico -manifest client/manifest.xml -o client/resources_windows_386.syso
-      -
-        name: upload non tags for debug purposes
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v4
+        with:
+          version: ${{ env.GORELEASER_VER }}
+          args: release --rm-dist ${{ env.flags }}
+      - name: upload non tags for debug purposes
         uses: actions/upload-artifact@v3
         with:
           name: release
           path: dist/
-          retention-days: 3
+          retention-days: 365
