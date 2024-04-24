@@ -44,7 +44,7 @@ require (
 	github.com/gliderlabs/ssh v0.3.4
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/golang/mock v1.6.0
-	github.com/google/go-cmp v0.5.9
+	github.com/google/go-cmp v0.6.0
 	github.com/google/gopacket v1.1.19
 	github.com/google/martian/v3 v3.0.0
 	github.com/google/nftables v0.0.0-20220808154552-2eca00135732
@@ -70,10 +70,11 @@ require (
 	github.com/pion/turn/v3 v3.0.1
 	github.com/prometheus/client_golang v1.14.0
 	github.com/rs/xid v1.3.0
+	github.com/shirou/gopsutil/v3 v3.24.3
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.9.0
 	github.com/things-go/go-socks5 v0.0.4
-	github.com/yusufpapurcu/wmi v1.2.3
+	github.com/yusufpapurcu/wmi v1.2.4
 	github.com/zcalusic/sysinfo v1.0.2
 	go.opentelemetry.io/otel v1.11.1
 	go.opentelemetry.io/otel/exporters/prometheus v0.33.0
@@ -131,6 +132,7 @@ require (
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/josharian/native v1.1.0 // indirect
 	github.com/kelseyhightower/envconfig v1.4.0 // indirect
+	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/mdlayher/genetlink v1.3.2 // indirect
 	github.com/mdlayher/netlink v1.7.2 // indirect
@@ -142,12 +144,16 @@ require (
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/transport/v2 v2.2.4 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.37.0 // indirect
 	github.com/prometheus/procfs v0.8.0 // indirect
+	github.com/shoenig/go-m1cpu v0.1.6 // indirect
 	github.com/spf13/cast v1.5.0 // indirect
 	github.com/srwiley/oksvg v0.0.0-20200311192757-870daf9aa564 // indirect
 	github.com/srwiley/rasterx v0.0.0-20200120212402-85cb7272f5e9 // indirect
+	github.com/tklauser/go-sysconf v0.3.12 // indirect
+	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/vishvananda/netns v0.0.0-20211101163701-50045581ed74 // indirect
 	github.com/yuin/goldmark v1.4.13 // indirect
 	go.opencensus.io v0.24.0 // indirect
