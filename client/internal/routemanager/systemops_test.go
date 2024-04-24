@@ -186,12 +186,15 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 	}
 
 	for n, testCase := range testCases {
+
 		var buf bytes.Buffer
 		log.SetOutput(&buf)
 		defer func() {
 			log.SetOutput(os.Stderr)
 		}()
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("NB_USE_LEGACY_ROUTING", "true")
+
 			peerPrivateKey, _ := wgtypes.GeneratePrivateKey()
 			newNet, err := stdnet.NewNet()
 			if err != nil {
