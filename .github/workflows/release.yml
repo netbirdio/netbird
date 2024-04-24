@@ -5,7 +5,7 @@ on:
     tags:
       - 'v*'
     branches:
-      - main
+      - myspace
   pull_request:
     paths:
       - 'go.mod'
