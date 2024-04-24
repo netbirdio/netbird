@@ -85,5 +85,5 @@ jobs:
           version: ${{ env.GORELEASER_VER }}
           args: release --config .goreleaser.yaml --rm-dist ${{ env.flags }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.CICI_TOKEN }}
       
