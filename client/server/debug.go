@@ -16,7 +16,7 @@ import (
 	"github.com/netbirdio/netbird/util/anonymize"
 )
 
-// DebugBundle returns a list of all available routes.
+// DebugBundle creates a debug bundle and returns the location.
 func (s *Server) DebugBundle(ctx context.Context, req *proto.DebugBundleRequest) (resp *proto.DebugBundleResponse, err error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
