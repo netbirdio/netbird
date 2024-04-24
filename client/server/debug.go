@@ -21,9 +21,6 @@ func (s *Server) DebugBundle(ctx context.Context, req *proto.DebugBundleRequest)
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	defer func() {
-	}()
-
 	if s.logFile == "console" {
 		return nil, fmt.Errorf("log file is set to console, cannot create debug bundle")
 	}
