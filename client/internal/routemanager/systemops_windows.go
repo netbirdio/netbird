@@ -8,6 +8,8 @@ import (
 	"net/netip"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/yusufpapurcu/wmi"
@@ -21,6 +23,10 @@ type Win32_IP4RouteTable struct {
 	Mask        string
 }
 
+var prefixList []netip.Prefix
+var lastUpdate time.Time
+var mux = sync.Mutex{}
+
 var routeManager *RouteManager
 
 func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
@@ -32,15 +38,23 @@ func cleanupRouting() error {
 }
 
 func getRoutesFromTable() ([]netip.Prefix, error) {
-	var routes []Win32_IP4RouteTable
+	mux.Lock()
+	defer mux.Unlock()
+
 	query := "SELECT Destination, Mask FROM Win32_IP4RouteTable"
 
+	// If many routes are added at the same time this might block for a long time (seconds to minutes), so we cache the result
+	if time.Since(lastUpdate) < 2*time.Second {
+		return prefixList, nil
+	}
+
+	var routes []Win32_IP4RouteTable
 	err := wmi.Query(query, &routes)
 	if err != nil {
 		return nil, fmt.Errorf("get routes: %w", err)
 	}
+	lastUpdate = time.Now()
 
-	var prefixList []netip.Prefix
 	for _, route := range routes {
 		addr, err := netip.ParseAddr(route.Destination)
 		if err != nil {
