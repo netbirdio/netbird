@@ -52,7 +52,11 @@ func (r *PermanentTurn) Open() error {
 		return err
 	}
 	r.turnClient = client
-	r.listen()
+	err = r.turnClient.Listen()
+	if err != nil {
+		log.Errorf("failed to listen turn client: %v", err)
+		return err
+	}
 
 	relayConn, err := client.Allocate()
 	if err != nil {
@@ -61,7 +65,7 @@ func (r *PermanentTurn) Open() error {
 	}
 	r.relayConn = relayConn
 
-	srvReflexiveAddress, err := r.discoverPublicIP()
+	srvReflexiveAddress, err := r.discoverPublicIPByStun()
 	if err != nil {
 		log.Errorf("failed to discover public IP: %v", err)
 		return err
@@ -79,6 +83,26 @@ func (r *PermanentTurn) SrvRefAddr() net.Addr {
 }
 
 func (r *PermanentTurn) PunchHole(mappedAddr net.Addr) error {
+	/*
+		err := r.turnClient.CreatePermission(mappedAddr)
+		if err != nil {
+			log.Errorf("---- failed to create permission: %v", err)
+			return err
+		}
+
+		msg, err := stun.Build(stun.BindingRequest, stun.TransactionID,
+			stun.Fingerprint,
+		)
+		if err != nil {
+			log.Errorf("--- failed to build stun message: %v", err)
+			return nil
+		}
+		_, err = r.relayConn.WriteTo(msg.Raw, mappedAddr)
+		if err != nil {
+			log.Errorf("failed to write to relay conn: %v", err)
+			return err
+		}
+	*/
 	_, err := r.relayConn.WriteTo([]byte("Hello"), mappedAddr)
 	return err
 }
@@ -115,6 +139,33 @@ func (r *PermanentTurn) discoverPublicIP() (*net.UDPAddr, error) {
 	}
 
 	return udpAddr, nil
+}
+
+func (r *PermanentTurn) discoverPublicIPByStun() (*net.UDPAddr, error) {
+	c, err := stun.DialURI(r.stunURI, &stun.DialConfig{})
+	if err != nil {
+		panic(err)
+	}
+	message := stun.MustBuild(stun.TransactionID, stun.BindingRequest)
+	var addr *net.UDPAddr
+	err = c.Do(message, func(res stun.Event) {
+		if res.Error != nil {
+			panic(res.Error)
+		}
+		var xorAddr stun.XORMappedAddress
+		if err := xorAddr.GetFrom(res.Message); err != nil {
+			log.Errorf("failed to get xor address: %v", err)
+			return
+		}
+		addr = &net.UDPAddr{
+			IP:   xorAddr.IP,
+			Port: xorAddr.Port,
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	return addr, nil
 }
 
 func (r *PermanentTurn) listen() {
