@@ -46,9 +46,6 @@ var routeManager = &RouteManager{}
 // originalSysctl stores the original sysctl values before they are modified
 var originalSysctl map[string]int
 
-// determines whether to use the legacy routing setup
-var isLegacy = os.Getenv("NB_USE_LEGACY_ROUTING") == "true" || nbnet.CustomRoutingDisabled()
-
 // sysctlFailed is used as an indicator to emit a warning when default routes are configured
 var sysctlFailed bool
 
@@ -60,6 +57,20 @@ type ruleParams struct {
 	invert         bool
 	suppressPrefix int
 	description    string
+}
+
+// isLegacy determines whether to use the legacy routing setup
+func isLegacy() bool {
+	return os.Getenv("NB_USE_LEGACY_ROUTING") == "true" || nbnet.CustomRoutingDisabled()
+}
+
+// setIsLegacy sets the legacy routing setup
+func setIsLegacy(b bool) {
+	if b {
+		os.Setenv("NB_USE_LEGACY_ROUTING", "true")
+	} else {
+		os.Unsetenv("NB_USE_LEGACY_ROUTING")
+	}
 }
 
 func getSetupRules() []ruleParams {
@@ -82,7 +93,7 @@ func getSetupRules() []ruleParams {
 // This table is where a default route or other specific routes received from the management server are configured,
 // enabling VPN connectivity.
 func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.BeforeAddPeerHookFunc, _ peer.AfterRemovePeerHookFunc, err error) {
-	if isLegacy {
+	if isLegacy() {
 		log.Infof("Using legacy routing setup")
 		return setupRoutingWithRouteManager(&routeManager, initAddresses, wgIface)
 	}
@@ -111,7 +122,7 @@ func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.Before
 		if err := addRule(rule); err != nil {
 			if errors.Is(err, syscall.EOPNOTSUPP) {
 				log.Warnf("Rule operations are not supported, falling back to the legacy routing setup")
-				isLegacy = true
+				setIsLegacy(true)
 				return setupRoutingWithRouteManager(&routeManager, initAddresses, wgIface)
 			}
 			return nil, nil, fmt.Errorf("%s: %w", rule.description, err)
@@ -125,7 +136,7 @@ func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.Before
 // It systematically removes the three rules and any associated routing table entries to ensure a clean state.
 // The function uses error aggregation to report any errors encountered during the cleanup process.
 func cleanupRouting() error {
-	if isLegacy {
+	if isLegacy() {
 		return cleanupRoutingWithRouteManager(routeManager)
 	}
 
@@ -163,7 +174,7 @@ func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Int
 }
 
 func addVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
-	if isLegacy {
+	if isLegacy() {
 		return genericAddVPNRoute(prefix, intf)
 	}
 
@@ -186,7 +197,7 @@ func addVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 }
 
 func removeVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
-	if isLegacy {
+	if isLegacy() {
 		return genericRemoveVPNRoute(prefix, intf)
 	}
 
