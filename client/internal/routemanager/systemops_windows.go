@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -45,7 +46,7 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 	query := "SELECT Destination, Mask FROM Win32_IP4RouteTable"
 
 	// If many routes are added at the same time this might block for a long time (seconds to minutes), so we cache the result
-	if time.Since(lastUpdate) < 2*time.Second {
+	if !isCacheDisabled() && time.Since(lastUpdate) < 2*time.Second {
 		return prefixList, nil
 	}
 
@@ -54,8 +55,8 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get routes: %w", err)
 	}
-	lastUpdate = time.Now()
 
+	prefixList = nil
 	for _, route := range routes {
 		addr, err := netip.ParseAddr(route.Destination)
 		if err != nil {
@@ -75,6 +76,8 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 			prefixList = append(prefixList, routePrefix)
 		}
 	}
+
+	lastUpdate = time.Now()
 	return prefixList, nil
 }
 
@@ -131,4 +134,8 @@ func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, _ *net.Interf
 		return fmt.Errorf("remove route: %w", err)
 	}
 	return nil
+}
+
+func isCacheDisabled() bool {
+	return os.Getenv("NB_DISABLE_ROUTE_CACHE") == "true"
 }

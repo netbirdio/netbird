@@ -50,6 +50,8 @@ func TestAddRemoveRoutes(t *testing.T) {
 
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("NB_DISABLE_ROUTE_CACHE", "true")
+
 			peerPrivateKey, _ := wgtypes.GeneratePrivateKey()
 			newNet, err := stdnet.NewNet()
 			if err != nil {
@@ -194,6 +196,7 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 		}()
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Setenv("NB_USE_LEGACY_ROUTING", "true")
+			t.Setenv("NB_DISABLE_ROUTE_CACHE", "true")
 
 			peerPrivateKey, _ := wgtypes.GeneratePrivateKey()
 			newNet, err := stdnet.NewNet()
