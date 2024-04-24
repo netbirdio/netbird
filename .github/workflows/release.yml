@@ -85,7 +85,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v4
         with:
           version: ${{ env.GORELEASER_VER }}
-          args: release --rm-dist ${{ env.flags }}
+          args: release --config .goreleaser.yaml --rm-dist ${{ env.flags }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
