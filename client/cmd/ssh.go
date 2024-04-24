@@ -24,7 +24,7 @@ var (
 )
 
 var sshCmd = &cobra.Command{
-	Use: "ssh",
+	Use: "ssh [user@]host",
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
 			return errors.New("requires a host argument")
@@ -94,7 +94,7 @@ func runSSH(ctx context.Context, addr string, pemKey []byte, cmd *cobra.Command)
 	if err != nil {
 		cmd.Printf("Error: %v\n", err)
 		cmd.Printf("Couldn't connect. Please check the connection status or if the ssh server is enabled on the other peer" +
-			"You can verify the connection by running:\n\n" +
+			"\nYou can verify the connection by running:\n\n" +
 			" netbird status\n\n")
 		return err
 	}

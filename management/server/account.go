@@ -46,6 +46,8 @@ const (
 	DefaultPeerLoginExpiration = 24 * time.Hour
 )
 
+type userLoggedInOnce bool
+
 type ExternalCacheManager cache.CacheInterface[*idp.UserData]
 
 func cacheEntryExpiration() time.Duration {
@@ -1093,13 +1095,15 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	}
 	delete(userData, idp.UnsetAccountID)
 
+	rcvdUsers := 0
 	for accountID, users := range userData {
+		rcvdUsers += len(users)
 		err = am.cacheManager.Set(am.ctx, accountID, users, cacheStore.WithExpiration(cacheEntryExpiration()))
 		if err != nil {
 			return err
 		}
 	}
-	log.Infof("warmed up IDP cache with %d entries", len(userData))
+	log.Infof("warmed up IDP cache with %d entries for %d accounts", rcvdUsers, len(userData))
 	return nil
 }
 
@@ -1264,7 +1268,7 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountI
 
 // lookupUserInCache looks up user in the IdP cache and returns it. If the user wasn't found, the function returns nil
 func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Account) (*idp.UserData, error) {
-	users := make(map[string]struct{}, len(account.Users))
+	users := make(map[string]userLoggedInOnce, len(account.Users))
 	// ignore service users and users provisioned by integrations than are never logged in
 	for _, user := range account.Users {
 		if user.IsServiceUser {
@@ -1273,7 +1277,7 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 		if user.Issued == UserIssuedIntegration {
 			continue
 		}
-		users[user.Id] = struct{}{}
+		users[user.Id] = userLoggedInOnce(!user.LastLogin.IsZero())
 	}
 	log.Debugf("looking up user %s of account %s in cache", userID, account.Id)
 	userData, err := am.lookupCache(users, account.Id)
@@ -1346,22 +1350,57 @@ func (am *DefaultAccountManager) getAccountFromCache(accountID string, forceRelo
 	}
 }
 
-func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, accountID string) ([]*idp.UserData, error) {
-	data, err := am.getAccountFromCache(accountID, false)
+func (am *DefaultAccountManager) lookupCache(accountUsers map[string]userLoggedInOnce, accountID string) ([]*idp.UserData, error) {
+	var data []*idp.UserData
+	var err error
+
+	maxAttempts := 2
+
+	data, err = am.getAccountFromCache(accountID, false)
 	if err != nil {
 		return nil, err
 	}
 
-	userDataMap := make(map[string]struct{})
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if am.isCacheFresh(accountUsers, data) {
+			return data, nil
+		}
+
+		if attempt > 1 {
+			time.Sleep(200 * time.Millisecond)
+		}
+
+		log.Infof("refreshing cache for account %s", accountID)
+		data, err = am.refreshCache(accountID)
+		if err != nil {
+			return nil, err
+		}
+
+		if attempt == maxAttempts {
+			log.Warnf("cache for account %s reached maximum refresh attempts (%d)", accountID, maxAttempts)
+		}
+	}
+
+	return data, nil
+}
+
+// isCacheFresh checks if the cache is refreshed already by comparing the accountUsers with the cache data by user count and user invite status
+func (am *DefaultAccountManager) isCacheFresh(accountUsers map[string]userLoggedInOnce, data []*idp.UserData) bool {
+	userDataMap := make(map[string]*idp.UserData, len(data))
 	for _, datum := range data {
-		userDataMap[datum.ID] = struct{}{}
+		userDataMap[datum.ID] = datum
 	}
 
 	// the accountUsers ID list of non integration users from store, we check if cache has all of them
 	// as result of for loop knownUsersCount will have number of users are not presented in the cashed
 	knownUsersCount := len(accountUsers)
-	for user := range accountUsers {
-		if _, ok := userDataMap[user]; ok {
+	for user, loggedInOnce := range accountUsers {
+		if datum, ok := userDataMap[user]; ok {
+			// check if the matching user data has a pending invite and if the user has logged in once, forcing the cache to be refreshed
+			if datum.AppMetadata.WTPendingInvite != nil && *datum.AppMetadata.WTPendingInvite && loggedInOnce == true { //nolint:gosimple
+				log.Infof("user %s has a pending invite and has logged in once, cache invalid", user)
+				return false
+			}
 			knownUsersCount--
 			continue
 		}
@@ -1370,15 +1409,11 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, a
 
 	// if we know users that are not yet in cache more likely cache is outdated
 	if knownUsersCount > 0 {
-		log.Debugf("cache doesn't know about %d users from store, reloading", knownUsersCount)
-		// reload cache once avoiding loops
-		data, err = am.refreshCache(accountID)
-		if err != nil {
-			return nil, err
-		}
+		log.Infof("cache invalid. Users unknown to the cache: %d", knownUsersCount)
+		return false
 	}
 
-	return data, err
+	return true
 }
 
 func (am *DefaultAccountManager) removeUserFromCache(accountID, userID string) error {
@@ -1426,29 +1461,14 @@ func (am *DefaultAccountManager) updateAccountDomainAttributes(account *Account,
 }
 
 // handleExistingUserAccount handles existing User accounts and update its domain attributes.
-//
-// If there is no primary domain account yet, we set the account as primary for the domain. Otherwise,
-// we compare the account's ID with the domain account ID, and if they don't match, we set the account as
-// non-primary account for the domain. We don't merge accounts at this stage, because of cases when a domain
-// was previously unclassified or classified as public so N users that logged int that time, has they own account
-// and peers that shouldn't be lost.
 func (am *DefaultAccountManager) handleExistingUserAccount(
 	existingAcc *Account,
-	domainAcc *Account,
+	primaryDomain bool,
 	claims jwtclaims.AuthorizationClaims,
 ) error {
-	var err error
-
-	if domainAcc != nil && existingAcc.Id != domainAcc.Id {
-		err = am.updateAccountDomainAttributes(existingAcc, claims, false)
-		if err != nil {
-			return err
-		}
-	} else {
-		err = am.updateAccountDomainAttributes(existingAcc, claims, true)
-		if err != nil {
-			return err
-		}
+	err := am.updateAccountDomainAttributes(existingAcc, claims, primaryDomain)
+	if err != nil {
+		return err
 	}
 
 	// we should register the account ID to this user's metadata in our IDP manager
@@ -1650,7 +1670,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 		return nil, nil, status.Errorf(status.NotFound, "user %s not found", claims.UserId)
 	}
 
-	if !user.IsServiceUser {
+	if !user.IsServiceUser && claims.Invited {
 		err = am.redeemInvite(account, claims.UserId)
 		if err != nil {
 			return nil, nil, err
@@ -1782,12 +1802,33 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 
 	account, err := am.Store.GetAccountByUser(claims.UserId)
 	if err == nil {
-		err = am.handleExistingUserAccount(account, domainAccount, claims)
+		unlockAccount := am.Store.AcquireAccountLock(account.Id)
+		defer unlockAccount()
+		account, err = am.Store.GetAccountByUser(claims.UserId)
+		if err != nil {
+			return nil, err
+		}
+		// If there is no primary domain account yet, we set the account as primary for the domain. Otherwise,
+		// we compare the account's ID with the domain account ID, and if they don't match, we set the account as
+		// non-primary account for the domain. We don't merge accounts at this stage, because of cases when a domain
+		// was previously unclassified or classified as public so N users that logged int that time, has they own account
+		// and peers that shouldn't be lost.
+		primaryDomain := domainAccount == nil || account.Id == domainAccount.Id
+
+		err = am.handleExistingUserAccount(account, primaryDomain, claims)
 		if err != nil {
 			return nil, err
 		}
 		return account, nil
 	} else if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
+		if domainAccount != nil {
+			unlockAccount := am.Store.AcquireAccountLock(domainAccount.Id)
+			defer unlockAccount()
+			domainAccount, err = am.Store.GetAccountByPrivateDomain(claims.Domain)
+			if err != nil {
+				return nil, err
+			}
+		}
 		return am.handleNewUserAccount(domainAccount, claims)
 	} else {
 		// other error

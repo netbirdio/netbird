@@ -3,6 +3,8 @@ package server
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/netip"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -18,6 +20,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -40,6 +43,8 @@ type installation struct {
 	InstallationIDValue string
 }
 
+type migrationFunc func(*gorm.DB) error
+
 // NewSqliteStore restores a store from the file located in the datadir
 func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore, error) {
 	storeStr := "store.db?cache=shared"
@@ -50,8 +55,9 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 
 	file := filepath.Join(dataDir, storeStr)
 	db, err := gorm.Open(sqlite.Open(file), &gorm.Config{
-		Logger:      logger.Default.LogMode(logger.Silent),
-		PrepareStmt: true,
+		Logger:          logger.Default.LogMode(logger.Silent),
+		CreateBatchSize: 400,
+		PrepareStmt:     true,
 	})
 	if err != nil {
 		return nil, err
@@ -64,13 +70,16 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 	conns := runtime.NumCPU()
 	sql.SetMaxOpenConns(conns) // TODO: make it configurable
 
+	if err := migrate(db); err != nil {
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	err = db.AutoMigrate(
 		&SetupKey{}, &nbpeer.Peer{}, &User{}, &PersonalAccessToken{}, &nbgroup.Group{},
 		&Account{}, &Policy{}, &PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &account.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("auto migrate: %w", err)
 	}
 
 	return &SqliteStore{db: db, storeFile: file, metrics: metrics, installationPK: 1}, nil
@@ -188,7 +197,8 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 
 		result = tx.
 			Session(&gorm.Session{FullSaveAssociations: true}).
-			Clauses(clause.OnConflict{UpdateAll: true}).Create(account)
+			Clauses(clause.OnConflict{UpdateAll: true}).
+			Create(account)
 		if result.Error != nil {
 			return result.Error
 		}
@@ -541,4 +551,33 @@ func (s *SqliteStore) Close() error {
 // GetStoreEngine returns SqliteStoreEngine
 func (s *SqliteStore) GetStoreEngine() StoreEngine {
 	return SqliteStoreEngine
+}
+
+// migrate migrates the SQLite database to the latest schema
+func migrate(db *gorm.DB) error {
+	migrations := getMigrations()
+
+	for _, m := range migrations {
+		if err := m(db); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func getMigrations() []migrationFunc {
+	return []migrationFunc{
+		func(db *gorm.DB) error {
+			return migration.MigrateFieldFromGobToJSON[Account, net.IPNet](db, "network_net")
+		},
+
+		func(db *gorm.DB) error {
+			return migration.MigrateFieldFromGobToJSON[route.Route, netip.Prefix](db, "network")
+		},
+
+		func(db *gorm.DB) error {
+			return migration.MigrateFieldFromGobToJSON[route.Route, []string](db, "peer_groups")
+		},
+	}
 }

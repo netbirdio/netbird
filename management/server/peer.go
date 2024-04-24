@@ -381,7 +381,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 	if strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad" && userID != "" {
 		if am.idpManager != nil {
 			userdata, err := am.lookupUserInCache(userID, account)
-			if err == nil {
+			if err == nil && userdata != nil {
 				peer.Meta.Hostname = fmt.Sprintf("%s-%s", peer.Meta.Hostname, strings.Split(userdata.Email, "@")[0])
 			}
 		}

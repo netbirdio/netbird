@@ -13,6 +13,7 @@ type AuthorizationClaims struct {
 	Domain         string
 	DomainCategory string
 	LastLogin      time.Time
+	Invited        bool
 
 	Raw jwt.MapClaims
 }
