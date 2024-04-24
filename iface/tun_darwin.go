@@ -28,6 +28,14 @@ type tunDevice struct {
 	configurer wgConfigurer
 }
 
+func (t *tunDevice) SetTurnConn(conn interface{}) {
+	t.iceBind.SetTurnConn(conn)
+	err := t.device.BindUpdate()
+	if err != nil {
+		log.Errorf("failed to update bind: %v", err)
+	}
+}
+
 func newTunDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net) wgTunDevice {
 	return &tunDevice{
 		name:    name,

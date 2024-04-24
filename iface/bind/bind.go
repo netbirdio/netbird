@@ -88,12 +88,23 @@ func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketC
 				}
 			}
 		} else {
-			msg := &(*msgs)[0]
-			msg.N, msg.NN, _, msg.Addr, err = conn.ReadMsgUDP(msg.Buffers[0], msg.OOB)
-			if err != nil {
-				return 0, err
+			if netConn != nil {
+				log.Debugf("----read from turn conn...")
+				msg := &(*msgs)[0]
+				msg.N, msg.Addr, err = netConn.ReadFrom(msg.Buffers[0])
+				if err != nil {
+					return 0, err
+				}
+				log.Debugf("----msg address is: %s, size: %d", msg.Addr.String(), msg.N)
+				numMsgs = 1
+			} else {
+				msg := &(*msgs)[0]
+				msg.N, msg.NN, _, msg.Addr, err = conn.ReadMsgUDP(msg.Buffers[0], msg.OOB)
+				if err != nil {
+					return 0, err
+				}
+				numMsgs = 1
 			}
-			numMsgs = 1
 		}
 		for i := 0; i < numMsgs; i++ {
 			msg := &(*msgs)[i]
