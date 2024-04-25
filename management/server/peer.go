@@ -585,6 +585,12 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *Network
 // LoginPeer logs in or registers a peer.
 // If peer doesn't exist the function checks whether a setup key or a user is present and registers a new peer if so.
 func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *NetworkMap, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("LoginPeer took %s", duration)
+	}()
+
 	account, err := am.Store.GetAccountByPeerPubKey(login.WireGuardPubKey)
 	if err != nil {
 		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
@@ -742,6 +748,12 @@ func updatePeerLastLogin(peer *nbpeer.Peer, account *Account) {
 }
 
 func (am *DefaultAccountManager) checkAndUpdatePeerSSHKey(peer *nbpeer.Peer, account *Account, newSSHKey string) (*nbpeer.Peer, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("checkAndUpdatePeerSSHKey took %s", duration)
+	}()
+
 	if len(newSSHKey) == 0 {
 		log.Debugf("no new SSH key provided for peer %s, skipping update", peer.ID)
 		return peer, nil
@@ -865,6 +877,12 @@ func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*nbp
 }
 
 func updatePeerMeta(peer *nbpeer.Peer, meta nbpeer.PeerSystemMeta, account *Account) (*nbpeer.Peer, bool) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("updatePeerMeta took %s", duration)
+	}()
+
 	if peer.UpdateMetaIfNew(meta) {
 		account.UpdatePeer(peer)
 		return peer, true

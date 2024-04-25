@@ -321,6 +321,12 @@ func (s *GRPCServer) parseRequest(req *proto.EncryptedMessage, parsed pb.Message
 // In case it isn't, the endpoint checks whether setup key is provided within the request and tries to register a peer.
 // In case of the successful registration login is also successful
 func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("Login took %s", duration)
+	}()
+
 	reqStart := time.Now()
 	defer func() {
 		if s.appMetrics != nil {
