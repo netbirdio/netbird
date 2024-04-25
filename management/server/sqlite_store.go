@@ -128,6 +128,12 @@ func (s *SqliteStore) AcquireGlobalLock() (unlock func()) {
 }
 
 func (s *SqliteStore) AcquireAccountLock(accountID string) (unlock func()) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("AcquireAccountLock took %s", duration)
+	}()
+
 	log.Tracef("acquiring lock for account %s", accountID)
 
 	start := time.Now()
@@ -144,6 +150,12 @@ func (s *SqliteStore) AcquireAccountLock(accountID string) (unlock func()) {
 }
 
 func (s *SqliteStore) SaveAccount(account *Account) error {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("SaveAccount took %s", duration)
+	}()
+
 	start := time.Now()
 
 	for _, key := range account.SetupKeys {
@@ -268,10 +280,20 @@ func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer
 		duration := time.Since(startTime)
 		log.Debugf("SavePeerStatus took %s", duration)
 	}()
+	var peer nbpeer.Peer
 
-	log.Infof("saving peer status")
-	s.db.Where("account_id = ? and id = ?", accountID, peerID).Update("status", peerStatus)
-	return nil
+	result := s.db.First(&peer, "account_id = ? and id = ?", accountID, peerID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return status.Errorf(status.NotFound, "peer %s not found", peerID)
+		}
+		log.Errorf("error when getting peer from the store: %s", result.Error)
+		return status.Errorf(status.Internal, "issue getting peer from store")
+	}
+
+	peer.Status = &peerStatus
+
+	return s.db.Save(peer).Error
 }
 
 func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
@@ -375,6 +397,12 @@ func (s *SqliteStore) GetUserByTokenID(tokenID string) (*User, error) {
 }
 
 func (s *SqliteStore) GetAllAccounts() (all []*Account) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("GetAllAccounts took %s", duration)
+	}()
+
 	var accounts []Account
 	result := s.db.Find(&accounts)
 	if result.Error != nil {
@@ -464,6 +492,12 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 }
 
 func (s *SqliteStore) GetAccountByUser(userID string) (*Account, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("GetAccountByUser took %s", duration)
+	}()
+
 	var user User
 	result := s.db.Select("account_id").First(&user, "id = ?", userID)
 	if result.Error != nil {
@@ -482,6 +516,11 @@ func (s *SqliteStore) GetAccountByUser(userID string) (*Account, error) {
 }
 
 func (s *SqliteStore) GetAccountByPeerID(peerID string) (*Account, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("GetAccountByPeerID took %s", duration)
+	}()
 	var peer nbpeer.Peer
 	result := s.db.Select("account_id").First(&peer, "id = ?", peerID)
 	if result.Error != nil {
@@ -500,6 +539,12 @@ func (s *SqliteStore) GetAccountByPeerID(peerID string) (*Account, error) {
 }
 
 func (s *SqliteStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("GetAccountByPubKey took %s", duration)
+	}()
+
 	var peer nbpeer.Peer
 
 	result := s.db.Select("account_id").First(&peer, "key = ?", peerKey)
@@ -520,6 +565,12 @@ func (s *SqliteStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 
 // SaveUserLastLogin stores the last login time for a user in DB.
 func (s *SqliteStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("SaveUserLastLogin took %s", duration)
+	}()
+
 	var user User
 
 	result := s.db.First(&user, "account_id = ? and id = ?", accountID, userID)
