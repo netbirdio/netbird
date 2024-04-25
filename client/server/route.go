@@ -3,13 +3,19 @@ package server
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"sort"
 
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/route"
 )
+
+type selectRoute struct {
+	NetID    string
+	Network  netip.Prefix
+	Selected bool
+}
 
 // ListRoutes returns a list of all available routes.
 func (s *Server) ListRoutes(ctx context.Context, req *proto.ListRoutesRequest) (*proto.ListRoutesResponse, error) {
@@ -23,13 +29,17 @@ func (s *Server) ListRoutes(ctx context.Context, req *proto.ListRoutesRequest) (
 	routesMap := s.engine.GetClientRoutesWithNetID()
 	routeSelector := s.engine.GetRouteManager().GetRouteSelector()
 
-	var routes []*route.Route
+	var routes []*selectRoute
 	for id, rt := range routesMap {
 		if len(rt) == 0 {
 			continue
 		}
-		rt[0].ID = id
-		routes = append(routes, rt[0])
+		route := &selectRoute{
+			NetID:    id,
+			Network:  rt[0].Network,
+			Selected: routeSelector.IsSelected(id),
+		}
+		routes = append(routes, route)
 	}
 
 	sort.Slice(routes, func(i, j int) bool {
@@ -40,7 +50,7 @@ func (s *Server) ListRoutes(ctx context.Context, req *proto.ListRoutesRequest) (
 			iAddr := routes[i].Network.Addr()
 			jAddr := routes[j].Network.Addr()
 			if iAddr == jAddr {
-				return routes[i].ID < routes[j].ID
+				return routes[i].NetID < routes[j].NetID
 			}
 			return iAddr.String() < jAddr.String()
 		}
@@ -50,9 +60,9 @@ func (s *Server) ListRoutes(ctx context.Context, req *proto.ListRoutesRequest) (
 	var pbRoutes []*proto.Route
 	for _, route := range routes {
 		pbRoutes = append(pbRoutes, &proto.Route{
-			ID:       route.ID,
+			ID:       route.NetID,
 			Network:  route.Network.String(),
-			Selected: routeSelector.IsSelected(route.ID),
+			Selected: route.Selected,
 		})
 	}
 
