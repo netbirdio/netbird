@@ -156,7 +156,7 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 			return currID
 		} else {
 			var peer string
-			if route, _ := c.routes[chosen]; route != nil {
+			if route := c.routes[chosen]; route != nil {
 				peer = route.Peer
 			}
 			log.Infof("new chosen route is %s with peer %s with score %f for network %s", chosen, peer, chosenScore, c.network)
