@@ -20,8 +20,8 @@ type ErrorResponse struct {
 
 // WriteJSONObject simply writes object to the HTTP response in JSON format
 func WriteJSONObject(w http.ResponseWriter, obj interface{}) {
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	w.WriteHeader(http.StatusOK)
 	err := json.NewEncoder(w).Encode(obj)
 	if err != nil {
 		WriteError(err, w)
@@ -63,8 +63,8 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 
 // WriteErrorResponse prepares and writes an error response i nJSON
 func WriteErrorResponse(errMsg string, httpStatus int, w http.ResponseWriter) {
-	w.WriteHeader(httpStatus)
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	w.WriteHeader(httpStatus)
 	err := json.NewEncoder(w).Encode(&ErrorResponse{
 		Message: errMsg,
 		Code:    httpStatus,
