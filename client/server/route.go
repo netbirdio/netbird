@@ -82,7 +82,7 @@ func (s *Server) SelectRoutes(_ context.Context, req *proto.SelectRoutesRequest)
 	if req.GetAll() {
 		routeSelector.SelectAllRoutes()
 	} else {
-		routes := toHAUniqueIDS(req.GetRouteIDs())
+		routes := toHAUniqueIDs(req.GetRouteIDs())
 		if err := routeSelector.SelectRoutes(routes, req.GetAppend(), maps.Keys(s.engine.GetClientRoutesWithNetID())); err != nil {
 			return nil, fmt.Errorf("select routes: %w", err)
 		}
@@ -102,7 +102,7 @@ func (s *Server) DeselectRoutes(_ context.Context, req *proto.SelectRoutesReques
 	if req.GetAll() {
 		routeSelector.DeselectAllRoutes()
 	} else {
-		routes := toHAUniqueIDS(req.GetRouteIDs())
+		routes := toHAUniqueIDs(req.GetRouteIDs())
 		if err := routeSelector.DeselectRoutes(routes, maps.Keys(s.engine.GetClientRoutesWithNetID())); err != nil {
 			return nil, fmt.Errorf("deselect routes: %w", err)
 		}
@@ -112,7 +112,7 @@ func (s *Server) DeselectRoutes(_ context.Context, req *proto.SelectRoutesReques
 	return &proto.SelectRoutesResponse{}, nil
 }
 
-func toHAUniqueIDS(routes []string) []route.HAUniqueID {
+func toHAUniqueIDs(routes []string) []route.HAUniqueID {
 	var haUniqueIDs []route.HAUniqueID
 	for _, rt := range routes {
 		haUniqueIDs = append(haUniqueIDs, route.HAUniqueID(rt))
