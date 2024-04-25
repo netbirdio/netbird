@@ -140,7 +140,7 @@ func TestAnonymizeSchemeURI(t *testing.T) {
 		expect string
 	}{
 		{"STUN URI in text", "Connection made via stun:example.com", `Connection made via stun:anon-[a-zA-Z0-9]+\.domain`},
-		{"TURN URI in log", "Failed attempt turn:some.example.com:3478?transport=tcp: retying", `Failed attempt turn:some.anon-[a-zA-Z0-9]+\.domain:3478\?transport=tcp: retying`},
+		{"TURN URI in log", "Failed attempt turn:some.example.com:3478?transport=tcp: retrying", `Failed attempt turn:some.anon-[a-zA-Z0-9]+\.domain:3478\?transport=tcp: retrying`},
 		{"HTTPS URI in message", "Visit https://example.com for more", `Visit https://anon-[a-zA-Z0-9]+\.domain for more`},
 	}
 
