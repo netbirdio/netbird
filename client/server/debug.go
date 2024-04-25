@@ -49,8 +49,12 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	}()
 
 	if status := req.GetStatus(); status != "" {
+		filename := "status.txt"
+		if req.GetAnonymize() {
+			filename = "status.anon.txt"
+		}
 		statusReader := strings.NewReader(status)
-		if err := addFileToZip(archive, statusReader, "status.txt"); err != nil {
+		if err := addFileToZip(archive, statusReader, filename); err != nil {
 			return nil, fmt.Errorf("add status file to zip: %w", err)
 		}
 	}
@@ -65,9 +69,11 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 		}
 	}()
 
+	filename := "client.log.txt"
 	var logReader io.Reader
 	errChan := make(chan error, 1)
 	if req.GetAnonymize() {
+		filename = "client.anon.log.txt"
 		var writer io.WriteCloser
 		logReader, writer = io.Pipe()
 
@@ -75,7 +81,7 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	} else {
 		logReader = logFile
 	}
-	if err := addFileToZip(archive, logReader, "client.log"); err != nil {
+	if err := addFileToZip(archive, logReader, filename); err != nil {
 		return nil, fmt.Errorf("add log file to zip: %w", err)
 	}
 
