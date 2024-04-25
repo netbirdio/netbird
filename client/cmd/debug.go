@@ -28,9 +28,18 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 	}
 	defer conn.Close()
 
+	var statusOutputString string
+	statusResp, err := getStatus(cmd.Context())
+	if err != nil {
+		cmd.PrintErrf("Failed to get status: %v\n", err)
+	} else {
+		statusOutputString = parseToFullDetailSummary(convertToStatusOutputOverview(statusResp))
+	}
+
 	client := proto.NewDaemonServiceClient(conn)
 	resp, err := client.DebugBundle(cmd.Context(), &proto.DebugBundleRequest{
 		Anonymize: anonymizeFlag,
+		Status:    statusOutputString,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
