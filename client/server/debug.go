@@ -25,7 +25,7 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 		return nil, fmt.Errorf("log file is set to console, cannot create debug bundle")
 	}
 
-	bundlePath, err := os.CreateTemp("", "debug.*.zip")
+	bundlePath, err := os.CreateTemp("", "netbird.debug.*.zip")
 	if err != nil {
 		return nil, fmt.Errorf("create zip file: %w", err)
 	}
