@@ -36,6 +36,14 @@ const (
 	IPv6Network
 )
 
+type ID string
+
+type NetID string
+
+type HAUniqueID string
+
+type HAMap map[HAUniqueID][]*Route
+
 // NetworkType route network type
 type NetworkType int
 
@@ -65,11 +73,11 @@ func ToPrefixType(prefix string) NetworkType {
 
 // Route represents a route
 type Route struct {
-	ID string `gorm:"primaryKey"`
+	ID ID `gorm:"primaryKey"`
 	// AccountID is a reference to Account that this object belongs
 	AccountID   string       `gorm:"index"`
 	Network     netip.Prefix `gorm:"serializer:json"`
-	NetID       string
+	NetID       NetID
 	Description string
 	Peer        string
 	PeerGroups  []string `gorm:"serializer:json"`
@@ -167,6 +175,6 @@ func compareList(list, other []string) bool {
 }
 
 // GetHAUniqueID returns a highly available route ID by combining Network ID and Network range address
-func GetHAUniqueID(input *Route) string {
-	return input.NetID + "-" + input.Network.String()
+func GetHAUniqueID(input *Route) HAUniqueID {
+	return HAUniqueID(string(input.NetID) + "-" + input.Network.String())
 }
