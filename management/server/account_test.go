@@ -1441,8 +1441,8 @@ func TestFileStore_GetRoutesByPrefix(t *testing.T) {
 	for _, r := range routes {
 		routeIDs[r.ID] = struct{}{}
 	}
-	assert.Contains(t, routeIDs, "route-1")
-	assert.Contains(t, routeIDs, "route-2")
+	assert.Contains(t, routeIDs, route.ID("route-1"))
+	assert.Contains(t, routeIDs, route.ID("route-2"))
 }
 
 func TestAccount_GetRoutesToSync(t *testing.T) {
@@ -1506,8 +1506,8 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 	for _, r := range routes {
 		routeIDs[r.ID] = struct{}{}
 	}
-	assert.Contains(t, routeIDs, "route-2")
-	assert.Contains(t, routeIDs, "route-3")
+	assert.Contains(t, routeIDs, route.ID("route-2"))
+	assert.Contains(t, routeIDs, route.ID("route-3"))
 
 	emptyRoutes := account.getRoutesToSync("peer-3", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-2"}})
 
