@@ -386,6 +386,12 @@ func (a *Account) GetGroup(groupID string) *nbgroup.Group {
 
 // GetPeerNetworkMap returns a group by ID if exists, nil otherwise
 func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string, validatedPeersMap map[string]struct{}) *NetworkMap {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("GetPeerNetworkMap took %s", duration)
+	}()
+
 	peer := a.Peers[peerID]
 	if peer == nil {
 		return &NetworkMap{

@@ -89,6 +89,12 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*nbpeer.P
 
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
 func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected bool, realIP net.IP) error {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("MarkPeerConnected took %s", duration)
+	}()
+
 	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
 		return err
@@ -519,6 +525,12 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
 func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *NetworkMap, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("SyncPeer took %s", duration)
+	}()
+
 	account, err := am.Store.GetAccountByPeerPubKey(sync.WireGuardPubKey)
 	if err != nil {
 		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
@@ -684,6 +696,12 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 }
 
 func checkIfPeerOwnerIsBlocked(peer *nbpeer.Peer, account *Account) error {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("checkIfPeerOwnerIsBlocked took %s", duration)
+	}()
+
 	if peer.AddedWithSSOLogin() {
 		user, err := account.FindUser(peer.UserID)
 		if err != nil {
@@ -857,6 +875,12 @@ func updatePeerMeta(peer *nbpeer.Peer, meta nbpeer.PeerSystemMeta, account *Acco
 // updateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) updateAccountPeers(account *Account) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("updateAccountPeers took %s", duration)
+	}()
+
 	peers := account.GetPeers()
 
 	approvedPeersMap, err := am.GetValidatedPeers(account)

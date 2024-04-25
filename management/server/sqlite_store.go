@@ -263,36 +263,27 @@ func (s *SqliteStore) GetInstallationID() string {
 }
 
 func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
-	var peer nbpeer.Peer
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("SavePeerStatus took %s", duration)
+	}()
 
-	result := s.db.First(&peer, "account_id = ? and id = ?", accountID, peerID)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return status.Errorf(status.NotFound, "peer %s not found", peerID)
-		}
-		log.Errorf("error when getting peer from the store: %s", result.Error)
-		return status.Errorf(status.Internal, "issue getting peer from store")
-	}
-
-	peer.Status = &peerStatus
-
-	return s.db.Save(peer).Error
+	log.Infof("saving peer status")
+	s.db.Where("account_id = ? and id = ?", accountID, peerID).Update("status", peerStatus)
+	return nil
 }
 
 func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
-	var peer nbpeer.Peer
-	result := s.db.First(&peer, "account_id = ? and id = ?", accountID, peerWithLocation.ID)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return status.Errorf(status.NotFound, "peer %s not found", peer.ID)
-		}
-		log.Errorf("error when getting peer from the store: %s", result.Error)
-		return status.Errorf(status.Internal, "issue getting peer from store")
-	}
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("SavePeerLocation took %s", duration)
+	}()
 
-	peer.Location = peerWithLocation.Location
-
-	return s.db.Save(peer).Error
+	log.Info("saving peer location")
+	s.db.Where("account_id = ? and id = ?", accountID, peerWithLocation.ID).Update("location", peerWithLocation.Location)
+	return nil
 }
 
 // DeleteHashedPAT2TokenIDIndex is noop in Sqlite
@@ -400,6 +391,12 @@ func (s *SqliteStore) GetAllAccounts() (all []*Account) {
 }
 
 func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("GetAccount took %s", duration)
+	}()
+
 	var account Account
 	result := s.db.Model(&account).
 		Preload("UsersG.PATsG"). // have to be specifies as this is nester reference
