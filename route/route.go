@@ -107,6 +107,9 @@ func (r *Route) Copy() *Route {
 
 // IsEqual compares one route with the other
 func (r *Route) IsEqual(other *Route) bool {
+	if other == nil {
+		return false
+	}
 	return other.ID == r.ID &&
 		other.Description == r.Description &&
 		other.NetID == r.NetID &&
