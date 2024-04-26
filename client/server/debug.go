@@ -36,7 +36,7 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 
 		if err != nil {
 			if err2 := os.Remove(bundlePath.Name()); err2 != nil {
-				log.Errorf("Failed to remove zip file: %v", err)
+				log.Errorf("Failed to remove zip file: %v", err2)
 			}
 		}
 	}()
