@@ -3,6 +3,7 @@ package routemanager
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/netip"
 	"time"
 
@@ -215,7 +216,7 @@ func (c *clientNetwork) removeRouteFromWireguardPeer(peerKey string) error {
 
 func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 	if c.chosenRoute != nil {
-		if err := removeVPNRoute(c.network, c.wgInterface.Name()); err != nil {
+		if err := removeVPNRoute(c.network, c.getAsInterface()); err != nil {
 			return fmt.Errorf("remove route %s from system, err: %v", c.network, err)
 		}
 
@@ -256,7 +257,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 		}
 	} else {
 		// otherwise add the route to the system
-		if err := addVPNRoute(c.network, c.wgInterface.Name()); err != nil {
+		if err := addVPNRoute(c.network, c.getAsInterface()); err != nil {
 			return fmt.Errorf("route %s couldn't be added for peer %s, err: %v",
 				c.network.String(), c.wgInterface.Address().IP.String(), err)
 		}
@@ -343,4 +344,16 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 			c.startPeersStatusChangeWatcher()
 		}
 	}
+}
+
+func (c *clientNetwork) getAsInterface() *net.Interface {
+	intf, err := net.InterfaceByName(c.wgInterface.Name())
+	if err != nil {
+		log.Warnf("Couldn't get interface by name %s: %v", c.wgInterface.Name(), err)
+		intf = &net.Interface{
+			Name: c.wgInterface.Name(),
+		}
+	}
+
+	return intf
 }
