@@ -88,8 +88,7 @@ func setLogLevel(cmd *cobra.Command, args []string) error {
 	client := proto.NewDaemonServiceClient(conn)
 	level := parseLogLevel(args[0])
 	if level == proto.LogLevel_UNKNOWN {
-		cmd.Printf("Unknown log level: %s. Available levels are: panic, fatal, error, warn, info, debug, trace\n", args[0])
-		return nil
+		return fmt.Errorf("unknown log level: %s. Available levels are: panic, fatal, error, warn, info, debug, trace\n", args[0])
 	}
 
 	_, err = client.SetLogLevel(cmd.Context(), &proto.SetLogLevelRequest{
