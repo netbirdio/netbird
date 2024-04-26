@@ -559,7 +559,7 @@ func (s *SqliteStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
 	}()
 
 	var accountID string
-	result := s.db.Select("account_id").Where("key = ?", peerKey).First(&accountID)
+	result := s.db.Select("account_id").Table("peers").Where("key = ?", peerKey).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
