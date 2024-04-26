@@ -717,8 +717,11 @@ func toPeerChecks(accountManager AccountManager, peerKey string) []*proto.Checks
 
 		if check := postureCheck.Checks.ProcessCheck; check != nil {
 			for _, process := range check.Processes {
-				if process.Path != "" {
-					protoCheck.Files = append(protoCheck.Files, process.Path)
+				if process.LinuxPath != "" {
+					protoCheck.Files = append(protoCheck.Files, process.LinuxPath)
+				}
+				if process.MacPath != "" {
+					protoCheck.Files = append(protoCheck.Files, process.MacPath)
 				}
 				if process.WindowsPath != "" {
 					protoCheck.Files = append(protoCheck.Files, process.WindowsPath)

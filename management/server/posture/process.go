@@ -8,7 +8,8 @@ import (
 )
 
 type Process struct {
-	Path        string
+	LinuxPath   string
+	MacPath     string
 	WindowsPath string
 }
 
@@ -27,9 +28,16 @@ func (p *ProcessCheck) Check(peer nbpeer.Peer) (bool, error) {
 	}
 
 	switch peer.Meta.GoOS {
-	case "darwin", "linux":
+	case "linux":
 		for _, process := range p.Processes {
-			if process.Path == "" || !slices.Contains(peerActiveProcesses, process.Path) {
+			if process.LinuxPath == "" || !slices.Contains(peerActiveProcesses, process.LinuxPath) {
+				return false, nil
+			}
+		}
+		return true, nil
+	case "darwin":
+		for _, process := range p.Processes {
+			if process.MacPath == "" || !slices.Contains(peerActiveProcesses, process.MacPath) {
 				return false, nil
 			}
 		}
@@ -56,7 +64,7 @@ func (p *ProcessCheck) Validate() error {
 	}
 
 	for _, process := range p.Processes {
-		if process.Path == "" && process.WindowsPath == "" {
+		if process.LinuxPath == "" && process.MacPath == "" && process.WindowsPath == "" {
 			return fmt.Errorf("%s path shouldn't be empty", p.Name())
 		}
 	}

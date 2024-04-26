@@ -945,8 +945,11 @@ type PostureCheckUpdate struct {
 
 // Process Describes the operational activity within a peer's system.
 type Process struct {
-	// Path Path to the process executable file in a Unix-like operating system
-	Path *string `json:"path,omitempty"`
+	// LinuxPath Path to the process executable file in a Linux operating system
+	LinuxPath *string `json:"linux_path,omitempty"`
+
+	// MacPath Path to the process executable file in a Mac operating system
+	MacPath *string `json:"mac_path,omitempty"`
 
 	// WindowsPath Path to the process executable file in a Windows operating system
 	WindowsPath *string `json:"windows_path,omitempty"`

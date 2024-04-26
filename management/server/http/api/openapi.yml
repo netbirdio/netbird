@@ -916,10 +916,14 @@ components:
       description: Describes the operational activity within a peer's system.
       type: object
       properties:
-        path:
-          description: Path to the process executable file in a Unix-like operating system
+        linux_path:
+          description: Path to the process executable file in a Linux operating system
           type: string
           example: "/usr/local/bin/netbird"
+        mac_path:
+          description: Path to the process executable file in a Mac operating system
+          type: string
+          example: "/Applications/NetBird.app/Contents/MacOS/netbird"
         windows_path:
           description: Path to the process executable file in a Windows operating system
           type: string
