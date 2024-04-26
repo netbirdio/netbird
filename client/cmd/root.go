@@ -139,6 +139,9 @@ func init() {
 	routesCmd.AddCommand(routesSelectCmd, routesDeselectCmd)
 
 	debugCmd.AddCommand(debugBundleCmd)
+	debugCmd.AddCommand(logCmd)
+	logCmd.AddCommand(logLevelCmd)
+	debugCmd.AddCommand(forCmd)
 
 	upCmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil,
 		`Sets external IPs maps between local addresses and interfaces.`+

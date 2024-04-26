@@ -121,6 +121,18 @@ func (s *Server) anonymize(reader io.Reader, writer io.WriteCloser, errChan chan
 	}
 }
 
+// SetLogLevel sets the logging level for the server.
+func (s *Server) SetLogLevel(_ context.Context, req *proto.SetLogLevelRequest) (*proto.SetLogLevelResponse, error) {
+	level, err := log.ParseLevel(req.Level.String())
+	if err != nil {
+		return nil, fmt.Errorf("invalid log level: %w", err)
+	}
+
+	log.SetLevel(level)
+	log.Infof("Log level set to %s", level.String())
+	return &proto.SetLogLevelResponse{}, nil
+}
+
 func addFileToZip(archive *zip.Writer, reader io.Reader, filename string) error {
 	header := &zip.FileHeader{
 		Name:   filename,

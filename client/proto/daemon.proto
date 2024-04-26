@@ -37,7 +37,11 @@ service DaemonService {
   // Deselect specific routes
   rpc DeselectRoutes(SelectRoutesRequest) returns (SelectRoutesResponse) {}
 
+  // DebugBundle creates a debug bundle
   rpc DebugBundle(DebugBundleRequest) returns (DebugBundleResponse) {}
+
+  // SetLogLevel sets the log level of the daemon
+  rpc SetLogLevel(SetLogLevelRequest) returns (SetLogLevelResponse) {}
 };
 
 message LoginRequest {
@@ -237,4 +241,22 @@ message DebugBundleRequest {
 
 message DebugBundleResponse {
   string path = 1;
+}
+
+enum LogLevel {
+  UNKNOWN = 0;
+  PANIC = 1;
+  FATAL = 2;
+  ERROR = 3;
+  WARN = 4;
+  INFO = 5;
+  DEBUG = 6;
+  TRACE = 7;
+}
+
+message SetLogLevelRequest {
+  LogLevel level = 1;
+}
+
+message SetLogLevelResponse {
 }
