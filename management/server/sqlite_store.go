@@ -280,20 +280,9 @@ func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer
 		duration := time.Since(startTime)
 		log.Debugf("SavePeerStatus took %s", duration)
 	}()
-	var peer nbpeer.Peer
 
-	result := s.db.First(&peer, "account_id = ? and id = ?", accountID, peerID)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return status.Errorf(status.NotFound, "peer %s not found", peerID)
-		}
-		log.Errorf("error when getting peer from the store: %s", result.Error)
-		return status.Errorf(status.Internal, "issue getting peer from store")
-	}
-
-	peer.Status = &peerStatus
-
-	return s.db.Save(peer).Error
+	s.db.Where("account_id = ? and id = ?", accountID, peerID).Update("status", peerStatus)
+	return nil
 }
 
 func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
@@ -303,7 +292,6 @@ func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpee
 		log.Debugf("SavePeerLocation took %s", duration)
 	}()
 
-	log.Info("saving peer location")
 	s.db.Where("account_id = ? and id = ?", accountID, peerWithLocation.ID).Update("location", peerWithLocation.Location)
 	return nil
 }
@@ -561,6 +549,26 @@ func (s *SqliteStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 	}
 
 	return s.GetAccount(peer.AccountID)
+}
+
+func (s *SqliteStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("GetAccountByPubKey took %s", duration)
+	}()
+
+	var accountID string
+	result := s.db.Select("account_id").Where("key = ?", peerKey).First(&accountID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
+		}
+		log.Errorf("error when getting peer from the store: %s", result.Error)
+		return "", status.Errorf(status.Internal, "issue getting account from store")
+	}
+
+	return accountID, nil
 }
 
 // SaveUserLastLogin stores the last login time for a user in DB.

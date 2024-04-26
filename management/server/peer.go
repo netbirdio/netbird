@@ -88,26 +88,12 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*nbpeer.P
 }
 
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
-func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected bool, realIP net.IP) error {
+func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected bool, realIP net.IP, account *Account) error {
 	startTime := time.Now()
 	defer func() {
 		duration := time.Since(startTime)
 		log.Debugf("MarkPeerConnected took %s", duration)
 	}()
-
-	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
-	if err != nil {
-		return err
-	}
-
-	unlock := am.Store.AcquireAccountLock(account.Id)
-	defer unlock()
-
-	// ensure that we consider modification happened meanwhile (because we were outside the account lock when we fetched the account)
-	account, err = am.Store.GetAccount(account.Id)
-	if err != nil {
-		return err
-	}
 
 	peer, err := account.FindPeerByPubKey(peerPubKey)
 	if err != nil {
@@ -524,30 +510,12 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 }
 
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
-func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*nbpeer.Peer, *NetworkMap, error) {
+func (am *DefaultAccountManager) SyncPeer(sync PeerSync, account *Account) (*nbpeer.Peer, *NetworkMap, error) {
 	startTime := time.Now()
 	defer func() {
 		duration := time.Since(startTime)
 		log.Debugf("SyncPeer took %s", duration)
 	}()
-
-	account, err := am.Store.GetAccountByPeerPubKey(sync.WireGuardPubKey)
-	if err != nil {
-		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
-			return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
-		}
-		return nil, nil, err
-	}
-
-	// we found the peer, and we follow a normal login flow
-	unlock := am.Store.AcquireAccountLock(account.Id)
-	defer unlock()
-
-	// fetch the account from the store once more after acquiring lock to avoid concurrent updates inconsistencies
-	account, err = am.Store.GetAccount(account.Id)
-	if err != nil {
-		return nil, nil, err
-	}
 
 	peer, err := account.FindPeerByPubKey(sync.WireGuardPubKey)
 	if err != nil {

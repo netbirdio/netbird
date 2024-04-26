@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -570,6 +571,10 @@ func (s *FileStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 	}
 
 	return account.Copy(), nil
+}
+
+func (s *FileStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
+	return "", errors.New("not implemented")
 }
 
 // GetInstallationID returns the installation ID from the store
