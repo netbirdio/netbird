@@ -11,9 +11,9 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/util/anonymize"
 )
 
 // DebugBundle creates a debug bundle and returns the location.
