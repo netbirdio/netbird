@@ -281,8 +281,17 @@ func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer
 		log.Debugf("SavePeerStatus took %s", duration)
 	}()
 
-	s.db.Where("account_id = ? and id = ?", accountID, peerID).Update("status", peerStatus)
-	return nil
+	var peer nbpeer.Peer
+	result := s.db.Model(&peer).
+		Where("account_id = ? AND id = ?", accountID, peerID).
+		Updates(map[string]interface{}{
+			"peer_status_last_seen":         peerStatus.LastSeen,
+			"peer_status_connected":         peerStatus.Connected,
+			"peer_status_login_expired":     peerStatus.LoginExpired,
+			"peer_status_requires_approval": peerStatus.RequiresApproval,
+		})
+
+	return result.Error
 }
 
 func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
@@ -292,8 +301,17 @@ func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpee
 		log.Debugf("SavePeerLocation took %s", duration)
 	}()
 
-	s.db.Where("account_id = ? and id = ?", accountID, peerWithLocation.ID).Update("location", peerWithLocation.Location)
-	return nil
+	location := peerWithLocation.Location
+
+	var peer nbpeer.Peer
+	result := s.db.Model(&peer).Where("account_id = ? and id = ?", accountID, peerWithLocation.ID).
+		Updates(map[string]interface{}{
+			"location_connection_ip": location.ConnectionIP,
+			"location_country_code":  location.CountryCode,
+			"location_city_name":     location.CityName,
+			"location_geo_name_id":   location.GeoNameID,
+		})
+	return result.Error
 }
 
 // DeleteHashedPAT2TokenIDIndex is noop in Sqlite
@@ -558,8 +576,9 @@ func (s *SqliteStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
 		log.Debugf("GetAccountByPubKey took %s", duration)
 	}()
 
+	var peer nbpeer.Peer
 	var accountID string
-	result := s.db.Select("account_id").Table("peers").Where("key = ?", peerKey).First(&accountID)
+	result := s.db.Model(&peer).Select("account_id").Where("key = ?", peerKey).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
