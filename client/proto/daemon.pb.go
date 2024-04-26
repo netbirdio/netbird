@@ -23,6 +23,70 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type LogLevel int32
+
+const (
+	LogLevel_UNKNOWN LogLevel = 0
+	LogLevel_PANIC   LogLevel = 1
+	LogLevel_FATAL   LogLevel = 2
+	LogLevel_ERROR   LogLevel = 3
+	LogLevel_WARN    LogLevel = 4
+	LogLevel_INFO    LogLevel = 5
+	LogLevel_DEBUG   LogLevel = 6
+	LogLevel_TRACE   LogLevel = 7
+)
+
+// Enum value maps for LogLevel.
+var (
+	LogLevel_name = map[int32]string{
+		0: "UNKNOWN",
+		1: "PANIC",
+		2: "FATAL",
+		3: "ERROR",
+		4: "WARN",
+		5: "INFO",
+		6: "DEBUG",
+		7: "TRACE",
+	}
+	LogLevel_value = map[string]int32{
+		"UNKNOWN": 0,
+		"PANIC":   1,
+		"FATAL":   2,
+		"ERROR":   3,
+		"WARN":    4,
+		"INFO":    5,
+		"DEBUG":   6,
+		"TRACE":   7,
+	}
+)
+
+func (x LogLevel) Enum() *LogLevel {
+	p := new(LogLevel)
+	*p = x
+	return p
+}
+
+func (x LogLevel) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (LogLevel) Descriptor() protoreflect.EnumDescriptor {
+	return file_daemon_proto_enumTypes[0].Descriptor()
+}
+
+func (LogLevel) Type() protoreflect.EnumType {
+	return &file_daemon_proto_enumTypes[0]
+}
+
+func (x LogLevel) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use LogLevel.Descriptor instead.
+func (LogLevel) EnumDescriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{0}
+}
+
 type LoginRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -1632,6 +1696,193 @@ func (x *Route) GetSelected() bool {
 	return false
 }
 
+type DebugBundleRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Anonymize bool   `protobuf:"varint,1,opt,name=anonymize,proto3" json:"anonymize,omitempty"`
+	Status    string `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+}
+
+func (x *DebugBundleRequest) Reset() {
+	*x = DebugBundleRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_daemon_proto_msgTypes[24]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *DebugBundleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DebugBundleRequest) ProtoMessage() {}
+
+func (x *DebugBundleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[24]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DebugBundleRequest.ProtoReflect.Descriptor instead.
+func (*DebugBundleRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *DebugBundleRequest) GetAnonymize() bool {
+	if x != nil {
+		return x.Anonymize
+	}
+	return false
+}
+
+func (x *DebugBundleRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+type DebugBundleResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+}
+
+func (x *DebugBundleResponse) Reset() {
+	*x = DebugBundleResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_daemon_proto_msgTypes[25]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *DebugBundleResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DebugBundleResponse) ProtoMessage() {}
+
+func (x *DebugBundleResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[25]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DebugBundleResponse.ProtoReflect.Descriptor instead.
+func (*DebugBundleResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *DebugBundleResponse) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+type SetLogLevelRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Level LogLevel `protobuf:"varint,1,opt,name=level,proto3,enum=daemon.LogLevel" json:"level,omitempty"`
+}
+
+func (x *SetLogLevelRequest) Reset() {
+	*x = SetLogLevelRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_daemon_proto_msgTypes[26]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *SetLogLevelRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetLogLevelRequest) ProtoMessage() {}
+
+func (x *SetLogLevelRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[26]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetLogLevelRequest.ProtoReflect.Descriptor instead.
+func (*SetLogLevelRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *SetLogLevelRequest) GetLevel() LogLevel {
+	if x != nil {
+		return x.Level
+	}
+	return LogLevel_UNKNOWN
+}
+
+type SetLogLevelResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+}
+
+func (x *SetLogLevelResponse) Reset() {
+	*x = SetLogLevelResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_daemon_proto_msgTypes[27]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *SetLogLevelResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetLogLevelResponse) ProtoMessage() {}
+
+func (x *SetLogLevelResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[27]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetLogLevelResponse.ProtoReflect.Descriptor instead.
+func (*SetLogLevelResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{27}
+}
+
 var File_daemon_proto protoreflect.FileDescriptor
 
 var file_daemon_proto_rawDesc = []byte{
@@ -1868,7 +2119,26 @@ var file_daemon_proto_rawDesc = []byte{
 	0x07, 0x6e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07,
 	0x6e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x12, 0x1a, 0x0a, 0x08, 0x73, 0x65, 0x6c, 0x65, 0x63,
 	0x74, 0x65, 0x64, 0x18, 0x03, 0x20, 0x01, 0x28, 0x08, 0x52, 0x08, 0x73, 0x65, 0x6c, 0x65, 0x63,
-	0x74, 0x65, 0x64, 0x32, 0xda, 0x04, 0x0a, 0x0d, 0x44, 0x61, 0x65, 0x6d, 0x6f, 0x6e, 0x53, 0x65,
+	0x74, 0x65, 0x64, 0x22, 0x4a, 0x0a, 0x12, 0x44, 0x65, 0x62, 0x75, 0x67, 0x42, 0x75, 0x6e, 0x64,
+	0x6c, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x1c, 0x0a, 0x09, 0x61, 0x6e, 0x6f,
+	0x6e, 0x79, 0x6d, 0x69, 0x7a, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08, 0x52, 0x09, 0x61, 0x6e,
+	0x6f, 0x6e, 0x79, 0x6d, 0x69, 0x7a, 0x65, 0x12, 0x16, 0x0a, 0x06, 0x73, 0x74, 0x61, 0x74, 0x75,
+	0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73, 0x22,
+	0x29, 0x0a, 0x13, 0x44, 0x65, 0x62, 0x75, 0x67, 0x42, 0x75, 0x6e, 0x64, 0x6c, 0x65, 0x52, 0x65,
+	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x12, 0x0a, 0x04, 0x70, 0x61, 0x74, 0x68, 0x18, 0x01,
+	0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x70, 0x61, 0x74, 0x68, 0x22, 0x3c, 0x0a, 0x12, 0x53, 0x65,
+	0x74, 0x4c, 0x6f, 0x67, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
+	0x12, 0x26, 0x0a, 0x05, 0x6c, 0x65, 0x76, 0x65, 0x6c, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0e, 0x32,
+	0x10, 0x2e, 0x64, 0x61, 0x65, 0x6d, 0x6f, 0x6e, 0x2e, 0x4c, 0x6f, 0x67, 0x4c, 0x65, 0x76, 0x65,
+	0x6c, 0x52, 0x05, 0x6c, 0x65, 0x76, 0x65, 0x6c, 0x22, 0x15, 0x0a, 0x13, 0x53, 0x65, 0x74, 0x4c,
+	0x6f, 0x67, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x2a,
+	0x62, 0x0a, 0x08, 0x4c, 0x6f, 0x67, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x12, 0x0b, 0x0a, 0x07, 0x55,
+	0x4e, 0x4b, 0x4e, 0x4f, 0x57, 0x4e, 0x10, 0x00, 0x12, 0x09, 0x0a, 0x05, 0x50, 0x41, 0x4e, 0x49,
+	0x43, 0x10, 0x01, 0x12, 0x09, 0x0a, 0x05, 0x46, 0x41, 0x54, 0x41, 0x4c, 0x10, 0x02, 0x12, 0x09,
+	0x0a, 0x05, 0x45, 0x52, 0x52, 0x4f, 0x52, 0x10, 0x03, 0x12, 0x08, 0x0a, 0x04, 0x57, 0x41, 0x52,
+	0x4e, 0x10, 0x04, 0x12, 0x08, 0x0a, 0x04, 0x49, 0x4e, 0x46, 0x4f, 0x10, 0x05, 0x12, 0x09, 0x0a,
+	0x05, 0x44, 0x45, 0x42, 0x55, 0x47, 0x10, 0x06, 0x12, 0x09, 0x0a, 0x05, 0x54, 0x52, 0x41, 0x43,
+	0x45, 0x10, 0x07, 0x32, 0xee, 0x05, 0x0a, 0x0d, 0x44, 0x61, 0x65, 0x6d, 0x6f, 0x6e, 0x53, 0x65,
 	0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x36, 0x0a, 0x05, 0x4c, 0x6f, 0x67, 0x69, 0x6e, 0x12, 0x14,
 	0x2e, 0x64, 0x61, 0x65, 0x6d, 0x6f, 0x6e, 0x2e, 0x4c, 0x6f, 0x67, 0x69, 0x6e, 0x52, 0x65, 0x71,
 	0x75, 0x65, 0x73, 0x74, 0x1a, 0x15, 0x2e, 0x64, 0x61, 0x65, 0x6d, 0x6f, 0x6e, 0x2e, 0x4c, 0x6f,
@@ -1906,8 +2176,17 @@ var file_daemon_proto_rawDesc = []byte{
 	0x65, 0x63, 0x74, 0x52, 0x6f, 0x75, 0x74, 0x65, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
 	0x1a, 0x1c, 0x2e, 0x64, 0x61, 0x65, 0x6d, 0x6f, 0x6e, 0x2e, 0x53, 0x65, 0x6c, 0x65, 0x63, 0x74,
 	0x52, 0x6f, 0x75, 0x74, 0x65, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00,
-	0x42, 0x08, 0x5a, 0x06, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74,
-	0x6f, 0x33,
+	0x12, 0x48, 0x0a, 0x0b, 0x44, 0x65, 0x62, 0x75, 0x67, 0x42, 0x75, 0x6e, 0x64, 0x6c, 0x65, 0x12,
+	0x1a, 0x2e, 0x64, 0x61, 0x65, 0x6d, 0x6f, 0x6e, 0x2e, 0x44, 0x65, 0x62, 0x75, 0x67, 0x42, 0x75,
+	0x6e, 0x64, 0x6c, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1b, 0x2e, 0x64, 0x61,
+	0x65, 0x6d, 0x6f, 0x6e, 0x2e, 0x44, 0x65, 0x62, 0x75, 0x67, 0x42, 0x75, 0x6e, 0x64, 0x6c, 0x65,
+	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x12, 0x48, 0x0a, 0x0b, 0x53, 0x65,
+	0x74, 0x4c, 0x6f, 0x67, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x12, 0x1a, 0x2e, 0x64, 0x61, 0x65, 0x6d,
+	0x6f, 0x6e, 0x2e, 0x53, 0x65, 0x74, 0x4c, 0x6f, 0x67, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x52, 0x65,
+	0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1b, 0x2e, 0x64, 0x61, 0x65, 0x6d, 0x6f, 0x6e, 0x2e, 0x53,
+	0x65, 0x74, 0x4c, 0x6f, 0x67, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
+	0x73, 0x65, 0x22, 0x00, 0x42, 0x08, 0x5a, 0x06, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x06,
+	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -1922,70 +2201,81 @@ func file_daemon_proto_rawDescGZIP() []byte {
 	return file_daemon_proto_rawDescData
 }
 
-var file_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_daemon_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_daemon_proto_goTypes = []interface{}{
-	(*LoginRequest)(nil),         // 0: daemon.LoginRequest
-	(*LoginResponse)(nil),        // 1: daemon.LoginResponse
-	(*WaitSSOLoginRequest)(nil),  // 2: daemon.WaitSSOLoginRequest
-	(*WaitSSOLoginResponse)(nil), // 3: daemon.WaitSSOLoginResponse
-	(*UpRequest)(nil),            // 4: daemon.UpRequest
-	(*UpResponse)(nil),           // 5: daemon.UpResponse
-	(*StatusRequest)(nil),        // 6: daemon.StatusRequest
-	(*StatusResponse)(nil),       // 7: daemon.StatusResponse
-	(*DownRequest)(nil),          // 8: daemon.DownRequest
-	(*DownResponse)(nil),         // 9: daemon.DownResponse
-	(*GetConfigRequest)(nil),     // 10: daemon.GetConfigRequest
-	(*GetConfigResponse)(nil),    // 11: daemon.GetConfigResponse
-	(*PeerState)(nil),            // 12: daemon.PeerState
-	(*LocalPeerState)(nil),       // 13: daemon.LocalPeerState
-	(*SignalState)(nil),          // 14: daemon.SignalState
-	(*ManagementState)(nil),      // 15: daemon.ManagementState
-	(*RelayState)(nil),           // 16: daemon.RelayState
-	(*NSGroupState)(nil),         // 17: daemon.NSGroupState
-	(*FullStatus)(nil),           // 18: daemon.FullStatus
-	(*ListRoutesRequest)(nil),    // 19: daemon.ListRoutesRequest
-	(*ListRoutesResponse)(nil),   // 20: daemon.ListRoutesResponse
-	(*SelectRoutesRequest)(nil),  // 21: daemon.SelectRoutesRequest
-	(*SelectRoutesResponse)(nil), // 22: daemon.SelectRoutesResponse
-	(*Route)(nil),                // 23: daemon.Route
-	(*timestamp.Timestamp)(nil),  // 24: google.protobuf.Timestamp
-	(*duration.Duration)(nil),    // 25: google.protobuf.Duration
+	(LogLevel)(0),                // 0: daemon.LogLevel
+	(*LoginRequest)(nil),         // 1: daemon.LoginRequest
+	(*LoginResponse)(nil),        // 2: daemon.LoginResponse
+	(*WaitSSOLoginRequest)(nil),  // 3: daemon.WaitSSOLoginRequest
+	(*WaitSSOLoginResponse)(nil), // 4: daemon.WaitSSOLoginResponse
+	(*UpRequest)(nil),            // 5: daemon.UpRequest
+	(*UpResponse)(nil),           // 6: daemon.UpResponse
+	(*StatusRequest)(nil),        // 7: daemon.StatusRequest
+	(*StatusResponse)(nil),       // 8: daemon.StatusResponse
+	(*DownRequest)(nil),          // 9: daemon.DownRequest
+	(*DownResponse)(nil),         // 10: daemon.DownResponse
+	(*GetConfigRequest)(nil),     // 11: daemon.GetConfigRequest
+	(*GetConfigResponse)(nil),    // 12: daemon.GetConfigResponse
+	(*PeerState)(nil),            // 13: daemon.PeerState
+	(*LocalPeerState)(nil),       // 14: daemon.LocalPeerState
+	(*SignalState)(nil),          // 15: daemon.SignalState
+	(*ManagementState)(nil),      // 16: daemon.ManagementState
+	(*RelayState)(nil),           // 17: daemon.RelayState
+	(*NSGroupState)(nil),         // 18: daemon.NSGroupState
+	(*FullStatus)(nil),           // 19: daemon.FullStatus
+	(*ListRoutesRequest)(nil),    // 20: daemon.ListRoutesRequest
+	(*ListRoutesResponse)(nil),   // 21: daemon.ListRoutesResponse
+	(*SelectRoutesRequest)(nil),  // 22: daemon.SelectRoutesRequest
+	(*SelectRoutesResponse)(nil), // 23: daemon.SelectRoutesResponse
+	(*Route)(nil),                // 24: daemon.Route
+	(*DebugBundleRequest)(nil),   // 25: daemon.DebugBundleRequest
+	(*DebugBundleResponse)(nil),  // 26: daemon.DebugBundleResponse
+	(*SetLogLevelRequest)(nil),   // 27: daemon.SetLogLevelRequest
+	(*SetLogLevelResponse)(nil),  // 28: daemon.SetLogLevelResponse
+	(*timestamp.Timestamp)(nil),  // 29: google.protobuf.Timestamp
+	(*duration.Duration)(nil),    // 30: google.protobuf.Duration
 }
 var file_daemon_proto_depIdxs = []int32{
-	18, // 0: daemon.StatusResponse.fullStatus:type_name -> daemon.FullStatus
-	24, // 1: daemon.PeerState.connStatusUpdate:type_name -> google.protobuf.Timestamp
-	24, // 2: daemon.PeerState.lastWireguardHandshake:type_name -> google.protobuf.Timestamp
-	25, // 3: daemon.PeerState.latency:type_name -> google.protobuf.Duration
-	15, // 4: daemon.FullStatus.managementState:type_name -> daemon.ManagementState
-	14, // 5: daemon.FullStatus.signalState:type_name -> daemon.SignalState
-	13, // 6: daemon.FullStatus.localPeerState:type_name -> daemon.LocalPeerState
-	12, // 7: daemon.FullStatus.peers:type_name -> daemon.PeerState
-	16, // 8: daemon.FullStatus.relays:type_name -> daemon.RelayState
-	17, // 9: daemon.FullStatus.dns_servers:type_name -> daemon.NSGroupState
-	23, // 10: daemon.ListRoutesResponse.routes:type_name -> daemon.Route
-	0,  // 11: daemon.DaemonService.Login:input_type -> daemon.LoginRequest
-	2,  // 12: daemon.DaemonService.WaitSSOLogin:input_type -> daemon.WaitSSOLoginRequest
-	4,  // 13: daemon.DaemonService.Up:input_type -> daemon.UpRequest
-	6,  // 14: daemon.DaemonService.Status:input_type -> daemon.StatusRequest
-	8,  // 15: daemon.DaemonService.Down:input_type -> daemon.DownRequest
-	10, // 16: daemon.DaemonService.GetConfig:input_type -> daemon.GetConfigRequest
-	19, // 17: daemon.DaemonService.ListRoutes:input_type -> daemon.ListRoutesRequest
-	21, // 18: daemon.DaemonService.SelectRoutes:input_type -> daemon.SelectRoutesRequest
-	21, // 19: daemon.DaemonService.DeselectRoutes:input_type -> daemon.SelectRoutesRequest
-	1,  // 20: daemon.DaemonService.Login:output_type -> daemon.LoginResponse
-	3,  // 21: daemon.DaemonService.WaitSSOLogin:output_type -> daemon.WaitSSOLoginResponse
-	5,  // 22: daemon.DaemonService.Up:output_type -> daemon.UpResponse
-	7,  // 23: daemon.DaemonService.Status:output_type -> daemon.StatusResponse
-	9,  // 24: daemon.DaemonService.Down:output_type -> daemon.DownResponse
-	11, // 25: daemon.DaemonService.GetConfig:output_type -> daemon.GetConfigResponse
-	20, // 26: daemon.DaemonService.ListRoutes:output_type -> daemon.ListRoutesResponse
-	22, // 27: daemon.DaemonService.SelectRoutes:output_type -> daemon.SelectRoutesResponse
-	22, // 28: daemon.DaemonService.DeselectRoutes:output_type -> daemon.SelectRoutesResponse
-	20, // [20:29] is the sub-list for method output_type
-	11, // [11:20] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	19, // 0: daemon.StatusResponse.fullStatus:type_name -> daemon.FullStatus
+	29, // 1: daemon.PeerState.connStatusUpdate:type_name -> google.protobuf.Timestamp
+	29, // 2: daemon.PeerState.lastWireguardHandshake:type_name -> google.protobuf.Timestamp
+	30, // 3: daemon.PeerState.latency:type_name -> google.protobuf.Duration
+	16, // 4: daemon.FullStatus.managementState:type_name -> daemon.ManagementState
+	15, // 5: daemon.FullStatus.signalState:type_name -> daemon.SignalState
+	14, // 6: daemon.FullStatus.localPeerState:type_name -> daemon.LocalPeerState
+	13, // 7: daemon.FullStatus.peers:type_name -> daemon.PeerState
+	17, // 8: daemon.FullStatus.relays:type_name -> daemon.RelayState
+	18, // 9: daemon.FullStatus.dns_servers:type_name -> daemon.NSGroupState
+	24, // 10: daemon.ListRoutesResponse.routes:type_name -> daemon.Route
+	0,  // 11: daemon.SetLogLevelRequest.level:type_name -> daemon.LogLevel
+	1,  // 12: daemon.DaemonService.Login:input_type -> daemon.LoginRequest
+	3,  // 13: daemon.DaemonService.WaitSSOLogin:input_type -> daemon.WaitSSOLoginRequest
+	5,  // 14: daemon.DaemonService.Up:input_type -> daemon.UpRequest
+	7,  // 15: daemon.DaemonService.Status:input_type -> daemon.StatusRequest
+	9,  // 16: daemon.DaemonService.Down:input_type -> daemon.DownRequest
+	11, // 17: daemon.DaemonService.GetConfig:input_type -> daemon.GetConfigRequest
+	20, // 18: daemon.DaemonService.ListRoutes:input_type -> daemon.ListRoutesRequest
+	22, // 19: daemon.DaemonService.SelectRoutes:input_type -> daemon.SelectRoutesRequest
+	22, // 20: daemon.DaemonService.DeselectRoutes:input_type -> daemon.SelectRoutesRequest
+	25, // 21: daemon.DaemonService.DebugBundle:input_type -> daemon.DebugBundleRequest
+	27, // 22: daemon.DaemonService.SetLogLevel:input_type -> daemon.SetLogLevelRequest
+	2,  // 23: daemon.DaemonService.Login:output_type -> daemon.LoginResponse
+	4,  // 24: daemon.DaemonService.WaitSSOLogin:output_type -> daemon.WaitSSOLoginResponse
+	6,  // 25: daemon.DaemonService.Up:output_type -> daemon.UpResponse
+	8,  // 26: daemon.DaemonService.Status:output_type -> daemon.StatusResponse
+	10, // 27: daemon.DaemonService.Down:output_type -> daemon.DownResponse
+	12, // 28: daemon.DaemonService.GetConfig:output_type -> daemon.GetConfigResponse
+	21, // 29: daemon.DaemonService.ListRoutes:output_type -> daemon.ListRoutesResponse
+	23, // 30: daemon.DaemonService.SelectRoutes:output_type -> daemon.SelectRoutesResponse
+	23, // 31: daemon.DaemonService.DeselectRoutes:output_type -> daemon.SelectRoutesResponse
+	26, // 32: daemon.DaemonService.DebugBundle:output_type -> daemon.DebugBundleResponse
+	28, // 33: daemon.DaemonService.SetLogLevel:output_type -> daemon.SetLogLevelResponse
+	23, // [23:34] is the sub-list for method output_type
+	12, // [12:23] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_daemon_proto_init() }
@@ -2282,6 +2572,54 @@ func file_daemon_proto_init() {
 				return nil
 			}
 		}
+		file_daemon_proto_msgTypes[24].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*DebugBundleRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_daemon_proto_msgTypes[25].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*DebugBundleResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_daemon_proto_msgTypes[26].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*SetLogLevelRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_daemon_proto_msgTypes[27].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*SetLogLevelResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
 	}
 	file_daemon_proto_msgTypes[0].OneofWrappers = []interface{}{}
 	type x struct{}
@@ -2289,13 +2627,14 @@ func file_daemon_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_daemon_proto_rawDesc,
-			NumEnums:      0,
-			NumMessages:   24,
+			NumEnums:      1,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_daemon_proto_goTypes,
 		DependencyIndexes: file_daemon_proto_depIdxs,
+		EnumInfos:         file_daemon_proto_enumTypes,
 		MessageInfos:      file_daemon_proto_msgTypes,
 	}.Build()
 	File_daemon_proto = out.File

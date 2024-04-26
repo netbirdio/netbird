@@ -65,6 +65,7 @@ var (
 	serviceName             string
 	autoConnectDisabled     bool
 	extraIFaceBlackList     []string
+	anonymizeFlag           bool
 	rootCmd                 = &cobra.Command{
 		Use:          "netbird",
 		Short:        "",
@@ -119,6 +120,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&setupKey, "setup-key", "k", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
 	rootCmd.PersistentFlags().StringVar(&preSharedKey, preSharedKeyFlag, "", "Sets Wireguard PreSharedKey property. If set, then only peers that have the same key can communicate.")
 	rootCmd.PersistentFlags().StringVarP(&hostName, "hostname", "n", "", "Sets a custom hostname for the device")
+	rootCmd.PersistentFlags().BoolVarP(&anonymizeFlag, "anonymize", "A", false, "anonymize IP addresses and non-netbird.io domains in logs and status output")
 
 	rootCmd.AddCommand(serviceCmd)
 	rootCmd.AddCommand(upCmd)
@@ -128,12 +130,18 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(sshCmd)
 	rootCmd.AddCommand(routesCmd)
+	rootCmd.AddCommand(debugCmd)
 
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
 	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
 
 	routesCmd.AddCommand(routesListCmd)
 	routesCmd.AddCommand(routesSelectCmd, routesDeselectCmd)
+
+	debugCmd.AddCommand(debugBundleCmd)
+	debugCmd.AddCommand(logCmd)
+	logCmd.AddCommand(logLevelCmd)
+	debugCmd.AddCommand(forCmd)
 
 	upCmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil,
 		`Sets external IPs maps between local addresses and interfaces.`+
@@ -341,4 +349,15 @@ func migrateToNetbird(oldPath, newPath string) bool {
 	}
 
 	return true
+}
+
+func getClient(ctx context.Context) (*grpc.ClientConn, error) {
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
+			"If the daemon is not running please run: "+
+			"\nnetbird service install \nnetbird service start\n", err)
+	}
+
+	return conn, nil
 }

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 	"gopkg.in/yaml.v3"
 
+	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
@@ -144,9 +147,9 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed initializing log %v", err)
 	}
 
-	ctx := internal.CtxInitState(context.Background())
+	ctx := internal.CtxInitState(cmd.Context())
 
-	resp, err := getStatus(ctx, cmd)
+	resp, err := getStatus(ctx)
 	if err != nil {
 		return err
 	}
@@ -191,7 +194,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func getStatus(ctx context.Context, cmd *cobra.Command) (*proto.StatusResponse, error) {
+func getStatus(ctx context.Context) (*proto.StatusResponse, error) {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
@@ -200,7 +203,7 @@ func getStatus(ctx context.Context, cmd *cobra.Command) (*proto.StatusResponse, 
 	}
 	defer conn.Close()
 
-	resp, err := proto.NewDaemonServiceClient(conn).Status(cmd.Context(), &proto.StatusRequest{GetFullPeerStatus: true})
+	resp, err := proto.NewDaemonServiceClient(conn).Status(ctx, &proto.StatusRequest{GetFullPeerStatus: true})
 	if err != nil {
 		return nil, fmt.Errorf("status failed: %v", status.Convert(err).Message())
 	}
@@ -281,6 +284,11 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 		RosenpassPermissive: pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
 		Routes:              pbFullStatus.GetLocalPeerState().GetRoutes(),
 		NSServerGroups:      mapNSGroups(pbFullStatus.GetDnsServers()),
+	}
+
+	if anonymizeFlag {
+		anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+		anonymizeOverview(anonymizer, &overview)
 	}
 
 	return overview
@@ -525,8 +533,16 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 
 	peersCountString := fmt.Sprintf("%d/%d Connected", overview.Peers.Connected, overview.Peers.Total)
 
+	goos := runtime.GOOS
+	goarch := runtime.GOARCH
+	goarm := ""
+	if goarch == "arm" {
+		goarm = fmt.Sprintf(" (ARMv%s)", os.Getenv("GOARM"))
+	}
+
 	summary := fmt.Sprintf(
-		"Daemon version: %s\n"+
+		"OS: %s\n"+
+			"Daemon version: %s\n"+
 			"CLI version: %s\n"+
 			"Management: %s\n"+
 			"Signal: %s\n"+
@@ -538,6 +554,7 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool, showRelays
 			"Quantum resistance: %s\n"+
 			"Routes: %s\n"+
 			"Peers count: %s\n",
+		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
 		overview.DaemonVersion,
 		version.NetbirdVersion(),
 		managementConnString,
@@ -593,15 +610,6 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 		if peerState.IceCandidateEndpoint.Remote != "" {
 			remoteICEEndpoint = peerState.IceCandidateEndpoint.Remote
 		}
-		lastStatusUpdate := "-"
-		if !peerState.LastStatusUpdate.IsZero() {
-			lastStatusUpdate = peerState.LastStatusUpdate.Format("2006-01-02 15:04:05")
-		}
-
-		lastWireGuardHandshake := "-"
-		if !peerState.LastWireguardHandshake.IsZero() && peerState.LastWireguardHandshake != time.Unix(0, 0) {
-			lastWireGuardHandshake = peerState.LastWireguardHandshake.Format("2006-01-02 15:04:05")
-		}
 
 		rosenpassEnabledStatus := "false"
 		if rosenpassEnabled {
@@ -652,8 +660,8 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			remoteICE,
 			localICEEndpoint,
 			remoteICEEndpoint,
-			lastStatusUpdate,
-			lastWireGuardHandshake,
+			timeAgo(peerState.LastStatusUpdate),
+			timeAgo(peerState.LastWireguardHandshake),
 			toIEC(peerState.TransferReceived),
 			toIEC(peerState.TransferSent),
 			rosenpassEnabledStatus,
@@ -721,4 +729,130 @@ func countEnabled(dnsServers []nsServerGroupStateOutput) int {
 		}
 	}
 	return count
+}
+
+// timeAgo returns a string representing the duration since the provided time in a human-readable format.
+func timeAgo(t time.Time) string {
+	if t.IsZero() || t.Equal(time.Unix(0, 0)) {
+		return "-"
+	}
+	duration := time.Since(t)
+	switch {
+	case duration < time.Second:
+		return "Now"
+	case duration < time.Minute:
+		seconds := int(duration.Seconds())
+		if seconds == 1 {
+			return "1 second ago"
+		}
+		return fmt.Sprintf("%d seconds ago", seconds)
+	case duration < time.Hour:
+		minutes := int(duration.Minutes())
+		seconds := int(duration.Seconds()) % 60
+		if minutes == 1 {
+			if seconds == 1 {
+				return "1 minute, 1 second ago"
+			} else if seconds > 0 {
+				return fmt.Sprintf("1 minute, %d seconds ago", seconds)
+			}
+			return "1 minute ago"
+		}
+		if seconds > 0 {
+			return fmt.Sprintf("%d minutes, %d seconds ago", minutes, seconds)
+		}
+		return fmt.Sprintf("%d minutes ago", minutes)
+	case duration < 24*time.Hour:
+		hours := int(duration.Hours())
+		minutes := int(duration.Minutes()) % 60
+		if hours == 1 {
+			if minutes == 1 {
+				return "1 hour, 1 minute ago"
+			} else if minutes > 0 {
+				return fmt.Sprintf("1 hour, %d minutes ago", minutes)
+			}
+			return "1 hour ago"
+		}
+		if minutes > 0 {
+			return fmt.Sprintf("%d hours, %d minutes ago", hours, minutes)
+		}
+		return fmt.Sprintf("%d hours ago", hours)
+	}
+
+	days := int(duration.Hours()) / 24
+	hours := int(duration.Hours()) % 24
+	if days == 1 {
+		if hours == 1 {
+			return "1 day, 1 hour ago"
+		} else if hours > 0 {
+			return fmt.Sprintf("1 day, %d hours ago", hours)
+		}
+		return "1 day ago"
+	}
+	if hours > 0 {
+		return fmt.Sprintf("%d days, %d hours ago", days, hours)
+	}
+	return fmt.Sprintf("%d days ago", days)
+}
+
+func anonymizePeerDetail(a *anonymize.Anonymizer, peer *peerStateDetailOutput) {
+	peer.FQDN = a.AnonymizeDomain(peer.FQDN)
+	if localIP, port, err := net.SplitHostPort(peer.IceCandidateEndpoint.Local); err == nil {
+		peer.IceCandidateEndpoint.Local = fmt.Sprintf("%s:%s", a.AnonymizeIPString(localIP), port)
+	}
+	if remoteIP, port, err := net.SplitHostPort(peer.IceCandidateEndpoint.Remote); err == nil {
+		peer.IceCandidateEndpoint.Remote = fmt.Sprintf("%s:%s", a.AnonymizeIPString(remoteIP), port)
+	}
+	for i, route := range peer.Routes {
+		peer.Routes[i] = a.AnonymizeIPString(route)
+	}
+
+	for i, route := range peer.Routes {
+		prefix, err := netip.ParsePrefix(route)
+		if err == nil {
+			ip := a.AnonymizeIPString(prefix.Addr().String())
+			peer.Routes[i] = fmt.Sprintf("%s/%d", ip, prefix.Bits())
+		}
+	}
+}
+
+func anonymizeOverview(a *anonymize.Anonymizer, overview *statusOutputOverview) {
+	for i, peer := range overview.Peers.Details {
+		peer := peer
+		anonymizePeerDetail(a, &peer)
+		overview.Peers.Details[i] = peer
+	}
+
+	overview.ManagementState.URL = a.AnonymizeURI(overview.ManagementState.URL)
+	overview.ManagementState.Error = a.AnonymizeString(overview.ManagementState.Error)
+	overview.SignalState.URL = a.AnonymizeURI(overview.SignalState.URL)
+	overview.SignalState.Error = a.AnonymizeString(overview.SignalState.Error)
+
+	overview.IP = a.AnonymizeIPString(overview.IP)
+	for i, detail := range overview.Relays.Details {
+		detail.URI = a.AnonymizeURI(detail.URI)
+		detail.Error = a.AnonymizeString(detail.Error)
+		overview.Relays.Details[i] = detail
+	}
+
+	for i, nsGroup := range overview.NSServerGroups {
+		for j, domain := range nsGroup.Domains {
+			overview.NSServerGroups[i].Domains[j] = a.AnonymizeDomain(domain)
+		}
+		for j, ns := range nsGroup.Servers {
+			host, port, err := net.SplitHostPort(ns)
+			if err == nil {
+				overview.NSServerGroups[i].Servers[j] = fmt.Sprintf("%s:%s", a.AnonymizeIPString(host), port)
+			}
+		}
+	}
+
+	for i, route := range overview.Routes {
+		prefix, err := netip.ParsePrefix(route)
+		if err == nil {
+			ip := a.AnonymizeIPString(prefix.Addr().String())
+			overview.Routes[i] = fmt.Sprintf("%s/%d", ip, prefix.Bits())
+		}
+	}
+
+	overview.FQDN = a.AnonymizeDomain(overview.FQDN)
 }
