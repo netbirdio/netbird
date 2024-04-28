@@ -249,7 +249,7 @@ func runClient(
 			engineChan <- engine
 		}
 
-		log.Print("Netbird engine started, my IP is: ", peerConfig.Address)
+		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
 
 		<-engineCtx.Done()
