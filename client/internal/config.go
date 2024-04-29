@@ -113,7 +113,7 @@ func ReadConfig(configPath string) (*Config, error) {
 		}
 
 		if config.ClientCertPath != "" && config.ClientCertKeyPath != "" {
-			cert, err := tls.LoadX509KeyPair("/etc/netbird/foobar.crt", "/etc/netbird/foobar.key")
+			cert, err := tls.LoadX509KeyPair(config.ClientCertPath, config.ClientCertKeyPath)
 			if err != nil {
 				return nil, err
 			}
