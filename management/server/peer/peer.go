@@ -19,7 +19,7 @@ type Peer struct {
 	// A setup key this peer was registered with
 	SetupKey string
 	// IP address of the Peer
-	IP net.IP `gorm:"uniqueIndex:idx_peers_account_id_ip"`
+	IP net.IP `gorm:"uniqueIndex:idx_peers_account_id_ip;serializer:json"`
 	// Meta is a Peer system meta data
 	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	// Name is peer's name (machine name)
@@ -61,7 +61,7 @@ type PeerStatus struct { //nolint:revive
 
 // Location is a geo location information of a Peer based on public connection IP
 type Location struct {
-	ConnectionIP net.IP // from grpc peer or reverse proxy headers depends on setup
+	ConnectionIP net.IP `gorm:"serializer:json"` // from grpc peer or reverse proxy headers depends on setup
 	CountryCode  string
 	CityName     string
 	GeoNameID    uint // city level geoname id
