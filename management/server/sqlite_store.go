@@ -128,12 +128,6 @@ func (s *SqliteStore) AcquireGlobalLock() (unlock func()) {
 }
 
 func (s *SqliteStore) AcquireAccountWriteLock(accountID string) (unlock func()) {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("AcquireAccountWriteLock took %s", duration)
-	}()
-
 	log.Tracef("acquiring write lock for account %s", accountID)
 
 	start := time.Now()
@@ -150,12 +144,6 @@ func (s *SqliteStore) AcquireAccountWriteLock(accountID string) (unlock func()) 
 }
 
 func (s *SqliteStore) AcquireAccountReadLock(accountID string) (unlock func()) {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("AcquireAccountReadLock took %s", duration)
-	}()
-
 	log.Tracef("acquiring read lock for account %s", accountID)
 
 	start := time.Now()
@@ -172,12 +160,6 @@ func (s *SqliteStore) AcquireAccountReadLock(accountID string) (unlock func()) {
 }
 
 func (s *SqliteStore) SaveAccount(account *Account) error {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("SaveAccount took %s", duration)
-	}()
-
 	start := time.Now()
 
 	for _, key := range account.SetupKeys {
@@ -297,12 +279,6 @@ func (s *SqliteStore) GetInstallationID() string {
 }
 
 func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("SavePeerStatus took %s", duration)
-	}()
-
 	var peer nbpeer.Peer
 	result := s.db.Model(&peer).
 		Where("account_id = ? AND id = ?", accountID, peerID).
@@ -317,12 +293,6 @@ func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer
 }
 
 func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("SavePeerLocation took %s", duration)
-	}()
-
 	location := peerWithLocation.Location
 
 	var peer nbpeer.Peer
@@ -425,12 +395,6 @@ func (s *SqliteStore) GetUserByTokenID(tokenID string) (*User, error) {
 }
 
 func (s *SqliteStore) GetAllAccounts() (all []*Account) {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("GetAllAccounts took %s", duration)
-	}()
-
 	var accounts []Account
 	result := s.db.Find(&accounts)
 	if result.Error != nil {
@@ -447,11 +411,6 @@ func (s *SqliteStore) GetAllAccounts() (all []*Account) {
 }
 
 func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("GetAccount took %s", duration)
-	}()
 
 	var account Account
 	result := s.db.Model(&account).

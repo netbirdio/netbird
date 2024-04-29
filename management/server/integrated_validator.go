@@ -2,7 +2,6 @@ package server
 
 import (
 	"errors"
-	"time"
 
 	"github.com/google/martian/v3/log"
 
@@ -77,11 +76,5 @@ func (am *DefaultAccountManager) GroupValidation(accountId string, groups []stri
 }
 
 func (am *DefaultAccountManager) GetValidatedPeers(account *Account) (map[string]struct{}, error) {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("GetValidatedPeers took %s", duration)
-	}()
-
 	return am.integratedPeerValidator.GetValidatedPeers(account.Id, account.Groups, account.Peers, account.Settings.Extra)
 }

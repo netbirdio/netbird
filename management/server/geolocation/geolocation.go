@@ -106,12 +106,6 @@ func openDB(mmdbPath string) (*maxminddb.Reader, error) {
 }
 
 func (gl *Geolocation) Lookup(ip net.IP) (*Record, error) {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("(GeoLocation) Lookup took %s", duration)
-	}()
-
 	gl.mux.RLock()
 	defer gl.mux.RUnlock()
 

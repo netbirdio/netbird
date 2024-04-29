@@ -388,12 +388,6 @@ func (a *Account) GetGroup(groupID string) *nbgroup.Group {
 
 // GetPeerNetworkMap returns a group by ID if exists, nil otherwise
 func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string, validatedPeersMap map[string]struct{}) *NetworkMap {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("GetPeerNetworkMap took %s", duration)
-	}()
-
 	peer := a.Peers[peerID]
 	if peer == nil {
 		return &NetworkMap{
@@ -464,12 +458,6 @@ func (a *Account) GetExpiredPeers() []*nbpeer.Peer {
 // If there is no peer that expires this function returns false and a duration of 0.
 // This function only considers peers that haven't been expired yet and that are connected.
 func (a *Account) GetNextPeerExpiration() (time.Duration, bool) {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("GetNextPeerExpiration took %s", duration)
-	}()
-
 	peersWithExpiry := a.GetPeersWithExpiration()
 	if len(peersWithExpiry) == 0 {
 		return 0, false
@@ -526,11 +514,6 @@ func (a *Account) UpdateSettings(update *Settings) *Account {
 
 // UpdatePeer saves new or replaces existing peer
 func (a *Account) UpdatePeer(update *nbpeer.Peer) {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("UpdatePeer took %s", duration)
-	}()
 	a.Peers[update.ID] = update
 }
 
@@ -560,12 +543,6 @@ func (a *Account) DeletePeer(peerID string) {
 // FindPeerByPubKey looks for a Peer by provided WireGuard public key in the Account or returns error if it wasn't found.
 // It will return an object copy of the peer.
 func (a *Account) FindPeerByPubKey(peerPubKey string) (*nbpeer.Peer, error) {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("FindPeerByPubKey took %s", duration)
-	}()
-
 	for _, peer := range a.Peers {
 		if peer.Key == peerPubKey {
 			return peer.Copy(), nil
@@ -1061,12 +1038,6 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func()
 }
 
 func (am *DefaultAccountManager) checkAndSchedulePeerLoginExpiration(account *Account) {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("checkAndSchedulePeerLoginExpiration took %s", duration)
-	}()
-
 	am.peerLoginExpiry.Cancel([]string{account.Id})
 	if nextRun, ok := account.GetNextPeerExpiration(); ok {
 		go am.peerLoginExpiry.Schedule(nextRun, account.Id, am.peerLoginExpirationJob(account.Id))
@@ -1867,12 +1838,6 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 }
 
 func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error) {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("SyncAndMarkPeer took %s", duration)
-	}()
-
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(peerPubKey)
 	if err != nil {
 		return nil, nil, err

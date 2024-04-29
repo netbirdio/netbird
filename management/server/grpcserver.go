@@ -121,12 +121,6 @@ func getRealIP(ctx context.Context) net.IP {
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("Sync took %s", duration)
-	}()
-
 	reqStart := time.Now()
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountSyncRequest()
@@ -316,12 +310,6 @@ func (s *GRPCServer) parseRequest(req *proto.EncryptedMessage, parsed pb.Message
 // In case it isn't, the endpoint checks whether setup key is provided within the request and tries to register a peer.
 // In case of the successful registration login is also successful
 func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("Login took %s", duration)
-	}()
-
 	reqStart := time.Now()
 	defer func() {
 		if s.appMetrics != nil {
@@ -530,12 +518,6 @@ func (s *GRPCServer) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Em
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
 func (s *GRPCServer) sendInitialSync(peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *NetworkMap, srv proto.ManagementService_SyncServer) error {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("sendInitialSync took %s", duration)
-	}()
-
 	// make secret time based TURN credentials optional
 	var turnCredentials *TURNCredentials
 	if s.config.TURNConfig.TimeBasedCredentials {
