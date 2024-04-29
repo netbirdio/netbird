@@ -541,12 +541,6 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync, account *Account) (*nbp
 // LoginPeer logs in or registers a peer.
 // If peer doesn't exist the function checks whether a setup key or a user is present and registers a new peer if so.
 func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *NetworkMap, error) {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("LoginPeer took %s", duration)
-	}()
-
 	account, err := am.Store.GetAccountByPeerPubKey(login.WireGuardPubKey)
 	if err != nil {
 		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {

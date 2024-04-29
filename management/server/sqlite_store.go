@@ -479,12 +479,6 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 }
 
 func (s *SqliteStore) GetAccountByUser(userID string) (*Account, error) {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("GetAccountByUser took %s", duration)
-	}()
-
 	var user User
 	result := s.db.Select("account_id").First(&user, "id = ?", userID)
 	if result.Error != nil {
@@ -503,11 +497,6 @@ func (s *SqliteStore) GetAccountByUser(userID string) (*Account, error) {
 }
 
 func (s *SqliteStore) GetAccountByPeerID(peerID string) (*Account, error) {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("GetAccountByPeerID took %s", duration)
-	}()
 	var peer nbpeer.Peer
 	result := s.db.Select("account_id").First(&peer, "id = ?", peerID)
 	if result.Error != nil {
@@ -526,12 +515,6 @@ func (s *SqliteStore) GetAccountByPeerID(peerID string) (*Account, error) {
 }
 
 func (s *SqliteStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("GetAccountByPubKey took %s", duration)
-	}()
-
 	var peer nbpeer.Peer
 
 	result := s.db.Select("account_id").First(&peer, "key = ?", peerKey)
@@ -551,12 +534,6 @@ func (s *SqliteStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 }
 
 func (s *SqliteStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("GetAccountByPubKey took %s", duration)
-	}()
-
 	var peer nbpeer.Peer
 	var accountID string
 	result := s.db.Model(&peer).Select("account_id").Where("key = ?", peerKey).First(&accountID)
@@ -573,12 +550,6 @@ func (s *SqliteStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
 
 // SaveUserLastLogin stores the last login time for a user in DB.
 func (s *SqliteStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error {
-	startTime := time.Now()
-	defer func() {
-		duration := time.Since(startTime)
-		log.Debugf("SaveUserLastLogin took %s", duration)
-	}()
-
 	var user User
 
 	result := s.db.First(&user, "account_id = ? and id = ?", accountID, userID)
