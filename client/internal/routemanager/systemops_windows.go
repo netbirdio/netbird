@@ -20,9 +20,36 @@ import (
 	"github.com/netbirdio/netbird/iface"
 )
 
-type Win32_IP4RouteTable struct {
-	Destination string
-	Mask        string
+type MSFT_NetRoute struct {
+	DestinationPrefix string
+	NextHop           string
+	InterfaceIndex    int32
+	InterfaceAlias    string
+	AddressFamily     uint16
+}
+
+type Route struct {
+	Destination netip.Prefix
+	Nexthop     netip.Addr
+	Interface   *net.Interface
+}
+
+type MSFT_NetNeighbor struct {
+	IPAddress        string
+	LinkLayerAddress string
+	State            uint8
+	AddressFamily    uint16
+	InterfaceIndex   uint32
+	InterfaceAlias   string
+}
+
+type Neighbor struct {
+	IPAddress        netip.Addr
+	LinkLayerAddress string
+	State            uint8
+	AddressFamily    uint16
+	InterfaceIndex   uint32
+	InterfaceAlias   string
 }
 
 var prefixList []netip.Prefix
@@ -43,42 +70,90 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 	mux.Lock()
 	defer mux.Unlock()
 
-	query := "SELECT Destination, Mask FROM Win32_IP4RouteTable"
-
 	// If many routes are added at the same time this might block for a long time (seconds to minutes), so we cache the result
 	if !isCacheDisabled() && time.Since(lastUpdate) < 2*time.Second {
 		return prefixList, nil
 	}
 
-	var routes []Win32_IP4RouteTable
-	err := wmi.Query(query, &routes)
+	routes, err := GetRoutes()
 	if err != nil {
 		return nil, fmt.Errorf("get routes: %w", err)
 	}
 
 	prefixList = nil
 	for _, route := range routes {
-		addr, err := netip.ParseAddr(route.Destination)
-		if err != nil {
-			log.Warnf("Unable to parse route destination %s: %v", route.Destination, err)
-			continue
-		}
-		maskSlice := net.ParseIP(route.Mask).To4()
-		if maskSlice == nil {
-			log.Warnf("Unable to parse route mask %s", route.Mask)
-			continue
-		}
-		mask := net.IPv4Mask(maskSlice[0], maskSlice[1], maskSlice[2], maskSlice[3])
-		cidr, _ := mask.Size()
-
-		routePrefix := netip.PrefixFrom(addr, cidr)
-		if routePrefix.IsValid() && routePrefix.Addr().Is4() {
-			prefixList = append(prefixList, routePrefix)
-		}
+		prefixList = append(prefixList, route.Destination)
 	}
 
 	lastUpdate = time.Now()
 	return prefixList, nil
+}
+
+func GetRoutes() ([]Route, error) {
+	var entries []MSFT_NetRoute
+
+	query := `SELECT DestinationPrefix, NextHop, InterfaceIndex, InterfaceAlias, AddressFamily FROM MSFT_NetRoute`
+	if err := wmi.QueryNamespace(query, &entries, `ROOT\StandardCimv2`); err != nil {
+		return nil, fmt.Errorf("get routes: %w", err)
+	}
+
+	var routes []Route
+	for _, entry := range entries {
+		dest, err := netip.ParsePrefix(entry.DestinationPrefix)
+		if err != nil {
+			log.Warnf("Unable to parse route destination %s: %v", entry.DestinationPrefix, err)
+			continue
+		}
+
+		nexthop, err := netip.ParseAddr(entry.NextHop)
+		if err != nil {
+			log.Warnf("Unable to parse route next hop %s: %v", entry.NextHop, err)
+			continue
+		}
+
+		var intf *net.Interface
+		if entry.InterfaceIndex != 0 {
+			intf = &net.Interface{
+				Index: int(entry.InterfaceIndex),
+				Name:  entry.InterfaceAlias,
+			}
+		}
+
+		routes = append(routes, Route{
+			Destination: dest,
+			Nexthop:     nexthop,
+			Interface:   intf,
+		})
+	}
+
+	return routes, nil
+}
+
+func GetNeighbors() ([]Neighbor, error) {
+	var entries []MSFT_NetNeighbor
+	query := `SELECT IPAddress, LinkLayerAddress, State, AddressFamily, InterfaceIndex, InterfaceAlias FROM MSFT_NetNeighbor`
+	if err := wmi.QueryNamespace(query, &entries, `ROOT\StandardCimv2`); err != nil {
+		return nil, fmt.Errorf("failed to query MSFT_NetNeighbor: %w", err)
+	}
+
+	var neighbors []Neighbor
+	for _, entry := range entries {
+		addr, err := netip.ParseAddr(entry.IPAddress)
+		if err != nil {
+			log.Warnf("Unable to parse neighbor IP address %s: %v", entry.IPAddress, err)
+			continue
+		}
+		neighbors = append(neighbors, Neighbor{
+			IPAddress:        addr,
+			LinkLayerAddress: entry.LinkLayerAddress,
+			State:            entry.State,
+			AddressFamily:    entry.AddressFamily,
+			InterfaceIndex:   entry.InterfaceIndex,
+			InterfaceAlias:   entry.InterfaceAlias,
+		})
+	}
+
+	return neighbors, nil
 }
 
 func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {

@@ -73,7 +73,7 @@ func (nw *NetworkWatcher) Start(ctx context.Context, callback func()) {
 		}
 	}()
 
-	if err := checkChange(ctx, nexthop4, intf4, nexthop6, intf6, callback); err != nil {
+	if err := checkChange(ctx, nexthop4, intf4, nexthop6, intf6, callback); err != nil && !errors.Is(err, context.Canceled) {
 		log.Errorf("Network watcher: failed to start: %v", err)
 	}
 }
