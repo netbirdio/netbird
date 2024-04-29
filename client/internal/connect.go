@@ -77,13 +77,14 @@ func RunClientiOS(
 	fileDescriptor int32,
 	networkChangeListener listener.NetworkChangeListener,
 	dnsManager dns.IosDnsManager,
+	engineChan chan<- *Engine,
 ) error {
 	mobileDependency := MobileDependency{
 		FileDescriptor:        fileDescriptor,
 		NetworkChangeListener: networkChangeListener,
 		DnsManager:            dnsManager,
 	}
-	return runClient(ctx, config, statusRecorder, mobileDependency, nil, nil, nil, nil, nil)
+	return runClient(ctx, config, statusRecorder, mobileDependency, nil, nil, nil, nil, engineChan)
 }
 
 func runClient(
