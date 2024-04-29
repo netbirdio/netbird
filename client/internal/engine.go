@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -208,7 +209,6 @@ func NewEngineWithProbes(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
-		wgProxyFactory: wgproxy.NewFactory(config.WgPort),
 		networkWatcher: networkwatcher.New(),
 		mgmProbe:       mgmProbe,
 		signalProbe:    signalProbe,
@@ -255,6 +255,8 @@ func (e *Engine) Start() error {
 		e.cancel()
 	}
 	e.ctx, e.cancel = context.WithCancel(e.clientCtx)
+
+	e.wgProxyFactory = wgproxy.NewFactory(e.clientCtx, e.config.WgPort)
 
 	wgIface, err := e.newWgIface()
 	if err != nil {
@@ -899,11 +901,12 @@ func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
 		conn.UpdateStunTurn(append(e.STUNs, e.TURNs...))
 		e.syncMsgMux.Unlock()
 
-		err := conn.Open()
+		err := conn.Open(e.ctx)
 		if err != nil {
 			log.Debugf("connection to peer %s failed: %v", peerKey, err)
-			switch err.(type) {
-			case *peer.ConnectionClosedError:
+			var connectionClosedError *peer.ConnectionClosedError
+			switch {
+			case errors.As(err, &connectionClosedError):
 				// conn has been forced to close, so we exit the loop
 				return
 			default:
