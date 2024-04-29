@@ -351,16 +351,6 @@ func update(input ConfigInput) (*Config, error) {
 		refresh = true
 	}
 
-	if config.ClientCertPath != input.ClientCertPath {
-		config.ClientCertPath = input.ClientCertPath
-		refresh = true
-	}
-
-	if config.ClientCertKeyPath != input.ClientCertKeyPath {
-		config.ClientCertKeyPath = input.ClientCertKeyPath
-		refresh = true
-	}
-
 	if len(input.ExtraIFaceBlackList) > 0 {
 		for _, iFace := range util.SliceDiff(input.ExtraIFaceBlackList, config.IFaceBlackList) {
 			config.IFaceBlackList = append(config.IFaceBlackList, iFace)
