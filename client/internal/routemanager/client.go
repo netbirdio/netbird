@@ -153,7 +153,7 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 
 		log.Warnf("the network %s has not been assigned a routing peer as no peers from the list %s are currently connected", c.network, peers)
 	case chosen != currID:
-		if currScore != 0 && currScore < chosenScore+0.1 {
+		if currScore != 0 && currScore+0.01 > chosenScore {
 			return currID
 		} else {
 			var peer string
