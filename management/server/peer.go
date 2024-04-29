@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -289,6 +290,7 @@ func (am *DefaultAccountManager) DeletePeer(accountID, peerID, userID string) er
 
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)
 func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, error) {
+	log.Debugf("GetNetworkMap with trace: %s", string(debug.Stack()))
 	account, err := am.Store.GetAccountByPeerID(peerID)
 	if err != nil {
 		return nil, err
