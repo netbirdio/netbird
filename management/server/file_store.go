@@ -280,8 +280,8 @@ func (s *FileStore) AcquireGlobalLock() (unlock func()) {
 	return unlock
 }
 
-// AcquireAccountLock acquires account lock and returns a function that releases the lock
-func (s *FileStore) AcquireAccountLock(accountID string) (unlock func()) {
+// AcquireAccountWriteLock acquires account lock for writing to a resource and returns a function that releases the lock
+func (s *FileStore) AcquireAccountWriteLock(accountID string) (unlock func()) {
 	log.Debugf("acquiring lock for account %s", accountID)
 	start := time.Now()
 	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.Mutex{})
@@ -294,6 +294,12 @@ func (s *FileStore) AcquireAccountLock(accountID string) (unlock func()) {
 	}
 
 	return unlock
+}
+
+// AcquireAccountReadLock AcquireAccountWriteLock acquires account lock for reading a resource and returns a function that releases the lock
+// This method is still returns a write lock as file store can't handle read locks
+func (s *FileStore) AcquireAccountReadLock(accountID string) (unlock func()) {
+	return s.AcquireAccountWriteLock(accountID)
 }
 
 func (s *FileStore) SaveAccount(account *Account) error {

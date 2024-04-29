@@ -127,23 +127,45 @@ func (s *SqliteStore) AcquireGlobalLock() (unlock func()) {
 	return unlock
 }
 
-func (s *SqliteStore) AcquireAccountLock(accountID string) (unlock func()) {
+func (s *SqliteStore) AcquireAccountWriteLock(accountID string) (unlock func()) {
 	startTime := time.Now()
 	defer func() {
 		duration := time.Since(startTime)
-		log.Debugf("AcquireAccountLock took %s", duration)
+		log.Debugf("AcquireAccountWriteLock took %s", duration)
 	}()
 
-	log.Tracef("acquiring lock for account %s", accountID)
+	log.Tracef("acquiring write lock for account %s", accountID)
 
 	start := time.Now()
-	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.Mutex{})
-	mtx := value.(*sync.Mutex)
+	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.RWMutex{})
+	mtx := value.(*sync.RWMutex)
 	mtx.Lock()
 
 	unlock = func() {
 		mtx.Unlock()
-		log.Tracef("released lock for account %s in %v", accountID, time.Since(start))
+		log.Tracef("released write lock for account %s in %v", accountID, time.Since(start))
+	}
+
+	return unlock
+}
+
+func (s *SqliteStore) AcquireAccountReadLock(accountID string) (unlock func()) {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		log.Debugf("AcquireAccountReadLock took %s", duration)
+	}()
+
+	log.Tracef("acquiring read lock for account %s", accountID)
+
+	start := time.Now()
+	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.RWMutex{})
+	mtx := value.(*sync.RWMutex)
+	mtx.RLock()
+
+	unlock = func() {
+		mtx.RUnlock()
+		log.Tracef("released read lock for account %s in %v", accountID, time.Since(start))
 	}
 
 	return unlock

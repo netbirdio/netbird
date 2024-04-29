@@ -983,7 +983,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 	}
 
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -1034,7 +1034,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 
 func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func() (time.Duration, bool) {
 	return func() (time.Duration, bool) {
-		unlock := am.Store.AcquireAccountLock(accountID)
+		unlock := am.Store.AcquireAccountWriteLock(accountID)
 		defer unlock()
 
 		account, err := am.Store.GetAccount(accountID)
@@ -1139,7 +1139,7 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 
 // DeleteAccount deletes an account and all its users from local store and from the remote IDP if the requester is an admin and account owner
 func (am *DefaultAccountManager) DeleteAccount(accountID, userID string) error {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -1598,7 +1598,7 @@ func (am *DefaultAccountManager) MarkPATUsed(tokenID string) error {
 		return err
 	}
 
-	unlock := am.Store.AcquireAccountLock(account.Id)
+	unlock := am.Store.AcquireAccountWriteLock(account.Id)
 	defer unlock()
 
 	account, err = am.Store.GetAccountByUser(user.Id)
@@ -1681,7 +1681,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 	if err != nil {
 		return nil, nil, err
 	}
-	unlock := am.Store.AcquireAccountLock(newAcc.Id)
+	unlock := am.Store.AcquireAccountWriteLock(newAcc.Id)
 	alreadyUnlocked := false
 	defer func() {
 		if !alreadyUnlocked {
@@ -1832,7 +1832,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 
 	account, err := am.Store.GetAccountByUser(claims.UserId)
 	if err == nil {
-		unlockAccount := am.Store.AcquireAccountLock(account.Id)
+		unlockAccount := am.Store.AcquireAccountWriteLock(account.Id)
 		defer unlockAccount()
 		account, err = am.Store.GetAccountByUser(claims.UserId)
 		if err != nil {
@@ -1852,7 +1852,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		return account, nil
 	} else if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
 		if domainAccount != nil {
-			unlockAccount := am.Store.AcquireAccountLock(domainAccount.Id)
+			unlockAccount := am.Store.AcquireAccountWriteLock(domainAccount.Id)
 			defer unlockAccount()
 			domainAccount, err = am.Store.GetAccountByPrivateDomain(claims.Domain)
 			if err != nil {
@@ -1878,7 +1878,7 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.I
 		return nil, nil, err
 	}
 
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountReadLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -1905,7 +1905,7 @@ func (am *DefaultAccountManager) CancelPeerRoutines(peer *nbpeer.Peer) error {
 		return err
 	}
 
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
