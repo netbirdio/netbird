@@ -115,9 +115,11 @@ type Engine struct {
 	// clientRoutes is the most recent list of clientRoutes received from the Management Service
 	clientRoutes route.HAMap
 
-	cancel context.CancelFunc
+	clientCtx    context.Context
+	clientCancel context.CancelFunc
 
-	ctx context.Context
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	wgInterface    *iface.WGIface
 	wgProxyFactory *wgproxy.Factory
@@ -154,8 +156,8 @@ type Peer struct {
 
 // NewEngine creates a new Connection Engine
 func NewEngine(
-	ctx context.Context,
-	cancel context.CancelFunc,
+	clientCtx context.Context,
+	clientCancel context.CancelFunc,
 	signalClient signal.Client,
 	mgmClient mgm.Client,
 	config *EngineConfig,
@@ -163,8 +165,8 @@ func NewEngine(
 	statusRecorder *peer.Status,
 ) *Engine {
 	return NewEngineWithProbes(
-		ctx,
-		cancel,
+		clientCtx,
+		clientCancel,
 		signalClient,
 		mgmClient,
 		config,
@@ -179,8 +181,8 @@ func NewEngine(
 
 // NewEngineWithProbes creates a new Connection Engine with probes attached
 func NewEngineWithProbes(
-	ctx context.Context,
-	cancel context.CancelFunc,
+	clientCtx context.Context,
+	clientCancel context.CancelFunc,
 	signalClient signal.Client,
 	mgmClient mgm.Client,
 	config *EngineConfig,
@@ -191,9 +193,10 @@ func NewEngineWithProbes(
 	relayProbe *Probe,
 	wgProbe *Probe,
 ) *Engine {
+
 	return &Engine{
-		ctx:            ctx,
-		cancel:         cancel,
+		clientCtx:      clientCtx,
+		clientCancel:   clientCancel,
 		signal:         signalClient,
 		mgmClient:      mgmClient,
 		peerConns:      make(map[string]*peer.Conn),
@@ -217,6 +220,10 @@ func NewEngineWithProbes(
 func (e *Engine) Stop() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
+
+	if e.cancel != nil {
+		e.cancel()
+	}
 
 	// stopping network watcher first to avoid starting the engine again
 	e.networkWatcher.Stop()
@@ -243,6 +250,11 @@ func (e *Engine) Stop() error {
 func (e *Engine) Start() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
+
+	if e.cancel != nil {
+		e.cancel()
+	}
+	e.ctx, e.cancel = context.WithCancel(e.clientCtx)
 
 	wgIface, err := e.newWgIface()
 	if err != nil {
@@ -606,12 +618,12 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 // E.g. when a new peer has been registered and we are allowed to connect to it.
 func (e *Engine) receiveManagementEvents() {
 	go func() {
-		err := e.mgmClient.Sync(e.handleSync)
+		err := e.mgmClient.Sync(e.ctx, e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
 			_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
-			e.cancel()
+			e.clientCancel()
 			return
 		}
 		log.Debugf("stopped receiving updates from Management Service")
@@ -1002,7 +1014,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 func (e *Engine) receiveSignalEvents() {
 	go func() {
 		// connect to a stream of messages coming from the signal server
-		err := e.signal.Receive(func(msg *sProto.Message) error {
+		err := e.signal.Receive(e.ctx, func(msg *sProto.Message) error {
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
 
@@ -1076,7 +1088,7 @@ func (e *Engine) receiveSignalEvents() {
 			// happens if signal is unavailable for a long time.
 			// We want to cancel the operation of the whole client
 			_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
-			e.cancel()
+			e.clientCancel()
 			return
 		}
 	}()

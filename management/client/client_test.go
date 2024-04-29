@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	mgmt "github.com/netbirdio/netbird/management/server"
@@ -255,7 +256,7 @@ func TestClient_Sync(t *testing.T) {
 	ch := make(chan *mgmtProto.SyncResponse, 1)
 
 	go func() {
-		err = client.Sync(func(msg *mgmtProto.SyncResponse) error {
+		err = client.Sync(nil, func(msg *mgmtProto.SyncResponse) error {
 			ch <- msg
 			return nil
 		})
