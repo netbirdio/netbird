@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -143,6 +144,19 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, _ AuthFlowInfo) (
 func (p *PKCEAuthorizationFlow) startServer(server *http.Server, tokenChan chan<- *oauth2.Token, errChan chan<- error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+
+		cert := p.providerConfig.ClientCertPair
+		if cert != nil {
+			tr := &http.Transport{
+				TLSClientConfig: &tls.Config{
+					Certificates: []tls.Certificate{*cert},
+				},
+			}
+			ssl_client := &http.Client{Transport: tr}
+			ctx := context.WithValue(req.Context(), oauth2.HTTPClient, ssl_client)
+			req = req.WithContext(ctx)
+		}
+
 		token, err := p.handleRequest(req)
 		if err != nil {
 			renderPKCEFlowTmpl(w, err)
