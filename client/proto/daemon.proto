@@ -27,6 +27,21 @@ service DaemonService {
 
   // GetConfig of the daemon.
   rpc GetConfig(GetConfigRequest) returns (GetConfigResponse) {}
+
+  // List available network routes
+  rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse) {}
+
+  // Select specific routes
+  rpc SelectRoutes(SelectRoutesRequest) returns (SelectRoutesResponse) {}
+
+  // Deselect specific routes
+  rpc DeselectRoutes(SelectRoutesRequest) returns (SelectRoutesResponse) {}
+
+  // DebugBundle creates a debug bundle
+  rpc DebugBundle(DebugBundleRequest) returns (DebugBundleResponse) {}
+
+  // SetLogLevel sets the log level of the daemon
+  rpc SetLogLevel(SetLogLevelRequest) returns (SetLogLevelResponse) {}
 };
 
 message LoginRequest {
@@ -195,4 +210,53 @@ message FullStatus {
   repeated PeerState peers = 4;
   repeated RelayState relays = 5;
   repeated NSGroupState dns_servers = 6;
+}
+
+message ListRoutesRequest {
+}
+
+message ListRoutesResponse {
+  repeated Route routes = 1;
+}
+
+message SelectRoutesRequest {
+  repeated string routeIDs = 1;
+  bool append = 2;
+  bool all = 3;
+}
+
+message SelectRoutesResponse {
+}
+
+message Route {
+  string ID = 1;
+  string network = 2;
+  bool selected = 3;
+}
+
+message DebugBundleRequest {
+  bool anonymize = 1;
+  string status = 2;
+}
+
+message DebugBundleResponse {
+  string path = 1;
+}
+
+enum LogLevel {
+  UNKNOWN = 0;
+  PANIC = 1;
+  FATAL = 2;
+  ERROR = 3;
+  WARN = 4;
+  INFO = 5;
+  DEBUG = 6;
+  TRACE = 7;
+}
+
+message SetLogLevelRequest {
+  LogLevel level = 1;
+}
+
+message SetLogLevelResponse {
 }

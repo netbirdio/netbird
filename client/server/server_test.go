@@ -2,10 +2,11 @@ package server
 
 import (
 	"context"
-	"github.com/netbirdio/management-integrations/integrations"
 	"net"
 	"testing"
 	"time"
+
+	"github.com/netbirdio/management-integrations/integrations"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -69,7 +70,7 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	t.Setenv(maxRetryTimeVar, "5s")
 	t.Setenv(retryMultiplierVar, "1")
 
-	s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe)
+	s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe, nil)
 	if counter < 3 {
 		t.Fatalf("expected counter > 2, got %d", counter)
 	}

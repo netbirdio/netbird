@@ -6,8 +6,12 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/yusufpapurcu/wmi"
@@ -21,6 +25,10 @@ type Win32_IP4RouteTable struct {
 	Mask        string
 }
 
+var prefixList []netip.Prefix
+var lastUpdate time.Time
+var mux = sync.Mutex{}
+
 var routeManager *RouteManager
 
 func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
@@ -32,15 +40,23 @@ func cleanupRouting() error {
 }
 
 func getRoutesFromTable() ([]netip.Prefix, error) {
-	var routes []Win32_IP4RouteTable
+	mux.Lock()
+	defer mux.Unlock()
+
 	query := "SELECT Destination, Mask FROM Win32_IP4RouteTable"
 
+	// If many routes are added at the same time this might block for a long time (seconds to minutes), so we cache the result
+	if !isCacheDisabled() && time.Since(lastUpdate) < 2*time.Second {
+		return prefixList, nil
+	}
+
+	var routes []Win32_IP4RouteTable
 	err := wmi.Query(query, &routes)
 	if err != nil {
 		return nil, fmt.Errorf("get routes: %w", err)
 	}
 
-	var prefixList []netip.Prefix
+	prefixList = nil
 	for _, route := range routes {
 		addr, err := netip.ParseAddr(route.Destination)
 		if err != nil {
@@ -60,54 +76,29 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 			prefixList = append(prefixList, routePrefix)
 		}
 	}
+
+	lastUpdate = time.Now()
 	return prefixList, nil
 }
 
-func addRoutePowershell(prefix netip.Prefix, nexthop netip.Addr, intf, intfIdx string) error {
-	destinationPrefix := prefix.String()
-	psCmd := "New-NetRoute"
-
-	addressFamily := "IPv4"
-	if prefix.Addr().Is6() {
-		addressFamily = "IPv6"
-	}
-
-	script := fmt.Sprintf(
-		`%s -AddressFamily "%s" -DestinationPrefix "%s" -Confirm:$False -ErrorAction Stop -PolicyStore ActiveStore`,
-		psCmd, addressFamily, destinationPrefix,
-	)
-
-	if intfIdx != "" {
-		script = fmt.Sprintf(
-			`%s -InterfaceIndex %s`, script, intfIdx,
-		)
-	} else {
-		script = fmt.Sprintf(
-			`%s -InterfaceAlias "%s"`, script, intf,
-		)
-	}
+func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
+	args := []string{"add", prefix.String()}
 
 	if nexthop.IsValid() {
-		script = fmt.Sprintf(
-			`%s -NextHop "%s"`, script, nexthop,
-		)
+		args = append(args, nexthop.Unmap().String())
+	} else {
+		addr := "0.0.0.0"
+		if prefix.Addr().Is6() {
+			addr = "::"
+		}
+		args = append(args, addr)
 	}
 
-	out, err := exec.Command("powershell", "-Command", script).CombinedOutput()
-	log.Tracef("PowerShell %s: %s", script, string(out))
-
-	if err != nil {
-		return fmt.Errorf("PowerShell add route: %w", err)
+	if intf != nil {
+		args = append(args, "if", strconv.Itoa(intf.Index))
 	}
-
-	return nil
-}
-
-func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, _ string) error {
-	args := []string{"add", prefix.String(), nexthop.Unmap().String()}
 
 	out, err := exec.Command("route", args...).CombinedOutput()
-
 	log.Tracef("route %s: %s", strings.Join(args, " "), out)
 	if err != nil {
 		return fmt.Errorf("route add: %w", err)
@@ -116,21 +107,20 @@ func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, _ string) error {
 	return nil
 }
 
-func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf string) error {
-	var intfIdx string
-	if nexthop.Zone() != "" {
-		intfIdx = nexthop.Zone()
+func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
+	if nexthop.Zone() != "" && intf == nil {
+		zone, err := strconv.Atoi(nexthop.Zone())
+		if err != nil {
+			return fmt.Errorf("invalid zone: %w", err)
+		}
+		intf = &net.Interface{Index: zone}
 		nexthop.WithZone("")
 	}
 
-	// Powershell doesn't support adding routes without an interface but allows to add interface by name
-	if intf != "" || intfIdx != "" {
-		return addRoutePowershell(prefix, nexthop, intf, intfIdx)
-	}
 	return addRouteCmd(prefix, nexthop, intf)
 }
 
-func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, _ string) error {
+func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, _ *net.Interface) error {
 	args := []string{"delete", prefix.String()}
 	if nexthop.IsValid() {
 		nexthop.WithZone("")
@@ -144,4 +134,8 @@ func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, _ string) err
 		return fmt.Errorf("remove route: %w", err)
 	}
 	return nil
+}
+
+func isCacheDisabled() bool {
+	return os.Getenv("NB_DISABLE_ROUTE_CACHE") == "true"
 }
