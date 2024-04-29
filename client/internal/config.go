@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/url"
 	"os"
@@ -50,6 +51,8 @@ type ConfigInput struct {
 	WireguardPort       *int
 	DisableAutoConnect  *bool
 	ExtraIFaceBlackList []string
+	ClientCertPath      string
+	ClientCertKeyPath   string
 }
 
 // Config Configuration type
@@ -91,6 +94,14 @@ type Config struct {
 	// DisableAutoConnect determines whether the client should not start with the service
 	// it's set to false by default due to backwards compatibility
 	DisableAutoConnect bool
+
+	//Path to a certificate to be used for mTLS authentication
+	ClientCertPath string
+
+	//Path to the corresponding private key of ClientCertPath
+	ClientCertKeyPath string
+
+	ClientCertKeyPair *tls.Certificate `json:"-"`
 }
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
@@ -99,6 +110,14 @@ func ReadConfig(configPath string) (*Config, error) {
 		config := &Config{}
 		if _, err := util.ReadJson(configPath, config); err != nil {
 			return nil, err
+		}
+
+		if config.ClientCertPath != "" && config.ClientCertKeyPath != "" {
+			cert, err := tls.LoadX509KeyPair("/etc/netbird/foobar.crt", "/etc/netbird/foobar.key")
+			if err != nil {
+				return nil, err
+			}
+			config.ClientCertKeyPair = &cert
 		}
 
 		return config, nil
@@ -207,6 +226,14 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 
 	if input.ServerSSHAllowed != nil {
 		config.ServerSSHAllowed = input.ServerSSHAllowed
+	}
+
+	if input.ClientCertPath != "" {
+		config.ClientCertPath = input.ClientCertPath
+	}
+
+	if input.ClientCertKeyPath != "" {
+		config.ClientCertKeyPath = input.ClientCertKeyPath
 	}
 
 	defaultAdminURL, err := parseURL("Admin URL", DefaultAdminURL)
@@ -321,6 +348,16 @@ func update(input ConfigInput) (*Config, error) {
 
 	if config.ServerSSHAllowed == nil {
 		config.ServerSSHAllowed = util.True()
+		refresh = true
+	}
+
+	if config.ClientCertPath != input.ClientCertPath {
+		config.ClientCertPath = input.ClientCertPath
+		refresh = true
+	}
+
+	if config.ClientCertKeyPath != input.ClientCertKeyPath {
+		config.ClientCertKeyPath = input.ClientCertKeyPath
 		refresh = true
 	}
 
