@@ -1655,7 +1655,7 @@ func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
 func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
-	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	_, err = manager.GetAccountByUserOrAccountID(userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
@@ -1667,7 +1667,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	})
 	require.NoError(t, err, "unable to add peer")
 
-	account, err = manager.GetAccountByUserOrAccountID(userID, "", "")
+	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
 	require.NoError(t, err, "unable to get the account")
 	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil, account)
 	require.NoError(t, err, "unable to mark peer connected")
@@ -1750,7 +1750,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
-	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	_, err = manager.GetAccountByUserOrAccountID(userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
@@ -1762,7 +1762,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	})
 	require.NoError(t, err, "unable to add peer")
 
-	account, err = manager.GetAccountByUserOrAccountID(userID, "", "")
+	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
 	require.NoError(t, err, "unable to get the account")
 	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil, account)
 	require.NoError(t, err, "unable to mark peer connected")
