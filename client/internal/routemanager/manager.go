@@ -185,6 +185,7 @@ func (m *DefaultManager) TriggerSelection(networks map[string][]*route.Route) {
 		clientNetworkWatcher := newClientNetworkWatcher(m.ctx, m.wgInterface, m.statusRecorder, routes[0].Network)
 		m.clientNetworks[id] = clientNetworkWatcher
 		go clientNetworkWatcher.peersStateAndUpdateWatcher()
+		log.Debugf("sending routes to client %v", routes)
 		clientNetworkWatcher.sendUpdateToClientNetworkWatcher(routesUpdate{routes: routes})
 	}
 }

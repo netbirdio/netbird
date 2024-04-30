@@ -3,6 +3,7 @@ package NetBirdSDK
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"sort"
 	"strings"
 	"sync"
@@ -18,7 +19,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
-	"github.com/netbirdio/netbird/route"
 )
 
 // ConnectionListener export internal Listener for mobile
@@ -41,6 +41,12 @@ type CustomLogger interface {
 	Debug(message string)
 	Info(message string)
 	Error(message string)
+}
+
+type selectRoute struct {
+	NetID    string
+	Network  netip.Prefix
+	Selected bool
 }
 
 func init() {
@@ -272,13 +278,17 @@ func (c *Client) GetRoutesSelectionDetails() *RoutesSelectionDetails {
 		routesMap := c.engine.GetClientRoutesWithNetID()
 		routeSelector := c.engine.GetRouteManager().GetRouteSelector()
 
-		var routes []*route.Route
+		var routes []*selectRoute
 		for id, rt := range routesMap {
 			if len(rt) == 0 {
 				continue
 			}
-			rt[0].ID = id
-			routes = append(routes, rt[0])
+			route := &selectRoute{
+				NetID:    id,
+				Network:  rt[0].Network,
+				Selected: routeSelector.IsSelected(id),
+			}
+			routes = append(routes, route)
 		}
 
 		sort.Slice(routes, func(i, j int) bool {
@@ -289,7 +299,7 @@ func (c *Client) GetRoutesSelectionDetails() *RoutesSelectionDetails {
 				iAddr := routes[i].Network.Addr()
 				jAddr := routes[j].Network.Addr()
 				if iAddr == jAddr {
-					return routes[i].ID < routes[j].ID
+					return routes[i].NetID < routes[j].NetID
 				}
 				return iAddr.String() < jAddr.String()
 			}
@@ -299,9 +309,9 @@ func (c *Client) GetRoutesSelectionDetails() *RoutesSelectionDetails {
 		var routeSelection []RoutesSelectionInfo
 		for _, r := range routes {
 			routeSelection = append(routeSelection, RoutesSelectionInfo{
-				ID:       r.ID,
+				ID:       r.NetID,
 				Network:  r.Network.String(),
-				Selected: routeSelector.IsSelected(r.ID),
+				Selected: r.Selected,
 			})
 		}
 
