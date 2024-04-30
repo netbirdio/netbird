@@ -145,6 +145,7 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithJSONData(t *testing.T) {
 	require.NoError(t, err, "Failed to auto-migrate tables")
 
 	err = db.Save(&server.Account{
+		Id: "1234",
 		PeersG: []nbpeer.Peer{
 			{Location: nbpeer.Location{ConnectionIP: net.IP{10, 0, 0, 1}}},
 		}},
