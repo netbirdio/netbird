@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -580,7 +579,15 @@ func (s *FileStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 }
 
 func (s *FileStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
-	return "", errors.New("not implemented")
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, ok := s.PeerKeyID2AccountID[peerKey]
+	if !ok {
+		return "", status.Errorf(status.NotFound, "provided peer key doesn't exists %s", peerKey)
+	}
+
+	return accountID, nil
 }
 
 // GetInstallationID returns the installation ID from the store

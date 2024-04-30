@@ -289,7 +289,15 @@ func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer
 			"peer_status_requires_approval": peerStatus.RequiresApproval,
 		})
 
-	return result.Error
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "peer %s not found", peerID)
+	}
+
+	return nil
 }
 
 func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
@@ -303,7 +311,16 @@ func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpee
 			"location_city_name":     location.CityName,
 			"location_geo_name_id":   location.GeoNameID,
 		})
-	return result.Error
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "peer %s not found", peerWithLocation.ID)
+	}
+
+	return nil
 }
 
 // DeleteHashedPAT2TokenIDIndex is noop in Sqlite
