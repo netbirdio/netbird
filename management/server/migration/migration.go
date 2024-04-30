@@ -103,7 +103,6 @@ func MigrateFieldFromGobToJSON[T any, S any](db *gorm.DB, fieldName string) erro
 
 // MigrateNetIPFieldFromBlobToJSON migrates a Net IP column from Blob encoding to JSON encoding.
 // T is the type of the model that contains the field to be migrated.
-// S is the type of the field to be migrated.
 func MigrateNetIPFieldFromBlobToJSON[T any](db *gorm.DB, fieldName string, indexName string) error {
 	oldColumnName := fieldName
 	newColumnName := fieldName + "_tmp"
@@ -129,9 +128,6 @@ func MigrateNetIPFieldFromBlobToJSON[T any](db *gorm.DB, fieldName string, index
 			return nil
 		}
 		return fmt.Errorf("fetch first record: %w", err)
-	}
-	if len(item) < 0 {
-		return fmt.Errorf("no records fetched")
 	}
 
 	var js json.RawMessage
