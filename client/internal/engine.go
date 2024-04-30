@@ -1152,8 +1152,10 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 }
 
 func (e *Engine) close() {
-	if err := e.wgProxyFactory.Free(); err != nil {
-		log.Errorf("failed closing ebpf proxy: %s", err)
+	if e.wgProxyFactory != nil {
+		if err := e.wgProxyFactory.Free(); err != nil {
+			log.Errorf("failed closing ebpf proxy: %s", err)
+		}
 	}
 
 	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
