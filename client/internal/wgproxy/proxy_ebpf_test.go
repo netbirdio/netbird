@@ -3,11 +3,12 @@
 package wgproxy
 
 import (
+	"context"
 	"testing"
 )
 
 func TestWGEBPFProxy_connStore(t *testing.T) {
-	wgProxy := NewWGEBPFProxy(nil, 1)
+	wgProxy := NewWGEBPFProxy(context.Background(), 1)
 
 	p, _ := wgProxy.storeTurnConn(nil)
 	if p != 1 {
