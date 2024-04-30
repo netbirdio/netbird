@@ -127,17 +127,33 @@ func (s *SqliteStore) AcquireGlobalLock() (unlock func()) {
 	return unlock
 }
 
-func (s *SqliteStore) AcquireAccountLock(accountID string) (unlock func()) {
-	log.Tracef("acquiring lock for account %s", accountID)
+func (s *SqliteStore) AcquireAccountWriteLock(accountID string) (unlock func()) {
+	log.Tracef("acquiring write lock for account %s", accountID)
 
 	start := time.Now()
-	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.Mutex{})
-	mtx := value.(*sync.Mutex)
+	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.RWMutex{})
+	mtx := value.(*sync.RWMutex)
 	mtx.Lock()
 
 	unlock = func() {
 		mtx.Unlock()
-		log.Tracef("released lock for account %s in %v", accountID, time.Since(start))
+		log.Tracef("released write lock for account %s in %v", accountID, time.Since(start))
+	}
+
+	return unlock
+}
+
+func (s *SqliteStore) AcquireAccountReadLock(accountID string) (unlock func()) {
+	log.Tracef("acquiring read lock for account %s", accountID)
+
+	start := time.Now()
+	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.RWMutex{})
+	mtx := value.(*sync.RWMutex)
+	mtx.RLock()
+
+	unlock = func() {
+		mtx.RUnlock()
+		log.Tracef("released read lock for account %s in %v", accountID, time.Since(start))
 	}
 
 	return unlock
@@ -264,35 +280,47 @@ func (s *SqliteStore) GetInstallationID() string {
 
 func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
 	var peer nbpeer.Peer
+	result := s.db.Model(&peer).
+		Where("account_id = ? AND id = ?", accountID, peerID).
+		Updates(map[string]interface{}{
+			"peer_status_last_seen":         peerStatus.LastSeen,
+			"peer_status_connected":         peerStatus.Connected,
+			"peer_status_login_expired":     peerStatus.LoginExpired,
+			"peer_status_requires_approval": peerStatus.RequiresApproval,
+		})
 
-	result := s.db.First(&peer, "account_id = ? and id = ?", accountID, peerID)
 	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return status.Errorf(status.NotFound, "peer %s not found", peerID)
-		}
-		log.Errorf("error when getting peer from the store: %s", result.Error)
-		return status.Errorf(status.Internal, "issue getting peer from store")
+		return result.Error
 	}
 
-	peer.Status = &peerStatus
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "peer %s not found", peerID)
+	}
 
-	return s.db.Save(peer).Error
+	return nil
 }
 
 func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
+	location := peerWithLocation.Location
+
 	var peer nbpeer.Peer
-	result := s.db.First(&peer, "account_id = ? and id = ?", accountID, peerWithLocation.ID)
+	result := s.db.Model(&peer).Where("account_id = ? and id = ?", accountID, peerWithLocation.ID).
+		Updates(map[string]interface{}{
+			"location_connection_ip": location.ConnectionIP,
+			"location_country_code":  location.CountryCode,
+			"location_city_name":     location.CityName,
+			"location_geo_name_id":   location.GeoNameID,
+		})
+
 	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return status.Errorf(status.NotFound, "peer %s not found", peer.ID)
-		}
-		log.Errorf("error when getting peer from the store: %s", result.Error)
-		return status.Errorf(status.Internal, "issue getting peer from store")
+		return result.Error
 	}
 
-	peer.Location = peerWithLocation.Location
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "peer %s not found", peerWithLocation.ID)
+	}
 
-	return s.db.Save(peer).Error
+	return nil
 }
 
 // DeleteHashedPAT2TokenIDIndex is noop in Sqlite
@@ -400,6 +428,7 @@ func (s *SqliteStore) GetAllAccounts() (all []*Account) {
 }
 
 func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
+
 	var account Account
 	result := s.db.Model(&account).
 		Preload("UsersG.PATsG"). // have to be specifies as this is nester reference
@@ -519,6 +548,21 @@ func (s *SqliteStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 	}
 
 	return s.GetAccount(peer.AccountID)
+}
+
+func (s *SqliteStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
+	var peer nbpeer.Peer
+	var accountID string
+	result := s.db.Model(&peer).Select("account_id").Where("key = ?", peerKey).First(&accountID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
+		}
+		log.Errorf("error when getting peer from the store: %s", result.Error)
+		return "", status.Errorf(status.Internal, "issue getting account from store")
+	}
+
+	return accountID, nil
 }
 
 // SaveUserLastLogin stores the last login time for a user in DB.
