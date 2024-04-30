@@ -430,7 +430,7 @@ func (s *SqliteStore) GetAllAccounts() (all []*Account) {
 func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 
 	var account Account
-	result := s.db.Model(&account).
+	result := s.db.Model(&account).Debug().
 		Preload("UsersG.PATsG"). // have to be specifies as this is nester reference
 		Preload(clause.Associations).
 		First(&account, "id = ?", accountID)
