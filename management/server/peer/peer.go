@@ -5,8 +5,6 @@ import (
 	"net"
 	"net/netip"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // Peer represents a machine connected to the network.
@@ -174,8 +172,6 @@ func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) bool {
 	if meta.UIVersion == "" {
 		meta.UIVersion = p.Meta.UIVersion
 	}
-
-	log.Infof("Check if meta is equal: %v", p.Meta.isEqual(meta))
 
 	if p.Meta.isEqual(meta) {
 		return false
