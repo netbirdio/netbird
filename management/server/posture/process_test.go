@@ -29,8 +29,8 @@ func TestProcessCheck_Check(t *testing.T) {
 			},
 			check: ProcessCheck{
 				Processes: []Process{
-					{Path: "/Applications/process1.app"},
-					{Path: "/Applications/process2.app"},
+					{MacPath: "/Applications/process1.app"},
+					{MacPath: "/Applications/process2.app"},
 				},
 			},
 			wantErr: false,
@@ -69,8 +69,8 @@ func TestProcessCheck_Check(t *testing.T) {
 			},
 			check: ProcessCheck{
 				Processes: []Process{
-					{Path: "/usr/bin/process1"},
-					{Path: "/usr/bin/process2"},
+					{LinuxPath: "/usr/bin/process1"},
+					{LinuxPath: "/usr/bin/process2"},
 				},
 			},
 			wantErr: false,
@@ -89,8 +89,8 @@ func TestProcessCheck_Check(t *testing.T) {
 			},
 			check: ProcessCheck{
 				Processes: []Process{
-					{Path: "/usr/bin/process1"},
-					{Path: "/usr/bin/process2"},
+					{LinuxPath: "/usr/bin/process1"},
+					{LinuxPath: "/usr/bin/process2"},
 				},
 			},
 			wantErr: false,
@@ -129,8 +129,8 @@ func TestProcessCheck_Check(t *testing.T) {
 			},
 			check: ProcessCheck{
 				Processes: []Process{
-					{Path: "/usr/bin/process1"},
-					{Path: "/usr/bin/process2"},
+					{LinuxPath: "/usr/bin/process1"},
+					{LinuxPath: "/usr/bin/process2"},
 				},
 			},
 			wantErr: false,
@@ -169,8 +169,8 @@ func TestProcessCheck_Check(t *testing.T) {
 			},
 			check: ProcessCheck{
 				Processes: []Process{
-					{Path: "/Applications/process1.app"},
-					{Path: "/Applications/process2.app"},
+					{MacPath: "/Applications/process1.app"},
+					{LinuxPath: "/Applications/process2.app"},
 				},
 			},
 			wantErr: false,
@@ -205,15 +205,15 @@ func TestProcessCheck_Check(t *testing.T) {
 			},
 			check: ProcessCheck{
 				Processes: []Process{
-					{Path: "C:\\Program Files\\process1.exe"},
-					{Path: "C:\\Program Files\\process2.exe"},
+					{WindowsPath: "C:\\Program Files\\process1.exe"},
+					{MacPath: "/Applications/process2.app"},
 				},
 			},
 			wantErr: true,
 			isValid: false,
 		},
 		{
-			name: "unsupported android operating system with matching processes",
+			name: "unsupported android operating system",
 			input: peer.Peer{
 				Meta: peer.PeerSystemMeta{
 					GoOS: "android",
@@ -221,8 +221,9 @@ func TestProcessCheck_Check(t *testing.T) {
 			},
 			check: ProcessCheck{
 				Processes: []Process{
-					{Path: "/usr/bin/process1"},
-					{Path: "/usr/bin/process2"},
+					{WindowsPath: "C:\\Program Files\\process1.exe"},
+					{MacPath: "/Applications/process2.app"},
+					{LinuxPath: "/usr/bin/process2"},
 				},
 			},
 			wantErr: true,
@@ -250,11 +251,12 @@ func TestProcessCheck_Validate(t *testing.T) {
 		expectedError bool
 	}{
 		{
-			name: "Valid unix and windows processes",
+			name: "Valid linux, mac and windows processes",
 			check: ProcessCheck{
 				Processes: []Process{
 					{
-						Path:        "/usr/local/bin/netbird",
+						LinuxPath:   "/usr/local/bin/netbird",
+						MacPath:     "/usr/local/bin/netbird",
 						WindowsPath: "C:\\ProgramData\\NetBird\\netbird.exe",
 					},
 				},
@@ -262,11 +264,22 @@ func TestProcessCheck_Validate(t *testing.T) {
 			expectedError: false,
 		},
 		{
-			name: "Valid unix process",
+			name: "Valid linux process",
 			check: ProcessCheck{
 				Processes: []Process{
 					{
-						Path: "/usr/local/bin/netbird",
+						LinuxPath: "/usr/local/bin/netbird",
+					},
+				},
+			},
+			expectedError: false,
+		},
+		{
+			name: "Valid mac process",
+			check: ProcessCheck{
+				Processes: []Process{
+					{
+						MacPath: "/Applications/NetBird.app/Contents/MacOS/netbird",
 					},
 				},
 			},

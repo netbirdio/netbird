@@ -333,7 +333,8 @@ func toProcessCheckResponse(check *posture.ProcessCheck) *api.ProcessCheck {
 	processes := make([]api.Process, 0, len(check.Processes))
 	for i := range check.Processes {
 		processes = append(processes, api.Process{
-			Path:        &check.Processes[i].Path,
+			LinuxPath:   &check.Processes[i].LinuxPath,
+			MacPath:     &check.Processes[i].MacPath,
 			WindowsPath: &check.Processes[i].WindowsPath,
 		})
 	}
@@ -347,8 +348,11 @@ func toProcessCheck(check *api.ProcessCheck) *posture.ProcessCheck {
 	processes := make([]posture.Process, 0, len(check.Processes))
 	for _, process := range check.Processes {
 		var p posture.Process
-		if process.Path != nil {
-			p.Path = *process.Path
+		if process.LinuxPath != nil {
+			p.LinuxPath = *process.LinuxPath
+		}
+		if process.MacPath != nil {
+			p.MacPath = *process.MacPath
 		}
 		if process.WindowsPath != nil {
 			p.WindowsPath = *process.WindowsPath

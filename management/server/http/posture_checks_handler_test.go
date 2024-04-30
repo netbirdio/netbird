@@ -450,7 +450,8 @@ func TestPostureCheckUpdate(t *testing.T) {
 						"process_check": {
 							"processes": [
 								{ 
-									"path": "/usr/local/bin/netbird",
+									"linux_path": "/usr/local/bin/netbird",
+									"mac_path": "/Applications/NetBird.app/Contents/MacOS/netbird",
 									"windows_path": "C:\\ProgramData\\NetBird\\netbird.exe"
 								}
 							]
@@ -467,7 +468,8 @@ func TestPostureCheckUpdate(t *testing.T) {
 					ProcessCheck: &api.ProcessCheck{
 						Processes: []api.Process{
 							{
-								Path:        str("/usr/local/bin/netbird"),
+								LinuxPath:   str("/usr/local/bin/netbird"),
+								MacPath:     str("/Applications/NetBird.app/Contents/MacOS/netbird"),
 								WindowsPath: str("C:\\ProgramData\\NetBird\\netbird.exe"),
 							},
 						},
