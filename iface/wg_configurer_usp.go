@@ -132,7 +132,13 @@ func (c *wgUSPConfigurer) removeAllowedIP(peerKey string, ip string) error {
 
 	lines := strings.Split(ipc, "\n")
 
-	output := ""
+	peer := wgtypes.PeerConfig{
+		PublicKey:         peerKeyParsed,
+		UpdateOnly:        true,
+		ReplaceAllowedIPs: true,
+		AllowedIPs:        []net.IPNet{},
+	}
+
 	foundPeer := false
 	removedAllowedIP := false
 	for _, line := range lines {
@@ -156,19 +162,23 @@ func (c *wgUSPConfigurer) removeAllowedIP(peerKey string, ip string) error {
 		}
 
 		// Append the line to the output string
-		if strings.HasPrefix(line, "private_key=") || strings.HasPrefix(line, "listen_port=") ||
-			strings.HasPrefix(line, "public_key=") || strings.HasPrefix(line, "preshared_key=") ||
-			strings.HasPrefix(line, "endpoint=") || strings.HasPrefix(line, "persistent_keepalive_interval=") ||
-			strings.HasPrefix(line, "allowed_ip=") {
-			output += line + "\n"
+		if foundPeer && strings.HasPrefix(line, "allowed_ip=") {
+			allowedIP := strings.TrimPrefix(line, "allowed_ip=")
+			_, ipNet, err := net.ParseCIDR(allowedIP)
+			if err != nil {
+				return err
+			}
+			peer.AllowedIPs = append(peer.AllowedIPs, *ipNet)
 		}
 	}
 
 	if !removedAllowedIP {
 		return fmt.Errorf("allowedIP not found")
-	} else {
-		return c.device.IpcSet(output)
 	}
+	config := wgtypes.Config{
+		Peers: []wgtypes.PeerConfig{peer},
+	}
+	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
 // startUAPI starts the UAPI listener for managing the WireGuard interface via external tool
