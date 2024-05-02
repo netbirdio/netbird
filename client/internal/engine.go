@@ -236,7 +236,7 @@ func (e *Engine) Stop() error {
 	e.clientRoutes = nil
 
 	// very ugly but we want to remove peers from the WireGuard interface first before removing interface.
-	// Removing peers happens in the conn.CLose() asynchronously
+	// Removing peers happens in the conn.Close() asynchronously
 	time.Sleep(500 * time.Millisecond)
 
 	e.close()
@@ -1161,6 +1161,7 @@ func (e *Engine) close() {
 	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
 	if e.dnsServer != nil {
 		e.dnsServer.Stop()
+		e.dnsServer = nil
 	}
 
 	if e.routeManager != nil {
