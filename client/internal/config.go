@@ -111,16 +111,6 @@ func ReadConfig(configPath string) (*Config, error) {
 		if _, err := util.ReadJson(configPath, config); err != nil {
 			return nil, err
 		}
-
-		if config.ClientCertPath != "" && config.ClientCertKeyPath != "" {
-			cert, err := tls.LoadX509KeyPair(config.ClientCertPath, config.ClientCertKeyPath)
-			if err != nil {
-				return nil, err
-			}
-			config.ClientCertKeyPair = &cert
-		}
-
-		return config, nil
 	}
 
 	cfg, err := createNewConfig(ConfigInput{ConfigPath: configPath})
@@ -260,6 +250,15 @@ func update(input ConfigInput) (*Config, error) {
 
 	if _, err := util.ReadJson(input.ConfigPath, config); err != nil {
 		return nil, err
+	}
+
+	if config.ClientCertPath != "" && config.ClientCertKeyPath != "" {
+		cert, err := tls.LoadX509KeyPair(config.ClientCertPath, config.ClientCertKeyPath)
+		if err != nil {
+			return nil, err
+		}
+		fmt.Println("Loaded client mTLS certificate")
+		config.ClientCertKeyPair = &cert
 	}
 
 	refresh := false
