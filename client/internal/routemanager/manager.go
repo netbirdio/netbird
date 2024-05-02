@@ -261,10 +261,7 @@ func (m *DefaultManager) clientRoutes(initialRoutes []*route.Route) []*route.Rou
 
 func isPrefixSupported(prefix netip.Prefix) bool {
 	if !nbnet.CustomRoutingDisabled() {
-		switch runtime.GOOS {
-		case "linux", "windows", "darwin", "ios":
-			return true
-		}
+		return true
 	}
 
 	// If prefix is too small, lets assume it is a possible default prefix which is not yet supported
