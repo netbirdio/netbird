@@ -88,5 +88,5 @@ func (nw *NetworkWatcher) Stop() {
 }
 
 func IsDisabled() bool {
-	return os.Getenv("NB_DISABLE_NETWORK_WATCHER") == "true"
+	return os.Getenv("NB_DISABLE_NETWORK_MONITOR") == "true"
 }
