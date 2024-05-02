@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"syscall"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/route"
 )
@@ -27,8 +30,9 @@ const (
 	RTF_MULTICAST = 0x800000
 )
 
+// TODO: fix here with retry and backoff
 func getRoutesFromTable() ([]netip.Prefix, error) {
-	tab, err := route.FetchRIB(syscall.AF_UNSPEC, route.RIBTypeRoute, 0)
+	tab, err := retryFetchRIB()
 	if err != nil {
 		return nil, err
 	}
@@ -77,6 +81,32 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 		}
 	}
 	return prefixList, nil
+}
+
+func retryFetchRIB() ([]byte, error) {
+	var out []byte
+	operation := func() error {
+		var err error
+		out, err = route.FetchRIB(syscall.AF_UNSPEC, route.RIBTypeRoute, 0)
+		if err != nil && strings.Contains(err.Error(), "sysctl: cannot allocate memory") {
+			log.Debug("retrying fetchRIB due to 'cannot allocate memory' error")
+			return err
+		} else if err != nil {
+			return backoff.Permanent(err)
+		}
+		return nil
+	}
+
+	expBackOff := backoff.NewExponentialBackOff()
+	expBackOff.InitialInterval = 50 * time.Millisecond
+	expBackOff.MaxInterval = 500 * time.Millisecond
+	expBackOff.MaxElapsedTime = 1 * time.Second
+
+	err := backoff.Retry(operation, expBackOff)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch routing information: %w", err)
+	}
+	return out, nil
 }
 
 func toNetIPAddr(a route.Addr) (netip.Addr, bool) {
