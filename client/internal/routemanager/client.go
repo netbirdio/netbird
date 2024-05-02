@@ -155,7 +155,7 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 	case chosen != currID:
 		// we compare the current score + 10ms to the chosen score to avoid flapping between routes
 		if currScore != 0 && currScore+0.01 > chosenScore {
-			log.Debugf("keeping current current routing peer because the score difference with latency is less than 0.01(10ms), current: %f, chosen: %f", currScore, chosenScore)
+			log.Debugf("keeping current routing peer because the score difference with latency is less than 0.01(10ms), current: %f, new: %f", currScore, chosenScore)
 			return currID
 		}
 		var p string
