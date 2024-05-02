@@ -1,6 +1,6 @@
 //go:build (darwin && !ios) || dragonfly || freebsd || netbsd || openbsd
 
-package networkwatcher
+package networkmonitor
 
 import (
 	"context"
@@ -23,7 +23,7 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 	}
 	defer func() {
 		if err := syscall.Close(fd); err != nil {
-			log.Errorf("Network watcher: failed to close routing socket: %v", err)
+			log.Errorf("Network monitor: failed to close routing socket: %v", err)
 		}
 	}()
 
@@ -35,11 +35,11 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 			buf := make([]byte, 2048)
 			n, err := syscall.Read(fd, buf)
 			if err != nil {
-				log.Errorf("Network watcher: failed to read from routing socket: %v", err)
+				log.Errorf("Network monitor: failed to read from routing socket: %v", err)
 				continue
 			}
 			if n < syscall.SizeofRtMsghdr {
-				log.Errorf("Network watcher: read from routing socket returned less than expected: %d bytes", n)
+				log.Errorf("Network monitor: read from routing socket returned less than expected: %d bytes", n)
 				continue
 			}
 
@@ -51,7 +51,7 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 			case syscall.RTM_IFINFO:
 				ifinfo, err := parseInterfaceMessage(buf[:n])
 				if err != nil {
-					log.Errorf("Network watcher: error parsing interface message: %v", err)
+					log.Errorf("Network monitor: error parsing interface message: %v", err)
 					continue
 				}
 				if msg.Flags&syscall.IFF_UP != 0 {
@@ -61,14 +61,14 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 					continue
 				}
 
-				log.Infof("Network watcher: monitored interface (%s) is down.", ifinfo.Name)
+				log.Infof("Network monitor: monitored interface (%s) is down.", ifinfo.Name)
 				callback()
 
 			// handle route changes
 			case syscall.RTM_ADD, syscall.RTM_DELETE:
 				route, err := parseRouteMessage(buf[:n])
 				if err != nil {
-					log.Errorf("Network watcher: error parsing routing message: %v", err)
+					log.Errorf("Network monitor: error parsing routing message: %v", err)
 					continue
 				}
 
@@ -82,11 +82,11 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 				}
 				switch msg.Type {
 				case syscall.RTM_ADD:
-					log.Infof("Network watcher: default route changed: via %s, interface %s", route.Gw, intf)
+					log.Infof("Network monitor: default route changed: via %s, interface %s", route.Gw, intf)
 					callback()
 				case syscall.RTM_DELETE:
 					if intfv4 != nil && route.Gw.Compare(nexthopv4) == 0 || intfv6 != nil && route.Gw.Compare(nexthopv6) == 0 {
-						log.Infof("Network watcher: default route removed: via %s, interface %s", route.Gw, intf)
+						log.Infof("Network monitor: default route removed: via %s, interface %s", route.Gw, intf)
 						callback()
 					}
 				}

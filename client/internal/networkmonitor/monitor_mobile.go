@@ -1,6 +1,6 @@
 //go:build ios || android
 
-package networkwatcher
+package networkmonitor
 
 import "context"
 

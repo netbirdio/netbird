@@ -1,4 +1,4 @@
-package networkwatcher
+package networkmonitor
 
 import (
 	"context"
@@ -9,7 +9,7 @@ type NetworkWatcher struct {
 	cancel context.CancelFunc
 }
 
-// New creates a new network watcher.
+// New creates a new network monitor.
 func New() *NetworkWatcher {
 	return &NetworkWatcher{}
 }

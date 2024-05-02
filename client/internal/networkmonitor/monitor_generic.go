@@ -1,6 +1,6 @@
 //go:build !ios && !android
 
-package networkwatcher
+package networkmonitor
 
 import (
 	"context"
@@ -19,17 +19,17 @@ import (
 // Start begins watching for network changes and calls the callback function and stops when a change is detected.
 func (nw *NetworkWatcher) Start(ctx context.Context, callback func()) {
 	if IsDisabled() {
-		log.Info("Network watcher: disabled, not starting")
+		log.Info("Network monitor: disabled, not starting")
 		return
 	}
 
 	if nw.cancel != nil {
-		log.Warn("Network watcher: already running, stopping previous watcher")
+		log.Warn("Network monitor: already running, stopping previous watcher")
 		nw.Stop()
 	}
 
 	if ctx.Err() != nil {
-		log.Info("Network watcher: not starting, context is already cancelled")
+		log.Info("Network monitor: not starting, context is already cancelled")
 		return
 	}
 
@@ -49,10 +49,10 @@ func (nw *NetworkWatcher) Start(ctx context.Context, callback func()) {
 		}
 
 		if errv4 == nil {
-			log.Debugf("Network watcher: IPv4 default route: %s, interface: %s", nexthop4, intf4.Name)
+			log.Debugf("Network monitor: IPv4 default route: %s, interface: %s", nexthop4, intf4.Name)
 		}
 		if errv6 == nil {
-			log.Debugf("Network watcher: IPv6 default route: %s, interface: %s", nexthop6, intf6.Name)
+			log.Debugf("Network monitor: IPv6 default route: %s, interface: %s", nexthop6, intf6.Name)
 		}
 
 		// continue if either route was found
@@ -62,28 +62,28 @@ func (nw *NetworkWatcher) Start(ctx context.Context, callback func()) {
 	expBackOff := backoff.WithContext(backoff.NewExponentialBackOff(), ctx)
 
 	if err := backoff.Retry(operation, expBackOff); err != nil {
-		log.Errorf("Network watcher: failed to get default next hops: %v", err)
+		log.Errorf("Network monitor: failed to get default next hops: %v", err)
 		return
 	}
 
 	// recover in case sys ops panic
 	defer func() {
 		if r := recover(); r != nil {
-			log.Errorf("Network watcher: panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
+			log.Errorf("Network monitor: panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
 		}
 	}()
 
 	if err := checkChange(ctx, nexthop4, intf4, nexthop6, intf6, callback); err != nil && !errors.Is(err, context.Canceled) {
-		log.Errorf("Network watcher: failed to start: %v", err)
+		log.Errorf("Network monitor: failed to start: %v", err)
 	}
 }
 
-// Stop stops the network watcher.
+// Stop stops the network monitor.
 func (nw *NetworkWatcher) Stop() {
 	if nw.cancel != nil {
 		nw.cancel()
 		nw.cancel = nil
-		log.Info("Network watcher: stopped")
+		log.Info("Network monitor: stopped")
 	}
 }
 

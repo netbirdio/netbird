@@ -22,7 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
-	"github.com/netbirdio/netbird/client/internal/networkwatcher"
+	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
@@ -130,7 +130,7 @@ type Engine struct {
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
 
-	networkWatcher *networkwatcher.NetworkWatcher
+	networkWatcher *networkmonitor.NetworkWatcher
 
 	sshServerFunc func(hostKeyPEM []byte, addr string) (nbssh.Server, error)
 	sshServer     nbssh.Server
@@ -209,7 +209,7 @@ func NewEngineWithProbes(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
-		networkWatcher: networkwatcher.New(),
+		networkWatcher: networkmonitor.New(),
 		mgmProbe:       mgmProbe,
 		signalProbe:    signalProbe,
 		relayProbe:     relayProbe,
@@ -225,7 +225,7 @@ func (e *Engine) Stop() error {
 		e.cancel()
 	}
 
-	// stopping network watcher first to avoid starting the engine again
+	// stopping network monitor first to avoid starting the engine again
 	e.networkWatcher.Stop()
 
 	err := e.removeAllPeers()
@@ -341,9 +341,9 @@ func (e *Engine) Start() error {
 	e.receiveManagementEvents()
 	e.receiveProbeEvents()
 
-	// starting network watcher at the very last to avoid disruptions
+	// starting network monitor at the very last to avoid disruptions
 	go e.networkWatcher.Start(e.ctx, func() {
-		log.Infof("Network watcher detected network change, restarting engine")
+		log.Infof("Network monitor detected network change, restarting engine")
 		if err := e.Stop(); err != nil {
 			log.Errorf("Failed to stop engine: %v", err)
 		}
