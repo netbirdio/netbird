@@ -257,7 +257,7 @@ func update(input ConfigInput) (*Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		fmt.Println("Loaded client mTLS certificate")
+		log.Info("Loaded client mTLS cert/key pair")
 		config.ClientCertKeyPair = &cert
 	}
 

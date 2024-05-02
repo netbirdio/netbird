@@ -147,7 +147,6 @@ func (p *PKCEAuthorizationFlow) startServer(server *http.Server, tokenChan chan<
 
 		cert := p.providerConfig.ClientCertPair
 		if cert != nil {
-			fmt.Println("Using client cert")
 			tr := &http.Transport{
 				TLSClientConfig: &tls.Config{
 					Certificates: []tls.Certificate{*cert},
