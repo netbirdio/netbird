@@ -3,6 +3,8 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"runtime"
 	"testing"
 	"time"
 
@@ -487,9 +489,15 @@ dnsServers:
 }
 
 func TestParsingToDetail(t *testing.T) {
+	// Calculate time ago based on the fixture dates
+	lastConnectionUpdate1 := timeAgo(overview.Peers.Details[0].LastStatusUpdate)
+	lastHandshake1 := timeAgo(overview.Peers.Details[0].LastWireguardHandshake)
+	lastConnectionUpdate2 := timeAgo(overview.Peers.Details[1].LastStatusUpdate)
+	lastHandshake2 := timeAgo(overview.Peers.Details[1].LastWireguardHandshake)
+
 	detail := parseToFullDetailSummary(overview)
 
-	expectedDetail :=
+	expectedDetail := fmt.Sprintf(
 		`Peers detail:
  peer-1.awesome-domain.com:
   NetBird IP: 192.168.178.101
@@ -500,8 +508,8 @@ func TestParsingToDetail(t *testing.T) {
   Direct: true
   ICE candidate (Local/Remote): -/-
   ICE candidate endpoints (Local/Remote): -/-
-  Last connection update: 2001-01-01 01:01:01
-  Last WireGuard handshake: 2001-01-01 01:01:02
+  Last connection update: %s
+  Last WireGuard handshake: %s
   Transfer status (received/sent) 200 B/100 B
   Quantum resistance: false
   Routes: 10.1.0.0/24
@@ -516,15 +524,16 @@ func TestParsingToDetail(t *testing.T) {
   Direct: false
   ICE candidate (Local/Remote): relay/prflx
   ICE candidate endpoints (Local/Remote): 10.0.0.1:10001/10.0.10.1:10002
-  Last connection update: 2002-02-02 02:02:02
-  Last WireGuard handshake: 2002-02-02 02:02:03
+  Last connection update: %s
+  Last WireGuard handshake: %s
   Transfer status (received/sent) 2.0 KiB/1000 B
   Quantum resistance: false
   Routes: -
   Latency: 10ms
 
+OS: %s/%s
 Daemon version: 0.14.1
-CLI version: development
+CLI version: %s
 Management: Connected to my-awesome-management.com:443
 Signal: Connected to my-awesome-signal.com:443
 Relays: 
@@ -539,7 +548,7 @@ Interface type: Kernel
 Quantum resistance: false
 Routes: 10.10.0.0/24
 Peers count: 2/2 Connected
-`
+`, lastConnectionUpdate1, lastHandshake1, lastConnectionUpdate2, lastHandshake2, runtime.GOOS, runtime.GOARCH, overview.CliVersion)
 
 	assert.Equal(t, expectedDetail, detail)
 }
@@ -547,8 +556,8 @@ Peers count: 2/2 Connected
 func TestParsingToShortVersion(t *testing.T) {
 	shortVersion := parseGeneralSummary(overview, false, false, false)
 
-	expectedString :=
-		`Daemon version: 0.14.1
+	expectedString := fmt.Sprintf("OS: %s/%s", runtime.GOOS, runtime.GOARCH) + `
+Daemon version: 0.14.1
 CLI version: development
 Management: Connected
 Signal: Connected
@@ -571,4 +580,32 @@ func TestParsingOfIP(t *testing.T) {
 	parsedIP := parseInterfaceIP(InterfaceIP)
 
 	assert.Equal(t, "192.168.178.123\n", parsedIP)
+}
+
+func TestTimeAgo(t *testing.T) {
+	now := time.Now()
+
+	cases := []struct {
+		name     string
+		input    time.Time
+		expected string
+	}{
+		{"Now", now, "Now"},
+		{"Seconds ago", now.Add(-10 * time.Second), "10 seconds ago"},
+		{"One minute ago", now.Add(-1 * time.Minute), "1 minute ago"},
+		{"Minutes and seconds ago", now.Add(-(1*time.Minute + 30*time.Second)), "1 minute, 30 seconds ago"},
+		{"One hour ago", now.Add(-1 * time.Hour), "1 hour ago"},
+		{"Hours and minutes ago", now.Add(-(2*time.Hour + 15*time.Minute)), "2 hours, 15 minutes ago"},
+		{"One day ago", now.Add(-24 * time.Hour), "1 day ago"},
+		{"Multiple days ago", now.Add(-(72*time.Hour + 20*time.Minute)), "3 days ago"},
+		{"Zero time", time.Time{}, "-"},
+		{"Unix zero time", time.Unix(0, 0), "-"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := timeAgo(tc.input)
+			assert.Equal(t, tc.expected, result, "Failed %s", tc.name)
+		})
+	}
 }

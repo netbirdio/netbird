@@ -46,9 +46,6 @@ var routeManager = &RouteManager{}
 // originalSysctl stores the original sysctl values before they are modified
 var originalSysctl map[string]int
 
-// determines whether to use the legacy routing setup
-var isLegacy = os.Getenv("NB_USE_LEGACY_ROUTING") == "true" || nbnet.CustomRoutingDisabled()
-
 // sysctlFailed is used as an indicator to emit a warning when default routes are configured
 var sysctlFailed bool
 
@@ -60,6 +57,20 @@ type ruleParams struct {
 	invert         bool
 	suppressPrefix int
 	description    string
+}
+
+// isLegacy determines whether to use the legacy routing setup
+func isLegacy() bool {
+	return os.Getenv("NB_USE_LEGACY_ROUTING") == "true" || nbnet.CustomRoutingDisabled()
+}
+
+// setIsLegacy sets the legacy routing setup
+func setIsLegacy(b bool) {
+	if b {
+		os.Setenv("NB_USE_LEGACY_ROUTING", "true")
+	} else {
+		os.Unsetenv("NB_USE_LEGACY_ROUTING")
+	}
 }
 
 func getSetupRules() []ruleParams {
@@ -82,7 +93,7 @@ func getSetupRules() []ruleParams {
 // This table is where a default route or other specific routes received from the management server are configured,
 // enabling VPN connectivity.
 func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.BeforeAddPeerHookFunc, _ peer.AfterRemovePeerHookFunc, err error) {
-	if isLegacy {
+	if isLegacy() {
 		log.Infof("Using legacy routing setup")
 		return setupRoutingWithRouteManager(&routeManager, initAddresses, wgIface)
 	}
@@ -111,7 +122,7 @@ func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.Before
 		if err := addRule(rule); err != nil {
 			if errors.Is(err, syscall.EOPNOTSUPP) {
 				log.Warnf("Rule operations are not supported, falling back to the legacy routing setup")
-				isLegacy = true
+				setIsLegacy(true)
 				return setupRoutingWithRouteManager(&routeManager, initAddresses, wgIface)
 			}
 			return nil, nil, fmt.Errorf("%s: %w", rule.description, err)
@@ -125,7 +136,7 @@ func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.Before
 // It systematically removes the three rules and any associated routing table entries to ensure a clean state.
 // The function uses error aggregation to report any errors encountered during the cleanup process.
 func cleanupRouting() error {
-	if isLegacy {
+	if isLegacy() {
 		return cleanupRoutingWithRouteManager(routeManager)
 	}
 
@@ -154,16 +165,16 @@ func cleanupRouting() error {
 	return result.ErrorOrNil()
 }
 
-func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf string) error {
+func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
 	return addRoute(prefix, nexthop, intf, syscall.RT_TABLE_MAIN)
 }
 
-func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf string) error {
+func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
 	return removeRoute(prefix, nexthop, intf, syscall.RT_TABLE_MAIN)
 }
 
-func addVPNRoute(prefix netip.Prefix, intf string) error {
-	if isLegacy {
+func addVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+	if isLegacy() {
 		return genericAddVPNRoute(prefix, intf)
 	}
 
@@ -185,8 +196,8 @@ func addVPNRoute(prefix netip.Prefix, intf string) error {
 	return nil
 }
 
-func removeVPNRoute(prefix netip.Prefix, intf string) error {
-	if isLegacy {
+func removeVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+	if isLegacy() {
 		return genericRemoveVPNRoute(prefix, intf)
 	}
 
@@ -244,7 +255,7 @@ func getRoutes(tableID, family int) ([]netip.Prefix, error) {
 }
 
 // addRoute adds a route to a specific routing table identified by tableID.
-func addRoute(prefix netip.Prefix, addr netip.Addr, intf string, tableID int) error {
+func addRoute(prefix netip.Prefix, addr netip.Addr, intf *net.Interface, tableID int) error {
 	route := &netlink.Route{
 		Scope:  netlink.SCOPE_UNIVERSE,
 		Table:  tableID,
@@ -316,7 +327,7 @@ func removeUnreachableRoute(prefix netip.Prefix, tableID int) error {
 }
 
 // removeRoute removes a route from a specific routing table identified by tableID.
-func removeRoute(prefix netip.Prefix, addr netip.Addr, intf string, tableID int) error {
+func removeRoute(prefix netip.Prefix, addr netip.Addr, intf *net.Interface, tableID int) error {
 	_, ipNet, err := net.ParseCIDR(prefix.String())
 	if err != nil {
 		return fmt.Errorf("parse prefix %s: %w", prefix, err)
@@ -470,20 +481,22 @@ func removeRule(params ruleParams) error {
 }
 
 // addNextHop adds the gateway and device to the route.
-func addNextHop(addr netip.Addr, intf string, route *netlink.Route) error {
-	if addr.IsValid() {
-		route.Gw = addr.AsSlice()
-		if intf == "" {
-			intf = addr.Zone()
-		}
+func addNextHop(addr netip.Addr, intf *net.Interface, route *netlink.Route) error {
+	if intf != nil {
+		route.LinkIndex = intf.Index
 	}
 
-	if intf != "" {
-		link, err := netlink.LinkByName(intf)
-		if err != nil {
-			return fmt.Errorf("set interface %s: %w", intf, err)
+	if addr.IsValid() {
+		route.Gw = addr.AsSlice()
+
+		// if zone is set, it means the gateway is a link-local address, so we set the link index
+		if addr.Zone() != "" && intf == nil {
+			link, err := netlink.LinkByName(addr.Zone())
+			if err != nil {
+				return fmt.Errorf("get link by name for zone %s: %w", addr.Zone(), err)
+			}
+			route.LinkIndex = link.Attrs().Index
 		}
-		route.LinkIndex = link.Attrs().Index
 	}
 
 	return nil

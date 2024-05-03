@@ -3,6 +3,7 @@ package routemanager
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/netip"
 	"time"
 
@@ -152,15 +153,16 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]
 
 		log.Warnf("the network %s has not been assigned a routing peer as no peers from the list %s are currently connected", c.network, peers)
 	case chosen != currID:
-		if currScore != 0 && currScore < chosenScore+0.1 {
+		// we compare the current score + 10ms to the chosen score to avoid flapping between routes
+		if currScore != 0 && currScore+0.01 > chosenScore {
+			log.Debugf("keeping current routing peer because the score difference with latency is less than 0.01(10ms), current: %f, new: %f", currScore, chosenScore)
 			return currID
-		} else {
-			var peer string
-			if route := c.routes[chosen]; route != nil {
-				peer = route.Peer
-			}
-			log.Infof("new chosen route is %s with peer %s with score %f for network %s", chosen, peer, chosenScore, c.network)
 		}
+		var p string
+		if rt := c.routes[chosen]; rt != nil {
+			p = rt.Peer
+		}
+		log.Infof("new chosen route is %s with peer %s with score %f for network %s", chosen, p, chosenScore, c.network)
 	}
 
 	return chosen
@@ -219,7 +221,7 @@ func (c *clientNetwork) removeRouteFromWireguardPeer(peerKey string) error {
 
 func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 	if c.chosenRoute != nil {
-		if err := removeVPNRoute(c.network, c.wgInterface.Name()); err != nil {
+		if err := removeVPNRoute(c.network, c.getAsInterface()); err != nil {
 			return fmt.Errorf("remove route %s from system, err: %v", c.network, err)
 		}
 
@@ -260,7 +262,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 		}
 	} else {
 		// otherwise add the route to the system
-		if err := addVPNRoute(c.network, c.wgInterface.Name()); err != nil {
+		if err := addVPNRoute(c.network, c.getAsInterface()); err != nil {
 			return fmt.Errorf("route %s couldn't be added for peer %s, err: %v",
 				c.network.String(), c.wgInterface.Address().IP.String(), err)
 		}
@@ -347,4 +349,16 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 			c.startPeersStatusChangeWatcher()
 		}
 	}
+}
+
+func (c *clientNetwork) getAsInterface() *net.Interface {
+	intf, err := net.InterfaceByName(c.wgInterface.Name())
+	if err != nil {
+		log.Warnf("Couldn't get interface by name %s: %v", c.wgInterface.Name(), err)
+		intf = &net.Interface{
+			Name: c.wgInterface.Name(),
+		}
+	}
+
+	return intf
 }
