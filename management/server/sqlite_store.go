@@ -622,10 +622,10 @@ func getMigrations() []migrationFunc {
 			return migration.MigrateFieldFromGobToJSON[route.Route, []string](db, "peer_groups")
 		},
 		func(db *gorm.DB) error {
-			return migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](db, "ip", "idx_peers_account_id_ip")
+			return migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](db, "location_connection_ip", "")
 		},
 		func(db *gorm.DB) error {
-			return migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](db, "location_connection_ip", "")
+			return migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](db, "ip", "idx_peers_account_id_ip")
 		},
 	}
 }
