@@ -40,8 +40,6 @@ type ID string
 
 type NetID string
 
-type HAUniqueID string
-
 type HAMap map[HAUniqueID][]*Route
 
 // NetworkType route network type
@@ -172,9 +170,4 @@ func compareList(list, other []string) bool {
 	}
 
 	return true
-}
-
-// GetHAUniqueID returns a highly available route ID by combining Network ID and Network range address
-func GetHAUniqueID(input *Route) HAUniqueID {
-	return HAUniqueID(string(input.NetID) + "-" + input.Network.String())
 }

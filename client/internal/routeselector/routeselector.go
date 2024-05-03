@@ -12,22 +12,22 @@ import (
 )
 
 type RouteSelector struct {
-	selectedRoutes map[route.HAUniqueID]struct{}
+	selectedRoutes map[route.NetID]struct{}
 	selectAll      bool
 }
 
 func NewRouteSelector() *RouteSelector {
 	return &RouteSelector{
-		selectedRoutes: map[route.HAUniqueID]struct{}{},
+		selectedRoutes: map[route.NetID]struct{}{},
 		// default selects all routes
 		selectAll: true,
 	}
 }
 
 // SelectRoutes updates the selected routes based on the provided route IDs.
-func (rs *RouteSelector) SelectRoutes(routes []route.HAUniqueID, appendRoute bool, allRoutes []route.HAUniqueID) error {
+func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, allRoutes []route.NetID) error {
 	if !appendRoute {
-		rs.selectedRoutes = map[route.HAUniqueID]struct{}{}
+		rs.selectedRoutes = map[route.NetID]struct{}{}
 	}
 
 	var multiErr *multierror.Error
@@ -51,15 +51,15 @@ func (rs *RouteSelector) SelectRoutes(routes []route.HAUniqueID, appendRoute boo
 // SelectAllRoutes sets the selector to select all routes.
 func (rs *RouteSelector) SelectAllRoutes() {
 	rs.selectAll = true
-	rs.selectedRoutes = map[route.HAUniqueID]struct{}{}
+	rs.selectedRoutes = map[route.NetID]struct{}{}
 }
 
 // DeselectRoutes removes specific routes from the selection.
 // If the selector is in "select all" mode, it will transition to "select specific" mode.
-func (rs *RouteSelector) DeselectRoutes(routes []route.HAUniqueID, allRoutes []route.HAUniqueID) error {
+func (rs *RouteSelector) DeselectRoutes(routes []route.NetID, allRoutes []route.NetID) error {
 	if rs.selectAll {
 		rs.selectAll = false
-		rs.selectedRoutes = map[route.HAUniqueID]struct{}{}
+		rs.selectedRoutes = map[route.NetID]struct{}{}
 		for _, route := range allRoutes {
 			rs.selectedRoutes[route] = struct{}{}
 		}
@@ -85,11 +85,11 @@ func (rs *RouteSelector) DeselectRoutes(routes []route.HAUniqueID, allRoutes []r
 // DeselectAllRoutes deselects all routes, effectively disabling route selection.
 func (rs *RouteSelector) DeselectAllRoutes() {
 	rs.selectAll = false
-	rs.selectedRoutes = map[route.HAUniqueID]struct{}{}
+	rs.selectedRoutes = map[route.NetID]struct{}{}
 }
 
 // IsSelected checks if a specific route is selected.
-func (rs *RouteSelector) IsSelected(routeID route.HAUniqueID) bool {
+func (rs *RouteSelector) IsSelected(routeID route.NetID) bool {
 	if rs.selectAll {
 		return true
 	}
@@ -105,11 +105,7 @@ func (rs *RouteSelector) FilterSelected(routes route.HAMap) route.HAMap {
 
 	filtered := route.HAMap{}
 	for id, rt := range routes {
-		netID := id
-		if i := strings.LastIndex(string(id), "-"); i != -1 {
-			netID = id[:i]
-		}
-		if rs.IsSelected(netID) {
+		if rs.IsSelected(id.NetID()) {
 			filtered[id] = rt
 		}
 	}

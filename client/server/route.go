@@ -13,9 +13,9 @@ import (
 )
 
 type selectRoute struct {
-	HaUniqueID route.HAUniqueID
-	Network    netip.Prefix
-	Selected   bool
+	NetID    route.NetID
+	Network  netip.Prefix
+	Selected bool
 }
 
 // ListRoutes returns a list of all available routes.
@@ -36,9 +36,9 @@ func (s *Server) ListRoutes(ctx context.Context, req *proto.ListRoutesRequest) (
 			continue
 		}
 		route := &selectRoute{
-			HaUniqueID: id,
-			Network:    rt[0].Network,
-			Selected:   routeSelector.IsSelected(id),
+			NetID:    id,
+			Network:  rt[0].Network,
+			Selected: routeSelector.IsSelected(id),
 		}
 		routes = append(routes, route)
 	}
@@ -51,7 +51,7 @@ func (s *Server) ListRoutes(ctx context.Context, req *proto.ListRoutesRequest) (
 			iAddr := routes[i].Network.Addr()
 			jAddr := routes[j].Network.Addr()
 			if iAddr == jAddr {
-				return routes[i].HaUniqueID < routes[j].HaUniqueID
+				return routes[i].NetID < routes[j].NetID
 			}
 			return iAddr.String() < jAddr.String()
 		}
@@ -61,7 +61,7 @@ func (s *Server) ListRoutes(ctx context.Context, req *proto.ListRoutesRequest) (
 	var pbRoutes []*proto.Route
 	for _, route := range routes {
 		pbRoutes = append(pbRoutes, &proto.Route{
-			ID:       string(route.HaUniqueID),
+			ID:       string(route.NetID),
 			Network:  route.Network.String(),
 			Selected: route.Selected,
 		})
@@ -82,7 +82,7 @@ func (s *Server) SelectRoutes(_ context.Context, req *proto.SelectRoutesRequest)
 	if req.GetAll() {
 		routeSelector.SelectAllRoutes()
 	} else {
-		routes := toHAUniqueIDs(req.GetRouteIDs())
+		routes := toNetIDs(req.GetRouteIDs())
 		if err := routeSelector.SelectRoutes(routes, req.GetAppend(), maps.Keys(s.engine.GetClientRoutesWithNetID())); err != nil {
 			return nil, fmt.Errorf("select routes: %w", err)
 		}
@@ -102,7 +102,7 @@ func (s *Server) DeselectRoutes(_ context.Context, req *proto.SelectRoutesReques
 	if req.GetAll() {
 		routeSelector.DeselectAllRoutes()
 	} else {
-		routes := toHAUniqueIDs(req.GetRouteIDs())
+		routes := toNetIDs(req.GetRouteIDs())
 		if err := routeSelector.DeselectRoutes(routes, maps.Keys(s.engine.GetClientRoutesWithNetID())); err != nil {
 			return nil, fmt.Errorf("deselect routes: %w", err)
 		}
@@ -112,10 +112,10 @@ func (s *Server) DeselectRoutes(_ context.Context, req *proto.SelectRoutesReques
 	return &proto.SelectRoutesResponse{}, nil
 }
 
-func toHAUniqueIDs(routes []string) []route.HAUniqueID {
-	var haUniqueIDs []route.HAUniqueID
+func toNetIDs(routes []string) []route.NetID {
+	var netIDs []route.NetID
 	for _, rt := range routes {
-		haUniqueIDs = append(haUniqueIDs, route.HAUniqueID(rt))
+		netIDs = append(netIDs, route.NetID(rt))
 	}
-	return haUniqueIDs
+	return netIDs
 }

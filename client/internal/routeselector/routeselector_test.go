@@ -12,53 +12,53 @@ import (
 )
 
 func TestRouteSelector_SelectRoutes(t *testing.T) {
-	allRoutes := []route.HAUniqueID{"route1", "route2", "route3"}
+	allRoutes := []route.NetID{"route1", "route2", "route3"}
 
 	tests := []struct {
 		name            string
-		initialSelected []route.HAUniqueID
+		initialSelected []route.NetID
 
-		selectRoutes []route.HAUniqueID
+		selectRoutes []route.NetID
 		append       bool
 
-		wantSelected []route.HAUniqueID
+		wantSelected []route.NetID
 		wantError    bool
 	}{
 		{
 			name:         "Select specific routes, initial all selected",
-			selectRoutes: []route.HAUniqueID{"route1", "route2"},
-			wantSelected: []route.HAUniqueID{"route1", "route2"},
+			selectRoutes: []route.NetID{"route1", "route2"},
+			wantSelected: []route.NetID{"route1", "route2"},
 		},
 		{
 			name:            "Select specific routes, initial all deselected",
-			initialSelected: []route.HAUniqueID{},
-			selectRoutes:    []route.HAUniqueID{"route1", "route2"},
-			wantSelected:    []route.HAUniqueID{"route1", "route2"},
+			initialSelected: []route.NetID{},
+			selectRoutes:    []route.NetID{"route1", "route2"},
+			wantSelected:    []route.NetID{"route1", "route2"},
 		},
 		{
 			name:            "Select specific routes with initial selection",
-			initialSelected: []route.HAUniqueID{"route1"},
-			selectRoutes:    []route.HAUniqueID{"route2", "route3"},
-			wantSelected:    []route.HAUniqueID{"route2", "route3"},
+			initialSelected: []route.NetID{"route1"},
+			selectRoutes:    []route.NetID{"route2", "route3"},
+			wantSelected:    []route.NetID{"route2", "route3"},
 		},
 		{
 			name:         "Select non-existing route",
-			selectRoutes: []route.HAUniqueID{"route1", "route4"},
-			wantSelected: []route.HAUniqueID{"route1"},
+			selectRoutes: []route.NetID{"route1", "route4"},
+			wantSelected: []route.NetID{"route1"},
 			wantError:    true,
 		},
 		{
 			name:            "Append route with initial selection",
-			initialSelected: []route.HAUniqueID{"route1"},
-			selectRoutes:    []route.HAUniqueID{"route2"},
+			initialSelected: []route.NetID{"route1"},
+			selectRoutes:    []route.NetID{"route2"},
 			append:          true,
-			wantSelected:    []route.HAUniqueID{"route1", "route2"},
+			wantSelected:    []route.NetID{"route1", "route2"},
 		},
 		{
 			name:         "Append route without initial selection",
-			selectRoutes: []route.HAUniqueID{"route2"},
+			selectRoutes: []route.NetID{"route2"},
 			append:       true,
-			wantSelected: []route.HAUniqueID{"route2"},
+			wantSelected: []route.NetID{"route2"},
 		},
 	}
 
@@ -86,32 +86,32 @@ func TestRouteSelector_SelectRoutes(t *testing.T) {
 }
 
 func TestRouteSelector_SelectAllRoutes(t *testing.T) {
-	allRoutes := []route.HAUniqueID{"route1", "route2", "route3"}
+	allRoutes := []route.NetID{"route1", "route2", "route3"}
 
 	tests := []struct {
 		name            string
-		initialSelected []route.HAUniqueID
+		initialSelected []route.NetID
 
-		wantSelected []route.HAUniqueID
+		wantSelected []route.NetID
 	}{
 		{
 			name:         "Initial all selected",
-			wantSelected: []route.HAUniqueID{"route1", "route2", "route3"},
+			wantSelected: []route.NetID{"route1", "route2", "route3"},
 		},
 		{
 			name:            "Initial all deselected",
-			initialSelected: []route.HAUniqueID{},
-			wantSelected:    []route.HAUniqueID{"route1", "route2", "route3"},
+			initialSelected: []route.NetID{},
+			wantSelected:    []route.NetID{"route1", "route2", "route3"},
 		},
 		{
 			name:            "Initial some selected",
-			initialSelected: []route.HAUniqueID{"route1"},
-			wantSelected:    []route.HAUniqueID{"route1", "route2", "route3"},
+			initialSelected: []route.NetID{"route1"},
+			wantSelected:    []route.NetID{"route1", "route2", "route3"},
 		},
 		{
 			name:            "Initial all selected",
-			initialSelected: []route.HAUniqueID{"route1", "route2", "route3"},
-			wantSelected:    []route.HAUniqueID{"route1", "route2", "route3"},
+			initialSelected: []route.NetID{"route1", "route2", "route3"},
+			wantSelected:    []route.NetID{"route1", "route2", "route3"},
 		},
 	}
 
@@ -134,39 +134,39 @@ func TestRouteSelector_SelectAllRoutes(t *testing.T) {
 }
 
 func TestRouteSelector_DeselectRoutes(t *testing.T) {
-	allRoutes := []route.HAUniqueID{"route1", "route2", "route3"}
+	allRoutes := []route.NetID{"route1", "route2", "route3"}
 
 	tests := []struct {
 		name            string
-		initialSelected []route.HAUniqueID
+		initialSelected []route.NetID
 
-		deselectRoutes []route.HAUniqueID
+		deselectRoutes []route.NetID
 
-		wantSelected []route.HAUniqueID
+		wantSelected []route.NetID
 		wantError    bool
 	}{
 		{
 			name:           "Deselect specific routes, initial all selected",
-			deselectRoutes: []route.HAUniqueID{"route1", "route2"},
-			wantSelected:   []route.HAUniqueID{"route3"},
+			deselectRoutes: []route.NetID{"route1", "route2"},
+			wantSelected:   []route.NetID{"route3"},
 		},
 		{
 			name:            "Deselect specific routes, initial all deselected",
-			initialSelected: []route.HAUniqueID{},
-			deselectRoutes:  []route.HAUniqueID{"route1", "route2"},
-			wantSelected:    []route.HAUniqueID{},
+			initialSelected: []route.NetID{},
+			deselectRoutes:  []route.NetID{"route1", "route2"},
+			wantSelected:    []route.NetID{},
 		},
 		{
 			name:            "Deselect specific routes with initial selection",
-			initialSelected: []route.HAUniqueID{"route1", "route2"},
-			deselectRoutes:  []route.HAUniqueID{"route1", "route3"},
-			wantSelected:    []route.HAUniqueID{"route2"},
+			initialSelected: []route.NetID{"route1", "route2"},
+			deselectRoutes:  []route.NetID{"route1", "route3"},
+			wantSelected:    []route.NetID{"route2"},
 		},
 		{
 			name:            "Deselect non-existing route",
-			initialSelected: []route.HAUniqueID{"route1", "route2"},
-			deselectRoutes:  []route.HAUniqueID{"route1", "route4"},
-			wantSelected:    []route.HAUniqueID{"route2"},
+			initialSelected: []route.NetID{"route1", "route2"},
+			deselectRoutes:  []route.NetID{"route1", "route4"},
+			wantSelected:    []route.NetID{"route2"},
 			wantError:       true,
 		},
 	}
@@ -195,32 +195,32 @@ func TestRouteSelector_DeselectRoutes(t *testing.T) {
 }
 
 func TestRouteSelector_DeselectAll(t *testing.T) {
-	allRoutes := []route.HAUniqueID{"route1", "route2", "route3"}
+	allRoutes := []route.NetID{"route1", "route2", "route3"}
 
 	tests := []struct {
 		name            string
-		initialSelected []route.HAUniqueID
+		initialSelected []route.NetID
 
-		wantSelected []route.HAUniqueID
+		wantSelected []route.NetID
 	}{
 		{
 			name:         "Initial all selected",
-			wantSelected: []route.HAUniqueID{},
+			wantSelected: []route.NetID{},
 		},
 		{
 			name:            "Initial all deselected",
-			initialSelected: []route.HAUniqueID{},
-			wantSelected:    []route.HAUniqueID{},
+			initialSelected: []route.NetID{},
+			wantSelected:    []route.NetID{},
 		},
 		{
 			name:            "Initial some selected",
-			initialSelected: []route.HAUniqueID{"route1", "route2"},
-			wantSelected:    []route.HAUniqueID{},
+			initialSelected: []route.NetID{"route1", "route2"},
+			wantSelected:    []route.NetID{},
 		},
 		{
 			name:            "Initial all selected",
-			initialSelected: []route.HAUniqueID{"route1", "route2", "route3"},
-			wantSelected:    []route.HAUniqueID{},
+			initialSelected: []route.NetID{"route1", "route2", "route3"},
+			wantSelected:    []route.NetID{},
 		},
 	}
 
@@ -245,7 +245,7 @@ func TestRouteSelector_DeselectAll(t *testing.T) {
 func TestRouteSelector_IsSelected(t *testing.T) {
 	rs := routeselector.NewRouteSelector()
 
-	err := rs.SelectRoutes([]route.HAUniqueID{"route1", "route2"}, false, []route.HAUniqueID{"route1", "route2", "route3"})
+	err := rs.SelectRoutes([]route.NetID{"route1", "route2"}, false, []route.NetID{"route1", "route2", "route3"})
 	require.NoError(t, err)
 
 	assert.True(t, rs.IsSelected("route1"))
@@ -257,7 +257,7 @@ func TestRouteSelector_IsSelected(t *testing.T) {
 func TestRouteSelector_FilterSelected(t *testing.T) {
 	rs := routeselector.NewRouteSelector()
 
-	err := rs.SelectRoutes([]route.HAUniqueID{"route1", "route2"}, false, []route.HAUniqueID{"route1", "route2", "route3"})
+	err := rs.SelectRoutes([]route.NetID{"route1", "route2"}, false, []route.NetID{"route1", "route2", "route3"})
 	require.NoError(t, err)
 
 	routes := route.HAMap{

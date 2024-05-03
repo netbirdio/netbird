@@ -1243,13 +1243,13 @@ func (e *Engine) GetClientRoutes() route.HAMap {
 }
 
 // GetClientRoutesWithNetID returns the current routes from the route map, but the keys consist of the network ID only
-func (e *Engine) GetClientRoutesWithNetID() route.HAMap {
-	routes := make(route.HAMap, len(e.clientRoutes))
+func (e *Engine) GetClientRoutesWithNetID() map[route.NetID][]*route.Route {
+	routes := make(map[route.NetID][]*route.Route, len(e.clientRoutes))
 	for id, v := range e.clientRoutes {
 		if i := strings.LastIndex(string(id), "-"); i != -1 {
 			id = id[:i]
 		}
-		routes[id] = v
+		routes[id.NetID()] = v
 	}
 	return routes
 }
