@@ -1,6 +1,7 @@
 package migration
 
 import (
+	"database/sql"
 	"encoding/gob"
 	"encoding/json"
 	"errors"
@@ -121,7 +122,7 @@ func MigrateNetIPFieldFromBlobToJSON[T any](db *gorm.DB, fieldName string, index
 	}
 	tableName := stmt.Schema.Table
 
-	var item string
+	var item sql.NullString
 	if err := db.Model(&model).Select(oldColumnName).First(&item).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			log.Printf("No records in table %s, no migration needed", tableName)
@@ -130,12 +131,14 @@ func MigrateNetIPFieldFromBlobToJSON[T any](db *gorm.DB, fieldName string, index
 		return fmt.Errorf("fetch first record: %w", err)
 	}
 
-	var js json.RawMessage
-	var syntaxError *json.SyntaxError
-	err = json.Unmarshal([]byte(item), &js)
-	if err == nil || !errors.As(err, &syntaxError) {
-		log.Debugf("No migration needed for %s, %s", tableName, fieldName)
-		return nil
+	if item.Valid {
+		var js json.RawMessage
+		var syntaxError *json.SyntaxError
+		err = json.Unmarshal([]byte(item.String), &js)
+		if err == nil || !errors.As(err, &syntaxError) {
+			log.Debugf("No migration needed for %s, %s", tableName, fieldName)
+			return nil
+		}
 	}
 
 	if err := db.Transaction(func(tx *gorm.DB) error {
@@ -153,12 +156,22 @@ func MigrateNetIPFieldFromBlobToJSON[T any](db *gorm.DB, fieldName string, index
 		}
 
 		for _, row := range rows {
-			blob, ok := row[oldColumnName].(string)
-			if !ok {
-				return fmt.Errorf("type assertion failed")
+			var blobValue string
+			if columnValue := row[oldColumnName]; columnValue != nil {
+				value, ok := columnValue.(string)
+				if !ok {
+					return fmt.Errorf("type assertion failed")
+				}
+				blobValue = value
 			}
 
-			jsonValue, err := json.Marshal(net.IP(blob))
+			columnIpValue := net.IP(blobValue)
+			if net.ParseIP(columnIpValue.String()) == nil {
+				log.Debugf("failed to parse %s as ip, fallback to ipv6 loopback", oldColumnName)
+				columnIpValue = net.IPv6loopback
+			}
+
+			jsonValue, err := json.Marshal(columnIpValue)
 			if err != nil {
 				return fmt.Errorf("re-encode to JSON: %w", err)
 			}
