@@ -567,7 +567,7 @@ func (s *DefaultServer) addHostRootZone() {
 	}
 
 	handler.upstreamServers = make([]string, 0)
-	for k, _ := range s.hostsDNSHolder.get() {
+	for k := range s.hostsDNSHolder.get() {
 		handler.upstreamServers = append(handler.upstreamServers, k)
 	}
 	handler.deactivate = func(error) {}

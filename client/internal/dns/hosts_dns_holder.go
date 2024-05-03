@@ -39,6 +39,7 @@ func (h *hostsDNSHolder) get() map[string]struct{} {
 	return l
 }
 
+//nolint:unused
 func (h *hostsDNSHolder) isContain(upstream string) bool {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
