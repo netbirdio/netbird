@@ -54,9 +54,8 @@ type DefaultServer struct {
 	currentConfig      HostDNSConfig
 
 	// permanent related properties
-	permanent        bool
-	hostsDnsList     []string
-	hostsDnsListLock sync.Mutex
+	permanent      bool
+	hostsDNSHolder *hostsDNSHolder
 
 	// make sense on mobile only
 	searchDomainNotifier *notifier
@@ -113,8 +112,8 @@ func NewDefaultServerPermanentUpstream(
 ) *DefaultServer {
 	log.Debugf("host dns address list is: %v", hostsDnsList)
 	ds := newDefaultServer(ctx, wgInterface, newServiceViaMemory(wgInterface), statusRecorder)
+	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
-	ds.hostsDnsList = hostsDnsList
 	ds.addHostRootZone()
 	ds.currentConfig = dnsConfigToHostDNSConfig(config, ds.service.RuntimeIP(), ds.service.RuntimePort())
 	ds.searchDomainNotifier = newNotifier(ds.SearchDomains())
@@ -147,6 +146,7 @@ func newDefaultServer(ctx context.Context, wgInterface WGIface, dnsService servi
 		},
 		wgInterface:    wgInterface,
 		statusRecorder: statusRecorder,
+		hostsDNSHolder: newHostsDNSHolder(),
 	}
 
 	return defaultServer
@@ -202,10 +202,8 @@ func (s *DefaultServer) Stop() {
 // OnUpdatedHostDNSServer update the DNS servers addresses for root zones
 // It will be applied if the mgm server do not enforce DNS settings for root zone
 func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []string) {
-	s.hostsDnsListLock.Lock()
-	defer s.hostsDnsListLock.Unlock()
+	s.hostsDNSHolder.set(hostsDnsList)
 
-	s.hostsDnsList = hostsDnsList
 	_, ok := s.dnsMuxMap[nbdns.RootZone]
 	if ok {
 		log.Debugf("on new host DNS config but skip to apply it")
@@ -374,6 +372,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			s.wgInterface.Address().IP,
 			s.wgInterface.Address().Network,
 			s.statusRecorder,
+			s.hostsDNSHolder,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create a new upstream resolver, error: %v", err)
@@ -452,9 +451,7 @@ func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) {
 		_, found := muxUpdateMap[key]
 		if !found {
 			if !isContainRootUpdate && key == nbdns.RootZone {
-				s.hostsDnsListLock.Lock()
 				s.addHostRootZone()
-				s.hostsDnsListLock.Unlock()
 				existingHandler.stop()
 			} else {
 				existingHandler.stop()
@@ -562,25 +559,16 @@ func (s *DefaultServer) addHostRootZone() {
 		s.wgInterface.Address().IP,
 		s.wgInterface.Address().Network,
 		s.statusRecorder,
+		s.hostsDNSHolder,
 	)
 	if err != nil {
 		log.Errorf("unable to create a new upstream resolver, error: %v", err)
 		return
 	}
-	handler.upstreamServers = make([]string, len(s.hostsDnsList))
-	for n, ua := range s.hostsDnsList {
-		a, err := netip.ParseAddr(ua)
-		if err != nil {
-			log.Errorf("invalid upstream IP address: %s, error: %s", ua, err)
-			continue
-		}
 
-		ipString := ua
-		if !a.Is4() {
-			ipString = fmt.Sprintf("[%s]", ua)
-		}
-
-		handler.upstreamServers[n] = fmt.Sprintf("%s:53", ipString)
+	handler.upstreamServers = make([]string, 0)
+	for k, _ := range s.hostsDNSHolder.get() {
+		handler.upstreamServers = append(handler.upstreamServers, k)
 	}
 	handler.deactivate = func(error) {}
 	handler.reactivate = func() {}

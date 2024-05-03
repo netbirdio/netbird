@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/util/net"
 )
 
 // ConnectionListener export internal Listener for mobile
@@ -59,6 +60,7 @@ type Client struct {
 
 // NewClient instantiate a new Client
 func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover, networkChangeListener NetworkChangeListener) *Client {
+	net.SetAndroidProtectSocketFn(tunAdapter.ProtectSocket)
 	return &Client{
 		cfgFile:               cfgFile,
 		deviceName:            deviceName,
