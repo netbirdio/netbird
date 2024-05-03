@@ -267,7 +267,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 		},
 		{
 			name: "current route with bad score should be changed to route with better score",
-			statuses: map[string]routerPeerStatus{
+			statuses: map[route.ID]routerPeerStatus{
 				"route1": {
 					connected: true,
 					relayed:   false,
@@ -281,7 +281,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					latency:   10 * time.Millisecond,
 				},
 			},
-			existingRoutes: map[string]*route.Route{
+			existingRoutes: map[route.ID]*route.Route{
 				"route1": {
 					ID:     "route1",
 					Metric: route.MaxMetric,
