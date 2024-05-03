@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net"
 	"net/netip"
-	"os"
 	"runtime/debug"
 
 	"github.com/cenkalti/backoff/v4"
@@ -18,11 +17,6 @@ import (
 
 // Start begins watching for network changes and calls the callback function and stops when a change is detected.
 func (nw *NetworkWatcher) Start(ctx context.Context, callback func()) {
-	if IsDisabled() {
-		log.Info("Network monitor: disabled, not starting")
-		return
-	}
-
 	if nw.cancel != nil {
 		log.Warn("Network monitor: already running, stopping previous watcher")
 		nw.Stop()
@@ -85,8 +79,4 @@ func (nw *NetworkWatcher) Stop() {
 		nw.cancel = nil
 		log.Info("Network monitor: stopped")
 	}
-}
-
-func IsDisabled() bool {
-	return os.Getenv("NB_DISABLE_NETWORK_MONITOR") == "true"
 }

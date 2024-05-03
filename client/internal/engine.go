@@ -62,6 +62,9 @@ type EngineConfig struct {
 	// WgPrivateKey is a Wireguard private key of our peer (it MUST never leave the machine)
 	WgPrivateKey wgtypes.Key
 
+	// NetworkMonitor is a flag to enable network monitoring
+	NetworkMonitor bool
+
 	// IFaceBlackList is a list of network interfaces to ignore when discovering connection candidates (ICE related)
 	IFaceBlackList       []string
 	DisableIPv6Discovery bool
@@ -341,16 +344,20 @@ func (e *Engine) Start() error {
 	e.receiveManagementEvents()
 	e.receiveProbeEvents()
 
-	// starting network monitor at the very last to avoid disruptions
-	go e.networkWatcher.Start(e.ctx, func() {
-		log.Infof("Network monitor detected network change, restarting engine")
-		if err := e.Stop(); err != nil {
-			log.Errorf("Failed to stop engine: %v", err)
-		}
-		if err := e.Start(); err != nil {
-			log.Errorf("Failed to start engine: %v", err)
-		}
-	})
+	if e.config.NetworkMonitor {
+		// starting network monitor at the very last to avoid disruptions
+		go e.networkWatcher.Start(e.ctx, func() {
+			log.Infof("Network monitor detected network change, restarting engine")
+			if err := e.Stop(); err != nil {
+				log.Errorf("Failed to stop engine: %v", err)
+			}
+			if err := e.Start(); err != nil {
+				log.Errorf("Failed to start engine: %v", err)
+			}
+		})
+	} else {
+		log.Infof("Network monitor is disabled, not starting")
+	}
 
 	return nil
 }
