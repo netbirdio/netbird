@@ -1,6 +1,6 @@
 //go:build darwin || dragonfly || freebsd || netbsd || openbsd
 
-package routemanager
+package systemops
 
 import (
 	"fmt"
@@ -11,7 +11,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/route"
 )
-
 
 func getRoutesFromTable() ([]netip.Prefix, error) {
 	tab, err := route.FetchRIB(syscall.AF_UNSPEC, route.RIBTypeRoute, 0)

@@ -10,6 +10,8 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/netbirdio/netbird/management/server/http/api"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -18,6 +20,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/magiconair/properties/assert"
 
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -93,20 +96,19 @@ func initRoutesTestData() *RoutesHandler {
 				}
 				return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 			},
-			CreateRouteFunc: func(accountID, network, peerID string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, _ string) (*route.Route, error) {
+			CreateRouteFunc: func(accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, _ string) (*route.Route, error) {
 				if peerID == notFoundPeerID {
 					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
 				}
 				if len(peerGroups) > 0 && peerGroups[0] == notFoundGroupID {
 					return nil, status.Errorf(status.InvalidArgument, "peer groups with ID %s not found", peerGroups[0])
 				}
-				networkType, p, _ := route.ParseNetwork(network)
 				return &route.Route{
 					ID:          existingRouteID,
 					NetID:       netID,
 					Peer:        peerID,
 					PeerGroups:  peerGroups,
-					Network:     p,
+					Network:     prefix,
 					NetworkType: networkType,
 					Description: description,
 					Masquerade:  masquerade,
@@ -161,7 +163,7 @@ func TestRoutesHandlers(t *testing.T) {
 			requestPath:    "/api/routes/" + existingRouteID,
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
-			expectedRoute:  toRouteResponse(baseExistingRoute),
+			expectedRoute:  toApiRoute(t, baseExistingRoute),
 		},
 		{
 			name:           "Get Not Existing Route",
@@ -175,7 +177,7 @@ func TestRoutesHandlers(t *testing.T) {
 			requestPath:    "/api/routes/" + existingRouteID2,
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
-			expectedRoute:  toRouteResponse(baseExistingRouteWithPeerGroups),
+			expectedRoute:  toApiRoute(t, baseExistingRouteWithPeerGroups),
 		},
 		{
 			name:           "Delete Existing Route",
@@ -202,7 +204,7 @@ func TestRoutesHandlers(t *testing.T) {
 				Id:          existingRouteID,
 				Description: "Post",
 				NetworkId:   "awesomeNet",
-				Network:     "192.168.0.0/16",
+				Network:     toPtr("192.168.0.0/16"),
 				Peer:        &existingPeerID,
 				NetworkType: route.IPv4NetworkString,
 				Masquerade:  false,
@@ -271,7 +273,7 @@ func TestRoutesHandlers(t *testing.T) {
 				Id:          existingRouteID,
 				Description: "Post",
 				NetworkId:   "awesomeNet",
-				Network:     "192.168.0.0/16",
+				Network:     toPtr("192.168.0.0/16"),
 				Peer:        &existingPeerID,
 				NetworkType: route.IPv4NetworkString,
 				Masquerade:  false,
@@ -290,7 +292,7 @@ func TestRoutesHandlers(t *testing.T) {
 				Id:          existingRouteID,
 				Description: "Post",
 				NetworkId:   "awesomeNet",
-				Network:     "192.168.0.0/16",
+				Network:     toPtr("192.168.0.0/16"),
 				Peer:        &emptyString,
 				PeerGroups:  &[]string{existingGroupID},
 				NetworkType: route.IPv4NetworkString,
@@ -398,4 +400,78 @@ func TestRoutesHandlers(t *testing.T) {
 			assert.Equal(t, got, tc.expectedRoute)
 		})
 	}
+}
+
+func TestValidateDomains(t *testing.T) {
+	tests := []struct {
+		name     string
+		domains  []string
+		expected domain.List
+		wantErr  bool
+	}{
+		{
+			name:     "Empty list",
+			domains:  nil,
+			expected: nil,
+			wantErr:  true,
+		},
+		{
+			name:     "Valid ASCII domain",
+			domains:  []string{"sub.ex-ample.com"},
+			expected: domain.List{"sub.ex-ample.com"},
+			wantErr:  false,
+		},
+		{
+			name:     "Valid Unicode domain",
+			domains:  []string{"münchen.de"},
+			expected: domain.List{"xn--mnchen-3ya.de"},
+			wantErr:  false,
+		},
+		{
+			name:     "Valid Unicode, all labels",
+			domains:  []string{"中国.中国.中国"},
+			expected: domain.List{"xn--fiqs8s.xn--fiqs8s.xn--fiqs8s"},
+			wantErr:  false,
+		},
+		{
+			name:     "With underscores",
+			domains:  []string{"_jabber._tcp.gmail.com"},
+			expected: domain.List{"_jabber._tcp.gmail.com"},
+			wantErr:  false,
+		},
+		{
+			name:     "Invalid domain format",
+			domains:  []string{"-example.com"},
+			expected: nil,
+			wantErr:  true,
+		},
+		{
+			name:     "Invalid domain format 2",
+			domains:  []string{"example.com-"},
+			expected: nil,
+			wantErr:  true,
+		},
+		{
+			name:     "Multiple domains valid and invalid",
+			domains:  []string{"google.com", "invalid,nbdomain.com", "münchen.de"},
+			expected: domain.List{"google.com"},
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := validateDomains(tt.domains)
+			assert.Equal(t, tt.wantErr, err != nil)
+			assert.Equal(t, got, tt.expected)
+		})
+	}
+}
+
+func toApiRoute(t *testing.T, r *route.Route) *api.Route {
+	t.Helper()
+
+	apiRoute, err := toRouteResponse(r)
+	require.NoError(t, err, "Failed to convert route")
+	return apiRoute
 }

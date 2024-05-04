@@ -1,6 +1,6 @@
 //go:build windows
 
-package routemanager
+package systemops
 
 import (
 	"fmt"
@@ -14,9 +14,9 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/yusufpapurcu/wmi"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/iface"
 )
 
@@ -29,14 +29,14 @@ var prefixList []netip.Prefix
 var lastUpdate time.Time
 var mux = sync.Mutex{}
 
-var routeManager *RouteManager
+var refCounter *refcounter.Counter
 
-func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
-	return setupRoutingWithRouteManager(&routeManager, initAddresses, wgIface)
+func SetupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+	return setupRoutingWithRefCounter(&refCounter, initAddresses, wgIface)
 }
 
-func cleanupRouting() error {
-	return cleanupRoutingWithRouteManager(routeManager)
+func CleanupRouting() error {
+	return cleanupRoutingWithRefManager(refCounter)
 }
 
 func getRoutesFromTable() ([]netip.Prefix, error) {

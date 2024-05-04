@@ -1,6 +1,6 @@
 //go:build darwin && !ios
 
-package routemanager
+package systemops
 
 import (
 	"fmt"
@@ -14,17 +14,18 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/iface"
 )
 
-var routeManager *RouteManager
+var refCounter *refcounter.Counter
 
-func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
-	return setupRoutingWithRouteManager(&routeManager, initAddresses, wgIface)
+func SetupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+	return setupRoutingWithRefCounter(&refCounter, initAddresses, wgIface)
 }
 
-func cleanupRouting() error {
-	return cleanupRoutingWithRouteManager(routeManager)
+func CleanupRouting() error {
+	return cleanupRoutingWithRefManager(refCounter)
 }
 
 func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {

@@ -9,17 +9,19 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/route"
 )
 
 type selectRoute struct {
 	NetID    route.NetID
 	Network  netip.Prefix
+	Domains  domain.List
 	Selected bool
 }
 
 // ListRoutes returns a list of all available routes.
-func (s *Server) ListRoutes(ctx context.Context, req *proto.ListRoutesRequest) (*proto.ListRoutesResponse, error) {
+func (s *Server) ListRoutes(context.Context, *proto.ListRoutesRequest) (*proto.ListRoutesResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -38,6 +40,7 @@ func (s *Server) ListRoutes(ctx context.Context, req *proto.ListRoutesRequest) (
 		route := &selectRoute{
 			NetID:    id,
 			Network:  rt[0].Network,
+			Domains:  rt[0].Domains,
 			Selected: routeSelector.IsSelected(id),
 		}
 		routes = append(routes, route)
@@ -60,9 +63,17 @@ func (s *Server) ListRoutes(ctx context.Context, req *proto.ListRoutesRequest) (
 
 	var pbRoutes []*proto.Route
 	for _, route := range routes {
+		network := route.Network.String()
+		if len(route.Domains) > 0 {
+			n, err := route.Domains.String()
+			if err != nil {
+				return nil, fmt.Errorf("list routes: %w", err)
+			}
+			network = n
+		}
 		pbRoutes = append(pbRoutes, &proto.Route{
 			ID:       string(route.NetID),
-			Network:  route.Network.String(),
+			Network:  network,
 			Selected: route.Selected,
 		})
 	}

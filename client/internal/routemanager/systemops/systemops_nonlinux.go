@@ -1,6 +1,6 @@
 //go:build !linux && !ios
 
-package routemanager
+package systemops
 
 import (
 	"net"
@@ -10,15 +10,15 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func enableIPForwarding() error {
+func EnableIPForwarding() error {
 	log.Infof("Enable IP forwarding is not implemented on %s", runtime.GOOS)
 	return nil
 }
 
-func addVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+func AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	return genericAddVPNRoute(prefix, intf)
 }
 
-func removeVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+func RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	return genericRemoveVPNRoute(prefix, intf)
 }

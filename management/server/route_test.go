@@ -33,13 +33,15 @@ const (
 	routeGroupHA2      = "routeGroupHA2"
 	routeInvalidGroup1 = "routeInvalidGroup1"
 	userID             = "testingUser"
-	existingNetwork    = "10.10.10.0/24"
 	existingRouteID    = "random-id"
 )
 
+var existingNetwork = netip.MustParsePrefix("10.10.10.0/24")
+
 func TestCreateRoute(t *testing.T) {
 	type input struct {
-		network      string
+		network      netip.Prefix
+		domains      []string
 		netID        route.NetID
 		peerKey      string
 		peerGroupIDs []string
@@ -61,7 +63,7 @@ func TestCreateRoute(t *testing.T) {
 		{
 			name: "Happy Path",
 			inputArgs: input{
-				network:     "192.168.0.0/16",
+				network:     netip.MustParsePrefix("192.168.0.0/16"),
 				netID:       "happy",
 				peerKey:     peer1ID,
 				description: "super",
@@ -87,7 +89,7 @@ func TestCreateRoute(t *testing.T) {
 		{
 			name: "Happy Path Peer Groups",
 			inputArgs: input{
-				network:      "192.168.0.0/16",
+				network:      netip.MustParsePrefix("192.168.0.0/16"),
 				netID:        "happy",
 				peerGroupIDs: []string{routeGroupHA1, routeGroupHA2},
 				description:  "super",
@@ -113,7 +115,7 @@ func TestCreateRoute(t *testing.T) {
 		{
 			name: "Both peer and peer_groups Provided Should Fail",
 			inputArgs: input{
-				network:      "192.168.0.0/16",
+				network:      netip.MustParsePrefix("192.168.0.0/16"),
 				netID:        "happy",
 				peerKey:      peer1ID,
 				peerGroupIDs: []string{routeGroupHA1},
@@ -127,24 +129,9 @@ func TestCreateRoute(t *testing.T) {
 			shouldCreate: false,
 		},
 		{
-			name: "Bad Prefix Should Fail",
-			inputArgs: input{
-				network:     "192.168.0.0/34",
-				netID:       "happy",
-				peerKey:     peer1ID,
-				description: "super",
-				masquerade:  false,
-				metric:      9999,
-				enabled:     true,
-				groups:      []string{routeGroup1},
-			},
-			errFunc:      require.Error,
-			shouldCreate: false,
-		},
-		{
 			name: "Bad Peer Should Fail",
 			inputArgs: input{
-				network:     "192.168.0.0/16",
+				network:     netip.MustParsePrefix("192.168.0.0/16"),
 				netID:       "happy",
 				peerKey:     "notExistingPeer",
 				description: "super",
@@ -191,7 +178,7 @@ func TestCreateRoute(t *testing.T) {
 		{
 			name: "Empty Peer Should Create",
 			inputArgs: input{
-				network:     "192.168.0.0/16",
+				network:     netip.MustParsePrefix("192.168.0.0/16"),
 				netID:       "happy",
 				peerKey:     "",
 				description: "super",
@@ -217,7 +204,7 @@ func TestCreateRoute(t *testing.T) {
 		{
 			name: "Large Metric Should Fail",
 			inputArgs: input{
-				network:     "192.168.0.0/16",
+				network:     netip.MustParsePrefix("192.168.0.0/16"),
 				peerKey:     peer1ID,
 				netID:       "happy",
 				description: "super",
@@ -232,7 +219,7 @@ func TestCreateRoute(t *testing.T) {
 		{
 			name: "Small Metric Should Fail",
 			inputArgs: input{
-				network:     "192.168.0.0/16",
+				network:     netip.MustParsePrefix("192.168.0.0/16"),
 				netID:       "happy",
 				peerKey:     peer1ID,
 				description: "super",
@@ -247,7 +234,7 @@ func TestCreateRoute(t *testing.T) {
 		{
 			name: "Large NetID Should Fail",
 			inputArgs: input{
-				network:     "192.168.0.0/16",
+				network:     netip.MustParsePrefix("192.168.0.0/16"),
 				peerKey:     peer1ID,
 				netID:       "12345678901234567890qwertyuiopqwertyuiop1",
 				description: "super",
@@ -262,7 +249,7 @@ func TestCreateRoute(t *testing.T) {
 		{
 			name: "Small NetID Should Fail",
 			inputArgs: input{
-				network:     "192.168.0.0/16",
+				network:     netip.MustParsePrefix("192.168.0.0/16"),
 				netID:       "",
 				peerKey:     peer1ID,
 				description: "",
@@ -277,7 +264,7 @@ func TestCreateRoute(t *testing.T) {
 		{
 			name: "Empty Group List Should Fail",
 			inputArgs: input{
-				network:     "192.168.0.0/16",
+				network:     netip.MustParsePrefix("192.168.0.0/16"),
 				netID:       "NewId",
 				peerKey:     peer1ID,
 				description: "",
@@ -292,7 +279,7 @@ func TestCreateRoute(t *testing.T) {
 		{
 			name: "Empty Group ID string Should Fail",
 			inputArgs: input{
-				network:     "192.168.0.0/16",
+				network:     netip.MustParsePrefix("192.168.0.0/16"),
 				netID:       "NewId",
 				peerKey:     peer1ID,
 				description: "",
@@ -307,7 +294,7 @@ func TestCreateRoute(t *testing.T) {
 		{
 			name: "Invalid Group Should Fail",
 			inputArgs: input{
-				network:     "192.168.0.0/16",
+				network:     netip.MustParsePrefix("192.168.0.0/16"),
 				netID:       "NewId",
 				peerKey:     peer1ID,
 				description: "",
@@ -337,26 +324,13 @@ func TestCreateRoute(t *testing.T) {
 				if errInit != nil {
 					t.Errorf("failed to get group all: %s", errInit)
 				}
-				_, errInit = am.CreateRoute(account.Id, existingNetwork, "", []string{routeGroup3, routeGroup4},
-					"", existingRouteID, false, 1000, []string{groupAll.ID}, true, userID)
+				_, errInit = am.CreateRoute(account.Id, existingNetwork, 1, nil, "", []string{routeGroup3, routeGroup4}, "", existingRouteID, false, 1000, []string{groupAll.ID}, true, userID)
 				if errInit != nil {
 					t.Errorf("failed to create init route: %s", errInit)
 				}
 			}
 
-			outRoute, err := am.CreateRoute(
-				account.Id,
-				testCase.inputArgs.network,
-				testCase.inputArgs.peerKey,
-				testCase.inputArgs.peerGroupIDs,
-				testCase.inputArgs.description,
-				testCase.inputArgs.netID,
-				testCase.inputArgs.masquerade,
-				testCase.inputArgs.metric,
-				testCase.inputArgs.groups,
-				testCase.inputArgs.enabled,
-				userID,
-			)
+			outRoute, err := am.CreateRoute(account.Id, testCase.inputArgs.network, 1, nil, testCase.inputArgs.peerKey, testCase.inputArgs.peerGroupIDs, testCase.inputArgs.description, testCase.inputArgs.netID, testCase.inputArgs.masquerade, testCase.inputArgs.metric, testCase.inputArgs.groups, testCase.inputArgs.enabled, userID)
 
 			testCase.errFunc(t, err)
 
@@ -623,7 +597,7 @@ func TestSaveRoute(t *testing.T) {
 			name: "Allow to modify existing route with new peer",
 			existingRoute: &route.Route{
 				ID:          "testingRoute",
-				Network:     netip.MustParsePrefix(existingNetwork),
+				Network:     existingNetwork,
 				NetID:       validNetID,
 				NetworkType: route.IPv4Network,
 				Peer:        peer1ID,
@@ -638,7 +612,7 @@ func TestSaveRoute(t *testing.T) {
 			shouldCreate: true,
 			expectedRoute: &route.Route{
 				ID:          "testingRoute",
-				Network:     netip.MustParsePrefix(existingNetwork),
+				Network:     existingNetwork,
 				NetID:       validNetID,
 				NetworkType: route.IPv4Network,
 				Peer:        validPeer,
@@ -654,7 +628,7 @@ func TestSaveRoute(t *testing.T) {
 			name: "Do not allow to modify existing route with a peer from another route",
 			existingRoute: &route.Route{
 				ID:          "testingRoute",
-				Network:     netip.MustParsePrefix(existingNetwork),
+				Network:     existingNetwork,
 				NetID:       validNetID,
 				NetworkType: route.IPv4Network,
 				Peer:        peer1ID,
@@ -672,7 +646,7 @@ func TestSaveRoute(t *testing.T) {
 			name: "Do not allow to modify existing route with a peers group from another route",
 			existingRoute: &route.Route{
 				ID:          "testingRoute",
-				Network:     netip.MustParsePrefix(existingNetwork),
+				Network:     existingNetwork,
 				NetID:       validNetID,
 				NetworkType: route.IPv4Network,
 				PeerGroups:  []string{routeGroup3},
@@ -702,7 +676,7 @@ func TestSaveRoute(t *testing.T) {
 			if testCase.createInitRoute {
 				account.Routes["initRoute"] = &route.Route{
 					ID:          "initRoute",
-					Network:     netip.MustParsePrefix(existingNetwork),
+					Network:     existingNetwork,
 					NetID:       existingRouteID,
 					NetworkType: route.IPv4Network,
 					PeerGroups:  []string{routeGroup4},
@@ -839,9 +813,7 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
 
-	newRoute, err := am.CreateRoute(
-		account.Id, baseRoute.Network.String(), baseRoute.Peer, baseRoute.PeerGroups, baseRoute.Description,
-		baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, baseRoute.Enabled, userID)
+	newRoute, err := am.CreateRoute(account.Id, baseRoute.Network, 0, nil, baseRoute.Peer, baseRoute.PeerGroups, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, baseRoute.Enabled, userID)
 	require.NoError(t, err)
 	require.Equal(t, newRoute.Enabled, true)
 
@@ -932,9 +904,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
 
-	createdRoute, err := am.CreateRoute(account.Id, baseRoute.Network.String(), peer1ID, []string{},
-		baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, false,
-		userID)
+	createdRoute, err := am.CreateRoute(account.Id, baseRoute.Network, 0, nil, peer1ID, []string{}, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, false, userID)
 	require.NoError(t, err)
 
 	noDisabledRoutes, err := am.GetNetworkMap(peer1ID)

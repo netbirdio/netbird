@@ -37,25 +37,25 @@ type State struct {
 // AddRoute add a single route to routes map
 func (s *State) AddRoute(network string) {
 	s.Mux.Lock()
+	defer s.Mux.Unlock()
 	if s.routes == nil {
 		s.routes = make(map[string]struct{})
 	}
 	s.routes[network] = struct{}{}
-	s.Mux.Unlock()
 }
 
 // SetRoutes set state routes
 func (s *State) SetRoutes(routes map[string]struct{}) {
 	s.Mux.Lock()
+	defer s.Mux.Unlock()
 	s.routes = routes
-	s.Mux.Unlock()
 }
 
 // DeleteRoute removes a route from the network amp
 func (s *State) DeleteRoute(network string) {
 	s.Mux.Lock()
+	defer s.Mux.Unlock()
 	delete(s.routes, network)
-	s.Mux.Unlock()
 }
 
 // GetRoutes return routes map
@@ -188,7 +188,7 @@ func (d *Status) GetPeer(peerPubKey string) (State, error) {
 
 	state, ok := d.peers[peerPubKey]
 	if !ok {
-		return State{}, errors.New("peer not found")
+		return State{}, iface.ErrPeerNotFound
 	}
 	return state, nil
 }

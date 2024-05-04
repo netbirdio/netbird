@@ -945,6 +945,9 @@ type Route struct {
 	// Description Route description
 	Description string `json:"description"`
 
+	// Domains Domain list to be dynamically resolved. Conflicts with network
+	Domains *[]string `json:"domains,omitempty"`
+
 	// Enabled Route status
 	Enabled bool `json:"enabled"`
 
@@ -954,14 +957,17 @@ type Route struct {
 	// Id Route Id
 	Id string `json:"id"`
 
+	// KeepRoute Indicate if the route should be kept after a domain doesn't resolve that IP anymore
+	KeepRoute bool `json:"keep_route"`
+
 	// Masquerade Indicate if peer should masquerade traffic to this route's prefix
 	Masquerade bool `json:"masquerade"`
 
 	// Metric Route metric number. Lowest number has higher priority
 	Metric int `json:"metric"`
 
-	// Network Network range in CIDR format
-	Network string `json:"network"`
+	// Network Network range in CIDR format, Conflicts with domains
+	Network *string `json:"network,omitempty"`
 
 	// NetworkId Route network identifier, to group HA routes
 	NetworkId string `json:"network_id"`
@@ -981,11 +987,17 @@ type RouteRequest struct {
 	// Description Route description
 	Description string `json:"description"`
 
+	// Domains Domain list to be dynamically resolved. Conflicts with network
+	Domains *[]string `json:"domains,omitempty"`
+
 	// Enabled Route status
 	Enabled bool `json:"enabled"`
 
 	// Groups Group IDs containing routing peers
 	Groups []string `json:"groups"`
+
+	// KeepRoute Indicate if the route should be kept after a domain doesn't resolve that IP anymore
+	KeepRoute bool `json:"keep_route"`
 
 	// Masquerade Indicate if peer should masquerade traffic to this route's prefix
 	Masquerade bool `json:"masquerade"`
@@ -993,8 +1005,8 @@ type RouteRequest struct {
 	// Metric Route metric number. Lowest number has higher priority
 	Metric int `json:"metric"`
 
-	// Network Network range in CIDR format
-	Network string `json:"network"`
+	// Network Network range in CIDR format, Conflicts with domains
+	Network *string `json:"network,omitempty"`
 
 	// NetworkId Route network identifier, to group HA routes
 	NetworkId string `json:"network_id"`

@@ -1434,7 +1434,7 @@ func TestFileStore_GetRoutesByPrefix(t *testing.T) {
 		},
 	}
 
-	routes := account.GetRoutesByPrefix(prefix)
+	routes := account.GetRoutesByPrefixOrDomains(prefix, nil)
 
 	assert.Len(t, routes, 2)
 	routeIDs := make(map[route.ID]struct{}, 2)

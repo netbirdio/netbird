@@ -291,7 +291,7 @@ func findPeerInfo(ipcInput string, peerKey string, searchConfigKeys []string) (m
 		}
 	}
 	if !foundPeer {
-		return nil, fmt.Errorf("peer not found: %s", peerKey)
+		return nil, fmt.Errorf("%w: %s", ErrPeerNotFound, peerKey)
 	}
 
 	return configFound, nil
