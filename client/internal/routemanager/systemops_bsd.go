@@ -12,7 +12,6 @@ import (
 	"golang.org/x/net/route"
 )
 
-
 func getRoutesFromTable() ([]netip.Prefix, error) {
 	tab, err := route.FetchRIB(syscall.AF_UNSPEC, route.RIBTypeRoute, 0)
 	if err != nil {
@@ -33,8 +32,7 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 			return nil, fmt.Errorf("unexpected RIB message type: %d", m.Type)
 		}
 
-		if m.Flags&syscall.RTF_UP == 0 ||
-			m.Flags&(syscall.RTF_REJECT|syscall.RTF_BLACKHOLE|syscall.RTF_WASCLONED) != 0 {
+		if filterRoutesByFlags(m.Flags) {
 			continue
 		}
 
