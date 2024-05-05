@@ -510,6 +510,7 @@ func (s *DefaultServer) upstreamCallbacks(
 		if nsGroup.Primary {
 			removeIndex[nbdns.RootZone] = -1
 			s.currentConfig.RouteAll = false
+			s.service.DeregisterMux(nbdns.RootZone)
 		}
 
 		for i, item := range s.currentConfig.Domains {
@@ -548,6 +549,9 @@ func (s *DefaultServer) upstreamCallbacks(
 
 		if nsGroup.Primary {
 			s.currentConfig.RouteAll = true
+			if runtime.GOOS == "android" {
+				s.service.RegisterMux(nbdns.RootZone, handler)
+			}
 		}
 		if err := s.hostManager.applyDNSConfig(s.currentConfig); err != nil {
 			l.WithError(err).Error("reactivate temporary disabled nameserver group, DNS update apply")
