@@ -155,7 +155,7 @@ func (m *DefaultManager) SetRouteChangeListener(listener listener.NetworkChangeL
 
 // InitialRouteRange return the list of initial routes. It used by mobile systems
 func (m *DefaultManager) InitialRouteRange() []string {
-	return m.notifier.initialRouteRanges()
+	return m.notifier.getInitialRouteRanges()
 }
 
 // GetRouteSelector returns the route selector
