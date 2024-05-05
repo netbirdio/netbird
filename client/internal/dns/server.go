@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -518,8 +519,13 @@ func (s *DefaultServer) upstreamCallbacks(
 				removeIndex[item.Domain] = i
 			}
 		}
+
 		if err := s.hostManager.applyDNSConfig(s.currentConfig); err != nil {
 			l.Errorf("Failed to apply nameserver deactivation on the host: %v", err)
+		}
+
+		if runtime.GOOS == "android" && nsGroup.Primary && len(s.hostsDNSHolder.get()) > 0 {
+			s.addHostRootZone()
 		}
 
 		s.updateNSState(nsGroup, err, false)
