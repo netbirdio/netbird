@@ -4,7 +4,7 @@ package routemanager
 
 import "syscall"
 
-// filterRoutesByFlags - return true if need to ignore such route message becasue it consists specific flags.
+// filterRoutesByFlags - return true if need to ignore such route message because it consists specific flags.
 func filterRoutesByFlags(routeMessageFlags int) bool {
 	if routeMessageFlags&syscall.RTF_UP == 0 {
 		return true
