@@ -1,5 +1,3 @@
-//go:build
-
 package net
 
 import (
