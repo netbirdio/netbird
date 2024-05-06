@@ -182,11 +182,7 @@ func (f *fileConfigurator) restoreUncleanShutdownDNS(storedDNSAddress *netip.Add
 
 func (f *fileConfigurator) isBackupFileExist() bool {
 	_, err := os.Stat(fileDefaultResolvConfBackupLocation)
-	if err == nil {
-		return true
-	}
-
-	return false
+	return err == nil
 }
 
 func restoreResolvConfFile() error {
