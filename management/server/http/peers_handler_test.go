@@ -246,7 +246,7 @@ func TestGetPeers(t *testing.T) {
 			assert.Equal(t, got.LoginExpirationEnabled, tc.expectedPeer.LoginExpirationEnabled)
 			assert.Equal(t, got.SshEnabled, tc.expectedPeer.SSHEnabled)
 			assert.Equal(t, got.Connected, tc.expectedPeer.Status.Connected)
-			assert.Equal(t, got.SystemSerial, tc.expectedPeer.Meta.SystemSerialNumber)
+			assert.Equal(t, got.SerialNumber, tc.expectedPeer.Meta.SystemSerialNumber)
 		})
 	}
 }
