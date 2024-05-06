@@ -88,7 +88,7 @@ func retryFetchRIB() ([]byte, error) {
 	operation := func() error {
 		var err error
 		out, err = route.FetchRIB(syscall.AF_UNSPEC, route.RIBTypeRoute, 0)
-		if err != nil && strings.Contains(err.Error(), "sysctl: cannot allocate memory") {
+		if errors.Is(err, syscall.ENOMEM) {
 			log.Debug("retrying fetchRIB due to 'cannot allocate memory' error")
 			return err
 		} else if err != nil {
