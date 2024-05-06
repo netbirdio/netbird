@@ -279,15 +279,11 @@ func (s *SqliteStore) GetInstallationID() string {
 }
 
 func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
-	var peer nbpeer.Peer
-	result := s.db.Model(&peer).
+	var peerCopy nbpeer.Peer
+	peerCopy.Status = &peerStatus
+	result := s.db.Model(&nbpeer.Peer{}).
 		Where("account_id = ? AND id = ?", accountID, peerID).
-		Updates(map[string]interface{}{
-			"peer_status_last_seen":         peerStatus.LastSeen,
-			"peer_status_connected":         peerStatus.Connected,
-			"peer_status_login_expired":     peerStatus.LoginExpired,
-			"peer_status_requires_approval": peerStatus.RequiresApproval,
-		})
+		Updates(peerCopy)
 
 	if result.Error != nil {
 		return result.Error
@@ -301,16 +297,15 @@ func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer
 }
 
 func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
-	location := peerWithLocation.Location
+	// To maintain data integrity, we create a copy of the peer's location to prevent unintended updates to other fields.
+	var peerCopy nbpeer.Peer
+	// Since the location field has been migrated to JSON serialization,
+	// updating the struct ensures the correct data format is inserted into the database.
+	peerCopy.Location = peerWithLocation.Location
 
-	var peer nbpeer.Peer
-	result := s.db.Model(&peer).Where("account_id = ? and id = ?", accountID, peerWithLocation.ID).
-		Updates(map[string]interface{}{
-			"location_connection_ip": location.ConnectionIP,
-			"location_country_code":  location.CountryCode,
-			"location_city_name":     location.CityName,
-			"location_geo_name_id":   location.GeoNameID,
-		})
+	result := s.db.Model(&nbpeer.Peer{}).
+		Where("account_id = ? and id = ?", accountID, peerWithLocation.ID).
+		Updates(peerCopy)
 
 	if result.Error != nil {
 		return result.Error
