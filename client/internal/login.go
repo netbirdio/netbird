@@ -68,6 +68,7 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 	}
 
 	serverKey, err := doMgmLogin(ctx, mgmClient, pubSSHKey)
+	// todo: review the grpc client and properly handle the request status when behind an invalid proxy that doesn't support grpc.
 	if serverKey != nil && isRegistrationNeeded(err) {
 		log.Debugf("peer registration required")
 		_, err = registerPeer(ctx, *serverKey, mgmClient, setupKey, jwtToken, pubSSHKey)
