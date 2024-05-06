@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"strings"
+	"errors"
 	"syscall"
 	"time"
 
