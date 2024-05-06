@@ -2,8 +2,6 @@ package server
 
 import (
 	"fmt"
-	nbdns "github.com/netbirdio/netbird/dns"
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -11,6 +9,9 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	nbdns "github.com/netbirdio/netbird/dns"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -75,9 +76,9 @@ func TestSqlite_SaveAccount_Large(t *testing.T) {
 		}
 		account.Users[user.Id] = user
 		route := &route2.Route{
-			ID:          fmt.Sprintf("network-id-%d", n),
+			ID:          route2.ID(fmt.Sprintf("network-id-%d", n)),
 			Description: "base route",
-			NetID:       fmt.Sprintf("network-id-%d", n),
+			NetID:       route2.NetID(fmt.Sprintf("network-id-%d", n)),
 			Network:     netip.MustParsePrefix(netIP.String() + "/24"),
 			NetworkType: route2.IPv4Network,
 			Metric:      9999,

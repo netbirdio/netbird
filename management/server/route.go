@@ -13,7 +13,7 @@ import (
 )
 
 // GetRoute gets a route object from account and route IDs
-func (am *DefaultAccountManager) GetRoute(accountID, routeID, userID string) (*route.Route, error) {
+func (am *DefaultAccountManager) GetRoute(accountID string, routeID route.ID, userID string) (*route.Route, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -40,7 +40,7 @@ func (am *DefaultAccountManager) GetRoute(accountID, routeID, userID string) (*r
 }
 
 // checkRoutePrefixExistsForPeers checks if a route with a given prefix exists for a single peer or multiple peer groups.
-func (am *DefaultAccountManager) checkRoutePrefixExistsForPeers(account *Account, peerID, routeID string, peerGroupIDs []string, prefix netip.Prefix) error {
+func (am *DefaultAccountManager) checkRoutePrefixExistsForPeers(account *Account, peerID string, routeID route.ID, peerGroupIDs []string, prefix netip.Prefix) error {
 	// routes can have both peer and peer_groups
 	routesWithPrefix := account.GetRoutesByPrefix(prefix)
 
@@ -56,7 +56,7 @@ func (am *DefaultAccountManager) checkRoutePrefixExistsForPeers(account *Account
 		}
 
 		if prefixRoute.Peer != "" {
-			seenPeers[prefixRoute.ID] = true
+			seenPeers[string(prefixRoute.ID)] = true
 		}
 		for _, groupID := range prefixRoute.PeerGroups {
 			seenPeerGroups[groupID] = true
@@ -114,7 +114,7 @@ func (am *DefaultAccountManager) checkRoutePrefixExistsForPeers(account *Account
 }
 
 // CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, peerGroupIDs []string, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error) {
+func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -131,7 +131,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, 
 	}
 
 	var newRoute route.Route
-	newRoute.ID = xid.New().String()
+	newRoute.ID = route.ID(xid.New().String())
 
 	prefixType, newPrefix, err := route.ParseNetwork(network)
 	if err != nil {
@@ -154,7 +154,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, 
 		return nil, status.Errorf(status.InvalidArgument, "metric should be between %d and %d", route.MinMetric, route.MaxMetric)
 	}
 
-	if utf8.RuneCountInString(netID) > route.MaxNetIDChar || netID == "" {
+	if utf8.RuneCountInString(string(netID)) > route.MaxNetIDChar || netID == "" {
 		return nil, status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
 	}
 
@@ -175,7 +175,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, 
 	newRoute.Groups = groups
 
 	if account.Routes == nil {
-		account.Routes = make(map[string]*route.Route)
+		account.Routes = make(map[route.ID]*route.Route)
 	}
 
 	account.Routes[newRoute.ID] = &newRoute
@@ -187,7 +187,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, 
 
 	am.updateAccountPeers(account)
 
-	am.StoreEvent(userID, newRoute.ID, accountID, activity.RouteCreated, newRoute.EventMeta())
+	am.StoreEvent(userID, string(newRoute.ID), accountID, activity.RouteCreated, newRoute.EventMeta())
 
 	return &newRoute, nil
 }
@@ -209,7 +209,7 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 		return status.Errorf(status.InvalidArgument, "metric should be between %d and %d", route.MinMetric, route.MaxMetric)
 	}
 
-	if utf8.RuneCountInString(routeToSave.NetID) > route.MaxNetIDChar || routeToSave.NetID == "" {
+	if utf8.RuneCountInString(string(routeToSave.NetID)) > route.MaxNetIDChar || routeToSave.NetID == "" {
 		return status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
 	}
 
@@ -248,13 +248,13 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 
 	am.updateAccountPeers(account)
 
-	am.StoreEvent(userID, routeToSave.ID, accountID, activity.RouteUpdated, routeToSave.EventMeta())
+	am.StoreEvent(userID, string(routeToSave.ID), accountID, activity.RouteUpdated, routeToSave.EventMeta())
 
 	return nil
 }
 
 // DeleteRoute deletes route with routeID
-func (am *DefaultAccountManager) DeleteRoute(accountID, routeID, userID string) error {
+func (am *DefaultAccountManager) DeleteRoute(accountID string, routeID route.ID, userID string) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -274,7 +274,7 @@ func (am *DefaultAccountManager) DeleteRoute(accountID, routeID, userID string) 
 		return err
 	}
 
-	am.StoreEvent(userID, routy.ID, accountID, activity.RouteRemoved, routy.EventMeta())
+	am.StoreEvent(userID, string(routy.ID), accountID, activity.RouteRemoved, routy.EventMeta())
 
 	am.updateAccountPeers(account)
 
@@ -310,8 +310,8 @@ func (am *DefaultAccountManager) ListRoutes(accountID, userID string) ([]*route.
 
 func toProtocolRoute(route *route.Route) *proto.Route {
 	return &proto.Route{
-		ID:          route.ID,
-		NetID:       route.NetID,
+		ID:          string(route.ID),
+		NetID:       string(route.NetID),
 		Network:     route.Network.String(),
 		NetworkType: int64(route.NetworkType),
 		Peer:        route.Peer,

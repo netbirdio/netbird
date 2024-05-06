@@ -14,8 +14,8 @@ import (
 
 // MockManager is the mock instance of a route manager
 type MockManager struct {
-	UpdateRoutesFunc     func(updateSerial uint64, newRoutes []*route.Route) (map[string]*route.Route, map[string][]*route.Route, error)
-	TriggerSelectionFunc func(map[string][]*route.Route)
+	UpdateRoutesFunc     func(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error)
+	TriggerSelectionFunc func(haMap route.HAMap)
 	GetRouteSelectorFunc func() *routeselector.RouteSelector
 	StopFunc             func()
 }
@@ -30,14 +30,14 @@ func (m *MockManager) InitialRouteRange() []string {
 }
 
 // UpdateRoutes mock implementation of UpdateRoutes from Manager interface
-func (m *MockManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[string]*route.Route, map[string][]*route.Route, error) {
+func (m *MockManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error) {
 	if m.UpdateRoutesFunc != nil {
 		return m.UpdateRoutesFunc(updateSerial, newRoutes)
 	}
 	return nil, nil, fmt.Errorf("method UpdateRoutes is not implemented")
 }
 
-func (m *MockManager) TriggerSelection(networks map[string][]*route.Route) {
+func (m *MockManager) TriggerSelection(networks route.HAMap) {
 	if m.TriggerSelectionFunc != nil {
 		m.TriggerSelectionFunc(networks)
 	}

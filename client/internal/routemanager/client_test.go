@@ -12,21 +12,21 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 
 	testCases := []struct {
 		name            string
-		statuses        map[string]routerPeerStatus
-		expectedRouteID string
-		currentRoute    string
-		existingRoutes  map[string]*route.Route
+		statuses        map[route.ID]routerPeerStatus
+		expectedRouteID route.ID
+		currentRoute    route.ID
+		existingRoutes  map[route.ID]*route.Route
 	}{
 		{
 			name: "one route",
-			statuses: map[string]routerPeerStatus{
+			statuses: map[route.ID]routerPeerStatus{
 				"route1": {
 					connected: true,
 					relayed:   false,
 					direct:    true,
 				},
 			},
-			existingRoutes: map[string]*route.Route{
+			existingRoutes: map[route.ID]*route.Route{
 				"route1": {
 					ID:     "route1",
 					Metric: route.MaxMetric,
@@ -38,14 +38,14 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 		},
 		{
 			name: "one connected routes with relayed and direct",
-			statuses: map[string]routerPeerStatus{
+			statuses: map[route.ID]routerPeerStatus{
 				"route1": {
 					connected: true,
 					relayed:   true,
 					direct:    true,
 				},
 			},
-			existingRoutes: map[string]*route.Route{
+			existingRoutes: map[route.ID]*route.Route{
 				"route1": {
 					ID:     "route1",
 					Metric: route.MaxMetric,
@@ -57,14 +57,14 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 		},
 		{
 			name: "one connected routes with relayed and no direct",
-			statuses: map[string]routerPeerStatus{
+			statuses: map[route.ID]routerPeerStatus{
 				"route1": {
 					connected: true,
 					relayed:   true,
 					direct:    false,
 				},
 			},
-			existingRoutes: map[string]*route.Route{
+			existingRoutes: map[route.ID]*route.Route{
 				"route1": {
 					ID:     "route1",
 					Metric: route.MaxMetric,
@@ -76,14 +76,14 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 		},
 		{
 			name: "no connected peers",
-			statuses: map[string]routerPeerStatus{
+			statuses: map[route.ID]routerPeerStatus{
 				"route1": {
 					connected: false,
 					relayed:   false,
 					direct:    false,
 				},
 			},
-			existingRoutes: map[string]*route.Route{
+			existingRoutes: map[route.ID]*route.Route{
 				"route1": {
 					ID:     "route1",
 					Metric: route.MaxMetric,
@@ -95,7 +95,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 		},
 		{
 			name: "multiple connected peers with different metrics",
-			statuses: map[string]routerPeerStatus{
+			statuses: map[route.ID]routerPeerStatus{
 				"route1": {
 					connected: true,
 					relayed:   false,
@@ -107,7 +107,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					direct:    true,
 				},
 			},
-			existingRoutes: map[string]*route.Route{
+			existingRoutes: map[route.ID]*route.Route{
 				"route1": {
 					ID:     "route1",
 					Metric: 9000,
@@ -124,7 +124,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 		},
 		{
 			name: "multiple connected peers with one relayed",
-			statuses: map[string]routerPeerStatus{
+			statuses: map[route.ID]routerPeerStatus{
 				"route1": {
 					connected: true,
 					relayed:   false,
@@ -136,7 +136,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					direct:    true,
 				},
 			},
-			existingRoutes: map[string]*route.Route{
+			existingRoutes: map[route.ID]*route.Route{
 				"route1": {
 					ID:     "route1",
 					Metric: route.MaxMetric,
@@ -153,7 +153,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 		},
 		{
 			name: "multiple connected peers with one direct",
-			statuses: map[string]routerPeerStatus{
+			statuses: map[route.ID]routerPeerStatus{
 				"route1": {
 					connected: true,
 					relayed:   false,
@@ -165,7 +165,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					direct:    false,
 				},
 			},
-			existingRoutes: map[string]*route.Route{
+			existingRoutes: map[route.ID]*route.Route{
 				"route1": {
 					ID:     "route1",
 					Metric: route.MaxMetric,
@@ -182,7 +182,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 		},
 		{
 			name: "multiple connected peers with different latencies",
-			statuses: map[string]routerPeerStatus{
+			statuses: map[route.ID]routerPeerStatus{
 				"route1": {
 					connected: true,
 					latency:   300 * time.Millisecond,
@@ -192,7 +192,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					latency:   10 * time.Millisecond,
 				},
 			},
-			existingRoutes: map[string]*route.Route{
+			existingRoutes: map[route.ID]*route.Route{
 				"route1": {
 					ID:     "route1",
 					Metric: route.MaxMetric,
@@ -209,7 +209,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 		},
 		{
 			name: "should ignore routes with latency 0",
-			statuses: map[string]routerPeerStatus{
+			statuses: map[route.ID]routerPeerStatus{
 				"route1": {
 					connected: true,
 					latency:   0 * time.Millisecond,
@@ -219,7 +219,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					latency:   10 * time.Millisecond,
 				},
 			},
-			existingRoutes: map[string]*route.Route{
+			existingRoutes: map[route.ID]*route.Route{
 				"route1": {
 					ID:     "route1",
 					Metric: route.MaxMetric,
@@ -236,7 +236,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 		},
 		{
 			name: "current route with similar score and similar but slightly worse latency should not change",
-			statuses: map[string]routerPeerStatus{
+			statuses: map[route.ID]routerPeerStatus{
 				"route1": {
 					connected: true,
 					relayed:   false,
@@ -250,7 +250,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					latency:   10 * time.Millisecond,
 				},
 			},
-			existingRoutes: map[string]*route.Route{
+			existingRoutes: map[route.ID]*route.Route{
 				"route1": {
 					ID:     "route1",
 					Metric: route.MaxMetric,
@@ -267,7 +267,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 		},
 		{
 			name: "current route with bad score should be changed to route with better score",
-			statuses: map[string]routerPeerStatus{
+			statuses: map[route.ID]routerPeerStatus{
 				"route1": {
 					connected: true,
 					relayed:   false,
@@ -281,7 +281,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					latency:   10 * time.Millisecond,
 				},
 			},
-			existingRoutes: map[string]*route.Route{
+			existingRoutes: map[route.ID]*route.Route{
 				"route1": {
 					ID:     "route1",
 					Metric: route.MaxMetric,
@@ -298,7 +298,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 		},
 		{
 			name: "current chosen route doesn't exist anymore",
-			statuses: map[string]routerPeerStatus{
+			statuses: map[route.ID]routerPeerStatus{
 				"route1": {
 					connected: true,
 					relayed:   false,
@@ -312,7 +312,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 					latency:   10 * time.Millisecond,
 				},
 			},
-			existingRoutes: map[string]*route.Route{
+			existingRoutes: map[route.ID]*route.Route{
 				"route1": {
 					ID:     "route1",
 					Metric: route.MaxMetric,
