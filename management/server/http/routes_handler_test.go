@@ -82,7 +82,7 @@ var testingAccount = &server.Account{
 func initRoutesTestData() *RoutesHandler {
 	return &RoutesHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetRouteFunc: func(_, routeID, _ string) (*route.Route, error) {
+			GetRouteFunc: func(_ string, routeID route.ID, _ string) (*route.Route, error) {
 				if routeID == existingRouteID {
 					return baseExistingRoute, nil
 				}
@@ -93,7 +93,7 @@ func initRoutesTestData() *RoutesHandler {
 				}
 				return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 			},
-			CreateRouteFunc: func(accountID, network, peerID string, peerGroups []string, description, netID string, masquerade bool, metric int, groups []string, enabled bool, _ string) (*route.Route, error) {
+			CreateRouteFunc: func(accountID, network, peerID string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, _ string) (*route.Route, error) {
 				if peerID == notFoundPeerID {
 					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
 				}
@@ -120,7 +120,7 @@ func initRoutesTestData() *RoutesHandler {
 				}
 				return nil
 			},
-			DeleteRouteFunc: func(_ string, routeID string, _ string) error {
+			DeleteRouteFunc: func(_ string, routeID route.ID, _ string) error {
 				if routeID != existingRouteID {
 					return status.Errorf(status.NotFound, "Peer with ID %s not found", routeID)
 				}

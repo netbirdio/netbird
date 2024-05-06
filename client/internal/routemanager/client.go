@@ -33,7 +33,7 @@ type clientNetwork struct {
 	stop                context.CancelFunc
 	statusRecorder      *peer.Status
 	wgInterface         *iface.WGIface
-	routes              map[string]*route.Route
+	routes              map[route.ID]*route.Route
 	routeUpdate         chan routesUpdate
 	peerStateUpdate     chan struct{}
 	routePeersNotifiers map[string]chan struct{}
@@ -50,7 +50,7 @@ func newClientNetworkWatcher(ctx context.Context, wgInterface *iface.WGIface, st
 		stop:                cancel,
 		statusRecorder:      statusRecorder,
 		wgInterface:         wgInterface,
-		routes:              make(map[string]*route.Route),
+		routes:              make(map[route.ID]*route.Route),
 		routePeersNotifiers: make(map[string]chan struct{}),
 		routeUpdate:         make(chan routesUpdate),
 		peerStateUpdate:     make(chan struct{}),
@@ -59,8 +59,8 @@ func newClientNetworkWatcher(ctx context.Context, wgInterface *iface.WGIface, st
 	return client
 }
 
-func (c *clientNetwork) getRouterPeerStatuses() map[string]routerPeerStatus {
-	routePeerStatuses := make(map[string]routerPeerStatus)
+func (c *clientNetwork) getRouterPeerStatuses() map[route.ID]routerPeerStatus {
+	routePeerStatuses := make(map[route.ID]routerPeerStatus)
 	for _, r := range c.routes {
 		peerStatus, err := c.statusRecorder.GetPeer(r.Peer)
 		if err != nil {
@@ -90,12 +90,12 @@ func (c *clientNetwork) getRouterPeerStatuses() map[string]routerPeerStatus {
 // * Latency: Routes with lower latency are prioritized.
 //
 // It returns the ID of the selected optimal route.
-func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]routerPeerStatus) string {
-	chosen := ""
+func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]routerPeerStatus) route.ID {
+	chosen := route.ID("")
 	chosenScore := float64(0)
 	currScore := float64(0)
 
-	currID := ""
+	currID := route.ID("")
 	if c.chosenRoute != nil {
 		currID = c.chosenRoute.ID
 	}
@@ -153,15 +153,16 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 
 		log.Warnf("the network %s has not been assigned a routing peer as no peers from the list %s are currently connected", c.network, peers)
 	case chosen != currID:
+		// we compare the current score + 10ms to the chosen score to avoid flapping between routes
 		if currScore != 0 && currScore+0.01 > chosenScore {
+			log.Debugf("keeping current routing peer because the score difference with latency is less than 0.01(10ms), current: %f, new: %f", currScore, chosenScore)
 			return currID
-		} else {
-			var peer string
-			if route := c.routes[chosen]; route != nil {
-				peer = route.Peer
-			}
-			log.Infof("new chosen route is %s with peer %s with score %f for network %s", chosen, peer, chosenScore, c.network)
 		}
+		var p string
+		if rt := c.routes[chosen]; rt != nil {
+			p = rt.Peer
+		}
+		log.Infof("new chosen route is %s with peer %s with score %f for network %s", chosen, p, chosenScore, c.network)
 	}
 
 	return chosen
@@ -267,11 +268,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 		}
 	}
 
-	if chosenRoute, ok := c.routes[chosen]; ok {
-		c.chosenRoute = chosenRoute
-	} else {
-		return fmt.Errorf("chosen route %s not found in routes", chosen)
-	}
+	c.chosenRoute = c.routes[chosen]
 
 	state, err := c.statusRecorder.GetPeer(c.chosenRoute.Peer)
 	if err != nil {
@@ -298,7 +295,7 @@ func (c *clientNetwork) sendUpdateToClientNetworkWatcher(update routesUpdate) {
 }
 
 func (c *clientNetwork) handleUpdate(update routesUpdate) {
-	updateMap := make(map[string]*route.Route)
+	updateMap := make(map[route.ID]*route.Route)
 
 	for _, r := range update.routes {
 		updateMap[r.ID] = r

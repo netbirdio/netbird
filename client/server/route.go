@@ -9,10 +9,11 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/route"
 )
 
 type selectRoute struct {
-	NetID    string
+	NetID    route.NetID
 	Network  netip.Prefix
 	Selected bool
 }
@@ -60,7 +61,7 @@ func (s *Server) ListRoutes(ctx context.Context, req *proto.ListRoutesRequest) (
 	var pbRoutes []*proto.Route
 	for _, route := range routes {
 		pbRoutes = append(pbRoutes, &proto.Route{
-			ID:       route.NetID,
+			ID:       string(route.NetID),
 			Network:  route.Network.String(),
 			Selected: route.Selected,
 		})
@@ -81,7 +82,8 @@ func (s *Server) SelectRoutes(_ context.Context, req *proto.SelectRoutesRequest)
 	if req.GetAll() {
 		routeSelector.SelectAllRoutes()
 	} else {
-		if err := routeSelector.SelectRoutes(req.GetRouteIDs(), req.GetAppend(), maps.Keys(s.engine.GetClientRoutesWithNetID())); err != nil {
+		routes := toNetIDs(req.GetRouteIDs())
+		if err := routeSelector.SelectRoutes(routes, req.GetAppend(), maps.Keys(s.engine.GetClientRoutesWithNetID())); err != nil {
 			return nil, fmt.Errorf("select routes: %w", err)
 		}
 	}
@@ -100,11 +102,20 @@ func (s *Server) DeselectRoutes(_ context.Context, req *proto.SelectRoutesReques
 	if req.GetAll() {
 		routeSelector.DeselectAllRoutes()
 	} else {
-		if err := routeSelector.DeselectRoutes(req.GetRouteIDs(), maps.Keys(s.engine.GetClientRoutesWithNetID())); err != nil {
+		routes := toNetIDs(req.GetRouteIDs())
+		if err := routeSelector.DeselectRoutes(routes, maps.Keys(s.engine.GetClientRoutesWithNetID())); err != nil {
 			return nil, fmt.Errorf("deselect routes: %w", err)
 		}
 	}
 	routeManager.TriggerSelection(s.engine.GetClientRoutes())
 
 	return &proto.SelectRoutesResponse{}, nil
+}
+
+func toNetIDs(routes []string) []route.NetID {
+	var netIDs []route.NetID
+	for _, rt := range routes {
+		netIDs = append(netIDs, route.NetID(rt))
+	}
+	return netIDs
 }
