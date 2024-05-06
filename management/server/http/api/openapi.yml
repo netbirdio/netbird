@@ -335,7 +335,7 @@ components:
               $ref: '#/components/schemas/CountryCode'
             city_name:
               $ref: '#/components/schemas/CityName'
-            system_serial:
+            serial_number:
               description: System serial number
               type: string
               example: "C02XJ0J0JGH7"
@@ -360,7 +360,7 @@ components:
             - version
             - ui_version
             - approval_required
-            - system_serial
+            - serial_number
     AccessiblePeer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'

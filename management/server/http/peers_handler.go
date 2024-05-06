@@ -308,7 +308,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		ApprovalRequired:       !approved,
 		CountryCode:            peer.Location.CountryCode,
 		CityName:               peer.Location.CityName,
-		SystemSerial:           peer.Meta.SystemSerialNumber,
+		SerialNumber:           peer.Meta.SystemSerialNumber,
 	}
 }
 
@@ -341,7 +341,7 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		AccessiblePeersCount:   accessiblePeersCount,
 		CountryCode:            peer.Location.CountryCode,
 		CityName:               peer.Location.CityName,
-		SystemSerial:           peer.Meta.SystemSerialNumber,
+		SerialNumber:           peer.Meta.SystemSerialNumber,
 	}
 }
 
