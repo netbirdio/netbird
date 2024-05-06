@@ -112,7 +112,7 @@ type Engine struct {
 	TURNs []*stun.URI
 
 	// clientRoutes is the most recent list of clientRoutes received from the Management Service
-	clientRoutes map[string][]*route.Route
+	clientRoutes route.HAMap
 
 	cancel context.CancelFunc
 
@@ -736,9 +736,9 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 	for _, protoRoute := range protoRoutes {
 		_, prefix, _ := route.ParseNetwork(protoRoute.Network)
 		convertedRoute := &route.Route{
-			ID:          protoRoute.ID,
+			ID:          route.ID(protoRoute.ID),
 			Network:     prefix,
-			NetID:       protoRoute.NetID,
+			NetID:       route.NetID(protoRoute.NetID),
 			NetworkType: route.NetworkType(protoRoute.NetworkType),
 			Peer:        protoRoute.Peer,
 			Metric:      int(protoRoute.Metric),
@@ -1238,18 +1238,15 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 }
 
 // GetClientRoutes returns the current routes from the route map
-func (e *Engine) GetClientRoutes() map[string][]*route.Route {
+func (e *Engine) GetClientRoutes() route.HAMap {
 	return e.clientRoutes
 }
 
 // GetClientRoutesWithNetID returns the current routes from the route map, but the keys consist of the network ID only
-func (e *Engine) GetClientRoutesWithNetID() map[string][]*route.Route {
-	routes := make(map[string][]*route.Route, len(e.clientRoutes))
+func (e *Engine) GetClientRoutesWithNetID() map[route.NetID][]*route.Route {
+	routes := make(map[route.NetID][]*route.Route, len(e.clientRoutes))
 	for id, v := range e.clientRoutes {
-		if i := strings.LastIndex(id, "-"); i != -1 {
-			id = id[:i]
-		}
-		routes[id] = v
+		routes[id.NetID()] = v
 	}
 	return routes
 }

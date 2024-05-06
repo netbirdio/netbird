@@ -107,7 +107,7 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 
 	newRoute, err := h.accountManager.CreateRoute(
 		account.Id, newPrefix.String(), peerId, peerGroupIds,
-		req.Description, req.NetworkId, req.Masquerade, req.Metric, req.Groups, req.Enabled, user.Id,
+		req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, req.Enabled, user.Id,
 	)
 	if err != nil {
 		util.WriteError(err, w)
@@ -135,7 +135,7 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = h.accountManager.GetRoute(account.Id, routeID, user.Id)
+	_, err = h.accountManager.GetRoute(account.Id, route.ID(routeID), user.Id)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -185,9 +185,9 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newRoute := &route.Route{
-		ID:          routeID,
+		ID:          route.ID(routeID),
 		Network:     newPrefix,
-		NetID:       req.NetworkId,
+		NetID:       route.NetID(req.NetworkId),
 		NetworkType: prefixType,
 		Masquerade:  req.Masquerade,
 		Metric:      req.Metric,
@@ -230,7 +230,7 @@ func (h *RoutesHandler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.DeleteRoute(account.Id, routeID, user.Id)
+	err = h.accountManager.DeleteRoute(account.Id, route.ID(routeID), user.Id)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -254,7 +254,7 @@ func (h *RoutesHandler) GetRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	foundRoute, err := h.accountManager.GetRoute(account.Id, routeID, user.Id)
+	foundRoute, err := h.accountManager.GetRoute(account.Id, route.ID(routeID), user.Id)
 	if err != nil {
 		util.WriteError(status.Errorf(status.NotFound, "route not found"), w)
 		return
@@ -265,9 +265,9 @@ func (h *RoutesHandler) GetRoute(w http.ResponseWriter, r *http.Request) {
 
 func toRouteResponse(serverRoute *route.Route) *api.Route {
 	route := &api.Route{
-		Id:          serverRoute.ID,
+		Id:          string(serverRoute.ID),
 		Description: serverRoute.Description,
-		NetworkId:   serverRoute.NetID,
+		NetworkId:   string(serverRoute.NetID),
 		Enabled:     serverRoute.Enabled,
 		Peer:        &serverRoute.Peer,
 		Network:     serverRoute.Network.String(),

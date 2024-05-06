@@ -451,7 +451,7 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 	}
 	account.GroupsG = nil
 
-	account.Routes = make(map[string]*route.Route, len(account.RoutesG))
+	account.Routes = make(map[route.ID]*route.Route, len(account.RoutesG))
 	for _, route := range account.RoutesG {
 		account.Routes[route.ID] = route.Copy()
 	}
