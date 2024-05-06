@@ -276,7 +276,8 @@ func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
 	defer cancel()
 	resp, err := c.realClient.GetServerKey(mgmCtx, &proto.Empty{})
 	if err != nil {
-		return nil, err
+		log.Errorf("failed while getting Management Service public key: %v", err)
+		return nil, fmt.Errorf("failed while getting Management Service public key")
 	}
 
 	serverKey, err := wgtypes.ParseKey(resp.Key)
