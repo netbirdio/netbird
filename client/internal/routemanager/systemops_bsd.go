@@ -12,20 +12,6 @@ import (
 	"golang.org/x/net/route"
 )
 
-// selected BSD Route flags.
-const (
-	RTF_UP        = 0x1
-	RTF_GATEWAY   = 0x2
-	RTF_HOST      = 0x4
-	RTF_REJECT    = 0x8
-	RTF_DYNAMIC   = 0x10
-	RTF_MODIFIED  = 0x20
-	RTF_STATIC    = 0x800
-	RTF_BLACKHOLE = 0x1000
-	RTF_LOCAL     = 0x200000
-	RTF_BROADCAST = 0x400000
-	RTF_MULTICAST = 0x800000
-)
 
 func getRoutesFromTable() ([]netip.Prefix, error) {
 	tab, err := route.FetchRIB(syscall.AF_UNSPEC, route.RIBTypeRoute, 0)
@@ -47,8 +33,8 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 			return nil, fmt.Errorf("unexpected RIB message type: %d", m.Type)
 		}
 
-		if m.Flags&RTF_UP == 0 ||
-			m.Flags&(RTF_REJECT|RTF_BLACKHOLE) != 0 {
+		if m.Flags&syscall.RTF_UP == 0 ||
+			m.Flags&(syscall.RTF_REJECT|syscall.RTF_BLACKHOLE|syscall.RTF_WASCLONED) != 0 {
 			continue
 		}
 

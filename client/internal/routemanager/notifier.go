@@ -36,7 +36,7 @@ func (n *notifier) setInitialClientRoutes(clientRoutes []*route.Route) {
 	n.initialRouteRanges = nets
 }
 
-func (n *notifier) onNewRoutes(idMap map[string][]*route.Route) {
+func (n *notifier) onNewRoutes(idMap route.HAMap) {
 	newNets := make([]string, 0)
 	for _, routes := range idMap {
 		for _, r := range routes {

@@ -150,7 +150,7 @@ func (s *SqliteStore) reload() error {
 
 		log.Infof("Successfully reloaded '%s'", s.filePath)
 	} else {
-		log.Debugf("No changes in '%s', no need to reload", s.filePath)
+		log.Tracef("No changes in '%s', no need to reload", s.filePath)
 	}
 
 	return nil
