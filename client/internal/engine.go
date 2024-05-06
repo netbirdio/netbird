@@ -1246,9 +1246,6 @@ func (e *Engine) GetClientRoutes() route.HAMap {
 func (e *Engine) GetClientRoutesWithNetID() map[route.NetID][]*route.Route {
 	routes := make(map[route.NetID][]*route.Route, len(e.clientRoutes))
 	for id, v := range e.clientRoutes {
-		if i := strings.LastIndex(string(id), "-"); i != -1 {
-			id = id[:i]
-		}
 		routes[id.NetID()] = v
 	}
 	return routes
