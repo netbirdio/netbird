@@ -519,14 +519,28 @@ func TestMigrate(t *testing.T) {
 		Net net.IPNet `gorm:"serializer:gob"`
 	}
 
+	type location struct {
+		nbpeer.Location
+		ConnectionIP net.IP
+	}
+
+	type peer struct {
+		nbpeer.Peer
+		Location location `gorm:"embedded;embeddedPrefix:location_"`
+	}
+
 	type account struct {
 		Account
 		Network *network `gorm:"embedded;embeddedPrefix:network_"`
+		Peers   []peer   `gorm:"foreignKey:AccountID;references:id"`
 	}
 
 	act := &account{
 		Network: &network{
 			Net: *ipnet,
+		},
+		Peers: []peer{
+			{Location: location{ConnectionIP: net.IP{10, 0, 0, 1}}},
 		},
 	}
 
