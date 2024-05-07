@@ -3,6 +3,7 @@
 package routemanager
 
 import (
+	"net"
 	"net/netip"
 	"runtime"
 
@@ -14,10 +15,10 @@ func enableIPForwarding() error {
 	return nil
 }
 
-func addVPNRoute(prefix netip.Prefix, intf string) error {
+func addVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	return genericAddVPNRoute(prefix, intf)
 }
 
-func removeVPNRoute(prefix netip.Prefix, intf string) error {
+func removeVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	return genericRemoveVPNRoute(prefix, intf)
 }

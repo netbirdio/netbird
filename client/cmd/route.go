@@ -1,11 +1,9 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/proto"
@@ -130,15 +128,4 @@ func routesDeselect(cmd *cobra.Command, args []string) error {
 	cmd.Println("Routes deselected successfully.")
 
 	return nil
-}
-
-func getClient(ctx context.Context) (*grpc.ClientConn, error) {
-	conn, err := DialClientGRPCServer(ctx, daemonAddr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
-	}
-
-	return conn, nil
 }

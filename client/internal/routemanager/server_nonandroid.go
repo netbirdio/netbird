@@ -19,7 +19,7 @@ import (
 type defaultServerRouter struct {
 	mux            sync.Mutex
 	ctx            context.Context
-	routes         map[string]*route.Route
+	routes         map[route.ID]*route.Route
 	firewall       firewall.Manager
 	wgInterface    *iface.WGIface
 	statusRecorder *peer.Status
@@ -28,15 +28,15 @@ type defaultServerRouter struct {
 func newServerRouter(ctx context.Context, wgInterface *iface.WGIface, firewall firewall.Manager, statusRecorder *peer.Status) (serverRouter, error) {
 	return &defaultServerRouter{
 		ctx:            ctx,
-		routes:         make(map[string]*route.Route),
+		routes:         make(map[route.ID]*route.Route),
 		firewall:       firewall,
 		wgInterface:    wgInterface,
 		statusRecorder: statusRecorder,
 	}, nil
 }
 
-func (m *defaultServerRouter) updateRoutes(routesMap map[string]*route.Route) error {
-	serverRoutesToRemove := make([]string, 0)
+func (m *defaultServerRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
+	serverRoutesToRemove := make([]route.ID, 0)
 
 	for routeID := range m.routes {
 		update, found := routesMap[routeID]
@@ -168,7 +168,7 @@ func routeToRouterPair(source string, route *route.Route) (firewall.RouterPair, 
 		return firewall.RouterPair{}, err
 	}
 	return firewall.RouterPair{
-		ID:          route.ID,
+		ID:          string(route.ID),
 		Source:      parsed.String(),
 		Destination: route.Network.Masked().String(),
 		Masquerade:  route.Masquerade,

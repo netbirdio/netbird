@@ -242,7 +242,7 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 	for _, r := range account.Routes {
 		for _, g := range r.Groups {
 			if g == groupID {
-				return &GroupLinkError{"route", r.NetID}
+				return &GroupLinkError{"route", string(r.NetID)}
 			}
 		}
 	}

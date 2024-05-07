@@ -1408,7 +1408,7 @@ func TestFileStore_GetRoutesByPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	account := &Account{
-		Routes: map[string]*route.Route{
+		Routes: map[route.ID]*route.Route{
 			"route-1": {
 				ID:          "route-1",
 				Network:     prefix,
@@ -1437,12 +1437,12 @@ func TestFileStore_GetRoutesByPrefix(t *testing.T) {
 	routes := account.GetRoutesByPrefix(prefix)
 
 	assert.Len(t, routes, 2)
-	routeIDs := make(map[string]struct{}, 2)
+	routeIDs := make(map[route.ID]struct{}, 2)
 	for _, r := range routes {
 		routeIDs[r.ID] = struct{}{}
 	}
-	assert.Contains(t, routeIDs, "route-1")
-	assert.Contains(t, routeIDs, "route-2")
+	assert.Contains(t, routeIDs, route.ID("route-1"))
+	assert.Contains(t, routeIDs, route.ID("route-2"))
 }
 
 func TestAccount_GetRoutesToSync(t *testing.T) {
@@ -1459,7 +1459,7 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 			"peer-1": {Key: "peer-1", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}}, "peer-2": {Key: "peer-2", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}}, "peer-3": {Key: "peer-1", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}},
 		},
 		Groups: map[string]*group.Group{"group1": {ID: "group1", Peers: []string{"peer-1", "peer-2"}}},
-		Routes: map[string]*route.Route{
+		Routes: map[route.ID]*route.Route{
 			"route-1": {
 				ID:          "route-1",
 				Network:     prefix,
@@ -1502,12 +1502,12 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 	routes := account.getRoutesToSync("peer-2", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-3"}})
 
 	assert.Len(t, routes, 2)
-	routeIDs := make(map[string]struct{}, 2)
+	routeIDs := make(map[route.ID]struct{}, 2)
 	for _, r := range routes {
 		routeIDs[r.ID] = struct{}{}
 	}
-	assert.Contains(t, routeIDs, "route-2")
-	assert.Contains(t, routeIDs, "route-3")
+	assert.Contains(t, routeIDs, route.ID("route-2"))
+	assert.Contains(t, routeIDs, route.ID("route-3"))
 
 	emptyRoutes := account.getRoutesToSync("peer-3", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-2"}})
 
@@ -1573,7 +1573,7 @@ func TestAccount_Copy(t *testing.T) {
 				SourcePostureChecks: make([]string, 0),
 			},
 		},
-		Routes: map[string]*route.Route{
+		Routes: map[route.ID]*route.Route{
 			"route1": {
 				ID:         "route1",
 				PeerGroups: []string{},

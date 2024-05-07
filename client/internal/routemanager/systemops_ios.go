@@ -24,10 +24,10 @@ func enableIPForwarding() error {
 	return nil
 }
 
-func addVPNRoute(netip.Prefix, string) error {
+func addVPNRoute(netip.Prefix, *net.Interface) error {
 	return nil
 }
 
-func removeVPNRoute(netip.Prefix, string) error {
+func removeVPNRoute(netip.Prefix, *net.Interface) error {
 	return nil
 }

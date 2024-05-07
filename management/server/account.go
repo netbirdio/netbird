@@ -101,10 +101,10 @@ type AccountManager interface {
 	SavePolicy(accountID, userID string, policy *Policy) error
 	DeletePolicy(accountID, policyID, userID string) error
 	ListPolicies(accountID, userID string) ([]*Policy, error)
-	GetRoute(accountID, routeID, userID string) (*route.Route, error)
-	CreateRoute(accountID, prefix, peerID string, peerGroupIDs []string, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
+	GetRoute(accountID string, routeID route.ID, userID string) (*route.Route, error)
+	CreateRoute(accountID, prefix, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
 	SaveRoute(accountID, userID string, route *route.Route) error
-	DeleteRoute(accountID, routeID, userID string) error
+	DeleteRoute(accountID string, routeID route.ID, userID string) error
 	ListRoutes(accountID, userID string) ([]*route.Route, error)
 	GetNameServerGroup(accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error)
 	CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainsEnabled bool) (*nbdns.NameServerGroup, error)
@@ -232,7 +232,7 @@ type Account struct {
 	Groups                 map[string]*nbgroup.Group         `gorm:"-"`
 	GroupsG                []nbgroup.Group                   `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
-	Routes                 map[string]*route.Route           `gorm:"-"`
+	Routes                 map[route.ID]*route.Route         `gorm:"-"`
 	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	NameServerGroups       map[string]*nbdns.NameServerGroup `gorm:"-"`
 	NameServerGroupsG      []nbdns.NameServerGroup           `json:"-" gorm:"foreignKey:AccountID;references:id"`
@@ -269,7 +269,7 @@ func (a *Account) getRoutesToSync(peerID string, aclPeers []*nbpeer.Peer) []*rou
 	routes, peerDisabledRoutes := a.getRoutingPeerRoutes(peerID)
 	peerRoutesMembership := make(lookupMap)
 	for _, r := range append(routes, peerDisabledRoutes...) {
-		peerRoutesMembership[route.GetHAUniqueID(r)] = struct{}{}
+		peerRoutesMembership[string(route.GetHAUniqueID(r))] = struct{}{}
 	}
 
 	groupListMap := a.getPeerGroups(peerID)
@@ -287,7 +287,7 @@ func (a *Account) getRoutesToSync(peerID string, aclPeers []*nbpeer.Peer) []*rou
 func (a *Account) filterRoutesFromPeersOfSameHAGroup(routes []*route.Route, peerMemberships lookupMap) []*route.Route {
 	var filteredRoutes []*route.Route
 	for _, r := range routes {
-		_, found := peerMemberships[route.GetHAUniqueID(r)]
+		_, found := peerMemberships[string(route.GetHAUniqueID(r))]
 		if !found {
 			filteredRoutes = append(filteredRoutes, r)
 		}
@@ -326,7 +326,7 @@ func (a *Account) getRoutingPeerRoutes(peerID string) (enabledRoutes []*route.Ro
 		return enabledRoutes, disabledRoutes
 	}
 
-	seenRoute := make(map[string]struct{})
+	seenRoute := make(map[route.ID]struct{})
 
 	takeRoute := func(r *route.Route, id string) {
 		if _, ok := seenRoute[r.ID]; ok {
@@ -357,7 +357,7 @@ func (a *Account) getRoutingPeerRoutes(peerID string) (enabledRoutes []*route.Ro
 				newPeerRoute := r.Copy()
 				newPeerRoute.Peer = id
 				newPeerRoute.PeerGroups = nil
-				newPeerRoute.ID = r.ID + ":" + id // we have to provide unique route id when distribute network map
+				newPeerRoute.ID = route.ID(string(r.ID) + ":" + id) // we have to provide unique route id when distribute network map
 				takeRoute(newPeerRoute, id)
 				break
 			}
@@ -698,7 +698,7 @@ func (a *Account) Copy() *Account {
 		policies = append(policies, policy.Copy())
 	}
 
-	routes := map[string]*route.Route{}
+	routes := map[route.ID]*route.Route{}
 	for id, r := range a.Routes {
 		routes[id] = r.Copy()
 	}
@@ -2001,7 +2001,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 	network := NewNetwork()
 	peers := make(map[string]*nbpeer.Peer)
 	users := make(map[string]*User)
-	routes := make(map[string]*route.Route)
+	routes := make(map[route.ID]*route.Route)
 	setupKeys := map[string]*SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
 	users[userID] = NewOwnerUser(userID)

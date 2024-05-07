@@ -833,6 +833,10 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) {
 		return
 	}
 	for _, peer := range peers {
+		if !am.peersUpdateManager.HasChannel(peer.ID) {
+			log.Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
+			continue
+		}
 		remotePeerNetworkMap := account.GetPeerNetworkMap(peer.ID, am.dnsDomain, approvedPeersMap)
 		update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain())
 		am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})
