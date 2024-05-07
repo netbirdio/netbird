@@ -56,7 +56,7 @@ func (am *DefaultAccountManager) checkRoutePrefixExistsForPeers(account *Account
 		}
 
 		if prefixRoute.Peer != "" {
-			seenPeers[prefixRoute.ID] = true
+			seenPeers[string(prefixRoute.ID)] = true
 		}
 		for _, groupID := range prefixRoute.PeerGroups {
 			seenPeerGroups[groupID] = true
