@@ -579,7 +579,7 @@ func newSqliteStore(t *testing.T) *SqlStore {
 	return store
 }
 
-func newSqliteStoreFromFile(t *testing.T, filename string) Store {
+func newSqliteStoreFromFile(t *testing.T, filename string) *SqlStore {
 	t.Helper()
 
 	storeDir := t.TempDir()

@@ -4,14 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -126,47 +122,4 @@ func NewStoreFromJson(dataDir string, metrics telemetry.AppMetrics) (Store, erro
 	default:
 		return NewSqliteStoreFromFileStore(fstore, dataDir, metrics)
 	}
-}
-
-// NewSqliteStore creates a new SQLite store.
-func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	storeStr := "store.db?cache=shared"
-	if runtime.GOOS == "windows" {
-		// Vo avoid `The process cannot access the file because it is being used by another process` on Windows
-		storeStr = "store.db"
-	}
-
-	file := filepath.Join(dataDir, storeStr)
-	db, err := gorm.Open(sqlite.Open(file), &gorm.Config{
-		Logger:          logger.Default.LogMode(logger.Silent),
-		CreateBatchSize: 400,
-		PrepareStmt:     true,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return NewSqlStore(db, SqliteStoreEngine, metrics)
-}
-
-// NewSqliteStoreFromFileStore restores a store from FileStore and stores SQLite DB in the file located in datadir.
-func NewSqliteStoreFromFileStore(fileStore *FileStore, dataDir string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	store, err := NewSqliteStore(dataDir, metrics)
-	if err != nil {
-		return nil, err
-	}
-
-	err = store.SaveInstallationID(fileStore.InstallationID)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, account := range fileStore.GetAllAccounts() {
-		err := store.SaveAccount(account)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return store, nil
 }
