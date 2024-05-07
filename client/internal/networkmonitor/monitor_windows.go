@@ -9,7 +9,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/internal/routemanager"
+	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
 
 const (
@@ -26,7 +26,7 @@ const (
 const interval = 10 * time.Second
 
 func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interface, nexthopv6 netip.Addr, intfv6 *net.Interface, callback func()) error {
-	var neighborv4, neighborv6 *routemanager.Neighbor
+	var neighborv4, neighborv6 *systemops.Neighbor
 	{
 		initialNeighbors, err := getNeighbors()
 		if err != nil {
@@ -61,10 +61,10 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 func changed(
 	nexthopv4 netip.Addr,
 	intfv4 *net.Interface,
-	neighborv4 *routemanager.Neighbor,
+	neighborv4 *systemops.Neighbor,
 	nexthopv6 netip.Addr,
 	intfv6 *net.Interface,
-	neighborv6 *routemanager.Neighbor,
+	neighborv6 *systemops.Neighbor,
 ) bool {
 	neighbors, err := getNeighbors()
 	if err != nil {
@@ -89,7 +89,7 @@ func changed(
 }
 
 // routeChanged checks if the default routes still point to our nexthop/interface
-func routeChanged(nexthop netip.Addr, intf *net.Interface, routes map[netip.Prefix]routemanager.Route) bool {
+func routeChanged(nexthop netip.Addr, intf *net.Interface, routes map[netip.Prefix]systemops.Route) bool {
 	if !nexthop.IsValid() {
 		return false
 	}
@@ -119,7 +119,7 @@ func routeChanged(nexthop netip.Addr, intf *net.Interface, routes map[netip.Pref
 
 }
 
-func neighborChanged(nexthop netip.Addr, neighbor *routemanager.Neighbor, neighbors map[netip.Addr]routemanager.Neighbor) bool {
+func neighborChanged(nexthop netip.Addr, neighbor *systemops.Neighbor, neighbors map[netip.Addr]systemops.Neighbor) bool {
 	if neighbor == nil {
 		return false
 	}
@@ -150,13 +150,13 @@ func neighborChanged(nexthop netip.Addr, neighbor *routemanager.Neighbor, neighb
 	return false
 }
 
-func getNeighbors() (map[netip.Addr]routemanager.Neighbor, error) {
-	entries, err := routemanager.GetNeighbors()
+func getNeighbors() (map[netip.Addr]systemops.Neighbor, error) {
+	entries, err := systemops.GetNeighbors()
 	if err != nil {
 		return nil, fmt.Errorf("get neighbors: %w", err)
 	}
 
-	neighbours := make(map[netip.Addr]routemanager.Neighbor, len(entries))
+	neighbours := make(map[netip.Addr]systemops.Neighbor, len(entries))
 	for _, entry := range entries {
 		neighbours[entry.IPAddress] = entry
 	}
@@ -164,13 +164,13 @@ func getNeighbors() (map[netip.Addr]routemanager.Neighbor, error) {
 	return neighbours, nil
 }
 
-func getRoutes() (map[netip.Prefix]routemanager.Route, error) {
-	entries, err := routemanager.GetRoutes()
+func getRoutes() (map[netip.Prefix]systemops.Route, error) {
+	entries, err := systemops.GetRoutes()
 	if err != nil {
 		return nil, fmt.Errorf("get routes: %w", err)
 	}
 
-	routes := make(map[netip.Prefix]routemanager.Route, len(entries))
+	routes := make(map[netip.Prefix]systemops.Route, len(entries))
 	for _, entry := range entries {
 		routes[entry.Destination] = entry
 	}

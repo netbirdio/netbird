@@ -14,7 +14,7 @@ import (
 	"golang.org/x/net/route"
 	"golang.org/x/sys/unix"
 
-	"github.com/netbirdio/netbird/client/internal/routemanager"
+	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
 
 func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interface, nexthopv6 netip.Addr, intfv6 *net.Interface, callback func()) error {
@@ -114,7 +114,7 @@ func parseInterfaceMessage(buf []byte) (*route.InterfaceMessage, error) {
 	return msg, nil
 }
 
-func parseRouteMessage(buf []byte) (*routemanager.Route, error) {
+func parseRouteMessage(buf []byte) (*systemops.Route, error) {
 	msgs, err := route.ParseRIB(route.RIBTypeRoute, buf)
 	if err != nil {
 		return nil, fmt.Errorf("parse RIB: %v", err)
@@ -129,5 +129,5 @@ func parseRouteMessage(buf []byte) (*routemanager.Route, error) {
 		return nil, fmt.Errorf("unexpected RIB message type: %T", msgs[0])
 	}
 
-	return routemanager.MsgToRoute(msg)
+	return systemops.MsgToRoute(msg)
 }
