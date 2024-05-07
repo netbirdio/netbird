@@ -28,6 +28,7 @@ type MockAccountManager struct {
 	ListUsersFunc                       func(accountID string) ([]*server.User, error)
 	GetPeersFunc                        func(accountID, userID string) ([]*nbpeer.Peer, error)
 	MarkPeerConnectedFunc               func(peerKey string, connected bool, realIP net.IP) error
+	SyncAndMarkPeerFunc                 func(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, error)
 	DeletePeerFunc                      func(accountID, peerKey, userID string) error
 	GetNetworkMapFunc                   func(peerKey string) (*server.NetworkMap, error)
 	GetPeerNetworkFunc                  func(peerKey string) (*server.Network, error)
@@ -82,7 +83,7 @@ type MockAccountManager struct {
 	GetPeerFunc                         func(accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettingsFunc           func(accountID, userID string, newSettings *server.Settings) (*server.Account, error)
 	LoginPeerFunc                       func(login server.PeerLogin) (*nbpeer.Peer, *server.NetworkMap, error)
-	SyncPeerFunc                        func(sync server.PeerSync) (*nbpeer.Peer, *server.NetworkMap, error)
+	SyncPeerFunc                        func(sync server.PeerSync, account *server.Account) (*nbpeer.Peer, *server.NetworkMap, error)
 	InviteUserFunc                      func(accountID string, initiatorUserID string, targetUserEmail string) error
 	GetAllConnectedPeersFunc            func() (map[string]struct{}, error)
 	HasConnectedChannelFunc             func(peerID string) bool
@@ -94,6 +95,18 @@ type MockAccountManager struct {
 	GetIdpManagerFunc                   func() idp.Manager
 	UpdateIntegratedValidatorGroupsFunc func(accountID string, userID string, groups []string) error
 	GroupValidationFunc                 func(accountId string, groups []string) (bool, error)
+}
+
+func (am *MockAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, error) {
+	if am.SyncAndMarkPeerFunc != nil {
+		return am.SyncAndMarkPeerFunc(peerPubKey, realIP)
+	}
+	return nil, nil, status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
+}
+
+func (am *MockAccountManager) CancelPeerRoutines(peer *nbpeer.Peer) error {
+	// TODO implement me
+	panic("implement me")
 }
 
 func (am *MockAccountManager) GetValidatedPeers(account *server.Account) (map[string]struct{}, error) {
@@ -180,7 +193,7 @@ func (am *MockAccountManager) GetAccountByUserOrAccountID(
 }
 
 // MarkPeerConnected mock implementation of MarkPeerConnected from server.AccountManager interface
-func (am *MockAccountManager) MarkPeerConnected(peerKey string, connected bool, realIP net.IP) error {
+func (am *MockAccountManager) MarkPeerConnected(peerKey string, connected bool, realIP net.IP, account *server.Account) error {
 	if am.MarkPeerConnectedFunc != nil {
 		return am.MarkPeerConnectedFunc(peerKey, connected, realIP)
 	}
@@ -626,9 +639,9 @@ func (am *MockAccountManager) LoginPeer(login server.PeerLogin) (*nbpeer.Peer, *
 }
 
 // SyncPeer mocks SyncPeer of the AccountManager interface
-func (am *MockAccountManager) SyncPeer(sync server.PeerSync) (*nbpeer.Peer, *server.NetworkMap, error) {
+func (am *MockAccountManager) SyncPeer(sync server.PeerSync, account *server.Account) (*nbpeer.Peer, *server.NetworkMap, error) {
 	if am.SyncPeerFunc != nil {
-		return am.SyncPeerFunc(sync)
+		return am.SyncPeerFunc(sync, account)
 	}
 	return nil, nil, status.Errorf(codes.Unimplemented, "method SyncPeer is not implemented")
 }
