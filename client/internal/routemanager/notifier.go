@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/route"
 )
@@ -45,7 +47,7 @@ func (n *notifier) onNewRoutes(idMap route.HAMap) {
 	}
 
 	sort.Strings(newNets)
-	if !n.hasDiff(n.initialRouteRanges, newNets) {
+	if !n.hasDiff(n.routeRanges, newNets) {
 		return
 	}
 
@@ -62,6 +64,7 @@ func (n *notifier) notify() {
 	}
 
 	go func(l listener.NetworkChangeListener) {
+		log.Debugf("Notifying network change: %s", strings.Join(addIPv6RangeIfNeeded(n.routeRanges), ","))
 		l.OnNetworkChanged(strings.Join(addIPv6RangeIfNeeded(n.routeRanges), ","))
 	}(n.listener)
 }

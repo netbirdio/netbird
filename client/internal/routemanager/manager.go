@@ -188,6 +188,7 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 		log.Debugf("sending routes to client %v", routes)
 		clientNetworkWatcher.sendUpdateToClientNetworkWatcher(routesUpdate{routes: routes})
 	}
+	m.notifier.onNewRoutes(networks)
 }
 
 // stopObsoleteClients stops the client network watcher for the networks that are not in the new list
