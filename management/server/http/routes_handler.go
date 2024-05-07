@@ -121,7 +121,21 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	newRoute, err := h.accountManager.CreateRoute(account.Id, newPrefix, networkType, domains, peerId, peerGroupIds, req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, req.Enabled, user.Id)
+	newRoute, err := h.accountManager.CreateRoute(
+		account.Id,
+		newPrefix,
+		networkType,
+		domains,
+		peerId,
+		peerGroupIds,
+		req.Description,
+		route.NetID(req.NetworkId),
+		req.Masquerade,
+		req.Metric,
+		req.Groups,
+		req.Enabled,
+		user.Id,
+	)
 	if err != nil {
 		util.WriteError(err, w)
 		return

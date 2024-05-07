@@ -15,7 +15,7 @@ import (
 
 // GetRoute gets a route object from account and route IDs
 func (am *DefaultAccountManager) GetRoute(accountID string, routeID route.ID, userID string) (*route.Route, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -116,7 +116,7 @@ func (am *DefaultAccountManager) checkRoutePrefixOrDomainsExistForPeers(account 
 
 // CreateRoute creates and saves a new route
 func (am *DefaultAccountManager) CreateRoute(accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -191,7 +191,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, prefix netip.Pref
 
 // SaveRoute saves route
 func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave *route.Route) error {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	if routeToSave == nil {
@@ -256,7 +256,7 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 
 // DeleteRoute deletes route with routeID
 func (am *DefaultAccountManager) DeleteRoute(accountID string, routeID route.ID, userID string) error {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -284,7 +284,7 @@ func (am *DefaultAccountManager) DeleteRoute(accountID string, routeID route.ID,
 
 // ListRoutes returns a list of routes from account
 func (am *DefaultAccountManager) ListRoutes(accountID, userID string) ([]*route.Route, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)

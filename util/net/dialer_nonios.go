@@ -1,4 +1,4 @@
-//go:build !android && !ios
+//go:build !ios
 
 package net
 
@@ -36,7 +36,7 @@ func AddDialerCloseHook(hook DialerCloseHookFunc) {
 	dialerCloseHooks = append(dialerCloseHooks, hook)
 }
 
-// RemoveDialerHook removes all dialer hooks.
+// RemoveDialerHooks removes all dialer hooks.
 func RemoveDialerHooks() {
 	dialerDialHooksMutex.Lock()
 	defer dialerDialHooksMutex.Unlock()

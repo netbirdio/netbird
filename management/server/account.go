@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"reflect"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -77,7 +78,7 @@ type AccountManager interface {
 	GetUser(claims jwtclaims.AuthorizationClaims) (*User, error)
 	ListUsers(accountID string) ([]*User, error)
 	GetPeers(accountID, userID string) ([]*nbpeer.Peer, error)
-	MarkPeerConnected(peerKey string, connected bool, realIP net.IP) error
+	MarkPeerConnected(peerKey string, connected bool, realIP net.IP, account *Account) error
 	DeletePeer(accountID, peerID, userID string) error
 	UpdatePeer(accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
 	GetNetworkMap(peerID string) (*NetworkMap, error)
@@ -118,8 +119,8 @@ type AccountManager interface {
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
 	GetPeer(accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error)
-	LoginPeer(login PeerLogin) (*nbpeer.Peer, *NetworkMap, error) // used by peer gRPC API
-	SyncPeer(sync PeerSync) (*nbpeer.Peer, *NetworkMap, error)    // used by peer gRPC API
+	LoginPeer(login PeerLogin) (*nbpeer.Peer, *NetworkMap, error)                // used by peer gRPC API
+	SyncPeer(sync PeerSync, account *Account) (*nbpeer.Peer, *NetworkMap, error) // used by peer gRPC API
 	GetAllConnectedPeers() (map[string]struct{}, error)
 	HasConnectedChannel(peerID string) bool
 	GetExternalCacheManager() ExternalCacheManager
@@ -131,6 +132,8 @@ type AccountManager interface {
 	UpdateIntegratedValidatorGroups(accountID string, userID string, groups []string) error
 	GroupValidation(accountId string, groups []string) (bool, error)
 	GetValidatedPeers(account *Account) (map[string]struct{}, error)
+	SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error)
+	CancelPeerRoutines(peer *nbpeer.Peer) error
 }
 
 type DefaultAccountManager struct {
@@ -389,6 +392,8 @@ func (a *Account) GetGroup(groupID string) *nbgroup.Group {
 
 // GetPeerNetworkMap returns a group by ID if exists, nil otherwise
 func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string, validatedPeersMap map[string]struct{}) *NetworkMap {
+	log.Debugf("GetNetworkMap with trace: %s", string(debug.Stack()))
+
 	peer := a.Peers[peerID]
 	if peer == nil {
 		return &NetworkMap{
@@ -961,7 +966,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 	}
 
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -1012,7 +1017,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 
 func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func() (time.Duration, bool) {
 	return func() (time.Duration, bool) {
-		unlock := am.Store.AcquireAccountLock(accountID)
+		unlock := am.Store.AcquireAccountWriteLock(accountID)
 		defer unlock()
 
 		account, err := am.Store.GetAccount(accountID)
@@ -1111,7 +1116,7 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 
 // DeleteAccount deletes an account and all its users from local store and from the remote IDP if the requester is an admin and account owner
 func (am *DefaultAccountManager) DeleteAccount(accountID, userID string) error {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -1570,7 +1575,7 @@ func (am *DefaultAccountManager) MarkPATUsed(tokenID string) error {
 		return err
 	}
 
-	unlock := am.Store.AcquireAccountLock(account.Id)
+	unlock := am.Store.AcquireAccountWriteLock(account.Id)
 	defer unlock()
 
 	account, err = am.Store.GetAccountByUser(user.Id)
@@ -1653,7 +1658,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 	if err != nil {
 		return nil, nil, err
 	}
-	unlock := am.Store.AcquireAccountLock(newAcc.Id)
+	unlock := am.Store.AcquireAccountWriteLock(newAcc.Id)
 	alreadyUnlocked := false
 	defer func() {
 		if !alreadyUnlocked {
@@ -1804,7 +1809,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 
 	account, err := am.Store.GetAccountByUser(claims.UserId)
 	if err == nil {
-		unlockAccount := am.Store.AcquireAccountLock(account.Id)
+		unlockAccount := am.Store.AcquireAccountWriteLock(account.Id)
 		defer unlockAccount()
 		account, err = am.Store.GetAccountByUser(claims.UserId)
 		if err != nil {
@@ -1824,7 +1829,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		return account, nil
 	} else if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
 		if domainAccount != nil {
-			unlockAccount := am.Store.AcquireAccountLock(domainAccount.Id)
+			unlockAccount := am.Store.AcquireAccountWriteLock(domainAccount.Id)
 			defer unlockAccount()
 			domainAccount, err = am.Store.GetAccountByPrivateDomain(claims.Domain)
 			if err != nil {
@@ -1836,6 +1841,56 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		// other error
 		return nil, err
 	}
+}
+
+func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error) {
+	accountID, err := am.Store.GetAccountIDByPeerPubKey(peerPubKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	unlock := am.Store.AcquireAccountReadLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	peer, netMap, err := am.SyncPeer(PeerSync{WireGuardPubKey: peerPubKey}, account)
+	if err != nil {
+		return nil, nil, mapError(err)
+	}
+
+	err = am.MarkPeerConnected(peerPubKey, true, realIP, account)
+	if err != nil {
+		log.Warnf("failed marking peer as connected %s %v", peerPubKey, err)
+	}
+
+	return peer, netMap, nil
+}
+
+func (am *DefaultAccountManager) CancelPeerRoutines(peer *nbpeer.Peer) error {
+	accountID, err := am.Store.GetAccountIDByPeerPubKey(peer.Key)
+	if err != nil {
+		return err
+	}
+
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	err = am.MarkPeerConnected(peer.Key, false, nil, account)
+	if err != nil {
+		log.Warnf("failed marking peer as connected %s %v", peer.Key, err)
+	}
+
+	return nil
+
 }
 
 // GetAllConnectedPeers returns connected peers based on peersUpdateManager.GetAllConnectedPeers()
