@@ -48,6 +48,7 @@ type ConfigInput struct {
 	RosenpassPermissive *bool
 	InterfaceName       *string
 	WireguardPort       *int
+	NetworkMonitor      *bool
 	DisableAutoConnect  *bool
 	ExtraIFaceBlackList []string
 }
@@ -61,6 +62,7 @@ type Config struct {
 	AdminURL             *url.URL
 	WgIface              string
 	WgPort               int
+	NetworkMonitor       bool
 	IFaceBlackList       []string
 	DisableIPv6Discovery bool
 	RosenpassEnabled     bool
@@ -188,6 +190,10 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		config.WgPort = *input.WireguardPort
 	}
 
+	if input.NetworkMonitor != nil {
+		config.NetworkMonitor = *input.NetworkMonitor
+	}
+
 	config.WgIface = iface.WgInterfaceDefault
 	if input.InterfaceName != nil {
 		config.WgIface = *input.InterfaceName
@@ -276,6 +282,11 @@ func update(input ConfigInput) (*Config, error) {
 
 	if config.WgPort == 0 {
 		config.WgPort = iface.DefaultWgPort
+		refresh = true
+	}
+
+	if input.NetworkMonitor != nil {
+		config.NetworkMonitor = *input.NetworkMonitor
 		refresh = true
 	}
 

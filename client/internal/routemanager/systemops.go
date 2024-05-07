@@ -35,7 +35,7 @@ func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 		addr = netip.IPv6Unspecified()
 	}
 
-	defaultGateway, _, err := getNextHop(addr)
+	defaultGateway, _, err := GetNextHop(addr)
 	if err != nil && !errors.Is(err, ErrRouteNotFound) {
 		return fmt.Errorf("get existing route gateway: %s", err)
 	}
@@ -60,7 +60,7 @@ func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 		return nil
 	}
 
-	gatewayHop, intf, err := getNextHop(defaultGateway)
+	gatewayHop, intf, err := GetNextHop(defaultGateway)
 	if err != nil && !errors.Is(err, ErrRouteNotFound) {
 		return fmt.Errorf("unable to get the next hop for the default gateway address. error: %s", err)
 	}
@@ -69,14 +69,14 @@ func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 	return addToRouteTable(gatewayPrefix, gatewayHop, intf)
 }
 
-func getNextHop(ip netip.Addr) (netip.Addr, *net.Interface, error) {
+func GetNextHop(ip netip.Addr) (netip.Addr, *net.Interface, error) {
 	r, err := netroute.New()
 	if err != nil {
 		return netip.Addr{}, nil, fmt.Errorf("new netroute: %w", err)
 	}
 	intf, gateway, preferredSrc, err := r.Route(ip.AsSlice())
 	if err != nil {
-		log.Warnf("Failed to get route for %s: %v", ip, err)
+		log.Debugf("Failed to get route for %s: %v", ip, err)
 		return netip.Addr{}, nil, ErrRouteNotFound
 	}
 
@@ -163,7 +163,7 @@ func addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIface, initialNe
 	}
 
 	// Determine the exit interface and next hop for the prefix, so we can add a specific route
-	nexthop, intf, err := getNextHop(addr)
+	nexthop, intf, err := GetNextHop(addr)
 	if err != nil {
 		return netip.Addr{}, nil, fmt.Errorf("get next hop: %w", err)
 	}
@@ -319,11 +319,11 @@ func getPrefixFromIP(ip net.IP) (*netip.Prefix, error) {
 }
 
 func setupRoutingWithRouteManager(routeManager **RouteManager, initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
-	initialNextHopV4, initialIntfV4, err := getNextHop(netip.IPv4Unspecified())
+	initialNextHopV4, initialIntfV4, err := GetNextHop(netip.IPv4Unspecified())
 	if err != nil && !errors.Is(err, ErrRouteNotFound) {
 		log.Errorf("Unable to get initial v4 default next hop: %v", err)
 	}
-	initialNextHopV6, initialIntfV6, err := getNextHop(netip.IPv6Unspecified())
+	initialNextHopV6, initialIntfV6, err := GetNextHop(netip.IPv6Unspecified())
 	if err != nil && !errors.Is(err, ErrRouteNotFound) {
 		log.Errorf("Unable to get initial v6 default next hop: %v", err)
 	}
