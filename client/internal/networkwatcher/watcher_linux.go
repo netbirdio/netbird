@@ -14,8 +14,8 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interface, nexthop6 netip.Addr, intf6 *net.Interface, callback func()) error {
-	if intfv4 == nil && intf6 == nil {
+func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interface, nexthop6 netip.Addr, intfv6 *net.Interface, callback func()) error {
+	if intfv4 == nil && intfv6 == nil {
 		return errors.New("no interfaces available")
 	}
 
@@ -37,21 +37,27 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+
+		// handle interface state changes
 		case update := <-linkChan:
-			if intfv4 != nil && update.Index == int32(intfv4.Index) || intf6 != nil && update.Index == int32(intf6.Index) {
-				switch update.Header.Type {
-				case syscall.RTM_DELLINK:
-					log.Infof("Network watcher: monitored interface (%s) is gone", update.Link.Attrs().Name)
+			if (intfv4 == nil || update.Index != int32(intfv4.Index)) && (intfv6 == nil || update.Index != int32(intfv6.Index)) {
+				continue
+			}
+
+			switch update.Header.Type {
+			case syscall.RTM_DELLINK:
+				log.Infof("Network watcher: monitored interface (%s) is gone", update.Link.Attrs().Name)
+				callback()
+				return nil
+			case syscall.RTM_NEWLINK:
+				if (update.IfInfomsg.Flags&syscall.IFF_RUNNING) == 0 && update.Link.Attrs().OperState == netlink.OperDown {
+					log.Infof("Network watcher: monitored interface (%s) is down.", update.Link.Attrs().Name)
 					callback()
 					return nil
-				case syscall.RTM_NEWLINK:
-					if (update.IfInfomsg.Flags&syscall.IFF_RUNNING) == 0 && update.Link.Attrs().OperState == netlink.OperDown {
-						log.Infof("Network watcher: monitored interface (%s) is down.", update.Link.Attrs().Name)
-						callback()
-						return nil
-					}
 				}
 			}
+
+		// handle route changes
 		case route := <-routeChan:
 			// default route and main table
 			if route.Dst != nil || route.Table != syscall.RT_TABLE_MAIN {
@@ -60,12 +66,12 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 			switch route.Type {
 			// triggered on added/replaced routes
 			case syscall.RTM_NEWROUTE:
-				log.Infof("Network watcher: default route changed: via %s, index %d", route.Gw, route.LinkIndex)
+				log.Infof("Network watcher: default route changed: via %s, interface %d", route.Gw, route.LinkIndex)
 				callback()
 				return nil
 			case syscall.RTM_DELROUTE:
-				if intfv4 != nil && route.Gw.Equal(nexthopv4.AsSlice()) || intf6 != nil && route.Gw.Equal(nexthop6.AsSlice()) {
-					log.Infof("Network watcher: default route removed: via %s, index %d", route.Gw, route.LinkIndex)
+				if intfv4 != nil && route.Gw.Equal(nexthopv4.AsSlice()) || intfv6 != nil && route.Gw.Equal(nexthop6.AsSlice()) {
+					log.Infof("Network watcher: default route removed: via %s, interface %d", route.Gw, route.LinkIndex)
 					callback()
 					return nil
 				}
