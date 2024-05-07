@@ -5,17 +5,14 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"gorm.io/gorm/logger"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
@@ -28,14 +25,14 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-// SqliteStore represents an account storage backed by a Sqlite DB persisted to disk
-type SqliteStore struct {
+// SqlStore represents an account storage backed by a Sql DB persisted to disk
+type SqlStore struct {
 	db                *gorm.DB
-	storeFile         string
 	accountLocks      sync.Map
 	globalAccountLock sync.Mutex
 	metrics           telemetry.AppMetrics
 	installationPK    int
+	storeEngine       StoreEngine
 }
 
 type installation struct {
@@ -45,24 +42,8 @@ type installation struct {
 
 type migrationFunc func(*gorm.DB) error
 
-// NewSqliteStore restores a store from the file located in the datadir
-func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore, error) {
-	storeStr := "store.db?cache=shared"
-	if runtime.GOOS == "windows" {
-		// Vo avoid `The process cannot access the file because it is being used by another process` on Windows
-		storeStr = "store.db"
-	}
-
-	file := filepath.Join(dataDir, storeStr)
-	db, err := gorm.Open(sqlite.Open(file), &gorm.Config{
-		Logger:          logger.Default.LogMode(logger.Silent),
-		CreateBatchSize: 400,
-		PrepareStmt:     true,
-	})
-	if err != nil {
-		return nil, err
-	}
-
+// NewSqlStore creates a new SqlStore instance.
+func NewSqlStore(db *gorm.DB, storeEngine StoreEngine, metrics telemetry.AppMetrics) (*SqlStore, error) {
 	sql, err := db.DB()
 	if err != nil {
 		return nil, err
@@ -82,33 +63,11 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 		return nil, fmt.Errorf("auto migrate: %w", err)
 	}
 
-	return &SqliteStore{db: db, storeFile: file, metrics: metrics, installationPK: 1}, nil
-}
-
-// NewSqliteStoreFromFileStore restores a store from FileStore and stores SQLite DB in the file located in datadir
-func NewSqliteStoreFromFileStore(filestore *FileStore, dataDir string, metrics telemetry.AppMetrics) (*SqliteStore, error) {
-	store, err := NewSqliteStore(dataDir, metrics)
-	if err != nil {
-		return nil, err
-	}
-
-	err = store.SaveInstallationID(filestore.InstallationID)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, account := range filestore.GetAllAccounts() {
-		err := store.SaveAccount(account)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return store, nil
+	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
 }
 
 // AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
-func (s *SqliteStore) AcquireGlobalLock() (unlock func()) {
+func (s *SqlStore) AcquireGlobalLock() (unlock func()) {
 	log.Tracef("acquiring global lock")
 	start := time.Now()
 	s.globalAccountLock.Lock()
@@ -127,7 +86,7 @@ func (s *SqliteStore) AcquireGlobalLock() (unlock func()) {
 	return unlock
 }
 
-func (s *SqliteStore) AcquireAccountLock(accountID string) (unlock func()) {
+func (s *SqlStore) AcquireAccountLock(accountID string) (unlock func()) {
 	log.Tracef("acquiring lock for account %s", accountID)
 
 	start := time.Now()
@@ -143,7 +102,7 @@ func (s *SqliteStore) AcquireAccountLock(accountID string) (unlock func()) {
 	return unlock
 }
 
-func (s *SqliteStore) SaveAccount(account *Account) error {
+func (s *SqlStore) SaveAccount(account *Account) error {
 	start := time.Now()
 
 	for _, key := range account.SetupKeys {
@@ -214,7 +173,7 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 	return err
 }
 
-func (s *SqliteStore) DeleteAccount(account *Account) error {
+func (s *SqlStore) DeleteAccount(account *Account) error {
 	start := time.Now()
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -245,14 +204,14 @@ func (s *SqliteStore) DeleteAccount(account *Account) error {
 	return err
 }
 
-func (s *SqliteStore) SaveInstallationID(ID string) error {
+func (s *SqlStore) SaveInstallationID(ID string) error {
 	installation := installation{InstallationIDValue: ID}
 	installation.ID = uint(s.installationPK)
 
 	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&installation).Error
 }
 
-func (s *SqliteStore) GetInstallationID() string {
+func (s *SqlStore) GetInstallationID() string {
 	var installation installation
 
 	if result := s.db.First(&installation, "id = ?", s.installationPK); result.Error != nil {
@@ -262,7 +221,7 @@ func (s *SqliteStore) GetInstallationID() string {
 	return installation.InstallationIDValue
 }
 
-func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
+func (s *SqlStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
 	var peer nbpeer.Peer
 
 	result := s.db.First(&peer, "account_id = ? and id = ?", accountID, peerID)
@@ -279,7 +238,7 @@ func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer
 	return s.db.Save(peer).Error
 }
 
-func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
+func (s *SqlStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.Peer) error {
 	var peer nbpeer.Peer
 	result := s.db.First(&peer, "account_id = ? and id = ?", accountID, peerWithLocation.ID)
 	if result.Error != nil {
@@ -296,16 +255,16 @@ func (s *SqliteStore) SavePeerLocation(accountID string, peerWithLocation *nbpee
 }
 
 // DeleteHashedPAT2TokenIDIndex is noop in Sqlite
-func (s *SqliteStore) DeleteHashedPAT2TokenIDIndex(hashedToken string) error {
+func (s *SqlStore) DeleteHashedPAT2TokenIDIndex(hashedToken string) error {
 	return nil
 }
 
 // DeleteTokenID2UserIDIndex is noop in Sqlite
-func (s *SqliteStore) DeleteTokenID2UserIDIndex(tokenID string) error {
+func (s *SqlStore) DeleteTokenID2UserIDIndex(tokenID string) error {
 	return nil
 }
 
-func (s *SqliteStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
+func (s *SqlStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 	var account Account
 
 	result := s.db.First(&account, "domain = ? and is_domain_primary_account = ? and domain_category = ?",
@@ -322,7 +281,7 @@ func (s *SqliteStore) GetAccountByPrivateDomain(domain string) (*Account, error)
 	return s.GetAccount(account.Id)
 }
 
-func (s *SqliteStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
+func (s *SqlStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 	var key SetupKey
 	result := s.db.Select("account_id").First(&key, "key = ?", strings.ToUpper(setupKey))
 	if result.Error != nil {
@@ -340,7 +299,7 @@ func (s *SqliteStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 	return s.GetAccount(key.AccountID)
 }
 
-func (s *SqliteStore) GetTokenIDByHashedToken(hashedToken string) (string, error) {
+func (s *SqlStore) GetTokenIDByHashedToken(hashedToken string) (string, error) {
 	var token PersonalAccessToken
 	result := s.db.First(&token, "hashed_token = ?", hashedToken)
 	if result.Error != nil {
@@ -354,7 +313,7 @@ func (s *SqliteStore) GetTokenIDByHashedToken(hashedToken string) (string, error
 	return token.ID, nil
 }
 
-func (s *SqliteStore) GetUserByTokenID(tokenID string) (*User, error) {
+func (s *SqlStore) GetUserByTokenID(tokenID string) (*User, error) {
 	var token PersonalAccessToken
 	result := s.db.First(&token, "id = ?", tokenID)
 	if result.Error != nil {
@@ -383,7 +342,7 @@ func (s *SqliteStore) GetUserByTokenID(tokenID string) (*User, error) {
 	return &user, nil
 }
 
-func (s *SqliteStore) GetAllAccounts() (all []*Account) {
+func (s *SqlStore) GetAllAccounts() (all []*Account) {
 	var accounts []Account
 	result := s.db.Find(&accounts)
 	if result.Error != nil {
@@ -399,7 +358,7 @@ func (s *SqliteStore) GetAllAccounts() (all []*Account) {
 	return all
 }
 
-func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
+func (s *SqlStore) GetAccount(accountID string) (*Account, error) {
 	var account Account
 	result := s.db.Model(&account).
 		Preload("UsersG.PATsG"). // have to be specifies as this is nester reference
@@ -466,7 +425,7 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 	return &account, nil
 }
 
-func (s *SqliteStore) GetAccountByUser(userID string) (*Account, error) {
+func (s *SqlStore) GetAccountByUser(userID string) (*Account, error) {
 	var user User
 	result := s.db.Select("account_id").First(&user, "id = ?", userID)
 	if result.Error != nil {
@@ -484,7 +443,7 @@ func (s *SqliteStore) GetAccountByUser(userID string) (*Account, error) {
 	return s.GetAccount(user.AccountID)
 }
 
-func (s *SqliteStore) GetAccountByPeerID(peerID string) (*Account, error) {
+func (s *SqlStore) GetAccountByPeerID(peerID string) (*Account, error) {
 	var peer nbpeer.Peer
 	result := s.db.Select("account_id").First(&peer, "id = ?", peerID)
 	if result.Error != nil {
@@ -502,7 +461,7 @@ func (s *SqliteStore) GetAccountByPeerID(peerID string) (*Account, error) {
 	return s.GetAccount(peer.AccountID)
 }
 
-func (s *SqliteStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
+func (s *SqlStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 	var peer nbpeer.Peer
 
 	result := s.db.Select("account_id").First(&peer, "key = ?", peerKey)
@@ -522,7 +481,7 @@ func (s *SqliteStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 }
 
 // SaveUserLastLogin stores the last login time for a user in DB.
-func (s *SqliteStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error {
+func (s *SqlStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error {
 	var user User
 
 	result := s.db.First(&user, "account_id = ? and id = ?", accountID, userID)
@@ -540,7 +499,7 @@ func (s *SqliteStore) SaveUserLastLogin(accountID, userID string, lastLogin time
 }
 
 // Close closes the underlying DB connection
-func (s *SqliteStore) Close() error {
+func (s *SqlStore) Close() error {
 	sql, err := s.db.DB()
 	if err != nil {
 		return fmt.Errorf("get db: %w", err)
@@ -549,8 +508,8 @@ func (s *SqliteStore) Close() error {
 }
 
 // GetStoreEngine returns SqliteStoreEngine
-func (s *SqliteStore) GetStoreEngine() StoreEngine {
-	return SqliteStoreEngine
+func (s *SqlStore) GetStoreEngine() StoreEngine {
+	return s.storeEngine
 }
 
 // migrate migrates the SQLite database to the latest schema

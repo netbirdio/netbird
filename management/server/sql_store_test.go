@@ -569,7 +569,7 @@ func TestMigrate(t *testing.T) {
 	require.NoError(t, err, "Migration should not fail on migrated db")
 }
 
-func newSqliteStore(t *testing.T) *SqliteStore {
+func newSqliteStore(t *testing.T) *SqlStore {
 	t.Helper()
 
 	store, err := NewSqliteStore(t.TempDir(), nil)
@@ -579,7 +579,7 @@ func newSqliteStore(t *testing.T) *SqliteStore {
 	return store
 }
 
-func newSqliteStoreFromFile(t *testing.T, filename string) *SqliteStore {
+func newSqliteStoreFromFile(t *testing.T, filename string) Store {
 	t.Helper()
 
 	storeDir := t.TempDir()
