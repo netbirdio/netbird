@@ -10,8 +10,8 @@ import (
 )
 
 type notifier struct {
-	initialRouteRangers []string
-	routeRangers        []string
+	initialRouteRanges []string
+	routeRanges        []string
 
 	listener    listener.NetworkChangeListener
 	listenerMux sync.Mutex
@@ -33,7 +33,7 @@ func (n *notifier) setInitialClientRoutes(clientRoutes []*route.Route) {
 		nets = append(nets, r.Network.String())
 	}
 	sort.Strings(nets)
-	n.initialRouteRangers = nets
+	n.initialRouteRanges = nets
 }
 
 func (n *notifier) onNewRoutes(idMap route.HAMap) {
@@ -45,11 +45,11 @@ func (n *notifier) onNewRoutes(idMap route.HAMap) {
 	}
 
 	sort.Strings(newNets)
-	if !n.hasDiff(n.initialRouteRangers, newNets) {
+	if !n.hasDiff(n.initialRouteRanges, newNets) {
 		return
 	}
 
-	n.routeRangers = newNets
+	n.routeRanges = newNets
 
 	n.notify()
 }
@@ -62,7 +62,7 @@ func (n *notifier) notify() {
 	}
 
 	go func(l listener.NetworkChangeListener) {
-		l.OnNetworkChanged(strings.Join(n.routeRangers, ","))
+		l.OnNetworkChanged(strings.Join(addIPv6RangeIfNeeded(n.routeRanges), ","))
 	}(n.listener)
 }
 
@@ -78,6 +78,20 @@ func (n *notifier) hasDiff(a []string, b []string) bool {
 	return false
 }
 
-func (n *notifier) initialRouteRanges() []string {
-	return n.initialRouteRangers
+func (n *notifier) getInitialRouteRanges() []string {
+	return addIPv6RangeIfNeeded(n.initialRouteRanges)
+}
+
+// addIPv6RangeIfNeeded returns the input ranges with the default IPv6 range when there is an IPv4 default route.
+func addIPv6RangeIfNeeded(inputRanges []string) []string {
+	ranges := inputRanges
+	for _, r := range inputRanges {
+		// we are intentionally adding the ipv6 default range in case of ipv4 default range
+		// to ensure that all traffic is managed by the tunnel interface on android
+		if r == "0.0.0.0/0" {
+			ranges = append(ranges, "::/0")
+			break
+		}
+	}
+	return ranges
 }

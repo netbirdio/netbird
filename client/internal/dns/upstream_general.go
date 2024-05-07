@@ -1,4 +1,4 @@
-//go:build !ios
+//go:build !android && !ios
 
 package dns
 
@@ -12,7 +12,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
-type upstreamResolverNonIOS struct {
+type upstreamResolver struct {
 	*upstreamResolverBase
 }
 
@@ -22,16 +22,17 @@ func newUpstreamResolver(
 	_ net.IP,
 	_ *net.IPNet,
 	statusRecorder *peer.Status,
-) (*upstreamResolverNonIOS, error) {
+	_ *hostsDNSHolder,
+) (*upstreamResolver, error) {
 	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder)
-	nonIOS := &upstreamResolverNonIOS{
+	nonIOS := &upstreamResolver{
 		upstreamResolverBase: upstreamResolverBase,
 	}
 	upstreamResolverBase.upstreamClient = nonIOS
 	return nonIOS, nil
 }
 
-func (u *upstreamResolverNonIOS) exchange(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
+func (u *upstreamResolver) exchange(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
 	upstreamExchangeClient := &dns.Client{}
 	return upstreamExchangeClient.ExchangeContext(ctx, r, upstream)
 }
