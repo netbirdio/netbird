@@ -3,8 +3,6 @@ package server
 import (
 	"errors"
 	"fmt"
-	"net"
-	"net/netip"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -12,6 +10,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -20,7 +19,6 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
-	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -575,6 +573,19 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqlStore, er
 	return NewSqlStore(db, SqliteStoreEngine, metrics)
 }
 
+// NewPostgresqlStore creates a new Postgres store.
+func NewPostgresqlStore(dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger:      logger.Default.LogMode(logger.Silent),
+		PrepareStmt: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return NewSqlStore(db, PostgresStoreEngine, metrics)
+}
+
 // NewSqliteStoreFromFileStore restores a store from FileStore and stores SQLite DB in the file located in datadir.
 func NewSqliteStoreFromFileStore(fileStore *FileStore, dataDir string, metrics telemetry.AppMetrics) (*SqlStore, error) {
 	store, err := NewSqliteStore(dataDir, metrics)
@@ -597,35 +608,24 @@ func NewSqliteStoreFromFileStore(fileStore *FileStore, dataDir string, metrics t
 	return store, nil
 }
 
-// migrate migrates the SQLite database to the latest schema
-func migrate(db *gorm.DB) error {
-	migrations := getMigrations()
+// NewPostgresqlStoreFromFileStore restores a store from FileStore and stores Postgres DB.
+func NewPostgresqlStoreFromFileStore(fileStore *FileStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
+	store, err := NewPostgresqlStore(dsn, metrics)
+	if err != nil {
+		return nil, err
+	}
 
-	for _, m := range migrations {
-		if err := m(db); err != nil {
-			return err
+	err = store.SaveInstallationID(fileStore.InstallationID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, account := range fileStore.GetAllAccounts() {
+		err := store.SaveAccount(account)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	return nil
-}
-
-func getMigrations() []migrationFunc {
-	return []migrationFunc{
-		func(db *gorm.DB) error {
-			return migration.MigrateFieldFromGobToJSON[Account, net.IPNet](db, "network_net")
-		},
-		func(db *gorm.DB) error {
-			return migration.MigrateFieldFromGobToJSON[route.Route, netip.Prefix](db, "network")
-		},
-		func(db *gorm.DB) error {
-			return migration.MigrateFieldFromGobToJSON[route.Route, []string](db, "peer_groups")
-		},
-		func(db *gorm.DB) error {
-			return migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](db, "location_connection_ip", "")
-		},
-		func(db *gorm.DB) error {
-			return migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](db, "ip", "idx_peers_account_id_ip")
-		},
-	}
+	return store, nil
 }
