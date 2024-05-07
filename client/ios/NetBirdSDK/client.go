@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
+	"github.com/netbirdio/netbird/route"
 )
 
 // ConnectionListener export internal Listener for mobile
@@ -274,51 +275,52 @@ func (c *Client) ClearLoginComplete() {
 }
 
 func (c *Client) GetRoutesSelectionDetails() *RoutesSelectionDetails {
-	if c.engine != nil {
-		routesMap := c.engine.GetClientRoutesWithNetID()
-		routeSelector := c.engine.GetRouteManager().GetRouteSelector()
-
-		var routes []*selectRoute
-		for id, rt := range routesMap {
-			if len(rt) == 0 {
-				continue
-			}
-			route := &selectRoute{
-				NetID:    id,
-				Network:  rt[0].Network,
-				Selected: routeSelector.IsSelected(id),
-			}
-			routes = append(routes, route)
-		}
-
-		sort.Slice(routes, func(i, j int) bool {
-			iPrefix := routes[i].Network.Bits()
-			jPrefix := routes[j].Network.Bits()
-
-			if iPrefix == jPrefix {
-				iAddr := routes[i].Network.Addr()
-				jAddr := routes[j].Network.Addr()
-				if iAddr == jAddr {
-					return routes[i].NetID < routes[j].NetID
-				}
-				return iAddr.String() < jAddr.String()
-			}
-			return iPrefix < jPrefix
-		})
-
-		var routeSelection []RoutesSelectionInfo
-		for _, r := range routes {
-			routeSelection = append(routeSelection, RoutesSelectionInfo{
-				ID:       r.NetID,
-				Network:  r.Network.String(),
-				Selected: r.Selected,
-			})
-		}
-
-		routeSelectionDetails := RoutesSelectionDetails{items: routeSelection}
-		return &routeSelectionDetails
+	if c.engine == nil {
+		return nil
 	}
-	return &RoutesSelectionDetails{}
+
+	routesMap := c.engine.GetClientRoutesWithNetID()
+	routeSelector := c.engine.GetRouteManager().GetRouteSelector()
+
+	var routes []*selectRoute
+	for id, rt := range routesMap {
+		if len(rt) == 0 {
+			continue
+		}
+		route := &selectRoute{
+			NetID:    string(id),
+			Network:  rt[0].Network,
+			Selected: routeSelector.IsSelected(id),
+		}
+		routes = append(routes, route)
+	}
+
+	sort.Slice(routes, func(i, j int) bool {
+		iPrefix := routes[i].Network.Bits()
+		jPrefix := routes[j].Network.Bits()
+
+		if iPrefix == jPrefix {
+			iAddr := routes[i].Network.Addr()
+			jAddr := routes[j].Network.Addr()
+			if iAddr == jAddr {
+				return routes[i].NetID < routes[j].NetID
+			}
+			return iAddr.String() < jAddr.String()
+		}
+		return iPrefix < jPrefix
+	})
+
+	var routeSelection []RoutesSelectionInfo
+	for _, r := range routes {
+		routeSelection = append(routeSelection, RoutesSelectionInfo{
+			ID:       r.NetID,
+			Network:  r.Network.String(),
+			Selected: r.Selected,
+		})
+	}
+
+	routeSelectionDetails := RoutesSelectionDetails{items: routeSelection}
+	return &routeSelectionDetails
 }
 
 func (c *Client) SelectRoute(id string) error {
@@ -330,7 +332,8 @@ func (c *Client) SelectRoute(id string) error {
 			routeSelector.SelectAllRoutes()
 		} else {
 			log.Debugf("select route with id: %s", id)
-			if err := routeSelector.SelectRoutes([]string{id}, true, maps.Keys(c.engine.GetClientRoutesWithNetID())); err != nil {
+			routes := toNetIDs([]string{id})
+			if err := routeSelector.SelectRoutes(routes, true, maps.Keys(c.engine.GetClientRoutesWithNetID())); err != nil {
 				log.Debugf("error when selecting routes: %s", err)
 				return fmt.Errorf("select routes: %w", err)
 			}
@@ -351,7 +354,8 @@ func (c *Client) DeselectRoute(id string) error {
 			routeSelector.DeselectAllRoutes()
 		} else {
 			log.Debugf("deselect route with id: %s", id)
-			if err := routeSelector.DeselectRoutes([]string{id}, maps.Keys(c.engine.GetClientRoutesWithNetID())); err != nil {
+			routes := toNetIDs([]string{id})
+			if err := routeSelector.DeselectRoutes(routes, maps.Keys(c.engine.GetClientRoutesWithNetID())); err != nil {
 				log.Debugf("error when deselecting routes: %s", err)
 				return fmt.Errorf("deselect routes: %w", err)
 			}
@@ -384,4 +388,12 @@ func formatDuration(d time.Duration) string {
 		return ds[:endIndex] // In case no units are found after the digits
 	}
 	return ds
+}
+
+func toNetIDs(routes []string) []route.NetID {
+	var netIDs []route.NetID
+	for _, rt := range routes {
+		netIDs = append(netIDs, route.NetID(rt))
+	}
+	return netIDs
 }
