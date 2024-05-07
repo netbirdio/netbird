@@ -12,7 +12,7 @@ import (
 
 // GetEvents returns a list of activity events of an account
 func (am *DefaultAccountManager) GetEvents(accountID, userID string) ([]*activity.Event, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)

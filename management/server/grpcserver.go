@@ -134,9 +134,9 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		return err
 	}
 
-	peer, netMap, err := s.accountManager.SyncPeer(PeerSync{WireGuardPubKey: peerKey.String()})
+	peer, netMap, err := s.accountManager.SyncAndMarkPeer(peerKey.String(), realIP)
 	if err != nil {
-		return mapError(err)
+		return err
 	}
 
 	err = s.sendInitialSync(peerKey, peer, netMap, srv)
@@ -148,11 +148,6 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	updates := s.peersUpdateManager.CreateChannel(peer.ID)
 
 	s.ephemeralManager.OnPeerConnected(peer)
-
-	err = s.accountManager.MarkPeerConnected(peerKey.String(), true, realIP)
-	if err != nil {
-		log.Warnf("failed marking peer as connected %s %v", peerKey, err)
-	}
 
 	if s.config.TURNConfig.TimeBasedCredentials {
 		s.turnCredentialsManager.SetupRefresh(peer.ID)
@@ -207,7 +202,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 func (s *GRPCServer) cancelPeerRoutines(peer *nbpeer.Peer) {
 	s.peersUpdateManager.CloseChannel(peer.ID)
 	s.turnCredentialsManager.CancelRefresh(peer.ID)
-	_ = s.accountManager.MarkPeerConnected(peer.Key, false, nil)
+	_ = s.accountManager.CancelPeerRoutines(peer)
 	s.ephemeralManager.OnPeerDisconnected(peer)
 }
 
