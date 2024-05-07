@@ -12,17 +12,18 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/route"
+	"golang.org/x/sys/unix"
 
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 )
 
 func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interface, nexthopv6 netip.Addr, intfv6 *net.Interface, callback func()) error {
-	fd, err := syscall.Socket(syscall.AF_ROUTE, syscall.SOCK_RAW, syscall.AF_UNSPEC)
+	fd, err := unix.Socket(syscall.AF_ROUTE, syscall.SOCK_RAW, syscall.AF_UNSPEC)
 	if err != nil {
 		return fmt.Errorf("failed to open routing socket: %v", err)
 	}
 	defer func() {
-		if err := syscall.Close(fd); err != nil {
+		if err := unix.Close(fd); err != nil {
 			log.Errorf("Network monitor: failed to close routing socket: %v", err)
 		}
 	}()
@@ -33,28 +34,28 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 			return ctx.Err()
 		default:
 			buf := make([]byte, 2048)
-			n, err := syscall.Read(fd, buf)
+			n, err := unix.Read(fd, buf)
 			if err != nil {
 				log.Errorf("Network monitor: failed to read from routing socket: %v", err)
 				continue
 			}
-			if n < syscall.SizeofRtMsghdr {
+			if n < unix.SizeofRtMsghdr {
 				log.Errorf("Network monitor: read from routing socket returned less than expected: %d bytes", n)
 				continue
 			}
 
-			msg := (*syscall.RtMsghdr)(unsafe.Pointer(&buf[0]))
+			msg := (*unix.RtMsghdr)(unsafe.Pointer(&buf[0]))
 
 			switch msg.Type {
 
 			// handle interface state changes
-			case syscall.RTM_IFINFO:
+			case unix.RTM_IFINFO:
 				ifinfo, err := parseInterfaceMessage(buf[:n])
 				if err != nil {
 					log.Errorf("Network monitor: error parsing interface message: %v", err)
 					continue
 				}
-				if msg.Flags&syscall.IFF_UP != 0 {
+				if msg.Flags&unix.IFF_UP != 0 {
 					continue
 				}
 				if (intfv4 == nil || ifinfo.Index != intfv4.Index) && (intfv6 == nil || ifinfo.Index != intfv6.Index) {
@@ -65,7 +66,7 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 				callback()
 
 			// handle route changes
-			case syscall.RTM_ADD, syscall.RTM_DELETE:
+			case unix.RTM_ADD, syscall.RTM_DELETE:
 				route, err := parseRouteMessage(buf[:n])
 				if err != nil {
 					log.Errorf("Network monitor: error parsing routing message: %v", err)
@@ -81,10 +82,10 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 					intf = route.Interface.Name
 				}
 				switch msg.Type {
-				case syscall.RTM_ADD:
+				case unix.RTM_ADD:
 					log.Infof("Network monitor: default route changed: via %s, interface %s", route.Gw, intf)
 					callback()
-				case syscall.RTM_DELETE:
+				case unix.RTM_DELETE:
 					if intfv4 != nil && route.Gw.Compare(nexthopv4) == 0 || intfv6 != nil && route.Gw.Compare(nexthopv6) == 0 {
 						log.Infof("Network monitor: default route removed: via %s, interface %s", route.Gw, intf)
 						callback()
