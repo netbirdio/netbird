@@ -11,7 +11,6 @@ import (
 	"net/netip"
 	"reflect"
 	"regexp"
-	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -392,8 +391,6 @@ func (a *Account) GetGroup(groupID string) *nbgroup.Group {
 
 // GetPeerNetworkMap returns a group by ID if exists, nil otherwise
 func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string, validatedPeersMap map[string]struct{}) *NetworkMap {
-	log.Debugf("GetNetworkMap with trace: %s", string(debug.Stack()))
-
 	peer := a.Peers[peerID]
 	if peer == nil {
 		return &NetworkMap{

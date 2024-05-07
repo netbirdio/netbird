@@ -87,6 +87,8 @@ message LoginRequest {
   optional bool rosenpassPermissive = 16;
 
   repeated string extraIFaceBlacklist = 17;
+
+  optional bool networkMonitor = 18;
 }
 
 message LoginResponse {
