@@ -50,7 +50,6 @@ type clientNetwork struct {
 	currentChosen       *route.Route
 	handler             RouteHandler
 	updateSerial        uint64
-	routeRefCounter     *refcounter.Counter
 }
 
 func newClientNetworkWatcher(ctx context.Context, wgInterface *iface.WGIface, statusRecorder *peer.Status, rt *route.Route, routeRefCounter *refcounter.Counter) *clientNetwork {

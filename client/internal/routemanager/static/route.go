@@ -11,7 +11,6 @@ import (
 type Route struct {
 	route           *route.Route
 	wgInterface     *iface.WGIface
-	success         bool
 	routeRefCounter *refcounter.Counter
 }
 
