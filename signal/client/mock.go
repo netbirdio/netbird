@@ -1,6 +1,8 @@
 package client
 
 import (
+	"context"
+
 	"github.com/netbirdio/netbird/signal/proto"
 )
 
@@ -10,7 +12,7 @@ type MockClient struct {
 	StreamConnectedFunc     func() bool
 	ReadyFunc               func() bool
 	WaitStreamConnectedFunc func()
-	ReceiveFunc             func(msgHandler func(msg *proto.Message) error) error
+	ReceiveFunc             func(ctx context.Context, msgHandler func(msg *proto.Message) error) error
 	SendToStreamFunc        func(msg *proto.EncryptedMessage) error
 	SendFunc                func(msg *proto.Message) error
 }
@@ -54,11 +56,11 @@ func (sm *MockClient) WaitStreamConnected() {
 	sm.WaitStreamConnectedFunc()
 }
 
-func (sm *MockClient) Receive(msgHandler func(msg *proto.Message) error) error {
+func (sm *MockClient) Receive(ctx context.Context, msgHandler func(msg *proto.Message) error) error {
 	if sm.ReceiveFunc == nil {
 		return nil
 	}
-	return sm.ReceiveFunc(msgHandler)
+	return sm.ReceiveFunc(ctx, msgHandler)
 }
 
 func (sm *MockClient) SendToStream(msg *proto.EncryptedMessage) error {

@@ -358,6 +358,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		s.latestConfigInput.WireguardPort = &port
 	}
 
+	if msg.NetworkMonitor != nil {
+		inputConfig.NetworkMonitor = msg.NetworkMonitor
+		s.latestConfigInput.NetworkMonitor = msg.NetworkMonitor
+	}
+
 	if len(msg.ExtraIFaceBlacklist) > 0 {
 		inputConfig.ExtraIFaceBlackList = msg.ExtraIFaceBlacklist
 		s.latestConfigInput.ExtraIFaceBlackList = msg.ExtraIFaceBlacklist
