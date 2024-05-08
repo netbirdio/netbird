@@ -58,7 +58,7 @@ const (
 	SqliteStoreEngine   StoreEngine = "sqlite"
 	PostgresStoreEngine StoreEngine = "postgresql"
 
-	postgresDsnEnv = "NETBIRD_POSTGRES_DSN"
+	postgresDsnEnv = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
 )
 
 func getStoreEngineFromEnv() StoreEngine {
