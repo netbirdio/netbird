@@ -258,13 +258,18 @@ func (c *Client) ClearLoginComplete() {
 	c.loginComplete = false
 }
 
-func (c *Client) GetRoutesSelectionDetails() *RoutesSelectionDetails {
+func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
 	if c.connectClient == nil {
-		return nil
+		return nil, fmt.Errorf("not connected")
 	}
 
-	routesMap := c.connectClient.Engine().GetClientRoutesWithNetID()
-	routeSelector := c.connectClient.Engine().GetRouteManager().GetRouteSelector()
+	engine := c.connectClient.Engine()
+	if engine == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	routesMap := engine.GetClientRoutesWithNetID()
+	routeSelector := engine.GetRouteManager().GetRouteSelector()
 
 	var routes []*selectRoute
 	for id, rt := range routesMap {
@@ -304,51 +309,61 @@ func (c *Client) GetRoutesSelectionDetails() *RoutesSelectionDetails {
 	}
 
 	routeSelectionDetails := RoutesSelectionDetails{items: routeSelection}
-	return &routeSelectionDetails
+	return &routeSelectionDetails, nil
 }
 
 func (c *Client) SelectRoute(id string) error {
-	if c.connectClient != nil {
-		routeManager := c.connectClient.Engine().GetRouteManager()
-		routeSelector := routeManager.GetRouteSelector()
-		if id == "All" {
-			log.Debugf("select all routes")
-			routeSelector.SelectAllRoutes()
-		} else {
-			log.Debugf("select route with id: %s", id)
-			routes := toNetIDs([]string{id})
-			if err := routeSelector.SelectRoutes(routes, true, maps.Keys(c.connectClient.Engine().GetClientRoutesWithNetID())); err != nil {
-				log.Debugf("error when selecting routes: %s", err)
-				return fmt.Errorf("select routes: %w", err)
-			}
-		}
-		routeManager.TriggerSelection(c.connectClient.Engine().GetClientRoutes())
-		return nil
+	if c.connectClient == nil {
+		return fmt.Errorf("not connected")
 	}
-	log.Debugf("select route failed: engine is not available")
-	return fmt.Errorf("engine is not available")
+
+	engine := c.connectClient.Engine()
+	if engine == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	routeManager := engine.GetRouteManager()
+	routeSelector := routeManager.GetRouteSelector()
+	if id == "All" {
+		log.Debugf("select all routes")
+		routeSelector.SelectAllRoutes()
+	} else {
+		log.Debugf("select route with id: %s", id)
+		routes := toNetIDs([]string{id})
+		if err := routeSelector.SelectRoutes(routes, true, maps.Keys(engine.GetClientRoutesWithNetID())); err != nil {
+			log.Debugf("error when selecting routes: %s", err)
+			return fmt.Errorf("select routes: %w", err)
+		}
+	}
+	routeManager.TriggerSelection(engine.GetClientRoutes())
+	return nil
+
 }
 
 func (c *Client) DeselectRoute(id string) error {
-	if c.connectClient != nil {
-		routeManager := c.connectClient.Engine().GetRouteManager()
-		routeSelector := routeManager.GetRouteSelector()
-		if id == "All" {
-			log.Debugf("deselect all routes")
-			routeSelector.DeselectAllRoutes()
-		} else {
-			log.Debugf("deselect route with id: %s", id)
-			routes := toNetIDs([]string{id})
-			if err := routeSelector.DeselectRoutes(routes, maps.Keys(c.connectClient.Engine().GetClientRoutesWithNetID())); err != nil {
-				log.Debugf("error when deselecting routes: %s", err)
-				return fmt.Errorf("deselect routes: %w", err)
-			}
-		}
-		routeManager.TriggerSelection(c.connectClient.Engine().GetClientRoutes())
-		return nil
+	if c.connectClient == nil {
+		return fmt.Errorf("not connected")
 	}
-	log.Debugf("deselect route failed: engine is not available")
-	return fmt.Errorf("engine is not available")
+	engine := c.connectClient.Engine()
+	if engine == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	routeManager := engine.GetRouteManager()
+	routeSelector := routeManager.GetRouteSelector()
+	if id == "All" {
+		log.Debugf("deselect all routes")
+		routeSelector.DeselectAllRoutes()
+	} else {
+		log.Debugf("deselect route with id: %s", id)
+		routes := toNetIDs([]string{id})
+		if err := routeSelector.DeselectRoutes(routes, maps.Keys(engine.GetClientRoutesWithNetID())); err != nil {
+			log.Debugf("error when deselecting routes: %s", err)
+			return fmt.Errorf("deselect routes: %w", err)
+		}
+	}
+	routeManager.TriggerSelection(engine.GetClientRoutes())
+	return nil
 }
 
 func formatDuration(d time.Duration) string {
