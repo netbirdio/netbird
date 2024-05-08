@@ -304,6 +304,12 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
+	if input.NetworkMonitor != nil && *input.NetworkMonitor != config.NetworkMonitor {
+		log.Infof("switching Network Monitor to %t", *input.NetworkMonitor)
+		config.NetworkMonitor = *input.NetworkMonitor
+		updated = true
+	}
+
 	if input.CustomDNSAddress != nil && string(input.CustomDNSAddress) != config.CustomDNSAddress {
 		log.Infof("updating custom DNS address %#v (old value %#v)",
 			string(input.CustomDNSAddress), config.CustomDNSAddress)
