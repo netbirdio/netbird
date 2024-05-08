@@ -48,7 +48,7 @@ func init() {
 	formatter.SetLogcatFormatter(log.StandardLogger())
 }
 
-// ConnectClient struct manage the life circle of background service
+// Client struct manage the life circle of background service
 type Client struct {
 	cfgFile               string
 	tunAdapter            iface.TunAdapter
@@ -60,7 +60,7 @@ type Client struct {
 	networkChangeListener listener.NetworkChangeListener
 }
 
-// NewClient instantiate a new ConnectClient
+// NewClient instantiate a new Client
 func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover, networkChangeListener NetworkChangeListener) *Client {
 	net.SetAndroidProtectSocketFn(tunAdapter.ProtectSocket)
 	return &Client{

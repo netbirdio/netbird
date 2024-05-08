@@ -119,7 +119,7 @@ func isDeviceAuthProviderConfigValid(config DeviceAuthProviderConfig) error {
 		return fmt.Errorf(errorMSGFormat, "Audience")
 	}
 	if config.ClientID == "" {
-		return fmt.Errorf(errorMSGFormat, "ConnectClient ID")
+		return fmt.Errorf(errorMSGFormat, "Client ID")
 	}
 	if config.TokenEndpoint == "" {
 		return fmt.Errorf(errorMSGFormat, "Token Endpoint")
