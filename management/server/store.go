@@ -56,7 +56,7 @@ type StoreEngine string
 const (
 	FileStoreEngine     StoreEngine = "jsonfile"
 	SqliteStoreEngine   StoreEngine = "sqlite"
-	PostgresStoreEngine StoreEngine = "postgres"
+	PostgresStoreEngine StoreEngine = "postgresql"
 
 	postgresDsnEnv = "NETBIRD_POSTGRES_DSN"
 )
