@@ -6,8 +6,6 @@ import (
 	"strings"
 	"sync"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/route"
 )
@@ -72,7 +70,6 @@ func (n *notifier) notify() {
 	}
 
 	go func(l listener.NetworkChangeListener) {
-		log.Debugf("Notifying network change: %s", strings.Join(addIPv6RangeIfNeeded(n.routeRanges), ","))
 		l.OnNetworkChanged(strings.Join(addIPv6RangeIfNeeded(n.routeRanges), ","))
 	}(n.listener)
 }

@@ -174,6 +174,9 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 	defer m.mux.Unlock()
 
 	networks = m.routeSelector.FilterSelected(networks)
+
+	m.notifier.onNewRoutes(networks)
+
 	m.stopObsoleteClients(networks)
 
 	for id, routes := range networks {
@@ -185,10 +188,8 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 		clientNetworkWatcher := newClientNetworkWatcher(m.ctx, m.wgInterface, m.statusRecorder, routes[0].Network)
 		m.clientNetworks[id] = clientNetworkWatcher
 		go clientNetworkWatcher.peersStateAndUpdateWatcher()
-		log.Debugf("sending routes to client %v", routes)
 		clientNetworkWatcher.sendUpdateToClientNetworkWatcher(routesUpdate{routes: routes})
 	}
-	m.notifier.onNewRoutes(networks)
 }
 
 // stopObsoleteClients stops the client network watcher for the networks that are not in the new list
