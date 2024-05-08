@@ -40,19 +40,6 @@ func TestSqlite_NewStore(t *testing.T) {
 	}
 }
 
-func TestPostgresql_NewStore(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The PostgreSQL store is not properly supported by Windows yet")
-	}
-
-	store, cleanup := newPostgresqlStore(t)
-	defer cleanup()
-
-	if len(store.GetAllAccounts()) != 0 {
-		t.Errorf("expected to create a new empty Accounts map when creating a new FileStore")
-	}
-}
-
 func TestSqlite_SaveAccount_Large(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
@@ -686,6 +673,19 @@ func newPostgresqlStoreFromFile(t *testing.T, filename string) (*SqlStore, func(
 	return store, cleanup
 }
 
+func TestPostgresql_NewStore(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The PostgreSQL store is not properly supported by Windows yet")
+	}
+
+	store, cleanup := newPostgresqlStore(t)
+	defer cleanup()
+
+	if len(store.GetAllAccounts()) != 0 {
+		t.Errorf("expected to create a new empty Accounts map when creating a new FileStore")
+	}
+}
+
 func TestPostgresql_SaveAccount(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The PostgreSQL store is not properly supported by Windows yet")
@@ -872,8 +872,7 @@ func TestPostgresql_SavePeerStatus(t *testing.T) {
 
 	actual := account.Peers["testpeer"].Status
 	assert.Equal(t, newStatus.Connected, actual.Connected)
-	// TODO: fix later
-	//assert.True(t, newStatus.LastSeen.Equal(actual.LastSeen))
+	assert.True(t, newStatus.LastSeen.Equal(actual.LastSeen))
 }
 
 func TestPostgresql_TestGetAccountByPrivateDomain(t *testing.T) {

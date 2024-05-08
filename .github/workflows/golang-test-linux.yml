@@ -61,6 +61,8 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Test
+        env:
+          NETBIRD_POSTGRES_DSN: "host=localhost user=postgres password=integrations port=5432 sslmode=disable"
         run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} NETBIRD_STORE_ENGINE=${{ matrix.store }} go test -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' -timeout 5m -p 1 ./...
 
   test_client_on_docker:
