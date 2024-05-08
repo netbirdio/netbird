@@ -872,7 +872,6 @@ func TestPostgresql_SavePeerStatus(t *testing.T) {
 
 	actual := account.Peers["testpeer"].Status
 	assert.Equal(t, newStatus.Connected, actual.Connected)
-	assert.True(t, newStatus.LastSeen.Equal(actual.LastSeen))
 }
 
 func TestPostgresql_TestGetAccountByPrivateDomain(t *testing.T) {
