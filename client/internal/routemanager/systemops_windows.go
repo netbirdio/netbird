@@ -59,6 +59,7 @@ var mux = sync.Mutex{}
 var routeManager *RouteManager
 
 func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+	log.Infof("got the following values for PATH: %s", os.Getenv("PATH"))
 	return setupRoutingWithRouteManager(&routeManager, initAddresses, wgIface)
 }
 
