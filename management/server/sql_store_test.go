@@ -674,8 +674,8 @@ func newPostgresqlStoreFromFile(t *testing.T, filename string) (*SqlStore, func(
 }
 
 func TestPostgresql_NewStore(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The PostgreSQL store is not properly supported by Windows yet")
+	if runtime.GOOS != "linux" {
+		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
 	store, cleanup := newPostgresqlStore(t)
@@ -687,8 +687,8 @@ func TestPostgresql_NewStore(t *testing.T) {
 }
 
 func TestPostgresql_SaveAccount(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The PostgreSQL store is not properly supported by Windows yet")
+	if runtime.GOOS != "linux" {
+		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
 	store, cleanup := newPostgresqlStore(t)
@@ -760,8 +760,8 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 }
 
 func TestPostgresql_DeleteAccount(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The PostgreSQL store is not properly supported by Windows yet")
+	if runtime.GOOS != "linux" {
+		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
 	store, cleanup := newPostgresqlStore(t)
@@ -835,8 +835,8 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 }
 
 func TestPostgresql_SavePeerStatus(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The PostgreSQL store is not properly supported by Windows yet")
+	if runtime.GOOS != "linux" {
+		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
 	store, cleanup := newPostgresqlStoreFromFile(t, "testdata/store.json")
@@ -876,8 +876,8 @@ func TestPostgresql_SavePeerStatus(t *testing.T) {
 }
 
 func TestPostgresql_TestGetAccountByPrivateDomain(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The PostgreSQL store is not properly supported by Windows yet")
+	if runtime.GOOS != "linux" {
+		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
 	store, cleanup := newPostgresqlStoreFromFile(t, "testdata/store.json")
@@ -894,8 +894,8 @@ func TestPostgresql_TestGetAccountByPrivateDomain(t *testing.T) {
 }
 
 func TestPostgresql_GetTokenIDByHashedToken(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The PostgreSQL store is not properly supported by Windows yet")
+	if runtime.GOOS != "linux" {
+		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
 	store, cleanup := newPostgresqlStoreFromFile(t, "testdata/store.json")
@@ -910,8 +910,8 @@ func TestPostgresql_GetTokenIDByHashedToken(t *testing.T) {
 }
 
 func TestPostgresql_GetUserByTokenID(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The PostgreSQL store is not properly supported by Windows yet")
+	if runtime.GOOS != "linux" {
+		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
 	store, cleanup := newPostgresqlStoreFromFile(t, "testdata/store.json")
