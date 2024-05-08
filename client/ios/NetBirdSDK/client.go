@@ -67,7 +67,7 @@ type Client struct {
 	onHostDnsFn           func([]string)
 	dnsManager            dns.IosDnsManager
 	loginComplete         bool
-	engine                *internal.Engine
+	connectClient         *internal.ConnectClient
 }
 
 // NewClient instantiate a new Client
@@ -120,25 +120,9 @@ func (c *Client) Run(fd int32, interfaceName string) error {
 	ctx = internal.CtxInitState(ctx)
 	c.onHostDnsFn = func([]string) {}
 	cfg.WgIface = interfaceName
-	engineChan := make(chan *internal.Engine, 1)
-	go c.watchEngine(ctx, engineChan)
-	return internal.RunClientiOS(ctx, cfg, c.recorder, fd, c.networkChangeListener, c.dnsManager, engineChan)
-}
 
-// watchEngine watches the engine channel and updates the engine state
-func (c *Client) watchEngine(ctx context.Context, engineChan chan *internal.Engine) {
-	log.Tracef("Started watching engine")
-	for {
-		select {
-		case <-ctx.Done():
-			c.engine = nil
-			log.Tracef("Stopped watching engine")
-			return
-		case engine := <-engineChan:
-			log.Tracef("Received engine from watcher")
-			c.engine = engine
-		}
-	}
+	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
+	return c.connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager)
 }
 
 // Stop the internal client and free the resources
@@ -275,12 +259,12 @@ func (c *Client) ClearLoginComplete() {
 }
 
 func (c *Client) GetRoutesSelectionDetails() *RoutesSelectionDetails {
-	if c.engine == nil {
+	if c.connectClient == nil {
 		return nil
 	}
 
-	routesMap := c.engine.GetClientRoutesWithNetID()
-	routeSelector := c.engine.GetRouteManager().GetRouteSelector()
+	routesMap := c.connectClient.Engine().GetClientRoutesWithNetID()
+	routeSelector := c.connectClient.Engine().GetRouteManager().GetRouteSelector()
 
 	var routes []*selectRoute
 	for id, rt := range routesMap {
@@ -324,8 +308,8 @@ func (c *Client) GetRoutesSelectionDetails() *RoutesSelectionDetails {
 }
 
 func (c *Client) SelectRoute(id string) error {
-	if c.engine != nil {
-		routeManager := c.engine.GetRouteManager()
+	if c.connectClient != nil {
+		routeManager := c.connectClient.Engine().GetRouteManager()
 		routeSelector := routeManager.GetRouteSelector()
 		if id == "All" {
 			log.Debugf("select all routes")
@@ -333,12 +317,12 @@ func (c *Client) SelectRoute(id string) error {
 		} else {
 			log.Debugf("select route with id: %s", id)
 			routes := toNetIDs([]string{id})
-			if err := routeSelector.SelectRoutes(routes, true, maps.Keys(c.engine.GetClientRoutesWithNetID())); err != nil {
+			if err := routeSelector.SelectRoutes(routes, true, maps.Keys(c.connectClient.Engine().GetClientRoutesWithNetID())); err != nil {
 				log.Debugf("error when selecting routes: %s", err)
 				return fmt.Errorf("select routes: %w", err)
 			}
 		}
-		routeManager.TriggerSelection(c.engine.GetClientRoutes())
+		routeManager.TriggerSelection(c.connectClient.Engine().GetClientRoutes())
 		return nil
 	}
 	log.Debugf("select route failed: engine is not available")
@@ -346,8 +330,8 @@ func (c *Client) SelectRoute(id string) error {
 }
 
 func (c *Client) DeselectRoute(id string) error {
-	if c.engine != nil {
-		routeManager := c.engine.GetRouteManager()
+	if c.connectClient != nil {
+		routeManager := c.connectClient.Engine().GetRouteManager()
 		routeSelector := routeManager.GetRouteSelector()
 		if id == "All" {
 			log.Debugf("deselect all routes")
@@ -355,12 +339,12 @@ func (c *Client) DeselectRoute(id string) error {
 		} else {
 			log.Debugf("deselect route with id: %s", id)
 			routes := toNetIDs([]string{id})
-			if err := routeSelector.DeselectRoutes(routes, maps.Keys(c.engine.GetClientRoutesWithNetID())); err != nil {
+			if err := routeSelector.DeselectRoutes(routes, maps.Keys(c.connectClient.Engine().GetClientRoutesWithNetID())); err != nil {
 				log.Debugf("error when deselecting routes: %s", err)
 				return fmt.Errorf("deselect routes: %w", err)
 			}
 		}
-		routeManager.TriggerSelection(c.engine.GetClientRoutes())
+		routeManager.TriggerSelection(c.connectClient.Engine().GetClientRoutes())
 		return nil
 	}
 	log.Debugf("deselect route failed: engine is not available")

@@ -197,7 +197,7 @@ func (p *PKCEAuthorizationFlow) parseOAuthToken(token *oauth2.Token) (TokenInfo,
 		tokenInfo.IDToken = idToken
 	}
 
-	// if a provider doesn't support an audience, use the Client ID for token verification
+	// if a provider doesn't support an audience, use the ConnectClient ID for token verification
 	audience := p.providerConfig.Audience
 	if audience == "" {
 		audience = p.providerConfig.ClientID
