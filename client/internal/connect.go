@@ -36,7 +36,6 @@ type ConnectClient struct {
 	statusRecorder *peer.Status
 	engine         *Engine
 	engineMutex    sync.Mutex
-	engineChan     chan struct{}
 }
 
 func NewConnectClient(
@@ -50,7 +49,6 @@ func NewConnectClient(
 		config:         config,
 		statusRecorder: statusRecorder,
 		engineMutex:    sync.Mutex{},
-		engineChan:     make(chan struct{}),
 	}
 }
 
