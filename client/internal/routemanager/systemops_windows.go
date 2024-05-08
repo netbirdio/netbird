@@ -173,7 +173,7 @@ func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) e
 		args = append(args, "if", strconv.Itoa(intf.Index))
 	}
 
-	out, err := exec.Command("route", args...).CombinedOutput()
+	out, err := exec.Command("cmd.exe /c route", args...).CombinedOutput()
 	log.Tracef("route %s: %s", strings.Join(args, " "), out)
 	if err != nil {
 		return fmt.Errorf("route add: %w", err)
