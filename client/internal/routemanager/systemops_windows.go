@@ -16,6 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/yusufpapurcu/wmi"
 
+	"github.com/netbirdio/netbird/client/firewall/uspfilter"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/iface"
 )
@@ -174,7 +175,9 @@ func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) e
 		args = append(args, "if", strconv.Itoa(intf.Index))
 	}
 
-	out, err := exec.Command("C:\\windows\\system32\\route.exe", args...).CombinedOutput()
+	routeCmd := uspfilter.GetSystem32Command("route")
+
+	out, err := exec.Command(routeCmd, args...).CombinedOutput()
 	log.Tracef("route %s: %s", strings.Join(args, " "), out)
 	if err != nil {
 		return fmt.Errorf("route add: %w", err)
@@ -203,7 +206,9 @@ func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, _ *net.Interf
 		args = append(args, nexthop.Unmap().String())
 	}
 
-	out, err := exec.Command("C:\\windows\\system32\\route.exe", args...).CombinedOutput()
+	routeCmd := uspfilter.GetSystem32Command("route")
+
+	out, err := exec.Command(routeCmd, args...).CombinedOutput()
 	log.Tracef("route %s: %s", strings.Join(args, " "), out)
 
 	if err != nil {
