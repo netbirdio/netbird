@@ -278,7 +278,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.NATExternalIPs != nil && reflect.DeepEqual(config.NATExternalIPs, input.NATExternalIPs) {
+	if input.NATExternalIPs != nil && !reflect.DeepEqual(config.NATExternalIPs, input.NATExternalIPs) {
 		log.Infof("updating NAT External IP [ %s ] (old value: [ %s ])",
 			strings.Join(input.NATExternalIPs, " "),
 			strings.Join(config.NATExternalIPs, " "))
