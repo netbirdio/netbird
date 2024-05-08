@@ -15,8 +15,20 @@ jobs:
     strategy:
       matrix:
         arch: [ '386','amd64' ]
-        store: [ 'jsonfile', 'sqlite' ]
+        store: [ 'jsonfile', 'sqlite', 'postgresql']
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: integrations
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+        ports:
+          - 5432:5432
     steps:
       - name: Install Go
         uses: actions/setup-go@v4
