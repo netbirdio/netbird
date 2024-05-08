@@ -21,21 +21,21 @@ type WGUserSpaceProxy struct {
 }
 
 // NewWGUserSpaceProxy instantiate a user space WireGuard proxy
-func NewWGUserSpaceProxy(wgPort int) *WGUserSpaceProxy {
-	log.Debugf("instantiate new userspace proxy")
+func NewWGUserSpaceProxy(ctx context.Context, wgPort int) *WGUserSpaceProxy {
+	log.Debugf("Initializing new user space proxy with port %d", wgPort)
 	p := &WGUserSpaceProxy{
 		localWGListenPort: wgPort,
 	}
-	p.ctx, p.cancel = context.WithCancel(context.Background())
+	p.ctx, p.cancel = context.WithCancel(ctx)
 	return p
 }
 
 // AddTurnConn start the proxy with the given remote conn
-func (p *WGUserSpaceProxy) AddTurnConn(remoteConn net.Conn) (net.Addr, error) {
-	p.remoteConn = remoteConn
+func (p *WGUserSpaceProxy) AddTurnConn(turnConn net.Conn) (net.Addr, error) {
+	p.remoteConn = turnConn
 
 	var err error
-	p.localConn, err = nbnet.NewDialer().Dial("udp", fmt.Sprintf(":%d", p.localWGListenPort))
+	p.localConn, err = nbnet.NewDialer().DialContext(p.ctx, "udp", fmt.Sprintf(":%d", p.localWGListenPort))
 	if err != nil {
 		log.Errorf("failed dialing to local Wireguard port %s", err)
 		return nil, err

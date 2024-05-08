@@ -27,15 +27,15 @@ func cleanupRouting() error {
 	return cleanupRoutingWithRouteManager(routeManager)
 }
 
-func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf string) error {
+func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
 	return routeCmd("add", prefix, nexthop, intf)
 }
 
-func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf string) error {
+func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
 	return routeCmd("delete", prefix, nexthop, intf)
 }
 
-func routeCmd(action string, prefix netip.Prefix, nexthop netip.Addr, intf string) error {
+func routeCmd(action string, prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
 	inet := "-inet"
 	network := prefix.String()
 	if prefix.IsSingleIP() {
@@ -46,15 +46,15 @@ func routeCmd(action string, prefix netip.Prefix, nexthop netip.Addr, intf strin
 		// Special case for IPv6 split default route, pointing to the wg interface fails
 		// TODO: Remove once we have IPv6 support on the interface
 		if prefix.Bits() == 1 {
-			intf = "lo0"
+			intf = &net.Interface{Name: "lo0"}
 		}
 	}
 
 	args := []string{"-n", action, inet, network}
 	if nexthop.IsValid() {
 		args = append(args, nexthop.Unmap().String())
-	} else if intf != "" {
-		args = append(args, "-interface", intf)
+	} else if intf != nil {
+		args = append(args, "-interface", intf.Name)
 	}
 
 	if err := retryRouteCmd(args); err != nil {

@@ -121,13 +121,14 @@ func TestGetPeers(t *testing.T) {
 		Name:                   "PeerName",
 		LoginExpirationEnabled: false,
 		Meta: nbpeer.PeerSystemMeta{
-			Hostname:  "hostname",
-			GoOS:      "GoOS",
-			Kernel:    "kernel",
-			Core:      "core",
-			Platform:  "platform",
-			OS:        "OS",
-			WtVersion: "development",
+			Hostname:           "hostname",
+			GoOS:               "GoOS",
+			Kernel:             "kernel",
+			Core:               "core",
+			Platform:           "platform",
+			OS:                 "OS",
+			WtVersion:          "development",
+			SystemSerialNumber: "C02XJ0J0JGH7",
 		},
 	}
 
@@ -245,6 +246,7 @@ func TestGetPeers(t *testing.T) {
 			assert.Equal(t, got.LoginExpirationEnabled, tc.expectedPeer.LoginExpirationEnabled)
 			assert.Equal(t, got.SshEnabled, tc.expectedPeer.SSHEnabled)
 			assert.Equal(t, got.Connected, tc.expectedPeer.Status.Connected)
+			assert.Equal(t, got.SerialNumber, tc.expectedPeer.Meta.SystemSerialNumber)
 		})
 	}
 }

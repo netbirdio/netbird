@@ -67,7 +67,7 @@ func (mockDatasource) GetAllAccounts() []*server.Account {
 					SourcePostureChecks: []string{"1"},
 				},
 			},
-			Routes: map[string]*route.Route{
+			Routes: map[route.ID]*route.Route{
 				"1": {
 					ID:         "1",
 					PeerGroups: make([]string, 1),
@@ -151,7 +151,7 @@ func (mockDatasource) GetAllAccounts() []*server.Account {
 					},
 				},
 			},
-			Routes: map[string]*route.Route{
+			Routes: map[route.ID]*route.Route{
 				"1": {
 					ID:         "1",
 					PeerGroups: make([]string, 1),

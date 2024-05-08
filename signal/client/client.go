@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -33,7 +34,7 @@ type Client interface {
 	io.Closer
 	StreamConnected() bool
 	GetStatus() Status
-	Receive(msgHandler func(msg *proto.Message) error) error
+	Receive(ctx context.Context, msgHandler func(msg *proto.Message) error) error
 	Ready() bool
 	IsHealthy() bool
 	WaitStreamConnected()

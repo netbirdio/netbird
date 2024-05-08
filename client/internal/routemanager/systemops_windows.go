@@ -6,8 +6,12 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/yusufpapurcu/wmi"
@@ -16,10 +20,41 @@ import (
 	"github.com/netbirdio/netbird/iface"
 )
 
-type Win32_IP4RouteTable struct {
-	Destination string
-	Mask        string
+type MSFT_NetRoute struct {
+	DestinationPrefix string
+	NextHop           string
+	InterfaceIndex    int32
+	InterfaceAlias    string
+	AddressFamily     uint16
 }
+
+type Route struct {
+	Destination netip.Prefix
+	Nexthop     netip.Addr
+	Interface   *net.Interface
+}
+
+type MSFT_NetNeighbor struct {
+	IPAddress        string
+	LinkLayerAddress string
+	State            uint8
+	AddressFamily    uint16
+	InterfaceIndex   uint32
+	InterfaceAlias   string
+}
+
+type Neighbor struct {
+	IPAddress        netip.Addr
+	LinkLayerAddress string
+	State            uint8
+	AddressFamily    uint16
+	InterfaceIndex   uint32
+	InterfaceAlias   string
+}
+
+var prefixList []netip.Prefix
+var lastUpdate time.Time
+var mux = sync.Mutex{}
 
 var routeManager *RouteManager
 
@@ -32,82 +67,113 @@ func cleanupRouting() error {
 }
 
 func getRoutesFromTable() ([]netip.Prefix, error) {
-	var routes []Win32_IP4RouteTable
-	query := "SELECT Destination, Mask FROM Win32_IP4RouteTable"
+	mux.Lock()
+	defer mux.Unlock()
 
-	err := wmi.Query(query, &routes)
+	// If many routes are added at the same time this might block for a long time (seconds to minutes), so we cache the result
+	if !isCacheDisabled() && time.Since(lastUpdate) < 2*time.Second {
+		return prefixList, nil
+	}
+
+	routes, err := GetRoutes()
 	if err != nil {
 		return nil, fmt.Errorf("get routes: %w", err)
 	}
 
-	var prefixList []netip.Prefix
+	prefixList = nil
 	for _, route := range routes {
-		addr, err := netip.ParseAddr(route.Destination)
-		if err != nil {
-			log.Warnf("Unable to parse route destination %s: %v", route.Destination, err)
-			continue
-		}
-		maskSlice := net.ParseIP(route.Mask).To4()
-		if maskSlice == nil {
-			log.Warnf("Unable to parse route mask %s", route.Mask)
-			continue
-		}
-		mask := net.IPv4Mask(maskSlice[0], maskSlice[1], maskSlice[2], maskSlice[3])
-		cidr, _ := mask.Size()
-
-		routePrefix := netip.PrefixFrom(addr, cidr)
-		if routePrefix.IsValid() && routePrefix.Addr().Is4() {
-			prefixList = append(prefixList, routePrefix)
-		}
+		prefixList = append(prefixList, route.Destination)
 	}
+
+	lastUpdate = time.Now()
 	return prefixList, nil
 }
 
-func addRoutePowershell(prefix netip.Prefix, nexthop netip.Addr, intf, intfIdx string) error {
-	destinationPrefix := prefix.String()
-	psCmd := "New-NetRoute"
+func GetRoutes() ([]Route, error) {
+	var entries []MSFT_NetRoute
 
-	addressFamily := "IPv4"
-	if prefix.Addr().Is6() {
-		addressFamily = "IPv6"
+	query := `SELECT DestinationPrefix, NextHop, InterfaceIndex, InterfaceAlias, AddressFamily FROM MSFT_NetRoute`
+	if err := wmi.QueryNamespace(query, &entries, `ROOT\StandardCimv2`); err != nil {
+		return nil, fmt.Errorf("get routes: %w", err)
 	}
 
-	script := fmt.Sprintf(
-		`%s -AddressFamily "%s" -DestinationPrefix "%s" -Confirm:$False -ErrorAction Stop`,
-		psCmd, addressFamily, destinationPrefix,
-	)
+	var routes []Route
+	for _, entry := range entries {
+		dest, err := netip.ParsePrefix(entry.DestinationPrefix)
+		if err != nil {
+			log.Warnf("Unable to parse route destination %s: %v", entry.DestinationPrefix, err)
+			continue
+		}
 
-	if intfIdx != "" {
-		script = fmt.Sprintf(
-			`%s -InterfaceIndex %s`, script, intfIdx,
-		)
-	} else {
-		script = fmt.Sprintf(
-			`%s -InterfaceAlias "%s"`, script, intf,
-		)
+		nexthop, err := netip.ParseAddr(entry.NextHop)
+		if err != nil {
+			log.Warnf("Unable to parse route next hop %s: %v", entry.NextHop, err)
+			continue
+		}
+
+		var intf *net.Interface
+		if entry.InterfaceIndex != 0 {
+			intf = &net.Interface{
+				Index: int(entry.InterfaceIndex),
+				Name:  entry.InterfaceAlias,
+			}
+		}
+
+		routes = append(routes, Route{
+			Destination: dest,
+			Nexthop:     nexthop,
+			Interface:   intf,
+		})
 	}
 
-	if nexthop.IsValid() {
-		script = fmt.Sprintf(
-			`%s -NextHop "%s"`, script, nexthop,
-		)
-	}
-
-	out, err := exec.Command("powershell", "-Command", script).CombinedOutput()
-	log.Tracef("PowerShell %s: %s", script, string(out))
-
-	if err != nil {
-		return fmt.Errorf("PowerShell add route: %w", err)
-	}
-
-	return nil
+	return routes, nil
 }
 
-func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, _ string) error {
-	args := []string{"add", prefix.String(), nexthop.Unmap().String()}
+func GetNeighbors() ([]Neighbor, error) {
+	var entries []MSFT_NetNeighbor
+	query := `SELECT IPAddress, LinkLayerAddress, State, AddressFamily, InterfaceIndex, InterfaceAlias FROM MSFT_NetNeighbor`
+	if err := wmi.QueryNamespace(query, &entries, `ROOT\StandardCimv2`); err != nil {
+		return nil, fmt.Errorf("failed to query MSFT_NetNeighbor: %w", err)
+	}
+
+	var neighbors []Neighbor
+	for _, entry := range entries {
+		addr, err := netip.ParseAddr(entry.IPAddress)
+		if err != nil {
+			log.Warnf("Unable to parse neighbor IP address %s: %v", entry.IPAddress, err)
+			continue
+		}
+		neighbors = append(neighbors, Neighbor{
+			IPAddress:        addr,
+			LinkLayerAddress: entry.LinkLayerAddress,
+			State:            entry.State,
+			AddressFamily:    entry.AddressFamily,
+			InterfaceIndex:   entry.InterfaceIndex,
+			InterfaceAlias:   entry.InterfaceAlias,
+		})
+	}
+
+	return neighbors, nil
+}
+
+func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
+	args := []string{"add", prefix.String()}
+
+	if nexthop.IsValid() {
+		args = append(args, nexthop.Unmap().String())
+	} else {
+		addr := "0.0.0.0"
+		if prefix.Addr().Is6() {
+			addr = "::"
+		}
+		args = append(args, addr)
+	}
+
+	if intf != nil {
+		args = append(args, "if", strconv.Itoa(intf.Index))
+	}
 
 	out, err := exec.Command("route", args...).CombinedOutput()
-
 	log.Tracef("route %s: %s", strings.Join(args, " "), out)
 	if err != nil {
 		return fmt.Errorf("route add: %w", err)
@@ -116,21 +182,20 @@ func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, _ string) error {
 	return nil
 }
 
-func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf string) error {
-	var intfIdx string
-	if nexthop.Zone() != "" {
-		intfIdx = nexthop.Zone()
+func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
+	if nexthop.Zone() != "" && intf == nil {
+		zone, err := strconv.Atoi(nexthop.Zone())
+		if err != nil {
+			return fmt.Errorf("invalid zone: %w", err)
+		}
+		intf = &net.Interface{Index: zone}
 		nexthop.WithZone("")
 	}
 
-	// Powershell doesn't support adding routes without an interface but allows to add interface by name
-	if intf != "" || intfIdx != "" {
-		return addRoutePowershell(prefix, nexthop, intf, intfIdx)
-	}
 	return addRouteCmd(prefix, nexthop, intf)
 }
 
-func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, _ string) error {
+func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, _ *net.Interface) error {
 	args := []string{"delete", prefix.String()}
 	if nexthop.IsValid() {
 		nexthop.WithZone("")
@@ -144,4 +209,8 @@ func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, _ string) err
 		return fmt.Errorf("remove route: %w", err)
 	}
 	return nil
+}
+
+func isCacheDisabled() bool {
+	return os.Getenv("NB_DISABLE_ROUTE_CACHE") == "true"
 }

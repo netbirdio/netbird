@@ -31,7 +31,7 @@ import (
 
 // RunClient with main logic.
 func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status) error {
-	return runClient(ctx, config, statusRecorder, MobileDependency{}, nil, nil, nil, nil)
+	return runClient(ctx, config, statusRecorder, MobileDependency{}, nil, nil, nil, nil, nil)
 }
 
 // RunClientWithProbes runs the client's main logic with probes attached
@@ -43,8 +43,9 @@ func RunClientWithProbes(
 	signalProbe *Probe,
 	relayProbe *Probe,
 	wgProbe *Probe,
+	engineChan chan<- *Engine,
 ) error {
-	return runClient(ctx, config, statusRecorder, MobileDependency{}, mgmProbe, signalProbe, relayProbe, wgProbe)
+	return runClient(ctx, config, statusRecorder, MobileDependency{}, mgmProbe, signalProbe, relayProbe, wgProbe, engineChan)
 }
 
 // RunClientMobile with main logic on mobile system
@@ -66,7 +67,7 @@ func RunClientMobile(
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 	}
-	return runClient(ctx, config, statusRecorder, mobileDependency, nil, nil, nil, nil)
+	return runClient(ctx, config, statusRecorder, mobileDependency, nil, nil, nil, nil, nil)
 }
 
 func RunClientiOS(
@@ -82,7 +83,7 @@ func RunClientiOS(
 		NetworkChangeListener: networkChangeListener,
 		DnsManager:            dnsManager,
 	}
-	return runClient(ctx, config, statusRecorder, mobileDependency, nil, nil, nil, nil)
+	return runClient(ctx, config, statusRecorder, mobileDependency, nil, nil, nil, nil, nil)
 }
 
 func runClient(
@@ -94,6 +95,7 @@ func runClient(
 	signalProbe *Probe,
 	relayProbe *Probe,
 	wgProbe *Probe,
+	engineChan chan<- *Engine,
 ) error {
 	defer func() {
 		if r := recover(); r != nil {
@@ -243,14 +245,21 @@ func runClient(
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
 		}
+		if engineChan != nil {
+			engineChan <- engine
+		}
 
-		log.Print("Netbird engine started, my IP is: ", peerConfig.Address)
+		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
 
 		<-engineCtx.Done()
 		statusRecorder.ClientTeardown()
 
 		backOff.Reset()
+
+		if engineChan != nil {
+			engineChan <- nil
+		}
 
 		err = engine.Stop()
 		if err != nil {
@@ -288,6 +297,7 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		DisableIPv6Discovery: config.DisableIPv6Discovery,
 		WgPrivateKey:         key,
 		WgPort:               config.WgPort,
+		NetworkMonitor:       config.NetworkMonitor,
 		SSHKey:               []byte(config.SSHKey),
 		NATExternalIPs:       config.NATExternalIPs,
 		CustomDNSAddress:     config.CustomDNSAddress,

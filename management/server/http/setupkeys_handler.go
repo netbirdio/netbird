@@ -181,8 +181,8 @@ func (h *SetupKeysHandler) GetAllSetupKeys(w http.ResponseWriter, r *http.Reques
 }
 
 func writeSuccess(w http.ResponseWriter, key *server.SetupKey) {
-	w.WriteHeader(200)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
 	err := json.NewEncoder(w).Encode(toResponseBody(key))
 	if err != nil {
 		util.WriteError(err, w)

@@ -19,6 +19,7 @@ type Store interface {
 	DeleteAccount(account *Account) error
 	GetAccountByUser(userID string) (*Account, error)
 	GetAccountByPeerPubKey(peerKey string) (*Account, error)
+	GetAccountIDByPeerPubKey(peerKey string) (string, error)
 	GetAccountByPeerID(peerID string) (*Account, error)
 	GetAccountBySetupKey(setupKey string) (*Account, error) // todo use key hash later
 	GetAccountByPrivateDomain(domain string) (*Account, error)
@@ -29,8 +30,10 @@ type Store interface {
 	DeleteTokenID2UserIDIndex(tokenID string) error
 	GetInstallationID() string
 	SaveInstallationID(ID string) error
-	// AcquireAccountLock should attempt to acquire account lock and return a function that releases the lock
-	AcquireAccountLock(accountID string) func()
+	// AcquireAccountWriteLock should attempt to acquire account lock for write purposes and return a function that releases the lock
+	AcquireAccountWriteLock(accountID string) func()
+	// AcquireAccountReadLock should attempt to acquire account lock for read purposes and return a function that releases the lock
+	AcquireAccountReadLock(accountID string) func()
 	// AcquireGlobalLock should attempt to acquire a global lock and return a function that releases the lock
 	AcquireGlobalLock() func()
 	SavePeerStatus(accountID, peerID string, status nbpeer.PeerStatus) error

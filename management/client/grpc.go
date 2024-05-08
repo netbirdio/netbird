@@ -113,8 +113,8 @@ func (c *GrpcClient) ready() bool {
 
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
-func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
-	backOff := defaultBackoff(c.ctx)
+func (c *GrpcClient) Sync(ctx context.Context, msgHandler func(msg *proto.SyncResponse) error) error {
+	backOff := defaultBackoff(ctx)
 
 	operation := func() error {
 		log.Debugf("management connection state %v", c.conn.GetState())
@@ -123,7 +123,7 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 		if connState == connectivity.Shutdown {
 			return backoff.Permanent(fmt.Errorf("connection to management has been shut down"))
 		} else if !(connState == connectivity.Ready || connState == connectivity.Idle) {
-			c.conn.WaitForStateChange(c.ctx, connState)
+			c.conn.WaitForStateChange(ctx, connState)
 			return fmt.Errorf("connection to management is not ready and in %s state", connState)
 		}
 
@@ -133,7 +133,7 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 			return err
 		}
 
-		ctx, cancelStream := context.WithCancel(c.ctx)
+		ctx, cancelStream := context.WithCancel(ctx)
 		defer cancelStream()
 		stream, err := c.connectToStream(ctx, *serverPubKey)
 		if err != nil {
@@ -276,7 +276,8 @@ func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
 	defer cancel()
 	resp, err := c.realClient.GetServerKey(mgmCtx, &proto.Empty{})
 	if err != nil {
-		return nil, err
+		log.Errorf("failed while getting Management Service public key: %v", err)
+		return nil, fmt.Errorf("failed while getting Management Service public key")
 	}
 
 	serverKey, err := wgtypes.ParseKey(resp.Key)

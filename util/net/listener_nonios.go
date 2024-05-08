@@ -1,4 +1,4 @@
-//go:build !android && !ios
+//go:build !ios
 
 package net
 
@@ -8,6 +8,7 @@ import (
 	"net"
 	"sync"
 
+	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -52,6 +53,10 @@ func RemoveListenerHooks() {
 // ListenPacket listens on the network address and returns a PacketConn
 // which includes support for write hooks.
 func (l *ListenerConfig) ListenPacket(ctx context.Context, network, address string) (net.PacketConn, error) {
+	if CustomRoutingDisabled() {
+		return l.ListenConfig.ListenPacket(ctx, network, address)
+	}
+
 	pc, err := l.ListenConfig.ListenPacket(ctx, network, address)
 	if err != nil {
 		return nil, fmt.Errorf("listen packet: %w", err)
@@ -144,7 +149,11 @@ func closeConn(id ConnectionID, conn net.PacketConn) error {
 
 // ListenUDP listens on the network address and returns a transport.UDPConn
 // which includes support for write and close hooks.
-func ListenUDP(network string, laddr *net.UDPAddr) (*UDPConn, error) {
+func ListenUDP(network string, laddr *net.UDPAddr) (transport.UDPConn, error) {
+	if CustomRoutingDisabled() {
+		return net.ListenUDP(network, laddr)
+	}
+
 	conn, err := NewListener().ListenPacket(context.Background(), network, laddr.String())
 	if err != nil {
 		return nil, fmt.Errorf("listen UDP: %w", err)

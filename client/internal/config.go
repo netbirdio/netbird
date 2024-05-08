@@ -50,6 +50,7 @@ type ConfigInput struct {
 	RosenpassPermissive *bool
 	InterfaceName       *string
 	WireguardPort       *int
+	NetworkMonitor      *bool
 	DisableAutoConnect  *bool
 	ExtraIFaceBlackList []string
 }
@@ -63,6 +64,7 @@ type Config struct {
 	AdminURL             *url.URL
 	WgIface              string
 	WgPort               int
+	NetworkMonitor       bool
 	IFaceBlackList       []string
 	DisableIPv6Discovery bool
 	RosenpassEnabled     bool

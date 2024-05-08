@@ -229,7 +229,6 @@ func (conn *Conn) reCreateAgent() error {
 	}
 
 	conn.agent, err = ice.NewAgent(agentConfig)
-
 	if err != nil {
 		return err
 	}
@@ -277,7 +276,7 @@ func (conn *Conn) candidateTypes() []ice.CandidateType {
 // Open opens connection to the remote peer starting ICE candidate gathering process.
 // Blocks until connection has been closed or connection timeout.
 // ConnStatus will be set accordingly
-func (conn *Conn) Open() error {
+func (conn *Conn) Open(ctx context.Context) error {
 	log.Debugf("trying to connect to peer %s", conn.config.Key)
 
 	peerState := State{
@@ -285,6 +284,7 @@ func (conn *Conn) Open() error {
 		IP:               strings.Split(conn.config.WgConfig.AllowedIps, "/")[0],
 		ConnStatusUpdate: time.Now(),
 		ConnStatus:       conn.status,
+		Mux:              new(sync.RWMutex),
 	}
 	err := conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -336,7 +336,7 @@ func (conn *Conn) Open() error {
 	// at this point we received offer/answer and we are ready to gather candidates
 	conn.mu.Lock()
 	conn.status = StatusConnecting
-	conn.ctx, conn.notifyDisconnected = context.WithCancel(context.Background())
+	conn.ctx, conn.notifyDisconnected = context.WithCancel(ctx)
 	defer conn.notifyDisconnected()
 	conn.mu.Unlock()
 
@@ -344,6 +344,7 @@ func (conn *Conn) Open() error {
 		PubKey:           conn.config.Key,
 		ConnStatus:       conn.status,
 		ConnStatusUpdate: time.Now(),
+		Mux:              new(sync.RWMutex),
 	}
 	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -422,7 +423,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 	var endpoint net.Addr
 	if isRelayCandidate(pair.Local) {
 		log.Debugf("setup relay connection")
-		conn.wgProxy = conn.wgProxyFactory.GetProxy()
+		conn.wgProxy = conn.wgProxyFactory.GetProxy(conn.ctx)
 		endpoint, err = conn.wgProxy.AddTurnConn(remoteConn)
 		if err != nil {
 			return nil, err
@@ -447,9 +448,11 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 	err = conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, endpointUdpAddr, conn.config.WgConfig.PreSharedKey)
 	if err != nil {
 		if conn.wgProxy != nil {
-			_ = conn.wgProxy.CloseConn()
+			if err := conn.wgProxy.CloseConn(); err != nil {
+				log.Warnf("Failed to close turn connection: %v", err)
+			}
 		}
-		return nil, err
+		return nil, fmt.Errorf("update peer: %w", err)
 	}
 
 	conn.status = StatusConnected
@@ -465,9 +468,10 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 		LocalIceCandidateType:      pair.Local.Type().String(),
 		RemoteIceCandidateType:     pair.Remote.Type().String(),
 		LocalIceCandidateEndpoint:  fmt.Sprintf("%s:%d", pair.Local.Address(), pair.Local.Port()),
-		RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Local.Port()),
+		RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Remote.Port()),
 		Direct:                     !isRelayCandidate(pair.Local),
 		RosenpassEnabled:           rosenpassEnabled,
+		Mux:                        new(sync.RWMutex),
 	}
 	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
 		peerState.Relayed = true
@@ -558,6 +562,7 @@ func (conn *Conn) cleanup() error {
 		PubKey:           conn.config.Key,
 		ConnStatus:       conn.status,
 		ConnStatusUpdate: time.Now(),
+		Mux:              new(sync.RWMutex),
 	}
 	err := conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -727,7 +732,7 @@ func (conn *Conn) Close() error {
 		// before conn.Open() another update from management arrives with peers: [1,2,3,4,5]
 		// engine adds a new Conn for 4 and 5
 		// therefore peer 4 has 2 Conn objects
-		log.Warnf("connection has been already closed or attempted closing not started coonection %s", conn.config.Key)
+		log.Warnf("Connection has been already closed or attempted closing not started connection %s", conn.config.Key)
 		return NewConnectionAlreadyClosed(conn.config.Key)
 	}
 }

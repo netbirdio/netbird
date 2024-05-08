@@ -1,4 +1,4 @@
-//go:build !android && !ios
+//go:build !ios
 
 package net
 
@@ -36,7 +36,7 @@ func AddDialerCloseHook(hook DialerCloseHookFunc) {
 	dialerCloseHooks = append(dialerCloseHooks, hook)
 }
 
-// RemoveDialerHook removes all dialer hooks.
+// RemoveDialerHooks removes all dialer hooks.
 func RemoveDialerHooks() {
 	dialerDialHooksMutex.Lock()
 	defer dialerDialHooksMutex.Unlock()
@@ -49,6 +49,10 @@ func RemoveDialerHooks() {
 
 // DialContext wraps the net.Dialer's DialContext method to use the custom connection
 func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	if CustomRoutingDisabled() {
+		return d.Dialer.DialContext(ctx, network, address)
+	}
+
 	var resolver *net.Resolver
 	if d.Resolver != nil {
 		resolver = d.Resolver
@@ -123,6 +127,10 @@ func callDialerHooks(ctx context.Context, connID ConnectionID, address string, r
 }
 
 func DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
+	if CustomRoutingDisabled() {
+		return net.DialUDP(network, laddr, raddr)
+	}
+
 	dialer := NewDialer()
 	dialer.LocalAddr = laddr
 
@@ -143,6 +151,10 @@ func DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
 }
 
 func DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn, error) {
+	if CustomRoutingDisabled() {
+		return net.DialTCP(network, laddr, raddr)
+	}
+
 	dialer := NewDialer()
 	dialer.LocalAddr = laddr
 
