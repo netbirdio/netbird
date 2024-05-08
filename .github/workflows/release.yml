@@ -7,17 +7,7 @@ on:
     branches:
       - main
   pull_request:
-    paths:
-      - 'go.mod'
-      - 'go.sum'
-      - '.goreleaser.yml'
-      - '.goreleaser_ui.yaml'
-      - '.goreleaser_ui_darwin.yaml'
-      - '.github/workflows/release.yml'
-      - 'release_files/**'
-      - '**/Dockerfile'
-      - '**/Dockerfile.*'
-      - 'client/ui/**'
+
 
 env:
   SIGN_PIPE_VER: "v0.0.11"
@@ -105,6 +95,27 @@ jobs:
         with:
           name: release
           path: dist/
+          retention-days: 3
+      -
+        name: upload linux packages
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-packages
+          path: dist/netbird_linux**
+          retention-days: 3
+      -
+        name: upload windows packages
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-packages
+          path: dist/netbird_windows**
+          retention-days: 3
+      -
+        name: upload macos packages
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-packages
+          path: dist/netbird_darwin**
           retention-days: 3
 
   release_ui:
