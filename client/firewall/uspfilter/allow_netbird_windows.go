@@ -64,15 +64,18 @@ func manageFirewallRule(ruleName string, action action, extraArgs ...string) err
 	if action == addRule {
 		args = append(args, extraArgs...)
 	}
-
-	cmd := exec.Command("netsh", args...)
+	netshCmd := GetSystem32Command("netsh")
+	cmd := exec.Command(netshCmd, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	return cmd.Run()
 }
 
 func isWindowsFirewallReachable() bool {
 	args := []string{"advfirewall", "show", "allprofiles", "state"}
-	cmd := exec.Command("netsh", args...)
+
+	netshCmd := GetSystem32Command("netsh")
+
+	cmd := exec.Command(netshCmd, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
 	_, err := cmd.Output()
@@ -87,8 +90,23 @@ func isWindowsFirewallReachable() bool {
 func isFirewallRuleActive(ruleName string) bool {
 	args := []string{"advfirewall", "firewall", "show", "rule", "name=" + ruleName}
 
-	cmd := exec.Command("netsh", args...)
+	netshCmd := GetSystem32Command("netsh")
+
+	cmd := exec.Command(netshCmd, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	_, err := cmd.Output()
 	return err == nil
+}
+
+// GetSystem32Command checks if a command can be found in the system path and returns it. In case it can't find it
+// in the path it will return the full path of a command assuming C:\windows\system32 as the base path.
+func GetSystem32Command(command string) string {
+	_, err := exec.LookPath(command)
+	if err == nil {
+		return command
+	}
+
+	log.Tracef("Command %s not found in PATH, using C:\\windows\\system32\\%s.exe path", command, command)
+
+	return "C:\\windows\\system32\\" + command + ".exe"
 }
