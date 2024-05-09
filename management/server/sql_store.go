@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"math/rand"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -610,6 +611,14 @@ func NewSqliteStoreFromFileStore(fileStore *FileStore, dataDir string, metrics t
 
 // NewPostgresqlStoreFromFileStore restores a store from FileStore and stores Postgres DB.
 func NewPostgresqlStoreFromFileStore(fileStore *FileStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
+	dbName := "store_" + randString(10)
+	db, _ := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	result := db.Exec(fmt.Sprintf("CREATE DATABASE %s ENCODING = 'UTF8'", dbName))
+	if result.Error != nil {
+		return nil, result.Error
+	}
+
+	dsn = fmt.Sprintf("%s dbname=%s ", dsn, dbName)
 	store, err := NewPostgresqlStore(dsn, metrics)
 	if err != nil {
 		return nil, err
@@ -628,4 +637,13 @@ func NewPostgresqlStoreFromFileStore(fileStore *FileStore, dsn string, metrics t
 	}
 
 	return store, nil
+}
+
+func randString(n int) string {
+	var letterRunes = []rune("abcdefghijklmnopqrstuvwxyz1234567890")
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letterRunes[rand.Intn(len(letterRunes))]
+	}
+	return string(b)
 }

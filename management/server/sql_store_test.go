@@ -922,12 +922,3 @@ func TestPostgresql_GetUserByTokenID(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, id, user.PATs[id].ID)
 }
-
-func randString(n int) string {
-	var letterRunes = []rune("abcdefghijklmnopqrstuvwxyz1234567890")
-	b := make([]rune, n)
-	for i := range b {
-		b[i] = letterRunes[rand.Intn(len(letterRunes))]
-	}
-	return string(b)
-}
