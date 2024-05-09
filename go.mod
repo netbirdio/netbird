@@ -72,6 +72,8 @@ require (
 	github.com/rs/xid v1.3.0
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/stretchr/testify v1.8.4
+	github.com/testcontainers/testcontainers-go v0.20.0
+	github.com/testcontainers/testcontainers-go/modules/postgres v0.20.0
 	github.com/things-go/go-socks5 v0.0.4
 	github.com/yusufpapurcu/wmi v1.2.3
 	github.com/zcalusic/sysinfo v1.0.2
@@ -171,8 +173,6 @@ require (
 	github.com/spf13/cast v1.5.0 // indirect
 	github.com/srwiley/oksvg v0.0.0-20200311192757-870daf9aa564 // indirect
 	github.com/srwiley/rasterx v0.0.0-20200120212402-85cb7272f5e9 // indirect
-	github.com/testcontainers/testcontainers-go v0.20.0 // indirect
-	github.com/testcontainers/testcontainers-go/modules/postgres v0.20.0 // indirect
 	github.com/vishvananda/netns v0.0.0-20211101163701-50045581ed74 // indirect
 	github.com/yuin/goldmark v1.4.13 // indirect
 	go.opencensus.io v0.24.0 // indirect
