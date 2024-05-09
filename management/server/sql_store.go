@@ -186,7 +186,7 @@ func (s *SqlStore) SaveAccount(account *Account) error {
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountPersistenceDuration(took)
 	}
-	log.Debugf("took %d ms to persist an account to the SQLite", took.Milliseconds())
+	log.Debugf("took %d ms to persist an account to the store", took.Milliseconds())
 
 	return err
 }
@@ -217,7 +217,7 @@ func (s *SqlStore) DeleteAccount(account *Account) error {
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountPersistenceDuration(took)
 	}
-	log.Debugf("took %d ms to delete an account to the SQLite", took.Milliseconds())
+	log.Debugf("took %d ms to delete an account to the store", took.Milliseconds())
 
 	return err
 }
@@ -279,12 +279,12 @@ func (s *SqlStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.P
 	return nil
 }
 
-// DeleteHashedPAT2TokenIDIndex is noop in Sqlite
+// DeleteHashedPAT2TokenIDIndex is noop in SqlStore
 func (s *SqlStore) DeleteHashedPAT2TokenIDIndex(hashedToken string) error {
 	return nil
 }
 
-// DeleteTokenID2UserIDIndex is noop in Sqlite
+// DeleteTokenID2UserIDIndex is noop in SqlStore
 func (s *SqlStore) DeleteTokenID2UserIDIndex(tokenID string) error {
 	return nil
 }
@@ -548,7 +548,7 @@ func (s *SqlStore) Close() error {
 	return sql.Close()
 }
 
-// GetStoreEngine returns SqliteStoreEngine
+// GetStoreEngine returns underlying store engine
 func (s *SqlStore) GetStoreEngine() StoreEngine {
 	return s.storeEngine
 }
