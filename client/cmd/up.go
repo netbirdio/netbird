@@ -147,7 +147,9 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 	SetupCloseHandler(ctx, cancel)
-	return internal.RunClient(ctx, config, peer.NewRecorder(config.ManagementURL.String()))
+
+	connectClient := internal.NewConnectClient(ctx, config, peer.NewRecorder(config.ManagementURL.String()))
+	return connectClient.Run()
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
