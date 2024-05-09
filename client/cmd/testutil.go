@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	clientProto "github.com/netbirdio/netbird/client/proto"
 	client "github.com/netbirdio/netbird/client/server"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"

@@ -15,11 +15,10 @@ const (
 )
 
 func TestDefaultAccountManager_CreateGroup(t *testing.T) {
-	am, cleanUp, err := createManager(t)
+	am, err := createManager(t)
 	if err != nil {
 		t.Error("failed to create account manager")
 	}
-	defer cleanUp()
 
 	account, err := initTestGroupAccount(am)
 	if err != nil {
@@ -51,11 +50,10 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 }
 
 func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
-	am, cleanUp, err := createManager(t)
+	am, err := createManager(t)
 	if err != nil {
 		t.Error("failed to create account manager")
 	}
-	defer cleanUp()
 
 	account, err := initTestGroupAccount(am)
 	if err != nil {

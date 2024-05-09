@@ -927,12 +927,11 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 }
 
 func TestDefaultAccountManager_SaveUser(t *testing.T) {
-	manager, cleanUp, err := createManager(t)
+	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
-	defer cleanUp()
 
 	regularUserID := "regularUser"
 	serviceUserID := "serviceUser"

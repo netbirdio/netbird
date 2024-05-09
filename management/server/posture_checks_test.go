@@ -16,11 +16,10 @@ const (
 )
 
 func TestDefaultAccountManager_PostureCheck(t *testing.T) {
-	am, cleanUp, err := createManager(t)
+	am, err := createManager(t)
 	if err != nil {
 		t.Error("failed to create account manager")
 	}
-	defer cleanUp()
 
 	account, err := initTestPostureChecksAccount(am)
 	if err != nil {

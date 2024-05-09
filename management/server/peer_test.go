@@ -67,12 +67,11 @@ func TestPeer_LoginExpired(t *testing.T) {
 }
 
 func TestAccountManager_GetNetworkMap(t *testing.T) {
-	manager, cleanUp, err := createManager(t)
+	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
-	defer cleanUp()
 
 	expectedId := "test_account"
 	userId := "account_creator"
@@ -140,12 +139,11 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	// TODO: disable until we start use policy again
 	t.Skip()
-	manager, cleanUp, err := createManager(t)
+	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
-	defer cleanUp()
 
 	expectedID := "test_account"
 	userID := "account_creator"
@@ -318,12 +316,11 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 }
 
 func TestAccountManager_GetPeerNetwork(t *testing.T) {
-	manager, cleanUp, err := createManager(t)
+	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
-	defer cleanUp()
 
 	expectedId := "test_account"
 	userId := "account_creator"
@@ -380,12 +377,11 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 }
 
 func TestDefaultAccountManager_GetPeer(t *testing.T) {
-	manager, cleanUp, err := createManager(t)
+	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
-	defer cleanUp()
 
 	// account with an admin and a regular user
 	accountID := "test_account"
@@ -568,12 +564,11 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			manager, cleanUp, err := createManager(t)
+			manager, err := createManager(t)
 			if err != nil {
 				t.Fatal(err)
 				return
 			}
-			defer cleanUp()
 
 			// account with an admin and a regular user
 			accountID := "test_account"

@@ -5,13 +5,11 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
-
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
@@ -617,20 +615,13 @@ func newAccount(store Store, id int) error {
 	return store.SaveAccount(account)
 }
 
-func newPostgresqlStore(t *testing.T) (*SqlStore, func()) {
+func newPostgresqlStore(t *testing.T) *SqlStore {
 	t.Helper()
 
-	dbName := "store_" + randString(10)
-	postgresDsn := "host=localhost user=postgres password=postgres port=5432 sslmode=disable"
-
-	db, _ := gorm.Open(postgres.Open(postgresDsn), &gorm.Config{})
-	result := db.Exec(fmt.Sprintf("CREATE DATABASE %s ENCODING = 'UTF8'", dbName))
-	if result.Error != nil {
-		t.Fatalf("could not initialize postgresql store: %s", result.Error)
-	}
-	postgresDsn = fmt.Sprintf("%s dbname=%s ", postgresDsn, dbName)
-	cleanup := func() {
-		db.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", dbName))
+	createPGDB(t)
+	postgresDsn, ok := os.LookupEnv(postgresDsnEnv)
+	if !ok {
+		t.Fatalf("could not initialize postgresql store: %s is not set", postgresDsnEnv)
 	}
 
 	store, err := NewPostgresqlStore(postgresDsn, nil)
@@ -640,37 +631,30 @@ func newPostgresqlStore(t *testing.T) (*SqlStore, func()) {
 	require.NoError(t, err)
 	require.NotNil(t, store)
 
-	return store, cleanup
+	return store
 }
 
-func newPostgresqlStoreFromFile(t *testing.T, filename string) (*SqlStore, func()) {
+func newPostgresqlStoreFromFile(t *testing.T, filename string) *SqlStore {
 	t.Helper()
 
 	storeDir := t.TempDir()
-
 	err := util.CopyFileContents(filename, filepath.Join(storeDir, "store.json"))
 	require.NoError(t, err)
 
 	fStore, err := NewFileStore(storeDir, nil)
 	require.NoError(t, err)
 
-	dbName := "store_" + randString(10)
-	postgresDsn := "host=localhost user=postgres password=postgres port=5432 sslmode=disable"
-	db, _ := gorm.Open(postgres.Open(postgresDsn), &gorm.Config{})
-	result := db.Exec(fmt.Sprintf("CREATE DATABASE %s ENCODING = 'UTF8'", dbName))
-	if result.Error != nil {
-		t.Fatalf("could not initialize postgresql store: %s", result.Error)
-	}
-	postgresDsn = fmt.Sprintf("%s dbname=%s ", postgresDsn, dbName)
-	cleanup := func() {
-		db.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", dbName))
+	createPGDB(t)
+	postgresDsn, ok := os.LookupEnv(postgresDsnEnv)
+	if !ok {
+		t.Fatalf("could not initialize postgresql store: %s is not set", postgresDsnEnv)
 	}
 
 	store, err := NewPostgresqlStoreFromFileStore(fStore, postgresDsn, nil)
 	require.NoError(t, err)
 	require.NotNil(t, store)
 
-	return store, cleanup
+	return store
 }
 
 func TestPostgresql_NewStore(t *testing.T) {
@@ -678,8 +662,7 @@ func TestPostgresql_NewStore(t *testing.T) {
 		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
-	store, cleanup := newPostgresqlStore(t)
-	defer cleanup()
+	store := newPostgresqlStore(t)
 
 	if len(store.GetAllAccounts()) != 0 {
 		t.Errorf("expected to create a new empty Accounts map when creating a new FileStore")
@@ -691,8 +674,7 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
-	store, cleanup := newPostgresqlStore(t)
-	defer cleanup()
+	store := newPostgresqlStore(t)
 
 	account := newAccountWithId("account_id", "testuser", "")
 	setupKey := GenerateDefaultSetupKey()
@@ -764,8 +746,7 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
-	store, cleanup := newPostgresqlStore(t)
-	defer cleanup()
+	store := newPostgresqlStore(t)
 
 	testUserID := "testuser"
 	user := NewAdminUser(testUserID)
@@ -839,8 +820,7 @@ func TestPostgresql_SavePeerStatus(t *testing.T) {
 		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
-	store, cleanup := newPostgresqlStoreFromFile(t, "testdata/store.json")
-	defer cleanup()
+	store := newPostgresqlStoreFromFile(t, "testdata/store.json")
 
 	account, err := store.GetAccount("bf1c8084-ba50-4ce7-9439-34653001fc3b")
 	require.NoError(t, err)
@@ -879,8 +859,7 @@ func TestPostgresql_TestGetAccountByPrivateDomain(t *testing.T) {
 		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
-	store, cleanup := newPostgresqlStoreFromFile(t, "testdata/store.json")
-	defer cleanup()
+	store := newPostgresqlStoreFromFile(t, "testdata/store.json")
 
 	existingDomain := "test.com"
 
@@ -897,8 +876,7 @@ func TestPostgresql_GetTokenIDByHashedToken(t *testing.T) {
 		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
-	store, cleanup := newPostgresqlStoreFromFile(t, "testdata/store.json")
-	defer cleanup()
+	store := newPostgresqlStoreFromFile(t, "testdata/store.json")
 
 	hashed := "SoMeHaShEdToKeN"
 	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
@@ -913,8 +891,7 @@ func TestPostgresql_GetUserByTokenID(t *testing.T) {
 		t.Skipf("The PostgreSQL store is not properly supported by %s yet", runtime.GOOS)
 	}
 
-	store, cleanup := newPostgresqlStoreFromFile(t, "testdata/store.json")
-	defer cleanup()
+	store := newPostgresqlStoreFromFile(t, "testdata/store.json")
 
 	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
 
