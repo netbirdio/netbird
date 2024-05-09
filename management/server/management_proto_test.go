@@ -405,10 +405,12 @@ func startManagement(t *testing.T, config *Config) (*grpc.Server, string, error)
 		return nil, "", err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
-	store, err := NewStoreFromJson(config.Datadir, nil)
+	store, cleanUp, err := NewTestStoreFromJson(config.Datadir)
 	if err != nil {
 		return nil, "", err
 	}
+	t.Cleanup(cleanUp)
+
 	peersUpdateManager := NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 	accountManager, err := BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted",

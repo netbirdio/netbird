@@ -618,7 +618,12 @@ func newAccount(store Store, id int) error {
 func newPostgresqlStore(t *testing.T) *SqlStore {
 	t.Helper()
 
-	createPGDB(t)
+	cleanUp, err := createPGDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanUp)
+
 	postgresDsn, ok := os.LookupEnv(postgresDsnEnv)
 	if !ok {
 		t.Fatalf("could not initialize postgresql store: %s is not set", postgresDsnEnv)
@@ -644,7 +649,12 @@ func newPostgresqlStoreFromFile(t *testing.T, filename string) *SqlStore {
 	fStore, err := NewFileStore(storeDir, nil)
 	require.NoError(t, err)
 
-	createPGDB(t)
+	cleanUp, err := createPGDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanUp)
+
 	postgresDsn, ok := os.LookupEnv(postgresDsnEnv)
 	if !ok {
 		t.Fatalf("could not initialize postgresql store: %s is not set", postgresDsnEnv)
