@@ -1,11 +1,13 @@
 package server
 
 import (
+	"context"
 	"crypto/sha256"
 	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"reflect"
 	"sync"
 	"testing"
@@ -14,6 +16,10 @@ import (
 	"github.com/golang-jwt/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
+
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -2289,6 +2295,11 @@ func TestAccount_UserGroupsRemoveFromPeers(t *testing.T) {
 
 func createManager(t *testing.T) (*DefaultAccountManager, func(), error) {
 	t.Helper()
+
+	if os.Getenv("NETBIRD_STORE_ENGINE") == string(PostgresStoreEngine) {
+		createPGDB(t)
+	}
+
 	store, err := createStore(t)
 	if err != nil {
 		return nil, nil, err
@@ -2301,6 +2312,41 @@ func createManager(t *testing.T) (*DefaultAccountManager, func(), error) {
 	}
 
 	return manager, func() { _ = store.Close() }, nil
+}
+
+func createPGDB(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	c, err := postgres.RunContainer(ctx,
+		testcontainers.WithImage("postgres:alpine"),
+		postgres.WithDatabase("test"),
+		postgres.WithUsername("postgres"),
+		postgres.WithPassword("postgres"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).WithStartupTimeout(15*time.Second)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		timeout := 10 * time.Second
+		err = c.Stop(ctx, &timeout)
+		if err != nil {
+			t.Logf("failed to stop container: %s", err)
+		}
+	})
+
+	talksConn, err := c.ConnectionString(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = os.Setenv("NETBIRD_STORE_ENGINE_POSTGRES_DSN", talksConn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log("Postgres container started")
 }
 
 func createStore(t *testing.T) (Store, error) {
