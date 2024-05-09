@@ -14,10 +14,11 @@ import (
 )
 
 func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer cleanUp()
 
 	userID := "testingUser"
 	account, err := manager.GetOrCreateAccountByUser(userID, "")
@@ -72,10 +73,11 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 }
 
 func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer cleanUp()
 
 	userID := "testingUser"
 	account, err := manager.GetOrCreateAccountByUser(userID, "")
@@ -168,10 +170,11 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 }
 
 func TestGetSetupKeys(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer cleanUp()
 
 	userID := "testingUser"
 	account, err := manager.GetOrCreateAccountByUser(userID, "")

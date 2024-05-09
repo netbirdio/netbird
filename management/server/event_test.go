@@ -27,10 +27,11 @@ func generateAndStoreEvents(t *testing.T, manager *DefaultAccountManager, typ ac
 }
 
 func TestDefaultAccountManager_GetEvents(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	if err != nil {
 		return
 	}
+	defer cleanUp()
 
 	accountID := "accountID"
 

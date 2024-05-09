@@ -424,11 +424,12 @@ func TestNewAccount(t *testing.T) {
 }
 
 func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
+	defer cleanUp()
 
 	account, err := manager.GetOrCreateAccountByUser(userID, "")
 	if err != nil {
@@ -627,8 +628,9 @@ func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
 
 	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5, testCase6, testCase7} {
 		t.Run(testCase.name, func(t *testing.T) {
-			manager, err := createManager(t)
+			manager, cleanUp, err := createManager(t)
 			require.NoError(t, err, "unable to create account manager")
+			defer cleanUp()
 
 			initAccount, err := manager.GetAccountByUserOrAccountID(testCase.inputInitUserParams.UserId, testCase.inputInitUserParams.AccountId, testCase.inputInitUserParams.Domain)
 			require.NoError(t, err, "create init user failed")
@@ -662,8 +664,9 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 	domain := "test.domain"
 
 	initAccount := newAccountWithId("", userId, domain)
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
+	defer cleanUp()
 
 	accountID := initAccount.Id
 	acc, err := manager.GetAccountByUserOrAccountID(userId, accountID, domain)
@@ -800,11 +803,12 @@ func TestDefaultAccountManager_MarkPATUsed(t *testing.T) {
 }
 
 func TestAccountManager_PrivateAccount(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
+	defer cleanUp()
 
 	userId := "test_user"
 	account, err := manager.GetOrCreateAccountByUser(userId, "")
@@ -826,11 +830,12 @@ func TestAccountManager_PrivateAccount(t *testing.T) {
 }
 
 func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
+	defer cleanUp()
 
 	userId := "test_user"
 	domain := "hotmail.com"
@@ -863,11 +868,12 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 }
 
 func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
+	defer cleanUp()
 
 	userId := "test_user"
 
@@ -901,11 +907,12 @@ func createAccount(am *DefaultAccountManager, accountID, userID, domain string) 
 }
 
 func TestAccountManager_GetAccount(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
+	defer cleanUp()
 
 	expectedId := "test_account"
 	userId := "account_creator"
@@ -939,11 +946,12 @@ func TestAccountManager_GetAccount(t *testing.T) {
 }
 
 func TestAccountManager_DeleteAccount(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
+	defer cleanUp()
 
 	expectedId := "test_account"
 	userId := "account_creator"
@@ -964,11 +972,12 @@ func TestAccountManager_DeleteAccount(t *testing.T) {
 }
 
 func TestAccountManager_AddPeer(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
+	defer cleanUp()
 
 	userID := "testingUser"
 	account, err := createAccount(manager, "test_account", userID, "netbird.cloud")
@@ -1039,11 +1048,12 @@ func TestAccountManager_AddPeer(t *testing.T) {
 }
 
 func TestAccountManager_AddPeerWithUserID(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
+	defer cleanUp()
 
 	account, err := manager.GetOrCreateAccountByUser(userID, "netbird.cloud")
 	if err != nil {
@@ -1108,11 +1118,12 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 }
 
 func TestAccountManager_NetworkUpdates(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
+	defer cleanUp()
 
 	userID := "account_creator"
 
@@ -1289,11 +1300,13 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 }
 
 func TestAccountManager_DeletePeer(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
+	defer cleanUp()
+
 	userID := "account_creator"
 	account, err := createAccount(manager, "test_account", userID, "netbird.cloud")
 	if err != nil {
@@ -1370,10 +1383,11 @@ func getEvent(t *testing.T, accountID string, manager AccountManager, eventType 
 }
 
 func TestGetUsersFromAccount(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer cleanUp()
 
 	users := map[string]*User{"1": {Id: "1", Role: UserRoleOwner}, "2": {Id: "2", Role: "user"}, "3": {Id: "3", Role: "user"}}
 	accountId := "test_account_id"
@@ -1641,8 +1655,9 @@ func hasNilField(x interface{}) error {
 }
 
 func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
+	defer cleanUp()
 
 	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
 	require.NoError(t, err, "unable to create an account")
@@ -1653,8 +1668,10 @@ func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
 }
 
 func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
+	defer cleanUp()
+
 	_, err = manager.GetAccountByUserOrAccountID(userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
@@ -1705,8 +1722,10 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 }
 
 func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
+	defer cleanUp()
+
 	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
@@ -1748,8 +1767,10 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 }
 
 func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
+	defer cleanUp()
+
 	_, err = manager.GetAccountByUserOrAccountID(userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
@@ -1803,8 +1824,9 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 }
 
 func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
-	manager, err := createManager(t)
+	manager, cleanUp, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
+	defer cleanUp()
 
 	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
 	require.NoError(t, err, "unable to create an account")
@@ -2265,14 +2287,20 @@ func TestAccount_UserGroupsRemoveFromPeers(t *testing.T) {
 	})
 }
 
-func createManager(t *testing.T) (*DefaultAccountManager, error) {
+func createManager(t *testing.T) (*DefaultAccountManager, func(), error) {
 	t.Helper()
 	store, err := createStore(t)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{})
+
+	manager, err := BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return manager, func() { _ = store.Close() }, nil
 }
 
 func createStore(t *testing.T) (Store, error) {
