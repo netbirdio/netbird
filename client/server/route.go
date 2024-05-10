@@ -23,12 +23,17 @@ func (s *Server) ListRoutes(ctx context.Context, req *proto.ListRoutesRequest) (
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.engine == nil {
+	if s.connectClient == nil {
 		return nil, fmt.Errorf("not connected")
 	}
 
-	routesMap := s.engine.GetClientRoutesWithNetID()
-	routeSelector := s.engine.GetRouteManager().GetRouteSelector()
+	engine := s.connectClient.Engine()
+	if engine == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	routesMap := engine.GetClientRoutesWithNetID()
+	routeSelector := engine.GetRouteManager().GetRouteSelector()
 
 	var routes []*selectRoute
 	for id, rt := range routesMap {
@@ -77,17 +82,26 @@ func (s *Server) SelectRoutes(_ context.Context, req *proto.SelectRoutesRequest)
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	routeManager := s.engine.GetRouteManager()
+	if s.connectClient == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	engine := s.connectClient.Engine()
+	if engine == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	routeManager := engine.GetRouteManager()
 	routeSelector := routeManager.GetRouteSelector()
 	if req.GetAll() {
 		routeSelector.SelectAllRoutes()
 	} else {
 		routes := toNetIDs(req.GetRouteIDs())
-		if err := routeSelector.SelectRoutes(routes, req.GetAppend(), maps.Keys(s.engine.GetClientRoutesWithNetID())); err != nil {
+		if err := routeSelector.SelectRoutes(routes, req.GetAppend(), maps.Keys(engine.GetClientRoutesWithNetID())); err != nil {
 			return nil, fmt.Errorf("select routes: %w", err)
 		}
 	}
-	routeManager.TriggerSelection(s.engine.GetClientRoutes())
+	routeManager.TriggerSelection(engine.GetClientRoutes())
 
 	return &proto.SelectRoutesResponse{}, nil
 }
@@ -97,17 +111,26 @@ func (s *Server) DeselectRoutes(_ context.Context, req *proto.SelectRoutesReques
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	routeManager := s.engine.GetRouteManager()
+	if s.connectClient == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	engine := s.connectClient.Engine()
+	if engine == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	routeManager := engine.GetRouteManager()
 	routeSelector := routeManager.GetRouteSelector()
 	if req.GetAll() {
 		routeSelector.DeselectAllRoutes()
 	} else {
 		routes := toNetIDs(req.GetRouteIDs())
-		if err := routeSelector.DeselectRoutes(routes, maps.Keys(s.engine.GetClientRoutesWithNetID())); err != nil {
+		if err := routeSelector.DeselectRoutes(routes, maps.Keys(engine.GetClientRoutesWithNetID())); err != nil {
 			return nil, fmt.Errorf("deselect routes: %w", err)
 		}
 	}
-	routeManager.TriggerSelection(s.engine.GetClientRoutes())
+	routeManager.TriggerSelection(engine.GetClientRoutes())
 
 	return &proto.SelectRoutesResponse{}, nil
 }

@@ -1,6 +1,7 @@
 package routemanager
 
 import (
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -45,8 +46,15 @@ func (n *notifier) onNewRoutes(idMap route.HAMap) {
 	}
 
 	sort.Strings(newNets)
-	if !n.hasDiff(n.initialRouteRanges, newNets) {
-		return
+	switch runtime.GOOS {
+	case "android":
+		if !n.hasDiff(n.initialRouteRanges, newNets) {
+			return
+		}
+	default:
+		if !n.hasDiff(n.routeRanges, newNets) {
+			return
+		}
 	}
 
 	n.routeRanges = newNets
