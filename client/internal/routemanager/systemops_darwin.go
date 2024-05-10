@@ -52,8 +52,10 @@ func routeCmd(action string, prefix netip.Prefix, nexthop netip.Addr, intf *net.
 
 	args := []string{"-n", action, inet, network}
 	if nexthop.IsValid() {
+		log.Debugf("route %s %s via %s", action, prefix, nexthop)
 		args = append(args, nexthop.Unmap().String())
 	} else if intf != nil {
+		log.Debugf("route %s %s via %s, iptun: %s", action, prefix, intf.Name, tunIP)
 		args = append(args, "-interface", intf.Name)
 	}
 

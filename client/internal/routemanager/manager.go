@@ -53,6 +53,7 @@ type DefaultManager struct {
 }
 
 func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, initialRoutes []*route.Route) *DefaultManager {
+	tunIP = netip.MustParseAddr(wgInterface.Address().IP.String())
 	mCTX, cancel := context.WithCancel(ctx)
 	dm := &DefaultManager{
 		ctx:            mCTX,
