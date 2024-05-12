@@ -269,7 +269,7 @@ func (conn *Conn) candidateTypes() []ice.CandidateType {
 // Open opens connection to the remote peer starting ICE candidate gathering process.
 // Blocks until connection has been closed or connection timeout.
 // ConnStatus will be set accordingly
-func (conn *Conn) Open() error {
+func (conn *Conn) Open(ctx context.Context) error {
 	log.Debugf("trying to connect to peer %s", conn.config.Key)
 
 	peerState := State{
@@ -328,7 +328,7 @@ func (conn *Conn) Open() error {
 	// at this point we received offer/answer and we are ready to gather candidates
 	conn.mu.Lock()
 	conn.status = StatusConnecting
-	conn.ctx, conn.notifyDisconnected = context.WithCancel(context.Background())
+	conn.ctx, conn.notifyDisconnected = context.WithCancel(ctx)
 	defer conn.notifyDisconnected()
 	conn.mu.Unlock()
 
@@ -406,7 +406,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 	var endpoint net.Addr
 	if isRelayCandidate(pair.Local) {
 		log.Debugf("setup relay connection")
-		conn.wgProxy = conn.wgProxyFactory.GetProxy()
+		conn.wgProxy = conn.wgProxyFactory.GetProxy(conn.ctx)
 		endpoint, err = conn.wgProxy.AddTurnConn(remoteConn)
 		if err != nil {
 			return nil, err
@@ -424,7 +424,9 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 	err = conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, endpointUdpAddr, conn.config.WgConfig.PreSharedKey)
 	if err != nil {
 		if conn.wgProxy != nil {
-			_ = conn.wgProxy.CloseConn()
+			if err := conn.wgProxy.CloseConn(); err != nil {
+				log.Warnf("Failed to close turn connection: %v", err)
+			}
 		}
 		return nil, err
 	}
