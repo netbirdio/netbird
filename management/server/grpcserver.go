@@ -134,7 +134,11 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		return err
 	}
 
-	peer, netMap, err := s.accountManager.SyncAndMarkPeer(peerKey.String(), realIP)
+	if syncReq.GetMeta() == nil {
+		log.Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
+	}
+
+	peer, netMap, err := s.accountManager.SyncAndMarkPeer(peerKey.String(), extractPeerMeta(syncReq.GetMeta()), realIP)
 	if err != nil {
 		return err
 	}
@@ -679,11 +683,7 @@ func (s *GRPCServer) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) 
 		return nil, msg
 	}
 
-	_, _, err = s.accountManager.SyncPeer(PeerSync{
-		WireGuardPubKey:    peerKey.String(),
-		Meta:               extractPeerMeta(syncMetaReq.GetMeta()),
-		UpdateAccountPeers: true,
-	})
+	err = s.accountManager.SyncPeerMeta(peerKey.String(), extractPeerMeta(syncMetaReq.GetMeta()))
 	if err != nil {
 		return nil, mapError(err)
 	}

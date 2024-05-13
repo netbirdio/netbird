@@ -131,8 +131,9 @@ type AccountManager interface {
 	UpdateIntegratedValidatorGroups(accountID string, userID string, groups []string) error
 	GroupValidation(accountId string, groups []string) (bool, error)
 	GetValidatedPeers(account *Account) (map[string]struct{}, error)
-	SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error)
+	SyncAndMarkPeer(peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error)
 	CancelPeerRoutines(peer *nbpeer.Peer) error
+	SyncPeerMeta(peerPubKey string, meta nbpeer.PeerSystemMeta) error
 }
 
 type DefaultAccountManager struct {
@@ -1838,7 +1839,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 	}
 }
 
-func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error) {
+func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error) {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(peerPubKey)
 	if err != nil {
 		return nil, nil, err
@@ -1852,7 +1853,7 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.I
 		return nil, nil, err
 	}
 
-	peer, netMap, err := am.SyncPeer(PeerSync{WireGuardPubKey: peerPubKey}, account)
+	peer, netMap, err := am.SyncPeer(PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, account)
 	if err != nil {
 		return nil, nil, mapError(err)
 	}
@@ -1886,6 +1887,27 @@ func (am *DefaultAccountManager) CancelPeerRoutines(peer *nbpeer.Peer) error {
 
 	return nil
 
+}
+
+func (am *DefaultAccountManager) SyncPeerMeta(peerPubKey string, meta nbpeer.PeerSystemMeta) error {
+	accountID, err := am.Store.GetAccountIDByPeerPubKey(peerPubKey)
+	if err != nil {
+		return err
+	}
+
+	unlock := am.Store.AcquireAccountReadLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	_, _, err = am.SyncPeer(PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, UpdateAccountPeers: true}, account)
+	if err != nil {
+		return mapError(err)
+	}
+	return nil
 }
 
 // GetAllConnectedPeers returns connected peers based on peersUpdateManager.GetAllConnectedPeers()
