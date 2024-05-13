@@ -4,6 +4,7 @@
 package iface
 
 import (
+	"net/netip"
 	"os/exec"
 
 	"github.com/pion/transport/v3"
@@ -119,7 +120,9 @@ func (t *tunDevice) Wrapper() *DeviceWrapper {
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
 func (t *tunDevice) assignAddr() error {
-	cmd := exec.Command("ifconfig", t.name, "inet", t.address.IP.String(), t.address.IP.String())
+	np := netip.MustParseAddr(t.address.IP.String())
+
+	cmd := exec.Command("ifconfig", t.name, "inet", t.address.IP.String(), np.Prev().String())
 	if out, err := cmd.CombinedOutput(); err != nil {
 		log.Infof(`adding address command "%v" failed with output %s and error: `, cmd.String(), out)
 		return err

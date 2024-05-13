@@ -261,6 +261,12 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 			return fmt.Errorf("remove route from peer: %v", err)
 		}
 	} else {
+		if c.network == netip.MustParsePrefix("0.0.0.0/0") {
+			s, err := c.statusRecorder.GetPeer(c.routes[chosen].Peer)
+			if err == nil && s.IP != "" {
+				exitIP = netip.MustParseAddr(s.IP)
+			}
+		}
 		// otherwise add the route to the system
 		if err := addVPNRoute(c.network, c.getAsInterface()); err != nil {
 			return fmt.Errorf("route %s couldn't be added for peer %s, err: %v",

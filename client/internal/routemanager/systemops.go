@@ -29,6 +29,7 @@ var ErrRouteNotFound = errors.New("route not found")
 var ErrRouteNotAllowed = errors.New("route not allowed")
 
 var tunIP netip.Addr
+var exitIP netip.Addr
 
 // TODO: fix: for default our wg address now appears as the default gw
 func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
@@ -198,10 +199,14 @@ func addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIface, initialNe
 // in two /1 prefixes to avoid replacing the existing default route
 func genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if prefix == defaultv4 {
-		if err := addToRouteTable(splitDefaultv4_1, tunIP, intf); err != nil {
+		ip := tunIP
+		if exitIP.IsValid() {
+			ip = exitIP
+		}
+		if err := addToRouteTable(splitDefaultv4_1, ip, intf); err != nil {
 			return err
 		}
-		if err := addToRouteTable(splitDefaultv4_2, tunIP, intf); err != nil {
+		if err := addToRouteTable(splitDefaultv4_2, ip, intf); err != nil {
 			if err2 := removeFromRouteTable(splitDefaultv4_1, netip.Addr{}, intf); err2 != nil {
 				log.Warnf("Failed to rollback route addition: %s", err2)
 			}
