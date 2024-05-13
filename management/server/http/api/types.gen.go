@@ -526,6 +526,9 @@ type Peer struct {
 	// Os Peer's operating system and version
 	Os string `json:"os"`
 
+	// SerialNumber System serial number
+	SerialNumber string `json:"serial_number"`
+
 	// SshEnabled Indicates whether SSH server is enabled on this peer
 	SshEnabled bool `json:"ssh_enabled"`
 
@@ -594,6 +597,9 @@ type PeerBase struct {
 
 	// Os Peer's operating system and version
 	Os string `json:"os"`
+
+	// SerialNumber System serial number
+	SerialNumber string `json:"serial_number"`
 
 	// SshEnabled Indicates whether SSH server is enabled on this peer
 	SshEnabled bool `json:"ssh_enabled"`
@@ -666,6 +672,9 @@ type PeerBatch struct {
 
 	// Os Peer's operating system and version
 	Os string `json:"os"`
+
+	// SerialNumber System serial number
+	SerialNumber string `json:"serial_number"`
 
 	// SshEnabled Indicates whether SSH server is enabled on this peer
 	SshEnabled bool `json:"ssh_enabled"`

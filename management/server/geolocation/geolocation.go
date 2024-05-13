@@ -79,7 +79,7 @@ func NewGeolocation(dataDir string) (*Geolocation, error) {
 		sha256sum:           sha256sum,
 		db:                  db,
 		locationDB:          locationDB,
-		reloadCheckInterval: 60 * time.Second, // TODO: make configurable
+		reloadCheckInterval: 300 * time.Second, // TODO: make configurable
 		stopCh:              make(chan struct{}),
 	}
 
@@ -198,7 +198,7 @@ func (gl *Geolocation) reloader() {
 					log.Errorf("mmdb reload failed: %s", err)
 				}
 			} else {
-				log.Debugf("No changes in '%s', no need to reload. Next check is in %.0f seconds.",
+				log.Tracef("No changes in '%s', no need to reload. Next check is in %.0f seconds.",
 					gl.mmdbPath, gl.reloadCheckInterval.Seconds())
 			}
 		}

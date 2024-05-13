@@ -51,14 +51,12 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 		Destination: "100.100.100.0/24",
 		Masquerade:  true,
 	}
-	forward4RuleKey := firewall.GenKey(firewall.ForwardingFormat, pair.ID)
-	forward4Rule := genRuleSpec(routingFinalForwardJump, forward4RuleKey, pair.Source, pair.Destination)
+	forward4Rule := genRuleSpec(routingFinalForwardJump, pair.Source, pair.Destination)
 
 	err = manager.iptablesClient.Insert(tableFilter, chainRTFWD, 1, forward4Rule...)
 	require.NoError(t, err, "inserting rule should not return error")
 
-	nat4RuleKey := firewall.GenKey(firewall.NatFormat, pair.ID)
-	nat4Rule := genRuleSpec(routingFinalNatJump, nat4RuleKey, pair.Source, pair.Destination)
+	nat4Rule := genRuleSpec(routingFinalNatJump, pair.Source, pair.Destination)
 
 	err = manager.iptablesClient.Insert(tableNat, chainRTNAT, 1, nat4Rule...)
 	require.NoError(t, err, "inserting rule should not return error")
@@ -92,7 +90,7 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 			require.NoError(t, err, "forwarding pair should be inserted")
 
 			forwardRuleKey := firewall.GenKey(firewall.ForwardingFormat, testCase.InputPair.ID)
-			forwardRule := genRuleSpec(routingFinalForwardJump, forwardRuleKey, testCase.InputPair.Source, testCase.InputPair.Destination)
+			forwardRule := genRuleSpec(routingFinalForwardJump, testCase.InputPair.Source, testCase.InputPair.Destination)
 
 			exists, err := iptablesClient.Exists(tableFilter, chainRTFWD, forwardRule...)
 			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableFilter, chainRTFWD)
@@ -103,7 +101,7 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 			require.Equal(t, forwardRule[:4], foundRule[:4], "stored forwarding rule should match")
 
 			inForwardRuleKey := firewall.GenKey(firewall.InForwardingFormat, testCase.InputPair.ID)
-			inForwardRule := genRuleSpec(routingFinalForwardJump, inForwardRuleKey, firewall.GetInPair(testCase.InputPair).Source, firewall.GetInPair(testCase.InputPair).Destination)
+			inForwardRule := genRuleSpec(routingFinalForwardJump, firewall.GetInPair(testCase.InputPair).Source, firewall.GetInPair(testCase.InputPair).Destination)
 
 			exists, err = iptablesClient.Exists(tableFilter, chainRTFWD, inForwardRule...)
 			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableFilter, chainRTFWD)
@@ -114,7 +112,7 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 			require.Equal(t, inForwardRule[:4], foundRule[:4], "stored income forwarding rule should match")
 
 			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair.ID)
-			natRule := genRuleSpec(routingFinalNatJump, natRuleKey, testCase.InputPair.Source, testCase.InputPair.Destination)
+			natRule := genRuleSpec(routingFinalNatJump, testCase.InputPair.Source, testCase.InputPair.Destination)
 
 			exists, err = iptablesClient.Exists(tableNat, chainRTNAT, natRule...)
 			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainRTNAT)
@@ -130,7 +128,7 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 			}
 
 			inNatRuleKey := firewall.GenKey(firewall.InNatFormat, testCase.InputPair.ID)
-			inNatRule := genRuleSpec(routingFinalNatJump, inNatRuleKey, firewall.GetInPair(testCase.InputPair).Source, firewall.GetInPair(testCase.InputPair).Destination)
+			inNatRule := genRuleSpec(routingFinalNatJump, firewall.GetInPair(testCase.InputPair).Source, firewall.GetInPair(testCase.InputPair).Destination)
 
 			exists, err = iptablesClient.Exists(tableNat, chainRTNAT, inNatRule...)
 			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainRTNAT)
@@ -167,25 +165,25 @@ func TestIptablesManager_RemoveRoutingRules(t *testing.T) {
 			require.NoError(t, err, "shouldn't return error")
 
 			forwardRuleKey := firewall.GenKey(firewall.ForwardingFormat, testCase.InputPair.ID)
-			forwardRule := genRuleSpec(routingFinalForwardJump, forwardRuleKey, testCase.InputPair.Source, testCase.InputPair.Destination)
+			forwardRule := genRuleSpec(routingFinalForwardJump, testCase.InputPair.Source, testCase.InputPair.Destination)
 
 			err = iptablesClient.Insert(tableFilter, chainRTFWD, 1, forwardRule...)
 			require.NoError(t, err, "inserting rule should not return error")
 
 			inForwardRuleKey := firewall.GenKey(firewall.InForwardingFormat, testCase.InputPair.ID)
-			inForwardRule := genRuleSpec(routingFinalForwardJump, inForwardRuleKey, firewall.GetInPair(testCase.InputPair).Source, firewall.GetInPair(testCase.InputPair).Destination)
+			inForwardRule := genRuleSpec(routingFinalForwardJump, firewall.GetInPair(testCase.InputPair).Source, firewall.GetInPair(testCase.InputPair).Destination)
 
 			err = iptablesClient.Insert(tableFilter, chainRTFWD, 1, inForwardRule...)
 			require.NoError(t, err, "inserting rule should not return error")
 
 			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair.ID)
-			natRule := genRuleSpec(routingFinalNatJump, natRuleKey, testCase.InputPair.Source, testCase.InputPair.Destination)
+			natRule := genRuleSpec(routingFinalNatJump, testCase.InputPair.Source, testCase.InputPair.Destination)
 
 			err = iptablesClient.Insert(tableNat, chainRTNAT, 1, natRule...)
 			require.NoError(t, err, "inserting rule should not return error")
 
 			inNatRuleKey := firewall.GenKey(firewall.InNatFormat, testCase.InputPair.ID)
-			inNatRule := genRuleSpec(routingFinalNatJump, inNatRuleKey, firewall.GetInPair(testCase.InputPair).Source, firewall.GetInPair(testCase.InputPair).Destination)
+			inNatRule := genRuleSpec(routingFinalNatJump, firewall.GetInPair(testCase.InputPair).Source, firewall.GetInPair(testCase.InputPair).Destination)
 
 			err = iptablesClient.Insert(tableNat, chainRTNAT, 1, inNatRule...)
 			require.NoError(t, err, "inserting rule should not return error")

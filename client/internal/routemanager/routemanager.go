@@ -5,6 +5,7 @@ package routemanager
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"sync"
 
@@ -17,7 +18,7 @@ import (
 type ref struct {
 	count   int
 	nexthop netip.Addr
-	intf    string
+	intf    *net.Interface
 }
 
 type RouteManager struct {
@@ -30,8 +31,8 @@ type RouteManager struct {
 	mutex       sync.Mutex
 }
 
-type AddRouteFunc func(prefix netip.Prefix) (nexthop netip.Addr, intf string, err error)
-type RemoveRouteFunc func(prefix netip.Prefix, nexthop netip.Addr, intf string) error
+type AddRouteFunc func(prefix netip.Prefix) (nexthop netip.Addr, intf *net.Interface, err error)
+type RemoveRouteFunc func(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error
 
 func NewRouteManager(addRoute AddRouteFunc, removeRoute RemoveRouteFunc) *RouteManager {
 	// TODO: read initial routing table into refCountMap

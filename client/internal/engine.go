@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -22,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
@@ -61,6 +63,9 @@ type EngineConfig struct {
 
 	// WgPrivateKey is a Wireguard private key of our peer (it MUST never leave the machine)
 	WgPrivateKey wgtypes.Key
+
+	// NetworkMonitor is a flag to enable network monitoring
+	NetworkMonitor bool
 
 	// IFaceBlackList is a list of network interfaces to ignore when discovering connection candidates (ICE related)
 	IFaceBlackList       []string
@@ -114,11 +119,13 @@ type Engine struct {
 	TURNs []*stun.URI
 
 	// clientRoutes is the most recent list of clientRoutes received from the Management Service
-	clientRoutes map[string][]*route.Route
+	clientRoutes route.HAMap
 
+	clientCtx    context.Context
+	clientCancel context.CancelFunc
+
+	ctx    context.Context
 	cancel context.CancelFunc
-
-	ctx context.Context
 
 	wgInterface    *iface.WGIface
 	wgProxyFactory *wgproxy.Factory
@@ -127,6 +134,8 @@ type Engine struct {
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
+
+	networkWatcher *networkmonitor.NetworkWatcher
 
 	sshServerFunc func(hostKeyPEM []byte, addr string) (nbssh.Server, error)
 	sshServer     nbssh.Server
@@ -156,8 +165,8 @@ type Peer struct {
 
 // NewEngine creates a new Connection Engine
 func NewEngine(
-	ctx context.Context,
-	cancel context.CancelFunc,
+	clientCtx context.Context,
+	clientCancel context.CancelFunc,
 	signalClient signal.Client,
 	mgmClient mgm.Client,
 	config *EngineConfig,
@@ -166,8 +175,8 @@ func NewEngine(
 	checks []*mgmProto.Checks,
 ) *Engine {
 	return NewEngineWithProbes(
-		ctx,
-		cancel,
+		clientCtx,
+		clientCancel,
 		signalClient,
 		mgmClient,
 		config,
@@ -183,8 +192,8 @@ func NewEngine(
 
 // NewEngineWithProbes creates a new Connection Engine with probes attached
 func NewEngineWithProbes(
-	ctx context.Context,
-	cancel context.CancelFunc,
+	clientCtx context.Context,
+	clientCancel context.CancelFunc,
 	signalClient signal.Client,
 	mgmClient mgm.Client,
 	config *EngineConfig,
@@ -196,9 +205,10 @@ func NewEngineWithProbes(
 	wgProbe *Probe,
 	checks []*mgmProto.Checks,
 ) *Engine {
+
 	return &Engine{
-		ctx:            ctx,
-		cancel:         cancel,
+		clientCtx:      clientCtx,
+		clientCancel:   clientCancel,
 		signal:         signalClient,
 		mgmClient:      mgmClient,
 		peerConns:      make(map[string]*peer.Conn),
@@ -210,7 +220,7 @@ func NewEngineWithProbes(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
-		wgProxyFactory: wgproxy.NewFactory(config.WgPort),
+		networkWatcher: networkmonitor.New(),
 		mgmProbe:       mgmProbe,
 		signalProbe:    signalProbe,
 		relayProbe:     relayProbe,
@@ -223,6 +233,13 @@ func (e *Engine) Stop() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
+	if e.cancel != nil {
+		e.cancel()
+	}
+
+	// stopping network monitor first to avoid starting the engine again
+	e.networkWatcher.Stop()
+
 	err := e.removeAllPeers()
 	if err != nil {
 		return err
@@ -231,7 +248,7 @@ func (e *Engine) Stop() error {
 	e.clientRoutes = nil
 
 	// very ugly but we want to remove peers from the WireGuard interface first before removing interface.
-	// Removing peers happens in the conn.CLose() asynchronously
+	// Removing peers happens in the conn.Close() asynchronously
 	time.Sleep(500 * time.Millisecond)
 
 	e.close()
@@ -245,6 +262,13 @@ func (e *Engine) Stop() error {
 func (e *Engine) Start() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
+
+	if e.cancel != nil {
+		e.cancel()
+	}
+	e.ctx, e.cancel = context.WithCancel(e.clientCtx)
+
+	e.wgProxyFactory = wgproxy.NewFactory(e.clientCtx, e.config.WgPort)
 
 	wgIface, err := e.newWgIface()
 	if err != nil {
@@ -328,6 +352,21 @@ func (e *Engine) Start() error {
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
 	e.receiveProbeEvents()
+
+	if e.config.NetworkMonitor {
+		// starting network monitor at the very last to avoid disruptions
+		go e.networkWatcher.Start(e.ctx, func() {
+			log.Infof("Network monitor detected network change, restarting engine")
+			if err := e.Stop(); err != nil {
+				log.Errorf("Failed to stop engine: %v", err)
+			}
+			if err := e.Start(); err != nil {
+				log.Errorf("Failed to start engine: %v", err)
+			}
+		})
+	} else {
+		log.Infof("Network monitor is disabled, not starting")
+	}
 
 	return nil
 }
@@ -627,12 +666,13 @@ func (e *Engine) receiveManagementEvents() {
 			info = system.GetInfo(e.ctx)
 		}
 
-		err = e.mgmClient.Sync(info, e.handleSync)
+		// err = e.mgmClient.Sync(info, e.handleSync)
+		err = e.mgmClient.Sync(e.ctx, info, e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
 			_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
-			e.cancel()
+			e.clientCancel()
 			return
 		}
 		log.Debugf("stopped receiving updates from Management Service")
@@ -775,9 +815,9 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 	for _, protoRoute := range protoRoutes {
 		_, prefix, _ := route.ParseNetwork(protoRoute.Network)
 		convertedRoute := &route.Route{
-			ID:          protoRoute.ID,
+			ID:          route.ID(protoRoute.ID),
 			Network:     prefix,
-			NetID:       protoRoute.NetID,
+			NetID:       route.NetID(protoRoute.NetID),
 			NetworkType: route.NetworkType(protoRoute.NetworkType),
 			Peer:        protoRoute.Peer,
 			Metric:      int(protoRoute.Metric),
@@ -908,11 +948,12 @@ func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
 		conn.UpdateStunTurn(append(e.STUNs, e.TURNs...))
 		e.syncMsgMux.Unlock()
 
-		err := conn.Open()
+		err := conn.Open(e.ctx)
 		if err != nil {
 			log.Debugf("connection to peer %s failed: %v", peerKey, err)
-			switch err.(type) {
-			case *peer.ConnectionClosedError:
+			var connectionClosedError *peer.ConnectionClosedError
+			switch {
+			case errors.As(err, &connectionClosedError):
 				// conn has been forced to close, so we exit the loop
 				return
 			default:
@@ -1023,7 +1064,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 func (e *Engine) receiveSignalEvents() {
 	go func() {
 		// connect to a stream of messages coming from the signal server
-		err := e.signal.Receive(func(msg *sProto.Message) error {
+		err := e.signal.Receive(e.ctx, func(msg *sProto.Message) error {
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
 
@@ -1097,7 +1138,7 @@ func (e *Engine) receiveSignalEvents() {
 			// happens if signal is unavailable for a long time.
 			// We want to cancel the operation of the whole client
 			_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
-			e.cancel()
+			e.clientCancel()
 			return
 		}
 	}()
@@ -1158,13 +1199,16 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 }
 
 func (e *Engine) close() {
-	if err := e.wgProxyFactory.Free(); err != nil {
-		log.Errorf("failed closing ebpf proxy: %s", err)
+	if e.wgProxyFactory != nil {
+		if err := e.wgProxyFactory.Free(); err != nil {
+			log.Errorf("failed closing ebpf proxy: %s", err)
+		}
 	}
 
 	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
 	if e.dnsServer != nil {
 		e.dnsServer.Stop()
+		e.dnsServer = nil
 	}
 
 	if e.routeManager != nil {
@@ -1278,18 +1322,15 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 }
 
 // GetClientRoutes returns the current routes from the route map
-func (e *Engine) GetClientRoutes() map[string][]*route.Route {
+func (e *Engine) GetClientRoutes() route.HAMap {
 	return e.clientRoutes
 }
 
 // GetClientRoutesWithNetID returns the current routes from the route map, but the keys consist of the network ID only
-func (e *Engine) GetClientRoutesWithNetID() map[string][]*route.Route {
-	routes := make(map[string][]*route.Route, len(e.clientRoutes))
+func (e *Engine) GetClientRoutesWithNetID() map[route.NetID][]*route.Route {
+	routes := make(map[route.NetID][]*route.Route, len(e.clientRoutes))
 	for id, v := range e.clientRoutes {
-		if i := strings.LastIndex(id, "-"); i != -1 {
-			id = id[:i]
-		}
-		routes[id] = v
+		routes[id.NetID()] = v
 	}
 	return routes
 }

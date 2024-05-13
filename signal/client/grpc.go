@@ -126,9 +126,9 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 // The messages will be handled by msgHandler function provided.
 // This function is blocking and reconnects to the Signal Exchange if errors occur (e.g. Exchange restart)
 // The connection retry logic will try to reconnect for 30 min and if wasn't successful will propagate the error to the function caller.
-func (c *GrpcClient) Receive(msgHandler func(msg *proto.Message) error) error {
+func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Message) error) error {
 
-	var backOff = defaultBackoff(c.ctx)
+	var backOff = defaultBackoff(ctx)
 
 	operation := func() error {
 
@@ -139,13 +139,13 @@ func (c *GrpcClient) Receive(msgHandler func(msg *proto.Message) error) error {
 		if connState == connectivity.Shutdown {
 			return backoff.Permanent(fmt.Errorf("connection to signal has been shut down"))
 		} else if !(connState == connectivity.Ready || connState == connectivity.Idle) {
-			c.signalConn.WaitForStateChange(c.ctx, connState)
+			c.signalConn.WaitForStateChange(ctx, connState)
 			return fmt.Errorf("connection to signal is not ready and in %s state", connState)
 		}
 
 		// connect to Signal stream identifying ourselves with a public WireGuard key
 		// todo once the key rotation logic has been implemented, consider changing to some other identifier (received from management)
-		ctx, cancelStream := context.WithCancel(c.ctx)
+		ctx, cancelStream := context.WithCancel(ctx)
 		defer cancelStream()
 		stream, err := c.connect(ctx, c.key.PublicKey().String())
 		if err != nil {

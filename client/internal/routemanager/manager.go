@@ -29,8 +29,8 @@ var defaultv6 = netip.PrefixFrom(netip.IPv6Unspecified(), 0)
 // Manager is a route manager interface
 type Manager interface {
 	Init() (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error)
-	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[string]*route.Route, map[string][]*route.Route, error)
-	TriggerSelection(map[string][]*route.Route)
+	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error)
+	TriggerSelection(route.HAMap)
 	GetRouteSelector() *routeselector.RouteSelector
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
@@ -43,7 +43,7 @@ type DefaultManager struct {
 	ctx            context.Context
 	stop           context.CancelFunc
 	mux            sync.Mutex
-	clientNetworks map[string]*clientNetwork
+	clientNetworks map[route.HAUniqueID]*clientNetwork
 	routeSelector  *routeselector.RouteSelector
 	serverRouter   serverRouter
 	statusRecorder *peer.Status
@@ -57,7 +57,7 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 	dm := &DefaultManager{
 		ctx:            mCTX,
 		stop:           cancel,
-		clientNetworks: make(map[string]*clientNetwork),
+		clientNetworks: make(map[route.HAUniqueID]*clientNetwork),
 		routeSelector:  routeselector.NewRouteSelector(),
 		statusRecorder: statusRecorder,
 		wgInterface:    wgInterface,
@@ -122,7 +122,7 @@ func (m *DefaultManager) Stop() {
 }
 
 // UpdateRoutes compares received routes with existing routes and removes, updates or adds them to the client and server maps
-func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[string]*route.Route, map[string][]*route.Route, error) {
+func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error) {
 	select {
 	case <-m.ctx.Done():
 		log.Infof("not updating routes as context is closed")
@@ -155,7 +155,7 @@ func (m *DefaultManager) SetRouteChangeListener(listener listener.NetworkChangeL
 
 // InitialRouteRange return the list of initial routes. It used by mobile systems
 func (m *DefaultManager) InitialRouteRange() []string {
-	return m.notifier.initialRouteRanges()
+	return m.notifier.getInitialRouteRanges()
 }
 
 // GetRouteSelector returns the route selector
@@ -164,16 +164,19 @@ func (m *DefaultManager) GetRouteSelector() *routeselector.RouteSelector {
 }
 
 // GetClientRoutes returns the client routes
-func (m *DefaultManager) GetClientRoutes() map[string]*clientNetwork {
+func (m *DefaultManager) GetClientRoutes() map[route.HAUniqueID]*clientNetwork {
 	return m.clientNetworks
 }
 
 // TriggerSelection triggers the selection of routes, stopping deselected watchers and starting newly selected ones
-func (m *DefaultManager) TriggerSelection(networks map[string][]*route.Route) {
+func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 
 	networks = m.routeSelector.FilterSelected(networks)
+
+	m.notifier.onNewRoutes(networks)
+
 	m.stopObsoleteClients(networks)
 
 	for id, routes := range networks {
@@ -190,7 +193,7 @@ func (m *DefaultManager) TriggerSelection(networks map[string][]*route.Route) {
 }
 
 // stopObsoleteClients stops the client network watcher for the networks that are not in the new list
-func (m *DefaultManager) stopObsoleteClients(networks map[string][]*route.Route) {
+func (m *DefaultManager) stopObsoleteClients(networks route.HAMap) {
 	for id, client := range m.clientNetworks {
 		if _, ok := networks[id]; !ok {
 			log.Debugf("Stopping client network watcher, %s", id)
@@ -200,7 +203,7 @@ func (m *DefaultManager) stopObsoleteClients(networks map[string][]*route.Route)
 	}
 }
 
-func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks map[string][]*route.Route) {
+func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks route.HAMap) {
 	// removing routes that do not exist as per the update from the Management service.
 	m.stopObsoleteClients(networks)
 
@@ -219,15 +222,15 @@ func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks map[
 	}
 }
 
-func (m *DefaultManager) classifyRoutes(newRoutes []*route.Route) (map[string]*route.Route, map[string][]*route.Route) {
-	newClientRoutesIDMap := make(map[string][]*route.Route)
-	newServerRoutesMap := make(map[string]*route.Route)
-	ownNetworkIDs := make(map[string]bool)
+func (m *DefaultManager) classifyRoutes(newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap) {
+	newClientRoutesIDMap := make(route.HAMap)
+	newServerRoutesMap := make(map[route.ID]*route.Route)
+	ownNetworkIDs := make(map[route.HAUniqueID]bool)
 
 	for _, newRoute := range newRoutes {
-		networkID := route.GetHAUniqueID(newRoute)
+		haID := route.GetHAUniqueID(newRoute)
 		if newRoute.Peer == m.pubKey {
-			ownNetworkIDs[networkID] = true
+			ownNetworkIDs[haID] = true
 			// only linux is supported for now
 			if runtime.GOOS != "linux" {
 				log.Warnf("received a route to manage, but agent doesn't support router mode on %s OS", runtime.GOOS)
@@ -238,12 +241,12 @@ func (m *DefaultManager) classifyRoutes(newRoutes []*route.Route) (map[string]*r
 	}
 
 	for _, newRoute := range newRoutes {
-		networkID := route.GetHAUniqueID(newRoute)
-		if !ownNetworkIDs[networkID] {
+		haID := route.GetHAUniqueID(newRoute)
+		if !ownNetworkIDs[haID] {
 			if !isPrefixSupported(newRoute.Network) {
 				continue
 			}
-			newClientRoutesIDMap[networkID] = append(newClientRoutesIDMap[networkID], newRoute)
+			newClientRoutesIDMap[haID] = append(newClientRoutesIDMap[haID], newRoute)
 		}
 	}
 
@@ -261,10 +264,7 @@ func (m *DefaultManager) clientRoutes(initialRoutes []*route.Route) []*route.Rou
 
 func isPrefixSupported(prefix netip.Prefix) bool {
 	if !nbnet.CustomRoutingDisabled() {
-		switch runtime.GOOS {
-		case "linux", "windows", "darwin", "ios":
-			return true
-		}
+		return true
 	}
 
 	// If prefix is too small, lets assume it is a possible default prefix which is not yet supported
