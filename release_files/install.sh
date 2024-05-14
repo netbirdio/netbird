@@ -355,6 +355,7 @@ if type uname >/dev/null 2>&1; then
             OS_NAME="synology"
             INSTALL_DIR="/usr/local/bin"
             PACKAGE_MANAGER="bin"
+            SKIP_UI_APP=true
           else
             if [ -f /etc/os-release ]; then
               OS_NAME="$(. /etc/os-release && echo "$ID")"
