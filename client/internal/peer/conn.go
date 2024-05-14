@@ -423,7 +423,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 	var endpoint net.Addr
 	if isRelayCandidate(pair.Local) {
 		log.Debugf("setup relay connection")
-		conn.wgProxy = conn.wgProxyFactory.GetProxy(conn.ctx)
+		conn.wgProxy = conn.wgProxyFactory.GetProxy()
 		endpoint, err = conn.wgProxy.AddTurnConn(remoteConn)
 		if err != nil {
 			return nil, err
