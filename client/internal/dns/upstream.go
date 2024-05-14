@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -260,13 +259,10 @@ func (u *upstreamResolverBase) disable(err error) {
 		return
 	}
 
-	// todo test the deactivation logic, it seems to affect the client
-	if runtime.GOOS != "ios" {
-		log.Warnf("Upstream resolving is Disabled for %v", reactivatePeriod)
-		u.deactivate(err)
-		u.disabled = true
-		go u.waitUntilResponse()
-	}
+	log.Warnf("Upstream resolving is Disabled for %v", reactivatePeriod)
+	u.deactivate(err)
+	u.disabled = true
+	go u.waitUntilResponse()
 }
 
 func (u *upstreamResolverBase) testNameserver(server string) error {
