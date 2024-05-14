@@ -130,6 +130,11 @@ func (p *WGEBPFProxy) Free() error {
 }
 
 func (p *WGEBPFProxy) proxyToLocal(endpointPort uint16, remoteConn net.Conn) {
+	defer func() {
+		log.Tracef("stop proxying turn traffic to wg: %d", endpointPort)
+		p.removeTurnConn(endpointPort)
+	}()
+
 	buf := make([]byte, 1500)
 	for {
 		n, err := remoteConn.Read(buf)
@@ -141,6 +146,9 @@ func (p *WGEBPFProxy) proxyToLocal(endpointPort uint16, remoteConn net.Conn) {
 		}
 		err = p.sendPkg(buf[:n], endpointPort)
 		if err != nil {
+			if err == io.EOF {
+				return
+			}
 			log.Errorf("failed to write out turn pkg to local conn: %v", err)
 		}
 	}
@@ -184,11 +192,9 @@ func (p *WGEBPFProxy) storeTurnConn(turnConn net.Conn) (uint16, error) {
 }
 
 func (p *WGEBPFProxy) removeTurnConn(turnConnID uint16) {
-	log.Tracef("remove turn conn from store by port: %d", turnConnID)
 	p.turnConnMutex.Lock()
 	defer p.turnConnMutex.Unlock()
 	delete(p.turnConnStore, turnConnID)
-
 }
 
 func (p *WGEBPFProxy) nextFreePort() (uint16, error) {
@@ -264,17 +270,20 @@ func (p *WGEBPFProxy) sendPkg(data []byte, port uint16) error {
 
 	err := udpH.SetNetworkLayerForChecksum(ipH)
 	if err != nil {
-		return fmt.Errorf("set network layer for checksum: %w", err)
+		log.Errorf("set network layer for checksum: %w", err)
+		return err
 	}
 
 	layerBuffer := gopacket.NewSerializeBuffer()
 
 	err = gopacket.SerializeLayers(layerBuffer, gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}, ipH, udpH, payload)
 	if err != nil {
-		return fmt.Errorf("serialize layers: %w", err)
+		log.Errorf("serialize layers: %w", err)
+		return err
 	}
 	if _, err = p.rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: localhost}); err != nil {
-		return fmt.Errorf("write to raw conn: %w", err)
+		log.Errorf("write to raw conn: %w", err)
+		return err
 	}
 	return nil
 }
