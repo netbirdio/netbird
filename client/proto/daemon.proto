@@ -230,10 +230,17 @@ message SelectRoutesRequest {
 message SelectRoutesResponse {
 }
 
+message IPList {
+  repeated string ips = 1;
+}
+
+
 message Route {
   string ID = 1;
   string network = 2;
   bool selected = 3;
+  repeated string domains = 4;
+  map<string, IPList> resolvedIPs = 5;
 }
 
 message DebugBundleRequest {

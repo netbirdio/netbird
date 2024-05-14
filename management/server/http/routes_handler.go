@@ -20,6 +20,8 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
+const maxDomains = 32
+
 // RoutesHandler is the routes handler of the account
 type RoutesHandler struct {
 	accountManager  server.AccountManager
@@ -95,6 +97,8 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		domains = d
+		networkType = route.DomainNetwork
+		newPrefix = getPlaceholderIP()
 	} else if req.Network != nil {
 		networkType, newPrefix, err = route.ParseNetwork(*req.Network)
 		if err != nil {
@@ -239,6 +243,8 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		newRoute.Domains = d
+		newRoute.NetworkType = route.DomainNetwork
+		newRoute.Network = getPlaceholderIP()
 	} else if req.Network != nil {
 		newRoute.NetworkType, newRoute.Network, err = route.ParseNetwork(*req.Network)
 		if err != nil {
@@ -359,6 +365,9 @@ func validateDomains(domains []string) (domain.List, error) {
 	if len(domains) == 0 {
 		return nil, fmt.Errorf("domains list is empty")
 	}
+	if len(domains) > maxDomains {
+		return nil, fmt.Errorf("domains list exceeds maximum allowed domains: %d", maxDomains)
+	}
 
 	domainRegex := regexp.MustCompile(`^(?:(?:xn--)?[a-zA-Z0-9_](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?\.)*(?:xn--)?[a-zA-Z0-9](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?$`)
 
@@ -380,4 +389,10 @@ func validateDomains(domains []string) (domain.List, error) {
 		domainList = append(domainList, punycode)
 	}
 	return domainList, nil
+}
+
+// getPlaceholderIP returns a placeholder IP address for the route if domains are used
+func getPlaceholderIP() netip.Prefix {
+	// Using an IP from the documentation range to minimize impact in case older clients try to set a route
+	return netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 0, 2, 0}), 32)
 }

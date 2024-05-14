@@ -87,16 +87,16 @@ func TestAddRemoveRoutes(t *testing.T) {
 				err = RemoveVPNRoute(testCase.prefix, intf)
 				require.NoError(t, err, "genericRemoveVPNRoute should not return err")
 
-				prefixGateway, _, err := GetNextHop(testCase.prefix.Addr())
+				prefixNexthop, err := GetNextHop(testCase.prefix.Addr())
 				require.NoError(t, err, "GetNextHop should not return err")
 
-				internetGateway, _, err := GetNextHop(netip.MustParseAddr("0.0.0.0"))
+				internetNexthop, err := GetNextHop(netip.MustParseAddr("0.0.0.0"))
 				require.NoError(t, err)
 
 				if testCase.shouldBeRemoved {
-					require.Equal(t, internetGateway, prefixGateway, "route should be pointing to default internet gateway")
+					require.Equal(t, internetNexthop.IP, prefixNexthop.IP, "route should be pointing to default internet gateway")
 				} else {
-					require.NotEqual(t, internetGateway, prefixGateway, "route should be pointing to a different gateway than the internet gateway")
+					require.NotEqual(t, internetNexthop.IP, prefixNexthop.IP, "route should be pointing to a different gateway than the internet gateway")
 				}
 			}
 		})
@@ -104,11 +104,11 @@ func TestAddRemoveRoutes(t *testing.T) {
 }
 
 func TestGetNextHop(t *testing.T) {
-	gateway, _, err := GetNextHop(netip.MustParseAddr("0.0.0.0"))
+	nexthop, err := GetNextHop(netip.MustParseAddr("0.0.0.0"))
 	if err != nil {
 		t.Fatal("shouldn't return error when fetching the gateway: ", err)
 	}
-	if !gateway.IsValid() {
+	if !nexthop.IP.IsValid() {
 		t.Fatal("should return a gateway")
 	}
 	addresses, err := net.InterfaceAddrs()
@@ -130,24 +130,24 @@ func TestGetNextHop(t *testing.T) {
 		}
 	}
 
-	localIP, _, err := GetNextHop(testingPrefix.Addr())
+	localIP, err := GetNextHop(testingPrefix.Addr())
 	if err != nil {
 		t.Fatal("shouldn't return error: ", err)
 	}
-	if !localIP.IsValid() {
+	if !localIP.IP.IsValid() {
 		t.Fatal("should return a gateway for local network")
 	}
-	if localIP.String() == gateway.String() {
-		t.Fatal("local ip should not match with gateway IP")
+	if localIP.IP.String() == nexthop.IP.String() {
+		t.Fatal("local IP should not match with gateway IP")
 	}
-	if localIP.String() != testingIP {
-		t.Fatalf("local ip should match with testing IP: want %s got %s", testingIP, localIP.String())
+	if localIP.IP.String() != testingIP {
+		t.Fatalf("local IP should match with testing IP: want %s got %s", testingIP, localIP.IP.String())
 	}
 }
 
 func TestAddExistAndRemoveRoute(t *testing.T) {
-	defaultGateway, _, err := GetNextHop(netip.MustParseAddr("0.0.0.0"))
-	t.Log("defaultGateway: ", defaultGateway)
+	defaultNexthop, err := GetNextHop(netip.MustParseAddr("0.0.0.0"))
+	t.Log("defaultNexthop: ", defaultNexthop)
 	if err != nil {
 		t.Fatal("shouldn't return error when fetching the gateway: ", err)
 	}
@@ -164,7 +164,7 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 		},
 		{
 			name:           "Should Not Add Route if overlaps with default gateway",
-			prefix:         netip.MustParsePrefix(defaultGateway.String() + "/31"),
+			prefix:         netip.MustParsePrefix(defaultNexthop.IP.String() + "/31"),
 			shouldAddRoute: false,
 		},
 		{
@@ -410,11 +410,11 @@ func assertWGOutInterface(t *testing.T, prefix netip.Prefix, wgIface *iface.WGIf
 		return
 	}
 
-	prefixGateway, _, err := GetNextHop(prefix.Addr())
+	prefixNexthop, err := GetNextHop(prefix.Addr())
 	require.NoError(t, err, "GetNextHop should not return err")
 	if invert {
-		assert.NotEqual(t, wgIface.Address().IP.String(), prefixGateway.String(), "route should not point to wireguard interface IP")
+		assert.NotEqual(t, wgIface.Address().IP.String(), prefixNexthop.IP.String(), "route should not point to wireguard interface IP")
 	} else {
-		assert.Equal(t, wgIface.Address().IP.String(), prefixGateway.String(), "route should point to wireguard interface IP")
+		assert.Equal(t, wgIface.Address().IP.String(), prefixNexthop.IP.String(), "route should point to wireguard interface IP")
 	}
 }

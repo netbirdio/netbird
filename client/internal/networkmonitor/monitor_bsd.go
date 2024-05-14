@@ -5,8 +5,6 @@ package networkmonitor
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/netip"
 	"syscall"
 	"unsafe"
 
@@ -17,7 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
 
-func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interface, nexthopv6 netip.Addr, intfv6 *net.Interface, callback func()) error {
+func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, callback func()) error {
 	fd, err := unix.Socket(syscall.AF_ROUTE, syscall.SOCK_RAW, syscall.AF_UNSPEC)
 	if err != nil {
 		return fmt.Errorf("failed to open routing socket: %v", err)
@@ -58,7 +56,7 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 				if msg.Flags&unix.IFF_UP != 0 {
 					continue
 				}
-				if (intfv4 == nil || ifinfo.Index != intfv4.Index) && (intfv6 == nil || ifinfo.Index != intfv6.Index) {
+				if (nexthopv4.Intf == nil || ifinfo.Index != nexthopv4.Intf.Index) && (nexthopv6.Intf == nil || ifinfo.Index != nexthopv6.Intf.Index) {
 					continue
 				}
 
@@ -86,7 +84,7 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 					log.Infof("Network monitor: default route changed: via %s, interface %s", route.Gw, intf)
 					callback()
 				case unix.RTM_DELETE:
-					if intfv4 != nil && route.Gw.Compare(nexthopv4) == 0 || intfv6 != nil && route.Gw.Compare(nexthopv6) == 0 {
+					if nexthopv4.Intf != nil && route.Gw.Compare(nexthopv4.IP) == 0 || nexthopv6.Intf != nil && route.Gw.Compare(nexthopv6.IP) == 0 {
 						log.Infof("Network monitor: default route removed: via %s, interface %s", route.Gw, intf)
 						callback()
 					}

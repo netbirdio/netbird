@@ -2,6 +2,7 @@ package routemanager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -48,8 +49,8 @@ type DefaultManager struct {
 	wgInterface          *iface.WGIface
 	pubKey               string
 	notifier             *notifier
-	routeRefCounter      *refcounter.Counter
-	allowedIPsRefCounter *refcounter.Counter
+	routeRefCounter      *refcounter.RouteRefCounter
+	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter
 }
 
 func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, initialRoutes []*route.Route) *DefaultManager {
@@ -66,15 +67,27 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 	}
 
 	dm.routeRefCounter = refcounter.New(
-		func(prefix netip.Prefix) (netip.Addr, *net.Interface, error) {
-			intf := wgInterface.ToInterface()
-			if err := systemops.AddVPNRoute(prefix, intf); err != nil {
-				return netip.Addr{}, nil, err
-			}
-			return netip.Addr{}, intf, nil
+		func(prefix netip.Prefix, _ any) (any, error) {
+			return nil, systemops.AddVPNRoute(prefix, wgInterface.ToInterface())
 		},
-		func(prefix netip.Prefix, _ netip.Addr, intf *net.Interface) error {
-			return systemops.RemoveVPNRoute(prefix, intf)
+		func(prefix netip.Prefix, _ any) error {
+			return systemops.RemoveVPNRoute(prefix, wgInterface.ToInterface())
+		},
+	)
+
+	dm.allowedIPsRefCounter = refcounter.New(
+		func(prefix netip.Prefix, peerKey string) (string, error) {
+			// save peerKey to use it in the remove function
+			return peerKey, wgInterface.AddAllowedIP(peerKey, prefix.String())
+		},
+		func(prefix netip.Prefix, peerKey string) error {
+			if err := wgInterface.RemoveAllowedIP(peerKey, prefix.String()); err != nil {
+				if !errors.Is(err, iface.ErrPeerNotFound) {
+					return err
+				}
+				log.Tracef("Remove allowed IPs %s for %s: %v", prefix, peerKey, err)
+			}
+			return nil
 		},
 	)
 
@@ -126,6 +139,11 @@ func (m *DefaultManager) Stop() {
 	if m.routeRefCounter != nil {
 		if err := m.routeRefCounter.Flush(); err != nil {
 			log.Errorf("Error flushing route ref counter: %v", err)
+		}
+	}
+	if m.allowedIPsRefCounter != nil {
+		if err := m.allowedIPsRefCounter.Flush(); err != nil {
+			log.Errorf("Error flushing allowed IPs ref counter: %v", err)
 		}
 	}
 
@@ -201,7 +219,7 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 			continue
 		}
 
-		clientNetworkWatcher := newClientNetworkWatcher(m.ctx, m.wgInterface, m.statusRecorder, routes[0], m.routeRefCounter)
+		clientNetworkWatcher := newClientNetworkWatcher(m.ctx, m.wgInterface, m.statusRecorder, routes[0], m.routeRefCounter, m.allowedIPsRefCounter)
 		m.clientNetworks[id] = clientNetworkWatcher
 		go clientNetworkWatcher.peersStateAndUpdateWatcher()
 		clientNetworkWatcher.sendUpdateToClientNetworkWatcher(routesUpdate{routes: routes})
@@ -226,7 +244,7 @@ func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks rout
 	for id, routes := range networks {
 		clientNetworkWatcher, found := m.clientNetworks[id]
 		if !found {
-			clientNetworkWatcher = newClientNetworkWatcher(m.ctx, m.wgInterface, m.statusRecorder, routes[0], m.routeRefCounter)
+			clientNetworkWatcher = newClientNetworkWatcher(m.ctx, m.wgInterface, m.statusRecorder, routes[0], m.routeRefCounter, m.allowedIPsRefCounter)
 			m.clientNetworks[id] = clientNetworkWatcher
 			go clientNetworkWatcher.peersStateAndUpdateWatcher()
 		}

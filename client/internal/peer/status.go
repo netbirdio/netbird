@@ -2,14 +2,17 @@ package peer
 
 import (
 	"errors"
+	"net/netip"
 	"sync"
 	"time"
 
+	"golang.org/x/exp/maps"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 // State contains the latest state of a peer
@@ -117,22 +120,23 @@ type FullStatus struct {
 
 // Status holds a state of peers, signal, management connections and relays
 type Status struct {
-	mux                 sync.Mutex
-	peers               map[string]State
-	changeNotify        map[string]chan struct{}
-	signalState         bool
-	signalError         error
-	managementState     bool
-	managementError     error
-	relayStates         []relay.ProbeResult
-	localPeer           LocalPeerState
-	offlinePeers        []State
-	mgmAddress          string
-	signalAddress       string
-	notifier            *notifier
-	rosenpassEnabled    bool
-	rosenpassPermissive bool
-	nsGroupStates       []NSGroupState
+	mux                   sync.Mutex
+	peers                 map[string]State
+	changeNotify          map[string]chan struct{}
+	signalState           bool
+	signalError           error
+	managementState       bool
+	managementError       error
+	relayStates           []relay.ProbeResult
+	localPeer             LocalPeerState
+	offlinePeers          []State
+	mgmAddress            string
+	signalAddress         string
+	notifier              *notifier
+	rosenpassEnabled      bool
+	rosenpassPermissive   bool
+	nsGroupStates         []NSGroupState
+	resolvedDomainsStates map[domain.Domain][]netip.Prefix
 
 	// To reduce the number of notification invocation this bool will be true when need to call the notification
 	// Some Peer actions mostly used by in a batch when the network map has been synchronized. In these type of events
@@ -143,11 +147,12 @@ type Status struct {
 // NewRecorder returns a new Status instance
 func NewRecorder(mgmAddress string) *Status {
 	return &Status{
-		peers:        make(map[string]State),
-		changeNotify: make(map[string]chan struct{}),
-		offlinePeers: make([]State, 0),
-		notifier:     newNotifier(),
-		mgmAddress:   mgmAddress,
+		peers:                 make(map[string]State),
+		changeNotify:          make(map[string]chan struct{}),
+		offlinePeers:          make([]State, 0),
+		notifier:              newNotifier(),
+		mgmAddress:            mgmAddress,
+		resolvedDomainsStates: make(map[domain.Domain][]netip.Prefix),
 	}
 }
 
@@ -429,6 +434,18 @@ func (d *Status) UpdateDNSStates(dnsStates []NSGroupState) {
 	d.nsGroupStates = dnsStates
 }
 
+func (d *Status) UpdateResolvedDomainsStates(domain domain.Domain, prefixes []netip.Prefix) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.resolvedDomainsStates[domain] = prefixes
+}
+
+func (d *Status) DeleteResolvedDomainsStates(domain domain.Domain) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	delete(d.resolvedDomainsStates, domain)
+}
+
 func (d *Status) GetRosenpassState() RosenpassState {
 	return RosenpassState{
 		d.rosenpassEnabled,
@@ -491,6 +508,12 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 
 func (d *Status) GetDNSStates() []NSGroupState {
 	return d.nsGroupStates
+}
+
+func (d *Status) GetResolvedDomainsStates() map[domain.Domain][]netip.Prefix {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	return maps.Clone(d.resolvedDomainsStates)
 }
 
 // GetFullStatus gets full status

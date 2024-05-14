@@ -26,6 +26,16 @@ func (d List) ToPunycodeList() []string {
 	return list
 }
 
+// ToSafeStringList converts the List to a slice of non-punycode strings.
+// If a domain cannot be converted, the original string is used.
+func (d List) ToSafeStringList() []string {
+	var list []string
+	for _, domain := range d {
+		list = append(list, domain.SafeString())
+	}
+	return list
+}
+
 // String converts List to a comma-separated string.
 func (d List) String() (string, error) {
 	list, err := d.ToStringList()

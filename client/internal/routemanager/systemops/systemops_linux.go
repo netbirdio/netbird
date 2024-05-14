@@ -18,7 +18,6 @@ import (
 	"github.com/vishvananda/netlink"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/iface"
 	nbnet "github.com/netbirdio/netbird/util/net"
@@ -43,7 +42,7 @@ const (
 
 var ErrTableIDExists = errors.New("ID exists with different name")
 
-var refCounter = &refcounter.Counter{}
+var refCounter *ExclusionCounter
 
 // originalSysctl stores the original sysctl values before they are modified
 var originalSysctl map[string]int
@@ -167,12 +166,12 @@ func CleanupRouting() error {
 	return result.ErrorOrNil()
 }
 
-func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
-	return addRoute(prefix, nexthop, intf, syscall.RT_TABLE_MAIN)
+func addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+	return addRoute(prefix, nexthop, syscall.RT_TABLE_MAIN)
 }
 
-func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
-	return removeRoute(prefix, nexthop, intf, syscall.RT_TABLE_MAIN)
+func removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+	return removeRoute(prefix, nexthop, syscall.RT_TABLE_MAIN)
 }
 
 func AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
@@ -192,7 +191,7 @@ func AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 			return fmt.Errorf("add blackhole: %w", err)
 		}
 	}
-	if err := addRoute(prefix, netip.Addr{}, intf, NetbirdVPNTableID); err != nil {
+	if err := addRoute(prefix, Nexthop{netip.Addr{}, intf}, NetbirdVPNTableID); err != nil {
 		return fmt.Errorf("add route: %w", err)
 	}
 	return nil
@@ -209,7 +208,7 @@ func RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 			return fmt.Errorf("remove unreachable route: %w", err)
 		}
 	}
-	if err := removeRoute(prefix, netip.Addr{}, intf, NetbirdVPNTableID); err != nil {
+	if err := removeRoute(prefix, Nexthop{netip.Addr{}, intf}, NetbirdVPNTableID); err != nil {
 		return fmt.Errorf("remove route: %w", err)
 	}
 	return nil
@@ -257,7 +256,7 @@ func getRoutes(tableID, family int) ([]netip.Prefix, error) {
 }
 
 // addRoute adds a route to a specific routing table identified by tableID.
-func addRoute(prefix netip.Prefix, addr netip.Addr, intf *net.Interface, tableID int) error {
+func addRoute(prefix netip.Prefix, nexthop Nexthop, tableID int) error {
 	route := &netlink.Route{
 		Scope:  netlink.SCOPE_UNIVERSE,
 		Table:  tableID,
@@ -270,7 +269,7 @@ func addRoute(prefix netip.Prefix, addr netip.Addr, intf *net.Interface, tableID
 	}
 	route.Dst = ipNet
 
-	if err := addNextHop(addr, intf, route); err != nil {
+	if err := addNextHop(nexthop, route); err != nil {
 		return fmt.Errorf("add gateway and device: %w", err)
 	}
 
@@ -329,7 +328,7 @@ func removeUnreachableRoute(prefix netip.Prefix, tableID int) error {
 }
 
 // removeRoute removes a route from a specific routing table identified by tableID.
-func removeRoute(prefix netip.Prefix, addr netip.Addr, intf *net.Interface, tableID int) error {
+func removeRoute(prefix netip.Prefix, nexthop Nexthop, tableID int) error {
 	_, ipNet, err := net.ParseCIDR(prefix.String())
 	if err != nil {
 		return fmt.Errorf("parse prefix %s: %w", prefix, err)
@@ -342,7 +341,7 @@ func removeRoute(prefix netip.Prefix, addr netip.Addr, intf *net.Interface, tabl
 		Dst:    ipNet,
 	}
 
-	if err := addNextHop(addr, intf, route); err != nil {
+	if err := addNextHop(nexthop, route); err != nil {
 		return fmt.Errorf("add gateway and device: %w", err)
 	}
 
@@ -483,19 +482,19 @@ func removeRule(params ruleParams) error {
 }
 
 // addNextHop adds the gateway and device to the route.
-func addNextHop(addr netip.Addr, intf *net.Interface, route *netlink.Route) error {
-	if intf != nil {
-		route.LinkIndex = intf.Index
+func addNextHop(nexthop Nexthop, route *netlink.Route) error {
+	if nexthop.Intf != nil {
+		route.LinkIndex = nexthop.Intf.Index
 	}
 
-	if addr.IsValid() {
-		route.Gw = addr.AsSlice()
+	if nexthop.IP.IsValid() {
+		route.Gw = nexthop.IP.AsSlice()
 
 		// if zone is set, it means the gateway is a link-local address, so we set the link index
-		if addr.Zone() != "" && intf == nil {
-			link, err := netlink.LinkByName(addr.Zone())
+		if nexthop.IP.Zone() != "" && nexthop.Intf == nil {
+			link, err := netlink.LinkByName(nexthop.IP.Zone())
 			if err != nil {
-				return fmt.Errorf("get link by name for zone %s: %w", addr.Zone(), err)
+				return fmt.Errorf("get link by name for zone %s: %w", nexthop.IP.Zone(), err)
 			}
 			route.LinkIndex = link.Attrs().Index
 		}

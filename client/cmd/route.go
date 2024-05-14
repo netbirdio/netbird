@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
@@ -72,7 +73,25 @@ func routesList(cmd *cobra.Command, _ []string) error {
 		if route.GetSelected() {
 			selectedStatus = "Selected"
 		}
-		cmd.Printf("\n  - ID: %s\n    Network: %s\n    Status: %s\n", route.GetID(), route.GetNetwork(), selectedStatus)
+
+		domains := route.GetDomains()
+		if len(domains) > 0 {
+			cmd.Printf("\n  - ID: %s\n    Domains: %s\n    Status: %s\n", route.GetID(), strings.Join(domains, ", "), selectedStatus)
+			resolvedIPs := route.GetResolvedIPs()
+
+			if len(resolvedIPs) > 0 {
+				cmd.Printf("    Resolved IPs:\n")
+				for _, domain := range domains {
+					if ipList, exists := resolvedIPs[domain]; exists {
+						cmd.Printf("      [%s]: %s\n", domain, strings.Join(ipList.GetIps(), ", "))
+					}
+				}
+			} else {
+				cmd.Printf("    Resolved IPs: -\n")
+			}
+		} else {
+			cmd.Printf("\n  - ID: %s\n    Network: %s\n    Status: %s\n", route.GetID(), route.GetNetwork(), selectedStatus)
+		}
 	}
 
 	return nil

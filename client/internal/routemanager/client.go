@@ -35,7 +35,7 @@ type RouteHandler interface {
 	AddRoute(ctx context.Context) error
 	RemoveRoute() error
 	AddAllowedIPs(peerKey string) error
-	RemoveAllowedIPs(peerKey string) error
+	RemoveAllowedIPs() error
 }
 
 type clientNetwork struct {
@@ -52,7 +52,7 @@ type clientNetwork struct {
 	updateSerial        uint64
 }
 
-func newClientNetworkWatcher(ctx context.Context, wgInterface *iface.WGIface, statusRecorder *peer.Status, rt *route.Route, routeRefCounter *refcounter.Counter) *clientNetwork {
+func newClientNetworkWatcher(ctx context.Context, wgInterface *iface.WGIface, statusRecorder *peer.Status, rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter) *clientNetwork {
 	ctx, cancel := context.WithCancel(ctx)
 
 	client := &clientNetwork{
@@ -64,7 +64,7 @@ func newClientNetworkWatcher(ctx context.Context, wgInterface *iface.WGIface, st
 		routePeersNotifiers: make(map[string]chan struct{}),
 		routeUpdate:         make(chan routesUpdate),
 		peerStateUpdate:     make(chan struct{}),
-		handler:             handlerFromRoute(rt, wgInterface, routeRefCounter),
+		handler:             handlerFromRoute(rt, routeRefCounter, allowedIPsRefCounter, statusRecorder),
 	}
 	return client
 }
@@ -211,15 +211,15 @@ func (c *clientNetwork) removeRouteFromWireguardPeer(peerKey string) error {
 
 	state, err := c.statusRecorder.GetPeer(peerKey)
 	if err != nil {
-		return fmt.Errorf("get peer state: %v", err)
+		return fmt.Errorf("get peer state: %w", err)
 	}
 
 	if state.ConnStatus != peer.StatusConnected {
 		return nil
 	}
 
-	if err = c.handler.RemoveAllowedIPs(peerKey); err != nil {
-		return fmt.Errorf("remove allowed IPs: %v", err)
+	if err = c.handler.RemoveAllowedIPs(); err != nil {
+		return fmt.Errorf("remove allowed IPs: %w", err)
 	}
 	return nil
 }
@@ -232,10 +232,10 @@ func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 	var merr *multierror.Error
 
 	if err := c.removeRouteFromWireguardPeer(c.currentChosen.Peer); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf("remove allowed IPs for peer %s: %v", c.currentChosen.Peer, err))
+		merr = multierror.Append(merr, fmt.Errorf("remove allowed IPs for peer %s: %w", c.currentChosen.Peer, err))
 	}
 	if err := c.handler.RemoveRoute(); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf("remove route: %v", err))
+		merr = multierror.Append(merr, fmt.Errorf("remove route: %w", err))
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
@@ -249,7 +249,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 	// If no route is chosen, remove the route from the peer and system
 	if newChosenID == "" {
 		if err := c.removeRouteFromPeerAndSystem(); err != nil {
-			return fmt.Errorf("remove route for peer %s: %v", c.currentChosen.Peer, err)
+			return fmt.Errorf("remove route for peer %s: %w", c.currentChosen.Peer, err)
 		}
 
 		c.currentChosen = nil
@@ -266,19 +266,19 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 	if c.currentChosen == nil {
 		// If they were not previously assigned to another peer, add routes to the system first
 		if err := c.handler.AddRoute(c.ctx); err != nil {
-			return fmt.Errorf("add route: %v", err)
+			return fmt.Errorf("add route: %w", err)
 		}
 	} else {
 		// Otherwise, remove the allowed IPs from the previous peer first
 		if err := c.removeRouteFromWireguardPeer(c.currentChosen.Peer); err != nil {
-			return fmt.Errorf("remove allowed IPs for peer %s: %v", c.currentChosen.Peer, err)
+			return fmt.Errorf("remove allowed IPs for peer %s: %w", c.currentChosen.Peer, err)
 		}
 	}
 
 	c.currentChosen = c.routes[newChosenID]
 
 	if err := c.handler.AddAllowedIPs(c.currentChosen.Peer); err != nil {
-		return fmt.Errorf("add allowed IPs for peer %s: %v", c.currentChosen.Peer, err)
+		return fmt.Errorf("add allowed IPs for peer %s: %w", c.currentChosen.Peer, err)
 	}
 
 	c.addStateRoute()
@@ -374,9 +374,9 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 	}
 }
 
-func handlerFromRoute(rt *route.Route, wgInterface *iface.WGIface, routeRefCounter *refcounter.Counter) RouteHandler {
+func handlerFromRoute(rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter, statusRecorder *peer.Status) RouteHandler {
 	if rt.IsDynamic() {
-		return dynamic.NewRoute(rt, wgInterface, routeRefCounter)
+		return dynamic.NewRoute(rt, routeRefCounter, allowedIPsRefCounter, statusRecorder)
 	}
-	return static.NewRoute(rt, wgInterface, routeRefCounter)
+	return static.NewRoute(rt, routeRefCounter, allowedIPsRefCounter)
 }

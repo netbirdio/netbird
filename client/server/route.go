@@ -61,21 +61,29 @@ func (s *Server) ListRoutes(context.Context, *proto.ListRoutesRequest) (*proto.L
 		return iPrefix < jPrefix
 	})
 
+	resolvedDomains := s.statusRecorder.GetResolvedDomainsStates()
 	var pbRoutes []*proto.Route
 	for _, route := range routes {
-		network := route.Network.String()
-		if len(route.Domains) > 0 {
-			n, err := route.Domains.String()
-			if err != nil {
-				return nil, fmt.Errorf("list routes: %w", err)
-			}
-			network = n
+		pbRoute := &proto.Route{
+			ID:          string(route.NetID),
+			Network:     route.Network.String(),
+			Domains:     route.Domains.ToSafeStringList(),
+			ResolvedIPs: map[string]*proto.IPList{},
+			Selected:    route.Selected,
 		}
-		pbRoutes = append(pbRoutes, &proto.Route{
-			ID:       string(route.NetID),
-			Network:  network,
-			Selected: route.Selected,
-		})
+
+		for _, domain := range route.Domains {
+			if prefixes, exists := resolvedDomains[domain]; exists {
+				var ipStrings []string
+				for _, prefix := range prefixes {
+					ipStrings = append(ipStrings, prefix.Addr().String())
+				}
+				pbRoute.ResolvedIPs[string(domain)] = &proto.IPList{
+					Ips: ipStrings,
+				}
+			}
+		}
+		pbRoutes = append(pbRoutes, pbRoute)
 	}
 
 	return &proto.ListRoutesResponse{

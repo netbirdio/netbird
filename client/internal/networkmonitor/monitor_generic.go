@@ -5,7 +5,6 @@ package networkmonitor
 import (
 	"context"
 	"errors"
-	"net"
 	"net/netip"
 	"runtime/debug"
 
@@ -30,23 +29,22 @@ func (nw *NetworkWatcher) Start(ctx context.Context, callback func()) {
 	ctx, nw.cancel = context.WithCancel(ctx)
 	defer nw.Stop()
 
-	var nexthop4, nexthop6 netip.Addr
-	var intf4, intf6 *net.Interface
+	var nexthop4, nexthop6 systemops.Nexthop
 
 	operation := func() error {
 		var errv4, errv6 error
-		nexthop4, intf4, errv4 = systemops.GetNextHop(netip.IPv4Unspecified())
-		nexthop6, intf6, errv6 = systemops.GetNextHop(netip.IPv6Unspecified())
+		nexthop4, errv4 = systemops.GetNextHop(netip.IPv4Unspecified())
+		nexthop6, errv6 = systemops.GetNextHop(netip.IPv6Unspecified())
 
 		if errv4 != nil && errv6 != nil {
 			return errors.New("failed to get default next hops")
 		}
 
 		if errv4 == nil {
-			log.Debugf("Network monitor: IPv4 default route: %s, interface: %s", nexthop4, intf4.Name)
+			log.Debugf("Network monitor: IPv4 default route: %s, interface: %s", nexthop4.IP, nexthop4.Intf.Name)
 		}
 		if errv6 == nil {
-			log.Debugf("Network monitor: IPv6 default route: %s, interface: %s", nexthop6, intf6.Name)
+			log.Debugf("Network monitor: IPv6 default route: %s, interface: %s", nexthop6.IP, nexthop6.Intf.Name)
 		}
 
 		// continue if either route was found
@@ -67,7 +65,7 @@ func (nw *NetworkWatcher) Start(ctx context.Context, callback func()) {
 		}
 	}()
 
-	if err := checkChange(ctx, nexthop4, intf4, nexthop6, intf6, callback); err != nil && !errors.Is(err, context.Canceled) {
+	if err := checkChange(ctx, nexthop4, nexthop6, callback); err != nil && !errors.Is(err, context.Canceled) {
 		log.Errorf("Network monitor: failed to start: %v", err)
 	}
 }

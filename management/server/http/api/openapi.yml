@@ -1050,7 +1050,7 @@ components:
               type: string
               example: chacdk86lnnboviihd7g
             network_type:
-              description: Network type indicating if it is IPv4 or IPv6
+              description: Network type indicating if it is a domain route, or IPv4/IPv6
               type: string
               example: IPv4
           required:

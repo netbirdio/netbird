@@ -30,6 +30,8 @@ const (
 	IPv4NetworkString = "IPv4"
 	// IPv6NetworkString IPv6 network type string
 	IPv6NetworkString = "IPv6"
+	// DomainString domain network type string
+	DomainString = "DomainNetwork"
 )
 
 const (
@@ -39,6 +41,8 @@ const (
 	IPv4Network
 	// IPv6Network IPv6 network type
 	IPv6Network
+	// DomainNetwork domain network type
+	DomainNetwork
 )
 
 type ID string
@@ -57,6 +61,8 @@ func (p NetworkType) String() string {
 		return IPv4NetworkString
 	case IPv6Network:
 		return IPv6NetworkString
+	case DomainNetwork:
+		return DomainString
 	default:
 		return InvalidNetworkString
 	}
@@ -69,6 +75,8 @@ func ToPrefixType(prefix string) NetworkType {
 		return IPv4Network
 	case IPv6NetworkString:
 		return IPv6Network
+	case DomainString:
+		return DomainNetwork
 	default:
 		return InvalidNetwork
 	}
@@ -147,7 +155,7 @@ func (r *Route) IsEqual(other *Route) bool {
 
 // IsDynamic returns if the route is dynamic, i.e. has domains
 func (r *Route) IsDynamic() bool {
-	return len(r.Domains) > 0
+	return r.NetworkType == DomainNetwork
 }
 
 func (r *Route) GetHAUniqueID() HAUniqueID {
@@ -156,7 +164,6 @@ func (r *Route) GetHAUniqueID() HAUniqueID {
 		if err != nil {
 			log.Errorf("Failed to convert domains to string: %v", err)
 			domains = r.Domains.PunycodeString()
-			return ""
 		}
 		return HAUniqueID(fmt.Sprintf("%s%s%s", r.NetID, haSeparator, domains))
 	}

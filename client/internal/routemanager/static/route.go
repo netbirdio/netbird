@@ -4,21 +4,20 @@ import (
 	"context"
 
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
-	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 )
 
 type Route struct {
-	route           *route.Route
-	wgInterface     *iface.WGIface
-	routeRefCounter *refcounter.Counter
+	route                *route.Route
+	routeRefCounter      *refcounter.RouteRefCounter
+	allowedIPsRefcounter *refcounter.AllowedIPsRefCounter
 }
 
-func NewRoute(rt *route.Route, wgIface *iface.WGIface, routeRefCounter *refcounter.Counter) *Route {
+func NewRoute(rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter) *Route {
 	return &Route{
-		route:           rt,
-		wgInterface:     wgIface,
-		routeRefCounter: routeRefCounter,
+		route:                rt,
+		routeRefCounter:      routeRefCounter,
+		allowedIPsRefcounter: allowedIPsRefCounter,
 	}
 }
 
@@ -28,17 +27,21 @@ func (r *Route) String() string {
 }
 
 func (r *Route) AddRoute(context.Context) error {
-	return r.routeRefCounter.Increment(r.route.Network)
+	_, err := r.routeRefCounter.Increment(r.route.Network, nil)
+	return err
 }
 
 func (r *Route) RemoveRoute() error {
-	return r.routeRefCounter.Decrement(r.route.Network)
+	_, err := r.routeRefCounter.Decrement(r.route.Network)
+	return err
 }
 
 func (r *Route) AddAllowedIPs(peerKey string) error {
-	return r.wgInterface.AddAllowedIP(peerKey, r.route.Network.String())
+	_, err := r.allowedIPsRefcounter.Increment(r.route.Network, peerKey)
+	return err
 }
 
-func (r *Route) RemoveAllowedIPs(peerKey string) error {
-	return r.wgInterface.RemoveAllowedIP(peerKey, r.route.Network.String())
+func (r *Route) RemoveAllowedIPs() error {
+	_, err := r.allowedIPsRefcounter.Decrement(r.route.Network)
+	return err
 }

@@ -29,7 +29,7 @@ type FindNetRouteOutput struct {
 	InterfaceIndex    int    `json:"InterfaceIndex"`
 	InterfaceAlias    string `json:"InterfaceAlias"`
 	AddressFamily     int    `json:"AddressFamily"`
-	NextHop           string `json:"NextHop"`
+	NextHop           string `json:"Nexthop"`
 	DestinationPrefix string `json:"DestinationPrefix"`
 }
 
@@ -166,7 +166,7 @@ func testRoute(t *testing.T, destination string, dialer dialer) *FindNetRouteOut
 	host, _, err := net.SplitHostPort(destination)
 	require.NoError(t, err)
 
-	script := fmt.Sprintf(`Find-NetRoute -RemoteIPAddress "%s" | Select-Object -Property IPAddress, InterfaceIndex, InterfaceAlias, AddressFamily, NextHop, DestinationPrefix | ConvertTo-Json`, host)
+	script := fmt.Sprintf(`Find-NetRoute -RemoteIPAddress "%s" | Select-Object -Property IPAddress, InterfaceIndex, InterfaceAlias, AddressFamily, Nexthop, DestinationPrefix | ConvertTo-Json`, host)
 
 	out, err := exec.Command("powershell", "-Command", script).Output()
 	require.NoError(t, err, "Failed to execute Find-NetRoute")
@@ -207,7 +207,7 @@ func createAndSetupDummyInterface(t *testing.T, interfaceName, ipAddressCIDR str
 }
 
 func fetchOriginalGateway() (*RouteInfo, error) {
-	cmd := exec.Command("powershell", "-Command", "Get-NetRoute -DestinationPrefix 0.0.0.0/0 | Select-Object NextHop, RouteMetric, InterfaceAlias | ConvertTo-Json")
+	cmd := exec.Command("powershell", "-Command", "Get-NetRoute -DestinationPrefix 0.0.0.0/0 | Select-Object Nexthop, RouteMetric, InterfaceAlias | ConvertTo-Json")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute Get-NetRoute: %w", err)

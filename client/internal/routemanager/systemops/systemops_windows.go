@@ -17,7 +17,6 @@ import (
 	"github.com/yusufpapurcu/wmi"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/iface"
 )
 
@@ -57,7 +56,7 @@ var prefixList []netip.Prefix
 var lastUpdate time.Time
 var mux = sync.Mutex{}
 
-var refCounter *refcounter.Counter
+var refCounter *ExclusionCounter
 
 func SetupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
 	return setupRoutingWithRefCounter(&refCounter, initAddresses, wgIface)
@@ -93,7 +92,7 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 func GetRoutes() ([]Route, error) {
 	var entries []MSFT_NetRoute
 
-	query := `SELECT DestinationPrefix, NextHop, InterfaceIndex, InterfaceAlias, AddressFamily FROM MSFT_NetRoute`
+	query := `SELECT DestinationPrefix, Nexthop, InterfaceIndex, InterfaceAlias, AddressFamily FROM MSFT_NetRoute`
 	if err := wmi.QueryNamespace(query, &entries, `ROOT\StandardCimv2`); err != nil {
 		return nil, fmt.Errorf("get routes: %w", err)
 	}
@@ -157,11 +156,11 @@ func GetNeighbors() ([]Neighbor, error) {
 	return neighbors, nil
 }
 
-func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
+func addRouteCmd(prefix netip.Prefix, nexthop Nexthop) error {
 	args := []string{"add", prefix.String()}
 
-	if nexthop.IsValid() {
-		args = append(args, nexthop.Unmap().String())
+	if nexthop.IP.IsValid() {
+		args = append(args, nexthop.IP.Unmap().String())
 	} else {
 		addr := "0.0.0.0"
 		if prefix.Addr().Is6() {
@@ -170,8 +169,8 @@ func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) e
 		args = append(args, addr)
 	}
 
-	if intf != nil {
-		args = append(args, "if", strconv.Itoa(intf.Index))
+	if nexthop.Intf != nil {
+		args = append(args, "if", strconv.Itoa(nexthop.Intf.Index))
 	}
 
 	out, err := exec.Command("route", args...).CombinedOutput()
@@ -183,24 +182,24 @@ func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) e
 	return nil
 }
 
-func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
-	if nexthop.Zone() != "" && intf == nil {
-		zone, err := strconv.Atoi(nexthop.Zone())
+func addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+	if nexthop.IP.Zone() != "" && nexthop.Intf == nil {
+		zone, err := strconv.Atoi(nexthop.IP.Zone())
 		if err != nil {
 			return fmt.Errorf("invalid zone: %w", err)
 		}
-		intf = &net.Interface{Index: zone}
-		nexthop.WithZone("")
+		nexthop.Intf = &net.Interface{Index: zone}
+		nexthop.IP.WithZone("")
 	}
 
-	return addRouteCmd(prefix, nexthop, intf)
+	return addRouteCmd(prefix, nexthop)
 }
 
-func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, _ *net.Interface) error {
+func removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 	args := []string{"delete", prefix.String()}
-	if nexthop.IsValid() {
-		nexthop.WithZone("")
-		args = append(args, nexthop.Unmap().String())
+	if nexthop.IP.IsValid() {
+		nexthop.IP.WithZone("")
+		args = append(args, nexthop.IP.Unmap().String())
 	}
 
 	out, err := exec.Command("route", args...).CombinedOutput()
