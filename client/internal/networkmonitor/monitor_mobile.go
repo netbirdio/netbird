@@ -4,7 +4,8 @@ package networkmonitor
 
 import "context"
 
-func (nw *NetworkMonitor) Start(context.Context, func()) {
+func (nw *NetworkMonitor) Start(context.Context, func()) error {
+	return nil
 }
 
 func (nw *NetworkMonitor) Stop() {
