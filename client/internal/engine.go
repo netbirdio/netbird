@@ -228,7 +228,9 @@ func (e *Engine) Stop() error {
 	}
 
 	// stopping network monitor first to avoid starting the engine again
-	e.networkMonitor.Stop()
+	if e.networkMonitor != nil {
+		e.networkMonitor.Stop()
+	}
 	log.Info("Network monitor: stopped")
 
 	err := e.removeAllPeers()
