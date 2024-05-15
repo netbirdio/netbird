@@ -369,7 +369,7 @@ if type uname >/dev/null 2>&1; then
             # Check the availability of a compatible package manager
             if check_use_bin_variable; then
                 PACKAGE_MANAGER="bin"
-            elif [ -x "$(command -v apt)" ]; then
+            elif [ -x "$(command -v apt-get)" ]; then
                 PACKAGE_MANAGER="apt"
                 echo "The installation will be performed using apt package manager"
             elif [ -x "$(command -v dnf)" ]; then
