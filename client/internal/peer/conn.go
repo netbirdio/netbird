@@ -487,7 +487,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 		return nil, err
 	}
 
-	if runtime.GOOS != "ios" {
+	if runtime.GOOS == "ios" {
 		runtime.GC()
 	}
 
