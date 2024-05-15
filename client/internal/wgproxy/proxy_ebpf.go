@@ -270,7 +270,7 @@ func (p *WGEBPFProxy) sendPkg(data []byte, port uint16) error {
 
 	err := udpH.SetNetworkLayerForChecksum(ipH)
 	if err != nil {
-		log.Errorf("set network layer for checksum: %w", err)
+		log.Errorf("set network layer for checksum: %s", err)
 		return err
 	}
 
@@ -278,11 +278,11 @@ func (p *WGEBPFProxy) sendPkg(data []byte, port uint16) error {
 
 	err = gopacket.SerializeLayers(layerBuffer, gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}, ipH, udpH, payload)
 	if err != nil {
-		log.Errorf("serialize layers: %w", err)
+		log.Errorf("serialize layers: %s", err)
 		return err
 	}
 	if _, err = p.rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: localhost}); err != nil {
-		log.Errorf("write to raw conn: %w", err)
+		log.Errorf("write to raw conn: %s", err)
 		return err
 	}
 	return nil
