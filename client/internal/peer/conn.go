@@ -487,7 +487,9 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 		return nil, err
 	}
 
-	runtime.GC()
+	if runtime.GOOS != "ios" {
+		runtime.GC()
+	}
 
 	if conn.onConnected != nil {
 		conn.onConnected(conn.config.Key, remoteRosenpassPubKey, ipNet.IP.String(), remoteRosenpassAddr)
