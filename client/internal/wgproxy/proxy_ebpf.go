@@ -109,7 +109,6 @@ func (p *WGEBPFProxy) AddTurnConn(turnConn net.Conn) (net.Addr, error) {
 
 // CloseConn doing nothing because this type of proxy implementation does not store the connection
 func (p *WGEBPFProxy) CloseConn() error {
-	p.cancel()
 	return nil
 }
 
