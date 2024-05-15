@@ -22,7 +22,10 @@ func (nw *NetworkMonitor) Start(ctx context.Context, callback func()) (err error
 		return ctx.Err()
 	}
 
+	nw.mu.Lock()
 	ctx, nw.cancel = context.WithCancel(ctx)
+	nw.mu.Unlock()
+
 	nw.wg.Add(1)
 	defer nw.wg.Done()
 
@@ -71,6 +74,9 @@ func (nw *NetworkMonitor) Start(ctx context.Context, callback func()) (err error
 
 // Stop stops the network monitor.
 func (nw *NetworkMonitor) Stop() {
+	nw.mu.Lock()
+	defer nw.mu.Unlock()
+
 	if nw.cancel != nil {
 		nw.cancel()
 		nw.wg.Wait()

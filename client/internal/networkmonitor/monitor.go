@@ -12,6 +12,7 @@ var ErrStopped = errors.New("monitor has been stopped")
 type NetworkMonitor struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+	mu     sync.Mutex
 }
 
 // New creates a new network monitor.
