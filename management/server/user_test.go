@@ -39,6 +39,7 @@ const (
 
 func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 
 	err := store.SaveAccount(account)
@@ -76,6 +77,7 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 
 func TestUser_CreatePAT_ForDifferentUser(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 	account.Users[mockTargetUserId] = &User{
 		Id:            mockTargetUserId,
@@ -97,6 +99,7 @@ func TestUser_CreatePAT_ForDifferentUser(t *testing.T) {
 
 func TestUser_CreatePAT_ForServiceUser(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 	account.Users[mockTargetUserId] = &User{
 		Id:            mockTargetUserId,
@@ -122,6 +125,7 @@ func TestUser_CreatePAT_ForServiceUser(t *testing.T) {
 
 func TestUser_CreatePAT_WithWrongExpiration(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 
 	err := store.SaveAccount(account)
@@ -140,6 +144,7 @@ func TestUser_CreatePAT_WithWrongExpiration(t *testing.T) {
 
 func TestUser_CreatePAT_WithEmptyName(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 
 	err := store.SaveAccount(account)
@@ -158,6 +163,7 @@ func TestUser_CreatePAT_WithEmptyName(t *testing.T) {
 
 func TestUser_DeletePAT(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 	account.Users[mockUserID] = &User{
 		Id: mockUserID,
@@ -190,6 +196,7 @@ func TestUser_DeletePAT(t *testing.T) {
 
 func TestUser_GetPAT(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 	account.Users[mockUserID] = &User{
 		Id: mockUserID,
@@ -221,6 +228,7 @@ func TestUser_GetPAT(t *testing.T) {
 
 func TestUser_GetAllPATs(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 	account.Users[mockUserID] = &User{
 		Id: mockUserID,
@@ -322,6 +330,7 @@ func validateStruct(s interface{}) (err error) {
 
 func TestUser_CreateServiceUser(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 
 	err := store.SaveAccount(account)
@@ -359,6 +368,7 @@ func TestUser_CreateServiceUser(t *testing.T) {
 
 func TestUser_CreateUser_ServiceUser(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 
 	err := store.SaveAccount(account)
@@ -397,6 +407,7 @@ func TestUser_CreateUser_ServiceUser(t *testing.T) {
 
 func TestUser_CreateUser_RegularUser(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 
 	err := store.SaveAccount(account)
@@ -421,6 +432,7 @@ func TestUser_CreateUser_RegularUser(t *testing.T) {
 
 func TestUser_InviteNewUser(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 
 	err := store.SaveAccount(account)
@@ -549,6 +561,7 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 
 func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 
 	err := store.SaveAccount(account)
@@ -569,6 +582,7 @@ func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 
 func TestUser_DeleteUser_regularUser(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 
 	targetId := "user2"
@@ -650,6 +664,7 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 
 func TestDefaultAccountManager_GetUser(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 
 	err := store.SaveAccount(account)
@@ -678,6 +693,7 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 
 func TestDefaultAccountManager_ListUsers(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 	account.Users["normal_user1"] = NewRegularUser("normal_user1")
 	account.Users["normal_user2"] = NewRegularUser("normal_user2")
@@ -790,6 +806,7 @@ func TestDefaultAccountManager_ListUsers_DashboardPermissions(t *testing.T) {
 
 func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 	externalUser := &User{
 		Id:     "externalUser",
@@ -853,6 +870,7 @@ func TestUser_IsAdmin(t *testing.T) {
 
 func TestUser_GetUsersFromAccount_ForAdmin(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 	account.Users[mockServiceUserID] = &User{
 		Id:            mockServiceUserID,
@@ -880,6 +898,8 @@ func TestUser_GetUsersFromAccount_ForAdmin(t *testing.T) {
 
 func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
+
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 	account.Users[mockServiceUserID] = &User{
 		Id:            mockServiceUserID,

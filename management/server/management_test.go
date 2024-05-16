@@ -532,10 +532,11 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	Expect(err).NotTo(HaveOccurred())
 	s := grpc.NewServer()
 
-	store, err := server.NewStoreFromJson(config.Datadir, nil)
+	store, _, err := server.NewTestStoreFromJson(config.Datadir)
 	if err != nil {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
+
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted",

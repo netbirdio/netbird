@@ -62,10 +62,11 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	store, err := mgmt.NewStoreFromJson(config.Datadir, nil)
+	store, cleanUp, err := mgmt.NewTestStoreFromJson(config.Datadir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(cleanUp)
 
 	peersUpdateManager := mgmt.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}

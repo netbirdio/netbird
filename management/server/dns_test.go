@@ -32,7 +32,7 @@ func TestGetDNSSettings(t *testing.T) {
 
 	account, err := initTestDNSAccount(t, am)
 	if err != nil {
-		t.Error("failed to init testing account")
+		t.Fatal("failed to init testing account")
 	}
 
 	dnsSettings, err := am.GetDNSSettings(account.Id, dnsAdminUserID)
@@ -200,10 +200,11 @@ func createDNSManager(t *testing.T) (*DefaultAccountManager, error) {
 func createDNSStore(t *testing.T) (Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, err := NewStoreFromJson(dataDir, nil)
+	store, cleanUp, err := NewTestStoreFromJson(dataDir)
 	if err != nil {
 		return nil, err
 	}
+	t.Cleanup(cleanUp)
 
 	return store, nil
 }
