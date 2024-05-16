@@ -349,39 +349,55 @@ fi
 if type uname >/dev/null 2>&1; then
 	case "$(uname)" in
         Linux)
-            OS_NAME="$(. /etc/os-release && echo "$ID")"
-            OS_TYPE="linux"
-            INSTALL_DIR="/usr/bin"
+          OS_TYPE="linux"
+          UNAME_OUTPUT="$(uname -a)"
+          if echo "$UNAME_OUTPUT" | grep -qi "synology"; then
+            OS_NAME="synology"
+            INSTALL_DIR="/usr/local/bin"
+            PACKAGE_MANAGER="bin"
+            SKIP_UI_APP=true
+          else
+            if [ -f /etc/os-release ]; then
+              OS_NAME="$(. /etc/os-release && echo "$ID")"
+              INSTALL_DIR="/usr/bin"
 
-            # Allow netbird UI installation for x64 arch only
-            if [ "$ARCH" != "amd64" ] && [ "$ARCH" != "arm64" ] \
-                && [ "$ARCH" != "x86_64" ];then
-                SKIP_UI_APP=true
-                echo "NetBird UI installation will be omitted as $ARCH is not a compatible architecture"
-            fi
+              # Allow netbird UI installation for x64 arch only
+              if [ "$ARCH" != "amd64" ] && [ "$ARCH" != "arm64" ] \
+                  && [ "$ARCH" != "x86_64" ];then
+                  SKIP_UI_APP=true
+                  echo "NetBird UI installation will be omitted as $ARCH is not a compatible architecture"
+              fi
 
-            # Allow netbird UI installation for linux running desktop environment
-            if [ -z "$XDG_CURRENT_DESKTOP" ];then
-                SKIP_UI_APP=true
-                echo "NetBird UI installation will be omitted as Linux does not run desktop environment"
-            fi
+              # Allow netbird UI installation for linux running desktop environment
+              if [ -z "$XDG_CURRENT_DESKTOP" ];then
+                  SKIP_UI_APP=true
+                  echo "NetBird UI installation will be omitted as Linux does not run desktop environment"
+              fi
 
-            # Check the availability of a compatible package manager
-            if check_use_bin_variable; then
-                PACKAGE_MANAGER="bin"
-            elif [ -x "$(command -v apt)" ]; then
-                PACKAGE_MANAGER="apt"
-                echo "The installation will be performed using apt package manager"
-            elif [ -x "$(command -v dnf)" ]; then
-                PACKAGE_MANAGER="dnf"
-                echo "The installation will be performed using dnf package manager"
-            elif [ -x "$(command -v yum)" ]; then
-                PACKAGE_MANAGER="yum"
-                echo "The installation will be performed using yum package manager"
-            elif [ -x "$(command -v pacman)" ]; then
-                PACKAGE_MANAGER="pacman"
-                echo "The installation will be performed using pacman package manager"
+              # Check the availability of a compatible package manager
+              if check_use_bin_variable; then
+                  PACKAGE_MANAGER="bin"
+              elif [ -x "$(command -v apt-get)" ]; then
+                  PACKAGE_MANAGER="apt"
+                  echo "The installation will be performed using apt package manager"
+              elif [ -x "$(command -v dnf)" ]; then
+                  PACKAGE_MANAGER="dnf"
+                  echo "The installation will be performed using dnf package manager"
+              elif [ -x "$(command -v yum)" ]; then
+                  PACKAGE_MANAGER="yum"
+                  echo "The installation will be performed using yum package manager"
+              elif [ -x "$(command -v pacman)" ]; then
+                  PACKAGE_MANAGER="pacman"
+                  echo "The installation will be performed using pacman package manager"
+              fi
+
+            else
+              echo "Unable to determine OS type from /etc/os-release"
+              exit 1
             fi
+          fi
+
+
 		;;
 		Darwin)
             OS_NAME="macos"

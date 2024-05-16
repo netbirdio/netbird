@@ -32,6 +32,7 @@ const (
 	preSharedKeyFlag        = "preshared-key"
 	interfaceNameFlag       = "interface-name"
 	wireguardPortFlag       = "wireguard-port"
+	networkMonitorFlag      = "network-monitor"
 	disableAutoConnectFlag  = "disable-auto-connect"
 	serverSSHAllowedFlag    = "allow-server-ssh"
 	extraIFaceBlackListFlag = "extra-iface-blacklist"
@@ -62,6 +63,7 @@ var (
 	serverSSHAllowed        bool
 	interfaceName           string
 	wireguardPort           uint16
+	networkMonitor          bool
 	serviceName             string
 	autoConnectDisabled     bool
 	extraIFaceBlackList     []string

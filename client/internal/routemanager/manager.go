@@ -174,6 +174,9 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 	defer m.mux.Unlock()
 
 	networks = m.routeSelector.FilterSelected(networks)
+
+	m.notifier.onNewRoutes(networks)
+
 	m.stopObsoleteClients(networks)
 
 	for id, routes := range networks {

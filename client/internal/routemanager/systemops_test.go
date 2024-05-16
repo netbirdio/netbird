@@ -87,10 +87,10 @@ func TestAddRemoveRoutes(t *testing.T) {
 				err = removeVPNRoute(testCase.prefix, intf)
 				require.NoError(t, err, "genericRemoveVPNRoute should not return err")
 
-				prefixGateway, _, err := getNextHop(testCase.prefix.Addr())
-				require.NoError(t, err, "getNextHop should not return err")
+				prefixGateway, _, err := GetNextHop(testCase.prefix.Addr())
+				require.NoError(t, err, "GetNextHop should not return err")
 
-				internetGateway, _, err := getNextHop(netip.MustParseAddr("0.0.0.0"))
+				internetGateway, _, err := GetNextHop(netip.MustParseAddr("0.0.0.0"))
 				require.NoError(t, err)
 
 				if testCase.shouldBeRemoved {
@@ -104,7 +104,7 @@ func TestAddRemoveRoutes(t *testing.T) {
 }
 
 func TestGetNextHop(t *testing.T) {
-	gateway, _, err := getNextHop(netip.MustParseAddr("0.0.0.0"))
+	gateway, _, err := GetNextHop(netip.MustParseAddr("0.0.0.0"))
 	if err != nil {
 		t.Fatal("shouldn't return error when fetching the gateway: ", err)
 	}
@@ -130,7 +130,7 @@ func TestGetNextHop(t *testing.T) {
 		}
 	}
 
-	localIP, _, err := getNextHop(testingPrefix.Addr())
+	localIP, _, err := GetNextHop(testingPrefix.Addr())
 	if err != nil {
 		t.Fatal("shouldn't return error: ", err)
 	}
@@ -146,7 +146,7 @@ func TestGetNextHop(t *testing.T) {
 }
 
 func TestAddExistAndRemoveRoute(t *testing.T) {
-	defaultGateway, _, err := getNextHop(netip.MustParseAddr("0.0.0.0"))
+	defaultGateway, _, err := GetNextHop(netip.MustParseAddr("0.0.0.0"))
 	t.Log("defaultGateway: ", defaultGateway)
 	if err != nil {
 		t.Fatal("shouldn't return error when fetching the gateway: ", err)
@@ -410,8 +410,8 @@ func assertWGOutInterface(t *testing.T, prefix netip.Prefix, wgIface *iface.WGIf
 		return
 	}
 
-	prefixGateway, _, err := getNextHop(prefix.Addr())
-	require.NoError(t, err, "getNextHop should not return err")
+	prefixGateway, _, err := GetNextHop(prefix.Addr())
+	require.NoError(t, err, "GetNextHop should not return err")
 	if invert {
 		assert.NotEqual(t, wgIface.Address().IP.String(), prefixGateway.String(), "route should not point to wireguard interface IP")
 	} else {
