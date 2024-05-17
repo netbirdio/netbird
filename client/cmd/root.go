@@ -31,6 +31,7 @@ const (
 	rosenpassPermissiveFlag = "rosenpass-permissive"
 	preSharedKeyFlag        = "preshared-key"
 	interfaceNameFlag       = "interface-name"
+	networkMonitorFlag      = "network-monitor"
 	wireguardPortFlag       = "wireguard-port"
 	disableAutoConnectFlag  = "disable-auto-connect"
 	serverSSHAllowedFlag    = "allow-server-ssh"
@@ -63,6 +64,7 @@ var (
 	interfaceName           string
 	wireguardPort           uint16
 	serviceName             string
+	networkMonitor          bool
 	autoConnectDisabled     bool
 	extraIFaceBlackList     []string
 	rootCmd                 = &cobra.Command{
@@ -323,15 +325,4 @@ func cpDir(src string, dst string) error {
 		}
 	}
 	return nil
-}
-
-func migrateToNetbird(oldPath, newPath string) bool {
-	_, errOld := os.Stat(oldPath)
-	_, errNew := os.Stat(newPath)
-
-	if errors.Is(errOld, fs.ErrNotExist) || errNew == nil {
-		return false
-	}
-
-	return true
 }
