@@ -149,13 +149,13 @@ func (c *Client) readLoop() {
 			c.msgPool.Put(buf)
 			continue
 		case messages.MsgTypeTransport:
-			channelId, payload, err := messages.UnmarshalTransportMsg(buf[:n])
+			channelId, err := messages.UnmarshalTransportID(buf[:n])
 			if err != nil {
 				log.Errorf("failed to parse transport message: %v", err)
 				c.msgPool.Put(buf)
 				continue
 			}
-			c.handleTransport(channelId, payload)
+			c.handleTransport(channelId, buf[:n])
 		}
 	}
 
@@ -185,16 +185,15 @@ func (c *Client) handleBindResponse(channelId uint16, peerId string) {
 	bindSuccessChan <- conn
 }
 
-func (c *Client) handleTransport(channelId uint16, payload []byte) {
+func (c *Client) handleTransport(channelId uint16, msg []byte) {
 	container, ok := c.channels[channelId]
 	if !ok {
-		log.Errorf("c.channels: %v", c.peerID)
 		log.Errorf("unexpected transport message for channel: %d", channelId)
 		return
 	}
 
 	select {
-	case container.messages <- payload:
+	case container.messages <- msg:
 	default:
 		log.Errorf("dropping message for channel: %d", channelId)
 	}
@@ -211,13 +210,19 @@ func (c *Client) writeTo(channelID uint16, payload []byte) (int, error) {
 
 func (c *Client) generateConnReaderFN(messageBufferChan chan []byte) func(b []byte) (n int, err error) {
 	return func(b []byte) (n int, err error) {
+		defer c.msgPool.Put(b)
 		select {
 		case msg, ok := <-messageBufferChan:
 			if !ok {
 				return 0, io.EOF
 			}
-			n = copy(b, msg)
-			c.msgPool.Put(msg)
+
+			payload, err := messages.UnmarshalTransportPayload(msg)
+			if err != nil {
+				return 0, err
+			}
+
+			n = copy(b, payload)
 		}
 		return n, nil
 	}
