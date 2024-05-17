@@ -2,3 +2,4 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 	if intfv4 == nil && intfv6 == nil {
 		return errors.New("no interfaces available")
 	}
+	//
