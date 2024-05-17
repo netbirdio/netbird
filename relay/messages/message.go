@@ -109,12 +109,11 @@ func MarshalTransportMsg(channelId uint16, payload []byte) []byte {
 	return msg
 }
 
-func UnmarshalTransportMsg(buf []byte) (uint16, []byte, error) {
+func UnmarshalTransportPayload(buf []byte) ([]byte, error) {
 	if len(buf) < 3 {
-		return 0, nil, ErrInvalidMessageLength
+		return nil, ErrInvalidMessageLength
 	}
-	channelId := uint16(buf[1])<<8 | uint16(buf[2])
-	return channelId, buf[3:], nil
+	return buf[3:], nil
 }
 
 func UnmarshalTransportID(buf []byte) (uint16, error) {
