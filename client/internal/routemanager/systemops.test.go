@@ -15,12 +15,12 @@ func TestBits(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "IPv6 all ones",
+			name: "IPv4 all ones",
 			addr: &route.Inet4Addr{IP: [4]byte{255, 255, 255, 255}},
 			want: 32,
 		},
 		{
-			name: "IPv6 normal mask",
+			name: "IPv4 normal mask",
 			addr: &route.Inet4Addr{IP: [4]byte{255, 255, 255, 0}},
 			want: 24,
 		},
