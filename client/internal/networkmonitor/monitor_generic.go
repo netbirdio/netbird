@@ -33,3 +33,21 @@ func (nw *NetworkWatcher) Start(ctx context.Context, callback func()) {
 		// continue if either route was found
 		return nil
 	}
+	expBackOff := backoff.WithContext(backoff.NewExponentialBackOff(), ctx)
+
+	if err := backoff.Retry(operation, expBackOff); err != nil {
+		log.Errorf("Network monitor: failed to get default next hops: %v", err)
+		return
+	}
+
+	// recover in case sys ops panic
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("Network monitor: panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
+		}
+	}()
+
+	if err := checkChange(ctx, nexthop4, intf4, nexthop6, intf6, callback); err != nil && !errors.Is(err, context.Canceled) {
+		log.Errorf("Network monitor: failed to start: %v", err)
+	}
+}
