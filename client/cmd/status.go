@@ -195,7 +195,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 }
 
 func getStatus(ctx context.Context) (*proto.StatusResponse, error) {
-	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	conn, err := DialClientGRPCServer(daemonAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+

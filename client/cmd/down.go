@@ -2,8 +2,9 @@ package cmd
 
 import (
 	"context"
-	"github.com/netbirdio/netbird/util"
 	"time"
+
+	"github.com/netbirdio/netbird/util"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -28,7 +29,7 @@ var downCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
 		defer cancel()
 
-		conn, err := DialClientGRPCServer(ctx, daemonAddr)
+		conn, err := DialClientGRPCServer(daemonAddr)
 		if err != nil {
 			log.Errorf("failed to connect to service CLI interface %v", err)
 			return err

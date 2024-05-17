@@ -52,18 +52,15 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
 	}
 
-	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
-	defer cancel()
-	conn, err := grpc.DialContext(
-		mgmCtx,
+	conn, err := grpc.NewClient(
 		addr,
 		transportOption,
 		nbgrpc.WithCustomDialer(),
-		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    30 * time.Second,
 			Timeout: 10 * time.Second,
-		}))
+		}),
+	)
 	if err != nil {
 		log.Errorf("failed creating connection to Management Service %v", err)
 		return nil, err

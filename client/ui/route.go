@@ -83,7 +83,7 @@ func (s *serviceClient) updateRoutes(grid *fyne.Container) {
 }
 
 func (s *serviceClient) fetchRoutes() ([]*proto.Route, error) {
-	conn, err := s.getSrvClient(defaultFailTimeout)
+	conn, err := s.getSrvClient()
 	if err != nil {
 		return nil, fmt.Errorf("get client: %v", err)
 	}
@@ -97,7 +97,7 @@ func (s *serviceClient) fetchRoutes() ([]*proto.Route, error) {
 }
 
 func (s *serviceClient) selectRoute(id string, checked bool) {
-	conn, err := s.getSrvClient(defaultFailTimeout)
+	conn, err := s.getSrvClient()
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		s.showError(fmt.Errorf("get client: %v", err))
@@ -127,7 +127,7 @@ func (s *serviceClient) selectRoute(id string, checked bool) {
 }
 
 func (s *serviceClient) selectAllRoutes() {
-	conn, err := s.getSrvClient(defaultFailTimeout)
+	conn, err := s.getSrvClient()
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return
@@ -146,7 +146,7 @@ func (s *serviceClient) selectAllRoutes() {
 }
 
 func (s *serviceClient) deselectAllRoutes() {
-	conn, err := s.getSrvClient(defaultFailTimeout)
+	conn, err := s.getSrvClient()
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return

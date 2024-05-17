@@ -58,7 +58,7 @@ var forCmd = &cobra.Command{
 }
 
 func debugBundle(cmd *cobra.Command, _ []string) error {
-	conn, err := getClient(cmd.Context())
+	conn, err := getClient()
 	if err != nil {
 		return err
 	}
@@ -79,7 +79,7 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 }
 
 func setLogLevel(cmd *cobra.Command, args []string) error {
-	conn, err := getClient(cmd.Context())
+	conn, err := getClient()
 	if err != nil {
 		return err
 	}
@@ -129,7 +129,7 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid duration format: %v", err)
 	}
 
-	conn, err := getClient(cmd.Context())
+	conn, err := getClient()
 	if err != nil {
 		return err
 	}

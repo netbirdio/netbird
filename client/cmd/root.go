@@ -213,15 +213,10 @@ func FlagNameToEnvVar(cmdFlag string, prefix string) string {
 }
 
 // DialClientGRPCServer returns client connection to the daemon server.
-func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Second*3)
-	defer cancel()
-
-	return grpc.DialContext(
-		ctx,
+func DialClientGRPCServer(addr string) (*grpc.ClientConn, error) {
+	return grpc.NewClient(
 		strings.TrimPrefix(addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
 	)
 }
 
@@ -353,8 +348,8 @@ func migrateToNetbird(oldPath, newPath string) bool {
 	return true
 }
 
-func getClient(ctx context.Context) (*grpc.ClientConn, error) {
-	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+func getClient() (*grpc.ClientConn, error) {
+	conn, err := DialClientGRPCServer(daemonAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+

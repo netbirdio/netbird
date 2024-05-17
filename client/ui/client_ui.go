@@ -36,11 +36,6 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
-const (
-	defaultFailTimeout = 3 * time.Second
-	failFastTimeout    = time.Second
-)
-
 func main() {
 	var daemonAddr string
 
@@ -264,7 +259,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				s.preSharedKey = s.iPreSharedKey.Text
 				s.adminURL = s.iAdminURL.Text
 
-				client, err := s.getSrvClient(failFastTimeout)
+				client, err := s.getSrvClient()
 				if err != nil {
 					log.Errorf("get daemon client: %v", err)
 					return
@@ -302,7 +297,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 }
 
 func (s *serviceClient) login() error {
-	conn, err := s.getSrvClient(defaultFailTimeout)
+	conn, err := s.getSrvClient()
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return err
@@ -334,7 +329,7 @@ func (s *serviceClient) login() error {
 }
 
 func (s *serviceClient) menuUpClick() error {
-	conn, err := s.getSrvClient(defaultFailTimeout)
+	conn, err := s.getSrvClient()
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return err
@@ -365,7 +360,7 @@ func (s *serviceClient) menuUpClick() error {
 }
 
 func (s *serviceClient) menuDownClick() error {
-	conn, err := s.getSrvClient(defaultFailTimeout)
+	conn, err := s.getSrvClient()
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return err
@@ -391,7 +386,7 @@ func (s *serviceClient) menuDownClick() error {
 }
 
 func (s *serviceClient) updateStatus() error {
-	conn, err := s.getSrvClient(defaultFailTimeout)
+	conn, err := s.getSrvClient()
 	if err != nil {
 		return err
 	}
@@ -611,19 +606,14 @@ func normalizedVersion(version string) string {
 func (s *serviceClient) onTrayExit() {}
 
 // getSrvClient connection to the service.
-func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonServiceClient, error) {
+func (s *serviceClient) getSrvClient() (proto.DaemonServiceClient, error) {
 	if s.conn != nil {
 		return s.conn, nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	conn, err := grpc.DialContext(
-		ctx,
+	conn, err := grpc.NewClient(
 		strings.TrimPrefix(s.addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
 		grpc.WithUserAgent(system.GetDesktopUIUserAgent()),
 	)
 	if err != nil {
@@ -639,7 +629,7 @@ func (s *serviceClient) getSrvConfig() {
 	s.managementURL = internal.DefaultManagementURL
 	s.adminURL = internal.DefaultAdminURL
 
-	conn, err := s.getSrvClient(failFastTimeout)
+	conn, err := s.getSrvClient()
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return
