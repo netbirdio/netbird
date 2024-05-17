@@ -1,3 +1,19 @@
+
+package networkmonitor
+
+import (
+	"context"
+	"errors"
+	"net"
+	"net/netip"
+	"runtime/debug"
+
+	"github.com/cenkalti/backoff/v4"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/routemanager"
+)
+
 func (nw *NetworkWatcher) Start(ctx context.Context, callback func()) {
 	if nw.cancel != nil {
 		log.Warn("Network monitor: already running, stopping previous watcher")
@@ -49,5 +65,12 @@ func (nw *NetworkWatcher) Start(ctx context.Context, callback func()) {
 
 	if err := checkChange(ctx, nexthop4, intf4, nexthop6, intf6, callback); err != nil && !errors.Is(err, context.Canceled) {
 		log.Errorf("Network monitor: failed to start: %v", err)
+	}
+}
+func (nw *NetworkWatcher) Stop() {
+	if nw.cancel != nil {
+		nw.cancel()
+		nw.cancel = nil
+		log.Info("Network monitor: stopped")
 	}
 }
