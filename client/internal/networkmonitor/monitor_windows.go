@@ -48,10 +48,10 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return ErrStopped
 		case <-ticker.C:
 			if changed(nexthopv4, intfv4, neighborv4, nexthopv6, intfv6, neighborv6) {
-				callback()
+				go callback()
 				return nil
 			}
 		}
