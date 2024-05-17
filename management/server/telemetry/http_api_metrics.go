@@ -137,19 +137,26 @@ func (m *HTTPMiddleware) AddHTTPRequestResponseCounter(endpoint string, method s
 	return nil
 }
 
+func replaceEndpointChars(endpoint string) string {
+	endpoint = strings.ReplaceAll(endpoint, "/", "_")
+	endpoint = strings.ReplaceAll(endpoint, "{", "")
+	endpoint = strings.ReplaceAll(endpoint, "}", "")
+	return endpoint
+}
+
 func getRequestCounterKey(endpoint, method string) string {
-	return fmt.Sprintf("%s%s_%s", httpRequestCounterPrefix,
-		strings.ReplaceAll(endpoint, "/", "_"), method)
+	endpoint = replaceEndpointChars(endpoint)
+	return fmt.Sprintf("%s%s_%s", httpRequestCounterPrefix, endpoint, method)
 }
 
 func getRequestDurationKey(endpoint, method string) string {
-	return fmt.Sprintf("%s%s_%s", httpRequestDurationPrefix,
-		strings.ReplaceAll(endpoint, "/", "_"), method)
+	endpoint = replaceEndpointChars(endpoint)
+	return fmt.Sprintf("%s%s_%s", httpRequestDurationPrefix, endpoint, method)
 }
 
 func getResponseCounterKey(endpoint, method string, status int) string {
-	return fmt.Sprintf("%s%s_%s_%d", httpResponseCounterPrefix,
-		strings.ReplaceAll(endpoint, "/", "_"), method, status)
+	endpoint = replaceEndpointChars(endpoint)
+	return fmt.Sprintf("%s%s_%s_%d", httpResponseCounterPrefix, endpoint, method, status)
 }
 
 // Handler logs every request and response and adds the, to metrics.
