@@ -48,7 +48,7 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return ErrStopped
 		case <-ticker.C:
 			if changed(nexthopv4, neighborv4, nexthopv6, neighborv6) {
 				go callback()

@@ -63,7 +63,7 @@ func (nw *NetworkMonitor) Start(ctx context.Context, callback func()) (err error
 		}
 	}()
 
-	if err := checkChange(ctx, nexthop4, nexthop6, callback); err != nil && !errors.Is(err, context.Canceled) {
+	if err := checkChange(ctx, nexthop4, nexthop6, callback); err != nil {
 		return fmt.Errorf("check change: %w", err)
 	}
 
