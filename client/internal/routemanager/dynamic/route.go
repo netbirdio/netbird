@@ -20,7 +20,11 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-const interval = 1 * time.Minute
+const (
+	DefaultInterval = time.Minute
+
+	minInterval = 2 * time.Second
+)
 
 type domainMap map[domain.Domain][]netip.Prefix
 
@@ -28,6 +32,7 @@ type Route struct {
 	route                *route.Route
 	routeRefCounter      *refcounter.RouteRefCounter
 	allowedIPsRefcounter *refcounter.AllowedIPsRefCounter
+	interval             time.Duration
 	dynamicDomains       domainMap
 	mu                   sync.Mutex
 	currentPeerKey       string
@@ -35,11 +40,18 @@ type Route struct {
 	statusRecorder       *peer.Status
 }
 
-func NewRoute(rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter, statusRecorder *peer.Status) *Route {
+func NewRoute(
+	rt *route.Route,
+	routeRefCounter *refcounter.RouteRefCounter,
+	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
+	interval time.Duration,
+	statusRecorder *peer.Status,
+) *Route {
 	return &Route{
 		route:                rt,
 		routeRefCounter:      routeRefCounter,
 		allowedIPsRefcounter: allowedIPsRefCounter,
+		interval:             interval,
 		dynamicDomains:       domainMap{},
 		statusRecorder:       statusRecorder,
 	}
@@ -130,6 +142,12 @@ func (r *Route) RemoveAllowedIPs() error {
 
 func (r *Route) startResolver(ctx context.Context) {
 	log.Debugf("Starting dynamic route resolver for domains [%v]", r)
+
+	interval := r.interval
+	if interval < minInterval {
+		interval = minInterval
+		log.Warnf("Dynamic route resolver interval %s is too low, setting to minimum value %s", r.interval, minInterval)
+	}
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

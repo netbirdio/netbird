@@ -7,11 +7,13 @@ import (
 	"net/netip"
 	"runtime"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -42,6 +44,7 @@ func init() {
 	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "Wireguard interface listening port")
 	upCmd.PersistentFlags().BoolVarP(&networkMonitor, networkMonitorFlag, "N", false, "Enable network monitoring")
 	upCmd.PersistentFlags().StringSliceVar(&extraIFaceBlackList, extraIFaceBlackListFlag, nil, "Extra list of default interfaces to ignore for listening")
+	upCmd.PersistentFlags().DurationVar(&dnsRouteInterval, dnsRouteIntervalFlag, time.Minute, "DNS route update interval")
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
@@ -135,6 +138,10 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		if !autoConnectDisabled {
 			cmd.Println("Autoconnect has been enabled. The client will connect automatically when the service starts.")
 		}
+	}
+
+	if cmd.Flag(dnsRouteIntervalFlag).Changed {
+		ic.DNSRouteInterval = &dnsRouteInterval
 	}
 
 	config, err := internal.UpdateOrCreateConfig(ic)
@@ -235,6 +242,10 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if cmd.Flag(networkMonitorFlag).Changed {
 		loginRequest.NetworkMonitor = &networkMonitor
+	}
+
+	if cmd.Flag(dnsRouteIntervalFlag).Changed {
+		loginRequest.DnsRouteInterval = durationpb.New(dnsRouteInterval)
 	}
 
 	var loginErr error

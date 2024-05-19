@@ -89,6 +89,8 @@ type EngineConfig struct {
 	RosenpassPermissive bool
 
 	ServerSSHAllowed bool
+
+	DNSRouteInterval time.Duration
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -295,7 +297,7 @@ func (e *Engine) Start() error {
 	}
 	e.dnsServer = dnsServer
 
-	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, initialRoutes)
+	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.config.DNSRouteInterval, e.wgInterface, e.statusRecorder, initialRoutes)
 	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
 	if err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)

@@ -89,6 +89,8 @@ message LoginRequest {
   repeated string extraIFaceBlacklist = 17;
 
   optional bool networkMonitor = 18;
+
+  optional google.protobuf.Duration dnsRouteInterval = 19;
 }
 
 message LoginResponse {

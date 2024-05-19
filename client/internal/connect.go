@@ -320,6 +320,7 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		RosenpassEnabled:     config.RosenpassEnabled,
 		RosenpassPermissive:  config.RosenpassPermissive,
 		ServerSSHAllowed:     util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
+		DNSRouteInterval:     config.DNSRouteInterval,
 	}
 
 	if config.PreSharedKey != "" {

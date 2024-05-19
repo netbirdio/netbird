@@ -365,6 +365,12 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		s.latestConfigInput.ExtraIFaceBlackList = msg.ExtraIFaceBlacklist
 	}
 
+	if msg.DnsRouteInterval != nil {
+		duration := msg.DnsRouteInterval.AsDuration()
+		inputConfig.DNSRouteInterval = &duration
+		s.latestConfigInput.DNSRouteInterval = &duration
+	}
+
 	s.mutex.Unlock()
 
 	if msg.OptionalPreSharedKey != nil {

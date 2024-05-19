@@ -52,7 +52,7 @@ type clientNetwork struct {
 	updateSerial        uint64
 }
 
-func newClientNetworkWatcher(ctx context.Context, wgInterface *iface.WGIface, statusRecorder *peer.Status, rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter) *clientNetwork {
+func newClientNetworkWatcher(ctx context.Context, dnsRouteInterval time.Duration, wgInterface *iface.WGIface, statusRecorder *peer.Status, rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter) *clientNetwork {
 	ctx, cancel := context.WithCancel(ctx)
 
 	client := &clientNetwork{
@@ -64,7 +64,7 @@ func newClientNetworkWatcher(ctx context.Context, wgInterface *iface.WGIface, st
 		routePeersNotifiers: make(map[string]chan struct{}),
 		routeUpdate:         make(chan routesUpdate),
 		peerStateUpdate:     make(chan struct{}),
-		handler:             handlerFromRoute(rt, routeRefCounter, allowedIPsRefCounter, statusRecorder),
+		handler:             handlerFromRoute(rt, routeRefCounter, allowedIPsRefCounter, dnsRouteInterval, statusRecorder),
 	}
 	return client
 }
@@ -374,9 +374,9 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 	}
 }
 
-func handlerFromRoute(rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter, statusRecorder *peer.Status) RouteHandler {
+func handlerFromRoute(rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter, dnsRouterInteval time.Duration, statusRecorder *peer.Status) RouteHandler {
 	if rt.IsDynamic() {
-		return dynamic.NewRoute(rt, routeRefCounter, allowedIPsRefCounter, statusRecorder)
+		return dynamic.NewRoute(rt, routeRefCounter, allowedIPsRefCounter, dnsRouterInteval, statusRecorder)
 	}
 	return static.NewRoute(rt, routeRefCounter, allowedIPsRefCounter)
 }
