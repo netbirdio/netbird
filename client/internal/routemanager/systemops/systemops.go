@@ -1,27 +1,11 @@
-//go:build !android && !ios
-
 package systemops
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"net"
 	"net/netip"
-	"runtime"
-	"strconv"
 
-	"github.com/hashicorp/go-multierror"
-	"github.com/libp2p/go-netroute"
-	log "github.com/sirupsen/logrus"
-
-	nberrors "github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
-	"github.com/netbirdio/netbird/client/internal/routemanager/util"
-	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/iface"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type Nexthop struct {
@@ -35,6 +19,17 @@ var splitDefaultv4_1 = netip.PrefixFrom(netip.IPv4Unspecified(), 1)
 var splitDefaultv4_2 = netip.PrefixFrom(netip.AddrFrom4([4]byte{128}), 1)
 var splitDefaultv6_1 = netip.PrefixFrom(netip.IPv6Unspecified(), 1)
 var splitDefaultv6_2 = netip.PrefixFrom(netip.AddrFrom16([16]byte{0x80}), 1)
+
+type RoutingManager struct {
+	refCounter  *ExclusionCounter
+	wgInterface *iface.WGIface
+}
+
+func NewRoutingManager(wgInterface *iface.WGIface) *RoutingManager {
+	return &RoutingManager{
+		wgInterface: wgInterface,
+	}
+}
 
 // TODO: fix: for default our wg address now appears as the default gw
 func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
@@ -278,145 +273,4 @@ func addNonExistingRoute(prefix netip.Prefix, intf *net.Interface) error {
 			log.Warnf("Unable to add route for current default gateway route. Will proceed without it. error: %s", err)
 		}
 	}
-
-	return addToRouteTable(prefix, Nexthop{netip.Addr{}, intf})
-}
-
-// genericRemoveVPNRoute removes the route from the vpn interface. If a default prefix is given,
-// it will remove the split /1 prefixes
-func genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
-	nextHop := Nexthop{netip.Addr{}, intf}
-
-	if prefix == vars.Defaultv4 {
-		var result *multierror.Error
-		if err := removeFromRouteTable(splitDefaultv4_1, nextHop); err != nil {
-			result = multierror.Append(result, err)
-		}
-		if err := removeFromRouteTable(splitDefaultv4_2, nextHop); err != nil {
-			result = multierror.Append(result, err)
-		}
-
-		// TODO: remove once IPv6 is supported on the interface
-		if err := removeFromRouteTable(splitDefaultv6_1, nextHop); err != nil {
-			result = multierror.Append(result, err)
-		}
-		if err := removeFromRouteTable(splitDefaultv6_2, nextHop); err != nil {
-			result = multierror.Append(result, err)
-		}
-
-		return result.ErrorOrNil()
-	} else if prefix == vars.Defaultv6 {
-		var result *multierror.Error
-		if err := removeFromRouteTable(splitDefaultv6_1, nextHop); err != nil {
-			result = multierror.Append(result, err)
-		}
-		if err := removeFromRouteTable(splitDefaultv6_2, nextHop); err != nil {
-			result = multierror.Append(result, err)
-		}
-
-		return nberrors.FormatErrorOrNil(result)
-	}
-
-	return removeFromRouteTable(prefix, nextHop)
-}
-
-func setupRoutingWithRefCounter(refCounter **ExclusionCounter, initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
-	initialNextHopV4, err := GetNextHop(netip.IPv4Unspecified())
-	if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
-		log.Errorf("Unable to get initial v4 default next hop: %v", err)
-	}
-	initialNextHopV6, err := GetNextHop(netip.IPv6Unspecified())
-	if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
-		log.Errorf("Unable to get initial v6 default next hop: %v", err)
-	}
-
-	*refCounter = refcounter.New(
-		func(prefix netip.Prefix, _ any) (Nexthop, error) {
-			initialNexthop := initialNextHopV4
-			if prefix.Addr().Is6() {
-				initialNexthop = initialNextHopV6
-			}
-
-			nexthop, err := addRouteToNonVPNIntf(prefix, wgIface, initialNexthop)
-			if errors.Is(err, vars.ErrRouteNotAllowed) || errors.Is(err, vars.ErrRouteNotFound) {
-				log.Tracef("Adding for prefix %s: %v", prefix, err)
-				// These errors are not critical but also we should not track and try to remove the routes either.
-				return nexthop, refcounter.ErrIgnore
-			}
-			return nexthop, err
-		},
-		removeFromRouteTable,
-	)
-
-	return setupHooks(*refCounter, initAddresses)
-}
-
-func cleanupRoutingWithRefCounter(routeManager *ExclusionCounter) error {
-	if routeManager == nil {
-		return nil
-	}
-
-	// TODO: Remove hooks selectively
-	nbnet.RemoveDialerHooks()
-	nbnet.RemoveListenerHooks()
-
-	if err := routeManager.Flush(); err != nil {
-		return fmt.Errorf("flush route manager: %w", err)
-	}
-
-	return nil
-}
-
-func setupHooks(routeManager *ExclusionCounter, initAddresses []net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
-	beforeHook := func(connID nbnet.ConnectionID, ip net.IP) error {
-		prefix, err := util.GetPrefixFromIP(ip)
-		if err != nil {
-			return fmt.Errorf("convert ip to prefix: %w", err)
-		}
-
-		if _, err := routeManager.IncrementWithID(string(connID), prefix, nil); err != nil {
-			return fmt.Errorf("adding route reference: %v", err)
-		}
-
-		return nil
-	}
-	afterHook := func(connID nbnet.ConnectionID) error {
-		if err := routeManager.DecrementWithID(string(connID)); err != nil {
-			return fmt.Errorf("remove route reference: %w", err)
-		}
-
-		return nil
-	}
-
-	for _, ip := range initAddresses {
-		if err := beforeHook("init", ip); err != nil {
-			log.Errorf("Failed to add route reference: %v", err)
-		}
-	}
-
-	nbnet.AddDialerHook(func(ctx context.Context, connID nbnet.ConnectionID, resolvedIPs []net.IPAddr) error {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		var result *multierror.Error
-		for _, ip := range resolvedIPs {
-			result = multierror.Append(result, beforeHook(connID, ip.IP))
-		}
-		return nberrors.FormatErrorOrNil(result)
-	})
-
-	nbnet.AddDialerCloseHook(func(connID nbnet.ConnectionID, conn *net.Conn) error {
-		return afterHook(connID)
-	})
-
-	nbnet.AddListenerWriteHook(func(connID nbnet.ConnectionID, ip *net.IPAddr, data []byte) error {
-		return beforeHook(connID, ip.IP)
-	})
-
-	nbnet.AddListenerCloseHook(func(connID nbnet.ConnectionID, conn net.PacketConn) error {
-		return afterHook(connID)
-	})
-
-	return beforeHook, afterHook, nil
 }

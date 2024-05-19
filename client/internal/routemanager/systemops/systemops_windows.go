@@ -18,7 +18,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/iface"
 )
 
 type MSFT_NetRoute struct {
@@ -57,14 +56,43 @@ var prefixList []netip.Prefix
 var lastUpdate time.Time
 var mux = sync.Mutex{}
 
-var refCounter *ExclusionCounter
-
-func SetupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
-	return setupRoutingWithRefCounter(&refCounter, initAddresses, wgIface)
+func (r *RoutingManager) SetupRouting(initAddresses []net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+	return r.setupRefCounter(initAddresses)
 }
 
-func CleanupRouting() error {
-	return cleanupRoutingWithRefCounter(refCounter)
+func (r *RoutingManager) CleanupRouting() error {
+	return r.cleanupRefCounter()
+}
+
+func (r *RoutingManager) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+	if nexthop.IP.Zone() != "" && nexthop.Intf == nil {
+		zone, err := strconv.Atoi(nexthop.IP.Zone())
+		if err != nil {
+			return fmt.Errorf("invalid zone: %w", err)
+		}
+		nexthop.Intf = &net.Interface{Index: zone}
+		nexthop.IP.WithZone("")
+	}
+
+	return addRouteCmd(prefix, nexthop)
+}
+
+func (r *RoutingManager) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+	args := []string{"delete", prefix.String()}
+	if nexthop.IP.IsValid() {
+		nexthop.IP.WithZone("")
+		args = append(args, nexthop.IP.Unmap().String())
+	}
+
+	routeCmd := uspfilter.GetSystem32Command("route")
+
+	out, err := exec.Command(routeCmd, args...).CombinedOutput()
+	log.Tracef("route %s: %s", strings.Join(args, " "), out)
+
+	if err != nil {
+		return fmt.Errorf("remove route: %w", err)
+	}
+	return nil
 }
 
 func getRoutesFromTable() ([]netip.Prefix, error) {
@@ -182,37 +210,6 @@ func addRouteCmd(prefix netip.Prefix, nexthop Nexthop) error {
 		return fmt.Errorf("route add: %w", err)
 	}
 
-	return nil
-}
-
-func addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
-	if nexthop.IP.Zone() != "" && nexthop.Intf == nil {
-		zone, err := strconv.Atoi(nexthop.IP.Zone())
-		if err != nil {
-			return fmt.Errorf("invalid zone: %w", err)
-		}
-		nexthop.Intf = &net.Interface{Index: zone}
-		nexthop.IP.WithZone("")
-	}
-
-	return addRouteCmd(prefix, nexthop)
-}
-
-func removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
-	args := []string{"delete", prefix.String()}
-	if nexthop.IP.IsValid() {
-		nexthop.IP.WithZone("")
-		args = append(args, nexthop.IP.Unmap().String())
-	}
-
-	routeCmd := uspfilter.GetSystem32Command("route")
-
-	out, err := exec.Command(routeCmd, args...).CombinedOutput()
-	log.Tracef("route %s: %s", strings.Join(args, " "), out)
-
-	if err != nil {
-		return fmt.Errorf("remove route: %w", err)
-	}
 	return nil
 }
 

@@ -9,17 +9,16 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"strconv"
-	"strings"
 	"syscall"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routemanager/sysctl"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
-	"github.com/netbirdio/netbird/iface"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -34,15 +33,9 @@ const (
 
 	// ipv4ForwardingPath is the path to the file containing the IP forwarding setting.
 	ipv4ForwardingPath = "net.ipv4.ip_forward"
-
-	rpFilterPath          = "net.ipv4.conf.all.rp_filter"
-	rpFilterInterfacePath = "net.ipv4.conf.%s.rp_filter"
-	srcValidMarkPath      = "net.ipv4.conf.all.src_valid_mark"
 )
 
 var ErrTableIDExists = errors.New("ID exists with different name")
-
-var refCounter *ExclusionCounter
 
 // originalSysctl stores the original sysctl values before they are modified
 var originalSysctl map[string]int
@@ -93,17 +86,17 @@ func getSetupRules() []ruleParams {
 // Rule 2 (VPN Traffic Routing): Directs all remaining traffic to the 'NetbirdVPNTableID' custom routing table.
 // This table is where a default route or other specific routes received from the management server are configured,
 // enabling VPN connectivity.
-func SetupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.BeforeAddPeerHookFunc, _ peer.AfterRemovePeerHookFunc, err error) {
+func (r *RoutingManager) SetupRouting(initAddresses []net.IP) (_ peer.BeforeAddPeerHookFunc, _ peer.AfterRemovePeerHookFunc, err error) {
 	if isLegacy() {
 		log.Infof("Using legacy routing setup")
-		return setupRoutingWithRefCounter(&refCounter, initAddresses, wgIface)
+		return r.setupRefCounter(initAddresses)
 	}
 
 	if err = addRoutingTableName(); err != nil {
 		log.Errorf("Error adding routing table name: %v", err)
 	}
 
-	originalValues, err := setupSysctl(wgIface)
+	originalValues, err := sysctl.Setup(r.wgInterface)
 	if err != nil {
 		log.Errorf("Error setting up sysctl: %v", err)
 		sysctlFailed = true
@@ -112,7 +105,7 @@ func SetupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.Before
 
 	defer func() {
 		if err != nil {
-			if cleanErr := CleanupRouting(); cleanErr != nil {
+			if cleanErr := r.CleanupRouting(); cleanErr != nil {
 				log.Errorf("Error cleaning up routing: %v", cleanErr)
 			}
 		}
@@ -124,7 +117,7 @@ func SetupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.Before
 			if errors.Is(err, syscall.EOPNOTSUPP) {
 				log.Warnf("Rule operations are not supported, falling back to the legacy routing setup")
 				setIsLegacy(true)
-				return setupRoutingWithRefCounter(&refCounter, initAddresses, wgIface)
+				return r.setupRefCounter(initAddresses)
 			}
 			return nil, nil, fmt.Errorf("%s: %w", rule.description, err)
 		}
@@ -136,9 +129,9 @@ func SetupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.Before
 // CleanupRouting performs a thorough cleanup of the routing configuration established by 'setupRouting'.
 // It systematically removes the three rules and any associated routing table entries to ensure a clean state.
 // The function uses error aggregation to report any errors encountered during the cleanup process.
-func CleanupRouting() error {
+func (r *RoutingManager) CleanupRouting() error {
 	if isLegacy() {
-		return cleanupRoutingWithRefCounter(refCounter)
+		return r.cleanupRefCounter()
 	}
 
 	var result *multierror.Error
@@ -157,26 +150,26 @@ func CleanupRouting() error {
 		}
 	}
 
-	if err := cleanupSysctl(originalSysctl); err != nil {
+	if err := sysctl.Cleanup(originalSysctl); err != nil {
 		result = multierror.Append(result, fmt.Errorf("cleanup sysctl: %w", err))
 	}
 	originalSysctl = nil
 	sysctlFailed = false
 
-	return result.ErrorOrNil()
+	return nberrors.FormatErrorOrNil(result)
 }
 
-func addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+func (r *RoutingManager) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 	return addRoute(prefix, nexthop, syscall.RT_TABLE_MAIN)
 }
 
-func removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+func (r *RoutingManager) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 	return removeRoute(prefix, nexthop, syscall.RT_TABLE_MAIN)
 }
 
-func AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+func (r *RoutingManager) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if isLegacy() {
-		return genericAddVPNRoute(prefix, intf)
+		return r.genericAddVPNRoute(prefix, intf)
 	}
 
 	if sysctlFailed && (prefix == vars.Defaultv4 || prefix == vars.Defaultv6) {
@@ -197,9 +190,9 @@ func AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	return nil
 }
 
-func RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+func (r *RoutingManager) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if isLegacy() {
-		return genericRemoveVPNRoute(prefix, intf)
+		return r.genericRemoveVPNRoute(prefix, intf)
 	}
 
 	// TODO remove this once we have ipv6 support
@@ -374,11 +367,11 @@ func flushRoutes(tableID, family int) error {
 		}
 	}
 
-	return result.ErrorOrNil()
+	return nberrors.FormatErrorOrNil(result)
 }
 
 func EnableIPForwarding() error {
-	_, err := setSysctl(ipv4ForwardingPath, 1, false)
+	_, err := sysctl.Set(ipv4ForwardingPath, 1, false)
 	return err
 }
 
@@ -508,84 +501,4 @@ func getAddressFamily(prefix netip.Prefix) int {
 		return netlink.FAMILY_V4
 	}
 	return netlink.FAMILY_V6
-}
-
-// setupSysctl configures sysctl settings for RP filtering and source validation.
-func setupSysctl(wgIface *iface.WGIface) (map[string]int, error) {
-	keys := map[string]int{}
-	var result *multierror.Error
-
-	oldVal, err := setSysctl(srcValidMarkPath, 1, false)
-	if err != nil {
-		result = multierror.Append(result, err)
-	} else {
-		keys[srcValidMarkPath] = oldVal
-	}
-
-	oldVal, err = setSysctl(rpFilterPath, 2, true)
-	if err != nil {
-		result = multierror.Append(result, err)
-	} else {
-		keys[rpFilterPath] = oldVal
-	}
-
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		result = multierror.Append(result, fmt.Errorf("list interfaces: %w", err))
-	}
-
-	for _, intf := range interfaces {
-		if intf.Name == "lo" || wgIface != nil && intf.Name == wgIface.Name() {
-			continue
-		}
-
-		i := fmt.Sprintf(rpFilterInterfacePath, intf.Name)
-		oldVal, err := setSysctl(i, 2, true)
-		if err != nil {
-			result = multierror.Append(result, err)
-		} else {
-			keys[i] = oldVal
-		}
-	}
-
-	return keys, result.ErrorOrNil()
-}
-
-// setSysctl sets a sysctl configuration, if onlyIfOne is true it will only set the new value if it's set to 1
-func setSysctl(key string, desiredValue int, onlyIfOne bool) (int, error) {
-	path := fmt.Sprintf("/proc/sys/%s", strings.ReplaceAll(key, ".", "/"))
-	currentValue, err := os.ReadFile(path)
-	if err != nil {
-		return -1, fmt.Errorf("read sysctl %s: %w", key, err)
-	}
-
-	currentV, err := strconv.Atoi(strings.TrimSpace(string(currentValue)))
-	if err != nil && len(currentValue) > 0 {
-		return -1, fmt.Errorf("convert current desiredValue to int: %w", err)
-	}
-
-	if currentV == desiredValue || onlyIfOne && currentV != 1 {
-		return currentV, nil
-	}
-
-	//nolint:gosec
-	if err := os.WriteFile(path, []byte(strconv.Itoa(desiredValue)), 0644); err != nil {
-		return currentV, fmt.Errorf("write sysctl %s: %w", key, err)
-	}
-	log.Debugf("Set sysctl %s from %d to %d", key, currentV, desiredValue)
-
-	return currentV, nil
-}
-
-func cleanupSysctl(originalSettings map[string]int) error {
-	var result *multierror.Error
-
-	for key, value := range originalSettings {
-		_, err := setSysctl(key, value, false)
-		if err != nil {
-			result = multierror.Append(result, err)
-		}
-	}
-
-	return result.ErrorOrNil()
 }

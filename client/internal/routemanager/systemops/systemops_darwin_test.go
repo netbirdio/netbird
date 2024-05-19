@@ -35,13 +35,15 @@ func TestConcurrentRoutes(t *testing.T) {
 	baseIP := netip.MustParseAddr("192.0.2.0")
 	intf := &net.Interface{Name: "lo0"}
 
+	r := NewRoutingManager(nil)
+
 	var wg sync.WaitGroup
 	for i := 0; i < 1024; i++ {
 		wg.Add(1)
 		go func(ip netip.Addr) {
 			defer wg.Done()
 			prefix := netip.PrefixFrom(ip, 32)
-			if err := addToRouteTable(prefix, Nexthop{netip.Addr{}, intf}); err != nil {
+			if err := r.addToRouteTable(prefix, Nexthop{netip.Addr{}, intf}); err != nil {
 				t.Errorf("Failed to add route for %s: %v", prefix, err)
 			}
 		}(baseIP)
@@ -57,7 +59,7 @@ func TestConcurrentRoutes(t *testing.T) {
 		go func(ip netip.Addr) {
 			defer wg.Done()
 			prefix := netip.PrefixFrom(ip, 32)
-			if err := removeFromRouteTable(prefix, Nexthop{netip.Addr{}, intf}); err != nil {
+			if err := r.removeFromRouteTable(prefix, Nexthop{netip.Addr{}, intf}); err != nil {
 				t.Errorf("Failed to remove route for %s: %v", prefix, err)
 			}
 		}(baseIP)

@@ -14,38 +14,37 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/iface"
 )
 
-var refCounter *ExclusionCounter
-
-func SetupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
-	return setupRoutingWithRefCounter(&refCounter, initAddresses, wgIface)
+func (r *RoutingManager) SetupRouting(initAddresses []net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+	return r.setupRefCounter(initAddresses)
 }
 
-func CleanupRouting() error {
-	return cleanupRoutingWithRefCounter(refCounter)
+func (r *RoutingManager) CleanupRouting() error {
+	return r.cleanupRefCounter()
 }
 
-func addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
-	return routeCmd("add", prefix, nexthop)
+func (r *RoutingManager) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+	return r.routeCmd("add", prefix, nexthop)
 }
 
-func removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
-	return routeCmd("delete", prefix, nexthop)
+func (r *RoutingManager) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+	return r.routeCmd("delete", prefix, nexthop)
 }
 
-func routeCmd(action string, prefix netip.Prefix, nexthop Nexthop) error {
+func (r *RoutingManager) routeCmd(action string, prefix netip.Prefix, nexthop Nexthop) error {
 	inet := "-inet"
 	network := prefix.String()
 	if prefix.IsSingleIP() {
 		network = prefix.Addr().String()
 	}
+
+	args := []string{"-n", action}
 	if prefix.Addr().Is6() {
 		inet = "-inet6"
 	}
 
-	args := []string{"-n", action, inet, network}
+	args = append(args, inet, network)
 	if nexthop.IP.IsValid() {
 		args = append(args, nexthop.IP.Unmap().String())
 	} else if nexthop.Intf != nil {

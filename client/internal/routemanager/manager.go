@@ -46,6 +46,7 @@ type DefaultManager struct {
 	clientNetworks       map[route.HAUniqueID]*clientNetwork
 	routeSelector        *routeselector.RouteSelector
 	serverRouter         serverRouter
+	routingManager       *systemops.RoutingManager
 	statusRecorder       *peer.Status
 	wgInterface          *iface.WGIface
 	pubKey               string
@@ -64,12 +65,15 @@ func NewManager(
 	initialRoutes []*route.Route,
 ) *DefaultManager {
 	mCTX, cancel := context.WithCancel(ctx)
+	routingManager := systemops.NewRoutingManager(wgInterface)
+
 	dm := &DefaultManager{
 		ctx:              mCTX,
 		stop:             cancel,
 		dnsRouteInterval: dnsRouteInterval,
 		clientNetworks:   make(map[route.HAUniqueID]*clientNetwork),
 		routeSelector:    routeselector.NewRouteSelector(),
+		routingManager: routingManager,
 		statusRecorder:   statusRecorder,
 		wgInterface:      wgInterface,
 		pubKey:           pubKey,
@@ -78,10 +82,10 @@ func NewManager(
 
 	dm.routeRefCounter = refcounter.New(
 		func(prefix netip.Prefix, _ any) (any, error) {
-			return nil, systemops.AddVPNRoute(prefix, wgInterface.ToInterface())
+			return nil, routingManager.AddVPNRoute(prefix, wgInterface.ToInterface())
 		},
 		func(prefix netip.Prefix, _ any) error {
-			return systemops.RemoveVPNRoute(prefix, wgInterface.ToInterface())
+			return routingManager.RemoveVPNRoute(prefix, wgInterface.ToInterface())
 		},
 	)
 
@@ -114,7 +118,7 @@ func (m *DefaultManager) Init() (peer.BeforeAddPeerHookFunc, peer.AfterRemovePee
 		return nil, nil, nil
 	}
 
-	if err := systemops.CleanupRouting(); err != nil {
+	if err := m.routingManager.CleanupRouting(); err != nil {
 		log.Warnf("Failed cleaning up routing: %v", err)
 	}
 
@@ -122,7 +126,7 @@ func (m *DefaultManager) Init() (peer.BeforeAddPeerHookFunc, peer.AfterRemovePee
 	signalAddress := m.statusRecorder.GetSignalState().URL
 	ips := resolveURLsToIPs([]string{mgmtAddress, signalAddress})
 
-	beforePeerHook, afterPeerHook, err := systemops.SetupRouting(ips, m.wgInterface)
+	beforePeerHook, afterPeerHook, err := m.routingManager.SetupRouting(ips)
 	if err != nil {
 		return nil, nil, fmt.Errorf("setup routing: %w", err)
 	}
@@ -158,7 +162,7 @@ func (m *DefaultManager) Stop() {
 	}
 
 	if !nbnet.CustomRoutingDisabled() {
-		if err := systemops.CleanupRouting(); err != nil {
+		if err := m.routingManager.CleanupRouting(); err != nil {
 			log.Errorf("Error cleaning up routing: %v", err)
 		} else {
 			log.Info("Routing cleanup complete")
