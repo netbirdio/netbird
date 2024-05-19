@@ -359,7 +359,7 @@ func setupTestEnv(t *testing.T) {
 	})
 
 	r := NewRoutingManager(wgInterface)
-	_, _, err := r.SetupRouting(nil, wgInterface)
+	_, _, err := r.SetupRouting(nil)
 	require.NoError(t, err, "setupRouting should not return err")
 	t.Cleanup(func() {
 		assert.NoError(t, r.CleanupRouting())
