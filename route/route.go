@@ -30,8 +30,8 @@ const (
 	IPv4NetworkString = "IPv4"
 	// IPv6NetworkString IPv6 network type string
 	IPv6NetworkString = "IPv6"
-	// DomainString domain network type string
-	DomainString = "DomainNetwork"
+	// DomainNetworkString domain network type string
+	DomainNetworkString = "Domain"
 )
 
 const (
@@ -62,7 +62,7 @@ func (p NetworkType) String() string {
 	case IPv6Network:
 		return IPv6NetworkString
 	case DomainNetwork:
-		return DomainString
+		return DomainNetworkString
 	default:
 		return InvalidNetworkString
 	}
@@ -75,7 +75,7 @@ func ToPrefixType(prefix string) NetworkType {
 		return IPv4Network
 	case IPv6NetworkString:
 		return IPv6Network
-	case DomainString:
+	case DomainNetworkString:
 		return DomainNetwork
 	default:
 		return InvalidNetwork
@@ -104,12 +104,7 @@ type Route struct {
 
 // EventMeta returns activity event meta related to the route
 func (r *Route) EventMeta() map[string]any {
-	domains, err := r.Domains.String()
-	if err != nil {
-		log.Errorf("Failed to convert domains to string: %v", err)
-		domains = r.Domains.PunycodeString()
-	}
-	return map[string]any{"name": r.NetID, "network_range": r.Network.String(), "domains": domains, "peer_id": r.Peer, "peer_groups": r.PeerGroups}
+	return map[string]any{"name": r.NetID, "network_range": r.Network.String(), "domains": r.Domains.SafeString(), "peer_id": r.Peer, "peer_groups": r.PeerGroups}
 }
 
 // Copy copies a route object

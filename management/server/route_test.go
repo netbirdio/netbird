@@ -324,13 +324,13 @@ func TestCreateRoute(t *testing.T) {
 				if errInit != nil {
 					t.Errorf("failed to get group all: %s", errInit)
 				}
-				_, errInit = am.CreateRoute(account.Id, existingNetwork, 1, nil, "", []string{routeGroup3, routeGroup4}, "", existingRouteID, false, 1000, []string{groupAll.ID}, true, userID)
+				_, errInit = am.CreateRoute(account.Id, existingNetwork, 1, nil, "", []string{routeGroup3, routeGroup4}, "", existingRouteID, false, 1000, []string{groupAll.ID}, true, userID, false)
 				if errInit != nil {
 					t.Errorf("failed to create init route: %s", errInit)
 				}
 			}
 
-			outRoute, err := am.CreateRoute(account.Id, testCase.inputArgs.network, 1, nil, testCase.inputArgs.peerKey, testCase.inputArgs.peerGroupIDs, testCase.inputArgs.description, testCase.inputArgs.netID, testCase.inputArgs.masquerade, testCase.inputArgs.metric, testCase.inputArgs.groups, testCase.inputArgs.enabled, userID)
+			outRoute, err := am.CreateRoute(account.Id, testCase.inputArgs.network, 1, nil, testCase.inputArgs.peerKey, testCase.inputArgs.peerGroupIDs, testCase.inputArgs.description, testCase.inputArgs.netID, testCase.inputArgs.masquerade, testCase.inputArgs.metric, testCase.inputArgs.groups, testCase.inputArgs.enabled, userID, false)
 
 			testCase.errFunc(t, err)
 
@@ -813,7 +813,7 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
 
-	newRoute, err := am.CreateRoute(account.Id, baseRoute.Network, 0, nil, baseRoute.Peer, baseRoute.PeerGroups, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, baseRoute.Enabled, userID)
+	newRoute, err := am.CreateRoute(account.Id, baseRoute.Network, 0, nil, baseRoute.Peer, baseRoute.PeerGroups, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, baseRoute.Enabled, userID, false)
 	require.NoError(t, err)
 	require.Equal(t, newRoute.Enabled, true)
 
@@ -904,7 +904,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
 
-	createdRoute, err := am.CreateRoute(account.Id, baseRoute.Network, 0, nil, peer1ID, []string{}, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, false, userID)
+	createdRoute, err := am.CreateRoute(account.Id, baseRoute.Network, 0, nil, peer1ID, []string{}, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, false, userID, false)
 	require.NoError(t, err)
 
 	noDisabledRoutes, err := am.GetNetworkMap(peer1ID)

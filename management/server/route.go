@@ -115,7 +115,7 @@ func (am *DefaultAccountManager) checkRoutePrefixOrDomainsExistForPeers(account 
 }
 
 // CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error) {
+func (am *DefaultAccountManager) CreateRoute(accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string, keepRoute bool) (*route.Route, error) {
 	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
@@ -170,6 +170,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, prefix netip.Pref
 	newRoute.Metric = metric
 	newRoute.Enabled = enabled
 	newRoute.Groups = groups
+	newRoute.KeepRoute = keepRoute
 
 	if account.Routes == nil {
 		account.Routes = make(map[route.ID]*route.Route)

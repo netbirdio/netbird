@@ -125,21 +125,7 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	newRoute, err := h.accountManager.CreateRoute(
-		account.Id,
-		newPrefix,
-		networkType,
-		domains,
-		peerId,
-		peerGroupIds,
-		req.Description,
-		route.NetID(req.NetworkId),
-		req.Masquerade,
-		req.Metric,
-		req.Groups,
-		req.Enabled,
-		user.Id,
-	)
+	newRoute, err := h.accountManager.CreateRoute(account.Id, newPrefix, networkType, domains, peerId, peerGroupIds, req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, req.Enabled, user.Id, req.KeepRoute)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -164,7 +150,7 @@ func (h *RoutesHandler) validateRoute(req api.PostApiRoutesJSONRequestBody) erro
 	}
 
 	if req.Peer == nil && req.PeerGroups == nil {
-		return status.Errorf(status.InvalidArgument, "either peer or peers_group should be provided")
+		return status.Errorf(status.InvalidArgument, "either 'peer' or 'peers_group' should be provided")
 	}
 
 	if req.Peer != nil && req.PeerGroups != nil {
@@ -335,14 +321,15 @@ func toRouteResponse(serverRoute *route.Route) (*api.Route, error) {
 	if err != nil {
 		return nil, err
 	}
+	network := serverRoute.Network.String()
 	route := &api.Route{
 		Id:          string(serverRoute.ID),
 		Description: serverRoute.Description,
 		NetworkId:   string(serverRoute.NetID),
 		Enabled:     serverRoute.Enabled,
 		Peer:        &serverRoute.Peer,
-		Network:     toPtr(serverRoute.Network.String()),
-		Domains:     toPtr(domains),
+		Network:     &network,
+		Domains:     &domains,
 		NetworkType: serverRoute.NetworkType.String(),
 		Masquerade:  serverRoute.Masquerade,
 		Metric:      serverRoute.Metric,
@@ -354,10 +341,6 @@ func toRouteResponse(serverRoute *route.Route) (*api.Route, error) {
 		route.PeerGroups = &serverRoute.PeerGroups
 	}
 	return route, nil
-}
-
-func toPtr[T any](v T) *T {
-	return &v
 }
 
 // validateDomains checks if each domain in the list is valid and returns a punycode-encoded DomainList.
