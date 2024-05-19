@@ -2,6 +2,7 @@ package ws
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -10,11 +11,13 @@ import (
 
 type Conn struct {
 	*websocket.Conn
+
+	mu sync.Mutex
 }
 
 func NewConn(wsConn *websocket.Conn) *Conn {
 	return &Conn{
-		wsConn,
+		Conn: wsConn,
 	}
 }
 
@@ -33,7 +36,9 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 }
 
 func (c *Conn) Write(b []byte) (int, error) {
+	c.mu.Lock()
 	err := c.WriteMessage(websocket.BinaryMessage, b)
+	c.mu.Unlock()
 	return len(b), err
 }
 

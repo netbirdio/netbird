@@ -34,13 +34,11 @@ func (c *Conn) Close() error {
 }
 
 func (c *Conn) LocalAddr() net.Addr {
-	//TODO implement me
-	panic("implement me")
+	return c.client.relayConn.LocalAddr()
 }
 
 func (c *Conn) RemoteAddr() net.Addr {
-	//TODO implement me
-	panic("implement me")
+	return c.client.relayConn.RemoteAddr()
 }
 
 func (c *Conn) SetDeadline(t time.Time) error {

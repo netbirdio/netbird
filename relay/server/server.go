@@ -9,7 +9,7 @@ import (
 
 	"github.com/netbirdio/netbird/relay/messages"
 	"github.com/netbirdio/netbird/relay/server/listener"
-	"github.com/netbirdio/netbird/relay/server/listener/ws"
+	"github.com/netbirdio/netbird/relay/server/listener/udp"
 )
 
 // Server
@@ -30,7 +30,7 @@ func NewServer() *Server {
 }
 
 func (r *Server) Listen(address string) error {
-	r.listener = ws.NewListener(address)
+	r.listener = udp.NewListener(address)
 	return r.listener.Listen(r.accept)
 }
 
@@ -51,7 +51,7 @@ func (r *Server) accept(conn net.Conn) {
 		}
 		return
 	}
-	peer.Log.Debugf("on new connection: %s", conn.RemoteAddr())
+	peer.Log.Debugf("peer connected from: %s", conn.RemoteAddr())
 
 	r.store.AddPeer(peer)
 	defer func() {
@@ -59,8 +59,8 @@ func (r *Server) accept(conn net.Conn) {
 		r.store.DeletePeer(peer)
 	}()
 
-	buf := make([]byte, 65535) // todo: optimize buffer size
 	for {
+		buf := make([]byte, 1500) // todo: optimize buffer size
 		n, err := conn.Read(buf)
 		if err != nil {
 			if err != io.EOF {
@@ -98,18 +98,18 @@ func (r *Server) accept(conn net.Conn) {
 				peer.Log.Errorf("failed to unmarshal transport message: %s", err)
 				continue
 			}
+			go func() {
+				foreignChannelID, remoteConn, err := peer.ConnByChannelID(channelId)
+				if err != nil {
+					peer.Log.Errorf("failed to transport message from peer '%s' to '%d': %s", peer.ID(), channelId, err)
+					return
+				}
 
-			foreignChannelID, remoteConn, err := peer.ConnByChannelID(channelId)
-			if err != nil {
-				peer.Log.Errorf("failed to transport message from peer '%s' to '%d': %s", peer.ID(), channelId, err)
-				continue
-			}
-
-			err = transportTo(remoteConn, foreignChannelID, msg)
-			if err != nil {
-				peer.Log.Errorf("failed to transport message from peer '%s' to '%d': %s", peer.ID(), channelId, err)
-				continue
-			}
+				err = transportTo(remoteConn, foreignChannelID, msg)
+				if err != nil {
+					peer.Log.Errorf("failed to transport message from peer '%s' to '%d': %s", peer.ID(), channelId, err)
+				}
+			}()
 		}
 	}
 }

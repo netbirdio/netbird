@@ -10,12 +10,12 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/relay/client/dialer/ws"
+	"github.com/netbirdio/netbird/relay/client/dialer/udp"
 	"github.com/netbirdio/netbird/relay/messages"
 )
 
 const (
-	bufferSize = 65535 // optimise the buffer size
+	bufferSize = 1500 // optimise the buffer size
 )
 
 type connContainer struct {
@@ -52,7 +52,7 @@ func NewClient(serverAddress, peerID string) *Client {
 }
 
 func (c *Client) Connect() error {
-	conn, err := ws.Dial(c.serverAddress)
+	conn, err := udp.Dial(c.serverAddress)
 	if err != nil {
 		return err
 	}
@@ -128,6 +128,7 @@ func (c *Client) readLoop() {
 		buf := c.msgPool.Get().([]byte)
 		n, errExit = c.relayConn.Read(buf)
 		if errExit != nil {
+			log.Debugf("failed to read message from relay server: %s", errExit)
 			break
 		}
 
@@ -155,7 +156,8 @@ func (c *Client) readLoop() {
 				c.msgPool.Put(buf)
 				continue
 			}
-			c.handleTransport(channelId, buf[:n])
+			go c.handleTransport(channelId, buf[:n])
+
 		}
 	}
 

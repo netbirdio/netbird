@@ -17,6 +17,21 @@ var (
 
 type MsgType byte
 
+func (m MsgType) String() string {
+	switch m {
+	case MsgTypeHello:
+		return "hello"
+	case MsgTypeBindNewChannel:
+		return "bind new channel"
+	case MsgTypeBindResponse:
+		return "bind response"
+	case MsgTypeTransport:
+		return "transport"
+	default:
+		return "unknown"
+	}
+}
+
 func DetermineClientMsgType(msg []byte) (MsgType, error) {
 	// todo: validate magic byte
 	msgType := MsgType(msg[0])
@@ -41,7 +56,7 @@ func DetermineServerMsgType(msg []byte) (MsgType, error) {
 	case MsgTypeTransport:
 		return msgType, nil
 	default:
-		return 0, fmt.Errorf("invalid msg type: %s", msg)
+		return 0, fmt.Errorf("invalid msg type, len: %d", len(msg))
 	}
 }
 

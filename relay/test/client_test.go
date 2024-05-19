@@ -173,7 +173,7 @@ func TestBindToUnavailabePeer(t *testing.T) {
 	go func() {
 		err := srv.Listen(addr)
 		if err != nil {
-			t.Errorf("failed to bind server: %s", err)
+			t.Fatalf("failed to bind server: %s", err)
 		}
 	}()
 
