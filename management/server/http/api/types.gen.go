@@ -981,7 +981,7 @@ type Route struct {
 	// NetworkId Route network identifier, to group HA routes
 	NetworkId string `json:"network_id"`
 
-	// NetworkType Network type indicating if it is IPv4 or IPv6
+	// NetworkType Network type indicating if it is a domain route or a IPv4/IPv6 route
 	NetworkType string `json:"network_type"`
 
 	// Peer Peer Identifier associated with route. This property can not be set together with `peer_groups`

@@ -24,7 +24,7 @@ func SetupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAd
 }
 
 func CleanupRouting() error {
-	return cleanupRoutingWithRefManager(refCounter)
+	return cleanupRoutingWithRefCounter(refCounter)
 }
 
 func addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {

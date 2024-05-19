@@ -347,7 +347,7 @@ func setupRoutingWithRefCounter(refCounter **ExclusionCounter, initAddresses []n
 	return setupHooks(*refCounter, initAddresses)
 }
 
-func cleanupRoutingWithRefManager(routeManager *ExclusionCounter) error {
+func cleanupRoutingWithRefCounter(routeManager *ExclusionCounter) error {
 	if routeManager == nil {
 		return nil
 	}

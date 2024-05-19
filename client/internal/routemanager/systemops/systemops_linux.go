@@ -138,7 +138,7 @@ func SetupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.Before
 // The function uses error aggregation to report any errors encountered during the cleanup process.
 func CleanupRouting() error {
 	if isLegacy() {
-		return cleanupRoutingWithRefManager(refCounter)
+		return cleanupRoutingWithRefCounter(refCounter)
 	}
 
 	var result *multierror.Error
