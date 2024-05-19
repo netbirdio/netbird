@@ -167,6 +167,8 @@ func (r *Route) resolveDomains() (domainMap, error) {
 
 	resolved := domainMap{}
 	var merr *multierror.Error
+
+	done := make(chan struct{})
 	go func() {
 		for result := range results {
 			if result.err != nil {
@@ -175,6 +177,7 @@ func (r *Route) resolveDomains() (domainMap, error) {
 				resolved[result.domain] = append(resolved[result.domain], result.prefix)
 			}
 		}
+		close(done)
 	}()
 
 	for _, d := range r.route.Domains {
@@ -199,6 +202,7 @@ func (r *Route) resolveDomains() (domainMap, error) {
 
 	wg.Wait()
 	close(results)
+	<-done
 
 	return resolved, nberrors.FormatErrorOrNil(merr)
 }
