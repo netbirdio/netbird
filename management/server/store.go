@@ -1,16 +1,25 @@
 package server
 
 import (
+	"context"
 	"fmt"
+	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
+	"gorm.io/gorm"
 
+	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/route"
 )
 
 type Store interface {
@@ -49,8 +58,11 @@ type Store interface {
 type StoreEngine string
 
 const (
-	FileStoreEngine   StoreEngine = "jsonfile"
-	SqliteStoreEngine StoreEngine = "sqlite"
+	FileStoreEngine     StoreEngine = "jsonfile"
+	SqliteStoreEngine   StoreEngine = "sqlite"
+	PostgresStoreEngine StoreEngine = "postgres"
+
+	postgresDsnEnv = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
 )
 
 func getStoreEngineFromEnv() StoreEngine {
@@ -61,8 +73,7 @@ func getStoreEngineFromEnv() StoreEngine {
 	}
 
 	value := StoreEngine(strings.ToLower(kind))
-
-	if value == FileStoreEngine || value == SqliteStoreEngine {
+	if value == FileStoreEngine || value == SqliteStoreEngine || value == PostgresStoreEngine {
 		return value
 	}
 
@@ -94,17 +105,59 @@ func NewStore(kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (S
 	case SqliteStoreEngine:
 		log.Info("using SQLite store engine")
 		return NewSqliteStore(dataDir, metrics)
+	case PostgresStoreEngine:
+		log.Info("using Postgres store engine")
+		dsn, ok := os.LookupEnv(postgresDsnEnv)
+		if !ok {
+			return nil, fmt.Errorf("%s is not set", postgresDsnEnv)
+		}
+		return NewPostgresqlStore(dsn, metrics)
 	default:
 		return nil, fmt.Errorf("unsupported kind of store %s", kind)
 	}
 }
 
-// NewStoreFromJson is only used in tests
-func NewStoreFromJson(dataDir string, metrics telemetry.AppMetrics) (Store, error) {
+// migrate migrates the SQLite database to the latest schema
+func migrate(db *gorm.DB) error {
+	migrations := getMigrations()
+
+	for _, m := range migrations {
+		if err := m(db); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func getMigrations() []migrationFunc {
+	return []migrationFunc{
+		func(db *gorm.DB) error {
+			return migration.MigrateFieldFromGobToJSON[Account, net.IPNet](db, "network_net")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateFieldFromGobToJSON[route.Route, netip.Prefix](db, "network")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateFieldFromGobToJSON[route.Route, []string](db, "peer_groups")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](db, "location_connection_ip", "")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](db, "ip", "idx_peers_account_id_ip")
+		},
+	}
+}
+
+// NewTestStoreFromJson is only used in tests
+func NewTestStoreFromJson(dataDir string) (Store, func(), error) {
 	fstore, err := NewFileStore(dataDir, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+
+	cleanUp := func() {}
 
 	// if store engine is not set in the config we first try to evaluate NETBIRD_STORE_ENGINE
 	kind := getStoreEngineFromEnv()
@@ -115,10 +168,64 @@ func NewStoreFromJson(dataDir string, metrics telemetry.AppMetrics) (Store, erro
 
 	switch kind {
 	case FileStoreEngine:
-		return fstore, nil
+		return fstore, cleanUp, nil
 	case SqliteStoreEngine:
-		return NewSqliteStoreFromFileStore(fstore, dataDir, metrics)
+		store, err := NewSqliteStoreFromFileStore(fstore, dataDir, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		return store, cleanUp, nil
+	case PostgresStoreEngine:
+		cleanUp, err = createPGDB()
+		if err != nil {
+			return nil, nil, err
+		}
+
+		dsn, ok := os.LookupEnv(postgresDsnEnv)
+		if !ok {
+			return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
+		}
+
+		store, err := NewPostgresqlStoreFromFileStore(fstore, dsn, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		return store, cleanUp, nil
 	default:
-		return NewSqliteStoreFromFileStore(fstore, dataDir, metrics)
+		store, err := NewSqliteStoreFromFileStore(fstore, dataDir, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		return store, cleanUp, nil
 	}
+}
+
+func createPGDB() (func(), error) {
+	ctx := context.Background()
+	c, err := postgres.RunContainer(ctx,
+		testcontainers.WithImage("postgres:alpine"),
+		postgres.WithDatabase("test"),
+		postgres.WithUsername("postgres"),
+		postgres.WithPassword("postgres"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).WithStartupTimeout(15*time.Second)),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	cleanup := func() {
+		timeout := 10 * time.Second
+		err = c.Stop(ctx, &timeout)
+		if err != nil {
+			log.Warnf("failed to stop container: %s", err)
+		}
+	}
+
+	talksConn, err := c.ConnectionString(ctx)
+	if err != nil {
+		return cleanup, err
+	}
+	return cleanup, os.Setenv("NETBIRD_STORE_ENGINE_POSTGRES_DSN", talksConn)
 }

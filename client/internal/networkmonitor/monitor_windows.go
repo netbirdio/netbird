@@ -51,7 +51,7 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 			return ctx.Err()
 		case <-ticker.C:
 			if changed(nexthopv4, neighborv4, nexthopv6, neighborv6) {
-				callback()
+				go callback()
 				return nil
 			}
 		}

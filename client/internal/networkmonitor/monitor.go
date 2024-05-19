@@ -2,14 +2,20 @@ package networkmonitor
 
 import (
 	"context"
+	"errors"
+	"sync"
 )
 
-// NetworkWatcher watches for changes in network configuration.
-type NetworkWatcher struct {
+var ErrStopped = errors.New("monitor has been stopped")
+
+// NetworkMonitor watches for changes in network configuration.
+type NetworkMonitor struct {
 	cancel context.CancelFunc
+	wg     sync.WaitGroup
+	mu     sync.Mutex
 }
 
 // New creates a new network monitor.
-func New() *NetworkWatcher {
-	return &NetworkWatcher{}
+func New() *NetworkMonitor {
+	return &NetworkMonitor{}
 }

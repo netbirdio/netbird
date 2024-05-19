@@ -5,6 +5,7 @@ package networkmonitor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"runtime/debug"
 
@@ -14,20 +15,18 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
 
-// Start begins watching for network changes and calls the callback function and stops when a change is detected.
-func (nw *NetworkWatcher) Start(ctx context.Context, callback func()) {
-	if nw.cancel != nil {
-		log.Warn("Network monitor: already running, stopping previous watcher")
-		nw.Stop()
-	}
-
+// Start begins monitoring network changes. When a change is detected, it calls the callback asynchronously and returns.
+func (nw *NetworkMonitor) Start(ctx context.Context, callback func()) (err error) {
 	if ctx.Err() != nil {
-		log.Info("Network monitor: not starting, context is already cancelled")
-		return
+		return ctx.Err()
 	}
 
+	nw.mu.Lock()
 	ctx, nw.cancel = context.WithCancel(ctx)
-	defer nw.Stop()
+	nw.mu.Unlock()
+
+	nw.wg.Add(1)
+	defer nw.wg.Done()
 
 	var nexthop4, nexthop6 systemops.Nexthop
 
@@ -54,27 +53,30 @@ func (nw *NetworkWatcher) Start(ctx context.Context, callback func()) {
 	expBackOff := backoff.WithContext(backoff.NewExponentialBackOff(), ctx)
 
 	if err := backoff.Retry(operation, expBackOff); err != nil {
-		log.Errorf("Network monitor: failed to get default next hops: %v", err)
-		return
+		return fmt.Errorf("failed to get default next hops: %w", err)
 	}
 
 	// recover in case sys ops panic
 	defer func() {
 		if r := recover(); r != nil {
-			log.Errorf("Network monitor: panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
+			err = fmt.Errorf("panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
 		}
 	}()
 
 	if err := checkChange(ctx, nexthop4, nexthop6, callback); err != nil && !errors.Is(err, context.Canceled) {
-		log.Errorf("Network monitor: failed to start: %v", err)
+		return fmt.Errorf("check change: %w", err)
 	}
+
+	return nil
 }
 
 // Stop stops the network monitor.
-func (nw *NetworkWatcher) Stop() {
+func (nw *NetworkMonitor) Stop() {
+	nw.mu.Lock()
+	defer nw.mu.Unlock()
+
 	if nw.cancel != nil {
 		nw.cancel()
-		nw.cancel = nil
-		log.Info("Network monitor: stopped")
+		nw.wg.Wait()
 	}
 }

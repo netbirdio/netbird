@@ -13,7 +13,7 @@ RestartSec=5
 TimeoutStopSec=10
 CacheDirectory=netbird
 ConfigurationDirectory=netbird
-LogDirectory=netbird
+LogsDirectory=netbird
 RuntimeDirectory=netbird
 StateDirectory=netbird
 

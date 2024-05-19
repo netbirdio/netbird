@@ -59,6 +59,7 @@ func TestStalePeerIndices(t *testing.T) {
 
 func TestNewStore(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 
 	if store.Accounts == nil || len(store.Accounts) != 0 {
 		t.Errorf("expected to create a new empty Accounts map when creating a new FileStore")
@@ -87,6 +88,7 @@ func TestNewStore(t *testing.T) {
 
 func TestSaveAccount(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 
 	account := newAccountWithId("account_id", "testuser", "")
 	setupKey := GenerateDefaultSetupKey()
@@ -135,6 +137,8 @@ func TestDeleteAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer store.Close()
+
 	var account *Account
 	for _, a := range store.Accounts {
 		account = a
@@ -179,6 +183,7 @@ func TestDeleteAccount(t *testing.T) {
 
 func TestStore(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 
 	account := newAccountWithId("account_id", "testuser", "")
 	account.Peers["testpeer"] = &nbpeer.Peer{
@@ -436,6 +441,7 @@ func TestFileStore_GetTokenIDByHashedToken(t *testing.T) {
 
 func TestFileStore_DeleteHashedPAT2TokenIDIndex(t *testing.T) {
 	store := newStore(t)
+	defer store.Close()
 	store.HashedPAT2TokenID["someHashedToken"] = "someTokenId"
 
 	err := store.DeleteHashedPAT2TokenIDIndex("someHashedToken")
