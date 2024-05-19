@@ -82,7 +82,7 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 		},
 		func(prefix netip.Prefix, peerKey string) error {
 			if err := wgInterface.RemoveAllowedIP(peerKey, prefix.String()); err != nil {
-				if !errors.Is(err, iface.ErrPeerNotFound) {
+				if !errors.Is(err, iface.ErrPeerNotFound) && !errors.Is(err, iface.ErrAllowedIPNotFound) {
 					return err
 				}
 				log.Tracef("Remove allowed IPs %s for %s: %v", prefix, peerKey, err)

@@ -17,6 +17,8 @@ import (
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
+var ErrAllowedIPNotFound = fmt.Errorf("allowed IP not found")
+
 type wgUSPConfigurer struct {
 	device     *device.Device
 	deviceName string
@@ -173,7 +175,7 @@ func (c *wgUSPConfigurer) removeAllowedIP(peerKey string, ip string) error {
 	}
 
 	if !removedAllowedIP {
-		return fmt.Errorf("allowedIP not found")
+		return ErrAllowedIPNotFound
 	}
 	config := wgtypes.Config{
 		Peers: []wgtypes.PeerConfig{peer},
