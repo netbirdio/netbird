@@ -124,6 +124,18 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, prefix netip.Pref
 		return nil, err
 	}
 
+	if len(domains) > 0 && prefix.IsValid() {
+		return nil, status.Errorf(status.InvalidArgument, "domains and network should not be provided at the same time")
+	}
+
+	if len(domains) == 0 && !prefix.IsValid() {
+		return nil, status.Errorf(status.InvalidArgument, "invalid Prefix")
+	}
+
+	if len(domains) > 0 {
+		prefix = getPlaceholderIP()
+	}
+
 	if peerID != "" && len(peerGroupIDs) != 0 {
 		return nil, status.Errorf(
 			status.InvalidArgument,
@@ -199,10 +211,6 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 		return status.Errorf(status.InvalidArgument, "route provided is nil")
 	}
 
-	if !routeToSave.IsDynamic() && !routeToSave.Network.IsValid() {
-		return status.Errorf(status.InvalidArgument, "invalid Prefix %s", routeToSave.Network.String())
-	}
-
 	if routeToSave.Metric < route.MinMetric || routeToSave.Metric > route.MaxMetric {
 		return status.Errorf(status.InvalidArgument, "metric should be between %d and %d", route.MinMetric, route.MaxMetric)
 	}
@@ -216,8 +224,16 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 		return err
 	}
 
-	if routeToSave.Network.IsValid() && len(routeToSave.Domains) > 0 {
+	if len(routeToSave.Domains) > 0 && routeToSave.Network.IsValid() {
 		return status.Errorf(status.InvalidArgument, "domains and network should not be provided at the same time")
+	}
+
+	if len(routeToSave.Domains) == 0 && !routeToSave.Network.IsValid() {
+		return status.Errorf(status.InvalidArgument, "invalid Prefix")
+	}
+
+	if len(routeToSave.Domains) > 0 {
+		routeToSave.Network = getPlaceholderIP()
 	}
 
 	if routeToSave.Peer != "" && len(routeToSave.PeerGroups) != 0 {
@@ -330,4 +346,10 @@ func toProtocolRoutes(routes []*route.Route) []*proto.Route {
 		protoRoutes = append(protoRoutes, toProtocolRoute(r))
 	}
 	return protoRoutes
+}
+
+// getPlaceholderIP returns a placeholder IP address for the route if domains are used
+func getPlaceholderIP() netip.Prefix {
+	// Using an IP from the documentation range to minimize impact in case older clients try to set a route
+	return netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 0, 2, 0}), 32)
 }

@@ -115,6 +115,7 @@ func (r *Route) Copy() *Route {
 		NetID:       r.NetID,
 		Network:     r.Network,
 		Domains:     slices.Clone(r.Domains),
+		KeepRoute:   r.KeepRoute,
 		NetworkType: r.NetworkType,
 		Peer:        r.Peer,
 		PeerGroups:  slices.Clone(r.PeerGroups),
@@ -139,6 +140,7 @@ func (r *Route) IsEqual(other *Route) bool {
 		other.NetID == r.NetID &&
 		other.Network == r.Network &&
 		slices.Equal(r.Domains, other.Domains) &&
+		other.KeepRoute == r.KeepRoute &&
 		other.NetworkType == r.NetworkType &&
 		other.Peer == r.Peer &&
 		other.Metric == r.Metric &&
