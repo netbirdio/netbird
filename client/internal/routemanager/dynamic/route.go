@@ -15,7 +15,7 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
-	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
+	"github.com/netbirdio/netbird/client/internal/routemanager/util"
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/route"
 )
@@ -187,7 +187,7 @@ func (r *Route) resolveDomains() (domainMap, error) {
 				return
 			}
 			for _, ip := range ips {
-				prefix, err := systemops.GetPrefixFromIP(ip)
+				prefix, err := util.GetPrefixFromIP(ip)
 				if err != nil {
 					results <- resolveResult{domain: domain, err: fmt.Errorf("get prefix from IP %s: %w", ip.String(), err)}
 					return

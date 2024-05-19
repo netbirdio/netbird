@@ -18,6 +18,7 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
+	"github.com/netbirdio/netbird/client/internal/routemanager/util"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/iface"
 	nbnet "github.com/netbirdio/netbird/util/net"
@@ -315,27 +316,6 @@ func genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	return removeFromRouteTable(prefix, nextHop)
 }
 
-func GetPrefixFromIP(ip net.IP) (netip.Prefix, error) {
-	addr, ok := netip.AddrFromSlice(ip)
-	if !ok {
-		return netip.Prefix{}, fmt.Errorf("parse IP address: %s", ip)
-	}
-	addr = addr.Unmap()
-
-	var prefixLength int
-	switch {
-	case addr.Is4():
-		prefixLength = 32
-	case addr.Is6():
-		prefixLength = 128
-	default:
-		return netip.Prefix{}, fmt.Errorf("invalid IP address: %s", addr)
-	}
-
-	prefix := netip.PrefixFrom(addr, prefixLength)
-	return prefix, nil
-}
-
 func setupRoutingWithRefCounter(refCounter **ExclusionCounter, initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
 	initialNextHopV4, err := GetNextHop(netip.IPv4Unspecified())
 	if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
@@ -385,7 +365,7 @@ func cleanupRoutingWithRefManager(routeManager *ExclusionCounter) error {
 
 func setupHooks(routeManager *ExclusionCounter, initAddresses []net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
 	beforeHook := func(connID nbnet.ConnectionID, ip net.IP) error {
-		prefix, err := GetPrefixFromIP(ip)
+		prefix, err := util.GetPrefixFromIP(ip)
 		if err != nil {
 			return fmt.Errorf("convert ip to prefix: %w", err)
 		}
