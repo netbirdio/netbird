@@ -220,6 +220,7 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		Description: req.Description,
 		Enabled:     req.Enabled,
 		Groups:      req.Groups,
+		KeepRoute:   req.KeepRoute,
 	}
 
 	if req.Domains != nil {

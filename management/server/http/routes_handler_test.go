@@ -104,7 +104,7 @@ func initRoutesTestData() *RoutesHandler {
 				}
 				return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 			},
-			CreateRouteFunc: func(accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string, keepRoute bool) (*route.Route, error) {
+			CreateRouteFunc: func(accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, _ string, keepRoute bool) (*route.Route, error) {
 				if peerID == notFoundPeerID {
 					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
 				}
@@ -364,7 +364,7 @@ func TestRoutesHandlers(t *testing.T) {
 				Network:     toPtr("192.0.2.0/32"),
 				Domains:     &[]string{existingDomain},
 				Peer:        &existingPeerID,
-				NetworkType: route.IPv4NetworkString,
+				NetworkType: route.DomainNetworkString,
 				Masquerade:  false,
 				Enabled:     false,
 				Groups:      []string{existingGroupID},
@@ -514,6 +514,7 @@ func TestRoutesHandlers(t *testing.T) {
 			if err = json.Unmarshal(content, &got); err != nil {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
+			assert.Equal(t, got, tc.expectedRoute)
 		})
 	}
 }

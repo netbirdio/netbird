@@ -50,6 +50,7 @@ func TestCreateRoute(t *testing.T) {
 		metric       int
 		enabled      bool
 		groups       []string
+		keepRoute    bool
 	}
 
 	testCases := []struct {
