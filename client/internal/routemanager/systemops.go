@@ -214,15 +214,15 @@ func genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 		}
 
 		// TODO: remove once IPv6 is supported on the interface
-		if err := addToRouteTable(splitDefaultv6_1, netip.Addr{}, intf); err != nil {
-			return fmt.Errorf("add unreachable route split 1: %w", err)
-		}
-		if err := addToRouteTable(splitDefaultv6_2, netip.Addr{}, intf); err != nil {
-			if err2 := removeFromRouteTable(splitDefaultv6_1, netip.Addr{}, intf); err2 != nil {
-				log.Warnf("Failed to rollback route addition: %s", err2)
-			}
-			return fmt.Errorf("add unreachable route split 2: %w", err)
-		}
+		//if err := addToRouteTable(splitDefaultv6_1, netip.Addr{}, intf); err != nil {
+		//	return fmt.Errorf("add unreachable route split 1: %w", err)
+		//}
+		//if err := addToRouteTable(splitDefaultv6_2, netip.Addr{}, intf); err != nil {
+		//	if err2 := removeFromRouteTable(splitDefaultv6_1, netip.Addr{}, intf); err2 != nil {
+		//		log.Warnf("Failed to rollback route addition: %s", err2)
+		//	}
+		//	return fmt.Errorf("add unreachable route split 2: %w", err)
+		//}
 
 		return nil
 	} else if prefix == defaultv6 {
@@ -281,12 +281,12 @@ func genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 		}
 
 		// TODO: remove once IPv6 is supported on the interface
-		if err := removeFromRouteTable(splitDefaultv6_1, netip.Addr{}, intf); err != nil {
-			result = multierror.Append(result, err)
-		}
-		if err := removeFromRouteTable(splitDefaultv6_2, netip.Addr{}, intf); err != nil {
-			result = multierror.Append(result, err)
-		}
+		//if err := removeFromRouteTable(splitDefaultv6_1, netip.Addr{}, intf); err != nil {
+		//	result = multierror.Append(result, err)
+		//}
+		//if err := removeFromRouteTable(splitDefaultv6_2, netip.Addr{}, intf); err != nil {
+		//	result = multierror.Append(result, err)
+		//}
 
 		return result.ErrorOrNil()
 	} else if prefix == defaultv6 {
