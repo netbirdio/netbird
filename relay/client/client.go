@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/relay/client/dialer/udp"
+	"github.com/netbirdio/netbird/relay/client/dialer/ws"
 	"github.com/netbirdio/netbird/relay/messages"
 )
 
@@ -31,7 +30,6 @@ type Client struct {
 
 	channelsPending map[string]chan net.Conn // todo: protect map with mutex
 	channels        map[uint16]*connContainer
-	msgPool         sync.Pool
 
 	relayConn      net.Conn
 	relayConnState bool
@@ -43,16 +41,11 @@ func NewClient(serverAddress, peerID string) *Client {
 		peerID:          peerID,
 		channelsPending: make(map[string]chan net.Conn),
 		channels:        make(map[uint16]*connContainer),
-		msgPool: sync.Pool{
-			New: func() any {
-				return make([]byte, bufferSize)
-			},
-		},
 	}
 }
 
 func (c *Client) Connect() error {
-	conn, err := udp.Dial(c.serverAddress)
+	conn, err := ws.Dial(c.serverAddress)
 	if err != nil {
 		return err
 	}
@@ -125,7 +118,7 @@ func (c *Client) readLoop() {
 	var errExit error
 	var n int
 	for {
-		buf := c.msgPool.Get().([]byte)
+		buf := make([]byte, bufferSize) // todo optimise buffer size, use pool
 		n, errExit = c.relayConn.Read(buf)
 		if errExit != nil {
 			log.Debugf("failed to read message from relay server: %s", errExit)
@@ -135,7 +128,6 @@ func (c *Client) readLoop() {
 		msgType, err := messages.DetermineServerMsgType(buf[:n])
 		if err != nil {
 			log.Errorf("failed to determine message type: %s", err)
-			c.msgPool.Put(buf)
 			continue
 		}
 
@@ -147,13 +139,11 @@ func (c *Client) readLoop() {
 			} else {
 				c.handleBindResponse(channelId, peerId)
 			}
-			c.msgPool.Put(buf)
 			continue
 		case messages.MsgTypeTransport:
 			channelId, err := messages.UnmarshalTransportID(buf[:n])
 			if err != nil {
 				log.Errorf("failed to parse transport message: %v", err)
-				c.msgPool.Put(buf)
 				continue
 			}
 			go c.handleTransport(channelId, buf[:n])
@@ -212,7 +202,6 @@ func (c *Client) writeTo(channelID uint16, payload []byte) (int, error) {
 
 func (c *Client) generateConnReaderFN(messageBufferChan chan []byte) func(b []byte) (n int, err error) {
 	return func(b []byte) (n int, err error) {
-		defer c.msgPool.Put(b)
 		select {
 		case msg, ok := <-messageBufferChan:
 			if !ok {

@@ -124,7 +124,7 @@ func transportTo(conn net.Conn, channelID uint16, msg []byte) error {
 }
 
 func handShake(conn net.Conn) (*Peer, error) {
-	buf := make([]byte, 65535) // todo: reduce the buffer size
+	buf := make([]byte, 1500)
 	n, err := conn.Read(buf)
 	if err != nil {
 		log.Errorf("failed to read message: %s", err)
