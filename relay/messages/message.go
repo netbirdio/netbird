@@ -6,9 +6,10 @@ import (
 
 const (
 	MsgTypeHello          MsgType = 0
-	MsgTypeBindNewChannel MsgType = 1
-	MsgTypeBindResponse   MsgType = 2
-	MsgTypeTransport      MsgType = 3
+	MsgTypeHelloResponse  MsgType = 1
+	MsgTypeBindNewChannel MsgType = 2
+	MsgTypeBindResponse   MsgType = 3
+	MsgTypeTransport      MsgType = 4
 )
 
 var (
@@ -51,12 +52,14 @@ func DetermineServerMsgType(msg []byte) (MsgType, error) {
 	// todo: validate magic byte
 	msgType := MsgType(msg[0])
 	switch msgType {
+	case MsgTypeHelloResponse:
+		return msgType, nil
 	case MsgTypeBindResponse:
 		return msgType, nil
 	case MsgTypeTransport:
 		return msgType, nil
 	default:
-		return 0, fmt.Errorf("invalid msg type, len: %d", len(msg))
+		return 0, fmt.Errorf("invalid msg type (len: %d)", len(msg))
 	}
 }
 
@@ -76,6 +79,12 @@ func UnmarshalHelloMsg(msg []byte) (string, error) {
 		return "", fmt.Errorf("invalid 'hello' messge")
 	}
 	return string(msg[1:]), nil
+}
+
+func MarshalHelloResponse() []byte {
+	msg := make([]byte, 1)
+	msg[0] = byte(MsgTypeHelloResponse)
+	return msg
 }
 
 // Bind new channel

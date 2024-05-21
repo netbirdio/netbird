@@ -145,5 +145,8 @@ func handShake(conn net.Conn) (*Peer, error) {
 		return nil, err
 	}
 	p := NewPeer(peerId, conn)
-	return p, nil
+
+	msg := messages.MarshalHelloResponse()
+	_, err = conn.Write(msg)
+	return p, err
 }

@@ -9,12 +9,13 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/relay/client/dialer/ws"
+	"github.com/netbirdio/netbird/relay/client/dialer/udp"
 	"github.com/netbirdio/netbird/relay/messages"
 )
 
 const (
-	bufferSize = 1500 // optimise the buffer size
+	bufferSize            = 1500 // optimise the buffer size
+	serverResponseTimeout = 8 * time.Second
 )
 
 type connContainer struct {
@@ -45,7 +46,7 @@ func NewClient(serverAddress, peerID string) *Client {
 }
 
 func (c *Client) Connect() error {
-	conn, err := ws.Dial(c.serverAddress)
+	conn, err := udp.Dial(c.serverAddress)
 	if err != nil {
 		return err
 	}
@@ -80,7 +81,7 @@ func (c *Client) BindChannel(remotePeerID string) (net.Conn, error) {
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), serverResponseTimeout)
 	defer cancel()
 	select {
 	case <-ctx.Done():
@@ -91,6 +92,10 @@ func (c *Client) BindChannel(remotePeerID string) (net.Conn, error) {
 }
 
 func (c *Client) Close() error {
+	if !c.relayConnState {
+		return nil
+	}
+
 	for _, conn := range c.channels {
 		close(conn.messages)
 	}
@@ -109,6 +114,30 @@ func (c *Client) handShake() error {
 	if err != nil {
 		log.Errorf("failed to send hello message: %s", err)
 		return err
+	}
+
+	err = c.relayConn.SetReadDeadline(time.Now().Add(serverResponseTimeout))
+	if err != nil {
+		log.Errorf("failed to set read deadline: %s", err)
+		return err
+	}
+
+	buf := make([]byte, 1500) // todo: optimise buffer size
+	n, err := c.relayConn.Read(buf)
+	if err != nil {
+		log.Errorf("failed to read hello response: %s", err)
+		return err
+	}
+
+	msgType, err := messages.DetermineServerMsgType(buf[:n])
+	if err != nil {
+		log.Errorf("failed to determine message type: %s", err)
+		return err
+	}
+
+	if msgType != messages.MsgTypeHelloResponse {
+		log.Errorf("unexpected message type: %s", msgType)
+		return fmt.Errorf("unexpected message type")
 	}
 	return nil
 }

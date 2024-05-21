@@ -1,11 +1,13 @@
 package test
 
 import (
+	"net"
 	"os"
 	"testing"
 
-	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/util"
 
 	"github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/relay/server"
@@ -87,6 +89,68 @@ func TestClient(t *testing.T) {
 	if payload != string(buf[:n]) {
 		t.Fatalf("expected %s, got %s", payload, string(buf[:n]))
 	}
+}
+
+func TestRegistration(t *testing.T) {
+	addr := "localhost:1234"
+	srv := server.NewServer()
+	go func() {
+		err := srv.Listen(addr)
+		if err != nil {
+			t.Fatalf("failed to bind server: %s", err)
+		}
+	}()
+
+	defer func() {
+		err := srv.Close()
+		if err != nil {
+			t.Errorf("failed to close server: %s", err)
+		}
+	}()
+
+	clientAlice := client.NewClient(addr, "alice")
+	err := clientAlice.Connect()
+	if err != nil {
+		t.Fatalf("failed to connect to server: %s", err)
+	}
+	defer func() {
+		err = clientAlice.Close()
+		if err != nil {
+			t.Errorf("failed to close conn: %s", err)
+		}
+	}()
+}
+
+func TestRegistrationTimeout(t *testing.T) {
+	udpListener, err := net.ListenUDP("udp", &net.UDPAddr{
+		Port: 1234,
+		IP:   net.ParseIP("0.0.0.0"),
+	})
+	if err != nil {
+		t.Fatalf("failed to bind UDP server: %s", err)
+	}
+	defer udpListener.Close()
+
+	tcpListener, err := net.ListenTCP("tcp", &net.TCPAddr{
+		Port: 1234,
+		IP:   net.ParseIP("0.0.0.0"),
+	})
+	if err != nil {
+		t.Fatalf("failed to bind TCP server: %s", err)
+	}
+	defer tcpListener.Close()
+
+	clientAlice := client.NewClient("127.0.0.1:1234", "alice")
+	err = clientAlice.Connect()
+	if err == nil {
+		t.Errorf("failed to connect to server: %s", err)
+	}
+	defer func() {
+		err = clientAlice.Close()
+		if err != nil {
+			t.Errorf("failed to close conn: %s", err)
+		}
+	}()
 }
 
 func TestEcho(t *testing.T) {
