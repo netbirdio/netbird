@@ -114,7 +114,7 @@ func (am *DefaultAccountManager) checkRoutePrefixExistsForPeers(account *Account
 }
 
 // CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error) {
+func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, accessControlGroupIDs []string, enabled bool, userID string) (*route.Route, error) {
 	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
@@ -140,6 +140,13 @@ func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, 
 
 	if len(peerGroupIDs) > 0 {
 		err = validateGroups(peerGroupIDs, account.Groups)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if len(accessControlGroupIDs) > 0 {
+		err = validateGroups(accessControlGroupIDs, account.Groups)
 		if err != nil {
 			return nil, err
 		}
@@ -173,6 +180,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, 
 	newRoute.Metric = metric
 	newRoute.Enabled = enabled
 	newRoute.Groups = groups
+	newRoute.AccessControlGroups = accessControlGroupIDs
 
 	if account.Routes == nil {
 		account.Routes = make(map[route.ID]*route.Route)
@@ -224,6 +232,13 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 
 	if len(routeToSave.PeerGroups) > 0 {
 		err = validateGroups(routeToSave.PeerGroups, account.Groups)
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(routeToSave.AccessControlGroups) > 0 {
+		err = validateGroups(routeToSave.AccessControlGroups, account.Groups)
 		if err != nil {
 			return err
 		}
