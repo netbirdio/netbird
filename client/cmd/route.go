@@ -49,7 +49,7 @@ func init() {
 }
 
 func routesList(cmd *cobra.Command, _ []string) error {
-	conn, err := getClient(cmd.Context())
+	conn, err := getClient(cmd)
 	if err != nil {
 		return err
 	}
@@ -79,7 +79,7 @@ func routesList(cmd *cobra.Command, _ []string) error {
 }
 
 func routesSelect(cmd *cobra.Command, args []string) error {
-	conn, err := getClient(cmd.Context())
+	conn, err := getClient(cmd)
 	if err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func routesSelect(cmd *cobra.Command, args []string) error {
 }
 
 func routesDeselect(cmd *cobra.Command, args []string) error {
-	conn, err := getClient(cmd.Context())
+	conn, err := getClient(cmd)
 	if err != nil {
 		return err
 	}
