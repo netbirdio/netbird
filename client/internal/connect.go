@@ -91,6 +91,9 @@ func (c *ConnectClient) RunOniOS(
 	networkChangeListener listener.NetworkChangeListener,
 	dnsManager dns.IosDnsManager,
 ) error {
+	// Set GC percent to 5% to reduce memory usage as iOS only allows 50MB of memory for the extension.
+	debug.SetGCPercent(5)
+
 	mobileDependency := MobileDependency{
 		FileDescriptor:        fileDescriptor,
 		NetworkChangeListener: networkChangeListener,
