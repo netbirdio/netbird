@@ -82,11 +82,11 @@ func TestWGIface_UpdateAddr(t *testing.T) {
 
 	var found bool
 	for _, a := range addrs {
-		addr, err := netip.ParseAddr(a.String())
+		prefix, err := netip.ParsePrefix(a.String())
 		assert.NoError(t, err)
-		if addr.Is4() {
+		if prefix.Addr().Is4() {
 			found = true
-			assert.Equal(t, addr, a.String())
+			assert.Equal(t, addr, prefix.String())
 		}
 	}
 
