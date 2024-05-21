@@ -73,17 +73,18 @@ func ToPrefixType(prefix string) NetworkType {
 type Route struct {
 	ID ID `gorm:"primaryKey"`
 	// AccountID is a reference to Account that this object belongs
-	AccountID   string       `gorm:"index"`
-	Network     netip.Prefix `gorm:"serializer:json"`
-	NetID       NetID
-	Description string
-	Peer        string
-	PeerGroups  []string `gorm:"serializer:json"`
-	NetworkType NetworkType
-	Masquerade  bool
-	Metric      int
-	Enabled     bool
-	Groups      []string `gorm:"serializer:json"`
+	AccountID           string       `gorm:"index"`
+	Network             netip.Prefix `gorm:"serializer:json"`
+	NetID               NetID
+	Description         string
+	Peer                string
+	PeerGroups          []string `gorm:"serializer:json"`
+	NetworkType         NetworkType
+	Masquerade          bool
+	Metric              int
+	Enabled             bool
+	Groups              []string `gorm:"serializer:json"`
+	AccessControlGroups []string `gorm:"serializer:json"`
 }
 
 // EventMeta returns activity event meta related to the route
@@ -94,20 +95,22 @@ func (r *Route) EventMeta() map[string]any {
 // Copy copies a route object
 func (r *Route) Copy() *Route {
 	route := &Route{
-		ID:          r.ID,
-		Description: r.Description,
-		NetID:       r.NetID,
-		Network:     r.Network,
-		NetworkType: r.NetworkType,
-		Peer:        r.Peer,
-		PeerGroups:  make([]string, len(r.PeerGroups)),
-		Metric:      r.Metric,
-		Masquerade:  r.Masquerade,
-		Enabled:     r.Enabled,
-		Groups:      make([]string, len(r.Groups)),
+		ID:                  r.ID,
+		Description:         r.Description,
+		NetID:               r.NetID,
+		Network:             r.Network,
+		NetworkType:         r.NetworkType,
+		Peer:                r.Peer,
+		PeerGroups:          make([]string, len(r.PeerGroups)),
+		Metric:              r.Metric,
+		Masquerade:          r.Masquerade,
+		Enabled:             r.Enabled,
+		Groups:              make([]string, len(r.Groups)),
+		AccessControlGroups: make([]string, len(r.AccessControlGroups)),
 	}
 	copy(route.Groups, r.Groups)
 	copy(route.PeerGroups, r.PeerGroups)
+	copy(route.AccessControlGroups, r.AccessControlGroups)
 	return route
 }
 
@@ -129,7 +132,8 @@ func (r *Route) IsEqual(other *Route) bool {
 		other.Masquerade == r.Masquerade &&
 		other.Enabled == r.Enabled &&
 		compareList(r.Groups, other.Groups) &&
-		compareList(r.PeerGroups, other.PeerGroups)
+		compareList(r.PeerGroups, other.PeerGroups) &&
+		compareList(r.AccessControlGroups, other.AccessControlGroups)
 }
 
 // ParseNetwork Parses a network prefix string and returns a netip.Prefix object and if is invalid, IPv4 or IPv6
