@@ -1014,6 +1014,12 @@ components:
           items:
             type: string
             example: "chacdk86lnnboviihd70"
+        access_control_groups:
+          description: Access control group identifier associated with route.
+          type: array
+          items:
+            type: string
+            example: "chacbco6lnnbn6cg5s91"
       required:
         - id
         - description
