@@ -56,15 +56,15 @@ var prefixList []netip.Prefix
 var lastUpdate time.Time
 var mux = sync.Mutex{}
 
-func (r *RoutingManager) SetupRouting(initAddresses []net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+func (r *SysOps) SetupRouting(initAddresses []net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
 	return r.setupRefCounter(initAddresses)
 }
 
-func (r *RoutingManager) CleanupRouting() error {
+func (r *SysOps) CleanupRouting() error {
 	return r.cleanupRefCounter()
 }
 
-func (r *RoutingManager) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 	if nexthop.IP.Zone() != "" && nexthop.Intf == nil {
 		zone, err := strconv.Atoi(nexthop.IP.Zone())
 		if err != nil {
@@ -77,7 +77,7 @@ func (r *RoutingManager) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) e
 	return addRouteCmd(prefix, nexthop)
 }
 
-func (r *RoutingManager) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 	args := []string{"delete", prefix.String()}
 	if nexthop.IP.IsValid() {
 		nexthop.IP.WithZone("")

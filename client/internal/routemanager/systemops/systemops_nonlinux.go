@@ -10,11 +10,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func (r *RoutingManager) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	return r.genericAddVPNRoute(prefix, intf)
 }
 
-func (r *RoutingManager) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	return r.genericRemoveVPNRoute(prefix, intf)
 }
 

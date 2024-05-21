@@ -29,7 +29,7 @@ var splitDefaultv4_2 = netip.PrefixFrom(netip.AddrFrom4([4]byte{128}), 1)
 var splitDefaultv6_1 = netip.PrefixFrom(netip.IPv6Unspecified(), 1)
 var splitDefaultv6_2 = netip.PrefixFrom(netip.AddrFrom16([16]byte{0x80}), 1)
 
-func (r *RoutingManager) setupRefCounter(initAddresses []net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+func (r *SysOps) setupRefCounter(initAddresses []net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
 	initialNextHopV4, err := GetNextHop(netip.IPv4Unspecified())
 	if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
 		log.Errorf("Unable to get initial v4 default next hop: %v", err)
@@ -62,7 +62,7 @@ func (r *RoutingManager) setupRefCounter(initAddresses []net.IP) (peer.BeforeAdd
 	return r.setupHooks(initAddresses)
 }
 
-func (r *RoutingManager) cleanupRefCounter() error {
+func (r *SysOps) cleanupRefCounter() error {
 	if r.refCounter == nil {
 		return nil
 	}
@@ -79,7 +79,7 @@ func (r *RoutingManager) cleanupRefCounter() error {
 }
 
 // TODO: fix: for default our wg address now appears as the default gw
-func (r *RoutingManager) addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
+func (r *SysOps) addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 	addr := netip.IPv4Unspecified()
 	if prefix.Addr().Is6() {
 		addr = netip.IPv6Unspecified()
@@ -121,7 +121,7 @@ func (r *RoutingManager) addRouteForCurrentDefaultGateway(prefix netip.Prefix) e
 
 // addRouteToNonVPNIntf adds a new route to the routing table for the given prefix and returns the next hop and interface.
 // If the next hop or interface is pointing to the VPN interface, it will return the initial values.
-func (r *RoutingManager) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIface, initialNextHop Nexthop) (Nexthop, error) {
+func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIface, initialNextHop Nexthop) (Nexthop, error) {
 	addr := prefix.Addr()
 	switch {
 	case addr.IsLoopback(),
@@ -167,7 +167,7 @@ func (r *RoutingManager) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *ifac
 
 // genericAddVPNRoute adds a new route to the vpn interface, it splits the default prefix
 // in two /1 prefixes to avoid replacing the existing default route
-func (r *RoutingManager) genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+func (r *SysOps) genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	nextHop := Nexthop{netip.Addr{}, intf}
 
 	if prefix == vars.Defaultv4 {
@@ -211,7 +211,7 @@ func (r *RoutingManager) genericAddVPNRoute(prefix netip.Prefix, intf *net.Inter
 }
 
 // addNonExistingRoute adds a new route to the vpn interface if it doesn't exist in the current routing table
-func (r *RoutingManager) addNonExistingRoute(prefix netip.Prefix, intf *net.Interface) error {
+func (r *SysOps) addNonExistingRoute(prefix netip.Prefix, intf *net.Interface) error {
 	ok, err := existsInRouteTable(prefix)
 	if err != nil {
 		return fmt.Errorf("exists in route table: %w", err)
@@ -237,7 +237,7 @@ func (r *RoutingManager) addNonExistingRoute(prefix netip.Prefix, intf *net.Inte
 
 // genericRemoveVPNRoute removes the route from the vpn interface. If a default prefix is given,
 // it will remove the split /1 prefixes
-func (r *RoutingManager) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	nextHop := Nexthop{netip.Addr{}, intf}
 
 	if prefix == vars.Defaultv4 {
@@ -273,7 +273,7 @@ func (r *RoutingManager) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.In
 	return r.removeFromRouteTable(prefix, nextHop)
 }
 
-func (r *RoutingManager) setupHooks(initAddresses []net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+func (r *SysOps) setupHooks(initAddresses []net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
 	beforeHook := func(connID nbnet.ConnectionID, ip net.IP) error {
 		prefix, err := util.GetPrefixFromIP(ip)
 		if err != nil {

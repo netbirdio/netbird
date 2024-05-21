@@ -86,7 +86,7 @@ func getSetupRules() []ruleParams {
 // Rule 2 (VPN Traffic Routing): Directs all remaining traffic to the 'NetbirdVPNTableID' custom routing table.
 // This table is where a default route or other specific routes received from the management server are configured,
 // enabling VPN connectivity.
-func (r *RoutingManager) SetupRouting(initAddresses []net.IP) (_ peer.BeforeAddPeerHookFunc, _ peer.AfterRemovePeerHookFunc, err error) {
+func (r *SysOps) SetupRouting(initAddresses []net.IP) (_ peer.BeforeAddPeerHookFunc, _ peer.AfterRemovePeerHookFunc, err error) {
 	if isLegacy() {
 		log.Infof("Using legacy routing setup")
 		return r.setupRefCounter(initAddresses)
@@ -129,7 +129,7 @@ func (r *RoutingManager) SetupRouting(initAddresses []net.IP) (_ peer.BeforeAddP
 // CleanupRouting performs a thorough cleanup of the routing configuration established by 'setupRouting'.
 // It systematically removes the three rules and any associated routing table entries to ensure a clean state.
 // The function uses error aggregation to report any errors encountered during the cleanup process.
-func (r *RoutingManager) CleanupRouting() error {
+func (r *SysOps) CleanupRouting() error {
 	if isLegacy() {
 		return r.cleanupRefCounter()
 	}
@@ -159,15 +159,15 @@ func (r *RoutingManager) CleanupRouting() error {
 	return nberrors.FormatErrorOrNil(result)
 }
 
-func (r *RoutingManager) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 	return addRoute(prefix, nexthop, syscall.RT_TABLE_MAIN)
 }
 
-func (r *RoutingManager) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 	return removeRoute(prefix, nexthop, syscall.RT_TABLE_MAIN)
 }
 
-func (r *RoutingManager) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if isLegacy() {
 		return r.genericAddVPNRoute(prefix, intf)
 	}
@@ -190,7 +190,7 @@ func (r *RoutingManager) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) e
 	return nil
 }
 
-func (r *RoutingManager) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if isLegacy() {
 		return r.genericRemoveVPNRoute(prefix, intf)
 	}

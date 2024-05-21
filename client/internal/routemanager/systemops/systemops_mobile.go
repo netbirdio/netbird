@@ -12,19 +12,19 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
-func (r *RoutingManager) SetupRouting([]net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+func (r *SysOps) SetupRouting([]net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
 	return nil, nil, nil
 }
 
-func (r *RoutingManager) CleanupRouting() error {
+func (r *SysOps) CleanupRouting() error {
 	return nil
 }
 
-func (r *RoutingManager) AddVPNRoute(netip.Prefix, *net.Interface) error {
+func (r *SysOps) AddVPNRoute(netip.Prefix, *net.Interface) error {
 	return nil
 }
 
-func (r *RoutingManager) RemoveVPNRoute(netip.Prefix, *net.Interface) error {
+func (r *SysOps) RemoveVPNRoute(netip.Prefix, *net.Interface) error {
 	return nil
 }
 

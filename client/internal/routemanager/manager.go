@@ -46,7 +46,7 @@ type DefaultManager struct {
 	clientNetworks       map[route.HAUniqueID]*clientNetwork
 	routeSelector        *routeselector.RouteSelector
 	serverRouter         serverRouter
-	routingManager       *systemops.RoutingManager
+	routingManager       *systemops.SysOps
 	statusRecorder       *peer.Status
 	wgInterface          *iface.WGIface
 	pubKey               string
@@ -65,7 +65,7 @@ func NewManager(
 	initialRoutes []*route.Route,
 ) *DefaultManager {
 	mCTX, cancel := context.WithCancel(ctx)
-	routingManager := systemops.NewRoutingManager(wgInterface)
+	routingManager := systemops.NewSysOps(wgInterface)
 
 	dm := &DefaultManager{
 		ctx:              mCTX,

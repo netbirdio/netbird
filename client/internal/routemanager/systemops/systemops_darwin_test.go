@@ -35,7 +35,7 @@ func TestConcurrentRoutes(t *testing.T) {
 	baseIP := netip.MustParseAddr("192.0.2.0")
 	intf := &net.Interface{Name: "lo0"}
 
-	r := NewRoutingManager(nil)
+	r := NewSysOps(nil)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 1024; i++ {

@@ -20,13 +20,13 @@ var splitDefaultv4_2 = netip.PrefixFrom(netip.AddrFrom4([4]byte{128}), 1)
 var splitDefaultv6_1 = netip.PrefixFrom(netip.IPv6Unspecified(), 1)
 var splitDefaultv6_2 = netip.PrefixFrom(netip.AddrFrom16([16]byte{0x80}), 1)
 
-type RoutingManager struct {
+type SysOps struct {
 	refCounter  *ExclusionCounter
 	wgInterface *iface.WGIface
 }
 
-func NewRoutingManager(wgInterface *iface.WGIface) *RoutingManager {
-	return &RoutingManager{
+func NewSysOps(wgInterface *iface.WGIface) *SysOps {
+	return &SysOps{
 		wgInterface: wgInterface,
 	}
 }

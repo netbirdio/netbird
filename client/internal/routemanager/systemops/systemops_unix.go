@@ -16,23 +16,23 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
-func (r *RoutingManager) SetupRouting(initAddresses []net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+func (r *SysOps) SetupRouting(initAddresses []net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
 	return r.setupRefCounter(initAddresses)
 }
 
-func (r *RoutingManager) CleanupRouting() error {
+func (r *SysOps) CleanupRouting() error {
 	return r.cleanupRefCounter()
 }
 
-func (r *RoutingManager) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 	return r.routeCmd("add", prefix, nexthop)
 }
 
-func (r *RoutingManager) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 	return r.routeCmd("delete", prefix, nexthop)
 }
 
-func (r *RoutingManager) routeCmd(action string, prefix netip.Prefix, nexthop Nexthop) error {
+func (r *SysOps) routeCmd(action string, prefix netip.Prefix, nexthop Nexthop) error {
 	inet := "-inet"
 	network := prefix.String()
 	if prefix.IsSingleIP() {
