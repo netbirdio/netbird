@@ -716,7 +716,7 @@ func openURL(url string) error {
 
 // checkPIDFile exists and return error, or write new.
 func checkPIDFile() error {
-	pidFile := path.Join(os.TempDir(), "wiretrustee-ui.pid")
+	pidFile := path.Join(os.TempDir(), "netbrid-ui.pid")
 	if piddata, err := os.ReadFile(pidFile); err == nil {
 		if pid, err := strconv.Atoi(string(piddata)); err == nil {
 			if pidExists(pid) {
