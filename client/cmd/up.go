@@ -163,7 +163,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
-	conn, err := DialClientGRPCServer(daemonAddr)
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
 		return fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+

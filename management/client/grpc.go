@@ -66,6 +66,10 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		return nil, err
 	}
 
+	if !conn.WaitForStateChange(ctx, connectivity.Ready) {
+		return nil, ctx.Err()
+	}
+
 	realClient := proto.NewManagementServiceClient(conn)
 
 	return &GrpcClient{

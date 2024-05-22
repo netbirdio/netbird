@@ -28,12 +28,18 @@ import (
 	"github.com/skratchdot/open-golang/open"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/version"
+)
+
+const (
+	defaultFailTimeout = 3 * time.Second
+	failFastTimeout    = time.Second
 )
 
 func main() {
@@ -259,7 +265,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				s.preSharedKey = s.iPreSharedKey.Text
 				s.adminURL = s.iAdminURL.Text
 
-				client, err := s.getSrvClient()
+				client, err := s.getSrvClient(failFastTimeout)
 				if err != nil {
 					log.Errorf("get daemon client: %v", err)
 					return
@@ -297,7 +303,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 }
 
 func (s *serviceClient) login() error {
-	conn, err := s.getSrvClient()
+	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return err
@@ -329,7 +335,7 @@ func (s *serviceClient) login() error {
 }
 
 func (s *serviceClient) menuUpClick() error {
-	conn, err := s.getSrvClient()
+	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return err
@@ -360,7 +366,7 @@ func (s *serviceClient) menuUpClick() error {
 }
 
 func (s *serviceClient) menuDownClick() error {
-	conn, err := s.getSrvClient()
+	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return err
@@ -386,7 +392,7 @@ func (s *serviceClient) menuDownClick() error {
 }
 
 func (s *serviceClient) updateStatus() error {
-	conn, err := s.getSrvClient()
+	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		return err
 	}
@@ -606,7 +612,7 @@ func normalizedVersion(version string) string {
 func (s *serviceClient) onTrayExit() {}
 
 // getSrvClient connection to the service.
-func (s *serviceClient) getSrvClient() (proto.DaemonServiceClient, error) {
+func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonServiceClient, error) {
 	if s.conn != nil {
 		return s.conn, nil
 	}
@@ -620,6 +626,13 @@ func (s *serviceClient) getSrvClient() (proto.DaemonServiceClient, error) {
 		return nil, fmt.Errorf("dial service: %w", err)
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if !conn.WaitForStateChange(ctx, connectivity.Ready) {
+		return nil, ctx.Err()
+	}
+
 	s.conn = proto.NewDaemonServiceClient(conn)
 	return s.conn, nil
 }
@@ -629,7 +642,7 @@ func (s *serviceClient) getSrvConfig() {
 	s.managementURL = internal.DefaultManagementURL
 	s.adminURL = internal.DefaultAdminURL
 
-	conn, err := s.getSrvClient()
+	conn, err := s.getSrvClient(failFastTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return

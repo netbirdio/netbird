@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/client/internal"
@@ -213,11 +214,23 @@ func FlagNameToEnvVar(cmdFlag string, prefix string) string {
 }
 
 // DialClientGRPCServer returns client connection to the daemon server.
-func DialClientGRPCServer(addr string) (*grpc.ClientConn, error) {
-	return grpc.NewClient(
+func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, error) {
+	conn, err := grpc.NewClient(
 		strings.TrimPrefix(addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, time.Second*3)
+	defer cancel()
+
+	if !conn.WaitForStateChange(ctx, connectivity.Ready) {
+		return nil, ctx.Err()
+	}
+
+	return conn, nil
 }
 
 // WithBackOff execute function in backoff cycle.
@@ -348,8 +361,8 @@ func migrateToNetbird(oldPath, newPath string) bool {
 	return true
 }
 
-func getClient() (*grpc.ClientConn, error) {
-	conn, err := DialClientGRPCServer(daemonAddr)
+func getClient(ctx context.Context) (*grpc.ClientConn, error) {
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+

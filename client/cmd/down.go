@@ -29,7 +29,7 @@ var downCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
 		defer cancel()
 
-		conn, err := DialClientGRPCServer(daemonAddr)
+		conn, err := DialClientGRPCServer(ctx, daemonAddr)
 		if err != nil {
 			log.Errorf("failed to connect to service CLI interface %v", err)
 			return err

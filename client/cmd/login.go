@@ -70,7 +70,7 @@ var loginCmd = &cobra.Command{
 			return nil
 		}
 
-		conn, err := DialClientGRPCServer(daemonAddr)
+		conn, err := DialClientGRPCServer(ctx, daemonAddr)
 		if err != nil {
 			return fmt.Errorf("failed to connect to daemon error: %v\n"+
 				"If the daemon is not running please run: "+
