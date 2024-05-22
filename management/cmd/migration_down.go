@@ -7,10 +7,11 @@ import (
 	"os"
 	"path"
 
-	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+
+	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/util"
 )
 
 var shortDown = "Rollback SQLite store to JSON file store. Please make a backup of the SQLite file before running this command."
@@ -39,16 +40,16 @@ var downCmd = &cobra.Command{
 			return fmt.Errorf("%s already exists, couldn't continue the operation", fileStorePath)
 		}
 
-		sqlstore, err := server.NewSqliteStore(mgmtDataDir, nil)
+		sqlStore, err := server.NewSqliteStore(mgmtDataDir, nil)
 		if err != nil {
 			return fmt.Errorf("failed creating file store: %s: %v", mgmtDataDir, err)
 		}
 
-		sqliteStoreAccounts := len(sqlstore.GetAllAccounts())
+		sqliteStoreAccounts := len(sqlStore.GetAllAccounts())
 		log.Infof("%d account will be migrated from sqlite store %s to file store %s",
 			sqliteStoreAccounts, sqliteStorePath, fileStorePath)
 
-		store, err := server.NewFilestoreFromSqliteStore(sqlstore, mgmtDataDir, nil)
+		store, err := server.NewFilestoreFromSqliteStore(sqlStore, mgmtDataDir, nil)
 		if err != nil {
 			return fmt.Errorf("failed creating file store: %s: %v", mgmtDataDir, err)
 		}

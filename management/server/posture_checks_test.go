@@ -3,8 +3,9 @@ package server
 import (
 	"testing"
 
-	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/netbird/management/server/posture"
 )
 
 const (

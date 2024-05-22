@@ -135,7 +135,7 @@ type Engine struct {
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
 
-	networkWatcher *networkmonitor.NetworkWatcher
+	networkMonitor *networkmonitor.NetworkMonitor
 
 	sshServerFunc func(hostKeyPEM []byte, addr string) (nbssh.Server, error)
 	sshServer     nbssh.Server
@@ -220,7 +220,6 @@ func NewEngineWithProbes(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
-		networkWatcher: networkmonitor.New(),
 		mgmProbe:       mgmProbe,
 		signalProbe:    signalProbe,
 		relayProbe:     relayProbe,
@@ -238,7 +237,10 @@ func (e *Engine) Stop() error {
 	}
 
 	// stopping network monitor first to avoid starting the engine again
-	e.networkWatcher.Stop()
+	if e.networkMonitor != nil {
+		e.networkMonitor.Stop()
+	}
+	log.Info("Network monitor: stopped")
 
 	err := e.removeAllPeers()
 	if err != nil {
@@ -268,7 +270,7 @@ func (e *Engine) Start() error {
 	}
 	e.ctx, e.cancel = context.WithCancel(e.clientCtx)
 
-	e.wgProxyFactory = wgproxy.NewFactory(e.clientCtx, e.config.WgPort)
+	e.wgProxyFactory = wgproxy.NewFactory(e.ctx, e.config.WgPort)
 
 	wgIface, err := e.newWgIface()
 	if err != nil {
@@ -353,20 +355,8 @@ func (e *Engine) Start() error {
 	e.receiveManagementEvents()
 	e.receiveProbeEvents()
 
-	if e.config.NetworkMonitor {
-		// starting network monitor at the very last to avoid disruptions
-		go e.networkWatcher.Start(e.ctx, func() {
-			log.Infof("Network monitor detected network change, restarting engine")
-			if err := e.Stop(); err != nil {
-				log.Errorf("Failed to stop engine: %v", err)
-			}
-			if err := e.Start(); err != nil {
-				log.Errorf("Failed to start engine: %v", err)
-			}
-		})
-	} else {
-		log.Infof("Network monitor is disabled, not starting")
-	}
+	// starting network monitor at the very last to avoid disruptions
+	e.startNetworkMonitor()
 
 	return nil
 }
@@ -1439,6 +1429,29 @@ func (e *Engine) probeSTUNs() []relay.ProbeResult {
 
 func (e *Engine) probeTURNs() []relay.ProbeResult {
 	return relay.ProbeAll(e.ctx, relay.ProbeTURN, e.TURNs)
+}
+
+func (e *Engine) startNetworkMonitor() {
+	if !e.config.NetworkMonitor {
+		log.Infof("Network monitor is disabled, not starting")
+		return
+	}
+
+	e.networkMonitor = networkmonitor.New()
+	go func() {
+		err := e.networkMonitor.Start(e.ctx, func() {
+			log.Infof("Network monitor detected network change, restarting engine")
+			if err := e.Stop(); err != nil {
+				log.Errorf("Failed to stop engine: %v", err)
+			}
+			if err := e.Start(); err != nil {
+				log.Errorf("Failed to start engine: %v", err)
+			}
+		})
+		if err != nil && !errors.Is(err, networkmonitor.ErrStopped) {
+			log.Errorf("Network monitor: %v", err)
+		}
+	}()
 }
 
 // isChecksEqual checks if two slices of checks are equal.
