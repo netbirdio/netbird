@@ -17,6 +17,7 @@ ARCH="$(uname -m)"
 PACKAGE_MANAGER="bin"
 INSTALL_DIR=""
 SUDO=""
+IS_SYNOLOGY="false"
 
 
 if command -v sudo > /dev/null && [ "$(id -u)" -ne 0 ]; then
@@ -173,6 +174,15 @@ install_native_binaries() {
     download_release_binary "$CLI_APP"
     if ! $SKIP_UI_APP; then
         download_release_binary "$UI_APP"
+    fi
+
+    if "x-$IS_SYNOLOGY" = "x-true"; then
+        ${SUDO} mkdir -p /etc/sysconfig
+        if ${SUDO} grep NB_WG_KERNEL_DISABLED /etc/sysconfig/netbird > /dev/null 2>&1; then
+            echo "NB_WG_KERNEL_DISABLED already set"
+        else
+            echo 'NB_WG_KERNEL_DISABLED=true' | ${SUDO} tee -a /etc/sysconfig/netbird
+        fi
     fi
 }
 
@@ -356,6 +366,7 @@ if type uname >/dev/null 2>&1; then
             INSTALL_DIR="/usr/local/bin"
             PACKAGE_MANAGER="bin"
             SKIP_UI_APP=true
+            IS_SYNOLOGY="true"
           else
             if [ -f /etc/os-release ]; then
               OS_NAME="$(. /etc/os-release && echo "$ID")"
