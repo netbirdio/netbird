@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	_ "embed"
 	"flag"
@@ -473,7 +474,6 @@ func (s *serviceClient) updateStatus() error {
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	})
-
 	if err != nil {
 		return err
 	}
@@ -719,13 +719,40 @@ func checkPIDFile() error {
 	pidFile := path.Join(os.TempDir(), "wiretrustee-ui.pid")
 	if piddata, err := os.ReadFile(pidFile); err == nil {
 		if pid, err := strconv.Atoi(string(piddata)); err == nil {
-			if process, err := os.FindProcess(pid); err == nil {
-				if err := process.Signal(syscall.Signal(0)); err == nil {
-					return fmt.Errorf("process already exists: %d", pid)
-				}
+			if pidExists(pid) {
+				return fmt.Errorf("process already exists: %d", pid)
 			}
 		}
 	}
 
 	return os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0o664) //nolint:gosec
+}
+
+func pidExists(pid int) bool {
+	if runtime.GOOS != "windows" {
+		if process, err := os.FindProcess(pid); err == nil {
+			if err := process.Signal(syscall.Signal(0)); err == nil {
+				return true
+			}
+		}
+	}
+	// Prepare the command
+	cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid))
+
+	// Get the output
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+
+	// Parse the output
+	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, fmt.Sprintf("%d", pid)) {
+			return true
+		}
+	}
+
+	return false
 }
