@@ -19,7 +19,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/client/internal"
@@ -215,22 +214,15 @@ func FlagNameToEnvVar(cmdFlag string, prefix string) string {
 
 // DialClientGRPCServer returns client connection to the daemon server.
 func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, error) {
-	conn, err := grpc.NewClient(
-		strings.TrimPrefix(addr, "tcp://"),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return nil, err
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, time.Second*3)
 	defer cancel()
 
-	if !conn.WaitForStateChange(ctx, connectivity.Ready) {
-		return nil, ctx.Err()
-	}
-
-	return conn, nil
+	return grpc.DialContext(
+		ctx,
+		strings.TrimPrefix(addr, "tcp://"),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+	)
 }
 
 // WithBackOff execute function in backoff cycle.

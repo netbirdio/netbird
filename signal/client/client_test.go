@@ -213,8 +213,10 @@ func createSignalClient(addr string, key wgtypes.Key) *GrpcClient {
 }
 
 func createRawSignalClient(addr string) sigProto.SignalExchangeClient {
-	conn, err := grpc.NewClient(addr,
+	ctx := context.Background()
+	conn, err := grpc.DialContext(ctx, addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    3 * time.Second,
 			Timeout: 2 * time.Second,

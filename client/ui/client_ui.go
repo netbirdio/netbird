@@ -28,7 +28,6 @@ import (
 	"github.com/skratchdot/open-golang/open"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/client/internal"
@@ -617,20 +616,18 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 		return s.conn, nil
 	}
 
-	conn, err := grpc.NewClient(
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	conn, err := grpc.DialContext(
+		ctx,
 		strings.TrimPrefix(s.addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
 		grpc.WithUserAgent(system.GetDesktopUIUserAgent()),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dial service: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	if !conn.WaitForStateChange(ctx, connectivity.Ready) {
-		return nil, ctx.Err()
 	}
 
 	s.conn = proto.NewDaemonServiceClient(conn)
