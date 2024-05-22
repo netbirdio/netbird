@@ -3,6 +3,7 @@ package iface
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -79,8 +80,19 @@ func TestWGIface_UpdateAddr(t *testing.T) {
 		t.Error(err)
 	}
 
-	assert.Equal(t, addr, addrs[0].String())
+	var found bool
+	for _, a := range addrs {
+		prefix, err := netip.ParsePrefix(a.String())
+		assert.NoError(t, err)
+		if prefix.Addr().Is4() {
+			found = true
+			assert.Equal(t, addr, prefix.String())
+		}
+	}
 
+	if !found {
+		t.Fatal("v4 address not found")
+	}
 }
 
 func getIfaceAddrs(ifaceName string) ([]net.Addr, error) {
