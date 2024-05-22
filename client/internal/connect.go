@@ -335,6 +335,9 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 	if err != nil {
 		return nil, err
 	}
+	if port != config.WgPort {
+		log.Infof("using %d as wireguard port: %d is in use", port, config.WgPort)
+	}
 	engineConf.WgPort = port
 
 	return engineConf, nil
