@@ -85,16 +85,23 @@ func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, 
 
 // check returns the firewall type based on common lib checks. It returns UNKNOWN if no firewall is found.
 func check() FWType {
+	useIPTABLES := false
+	ip, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	if err == nil && isIptablesClientAvailable(ip) {
+		useIPTABLES = true
+		major, minor, _ := ip.GetIptablesVersion()
+		// use iptables when its version is lower than 1.8.0 which doesn't work well with our nftables manager
+		if major < 1 || minor < 8 {
+			return IPTABLES
+		}
+	}
+
 	nf := nftables.Conn{}
 	if _, err := nf.ListChains(); err == nil && os.Getenv(SKIP_NFTABLES_ENV) != "true" {
 		return NFTABLES
 	}
 
-	ip, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
-	if err != nil {
-		return UNKNOWN
-	}
-	if isIptablesClientAvailable(ip) {
+	if useIPTABLES {
 		return IPTABLES
 	}
 
