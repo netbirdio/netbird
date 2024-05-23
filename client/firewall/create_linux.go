@@ -85,16 +85,55 @@ func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, 
 
 // check returns the firewall type based on common lib checks. It returns UNKNOWN if no firewall is found.
 func check() FWType {
-	nf := nftables.Conn{}
-	if _, err := nf.ListChains(); err == nil && os.Getenv(SKIP_NFTABLES_ENV) != "true" {
-		return NFTABLES
+	useIPTABLES := false
+	testingChain := "netbird-testing"
+	ip, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	if err == nil && isIptablesClientAvailable(ip) {
+		major, minor, _ := ip.GetIptablesVersion()
+		// use iptables when its version is lower than 1.8.0 which doesn't work well with our nftables manager
+		if major < 1 || (major == 1 && minor < 8) {
+			return IPTABLES
+		}
+
+		useIPTABLES = true
+
+		// create a testing chain to check if iptables is working and to validate if nftables can be used
+		err = ip.NewChain("filter", testingChain)
+		if err != nil {
+			useIPTABLES = false
+		}
 	}
 
-	ip, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
-	if err != nil {
-		return UNKNOWN
+	defer func() {
+		if !useIPTABLES {
+			return
+		}
+		err = ip.ClearChain("filter", testingChain)
+		if err != nil {
+			log.Errorf("failed to clear netbird-testing chain: %v", err)
+		}
+		err = ip.DeleteChain("filter", testingChain)
+		if err != nil {
+			log.Errorf("failed to delete netbird-testing chain: %v", err)
+		}
+	}()
+
+	nf := nftables.Conn{}
+	if chains, err := nf.ListChains(); err == nil && os.Getenv(SKIP_NFTABLES_ENV) != "true" {
+		if !useIPTABLES {
+			return NFTABLES
+		}
+		// search for the testing chain created by iptables client
+		// failing to find it means that nftables can be used but the system is using a version of iptables
+		// that doesn't work well with our nftables manager
+		for _, chain := range chains {
+			if chain.Name == testingChain {
+				return NFTABLES
+			}
+		}
 	}
-	if isIptablesClientAvailable(ip) {
+
+	if useIPTABLES {
 		return IPTABLES
 	}
 
