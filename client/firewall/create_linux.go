@@ -91,7 +91,7 @@ func check() FWType {
 	if err == nil && isIptablesClientAvailable(ip) {
 		major, minor, _ := ip.GetIptablesVersion()
 		// use iptables when its version is lower than 1.8.0 which doesn't work well with our nftables manager
-		if major < 2 && minor < 8 {
+		if major < 1 || (major == 1 && minor < 8) {
 			return IPTABLES
 		}
 
