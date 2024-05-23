@@ -219,15 +219,5 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string) {
 
 // isLinuxRunningDesktop checks if a Linux OS is running desktop environment
 func isLinuxRunningDesktop() bool {
-	if os.Getenv("DESKTOP_SESSION") != "" {
-		return true
-	}
-
-	for _, env := range os.Environ() {
-		if strings.HasPrefix(env, "XDG_") {
-			return true
-		}
-	}
-
-	return false
+	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
 }
