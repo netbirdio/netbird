@@ -1788,8 +1788,10 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		}
 	}
 
+	start := time.Now()
 	unlock := am.Store.AcquireGlobalLock()
 	defer unlock()
+	log.Debugf("Acquired global lock in %s for user %s", time.Since(start), claims.UserId)
 
 	// We checked if the domain has a primary account already
 	domainAccount, err := am.Store.GetAccountByPrivateDomain(claims.Domain)
