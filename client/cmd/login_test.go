@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -49,5 +51,26 @@ func TestLogin(t *testing.T) {
 
 	if len(actualConf.PrivateKey) == 0 {
 		t.Errorf("expected non empty Private key, got empty")
+	}
+}
+
+func TestIsLinuxRunningDesktop(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("skipping test on non-linux platform")
+	}
+
+	err := os.Setenv("XDG_FOOL", "BAR")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		err := os.Unsetenv("XDG_FOOL")
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+	isDesktop := isLinuxRunningDesktop()
+	if !isDesktop {
+		t.Errorf("expected desktop environment, got false")
 	}
 }
