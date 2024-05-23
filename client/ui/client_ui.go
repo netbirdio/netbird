@@ -742,6 +742,7 @@ func pidExists(pid int) bool {
 	// Get the output
 	output, err := cmd.Output()
 	if err != nil {
+        log.Tracef("Failed to list tasks: %v, output: %s", err, output)
 		return false
 	}
 
