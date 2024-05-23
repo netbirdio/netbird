@@ -103,7 +103,7 @@ func check() FWType {
 	}
 
 	defer func() {
-		if ip != nil {
+		if ip == nil {
 			return
 		}
 		err = ip.ClearChain("filter", testingChain)
