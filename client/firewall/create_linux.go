@@ -111,6 +111,9 @@ func check() FWType {
 
 	nf := nftables.Conn{}
 	if chains, err := nf.ListChains(); err == nil && os.Getenv(SKIP_NFTABLES_ENV) != "true" {
+		if !useIPTABLES {
+			return NFTABLES
+		}
 		for _, chain := range chains {
 			if chain.Name == testingChain {
 				return NFTABLES
