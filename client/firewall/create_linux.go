@@ -103,6 +103,13 @@ func check() FWType {
 	}
 
 	defer func() {
+		if ip != nil {
+			return
+		}
+		err = ip.ClearChain("filter", testingChain)
+		if err != nil {
+			log.Errorf("failed to clear netbird-testing chain: %v", err)
+		}
 		err = ip.DeleteChain("filter", testingChain)
 		if err != nil {
 			log.Errorf("failed to delete netbird-testing chain: %v", err)
