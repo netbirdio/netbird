@@ -5,11 +5,9 @@ import (
 )
 
 const (
-	MsgTypeHello          MsgType = 0
-	MsgTypeHelloResponse  MsgType = 1
-	MsgTypeBindNewChannel MsgType = 2
-	MsgTypeBindResponse   MsgType = 3
-	MsgTypeTransport      MsgType = 4
+	MsgTypeHello         MsgType = 0
+	MsgTypeHelloResponse MsgType = 1
+	MsgTypeTransport     MsgType = 2
 )
 
 var (
@@ -22,10 +20,8 @@ func (m MsgType) String() string {
 	switch m {
 	case MsgTypeHello:
 		return "hello"
-	case MsgTypeBindNewChannel:
-		return "bind new channel"
-	case MsgTypeBindResponse:
-		return "bind response"
+	case MsgTypeHelloResponse:
+		return "hello response"
 	case MsgTypeTransport:
 		return "transport"
 	default:
@@ -38,8 +34,6 @@ func DetermineClientMsgType(msg []byte) (MsgType, error) {
 	msgType := MsgType(msg[0])
 	switch msgType {
 	case MsgTypeHello:
-		return msgType, nil
-	case MsgTypeBindNewChannel:
 		return msgType, nil
 	case MsgTypeTransport:
 		return msgType, nil
@@ -54,8 +48,6 @@ func DetermineServerMsgType(msg []byte) (MsgType, error) {
 	switch msgType {
 	case MsgTypeHelloResponse:
 		return msgType, nil
-	case MsgTypeBindResponse:
-		return msgType, nil
 	case MsgTypeTransport:
 		return msgType, nil
 	default:
@@ -64,21 +56,21 @@ func DetermineServerMsgType(msg []byte) (MsgType, error) {
 }
 
 // MarshalHelloMsg initial hello message
-func MarshalHelloMsg(peerID string) ([]byte, error) {
-	if len(peerID) == 0 {
-		return nil, fmt.Errorf("invalid peer id")
+func MarshalHelloMsg(peerID []byte) ([]byte, error) {
+	if len(peerID) != IDSize {
+		return nil, fmt.Errorf("invalid peerID length")
 	}
 	msg := make([]byte, 1, 1+len(peerID))
 	msg[0] = byte(MsgTypeHello)
-	msg = append(msg, []byte(peerID)...)
+	msg = append(msg, peerID...)
 	return msg, nil
 }
 
-func UnmarshalHelloMsg(msg []byte) (string, error) {
+func UnmarshalHelloMsg(msg []byte) ([]byte, error) {
 	if len(msg) < 2 {
-		return "", fmt.Errorf("invalid 'hello' messge")
+		return nil, fmt.Errorf("invalid 'hello' messge")
 	}
-	return string(msg[1:]), nil
+	return msg[1:], nil
 }
 
 func MarshalHelloResponse() []byte {
@@ -87,71 +79,40 @@ func MarshalHelloResponse() []byte {
 	return msg
 }
 
-// Bind new channel
-
-func MarshalBindNewChannelMsg(destinationPeerId string) []byte {
-	msg := make([]byte, 1, 1+len(destinationPeerId))
-	msg[0] = byte(MsgTypeBindNewChannel)
-	msg = append(msg, []byte(destinationPeerId)...)
-	return msg
-}
-
-func UnmarshalBindNewChannel(msg []byte) (string, error) {
-	if len(msg) < 2 {
-		return "", fmt.Errorf("invalid 'bind new channel' messge")
-	}
-	return string(msg[1:]), nil
-}
-
-// Bind response
-
-func MarshalBindResponseMsg(channelId uint16, id string) []byte {
-	data := []byte(id)
-	msg := make([]byte, 3, 3+len(data))
-	msg[0] = byte(MsgTypeBindResponse)
-	msg[1], msg[2] = uint8(channelId>>8), uint8(channelId&0xff)
-	msg = append(msg, data...)
-	return msg
-}
-
-func UnmarshalBindResponseMsg(buf []byte) (uint16, string, error) {
-	if len(buf) < 3 {
-		return 0, "", ErrInvalidMessageLength
-	}
-	channelId := uint16(buf[1])<<8 | uint16(buf[2])
-	peerID := string(buf[3:])
-	return channelId, peerID, nil
-}
-
 // Transport message
 
-func MarshalTransportMsg(channelId uint16, payload []byte) []byte {
-	msg := make([]byte, 3, 3+len(payload))
+func MarshalTransportMsg(peerID []byte, payload []byte) []byte {
+	if len(peerID) != IDSize {
+		return nil
+	}
+
+	msg := make([]byte, 1+IDSize, 1+IDSize+len(payload))
 	msg[0] = byte(MsgTypeTransport)
-	msg[1], msg[2] = uint8(channelId>>8), uint8(channelId&0xff)
+	copy(msg[1:], peerID)
 	msg = append(msg, payload...)
 	return msg
 }
 
 func UnmarshalTransportPayload(buf []byte) ([]byte, error) {
-	if len(buf) < 3 {
+	headerSize := 1 + IDSize
+	if len(buf) < headerSize {
 		return nil, ErrInvalidMessageLength
 	}
-	return buf[3:], nil
+	return buf[headerSize:], nil
 }
 
-func UnmarshalTransportID(buf []byte) (uint16, error) {
-	if len(buf) < 3 {
-		return 0, ErrInvalidMessageLength
+func UnmarshalTransportID(buf []byte) ([]byte, error) {
+	headerSize := 1 + IDSize
+	if len(buf) < headerSize {
+		return nil, ErrInvalidMessageLength
 	}
-	channelId := uint16(buf[1])<<8 | uint16(buf[2])
-	return channelId, nil
+	return buf[1:headerSize], nil
 }
 
-func UpdateTransportMsg(msg []byte, channelId uint16) error {
-	if len(msg) < 3 {
+func UpdateTransportMsg(msg []byte, peerID []byte) error {
+	if len(msg) < 1+len(peerID) {
 		return ErrInvalidMessageLength
 	}
-	msg[1], msg[2] = uint8(channelId>>8), uint8(channelId&0xff)
+	copy(msg[1:], peerID)
 	return nil
 }

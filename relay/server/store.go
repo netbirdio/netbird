@@ -5,8 +5,8 @@ import (
 )
 
 type Store struct {
-	peers     map[string]*Peer // Key is the id (public key or sha-256) of the peer
-	peersLock sync.Mutex
+	peers     map[string]*Peer // consider to use [32]byte as key. The Peer(id string) would be faster
+	peersLock sync.RWMutex
 }
 
 func NewStore() *Store {
@@ -18,31 +18,20 @@ func NewStore() *Store {
 func (s *Store) AddPeer(peer *Peer) {
 	s.peersLock.Lock()
 	defer s.peersLock.Unlock()
-	s.peers[peer.ID()] = peer
-}
-
-func (s *Store) Link(peer *Peer, peerForeignID string) uint16 {
-	s.peersLock.Lock()
-	defer s.peersLock.Unlock()
-
-	channelId := peer.BindChannel(peerForeignID)
-	dstPeer, ok := s.peers[peerForeignID]
-	if !ok {
-		return channelId
-	}
-
-	foreignChannelID, ok := dstPeer.AddParticipant(peer, channelId)
-	if !ok {
-		return channelId
-	}
-	peer.AddParticipant(dstPeer, foreignChannelID)
-	return channelId
+	s.peers[peer.String()] = peer
 }
 
 func (s *Store) DeletePeer(peer *Peer) {
 	s.peersLock.Lock()
 	defer s.peersLock.Unlock()
 
-	delete(s.peers, peer.ID())
-	peer.DeleteParticipants()
+	delete(s.peers, peer.String())
+}
+
+func (s *Store) Peer(id string) (*Peer, bool) {
+	s.peersLock.RLock()
+	defer s.peersLock.RUnlock()
+
+	p, ok := s.peers[id]
+	return p, ok
 }

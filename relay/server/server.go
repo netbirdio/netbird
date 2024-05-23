@@ -16,7 +16,6 @@ import (
 // todo:
 // authentication: provide JWT token via RPC call. The MGM server can forward the token to the agents.
 // connection timeout handling
-// implement HA (High Availability) mode
 type Server struct {
 	store *Store
 
@@ -75,52 +74,33 @@ func (r *Server) accept(conn net.Conn) {
 			return
 		}
 		switch msgType {
-		case messages.MsgTypeBindNewChannel:
-			dstPeerId, err := messages.UnmarshalBindNewChannel(buf[:n])
-			if err != nil {
-				log.Errorf("failed to unmarshal bind new channel message: %s", err)
-				continue
-			}
-
-			channelID := r.store.Link(peer, dstPeerId)
-
-			msg := messages.MarshalBindResponseMsg(channelID, dstPeerId)
-			_, err = conn.Write(msg)
-			if err != nil {
-				peer.Log.Errorf("failed to response to bind request: %s", err)
-				continue
-			}
-			peer.Log.Debugf("bind new channel with '%s', channelID: %d", dstPeerId, channelID)
 		case messages.MsgTypeTransport:
 			msg := buf[:n]
-			channelId, err := messages.UnmarshalTransportID(msg)
+			peerID, err := messages.UnmarshalTransportID(msg)
 			if err != nil {
 				peer.Log.Errorf("failed to unmarshal transport message: %s", err)
 				continue
 			}
 			go func() {
-				foreignChannelID, remoteConn, err := peer.ConnByChannelID(channelId)
-				if err != nil {
-					peer.Log.Errorf("failed to transport message from peer '%s' to '%d': %s", peer.ID(), channelId, err)
+				stringPeerID := messages.HashIDToString(peerID)
+				dp, ok := r.store.Peer(stringPeerID)
+				if !ok {
+					peer.Log.Errorf("peer not found: %s", stringPeerID)
 					return
 				}
-
-				err = transportTo(remoteConn, foreignChannelID, msg)
+				err := messages.UpdateTransportMsg(msg, peer.ID())
 				if err != nil {
-					peer.Log.Errorf("failed to transport message from peer '%s' to '%d': %s", peer.ID(), channelId, err)
+					peer.Log.Errorf("failed to update transport message: %s", err)
+					return
 				}
+				_, err = dp.conn.Write(msg)
+				if err != nil {
+					peer.Log.Errorf("failed to write transport message to: %s", dp.String())
+				}
+				return
 			}()
 		}
 	}
-}
-
-func transportTo(conn net.Conn, channelID uint16, msg []byte) error {
-	err := messages.UpdateTransportMsg(msg, channelID)
-	if err != nil {
-		return err
-	}
-	_, err = conn.Write(msg)
-	return err
 }
 
 func handShake(conn net.Conn) (*Peer, error) {

@@ -10,15 +10,15 @@ import (
 )
 
 type Listener struct {
-	address string
-
+	address    string
+	conns      map[string]*UDPConn
 	onAcceptFn func(conn net.Conn)
 
-	conns    map[string]*UDPConn
-	wg       sync.WaitGroup
-	quit     chan struct{}
-	lock     sync.Mutex
 	listener *net.UDPConn
+
+	wg   sync.WaitGroup
+	quit chan struct{}
+	lock sync.Mutex
 }
 
 func NewListener(address string) listener.Listener {
@@ -34,17 +34,20 @@ func (l *Listener) Listen(onAcceptFn func(conn net.Conn)) error {
 	l.onAcceptFn = onAcceptFn
 	l.quit = make(chan struct{})
 
-	addr := &net.UDPAddr{
-		Port: 1234,
-		IP:   net.ParseIP("0.0.0.0"),
-	}
-	li, err := net.ListenUDP("udp", addr)
+	addr, err := net.ResolveUDPAddr("udp", l.address)
 	if err != nil {
-		log.Errorf("%s", err)
+		log.Errorf("invalid listen address '%s': %s", l.address, err)
 		l.lock.Unlock()
 		return err
 	}
-	log.Debugf("udp server is listening on address: %s", l.address)
+
+	li, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		log.Fatalf("%s", err)
+		l.lock.Unlock()
+		return err
+	}
+	log.Debugf("udp server is listening on address: %s", addr.String())
 	l.listener = li
 	l.wg.Add(1)
 	go l.readLoop()
@@ -54,14 +57,18 @@ func (l *Listener) Listen(onAcceptFn func(conn net.Conn)) error {
 	return nil
 }
 
-// Close todo: prevent multiple call (do not close two times the channel)
 func (l *Listener) Close() error {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 
+	if l.listener == nil {
+		return nil
+	}
+
 	close(l.quit)
 	err := l.listener.Close()
 	l.wg.Wait()
+	l.listener = nil
 	return err
 }
 
@@ -91,6 +98,5 @@ func (l *Listener) readLoop() {
 		l.conns[addr.String()] = pConn
 		go l.onAcceptFn(pConn)
 		pConn.onNewMsg(buf[:n])
-
 	}
 }

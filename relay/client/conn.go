@@ -6,23 +6,23 @@ import (
 )
 
 type Conn struct {
-	client    *Client
-	channelID uint16
-	readerFn  func(b []byte) (n int, err error)
+	client   *Client
+	dstID    []byte
+	readerFn func(b []byte) (n int, err error)
 }
 
-func NewConn(client *Client, channelID uint16, readerFn func(b []byte) (n int, err error)) *Conn {
+func NewConn(client *Client, dstID []byte, readerFn func(b []byte) (n int, err error)) *Conn {
 	c := &Conn{
-		client:    client,
-		channelID: channelID,
-		readerFn:  readerFn,
+		client:   client,
+		dstID:    dstID,
+		readerFn: readerFn,
 	}
 
 	return c
 }
 
 func (c *Conn) Write(p []byte) (n int, err error) {
-	return c.client.writeTo(c.channelID, p)
+	return c.client.writeTo(c.dstID, p)
 }
 
 func (c *Conn) Read(b []byte) (n int, err error) {

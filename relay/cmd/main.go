@@ -1,8 +1,9 @@
 package main
 
 import (
-	"github.com/netbirdio/netbird/util"
 	"os"
+
+	"github.com/netbirdio/netbird/util"
 
 	log "github.com/sirupsen/logrus"
 
@@ -15,7 +16,7 @@ func init() {
 
 func main() {
 
-	address := "0.0.0.0:1234"
+	address := "10.145.236.1:1235"
 	srv := server.NewServer()
 	err := srv.Listen(address)
 	if err != nil {
