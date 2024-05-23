@@ -1840,6 +1840,9 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error) {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(peerPubKey)
 	if err != nil {
+		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
+			return nil, nil, status.Errorf(status.Unauthenticated, "peer not registered")
+		}
 		return nil, nil, err
 	}
 
@@ -1867,6 +1870,9 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.I
 func (am *DefaultAccountManager) CancelPeerRoutines(peer *nbpeer.Peer) error {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(peer.Key)
 	if err != nil {
+		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
+			return status.Errorf(status.Unauthenticated, "peer not registered")
+		}
 		return err
 	}
 
