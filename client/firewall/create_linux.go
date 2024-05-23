@@ -86,6 +86,7 @@ func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, 
 // check returns the firewall type based on common lib checks. It returns UNKNOWN if no firewall is found.
 func check() FWType {
 	useIPTABLES := false
+	testingChain := "netbird-testing"
 	ip, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err == nil && isIptablesClientAvailable(ip) {
 		useIPTABLES = true
@@ -94,11 +95,27 @@ func check() FWType {
 		if major < 1 || minor < 8 {
 			return IPTABLES
 		}
+
+		err = ip.NewChain("filter", testingChain)
+		if err != nil {
+			useIPTABLES = false
+		}
 	}
 
+	defer func() {
+		err = ip.DeleteChain("filter", testingChain)
+		if err != nil {
+			log.Errorf("failed to delete netbird-testing chain: %v", err)
+		}
+	}()
+
 	nf := nftables.Conn{}
-	if _, err := nf.ListChains(); err == nil && os.Getenv(SKIP_NFTABLES_ENV) != "true" {
-		return NFTABLES
+	if chains, err := nf.ListChains(); err == nil && os.Getenv(SKIP_NFTABLES_ENV) != "true" {
+		for _, chain := range chains {
+			if chain.Name == testingChain {
+				return NFTABLES
+			}
+		}
 	}
 
 	if useIPTABLES {
