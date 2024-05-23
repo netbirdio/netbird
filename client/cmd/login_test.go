@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -59,16 +58,8 @@ func TestIsLinuxRunningDesktop(t *testing.T) {
 		t.Skip("skipping test on non-linux platform")
 	}
 
-	err := os.Setenv("XDG_FOO", "BAR")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		err := os.Unsetenv("XDG_FOO")
-		if err != nil {
-			t.Fatal(err)
-		}
-	})
+	t.Setenv("XDG_FOO", "BAR")
+
 	isDesktop := isLinuxRunningDesktop()
 	if !isDesktop {
 		t.Errorf("expected desktop environment, got false")
