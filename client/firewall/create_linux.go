@@ -89,13 +89,15 @@ func check() FWType {
 	testingChain := "netbird-testing"
 	ip, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err == nil && isIptablesClientAvailable(ip) {
-		useIPTABLES = true
 		major, minor, _ := ip.GetIptablesVersion()
 		// use iptables when its version is lower than 1.8.0 which doesn't work well with our nftables manager
 		if major < 1 || minor < 8 {
 			return IPTABLES
 		}
 
+		useIPTABLES = true
+
+		// create a testing chain to check if iptables is working and to validate if nftables can be used
 		err = ip.NewChain("filter", testingChain)
 		if err != nil {
 			useIPTABLES = false
@@ -103,7 +105,7 @@ func check() FWType {
 	}
 
 	defer func() {
-		if ip == nil {
+		if !useIPTABLES {
 			return
 		}
 		err = ip.ClearChain("filter", testingChain)
@@ -121,6 +123,9 @@ func check() FWType {
 		if !useIPTABLES {
 			return NFTABLES
 		}
+		// search for the testing chain created by iptables client
+		// failing to find it means that nftables can be used but the system is using a version of iptables
+		// that doesn't work well with our nftables manager
 		for _, chain := range chains {
 			if chain.Name == testingChain {
 				return NFTABLES
