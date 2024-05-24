@@ -42,20 +42,20 @@ func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, 
 
 	switch check() {
 	case IPTABLES:
-		log.Debug("creating an iptables firewall manager")
+		log.Info("creating an iptables firewall manager")
 		fm, errFw = nbiptables.Create(context, iface)
 		if errFw != nil {
 			log.Errorf("failed to create iptables manager: %s", errFw)
 		}
 	case NFTABLES:
-		log.Debug("creating an nftables firewall manager")
+		log.Info("creating an nftables firewall manager")
 		fm, errFw = nbnftables.Create(context, iface)
 		if errFw != nil {
 			log.Errorf("failed to create nftables manager: %s", errFw)
 		}
 	default:
 		errFw = fmt.Errorf("no firewall manager found")
-		log.Debug("no firewall manager found, try to use userspace packet filtering firewall")
+		log.Info("no firewall manager found, trying to use userspace packet filtering firewall")
 	}
 
 	if iface.IsUserspaceBind() {
