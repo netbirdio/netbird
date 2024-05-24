@@ -55,7 +55,7 @@ func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, 
 		}
 	default:
 		errFw = fmt.Errorf("no firewall manager found")
-		log.Info("no firewall manager found, try to use userspace packet filtering firewall")
+		log.Info("no firewall manager found, trying to use userspace packet filtering firewall")
 	}
 
 	if iface.IsUserspaceBind() {
