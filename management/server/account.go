@@ -1858,7 +1858,7 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.I
 
 	peer, netMap, err := am.SyncPeer(PeerSync{WireGuardPubKey: peerPubKey}, account)
 	if err != nil {
-		return nil, nil, mapError(err)
+		return nil, nil, err
 	}
 
 	err = am.MarkPeerConnected(peerPubKey, true, realIP, account)
