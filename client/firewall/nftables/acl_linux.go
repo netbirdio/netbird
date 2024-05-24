@@ -600,7 +600,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 
 	// netbird-acl-input-filter
 	// type filter hook input priority filter; policy accept;
-	chain = m.createFilterChainWithHook(chainNameInputFilter, nftables.ChainHookInput)
+	chain = m.createFilterChainWithHook(chainNameInputFilter, *nftables.ChainHookInput)
 	//netbird-acl-input-filter iifname "wt0" ip saddr 100.72.0.0/16 ip daddr != 100.72.0.0/16 accept
 	m.addRouteAllowRule(chain, expr.MetaKeyIIFNAME)
 	m.addFwdAllow(chain, expr.MetaKeyIIFNAME)
@@ -614,7 +614,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 
 	// netbird-acl-output-filter
 	// type filter hook output priority filter; policy accept;
-	chain = m.createFilterChainWithHook(chainNameOutputFilter, nftables.ChainHookOutput)
+	chain = m.createFilterChainWithHook(chainNameOutputFilter, *nftables.ChainHookOutput)
 	m.addRouteAllowRule(chain, expr.MetaKeyOIFNAME)
 	m.addFwdAllow(chain, expr.MetaKeyOIFNAME)
 	m.addJumpRule(chain, m.chainOutputRules.Name, expr.MetaKeyOIFNAME) // to netbird-acl-output-rules
@@ -626,7 +626,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	}
 
 	// netbird-acl-forward-filter
-	m.chainFwFilter = m.createFilterChainWithHook(chainNameForwardFilter, nftables.ChainHookForward)
+	m.chainFwFilter = m.createFilterChainWithHook(chainNameForwardFilter, *nftables.ChainHookForward)
 	m.addJumpRulesToRtForward() // to
 	m.addMarkAccept()
 	m.addJumpRuleToInputChain() // to netbird-acl-input-rules
@@ -737,7 +737,7 @@ func (m *AclManager) createFilterChainWithHook(name string, hookNum nftables.Cha
 	chain := &nftables.Chain{
 		Name:     name,
 		Table:    m.workTable,
-		Hooknum:  hookNum,
+		Hooknum:  &hookNum,
 		Priority: nftables.ChainPriorityFilter,
 		Type:     nftables.ChainTypeFilter,
 		Policy:   &polAccept,

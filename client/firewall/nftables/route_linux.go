@@ -117,12 +117,12 @@ func (r *router) createContainers() error {
 		Name:  chainNameRouteingFw,
 		Table: r.workTable,
 	})
-
+	prio := *nftables.ChainPriorityNATSource - 1
 	r.chains[chainNameRoutingNat] = r.conn.AddChain(&nftables.Chain{
 		Name:     chainNameRoutingNat,
 		Table:    r.workTable,
 		Hooknum:  nftables.ChainHookPostrouting,
-		Priority: nftables.ChainPriorityNATSource - 1,
+		Priority: &prio,
 		Type:     nftables.ChainTypeNAT,
 	})
 
