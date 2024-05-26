@@ -117,14 +117,15 @@ func check() FWType {
 				return NFTABLES
 			}
 		}
+
 		// check tables for the following constraints:
-		// 1. there is no tables in nftables and there is at least one chain in iptables, we assume that nftables manager can not be used
+		// 1. there is no chain in nftables for the filter table and there is at least one chain in iptables, we assume that nftables manager can not be used
 		// 2. there is no tables or more than one table, we assume that nftables manager can be used
 		// 3. there is only one table and its name is filter, we assume that nftables manager can not be used, since there was no chain in it
 		// 4. if we find an error we log and continue with iptables check
 		nbTablesList, err := nf.ListTables()
 		switch {
-		case err == nil && len(nbTablesList) == 0 && len(iptablesChains) > 0:
+		case err == nil && len(iptablesChains) > 0:
 			return IPTABLES
 		case err == nil && len(nbTablesList) != 1:
 			return NFTABLES
