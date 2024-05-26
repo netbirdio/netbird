@@ -42,7 +42,7 @@ func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 		Addr: l.address,
 	}
 
-	log.Debugf("WS server is listening on address: %s", l.address)
+	log.Infof("WS server is listening on address: %s", l.address)
 	err := l.server.ListenAndServe()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
@@ -77,6 +77,7 @@ func (l *Listener) onAccept(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	conn := NewConn(wsConn)
+	log.Infof("new connection from: %s", conn.RemoteAddr())
 	l.acceptFn(conn)
 	return
 }

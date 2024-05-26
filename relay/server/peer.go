@@ -16,7 +16,6 @@ type Peer struct {
 }
 
 func NewPeer(id []byte, conn net.Conn) *Peer {
-	log.Debugf("new peer: %v", id)
 	stringID := messages.HashIDToString(id)
 	return &Peer{
 		Log:  log.WithField("peer_id", stringID),

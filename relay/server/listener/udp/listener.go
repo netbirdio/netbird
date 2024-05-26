@@ -61,6 +61,7 @@ func (l *Listener) Close() error {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 
+	log.Infof("closing UDP server")
 	if l.listener == nil {
 		return nil
 	}
@@ -95,6 +96,7 @@ func (l *Listener) readLoop() {
 		}
 
 		pConn = NewConn(l.listener, addr)
+		log.Infof("new connection from: %s", pConn.RemoteAddr())
 		l.conns[addr.String()] = pConn
 		go l.onAcceptFn(pConn)
 		pConn.onNewMsg(buf[:n])

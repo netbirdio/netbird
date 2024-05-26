@@ -1,6 +1,7 @@
 package test
 
 import (
+	"context"
 	"net"
 	"os"
 	"testing"
@@ -20,6 +21,8 @@ func TestMain(m *testing.M) {
 }
 
 func TestClient(t *testing.T) {
+	ctx := context.Background()
+
 	addr := "localhost:1234"
 	srv := server.NewServer()
 	go func() {
@@ -36,21 +39,21 @@ func TestClient(t *testing.T) {
 		}
 	}()
 
-	clientAlice := client.NewClient(addr, "alice")
+	clientAlice := client.NewClient(ctx, addr, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
 	defer clientAlice.Close()
 
-	clientPlaceHolder := client.NewClient(addr, "clientPlaceHolder")
+	clientPlaceHolder := client.NewClient(ctx, addr, "clientPlaceHolder")
 	err = clientPlaceHolder.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
 	defer clientPlaceHolder.Close()
 
-	clientBob := client.NewClient(addr, "bob")
+	clientBob := client.NewClient(ctx, addr, "bob")
 	err = clientBob.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -87,6 +90,7 @@ func TestClient(t *testing.T) {
 }
 
 func TestRegistration(t *testing.T) {
+	ctx := context.Background()
 	addr := "localhost:1234"
 	srv := server.NewServer()
 	go func() {
@@ -103,7 +107,7 @@ func TestRegistration(t *testing.T) {
 		}
 	}()
 
-	clientAlice := client.NewClient(addr, "alice")
+	clientAlice := client.NewClient(ctx, addr, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -117,6 +121,7 @@ func TestRegistration(t *testing.T) {
 }
 
 func TestRegistrationTimeout(t *testing.T) {
+	ctx := context.Background()
 	udpListener, err := net.ListenUDP("udp", &net.UDPAddr{
 		Port: 1234,
 		IP:   net.ParseIP("0.0.0.0"),
@@ -135,7 +140,7 @@ func TestRegistrationTimeout(t *testing.T) {
 	}
 	defer tcpListener.Close()
 
-	clientAlice := client.NewClient("127.0.0.1:1234", "alice")
+	clientAlice := client.NewClient(ctx, "127.0.0.1:1234", "alice")
 	err = clientAlice.Connect()
 	if err == nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -149,6 +154,7 @@ func TestRegistrationTimeout(t *testing.T) {
 }
 
 func TestEcho(t *testing.T) {
+	ctx := context.Background()
 	idAlice := "alice"
 	idBob := "bob"
 	addr := "localhost:1234"
@@ -167,7 +173,7 @@ func TestEcho(t *testing.T) {
 		}
 	}()
 
-	clientAlice := client.NewClient(addr, idAlice)
+	clientAlice := client.NewClient(ctx, addr, idAlice)
 	err := clientAlice.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -179,7 +185,7 @@ func TestEcho(t *testing.T) {
 		}
 	}()
 
-	clientBob := client.NewClient(addr, idBob)
+	clientBob := client.NewClient(ctx, addr, idBob)
 	err = clientBob.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -229,6 +235,8 @@ func TestEcho(t *testing.T) {
 }
 
 func TestBindToUnavailabePeer(t *testing.T) {
+	ctx := context.Background()
+
 	addr := "localhost:1234"
 	srv := server.NewServer()
 	go func() {
@@ -246,7 +254,7 @@ func TestBindToUnavailabePeer(t *testing.T) {
 		}
 	}()
 
-	clientAlice := client.NewClient(addr, "alice")
+	clientAlice := client.NewClient(ctx, addr, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -266,6 +274,8 @@ func TestBindToUnavailabePeer(t *testing.T) {
 }
 
 func TestBindReconnect(t *testing.T) {
+	ctx := context.Background()
+
 	addr := "localhost:1234"
 	srv := server.NewServer()
 	go func() {
@@ -283,7 +293,7 @@ func TestBindReconnect(t *testing.T) {
 		}
 	}()
 
-	clientAlice := client.NewClient(addr, "alice")
+	clientAlice := client.NewClient(ctx, addr, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -294,7 +304,7 @@ func TestBindReconnect(t *testing.T) {
 		t.Errorf("failed to bind channel: %s", err)
 	}
 
-	clientBob := client.NewClient(addr, "bob")
+	clientBob := client.NewClient(ctx, addr, "bob")
 	err = clientBob.Connect()
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -311,7 +321,7 @@ func TestBindReconnect(t *testing.T) {
 		t.Errorf("failed to close client: %s", err)
 	}
 
-	clientAlice = client.NewClient(addr, "alice")
+	clientAlice = client.NewClient(ctx, addr, "alice")
 	err = clientAlice.Connect()
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)

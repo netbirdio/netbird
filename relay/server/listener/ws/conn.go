@@ -1,7 +1,9 @@
 package ws
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -24,7 +26,7 @@ func NewConn(wsConn *websocket.Conn) *Conn {
 func (c *Conn) Read(b []byte) (n int, err error) {
 	t, r, err := c.NextReader()
 	if err != nil {
-		return 0, err
+		return 0, ioErrHandling(err)
 	}
 
 	if t != websocket.BinaryMessage {
@@ -32,7 +34,11 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 		return 0, fmt.Errorf("unexpected message type")
 	}
 
-	return r.Read(b)
+	n, err = r.Read(b)
+	if err != nil {
+		return 0, ioErrHandling(err)
+	}
+	return n, err
 }
 
 func (c *Conn) Write(b []byte) (int, error) {
@@ -54,4 +60,15 @@ func (c *Conn) SetDeadline(t time.Time) error {
 		return errW
 	}
 	return nil
+}
+
+func ioErrHandling(err error) error {
+	var wErr *websocket.CloseError
+	if !errors.As(err, &wErr) {
+		return err
+	}
+	if wErr.Code == websocket.CloseNormalClosure {
+		return io.EOF
+	}
+	return err
 }

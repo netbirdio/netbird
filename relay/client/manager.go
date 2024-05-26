@@ -2,42 +2,74 @@ package client
 
 import (
 	"context"
+	"net"
 	"sync"
+	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type Manager struct {
 	ctx        context.Context
-	ctxCancel  context.CancelFunc
 	srvAddress string
 	peerID     string
 
-	wg sync.WaitGroup
+	reconnectTime time.Duration
 
-	clients      map[string]*Client
-	clientsMutex sync.RWMutex
+	mu     sync.Mutex
+	client *Client
 }
 
 func NewManager(ctx context.Context, serverAddress string, peerID string) *Manager {
-	ctx, cancel := context.WithCancel(ctx)
 	return &Manager{
-		ctx:        ctx,
-		ctxCancel:  cancel,
-		srvAddress: serverAddress,
-		peerID:     peerID,
-		clients:    make(map[string]*Client),
+		ctx:           ctx,
+		srvAddress:    serverAddress,
+		peerID:        peerID,
+		reconnectTime: 5 * time.Second,
 	}
 }
 
-func (m *Manager) Teardown() {
-	m.ctxCancel()
-	m.wg.Wait()
-}
-
-func (m *Manager) newSrvConnection(address string) {
-	if _, ok := m.clients[address]; ok {
+func (m *Manager) Serve() {
+	ok := m.mu.TryLock()
+	if !ok {
 		return
 	}
 
-	//	client := NewClient(address, m.peerID)
-	//err = client.Connect()
+	m.client = NewClient(m.ctx, m.srvAddress, m.peerID)
+
+	go func() {
+		defer m.mu.Unlock()
+
+		// todo this is not thread safe
+		for {
+			select {
+			case <-m.ctx.Done():
+				return
+			default:
+				m.connect()
+			}
+
+			select {
+			case <-m.ctx.Done():
+				return
+			case <-time.After(2 * time.Second): //timeout
+			}
+		}
+	}()
+}
+
+func (m *Manager) OpenConn(peerKey string) (net.Conn, error) {
+	// todo m.client nil check
+	return m.client.OpenConn(peerKey)
+}
+
+// connect is blocking
+func (m *Manager) connect() {
+	err := m.client.Connect()
+	if err != nil {
+		if m.ctx.Err() != nil {
+			return
+		}
+		log.Errorf("connection error with '%s': %s", m.srvAddress, err)
+	}
 }

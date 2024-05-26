@@ -1,15 +1,18 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/relay/messages"
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/udp"
+	"github.com/netbirdio/netbird/relay/server/listener/ws"
 )
 
 // Server
@@ -19,7 +22,8 @@ import (
 type Server struct {
 	store *Store
 
-	listener listener.Listener
+	UDPListener listener.Listener
+	WSListener  listener.Listener
 }
 
 func NewServer() *Server {
@@ -29,15 +33,45 @@ func NewServer() *Server {
 }
 
 func (r *Server) Listen(address string) error {
-	r.listener = udp.NewListener(address)
-	return r.listener.Listen(r.accept)
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+
+	r.WSListener = ws.NewListener(address)
+	var wslErr error
+	go func() {
+		defer wg.Done()
+		wslErr = r.WSListener.Listen(r.accept)
+		if wslErr != nil {
+			log.Errorf("failed to bind ws server: %s", wslErr)
+		}
+	}()
+
+	r.UDPListener = udp.NewListener(address)
+	var udpLErr error
+	go func() {
+		defer wg.Done()
+		udpLErr = r.UDPListener.Listen(r.accept)
+		if udpLErr != nil {
+			log.Errorf("failed to bind ws server: %s", udpLErr)
+		}
+	}()
+
+	err := errors.Join(wslErr, udpLErr)
+	return err
 }
 
 func (r *Server) Close() error {
-	if r.listener == nil {
-		return nil
+	var wErr error
+	if r.WSListener != nil {
+		wErr = r.WSListener.Close()
 	}
-	return r.listener.Close()
+
+	var uErr error
+	if r.UDPListener != nil {
+		uErr = r.UDPListener.Close()
+	}
+	err := errors.Join(wErr, uErr)
+	return err
 }
 
 func (r *Server) accept(conn net.Conn) {
@@ -50,12 +84,12 @@ func (r *Server) accept(conn net.Conn) {
 		}
 		return
 	}
-	peer.Log.Debugf("peer connected from: %s", conn.RemoteAddr())
+	peer.Log.Infof("peer connected from: %s", conn.RemoteAddr())
 
 	r.store.AddPeer(peer)
 	defer func() {
-		peer.Log.Debugf("teardown connection")
 		r.store.DeletePeer(peer)
+		peer.Log.Infof("peer left")
 	}()
 
 	for {

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -29,20 +30,25 @@ type connContainer struct {
 
 type Client struct {
 	log           *log.Entry
+	ctx           context.Context
+	ctxCancel     context.CancelFunc
 	serverAddress string
 	hashedID      []byte
 
-	conns map[string]*connContainer
+	conns map[string]*connContainer // todo handle it in thread safe way
 
 	relayConn      net.Conn
 	relayConnState bool
 	mu             sync.Mutex
 }
 
-func NewClient(serverAddress, peerID string) *Client {
+func NewClient(ctx context.Context, serverAddress, peerID string) *Client {
+	ctx, ctxCancel := context.WithCancel(ctx)
 	hashedID, hashedStringId := messages.HashID(peerID)
 	return &Client{
 		log:           log.WithField("client_id", hashedStringId),
+		ctx:           ctx,
+		ctxCancel:     ctxCancel,
 		serverAddress: serverAddress,
 		hashedID:      hashedID,
 		conns:         make(map[string]*connContainer),
@@ -51,7 +57,11 @@ func NewClient(serverAddress, peerID string) *Client {
 
 func (c *Client) Connect() error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	if c.relayConnState {
+		c.mu.Unlock()
+		return nil
+	}
+
 	conn, err := udp.Dial(c.serverAddress)
 	if err != nil {
 		return err
@@ -68,18 +78,39 @@ func (c *Client) Connect() error {
 		return err
 	}
 
-	err = c.relayConn.SetReadDeadline(time.Time{})
-	if err != nil {
-		log.Errorf("failed to reset read deadline: %s", err)
-		return err
-	}
-
 	c.relayConnState = true
-	go c.readLoop()
+	c.mu.Unlock()
+
+	go func() {
+		<-c.ctx.Done()
+		cErr := c.close()
+		if cErr != nil {
+			log.Errorf("failed to close relay connection: %s", cErr)
+		}
+	}()
+	// blocking function
+	c.readLoop()
+
+	c.mu.Lock()
+
+	// close all Conn types
+	for _, container := range c.conns {
+		close(container.messages)
+	}
+	c.conns = make(map[string]*connContainer)
+
+	c.mu.Unlock()
+
 	return nil
 }
 
 func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.relayConnState {
+		return nil, fmt.Errorf("relay connection is not established")
+	}
+
 	hashedID, hashedStringID := messages.HashID(dstPeerID)
 	log.Infof("open connection to peer: %s", hashedStringID)
 	messageBuffer := make(chan Msg, 2)
@@ -93,6 +124,11 @@ func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
 }
 
 func (c *Client) Close() error {
+	c.ctxCancel()
+	return c.close()
+}
+
+func (c *Client) close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -101,11 +137,20 @@ func (c *Client) Close() error {
 	}
 
 	c.relayConnState = false
+
 	err := c.relayConn.Close()
+
 	return err
 }
 
 func (c *Client) handShake() error {
+	defer func() {
+		err := c.relayConn.SetReadDeadline(time.Time{})
+		if err != nil {
+			log.Errorf("failed to reset read deadline: %s", err)
+		}
+	}()
+
 	msg, err := messages.MarshalHelloMsg(c.hashedID)
 	if err != nil {
 		log.Errorf("failed to marshal hello message: %s", err)
@@ -145,7 +190,7 @@ func (c *Client) handShake() error {
 
 func (c *Client) readLoop() {
 	defer func() {
-		c.log.Debugf("exit from read loop")
+		c.log.Tracef("exit from read loop")
 	}()
 	var errExit error
 	var n int

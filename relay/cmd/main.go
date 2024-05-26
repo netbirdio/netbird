@@ -23,4 +23,6 @@ func main() {
 		log.Errorf("failed to bind server: %s", err)
 		os.Exit(1)
 	}
+
+	select {}
 }
