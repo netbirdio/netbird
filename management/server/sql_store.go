@@ -390,7 +390,7 @@ func (s *SqlStore) GetAccount(accountID string) (*Account, error) {
 		Preload(clause.Associations).
 		First(&account, "id = ?", accountID)
 	if result.Error != nil {
-		log.Errorf("error when getting account from the store: %s", result.Error)
+		log.Errorf("error when getting account %s from the store: %s", accountID, result.Error)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found")
 		}

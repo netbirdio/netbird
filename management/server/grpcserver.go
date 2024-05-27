@@ -368,7 +368,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	})
 
 	if err != nil {
-		log.Warnf("failed logging in peer %s", peerKey)
+		log.Warnf("failed logging in peer %s: %s", peerKey, err)
 		return nil, mapError(err)
 	}
 
