@@ -86,7 +86,7 @@ func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, 
 // check returns the firewall type based on common lib checks. It returns UNKNOWN if no firewall is found.
 func check() FWType {
 	useIPTABLES := false
-	testingChain := "netbird-testing"
+	var iptablesChains []string
 	ip, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err == nil && isIptablesClientAvailable(ip) {
 		major, minor, _ := ip.GetIptablesVersion()
@@ -97,39 +97,42 @@ func check() FWType {
 
 		useIPTABLES = true
 
-		// create a testing chain to check if iptables is working and to validate if nftables can be used
-		err = ip.NewChain("filter", testingChain)
+		iptablesChains, err = ip.ListChains("filter")
 		if err != nil {
+			log.Errorf("failed to list iptables chains: %s", err)
 			useIPTABLES = false
 		}
 	}
-
-	defer func() {
-		if !useIPTABLES {
-			return
-		}
-		err = ip.ClearChain("filter", testingChain)
-		if err != nil {
-			log.Errorf("failed to clear netbird-testing chain: %v", err)
-		}
-		err = ip.DeleteChain("filter", testingChain)
-		if err != nil {
-			log.Errorf("failed to delete netbird-testing chain: %v", err)
-		}
-	}()
 
 	nf := nftables.Conn{}
 	if chains, err := nf.ListChains(); err == nil && os.Getenv(SKIP_NFTABLES_ENV) != "true" {
 		if !useIPTABLES {
 			return NFTABLES
 		}
-		// search for the testing chain created by iptables client
-		// failing to find it means that nftables can be used but the system is using a version of iptables
-		// that doesn't work well with our nftables manager
+
+		// search for chains where table is filter
+		// if we find one, we assume that nftables manager can be used with iptables
 		for _, chain := range chains {
-			if chain.Name == testingChain {
+			if chain.Table.Name == "filter" {
 				return NFTABLES
 			}
+		}
+
+		// check tables for the following constraints:
+		// 1. there is no chain in nftables for the filter table and there is at least one chain in iptables, we assume that nftables manager can not be used
+		// 2. there is no tables or more than one table, we assume that nftables manager can be used
+		// 3. there is only one table and its name is filter, we assume that nftables manager can not be used, since there was no chain in it
+		// 4. if we find an error we log and continue with iptables check
+		nbTablesList, err := nf.ListTables()
+		switch {
+		case err == nil && len(iptablesChains) > 0:
+			return IPTABLES
+		case err == nil && len(nbTablesList) != 1:
+			return NFTABLES
+		case err == nil && len(nbTablesList) == 1 && nbTablesList[0].Name == "filter":
+			return IPTABLES
+		case err != nil:
+			log.Errorf("failed to list nftables tables on fw manager discovery: %s", err)
 		}
 	}
 
