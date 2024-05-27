@@ -1,6 +1,8 @@
 module github.com/netbirdio/netbird
 
-go 1.21.0
+go 1.21
+
+toolchain go1.21.0
 
 require (
 	cunicu.li/go-rosenpass v0.4.0
