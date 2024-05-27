@@ -39,15 +39,15 @@ type Client struct {
 	serverAddress string
 	hashedID      []byte
 
-	relayConnIsEstablished bool
-	conns                  map[string]*connContainer
-	connsMutext            sync.Mutex // protect conns and relayConnIsEstablished bool
+	readyToOpenConns bool
+	conns            map[string]*connContainer
+	connsMutext      sync.Mutex // protect conns and readyToOpenConns bool
 
-	relayConn        net.Conn
-	serviceIsRunning bool
-	wgRelayConn      sync.WaitGroup
-	mu               sync.Mutex
-	onDisconnected   chan struct{}
+	relayConn             net.Conn
+	serviceIsRunning      bool
+	serviceIsRunningMutex sync.Mutex
+	wgReadLoop            sync.WaitGroup
+	onDisconnected        chan struct{}
 }
 
 func NewClient(ctx context.Context, serverAddress, peerID string) *Client {
@@ -65,24 +65,24 @@ func NewClient(ctx context.Context, serverAddress, peerID string) *Client {
 }
 
 func (c *Client) Connect() error {
-	c.mu.Lock()
+	c.serviceIsRunningMutex.Lock()
 	if c.serviceIsRunning {
-		c.mu.Unlock()
+		c.serviceIsRunningMutex.Unlock()
 		return nil
 	}
 
 	err := c.connect()
 	if err != nil {
-		c.mu.Unlock()
+		c.serviceIsRunningMutex.Unlock()
 		return err
 	}
 
 	c.serviceIsRunning = true
 
-	c.wgRelayConn.Add(1)
+	c.wgReadLoop.Add(1)
 	go c.readLoop()
 
-	c.mu.Unlock()
+	c.serviceIsRunningMutex.Unlock()
 
 	go func() {
 		<-c.ctx.Done()
@@ -99,11 +99,11 @@ func (c *Client) Connect() error {
 
 func (c *Client) reconnectGuard() {
 	for {
-		c.wgRelayConn.Wait()
+		c.wgReadLoop.Wait()
 
-		c.mu.Lock()
+		c.serviceIsRunningMutex.Lock()
 		if !c.serviceIsRunning {
-			c.mu.Unlock()
+			c.serviceIsRunningMutex.Unlock()
 			return
 		}
 
@@ -111,31 +111,24 @@ func (c *Client) reconnectGuard() {
 		err := c.connect()
 		if err != nil {
 			log.Errorf("failed to reconnect to relay server: %s", err)
-			c.mu.Unlock()
+			c.serviceIsRunningMutex.Unlock()
 			time.Sleep(reconnectingTimeout)
 			continue
 		}
 		log.Infof("reconnected to relay server")
-		c.wgRelayConn.Add(1)
+		c.wgReadLoop.Add(1)
 		go c.readLoop()
 
-		c.mu.Unlock()
+		c.serviceIsRunningMutex.Unlock()
 
 	}
 }
 
 func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	c.connsMutext.Lock()
 	defer c.connsMutext.Unlock()
 
-	if !c.relayConnIsEstablished {
-		return nil, fmt.Errorf("relay connection is not established")
-	}
-
-	if !c.serviceIsRunning {
+	if !c.readyToOpenConns {
 		return nil, fmt.Errorf("relay connection is not established")
 	}
 
@@ -152,6 +145,12 @@ func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
 }
 
 func (c *Client) Close() error {
+	c.serviceIsRunningMutex.Lock()
+	if !c.serviceIsRunning {
+		c.serviceIsRunningMutex.Unlock()
+		return nil
+	}
+
 	c.ctxCancel()
 	return c.close()
 }
@@ -173,13 +172,13 @@ func (c *Client) connect() error {
 		return err
 	}
 
-	c.relayConnIsEstablished = true
+	c.readyToOpenConns = true
 	return nil
 }
 
 func (c *Client) close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.serviceIsRunningMutex.Lock()
+	defer c.serviceIsRunningMutex.Unlock()
 
 	if !c.serviceIsRunning {
 		return nil
@@ -189,7 +188,7 @@ func (c *Client) close() error {
 
 	err := c.relayConn.Close()
 
-	c.wgRelayConn.Wait()
+	c.wgReadLoop.Wait()
 
 	return err
 }
@@ -284,7 +283,7 @@ func (c *Client) readLoop() {
 	}
 
 	c.connsMutext.Lock()
-	c.relayConnIsEstablished = false
+	c.readyToOpenConns = false
 	for _, container := range c.conns {
 		close(container.messages)
 	}
@@ -292,17 +291,17 @@ func (c *Client) readLoop() {
 	c.connsMutext.Unlock()
 
 	c.log.Tracef("exit from read loop")
-	c.wgRelayConn.Done()
+	c.wgReadLoop.Done()
 }
 
 func (c *Client) writeTo(id string, dstID []byte, payload []byte) (int, error) {
-	c.mu.Lock()
+	c.connsMutext.Lock()
 	_, ok := c.conns[id]
 	if !ok {
-		c.mu.Unlock()
+		c.connsMutext.Unlock()
 		return 0, io.EOF
 	}
-	c.mu.Unlock()
+	c.connsMutext.Unlock()
 	msg := messages.MarshalTransportMsg(dstID, payload)
 	n, err := c.relayConn.Write(msg)
 	if err != nil {
@@ -329,9 +328,6 @@ func (c *Client) generateConnReaderFN(msgChannel chan Msg) func(b []byte) (n int
 }
 
 func (c *Client) closeConn(id string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	c.connsMutext.Lock()
 	defer c.connsMutext.Unlock()
 
