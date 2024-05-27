@@ -335,24 +335,29 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 	}
 
 	upperKey := strings.ToUpper(setupKey)
-	var account *Account
+	var accountID string
 	var err error
 	addedByUser := false
 	if len(userID) > 0 {
 		addedByUser = true
-		account, err = am.Store.GetAccountByUser(userID)
+		accountID, err = am.Store.GetAccountIDByUserID(userID)
 	} else {
-		account, err = am.Store.GetAccountBySetupKey(setupKey)
+		accountID, err = am.Store.GetAccountIDBySetupKey(setupKey)
 	}
 	if err != nil {
 		return nil, nil, status.Errorf(status.NotFound, "failed adding new peer: account not found")
 	}
 
-	unlock := am.Store.AcquireAccountWriteLock(account.Id)
-	defer unlock()
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
+	defer func() {
+		if unlock != nil {
+			unlock()
+		}
+	}()
 
+	var account *Account
 	// ensure that we consider modification happened meanwhile (because we were outside the account lock when we fetched the account)
-	account, err = am.Store.GetAccount(account.Id)
+	account, err = am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -485,6 +490,10 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 		return nil, nil, err
 	}
 
+	// Account is saved, we can release the lock
+	unlock()
+	unlock = nil
+
 	opEvent.TargetID = newPeer.ID
 	opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain())
 	if !addedByUser {
@@ -545,7 +554,7 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync, account *Account) (*nbp
 // LoginPeer logs in or registers a peer.
 // If peer doesn't exist the function checks whether a setup key or a user is present and registers a new peer if so.
 func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *NetworkMap, error) {
-	account, err := am.Store.GetAccountByPeerPubKey(login.WireGuardPubKey)
+	accountID, err := am.Store.GetAccountIDByPeerPubKey(login.WireGuardPubKey)
 	if err != nil {
 		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
 			// we couldn't find this peer by its public key which can mean that peer hasn't been registered yet.
@@ -575,11 +584,15 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 	}
 
 	// we found the peer, and we follow a normal login flow
-	unlock := am.Store.AcquireAccountWriteLock(account.Id)
-	defer unlock()
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
+	defer func() {
+		if unlock != nil {
+			unlock()
+		}
+	}()
 
 	// fetch the account from the store once more after acquiring lock to avoid concurrent updates inconsistencies
-	account, err = am.Store.GetAccount(account.Id)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -638,6 +651,8 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 			return nil, nil, err
 		}
 	}
+	unlock()
+	unlock = nil
 
 	if updateRemotePeers || isStatusChanged {
 		am.updateAccountPeers(account)

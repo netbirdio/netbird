@@ -590,6 +590,30 @@ func (s *FileStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
 	return accountID, nil
 }
 
+func (s *FileStore) GetAccountIDByUserID(userID string) (string, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, ok := s.UserID2AccountID[userID]
+	if !ok {
+		return "", status.Errorf(status.NotFound, "account not found")
+	}
+
+	return accountID, nil
+}
+
+func (s *FileStore) GetAccountIDBySetupKey(setupKey string) (string, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, ok := s.SetupKeyID2AccountID[strings.ToUpper(setupKey)]
+	if !ok {
+		return "", status.Errorf(status.NotFound, "account not found: provided setup key doesn't exists")
+	}
+
+	return accountID, nil
+}
+
 // GetInstallationID returns the installation ID from the store
 func (s *FileStore) GetInstallationID() string {
 	return s.InstallationID
