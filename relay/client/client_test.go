@@ -1,16 +1,16 @@
-package test
+package client
 
 import (
 	"context"
 	"net"
 	"os"
 	"testing"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/util"
 
-	"github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/relay/server"
 )
 
@@ -39,21 +39,21 @@ func TestClient(t *testing.T) {
 		}
 	}()
 
-	clientAlice := client.NewClient(ctx, addr, "alice")
+	clientAlice := NewClient(ctx, addr, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
 	defer clientAlice.Close()
 
-	clientPlaceHolder := client.NewClient(ctx, addr, "clientPlaceHolder")
+	clientPlaceHolder := NewClient(ctx, addr, "clientPlaceHolder")
 	err = clientPlaceHolder.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
 	defer clientPlaceHolder.Close()
 
-	clientBob := client.NewClient(ctx, addr, "bob")
+	clientBob := NewClient(ctx, addr, "bob")
 	err = clientBob.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -107,7 +107,7 @@ func TestRegistration(t *testing.T) {
 		}
 	}()
 
-	clientAlice := client.NewClient(ctx, addr, "alice")
+	clientAlice := NewClient(ctx, addr, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -140,7 +140,7 @@ func TestRegistrationTimeout(t *testing.T) {
 	}
 	defer tcpListener.Close()
 
-	clientAlice := client.NewClient(ctx, "127.0.0.1:1234", "alice")
+	clientAlice := NewClient(ctx, "127.0.0.1:1234", "alice")
 	err = clientAlice.Connect()
 	if err == nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -173,7 +173,7 @@ func TestEcho(t *testing.T) {
 		}
 	}()
 
-	clientAlice := client.NewClient(ctx, addr, idAlice)
+	clientAlice := NewClient(ctx, addr, idAlice)
 	err := clientAlice.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -185,7 +185,7 @@ func TestEcho(t *testing.T) {
 		}
 	}()
 
-	clientBob := client.NewClient(ctx, addr, idBob)
+	clientBob := NewClient(ctx, addr, idBob)
 	err = clientBob.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -254,7 +254,7 @@ func TestBindToUnavailabePeer(t *testing.T) {
 		}
 	}()
 
-	clientAlice := client.NewClient(ctx, addr, "alice")
+	clientAlice := NewClient(ctx, addr, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -293,7 +293,7 @@ func TestBindReconnect(t *testing.T) {
 		}
 	}()
 
-	clientAlice := client.NewClient(ctx, addr, "alice")
+	clientAlice := NewClient(ctx, addr, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -304,7 +304,7 @@ func TestBindReconnect(t *testing.T) {
 		t.Errorf("failed to bind channel: %s", err)
 	}
 
-	clientBob := client.NewClient(ctx, addr, "bob")
+	clientBob := NewClient(ctx, addr, "bob")
 	err = clientBob.Connect()
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -321,7 +321,7 @@ func TestBindReconnect(t *testing.T) {
 		t.Errorf("failed to close client: %s", err)
 	}
 
-	clientAlice = client.NewClient(ctx, addr, "alice")
+	clientAlice = NewClient(ctx, addr, "alice")
 	err = clientAlice.Connect()
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -375,7 +375,7 @@ func TestCloseConn(t *testing.T) {
 		}
 	}()
 
-	clientAlice := client.NewClient(ctx, addr, "alice")
+	clientAlice := NewClient(ctx, addr, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -400,5 +400,94 @@ func TestCloseConn(t *testing.T) {
 	_, err = conn.Write([]byte("hello"))
 	if err == nil {
 		t.Errorf("unexpected writing from closed connection")
+	}
+}
+
+func TestAutoReconnect(t *testing.T) {
+	ctx := context.Background()
+
+	addr := "localhost:1234"
+	srv := server.NewServer()
+	go func() {
+		err := srv.Listen(addr)
+		if err != nil {
+			t.Errorf("failed to bind server: %s", err)
+		}
+	}()
+
+	defer func() {
+		err := srv.Close()
+		if err != nil {
+			log.Errorf("failed to close server: %s", err)
+		}
+	}()
+
+	clientAlice := NewClient(ctx, addr, "alice")
+	err := clientAlice.Connect()
+	if err != nil {
+		t.Errorf("failed to connect to server: %s", err)
+	}
+
+	conn, err := clientAlice.OpenConn("bob")
+	if err != nil {
+		t.Errorf("failed to bind channel: %s", err)
+	}
+
+	_ = clientAlice.relayConn.Close()
+
+	_, err = conn.Read(make([]byte, 1))
+	if err == nil {
+		t.Errorf("unexpected reading from closed connection")
+	}
+
+	log.Infof("waiting for reconnection")
+	time.Sleep(reconnectingTimeout)
+
+	_, err = clientAlice.OpenConn("bob")
+	if err != nil {
+		t.Errorf("failed to open channel: %s", err)
+	}
+}
+
+func TestCloseRelayConn(t *testing.T) {
+	ctx := context.Background()
+
+	addr := "localhost:1234"
+	srv := server.NewServer()
+	go func() {
+		err := srv.Listen(addr)
+		if err != nil {
+			t.Errorf("failed to bind server: %s", err)
+		}
+	}()
+
+	defer func() {
+		err := srv.Close()
+		if err != nil {
+			log.Errorf("failed to close server: %s", err)
+		}
+	}()
+
+	clientAlice := NewClient(ctx, addr, "alice")
+	err := clientAlice.Connect()
+	if err != nil {
+		t.Errorf("failed to connect to server: %s", err)
+	}
+
+	conn, err := clientAlice.OpenConn("bob")
+	if err != nil {
+		t.Errorf("failed to bind channel: %s", err)
+	}
+
+	_ = clientAlice.relayConn.Close()
+
+	_, err = conn.Read(make([]byte, 1))
+	if err == nil {
+		t.Errorf("unexpected reading from closed connection")
+	}
+
+	_, err = clientAlice.OpenConn("bob")
+	if err == nil {
+		t.Errorf("unexpected opening connection to closed server")
 	}
 }

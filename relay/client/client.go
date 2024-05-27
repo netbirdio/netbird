@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/relay/client/dialer/udp"
 	"io"
 	"net"
 	"sync"
@@ -10,13 +11,16 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/relay/client/dialer/udp"
 	"github.com/netbirdio/netbird/relay/messages"
 )
 
 const (
 	bufferSize            = 1500 // optimise the buffer size
 	serverResponseTimeout = 8 * time.Second
+)
+
+var (
+	reconnectingTimeout = 5 * time.Second
 )
 
 type Msg struct {
@@ -35,55 +39,50 @@ type Client struct {
 	serverAddress string
 	hashedID      []byte
 
-	conns map[string]*connContainer // todo handle it in thread safe way
+	relayConnIsEstablished bool
+	conns                  map[string]*connContainer
+	connsMutext            sync.Mutex // protect conns and relayConnIsEstablished bool
 
-	relayConn      net.Conn
-	relayConnState bool
-	wgRelayConn    sync.WaitGroup
-	mu             sync.Mutex
+	relayConn        net.Conn
+	serviceIsRunning bool
+	wgRelayConn      sync.WaitGroup
+	mu               sync.Mutex
+	onDisconnected   chan struct{}
 }
 
 func NewClient(ctx context.Context, serverAddress, peerID string) *Client {
 	ctx, ctxCancel := context.WithCancel(ctx)
 	hashedID, hashedStringId := messages.HashID(peerID)
 	return &Client{
-		log:           log.WithField("client_id", hashedStringId),
-		ctx:           ctx,
-		ctxCancel:     ctxCancel,
-		serverAddress: serverAddress,
-		hashedID:      hashedID,
-		conns:         make(map[string]*connContainer),
+		log:            log.WithField("client_id", hashedStringId),
+		ctx:            ctx,
+		ctxCancel:      ctxCancel,
+		serverAddress:  serverAddress,
+		hashedID:       hashedID,
+		conns:          make(map[string]*connContainer),
+		onDisconnected: make(chan struct{}),
 	}
 }
 
 func (c *Client) Connect() error {
 	c.mu.Lock()
-	if c.relayConnState {
+	if c.serviceIsRunning {
 		c.mu.Unlock()
 		return nil
 	}
 
-	conn, err := udp.Dial(c.serverAddress)
+	err := c.connect()
 	if err != nil {
-		return err
-	}
-	c.relayConn = conn
-
-	err = c.handShake()
-	if err != nil {
-		cErr := conn.Close()
-		if cErr != nil {
-			log.Errorf("failed to close connection: %s", cErr)
-		}
-		c.relayConn = nil
+		c.mu.Unlock()
 		return err
 	}
 
-	c.relayConnState = true
-	c.mu.Unlock()
+	c.serviceIsRunning = true
 
 	c.wgRelayConn.Add(1)
 	go c.readLoop()
+
+	c.mu.Unlock()
 
 	go func() {
 		<-c.ctx.Done()
@@ -93,13 +92,50 @@ func (c *Client) Connect() error {
 		}
 	}()
 
+	go c.reconnectGuard()
+
 	return nil
+}
+
+func (c *Client) reconnectGuard() {
+	for {
+		c.wgRelayConn.Wait()
+
+		c.mu.Lock()
+		if !c.serviceIsRunning {
+			c.mu.Unlock()
+			return
+		}
+
+		log.Infof("reconnecting to relay server")
+		err := c.connect()
+		if err != nil {
+			log.Errorf("failed to reconnect to relay server: %s", err)
+			c.mu.Unlock()
+			time.Sleep(reconnectingTimeout)
+			continue
+		}
+		log.Infof("reconnected to relay server")
+		c.wgRelayConn.Add(1)
+		go c.readLoop()
+
+		c.mu.Unlock()
+
+	}
 }
 
 func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.relayConnState {
+
+	c.connsMutext.Lock()
+	defer c.connsMutext.Unlock()
+
+	if !c.relayConnIsEstablished {
+		return nil, fmt.Errorf("relay connection is not established")
+	}
+
+	if !c.serviceIsRunning {
 		return nil, fmt.Errorf("relay connection is not established")
 	}
 
@@ -120,25 +156,40 @@ func (c *Client) Close() error {
 	return c.close()
 }
 
+func (c *Client) connect() error {
+	conn, err := udp.Dial(c.serverAddress)
+	if err != nil {
+		return err
+	}
+	c.relayConn = conn
+
+	err = c.handShake()
+	if err != nil {
+		cErr := conn.Close()
+		if cErr != nil {
+			log.Errorf("failed to close connection: %s", cErr)
+		}
+		c.relayConn = nil
+		return err
+	}
+
+	c.relayConnIsEstablished = true
+	return nil
+}
+
 func (c *Client) close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if !c.relayConnState {
+	if !c.serviceIsRunning {
 		return nil
 	}
 
-	c.relayConnState = false
+	c.serviceIsRunning = false
 
 	err := c.relayConn.Close()
 
 	c.wgRelayConn.Wait()
-
-	// close all Conn types
-	for _, container := range c.conns {
-		close(container.messages)
-	}
-	c.conns = make(map[string]*connContainer)
 
 	return err
 }
@@ -189,17 +240,13 @@ func (c *Client) handShake() error {
 }
 
 func (c *Client) readLoop() {
-	defer func() {
-		c.log.Tracef("exit from read loop")
-		c.wgRelayConn.Done()
-	}()
 	var errExit error
 	var n int
 	for {
 		buf := make([]byte, bufferSize)
 		n, errExit = c.relayConn.Read(buf)
 		if errExit != nil {
-			if c.relayConnState {
+			if c.serviceIsRunning {
 				c.log.Debugf("failed to read message from relay server: %s", errExit)
 			}
 			break
@@ -232,10 +279,20 @@ func (c *Client) readLoop() {
 		}
 	}
 
-	if c.relayConnState {
-		c.log.Errorf("failed to read message from relay server: %s", errExit)
+	if c.serviceIsRunning {
 		_ = c.relayConn.Close()
 	}
+
+	c.connsMutext.Lock()
+	c.relayConnIsEstablished = false
+	for _, container := range c.conns {
+		close(container.messages)
+	}
+	c.conns = make(map[string]*connContainer)
+	c.connsMutext.Unlock()
+
+	c.log.Tracef("exit from read loop")
+	c.wgRelayConn.Done()
 }
 
 func (c *Client) writeTo(id string, dstID []byte, payload []byte) (int, error) {
@@ -274,6 +331,9 @@ func (c *Client) generateConnReaderFN(msgChannel chan Msg) func(b []byte) (n int
 func (c *Client) closeConn(id string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	c.connsMutext.Lock()
+	defer c.connsMutext.Unlock()
 
 	conn, ok := c.conns[id]
 	if !ok {
