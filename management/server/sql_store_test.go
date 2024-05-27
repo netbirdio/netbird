@@ -13,6 +13,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	"github.com/netbirdio/netbird/management/server/testutil"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -618,7 +619,7 @@ func newAccount(store Store, id int) error {
 func newPostgresqlStore(t *testing.T) *SqlStore {
 	t.Helper()
 
-	cleanUp, err := createPGDB()
+	cleanUp, err := testutil.CreatePGDB()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -649,7 +650,7 @@ func newPostgresqlStoreFromFile(t *testing.T, filename string) *SqlStore {
 	fStore, err := NewFileStore(storeDir, nil)
 	require.NoError(t, err)
 
-	cleanUp, err := createPGDB()
+	cleanUp, err := testutil.CreatePGDB()
 	if err != nil {
 		t.Fatal(err)
 	}
