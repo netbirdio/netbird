@@ -130,3 +130,10 @@ issues:
     - path: mock\.go
       linters:
       - nilnil
+    # Exclude specific deprecation warnings for grpc methods
+    - linters:
+       - staticcheck
+      text: "grpc.DialContext is deprecated"
+    - linters:
+        - staticcheck
+      text: "grpc.WithBlock is deprecated"
