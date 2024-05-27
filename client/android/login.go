@@ -86,7 +86,7 @@ func (a *Auth) saveConfigIfSSOSupported() (bool, error) {
 	err := a.withBackOff(a.ctx, func() (err error) {
 		_, err = internal.GetPKCEAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.NotFound || s.Code() == codes.Unimplemented) {
-			_, err = internal.GetDeviceAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
+			_, err = internal.GetDeviceAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL, nil)
 			s, ok := gstatus.FromError(err)
 			if !ok {
 				return err
