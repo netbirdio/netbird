@@ -6,23 +6,25 @@ import (
 )
 
 type Conn struct {
-	client   *Client
-	dstID    []byte
-	readerFn func(b []byte) (n int, err error)
+	client      *Client
+	dstID       []byte
+	dstStringID string
+	readerFn    func(b []byte) (n int, err error)
 }
 
-func NewConn(client *Client, dstID []byte, readerFn func(b []byte) (n int, err error)) *Conn {
+func NewConn(client *Client, dstID []byte, dstStringID string, readerFn func(b []byte) (n int, err error)) *Conn {
 	c := &Conn{
-		client:   client,
-		dstID:    dstID,
-		readerFn: readerFn,
+		client:      client,
+		dstID:       dstID,
+		dstStringID: dstStringID,
+		readerFn:    readerFn,
 	}
 
 	return c
 }
 
 func (c *Conn) Write(p []byte) (n int, err error) {
-	return c.client.writeTo(c.dstID, p)
+	return c.client.writeTo(c.dstStringID, c.dstID, p)
 }
 
 func (c *Conn) Read(b []byte) (n int, err error) {
@@ -30,7 +32,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 }
 
 func (c *Conn) Close() error {
-	return nil
+	return c.client.closeConn(c.dstStringID)
 }
 
 func (c *Conn) LocalAddr() net.Addr {

@@ -354,3 +354,51 @@ func TestBindReconnect(t *testing.T) {
 		t.Errorf("failed to close client: %s", err)
 	}
 }
+
+func TestCloseConn(t *testing.T) {
+	ctx := context.Background()
+
+	addr := "localhost:1234"
+	srv := server.NewServer()
+	go func() {
+		err := srv.Listen(addr)
+		if err != nil {
+			t.Errorf("failed to bind server: %s", err)
+		}
+	}()
+
+	defer func() {
+		log.Infof("closing server")
+		err := srv.Close()
+		if err != nil {
+			t.Errorf("failed to close server: %s", err)
+		}
+	}()
+
+	clientAlice := client.NewClient(ctx, addr, "alice")
+	err := clientAlice.Connect()
+	if err != nil {
+		t.Errorf("failed to connect to server: %s", err)
+	}
+
+	conn, err := clientAlice.OpenConn("bob")
+	if err != nil {
+		t.Errorf("failed to bind channel: %s", err)
+	}
+
+	log.Infof("closing connection")
+	err = conn.Close()
+	if err != nil {
+		t.Errorf("failed to close connection: %s", err)
+	}
+
+	_, err = conn.Read(make([]byte, 1))
+	if err == nil {
+		t.Errorf("unexpected reading from closed connection")
+	}
+
+	_, err = conn.Write([]byte("hello"))
+	if err == nil {
+		t.Errorf("unexpected writing from closed connection")
+	}
+}
