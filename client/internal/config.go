@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/url"
 	"os"
@@ -56,7 +57,12 @@ type ConfigInput struct {
 	NetworkMonitor      *bool
 	DisableAutoConnect  *bool
 	ExtraIFaceBlackList []string
+<<<<<<< HEAD
 	DNSRouteInterval    *time.Duration
+=======
+	ClientCertPath      string
+	ClientCertKeyPath   string
+>>>>>>> 2f6fe2d7 (Add mTLS support for SSO)
 }
 
 // Config Configuration type
@@ -100,8 +106,18 @@ type Config struct {
 	// it's set to false by default due to backwards compatibility
 	DisableAutoConnect bool
 
+<<<<<<< HEAD
 	// DNSRouteInterval is the interval in which the DNS routes are updated
 	DNSRouteInterval time.Duration
+=======
+	//Path to a certificate used for mTLS authentication
+	ClientCertPath string
+
+	//Path to corresponding private key of ClientCertPath
+	ClientCertKeyPath string
+
+	ClientCertKeyPair *tls.Certificate `json:"-"`
+>>>>>>> 2f6fe2d7 (Add mTLS support for SSO)
 }
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
@@ -373,6 +389,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
+<<<<<<< HEAD
 	if input.DNSRouteInterval != nil && *input.DNSRouteInterval != config.DNSRouteInterval {
 		log.Infof("updating DNS route interval to %s (old value %s)",
 			input.DNSRouteInterval.String(), config.DNSRouteInterval.String())
@@ -385,6 +402,27 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 
 	}
 
+=======
+	if input.ClientCertKeyPath != "" {
+		config.ClientCertKeyPath = input.ClientCertKeyPath
+		updated = true
+	}
+
+	if input.ClientCertPath != "" {
+		config.ClientCertPath = input.ClientCertPath
+		updated = true
+	}
+
+	if config.ClientCertPath != "" && config.ClientCertKeyPath != "" {
+		cert, err := tls.LoadX509KeyPair(config.ClientCertPath, config.ClientCertKeyPath)
+		if err != nil {
+			log.Error("Failed to load mTLS cert/key pair: ", err)
+		} else {
+			config.ClientCertKeyPair = &cert
+			log.Info("Loaded client mTLS cert/key pair")
+		}
+	}
+>>>>>>> 2f6fe2d7 (Add mTLS support for SSO)
 	return updated, nil
 }
 
