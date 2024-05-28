@@ -13,13 +13,13 @@ type Peer struct {
 	// ID is an internal ID of the peer
 	ID string `gorm:"primaryKey"`
 	// AccountID is a reference to Account that this object belongs
-	AccountID string `json:"-" gorm:"index;uniqueIndex:idx_peers_account_id_ip"`
+	AccountID string `json:"-" gorm:"index"`
 	// WireGuard public key
 	Key string `gorm:"index"`
 	// A setup key this peer was registered with
 	SetupKey string
 	// IP address of the Peer
-	IP net.IP `gorm:"uniqueIndex:idx_peers_account_id_ip"`
+	IP net.IP `gorm:"serializer:json"`
 	// Meta is a Peer system meta data
 	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	// Name is peer's name (machine name)
@@ -61,7 +61,7 @@ type PeerStatus struct { //nolint:revive
 
 // Location is a geo location information of a Peer based on public connection IP
 type Location struct {
-	ConnectionIP net.IP // from grpc peer or reverse proxy headers depends on setup
+	ConnectionIP net.IP `gorm:"serializer:json"` // from grpc peer or reverse proxy headers depends on setup
 	CountryCode  string
 	CityName     string
 	GeoNameID    uint // city level geoname id
@@ -216,7 +216,9 @@ func (p *Peer) FQDN(dnsDomain string) string {
 
 // EventMeta returns activity event meta related to the peer
 func (p *Peer) EventMeta(dnsDomain string) map[string]any {
-	return map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP, "created_at": p.CreatedAt}
+	return map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP, "created_at": p.CreatedAt,
+		"location_city_name": p.Location.CityName, "location_country_code": p.Location.CountryCode,
+		"location_geo_name_id": p.Location.GeoNameID, "location_connection_ip": p.Location.ConnectionIP}
 }
 
 // Copy PeerStatus

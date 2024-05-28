@@ -12,53 +12,53 @@ import (
 )
 
 func TestRouteSelector_SelectRoutes(t *testing.T) {
-	allRoutes := []string{"route1", "route2", "route3"}
+	allRoutes := []route.NetID{"route1", "route2", "route3"}
 
 	tests := []struct {
 		name            string
-		initialSelected []string
+		initialSelected []route.NetID
 
-		selectRoutes []string
+		selectRoutes []route.NetID
 		append       bool
 
-		wantSelected []string
+		wantSelected []route.NetID
 		wantError    bool
 	}{
 		{
 			name:         "Select specific routes, initial all selected",
-			selectRoutes: []string{"route1", "route2"},
-			wantSelected: []string{"route1", "route2"},
+			selectRoutes: []route.NetID{"route1", "route2"},
+			wantSelected: []route.NetID{"route1", "route2"},
 		},
 		{
 			name:            "Select specific routes, initial all deselected",
-			initialSelected: []string{},
-			selectRoutes:    []string{"route1", "route2"},
-			wantSelected:    []string{"route1", "route2"},
+			initialSelected: []route.NetID{},
+			selectRoutes:    []route.NetID{"route1", "route2"},
+			wantSelected:    []route.NetID{"route1", "route2"},
 		},
 		{
 			name:            "Select specific routes with initial selection",
-			initialSelected: []string{"route1"},
-			selectRoutes:    []string{"route2", "route3"},
-			wantSelected:    []string{"route2", "route3"},
+			initialSelected: []route.NetID{"route1"},
+			selectRoutes:    []route.NetID{"route2", "route3"},
+			wantSelected:    []route.NetID{"route2", "route3"},
 		},
 		{
 			name:         "Select non-existing route",
-			selectRoutes: []string{"route1", "route4"},
-			wantSelected: []string{"route1"},
+			selectRoutes: []route.NetID{"route1", "route4"},
+			wantSelected: []route.NetID{"route1"},
 			wantError:    true,
 		},
 		{
 			name:            "Append route with initial selection",
-			initialSelected: []string{"route1"},
-			selectRoutes:    []string{"route2"},
+			initialSelected: []route.NetID{"route1"},
+			selectRoutes:    []route.NetID{"route2"},
 			append:          true,
-			wantSelected:    []string{"route1", "route2"},
+			wantSelected:    []route.NetID{"route1", "route2"},
 		},
 		{
 			name:         "Append route without initial selection",
-			selectRoutes: []string{"route2"},
+			selectRoutes: []route.NetID{"route2"},
 			append:       true,
-			wantSelected: []string{"route2"},
+			wantSelected: []route.NetID{"route2"},
 		},
 	}
 
@@ -86,32 +86,32 @@ func TestRouteSelector_SelectRoutes(t *testing.T) {
 }
 
 func TestRouteSelector_SelectAllRoutes(t *testing.T) {
-	allRoutes := []string{"route1", "route2", "route3"}
+	allRoutes := []route.NetID{"route1", "route2", "route3"}
 
 	tests := []struct {
 		name            string
-		initialSelected []string
+		initialSelected []route.NetID
 
-		wantSelected []string
+		wantSelected []route.NetID
 	}{
 		{
 			name:         "Initial all selected",
-			wantSelected: []string{"route1", "route2", "route3"},
+			wantSelected: []route.NetID{"route1", "route2", "route3"},
 		},
 		{
 			name:            "Initial all deselected",
-			initialSelected: []string{},
-			wantSelected:    []string{"route1", "route2", "route3"},
+			initialSelected: []route.NetID{},
+			wantSelected:    []route.NetID{"route1", "route2", "route3"},
 		},
 		{
 			name:            "Initial some selected",
-			initialSelected: []string{"route1"},
-			wantSelected:    []string{"route1", "route2", "route3"},
+			initialSelected: []route.NetID{"route1"},
+			wantSelected:    []route.NetID{"route1", "route2", "route3"},
 		},
 		{
 			name:            "Initial all selected",
-			initialSelected: []string{"route1", "route2", "route3"},
-			wantSelected:    []string{"route1", "route2", "route3"},
+			initialSelected: []route.NetID{"route1", "route2", "route3"},
+			wantSelected:    []route.NetID{"route1", "route2", "route3"},
 		},
 	}
 
@@ -134,39 +134,39 @@ func TestRouteSelector_SelectAllRoutes(t *testing.T) {
 }
 
 func TestRouteSelector_DeselectRoutes(t *testing.T) {
-	allRoutes := []string{"route1", "route2", "route3"}
+	allRoutes := []route.NetID{"route1", "route2", "route3"}
 
 	tests := []struct {
 		name            string
-		initialSelected []string
+		initialSelected []route.NetID
 
-		deselectRoutes []string
+		deselectRoutes []route.NetID
 
-		wantSelected []string
+		wantSelected []route.NetID
 		wantError    bool
 	}{
 		{
 			name:           "Deselect specific routes, initial all selected",
-			deselectRoutes: []string{"route1", "route2"},
-			wantSelected:   []string{"route3"},
+			deselectRoutes: []route.NetID{"route1", "route2"},
+			wantSelected:   []route.NetID{"route3"},
 		},
 		{
 			name:            "Deselect specific routes, initial all deselected",
-			initialSelected: []string{},
-			deselectRoutes:  []string{"route1", "route2"},
-			wantSelected:    []string{},
+			initialSelected: []route.NetID{},
+			deselectRoutes:  []route.NetID{"route1", "route2"},
+			wantSelected:    []route.NetID{},
 		},
 		{
 			name:            "Deselect specific routes with initial selection",
-			initialSelected: []string{"route1", "route2"},
-			deselectRoutes:  []string{"route1", "route3"},
-			wantSelected:    []string{"route2"},
+			initialSelected: []route.NetID{"route1", "route2"},
+			deselectRoutes:  []route.NetID{"route1", "route3"},
+			wantSelected:    []route.NetID{"route2"},
 		},
 		{
 			name:            "Deselect non-existing route",
-			initialSelected: []string{"route1", "route2"},
-			deselectRoutes:  []string{"route1", "route4"},
-			wantSelected:    []string{"route2"},
+			initialSelected: []route.NetID{"route1", "route2"},
+			deselectRoutes:  []route.NetID{"route1", "route4"},
+			wantSelected:    []route.NetID{"route2"},
 			wantError:       true,
 		},
 	}
@@ -195,32 +195,32 @@ func TestRouteSelector_DeselectRoutes(t *testing.T) {
 }
 
 func TestRouteSelector_DeselectAll(t *testing.T) {
-	allRoutes := []string{"route1", "route2", "route3"}
+	allRoutes := []route.NetID{"route1", "route2", "route3"}
 
 	tests := []struct {
 		name            string
-		initialSelected []string
+		initialSelected []route.NetID
 
-		wantSelected []string
+		wantSelected []route.NetID
 	}{
 		{
 			name:         "Initial all selected",
-			wantSelected: []string{},
+			wantSelected: []route.NetID{},
 		},
 		{
 			name:            "Initial all deselected",
-			initialSelected: []string{},
-			wantSelected:    []string{},
+			initialSelected: []route.NetID{},
+			wantSelected:    []route.NetID{},
 		},
 		{
 			name:            "Initial some selected",
-			initialSelected: []string{"route1", "route2"},
-			wantSelected:    []string{},
+			initialSelected: []route.NetID{"route1", "route2"},
+			wantSelected:    []route.NetID{},
 		},
 		{
 			name:            "Initial all selected",
-			initialSelected: []string{"route1", "route2", "route3"},
-			wantSelected:    []string{},
+			initialSelected: []route.NetID{"route1", "route2", "route3"},
+			wantSelected:    []route.NetID{},
 		},
 	}
 
@@ -245,7 +245,7 @@ func TestRouteSelector_DeselectAll(t *testing.T) {
 func TestRouteSelector_IsSelected(t *testing.T) {
 	rs := routeselector.NewRouteSelector()
 
-	err := rs.SelectRoutes([]string{"route1", "route2"}, false, []string{"route1", "route2", "route3"})
+	err := rs.SelectRoutes([]route.NetID{"route1", "route2"}, false, []route.NetID{"route1", "route2", "route3"})
 	require.NoError(t, err)
 
 	assert.True(t, rs.IsSelected("route1"))
@@ -257,10 +257,10 @@ func TestRouteSelector_IsSelected(t *testing.T) {
 func TestRouteSelector_FilterSelected(t *testing.T) {
 	rs := routeselector.NewRouteSelector()
 
-	err := rs.SelectRoutes([]string{"route1", "route2"}, false, []string{"route1", "route2", "route3"})
+	err := rs.SelectRoutes([]route.NetID{"route1", "route2"}, false, []route.NetID{"route1", "route2", "route3"})
 	require.NoError(t, err)
 
-	routes := map[string][]*route.Route{
+	routes := route.HAMap{
 		"route1-10.0.0.0/8":     {},
 		"route2-192.168.0.0/16": {},
 		"route3-172.16.0.0/12":  {},
@@ -268,7 +268,7 @@ func TestRouteSelector_FilterSelected(t *testing.T) {
 
 	filtered := rs.FilterSelected(routes)
 
-	assert.Equal(t, map[string][]*route.Route{
+	assert.Equal(t, route.HAMap{
 		"route1-10.0.0.0/8":     {},
 		"route2-192.168.0.0/16": {},
 	}, filtered)

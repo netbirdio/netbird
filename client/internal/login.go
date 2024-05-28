@@ -68,7 +68,7 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 	}
 
 	serverKey, err := doMgmLogin(ctx, mgmClient, pubSSHKey)
-	if isRegistrationNeeded(err) {
+	if serverKey != nil && isRegistrationNeeded(err) {
 		log.Debugf("peer registration required")
 		_, err = registerPeer(ctx, *serverKey, mgmClient, setupKey, jwtToken, pubSSHKey)
 		return err

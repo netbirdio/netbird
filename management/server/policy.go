@@ -148,7 +148,7 @@ type Policy struct {
 	Enabled bool
 
 	// Rules of the policy
-	Rules []*PolicyRule `gorm:"foreignKey:PolicyID;references:id"`
+	Rules []*PolicyRule `gorm:"foreignKey:PolicyID;references:id;constraint:OnDelete:CASCADE;"`
 
 	// SourcePostureChecks are ID references to Posture checks for policy source groups
 	SourcePostureChecks []string `gorm:"serializer:json"`
@@ -314,7 +314,7 @@ func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*nbpeer.Peer, in
 
 // GetPolicy from the store
 func (am *DefaultAccountManager) GetPolicy(accountID, policyID, userID string) (*Policy, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -342,7 +342,7 @@ func (am *DefaultAccountManager) GetPolicy(accountID, policyID, userID string) (
 
 // SavePolicy in the store
 func (am *DefaultAccountManager) SavePolicy(accountID, userID string, policy *Policy) error {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -370,7 +370,7 @@ func (am *DefaultAccountManager) SavePolicy(accountID, userID string, policy *Po
 
 // DeletePolicy from the store
 func (am *DefaultAccountManager) DeletePolicy(accountID, policyID, userID string) error {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -397,7 +397,7 @@ func (am *DefaultAccountManager) DeletePolicy(accountID, policyID, userID string
 
 // ListPolicies from the store
 func (am *DefaultAccountManager) ListPolicies(accountID, userID string) ([]*Policy, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)

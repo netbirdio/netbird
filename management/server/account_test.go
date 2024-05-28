@@ -48,8 +48,8 @@ func (MocIntegratedValidator) PreparePeer(accountID string, peer *nbpeer.Peer, p
 	return peer
 }
 
-func (MocIntegratedValidator) IsNotValidPeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (bool, bool) {
-	return false, false
+func (MocIntegratedValidator) IsNotValidPeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (bool, bool, error) {
+	return false, false, nil
 }
 
 func (MocIntegratedValidator) PeerDeleted(_, _ string) error {
@@ -1294,6 +1294,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
+
 	userID := "account_creator"
 	account, err := createAccount(manager, "test_account", userID, "netbird.cloud")
 	if err != nil {
@@ -1408,7 +1409,7 @@ func TestFileStore_GetRoutesByPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	account := &Account{
-		Routes: map[string]*route.Route{
+		Routes: map[route.ID]*route.Route{
 			"route-1": {
 				ID:          "route-1",
 				Network:     prefix,
@@ -1437,12 +1438,12 @@ func TestFileStore_GetRoutesByPrefix(t *testing.T) {
 	routes := account.GetRoutesByPrefix(prefix)
 
 	assert.Len(t, routes, 2)
-	routeIDs := make(map[string]struct{}, 2)
+	routeIDs := make(map[route.ID]struct{}, 2)
 	for _, r := range routes {
 		routeIDs[r.ID] = struct{}{}
 	}
-	assert.Contains(t, routeIDs, "route-1")
-	assert.Contains(t, routeIDs, "route-2")
+	assert.Contains(t, routeIDs, route.ID("route-1"))
+	assert.Contains(t, routeIDs, route.ID("route-2"))
 }
 
 func TestAccount_GetRoutesToSync(t *testing.T) {
@@ -1459,7 +1460,7 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 			"peer-1": {Key: "peer-1", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}}, "peer-2": {Key: "peer-2", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}}, "peer-3": {Key: "peer-1", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}},
 		},
 		Groups: map[string]*group.Group{"group1": {ID: "group1", Peers: []string{"peer-1", "peer-2"}}},
-		Routes: map[string]*route.Route{
+		Routes: map[route.ID]*route.Route{
 			"route-1": {
 				ID:          "route-1",
 				Network:     prefix,
@@ -1502,12 +1503,12 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 	routes := account.getRoutesToSync("peer-2", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-3"}})
 
 	assert.Len(t, routes, 2)
-	routeIDs := make(map[string]struct{}, 2)
+	routeIDs := make(map[route.ID]struct{}, 2)
 	for _, r := range routes {
 		routeIDs[r.ID] = struct{}{}
 	}
-	assert.Contains(t, routeIDs, "route-2")
-	assert.Contains(t, routeIDs, "route-3")
+	assert.Contains(t, routeIDs, route.ID("route-2"))
+	assert.Contains(t, routeIDs, route.ID("route-3"))
 
 	emptyRoutes := account.getRoutesToSync("peer-3", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-2"}})
 
@@ -1573,7 +1574,7 @@ func TestAccount_Copy(t *testing.T) {
 				SourcePostureChecks: make([]string, 0),
 			},
 		},
-		Routes: map[string]*route.Route{
+		Routes: map[route.ID]*route.Route{
 			"route1": {
 				ID:         "route1",
 				PeerGroups: []string{},
@@ -1655,7 +1656,8 @@ func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
 func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
-	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+
+	_, err = manager.GetAccountByUserOrAccountID(userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
@@ -1666,7 +1668,10 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 		LoginExpirationEnabled: true,
 	})
 	require.NoError(t, err, "unable to add peer")
-	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil)
+
+	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	require.NoError(t, err, "unable to get the account")
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil, account)
 	require.NoError(t, err, "unable to mark peer connected")
 	account, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
@@ -1704,6 +1709,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
+
 	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
@@ -1732,8 +1738,10 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 		},
 	}
 
+	account, err = manager.GetAccountByUserOrAccountID(userID, "", "")
+	require.NoError(t, err, "unable to get the account")
 	// when we mark peer as connected, the peer login expiration routine should trigger
-	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil)
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil, account)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	failed := waitTimeout(wg, time.Second)
@@ -1745,7 +1753,8 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
-	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+
+	_, err = manager.GetAccountByUserOrAccountID(userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
@@ -1756,7 +1765,10 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 		LoginExpirationEnabled: true,
 	})
 	require.NoError(t, err, "unable to add peer")
-	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil)
+
+	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	require.NoError(t, err, "unable to get the account")
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil, account)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	wg := &sync.WaitGroup{}
@@ -2259,21 +2271,29 @@ func TestAccount_UserGroupsRemoveFromPeers(t *testing.T) {
 
 func createManager(t *testing.T) (*DefaultAccountManager, error) {
 	t.Helper()
+
 	store, err := createStore(t)
 	if err != nil {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{})
+
+	manager, err := BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{})
+	if err != nil {
+		return nil, err
+	}
+
+	return manager, nil
 }
 
 func createStore(t *testing.T) (Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, err := NewStoreFromJson(dataDir, nil)
+	store, cleanUp, err := NewTestStoreFromJson(dataDir)
 	if err != nil {
 		return nil, err
 	}
+	t.Cleanup(cleanUp)
 
 	return store, nil
 }

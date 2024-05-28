@@ -57,18 +57,18 @@ func NewFileStore(dataDir string, metrics telemetry.AppMetrics) (*FileStore, err
 }
 
 // NewFilestoreFromSqliteStore restores a store from Sqlite and stores to Filestore json in the file located in datadir
-func NewFilestoreFromSqliteStore(sqlitestore *SqliteStore, dataDir string, metrics telemetry.AppMetrics) (*FileStore, error) {
+func NewFilestoreFromSqliteStore(sqlStore *SqlStore, dataDir string, metrics telemetry.AppMetrics) (*FileStore, error) {
 	store, err := NewFileStore(dataDir, metrics)
 	if err != nil {
 		return nil, err
 	}
 
-	err = store.SaveInstallationID(sqlitestore.GetInstallationID())
+	err = store.SaveInstallationID(sqlStore.GetInstallationID())
 	if err != nil {
 		return nil, err
 	}
 
-	for _, account := range sqlitestore.GetAllAccounts() {
+	for _, account := range sqlStore.GetAllAccounts() {
 		store.Accounts[account.Id] = account
 	}
 
@@ -279,8 +279,8 @@ func (s *FileStore) AcquireGlobalLock() (unlock func()) {
 	return unlock
 }
 
-// AcquireAccountLock acquires account lock and returns a function that releases the lock
-func (s *FileStore) AcquireAccountLock(accountID string) (unlock func()) {
+// AcquireAccountWriteLock acquires account lock for writing to a resource and returns a function that releases the lock
+func (s *FileStore) AcquireAccountWriteLock(accountID string) (unlock func()) {
 	log.Debugf("acquiring lock for account %s", accountID)
 	start := time.Now()
 	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.Mutex{})
@@ -293,6 +293,12 @@ func (s *FileStore) AcquireAccountLock(accountID string) (unlock func()) {
 	}
 
 	return unlock
+}
+
+// AcquireAccountReadLock AcquireAccountWriteLock acquires account lock for reading a resource and returns a function that releases the lock
+// This method is still returns a write lock as file store can't handle read locks
+func (s *FileStore) AcquireAccountReadLock(accountID string) (unlock func()) {
+	return s.AcquireAccountWriteLock(accountID)
 }
 
 func (s *FileStore) SaveAccount(account *Account) error {
@@ -570,6 +576,18 @@ func (s *FileStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 	}
 
 	return account.Copy(), nil
+}
+
+func (s *FileStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, ok := s.PeerKeyID2AccountID[peerKey]
+	if !ok {
+		return "", status.Errorf(status.NotFound, "provided peer key doesn't exists %s", peerKey)
+	}
+
+	return accountID, nil
 }
 
 // GetInstallationID returns the installation ID from the store

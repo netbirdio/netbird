@@ -13,7 +13,7 @@ RestartSec=5
 TimeoutStopSec=10
 CacheDirectory=netbird
 ConfigurationDirectory=netbird
-LogDirectory=netbird
+LogsDirectory=netbird
 RuntimeDirectory=netbird
 StateDirectory=netbird
 
@@ -28,7 +28,8 @@ ProtectControlGroups=yes
 ProtectHome=yes
 ProtectHostname=yes
 ProtectKernelLogs=yes
-ProtectKernelModules=no  # needed to load wg module for kernel-mode WireGuard
+# needed to load wg module for kernel-mode WireGuard
+ProtectKernelModules=no
 ProtectKernelTunables=no
 ProtectSystem=yes
 RemoveIPC=yes

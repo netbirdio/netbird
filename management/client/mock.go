@@ -1,6 +1,8 @@
 package client
 
 import (
+	"context"
+
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/system"
@@ -9,7 +11,7 @@ import (
 
 type MockClient struct {
 	CloseFunc                      func() error
-	SyncFunc                       func(msgHandler func(msg *proto.SyncResponse) error) error
+	SyncFunc                       func(ctx context.Context, msgHandler func(msg *proto.SyncResponse) error) error
 	GetServerPublicKeyFunc         func() (*wgtypes.Key, error)
 	RegisterFunc                   func(serverKey wgtypes.Key, setupKey string, jwtToken string, info *system.Info, sshKey []byte) (*proto.LoginResponse, error)
 	LoginFunc                      func(serverKey wgtypes.Key, info *system.Info, sshKey []byte) (*proto.LoginResponse, error)
@@ -28,11 +30,11 @@ func (m *MockClient) Close() error {
 	return m.CloseFunc()
 }
 
-func (m *MockClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
+func (m *MockClient) Sync(ctx context.Context, msgHandler func(msg *proto.SyncResponse) error) error {
 	if m.SyncFunc == nil {
 		return nil
 	}
-	return m.SyncFunc(msgHandler)
+	return m.SyncFunc(ctx, msgHandler)
 }
 
 func (m *MockClient) GetServerPublicKey() (*wgtypes.Key, error) {

@@ -47,24 +47,20 @@ func (f *fileConfigurator) supportCustomPort() bool {
 }
 
 func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
-	backupFileExist := false
-	_, err := os.Stat(fileDefaultResolvConfBackupLocation)
-	if err == nil {
-		backupFileExist = true
-	}
-
+	backupFileExist := f.isBackupFileExist()
 	if !config.RouteAll {
 		if backupFileExist {
-			err = f.restore()
+			f.repair.stopWatchFileChanges()
+			err := f.restore()
 			if err != nil {
-				return fmt.Errorf("unable to configure DNS for this peer using file manager without a Primary nameserver group. Restoring the original file return err: %w", err)
+				return fmt.Errorf("restoring the original resolv.conf file return err: %w", err)
 			}
 		}
 		return fmt.Errorf("unable to configure DNS for this peer using file manager without a nameserver group with all domains configured")
 	}
 
 	if !backupFileExist {
-		err = f.backup()
+		err := f.backup()
 		if err != nil {
 			return fmt.Errorf("unable to backup the resolv.conf file: %w", err)
 		}
@@ -182,6 +178,11 @@ func (f *fileConfigurator) restoreUncleanShutdownDNS(storedDNSAddress *netip.Add
 
 	log.Info("restoring unclean shutdown: first current nameserver differs from saved nameserver pre-netbird: not restoring")
 	return nil
+}
+
+func (f *fileConfigurator) isBackupFileExist() bool {
+	_, err := os.Stat(fileDefaultResolvConfBackupLocation)
+	return err == nil
 }
 
 func restoreResolvConfFile() error {

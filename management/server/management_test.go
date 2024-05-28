@@ -469,8 +469,8 @@ func (MocIntegratedValidator) PreparePeer(accountID string, peer *nbpeer.Peer, p
 	return peer
 }
 
-func (MocIntegratedValidator) IsNotValidPeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (bool, bool) {
-	return false, false
+func (MocIntegratedValidator) IsNotValidPeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (bool, bool, error) {
+	return false, false, nil
 }
 
 func (MocIntegratedValidator) PeerDeleted(_, _ string) error {
@@ -532,10 +532,11 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	Expect(err).NotTo(HaveOccurred())
 	s := grpc.NewServer()
 
-	store, err := server.NewStoreFromJson(config.Datadir, nil)
+	store, _, err := server.NewTestStoreFromJson(config.Datadir)
 	if err != nil {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
+
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted",

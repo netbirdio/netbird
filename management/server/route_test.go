@@ -40,7 +40,7 @@ const (
 func TestCreateRoute(t *testing.T) {
 	type input struct {
 		network      string
-		netID        string
+		netID        route.NetID
 		peerKey      string
 		peerGroupIDs []string
 		description  string
@@ -382,8 +382,8 @@ func TestSaveRoute(t *testing.T) {
 	invalidPrefix, _ := netip.ParsePrefix("192.168.0.0/34")
 	validMetric := 1000
 	invalidMetric := 99999
-	validNetID := "12345678901234567890qw"
-	invalidNetID := "12345678901234567890qwertyuiopqwertyuiop1"
+	validNetID := route.NetID("12345678901234567890qw")
+	invalidNetID := route.NetID("12345678901234567890qwertyuiopqwertyuiop1")
 	validGroupHA1 := routeGroupHA1
 	validGroupHA2 := routeGroupHA2
 
@@ -1021,10 +1021,11 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 func createRouterStore(t *testing.T) (Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, err := NewStoreFromJson(dataDir, nil)
+	store, cleanUp, err := NewTestStoreFromJson(dataDir)
 	if err != nil {
 		return nil, err
 	}
+	t.Cleanup(cleanUp)
 
 	return store, nil
 }

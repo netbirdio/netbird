@@ -4,4 +4,5 @@ package iface
 type TunAdapter interface {
 	ConfigureInterface(address string, mtu int, dns string, searchDomains string, routes string) (int, error)
 	UpdateAddr(address string) error
+	ProtectSocket(fd int32) bool
 }

@@ -399,6 +399,7 @@ func (s *serviceClient) updateStatus() error {
 		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
 		if err != nil {
 			log.Errorf("get service status: %v", err)
+			s.setDisconnectedStatus()
 			return err
 		}
 
@@ -426,17 +427,7 @@ func (s *serviceClient) updateStatus() error {
 			s.mRoutes.Enable()
 			systrayIconState = true
 		} else if status.Status != string(internal.StatusConnected) && s.mUp.Disabled() {
-			s.connected = false
-			if s.isUpdateIconActive {
-				systray.SetIcon(s.icUpdateDisconnected)
-			} else {
-				systray.SetIcon(s.icDisconnected)
-			}
-			systray.SetTooltip("NetBird (Disconnected)")
-			s.mStatus.SetTitle("Disconnected")
-			s.mDown.Disable()
-			s.mUp.Enable()
-			s.mRoutes.Disable()
+			s.setDisconnectedStatus()
 			systrayIconState = false
 		}
 
@@ -479,6 +470,20 @@ func (s *serviceClient) updateStatus() error {
 	}
 
 	return nil
+}
+
+func (s *serviceClient) setDisconnectedStatus() {
+	s.connected = false
+	if s.isUpdateIconActive {
+		systray.SetIcon(s.icUpdateDisconnected)
+	} else {
+		systray.SetIcon(s.icDisconnected)
+	}
+	systray.SetTooltip("NetBird (Disconnected)")
+	s.mStatus.SetTitle("Disconnected")
+	s.mDown.Disable()
+	s.mUp.Enable()
+	s.mRoutes.Disable()
 }
 
 func (s *serviceClient) onTrayReady() {

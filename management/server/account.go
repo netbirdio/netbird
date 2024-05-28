@@ -76,7 +76,7 @@ type AccountManager interface {
 	GetUser(claims jwtclaims.AuthorizationClaims) (*User, error)
 	ListUsers(accountID string) ([]*User, error)
 	GetPeers(accountID, userID string) ([]*nbpeer.Peer, error)
-	MarkPeerConnected(peerKey string, connected bool, realIP net.IP) error
+	MarkPeerConnected(peerKey string, connected bool, realIP net.IP, account *Account) error
 	DeletePeer(accountID, peerID, userID string) error
 	UpdatePeer(accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
 	GetNetworkMap(peerID string) (*NetworkMap, error)
@@ -100,10 +100,10 @@ type AccountManager interface {
 	SavePolicy(accountID, userID string, policy *Policy) error
 	DeletePolicy(accountID, policyID, userID string) error
 	ListPolicies(accountID, userID string) ([]*Policy, error)
-	GetRoute(accountID, routeID, userID string) (*route.Route, error)
-	CreateRoute(accountID, prefix, peerID string, peerGroupIDs []string, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
+	GetRoute(accountID string, routeID route.ID, userID string) (*route.Route, error)
+	CreateRoute(accountID, prefix, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
 	SaveRoute(accountID, userID string, route *route.Route) error
-	DeleteRoute(accountID, routeID, userID string) error
+	DeleteRoute(accountID string, routeID route.ID, userID string) error
 	ListRoutes(accountID, userID string) ([]*route.Route, error)
 	GetNameServerGroup(accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error)
 	CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainsEnabled bool) (*nbdns.NameServerGroup, error)
@@ -117,8 +117,8 @@ type AccountManager interface {
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
 	GetPeer(accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error)
-	LoginPeer(login PeerLogin) (*nbpeer.Peer, *NetworkMap, error) // used by peer gRPC API
-	SyncPeer(sync PeerSync) (*nbpeer.Peer, *NetworkMap, error)    // used by peer gRPC API
+	LoginPeer(login PeerLogin) (*nbpeer.Peer, *NetworkMap, error)                // used by peer gRPC API
+	SyncPeer(sync PeerSync, account *Account) (*nbpeer.Peer, *NetworkMap, error) // used by peer gRPC API
 	GetAllConnectedPeers() (map[string]struct{}, error)
 	HasConnectedChannel(peerID string) bool
 	GetExternalCacheManager() ExternalCacheManager
@@ -130,6 +130,8 @@ type AccountManager interface {
 	UpdateIntegratedValidatorGroups(accountID string, userID string, groups []string) error
 	GroupValidation(accountId string, groups []string) (bool, error)
 	GetValidatedPeers(account *Account) (map[string]struct{}, error)
+	SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error)
+	CancelPeerRoutines(peer *nbpeer.Peer) error
 }
 
 type DefaultAccountManager struct {
@@ -229,7 +231,7 @@ type Account struct {
 	Groups                 map[string]*nbgroup.Group         `gorm:"-"`
 	GroupsG                []nbgroup.Group                   `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
-	Routes                 map[string]*route.Route           `gorm:"-"`
+	Routes                 map[route.ID]*route.Route         `gorm:"-"`
 	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	NameServerGroups       map[string]*nbdns.NameServerGroup `gorm:"-"`
 	NameServerGroupsG      []nbdns.NameServerGroup           `json:"-" gorm:"foreignKey:AccountID;references:id"`
@@ -266,7 +268,7 @@ func (a *Account) getRoutesToSync(peerID string, aclPeers []*nbpeer.Peer) []*rou
 	routes, peerDisabledRoutes := a.getRoutingPeerRoutes(peerID)
 	peerRoutesMembership := make(lookupMap)
 	for _, r := range append(routes, peerDisabledRoutes...) {
-		peerRoutesMembership[route.GetHAUniqueID(r)] = struct{}{}
+		peerRoutesMembership[string(route.GetHAUniqueID(r))] = struct{}{}
 	}
 
 	groupListMap := a.getPeerGroups(peerID)
@@ -284,7 +286,7 @@ func (a *Account) getRoutesToSync(peerID string, aclPeers []*nbpeer.Peer) []*rou
 func (a *Account) filterRoutesFromPeersOfSameHAGroup(routes []*route.Route, peerMemberships lookupMap) []*route.Route {
 	var filteredRoutes []*route.Route
 	for _, r := range routes {
-		_, found := peerMemberships[route.GetHAUniqueID(r)]
+		_, found := peerMemberships[string(route.GetHAUniqueID(r))]
 		if !found {
 			filteredRoutes = append(filteredRoutes, r)
 		}
@@ -323,7 +325,7 @@ func (a *Account) getRoutingPeerRoutes(peerID string) (enabledRoutes []*route.Ro
 		return enabledRoutes, disabledRoutes
 	}
 
-	seenRoute := make(map[string]struct{})
+	seenRoute := make(map[route.ID]struct{})
 
 	takeRoute := func(r *route.Route, id string) {
 		if _, ok := seenRoute[r.ID]; ok {
@@ -354,7 +356,7 @@ func (a *Account) getRoutingPeerRoutes(peerID string) (enabledRoutes []*route.Ro
 				newPeerRoute := r.Copy()
 				newPeerRoute.Peer = id
 				newPeerRoute.PeerGroups = nil
-				newPeerRoute.ID = r.ID + ":" + id // we have to provide unique route id when distribute network map
+				newPeerRoute.ID = route.ID(string(r.ID) + ":" + id) // we have to provide unique route id when distribute network map
 				takeRoute(newPeerRoute, id)
 				break
 			}
@@ -693,7 +695,7 @@ func (a *Account) Copy() *Account {
 		policies = append(policies, policy.Copy())
 	}
 
-	routes := map[string]*route.Route{}
+	routes := map[route.ID]*route.Route{}
 	for id, r := range a.Routes {
 		routes[id] = r.Copy()
 	}
@@ -958,7 +960,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 	}
 
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -1009,7 +1011,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 
 func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func() (time.Duration, bool) {
 	return func() (time.Duration, bool) {
-		unlock := am.Store.AcquireAccountLock(accountID)
+		unlock := am.Store.AcquireAccountWriteLock(accountID)
 		defer unlock()
 
 		account, err := am.Store.GetAccount(accountID)
@@ -1108,7 +1110,7 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 
 // DeleteAccount deletes an account and all its users from local store and from the remote IDP if the requester is an admin and account owner
 func (am *DefaultAccountManager) DeleteAccount(accountID, userID string) error {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -1567,7 +1569,7 @@ func (am *DefaultAccountManager) MarkPATUsed(tokenID string) error {
 		return err
 	}
 
-	unlock := am.Store.AcquireAccountLock(account.Id)
+	unlock := am.Store.AcquireAccountWriteLock(account.Id)
 	defer unlock()
 
 	account, err = am.Store.GetAccountByUser(user.Id)
@@ -1650,7 +1652,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 	if err != nil {
 		return nil, nil, err
 	}
-	unlock := am.Store.AcquireAccountLock(newAcc.Id)
+	unlock := am.Store.AcquireAccountWriteLock(newAcc.Id)
 	alreadyUnlocked := false
 	defer func() {
 		if !alreadyUnlocked {
@@ -1766,6 +1768,8 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 //
 // Existing user + Existing account + Existing domain reclassified Domain as private -> Nothing changes (index domain)
 func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error) {
+	log.Tracef("getting account with authorization claims. User ID: \"%s\", Account ID: \"%s\", Domain: \"%s\", Domain Category: \"%s\"",
+		claims.UserId, claims.AccountId, claims.Domain, claims.DomainCategory)
 	if claims.UserId == "" {
 		return nil, fmt.Errorf("user ID is empty")
 	}
@@ -1786,8 +1790,10 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		}
 	}
 
+	start := time.Now()
 	unlock := am.Store.AcquireGlobalLock()
 	defer unlock()
+	log.Debugf("Acquired global lock in %s for user %s", time.Since(start), claims.UserId)
 
 	// We checked if the domain has a primary account already
 	domainAccount, err := am.Store.GetAccountByPrivateDomain(claims.Domain)
@@ -1801,7 +1807,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 
 	account, err := am.Store.GetAccountByUser(claims.UserId)
 	if err == nil {
-		unlockAccount := am.Store.AcquireAccountLock(account.Id)
+		unlockAccount := am.Store.AcquireAccountWriteLock(account.Id)
 		defer unlockAccount()
 		account, err = am.Store.GetAccountByUser(claims.UserId)
 		if err != nil {
@@ -1821,7 +1827,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		return account, nil
 	} else if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
 		if domainAccount != nil {
-			unlockAccount := am.Store.AcquireAccountLock(domainAccount.Id)
+			unlockAccount := am.Store.AcquireAccountWriteLock(domainAccount.Id)
 			defer unlockAccount()
 			domainAccount, err = am.Store.GetAccountByPrivateDomain(claims.Domain)
 			if err != nil {
@@ -1833,6 +1839,62 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		// other error
 		return nil, err
 	}
+}
+
+func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error) {
+	accountID, err := am.Store.GetAccountIDByPeerPubKey(peerPubKey)
+	if err != nil {
+		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
+			return nil, nil, status.Errorf(status.Unauthenticated, "peer not registered")
+		}
+		return nil, nil, err
+	}
+
+	unlock := am.Store.AcquireAccountReadLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	peer, netMap, err := am.SyncPeer(PeerSync{WireGuardPubKey: peerPubKey}, account)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = am.MarkPeerConnected(peerPubKey, true, realIP, account)
+	if err != nil {
+		log.Warnf("failed marking peer as connected %s %v", peerPubKey, err)
+	}
+
+	return peer, netMap, nil
+}
+
+func (am *DefaultAccountManager) CancelPeerRoutines(peer *nbpeer.Peer) error {
+	accountID, err := am.Store.GetAccountIDByPeerPubKey(peer.Key)
+	if err != nil {
+		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
+			return status.Errorf(status.Unauthenticated, "peer not registered")
+		}
+		return err
+	}
+
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	err = am.MarkPeerConnected(peer.Key, false, nil, account)
+	if err != nil {
+		log.Warnf("failed marking peer as connected %s %v", peer.Key, err)
+	}
+
+	return nil
+
 }
 
 // GetAllConnectedPeers returns connected peers based on peersUpdateManager.GetAllConnectedPeers()
@@ -1946,7 +2008,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 	network := NewNetwork()
 	peers := make(map[string]*nbpeer.Peer)
 	users := make(map[string]*User)
-	routes := make(map[string]*route.Route)
+	routes := make(map[route.ID]*route.Route)
 	setupKeys := map[string]*SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
 	users[userID] = NewOwnerUser(userID)

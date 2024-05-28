@@ -33,7 +33,7 @@ type clientNetwork struct {
 	stop                context.CancelFunc
 	statusRecorder      *peer.Status
 	wgInterface         *iface.WGIface
-	routes              map[string]*route.Route
+	routes              map[route.ID]*route.Route
 	routeUpdate         chan routesUpdate
 	peerStateUpdate     chan struct{}
 	routePeersNotifiers map[string]chan struct{}
@@ -50,7 +50,7 @@ func newClientNetworkWatcher(ctx context.Context, wgInterface *iface.WGIface, st
 		stop:                cancel,
 		statusRecorder:      statusRecorder,
 		wgInterface:         wgInterface,
-		routes:              make(map[string]*route.Route),
+		routes:              make(map[route.ID]*route.Route),
 		routePeersNotifiers: make(map[string]chan struct{}),
 		routeUpdate:         make(chan routesUpdate),
 		peerStateUpdate:     make(chan struct{}),
@@ -59,8 +59,8 @@ func newClientNetworkWatcher(ctx context.Context, wgInterface *iface.WGIface, st
 	return client
 }
 
-func (c *clientNetwork) getRouterPeerStatuses() map[string]routerPeerStatus {
-	routePeerStatuses := make(map[string]routerPeerStatus)
+func (c *clientNetwork) getRouterPeerStatuses() map[route.ID]routerPeerStatus {
+	routePeerStatuses := make(map[route.ID]routerPeerStatus)
 	for _, r := range c.routes {
 		peerStatus, err := c.statusRecorder.GetPeer(r.Peer)
 		if err != nil {
@@ -90,12 +90,12 @@ func (c *clientNetwork) getRouterPeerStatuses() map[string]routerPeerStatus {
 // * Latency: Routes with lower latency are prioritized.
 //
 // It returns the ID of the selected optimal route.
-func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]routerPeerStatus) string {
-	chosen := ""
+func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]routerPeerStatus) route.ID {
+	chosen := route.ID("")
 	chosenScore := float64(0)
 	currScore := float64(0)
 
-	currID := ""
+	currID := route.ID("")
 	if c.chosenRoute != nil {
 		currID = c.chosenRoute.ID
 	}
@@ -295,7 +295,7 @@ func (c *clientNetwork) sendUpdateToClientNetworkWatcher(update routesUpdate) {
 }
 
 func (c *clientNetwork) handleUpdate(update routesUpdate) {
-	updateMap := make(map[string]*route.Route)
+	updateMap := make(map[route.ID]*route.Route)
 
 	for _, r := range update.routes {
 		updateMap[r.ID] = r

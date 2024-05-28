@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	mgmt "github.com/netbirdio/netbird/management/server"
@@ -61,10 +62,11 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	store, err := mgmt.NewStoreFromJson(config.Datadir, nil)
+	store, cleanUp, err := mgmt.NewTestStoreFromJson(config.Datadir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(cleanUp)
 
 	peersUpdateManager := mgmt.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
@@ -255,7 +257,7 @@ func TestClient_Sync(t *testing.T) {
 	ch := make(chan *mgmtProto.SyncResponse, 1)
 
 	go func() {
-		err = client.Sync(func(msg *mgmtProto.SyncResponse) error {
+		err = client.Sync(context.Background(), func(msg *mgmtProto.SyncResponse) error {
 			ch <- msg
 			return nil
 		})

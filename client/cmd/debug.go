@@ -3,13 +3,14 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/client/server"
 )
 
 var debugCmd = &cobra.Command{
@@ -86,7 +87,7 @@ func setLogLevel(cmd *cobra.Command, args []string) error {
 	defer conn.Close()
 
 	client := proto.NewDaemonServiceClient(conn)
-	level := parseLogLevel(args[0])
+	level := server.ParseLogLevel(args[0])
 	if level == proto.LogLevel_UNKNOWN {
 		return fmt.Errorf("unknown log level: %s. Available levels are: panic, fatal, error, warn, info, debug, trace\n", args[0])
 	}
@@ -100,27 +101,6 @@ func setLogLevel(cmd *cobra.Command, args []string) error {
 
 	cmd.Println("Log level set successfully to", args[0])
 	return nil
-}
-
-func parseLogLevel(level string) proto.LogLevel {
-	switch strings.ToLower(level) {
-	case "panic":
-		return proto.LogLevel_PANIC
-	case "fatal":
-		return proto.LogLevel_FATAL
-	case "error":
-		return proto.LogLevel_ERROR
-	case "warn":
-		return proto.LogLevel_WARN
-	case "info":
-		return proto.LogLevel_INFO
-	case "debug":
-		return proto.LogLevel_DEBUG
-	case "trace":
-		return proto.LogLevel_TRACE
-	default:
-		return proto.LogLevel_UNKNOWN
-	}
 }
 
 func runForDuration(cmd *cobra.Command, args []string) error {
@@ -137,18 +117,33 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 
 	client := proto.NewDaemonServiceClient(conn)
 
+	stat, err := client.Status(cmd.Context(), &proto.StatusRequest{})
+	if err != nil {
+		return fmt.Errorf("failed to get status: %v", status.Convert(err).Message())
+	}
+
+	restoreUp := stat.Status == string(internal.StatusConnected) || stat.Status == string(internal.StatusConnecting)
+
+	initialLogLevel, err := client.GetLogLevel(cmd.Context(), &proto.GetLogLevelRequest{})
+	if err != nil {
+		return fmt.Errorf("failed to get log level: %v", status.Convert(err).Message())
+	}
+
 	if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
 		return fmt.Errorf("failed to down: %v", status.Convert(err).Message())
 	}
 	cmd.Println("Netbird down")
 
-	_, err = client.SetLogLevel(cmd.Context(), &proto.SetLogLevelRequest{
-		Level: proto.LogLevel_TRACE,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to set log level to trace: %v", status.Convert(err).Message())
+	initialLevelTrace := initialLogLevel.GetLevel() >= proto.LogLevel_TRACE
+	if !initialLevelTrace {
+		_, err = client.SetLogLevel(cmd.Context(), &proto.SetLogLevelRequest{
+			Level: proto.LogLevel_TRACE,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to set log level to TRACE: %v", status.Convert(err).Message())
+		}
+		cmd.Println("Log level set to trace.")
 	}
-	cmd.Println("Log level set to trace.")
 
 	time.Sleep(1 * time.Second)
 
@@ -175,9 +170,21 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	}
 	cmd.Println("Netbird down")
 
-	// TODO reset log level
-
 	time.Sleep(1 * time.Second)
+
+	if restoreUp {
+		if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
+			return fmt.Errorf("failed to up: %v", status.Convert(err).Message())
+		}
+		cmd.Println("Netbird up")
+	}
+
+	if !initialLevelTrace {
+		if _, err := client.SetLogLevel(cmd.Context(), &proto.SetLogLevelRequest{Level: initialLogLevel.GetLevel()}); err != nil {
+			return fmt.Errorf("failed to restore log level: %v", status.Convert(err).Message())
+		}
+		cmd.Println("Log level restored to", initialLogLevel.GetLevel())
+	}
 
 	cmd.Println("Creating debug bundle...")
 

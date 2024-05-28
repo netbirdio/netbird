@@ -13,6 +13,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/migration"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -88,4 +89,73 @@ func TestMigrateFieldFromGobToJSON_WithJSONData(t *testing.T) {
 	var jsonStr string
 	db.Model(&server.Account{}).Select("network_net").First(&jsonStr)
 	assert.JSONEq(t, `{"IP":"10.0.0.0","Mask":"////AA=="}`, jsonStr, "Data should be unchanged")
+}
+
+func TestMigrateNetIPFieldFromBlobToJSON_EmptyDB(t *testing.T) {
+	db := setupDatabase(t)
+	err := migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](db, "ip", "idx_peers_account_id_ip")
+	require.NoError(t, err, "Migration should not fail for an empty database")
+}
+
+func TestMigrateNetIPFieldFromBlobToJSON_WithBlobData(t *testing.T) {
+	db := setupDatabase(t)
+
+	err := db.AutoMigrate(&server.Account{}, &nbpeer.Peer{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+
+	type location struct {
+		nbpeer.Location
+		ConnectionIP net.IP
+	}
+
+	type peer struct {
+		nbpeer.Peer
+		Location location `gorm:"embedded;embeddedPrefix:location_"`
+	}
+
+	type account struct {
+		server.Account
+		Peers []peer `gorm:"foreignKey:AccountID;references:id"`
+	}
+
+	err = db.Save(&account{
+		Account: server.Account{Id: "123"},
+		Peers: []peer{
+			{Location: location{ConnectionIP: net.IP{10, 0, 0, 1}}},
+		}},
+	).Error
+	require.NoError(t, err, "Failed to insert blob data")
+
+	var blobValue string
+	err = db.Model(&nbpeer.Peer{}).Select("location_connection_ip").First(&blobValue).Error
+	assert.NoError(t, err, "Failed to fetch blob data")
+
+	err = migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](db, "location_connection_ip", "")
+	require.NoError(t, err, "Migration should not fail with net.IP blob data")
+
+	var jsonStr string
+	db.Model(&nbpeer.Peer{}).Select("location_connection_ip").First(&jsonStr)
+	assert.JSONEq(t, `"10.0.0.1"`, jsonStr, "Data should be migrated")
+}
+
+func TestMigrateNetIPFieldFromBlobToJSON_WithJSONData(t *testing.T) {
+	db := setupDatabase(t)
+
+	err := db.AutoMigrate(&server.Account{}, &nbpeer.Peer{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+
+	err = db.Save(&server.Account{
+		Id: "1234",
+		PeersG: []nbpeer.Peer{
+			{Location: nbpeer.Location{ConnectionIP: net.IP{10, 0, 0, 1}}},
+		}},
+	).Error
+	require.NoError(t, err, "Failed to insert JSON data")
+
+	err = migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](db, "location_connection_ip", "")
+	require.NoError(t, err, "Migration should not fail with net.IP JSON data")
+
+	var jsonStr string
+	db.Model(&nbpeer.Peer{}).Select("location_connection_ip").First(&jsonStr)
+	assert.JSONEq(t, `"10.0.0.1"`, jsonStr, "Data should be unchanged")
 }

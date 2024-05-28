@@ -229,6 +229,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn})
+	engine.ctx = ctx
 
 	type testCase struct {
 		name       string
@@ -392,7 +393,7 @@ func TestEngine_Sync(t *testing.T) {
 	// feed updates to Engine via mocked Management client
 	updates := make(chan *mgmtProto.SyncResponse)
 	defer close(updates)
-	syncFunc := func(msgHandler func(msg *mgmtProto.SyncResponse) error) error {
+	syncFunc := func(ctx context.Context, msgHandler func(msg *mgmtProto.SyncResponse) error) error {
 		for msg := range updates {
 			err := msgHandler(msg)
 			if err != nil {
@@ -408,6 +409,7 @@ func TestEngine_Sync(t *testing.T) {
 		WgPrivateKey: key,
 		WgPort:       33100,
 	}, MobileDependency{}, peer.NewRecorder("https://mgm"))
+	engine.ctx = ctx
 
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
@@ -566,6 +568,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				WgPrivateKey: key,
 				WgPort:       33100,
 			}, MobileDependency{}, peer.NewRecorder("https://mgm"))
+			engine.ctx = ctx
 			newNet, err := stdnet.NewNet()
 			if err != nil {
 				t.Fatal(err)
@@ -578,7 +581,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			}{}
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) (map[string]*route.Route, map[string][]*route.Route, error) {
+				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error) {
 					input.inputSerial = updateSerial
 					input.inputRoutes = newRoutes
 					return nil, nil, testCase.inputErr
@@ -735,6 +738,8 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 				WgPrivateKey: key,
 				WgPort:       33100,
 			}, MobileDependency{}, peer.NewRecorder("https://mgm"))
+			engine.ctx = ctx
+
 			newNet, err := stdnet.NewNet()
 			if err != nil {
 				t.Fatal(err)
@@ -743,7 +748,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			assert.NoError(t, err, "shouldn't return error")
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) (map[string]*route.Route, map[string][]*route.Route, error) {
+				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error) {
 					return nil, nil, nil
 				},
 			}
@@ -1003,7 +1008,9 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		WgPort:       wgPort,
 	}
 
-	return NewEngine(ctx, cancel, signalClient, mgmtClient, conf, MobileDependency{}, peer.NewRecorder("https://mgm")), nil
+	e, err := NewEngine(ctx, cancel, signalClient, mgmtClient, conf, MobileDependency{}, peer.NewRecorder("https://mgm")), nil
+	e.ctx = ctx
+	return e, err
 }
 
 func startSignal() (*grpc.Server, string, error) {
@@ -1042,7 +1049,7 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 		return nil, "", err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
-	store, err := server.NewStoreFromJson(config.Datadir, nil)
+	store, _, err := server.NewTestStoreFromJson(config.Datadir)
 	if err != nil {
 		return nil, "", err
 	}

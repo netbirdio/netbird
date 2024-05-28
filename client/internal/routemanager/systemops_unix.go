@@ -43,11 +43,6 @@ func routeCmd(action string, prefix netip.Prefix, nexthop netip.Addr, intf *net.
 	}
 	if prefix.Addr().Is6() {
 		inet = "-inet6"
-		// Special case for IPv6 split default route, pointing to the wg interface fails
-		// TODO: Remove once we have IPv6 support on the interface
-		if prefix.Bits() == 1 {
-			intf = &net.Interface{Name: "lo0"}
-		}
 	}
 
 	args := []string{"-n", action, inet, network}

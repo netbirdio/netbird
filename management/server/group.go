@@ -22,7 +22,7 @@ func (e *GroupLinkError) Error() string {
 
 // GetGroup object of the peers
 func (am *DefaultAccountManager) GetGroup(accountID, groupID, userID string) (*nbgroup.Group, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -49,7 +49,7 @@ func (am *DefaultAccountManager) GetGroup(accountID, groupID, userID string) (*n
 
 // GetAllGroups returns all groups in an account
 func (am *DefaultAccountManager) GetAllGroups(accountID string, userID string) ([]*nbgroup.Group, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -76,7 +76,7 @@ func (am *DefaultAccountManager) GetAllGroups(accountID string, userID string) (
 
 // GetGroupByName filters all groups in an account by name and returns the one with the most peers
 func (am *DefaultAccountManager) GetGroupByName(groupName, accountID string) (*nbgroup.Group, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -109,7 +109,7 @@ func (am *DefaultAccountManager) GetGroupByName(groupName, accountID string) (*n
 
 // SaveGroup object of the peers
 func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *nbgroup.Group) error {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -214,7 +214,7 @@ func difference(a, b []string) []string {
 
 // DeleteGroup object of the peers
 func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) error {
-	unlock := am.Store.AcquireAccountLock(accountId)
+	unlock := am.Store.AcquireAccountWriteLock(accountId)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountId)
@@ -242,7 +242,12 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 	for _, r := range account.Routes {
 		for _, g := range r.Groups {
 			if g == groupID {
-				return &GroupLinkError{"route", r.NetID}
+				return &GroupLinkError{"route", string(r.NetID)}
+			}
+		}
+		for _, g := range r.PeerGroups {
+			if g == groupID {
+				return &GroupLinkError{"route", string(r.NetID)}
 			}
 		}
 	}
@@ -323,7 +328,7 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 
 // ListGroups objects of the peers
 func (am *DefaultAccountManager) ListGroups(accountID string) ([]*nbgroup.Group, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -341,7 +346,7 @@ func (am *DefaultAccountManager) ListGroups(accountID string) ([]*nbgroup.Group,
 
 // GroupAddPeer appends peer to the group
 func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerID string) error {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -377,7 +382,7 @@ func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerID string)
 
 // GroupDeletePeer removes peer from the group
 func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerID string) error {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
