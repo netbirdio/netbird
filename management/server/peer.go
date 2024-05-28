@@ -524,7 +524,7 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync, account *Account) (*nbp
 		return nil, nil, err
 	}
 
-	if peerLoginExpired(peer, account) {
+	if peerLoginExpired(peer, account.Settings) {
 		return nil, nil, status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
 	}
 
@@ -556,7 +556,6 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync, account *Account) (*nbp
 func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *NetworkMap, error) {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(login.WireGuardPubKey)
 	if err != nil {
-		log.Debugf("failed to get account by peer public key %s: %v", login.WireGuardPubKey, err)
 		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
 			// we couldn't find this peer by its public key which can mean that peer hasn't been registered yet.
 			// Try registering it.
@@ -584,8 +583,27 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 		return nil, nil, status.Errorf(status.Internal, "failed while logging in peer")
 	}
 
-	// we found the peer, and we follow a normal login flow
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+	peer, err := am.Store.GetPeerByPeerPubKey(login.WireGuardPubKey)
+	if err != nil {
+		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
+	}
+
+	accSettings, err := am.Store.GetAccountSettings(accountID)
+	if err != nil {
+		return nil, nil, status.Errorf(status.Internal, "failed to get account settings: %s", err)
+	}
+
+	var isWriteLock bool
+	var unlock func()
+	// early detection of what type of lock we need
+	if peer.UpdateMetaIfNew(login.Meta) || peerLoginExpired(peer, accSettings) {
+		unlock = am.Store.AcquireAccountWriteLock(accountID)
+		isWriteLock = true
+	} else {
+		unlock = am.Store.AcquireAccountReadLock(accountID)
+		isWriteLock = false
+	}
+	log.Debugf("peer changed meta or login expired, acquiring write lock: %v", isWriteLock)
 	defer func() {
 		if unlock != nil {
 			unlock()
@@ -598,7 +616,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 		return nil, nil, err
 	}
 
-	peer, err := account.FindPeerByPubKey(login.WireGuardPubKey)
+	peer, err = account.FindPeerByPubKey(login.WireGuardPubKey)
 	if err != nil {
 		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
 	}
@@ -611,7 +629,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 	// this flag prevents unnecessary calls to the persistent store.
 	shouldStoreAccount := false
 	updateRemotePeers := false
-	if peerLoginExpired(peer, account) {
+	if peerLoginExpired(peer, account.Settings) {
 		err = checkAuth(login.UserID, peer)
 		if err != nil {
 			return nil, nil, err
@@ -647,6 +665,10 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 	}
 
 	if shouldStoreAccount {
+		if !isWriteLock {
+			log.Errorf("account %s should be stored but is not write locked", accountID)
+			return nil, nil, status.Errorf(status.Internal, "account should be stored but is not write locked")
+		}
 		err = am.Store.SaveAccount(account)
 		if err != nil {
 			return nil, nil, err
@@ -699,9 +721,9 @@ func checkAuth(loginUserID string, peer *nbpeer.Peer) error {
 	return nil
 }
 
-func peerLoginExpired(peer *nbpeer.Peer, account *Account) bool {
-	expired, expiresIn := peer.LoginExpired(account.Settings.PeerLoginExpiration)
-	expired = account.Settings.PeerLoginExpirationEnabled && expired
+func peerLoginExpired(peer *nbpeer.Peer, settings *Settings) bool {
+	expired, expiresIn := peer.LoginExpired(settings.PeerLoginExpiration)
+	expired = settings.PeerLoginExpirationEnabled && expired
 	if expired || peer.Status.LoginExpired {
 		log.Debugf("peer's %s login expired %v ago", peer.ID, expiresIn)
 		return true

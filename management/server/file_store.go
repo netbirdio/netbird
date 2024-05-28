@@ -614,6 +614,41 @@ func (s *FileStore) GetAccountIDBySetupKey(setupKey string) (string, error) {
 	return accountID, nil
 }
 
+func (s *FileStore) GetPeerByPeerPubKey(peerKey string) (*nbpeer.Peer, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, ok := s.PeerKeyID2AccountID[peerKey]
+	if !ok {
+		return nil, status.Errorf(status.NotFound, "provided peer key doesn't exists %s", peerKey)
+	}
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, peer := range account.Peers {
+		if peer.Key == peerKey {
+			return peer.Copy(), nil
+		}
+	}
+
+	return nil, status.Errorf(status.NotFound, "provided peer doesn't exists %s", peerKey)
+}
+
+func (s *FileStore) GetAccountSettings(accountID string) (*Settings, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return account.Settings.Copy(), nil
+}
+
 // GetInstallationID returns the installation ID from the store
 func (s *FileStore) GetInstallationID() string {
 	return s.InstallationID

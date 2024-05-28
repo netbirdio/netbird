@@ -52,6 +52,8 @@ type Store interface {
 	// GetStoreEngine should return StoreEngine of the current store implementation.
 	// This is also a method of metrics.DataSource interface.
 	GetStoreEngine() StoreEngine
+	GetPeerByPeerPubKey(peerKey string) (*nbpeer.Peer, error)
+	GetAccountSettings(accountID string) (*Settings, error)
 }
 
 type StoreEngine string

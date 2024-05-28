@@ -550,6 +550,32 @@ func (s *SqlStore) GetAccountIDBySetupKey(setupKey string) (string, error) {
 	return accountID, nil
 }
 
+func (s *SqlStore) GetPeerByPeerPubKey(peerKey string) (*nbpeer.Peer, error) {
+	var peer nbpeer.Peer
+	result := s.db.First(&peer, "key = ?", peerKey)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "peer not found")
+		}
+		log.Errorf("error when getting peer from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "issue getting peer from store")
+	}
+
+	return &peer, nil
+}
+
+func (s *SqlStore) GetAccountSettings(accountID string) (*Settings, error) {
+	var accountSettings AccountSettings
+	if err := s.db.Model(&Account{}).Where("id = ?", accountID).First(&accountSettings).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "settings not found")
+		}
+		log.Errorf("error when getting settings from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "issue getting settings from store")
+	}
+	return accountSettings.Settings, nil
+}
+
 // SaveUserLastLogin stores the last login time for a user in DB.
 func (s *SqlStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error {
 	var user User
