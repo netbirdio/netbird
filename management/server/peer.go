@@ -556,6 +556,7 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync, account *Account) (*nbp
 func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *NetworkMap, error) {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(login.WireGuardPubKey)
 	if err != nil {
+		log.Debugf("failed to get account by peer public key %s: %v", login.WireGuardPubKey, err)
 		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
 			// we couldn't find this peer by its public key which can mean that peer hasn't been registered yet.
 			// Try registering it.
