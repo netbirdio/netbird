@@ -538,7 +538,7 @@ func (s *SqlStore) GetAccountIDByUserID(userID string) (string, error) {
 func (s *SqlStore) GetAccountIDBySetupKey(setupKey string) (string, error) {
 	var key SetupKey
 	var accountID string
-	result := s.db.Model(&key).Select("account_id").Where("key = ?", setupKey).First(&accountID)
+	result := s.db.Model(&key).Select("account_id").Where("key = ?", strings.ToUpper(setupKey)).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
