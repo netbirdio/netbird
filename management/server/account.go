@@ -1963,11 +1963,7 @@ func (am *DefaultAccountManager) onPeersInvalidated(accountID string) {
 }
 
 func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
-	postureCheck, err := am.Store.GetPostureCheckByChecksDefinition(accountID, checks)
-	if err != nil {
-		return nil, err
-	}
-	return postureCheck, nil
+	return am.Store.GetPostureCheckByChecksDefinition(accountID, checks)
 }
 
 // addAllGroup to account object if it doesn't exist
