@@ -139,7 +139,7 @@ func (pc *Checks) GetChecks() []Check {
 	return checks
 }
 
-func (pc *Checks) FromAPIPostureCheck(source api.PostureCheck) (*Checks, error) {
+func NewChecksFromAPIPostureCheck(source api.PostureCheck) (*Checks, error) {
 	description := ""
 	if source.Description != nil {
 		description = *source.Description
@@ -148,7 +148,7 @@ func (pc *Checks) FromAPIPostureCheck(source api.PostureCheck) (*Checks, error) 
 	return buildPostureCheck(source.Id, source.Name, description, source.Checks)
 }
 
-func (pc *Checks) FromAPIPostureCheckUpdate(source api.PostureCheckUpdate, postureChecksID string) (*Checks, error) {
+func NewChecksFromAPIPostureCheckUpdate(source api.PostureCheckUpdate, postureChecksID string) (*Checks, error) {
 	return buildPostureCheck(postureChecksID, source.Name, source.Description, *source.Checks)
 }
 

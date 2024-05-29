@@ -184,8 +184,7 @@ func (p *PostureChecksHandler) savePostureChecks(
 		}
 	}
 
-	checks := posture.Checks{}
-	postureChecks, err := checks.FromAPIPostureCheckUpdate(req, postureChecksID)
+	postureChecks, err := posture.NewChecksFromAPIPostureCheckUpdate(req, postureChecksID)
 	if err != nil {
 		util.WriteError(err, w)
 		return
