@@ -6,7 +6,6 @@ import (
 
 	"github.com/hashicorp/go-version"
 	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/http/api"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -140,74 +139,37 @@ func (pc *Checks) GetChecks() []Check {
 	return checks
 }
 
-func (pc *Checks) FromAPIPostureCheck(source api.PostureCheck, accountID string) *Checks {
-	postureChecksID := source.Id
-	if postureChecksID == "" {
-		postureChecksID = xid.New().String()
-	}
-
+func (pc *Checks) FromAPIPostureCheck(source api.PostureCheck) (*Checks, error) {
 	description := ""
 	if source.Description != nil {
 		description = *source.Description
 	}
 
-	postureChecks := Checks{
-		ID:          postureChecksID,
-		Name:        source.Name,
-		Description: description,
-		AccountID:   accountID,
-	}
-
-	if nbVersionCheck := source.Checks.NbVersionCheck; nbVersionCheck != nil {
-		postureChecks.Checks.NBVersionCheck = &NBVersionCheck{
-			MinVersion: nbVersionCheck.MinVersion,
-		}
-	}
-
-	if osVersionCheck := source.Checks.OsVersionCheck; osVersionCheck != nil {
-		postureChecks.Checks.OSVersionCheck = &OSVersionCheck{
-			Android: (*MinVersionCheck)(osVersionCheck.Android),
-			Darwin:  (*MinVersionCheck)(osVersionCheck.Darwin),
-			Ios:     (*MinVersionCheck)(osVersionCheck.Ios),
-			Linux:   (*MinKernelVersionCheck)(osVersionCheck.Linux),
-			Windows: (*MinKernelVersionCheck)(osVersionCheck.Windows),
-		}
-	}
-
-	if geoLocationCheck := source.Checks.GeoLocationCheck; geoLocationCheck != nil {
-		postureChecks.Checks.GeoLocationCheck = toPostureGeoLocationCheck(geoLocationCheck)
-	}
-
-	var err error
-	if peerNetworkRangeCheck := source.Checks.PeerNetworkRangeCheck; peerNetworkRangeCheck != nil {
-		postureChecks.Checks.PeerNetworkRangeCheck, err = toPeerNetworkRangeCheck(peerNetworkRangeCheck)
-		if err != nil {
-			log.Errorf("failed to convert peer network range check: %v", err)
-			return &Checks{}
-		}
-	}
-
-	return &postureChecks
+	return buildPostureCheck(source.Id, source.Name, description, source.Checks)
 }
 
 func (pc *Checks) FromAPIPostureCheckUpdate(source api.PostureCheckUpdate, postureChecksID string) (*Checks, error) {
+	return buildPostureCheck(postureChecksID, source.Name, source.Description, *source.Checks)
+}
+
+func buildPostureCheck(postureChecksID string, name string, description string, checks api.Checks) (*Checks, error) {
 	if postureChecksID == "" {
 		postureChecksID = xid.New().String()
 	}
 
 	postureChecks := Checks{
 		ID:          postureChecksID,
-		Name:        source.Name,
-		Description: source.Description,
+		Name:        name,
+		Description: description,
 	}
 
-	if nbVersionCheck := source.Checks.NbVersionCheck; nbVersionCheck != nil {
+	if nbVersionCheck := checks.NbVersionCheck; nbVersionCheck != nil {
 		postureChecks.Checks.NBVersionCheck = &NBVersionCheck{
 			MinVersion: nbVersionCheck.MinVersion,
 		}
 	}
 
-	if osVersionCheck := source.Checks.OsVersionCheck; osVersionCheck != nil {
+	if osVersionCheck := checks.OsVersionCheck; osVersionCheck != nil {
 		postureChecks.Checks.OSVersionCheck = &OSVersionCheck{
 			Android: (*MinVersionCheck)(osVersionCheck.Android),
 			Darwin:  (*MinVersionCheck)(osVersionCheck.Darwin),
@@ -217,12 +179,12 @@ func (pc *Checks) FromAPIPostureCheckUpdate(source api.PostureCheckUpdate, postu
 		}
 	}
 
-	if geoLocationCheck := source.Checks.GeoLocationCheck; geoLocationCheck != nil {
+	if geoLocationCheck := checks.GeoLocationCheck; geoLocationCheck != nil {
 		postureChecks.Checks.GeoLocationCheck = toPostureGeoLocationCheck(geoLocationCheck)
 	}
 
 	var err error
-	if peerNetworkRangeCheck := source.Checks.PeerNetworkRangeCheck; peerNetworkRangeCheck != nil {
+	if peerNetworkRangeCheck := checks.PeerNetworkRangeCheck; peerNetworkRangeCheck != nil {
 		postureChecks.Checks.PeerNetworkRangeCheck, err = toPeerNetworkRangeCheck(peerNetworkRangeCheck)
 		if err != nil {
 			return nil, status.Errorf(status.InvalidArgument, "invalid network prefix")
