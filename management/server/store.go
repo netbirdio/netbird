@@ -14,6 +14,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/route"
@@ -31,6 +32,7 @@ type Store interface {
 	GetAccountByPrivateDomain(domain string) (*Account, error)
 	GetTokenIDByHashedToken(secret string) (string, error)
 	GetUserByTokenID(tokenID string) (*User, error)
+	GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	SaveAccount(account *Account) error
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
 	DeleteTokenID2UserIDIndex(tokenID string) error

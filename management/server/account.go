@@ -132,6 +132,7 @@ type AccountManager interface {
 	GetValidatedPeers(account *Account) (map[string]struct{}, error)
 	SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error)
 	CancelPeerRoutines(peer *nbpeer.Peer) error
+	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 }
 
 type DefaultAccountManager struct {
@@ -1959,6 +1960,14 @@ func (am *DefaultAccountManager) onPeersInvalidated(accountID string) {
 		return
 	}
 	am.updateAccountPeers(updatedAccount)
+}
+
+func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
+	postureCheck, err := am.Store.GetPostureCheckByChecksDefinition(accountID, checks)
+	if err != nil {
+		return nil, err
+	}
+	return postureCheck, nil
 }
 
 // addAllGroup to account object if it doesn't exist
