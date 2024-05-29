@@ -36,10 +36,12 @@ func NewListener(address string) listener.Listener {
 // Listen todo: prevent multiple call
 func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 	l.acceptFn = acceptFn
-	http.HandleFunc("/", l.onAccept)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", l.onAccept)
 
 	l.server = &http.Server{
-		Addr: l.address,
+		Addr:    l.address,
+		Handler: mux,
 	}
 
 	log.Infof("WS server is listening on address: %s", l.address)
