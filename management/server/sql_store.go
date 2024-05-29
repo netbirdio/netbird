@@ -457,7 +457,6 @@ func (s *SqlStore) GetAccountByUser(userID string) (*Account, error) {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 		}
-		log.Errorf("error when getting user from the store: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "issue getting account from store")
 	}
 
@@ -528,7 +527,6 @@ func (s *SqlStore) GetAccountIDByUserID(userID string) (string, error) {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
 		}
-		log.Errorf("error when getting user from the store: %s", result.Error)
 		return "", status.Errorf(status.Internal, "issue getting account from store")
 	}
 
@@ -585,7 +583,6 @@ func (s *SqlStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Ti
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return status.Errorf(status.NotFound, "user %s not found", userID)
 		}
-		log.Errorf("error when getting user from the store: %s", result.Error)
 		return status.Errorf(status.Internal, "issue getting user from store")
 	}
 

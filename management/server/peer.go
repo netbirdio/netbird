@@ -516,7 +516,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 func (am *DefaultAccountManager) SyncPeer(sync PeerSync, account *Account) (*nbpeer.Peer, *NetworkMap, error) {
 	peer, err := account.FindPeerByPubKey(sync.WireGuardPubKey)
 	if err != nil {
-		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
+		return nil, nil, status.NewPeerNotRegisteredError()
 	}
 
 	err = checkIfPeerOwnerIsBlocked(peer, account)
@@ -585,7 +585,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 
 	peer, err := am.Store.GetPeerByPeerPubKey(login.WireGuardPubKey)
 	if err != nil {
-		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
+		return nil, nil, status.NewPeerNotRegisteredError()
 	}
 
 	accSettings, err := am.Store.GetAccountSettings(accountID)
@@ -618,7 +618,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 
 	peer, err = account.FindPeerByPubKey(login.WireGuardPubKey)
 	if err != nil {
-		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
+		return nil, nil, status.NewPeerNotRegisteredError()
 	}
 
 	err = checkIfPeerOwnerIsBlocked(peer, account)
