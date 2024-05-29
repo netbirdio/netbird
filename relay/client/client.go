@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/relay/client/dialer/udp"
 	"io"
 	"net"
 	"sync"
@@ -11,6 +10,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/relay/client/dialer/udp"
 	"github.com/netbirdio/netbird/relay/messages"
 )
 
@@ -48,6 +48,8 @@ type Client struct {
 	serviceIsRunningMutex sync.Mutex
 	wgReadLoop            sync.WaitGroup
 	onDisconnected        chan struct{}
+
+	remoteAddr net.Addr
 }
 
 func NewClient(ctx context.Context, serverAddress, peerID string) *Client {
@@ -97,31 +99,35 @@ func (c *Client) Connect() error {
 	return nil
 }
 
-func (c *Client) reconnectGuard() {
-	for {
-		c.wgReadLoop.Wait()
-
-		c.serviceIsRunningMutex.Lock()
-		if !c.serviceIsRunning {
-			c.serviceIsRunningMutex.Unlock()
-			return
-		}
-
-		log.Infof("reconnecting to relay server")
-		err := c.connect()
-		if err != nil {
-			log.Errorf("failed to reconnect to relay server: %s", err)
-			c.serviceIsRunningMutex.Unlock()
-			time.Sleep(reconnectingTimeout)
-			continue
-		}
-		log.Infof("reconnected to relay server")
-		c.wgReadLoop.Add(1)
-		go c.readLoop()
-
+func (c *Client) ConnectWithoutReconnect() error {
+	c.serviceIsRunningMutex.Lock()
+	if c.serviceIsRunning {
 		c.serviceIsRunningMutex.Unlock()
-
+		return nil
 	}
+
+	err := c.connect()
+	if err != nil {
+		c.serviceIsRunningMutex.Unlock()
+		return err
+	}
+
+	c.serviceIsRunning = true
+
+	c.wgReadLoop.Add(1)
+	go c.readLoop()
+
+	c.serviceIsRunningMutex.Unlock()
+
+	go func() {
+		<-c.ctx.Done()
+		cErr := c.close()
+		if cErr != nil {
+			log.Errorf("failed to close relay connection: %s", cErr)
+		}
+	}()
+
+	return nil
 }
 
 func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
@@ -142,6 +148,15 @@ func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
 		messageBuffer,
 	}
 	return conn, nil
+}
+
+func (c *Client) RelayRemoteAddress() (net.Addr, error) {
+	c.serviceIsRunningMutex.Lock()
+	defer c.serviceIsRunningMutex.Unlock()
+	if c.remoteAddr == nil {
+		return nil, fmt.Errorf("relay connection is not established")
+	}
+	return c.remoteAddr, nil
 }
 
 func (c *Client) Close() error {
@@ -172,6 +187,8 @@ func (c *Client) connect() error {
 		return err
 	}
 
+	c.remoteAddr = conn.RemoteAddr()
+
 	c.readyToOpenConns = true
 	return nil
 }
@@ -191,6 +208,33 @@ func (c *Client) close() error {
 	c.wgReadLoop.Wait()
 
 	return err
+}
+
+func (c *Client) reconnectGuard() {
+	for {
+		c.wgReadLoop.Wait()
+
+		c.serviceIsRunningMutex.Lock()
+		if !c.serviceIsRunning {
+			c.serviceIsRunningMutex.Unlock()
+			return
+		}
+
+		log.Infof("reconnecting to relay server")
+		err := c.connect()
+		if err != nil {
+			log.Errorf("failed to reconnect to relay server: %s", err)
+			c.serviceIsRunningMutex.Unlock()
+			time.Sleep(reconnectingTimeout)
+			continue
+		}
+		log.Infof("reconnected to relay server")
+		c.wgReadLoop.Add(1)
+		go c.readLoop()
+
+		c.serviceIsRunningMutex.Unlock()
+
+	}
 }
 
 func (c *Client) handShake() error {

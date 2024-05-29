@@ -1,0 +1,97 @@
+package client
+
+import (
+	"context"
+	"testing"
+
+	"github.com/netbirdio/netbird/relay/server"
+)
+
+func TestNewManager(t *testing.T) {
+	ctx := context.Background()
+	idAlice := "alice"
+	idBob := "bob"
+	addr1 := "localhost:1234"
+	srv1 := server.NewServer()
+	go func() {
+		err := srv1.Listen(addr1)
+		if err != nil {
+			t.Fatalf("failed to bind server: %s", err)
+		}
+	}()
+
+	defer func() {
+		err := srv1.Close()
+		if err != nil {
+			t.Errorf("failed to close server: %s", err)
+		}
+	}()
+
+	addr2 := "localhost:2234"
+	srv2 := server.NewServer()
+	go func() {
+		err := srv2.Listen(addr2)
+		if err != nil {
+			t.Fatalf("failed to bind server: %s", err)
+		}
+	}()
+
+	defer func() {
+		err := srv2.Close()
+		if err != nil {
+			t.Errorf("failed to close server: %s", err)
+		}
+	}()
+
+	clientAlice := NewManager(ctx, addr1, idAlice)
+	err := clientAlice.Serve()
+	if err != nil {
+		t.Fatalf("failed to connect to server: %s", err)
+	}
+
+	clientBob := NewManager(ctx, addr2, idBob)
+	err = clientBob.Serve()
+	if err != nil {
+		t.Fatalf("failed to connect to server: %s", err)
+	}
+
+	bobsSrvAddr, err := clientBob.RelayAddress()
+	if err != nil {
+		t.Fatalf("failed to get relay address: %s", err)
+	}
+	connAliceToBob, err := clientAlice.OpenConnTo(bobsSrvAddr.String(), idBob)
+	if err != nil {
+		t.Fatalf("failed to bind channel: %s", err)
+	}
+
+	connBobToAlice, err := clientBob.OpenConn(idAlice)
+	if err != nil {
+		t.Fatalf("failed to bind channel: %s", err)
+	}
+
+	payload := "hello bob, I am alice"
+	_, err = connAliceToBob.Write([]byte(payload))
+	if err != nil {
+		t.Fatalf("failed to write to channel: %s", err)
+	}
+
+	buf := make([]byte, 65535)
+	n, err := connBobToAlice.Read(buf)
+	if err != nil {
+		t.Fatalf("failed to read from channel: %s", err)
+	}
+
+	_, err = connBobToAlice.Write(buf[:n])
+	if err != nil {
+		t.Fatalf("failed to write to channel: %s", err)
+	}
+
+	n, err = connAliceToBob.Read(buf)
+	if err != nil {
+		t.Fatalf("failed to read from channel: %s", err)
+	}
+
+	if payload != string(buf[:n]) {
+		t.Fatalf("expected %s, got %s", payload, string(buf[:n]))
+	}
+}
