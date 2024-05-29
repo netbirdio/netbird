@@ -68,9 +68,6 @@ type ConnConfig struct {
 
 	NATExternalIPs []string
 
-	// UsesBind indicates whether the WireGuard interface is userspace and uses bind.ICEBind
-	UserspaceBind bool
-
 	// RosenpassPubKey is this peer's Rosenpass public key
 	RosenpassPubKey []byte
 	// RosenpassPubKey is this peer's RosenpassAddr server address (IP:port)
@@ -133,8 +130,7 @@ type Conn struct {
 	wgProxyFactory *wgproxy.Factory
 	wgProxy        wgproxy.Proxy
 
-	remoteModeCh chan ModeMessage
-	meta         meta
+	meta meta
 
 	adapter        iface.TunAdapter
 	iFaceDiscover  stdnet.ExternalIFaceDiscover
@@ -151,12 +147,6 @@ type Conn struct {
 // meta holds meta information about a connection
 type meta struct {
 	protoSupport signal.FeaturesSupport
-}
-
-// ModeMessage represents a connection mode chosen by the peer
-type ModeMessage struct {
-	// Direct indicates that it decided to use a direct connection
-	Direct bool
 }
 
 // GetConf returns the connection config
@@ -185,7 +175,6 @@ func NewConn(config ConnConfig, statusRecorder *Status, wgProxyFactory *wgproxy.
 		remoteOffersCh: make(chan OfferAnswer),
 		remoteAnswerCh: make(chan OfferAnswer),
 		statusRecorder: statusRecorder,
-		remoteModeCh:   make(chan ModeMessage, 1),
 		wgProxyFactory: wgProxyFactory,
 		adapter:        adapter,
 		iFaceDiscover:  iFaceDiscover,

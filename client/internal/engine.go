@@ -977,7 +977,6 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		WgConfig:             wgConfig,
 		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
-		UserspaceBind:        e.wgInterface.IsUserspaceBind(),
 		RosenpassPubKey:      e.getRosenpassPubKey(),
 		RosenpassAddr:        e.getRosenpassAddr(),
 	}
