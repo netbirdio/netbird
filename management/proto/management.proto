@@ -342,32 +342,67 @@ message NameServer {
   int64  Port = 3;
 }
 
+enum FirewallProtocol {
+  UNKNOWN = 0;
+  ALL = 1;
+  TCP = 2;
+  UDP = 3;
+  ICMP = 4;
+}
+
+enum Direction {
+  IN = 0;
+  OUT = 1;
+}
+
+enum Action {
+  ACCEPT = 0;
+  DROP = 1;
+}
+
+enum Family {
+  IPV4 = 0;
+  IPV6 = 1;
+}
+
+
 // FirewallRule represents a firewall rule
 message FirewallRule {
   string PeerIP = 1;
-  direction Direction = 2;
-  action Action = 3;
-  protocol Protocol = 4;
+  Direction Direction = 2;
+  Action Action = 3;
+  FirewallProtocol Protocol = 4;
   string Port = 5;
-
-  enum direction {
-    IN = 0;
-    OUT = 1;
-  }
-  enum action {
-    ACCEPT = 0;
-    DROP = 1;
-  }
-  enum protocol {
-    UNKNOWN = 0;
-    ALL = 1;
-    TCP = 2;
-    UDP = 3;
-    ICMP = 4;
-  }
 }
 
 message NetworkAddress {
   string netIP = 1;
   string mac = 2;
 }
+
+message PortRange {
+  uint32 StartPort = 1;
+  uint32 EndPort = 2;
+}
+
+// PortInfo
+message PortInfo {
+  oneof portSelection {
+    uint32 port = 1;
+    PortRange PortRange = 2;
+  }
+}
+
+message RouteFirewallRule {
+  string peerIP = 1;
+  Direction direction = 2;
+  Action action = 3;
+
+  Family family = 4;
+  string destination = 5;
+  FirewallProtocol protocol = 6;
+
+  PortInfo portInfo = 7;
+}
+
+
