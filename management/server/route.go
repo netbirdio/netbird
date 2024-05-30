@@ -2,15 +2,52 @@ package server
 
 import (
 	"net/netip"
+	"strconv"
+	"strings"
 	"unicode/utf8"
 
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 )
+
+// RulePortRange represents a range of ports for a firewall rule.
+type RulePortRange struct {
+	Start uint16
+	End   uint16
+}
+
+// RouteFirewallRule a firewall rule applicable for a routed network.
+type RouteFirewallRule struct {
+	// PeerIP IP address of the routing peer.
+	PeerIP string
+
+	// Direction of the traffic
+	Direction int
+
+	// Action of the traffic when the rule is applicable
+	Action string
+
+	// Destination a network prefix for the routed traffic
+	Destination string
+
+	// Protocol of the traffic
+	Protocol string
+
+	// NetworkFamily string
+	NetworkType int
+
+	// Port of the traffic
+	Port uint16
+
+	// PortRange represents the range of ports for a firewall rule
+	PortRange RulePortRange
+}
 
 // GetRoute gets a route object from account and route IDs
 func (am *DefaultAccountManager) GetRoute(accountID string, routeID route.ID, userID string) (*route.Route, error) {
@@ -323,6 +360,84 @@ func (am *DefaultAccountManager) ListRoutes(accountID, userID string) ([]*route.
 	return routes, nil
 }
 
+// getPeerRoutesFirewallRules gets the routes firewall rules associated with a routing peer ID for the account.
+func (a *Account) getPeerRoutesFirewallRules(peerID string, validatedPeersMap map[string]struct{}) []*RouteFirewallRule {
+	routesFirewallRules := make([]*RouteFirewallRule, 0, len(a.Routes))
+
+	enabledRoutes, _ := a.getRoutingPeerRoutes(peerID)
+	for _, route := range enabledRoutes {
+		policies := getAllRoutePoliciesFromGroups(a, route.AccessControlGroups)
+		for _, policy := range policies {
+			if !policy.Enabled {
+				continue
+			}
+
+			for _, rule := range policy.Rules {
+				if !rule.Enabled {
+					continue
+				}
+
+				distributionGroupPeers, _ := getAllPeersFromGroups(a, route.Groups, peerID, nil, validatedPeersMap)
+
+				rules := generateRouteFirewallRules(route, rule, distributionGroupPeers, firewallRuleDirectionIN)
+				routesFirewallRules = append(routesFirewallRules, rules...)
+			}
+		}
+	}
+
+	return routesFirewallRules
+}
+
+// generateRouteFirewallRules generates a list of firewall rules for a given route.
+func generateRouteFirewallRules(route *route.Route, rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) []*RouteFirewallRule {
+	rulesExists := make(map[string]struct{})
+	rules := make([]*RouteFirewallRule, 0)
+
+	for _, peer := range groupPeers {
+		if peer == nil {
+			continue
+		}
+
+		rr := RouteFirewallRule{
+			PeerIP:      peer.IP.String(),
+			Direction:   direction,
+			Action:      string(rule.Action),
+			Destination: route.Network.String(),
+			Protocol:    string(rule.Protocol),
+			NetworkType: int(route.NetworkType),
+		}
+
+		ruleID := rule.ID + rr.PeerIP + strconv.Itoa(firewallRuleDirectionIN) +
+			rr.Protocol + rr.Action + strings.Join(rule.Ports, ",")
+		if _, ok := rulesExists[ruleID]; ok {
+			continue
+		}
+		rulesExists[ruleID] = struct{}{}
+
+		// TODO: add port-range once implemented in policy rule
+		if len(rule.Ports) == 0 {
+			rules = append(rules, &rr)
+			continue
+		}
+
+		for _, port := range rule.Ports {
+			pr := rr // clone rule and add set new port
+
+			p, err := strconv.ParseUint(port, 10, 16)
+			if err != nil {
+				log.Error("failed to parse port %s for rule: %s", port, rule.ID)
+				continue
+			}
+
+			pr.Port = uint16(p)
+			rules = append(rules, &pr)
+		}
+
+	}
+
+	return rules
+}
+
 func toProtocolRoute(route *route.Route) *proto.Route {
 	return &proto.Route{
 		ID:          string(route.ID),
@@ -341,4 +456,46 @@ func toProtocolRoutes(routes []*route.Route) []*proto.Route {
 		protoRoutes = append(protoRoutes, toProtocolRoute(r))
 	}
 	return protoRoutes
+}
+
+func toProtocolRoutesFirewallRules(update []*RouteFirewallRule) []*proto.RouteFirewallRule {
+	result := make([]*proto.RouteFirewallRule, len(update))
+	for i := range update {
+		direction := proto.RuleDirection_IN
+		if update[i].Direction == firewallRuleDirectionOUT {
+			direction = proto.RuleDirection_OUT
+		}
+		action := proto.RuleAction_ACCEPT
+		if update[i].Action == string(PolicyTrafficActionDrop) {
+			action = proto.RuleAction_DROP
+		}
+
+		protocol := proto.RuleProtocol_UNKNOWN
+		switch PolicyRuleProtocolType(update[i].Protocol) {
+		case PolicyRuleProtocolALL:
+			protocol = proto.RuleProtocol_ALL
+		case PolicyRuleProtocolTCP:
+			protocol = proto.RuleProtocol_TCP
+		case PolicyRuleProtocolUDP:
+			protocol = proto.RuleProtocol_UDP
+		case PolicyRuleProtocolICMP:
+			protocol = proto.RuleProtocol_ICMP
+		}
+
+		networkType := proto.RouteFirewallRule_IPV4
+		if route.NetworkType(update[i].NetworkType) == route.IPv6Network {
+			networkType = proto.RouteFirewallRule_IPV6
+		}
+
+		result[i] = &proto.RouteFirewallRule{
+			PeerIP:      update[i].PeerIP,
+			Direction:   direction,
+			Action:      action,
+			NetworkType: networkType,
+			Destination: update[i].Destination,
+			Protocol:    protocol,
+			PortInfo:    nil,
+		}
+	}
+	return result
 }

@@ -492,21 +492,25 @@ func toSyncResponse(config *Config, peer *nbpeer.Peer, turnCredentials *TURNCred
 
 	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules)
 
+	routesFirewallRules := toProtocolRoutesFirewallRules(networkMap.RoutesFirewallRules)
+
 	return &proto.SyncResponse{
 		WiretrusteeConfig:  wtConfig,
 		PeerConfig:         pConfig,
 		RemotePeers:        remotePeers,
 		RemotePeersIsEmpty: len(remotePeers) == 0,
 		NetworkMap: &proto.NetworkMap{
-			Serial:               networkMap.Network.CurrentSerial(),
-			PeerConfig:           pConfig,
-			RemotePeers:          remotePeers,
-			OfflinePeers:         offlinePeers,
-			RemotePeersIsEmpty:   len(remotePeers) == 0,
-			Routes:               routesUpdate,
-			DNSConfig:            dnsUpdate,
-			FirewallRules:        firewallRules,
-			FirewallRulesIsEmpty: len(firewallRules) == 0,
+			Serial:                     networkMap.Network.CurrentSerial(),
+			PeerConfig:                 pConfig,
+			RemotePeers:                remotePeers,
+			OfflinePeers:               offlinePeers,
+			RemotePeersIsEmpty:         len(remotePeers) == 0,
+			Routes:                     routesUpdate,
+			DNSConfig:                  dnsUpdate,
+			FirewallRules:              firewallRules,
+			FirewallRulesIsEmpty:       len(firewallRules) == 0,
+			RoutesFirewallRules:        routesFirewallRules,
+			RoutesFirewallRulesIsEmpty: len(routesFirewallRules) == 0,
 		},
 	}
 }

@@ -26,12 +26,13 @@ const (
 )
 
 type NetworkMap struct {
-	Peers         []*nbpeer.Peer
-	Network       *Network
-	Routes        []*route.Route
-	DNSConfig     nbdns.Config
-	OfflinePeers  []*nbpeer.Peer
-	FirewallRules []*FirewallRule
+	Peers               []*nbpeer.Peer
+	Network             *Network
+	Routes              []*route.Route
+	DNSConfig           nbdns.Config
+	OfflinePeers        []*nbpeer.Peer
+	FirewallRules       []*FirewallRule
+	RoutesFirewallRules []*RouteFirewallRule
 }
 
 type Network struct {
