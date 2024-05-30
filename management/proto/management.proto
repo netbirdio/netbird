@@ -350,27 +350,22 @@ enum FirewallProtocol {
   ICMP = 4;
 }
 
-enum Direction {
+enum FirewallDirection {
   IN = 0;
   OUT = 1;
 }
 
-enum Action {
+enum FirewallAction {
   ACCEPT = 0;
   DROP = 1;
-}
-
-enum Family {
-  IPV4 = 0;
-  IPV6 = 1;
 }
 
 
 // FirewallRule represents a firewall rule
 message FirewallRule {
   string PeerIP = 1;
-  Direction Direction = 2;
-  Action Action = 3;
+  FirewallDirection Direction = 2;
+  FirewallAction Action = 3;
   FirewallProtocol Protocol = 4;
   string Port = 5;
 }
@@ -380,29 +375,45 @@ message NetworkAddress {
   string mac = 2;
 }
 
-message PortRange {
-  uint32 StartPort = 1;
-  uint32 EndPort = 2;
-}
 
-// PortInfo
 message PortInfo {
   oneof portSelection {
     uint32 port = 1;
-    PortRange PortRange = 2;
+    Range range = 2;
+  }
+
+  message Range {
+    uint32 start = 1;
+    uint32 end = 2;
   }
 }
 
+// RouteFirewallRule signifies a firewall rule applicable for a routed network.
 message RouteFirewallRule {
+  // PeerIP IP address of the routing peer.
   string peerIP = 1;
-  Direction direction = 2;
-  Action action = 3;
 
+  // Direction of the firewall.
+  FirewallDirection direction = 2;
+
+  // Action to be taken by the firewall when the rule is applicable.
+  FirewallAction action = 3;
+
+  // Type of IP family for the network.
   Family family = 4;
+
+  // Network prefix for the routed network.
   string destination = 5;
+
+  // Protocol of the routed network.
   FirewallProtocol protocol = 6;
 
+  // Details about the port.
   PortInfo portInfo = 7;
-}
 
+  enum Family {
+    IPV4 = 0;
+    IPV6 = 1;
+  }
+}
 
