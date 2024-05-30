@@ -1,14 +1,17 @@
+//go:build freebsd
+
 package system
 
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/system/detect_cloud"
 	"github.com/netbirdio/netbird/client/system/detect_platform"
@@ -22,8 +25,8 @@ func GetInfo(ctx context.Context) *Info {
 		out = _getInfo()
 		time.Sleep(500 * time.Millisecond)
 	}
-	osStr := strings.Replace(out, "\n", "", -1)
-	osStr = strings.Replace(osStr, "\r\n", "", -1)
+	osStr := strings.ReplaceAll(out, "\n", "")
+	osStr = strings.ReplaceAll(osStr, "\r\n", "")
 	osInfo := strings.Split(osStr, " ")
 
 	env := Environment{
@@ -50,7 +53,8 @@ func _getInfo() string {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		fmt.Println("getInfo:", err)
+		log.Warnf("getInfo: %s", err)
 	}
+
 	return out.String()
 }

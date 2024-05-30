@@ -1,4 +1,4 @@
-//go:build linux && !android
+//go:build (linux && !android) || freebsd
 
 package iface
 
@@ -6,11 +6,9 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
-	"github.com/vishvananda/netlink"
 
 	"github.com/netbirdio/netbird/iface/bind"
 	"github.com/netbirdio/netbird/sharedsock"
@@ -32,6 +30,8 @@ type tunKernelDevice struct {
 }
 
 func newTunDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net) wgTunDevice {
+	checkUser()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	return &tunKernelDevice{
 		ctx:          ctx,
@@ -48,53 +48,29 @@ func newTunDevice(name string, address WGAddress, wgPort int, key string, mtu in
 func (t *tunKernelDevice) Create() (wgConfigurer, error) {
 	link := newWGLink(t.name)
 
-	// check if interface exists
-	l, err := netlink.LinkByName(t.name)
-	if err != nil {
-		switch err.(type) {
-		case netlink.LinkNotFoundError:
-			break
-		default:
-			return nil, err
-		}
-	}
-
-	// remove if interface exists
-	if l != nil {
-		err = netlink.LinkDel(link)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	log.Debugf("adding device: %s", t.name)
-	err = netlink.LinkAdd(link)
-	if os.IsExist(err) {
-		log.Infof("interface %s already exists. Will reuse.", t.name)
-	} else if err != nil {
-		return nil, err
+	if err := link.recreate(); err != nil {
+		return nil, fmt.Errorf("recreate: %w", err)
 	}
 
 	t.link = link
 
-	err = t.assignAddr()
-	if err != nil {
-		return nil, err
+	if err := t.assignAddr(); err != nil {
+		return nil, fmt.Errorf("assign addr: %w", err)
 	}
 
-	// todo do a discovery
+	// TODO: do a MTU discovery
 	log.Debugf("setting MTU: %d interface: %s", t.mtu, t.name)
-	err = netlink.LinkSetMTU(link, t.mtu)
-	if err != nil {
-		log.Errorf("error setting MTU on interface: %s", t.name)
-		return nil, err
+
+	if err := link.setMTU(t.mtu); err != nil {
+		return nil, fmt.Errorf("set mtu: %w", err)
 	}
 
 	configurer := newWGConfigurer(t.name)
-	err = configurer.configureInterface(t.key, t.wgPort)
-	if err != nil {
+
+	if err := configurer.configureInterface(t.key, t.wgPort); err != nil {
 		return nil, err
 	}
+
 	return configurer, nil
 }
 
@@ -108,9 +84,10 @@ func (t *tunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	}
 
 	log.Debugf("bringing up interface: %s", t.name)
-	err := netlink.LinkSetUp(t.link)
-	if err != nil {
+
+	if err := t.link.up(); err != nil {
 		log.Errorf("error bringing up interface: %s", t.name)
+
 		return nil, err
 	}
 
@@ -178,32 +155,5 @@ func (t *tunKernelDevice) Wrapper() *DeviceWrapper {
 
 // assignAddr Adds IP address to the tunnel interface
 func (t *tunKernelDevice) assignAddr() error {
-	link := newWGLink(t.name)
-
-	//delete existing addresses
-	list, err := netlink.AddrList(link, 0)
-	if err != nil {
-		return err
-	}
-	if len(list) > 0 {
-		for _, a := range list {
-			addr := a
-			err = netlink.AddrDel(link, &addr)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	log.Debugf("adding address %s to interface: %s", t.address.String(), t.name)
-	addr, _ := netlink.ParseAddr(t.address.String())
-	err = netlink.AddrAdd(link, addr)
-	if os.IsExist(err) {
-		log.Infof("interface %s already has the address: %s", t.name, t.address.String())
-	} else if err != nil {
-		return err
-	}
-	// On linux, the link must be brought up
-	err = netlink.LinkSetUp(link)
-	return err
+	return t.link.assignAddr(t.address)
 }
