@@ -247,25 +247,6 @@ func (a *Account) getPeerConnectionResources(peerID string, validatedPeersMap ma
 		}
 	}
 
-	enabledRoutes, _ := a.getRoutingPeerRoutes(peerID)
-	for _, route := range enabledRoutes {
-		policies := getAllRoutePoliciesFromGroups(a, route.AccessControlGroups)
-		for _, policy := range policies {
-			if !policy.Enabled {
-				continue
-			}
-
-			for _, rule := range policy.Rules {
-				if !rule.Enabled {
-					continue
-				}
-
-				distributionGroupPeers, _ := getAllPeersFromGroups(a, route.Groups, peerID, nil, validatedPeersMap)
-				generateResources(rule, distributionGroupPeers, firewallRuleDirectionIN)
-			}
-		}
-	}
-
 	return getAccumulatedResources()
 }
 
@@ -471,25 +452,25 @@ func (am *DefaultAccountManager) savePolicy(account *Account, policy *Policy) (e
 func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
 	result := make([]*proto.FirewallRule, len(update))
 	for i := range update {
-		direction := proto.FirewallRule_IN
+		direction := proto.RuleDirection_IN
 		if update[i].Direction == firewallRuleDirectionOUT {
-			direction = proto.FirewallRule_OUT
+			direction = proto.RuleDirection_OUT
 		}
-		action := proto.FirewallRule_ACCEPT
+		action := proto.RuleAction_ACCEPT
 		if update[i].Action == string(PolicyTrafficActionDrop) {
-			action = proto.FirewallRule_DROP
+			action = proto.RuleAction_DROP
 		}
 
-		protocol := proto.FirewallRule_UNKNOWN
+		protocol := proto.RuleProtocol_UNKNOWN
 		switch PolicyRuleProtocolType(update[i].Protocol) {
 		case PolicyRuleProtocolALL:
-			protocol = proto.FirewallRule_ALL
+			protocol = proto.RuleProtocol_ALL
 		case PolicyRuleProtocolTCP:
-			protocol = proto.FirewallRule_TCP
+			protocol = proto.RuleProtocol_TCP
 		case PolicyRuleProtocolUDP:
-			protocol = proto.FirewallRule_UDP
+			protocol = proto.RuleProtocol_UDP
 		case PolicyRuleProtocolICMP:
-			protocol = proto.FirewallRule_ICMP
+			protocol = proto.RuleProtocol_ICMP
 		}
 
 		result[i] = &proto.FirewallRule{
