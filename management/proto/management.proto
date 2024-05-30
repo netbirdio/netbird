@@ -214,6 +214,12 @@ message NetworkMap {
 
   // firewallRulesIsEmpty indicates whether FirewallRule array is empty or not to bypass protobuf null and empty array equality.
   bool firewallRulesIsEmpty = 9;
+
+  // RoutesFirewallRules represents a list of routes firewall rules to be applied to peer
+  repeated RouteFirewallRule routesFirewallRules = 10;
+
+  // RoutesFirewallRulesIsEmpty indicates whether RouteFirewallRule array is empty or not to bypass protobuf null and empty array equality.
+  bool routesFirewallRulesIsEmpty = 11;
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.
@@ -342,7 +348,7 @@ message NameServer {
   int64  Port = 3;
 }
 
-enum FirewallProtocol {
+enum RuleProtocol {
   UNKNOWN = 0;
   ALL = 1;
   TCP = 2;
@@ -350,12 +356,12 @@ enum FirewallProtocol {
   ICMP = 4;
 }
 
-enum FirewallDirection {
+enum RuleDirection {
   IN = 0;
   OUT = 1;
 }
 
-enum FirewallAction {
+enum RuleAction {
   ACCEPT = 0;
   DROP = 1;
 }
@@ -364,9 +370,9 @@ enum FirewallAction {
 // FirewallRule represents a firewall rule
 message FirewallRule {
   string PeerIP = 1;
-  FirewallDirection Direction = 2;
-  FirewallAction Action = 3;
-  FirewallProtocol Protocol = 4;
+  RuleDirection Direction = 2;
+  RuleAction Action = 3;
+  RuleProtocol Protocol = 4;
   string Port = 5;
 }
 
@@ -394,24 +400,24 @@ message RouteFirewallRule {
   string peerIP = 1;
 
   // Direction of the firewall.
-  FirewallDirection direction = 2;
+  RuleDirection direction = 2;
 
   // Action to be taken by the firewall when the rule is applicable.
-  FirewallAction action = 3;
+  RuleAction action = 3;
 
-  // Type of IP family for the network.
-  Family family = 4;
+  // NetworkType of the routed network.
+  NetworkType networkType = 4;
 
   // Network prefix for the routed network.
   string destination = 5;
 
   // Protocol of the routed network.
-  FirewallProtocol protocol = 6;
+  RuleProtocol protocol = 6;
 
   // Details about the port.
   PortInfo portInfo = 7;
 
-  enum Family {
+  enum NetworkType {
     IPV4 = 0;
     IPV6 = 1;
   }
