@@ -593,10 +593,19 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 		return nil, nil, status.Errorf(status.Internal, "failed to get account settings: %s", err)
 	}
 
+	// duplicated logic from after the lock to have an early exit
+	expired := peerLoginExpired(peer, accSettings)
+	if expired {
+		err = checkAuth(login.UserID, peer)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
 	var isWriteLock bool
 	var unlock func()
 	// early detection of what type of lock we need
-	if peer.UpdateMetaIfNew(login.Meta) || peerLoginExpired(peer, accSettings) {
+	if peer.UpdateMetaIfNew(login.Meta) || expired {
 		unlock = am.Store.AcquireAccountWriteLock(accountID)
 		isWriteLock = true
 	} else {
