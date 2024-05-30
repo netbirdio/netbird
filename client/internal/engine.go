@@ -1039,8 +1039,6 @@ func (e *Engine) receiveSignalEvents() {
 					return err
 				}
 
-				conn.RegisterProtoSupportMeta(msg.Body.GetFeaturesSupported())
-
 				var rosenpassPubKey []byte
 				rosenpassAddr := ""
 				if msg.GetBody().GetRosenpassConfig() != nil {
@@ -1062,8 +1060,6 @@ func (e *Engine) receiveSignalEvents() {
 				if err != nil {
 					return err
 				}
-
-				conn.RegisterProtoSupportMeta(msg.GetBody().GetFeaturesSupported())
 
 				var rosenpassPubKey []byte
 				rosenpassAddr := ""
