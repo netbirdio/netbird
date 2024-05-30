@@ -28,10 +28,18 @@ func GetInfo(ctx context.Context) *Info {
 		kernelVersion = osInfo[2]
 	}
 
-	gio := &Info{Kernel: kernel, Platform: "unknown", OS: "android", OSVersion: osVersion(), GoOS: runtime.GOOS, CPUs: runtime.NumCPU(), KernelVersion: kernelVersion}
-	gio.Hostname = extractDeviceName(ctx, "android")
-	gio.WiretrusteeVersion = version.NetbirdVersion()
-	gio.UIVersion = extractUserAgent(ctx)
+	gio := &Info{
+		GoOS:               runtime.GOOS,
+		Kernel:             kernel,
+		Platform:           "unknown",
+		OS:                 "android",
+		OSVersion:          osVersion(),
+		Hostname:           extractDeviceName(ctx, "android"),
+		CPUs:               runtime.NumCPU(),
+		WiretrusteeVersion: version.NetbirdVersion(),
+		UIVersion:          extractUIVersion(ctx),
+		KernelVersion:      kernelVersion,
+	}
 
 	return gio
 }
@@ -43,6 +51,14 @@ func uname() []string {
 
 func osVersion() string {
 	return run("/system/bin/getprop", "ro.build.version.release")
+}
+
+func extractUIVersion(ctx context.Context) string {
+	v, ok := ctx.Value(UiVersionCtxKey).(string)
+	if !ok {
+		return ""
+	}
+	return v
 }
 
 func run(name string, arg ...string) string {

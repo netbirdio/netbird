@@ -57,15 +57,17 @@ type Client struct {
 	ctxCancel             context.CancelFunc
 	ctxCancelLock         *sync.Mutex
 	deviceName            string
+	uiVersion             string
 	networkChangeListener listener.NetworkChangeListener
 }
 
 // NewClient instantiate a new Client
-func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover, networkChangeListener NetworkChangeListener) *Client {
+func NewClient(cfgFile, deviceName string, uiVersion string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover, networkChangeListener NetworkChangeListener) *Client {
 	net.SetAndroidProtectSocketFn(tunAdapter.ProtectSocket)
 	return &Client{
 		cfgFile:               cfgFile,
 		deviceName:            deviceName,
+		uiVersion:             uiVersion,
 		tunAdapter:            tunAdapter,
 		iFaceDiscover:         iFaceDiscover,
 		recorder:              peer.NewRecorder(""),
@@ -88,6 +90,9 @@ func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsRead
 	var ctx context.Context
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
+	//nolint
+	ctxWithValues = context.WithValue(ctxWithValues, system.UiVersionCtxKey, c.uiVersion)
+
 	c.ctxCancelLock.Lock()
 	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
 	defer c.ctxCancel()
