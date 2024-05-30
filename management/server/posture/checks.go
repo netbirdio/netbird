@@ -5,8 +5,11 @@ import (
 	"net/netip"
 
 	"github.com/hashicorp/go-version"
+	"github.com/rs/xid"
 
+	"github.com/netbirdio/netbird/management/server/http/api"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/status"
 )
 
 const (
@@ -136,6 +139,96 @@ func (pc *Checks) GetChecks() []Check {
 	return checks
 }
 
+func NewChecksFromAPIPostureCheck(source api.PostureCheck) (*Checks, error) {
+	description := ""
+	if source.Description != nil {
+		description = *source.Description
+	}
+
+	return buildPostureCheck(source.Id, source.Name, description, source.Checks)
+}
+
+func NewChecksFromAPIPostureCheckUpdate(source api.PostureCheckUpdate, postureChecksID string) (*Checks, error) {
+	return buildPostureCheck(postureChecksID, source.Name, source.Description, *source.Checks)
+}
+
+func buildPostureCheck(postureChecksID string, name string, description string, checks api.Checks) (*Checks, error) {
+	if postureChecksID == "" {
+		postureChecksID = xid.New().String()
+	}
+
+	postureChecks := Checks{
+		ID:          postureChecksID,
+		Name:        name,
+		Description: description,
+	}
+
+	if nbVersionCheck := checks.NbVersionCheck; nbVersionCheck != nil {
+		postureChecks.Checks.NBVersionCheck = &NBVersionCheck{
+			MinVersion: nbVersionCheck.MinVersion,
+		}
+	}
+
+	if osVersionCheck := checks.OsVersionCheck; osVersionCheck != nil {
+		postureChecks.Checks.OSVersionCheck = &OSVersionCheck{
+			Android: (*MinVersionCheck)(osVersionCheck.Android),
+			Darwin:  (*MinVersionCheck)(osVersionCheck.Darwin),
+			Ios:     (*MinVersionCheck)(osVersionCheck.Ios),
+			Linux:   (*MinKernelVersionCheck)(osVersionCheck.Linux),
+			Windows: (*MinKernelVersionCheck)(osVersionCheck.Windows),
+		}
+	}
+
+	if geoLocationCheck := checks.GeoLocationCheck; geoLocationCheck != nil {
+		postureChecks.Checks.GeoLocationCheck = toPostureGeoLocationCheck(geoLocationCheck)
+	}
+
+	var err error
+	if peerNetworkRangeCheck := checks.PeerNetworkRangeCheck; peerNetworkRangeCheck != nil {
+		postureChecks.Checks.PeerNetworkRangeCheck, err = toPeerNetworkRangeCheck(peerNetworkRangeCheck)
+		if err != nil {
+			return nil, status.Errorf(status.InvalidArgument, "invalid network prefix")
+		}
+	}
+
+	return &postureChecks, nil
+}
+
+func (pc *Checks) ToAPIResponse() *api.PostureCheck {
+	var checks api.Checks
+
+	if pc.Checks.NBVersionCheck != nil {
+		checks.NbVersionCheck = &api.NBVersionCheck{
+			MinVersion: pc.Checks.NBVersionCheck.MinVersion,
+		}
+	}
+
+	if pc.Checks.OSVersionCheck != nil {
+		checks.OsVersionCheck = &api.OSVersionCheck{
+			Android: (*api.MinVersionCheck)(pc.Checks.OSVersionCheck.Android),
+			Darwin:  (*api.MinVersionCheck)(pc.Checks.OSVersionCheck.Darwin),
+			Ios:     (*api.MinVersionCheck)(pc.Checks.OSVersionCheck.Ios),
+			Linux:   (*api.MinKernelVersionCheck)(pc.Checks.OSVersionCheck.Linux),
+			Windows: (*api.MinKernelVersionCheck)(pc.Checks.OSVersionCheck.Windows),
+		}
+	}
+
+	if pc.Checks.GeoLocationCheck != nil {
+		checks.GeoLocationCheck = toGeoLocationCheckResponse(pc.Checks.GeoLocationCheck)
+	}
+
+	if pc.Checks.PeerNetworkRangeCheck != nil {
+		checks.PeerNetworkRangeCheck = toPeerNetworkRangeCheckResponse(pc.Checks.PeerNetworkRangeCheck)
+	}
+
+	return &api.PostureCheck{
+		Id:          pc.ID,
+		Name:        pc.Name,
+		Description: &pc.Description,
+		Checks:      checks,
+	}
+}
+
 func (pc *Checks) Validate() error {
 	if check := pc.Checks.NBVersionCheck; check != nil {
 		if !isVersionValid(check.MinVersion) {
@@ -191,4 +284,71 @@ func isVersionValid(ver string) bool {
 	}
 
 	return false
+}
+
+func toGeoLocationCheckResponse(geoLocationCheck *GeoLocationCheck) *api.GeoLocationCheck {
+	locations := make([]api.Location, 0, len(geoLocationCheck.Locations))
+	for _, loc := range geoLocationCheck.Locations {
+		l := loc // make G601 happy
+		var cityName *string
+		if loc.CityName != "" {
+			cityName = &l.CityName
+		}
+		locations = append(locations, api.Location{
+			CityName:    cityName,
+			CountryCode: loc.CountryCode,
+		})
+	}
+
+	return &api.GeoLocationCheck{
+		Action:    api.GeoLocationCheckAction(geoLocationCheck.Action),
+		Locations: locations,
+	}
+}
+
+func toPostureGeoLocationCheck(apiGeoLocationCheck *api.GeoLocationCheck) *GeoLocationCheck {
+	locations := make([]Location, 0, len(apiGeoLocationCheck.Locations))
+	for _, loc := range apiGeoLocationCheck.Locations {
+		cityName := ""
+		if loc.CityName != nil {
+			cityName = *loc.CityName
+		}
+		locations = append(locations, Location{
+			CountryCode: loc.CountryCode,
+			CityName:    cityName,
+		})
+	}
+
+	return &GeoLocationCheck{
+		Action:    string(apiGeoLocationCheck.Action),
+		Locations: locations,
+	}
+}
+
+func toPeerNetworkRangeCheckResponse(check *PeerNetworkRangeCheck) *api.PeerNetworkRangeCheck {
+	netPrefixes := make([]string, 0, len(check.Ranges))
+	for _, netPrefix := range check.Ranges {
+		netPrefixes = append(netPrefixes, netPrefix.String())
+	}
+
+	return &api.PeerNetworkRangeCheck{
+		Ranges: netPrefixes,
+		Action: api.PeerNetworkRangeCheckAction(check.Action),
+	}
+}
+
+func toPeerNetworkRangeCheck(check *api.PeerNetworkRangeCheck) (*PeerNetworkRangeCheck, error) {
+	prefixes := make([]netip.Prefix, 0)
+	for _, prefix := range check.Ranges {
+		parsedPrefix, err := netip.ParsePrefix(prefix)
+		if err != nil {
+			return nil, err
+		}
+		prefixes = append(prefixes, parsedPrefix)
+	}
+
+	return &PeerNetworkRangeCheck{
+		Ranges: prefixes,
+		Action: string(check.Action),
+	}, nil
 }

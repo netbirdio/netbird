@@ -12,6 +12,7 @@ import (
 
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 
@@ -665,6 +666,10 @@ func (s *FileStore) SaveUserLastLogin(accountID, userID string, lastLogin time.T
 	peer.LastLogin = lastLogin
 
 	return nil
+}
+
+func (s *FileStore) GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
+	return nil, status.Errorf(status.Internal, "GetPostureCheckByChecksDefinition is not implemented")
 }
 
 // Close the FileStore persisting data to disk

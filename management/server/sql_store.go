@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -536,6 +537,21 @@ func (s *SqlStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Ti
 	user.LastLogin = lastLogin
 
 	return s.db.Save(user).Error
+}
+
+func (s *SqlStore) GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
+	definitionJSON, err := json.Marshal(checks)
+	if err != nil {
+		return nil, err
+	}
+
+	var postureCheck posture.Checks
+	err = s.db.Where("account_id = ? AND checks = ?", accountID, string(definitionJSON)).First(&postureCheck).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return &postureCheck, nil
 }
 
 // Close closes the underlying DB connection
