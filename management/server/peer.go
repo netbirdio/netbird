@@ -593,6 +593,10 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 		return nil, nil, status.Errorf(status.Internal, "failed to get account settings: %s", err)
 	}
 
+	var isWriteLock bool
+	var unlock func()
+	oldMeta := peer.Meta
+
 	// duplicated logic from after the lock to have an early exit
 	expired := peerLoginExpired(peer, accSettings)
 	if expired {
@@ -600,19 +604,18 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 		if err != nil {
 			return nil, nil, err
 		}
-	}
-
-	var isWriteLock bool
-	var unlock func()
-	// early detection of what type of lock we need
-	if peer.UpdateMetaIfNew(login.Meta) || expired {
 		unlock = am.Store.AcquireAccountWriteLock(accountID)
 		isWriteLock = true
+		log.Debugf("peer login expired, acquiring write lock")
+	} else if peer.UpdateMetaIfNew(login.Meta) {
+		unlock = am.Store.AcquireAccountWriteLock(accountID)
+		isWriteLock = true
+		log.Debugf("peer changed meta, acquiring write lock - old meta: %v, new meta: %v", oldMeta, login.Meta)
 	} else {
 		unlock = am.Store.AcquireAccountReadLock(accountID)
 		isWriteLock = false
+		log.Debugf("peer meta is the same, acquiring read lock")
 	}
-	log.Debugf("peer changed meta or login expired, acquiring write lock: %v", isWriteLock)
 	defer func() {
 		if unlock != nil {
 			unlock()
