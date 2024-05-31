@@ -1,5 +1,14 @@
-FROM ubuntu:22.04
-RUN apt update && apt install -y ca-certificates && rm -fr /var/cache/apt
-ENTRYPOINT [ "/go/bin/netbird-mgmt","management"]
-CMD ["--log-file", "console"]
-COPY netbird-mgmt /go/bin/netbird-mgmt
+FROM golang:alpine as builder
+
+RUN apk add git
+
+RUN git clone https://github.com/netbirdio/netbird.git
+WORKDIR netbird
+
+RUN go build -o netbird-mgmt -a ./management
+
+FROM alpine
+
+COPY --from=builder /go/netbird/netbird-mgmt /usr/local/bin
+
+ENTRYPOINT ["netbird-mgmt"]
