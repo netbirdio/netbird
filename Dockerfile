@@ -11,6 +11,8 @@ RUN CGO_ENABLED=1 CC=aarch64-linux-gnu-gcc GOOS=linux GOARCH=arm64 go build -o n
 
 FROM arm64v8/debian
 
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
+
 COPY --from=builder /go/netbird/netbird-mgmt /usr/local/bin
 
 ENTRYPOINT ["netbird-mgmt"]
