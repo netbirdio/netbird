@@ -79,42 +79,24 @@ jobs:
         run: rsrc -arch arm -ico client/ui/netbird.ico -manifest client/manifest.xml -o client/resources_windows_arm.syso
       - name: Generate windows rsrc 386
         run: rsrc -arch 386 -ico client/ui/netbird.ico -manifest client/manifest.xml -o client/resources_windows_386.syso
-      -
-        name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v4
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@96383f45573cb7f253c731d3b3ab81c87ef81934 # v5.0.0
         with:
-          version: ${{ env.GORELEASER_VER }}
-          args: release --rm-dist ${{ env.flags }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      -
-        name: upload non tags for debug purposes
-        uses: actions/upload-artifact@v3
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        
+      - name: Build and push Docker image
+        id: build-and-push
+        uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # v5.0.0
         with:
-          name: release
-          path: dist/
-          retention-days: 3
-      -
-        name: upload linux packages
-        uses: actions/upload-artifact@v3
-        with:
-          name: linux-packages
-          path: dist/netbird_linux**
-          retention-days: 3
-      -
-        name: upload windows packages
-        uses: actions/upload-artifact@v3
-        with:
-          name: windows-packages
-          path: dist/netbird_windows**
-          retention-days: 3
-      -
-        name: upload macos packages
-        uses: actions/upload-artifact@v3
-        with:
-          name: macos-packages
-          path: dist/netbird_darwin**
-          retention-days: 3
+          context: management/.
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   release_ui:
     runs-on: ubuntu-latest
