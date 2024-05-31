@@ -594,26 +594,32 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 	}
 
 	var isWriteLock bool
-	var unlock func()
 
 	// duplicated logic from after the lock to have an early exit
 	expired := peerLoginExpired(peer, accSettings)
-	if expired {
-		err = checkAuth(login.UserID, peer)
-		if err != nil {
+	switch {
+	case expired:
+		if err := checkAuth(login.UserID, peer); err != nil {
 			return nil, nil, err
 		}
-		unlock = am.Store.AcquireAccountWriteLock(accountID)
 		isWriteLock = true
 		log.Debugf("peer login expired, acquiring write lock")
-	} else if peer.UpdateMetaIfNew(login.Meta) {
-		unlock = am.Store.AcquireAccountWriteLock(accountID)
+
+	case peer.UpdateMetaIfNew(login.Meta):
 		isWriteLock = true
 		log.Debugf("peer changed meta, acquiring write lock")
-	} else {
-		unlock = am.Store.AcquireAccountReadLock(accountID)
+
+	default:
 		isWriteLock = false
 		log.Debugf("peer meta is the same, acquiring read lock")
+	}
+
+	var unlock func()
+
+	if isWriteLock {
+		unlock = am.Store.AcquireAccountWriteLock(accountID)
+	} else {
+		unlock = am.Store.AcquireAccountReadLock(accountID)
 	}
 	defer func() {
 		if unlock != nil {
