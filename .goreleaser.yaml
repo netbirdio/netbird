@@ -208,7 +208,7 @@ dockers:
   #     - "--label=org.opencontainers.image.version={{.Version}}"
   #     - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - ghcr.io/netbirdio/management:{{ .Version }}-amd64
+      - ghcr.io/flerpharos/netbird-management:{{ .Version }}-amd64
     ids:
       - netbird-mgmt
     goarch: amd64
@@ -223,7 +223,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - ghcr.io/netbirdio/management:{{ .Version }}-arm64v8
+      - ghcr.io/flerpharos/netbird-management:{{ .Version }}-arm64v8
     ids:
       - netbird-mgmt
     goarch: arm64
@@ -238,7 +238,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - ghcr.io/netbirdio/management:{{ .Version }}-arm
+      - ghcr.io/flerpharos/netbird-management:{{ .Version }}-arm
     ids:
       - netbird-mgmt
     goarch: arm
@@ -254,7 +254,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - ghcr.io/netbirdio/management:{{ .Version }}-debug-amd64
+      - ghcr.io/flerpharos/netbird-management:{{ .Version }}-debug-amd64
     ids:
       - netbird-mgmt
     goarch: amd64
@@ -269,7 +269,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - ghcr.io/netbirdio/management:{{ .Version }}-debug-arm64v8
+      - ghcr.io/flerpharos/netbird-management:{{ .Version }}-debug-arm64v8
     ids:
       - netbird-mgmt
     goarch: arm64
@@ -285,7 +285,7 @@ dockers:
       - "--label=maintainer=dev@netbird.io"
 
   - image_templates:
-      - ghcr.io/netbirdio/management:{{ .Version }}-debug-arm
+      - ghcr.io/flerpharos/netbird-management:{{ .Version }}-debug-arm
     ids:
       - netbird-mgmt
     goarch: arm
@@ -325,23 +325,23 @@ docker_manifests:
   #     - netbirdio/signal:{{ .Version }}-arm
   #     - netbirdio/signal:{{ .Version }}-amd64
 
-  - name_template: netbirdio/management:{{ .Version }}
+  - name_template: flerpharos/netbird-management:{{ .Version }}
     image_templates:
-      - netbirdio/management:{{ .Version }}-arm64v8
-      - netbirdio/management:{{ .Version }}-arm
-      - netbirdio/management:{{ .Version }}-amd64
+      - flerpharos/netbird-management:{{ .Version }}-arm64v8
+      - flerpharos/netbird-management:{{ .Version }}-arm
+      - flerpharos/netbird-management:{{ .Version }}-amd64
 
-  - name_template: netbirdio/management:latest
+  - name_template: flerpharos/netbird-management:latest
     image_templates:
-      - netbirdio/management:{{ .Version }}-arm64v8
-      - netbirdio/management:{{ .Version }}-arm
-      - netbirdio/management:{{ .Version }}-amd64
+      - flerpharos/netbird-management:{{ .Version }}-arm64v8
+      - flerpharos/netbird-management:{{ .Version }}-arm
+      - flerpharos/netbird-management:{{ .Version }}-amd64
 
-  - name_template: netbirdio/management:debug-latest
+  - name_template: flerpharos/netbird-management:debug-latest
     image_templates:
-      - netbirdio/management:{{ .Version }}-debug-arm64v8
-      - netbirdio/management:{{ .Version }}-debug-arm
-      - netbirdio/management:{{ .Version }}-debug-amd64
+      - flerpharos/netbird-management:{{ .Version }}-debug-arm64v8
+      - flerpharos/netbird-management:{{ .Version }}-debug-arm
+      - flerpharos/netbird-management:{{ .Version }}-debug-amd64
       
 checksum:
   extra_files:
