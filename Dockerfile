@@ -7,7 +7,7 @@ WORKDIR netbird
 
 COPY management/server/idp/zitadel.go management/server/idp/zitadel.go
 
-RUN CGO_ENABLED=1 go build -o netbird-mgmt -a ./management
+RUN CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 go build -o netbird-mgmt -a ./management
 
 FROM alpine
 
