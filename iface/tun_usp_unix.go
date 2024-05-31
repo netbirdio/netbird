@@ -1,14 +1,14 @@
-//go:build linux && !android
+//go:build (linux && !android) || freebsd
 
 package iface
 
 import (
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
-	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
 
@@ -31,6 +31,9 @@ type tunUSPDevice struct {
 
 func newTunUSPDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net) wgTunDevice {
 	log.Infof("using userspace bind mode")
+
+	checkUser()
+
 	return &tunUSPDevice{
 		name:    name,
 		address: address,
@@ -129,30 +132,14 @@ func (t *tunUSPDevice) Wrapper() *DeviceWrapper {
 func (t *tunUSPDevice) assignAddr() error {
 	link := newWGLink(t.name)
 
-	//delete existing addresses
-	list, err := netlink.AddrList(link, 0)
-	if err != nil {
-		return err
-	}
-	if len(list) > 0 {
-		for _, a := range list {
-			addr := a
-			err = netlink.AddrDel(link, &addr)
-			if err != nil {
-				return err
-			}
+	return link.assignAddr(t.address)
+}
+
+func checkUser() {
+	if runtime.GOOS == "freebsd" {
+		euid := os.Geteuid()
+		if euid != 0 {
+			log.Warn("newTunUSPDevice: on netbird must run as root to be able to assign address to the tun interface with ifconfig")
 		}
 	}
-
-	log.Debugf("adding address %s to interface: %s", t.address.String(), t.name)
-	addr, _ := netlink.ParseAddr(t.address.String())
-	err = netlink.AddrAdd(link, addr)
-	if os.IsExist(err) {
-		log.Infof("interface %s already has the address: %s", t.name, t.address.String())
-	} else if err != nil {
-		return err
-	}
-	// On linux, the link must be brought up
-	err = netlink.LinkSetUp(link)
-	return err
 }

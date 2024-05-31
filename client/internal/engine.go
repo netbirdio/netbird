@@ -549,8 +549,8 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 	} else {
 
 		if sshConf.GetSshEnabled() {
-			if runtime.GOOS == "windows" {
-				log.Warnf("running SSH server on Windows is not supported")
+			if runtime.GOOS == "windows" || runtime.GOOS == "freebsd" {
+				log.Warnf("running SSH server on %s is not supported", runtime.GOOS)
 				return nil
 			}
 			// start SSH server if it wasn't running

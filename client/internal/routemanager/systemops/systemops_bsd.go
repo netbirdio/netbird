@@ -43,8 +43,7 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 			return nil, fmt.Errorf("unexpected RIB message type: %d", m.Type)
 		}
 
-		if m.Flags&syscall.RTF_UP == 0 ||
-			m.Flags&(syscall.RTF_REJECT|syscall.RTF_BLACKHOLE|syscall.RTF_WASCLONED) != 0 {
+		if filterRoutesByFlags(m.Flags) {
 			continue
 		}
 
