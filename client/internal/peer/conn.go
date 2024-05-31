@@ -596,6 +596,7 @@ func (conn *Conn) SetSendSignalMessage(handler func(message *sProto.Message) err
 // onICECandidate is a callback attached to an ICE Agent to receive new local connection candidates
 // and then signals them to the remote peer
 func (conn *Conn) onICECandidate(candidate ice.Candidate) {
+	// nil means candidate gathering has been ended
 	if candidate == nil {
 		return
 	}
@@ -607,29 +608,25 @@ func (conn *Conn) onICECandidate(candidate ice.Candidate) {
 		if err != nil {
 			log.Errorf("failed signaling candidate to the remote peer %s %s", conn.config.Key, err)
 		}
+	}()
 
-		// sends an extra server reflexive candidate to the remote peer with our related port (usually the wireguard port)
-		// this is useful when network has an existing port forwarding rule for the wireguard port and this peer
-		if !conn.sentExtraSrflx && candidate.Type() == ice.CandidateTypeServerReflexive && candidate.Port() != candidate.RelatedAddress().Port {
-			relatedAdd := candidate.RelatedAddress()
-			extraSrflx, err := ice.NewCandidateServerReflexive(&ice.CandidateServerReflexiveConfig{
-				Network:   candidate.NetworkType().String(),
-				Address:   candidate.Address(),
-				Port:      relatedAdd.Port,
-				Component: candidate.Component(),
-				RelAddr:   relatedAdd.Address,
-				RelPort:   relatedAdd.Port,
-			})
-			if err != nil {
-				log.Errorf("failed creating extra server reflexive candidate %s", err)
-				return
-			}
-			err = conn.signalCandidate(extraSrflx)
-			if err != nil {
-				log.Errorf("failed signaling the extra server reflexive candidate to the remote peer %s: %s", conn.config.Key, err)
-				return
-			}
-			conn.sentExtraSrflx = true
+	if !conn.shouldSendExtraSrflxCandidate(candidate) {
+		return
+	}
+
+	// sends an extra server reflexive candidate to the remote peer with our related port (usually the wireguard port)
+	// this is useful when network has an existing port forwarding rule for the wireguard port and this peer
+	extraSrflx, err := extraSrflxCandidate(candidate)
+	if err != nil {
+		log.Errorf("failed creating extra server reflexive candidate %s", err)
+		return
+	}
+	conn.sentExtraSrflx = true
+
+	go func() {
+		err = conn.signalCandidate(extraSrflx)
+		if err != nil {
+			log.Errorf("failed signaling the extra server reflexive candidate to the remote peer %s: %s", conn.config.Key, err)
 		}
 	}()
 }
@@ -776,4 +773,23 @@ func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate) {
 
 func (conn *Conn) GetKey() string {
 	return conn.config.Key
+}
+
+func (conn *Conn) shouldSendExtraSrflxCandidate(candidate ice.Candidate) bool {
+	if !conn.sentExtraSrflx && candidate.Type() == ice.CandidateTypeServerReflexive && candidate.Port() != candidate.RelatedAddress().Port {
+		return true
+	}
+	return false
+}
+
+func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive, error) {
+	relatedAdd := candidate.RelatedAddress()
+	return ice.NewCandidateServerReflexive(&ice.CandidateServerReflexiveConfig{
+		Network:   candidate.NetworkType().String(),
+		Address:   candidate.Address(),
+		Port:      relatedAdd.Port,
+		Component: candidate.Component(),
+		RelAddr:   relatedAdd.Address,
+		RelPort:   relatedAdd.Port,
+	})
 }
