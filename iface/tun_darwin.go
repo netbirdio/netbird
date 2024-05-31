@@ -1,5 +1,4 @@
 //go:build !ios
-// +build !ios
 
 package iface
 
@@ -121,13 +120,19 @@ func (t *tunDevice) Wrapper() *DeviceWrapper {
 func (t *tunDevice) assignAddr() error {
 	cmd := exec.Command("ifconfig", t.name, "inet", t.address.IP.String(), t.address.IP.String())
 	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Infof(`adding address command "%v" failed with output %s and error: `, cmd.String(), out)
+		log.Errorf("adding address command '%v' failed with output: %s", cmd.String(), out)
 		return err
+	}
+
+	// dummy ipv6 so routing works
+	cmd = exec.Command("ifconfig", t.name, "inet6", "fe80::/64")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Debugf("adding address command '%v' failed with output: %s", cmd.String(), out)
 	}
 
 	routeCmd := exec.Command("route", "add", "-net", t.address.Network.String(), "-interface", t.name)
 	if out, err := routeCmd.CombinedOutput(); err != nil {
-		log.Printf(`adding route command "%v" failed with output %s and error: `, routeCmd.String(), out)
+		log.Errorf("adding route command '%v' failed with output: %s", routeCmd.String(), out)
 		return err
 	}
 	return nil

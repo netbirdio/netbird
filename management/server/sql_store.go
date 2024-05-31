@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -390,7 +391,7 @@ func (s *SqlStore) GetAccount(accountID string) (*Account, error) {
 		Preload(clause.Associations).
 		First(&account, "id = ?", accountID)
 	if result.Error != nil {
-		log.Errorf("error when getting account from the store: %s", result.Error)
+		log.Errorf("error when getting account %s from the store: %s", accountID, result.Error)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found")
 		}
@@ -457,7 +458,6 @@ func (s *SqlStore) GetAccountByUser(userID string) (*Account, error) {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 		}
-		log.Errorf("error when getting user from the store: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "issue getting account from store")
 	}
 
@@ -520,6 +520,61 @@ func (s *SqlStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
 	return accountID, nil
 }
 
+func (s *SqlStore) GetAccountIDByUserID(userID string) (string, error) {
+	var user User
+	var accountID string
+	result := s.db.Model(&user).Select("account_id").Where("id = ?", userID).First(&accountID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
+		}
+		return "", status.Errorf(status.Internal, "issue getting account from store")
+	}
+
+	return accountID, nil
+}
+
+func (s *SqlStore) GetAccountIDBySetupKey(setupKey string) (string, error) {
+	var key SetupKey
+	var accountID string
+	result := s.db.Model(&key).Select("account_id").Where("key = ?", strings.ToUpper(setupKey)).First(&accountID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
+		}
+		log.Errorf("error when getting setup key from the store: %s", result.Error)
+		return "", status.Errorf(status.Internal, "issue getting setup key from store")
+	}
+
+	return accountID, nil
+}
+
+func (s *SqlStore) GetPeerByPeerPubKey(peerKey string) (*nbpeer.Peer, error) {
+	var peer nbpeer.Peer
+	result := s.db.First(&peer, "key = ?", peerKey)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "peer not found")
+		}
+		log.Errorf("error when getting peer from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "issue getting peer from store")
+	}
+
+	return &peer, nil
+}
+
+func (s *SqlStore) GetAccountSettings(accountID string) (*Settings, error) {
+	var accountSettings AccountSettings
+	if err := s.db.Model(&Account{}).Where("id = ?", accountID).First(&accountSettings).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "settings not found")
+		}
+		log.Errorf("error when getting settings from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "issue getting settings from store")
+	}
+	return accountSettings.Settings, nil
+}
+
 // SaveUserLastLogin stores the last login time for a user in DB.
 func (s *SqlStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error {
 	var user User
@@ -529,13 +584,27 @@ func (s *SqlStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Ti
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return status.Errorf(status.NotFound, "user %s not found", userID)
 		}
-		log.Errorf("error when getting user from the store: %s", result.Error)
 		return status.Errorf(status.Internal, "issue getting user from store")
 	}
 
 	user.LastLogin = lastLogin
 
 	return s.db.Save(user).Error
+}
+
+func (s *SqlStore) GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
+	definitionJSON, err := json.Marshal(checks)
+	if err != nil {
+		return nil, err
+	}
+
+	var postureCheck posture.Checks
+	err = s.db.Where("account_id = ? AND checks = ?", accountID, string(definitionJSON)).First(&postureCheck).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return &postureCheck, nil
 }
 
 // Close closes the underlying DB connection

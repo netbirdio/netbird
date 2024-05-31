@@ -121,6 +121,12 @@ func (s *Server) anonymize(reader io.Reader, writer io.WriteCloser, errChan chan
 	}
 }
 
+// GetLogLevel gets the current logging level for the server.
+func (s *Server) GetLogLevel(_ context.Context, _ *proto.GetLogLevelRequest) (*proto.GetLogLevelResponse, error) {
+	level := ParseLogLevel(log.GetLevel().String())
+	return &proto.GetLogLevelResponse{Level: level}, nil
+}
+
 // SetLogLevel sets the logging level for the server.
 func (s *Server) SetLogLevel(_ context.Context, req *proto.SetLogLevelRequest) (*proto.SetLogLevelResponse, error) {
 	level, err := log.ParseLevel(req.Level.String())

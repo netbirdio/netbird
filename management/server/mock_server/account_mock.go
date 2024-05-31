@@ -97,6 +97,7 @@ type MockAccountManager struct {
 	UpdateIntegratedValidatorGroupsFunc func(accountID string, userID string, groups []string) error
 	GroupValidationFunc                 func(accountId string, groups []string) (bool, error)
 	SyncPeerMetaFunc                    func(peerPubKey string, meta nbpeer.PeerSystemMeta) error
+	FindExistingPostureCheckFunc        func(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 }
 
 func (am *MockAccountManager) SyncAndMarkPeer(peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, error) {
@@ -751,4 +752,12 @@ func (am *MockAccountManager) SyncPeerMeta(peerPubKey string, meta nbpeer.PeerSy
 		return am.SyncPeerMetaFunc(peerPubKey, meta)
 	}
 	return status.Errorf(codes.Unimplemented, "method SyncPeerMeta is not implemented")
+}
+
+// FindExistingPostureCheck mocks FindExistingPostureCheck of the AccountManager interface
+func (am *MockAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
+	if am.FindExistingPostureCheckFunc != nil {
+		return am.FindExistingPostureCheckFunc(accountID, checks)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method FindExistingPostureCheck is not implemented")
 }

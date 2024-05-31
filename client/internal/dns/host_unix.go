@@ -1,4 +1,4 @@
-//go:build !android
+//go:build (linux && !android) || freebsd
 
 package dns
 
@@ -108,7 +108,7 @@ func getOSDNSManagerType() (osManagerType, error) {
 		if strings.Contains(text, "NetworkManager") && isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) && isNetworkManagerSupported() {
 			return networkManager, nil
 		}
-		if strings.Contains(text, "systemd-resolved") && isDbusListenerRunning(systemdResolvedDest, systemdDbusObjectNode) {
+		if strings.Contains(text, "systemd-resolved") && isSystemdResolvedRunning() {
 			if checkStub() {
 				return systemdManager, nil
 			} else {
@@ -116,16 +116,10 @@ func getOSDNSManagerType() (osManagerType, error) {
 			}
 		}
 		if strings.Contains(text, "resolvconf") {
-			if isDbusListenerRunning(systemdResolvedDest, systemdDbusObjectNode) {
-				var value string
-				err = getSystemdDbusProperty(systemdDbusResolvConfModeProperty, &value)
-				if err == nil {
-					if value == systemdDbusResolvConfModeForeign {
-						return systemdManager, nil
-					}
-				}
-				log.Errorf("got an error while checking systemd resolv conf mode, error: %s", err)
+			if isSystemdResolveConfMode() {
+				return systemdManager, nil
 			}
+
 			return resolvConfManager, nil
 		}
 	}

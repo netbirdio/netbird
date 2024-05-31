@@ -1,10 +1,10 @@
-//go:build !android
-// +build !android
+//go:build (linux && !android) || freebsd
 
 package iface
 
 import (
 	"fmt"
+	"runtime"
 
 	"github.com/pion/transport/v3"
 
@@ -43,5 +43,5 @@ func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, 
 
 // CreateOnAndroid this function make sense on mobile only
 func (w *WGIface) CreateOnAndroid([]string, string, []string) error {
-	return fmt.Errorf("this function has not implemented on this platform")
+	return fmt.Errorf("CreateOnAndroid function has not implemented on %s platform", runtime.GOOS)
 }

@@ -4,64 +4,62 @@ import (
 	"context"
 
 	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/metric/instrument"
-	"go.opentelemetry.io/otel/metric/instrument/syncint64"
 )
 
 // IDPMetrics is common IdP metrics
 type IDPMetrics struct {
-	metaUpdateCounter          syncint64.Counter
-	getUserByEmailCounter      syncint64.Counter
-	getAllAccountsCounter      syncint64.Counter
-	createUserCounter          syncint64.Counter
-	deleteUserCounter          syncint64.Counter
-	getAccountCounter          syncint64.Counter
-	getUserByIDCounter         syncint64.Counter
-	authenticateRequestCounter syncint64.Counter
-	requestErrorCounter        syncint64.Counter
-	requestStatusErrorCounter  syncint64.Counter
+	metaUpdateCounter          metric.Int64Counter
+	getUserByEmailCounter      metric.Int64Counter
+	getAllAccountsCounter      metric.Int64Counter
+	createUserCounter          metric.Int64Counter
+	deleteUserCounter          metric.Int64Counter
+	getAccountCounter          metric.Int64Counter
+	getUserByIDCounter         metric.Int64Counter
+	authenticateRequestCounter metric.Int64Counter
+	requestErrorCounter        metric.Int64Counter
+	requestStatusErrorCounter  metric.Int64Counter
 	ctx                        context.Context
 }
 
 // NewIDPMetrics creates new IDPMetrics struct and registers common
 func NewIDPMetrics(ctx context.Context, meter metric.Meter) (*IDPMetrics, error) {
-	metaUpdateCounter, err := meter.SyncInt64().Counter("management.idp.update.user.meta.counter", instrument.WithUnit("1"))
+	metaUpdateCounter, err := meter.Int64Counter("management.idp.update.user.meta.counter", metric.WithUnit("1"))
 	if err != nil {
 		return nil, err
 	}
-	getUserByEmailCounter, err := meter.SyncInt64().Counter("management.idp.get.user.by.email.counter", instrument.WithUnit("1"))
+	getUserByEmailCounter, err := meter.Int64Counter("management.idp.get.user.by.email.counter", metric.WithUnit("1"))
 	if err != nil {
 		return nil, err
 	}
-	getAllAccountsCounter, err := meter.SyncInt64().Counter("management.idp.get.accounts.counter", instrument.WithUnit("1"))
+	getAllAccountsCounter, err := meter.Int64Counter("management.idp.get.accounts.counter", metric.WithUnit("1"))
 	if err != nil {
 		return nil, err
 	}
-	createUserCounter, err := meter.SyncInt64().Counter("management.idp.create.user.counter", instrument.WithUnit("1"))
+	createUserCounter, err := meter.Int64Counter("management.idp.create.user.counter", metric.WithUnit("1"))
 	if err != nil {
 		return nil, err
 	}
-	deleteUserCounter, err := meter.SyncInt64().Counter("management.idp.delete.user.counter", instrument.WithUnit("1"))
+	deleteUserCounter, err := meter.Int64Counter("management.idp.delete.user.counter", metric.WithUnit("1"))
 	if err != nil {
 		return nil, err
 	}
-	getAccountCounter, err := meter.SyncInt64().Counter("management.idp.get.account.counter", instrument.WithUnit("1"))
+	getAccountCounter, err := meter.Int64Counter("management.idp.get.account.counter", metric.WithUnit("1"))
 	if err != nil {
 		return nil, err
 	}
-	getUserByIDCounter, err := meter.SyncInt64().Counter("management.idp.get.user.by.id.counter", instrument.WithUnit("1"))
+	getUserByIDCounter, err := meter.Int64Counter("management.idp.get.user.by.id.counter", metric.WithUnit("1"))
 	if err != nil {
 		return nil, err
 	}
-	authenticateRequestCounter, err := meter.SyncInt64().Counter("management.idp.authenticate.request.counter", instrument.WithUnit("1"))
+	authenticateRequestCounter, err := meter.Int64Counter("management.idp.authenticate.request.counter", metric.WithUnit("1"))
 	if err != nil {
 		return nil, err
 	}
-	requestErrorCounter, err := meter.SyncInt64().Counter("management.idp.request.error.counter", instrument.WithUnit("1"))
+	requestErrorCounter, err := meter.Int64Counter("management.idp.request.error.counter", metric.WithUnit("1"))
 	if err != nil {
 		return nil, err
 	}
-	requestStatusErrorCounter, err := meter.SyncInt64().Counter("management.idp.request.status.error.counter", instrument.WithUnit("1"))
+	requestStatusErrorCounter, err := meter.Int64Counter("management.idp.request.status.error.counter", metric.WithUnit("1"))
 	if err != nil {
 		return nil, err
 	}
