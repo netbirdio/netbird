@@ -136,7 +136,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 
 	peer, netMap, err := s.accountManager.SyncAndMarkPeer(peerKey.String(), realIP)
 	if err != nil {
-		return err
+		return mapError(err)
 	}
 
 	err = s.sendInitialSync(peerKey, peer, netMap, srv)
@@ -368,7 +368,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	})
 
 	if err != nil {
-		log.Warnf("failed logging in peer %s", peerKey)
+		log.Warnf("failed logging in peer %s: %s", peerKey, err)
 		return nil, mapError(err)
 	}
 

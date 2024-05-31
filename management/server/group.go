@@ -245,6 +245,11 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 				return &GroupLinkError{"route", string(r.NetID)}
 			}
 		}
+		for _, g := range r.PeerGroups {
+			if g == groupID {
+				return &GroupLinkError{"route", string(r.NetID)}
+			}
+		}
 	}
 
 	// check DNS links

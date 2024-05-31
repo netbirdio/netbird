@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -331,6 +332,15 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		engineConf.PreSharedKey = &preSharedKey
 	}
 
+	port, err := freePort(config.WgPort)
+	if err != nil {
+		return nil, err
+	}
+	if port != config.WgPort {
+		log.Infof("using %d as wireguard port: %d is in use", port, config.WgPort)
+	}
+	engineConf.WgPort = port
+
 	return engineConf, nil
 }
 
@@ -379,4 +389,21 @@ func statusRecorderToSignalConnStateNotifier(statusRecorder *peer.Status) signal
 	var sri interface{} = statusRecorder
 	notifier, _ := sri.(signal.ConnStateNotifier)
 	return notifier
+}
+
+func freePort(start int) (int, error) {
+	addr := net.UDPAddr{}
+	if start == 0 {
+		start = iface.DefaultWgPort
+	}
+	for x := start; x <= 65535; x++ {
+		addr.Port = x
+		conn, err := net.ListenUDP("udp", &addr)
+		if err != nil {
+			continue
+		}
+		conn.Close()
+		return x, nil
+	}
+	return 0, errors.New("no free ports")
 }

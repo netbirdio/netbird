@@ -133,6 +133,7 @@ type AccountManager interface {
 	GetValidatedPeers(account *Account) (map[string]struct{}, error)
 	SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error)
 	CancelPeerRoutines(peer *nbpeer.Peer) error
+	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 }
 
 type DefaultAccountManager struct {
@@ -1771,6 +1772,8 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 //
 // Existing user + Existing account + Existing domain reclassified Domain as private -> Nothing changes (index domain)
 func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error) {
+	log.Tracef("getting account with authorization claims. User ID: \"%s\", Account ID: \"%s\", Domain: \"%s\", Domain Category: \"%s\"",
+		claims.UserId, claims.AccountId, claims.Domain, claims.DomainCategory)
 	if claims.UserId == "" {
 		return nil, fmt.Errorf("user ID is empty")
 	}
@@ -1791,8 +1794,10 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		}
 	}
 
+	start := time.Now()
 	unlock := am.Store.AcquireGlobalLock()
 	defer unlock()
+	log.Debugf("Acquired global lock in %s for user %s", time.Since(start), claims.UserId)
 
 	// We checked if the domain has a primary account already
 	domainAccount, err := am.Store.GetAccountByPrivateDomain(claims.Domain)
@@ -1843,6 +1848,9 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error) {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(peerPubKey)
 	if err != nil {
+		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
+			return nil, nil, status.Errorf(status.Unauthenticated, "peer not registered")
+		}
 		return nil, nil, err
 	}
 
@@ -1856,7 +1864,7 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.I
 
 	peer, netMap, err := am.SyncPeer(PeerSync{WireGuardPubKey: peerPubKey}, account)
 	if err != nil {
-		return nil, nil, mapError(err)
+		return nil, nil, err
 	}
 
 	err = am.MarkPeerConnected(peerPubKey, true, realIP, account)
@@ -1870,6 +1878,9 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.I
 func (am *DefaultAccountManager) CancelPeerRoutines(peer *nbpeer.Peer) error {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(peer.Key)
 	if err != nil {
+		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
+			return status.Errorf(status.Unauthenticated, "peer not registered")
+		}
 		return err
 	}
 
@@ -1952,6 +1963,10 @@ func (am *DefaultAccountManager) onPeersInvalidated(accountID string) {
 		return
 	}
 	am.updateAccountPeers(updatedAccount)
+}
+
+func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
+	return am.Store.GetPostureCheckByChecksDefinition(accountID, checks)
 }
 
 // addAllGroup to account object if it doesn't exist

@@ -40,6 +40,9 @@ service DaemonService {
   // DebugBundle creates a debug bundle
   rpc DebugBundle(DebugBundleRequest) returns (DebugBundleResponse) {}
 
+  // GetLogLevel gets the log level of the daemon
+  rpc GetLogLevel(GetLogLevelRequest) returns (GetLogLevelResponse) {}
+
   // SetLogLevel sets the log level of the daemon
   rpc SetLogLevel(SetLogLevelRequest) returns (SetLogLevelResponse) {}
 };
@@ -263,6 +266,13 @@ enum LogLevel {
   INFO = 5;
   DEBUG = 6;
   TRACE = 7;
+}
+
+message GetLogLevelRequest {
+}
+
+message GetLogLevelResponse {
+  LogLevel level = 1;
 }
 
 message SetLogLevelRequest {

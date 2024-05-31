@@ -97,6 +97,7 @@ type MockAccountManager struct {
 	GetIdpManagerFunc                   func() idp.Manager
 	UpdateIntegratedValidatorGroupsFunc func(accountID string, userID string, groups []string) error
 	GroupValidationFunc                 func(accountId string, groups []string) (bool, error)
+	FindExistingPostureCheckFunc        func(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 }
 
 func (am *MockAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, error) {
@@ -735,4 +736,12 @@ func (am *MockAccountManager) GroupValidation(accountId string, groups []string)
 		return am.GroupValidationFunc(accountId, groups)
 	}
 	return false, status.Errorf(codes.Unimplemented, "method GroupValidation is not implemented")
+}
+
+// FindExistingPostureCheck mocks FindExistingPostureCheck of the AccountManager interface
+func (am *MockAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
+	if am.FindExistingPostureCheckFunc != nil {
+		return am.FindExistingPostureCheckFunc(accountID, checks)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method FindExistingPostureCheck is not implemented")
 }

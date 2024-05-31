@@ -36,7 +36,7 @@ const (
 	maxRetryIntervalVar     = "NB_CONN_MAX_RETRY_INTERVAL_TIME"
 	maxRetryTimeVar         = "NB_CONN_MAX_RETRY_TIME_TIME"
 	retryMultiplierVar      = "NB_CONN_RETRY_MULTIPLIER"
-	defaultInitialRetryTime = 14 * 24 * time.Hour
+	defaultInitialRetryTime = 30 * time.Minute
 	defaultMaxRetryInterval = 60 * time.Minute
 	defaultMaxRetryTime     = 14 * 24 * time.Hour
 	defaultRetryMultiplier  = 1.7
