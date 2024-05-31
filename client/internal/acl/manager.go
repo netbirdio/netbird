@@ -70,10 +70,10 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 	enableSSH := (networkMap.PeerConfig != nil &&
 		networkMap.PeerConfig.SshConfig != nil &&
 		networkMap.PeerConfig.SshConfig.SshEnabled)
-	if _, ok := squashedProtocols[mgmProto.FirewallRule_ALL]; ok {
+	if _, ok := squashedProtocols[mgmProto.RuleProtocol_ALL]; ok {
 		enableSSH = enableSSH && !ok
 	}
-	if _, ok := squashedProtocols[mgmProto.FirewallRule_TCP]; ok {
+	if _, ok := squashedProtocols[mgmProto.RuleProtocol_TCP]; ok {
 		enableSSH = enableSSH && !ok
 	}
 
@@ -83,9 +83,9 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 	if enableSSH {
 		rules = append(rules, &mgmProto.FirewallRule{
 			PeerIP:    "0.0.0.0",
-			Direction: mgmProto.FirewallRule_IN,
-			Action:    mgmProto.FirewallRule_ACCEPT,
-			Protocol:  mgmProto.FirewallRule_TCP,
+			Direction: mgmProto.RuleDirection_IN,
+			Action:    mgmProto.RuleAction_ACCEPT,
+			Protocol:  mgmProto.RuleProtocol_TCP,
 			Port:      strconv.Itoa(ssh.DefaultSSHPort),
 		})
 	}
@@ -97,15 +97,15 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 		rules = append(rules,
 			&mgmProto.FirewallRule{
 				PeerIP:    "0.0.0.0",
-				Direction: mgmProto.FirewallRule_IN,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_ALL,
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 			&mgmProto.FirewallRule{
 				PeerIP:    "0.0.0.0",
-				Direction: mgmProto.FirewallRule_OUT,
-				Action:    mgmProto.FirewallRule_ACCEPT,
-				Protocol:  mgmProto.FirewallRule_ALL,
+				Direction: mgmProto.RuleDirection_OUT,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 		)
 	}
@@ -186,9 +186,9 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 
 	var rules []firewall.Rule
 	switch r.Direction {
-	case mgmProto.FirewallRule_IN:
+	case mgmProto.RuleDirection_IN:
 		rules, err = d.addInRules(ip, protocol, port, action, ipsetName, "")
-	case mgmProto.FirewallRule_OUT:
+	case mgmProto.RuleDirection_OUT:
 		rules, err = d.addOutRules(ip, protocol, port, action, ipsetName, "")
 	default:
 		return "", nil, fmt.Errorf("invalid direction, skipping firewall rule")
@@ -283,7 +283,7 @@ func (d *DefaultManager) getRuleID(
 // but other has port definitions or has drop policy.
 func (d *DefaultManager) squashAcceptRules(
 	networkMap *mgmProto.NetworkMap,
-) ([]*mgmProto.FirewallRule, map[mgmProto.FirewallRuleProtocol]struct{}) {
+) ([]*mgmProto.FirewallRule, map[mgmProto.RuleProtocol]struct{}) {
 	totalIPs := 0
 	for _, p := range append(networkMap.RemotePeers, networkMap.OfflinePeers...) {
 		for range p.AllowedIps {
@@ -291,14 +291,14 @@ func (d *DefaultManager) squashAcceptRules(
 		}
 	}
 
-	type protoMatch map[mgmProto.FirewallRuleProtocol]map[string]int
+	type protoMatch map[mgmProto.RuleProtocol]map[string]int
 
 	in := protoMatch{}
 	out := protoMatch{}
 
 	// trace which type of protocols was squashed
 	squashedRules := []*mgmProto.FirewallRule{}
-	squashedProtocols := map[mgmProto.FirewallRuleProtocol]struct{}{}
+	squashedProtocols := map[mgmProto.RuleProtocol]struct{}{}
 
 	// this function we use to do calculation, can we squash the rules by protocol or not.
 	// We summ amount of Peers IP for given protocol we found in original rules list.
@@ -308,7 +308,7 @@ func (d *DefaultManager) squashAcceptRules(
 	//
 	// We zeroed this to notify squash function that this protocol can't be squashed.
 	addRuleToCalculationMap := func(i int, r *mgmProto.FirewallRule, protocols protoMatch) {
-		drop := r.Action == mgmProto.FirewallRule_DROP || r.Port != ""
+		drop := r.Action == mgmProto.RuleAction_DROP || r.Port != ""
 		if drop {
 			protocols[r.Protocol] = map[string]int{}
 			return
@@ -336,7 +336,7 @@ func (d *DefaultManager) squashAcceptRules(
 
 	for i, r := range networkMap.FirewallRules {
 		// calculate squash for different directions
-		if r.Direction == mgmProto.FirewallRule_IN {
+		if r.Direction == mgmProto.RuleDirection_IN {
 			addRuleToCalculationMap(i, r, in)
 		} else {
 			addRuleToCalculationMap(i, r, out)
@@ -345,14 +345,14 @@ func (d *DefaultManager) squashAcceptRules(
 
 	// order of squashing by protocol is important
 	// only for their first element ALL, it must be done first
-	protocolOrders := []mgmProto.FirewallRuleProtocol{
-		mgmProto.FirewallRule_ALL,
-		mgmProto.FirewallRule_ICMP,
-		mgmProto.FirewallRule_TCP,
-		mgmProto.FirewallRule_UDP,
+	protocolOrders := []mgmProto.RuleProtocol{
+		mgmProto.RuleProtocol_ALL,
+		mgmProto.RuleProtocol_ICMP,
+		mgmProto.RuleProtocol_TCP,
+		mgmProto.RuleProtocol_UDP,
 	}
 
-	squash := func(matches protoMatch, direction mgmProto.FirewallRuleDirection) {
+	squash := func(matches protoMatch, direction mgmProto.RuleDirection) {
 		for _, protocol := range protocolOrders {
 			if ipset, ok := matches[protocol]; !ok || len(ipset) != totalIPs || len(ipset) < 2 {
 				// don't squash if :
@@ -365,12 +365,12 @@ func (d *DefaultManager) squashAcceptRules(
 			squashedRules = append(squashedRules, &mgmProto.FirewallRule{
 				PeerIP:    "0.0.0.0",
 				Direction: direction,
-				Action:    mgmProto.FirewallRule_ACCEPT,
+				Action:    mgmProto.RuleAction_ACCEPT,
 				Protocol:  protocol,
 			})
 			squashedProtocols[protocol] = struct{}{}
 
-			if protocol == mgmProto.FirewallRule_ALL {
+			if protocol == mgmProto.RuleProtocol_ALL {
 				// if we have ALL traffic type squashed rule
 				// it allows all other type of traffic, so we can stop processing
 				break
@@ -378,11 +378,11 @@ func (d *DefaultManager) squashAcceptRules(
 		}
 	}
 
-	squash(in, mgmProto.FirewallRule_IN)
-	squash(out, mgmProto.FirewallRule_OUT)
+	squash(in, mgmProto.RuleDirection_IN)
+	squash(out, mgmProto.RuleDirection_OUT)
 
 	// if all protocol was squashed everything is allow and we can ignore all other rules
-	if _, ok := squashedProtocols[mgmProto.FirewallRule_ALL]; ok {
+	if _, ok := squashedProtocols[mgmProto.RuleProtocol_ALL]; ok {
 		return squashedRules, squashedProtocols
 	}
 
@@ -423,15 +423,15 @@ func (d *DefaultManager) rollBack(newRulePairs map[string][]firewall.Rule) {
 	}
 }
 
-func convertToFirewallProtocol(protocol mgmProto.FirewallRuleProtocol) (firewall.Protocol, error) {
+func convertToFirewallProtocol(protocol mgmProto.RuleProtocol) (firewall.Protocol, error) {
 	switch protocol {
-	case mgmProto.FirewallRule_TCP:
+	case mgmProto.RuleProtocol_TCP:
 		return firewall.ProtocolTCP, nil
-	case mgmProto.FirewallRule_UDP:
+	case mgmProto.RuleProtocol_UDP:
 		return firewall.ProtocolUDP, nil
-	case mgmProto.FirewallRule_ICMP:
+	case mgmProto.RuleProtocol_ICMP:
 		return firewall.ProtocolICMP, nil
-	case mgmProto.FirewallRule_ALL:
+	case mgmProto.RuleProtocol_ALL:
 		return firewall.ProtocolALL, nil
 	default:
 		return firewall.ProtocolALL, fmt.Errorf("invalid protocol type: %s", protocol.String())
@@ -442,11 +442,11 @@ func shouldSkipInvertedRule(protocol firewall.Protocol, port *firewall.Port) boo
 	return protocol == firewall.ProtocolALL || protocol == firewall.ProtocolICMP || port == nil
 }
 
-func convertFirewallAction(action mgmProto.FirewallRuleAction) (firewall.Action, error) {
+func convertFirewallAction(action mgmProto.RuleAction) (firewall.Action, error) {
 	switch action {
-	case mgmProto.FirewallRule_ACCEPT:
+	case mgmProto.RuleAction_ACCEPT:
 		return firewall.ActionAccept, nil
-	case mgmProto.FirewallRule_DROP:
+	case mgmProto.RuleAction_DROP:
 		return firewall.ActionDrop, nil
 	default:
 		return firewall.ActionDrop, fmt.Errorf("invalid action type: %d", action)

@@ -39,7 +39,7 @@ type RouteFirewallRule struct {
 	// Protocol of the traffic
 	Protocol string
 
-	// NetworkFamily string
+	// NetworkType string
 	NetworkType int
 
 	// Port of the traffic
@@ -425,7 +425,7 @@ func generateRouteFirewallRules(route *route.Route, rule *PolicyRule, groupPeers
 
 			p, err := strconv.ParseUint(port, 10, 16)
 			if err != nil {
-				log.Error("failed to parse port %s for rule: %s", port, rule.ID)
+				log.Errorf("failed to parse port %s for rule: %s", port, rule.ID)
 				continue
 			}
 
