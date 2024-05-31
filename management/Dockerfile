@@ -2,10 +2,7 @@ FROM golang:alpine as builder
 
 RUN apk add git
 
-RUN git clone https://github.com/netbirdio/netbird.git
-WORKDIR netbird
-
-RUN go build -o netbird-mgmt -a ./management
+RUN go build -o netbird-mgmt -a .
 
 FROM alpine
 
