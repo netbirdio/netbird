@@ -509,7 +509,7 @@ func (s *FileStore) GetAccountByUser(userID string) (*Account, error) {
 
 	accountID, ok := s.UserID2AccountID[userID]
 	if !ok {
-		return nil, status.Errorf(status.NotFound, "account not found")
+		return nil, status.NewUserNotFoundError(userID)
 	}
 
 	account, err := s.getAccount(accountID)
@@ -540,7 +540,7 @@ func (s *FileStore) GetAccountByPeerID(peerID string) (*Account, error) {
 	if _, ok := account.Peers[peerID]; !ok {
 		delete(s.PeerID2AccountID, peerID)
 		log.Warnf("removed stale peerID %s to accountID %s index", peerID, accountID)
-		return nil, status.Errorf(status.NotFound, "provided peer doesn't exists %s", peerID)
+		return nil, status.NewPeerNotFoundError(peerID)
 	}
 
 	return account.Copy(), nil
@@ -553,7 +553,7 @@ func (s *FileStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 
 	accountID, ok := s.PeerKeyID2AccountID[peerKey]
 	if !ok {
-		return nil, status.Errorf(status.NotFound, "provided peer key doesn't exists %s", peerKey)
+		return nil, status.NewPeerNotFoundError(peerKey)
 	}
 
 	account, err := s.getAccount(accountID)
@@ -573,7 +573,7 @@ func (s *FileStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 	if stale {
 		delete(s.PeerKeyID2AccountID, peerKey)
 		log.Warnf("removed stale peerKey %s to accountID %s index", peerKey, accountID)
-		return nil, status.Errorf(status.NotFound, "provided peer doesn't exists %s", peerKey)
+		return nil, status.NewPeerNotFoundError(peerKey)
 	}
 
 	return account.Copy(), nil
@@ -585,10 +585,69 @@ func (s *FileStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
 
 	accountID, ok := s.PeerKeyID2AccountID[peerKey]
 	if !ok {
-		return "", status.Errorf(status.NotFound, "provided peer key doesn't exists %s", peerKey)
+		return "", status.NewPeerNotFoundError(peerKey)
 	}
 
 	return accountID, nil
+}
+
+func (s *FileStore) GetAccountIDByUserID(userID string) (string, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, ok := s.UserID2AccountID[userID]
+	if !ok {
+		return "", status.NewUserNotFoundError(userID)
+	}
+
+	return accountID, nil
+}
+
+func (s *FileStore) GetAccountIDBySetupKey(setupKey string) (string, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, ok := s.SetupKeyID2AccountID[strings.ToUpper(setupKey)]
+	if !ok {
+		return "", status.Errorf(status.NotFound, "account not found: provided setup key doesn't exists")
+	}
+
+	return accountID, nil
+}
+
+func (s *FileStore) GetPeerByPeerPubKey(peerKey string) (*nbpeer.Peer, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, ok := s.PeerKeyID2AccountID[peerKey]
+	if !ok {
+		return nil, status.NewPeerNotFoundError(peerKey)
+	}
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, peer := range account.Peers {
+		if peer.Key == peerKey {
+			return peer.Copy(), nil
+		}
+	}
+
+	return nil, status.NewPeerNotFoundError(peerKey)
+}
+
+func (s *FileStore) GetAccountSettings(accountID string) (*Settings, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return account.Settings.Copy(), nil
 }
 
 // GetInstallationID returns the installation ID from the store
