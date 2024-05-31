@@ -59,12 +59,13 @@ jobs:
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
       -
-        name: Login to Docker hub
+        name: Login to ghcr.io
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v1
         with:
-          username: netbirdio
-          password: ${{ secrets.DOCKER_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Install OS build dependencies
         run: sudo apt update && sudo apt install -y -q gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu
 
@@ -86,9 +87,6 @@ jobs:
           args: release --rm-dist ${{ env.flags }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-          UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
-          UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
       -
         name: upload non tags for debug purposes
         uses: actions/upload-artifact@v3
@@ -162,9 +160,6 @@ jobs:
           args: release --config .goreleaser_ui.yaml --rm-dist ${{ env.flags }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-          UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
-          UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
       - name: upload non tags for debug purposes
         uses: actions/upload-artifact@v3
         with:
@@ -220,31 +215,3 @@ jobs:
           name: release-ui-darwin
           path: dist/
           retention-days: 3
-
-  trigger_windows_signer:
-    runs-on: ubuntu-latest
-    needs: [release,release_ui]
-    if: startsWith(github.ref, 'refs/tags/')
-    steps:
-      - name: Trigger Windows binaries sign pipeline
-        uses: benc-uk/workflow-dispatch@v1
-        with:
-          workflow: Sign windows bin and installer
-          repo: netbirdio/sign-pipelines
-          ref: ${{ env.SIGN_PIPE_VER }}
-          token: ${{ secrets.SIGN_GITHUB_TOKEN }}
-          inputs: '{ "tag": "${{ github.ref }}" }'
-
-  trigger_darwin_signer:
-    runs-on: ubuntu-latest
-    needs: [release,release_ui_darwin]
-    if: startsWith(github.ref, 'refs/tags/')
-    steps:
-      - name: Trigger Darwin App binaries sign pipeline
-        uses: benc-uk/workflow-dispatch@v1
-        with:
-          workflow: Sign darwin ui app with dispatch
-          repo: netbirdio/sign-pipelines
-          ref: ${{ env.SIGN_PIPE_VER }}
-          token: ${{ secrets.SIGN_GITHUB_TOKEN }}
-          inputs: '{ "tag": "${{ github.ref }}" }'
