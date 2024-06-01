@@ -36,6 +36,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+          
       -
         name: Login to ghcr.io
         if: github.event_name != 'pull_request'
