@@ -4,13 +4,14 @@ import (
 	"context"
 	"testing"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/relay/server"
 )
 
-func TestNewManager(t *testing.T) {
+func TestForeignConn(t *testing.T) {
 	ctx := context.Background()
-	idAlice := "alice"
-	idBob := "bob"
+
 	addr1 := "localhost:1234"
 	srv1 := server.NewServer()
 	go func() {
@@ -43,22 +44,21 @@ func TestNewManager(t *testing.T) {
 		}
 	}()
 
+	idAlice := "alice"
+	log.Debugf("connect by alice")
 	clientAlice := NewManager(ctx, addr1, idAlice)
 	err := clientAlice.Serve()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
-	aliceSrvAddr, err := clientAlice.RelayAddress()
-	if err != nil {
-		t.Fatalf("failed to get relay address: %s", err)
-	}
 
+	idBob := "bob"
+	log.Debugf("connect by bob")
 	clientBob := NewManager(ctx, addr2, idBob)
 	err = clientBob.Serve()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
-
 	bobsSrvAddr, err := clientBob.RelayAddress()
 	if err != nil {
 		t.Fatalf("failed to get relay address: %s", err)
@@ -67,8 +67,7 @@ func TestNewManager(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
-
-	connBobToAlice, err := clientBob.OpenConn(aliceSrvAddr.String(), idAlice)
+	connBobToAlice, err := clientBob.OpenConn(bobsSrvAddr.String(), idAlice)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -98,4 +97,60 @@ func TestNewManager(t *testing.T) {
 	if payload != string(buf[:n]) {
 		t.Fatalf("expected %s, got %s", payload, string(buf[:n]))
 	}
+}
+
+func TestForeginConnClose(t *testing.T) {
+	ctx := context.Background()
+
+	addr1 := "localhost:1234"
+	srv1 := server.NewServer()
+	go func() {
+		err := srv1.Listen(addr1)
+		if err != nil {
+			t.Fatalf("failed to bind server: %s", err)
+		}
+	}()
+
+	defer func() {
+		err := srv1.Close()
+		if err != nil {
+			t.Errorf("failed to close server: %s", err)
+		}
+	}()
+
+	addr2 := "localhost:2234"
+	srv2 := server.NewServer()
+	go func() {
+		err := srv2.Listen(addr2)
+		if err != nil {
+			t.Fatalf("failed to bind server: %s", err)
+		}
+	}()
+
+	defer func() {
+		err := srv2.Close()
+		if err != nil {
+			t.Errorf("failed to close server: %s", err)
+		}
+	}()
+
+	idAlice := "alice"
+	log.Debugf("connect by alice")
+	clientAlice := NewManager(ctx, addr1, idAlice)
+	err := clientAlice.Serve()
+	if err != nil {
+		t.Fatalf("failed to connect to server: %s", err)
+	}
+
+	conn, err := clientAlice.OpenConn(addr2, "anotherpeer")
+	if err != nil {
+		t.Fatalf("failed to bind channel: %s", err)
+	}
+
+	err = conn.Close()
+	if err != nil {
+		t.Fatalf("failed to close connection: %s", err)
+	}
+
+	select {}
 }

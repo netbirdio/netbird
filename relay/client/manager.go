@@ -5,7 +5,18 @@ import (
 	"fmt"
 	"net"
 	"sync"
+
+	log "github.com/sirupsen/logrus"
 )
+
+type RelayTrack struct {
+	sync.RWMutex
+	relayClient *Client
+}
+
+func NewRelayTrack() *RelayTrack {
+	return &RelayTrack{}
+}
 
 type Manager struct {
 	ctx        context.Context
@@ -15,8 +26,8 @@ type Manager struct {
 	relayClient    *Client
 	reconnectGuard *Guard
 
-	relayClients      map[string]*Client
-	relayClientsMutex sync.Mutex
+	relayClients      map[string]*RelayTrack
+	relayClientsMutex sync.RWMutex
 }
 
 func NewManager(ctx context.Context, serverAddress string, peerID string) *Manager {
@@ -24,7 +35,7 @@ func NewManager(ctx context.Context, serverAddress string, peerID string) *Manag
 		ctx:          ctx,
 		srvAddress:   serverAddress,
 		peerID:       peerID,
-		relayClients: make(map[string]*Client),
+		relayClients: make(map[string]*RelayTrack),
 	}
 }
 
@@ -50,10 +61,10 @@ func (m *Manager) OpenConn(serverAddress, peerKey string) (net.Conn, error) {
 		return nil, err
 	}
 
-	if foreign {
-		return m.openConnVia(serverAddress, peerKey)
-	} else {
+	if !foreign {
 		return m.relayClient.OpenConn(peerKey)
+	} else {
+		return m.openConnVia(serverAddress, peerKey)
 	}
 }
 
@@ -65,30 +76,50 @@ func (m *Manager) RelayAddress() (net.Addr, error) {
 }
 
 func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
-	relayClient, ok := m.relayClients[serverAddress]
+	m.relayClientsMutex.RLock()
+	relayTrack, ok := m.relayClients[serverAddress]
 	if ok {
-		return relayClient.OpenConn(peerKey)
+		relayTrack.RLock()
+		m.relayClientsMutex.RUnlock()
+		defer relayTrack.RUnlock()
+		return relayTrack.relayClient.OpenConn(peerKey)
 	}
+	m.relayClientsMutex.RUnlock()
 
-	relayClient = NewClient(m.ctx, serverAddress, m.peerID)
+	rt := NewRelayTrack()
+	rt.Lock()
+
+	m.relayClientsMutex.Lock()
+	m.relayClients[serverAddress] = rt
+	m.relayClientsMutex.Unlock()
+
+	relayClient := NewClient(m.ctx, serverAddress, m.peerID)
 	err := relayClient.Connect()
 	if err != nil {
+		rt.Unlock()
+		m.relayClientsMutex.Lock()
+		delete(m.relayClients, serverAddress)
+		m.relayClientsMutex.Unlock()
 		return nil, err
 	}
 	relayClient.SetOnDisconnectListener(func() {
 		m.deleteRelayConn(serverAddress)
 	})
+	rt.Unlock()
+
 	conn, err := relayClient.OpenConn(peerKey)
 	if err != nil {
 		return nil, err
 	}
 
-	m.relayClients[serverAddress] = relayClient
-
 	return conn, nil
 }
 
 func (m *Manager) deleteRelayConn(address string) {
+	log.Infof("deleting relay client for %s", address)
+	m.relayClientsMutex.Lock()
+	defer m.relayClientsMutex.Unlock()
+
 	delete(m.relayClients, address)
 }
 
