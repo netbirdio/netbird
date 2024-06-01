@@ -19,10 +19,6 @@ const (
 	serverResponseTimeout = 8 * time.Second
 )
 
-var (
-	reconnectingTimeout = 5 * time.Second
-)
-
 type Msg struct {
 	buf []byte
 }
@@ -47,35 +43,42 @@ type Client struct {
 	serviceIsRunning      bool
 	serviceIsRunningMutex sync.Mutex
 	wgReadLoop            sync.WaitGroup
-	onDisconnected        chan struct{}
 
 	remoteAddr net.Addr
+
+	onDisconnectListener func()
+	listenerMutex        sync.Mutex
 }
 
 func NewClient(ctx context.Context, serverAddress, peerID string) *Client {
 	ctx, ctxCancel := context.WithCancel(ctx)
 	hashedID, hashedStringId := messages.HashID(peerID)
 	return &Client{
-		log:            log.WithField("client_id", hashedStringId),
-		ctx:            ctx,
-		ctxCancel:      ctxCancel,
-		serverAddress:  serverAddress,
-		hashedID:       hashedID,
-		conns:          make(map[string]*connContainer),
-		onDisconnected: make(chan struct{}),
+		log:           log.WithField("client_id", hashedStringId),
+		ctx:           ctx,
+		ctxCancel:     ctxCancel,
+		serverAddress: serverAddress,
+		hashedID:      hashedID,
+		conns:         make(map[string]*connContainer),
 	}
+}
+
+func (c *Client) SetOnDisconnectListener(fn func()) {
+	c.listenerMutex.Lock()
+	defer c.listenerMutex.Unlock()
+	c.onDisconnectListener = fn
 }
 
 func (c *Client) Connect() error {
 	c.serviceIsRunningMutex.Lock()
+	defer c.serviceIsRunningMutex.Unlock()
+
 	if c.serviceIsRunning {
-		c.serviceIsRunningMutex.Unlock()
 		return nil
 	}
 
 	err := c.connect()
 	if err != nil {
-		c.serviceIsRunningMutex.Unlock()
 		return err
 	}
 
@@ -83,41 +86,6 @@ func (c *Client) Connect() error {
 
 	c.wgReadLoop.Add(1)
 	go c.readLoop()
-
-	c.serviceIsRunningMutex.Unlock()
-
-	go func() {
-		<-c.ctx.Done()
-		cErr := c.close()
-		if cErr != nil {
-			log.Errorf("failed to close relay connection: %s", cErr)
-		}
-	}()
-
-	go c.reconnectGuard()
-
-	return nil
-}
-
-func (c *Client) ConnectWithoutReconnect() error {
-	c.serviceIsRunningMutex.Lock()
-	if c.serviceIsRunning {
-		c.serviceIsRunningMutex.Unlock()
-		return nil
-	}
-
-	err := c.connect()
-	if err != nil {
-		c.serviceIsRunningMutex.Unlock()
-		return err
-	}
-
-	c.serviceIsRunning = true
-
-	c.wgReadLoop.Add(1)
-	go c.readLoop()
-
-	c.serviceIsRunningMutex.Unlock()
 
 	go func() {
 		<-c.ctx.Done()
@@ -210,33 +178,6 @@ func (c *Client) close() error {
 	return err
 }
 
-func (c *Client) reconnectGuard() {
-	for {
-		c.wgReadLoop.Wait()
-
-		c.serviceIsRunningMutex.Lock()
-		if !c.serviceIsRunning {
-			c.serviceIsRunningMutex.Unlock()
-			return
-		}
-
-		log.Infof("reconnecting to relay server")
-		err := c.connect()
-		if err != nil {
-			log.Errorf("failed to reconnect to relay server: %s", err)
-			c.serviceIsRunningMutex.Unlock()
-			time.Sleep(reconnectingTimeout)
-			continue
-		}
-		log.Infof("reconnected to relay server")
-		c.wgReadLoop.Add(1)
-		go c.readLoop()
-
-		c.serviceIsRunningMutex.Unlock()
-
-	}
-}
-
 func (c *Client) handShake() error {
 	defer func() {
 		err := c.relayConn.SetReadDeadline(time.Time{})
@@ -322,6 +263,8 @@ func (c *Client) readLoop() {
 		}
 	}
 
+	c.notifyDisconnected()
+
 	if c.serviceIsRunning {
 		_ = c.relayConn.Close()
 	}
@@ -383,4 +326,24 @@ func (c *Client) closeConn(id string) error {
 	delete(c.conns, id)
 
 	return nil
+}
+
+func (c *Client) onDisconnect() {
+	c.listenerMutex.Lock()
+	defer c.listenerMutex.Unlock()
+
+	if c.onDisconnectListener == nil {
+		return
+	}
+	c.onDisconnectListener()
+}
+
+func (c *Client) notifyDisconnected() {
+	c.listenerMutex.Lock()
+	defer c.listenerMutex.Unlock()
+
+	if c.onDisconnectListener == nil {
+		return
+	}
+	go c.onDisconnectListener()
 }

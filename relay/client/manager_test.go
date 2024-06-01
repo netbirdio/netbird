@@ -48,6 +48,10 @@ func TestNewManager(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
+	aliceSrvAddr, err := clientAlice.RelayAddress()
+	if err != nil {
+		t.Fatalf("failed to get relay address: %s", err)
+	}
 
 	clientBob := NewManager(ctx, addr2, idBob)
 	err = clientBob.Serve()
@@ -59,12 +63,12 @@ func TestNewManager(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get relay address: %s", err)
 	}
-	connAliceToBob, err := clientAlice.OpenConnTo(bobsSrvAddr.String(), idBob)
+	connAliceToBob, err := clientAlice.OpenConn(bobsSrvAddr.String(), idBob)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
 
-	connBobToAlice, err := clientBob.OpenConn(idAlice)
+	connBobToAlice, err := clientBob.OpenConn(aliceSrvAddr.String(), idAlice)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
