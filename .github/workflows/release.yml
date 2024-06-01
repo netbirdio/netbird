@@ -41,34 +41,6 @@ jobs:
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
       -
-        name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: "1.21"
-          cache: false
-      -
-        name: Cache Go modules
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: ${{ runner.os }}-go-releaser-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-releaser-
-      -
-        name: Install modules
-        run: go mod tidy
-      -
-        name: check git status
-        run: git --no-pager diff --exit-code
-      -
-        name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
-      -
-        name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-      -
         name: Login to ghcr.io
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v1
@@ -76,19 +48,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Install OS build dependencies
-        run: sudo apt update && sudo apt install -y -q gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu
 
-      - name: Install rsrc
-        run: go install github.com/akavel/rsrc@v0.10.2
-      - name: Generate windows rsrc amd64
-        run: rsrc -arch amd64 -ico client/ui/netbird.ico -manifest client/manifest.xml -o client/resources_windows_amd64.syso
-      - name: Generate windows rsrc arm64
-        run: rsrc -arch arm64 -ico client/ui/netbird.ico -manifest client/manifest.xml -o client/resources_windows_arm64.syso
-      - name: Generate windows rsrc arm
-        run: rsrc -arch arm -ico client/ui/netbird.ico -manifest client/manifest.xml -o client/resources_windows_arm.syso
-      - name: Generate windows rsrc 386
-        run: rsrc -arch 386 -ico client/ui/netbird.ico -manifest client/manifest.xml -o client/resources_windows_386.syso
 
       - name: Extract Docker metadata
         id: meta
@@ -101,109 +61,9 @@ jobs:
         uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # v5.0.0
         with:
           context: .
-          platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  release_ui:
-    runs-on: ubuntu-latest
-    steps:
-      - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        run: echo "flags=--snapshot" >> $GITHUB_ENV
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # It is required for GoReleaser to work properly
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: "1.21"
-          cache: false
-      - name: Cache Go modules
-        uses: actions/cache@v3
-        with:
-          path: | 
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: ${{ runner.os }}-ui-go-releaser-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-ui-go-releaser-
-
-      - name: Install modules
-        run: go mod tidy
-
-      - name: check git status
-        run: git --no-pager diff --exit-code
-
-      - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libappindicator3-dev gir1.2-appindicator3-0.1 libxxf86vm-dev gcc-mingw-w64-x86-64
-      - name: Install rsrc
-        run: go install github.com/akavel/rsrc@v0.10.2
-      - name: Generate windows rsrc
-        run: rsrc -arch amd64 -ico client/ui/netbird.ico -manifest client/ui/manifest.xml -o client/ui/resources_windows_amd64.syso
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v4
-        with:
-          version: ${{ env.GORELEASER_VER }}
-          args: release --config .goreleaser_ui.yaml --rm-dist ${{ env.flags }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: upload non tags for debug purposes
-        uses: actions/upload-artifact@v3
-        with:
-          name: release-ui
-          path: dist/
-          retention-days: 3
-
-  release_ui_darwin:
-    runs-on: macos-11
-    steps:
-      - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        run: echo "flags=--snapshot" >> $GITHUB_ENV
-      -
-        name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # It is required for GoReleaser to work properly
-      -
-        name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: "1.21"
-          cache: false
-      -
-        name: Cache Go modules
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: ${{ runner.os }}-ui-go-releaser-darwin-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-ui-go-releaser-darwin-
-      -
-        name: Install modules
-        run: go mod tidy
-      - 
-        name: check git status
-        run: git --no-pager diff --exit-code
-      -
-        name: Run GoReleaser
-        id: goreleaser
-        uses: goreleaser/goreleaser-action@v4
-        with:
-          version: ${{ env.GORELEASER_VER }}
-          args: release --config .goreleaser_ui_darwin.yaml --rm-dist ${{ env.flags }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      -
-        name: upload non tags for debug purposes
-        uses: actions/upload-artifact@v3
-        with:
-          name: release-ui-darwin
-          path: dist/
-          retention-days: 3
