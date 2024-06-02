@@ -36,7 +36,7 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return ErrStopped
 
 		// handle interface state changes
 		case update := <-linkChan:
@@ -47,12 +47,12 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 			switch update.Header.Type {
 			case syscall.RTM_DELLINK:
 				log.Infof("Network monitor: monitored interface (%s) is gone", update.Link.Attrs().Name)
-				callback()
+				go callback()
 				return nil
 			case syscall.RTM_NEWLINK:
 				if (update.IfInfomsg.Flags&syscall.IFF_RUNNING) == 0 && update.Link.Attrs().OperState == netlink.OperDown {
 					log.Infof("Network monitor: monitored interface (%s) is down.", update.Link.Attrs().Name)
-					callback()
+					go callback()
 					return nil
 				}
 			}
@@ -67,12 +67,12 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 			// triggered on added/replaced routes
 			case syscall.RTM_NEWROUTE:
 				log.Infof("Network monitor: default route changed: via %s, interface %d", route.Gw, route.LinkIndex)
-				callback()
+				go callback()
 				return nil
 			case syscall.RTM_DELROUTE:
 				if intfv4 != nil && route.Gw.Equal(nexthopv4.AsSlice()) || intfv6 != nil && route.Gw.Equal(nexthop6.AsSlice()) {
 					log.Infof("Network monitor: default route removed: via %s, interface %d", route.Gw, route.LinkIndex)
-					callback()
+					go callback()
 					return nil
 				}
 			}

@@ -48,8 +48,8 @@ func (MocIntegratedValidator) PreparePeer(accountID string, peer *nbpeer.Peer, p
 	return peer
 }
 
-func (MocIntegratedValidator) IsNotValidPeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (bool, bool) {
-	return false, false
+func (MocIntegratedValidator) IsNotValidPeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (bool, bool, error) {
+	return false, false, nil
 }
 
 func (MocIntegratedValidator) PeerDeleted(_, _ string) error {
@@ -1353,6 +1353,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
+
 	userID := "account_creator"
 	account, err := createAccount(manager, "test_account", userID, "netbird.cloud")
 	if err != nil {
@@ -1763,6 +1764,7 @@ func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
 func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
+
 	_, err = manager.GetAccountByUserOrAccountID(userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
@@ -1815,6 +1817,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
+
 	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
@@ -1858,6 +1861,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
+
 	_, err = manager.GetAccountByUserOrAccountID(userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
@@ -2375,21 +2379,29 @@ func TestAccount_UserGroupsRemoveFromPeers(t *testing.T) {
 
 func createManager(t *testing.T) (*DefaultAccountManager, error) {
 	t.Helper()
+
 	store, err := createStore(t)
 	if err != nil {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{})
+
+	manager, err := BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{})
+	if err != nil {
+		return nil, err
+	}
+
+	return manager, nil
 }
 
 func createStore(t *testing.T) (Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, err := NewStoreFromJson(dataDir, nil)
+	store, cleanUp, err := NewTestStoreFromJson(dataDir)
 	if err != nil {
 		return nil, err
 	}
+	t.Cleanup(cleanUp)
 
 	return store, nil
 }

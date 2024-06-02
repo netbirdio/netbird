@@ -15,7 +15,7 @@ jobs:
     strategy:
       matrix:
         arch: [ '386','amd64' ]
-        store: [ 'jsonfile', 'sqlite' ]
+        store: [ 'jsonfile', 'sqlite', 'postgres']
     runs-on: ubuntu-latest
     steps:
       - name: Install Go

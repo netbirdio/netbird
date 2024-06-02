@@ -910,8 +910,10 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 
 // GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
 func (am *DefaultAccountManager) GetOrCreateAccountByUser(userID, domain string) (*Account, error) {
+	start := time.Now()
 	unlock := am.Store.AcquireGlobalLock()
 	defer unlock()
+	log.Debugf("Acquired global lock in %s for user %s", time.Since(start), userID)
 
 	lowerDomain := strings.ToLower(domain)
 

@@ -75,6 +75,11 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 			"route",
 		},
 		{
+			"route with peer groups",
+			"grp-for-route2",
+			"route",
+		},
+		{
 			"name server groups",
 			"grp-for-name-server-grp",
 			"name server groups",
@@ -269,6 +274,14 @@ func initTestGroupAccount(am *DefaultAccountManager) ([]string, *Account, error)
 		Peers:     make([]string, 0),
 	}
 
+	groupForRoute2 := &nbgroup.Group{
+		ID:        "grp-for-route2",
+		AccountID: "account-id",
+		Name:      "Group for route",
+		Issued:    nbgroup.GroupIssuedAPI,
+		Peers:     make([]string, 0),
+	}
+
 	groupForNameServerGroups := &nbgroup.Group{
 		ID:        "grp-for-name-server-grp",
 		AccountID: "account-id",
@@ -322,6 +335,11 @@ func initTestGroupAccount(am *DefaultAccountManager) ([]string, *Account, error)
 		Groups: []string{groupForRoute.ID},
 	}
 
+	routePeerGroupResource := &route.Route{
+		ID:         "example route with peer groups",
+		PeerGroups: []string{groupForRoute2.ID},
+	}
+
 	nameServerGroup := &nbdns.NameServerGroup{
 		ID:     "example name server group",
 		Groups: []string{groupForNameServerGroups.ID},
@@ -348,6 +366,7 @@ func initTestGroupAccount(am *DefaultAccountManager) ([]string, *Account, error)
 	}
 	account := newAccountWithId(accountID, groupAdminUserID, domain)
 	account.Routes[routeResource.ID] = routeResource
+	account.Routes[routePeerGroupResource.ID] = routePeerGroupResource
 	account.NameServerGroups[nameServerGroup.ID] = nameServerGroup
 	account.Policies = append(account.Policies, policy)
 	account.SetupKeys[setupKey.Id] = setupKey
@@ -359,6 +378,7 @@ func initTestGroupAccount(am *DefaultAccountManager) ([]string, *Account, error)
 	}
 
 	_ = am.SaveGroup(accountID, groupAdminUserID, groupForRoute)
+	_ = am.SaveGroup(accountID, groupAdminUserID, groupForRoute2)
 	_ = am.SaveGroup(accountID, groupAdminUserID, groupForNameServerGroups)
 	_ = am.SaveGroup(accountID, groupAdminUserID, groupForPolicies)
 	_ = am.SaveGroup(accountID, groupAdminUserID, groupForSetupKeys)

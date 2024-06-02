@@ -229,6 +229,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn})
+	engine.ctx = ctx
 
 	type testCase struct {
 		name       string
@@ -408,6 +409,7 @@ func TestEngine_Sync(t *testing.T) {
 		WgPrivateKey: key,
 		WgPort:       33100,
 	}, MobileDependency{}, peer.NewRecorder("https://mgm"))
+	engine.ctx = ctx
 
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
@@ -567,6 +569,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				WgPrivateKey: key,
 				WgPort:       33100,
 			}, MobileDependency{}, peer.NewRecorder("https://mgm"))
+			engine.ctx = ctx
 			newNet, err := stdnet.NewNet()
 			if err != nil {
 				t.Fatal(err)
@@ -737,6 +740,8 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 				WgPrivateKey: key,
 				WgPort:       33100,
 			}, MobileDependency{}, peer.NewRecorder("https://mgm"))
+			engine.ctx = ctx
+
 			newNet, err := stdnet.NewNet()
 			if err != nil {
 				t.Fatal(err)
@@ -1005,7 +1010,9 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		WgPort:       wgPort,
 	}
 
-	return NewEngine(ctx, cancel, signalClient, mgmtClient, conf, MobileDependency{}, peer.NewRecorder("https://mgm")), nil
+	e, err := NewEngine(ctx, cancel, signalClient, mgmtClient, conf, MobileDependency{}, peer.NewRecorder("https://mgm")), nil
+	e.ctx = ctx
+	return e, err
 }
 
 func startSignal() (*grpc.Server, string, error) {
@@ -1044,7 +1051,7 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 		return nil, "", err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
-	store, err := server.NewStoreFromJson(config.Datadir, nil)
+	store, _, err := server.NewTestStoreFromJson(config.Datadir)
 	if err != nil {
 		return nil, "", err
 	}

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <meta content="width=device-width, initial-scale=1" name="viewport"/>
     <style>
         body {
             display: flex;
@@ -50,16 +50,17 @@
             color: black;
         }
     </style>
+    <title>NetBird Login Successful</title>
 </head>
 <body>
 <div class="container">
     <div class="logo">
-        <img src="https://img.mailinblue.com/6211297/images/content_library/original/64bd4ce82e1ea753e439b6a2.png">
+        <img alt="netbird_logo" src="https://img.mailinblue.com/6211297/images/content_library/original/64bd4ce82e1ea753e439b6a2.png">
     </div>
     <br>
     {{ if .Error }}
-    <svg xmlns="http://www.w3.org/2000/svg" height="50" viewBox="0 0 100 100">
-        <circle cx="50" cy="50" r="45" fill="none" stroke="red" stroke-width="3"/>
+    <svg height="50" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="50" fill="none" r="45" stroke="red" stroke-width="3"/>
         <path d="M30 30 L70 70 M30 70 L70 30" fill="none" stroke="red" stroke-width="3"/>
     </svg>
     <div class="content">
@@ -69,8 +70,8 @@
         {{ .Error }}.
     </div>
     {{ else }}
-    <svg xmlns="http://www.w3.org/2000/svg" height="50" viewBox="0 0 100 100">
-        <circle cx="50" cy="50" r="45" fill="none" stroke="#5cb85c" stroke-width="3"/>
+    <svg height="50" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="50" fill="none" r="45" stroke="#5cb85c" stroke-width="3"/>
         <path d="M30 50 L45 65 L70 35" fill="none" stroke="#5cb85c" stroke-width="5"/>
     </svg>
     <div class="content">

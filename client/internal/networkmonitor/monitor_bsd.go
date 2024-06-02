@@ -31,7 +31,7 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return ErrStopped
 		default:
 			buf := make([]byte, 2048)
 			n, err := unix.Read(fd, buf)
@@ -63,7 +63,7 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 				}
 
 				log.Infof("Network monitor: monitored interface (%s) is down.", ifinfo.Name)
-				callback()
+				go callback()
 
 			// handle route changes
 			case unix.RTM_ADD, syscall.RTM_DELETE:
@@ -84,11 +84,11 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 				switch msg.Type {
 				case unix.RTM_ADD:
 					log.Infof("Network monitor: default route changed: via %s, interface %s", route.Gw, intf)
-					callback()
+					go callback()
 				case unix.RTM_DELETE:
 					if intfv4 != nil && route.Gw.Compare(nexthopv4) == 0 || intfv6 != nil && route.Gw.Compare(nexthopv6) == 0 {
 						log.Infof("Network monitor: default route removed: via %s, interface %s", route.Gw, intf)
-						callback()
+						go callback()
 					}
 				}
 			}

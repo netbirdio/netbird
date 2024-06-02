@@ -148,7 +148,7 @@ type Policy struct {
 	Enabled bool
 
 	// Rules of the policy
-	Rules []*PolicyRule `gorm:"foreignKey:PolicyID;references:id"`
+	Rules []*PolicyRule `gorm:"foreignKey:PolicyID;references:id;constraint:OnDelete:CASCADE;"`
 
 	// SourcePostureChecks are ID references to Posture checks for policy source groups
 	SourcePostureChecks []string `gorm:"serializer:json"`
