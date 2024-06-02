@@ -2,7 +2,6 @@ package server
 
 import (
 	_ "embed"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -560,30 +559,4 @@ func getPostureChecks(account *Account, postureChecksID string) *posture.Checks 
 		}
 	}
 	return nil
-}
-
-// getAllRoutePoliciesFromGroups retrieves route policies associated with the specified access control groups
-// and returns a list of policies that have rules with destinations matching the specified groups.
-func getAllRoutePoliciesFromGroups(account *Account, accessControlGroups []string) []*Policy {
-	routePolicies := make([]*Policy, 0)
-	for _, groupID := range accessControlGroups {
-		group, ok := account.Groups[groupID]
-		if !ok {
-			continue
-		}
-
-		for _, policy := range account.Policies {
-			for _, rule := range policy.Rules {
-				exist := slices.ContainsFunc(rule.Destinations, func(groupID string) bool {
-					return groupID == group.ID
-				})
-				if exist {
-					routePolicies = append(routePolicies, policy)
-					continue
-				}
-			}
-		}
-	}
-
-	return routePolicies
 }

@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -378,7 +379,6 @@ func (a *Account) getPeerRoutesFirewallRules(peerID string, validatedPeersMap ma
 				}
 
 				distributionGroupPeers, _ := getAllPeersFromGroups(a, route.Groups, peerID, nil, validatedPeersMap)
-
 				rules := generateRouteFirewallRules(route, rule, distributionGroupPeers, firewallRuleDirectionIN)
 				routesFirewallRules = append(routesFirewallRules, rules...)
 			}
@@ -386,6 +386,32 @@ func (a *Account) getPeerRoutesFirewallRules(peerID string, validatedPeersMap ma
 	}
 
 	return routesFirewallRules
+}
+
+// getAllRoutePoliciesFromGroups retrieves route policies associated with the specified access control groups
+// and returns a list of policies that have rules with destinations matching the specified groups.
+func getAllRoutePoliciesFromGroups(account *Account, accessControlGroups []string) []*Policy {
+	routePolicies := make([]*Policy, 0)
+	for _, groupID := range accessControlGroups {
+		group, ok := account.Groups[groupID]
+		if !ok {
+			continue
+		}
+
+		for _, policy := range account.Policies {
+			for _, rule := range policy.Rules {
+				exist := slices.ContainsFunc(rule.Destinations, func(groupID string) bool {
+					return groupID == group.ID
+				})
+				if exist {
+					routePolicies = append(routePolicies, policy)
+					continue
+				}
+			}
+		}
+	}
+
+	return routePolicies
 }
 
 // generateRouteFirewallRules generates a list of firewall rules for a given route.
