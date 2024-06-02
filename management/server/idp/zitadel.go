@@ -560,7 +560,7 @@ func (zm *ZitadelManager) delete(resource string) error {
 }
 
 // get perform Get requests.
-func (zm *ZitadelManager) get(resource string, q url.Values, headers map[stringstring ) ([]byte, error) {
+func (zm *ZitadelManager) get(resource string, q url.Values, headers map[string]string ) ([]byte, error) {
 	jwtToken, err := zm.credentials.Authenticate()
 	if err != nil {
 		return nil, err
