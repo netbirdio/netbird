@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net"
 	"net/netip"
 	"testing"
 
@@ -1249,4 +1250,295 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	}
 
 	return am.Store.GetAccount(account.Id)
+}
+
+func TestAccount_getPeersRoutesFirewall(t *testing.T) {
+	account := &Account{
+		Peers: map[string]*nbpeer.Peer{
+			"peerA": {
+				ID:     "peerA",
+				IP:     net.ParseIP("100.65.14.88"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS: "linux",
+				},
+			},
+			"peerB": {
+				ID:     "peerB",
+				IP:     net.ParseIP("100.65.80.39"),
+				Status: &nbpeer.PeerStatus{},
+				Meta:   nbpeer.PeerSystemMeta{},
+			},
+			"peerC": {
+				ID:     "peerC",
+				IP:     net.ParseIP("100.65.254.139"),
+				Status: &nbpeer.PeerStatus{},
+			},
+			"peerD": {
+				ID:     "peerD",
+				IP:     net.ParseIP("100.65.62.5"),
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS: "linux",
+				},
+			},
+			"peerE": {
+				ID:     "peerE",
+				IP:     net.ParseIP("100.65.32.206"),
+				Key:    peer1Key,
+				Status: &nbpeer.PeerStatus{},
+				Meta: nbpeer.PeerSystemMeta{
+					GoOS: "linux",
+				},
+			},
+			"peerF": {
+				ID:     "peerF",
+				IP:     net.ParseIP("100.65.250.202"),
+				Status: &nbpeer.PeerStatus{},
+			},
+			"peerG": {
+				ID:     "peerG",
+				IP:     net.ParseIP("100.65.13.186"),
+				Status: &nbpeer.PeerStatus{},
+			},
+			"peerH": {
+				ID:     "peerH",
+				IP:     net.ParseIP("100.65.29.55"),
+				Status: &nbpeer.PeerStatus{},
+			},
+		},
+		Groups: map[string]*nbgroup.Group{
+			"routingPeer1": {
+				ID:   "routingPeer1",
+				Name: "RoutingPeer1",
+				Peers: []string{
+					"peerA",
+				},
+			},
+			"routingPeer2": {
+				ID:   "routingPeer2",
+				Name: "RoutingPeer2",
+				Peers: []string{
+					"peerD",
+				},
+			},
+			"route1": {
+				ID:    "route1",
+				Name:  "Route1",
+				Peers: []string{},
+			},
+			"route2": {
+				ID:    "route2",
+				Name:  "Route2",
+				Peers: []string{},
+			},
+			"finance": {
+				ID:   "finance",
+				Name: "Finance",
+				Peers: []string{
+					"peerF",
+					"peerG",
+				},
+			},
+			"dev": {
+				ID:   "dev",
+				Name: "Dev",
+				Peers: []string{
+					"peerC",
+					"peerH",
+					"peerB",
+				},
+			},
+		},
+		Routes: map[route.ID]*route.Route{
+			"route1": {
+				Network:             netip.MustParsePrefix("192.168.0.0/16"),
+				NetID:               "route1",
+				NetworkType:         route.IPv4Network,
+				PeerGroups:          []string{"routingPeer1", "routingPeer2"},
+				Description:         "Route1 ha route",
+				Masquerade:          false,
+				Metric:              9999,
+				Enabled:             true,
+				Groups:              []string{"dev"},
+				AccessControlGroups: []string{"route1"},
+			},
+			"route2": {
+				Network:             netip.MustParsePrefix("10.10.10.0/24"),
+				NetID:               "route2",
+				NetworkType:         route.IPv4Network,
+				Peer:                "peerE",
+				Description:         "Allow",
+				Masquerade:          false,
+				Metric:              9999,
+				Enabled:             true,
+				Groups:              []string{"finance"},
+				AccessControlGroups: []string{"route2"},
+			},
+		},
+		Policies: []*Policy{
+			{
+				ID:          "RuleRoute1",
+				Name:        "Route1",
+				Description: "No description",
+				Enabled:     true,
+				Rules: []*PolicyRule{
+					{
+						ID:            "RuleRoute1",
+						Name:          "ruleRoute1",
+						Description:   "No description",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      PolicyRuleProtocolALL,
+						Action:        PolicyTrafficActionAccept,
+						Ports:         []string{"80", "320"},
+						Sources: []string{
+							"dev",
+						},
+						Destinations: []string{
+							"route1",
+						},
+					},
+				},
+			},
+			{
+				ID:          "RuleRoute2",
+				Name:        "Route2",
+				Description: "No description",
+				Enabled:     true,
+				Rules: []*PolicyRule{
+					{
+						ID:            "RuleRoute2",
+						Name:          "ruleRoute2",
+						Description:   "No description",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      PolicyRuleProtocolTCP,
+						Action:        PolicyTrafficActionAccept,
+						Ports:         []string{"80"},
+						Sources: []string{
+							"finance",
+						},
+						Destinations: []string{
+							"route2",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	validatedPeers := make(map[string]struct{})
+	for p := range account.Peers {
+		validatedPeers[p] = struct{}{}
+	}
+
+	t.Run("check applied policies for the route", func(t *testing.T) {
+		route1 := account.Routes["route1"]
+		policies := getAllRoutePoliciesFromGroups(account, route1.AccessControlGroups)
+		assert.Len(t, policies, 1)
+
+		route2 := account.Routes["route2"]
+		policies = getAllRoutePoliciesFromGroups(account, route2.AccessControlGroups)
+		assert.Len(t, policies, 1)
+	})
+
+	t.Run("check peer routes firewall rules", func(t *testing.T) {
+		routesFirewallRules := account.getPeerRoutesFirewallRules("peerA", validatedPeers)
+		assert.Len(t, routesFirewallRules, 6)
+
+		expectedRoutesFirewallRules := []*RouteFirewallRule{
+			{
+				PeerIP:      "100.65.254.139",
+				Direction:   firewallRuleDirectionIN,
+				Action:      "accept",
+				Destination: "192.168.0.0/16",
+				Protocol:    "all",
+				NetworkType: int(route.IPv4Network),
+				Port:        80,
+			},
+			{
+				PeerIP:      "100.65.254.139",
+				Direction:   firewallRuleDirectionIN,
+				Action:      "accept",
+				Destination: "192.168.0.0/16",
+				Protocol:    "all",
+				NetworkType: int(route.IPv4Network),
+				Port:        320,
+			},
+			{
+				PeerIP:      "100.65.29.55",
+				Direction:   firewallRuleDirectionIN,
+				Action:      "accept",
+				Destination: "192.168.0.0/16",
+				Protocol:    "all",
+				NetworkType: int(route.IPv4Network),
+				Port:        80,
+			},
+			{
+				PeerIP:      "100.65.29.55",
+				Direction:   firewallRuleDirectionIN,
+				Action:      "accept",
+				Destination: "192.168.0.0/16",
+				Protocol:    "all",
+				NetworkType: int(route.IPv4Network),
+				Port:        320,
+			},
+			{
+				PeerIP:      "100.65.80.39",
+				Direction:   firewallRuleDirectionIN,
+				Action:      "accept",
+				Destination: "192.168.0.0/16",
+				Protocol:    "all",
+				NetworkType: int(route.IPv4Network),
+				Port:        80,
+			},
+			{
+				PeerIP:      "100.65.80.39",
+				Direction:   firewallRuleDirectionIN,
+				Action:      "accept",
+				Destination: "192.168.0.0/16",
+				Protocol:    "all",
+				NetworkType: int(route.IPv4Network),
+				Port:        320,
+			},
+		}
+		assert.ElementsMatch(t, routesFirewallRules, expectedRoutesFirewallRules)
+
+		// peerD is also the routing peer for route1, should contain same routes firewall rules as peerA
+		routesFirewallRules = account.getPeerRoutesFirewallRules("peerD", validatedPeers)
+		assert.Len(t, routesFirewallRules, 6)
+		assert.ElementsMatch(t, routesFirewallRules, expectedRoutesFirewallRules)
+
+		// peerE is a single routing peer for route 2
+		routesFirewallRules = account.getPeerRoutesFirewallRules("peerE", validatedPeers)
+		assert.Len(t, routesFirewallRules, 2)
+
+		expectedRoutesFirewallRules = []*RouteFirewallRule{
+			{
+				PeerIP:      "100.65.250.202",
+				Direction:   firewallRuleDirectionIN,
+				Action:      "accept",
+				Destination: "10.10.10.0/24",
+				Protocol:    "tcp",
+				NetworkType: int(route.IPv4Network),
+				Port:        80,
+			},
+			{
+				PeerIP:      "100.65.13.186",
+				Direction:   firewallRuleDirectionIN,
+				Action:      "accept",
+				Destination: "10.10.10.0/24",
+				Protocol:    "tcp",
+				NetworkType: int(route.IPv4Network),
+				Port:        80,
+			},
+		}
+		assert.ElementsMatch(t, routesFirewallRules, expectedRoutesFirewallRules)
+
+		// peerC is part of route1 distribution groups but should not receive the routes firewall rules
+		routesFirewallRules = account.getPeerRoutesFirewallRules("peerC", validatedPeers)
+		assert.Len(t, routesFirewallRules, 0)
+	})
+
 }
