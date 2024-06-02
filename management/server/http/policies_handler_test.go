@@ -3,13 +3,13 @@ package http
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/status"
 
@@ -44,24 +44,6 @@ func initPoliciesTestData(policies ...*server.Policy) *Policies {
 				}
 				return nil
 			},
-			SaveRuleFunc: func(_, _ string, rule *server.Rule) error {
-				if !strings.HasPrefix(rule.ID, "id-") {
-					rule.ID = "id-was-set"
-				}
-				return nil
-			},
-			GetRuleFunc: func(_, ruleID, _ string) (*server.Rule, error) {
-				if ruleID != "idoftherule" {
-					return nil, fmt.Errorf("not found")
-				}
-				return &server.Rule{
-					ID:          "idoftherule",
-					Name:        "Rule",
-					Source:      []string{"idofsrcrule"},
-					Destination: []string{"idofdestrule"},
-					Flow:        server.TrafficFlowBidirect,
-				}, nil
-			},
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				user := server.NewAdminUser("test_user")
 				return &server.Account{
@@ -70,7 +52,7 @@ func initPoliciesTestData(policies ...*server.Policy) *Policies {
 					Policies: []*server.Policy{
 						{ID: "id-existed"},
 					},
-					Groups: map[string]*server.Group{
+					Groups: map[string]*nbgroup.Group{
 						"F": {ID: "F"},
 						"G": {ID: "G"},
 					},

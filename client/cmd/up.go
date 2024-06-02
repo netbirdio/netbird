@@ -40,6 +40,8 @@ func init() {
 	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground")
 	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "Wireguard interface name")
 	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "Wireguard interface listening port")
+	upCmd.PersistentFlags().BoolVarP(&networkMonitor, networkMonitorFlag, "N", false, "Enable network monitoring")
+	upCmd.PersistentFlags().StringSliceVar(&extraIFaceBlackList, extraIFaceBlackListFlag, nil, "Extra list of default interfaces to ignore for listening")
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
@@ -83,11 +85,12 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 	}
 
 	ic := internal.ConfigInput{
-		ManagementURL:    managementURL,
-		AdminURL:         adminURL,
-		ConfigPath:       configPath,
-		NATExternalIPs:   natExternalIPs,
-		CustomDNSAddress: customDNSAddressConverted,
+		ManagementURL:       managementURL,
+		AdminURL:            adminURL,
+		ConfigPath:          configPath,
+		NATExternalIPs:      natExternalIPs,
+		CustomDNSAddress:    customDNSAddressConverted,
+		ExtraIFaceBlackList: extraIFaceBlackList,
 	}
 
 	if cmd.Flag(enableRosenpassFlag).Changed {
@@ -112,6 +115,10 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 	if cmd.Flag(wireguardPortFlag).Changed {
 		p := int(wireguardPort)
 		ic.WireguardPort = &p
+	}
+
+	if cmd.Flag(networkMonitorFlag).Changed {
+		ic.NetworkMonitor = &networkMonitor
 	}
 
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
@@ -145,11 +152,12 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 	SetupCloseHandler(ctx, cancel)
-	return internal.RunClient(ctx, config, peer.NewRecorder(config.ManagementURL.String()))
+
+	connectClient := internal.NewConnectClient(ctx, config, peer.NewRecorder(config.ManagementURL.String()))
+	return connectClient.Run()
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
-
 	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
 	if err != nil {
 		return err
@@ -190,6 +198,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		CustomDNSAddress:     customDNSAddressConverted,
 		IsLinuxDesktopClient: isLinuxRunningDesktop(),
 		Hostname:             hostName,
+		ExtraIFaceBlacklist:  extraIFaceBlackList,
 	}
 
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
@@ -222,6 +231,10 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 	if cmd.Flag(wireguardPortFlag).Changed {
 		wp := int64(wireguardPort)
 		loginRequest.WireguardPort = &wp
+	}
+
+	if cmd.Flag(networkMonitorFlag).Changed {
+		loginRequest.NetworkMonitor = &networkMonitor
 	}
 
 	var loginErr error

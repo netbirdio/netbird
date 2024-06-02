@@ -32,8 +32,10 @@ const (
 	preSharedKeyFlag        = "preshared-key"
 	interfaceNameFlag       = "interface-name"
 	wireguardPortFlag       = "wireguard-port"
+	networkMonitorFlag      = "network-monitor"
 	disableAutoConnectFlag  = "disable-auto-connect"
 	serverSSHAllowedFlag    = "allow-server-ssh"
+	extraIFaceBlackListFlag = "extra-iface-blacklist"
 )
 
 var (
@@ -61,7 +63,11 @@ var (
 	serverSSHAllowed        bool
 	interfaceName           string
 	wireguardPort           uint16
+	networkMonitor          bool
+	serviceName             string
 	autoConnectDisabled     bool
+	extraIFaceBlackList     []string
+	anonymizeFlag           bool
 	rootCmd                 = &cobra.Command{
 		Use:          "netbird",
 		Short:        "",
@@ -100,15 +106,24 @@ func init() {
 	if runtime.GOOS == "windows" {
 		defaultDaemonAddr = "tcp://127.0.0.1:41731"
 	}
+
+	defaultServiceName := "netbird"
+	if runtime.GOOS == "windows" {
+		defaultServiceName = "Netbird"
+	}
+
 	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
 	rootCmd.PersistentFlags().StringVarP(&managementURL, "management-url", "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", internal.DefaultManagementURL))
 	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "", fmt.Sprintf("Admin Panel URL [http|https]://[host]:[port] (default \"%s\")", internal.DefaultAdminURL))
+	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "Netbird config file location")
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets Netbird log level")
 	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the log will be output to stdout")
 	rootCmd.PersistentFlags().StringVarP(&setupKey, "setup-key", "k", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
 	rootCmd.PersistentFlags().StringVar(&preSharedKey, preSharedKeyFlag, "", "Sets Wireguard PreSharedKey property. If set, then only peers that have the same key can communicate.")
 	rootCmd.PersistentFlags().StringVarP(&hostName, "hostname", "n", "", "Sets a custom hostname for the device")
+	rootCmd.PersistentFlags().BoolVarP(&anonymizeFlag, "anonymize", "A", false, "anonymize IP addresses and non-netbird.io domains in logs and status output")
+
 	rootCmd.AddCommand(serviceCmd)
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(downCmd)
@@ -116,8 +131,20 @@ func init() {
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(sshCmd)
+	rootCmd.AddCommand(routesCmd)
+	rootCmd.AddCommand(debugCmd)
+
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
 	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
+
+	routesCmd.AddCommand(routesListCmd)
+	routesCmd.AddCommand(routesSelectCmd, routesDeselectCmd)
+
+	debugCmd.AddCommand(debugBundleCmd)
+	debugCmd.AddCommand(logCmd)
+	logCmd.AddCommand(logLevelCmd)
+	debugCmd.AddCommand(forCmd)
+
 	upCmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil,
 		`Sets external IPs maps between local addresses and interfaces.`+
 			`You can specify a comma-separated list with a single IP and IP/IP or IP/Interface Name. `+
@@ -324,4 +351,15 @@ func migrateToNetbird(oldPath, newPath string) bool {
 	}
 
 	return true
+}
+
+func getClient(ctx context.Context) (*grpc.ClientConn, error) {
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
+			"If the daemon is not running please run: "+
+			"\nnetbird service install \nnetbird service start\n", err)
+	}
+
+	return conn, nil
 }

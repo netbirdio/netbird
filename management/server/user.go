@@ -10,6 +10,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/integration_reference"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -49,23 +50,6 @@ type UserStatus string
 // UserRole is the role of a User
 type UserRole string
 
-// IntegrationReference holds the reference to a particular integration
-type IntegrationReference struct {
-	ID              int
-	IntegrationType string
-}
-
-func (ir IntegrationReference) String() string {
-	return fmt.Sprintf("%s:%d", ir.IntegrationType, ir.ID)
-}
-
-func (ir IntegrationReference) CacheKey(path ...string) string {
-	if len(path) == 0 {
-		return ir.String()
-	}
-	return fmt.Sprintf("%s:%s", ir.String(), strings.Join(path, ":"))
-}
-
 // User represents a user of the system
 type User struct {
 	Id string `gorm:"primaryKey"`
@@ -91,7 +75,7 @@ type User struct {
 	// Issued of the user
 	Issued string `gorm:"default:api"`
 
-	IntegrationReference IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
+	IntegrationReference integration_reference.IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
 }
 
 // IsBlocked returns true if the user is blocked, false otherwise
@@ -113,10 +97,18 @@ func (u *User) HasAdminPower() bool {
 }
 
 // ToUserInfo converts a User object to a UserInfo object.
-func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
+func (u *User) ToUserInfo(userData *idp.UserData, settings *Settings) (*UserInfo, error) {
 	autoGroups := u.AutoGroups
 	if autoGroups == nil {
 		autoGroups = []string{}
+	}
+
+	dashboardViewPermissions := "full"
+	if !u.HasAdminPower() {
+		dashboardViewPermissions = "limited"
+		if settings.RegularUsersViewBlocked {
+			dashboardViewPermissions = "blocked"
+		}
 	}
 
 	if userData == nil {
@@ -131,6 +123,9 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 			IsBlocked:     u.Blocked,
 			LastLogin:     u.LastLogin,
 			Issued:        u.Issued,
+			Permissions: UserPermissions{
+				DashboardView: dashboardViewPermissions,
+			},
 		}, nil
 	}
 	if userData.ID != u.Id {
@@ -153,6 +148,9 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 		IsBlocked:     u.Blocked,
 		LastLogin:     u.LastLogin,
 		Issued:        u.Issued,
+		Permissions: UserPermissions{
+			DashboardView: dashboardViewPermissions,
+		},
 	}, nil
 }
 
@@ -212,7 +210,7 @@ func NewOwnerUser(id string) *User {
 
 // createServiceUser creates a new service user under the given account.
 func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUserID string, role UserRole, serviceUserName string, nonDeletable bool, autoGroups []string) (*UserInfo, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -268,7 +266,7 @@ func (am *DefaultAccountManager) CreateUser(accountID, userID string, user *User
 
 // inviteNewUser Invites a USer to a given account and creates reference in datastore
 func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite *UserInfo) (*UserInfo, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	if am.idpManager == nil {
@@ -358,7 +356,7 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 
 	am.StoreEvent(userID, newUser.Id, accountID, activity.UserInvited, nil)
 
-	return newUser.ToUserInfo(idpUser)
+	return newUser.ToUserInfo(idpUser, account.Settings)
 }
 
 // GetUser looks up a user by provided authorization claims.
@@ -369,7 +367,7 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 		return nil, fmt.Errorf("failed to get account with token claims %v", err)
 	}
 
-	unlock := am.Store.AcquireAccountLock(account.Id)
+	unlock := am.Store.AcquireAccountWriteLock(account.Id)
 	defer unlock()
 
 	account, err = am.Store.GetAccount(account.Id)
@@ -402,7 +400,7 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 // ListUsers returns lists of all users under the account.
 // It doesn't populate user information such as email or name.
 func (am *DefaultAccountManager) ListUsers(accountID string) ([]*User, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -429,7 +427,7 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 	if initiatorUserID == targetUserID {
 		return status.Errorf(status.InvalidArgument, "self deletion is not allowed")
 	}
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -539,7 +537,7 @@ func (am *DefaultAccountManager) deleteUserPeers(initiatorUserID string, targetU
 
 // InviteUser resend invitations to users who haven't activated their accounts prior to the expiration period.
 func (am *DefaultAccountManager) InviteUser(accountID string, initiatorUserID string, targetUserID string) error {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	if am.idpManager == nil {
@@ -579,7 +577,7 @@ func (am *DefaultAccountManager) InviteUser(accountID string, initiatorUserID st
 
 // CreatePAT creates a new PAT for the given user
 func (am *DefaultAccountManager) CreatePAT(accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	if tokenName == "" {
@@ -629,7 +627,7 @@ func (am *DefaultAccountManager) CreatePAT(accountID string, initiatorUserID str
 
 // DeletePAT deletes a specific PAT from a user
 func (am *DefaultAccountManager) DeletePAT(accountID string, initiatorUserID string, targetUserID string, tokenID string) error {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -679,7 +677,7 @@ func (am *DefaultAccountManager) DeletePAT(accountID string, initiatorUserID str
 
 // GetPAT returns a specific PAT from a user
 func (am *DefaultAccountManager) GetPAT(accountID string, initiatorUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -711,7 +709,7 @@ func (am *DefaultAccountManager) GetPAT(accountID string, initiatorUserID string
 
 // GetAllPATs returns all PATs for a user
 func (am *DefaultAccountManager) GetAllPATs(accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -749,7 +747,7 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 // SaveOrAddUser updates the given user. If addIfNotExists is set to true it will add user when no exist
 // Only User.AutoGroups, User.Role, and User.Blocked fields are allowed to be updated for now.
 func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string, update *User, addIfNotExists bool) (*UserInfo, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	if update == nil {
@@ -905,9 +903,9 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 		if err != nil {
 			return nil, err
 		}
-		return newUser.ToUserInfo(userData)
+		return newUser.ToUserInfo(userData, account.Settings)
 	}
-	return newUser.ToUserInfo(nil)
+	return newUser.ToUserInfo(nil, account.Settings)
 }
 
 // GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
@@ -962,7 +960,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 
 	queriedUsers := make([]*idp.UserData, 0)
 	if !isNil(am.idpManager) {
-		users := make(map[string]struct{}, len(account.Users))
+		users := make(map[string]userLoggedInOnce, len(account.Users))
 		usersFromIntegration := make([]*idp.UserData, 0)
 		for _, user := range account.Users {
 			if user.Issued == UserIssuedIntegration {
@@ -970,14 +968,14 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 				info, err := am.externalCacheManager.Get(am.ctx, key)
 				if err != nil {
 					log.Infof("Get ExternalCache for key: %s, error: %s", key, err)
-					users[user.Id] = struct{}{}
+					users[user.Id] = true
 					continue
 				}
 				usersFromIntegration = append(usersFromIntegration, info)
 				continue
 			}
 			if !user.IsServiceUser {
-				users[user.Id] = struct{}{}
+				users[user.Id] = userLoggedInOnce(!user.LastLogin.IsZero())
 			}
 		}
 		queriedUsers, err = am.lookupCache(users, accountID)
@@ -998,7 +996,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 				// if user is not an admin then show only current user and do not show other users
 				continue
 			}
-			info, err := accountUser.ToUserInfo(nil)
+			info, err := accountUser.ToUserInfo(nil, account.Settings)
 			if err != nil {
 				return nil, err
 			}
@@ -1015,7 +1013,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 
 		var info *UserInfo
 		if queriedUser, contains := findUserInIDPUserdata(localUser.Id, queriedUsers); contains {
-			info, err = localUser.ToUserInfo(queriedUser)
+			info, err = localUser.ToUserInfo(queriedUser, account.Settings)
 			if err != nil {
 				return nil, err
 			}
@@ -1024,6 +1022,15 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 			if localUser.IsServiceUser {
 				name = localUser.ServiceUserName
 			}
+
+			dashboardViewPermissions := "full"
+			if !localUser.HasAdminPower() {
+				dashboardViewPermissions = "limited"
+				if account.Settings.RegularUsersViewBlocked {
+					dashboardViewPermissions = "blocked"
+				}
+			}
+
 			info = &UserInfo{
 				ID:            localUser.Id,
 				Email:         "",
@@ -1033,6 +1040,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 				Status:        string(UserStatusActive),
 				IsServiceUser: localUser.IsServiceUser,
 				NonDeletable:  localUser.NonDeletable,
+				Permissions:   UserPermissions{DashboardView: dashboardViewPermissions},
 			}
 		}
 		userInfos = append(userInfos, info)

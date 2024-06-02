@@ -3,6 +3,7 @@
 package wgproxy
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -12,15 +13,21 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/ebpf"
 	ebpfMgr "github.com/netbirdio/netbird/client/internal/ebpf/manager"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 // WGEBPFProxy definition for proxy with EBPF support
 type WGEBPFProxy struct {
-	ebpfManager       ebpfMgr.Manager
+	ebpfManager ebpfMgr.Manager
+
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	lastUsedPort      uint16
 	localWGListenPort int
 
@@ -28,11 +35,11 @@ type WGEBPFProxy struct {
 	turnConnMutex sync.Mutex
 
 	rawConn net.PacketConn
-	conn    *net.UDPConn
+	conn    transport.UDPConn
 }
 
 // NewWGEBPFProxy create new WGEBPFProxy instance
-func NewWGEBPFProxy(wgPort int) *WGEBPFProxy {
+func NewWGEBPFProxy(ctx context.Context, wgPort int) *WGEBPFProxy {
 	log.Debugf("instantiate ebpf proxy")
 	wgProxy := &WGEBPFProxy{
 		localWGListenPort: wgPort,
@@ -40,11 +47,13 @@ func NewWGEBPFProxy(wgPort int) *WGEBPFProxy {
 		lastUsedPort:      0,
 		turnConnStore:     make(map[uint16]net.Conn),
 	}
+	wgProxy.ctx, wgProxy.cancel = context.WithCancel(ctx)
+
 	return wgProxy
 }
 
-// Listen load ebpf program and listen the proxy
-func (p *WGEBPFProxy) Listen() error {
+// listen load ebpf program and listen the proxy
+func (p *WGEBPFProxy) listen() error {
 	pl := portLookup{}
 	wgPorxyPort, err := pl.searchFreePort()
 	if err != nil {
@@ -66,14 +75,15 @@ func (p *WGEBPFProxy) Listen() error {
 		IP:   net.ParseIP("127.0.0.1"),
 	}
 
-	p.conn, err = net.ListenUDP("udp", &addr)
+	conn, err := nbnet.ListenUDP("udp", &addr)
 	if err != nil {
 		cErr := p.Free()
 		if cErr != nil {
-			log.Errorf("failed to close the wgproxy: %s", cErr)
+			log.Errorf("Failed to close the wgproxy: %s", cErr)
 		}
 		return err
 	}
+	p.conn = conn
 
 	go p.proxyToRemote()
 	log.Infof("local wg proxy listening on: %d", wgPorxyPort)
@@ -99,6 +109,7 @@ func (p *WGEBPFProxy) AddTurnConn(turnConn net.Conn) (net.Addr, error) {
 
 // CloseConn doing nothing because this type of proxy implementation does not store the connection
 func (p *WGEBPFProxy) CloseConn() error {
+	p.cancel()
 	return nil
 }
 
@@ -128,19 +139,27 @@ func (p *WGEBPFProxy) Free() error {
 
 func (p *WGEBPFProxy) proxyToLocal(endpointPort uint16, remoteConn net.Conn) {
 	buf := make([]byte, 1500)
+	var err error
+	defer func() {
+		p.removeTurnConn(endpointPort)
+	}()
 	for {
-		n, err := remoteConn.Read(buf)
-		if err != nil {
-			if err != io.EOF {
-				log.Errorf("failed to read from turn conn (endpoint: :%d): %s", endpointPort, err)
-			}
-			p.removeTurnConn(endpointPort)
-			log.Infof("stop forward turn packages to port: %d. error: %s", endpointPort, err)
+		select {
+		case <-p.ctx.Done():
 			return
-		}
-		err = p.sendPkg(buf[:n], endpointPort)
-		if err != nil {
-			log.Errorf("failed to write out turn pkg to local conn: %v", err)
+		default:
+			var n int
+			n, err = remoteConn.Read(buf)
+			if err != nil {
+				if err != io.EOF {
+					log.Errorf("failed to read from turn conn (endpoint: :%d): %s", endpointPort, err)
+				}
+				return
+			}
+			err = p.sendPkg(buf[:n], endpointPort)
+			if err != nil {
+				log.Errorf("failed to write out turn pkg to local conn: %v", err)
+			}
 		}
 	}
 }
@@ -149,23 +168,28 @@ func (p *WGEBPFProxy) proxyToLocal(endpointPort uint16, remoteConn net.Conn) {
 func (p *WGEBPFProxy) proxyToRemote() {
 	buf := make([]byte, 1500)
 	for {
-		n, addr, err := p.conn.ReadFromUDP(buf)
-		if err != nil {
-			log.Errorf("failed to read UDP pkg from WG: %s", err)
+		select {
+		case <-p.ctx.Done():
 			return
-		}
+		default:
+			n, addr, err := p.conn.ReadFromUDP(buf)
+			if err != nil {
+				log.Errorf("failed to read UDP pkg from WG: %s", err)
+				return
+			}
 
-		p.turnConnMutex.Lock()
-		conn, ok := p.turnConnStore[uint16(addr.Port)]
-		p.turnConnMutex.Unlock()
-		if !ok {
-			log.Infof("turn conn not found by port: %d", addr.Port)
-			continue
-		}
+			p.turnConnMutex.Lock()
+			conn, ok := p.turnConnStore[uint16(addr.Port)]
+			p.turnConnMutex.Unlock()
+			if !ok {
+				log.Infof("turn conn not found by port: %d", addr.Port)
+				continue
+			}
 
-		_, err = conn.Write(buf[:n])
-		if err != nil {
-			log.Debugf("failed to forward local wg pkg (%d) to remote turn conn: %s", addr.Port, err)
+			_, err = conn.Write(buf[:n])
+			if err != nil {
+				log.Debugf("failed to forward local wg pkg (%d) to remote turn conn: %s", addr.Port, err)
+			}
 		}
 	}
 }
@@ -208,20 +232,41 @@ generatePort:
 }
 
 func (p *WGEBPFProxy) prepareSenderRawSocket() (net.PacketConn, error) {
+	// Create a raw socket.
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_RAW)
 	if err != nil {
-		return nil, err
-	}
-	err = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1)
-	if err != nil {
-		return nil, err
-	}
-	err = syscall.SetsockoptString(fd, syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, "lo")
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating raw socket failed: %w", err)
 	}
 
-	return net.FilePacketConn(os.NewFile(uintptr(fd), fmt.Sprintf("fd %d", fd)))
+	// Set the IP_HDRINCL option on the socket to tell the kernel that headers are included in the packet.
+	err = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1)
+	if err != nil {
+		return nil, fmt.Errorf("setting IP_HDRINCL failed: %w", err)
+	}
+
+	// Bind the socket to the "lo" interface.
+	err = syscall.SetsockoptString(fd, syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, "lo")
+	if err != nil {
+		return nil, fmt.Errorf("binding to lo interface failed: %w", err)
+	}
+
+	// Set the fwmark on the socket.
+	err = nbnet.SetSocketOpt(fd)
+	if err != nil {
+		return nil, fmt.Errorf("setting fwmark failed: %w", err)
+	}
+
+	// Convert the file descriptor to a PacketConn.
+	file := os.NewFile(uintptr(fd), fmt.Sprintf("fd %d", fd))
+	if file == nil {
+		return nil, fmt.Errorf("converting fd to file failed")
+	}
+	packetConn, err := net.FilePacketConn(file)
+	if err != nil {
+		return nil, fmt.Errorf("converting file to packet conn failed: %w", err)
+	}
+
+	return packetConn, nil
 }
 
 func (p *WGEBPFProxy) sendPkg(data []byte, port uint16) error {
@@ -242,15 +287,17 @@ func (p *WGEBPFProxy) sendPkg(data []byte, port uint16) error {
 
 	err := udpH.SetNetworkLayerForChecksum(ipH)
 	if err != nil {
-		return err
+		return fmt.Errorf("set network layer for checksum: %w", err)
 	}
 
 	layerBuffer := gopacket.NewSerializeBuffer()
 
 	err = gopacket.SerializeLayers(layerBuffer, gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}, ipH, udpH, payload)
 	if err != nil {
-		return err
+		return fmt.Errorf("serialize layers: %w", err)
 	}
-	_, err = p.rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: localhost})
-	return err
+	if _, err = p.rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: localhost}); err != nil {
+		return fmt.Errorf("write to raw conn: %w", err)
+	}
+	return nil
 }

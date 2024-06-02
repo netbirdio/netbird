@@ -87,12 +87,12 @@ func (i *routerManager) InsertRoutingRules(pair firewall.RouterPair) error {
 	return nil
 }
 
-// insertRoutingRule inserts an iptable rule
+// insertRoutingRule inserts an iptables rule
 func (i *routerManager) insertRoutingRule(keyFormat, table, chain, jump string, pair firewall.RouterPair) error {
 	var err error
 
 	ruleKey := firewall.GenKey(keyFormat, pair.ID)
-	rule := genRuleSpec(jump, ruleKey, pair.Source, pair.Destination)
+	rule := genRuleSpec(jump, pair.Source, pair.Destination)
 	existingRule, found := i.rules[ruleKey]
 	if found {
 		err = i.iptablesClient.DeleteIfExists(table, chain, existingRule...)
@@ -326,9 +326,9 @@ func (i *routerManager) createChain(table, newChain string) error {
 	return nil
 }
 
-// genRuleSpec generates rule specification with comment identifier
-func genRuleSpec(jump, id, source, destination string) []string {
-	return []string{"-s", source, "-d", destination, "-j", jump, "-m", "comment", "--comment", id}
+// genRuleSpec generates rule specification
+func genRuleSpec(jump, source, destination string) []string {
+	return []string{"-s", source, "-d", destination, "-j", jump}
 }
 
 func getIptablesRuleType(table string) string {

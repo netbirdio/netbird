@@ -10,6 +10,7 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -170,7 +171,7 @@ func restore(file string) (*FileStore, error) {
 		// Set API as issuer for groups which has not this field
 		for _, group := range account.Groups {
 			if group.Issued == "" {
-				group.Issued = GroupIssuedAPI
+				group.Issued = nbgroup.GroupIssuedAPI
 			}
 		}
 
@@ -278,8 +279,8 @@ func (s *FileStore) AcquireGlobalLock() (unlock func()) {
 	return unlock
 }
 
-// AcquireAccountLock acquires account lock and returns a function that releases the lock
-func (s *FileStore) AcquireAccountLock(accountID string) (unlock func()) {
+// AcquireAccountWriteLock acquires account lock for writing to a resource and returns a function that releases the lock
+func (s *FileStore) AcquireAccountWriteLock(accountID string) (unlock func()) {
 	log.Debugf("acquiring lock for account %s", accountID)
 	start := time.Now()
 	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.Mutex{})
@@ -292,6 +293,12 @@ func (s *FileStore) AcquireAccountLock(accountID string) (unlock func()) {
 	}
 
 	return unlock
+}
+
+// AcquireAccountReadLock AcquireAccountWriteLock acquires account lock for reading a resource and returns a function that releases the lock
+// This method is still returns a write lock as file store can't handle read locks
+func (s *FileStore) AcquireAccountReadLock(accountID string) (unlock func()) {
+	return s.AcquireAccountWriteLock(accountID)
 }
 
 func (s *FileStore) SaveAccount(account *Account) error {
@@ -569,6 +576,18 @@ func (s *FileStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 	}
 
 	return account.Copy(), nil
+}
+
+func (s *FileStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, ok := s.PeerKeyID2AccountID[peerKey]
+	if !ok {
+		return "", status.Errorf(status.NotFound, "provided peer key doesn't exists %s", peerKey)
+	}
+
+	return accountID, nil
 }
 
 // GetInstallationID returns the installation ID from the store

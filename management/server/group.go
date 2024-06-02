@@ -2,9 +2,12 @@ package server
 
 import (
 	"fmt"
+
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
@@ -17,54 +20,23 @@ func (e *GroupLinkError) Error() string {
 	return fmt.Sprintf("group has been linked to %s: %s", e.Resource, e.Name)
 }
 
-// Group of the peers for ACL
-type Group struct {
-	// ID of the group
-	ID string
-
-	// AccountID is a reference to Account that this object belongs
-	AccountID string `json:"-" gorm:"index"`
-
-	// Name visible in the UI
-	Name string
-
-	// Issued of the group
-	Issued string
-
-	// Peers list of the group
-	Peers []string `gorm:"serializer:json"`
-
-	IPv6Enabled bool
-
-	IntegrationReference IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
-}
-
-// EventMeta returns activity event meta related to the group
-func (g *Group) EventMeta() map[string]any {
-	return map[string]any{"name": g.Name}
-}
-
-func (g *Group) Copy() *Group {
-	group := &Group{
-		ID:                   g.ID,
-		Name:                 g.Name,
-		Issued:               g.Issued,
-		IPv6Enabled:          g.IPv6Enabled,
-		Peers:                make([]string, len(g.Peers)),
-		IntegrationReference: g.IntegrationReference,
-	}
-	copy(group.Peers, g.Peers)
-	return group
-}
-
 // GetGroup object of the peers
-func (am *DefaultAccountManager) GetGroup(accountID, groupID string) (*Group, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+func (am *DefaultAccountManager) GetGroup(accountID, groupID, userID string) (*nbgroup.Group, error) {
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, err
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !user.HasAdminPower() && !user.IsServiceUser && account.Settings.RegularUsersViewBlocked {
+		return nil, status.Errorf(status.PermissionDenied, "groups are blocked for users")
 	}
 
 	group, ok := account.Groups[groupID]
@@ -75,9 +47,9 @@ func (am *DefaultAccountManager) GetGroup(accountID, groupID string) (*Group, er
 	return nil, status.Errorf(status.NotFound, "group with ID %s not found", groupID)
 }
 
-// GetGroupByName filters all groups in an account by name and returns the one with the most peers
-func (am *DefaultAccountManager) GetGroupByName(groupName, accountID string) (*Group, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+// GetAllGroups returns all groups in an account
+func (am *DefaultAccountManager) GetAllGroups(accountID string, userID string) ([]*nbgroup.Group, error) {
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -85,7 +57,34 @@ func (am *DefaultAccountManager) GetGroupByName(groupName, accountID string) (*G
 		return nil, err
 	}
 
-	matchingGroups := make([]*Group, 0)
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !user.HasAdminPower() && !user.IsServiceUser && account.Settings.RegularUsersViewBlocked {
+		return nil, status.Errorf(status.PermissionDenied, "groups are blocked for users")
+	}
+
+	groups := make([]*nbgroup.Group, 0, len(account.Groups))
+	for _, item := range account.Groups {
+		groups = append(groups, item)
+	}
+
+	return groups, nil
+}
+
+// GetGroupByName filters all groups in an account by name and returns the one with the most peers
+func (am *DefaultAccountManager) GetGroupByName(groupName, accountID string) (*nbgroup.Group, error) {
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	matchingGroups := make([]*nbgroup.Group, 0)
 	for _, group := range account.Groups {
 		if group.Name == groupName {
 			matchingGroups = append(matchingGroups, group)
@@ -97,7 +96,7 @@ func (am *DefaultAccountManager) GetGroupByName(groupName, accountID string) (*G
 	}
 
 	maxPeers := -1
-	var groupWithMostPeers *Group
+	var groupWithMostPeers *nbgroup.Group
 	for i, group := range matchingGroups {
 		if len(group.Peers) > maxPeers {
 			maxPeers = len(group.Peers)
@@ -109,13 +108,36 @@ func (am *DefaultAccountManager) GetGroupByName(groupName, accountID string) (*G
 }
 
 // SaveGroup object of the peers
-func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *Group) error {
-	unlock := am.Store.AcquireAccountLock(accountID)
+func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *nbgroup.Group) error {
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return err
+	}
+
+	if newGroup.ID == "" && newGroup.Issued != nbgroup.GroupIssuedAPI {
+		return status.Errorf(status.InvalidArgument, "%s group without ID set", newGroup.Issued)
+	}
+
+	if newGroup.ID == "" && newGroup.Issued == nbgroup.GroupIssuedAPI {
+
+		existingGroup, err := account.FindGroupByName(newGroup.Name)
+		if err != nil {
+			s, ok := status.FromError(err)
+			if !ok || s.ErrorType != status.NotFound {
+				return err
+			}
+		}
+
+		// avoid duplicate groups only for the API issued groups. Integration or JWT groups can be duplicated as they are
+		// coming from the IdP that we don't have control of.
+		if existingGroup != nil {
+			return status.Errorf(status.AlreadyExists, "group with name %s already exists", newGroup.Name)
+		}
+
+		newGroup.ID = xid.New().String()
 	}
 
 	for _, peerID := range newGroup.Peers {
@@ -215,7 +237,7 @@ func difference(a, b []string) []string {
 
 // DeleteGroup object of the peers
 func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) error {
-	unlock := am.Store.AcquireAccountLock(accountId)
+	unlock := am.Store.AcquireAccountWriteLock(accountId)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountId)
@@ -229,7 +251,7 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 	}
 
 	// disable a deleting integration group if the initiator is not an admin service user
-	if g.Issued == GroupIssuedIntegration {
+	if g.Issued == nbgroup.GroupIssuedIntegration {
 		executingUser := account.Users[userId]
 		if executingUser == nil {
 			return status.Errorf(status.NotFound, "user not found")
@@ -243,7 +265,7 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 	for _, r := range account.Routes {
 		for _, g := range r.Groups {
 			if g == groupID {
-				return &GroupLinkError{"route", r.NetID}
+				return &GroupLinkError{"route", string(r.NetID)}
 			}
 		}
 	}
@@ -299,6 +321,15 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 		}
 	}
 
+	// check integrated peer validator groups
+	if account.Settings.Extra != nil {
+		for _, integratedPeerValidatorGroups := range account.Settings.Extra.IntegratedValidatorGroups {
+			if groupID == integratedPeerValidatorGroups {
+				return &GroupLinkError{"integrated validator", g.Name}
+			}
+		}
+	}
+
 	delete(account.Groups, groupID)
 
 	// Update IPv6 status of all group members if necessary.
@@ -322,8 +353,8 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 }
 
 // ListGroups objects of the peers
-func (am *DefaultAccountManager) ListGroups(accountID string) ([]*Group, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
+func (am *DefaultAccountManager) ListGroups(accountID string) ([]*nbgroup.Group, error) {
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -331,7 +362,7 @@ func (am *DefaultAccountManager) ListGroups(accountID string) ([]*Group, error) 
 		return nil, err
 	}
 
-	groups := make([]*Group, 0, len(account.Groups))
+	groups := make([]*nbgroup.Group, 0, len(account.Groups))
 	for _, item := range account.Groups {
 		groups = append(groups, item)
 	}
@@ -342,7 +373,7 @@ func (am *DefaultAccountManager) ListGroups(accountID string) ([]*Group, error) 
 // GroupAddPeer appends peer to the group
 // TODO Question for devs: Is this method dead code? I can't seem to find any usages outside of tests...
 func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerID string) error {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -387,7 +418,7 @@ func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerID string)
 // GroupDeletePeer removes peer from the group
 // TODO Question for devs: Same as above, this seems like dead code
 func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerID string) error {
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -424,7 +455,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerID stri
 	return nil
 }
 
-func (am *DefaultAccountManager) updatePeerIPv6Status(account *Account, userID string, group *Group, peersToUpdate []string) (bool, error) {
+func (am *DefaultAccountManager) updatePeerIPv6Status(account *Account, userID string, group *nbgroup.Group, peersToUpdate []string) (bool, error) {
 	updated := false
 	for _, peer := range peersToUpdate {
 		peerObj := account.GetPeer(peer)

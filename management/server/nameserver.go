@@ -10,6 +10,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
@@ -18,7 +19,7 @@ const domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}$`
 // GetNameServerGroup gets a nameserver group object from account and nameserver group IDs
 func (am *DefaultAccountManager) GetNameServerGroup(accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error) {
 
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -46,7 +47,7 @@ func (am *DefaultAccountManager) GetNameServerGroup(accountID, userID, nsGroupID
 // CreateNameServerGroup creates and saves a new nameserver group
 func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainEnabled bool) (*nbdns.NameServerGroup, error) {
 
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -93,7 +94,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, d
 // SaveNameServerGroup saves nameserver group
 func (am *DefaultAccountManager) SaveNameServerGroup(accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error {
 
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	if nsGroupToSave == nil {
@@ -128,7 +129,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(accountID, userID string, n
 // DeleteNameServerGroup deletes nameserver group with nsGroupID
 func (am *DefaultAccountManager) DeleteNameServerGroup(accountID, nsGroupID, userID string) error {
 
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -158,7 +159,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(accountID, nsGroupID, use
 // ListNameServerGroups returns a list of nameserver groups from account
 func (am *DefaultAccountManager) ListNameServerGroups(accountID string, userID string) ([]*nbdns.NameServerGroup, error) {
 
-	unlock := am.Store.AcquireAccountLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
@@ -261,7 +262,7 @@ func validateNSList(list []nbdns.NameServer) error {
 	return nil
 }
 
-func validateGroups(list []string, groups map[string]*Group) error {
+func validateGroups(list []string, groups map[string]*nbgroup.Group) error {
 	if len(list) == 0 {
 		return status.Errorf(status.InvalidArgument, "the list of group IDs should not be empty")
 	}

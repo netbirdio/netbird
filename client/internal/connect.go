@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
+	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -27,29 +30,45 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
-// RunClient with main logic.
-func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status) error {
-	return runClient(ctx, config, statusRecorder, MobileDependency{}, nil, nil, nil, nil)
+type ConnectClient struct {
+	ctx            context.Context
+	config         *Config
+	statusRecorder *peer.Status
+	engine         *Engine
+	engineMutex    sync.Mutex
 }
 
-// RunClientWithProbes runs the client's main logic with probes attached
-func RunClientWithProbes(
+func NewConnectClient(
 	ctx context.Context,
 	config *Config,
 	statusRecorder *peer.Status,
+
+) *ConnectClient {
+	return &ConnectClient{
+		ctx:            ctx,
+		config:         config,
+		statusRecorder: statusRecorder,
+		engineMutex:    sync.Mutex{},
+	}
+}
+
+// Run with main logic.
+func (c *ConnectClient) Run() error {
+	return c.run(MobileDependency{}, nil, nil, nil, nil)
+}
+
+// RunWithProbes runs the client's main logic with probes attached
+func (c *ConnectClient) RunWithProbes(
 	mgmProbe *Probe,
 	signalProbe *Probe,
 	relayProbe *Probe,
 	wgProbe *Probe,
 ) error {
-	return runClient(ctx, config, statusRecorder, MobileDependency{}, mgmProbe, signalProbe, relayProbe, wgProbe)
+	return c.run(MobileDependency{}, mgmProbe, signalProbe, relayProbe, wgProbe)
 }
 
-// RunClientMobile with main logic on mobile system
-func RunClientMobile(
-	ctx context.Context,
-	config *Config,
-	statusRecorder *peer.Status,
+// RunOnAndroid with main logic on mobile system
+func (c *ConnectClient) RunOnAndroid(
 	tunAdapter iface.TunAdapter,
 	iFaceDiscover stdnet.ExternalIFaceDiscover,
 	networkChangeListener listener.NetworkChangeListener,
@@ -64,13 +83,10 @@ func RunClientMobile(
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 	}
-	return runClient(ctx, config, statusRecorder, mobileDependency, nil, nil, nil, nil)
+	return c.run(mobileDependency, nil, nil, nil, nil)
 }
 
-func RunClientiOS(
-	ctx context.Context,
-	config *Config,
-	statusRecorder *peer.Status,
+func (c *ConnectClient) RunOniOS(
 	fileDescriptor int32,
 	networkChangeListener listener.NetworkChangeListener,
 	dnsManager dns.IosDnsManager,
@@ -80,24 +96,27 @@ func RunClientiOS(
 		NetworkChangeListener: networkChangeListener,
 		DnsManager:            dnsManager,
 	}
-	return runClient(ctx, config, statusRecorder, mobileDependency, nil, nil, nil, nil)
+	return c.run(mobileDependency, nil, nil, nil, nil)
 }
 
-func runClient(
-	ctx context.Context,
-	config *Config,
-	statusRecorder *peer.Status,
+func (c *ConnectClient) run(
 	mobileDependency MobileDependency,
 	mgmProbe *Probe,
 	signalProbe *Probe,
 	relayProbe *Probe,
 	wgProbe *Probe,
 ) error {
-	log.Infof("starting NetBird client version %s", version.NetbirdVersion())
+	defer func() {
+		if r := recover(); r != nil {
+			log.Panicf("Panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
+		}
+	}()
+
+	log.Infof("starting NetBird client version %s on %s/%s", version.NetbirdVersion(), runtime.GOOS, runtime.GOARCH)
 
 	// Check if client was not shut down in a clean way and restore DNS config if required.
 	// Otherwise, we might not be able to connect to the management server to retrieve new config.
-	if err := dns.CheckUncleanShutdown(config.WgIface); err != nil {
+	if err := dns.CheckUncleanShutdown(c.config.WgIface); err != nil {
 		log.Errorf("checking unclean shutdown error: %s", err)
 	}
 
@@ -111,7 +130,7 @@ func runClient(
 		Clock:               backoff.SystemClock,
 	}
 
-	state := CtxGetState(ctx)
+	state := CtxGetState(c.ctx)
 	defer func() {
 		s, err := state.Status()
 		if err != nil || s != StatusNeedsLogin {
@@ -120,49 +139,49 @@ func runClient(
 	}()
 
 	wrapErr := state.Wrap
-	myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
+	myPrivateKey, err := wgtypes.ParseKey(c.config.PrivateKey)
 	if err != nil {
-		log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
+		log.Errorf("failed parsing Wireguard key %s: [%s]", c.config.PrivateKey, err.Error())
 		return wrapErr(err)
 	}
 
 	var mgmTlsEnabled bool
-	if config.ManagementURL.Scheme == "https" {
+	if c.config.ManagementURL.Scheme == "https" {
 		mgmTlsEnabled = true
 	}
 
-	publicSSHKey, err := ssh.GeneratePublicKey([]byte(config.SSHKey))
+	publicSSHKey, err := ssh.GeneratePublicKey([]byte(c.config.SSHKey))
 	if err != nil {
 		return err
 	}
 
-	defer statusRecorder.ClientStop()
+	defer c.statusRecorder.ClientStop()
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
 		select {
-		case <-ctx.Done():
+		case <-c.ctx.Done():
 			return nil
 		default:
 		}
 
 		state.Set(StatusConnecting)
 
-		engineCtx, cancel := context.WithCancel(ctx)
+		engineCtx, cancel := context.WithCancel(c.ctx)
 		defer func() {
-			statusRecorder.MarkManagementDisconnected(state.err)
-			statusRecorder.CleanLocalPeerState()
+			c.statusRecorder.MarkManagementDisconnected(state.err)
+			c.statusRecorder.CleanLocalPeerState()
 			cancel()
 		}()
 
-		log.Debugf("connecting to the Management service %s", config.ManagementURL.Host)
-		mgmClient, err := mgm.NewClient(engineCtx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
+		log.Debugf("connecting to the Management service %s", c.config.ManagementURL.Host)
+		mgmClient, err := mgm.NewClient(engineCtx, c.config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 		if err != nil {
 			return wrapErr(gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err))
 		}
-		mgmNotifier := statusRecorderToMgmConnStateNotifier(statusRecorder)
+		mgmNotifier := statusRecorderToMgmConnStateNotifier(c.statusRecorder)
 		mgmClient.SetConnStateListener(mgmNotifier)
 
-		log.Debugf("connected to the Management service %s", config.ManagementURL.Host)
+		log.Debugf("connected to the Management service %s", c.config.ManagementURL.Host)
 		defer func() {
 			err = mgmClient.Close()
 			if err != nil {
@@ -180,7 +199,7 @@ func runClient(
 			}
 			return wrapErr(err)
 		}
-		statusRecorder.MarkManagementConnected()
+		c.statusRecorder.MarkManagementConnected()
 
 		localPeerState := peer.LocalPeerState{
 			IP:              loginResp.GetPeerConfig().GetAddress(),
@@ -189,18 +208,18 @@ func runClient(
 			FQDN:            loginResp.GetPeerConfig().GetFqdn(),
 		}
 
-		statusRecorder.UpdateLocalPeerState(localPeerState)
+		c.statusRecorder.UpdateLocalPeerState(localPeerState)
 
 		signalURL := fmt.Sprintf("%s://%s",
 			strings.ToLower(loginResp.GetWiretrusteeConfig().GetSignal().GetProtocol().String()),
 			loginResp.GetWiretrusteeConfig().GetSignal().GetUri(),
 		)
 
-		statusRecorder.UpdateSignalAddress(signalURL)
+		c.statusRecorder.UpdateSignalAddress(signalURL)
 
-		statusRecorder.MarkSignalDisconnected(nil)
+		c.statusRecorder.MarkSignalDisconnected(nil)
 		defer func() {
-			statusRecorder.MarkSignalDisconnected(state.err)
+			c.statusRecorder.MarkSignalDisconnected(state.err)
 		}()
 
 		// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
@@ -216,35 +235,38 @@ func runClient(
 			}
 		}()
 
-		signalNotifier := statusRecorderToSignalConnStateNotifier(statusRecorder)
+		signalNotifier := statusRecorderToSignalConnStateNotifier(c.statusRecorder)
 		signalClient.SetConnStateListener(signalNotifier)
 
-		statusRecorder.MarkSignalConnected()
+		c.statusRecorder.MarkSignalConnected()
 
 		peerConfig := loginResp.GetPeerConfig()
 
-		engineConfig, err := createEngineConfig(myPrivateKey, config, peerConfig)
+		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
 		}
 
-		engine := NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe)
-		err = engine.Start()
+		c.engineMutex.Lock()
+		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, c.statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe)
+		c.engineMutex.Unlock()
+
+		err = c.engine.Start()
 		if err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
 		}
 
-		log.Print("Netbird engine started, my IP is: ", peerConfig.Address)
+		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
 
 		<-engineCtx.Done()
-		statusRecorder.ClientTeardown()
+		c.statusRecorder.ClientTeardown()
 
 		backOff.Reset()
 
-		err = engine.Stop()
+		err = c.engine.Stop()
 		if err != nil {
 			log.Errorf("failed stopping engine %v", err)
 			return wrapErr(err)
@@ -259,7 +281,7 @@ func runClient(
 		return nil
 	}
 
-	statusRecorder.ClientStart()
+	c.statusRecorder.ClientStart()
 	err = backoff.Retry(operation, backOff)
 	if err != nil {
 		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
@@ -269,6 +291,14 @@ func runClient(
 		return err
 	}
 	return nil
+}
+
+func (c *ConnectClient) Engine() *Engine {
+	var e *Engine
+	c.engineMutex.Lock()
+	e = c.engine
+	c.engineMutex.Unlock()
+	return e
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
@@ -281,6 +311,7 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		DisableIPv6Discovery: config.DisableIPv6Discovery,
 		WgPrivateKey:         key,
 		WgPort:               config.WgPort,
+		NetworkMonitor:       config.NetworkMonitor,
 		SSHKey:               []byte(config.SSHKey),
 		NATExternalIPs:       config.NATExternalIPs,
 		CustomDNSAddress:     config.CustomDNSAddress,

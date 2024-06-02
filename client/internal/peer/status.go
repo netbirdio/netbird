@@ -14,6 +14,7 @@ import (
 
 // State contains the latest state of a peer
 type State struct {
+	Mux                        *sync.RWMutex
 	IP                         string
 	PubKey                     string
 	FQDN                       string
@@ -28,7 +29,40 @@ type State struct {
 	LastWireguardHandshake     time.Time
 	BytesTx                    int64
 	BytesRx                    int64
+	Latency                    time.Duration
 	RosenpassEnabled           bool
+	routes                     map[string]struct{}
+}
+
+// AddRoute add a single route to routes map
+func (s *State) AddRoute(network string) {
+	s.Mux.Lock()
+	if s.routes == nil {
+		s.routes = make(map[string]struct{})
+	}
+	s.routes[network] = struct{}{}
+	s.Mux.Unlock()
+}
+
+// SetRoutes set state routes
+func (s *State) SetRoutes(routes map[string]struct{}) {
+	s.Mux.Lock()
+	s.routes = routes
+	s.Mux.Unlock()
+}
+
+// DeleteRoute removes a route from the network amp
+func (s *State) DeleteRoute(network string) {
+	s.Mux.Lock()
+	delete(s.routes, network)
+	s.Mux.Unlock()
+}
+
+// GetRoutes return routes map
+func (s *State) GetRoutes() map[string]struct{} {
+	s.Mux.RLock()
+	defer s.Mux.RUnlock()
+	return s.routes
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -38,6 +72,7 @@ type LocalPeerState struct {
 	PubKey          string
 	KernelInterface bool
 	FQDN            string
+	Routes          map[string]struct{}
 }
 
 // SignalState contains the latest state of a signal connection
@@ -60,6 +95,16 @@ type RosenpassState struct {
 	Permissive bool
 }
 
+// NSGroupState represents the status of a DNS server group, including associated domains,
+// whether it's enabled, and the last error message encountered during probing.
+type NSGroupState struct {
+	ID      string
+	Servers []string
+	Domains []string
+	Enabled bool
+	Error   error
+}
+
 // FullStatus contains the full state held by the Status instance
 type FullStatus struct {
 	Peers           []State
@@ -68,6 +113,7 @@ type FullStatus struct {
 	LocalPeerState  LocalPeerState
 	RosenpassState  RosenpassState
 	Relays          []relay.ProbeResult
+	NSGroupStates   []NSGroupState
 }
 
 // Status holds a state of peers, signal, management connections and relays
@@ -87,6 +133,7 @@ type Status struct {
 	notifier            *notifier
 	rosenpassEnabled    bool
 	rosenpassPermissive bool
+	nsGroupStates       []NSGroupState
 
 	// To reduce the number of notification invocation this bool will be true when need to call the notification
 	// Some Peer actions mostly used by in a batch when the network map has been synchronized. In these type of events
@@ -129,6 +176,7 @@ func (d *Status) AddPeer(peerPubKey string, fqdn string) error {
 		PubKey:     peerPubKey,
 		ConnStatus: StatusDisconnected,
 		FQDN:       fqdn,
+		Mux:        new(sync.RWMutex),
 	}
 	d.peerListChangedForNotification = true
 	return nil
@@ -173,6 +221,10 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 
 	if receivedState.IP != "" {
 		peerState.IP = receivedState.IP
+	}
+
+	if receivedState.GetRoutes() != nil {
+		peerState.SetRoutes(receivedState.GetRoutes())
 	}
 
 	skipNotification := shouldSkipNotify(receivedState, peerState)
@@ -279,6 +331,13 @@ func (d *Status) GetPeerStateChangeNotifier(peer string) <-chan struct{} {
 	return ch
 }
 
+// GetLocalPeerState returns the local peer state
+func (d *Status) GetLocalPeerState() LocalPeerState {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	return d.localPeer
+}
+
 // UpdateLocalPeerState updates local peer status
 func (d *Status) UpdateLocalPeerState(localPeerState LocalPeerState) {
 	d.mux.Lock()
@@ -365,6 +424,12 @@ func (d *Status) UpdateRelayStates(relayResults []relay.ProbeResult) {
 	d.relayStates = relayResults
 }
 
+func (d *Status) UpdateDNSStates(dnsStates []NSGroupState) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.nsGroupStates = dnsStates
+}
+
 func (d *Status) GetRosenpassState() RosenpassState {
 	return RosenpassState{
 		d.rosenpassEnabled,
@@ -380,6 +445,22 @@ func (d *Status) GetManagementState() ManagementState {
 	}
 }
 
+func (d *Status) UpdateLatency(pubKey string, latency time.Duration) error {
+	if latency <= 0 {
+		return nil
+	}
+
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	peerState, ok := d.peers[pubKey]
+	if !ok {
+		return errors.New("peer doesn't exist")
+	}
+	peerState.Latency = latency
+	d.peers[pubKey] = peerState
+	return nil
+}
+
 // IsLoginRequired determines if a peer's login has expired.
 func (d *Status) IsLoginRequired() bool {
 	d.mux.Lock()
@@ -393,7 +474,6 @@ func (d *Status) IsLoginRequired() bool {
 	s, ok := gstatus.FromError(d.managementError)
 	if ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 		return true
-
 	}
 	return false
 }
@@ -410,6 +490,10 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 	return d.relayStates
 }
 
+func (d *Status) GetDNSStates() []NSGroupState {
+	return d.nsGroupStates
+}
+
 // GetFullStatus gets full status
 func (d *Status) GetFullStatus() FullStatus {
 	d.mux.Lock()
@@ -421,6 +505,7 @@ func (d *Status) GetFullStatus() FullStatus {
 		LocalPeerState:  d.localPeer,
 		Relays:          d.GetRelayStates(),
 		RosenpassState:  d.GetRosenpassState(),
+		NSGroupStates:   d.GetDNSStates(),
 	}
 
 	for _, status := range d.peers {

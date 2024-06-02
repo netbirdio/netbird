@@ -55,7 +55,7 @@ var _ = Describe("GrpcClient", func() {
 				keyA, _ := wgtypes.GenerateKey()
 				clientA := createSignalClient(addr, keyA)
 				go func() {
-					err := clientA.Receive(func(msg *sigProto.Message) error {
+					err := clientA.Receive(context.Background(), func(msg *sigProto.Message) error {
 						payloadReceivedOnA = msg.GetBody().GetPayload()
 						featuresSupportedReceivedOnA = msg.GetBody().GetFeaturesSupported()
 						msgReceived.Done()
@@ -72,7 +72,7 @@ var _ = Describe("GrpcClient", func() {
 				clientB := createSignalClient(addr, keyB)
 
 				go func() {
-					err := clientB.Receive(func(msg *sigProto.Message) error {
+					err := clientB.Receive(context.Background(), func(msg *sigProto.Message) error {
 						payloadReceivedOnB = msg.GetBody().GetPayload()
 						featuresSupportedReceivedOnB = msg.GetBody().GetFeaturesSupported()
 						err := clientB.Send(&sigProto.Message{
@@ -122,7 +122,7 @@ var _ = Describe("GrpcClient", func() {
 				key, _ := wgtypes.GenerateKey()
 				client := createSignalClient(addr, key)
 				go func() {
-					err := client.Receive(func(msg *sigProto.Message) error {
+					err := client.Receive(context.Background(), func(msg *sigProto.Message) error {
 						return nil
 					})
 					if err != nil {

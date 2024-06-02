@@ -15,6 +15,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/formatter"
@@ -281,7 +282,7 @@ func TestUpdateDNSServer(t *testing.T) {
 					t.Log(err)
 				}
 			}()
-			dnsServer, err := NewDefaultServer(context.Background(), wgIface, "")
+			dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", &peer.Status{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -382,7 +383,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 		return
 	}
 
-	dnsServer, err := NewDefaultServer(context.Background(), wgIface, "")
+	dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", &peer.Status{})
 	if err != nil {
 		t.Errorf("create DNS server: %v", err)
 		return
@@ -477,7 +478,7 @@ func TestDNSServerStartStop(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			dnsServer, err := NewDefaultServer(context.Background(), &mocWGIface{}, testCase.addrPort)
+			dnsServer, err := NewDefaultServer(context.Background(), &mocWGIface{}, testCase.addrPort, &peer.Status{})
 			if err != nil {
 				t.Fatalf("%v", err)
 			}
@@ -548,6 +549,7 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 				{false, "domain2", false},
 			},
 		},
+		statusRecorder: &peer.Status{},
 	}
 
 	var domainsUpdate string
@@ -570,7 +572,7 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 		},
 	}, nil)
 
-	deactivate()
+	deactivate(nil)
 	expected := "domain0,domain2"
 	domains := []string{}
 	for _, item := range server.currentConfig.Domains {
@@ -608,7 +610,7 @@ func TestDNSPermanent_updateHostDNS_emptyUpstream(t *testing.T) {
 
 	var dnsList []string
 	dnsConfig := nbdns.Config{}
-	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, dnsList, dnsConfig, nil)
+	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, dnsList, dnsConfig, nil, &peer.Status{})
 	err = dnsServer.Initialize()
 	if err != nil {
 		t.Errorf("failed to initialize DNS server: %v", err)
@@ -632,7 +634,7 @@ func TestDNSPermanent_updateUpstream(t *testing.T) {
 	}
 	defer wgIFace.Close()
 	dnsConfig := nbdns.Config{}
-	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []string{"8.8.8.8"}, dnsConfig, nil)
+	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []string{"8.8.8.8"}, dnsConfig, nil, &peer.Status{})
 	err = dnsServer.Initialize()
 	if err != nil {
 		t.Errorf("failed to initialize DNS server: %v", err)
@@ -724,7 +726,7 @@ func TestDNSPermanent_matchOnly(t *testing.T) {
 	}
 	defer wgIFace.Close()
 	dnsConfig := nbdns.Config{}
-	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []string{"8.8.8.8"}, dnsConfig, nil)
+	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []string{"8.8.8.8"}, dnsConfig, nil, &peer.Status{})
 	err = dnsServer.Initialize()
 	if err != nil {
 		t.Errorf("failed to initialize DNS server: %v", err)
@@ -752,6 +754,11 @@ func TestDNSPermanent_matchOnly(t *testing.T) {
 				NameServers: []nbdns.NameServer{
 					{
 						IP:     netip.MustParseAddr("8.8.4.4"),
+						NSType: nbdns.UDPNameServerType,
+						Port:   53,
+					},
+					{
+						IP:     netip.MustParseAddr("9.9.9.9"),
 						NSType: nbdns.UDPNameServerType,
 						Port:   53,
 					},

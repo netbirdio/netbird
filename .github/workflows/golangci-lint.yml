@@ -19,7 +19,7 @@ jobs:
       - name: codespell
         uses: codespell-project/actions-codespell@v2
         with:
-          ignore_words_list: erro,clienta
+          ignore_words_list: erro,clienta,hastable,
           skip: go.mod,go.sum
           only_warn: 1
   golangci:
@@ -33,6 +33,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+      - name: Check for duplicate constants
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          ! awk '/const \(/,/)/{print $0}' management/server/activity/codes.go | grep -o '= [0-9]*' | sort | uniq -d | grep .
       - name: Install Go
         uses: actions/setup-go@v4
         with:
@@ -40,7 +44,7 @@ jobs:
           cache: false
       - name: Install dependencies
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev libpcap-dev
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:

@@ -12,19 +12,56 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
-
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/activity"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/route"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/route"
 )
+
+type MocIntegratedValidator struct {
+}
+
+func (a MocIntegratedValidator) ValidateExtraSettings(newExtraSettings *account.ExtraSettings, oldExtraSettings *account.ExtraSettings, peers map[string]*nbpeer.Peer, userID string, accountID string) error {
+	return nil
+}
+
+func (a MocIntegratedValidator) ValidatePeer(update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, error) {
+	return update, nil
+}
+func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups map[string]*group.Group, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
+	validatedPeers := make(map[string]struct{})
+	for _, peer := range peers {
+		validatedPeers[peer.ID] = struct{}{}
+	}
+	return validatedPeers, nil
+}
+
+func (MocIntegratedValidator) PreparePeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer {
+	return peer
+}
+
+func (MocIntegratedValidator) IsNotValidPeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (bool, bool) {
+	return false, false
+}
+
+func (MocIntegratedValidator) PeerDeleted(_, _ string) error {
+	return nil
+}
+
+func (MocIntegratedValidator) SetPeerInvalidationListener(func(accountID string)) {
+
+}
+
+func (MocIntegratedValidator) Stop() {
+}
 
 func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Account, userID string) {
 	t.Helper()
@@ -368,7 +405,12 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 			account.Groups[all.ID].Peers = append(account.Groups[all.ID].Peers, peer.ID)
 		}
 
-		networkMap := account.GetPeerNetworkMap(testCase.peerID, "netbird.io")
+		validatedPeers := map[string]struct{}{}
+		for p := range account.Peers {
+			validatedPeers[p] = struct{}{}
+		}
+
+		networkMap := account.GetPeerNetworkMap(testCase.peerID, "netbird.io", validatedPeers)
 		assert.Len(t, networkMap.Peers, len(testCase.expectedPeers))
 		assert.Len(t, networkMap.OfflinePeers, len(testCase.expectedOfflinePeers))
 	}
@@ -668,7 +710,7 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 		require.NoError(t, err, "get account by token failed")
 		require.Len(t, account.Groups, 3, "groups should be added to the account")
 
-		groupsByNames := map[string]*Group{}
+		groupsByNames := map[string]*group.Group{}
 		for _, g := range account.Groups {
 			groupsByNames[g.Name] = g
 		}
@@ -676,12 +718,12 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 		g1, ok := groupsByNames["group1"]
 		require.True(t, ok, "group1 should be added to the account")
 		require.Equal(t, g1.Name, "group1", "group1 name should match")
-		require.Equal(t, g1.Issued, GroupIssuedJWT, "group1 issued should match")
+		require.Equal(t, g1.Issued, group.GroupIssuedJWT, "group1 issued should match")
 
 		g2, ok := groupsByNames["group2"]
 		require.True(t, ok, "group2 should be added to the account")
 		require.Equal(t, g2.Name, "group2", "group2 name should match")
-		require.Equal(t, g2.Issued, GroupIssuedJWT, "group2 issued should match")
+		require.Equal(t, g2.Issued, group.GroupIssuedJWT, "group2 issued should match")
 	})
 }
 
@@ -801,7 +843,7 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 		t.Fatalf("expected to create an account for a user %s", userId)
 	}
 
-	if account.Domain != domain {
+	if account != nil && account.Domain != domain {
 		t.Errorf("setting account domain failed, expected %s, got %s", domain, account.Domain)
 	}
 
@@ -816,7 +858,7 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 		t.Fatalf("expected to get an account for a user %s", userId)
 	}
 
-	if account.Domain != domain {
+	if account != nil && account.Domain != domain {
 		t.Errorf("updating domain. expected %s got %s", domain, account.Domain)
 	}
 }
@@ -836,13 +878,12 @@ func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
 	}
 	if account == nil {
 		t.Fatalf("expected to create an account for a user %s", userId)
+		return
 	}
 
-	accountId := account.Id
-
-	_, err = manager.GetAccountByUserOrAccountID("", accountId, "")
+	_, err = manager.GetAccountByUserOrAccountID("", account.Id, "")
 	if err != nil {
-		t.Errorf("expected to get existing account after creation using userid, no account was found for a account %s", accountId)
+		t.Errorf("expected to get existing account after creation using userid, no account was found for a account %s", account.Id)
 	}
 
 	_, err = manager.GetAccountByUserOrAccountID("", "", "")
@@ -986,7 +1027,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 			}
 
 			if c.allGroupIPv6Enabled {
-				unlock := manager.Store.AcquireAccountLock(account.Id)
+				unlock := manager.Store.AcquireAccountWriteLock(account.Id)
 				groupAll, err := account.GetGroupAll()
 				if err != nil {
 					t.Fatal(err)
@@ -1183,7 +1224,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 	updMsg := manager.peersUpdateManager.CreateChannel(peer1.ID)
 	defer manager.peersUpdateManager.CloseChannel(peer1.ID)
 
-	group := Group{
+	group := group.Group{
 		ID:    "group-id",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
@@ -1426,7 +1467,7 @@ func TestFileStore_GetRoutesByPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	account := &Account{
-		Routes: map[string]*route.Route{
+		Routes: map[route.ID]*route.Route{
 			"route-1": {
 				ID:          "route-1",
 				Network:     prefix,
@@ -1455,12 +1496,12 @@ func TestFileStore_GetRoutesByPrefix(t *testing.T) {
 	routes := account.GetRoutesByPrefix(prefix)
 
 	assert.Len(t, routes, 2)
-	routeIDs := make(map[string]struct{}, 2)
+	routeIDs := make(map[route.ID]struct{}, 2)
 	for _, r := range routes {
 		routeIDs[r.ID] = struct{}{}
 	}
-	assert.Contains(t, routeIDs, "route-1")
-	assert.Contains(t, routeIDs, "route-2")
+	assert.Contains(t, routeIDs, route.ID("route-1"))
+	assert.Contains(t, routeIDs, route.ID("route-2"))
 }
 
 func TestAccount_GetRoutesToSync(t *testing.T) {
@@ -1489,8 +1530,8 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 			"peer-2": {ID: "peer-2", Key: "peer-2", Meta: nbpeer.PeerSystemMeta{GoOS: "linux", Ipv6Supported: true}, IP6: &peer2IP6},
 			"peer-3": {ID: "peer-3", Key: "peer-1", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}},
 		},
-		Groups: map[string]*Group{"group1": {ID: "group1", Peers: []string{"peer-1", "peer-2"}}},
-		Routes: map[string]*route.Route{
+		Groups: map[string]*group.Group{"group1": {ID: "group1", Peers: []string{"peer-1", "peer-2"}}},
+		Routes: map[route.ID]*route.Route{
 			"route-1": {
 				ID:          "route-1",
 				Network:     prefix,
@@ -1557,25 +1598,24 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 	routes := account.getRoutesToSync("peer-1", []*nbpeer.Peer{{ID: "peer-2", Key: "peer-2"}, {ID: "peer-3", Key: "peer-3"}})
 
 	assert.Len(t, routes, 2)
-
-	routeIDs := make(map[string]struct{}, 2)
+	routeIDs := make(map[route.ID]struct{}, 2)
 	for _, r := range routes {
 		routeIDs[r.ID] = struct{}{}
 	}
-	assert.Contains(t, routeIDs, "route-1")
-	assert.Contains(t, routeIDs, "route-2")
+	assert.Contains(t, routeIDs, route.ID("route-1"))
+	assert.Contains(t, routeIDs, route.ID("route-2"))
 
 	routes = account.getRoutesToSync("peer-2", []*nbpeer.Peer{{ID: "peer-1", Key: "peer-1"}, {ID: "peer-3", Key: "peer-3"}})
 
 	assert.Len(t, routes, 3)
 
-	routeIDs = make(map[string]struct{}, 2)
+	routeIDs = make(map[route.ID]struct{}, 2)
 	for _, r := range routes {
 		routeIDs[r.ID] = struct{}{}
 	}
-	assert.Contains(t, routeIDs, "route-2")
-	assert.Contains(t, routeIDs, "route-3")
-	assert.Contains(t, routeIDs, "route-5")
+	assert.Contains(t, routeIDs, route.ID("route-2"))
+	assert.Contains(t, routeIDs, route.ID("route-3"))
+	assert.Contains(t, routeIDs, route.ID("route-5"))
 
 	emptyRoutes := account.getRoutesToSync("peer-3", []*nbpeer.Peer{{ID: "peer-1", Key: "peer-1"}, {ID: "peer-2", Key: "peer-2"}})
 
@@ -1627,7 +1667,7 @@ func TestAccount_Copy(t *testing.T) {
 				},
 			},
 		},
-		Groups: map[string]*Group{
+		Groups: map[string]*group.Group{
 			"group1": {
 				ID:    "group1",
 				Peers: []string{"peer1"},
@@ -1641,7 +1681,7 @@ func TestAccount_Copy(t *testing.T) {
 				SourcePostureChecks: make([]string, 0),
 			},
 		},
-		Routes: map[string]*route.Route{
+		Routes: map[route.ID]*route.Route{
 			"route1": {
 				ID:         "route1",
 				PeerGroups: []string{},
@@ -1723,7 +1763,7 @@ func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
 func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
-	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	_, err = manager.GetAccountByUserOrAccountID(userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
@@ -1734,7 +1774,10 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 		LoginExpirationEnabled: true,
 	})
 	require.NoError(t, err, "unable to add peer")
-	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil)
+
+	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	require.NoError(t, err, "unable to get the account")
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil, account)
 	require.NoError(t, err, "unable to mark peer connected")
 	account, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
@@ -1800,8 +1843,10 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 		},
 	}
 
+	account, err = manager.GetAccountByUserOrAccountID(userID, "", "")
+	require.NoError(t, err, "unable to get the account")
 	// when we mark peer as connected, the peer login expiration routine should trigger
-	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil)
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil, account)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	failed := waitTimeout(wg, time.Second)
@@ -1813,7 +1858,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
-	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	_, err = manager.GetAccountByUserOrAccountID(userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
@@ -1824,7 +1869,10 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 		LoginExpirationEnabled: true,
 	})
 	require.NoError(t, err, "unable to add peer")
-	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil)
+
+	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	require.NoError(t, err, "unable to get the account")
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil, account)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	wg := &sync.WaitGroup{}
@@ -2221,8 +2269,8 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 			"peer4": {ID: "peer4", Key: "key4", UserID: "user2"},
 			"peer5": {ID: "peer5", Key: "key5", UserID: "user2"},
 		},
-		Groups: map[string]*Group{
-			"group1": {ID: "group1", Name: "group1", Issued: GroupIssuedAPI, Peers: []string{}},
+		Groups: map[string]*group.Group{
+			"group1": {ID: "group1", Name: "group1", Issued: group.GroupIssuedAPI, Peers: []string{}},
 		},
 		Settings: &Settings{GroupsPropagationEnabled: true},
 		Users: map[string]*User{
@@ -2269,10 +2317,10 @@ func TestAccount_UserGroupsAddToPeers(t *testing.T) {
 			"peer4": {ID: "peer4", Key: "key4", UserID: "user2"},
 			"peer5": {ID: "peer5", Key: "key5", UserID: "user2"},
 		},
-		Groups: map[string]*Group{
-			"group1": {ID: "group1", Name: "group1", Issued: GroupIssuedAPI, Peers: []string{}},
-			"group2": {ID: "group2", Name: "group2", Issued: GroupIssuedAPI, Peers: []string{}},
-			"group3": {ID: "group3", Name: "group3", Issued: GroupIssuedAPI, Peers: []string{}},
+		Groups: map[string]*group.Group{
+			"group1": {ID: "group1", Name: "group1", Issued: group.GroupIssuedAPI, Peers: []string{}},
+			"group2": {ID: "group2", Name: "group2", Issued: group.GroupIssuedAPI, Peers: []string{}},
+			"group3": {ID: "group3", Name: "group3", Issued: group.GroupIssuedAPI, Peers: []string{}},
 		},
 		Users: map[string]*User{"user1": {Id: "user1"}, "user2": {Id: "user2"}},
 	}
@@ -2305,10 +2353,10 @@ func TestAccount_UserGroupsRemoveFromPeers(t *testing.T) {
 			"peer4": {ID: "peer4", Key: "key4", UserID: "user2"},
 			"peer5": {ID: "peer5", Key: "key5", UserID: "user2"},
 		},
-		Groups: map[string]*Group{
-			"group1": {ID: "group1", Name: "group1", Issued: GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3"}},
-			"group2": {ID: "group2", Name: "group2", Issued: GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3", "peer4", "peer5"}},
-			"group3": {ID: "group3", Name: "group3", Issued: GroupIssuedAPI, Peers: []string{"peer4", "peer5"}},
+		Groups: map[string]*group.Group{
+			"group1": {ID: "group1", Name: "group1", Issued: group.GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3"}},
+			"group2": {ID: "group2", Name: "group2", Issued: group.GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3", "peer4", "peer5"}},
+			"group3": {ID: "group3", Name: "group3", Issued: group.GroupIssuedAPI, Peers: []string{"peer4", "peer5"}},
 		},
 		Users: map[string]*User{"user1": {Id: "user1"}, "user2": {Id: "user2"}},
 	}
@@ -2332,7 +2380,7 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false)
+	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{})
 }
 
 func createStore(t *testing.T) (Store, error) {

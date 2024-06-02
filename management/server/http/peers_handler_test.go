@@ -61,6 +61,9 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 			GetPeersFunc: func(accountID, userID string) ([]*nbpeer.Peer, error) {
 				return peers, nil
 			},
+			GetDNSDomainFunc: func() string {
+				return "netbird.selfhosted"
+			},
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				user := server.NewAdminUser("test_user")
 				return &server.Account{
@@ -124,13 +127,14 @@ func TestGetPeers(t *testing.T) {
 		Name:                   "PeerName",
 		LoginExpirationEnabled: false,
 		Meta: nbpeer.PeerSystemMeta{
-			Hostname:  "hostname",
-			GoOS:      "GoOS",
-			Kernel:    "kernel",
-			Core:      "core",
-			Platform:  "platform",
-			OS:        "OS",
-			WtVersion: "development",
+			Hostname:           "hostname",
+			GoOS:               "GoOS",
+			Kernel:             "kernel",
+			Core:               "core",
+			Platform:           "platform",
+			OS:                 "OS",
+			WtVersion:          "development",
+			SystemSerialNumber: "C02XJ0J0JGH7",
 		},
 	}
 
@@ -248,6 +252,7 @@ func TestGetPeers(t *testing.T) {
 			assert.Equal(t, got.LoginExpirationEnabled, tc.expectedPeer.LoginExpirationEnabled)
 			assert.Equal(t, got.SshEnabled, tc.expectedPeer.SSHEnabled)
 			assert.Equal(t, got.Connected, tc.expectedPeer.Status.Connected)
+			assert.Equal(t, got.SerialNumber, tc.expectedPeer.Meta.SystemSerialNumber)
 		})
 	}
 }

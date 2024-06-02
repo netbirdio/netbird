@@ -21,6 +21,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
@@ -70,10 +72,10 @@ func TestEngine_SSH(t *testing.T) {
 	defer cancel()
 
 	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, &EngineConfig{
-		WgIfaceName:  "utun101",
-		WgAddr:       "100.64.0.1/24",
-		WgPrivateKey: key,
-		WgPort:       33100,
+		WgIfaceName:      "utun101",
+		WgAddr:           "100.64.0.1/24",
+		WgPrivateKey:     key,
+		WgPort:           33100,
 		ServerSSHAllowed: true,
 	}, MobileDependency{}, peer.NewRecorder("https://mgm"))
 
@@ -390,7 +392,7 @@ func TestEngine_Sync(t *testing.T) {
 	// feed updates to Engine via mocked Management client
 	updates := make(chan *mgmtProto.SyncResponse)
 	defer close(updates)
-	syncFunc := func(msgHandler func(msg *mgmtProto.SyncResponse) error) error {
+	syncFunc := func(ctx context.Context, msgHandler func(msg *mgmtProto.SyncResponse) error) error {
 		for msg := range updates {
 			err := msgHandler(msg)
 			if err != nil {
@@ -577,10 +579,10 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			}{}
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
+				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error) {
 					input.inputSerial = updateSerial
 					input.inputRoutes = newRoutes
-					return testCase.inputErr
+					return nil, nil, testCase.inputErr
 				},
 			}
 
@@ -597,8 +599,8 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			err = engine.updateNetworkMap(testCase.networkMap)
 			assert.NoError(t, err, "shouldn't return error")
 			assert.Equal(t, testCase.expectedSerial, input.inputSerial, "serial should match")
-			assert.Len(t, input.inputRoutes, testCase.expectedLen, "routes len should match")
-			assert.Equal(t, testCase.expectedRoutes, input.inputRoutes, "routes should match")
+			assert.Len(t, input.inputRoutes, testCase.expectedLen, "clientRoutes len should match")
+			assert.Equal(t, testCase.expectedRoutes, input.inputRoutes, "clientRoutes should match")
 		})
 	}
 }
@@ -743,8 +745,8 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			assert.NoError(t, err, "shouldn't return error")
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
-					return nil
+				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error) {
+					return nil, nil, nil
 				},
 			}
 
@@ -1052,7 +1054,8 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "", eventStore, nil, false)
+	ia, _ := integrations.NewIntegratedValidator(eventStore)
+	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia)
 	if err != nil {
 		return nil, "", err
 	}

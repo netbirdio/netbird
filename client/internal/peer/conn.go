@@ -20,12 +20,15 @@ import (
 	"github.com/netbirdio/netbird/iface/bind"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
+	nbnet "github.com/netbirdio/netbird/util/net"
 	"github.com/netbirdio/netbird/version"
 )
 
 const (
 	iceKeepAliveDefault           = 4 * time.Second
 	iceDisconnectedTimeoutDefault = 6 * time.Second
+	// iceRelayAcceptanceMinWaitDefault is the same as in the Pion ICE package
+	iceRelayAcceptanceMinWaitDefault = 2 * time.Second
 
 	defaultWgKeepAlive = 25 * time.Second
 )
@@ -98,6 +101,9 @@ type IceCredentials struct {
 	Pwd   string
 }
 
+type BeforeAddPeerHookFunc func(connID nbnet.ConnectionID, IP net.IP) error
+type AfterRemovePeerHookFunc func(connID nbnet.ConnectionID) error
+
 type Conn struct {
 	config ConnConfig
 	mu     sync.Mutex
@@ -133,6 +139,13 @@ type Conn struct {
 	adapter        iface.TunAdapter
 	iFaceDiscover  stdnet.ExternalIFaceDiscover
 	sentExtraSrflx bool
+
+	remoteEndpoint *net.UDPAddr
+	remoteConn     *ice.Conn
+
+	connID               nbnet.ConnectionID
+	beforeAddPeerHooks   []BeforeAddPeerHookFunc
+	afterRemovePeerHooks []AfterRemovePeerHookFunc
 }
 
 // meta holds meta information about a connection
@@ -193,20 +206,22 @@ func (conn *Conn) reCreateAgent() error {
 
 	iceKeepAlive := iceKeepAlive()
 	iceDisconnectedTimeout := iceDisconnectedTimeout()
+	iceRelayAcceptanceMinWait := iceRelayAcceptanceMinWait()
 
 	agentConfig := &ice.AgentConfig{
-		MulticastDNSMode:    ice.MulticastDNSModeDisabled,
-		NetworkTypes:        []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
-		Urls:                conn.config.StunTurn,
-		CandidateTypes:      conn.candidateTypes(),
-		FailedTimeout:       &failedTimeout,
-		InterfaceFilter:     stdnet.InterfaceFilter(conn.config.InterfaceBlackList),
-		UDPMux:              conn.config.UDPMux,
-		UDPMuxSrflx:         conn.config.UDPMuxSrflx,
-		NAT1To1IPs:          conn.config.NATExternalIPs,
-		Net:                 transportNet,
-		DisconnectedTimeout: &iceDisconnectedTimeout,
-		KeepaliveInterval:   &iceKeepAlive,
+		MulticastDNSMode:       ice.MulticastDNSModeDisabled,
+		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
+		Urls:                   conn.config.StunTurn,
+		CandidateTypes:         conn.candidateTypes(),
+		FailedTimeout:          &failedTimeout,
+		InterfaceFilter:        stdnet.InterfaceFilter(conn.config.InterfaceBlackList),
+		UDPMux:                 conn.config.UDPMux,
+		UDPMuxSrflx:            conn.config.UDPMuxSrflx,
+		NAT1To1IPs:             conn.config.NATExternalIPs,
+		Net:                    transportNet,
+		DisconnectedTimeout:    &iceDisconnectedTimeout,
+		KeepaliveInterval:      &iceKeepAlive,
+		RelayAcceptanceMinWait: &iceRelayAcceptanceMinWait,
 	}
 
 	if conn.config.DisableIPv6Discovery {
@@ -214,7 +229,6 @@ func (conn *Conn) reCreateAgent() error {
 	}
 
 	conn.agent, err = ice.NewAgent(agentConfig)
-
 	if err != nil {
 		return err
 	}
@@ -234,6 +248,17 @@ func (conn *Conn) reCreateAgent() error {
 		return err
 	}
 
+	err = conn.agent.OnSuccessfulSelectedPairBindingResponse(func(p *ice.CandidatePair) {
+		err := conn.statusRecorder.UpdateLatency(conn.config.Key, p.Latency())
+		if err != nil {
+			log.Debugf("failed to update latency for peer %s: %s", conn.config.Key, err)
+			return
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("failed setting binding response callback: %w", err)
+	}
+
 	return nil
 }
 
@@ -251,7 +276,7 @@ func (conn *Conn) candidateTypes() []ice.CandidateType {
 // Open opens connection to the remote peer starting ICE candidate gathering process.
 // Blocks until connection has been closed or connection timeout.
 // ConnStatus will be set accordingly
-func (conn *Conn) Open() error {
+func (conn *Conn) Open(ctx context.Context) error {
 	log.Debugf("trying to connect to peer %s", conn.config.Key)
 
 	peerState := State{
@@ -259,6 +284,7 @@ func (conn *Conn) Open() error {
 		IP:               strings.Split(conn.config.WgConfig.AllowedIps, "/")[0],
 		ConnStatusUpdate: time.Now(),
 		ConnStatus:       conn.status,
+		Mux:              new(sync.RWMutex),
 	}
 	err := conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -310,7 +336,7 @@ func (conn *Conn) Open() error {
 	// at this point we received offer/answer and we are ready to gather candidates
 	conn.mu.Lock()
 	conn.status = StatusConnecting
-	conn.ctx, conn.notifyDisconnected = context.WithCancel(context.Background())
+	conn.ctx, conn.notifyDisconnected = context.WithCancel(ctx)
 	defer conn.notifyDisconnected()
 	conn.mu.Unlock()
 
@@ -318,6 +344,7 @@ func (conn *Conn) Open() error {
 		PubKey:           conn.config.Key,
 		ConnStatus:       conn.status,
 		ConnStatusUpdate: time.Now(),
+		Mux:              new(sync.RWMutex),
 	}
 	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -348,6 +375,9 @@ func (conn *Conn) Open() error {
 	if remoteOfferAnswer.WgListenPort != 0 {
 		remoteWgPort = remoteOfferAnswer.WgListenPort
 	}
+
+	conn.remoteConn = remoteConn
+
 	// the ice connection has been established successfully so we are ready to start the proxy
 	remoteAddr, err := conn.configureConnection(remoteConn, remoteWgPort, remoteOfferAnswer.RosenpassPubKey,
 		remoteOfferAnswer.RosenpassAddr)
@@ -372,6 +402,14 @@ func isRelayCandidate(candidate ice.Candidate) bool {
 	return candidate.Type() == ice.CandidateTypeRelay
 }
 
+func (conn *Conn) AddBeforeAddPeerHook(hook BeforeAddPeerHookFunc) {
+	conn.beforeAddPeerHooks = append(conn.beforeAddPeerHooks, hook)
+}
+
+func (conn *Conn) AddAfterRemovePeerHook(hook AfterRemovePeerHookFunc) {
+	conn.afterRemovePeerHooks = append(conn.afterRemovePeerHooks, hook)
+}
+
 // configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
 func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, remoteRosenpassPubKey []byte, remoteRosenpassAddr string) (net.Addr, error) {
 	conn.mu.Lock()
@@ -385,7 +423,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 	var endpoint net.Addr
 	if isRelayCandidate(pair.Local) {
 		log.Debugf("setup relay connection")
-		conn.wgProxy = conn.wgProxyFactory.GetProxy()
+		conn.wgProxy = conn.wgProxyFactory.GetProxy(conn.ctx)
 		endpoint, err = conn.wgProxy.AddTurnConn(remoteConn)
 		if err != nil {
 			return nil, err
@@ -397,13 +435,24 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 	}
 
 	endpointUdpAddr, _ := net.ResolveUDPAddr(endpoint.Network(), endpoint.String())
+	conn.remoteEndpoint = endpointUdpAddr
+	log.Debugf("Conn resolved IP for %s: %s", endpoint, endpointUdpAddr.IP)
+
+	conn.connID = nbnet.GenerateConnID()
+	for _, hook := range conn.beforeAddPeerHooks {
+		if err := hook(conn.connID, endpointUdpAddr.IP); err != nil {
+			log.Errorf("Before add peer hook failed: %v", err)
+		}
+	}
 
 	err = conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, endpointUdpAddr, conn.config.WgConfig.PreSharedKey)
 	if err != nil {
 		if conn.wgProxy != nil {
-			_ = conn.wgProxy.CloseConn()
+			if err := conn.wgProxy.CloseConn(); err != nil {
+				log.Warnf("Failed to close turn connection: %v", err)
+			}
 		}
-		return nil, err
+		return nil, fmt.Errorf("update peer: %w", err)
 	}
 
 	conn.status = StatusConnected
@@ -419,9 +468,10 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 		LocalIceCandidateType:      pair.Local.Type().String(),
 		RemoteIceCandidateType:     pair.Remote.Type().String(),
 		LocalIceCandidateEndpoint:  fmt.Sprintf("%s:%d", pair.Local.Address(), pair.Local.Port()),
-		RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Local.Port()),
+		RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Remote.Port()),
 		Direct:                     !isRelayCandidate(pair.Local),
 		RosenpassEnabled:           rosenpassEnabled,
+		Mux:                        new(sync.RWMutex),
 	}
 	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
 		peerState.Relayed = true
@@ -488,6 +538,15 @@ func (conn *Conn) cleanup() error {
 	// todo: is it problem if we try to remove a peer what is never existed?
 	err3 = conn.config.WgConfig.WgInterface.RemovePeer(conn.config.WgConfig.RemoteKey)
 
+	if conn.connID != "" {
+		for _, hook := range conn.afterRemovePeerHooks {
+			if err := hook(conn.connID); err != nil {
+				log.Errorf("After remove peer hook failed: %v", err)
+			}
+		}
+	}
+	conn.connID = ""
+
 	if conn.notifyDisconnected != nil {
 		conn.notifyDisconnected()
 		conn.notifyDisconnected = nil
@@ -503,6 +562,7 @@ func (conn *Conn) cleanup() error {
 		PubKey:           conn.config.Key,
 		ConnStatus:       conn.status,
 		ConnStatusUpdate: time.Now(),
+		Mux:              new(sync.RWMutex),
 	}
 	err := conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -672,7 +732,7 @@ func (conn *Conn) Close() error {
 		// before conn.Open() another update from management arrives with peers: [1,2,3,4,5]
 		// engine adds a new Conn for 4 and 5
 		// therefore peer 4 has 2 Conn objects
-		log.Warnf("connection has been already closed or attempted closing not started coonection %s", conn.config.Key)
+		log.Warnf("Connection has been already closed or attempted closing not started connection %s", conn.config.Key)
 		return NewConnectionAlreadyClosed(conn.config.Key)
 	}
 }

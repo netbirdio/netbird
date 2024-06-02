@@ -17,8 +17,6 @@ tags:
     description: Interact with and view information about setup keys.
   - name: Groups
     description: Interact with and view information about groups.
-  - name: Rules
-    description: Interact with and view information about rules.
   - name: Policies
     description: Interact with and view information about policies.
   - name: Posture Checks
@@ -56,6 +54,10 @@ components:
           description: Period of time after which peer login expires (seconds).
           type: integer
           example: 43200
+        regular_users_view_blocked:
+          description: Allows blocking regular users from viewing parts of the system.
+          type: boolean
+          example: true
         groups_propagation_enabled:
           description: Allows propagate the new user auto groups to peers that belongs to the user
           type: boolean
@@ -79,6 +81,7 @@ components:
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
+        - regular_users_view_blocked
     AccountExtraSettings:
       type: object
       properties:
@@ -146,6 +149,8 @@ components:
           description: How user was issued by API or Integration
           type: string
           example: api
+        permissions:
+            $ref: '#/components/schemas/UserPermissions'
       required:
         - id
         - email
@@ -154,6 +159,14 @@ components:
         - auto_groups
         - status
         - is_blocked
+    UserPermissions:
+      type: object
+      properties:
+        dashboard_view:
+          description: User's permission to view the dashboard
+          type: string
+          enum: [ "limited", "blocked", "full" ]
+          example: limited
     UserRequest:
       type: object
       properties:
@@ -340,6 +353,10 @@ components:
               $ref: '#/components/schemas/CountryCode'
             city_name:
               $ref: '#/components/schemas/CityName'
+            serial_number:
+              description: System serial number
+              type: string
+              example: "C02XJ0J0JGH7"
           required:
             - city_name
             - connected
@@ -362,6 +379,8 @@ components:
             - user_id
             - version
             - ui_version
+            - approval_required
+            - serial_number
     AccessiblePeer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -607,8 +626,9 @@ components:
           type: integer
           example: 2
         issued:
-          description: How group was issued by API or from JWT token
+          description: How the group was issued (api, integration, jwt)
           type: string
+          enum: ["api", "integration", "jwt"]
           example: api
       required:
         - id
@@ -649,73 +669,6 @@ components:
           required:
             - peers
             - ipv6_enabled
-    RuleMinimum:
-      type: object
-      properties:
-        name:
-          description: Rule name identifier
-          type: string
-          example: Default
-        description:
-          description: Rule friendly description
-          type: string
-          example: This is a default rule that allows connections between all the resources
-        disabled:
-          description: Rules status
-          type: boolean
-          example: false
-        flow:
-          description: Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-          type: string
-          example: bidirect
-      required:
-        - name
-        - description
-        - disabled
-        - flow
-    RuleRequest:
-      allOf:
-        - $ref: '#/components/schemas/RuleMinimum'
-        - type: object
-          properties:
-            sources:
-              type: array
-              description: List of source group IDs
-              items:
-                type: string
-                example: "ch8i4ug6lnn4g9hqv7m1"
-            destinations:
-              type: array
-              description: List of destination group IDs
-              items:
-                type: string
-                example: "ch8i4ug6lnn4g9hqv7m0"
-    Rule:
-      allOf:
-        - type: object
-          properties:
-            id:
-              description: Rule ID
-              type: string
-              example: ch8i4ug6lnn4g9hqv7mg
-          required:
-            - id
-        - $ref: '#/components/schemas/RuleMinimum'
-        - type: object
-          properties:
-            sources:
-              description: Rule source group IDs
-              type: array
-              items:
-                $ref: '#/components/schemas/GroupMinimum'
-            destinations:
-              description: Rule destination group IDs
-              type: array
-              items:
-                $ref: '#/components/schemas/GroupMinimum'
-          required:
-            - sources
-            - destinations
     PolicyRuleMinimum:
       type: object
       properties:
@@ -1343,7 +1296,7 @@ paths:
   /api/accounts/{accountId}:
     delete:
       summary: Delete an Account
-      description: Deletes an account and all its resources. Only administrators and account owners can delete accounts.
+      description: Deletes an account and all its resources. Only account owners can delete accounts.
       tags: [ Accounts ]
       security:
         - BearerAuth: [ ]
@@ -2051,147 +2004,6 @@ paths:
           schema:
             type: string
           description: The unique identifier of a group
-      responses:
-        '200':
-          description: Delete status code
-          content: { }
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-  /api/rules:
-    get:
-      summary: List all Rules
-      description: Returns a list of all rules. This will be deprecated in favour of `/api/policies`.
-      tags: [ Rules ]
-      deprecated: true
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      responses:
-        '200':
-          description: A JSON Array of Rules
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Rule'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    post:
-      summary: Create a Rule
-      description: Creates a rule. This will be deprecated in favour of `/api/policies`.
-      deprecated: true
-      tags: [ Rules ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      requestBody:
-        description: New Rule request
-        content:
-          'application/json':
-            schema:
-              $ref: '#/components/schemas/RuleRequest'
-      responses:
-        '200':
-          description: A Rule Object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Rule'
-  /api/rules/{ruleId}:
-    get:
-      summary: Retrieve a Rule
-      description: Get information about a rules. This will be deprecated in favour of `/api/policies/{policyID}`.
-      deprecated: true
-      tags: [ Rules ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: ruleId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a rule
-      responses:
-        '200':
-          description: A Rule object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Rule'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    put:
-      summary: Update a Rule
-      description: Update/Replace a rule. This will be deprecated in favour of `/api/policies/{policyID}`.
-      deprecated: true
-      tags: [ Rules ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: ruleId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a rule
-      requestBody:
-        description: Update Rule request
-        content:
-          'application/json':
-            schema:
-              $ref: '#/components/schemas/RuleRequest'
-      responses:
-        '200':
-          description: A Rule object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Rule'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    delete:
-      summary: Delete a Rule
-      description: Delete a rule. This will be deprecated in favour of `/api/policies/{policyID}`.
-      deprecated: true
-      tags: [ Rules ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: path
-          name: ruleId
-          required: true
-          schema:
-            type: string
-          description: The unique identifier of a rule
       responses:
         '200':
           description: Delete status code

@@ -76,6 +76,10 @@ func NewAuthentikManager(config AuthentikClientConfig,
 		return nil, fmt.Errorf("authentik IdP configuration is incomplete, TokenEndpoint is missing")
 	}
 
+	if config.Issuer == "" {
+		return nil, fmt.Errorf("authentik IdP configuration is incomplete, Issuer is missing")
+	}
+
 	if config.GrantType == "" {
 		return nil, fmt.Errorf("authentik IdP configuration is incomplete, GrantType is missing")
 	}

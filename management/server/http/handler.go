@@ -9,10 +9,10 @@ import (
 	"github.com/rs/cors"
 
 	"github.com/netbirdio/management-integrations/integrations"
-
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
+	"github.com/netbirdio/netbird/management/server/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
@@ -39,7 +39,7 @@ type emptyObject struct {
 }
 
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationManager *geolocation.Geolocation, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg AuthCfg) (http.Handler, error) {
+func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationManager *geolocation.Geolocation, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg AuthCfg, integratedValidator integrated_validator.IntegratedValidator) (http.Handler, error) {
 	claimsExtractor := jwtclaims.NewClaimsExtractor(
 		jwtclaims.WithAudience(authCfg.Audience),
 		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
@@ -76,7 +76,7 @@ func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationMa
 		AuthCfg:            authCfg,
 	}
 
-	if _, err := integrations.RegisterHandlers(ctx, prefix, api.Router, accountManager, claimsExtractor); err != nil {
+	if _, err := integrations.RegisterHandlers(ctx, prefix, api.Router, accountManager, claimsExtractor, integratedValidator); err != nil {
 		return nil, fmt.Errorf("register integrations endpoints: %w", err)
 	}
 
@@ -85,7 +85,6 @@ func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationMa
 	api.addUsersEndpoint()
 	api.addUsersTokensEndpoint()
 	api.addSetupKeysEndpoint()
-	api.addRulesEndpoint()
 	api.addPoliciesEndpoint()
 	api.addGroupsEndpoint()
 	api.addRoutesEndpoint()
@@ -156,15 +155,6 @@ func (apiHandler *apiHandler) addSetupKeysEndpoint() {
 	apiHandler.Router.HandleFunc("/setup-keys", keysHandler.CreateSetupKey).Methods("POST", "OPTIONS")
 	apiHandler.Router.HandleFunc("/setup-keys/{keyId}", keysHandler.GetSetupKey).Methods("GET", "OPTIONS")
 	apiHandler.Router.HandleFunc("/setup-keys/{keyId}", keysHandler.UpdateSetupKey).Methods("PUT", "OPTIONS")
-}
-
-func (apiHandler *apiHandler) addRulesEndpoint() {
-	rulesHandler := NewRulesHandler(apiHandler.AccountManager, apiHandler.AuthCfg)
-	apiHandler.Router.HandleFunc("/rules", rulesHandler.GetAllRules).Methods("GET", "OPTIONS")
-	apiHandler.Router.HandleFunc("/rules", rulesHandler.CreateRule).Methods("POST", "OPTIONS")
-	apiHandler.Router.HandleFunc("/rules/{ruleId}", rulesHandler.UpdateRule).Methods("PUT", "OPTIONS")
-	apiHandler.Router.HandleFunc("/rules/{ruleId}", rulesHandler.GetRule).Methods("GET", "OPTIONS")
-	apiHandler.Router.HandleFunc("/rules/{ruleId}", rulesHandler.DeleteRule).Methods("DELETE", "OPTIONS")
 }
 
 func (apiHandler *apiHandler) addPoliciesEndpoint() {

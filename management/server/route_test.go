@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
 )
@@ -39,7 +40,7 @@ const (
 func TestCreateRoute(t *testing.T) {
 	type input struct {
 		network      string
-		netID        string
+		netID        route.NetID
 		peerKey      string
 		peerGroupIDs []string
 		description  string
@@ -465,8 +466,8 @@ func TestSaveRoute(t *testing.T) {
 	invalidPrefix, _ := netip.ParsePrefix("192.168.0.0/34")
 	validMetric := 1000
 	invalidMetric := 99999
-	validNetID := "12345678901234567890qw"
-	invalidNetID := "12345678901234567890qwertyuiopqwertyuiop1"
+	validNetID := route.NetID("12345678901234567890qw")
+	invalidNetID := route.NetID("12345678901234567890qwertyuiopqwertyuiop1")
 	validGroupHA1 := routeGroupHA1
 	validGroupHA2 := routeGroupHA2
 
@@ -1045,7 +1046,7 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 
 	groups, err := am.ListGroups(account.Id)
 	require.NoError(t, err)
-	var groupHA1, groupHA2 *Group
+	var groupHA1, groupHA2 *nbgroup.Group
 	for _, group := range groups {
 		switch group.Name {
 		case routeGroupHA1:
@@ -1154,7 +1155,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	require.Len(t, peer2Routes.Routes, 1, "we should receive one route")
 	require.True(t, peer1Routes.Routes[0].IsEqual(peer2Routes.Routes[0]), "routes should be the same for peers in the same group")
 
-	newGroup := &Group{
+	newGroup := &nbgroup.Group{
 		ID:    xid.New().String(),
 		Name:  "peer1 group",
 		Peers: []string{peer1ID},
@@ -1201,7 +1202,7 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "", eventStore, nil, false)
+	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{})
 }
 
 func createRouterStore(t *testing.T) (Store, error) {
@@ -1402,7 +1403,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		return nil, err
 	}
 
-	newGroup := []*Group{
+	newGroup := []*nbgroup.Group{
 		{
 			ID:    routeGroup1,
 			Name:  routeGroup1,

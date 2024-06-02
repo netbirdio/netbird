@@ -30,7 +30,7 @@ func (c *wgKernelConfigurer) configureInterface(privateKey string, port int) err
 	if err != nil {
 		return err
 	}
-	fwmark := 0
+	fwmark := getFwmark()
 	config := wgtypes.Config{
 		PrivateKey:   &key,
 		ReplacePeers: true,

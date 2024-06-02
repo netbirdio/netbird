@@ -11,29 +11,32 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 )
 
 type defaultServerRouter struct {
-	mux         sync.Mutex
-	ctx         context.Context
-	routes      map[string]*route.Route
-	firewall    firewall.Manager
-	wgInterface *iface.WGIface
+	mux            sync.Mutex
+	ctx            context.Context
+	routes         map[route.ID]*route.Route
+	firewall       firewall.Manager
+	wgInterface    *iface.WGIface
+	statusRecorder *peer.Status
 }
 
-func newServerRouter(ctx context.Context, wgInterface *iface.WGIface, firewall firewall.Manager) (serverRouter, error) {
+func newServerRouter(ctx context.Context, wgInterface *iface.WGIface, firewall firewall.Manager, statusRecorder *peer.Status) (serverRouter, error) {
 	return &defaultServerRouter{
-		ctx:         ctx,
-		routes:      make(map[string]*route.Route),
-		firewall:    firewall,
-		wgInterface: wgInterface,
+		ctx:            ctx,
+		routes:         make(map[route.ID]*route.Route),
+		firewall:       firewall,
+		wgInterface:    wgInterface,
+		statusRecorder: statusRecorder,
 	}, nil
 }
 
-func (m *defaultServerRouter) updateRoutes(routesMap map[string]*route.Route) error {
-	serverRoutesToRemove := make([]string, 0)
+func (m *defaultServerRouter) updateRoutes(routesMap map[route.ID]*route.Route) error {
+	serverRoutesToRemove := make([]route.ID, 0)
 
 	for routeID := range m.routes {
 		update, found := routesMap[routeID]
@@ -46,7 +49,7 @@ func (m *defaultServerRouter) updateRoutes(routesMap map[string]*route.Route) er
 		oldRoute := m.routes[routeID]
 		err := m.removeFromServerNetwork(oldRoute)
 		if err != nil {
-			log.Errorf("unable to remove route id: %s, network %s, from server, got: %v",
+			log.Errorf("Unable to remove route id: %s, network %s, from server, got: %v",
 				oldRoute.ID, oldRoute.Network, err)
 		}
 		delete(m.routes, routeID)
@@ -60,7 +63,7 @@ func (m *defaultServerRouter) updateRoutes(routesMap map[string]*route.Route) er
 
 		err := m.addToServerNetwork(newRoute)
 		if err != nil {
-			log.Errorf("unable to add route %s from server, got: %v", newRoute.ID, err)
+			log.Errorf("Unable to add route %s from server, got: %v", newRoute.ID, err)
 			continue
 		}
 		m.routes[id] = newRoute
@@ -79,23 +82,32 @@ func (m *defaultServerRouter) updateRoutes(routesMap map[string]*route.Route) er
 func (m *defaultServerRouter) removeFromServerNetwork(rt *route.Route) error {
 	select {
 	case <-m.ctx.Done():
-		log.Infof("not removing from server network because context is done")
+		log.Infof("Not removing from server network because context is done")
 		return m.ctx.Err()
 	default:
 		m.mux.Lock()
 		defer m.mux.Unlock()
-		routingAddress := m.wgInterface.Address().String()
+		routingAddress := m.wgInterface.Address().Masked().String()
 		if rt.NetworkType == route.IPv6Network {
 			if m.wgInterface.Address6() == nil {
 				return fmt.Errorf("attempted to add route for IPv6 even though device has no v6 address")
 			}
-			routingAddress = m.wgInterface.Address6().String()
+			routingAddress = m.wgInterface.Address6().Masked().String()
 		}
-		err := m.firewall.RemoveRoutingRules(routeToRouterPair(routingAddress, rt))
+		routerPair, err := routeToRouterPair(routingAddress, rt)
+		if err != nil {
+			return fmt.Errorf("parse prefix: %w", err)
+		}
+		err = m.firewall.RemoveRoutingRules(routerPair)
 		if err != nil {
 			return err
 		}
+
 		delete(m.routes, rt.ID)
+
+		state := m.statusRecorder.GetLocalPeerState()
+		delete(state.Routes, rt.Network.String())
+		m.statusRecorder.UpdateLocalPeerState(state)
 		return nil
 	}
 }
@@ -103,23 +115,38 @@ func (m *defaultServerRouter) removeFromServerNetwork(rt *route.Route) error {
 func (m *defaultServerRouter) addToServerNetwork(rt *route.Route) error {
 	select {
 	case <-m.ctx.Done():
-		log.Infof("not adding to server network because context is done")
+		log.Infof("Not adding to server network because context is done")
 		return m.ctx.Err()
 	default:
 		m.mux.Lock()
 		defer m.mux.Unlock()
-		routingAddress := m.wgInterface.Address().String()
+		routingAddress := m.wgInterface.Address().Masked().String()
 		if rt.NetworkType == route.IPv6Network {
 			if m.wgInterface.Address6() == nil {
 				return fmt.Errorf("attempted to add route for IPv6 even though device has no v6 address")
 			}
-			routingAddress = m.wgInterface.Address6().String()
+			routingAddress = m.wgInterface.Address6().Masked().String()
 		}
-		err := m.firewall.InsertRoutingRules(routeToRouterPair(routingAddress, rt))
+
+		routerPair, err := routeToRouterPair(routingAddress, rt)
 		if err != nil {
-			return err
+			return fmt.Errorf("parse prefix: %w", err)
 		}
+
+		err = m.firewall.InsertRoutingRules(routerPair)
+		if err != nil {
+			return fmt.Errorf("insert routing rules: %w", err)
+		}
+
 		m.routes[rt.ID] = rt
+
+		state := m.statusRecorder.GetLocalPeerState()
+		if state.Routes == nil {
+			state.Routes = map[string]struct{}{}
+		}
+		state.Routes[rt.Network.String()] = struct{}{}
+		m.statusRecorder.UpdateLocalPeerState(state)
+
 		return nil
 	}
 }
@@ -128,27 +155,37 @@ func (m *defaultServerRouter) cleanUp() {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 	for _, r := range m.routes {
-		routingAddress := m.wgInterface.Address().String()
+		routingAddress := m.wgInterface.Address().Masked().String()
 		if r.NetworkType == route.IPv6Network {
 			if m.wgInterface.Address6() == nil {
 				log.Errorf("attempted to remove route for IPv6 even though device has no v6 address")
 				continue
 			}
-			routingAddress = m.wgInterface.Address6().String()
+			routingAddress = m.wgInterface.Address6().Masked().String()
 		}
-		err := m.firewall.RemoveRoutingRules(routeToRouterPair(routingAddress, r))
+		routerPair, err := routeToRouterPair(routingAddress, r)
+
+		err = m.firewall.RemoveRoutingRules(routerPair)
 		if err != nil {
-			log.Warnf("failed to remove clean up route: %s", r.ID)
+			log.Errorf("Failed to remove cleanup route: %v", err)
 		}
+
 	}
+
+	state := m.statusRecorder.GetLocalPeerState()
+	state.Routes = nil
+	m.statusRecorder.UpdateLocalPeerState(state)
 }
 
-func routeToRouterPair(source string, route *route.Route) firewall.RouterPair {
-	parsed := netip.MustParsePrefix(source).Masked()
+func routeToRouterPair(source string, route *route.Route) (firewall.RouterPair, error) {
+	parsed, err := netip.ParsePrefix(source)
+	if err != nil {
+		return firewall.RouterPair{}, err
+	}
 	return firewall.RouterPair{
-		ID:          route.ID,
+		ID:          string(route.ID),
 		Source:      parsed.String(),
 		Destination: route.Network.Masked().String(),
 		Masquerade:  route.Masquerade,
-	}
+	}, nil
 }

@@ -31,6 +31,8 @@ func (d *localResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	response := d.lookupRecord(r)
 	if response != nil {
 		replyMessage.Answer = append(replyMessage.Answer, response)
+	} else {
+		replyMessage.Rcode = dns.RcodeNameError
 	}
 
 	err := w.WriteMsg(replyMessage)
