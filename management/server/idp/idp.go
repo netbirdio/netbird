@@ -148,7 +148,7 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 				GrantType:          config.ClientConfig.GrantType,
 				TokenEndpoint:      config.ClientConfig.TokenEndpoint,
 				ManagementEndpoint: config.ExtraConfig["ManagementEndpoint"],
-				Organizations: strings.Split(config.ExtraConfig["Organizations"], ",")
+				Organizations: strings.Split(config.ExtraConfig["Organizations"], ","),
 			}
 		}
 
