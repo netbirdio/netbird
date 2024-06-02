@@ -164,6 +164,9 @@ func (m *defaultServerRouter) cleanUp() {
 			routingAddress = m.wgInterface.Address6().Masked().String()
 		}
 		routerPair, err := routeToRouterPair(routingAddress, r)
+		if err != nil {
+			log.Errorf("parse prefix: %v", err)
+		}
 
 		err = m.firewall.RemoveRoutingRules(routerPair)
 		if err != nil {

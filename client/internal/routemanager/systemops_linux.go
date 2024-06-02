@@ -270,6 +270,9 @@ func addRoute(prefix netip.Prefix, addr netip.Addr, intf *net.Interface, tableID
 // addUnreachableRoute adds an unreachable route for the specified IP family and routing table.
 // ipFamily should be netlink.FAMILY_V4 for IPv4 or netlink.FAMILY_V6 for IPv6.
 // tableID specifies the routing table to which the unreachable route will be added.
+// TODO should this be kept in for future use? If so, the linter needs to be told that this unreachable function should
+//
+//	be kept
 func addUnreachableRoute(prefix netip.Prefix, tableID int) error {
 	_, ipNet, err := net.ParseCIDR(prefix.String())
 	if err != nil {
@@ -290,6 +293,9 @@ func addUnreachableRoute(prefix netip.Prefix, tableID int) error {
 	return nil
 }
 
+// TODO should this be kept in for future use? If so, the linter needs to be told that this unreachable function should
+//
+//	be kept
 func removeUnreachableRoute(prefix netip.Prefix, tableID int) error {
 	_, ipNet, err := net.ParseCIDR(prefix.String())
 	if err != nil {
