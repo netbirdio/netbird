@@ -22,15 +22,17 @@ type ZitadelManager struct {
 	credentials        ManagerCredentials
 	helper             ManagerHelper
 	appMetrics         telemetry.AppMetrics
+	Organizations      []string
 }
 
 // ZitadelClientConfig zitadel manager client configurations.
 type ZitadelClientConfig struct {
-	ClientID           string
-	ClientSecret       string
-	GrantType          string
-	TokenEndpoint      string
-	ManagementEndpoint string
+	ClientID             string
+	ClientSecret         string
+	GrantType            string
+	TokenEndpoint        string
+	ManagementEndpoint   string
+	Organizations      []string
 }
 
 // ZitadelCredentials zitadel authentication information.
@@ -135,6 +137,7 @@ func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetri
 	}
 
 	return &ZitadelManager{
+		Organizations: config.Organizations,
 		managementEndpoint: config.ManagementEndpoint,
 		httpClient:         httpClient,
 		credentials:        credentials,
@@ -269,7 +272,7 @@ func (zm *ZitadelManager) CreateUser(email, name, accountID, invitedByEmail stri
 		return nil, err
 	}
 
-	body, err := zm.post("users/human/_import", string(payload))
+	body, err := zm.post("users/human/_import", string(payload), map[string]string{"x-zitadel-orgid": zm.Organizations[0]})
 	if err != nil {
 		return nil, err
 	}
@@ -316,24 +319,29 @@ func (zm *ZitadelManager) GetUserByEmail(email string) ([]*UserData, error) {
 		return nil, err
 	}
 
-	body, err := zm.post("users/_search", string(payload))
-	if err != nil {
-		return nil, err
-	}
-
-	if zm.appMetrics != nil {
-		zm.appMetrics.IDPMetrics().CountGetUserByEmail()
-	}
-
-	var profiles struct{ Result []zitadelProfile }
-	err = zm.helper.Unmarshal(body, &profiles)
-	if err != nil {
-		return nil, err
-	}
-
 	users := make([]*UserData, 0)
-	for _, profile := range profiles.Result {
-		users = append(users, profile.userData())
+	for _, organization := range zm.Organizations {
+
+		body, err := zm.post("users/_search", string(payload), map[string]string{"x-zitadel-orgid": organization})
+		if err != nil {
+			return nil, err
+		}
+	
+		if zm.appMetrics != nil {
+			zm.appMetrics.IDPMetrics().CountGetUserByEmail()
+		}
+	
+		var profiles struct{ Result []zitadelProfile }
+		err = zm.helper.Unmarshal(body, &profiles)
+		if err != nil {
+			return nil, err
+		}
+	
+		
+		for _, profile := range profiles.Result {
+			users = append(users, profile.userData())
+		}
+
 	}
 
 	return users, nil
@@ -341,50 +349,62 @@ func (zm *ZitadelManager) GetUserByEmail(email string) ([]*UserData, error) {
 
 // GetUserDataByID requests user data from zitadel via ID.
 func (zm *ZitadelManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
-	body, err := zm.get("users/"+userID, nil)
-	if err != nil {
-		return nil, err
+	var err_ error
+	
+	for _, organization := range zm.Organizations {
+		body, err := zm.get("users/"+userID, nil, map[string]string{"x-zitadel-orgid": organization})
+		if err != nil {
+			err_ = err
+			continue
+		}
+	
+		if zm.appMetrics != nil {
+			zm.appMetrics.IDPMetrics().CountGetUserDataByID()
+		}
+	
+		var profile struct{ User zitadelProfile }
+		err = zm.helper.Unmarshal(body, &profile)
+		if err != nil {
+			return nil, err
+		}
+	
+		userData := profile.User.userData()
+		userData.AppMetadata = appMetadata
+	
+		return userData, nil
 	}
 
-	if zm.appMetrics != nil {
-		zm.appMetrics.IDPMetrics().CountGetUserDataByID()
-	}
-
-	var profile struct{ User zitadelProfile }
-	err = zm.helper.Unmarshal(body, &profile)
-	if err != nil {
-		return nil, err
-	}
-
-	userData := profile.User.userData()
-	userData.AppMetadata = appMetadata
-
-	return userData, nil
+	return nil, err_
 }
 
 // GetAccount returns all the users for a given profile.
 func (zm *ZitadelManager) GetAccount(accountID string) ([]*UserData, error) {
-	body, err := zm.post("users/_search", "")
-	if err != nil {
-		return nil, err
-	}
-
-	if zm.appMetrics != nil {
-		zm.appMetrics.IDPMetrics().CountGetAccount()
-	}
-
-	var profiles struct{ Result []zitadelProfile }
-	err = zm.helper.Unmarshal(body, &profiles)
-	if err != nil {
-		return nil, err
-	}
-
 	users := make([]*UserData, 0)
-	for _, profile := range profiles.Result {
-		userData := profile.userData()
-		userData.AppMetadata.WTAccountID = accountID
 
-		users = append(users, userData)
+	for _, organization := range zm.Organizations {
+
+		body, err := zm.post("users/_search", "", map[string]string{"x-zitadel-orgid": organization})
+		if err != nil {
+			return nil, err
+		}
+	
+		if zm.appMetrics != nil {
+			zm.appMetrics.IDPMetrics().CountGetAccount()
+		}
+	
+		var profiles struct{ Result []zitadelProfile }
+		err = zm.helper.Unmarshal(body, &profiles)
+		if err != nil {
+			return nil, err
+		}
+	
+		
+		for _, profile := range profiles.Result {
+			userData := profile.userData()
+			userData.AppMetadata.WTAccountID = accountID
+	
+			users = append(users, userData)
+		}
 	}
 
 	return users, nil
@@ -393,25 +413,30 @@ func (zm *ZitadelManager) GetAccount(accountID string) ([]*UserData, error) {
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
 func (zm *ZitadelManager) GetAllAccounts() (map[string][]*UserData, error) {
-	body, err := zm.post("users/_search", "")
-	if err != nil {
-		return nil, err
-	}
-
-	if zm.appMetrics != nil {
-		zm.appMetrics.IDPMetrics().CountGetAllAccounts()
-	}
-
-	var profiles struct{ Result []zitadelProfile }
-	err = zm.helper.Unmarshal(body, &profiles)
-	if err != nil {
-		return nil, err
-	}
 
 	indexedUsers := make(map[string][]*UserData)
-	for _, profile := range profiles.Result {
-		userData := profile.userData()
-		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], userData)
+
+	for _, organization := range zm.Organizations {
+	
+		body, err := zm.post("users/_search", "", map[string]string{"x-zitadel-orgid": organization})
+		if err != nil {
+			return nil, err
+		}
+	
+		if zm.appMetrics != nil {
+			zm.appMetrics.IDPMetrics().CountGetAllAccounts()
+		}
+	
+		var profiles struct{ Result []zitadelProfile }
+		err = zm.helper.Unmarshal(body, &profiles)
+		if err != nil {
+			return nil, err
+		}
+		
+		for _, profile := range profiles.Result {
+			userData := profile.userData()
+			indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], userData)
+		}
 	}
 
 	return indexedUsers, nil
@@ -440,7 +465,7 @@ func (zm *ZitadelManager) InviteUserByID(userID string) error {
 	}
 
 	// don't care about the body in the response
-	_, err = zm.post(fmt.Sprintf("users/%s/_resend_initialization", userID), string(payload))
+	_, err = zm.post(fmt.Sprintf("users/%s/_resend_initialization", userID), string(payload), map[string]string{"x-zitadel-orgid": zm.Organizations[0]})
 	return err
 }
 
@@ -459,7 +484,7 @@ func (zm *ZitadelManager) DeleteUser(userID string) error {
 }
 
 // post perform Post requests.
-func (zm *ZitadelManager) post(resource string, body string) ([]byte, error) {
+func (zm *ZitadelManager) post(resource string, body string, headers map[string]string ) ([]byte, error) {
 	jwtToken, err := zm.credentials.Authenticate()
 	if err != nil {
 		return nil, err
@@ -469,6 +494,10 @@ func (zm *ZitadelManager) post(resource string, body string) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodPost, reqURL, strings.NewReader(body))
 	if err != nil {
 		return nil, err
+	}
+
+	for header,value := range headers {
+		req.Header.Add(header, value)
 	}
 	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
 	req.Header.Add("content-type", "application/json")
@@ -531,10 +560,14 @@ func (zm *ZitadelManager) delete(resource string) error {
 }
 
 // get perform Get requests.
-func (zm *ZitadelManager) get(resource string, q url.Values) ([]byte, error) {
+func (zm *ZitadelManager) get(resource string, q url.Values, headers map[string][string] ) ([]byte, error) {
 	jwtToken, err := zm.credentials.Authenticate()
 	if err != nil {
 		return nil, err
+	}
+
+	for header,value := range headers {
+		req.Header.Add(header, value)
 	}
 
 	reqURL := fmt.Sprintf("%s/%s?%s", zm.managementEndpoint, resource, q.Encode())
