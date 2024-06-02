@@ -566,14 +566,16 @@ func (zm *ZitadelManager) get(resource string, q url.Values, headers map[string]
 		return nil, err
 	}
 
-	for header,value := range headers {
-		req.Header.Add(header, value)
-	}
+	
 
 	reqURL := fmt.Sprintf("%s/%s?%s", zm.managementEndpoint, resource, q.Encode())
 	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, err
+	}
+
+	for header,value := range headers {
+		req.Header.Add(header, value)
 	}
 	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
 	req.Header.Add("content-type", "application/json")
