@@ -38,7 +38,7 @@ func DetermineClientMsgType(msg []byte) (MsgType, error) {
 	case MsgTypeTransport:
 		return msgType, nil
 	default:
-		return 0, fmt.Errorf("invalid msg type: %s", msg)
+		return 0, fmt.Errorf("invalid msg type, len: %d", len(msg))
 	}
 }
 

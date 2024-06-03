@@ -79,16 +79,14 @@ func (c *Client) Connect() error {
 	defer c.readLoopMutex.Unlock()
 
 	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	if c.serviceIsRunning {
-		c.mu.Unlock()
 		return nil
 	}
-	c.mu.Unlock()
 
 	err := c.connect()
 	if err != nil {
-		c.mu.Unlock()
 		return err
 	}
 
