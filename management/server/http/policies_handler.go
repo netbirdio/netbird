@@ -329,14 +329,16 @@ func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Polic
 			rule.Ports = &portsCopy
 		}
 
-		portRanges := make([]api.RulePortRange, 0, len(r.PortRanges))
-		for _, portRange := range r.PortRanges {
-			portRanges = append(portRanges, api.RulePortRange{
-				End:   int(portRange.End),
-				Start: int(portRange.Start),
-			})
+		if len(r.PortRanges) != 0 {
+			portRanges := make([]api.RulePortRange, 0, len(r.PortRanges))
+			for _, portRange := range r.PortRanges {
+				portRanges = append(portRanges, api.RulePortRange{
+					End:   int(portRange.End),
+					Start: int(portRange.Start),
+				})
+			}
+			rule.PortRanges = &portRanges
 		}
-		rule.PortRanges = &portRanges
 
 		for _, gid := range r.Sources {
 			_, ok := cache[gid]
