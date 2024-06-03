@@ -160,7 +160,7 @@ func (r *Route) startResolver(ctx context.Context) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	r.update()
+	r.update(ctx)
 
 	for {
 		select {
@@ -168,21 +168,20 @@ func (r *Route) startResolver(ctx context.Context) {
 			log.Debugf("Stopping dynamic route resolver for domains [%v]", r)
 			return
 		case <-ticker.C:
-			r.update()
+			r.update(ctx)
 		}
 	}
 }
 
-func (r *Route) update() {
+func (r *Route) update(ctx context.Context) {
 	if resolved, err := r.resolveDomains(); err != nil {
 		log.Errorf("Failed to resolve domains for route [%v]: %v", r, err)
-	} else if err := r.updateDynamicRoutes(resolved); err != nil {
+	} else if err := r.updateDynamicRoutes(ctx, resolved); err != nil {
 		log.Errorf("Failed to update dynamic routes for [%v]: %v", r, err)
 	}
 }
 
 func (r *Route) resolveDomains() (domainMap, error) {
-
 	results := make(chan resolveResult)
 	go r.resolve(results)
 
@@ -227,9 +226,13 @@ func (r *Route) resolve(results chan resolveResult) {
 	close(results)
 }
 
-func (r *Route) updateDynamicRoutes(newDomains domainMap) error {
+func (r *Route) updateDynamicRoutes(ctx context.Context, newDomains domainMap) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 
 	var merr *multierror.Error
 
