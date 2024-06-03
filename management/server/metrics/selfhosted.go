@@ -26,7 +26,7 @@ const (
 	// defaultPushInterval default interval to push metrics
 	defaultPushInterval = 24 * time.Hour
 	// requestTimeout http request timeout
-	requestTimeout = 30 * time.Second
+	requestTimeout = 45 * time.Second
 )
 
 type getTokenResponse struct {
@@ -98,10 +98,7 @@ func (w *Worker) Run() {
 }
 
 func (w *Worker) sendMetrics() error {
-	ctx, cancel := context.WithTimeout(w.ctx, requestTimeout)
-	defer cancel()
-
-	apiKey, err := getAPIKey(ctx)
+	apiKey, err := getAPIKey(w.ctx)
 	if err != nil {
 		return err
 	}
@@ -115,7 +112,7 @@ func (w *Worker) sendMetrics() error {
 
 	httpClient := http.Client{}
 
-	exportJobReq, err := createPostRequest(ctx, payloadEndpoint+"/capture/", payloadString)
+	exportJobReq, err := createPostRequest(w.ctx, payloadEndpoint+"/capture/", payloadString)
 	if err != nil {
 		return fmt.Errorf("unable to create metrics post request %v", err)
 	}
@@ -328,6 +325,8 @@ func (w *Worker) generateProperties() properties {
 }
 
 func getAPIKey(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
 
 	httpClient := http.Client{}
 
@@ -375,6 +374,8 @@ func buildMetricsPayload(payload pushPayload) (string, error) {
 }
 
 func createPostRequest(ctx context.Context, endpoint string, payloadStr string) (*http.Request, error) {
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
 	reqURL := endpoint
 
 	payload := strings.NewReader(payloadStr)
