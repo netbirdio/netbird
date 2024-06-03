@@ -471,7 +471,7 @@ func TestCloseRelayConn(t *testing.T) {
 	clientAlice := NewClient(ctx, addr, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
-		t.Errorf("failed to connect to server: %s", err)
+		t.Fatalf("failed to connect to server: %s", err)
 	}
 
 	conn, err := clientAlice.OpenConn("bob")
