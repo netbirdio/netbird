@@ -17,12 +17,6 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-// RulePortRange represents a range of ports for a firewall rule.
-type RulePortRange struct {
-	Start uint16
-	End   uint16
-}
-
 // RouteFirewallRule a firewall rule applicable for a routed network.
 type RouteFirewallRule struct {
 	// PeerIP IP address of the routing peer.
@@ -440,9 +434,17 @@ func generateRouteFirewallRules(route *route.Route, rule *PolicyRule, groupPeers
 		}
 		rulesExists[ruleID] = struct{}{}
 
-		// TODO: add port-range once implemented in policy rule
 		if len(rule.Ports) == 0 {
-			rules = append(rules, &rr)
+			if len(rule.PortRanges) == 0 {
+				rules = append(rules, &rr)
+				continue
+			}
+
+			for _, portRange := range rule.PortRanges {
+				pr := rr
+				pr.PortRange = portRange
+				rules = append(rules, &pr)
+			}
 			continue
 		}
 
@@ -513,6 +515,20 @@ func toProtocolRoutesFirewallRules(update []*RouteFirewallRule) []*proto.RouteFi
 			networkType = proto.RouteFirewallRule_IPV6
 		}
 
+		var portInfo proto.PortInfo
+		if update[i].Port != 0 {
+			portInfo.PortSelection = &proto.PortInfo_Port{Port: uint32(update[i].Port)}
+		} else {
+			if portRange := update[i].PortRange; portRange.Start != 0 && portRange.End != 0 {
+				portInfo.PortSelection = &proto.PortInfo_Range_{
+					Range: &proto.PortInfo_Range{
+						Start: uint32(portRange.Start),
+						End:   uint32(portRange.End),
+					},
+				}
+			}
+		}
+
 		result[i] = &proto.RouteFirewallRule{
 			PeerIP:      update[i].PeerIP,
 			Direction:   direction,
@@ -520,7 +536,7 @@ func toProtocolRoutesFirewallRules(update []*RouteFirewallRule) []*proto.RouteFi
 			NetworkType: networkType,
 			Destination: update[i].Destination,
 			Protocol:    protocol,
-			PortInfo:    nil,
+			PortInfo:    &portInfo,
 		}
 	}
 	return result

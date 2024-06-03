@@ -1415,7 +1415,12 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 						Enabled:       true,
 						Protocol:      PolicyRuleProtocolTCP,
 						Action:        PolicyTrafficActionAccept,
-						Ports:         []string{"80"},
+						PortRanges: []RulePortRange{
+							{
+								Start: 80,
+								End:   350,
+							},
+						},
 						Sources: []string{
 							"finance",
 						},
@@ -1522,7 +1527,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Destination: "10.10.10.0/24",
 				Protocol:    "tcp",
 				NetworkType: int(route.IPv4Network),
-				Port:        80,
+				PortRange:   RulePortRange{Start: 80, End: 350},
 			},
 			{
 				PeerIP:      "100.65.13.186",
@@ -1531,7 +1536,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Destination: "10.10.10.0/24",
 				Protocol:    "tcp",
 				NetworkType: int(route.IPv4Network),
-				Port:        80,
+				PortRange:   RulePortRange{Start: 80, End: 350},
 			},
 		}
 		assert.ElementsMatch(t, routesFirewallRules, expectedRoutesFirewallRules)
