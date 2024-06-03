@@ -28,6 +28,10 @@ type connContainer struct {
 	messages chan Msg
 }
 
+// Client is a client for the relay server. It is responsible for establishing a connection to the relay server and
+// managing connections to other peers. All exported functions are safe to call concurrently. After close the connection,
+// the client can be reused by calling Connect again. When the client is closed, all connections are closed too.
+// While the Connect is in progress, the OpenConn function will block until the connection is established.
 type Client struct {
 	log           *log.Entry
 	parentCtx     context.Context
@@ -49,6 +53,7 @@ type Client struct {
 	listenerMutex        sync.Mutex
 }
 
+// NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
 func NewClient(ctx context.Context, serverAddress, peerID string) *Client {
 	hashedID, hashedStringId := messages.HashID(peerID)
 	return &Client{
@@ -61,12 +66,14 @@ func NewClient(ctx context.Context, serverAddress, peerID string) *Client {
 	}
 }
 
+// SetOnDisconnectListener sets a function that will be called when the connection to the relay server is closed.
 func (c *Client) SetOnDisconnectListener(fn func()) {
 	c.listenerMutex.Lock()
 	defer c.listenerMutex.Unlock()
 	c.onDisconnectListener = fn
 }
 
+// Connect establishes a connection to the relay server. It blocks until the connection is established or an error occurs.
 func (c *Client) Connect() error {
 	c.readLoopMutex.Lock()
 	defer c.readLoopMutex.Unlock()
@@ -121,6 +128,7 @@ func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
 	return conn, nil
 }
 
+// RelayRemoteAddress returns the IP address of the relay server. It could change after the close and reopen the connection.
 func (c *Client) RelayRemoteAddress() (net.Addr, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -130,6 +138,7 @@ func (c *Client) RelayRemoteAddress() (net.Addr, error) {
 	return c.remoteAddr, nil
 }
 
+// Close closes the connection to the relay server and all connections to other peers.
 func (c *Client) Close() error {
 	c.readLoopMutex.Lock()
 	defer c.readLoopMutex.Unlock()
