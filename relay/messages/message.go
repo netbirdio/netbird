@@ -2,6 +2,8 @@ package messages
 
 import (
 	"fmt"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -104,6 +106,7 @@ func UnmarshalTransportPayload(buf []byte) ([]byte, error) {
 func UnmarshalTransportID(buf []byte) ([]byte, error) {
 	headerSize := 1 + IDSize
 	if len(buf) < headerSize {
+		log.Debugf("invalid message length: %d, expected: %d, %x", len(buf), headerSize, buf)
 		return nil, ErrInvalidMessageLength
 	}
 	return buf[1:headerSize], nil

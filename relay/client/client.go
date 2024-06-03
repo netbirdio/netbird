@@ -10,7 +10,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/relay/client/dialer/udp"
+	"github.com/netbirdio/netbird/relay/client/dialer/ws"
 	"github.com/netbirdio/netbird/relay/messages"
 )
 
@@ -156,7 +156,7 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect() error {
-	conn, err := udp.Dial(c.serverAddress)
+	conn, err := ws.Dial(c.serverAddress)
 	if err != nil {
 		return err
 	}

@@ -12,7 +12,7 @@ import (
 	"github.com/netbirdio/netbird/relay/messages"
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/udp"
-	"github.com/netbirdio/netbird/relay/server/listener/ws"
+	ws "github.com/netbirdio/netbird/relay/server/listener/wsnhooyr"
 )
 
 // Server
@@ -104,7 +104,7 @@ func (r *Server) accept(conn net.Conn) {
 
 		msgType, err := messages.DetermineClientMsgType(buf[:n])
 		if err != nil {
-			log.Errorf("failed to determine message type: %s", err)
+			peer.Log.Errorf("failed to determine message type: %s", err)
 			return
 		}
 		switch msgType {
