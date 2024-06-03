@@ -74,6 +74,12 @@ type PolicyUpdateOperation struct {
 	Values []string
 }
 
+// RulePortRange represents a range of ports for a firewall rule.
+type RulePortRange struct {
+	Start uint16
+	End   uint16
+}
+
 // PolicyRule is the metadata of the policy
 type PolicyRule struct {
 	// ID of the policy rule
@@ -108,6 +114,9 @@ type PolicyRule struct {
 
 	// Ports or it ranges list
 	Ports []string `gorm:"serializer:json"`
+
+	// PortRanges a list of port ranges.
+	PortRanges []RulePortRange `gorm:"serializer:json"`
 }
 
 // Copy returns a copy of a policy rule
@@ -123,10 +132,12 @@ func (pm *PolicyRule) Copy() *PolicyRule {
 		Bidirectional: pm.Bidirectional,
 		Protocol:      pm.Protocol,
 		Ports:         make([]string, len(pm.Ports)),
+		PortRanges:    make([]RulePortRange, len(pm.PortRanges)),
 	}
 	copy(rule.Destinations, pm.Destinations)
 	copy(rule.Sources, pm.Sources)
 	copy(rule.Ports, pm.Ports)
+	copy(rule.PortRanges, pm.PortRanges)
 	return rule
 }
 
