@@ -21,6 +21,7 @@ import (
 )
 
 const maxDomains = 32
+const failedToConvertRoute = "failed to convert route to response: %v"
 
 // RoutesHandler is the routes handler of the account
 type RoutesHandler struct {
@@ -57,7 +58,7 @@ func (h *RoutesHandler) GetAllRoutes(w http.ResponseWriter, r *http.Request) {
 	for _, r := range routes {
 		route, err := toRouteResponse(r)
 		if err != nil {
-			util.WriteError(status.Errorf(status.Internal, "failed to convert route to response: %v", err), w)
+			util.WriteError(status.Errorf(status.Internal, failedToConvertRoute, err), w)
 			return
 		}
 		apiRoutes = append(apiRoutes, route)
@@ -132,7 +133,7 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 
 	routes, err := toRouteResponse(newRoute)
 	if err != nil {
-		util.WriteError(status.Errorf(status.Internal, "failed to convert route to response: %v", err), w)
+		util.WriteError(status.Errorf(status.Internal, failedToConvertRoute, err), w)
 		return
 	}
 
@@ -254,7 +255,7 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 
 	routes, err := toRouteResponse(newRoute)
 	if err != nil {
-		util.WriteError(status.Errorf(status.Internal, "failed to convert route to response: %v", err), w)
+		util.WriteError(status.Errorf(status.Internal, failedToConvertRoute, err), w)
 		return
 	}
 
@@ -308,7 +309,7 @@ func (h *RoutesHandler) GetRoute(w http.ResponseWriter, r *http.Request) {
 
 	routes, err := toRouteResponse(foundRoute)
 	if err != nil {
-		util.WriteError(status.Errorf(status.Internal, "failed to convert route to response: %v", err), w)
+		util.WriteError(status.Errorf(status.Internal, failedToConvertRoute, err), w)
 		return
 	}
 
