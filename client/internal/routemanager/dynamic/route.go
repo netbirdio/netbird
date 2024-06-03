@@ -30,6 +30,12 @@ const (
 
 type domainMap map[domain.Domain][]netip.Prefix
 
+type resolveResult struct {
+	domain domain.Domain
+	prefix netip.Prefix
+	err    error
+}
+
 type Route struct {
 	route                *route.Route
 	routeRefCounter      *refcounter.RouteRefCounter
@@ -176,29 +182,26 @@ func (r *Route) update() {
 }
 
 func (r *Route) resolveDomains() (domainMap, error) {
-	type resolveResult struct {
-		domain domain.Domain
-		prefix netip.Prefix
-		err    error
-	}
 
-	var wg sync.WaitGroup
 	results := make(chan resolveResult)
+	go r.resolve(results)
 
 	resolved := domainMap{}
 	var merr *multierror.Error
 
-	done := make(chan struct{})
-	go func() {
-		for result := range results {
-			if result.err != nil {
-				merr = multierror.Append(merr, result.err)
-			} else {
-				resolved[result.domain] = append(resolved[result.domain], result.prefix)
-			}
+	for result := range results {
+		if result.err != nil {
+			merr = multierror.Append(merr, result.err)
+		} else {
+			resolved[result.domain] = append(resolved[result.domain], result.prefix)
 		}
-		close(done)
-	}()
+	}
+
+	return resolved, nberrors.FormatErrorOrNil(merr)
+}
+
+func (r *Route) resolve(results chan resolveResult) {
+	var wg sync.WaitGroup
 
 	for _, d := range r.route.Domains {
 		wg.Add(1)
@@ -222,9 +225,6 @@ func (r *Route) resolveDomains() (domainMap, error) {
 
 	wg.Wait()
 	close(results)
-	<-done
-
-	return resolved, nberrors.FormatErrorOrNil(merr)
 }
 
 func (r *Route) updateDynamicRoutes(newDomains domainMap) error {
