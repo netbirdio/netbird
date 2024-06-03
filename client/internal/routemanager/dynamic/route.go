@@ -24,6 +24,8 @@ const (
 	DefaultInterval = time.Minute
 
 	minInterval = 2 * time.Second
+
+	addAllowedIP = "add allowed IP %s: %w"
 )
 
 type domainMap map[domain.Domain][]netip.Prefix
@@ -115,7 +117,7 @@ func (r *Route) AddAllowedIPs(peerKey string) error {
 	for domain, domainPrefixes := range r.dynamicDomains {
 		for _, prefix := range domainPrefixes {
 			if err := r.incrementAllowedIP(domain, prefix, peerKey); err != nil {
-				merr = multierror.Append(merr, fmt.Errorf("add allowed IP %s: %w", prefix, err))
+				merr = multierror.Append(merr, fmt.Errorf(addAllowedIP, prefix, err))
 			}
 		}
 	}
@@ -269,7 +271,7 @@ func (r *Route) addRoutes(domain domain.Domain, prefixes []netip.Prefix) ([]neti
 		}
 		if r.currentPeerKey != "" {
 			if err := r.incrementAllowedIP(domain, prefix, r.currentPeerKey); err != nil {
-				merr = multierror.Append(merr, fmt.Errorf("add allowed IP %s: %w", prefix, err))
+				merr = multierror.Append(merr, fmt.Errorf(addAllowedIP, prefix, err))
 			}
 		}
 		addedPrefixes = append(addedPrefixes, prefix)
@@ -303,7 +305,7 @@ func (r *Route) removeRoutes(prefixes []netip.Prefix) ([]netip.Prefix, error) {
 
 func (r *Route) incrementAllowedIP(domain domain.Domain, prefix netip.Prefix, peerKey string) error {
 	if ref, err := r.allowedIPsRefcounter.Increment(prefix, peerKey); err != nil {
-		return fmt.Errorf("add allowed IP %s: %w", prefix, err)
+		return fmt.Errorf(addAllowedIP, prefix, err)
 	} else if ref.Count > 1 && ref.Out != peerKey {
 		log.Warnf("IP [%s] for domain [%s] was already resolved for a different domain routed by peer [%s]. Routing for this IP will be done by peer [%s], HA routing disabled",
 			prefix.Addr(),
