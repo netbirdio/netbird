@@ -51,13 +51,8 @@ func (c *OSVersionCheck) Name() string {
 }
 
 func (c *OSVersionCheck) Validate() error {
-	emptyOS := c.Android == nil && c.Darwin == nil && c.Ios == nil &&
-		c.Linux == nil && c.Windows == nil
-	emptyMinVersion := c.Android != nil && c.Android.MinVersion == "" || c.Darwin != nil && c.Darwin.MinVersion == "" ||
-		c.Ios != nil && c.Ios.MinVersion == "" || c.Linux != nil && c.Linux.MinKernelVersion == "" || c.Windows != nil &&
-		c.Windows.MinKernelVersion == ""
-	if emptyOS || emptyMinVersion {
-		return fmt.Errorf("%s minimum version for at least one OS shouldn't be empty", c.Name())
+	if c.Android == nil && c.Darwin == nil && c.Ios == nil && c.Linux == nil && c.Windows == nil {
+		return fmt.Errorf("%s at least one OS version check is required", c.Name())
 	}
 
 	if c.Android != nil && !isVersionValid(c.Android.MinVersion) {
