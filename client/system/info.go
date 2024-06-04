@@ -20,6 +20,9 @@ const OsVersionCtxKey = "OsVersion"
 // OsNameCtxKey context key for operating system name
 const OsNameCtxKey = "OsName"
 
+// UiVersionCtxKey context key for user UI version
+const UiVersionCtxKey = "user-agent"
+
 type NetworkAddress struct {
 	NetIP netip.Prefix
 	Mac   string

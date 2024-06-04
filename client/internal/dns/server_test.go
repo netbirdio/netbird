@@ -39,6 +39,10 @@ func (w *mocWGIface) Address() iface.WGAddress {
 	}
 }
 
+func (w *mocWGIface) ToInterface() *net.Interface {
+	panic("implement me")
+}
+
 func (w *mocWGIface) GetFilter() iface.PacketFilter {
 	return w.filter
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -33,6 +34,7 @@ import (
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/iface/bind"
 	mgm "github.com/netbirdio/netbird/management/client"
+	"github.com/netbirdio/netbird/management/domain"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/route"
 	signal "github.com/netbirdio/netbird/signal/client"
@@ -88,6 +90,8 @@ type EngineConfig struct {
 	RosenpassPermissive bool
 
 	ServerSSHAllowed bool
+
+	DNSRouteInterval time.Duration
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -117,7 +121,8 @@ type Engine struct {
 	TURNs []*stun.URI
 
 	// clientRoutes is the most recent list of clientRoutes received from the Management Service
-	clientRoutes route.HAMap
+	clientRoutes   route.HAMap
+	clientRoutesMu sync.RWMutex
 
 	clientCtx    context.Context
 	clientCancel context.CancelFunc
@@ -240,7 +245,9 @@ func (e *Engine) Stop() error {
 		return err
 	}
 
+	e.clientRoutesMu.Lock()
 	e.clientRoutes = nil
+	e.clientRoutesMu.Unlock()
 
 	// very ugly but we want to remove peers from the WireGuard interface first before removing interface.
 	// Removing peers happens in the conn.Close() asynchronously
@@ -297,7 +304,7 @@ func (e *Engine) Start() error {
 	}
 	e.dnsServer = dnsServer
 
-	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, initialRoutes)
+	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.config.DNSRouteInterval, e.wgInterface, e.statusRecorder, initialRoutes)
 	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
 	if err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)
@@ -546,8 +553,8 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 	} else {
 
 		if sshConf.GetSshEnabled() {
-			if runtime.GOOS == "windows" {
-				log.Warnf("running SSH server on Windows is not supported")
+			if runtime.GOOS == "windows" || runtime.GOOS == "freebsd" {
+				log.Warnf("running SSH server on %s is not supported", runtime.GOOS)
 				return nil
 			}
 			// start SSH server if it wasn't running
@@ -738,7 +745,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
 	}
 
+	e.clientRoutesMu.Lock()
 	e.clientRoutes = clientRoutes
+	e.clientRoutesMu.Unlock()
 
 	protoDNSConfig := networkMap.GetDNSConfig()
 	if protoDNSConfig == nil {
@@ -766,15 +775,24 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 	routes := make([]*route.Route, 0)
 	for _, protoRoute := range protoRoutes {
-		_, prefix, _ := route.ParseNetwork(protoRoute.Network)
+		var prefix netip.Prefix
+		if len(protoRoute.Domains) == 0 {
+			var err error
+			if prefix, err = netip.ParsePrefix(protoRoute.Network); err != nil {
+				log.Errorf("Failed to parse prefix %s: %v", protoRoute.Network, err)
+				continue
+			}
+		}
 		convertedRoute := &route.Route{
 			ID:          route.ID(protoRoute.ID),
 			Network:     prefix,
+			Domains:     domain.FromPunycodeList(protoRoute.Domains),
 			NetID:       route.NetID(protoRoute.NetID),
 			NetworkType: route.NetworkType(protoRoute.NetworkType),
 			Peer:        protoRoute.Peer,
 			Metric:      int(protoRoute.Metric),
 			Masquerade:  protoRoute.Masquerade,
+			KeepRoute:   protoRoute.KeepRoute,
 		}
 		routes = append(routes, convertedRoute)
 	}
@@ -977,7 +995,6 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		WgConfig:             wgConfig,
 		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
-		UserspaceBind:        e.wgInterface.IsUserspaceBind(),
 		RosenpassPubKey:      e.getRosenpassPubKey(),
 		RosenpassAddr:        e.getRosenpassAddr(),
 	}
@@ -1040,8 +1057,6 @@ func (e *Engine) receiveSignalEvents() {
 					return err
 				}
 
-				conn.RegisterProtoSupportMeta(msg.Body.GetFeaturesSupported())
-
 				var rosenpassPubKey []byte
 				rosenpassAddr := ""
 				if msg.GetBody().GetRosenpassConfig() != nil {
@@ -1063,8 +1078,6 @@ func (e *Engine) receiveSignalEvents() {
 				if err != nil {
 					return err
 				}
-
-				conn.RegisterProtoSupportMeta(msg.GetBody().GetFeaturesSupported())
 
 				var rosenpassPubKey []byte
 				rosenpassAddr := ""
@@ -1088,7 +1101,8 @@ func (e *Engine) receiveSignalEvents() {
 					log.Errorf("failed on parsing remote candidate %s -> %s", candidate, err)
 					return err
 				}
-				conn.OnRemoteCandidate(candidate)
+
+				conn.OnRemoteCandidate(candidate, e.GetClientRoutes())
 			case sProto.Body_MODE:
 			}
 
@@ -1282,11 +1296,17 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 
 // GetClientRoutes returns the current routes from the route map
 func (e *Engine) GetClientRoutes() route.HAMap {
-	return e.clientRoutes
+	e.clientRoutesMu.RLock()
+	defer e.clientRoutesMu.RUnlock()
+
+	return maps.Clone(e.clientRoutes)
 }
 
 // GetClientRoutesWithNetID returns the current routes from the route map, but the keys consist of the network ID only
 func (e *Engine) GetClientRoutesWithNetID() map[route.NetID][]*route.Route {
+	e.clientRoutesMu.RLock()
+	defer e.clientRoutesMu.RUnlock()
+
 	routes := make(map[route.NetID][]*route.Route, len(e.clientRoutes))
 	for id, v := range e.clientRoutes {
 		routes[id.NetID()] = v
