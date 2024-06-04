@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -117,7 +118,8 @@ type Engine struct {
 	TURNs []*stun.URI
 
 	// clientRoutes is the most recent list of clientRoutes received from the Management Service
-	clientRoutes route.HAMap
+	clientRoutes   route.HAMap
+	clientRoutesMu sync.RWMutex
 
 	clientCtx    context.Context
 	clientCancel context.CancelFunc
@@ -240,7 +242,9 @@ func (e *Engine) Stop() error {
 		return err
 	}
 
+	e.clientRoutesMu.Lock()
 	e.clientRoutes = nil
+	e.clientRoutesMu.Unlock()
 
 	// very ugly but we want to remove peers from the WireGuard interface first before removing interface.
 	// Removing peers happens in the conn.Close() asynchronously
@@ -738,7 +742,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
 	}
 
+	e.clientRoutesMu.Lock()
 	e.clientRoutes = clientRoutes
+	e.clientRoutesMu.Unlock()
 
 	protoDNSConfig := networkMap.GetDNSConfig()
 	if protoDNSConfig == nil {
@@ -1083,7 +1089,8 @@ func (e *Engine) receiveSignalEvents() {
 					log.Errorf("failed on parsing remote candidate %s -> %s", candidate, err)
 					return err
 				}
-				conn.OnRemoteCandidate(candidate)
+
+				conn.OnRemoteCandidate(candidate, e.GetClientRoutes())
 			case sProto.Body_MODE:
 			}
 
@@ -1277,11 +1284,17 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 
 // GetClientRoutes returns the current routes from the route map
 func (e *Engine) GetClientRoutes() route.HAMap {
-	return e.clientRoutes
+	e.clientRoutesMu.RLock()
+	defer e.clientRoutesMu.RUnlock()
+
+	return maps.Clone(e.clientRoutes)
 }
 
 // GetClientRoutesWithNetID returns the current routes from the route map, but the keys consist of the network ID only
 func (e *Engine) GetClientRoutesWithNetID() map[route.NetID][]*route.Route {
+	e.clientRoutesMu.RLock()
+	defer e.clientRoutesMu.RUnlock()
+
 	routes := make(map[route.NetID][]*route.Route, len(e.clientRoutes))
 	for id, v := range e.clientRoutes {
 		routes[id.NetID()] = v

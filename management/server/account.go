@@ -132,6 +132,7 @@ type AccountManager interface {
 	GetValidatedPeers(account *Account) (map[string]struct{}, error)
 	SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error)
 	CancelPeerRoutines(peer *nbpeer.Peer) error
+	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 }
 
 type DefaultAccountManager struct {
@@ -238,6 +239,11 @@ type Account struct {
 	DNSSettings            DNSSettings                       `gorm:"embedded;embeddedPrefix:dns_settings_"`
 	PostureChecks          []*posture.Checks                 `gorm:"foreignKey:AccountID;references:id"`
 	// Settings is a dictionary of Account settings
+	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
+}
+
+// Subclass used in gorm to only load settings and not whole account
+type AccountSettings struct {
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
 }
 
@@ -1959,6 +1965,10 @@ func (am *DefaultAccountManager) onPeersInvalidated(accountID string) {
 		return
 	}
 	am.updateAccountPeers(updatedAccount)
+}
+
+func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
+	return am.Store.GetPostureCheckByChecksDefinition(accountID, checks)
 }
 
 // addAllGroup to account object if it doesn't exist

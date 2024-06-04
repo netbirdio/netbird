@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"runtime"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/netbirdio/netbird/route"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	nbnet "github.com/netbirdio/netbird/util/net"
 	"github.com/netbirdio/netbird/version"
@@ -331,7 +333,7 @@ func (conn *Conn) Open(ctx context.Context) error {
 
 	err = conn.agent.GatherCandidates()
 	if err != nil {
-		return err
+		return fmt.Errorf("gather candidates: %v", err)
 	}
 
 	// will block until connection succeeded
@@ -348,7 +350,7 @@ func (conn *Conn) Open(ctx context.Context) error {
 		return err
 	}
 
-	// dynamically set remote WireGuard port is other side specified a different one from the default one
+	// dynamically set remote WireGuard port if other side specified a different one from the default one
 	remoteWgPort := iface.DefaultWgPort
 	if remoteOfferAnswer.WgListenPort != 0 {
 		remoteWgPort = remoteOfferAnswer.WgListenPort
@@ -753,13 +755,17 @@ func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) bool {
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
-func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate) {
+func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMap) {
 	log.Debugf("OnRemoteCandidate from peer %s -> %s", conn.config.Key, candidate.String())
 	go func() {
 		conn.mu.Lock()
 		defer conn.mu.Unlock()
 
 		if conn.agent == nil {
+			return
+		}
+
+		if candidateViaRoutes(candidate, haRoutes) {
 			return
 		}
 
@@ -792,4 +798,32 @@ func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive
 		RelAddr:   relatedAdd.Address,
 		RelPort:   relatedAdd.Port,
 	})
+}
+
+func candidateViaRoutes(candidate ice.Candidate, clientRoutes route.HAMap) bool {
+	var routePrefixes []netip.Prefix
+	for _, routes := range clientRoutes {
+		if len(routes) > 0 && routes[0] != nil {
+			routePrefixes = append(routePrefixes, routes[0].Network)
+		}
+	}
+
+	addr, err := netip.ParseAddr(candidate.Address())
+	if err != nil {
+		log.Errorf("Failed to parse IP address %s: %v", candidate.Address(), err)
+		return false
+	}
+
+	for _, prefix := range routePrefixes {
+		// default route is
+		if prefix.Bits() == 0 {
+			continue
+		}
+
+		if prefix.Contains(addr) {
+			log.Debugf("Ignoring candidate [%s], its address is part of routed network %s", candidate.String(), prefix)
+			return true
+		}
+	}
+	return false
 }
