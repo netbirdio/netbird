@@ -1,6 +1,6 @@
 //go:build !ios
 
-package routemanager
+package systemops
 
 import (
 	"fmt"
@@ -41,7 +41,7 @@ func TestConcurrentRoutes(t *testing.T) {
 		go func(ip netip.Addr) {
 			defer wg.Done()
 			prefix := netip.PrefixFrom(ip, 32)
-			if err := addToRouteTable(prefix, netip.Addr{}, intf); err != nil {
+			if err := addToRouteTable(prefix, Nexthop{netip.Addr{}, intf}); err != nil {
 				t.Errorf("Failed to add route for %s: %v", prefix, err)
 			}
 		}(baseIP)
@@ -57,7 +57,7 @@ func TestConcurrentRoutes(t *testing.T) {
 		go func(ip netip.Addr) {
 			defer wg.Done()
 			prefix := netip.PrefixFrom(ip, 32)
-			if err := removeFromRouteTable(prefix, netip.Addr{}, intf); err != nil {
+			if err := removeFromRouteTable(prefix, Nexthop{netip.Addr{}, intf}); err != nil {
 				t.Errorf("Failed to remove route for %s: %v", prefix, err)
 			}
 		}(baseIP)

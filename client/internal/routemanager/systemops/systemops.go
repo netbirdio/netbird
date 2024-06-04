@@ -1,6 +1,6 @@
 //go:build !android && !ios
 
-package routemanager
+package systemops
 
 import (
 	"context"
@@ -15,18 +15,26 @@ import (
 	"github.com/libp2p/go-netroute"
 	log "github.com/sirupsen/logrus"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
+	"github.com/netbirdio/netbird/client/internal/routemanager/util"
+	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/iface"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
+
+type Nexthop struct {
+	IP   netip.Addr
+	Intf *net.Interface
+}
+
+type ExclusionCounter = refcounter.Counter[any, Nexthop]
 
 var splitDefaultv4_1 = netip.PrefixFrom(netip.IPv4Unspecified(), 1)
 var splitDefaultv4_2 = netip.PrefixFrom(netip.AddrFrom4([4]byte{128}), 1)
 var splitDefaultv6_1 = netip.PrefixFrom(netip.IPv6Unspecified(), 1)
 var splitDefaultv6_2 = netip.PrefixFrom(netip.AddrFrom16([16]byte{0x80}), 1)
-
-var ErrRouteNotFound = errors.New("route not found")
-var ErrRouteNotAllowed = errors.New("route not allowed")
 
 // TODO: fix: for default our wg address now appears as the default gw
 func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
@@ -35,19 +43,19 @@ func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 		addr = netip.IPv6Unspecified()
 	}
 
-	defaultGateway, _, err := GetNextHop(addr)
-	if err != nil && !errors.Is(err, ErrRouteNotFound) {
+	nexthop, err := GetNextHop(addr)
+	if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
 		return fmt.Errorf("get existing route gateway: %s", err)
 	}
 
-	if !prefix.Contains(defaultGateway) {
-		log.Debugf("Skipping adding a new route for gateway %s because it is not in the network %s", defaultGateway, prefix)
+	if !prefix.Contains(nexthop.IP) {
+		log.Debugf("Skipping adding a new route for gateway %s because it is not in the network %s", nexthop.IP, prefix)
 		return nil
 	}
 
-	gatewayPrefix := netip.PrefixFrom(defaultGateway, 32)
-	if defaultGateway.Is6() {
-		gatewayPrefix = netip.PrefixFrom(defaultGateway, 128)
+	gatewayPrefix := netip.PrefixFrom(nexthop.IP, 32)
+	if nexthop.IP.Is6() {
+		gatewayPrefix = netip.PrefixFrom(nexthop.IP, 128)
 	}
 
 	ok, err := existsInRouteTable(gatewayPrefix)
@@ -60,50 +68,56 @@ func addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 		return nil
 	}
 
-	gatewayHop, intf, err := GetNextHop(defaultGateway)
-	if err != nil && !errors.Is(err, ErrRouteNotFound) {
+	nexthop, err = GetNextHop(nexthop.IP)
+	if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
 		return fmt.Errorf("unable to get the next hop for the default gateway address. error: %s", err)
 	}
 
-	log.Debugf("Adding a new route for gateway %s with next hop %s", gatewayPrefix, gatewayHop)
-	return addToRouteTable(gatewayPrefix, gatewayHop, intf)
+	log.Debugf("Adding a new route for gateway %s with next hop %s", gatewayPrefix, nexthop.IP)
+	return addToRouteTable(gatewayPrefix, nexthop)
 }
 
-func GetNextHop(ip netip.Addr) (netip.Addr, *net.Interface, error) {
+func GetNextHop(ip netip.Addr) (Nexthop, error) {
 	r, err := netroute.New()
 	if err != nil {
-		return netip.Addr{}, nil, fmt.Errorf("new netroute: %w", err)
+		return Nexthop{}, fmt.Errorf("new netroute: %w", err)
 	}
 	intf, gateway, preferredSrc, err := r.Route(ip.AsSlice())
 	if err != nil {
 		log.Debugf("Failed to get route for %s: %v", ip, err)
-		return netip.Addr{}, nil, ErrRouteNotFound
+		return Nexthop{}, vars.ErrRouteNotFound
 	}
 
 	log.Debugf("Route for %s: interface %v nexthop %v, preferred source %v", ip, intf, gateway, preferredSrc)
 	if gateway == nil {
 		if runtime.GOOS == "freebsd" {
-			return netip.Addr{}, intf, nil
+			return Nexthop{Intf: intf}, nil
 		}
 
 		if preferredSrc == nil {
-			return netip.Addr{}, nil, ErrRouteNotFound
+			return Nexthop{}, vars.ErrRouteNotFound
 		}
-		log.Debugf("No next hop found for ip %s, using preferred source %s", ip, preferredSrc)
+		log.Debugf("No next hop found for IP %s, using preferred source %s", ip, preferredSrc)
 
 		addr, err := ipToAddr(preferredSrc, intf)
 		if err != nil {
-			return netip.Addr{}, nil, fmt.Errorf("convert preferred source to address: %w", err)
+			return Nexthop{}, fmt.Errorf("convert preferred source to address: %w", err)
 		}
-		return addr.Unmap(), intf, nil
+		return Nexthop{
+			IP:   addr.Unmap(),
+			Intf: intf,
+		}, nil
 	}
 
 	addr, err := ipToAddr(gateway, intf)
 	if err != nil {
-		return netip.Addr{}, nil, fmt.Errorf("convert gateway to address: %w", err)
+		return Nexthop{}, fmt.Errorf("convert gateway to address: %w", err)
 	}
 
-	return addr, intf, nil
+	return Nexthop{
+		IP:   addr,
+		Intf: intf,
+	}, nil
 }
 
 // converts a net.IP to a netip.Addr including the zone based on the passed interface
@@ -144,7 +158,7 @@ func isSubRange(prefix netip.Prefix) (bool, error) {
 		return false, fmt.Errorf("get routes from table: %w", err)
 	}
 	for _, tableRoute := range routes {
-		if tableRoute.Bits() > minRangeBits && tableRoute.Contains(prefix.Addr()) && tableRoute.Bits() < prefix.Bits() {
+		if tableRoute.Bits() > vars.MinRangeBits && tableRoute.Contains(prefix.Addr()) && tableRoute.Bits() < prefix.Bits() {
 			return true, nil
 		}
 	}
@@ -153,7 +167,7 @@ func isSubRange(prefix netip.Prefix) (bool, error) {
 
 // addRouteToNonVPNIntf adds a new route to the routing table for the given prefix and returns the next hop and interface.
 // If the next hop or interface is pointing to the VPN interface, it will return the initial values.
-func addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIface, initialNextHop netip.Addr, initialIntf *net.Interface) (netip.Addr, *net.Interface, error) {
+func addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIface, initialNextHop Nexthop) (Nexthop, error) {
 	addr := prefix.Addr()
 	switch {
 	case addr.IsLoopback(),
@@ -163,71 +177,74 @@ func addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIface, initialNe
 		addr.IsUnspecified(),
 		addr.IsMulticast():
 
-		return netip.Addr{}, nil, ErrRouteNotAllowed
+		return Nexthop{}, vars.ErrRouteNotAllowed
 	}
 
 	// Determine the exit interface and next hop for the prefix, so we can add a specific route
-	nexthop, intf, err := GetNextHop(addr)
+	nexthop, err := GetNextHop(addr)
 	if err != nil {
-		return netip.Addr{}, nil, fmt.Errorf("get next hop: %w", err)
+		return Nexthop{}, fmt.Errorf("get next hop: %w", err)
 	}
 
-	log.Debugf("Found next hop %s for prefix %s with interface %v", nexthop, prefix, intf)
-	exitNextHop := nexthop
-	exitIntf := intf
+	log.Debugf("Found next hop %s for prefix %s with interface %v", nexthop.IP, prefix, nexthop.IP)
+	exitNextHop := Nexthop{
+		IP:   nexthop.IP,
+		Intf: nexthop.Intf,
+	}
 
 	vpnAddr, ok := netip.AddrFromSlice(vpnIntf.Address().IP)
 	if !ok {
-		return netip.Addr{}, nil, fmt.Errorf("failed to convert vpn address to netip.Addr")
+		return Nexthop{}, fmt.Errorf("failed to convert vpn address to netip.Addr")
 	}
 
 	// if next hop is the VPN address or the interface is the VPN interface, we should use the initial values
-	if exitNextHop == vpnAddr || exitIntf != nil && exitIntf.Name == vpnIntf.Name() {
+	if exitNextHop.IP == vpnAddr || exitNextHop.Intf != nil && exitNextHop.Intf.Name == vpnIntf.Name() {
 		log.Debugf("Route for prefix %s is pointing to the VPN interface", prefix)
 		exitNextHop = initialNextHop
-		exitIntf = initialIntf
 	}
 
-	log.Debugf("Adding a new route for prefix %s with next hop %s", prefix, exitNextHop)
-	if err := addToRouteTable(prefix, exitNextHop, exitIntf); err != nil {
-		return netip.Addr{}, nil, fmt.Errorf("add route to table: %w", err)
+	log.Debugf("Adding a new route for prefix %s with next hop %s", prefix, exitNextHop.IP)
+	if err := addToRouteTable(prefix, exitNextHop); err != nil {
+		return Nexthop{}, fmt.Errorf("add route to table: %w", err)
 	}
 
-	return exitNextHop, exitIntf, nil
+	return exitNextHop, nil
 }
 
 // genericAddVPNRoute adds a new route to the vpn interface, it splits the default prefix
 // in two /1 prefixes to avoid replacing the existing default route
 func genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
-	if prefix == defaultv4 {
-		if err := addToRouteTable(splitDefaultv4_1, netip.Addr{}, intf); err != nil {
+	nextHop := Nexthop{netip.Addr{}, intf}
+
+	if prefix == vars.Defaultv4 {
+		if err := addToRouteTable(splitDefaultv4_1, nextHop); err != nil {
 			return err
 		}
-		if err := addToRouteTable(splitDefaultv4_2, netip.Addr{}, intf); err != nil {
-			if err2 := removeFromRouteTable(splitDefaultv4_1, netip.Addr{}, intf); err2 != nil {
+		if err := addToRouteTable(splitDefaultv4_2, nextHop); err != nil {
+			if err2 := removeFromRouteTable(splitDefaultv4_1, nextHop); err2 != nil {
 				log.Warnf("Failed to rollback route addition: %s", err2)
 			}
 			return err
 		}
 
 		// TODO: remove once IPv6 is supported on the interface
-		if err := addToRouteTable(splitDefaultv6_1, netip.Addr{}, intf); err != nil {
+		if err := addToRouteTable(splitDefaultv6_1, nextHop); err != nil {
 			return fmt.Errorf("add unreachable route split 1: %w", err)
 		}
-		if err := addToRouteTable(splitDefaultv6_2, netip.Addr{}, intf); err != nil {
-			if err2 := removeFromRouteTable(splitDefaultv6_1, netip.Addr{}, intf); err2 != nil {
+		if err := addToRouteTable(splitDefaultv6_2, nextHop); err != nil {
+			if err2 := removeFromRouteTable(splitDefaultv6_1, nextHop); err2 != nil {
 				log.Warnf("Failed to rollback route addition: %s", err2)
 			}
 			return fmt.Errorf("add unreachable route split 2: %w", err)
 		}
 
 		return nil
-	} else if prefix == defaultv6 {
-		if err := addToRouteTable(splitDefaultv6_1, netip.Addr{}, intf); err != nil {
+	} else if prefix == vars.Defaultv6 {
+		if err := addToRouteTable(splitDefaultv6_1, nextHop); err != nil {
 			return fmt.Errorf("add unreachable route split 1: %w", err)
 		}
-		if err := addToRouteTable(splitDefaultv6_2, netip.Addr{}, intf); err != nil {
-			if err2 := removeFromRouteTable(splitDefaultv6_1, netip.Addr{}, intf); err2 != nil {
+		if err := addToRouteTable(splitDefaultv6_2, nextHop); err != nil {
+			if err2 := removeFromRouteTable(splitDefaultv6_1, nextHop); err2 != nil {
 				log.Warnf("Failed to rollback route addition: %s", err2)
 			}
 			return fmt.Errorf("add unreachable route split 2: %w", err)
@@ -262,92 +279,79 @@ func addNonExistingRoute(prefix netip.Prefix, intf *net.Interface) error {
 		}
 	}
 
-	return addToRouteTable(prefix, netip.Addr{}, intf)
+	return addToRouteTable(prefix, Nexthop{netip.Addr{}, intf})
 }
 
 // genericRemoveVPNRoute removes the route from the vpn interface. If a default prefix is given,
 // it will remove the split /1 prefixes
 func genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
-	if prefix == defaultv4 {
+	nextHop := Nexthop{netip.Addr{}, intf}
+
+	if prefix == vars.Defaultv4 {
 		var result *multierror.Error
-		if err := removeFromRouteTable(splitDefaultv4_1, netip.Addr{}, intf); err != nil {
+		if err := removeFromRouteTable(splitDefaultv4_1, nextHop); err != nil {
 			result = multierror.Append(result, err)
 		}
-		if err := removeFromRouteTable(splitDefaultv4_2, netip.Addr{}, intf); err != nil {
+		if err := removeFromRouteTable(splitDefaultv4_2, nextHop); err != nil {
 			result = multierror.Append(result, err)
 		}
 
 		// TODO: remove once IPv6 is supported on the interface
-		if err := removeFromRouteTable(splitDefaultv6_1, netip.Addr{}, intf); err != nil {
+		if err := removeFromRouteTable(splitDefaultv6_1, nextHop); err != nil {
 			result = multierror.Append(result, err)
 		}
-		if err := removeFromRouteTable(splitDefaultv6_2, netip.Addr{}, intf); err != nil {
+		if err := removeFromRouteTable(splitDefaultv6_2, nextHop); err != nil {
 			result = multierror.Append(result, err)
 		}
 
 		return result.ErrorOrNil()
-	} else if prefix == defaultv6 {
+	} else if prefix == vars.Defaultv6 {
 		var result *multierror.Error
-		if err := removeFromRouteTable(splitDefaultv6_1, netip.Addr{}, intf); err != nil {
+		if err := removeFromRouteTable(splitDefaultv6_1, nextHop); err != nil {
 			result = multierror.Append(result, err)
 		}
-		if err := removeFromRouteTable(splitDefaultv6_2, netip.Addr{}, intf); err != nil {
+		if err := removeFromRouteTable(splitDefaultv6_2, nextHop); err != nil {
 			result = multierror.Append(result, err)
 		}
 
-		return result.ErrorOrNil()
+		return nberrors.FormatErrorOrNil(result)
 	}
 
-	return removeFromRouteTable(prefix, netip.Addr{}, intf)
+	return removeFromRouteTable(prefix, nextHop)
 }
 
-func getPrefixFromIP(ip net.IP) (*netip.Prefix, error) {
-	addr, ok := netip.AddrFromSlice(ip)
-	if !ok {
-		return nil, fmt.Errorf("parse IP address: %s", ip)
-	}
-	addr = addr.Unmap()
-
-	var prefixLength int
-	switch {
-	case addr.Is4():
-		prefixLength = 32
-	case addr.Is6():
-		prefixLength = 128
-	default:
-		return nil, fmt.Errorf("invalid IP address: %s", addr)
-	}
-
-	prefix := netip.PrefixFrom(addr, prefixLength)
-	return &prefix, nil
-}
-
-func setupRoutingWithRouteManager(routeManager **RouteManager, initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
-	initialNextHopV4, initialIntfV4, err := GetNextHop(netip.IPv4Unspecified())
-	if err != nil && !errors.Is(err, ErrRouteNotFound) {
+func setupRoutingWithRefCounter(refCounter **ExclusionCounter, initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+	initialNextHopV4, err := GetNextHop(netip.IPv4Unspecified())
+	if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
 		log.Errorf("Unable to get initial v4 default next hop: %v", err)
 	}
-	initialNextHopV6, initialIntfV6, err := GetNextHop(netip.IPv6Unspecified())
-	if err != nil && !errors.Is(err, ErrRouteNotFound) {
+	initialNextHopV6, err := GetNextHop(netip.IPv6Unspecified())
+	if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
 		log.Errorf("Unable to get initial v6 default next hop: %v", err)
 	}
 
-	*routeManager = NewRouteManager(
-		func(prefix netip.Prefix) (netip.Addr, *net.Interface, error) {
-			addr := prefix.Addr()
-			nexthop, intf := initialNextHopV4, initialIntfV4
-			if addr.Is6() {
-				nexthop, intf = initialNextHopV6, initialIntfV6
+	*refCounter = refcounter.New(
+		func(prefix netip.Prefix, _ any) (Nexthop, error) {
+			initialNexthop := initialNextHopV4
+			if prefix.Addr().Is6() {
+				initialNexthop = initialNextHopV6
 			}
-			return addRouteToNonVPNIntf(prefix, wgIface, nexthop, intf)
+
+			nexthop, err := addRouteToNonVPNIntf(prefix, wgIface, initialNexthop)
+			if errors.Is(err, vars.ErrRouteNotAllowed) || errors.Is(err, vars.ErrRouteNotFound) {
+				log.Tracef("Adding for prefix %s: %v", prefix, err)
+				// These errors are not critical but also we should not track and try to remove the routes either.
+				return nexthop, refcounter.ErrIgnore
+			}
+			return nexthop, err
 		},
 		removeFromRouteTable,
 	)
 
-	return setupHooks(*routeManager, initAddresses)
+	return setupHooks(*refCounter, initAddresses)
 }
 
-func cleanupRoutingWithRouteManager(routeManager *RouteManager) error {
+func cleanupRoutingWithRefCounter(routeManager *ExclusionCounter) error {
 	if routeManager == nil {
 		return nil
 	}
@@ -363,21 +367,21 @@ func cleanupRoutingWithRouteManager(routeManager *RouteManager) error {
 	return nil
 }
 
-func setupHooks(routeManager *RouteManager, initAddresses []net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+func setupHooks(routeManager *ExclusionCounter, initAddresses []net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
 	beforeHook := func(connID nbnet.ConnectionID, ip net.IP) error {
-		prefix, err := getPrefixFromIP(ip)
+		prefix, err := util.GetPrefixFromIP(ip)
 		if err != nil {
 			return fmt.Errorf("convert ip to prefix: %w", err)
 		}
 
-		if err := routeManager.AddRouteRef(connID, *prefix); err != nil {
+		if _, err := routeManager.IncrementWithID(string(connID), prefix, nil); err != nil {
 			return fmt.Errorf("adding route reference: %v", err)
 		}
 
 		return nil
 	}
 	afterHook := func(connID nbnet.ConnectionID) error {
-		if err := routeManager.RemoveRouteRef(connID); err != nil {
+		if err := routeManager.DecrementWithID(string(connID)); err != nil {
 			return fmt.Errorf("remove route reference: %w", err)
 		}
 
@@ -399,7 +403,7 @@ func setupHooks(routeManager *RouteManager, initAddresses []net.IP) (peer.Before
 		for _, ip := range resolvedIPs {
 			result = multierror.Append(result, beforeHook(connID, ip.IP))
 		}
-		return result.ErrorOrNil()
+		return nberrors.FormatErrorOrNil(result)
 	})
 
 	nbnet.AddDialerCloseHook(func(connID nbnet.ConnectionID, conn *net.Conn) error {

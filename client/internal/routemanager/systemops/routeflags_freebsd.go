@@ -1,5 +1,5 @@
 //go:build: freebsd
-package routemanager
+package systemops
 
 import "syscall"
 

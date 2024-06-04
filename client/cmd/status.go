@@ -807,11 +807,7 @@ func anonymizePeerDetail(a *anonymize.Anonymizer, peer *peerStateDetailOutput) {
 	}
 
 	for i, route := range peer.Routes {
-		prefix, err := netip.ParsePrefix(route)
-		if err == nil {
-			ip := a.AnonymizeIPString(prefix.Addr().String())
-			peer.Routes[i] = fmt.Sprintf("%s/%d", ip, prefix.Bits())
-		}
+		peer.Routes[i] = anonymizeRoute(a, route)
 	}
 }
 
@@ -847,12 +843,21 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *statusOutputOverview) 
 	}
 
 	for i, route := range overview.Routes {
-		prefix, err := netip.ParsePrefix(route)
-		if err == nil {
-			ip := a.AnonymizeIPString(prefix.Addr().String())
-			overview.Routes[i] = fmt.Sprintf("%s/%d", ip, prefix.Bits())
-		}
+		overview.Routes[i] = anonymizeRoute(a, route)
 	}
 
 	overview.FQDN = a.AnonymizeDomain(overview.FQDN)
+}
+
+func anonymizeRoute(a *anonymize.Anonymizer, route string) string {
+	prefix, err := netip.ParsePrefix(route)
+	if err == nil {
+		ip := a.AnonymizeIPString(prefix.Addr().String())
+		return fmt.Sprintf("%s/%d", ip, prefix.Bits())
+	}
+	domains := strings.Split(route, ", ")
+	for i, domain := range domains {
+		domains[i] = a.AnonymizeDomain(domain)
+	}
+	return strings.Join(domains, ", ")
 }

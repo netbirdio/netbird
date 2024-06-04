@@ -48,6 +48,19 @@ func (w *WGIface) Address() WGAddress {
 	return w.tun.WgAddress()
 }
 
+// ToInterface returns the net.Interface for the Wireguard interface
+func (r *WGIface) ToInterface() *net.Interface {
+	name := r.tun.DeviceName()
+	intf, err := net.InterfaceByName(name)
+	if err != nil {
+		log.Warnf("Failed to get interface by name %s: %v", name, err)
+		intf = &net.Interface{
+			Name: name,
+		}
+	}
+	return intf
+}
+
 // Up configures a Wireguard interface
 // The interface must exist before calling this method (e.g. call interface.Create() before)
 func (w *WGIface) Up() (*bind.UniversalUDPMuxDefault, error) {
@@ -94,7 +107,7 @@ func (w *WGIface) AddAllowedIP(peerKey string, allowedIP string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Debugf("adding allowed IP to interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
+	log.Debugf("Adding allowed IP to interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
 	return w.configurer.addAllowedIP(peerKey, allowedIP)
 }
 
@@ -103,7 +116,7 @@ func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Debugf("removing allowed IP from interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
+	log.Debugf("Removing allowed IP from interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
 	return w.configurer.removeAllowedIP(peerKey, allowedIP)
 }
 

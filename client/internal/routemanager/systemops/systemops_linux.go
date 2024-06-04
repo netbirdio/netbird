@@ -1,6 +1,6 @@
 //go:build !android
 
-package routemanager
+package systemops
 
 import (
 	"bufio"
@@ -18,6 +18,7 @@ import (
 	"github.com/vishvananda/netlink"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/iface"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
@@ -41,7 +42,7 @@ const (
 
 var ErrTableIDExists = errors.New("ID exists with different name")
 
-var routeManager = &RouteManager{}
+var refCounter *ExclusionCounter
 
 // originalSysctl stores the original sysctl values before they are modified
 var originalSysctl map[string]int
@@ -82,7 +83,7 @@ func getSetupRules() []ruleParams {
 	}
 }
 
-// setupRouting establishes the routing configuration for the VPN, including essential rules
+// SetupRouting establishes the routing configuration for the VPN, including essential rules
 // to ensure proper traffic flow for management, locally configured routes, and VPN traffic.
 //
 // Rule 1 (Main Route Precedence): Safeguards locally installed routes by giving them precedence over
@@ -92,10 +93,10 @@ func getSetupRules() []ruleParams {
 // Rule 2 (VPN Traffic Routing): Directs all remaining traffic to the 'NetbirdVPNTableID' custom routing table.
 // This table is where a default route or other specific routes received from the management server are configured,
 // enabling VPN connectivity.
-func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.BeforeAddPeerHookFunc, _ peer.AfterRemovePeerHookFunc, err error) {
+func SetupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.BeforeAddPeerHookFunc, _ peer.AfterRemovePeerHookFunc, err error) {
 	if isLegacy() {
 		log.Infof("Using legacy routing setup")
-		return setupRoutingWithRouteManager(&routeManager, initAddresses, wgIface)
+		return setupRoutingWithRefCounter(&refCounter, initAddresses, wgIface)
 	}
 
 	if err = addRoutingTableName(); err != nil {
@@ -111,7 +112,7 @@ func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.Before
 
 	defer func() {
 		if err != nil {
-			if cleanErr := cleanupRouting(); cleanErr != nil {
+			if cleanErr := CleanupRouting(); cleanErr != nil {
 				log.Errorf("Error cleaning up routing: %v", cleanErr)
 			}
 		}
@@ -123,7 +124,7 @@ func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.Before
 			if errors.Is(err, syscall.EOPNOTSUPP) {
 				log.Warnf("Rule operations are not supported, falling back to the legacy routing setup")
 				setIsLegacy(true)
-				return setupRoutingWithRouteManager(&routeManager, initAddresses, wgIface)
+				return setupRoutingWithRefCounter(&refCounter, initAddresses, wgIface)
 			}
 			return nil, nil, fmt.Errorf("%s: %w", rule.description, err)
 		}
@@ -132,12 +133,12 @@ func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (_ peer.Before
 	return nil, nil, nil
 }
 
-// cleanupRouting performs a thorough cleanup of the routing configuration established by 'setupRouting'.
+// CleanupRouting performs a thorough cleanup of the routing configuration established by 'setupRouting'.
 // It systematically removes the three rules and any associated routing table entries to ensure a clean state.
 // The function uses error aggregation to report any errors encountered during the cleanup process.
-func cleanupRouting() error {
+func CleanupRouting() error {
 	if isLegacy() {
-		return cleanupRoutingWithRouteManager(routeManager)
+		return cleanupRoutingWithRefCounter(refCounter)
 	}
 
 	var result *multierror.Error
@@ -165,49 +166,49 @@ func cleanupRouting() error {
 	return result.ErrorOrNil()
 }
 
-func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
-	return addRoute(prefix, nexthop, intf, syscall.RT_TABLE_MAIN)
+func addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+	return addRoute(prefix, nexthop, syscall.RT_TABLE_MAIN)
 }
 
-func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
-	return removeRoute(prefix, nexthop, intf, syscall.RT_TABLE_MAIN)
+func removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+	return removeRoute(prefix, nexthop, syscall.RT_TABLE_MAIN)
 }
 
-func addVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+func AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if isLegacy() {
 		return genericAddVPNRoute(prefix, intf)
 	}
 
-	if sysctlFailed && (prefix == defaultv4 || prefix == defaultv6) {
+	if sysctlFailed && (prefix == vars.Defaultv4 || prefix == vars.Defaultv6) {
 		log.Warnf("Default route is configured but sysctl operations failed, VPN traffic may not be routed correctly, consider using NB_USE_LEGACY_ROUTING=true or setting net.ipv4.conf.*.rp_filter to 2 (loose) or 0 (off)")
 	}
 
 	// No need to check if routes exist as main table takes precedence over the VPN table via Rule 1
 
 	// TODO remove this once we have ipv6 support
-	if prefix == defaultv4 {
-		if err := addUnreachableRoute(defaultv6, NetbirdVPNTableID); err != nil {
+	if prefix == vars.Defaultv4 {
+		if err := addUnreachableRoute(vars.Defaultv6, NetbirdVPNTableID); err != nil {
 			return fmt.Errorf("add blackhole: %w", err)
 		}
 	}
-	if err := addRoute(prefix, netip.Addr{}, intf, NetbirdVPNTableID); err != nil {
+	if err := addRoute(prefix, Nexthop{netip.Addr{}, intf}, NetbirdVPNTableID); err != nil {
 		return fmt.Errorf("add route: %w", err)
 	}
 	return nil
 }
 
-func removeVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+func RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if isLegacy() {
 		return genericRemoveVPNRoute(prefix, intf)
 	}
 
 	// TODO remove this once we have ipv6 support
-	if prefix == defaultv4 {
-		if err := removeUnreachableRoute(defaultv6, NetbirdVPNTableID); err != nil {
+	if prefix == vars.Defaultv4 {
+		if err := removeUnreachableRoute(vars.Defaultv6, NetbirdVPNTableID); err != nil {
 			return fmt.Errorf("remove unreachable route: %w", err)
 		}
 	}
-	if err := removeRoute(prefix, netip.Addr{}, intf, NetbirdVPNTableID); err != nil {
+	if err := removeRoute(prefix, Nexthop{netip.Addr{}, intf}, NetbirdVPNTableID); err != nil {
 		return fmt.Errorf("remove route: %w", err)
 	}
 	return nil
@@ -255,7 +256,7 @@ func getRoutes(tableID, family int) ([]netip.Prefix, error) {
 }
 
 // addRoute adds a route to a specific routing table identified by tableID.
-func addRoute(prefix netip.Prefix, addr netip.Addr, intf *net.Interface, tableID int) error {
+func addRoute(prefix netip.Prefix, nexthop Nexthop, tableID int) error {
 	route := &netlink.Route{
 		Scope:  netlink.SCOPE_UNIVERSE,
 		Table:  tableID,
@@ -268,7 +269,7 @@ func addRoute(prefix netip.Prefix, addr netip.Addr, intf *net.Interface, tableID
 	}
 	route.Dst = ipNet
 
-	if err := addNextHop(addr, intf, route); err != nil {
+	if err := addNextHop(nexthop, route); err != nil {
 		return fmt.Errorf("add gateway and device: %w", err)
 	}
 
@@ -327,7 +328,7 @@ func removeUnreachableRoute(prefix netip.Prefix, tableID int) error {
 }
 
 // removeRoute removes a route from a specific routing table identified by tableID.
-func removeRoute(prefix netip.Prefix, addr netip.Addr, intf *net.Interface, tableID int) error {
+func removeRoute(prefix netip.Prefix, nexthop Nexthop, tableID int) error {
 	_, ipNet, err := net.ParseCIDR(prefix.String())
 	if err != nil {
 		return fmt.Errorf("parse prefix %s: %w", prefix, err)
@@ -340,7 +341,7 @@ func removeRoute(prefix netip.Prefix, addr netip.Addr, intf *net.Interface, tabl
 		Dst:    ipNet,
 	}
 
-	if err := addNextHop(addr, intf, route); err != nil {
+	if err := addNextHop(nexthop, route); err != nil {
 		return fmt.Errorf("add gateway and device: %w", err)
 	}
 
@@ -376,7 +377,7 @@ func flushRoutes(tableID, family int) error {
 	return result.ErrorOrNil()
 }
 
-func enableIPForwarding() error {
+func EnableIPForwarding() error {
 	_, err := setSysctl(ipv4ForwardingPath, 1, false)
 	return err
 }
@@ -481,19 +482,19 @@ func removeRule(params ruleParams) error {
 }
 
 // addNextHop adds the gateway and device to the route.
-func addNextHop(addr netip.Addr, intf *net.Interface, route *netlink.Route) error {
-	if intf != nil {
-		route.LinkIndex = intf.Index
+func addNextHop(nexthop Nexthop, route *netlink.Route) error {
+	if nexthop.Intf != nil {
+		route.LinkIndex = nexthop.Intf.Index
 	}
 
-	if addr.IsValid() {
-		route.Gw = addr.AsSlice()
+	if nexthop.IP.IsValid() {
+		route.Gw = nexthop.IP.AsSlice()
 
 		// if zone is set, it means the gateway is a link-local address, so we set the link index
-		if addr.Zone() != "" && intf == nil {
-			link, err := netlink.LinkByName(addr.Zone())
+		if nexthop.IP.Zone() != "" && nexthop.Intf == nil {
+			link, err := netlink.LinkByName(nexthop.IP.Zone())
 			if err != nil {
-				return fmt.Errorf("get link by name for zone %s: %w", addr.Zone(), err)
+				return fmt.Errorf("get link by name for zone %s: %w", nexthop.IP.Zone(), err)
 			}
 			route.LinkIndex = link.Attrs().Index
 		}

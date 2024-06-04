@@ -33,6 +33,7 @@ import (
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/iface/bind"
 	mgm "github.com/netbirdio/netbird/management/client"
+	"github.com/netbirdio/netbird/management/domain"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/route"
 	signal "github.com/netbirdio/netbird/signal/client"
@@ -88,6 +89,8 @@ type EngineConfig struct {
 	RosenpassPermissive bool
 
 	ServerSSHAllowed bool
+
+	DNSRouteInterval time.Duration
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -297,7 +300,7 @@ func (e *Engine) Start() error {
 	}
 	e.dnsServer = dnsServer
 
-	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, initialRoutes)
+	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.config.DNSRouteInterval, e.wgInterface, e.statusRecorder, initialRoutes)
 	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
 	if err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)
@@ -766,15 +769,24 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 	routes := make([]*route.Route, 0)
 	for _, protoRoute := range protoRoutes {
-		_, prefix, _ := route.ParseNetwork(protoRoute.Network)
+		var prefix netip.Prefix
+		if len(protoRoute.Domains) == 0 {
+			var err error
+			if prefix, err = netip.ParsePrefix(protoRoute.Network); err != nil {
+				log.Errorf("Failed to parse prefix %s: %v", protoRoute.Network, err)
+				continue
+			}
+		}
 		convertedRoute := &route.Route{
 			ID:          route.ID(protoRoute.ID),
 			Network:     prefix,
+			Domains:     domain.FromPunycodeList(protoRoute.Domains),
 			NetID:       route.NetID(protoRoute.NetID),
 			NetworkType: route.NetworkType(protoRoute.NetworkType),
 			Peer:        protoRoute.Peer,
 			Metric:      int(protoRoute.Metric),
 			Masquerade:  protoRoute.Masquerade,
+			KeepRoute:   protoRoute.KeepRoute,
 		}
 		routes = append(routes, convertedRoute)
 	}

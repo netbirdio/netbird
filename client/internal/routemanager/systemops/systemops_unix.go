@@ -1,6 +1,6 @@
 //go:build (darwin && !ios) || dragonfly || freebsd || netbsd || openbsd
 
-package routemanager
+package systemops
 
 import (
 	"fmt"
@@ -17,25 +17,25 @@ import (
 	"github.com/netbirdio/netbird/iface"
 )
 
-var routeManager *RouteManager
+var refCounter *ExclusionCounter
 
-func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
-	return setupRoutingWithRouteManager(&routeManager, initAddresses, wgIface)
+func SetupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+	return setupRoutingWithRefCounter(&refCounter, initAddresses, wgIface)
 }
 
-func cleanupRouting() error {
-	return cleanupRoutingWithRouteManager(routeManager)
+func CleanupRouting() error {
+	return cleanupRoutingWithRefCounter(refCounter)
 }
 
-func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
-	return routeCmd("add", prefix, nexthop, intf)
+func addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+	return routeCmd("add", prefix, nexthop)
 }
 
-func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
-	return routeCmd("delete", prefix, nexthop, intf)
+func removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+	return routeCmd("delete", prefix, nexthop)
 }
 
-func routeCmd(action string, prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
+func routeCmd(action string, prefix netip.Prefix, nexthop Nexthop) error {
 	inet := "-inet"
 	network := prefix.String()
 	if prefix.IsSingleIP() {
@@ -46,10 +46,10 @@ func routeCmd(action string, prefix netip.Prefix, nexthop netip.Addr, intf *net.
 	}
 
 	args := []string{"-n", action, inet, network}
-	if nexthop.IsValid() {
-		args = append(args, nexthop.Unmap().String())
-	} else if intf != nil {
-		args = append(args, "-interface", intf.Name)
+	if nexthop.IP.IsValid() {
+		args = append(args, nexthop.IP.Unmap().String())
+	} else if nexthop.Intf != nil {
+		args = append(args, "-interface", nexthop.Intf.Name)
 	}
 
 	if err := retryRouteCmd(args); err != nil {

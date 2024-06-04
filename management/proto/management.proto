@@ -303,6 +303,8 @@ message Route {
   int64  Metric = 5;
   bool   Masquerade = 6;
   string NetID = 7;
+  repeated string Domains = 8;
+  bool keepRoute = 9;
 }
 
 // DNSConfig represents a dns.Update

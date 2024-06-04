@@ -1,6 +1,6 @@
 //go:build darwin || dragonfly || freebsd || netbsd || openbsd
 
-package routemanager
+package systemops
 
 import (
 	"errors"
@@ -100,6 +100,7 @@ func toNetIP(a route.Addr) netip.Addr {
 	}
 }
 
+// ones returns the number of leading ones in the mask.
 func ones(a route.Addr) (int, error) {
 	switch t := a.(type) {
 	case *route.Inet4Addr:
@@ -113,6 +114,7 @@ func ones(a route.Addr) (int, error) {
 	}
 }
 
+// MsgToRoute converts a route message to a Route.
 func MsgToRoute(msg *route.RouteMessage) (*Route, error) {
 	dstIP, nexthop, dstMask := msg.Addrs[0], msg.Addrs[1], msg.Addrs[2]
 

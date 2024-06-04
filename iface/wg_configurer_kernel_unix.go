@@ -125,17 +125,17 @@ func (c *wgKernelConfigurer) addAllowedIP(peerKey string, allowedIP string) erro
 func (c *wgKernelConfigurer) removeAllowedIP(peerKey string, allowedIP string) error {
 	_, ipNet, err := net.ParseCIDR(allowedIP)
 	if err != nil {
-		return err
+		return fmt.Errorf("parse allowed IP: %w", err)
 	}
 
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("parse peer key: %w", err)
 	}
 
 	existingPeer, err := c.getPeer(c.deviceName, peerKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("get peer: %w", err)
 	}
 
 	newAllowedIPs := existingPeer.AllowedIPs
@@ -159,7 +159,7 @@ func (c *wgKernelConfigurer) removeAllowedIP(peerKey string, allowedIP string) e
 	}
 	err = c.configure(config)
 	if err != nil {
-		return fmt.Errorf(`received error "%w" while removing allowed IP from peer on interface %s with settings: allowed ips %s`, err, c.deviceName, allowedIP)
+		return fmt.Errorf("remove allowed IP %s on interface %s: %w", allowedIP, c.deviceName, err)
 	}
 	return nil
 }
@@ -167,25 +167,25 @@ func (c *wgKernelConfigurer) removeAllowedIP(peerKey string, allowedIP string) e
 func (c *wgKernelConfigurer) getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
 	wg, err := wgctrl.New()
 	if err != nil {
-		return wgtypes.Peer{}, err
+		return wgtypes.Peer{}, fmt.Errorf("wgctl: %w", err)
 	}
 	defer func() {
 		err = wg.Close()
 		if err != nil {
-			log.Errorf("got error while closing wgctl: %v", err)
+			log.Errorf("Got error while closing wgctl: %v", err)
 		}
 	}()
 
 	wgDevice, err := wg.Device(ifaceName)
 	if err != nil {
-		return wgtypes.Peer{}, err
+		return wgtypes.Peer{}, fmt.Errorf("get device %s: %w", ifaceName, err)
 	}
 	for _, peer := range wgDevice.Peers {
 		if peer.PublicKey.String() == peerPubKey {
 			return peer, nil
 		}
 	}
-	return wgtypes.Peer{}, fmt.Errorf("peer not found")
+	return wgtypes.Peer{}, ErrPeerNotFound
 }
 
 func (c *wgKernelConfigurer) configure(config wgtypes.Config) error {
@@ -200,7 +200,6 @@ func (c *wgKernelConfigurer) configure(config wgtypes.Config) error {
 	if err != nil {
 		return err
 	}
-	log.Tracef("got Wireguard device %s", c.deviceName)
 
 	return wg.ConfigureDevice(c.deviceName, config)
 }

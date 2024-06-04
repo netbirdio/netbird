@@ -1,6 +1,6 @@
 //go:build darwin || dragonfly || netbsd || openbsd
 
-package routemanager
+package systemops
 
 import "syscall"
 

@@ -1,4 +1,4 @@
-package routemanager
+package systemops
 
 import (
 	"net"
@@ -11,23 +11,23 @@ import (
 	"github.com/netbirdio/netbird/iface"
 )
 
-func setupRouting([]net.IP, *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+func SetupRouting([]net.IP, *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
 	return nil, nil, nil
 }
 
-func cleanupRouting() error {
+func CleanupRouting() error {
 	return nil
 }
 
-func enableIPForwarding() error {
+func EnableIPForwarding() error {
 	log.Infof("Enable IP forwarding is not implemented on %s", runtime.GOOS)
 	return nil
 }
 
-func addVPNRoute(netip.Prefix, *net.Interface) error {
+func AddVPNRoute(netip.Prefix, *net.Interface) error {
 	return nil
 }
 
-func removeVPNRoute(netip.Prefix, *net.Interface) error {
+func RemoveVPNRoute(netip.Prefix, *net.Interface) error {
 	return nil
 }

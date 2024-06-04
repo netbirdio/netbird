@@ -7,12 +7,14 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/iface"
 	mgm "github.com/netbirdio/netbird/management/client"
@@ -53,6 +55,7 @@ type ConfigInput struct {
 	NetworkMonitor      *bool
 	DisableAutoConnect  *bool
 	ExtraIFaceBlackList []string
+	DNSRouteInterval    *time.Duration
 }
 
 // Config Configuration type
@@ -95,6 +98,9 @@ type Config struct {
 	// DisableAutoConnect determines whether the client should not start with the service
 	// it's set to false by default due to backwards compatibility
 	DisableAutoConnect bool
+
+	// DNSRouteInterval is the interval in which the DNS routes are updated
+	DNSRouteInterval time.Duration
 }
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
@@ -355,6 +361,18 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		log.Infof("falling back to enabled SSH server for pre-existing configuration")
 		config.ServerSSHAllowed = util.True()
 		updated = true
+	}
+
+	if input.DNSRouteInterval != nil && *input.DNSRouteInterval != config.DNSRouteInterval {
+		log.Infof("updating DNS route interval to %s (old value %s)",
+			input.DNSRouteInterval.String(), config.DNSRouteInterval.String())
+		config.DNSRouteInterval = *input.DNSRouteInterval
+		updated = true
+	} else if config.DNSRouteInterval == 0 {
+		config.DNSRouteInterval = dynamic.DefaultInterval
+		log.Infof("using default DNS route interval %s", config.DNSRouteInterval)
+		updated = true
+
 	}
 
 	return updated, nil

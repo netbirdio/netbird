@@ -23,6 +23,7 @@ import (
 
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/geolocation"
@@ -101,7 +102,7 @@ type AccountManager interface {
 	DeletePolicy(accountID, policyID, userID string) error
 	ListPolicies(accountID, userID string) ([]*Policy, error)
 	GetRoute(accountID string, routeID route.ID, userID string) (*route.Route, error)
-	CreateRoute(accountID, prefix, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
+	CreateRoute(accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string, keepRoute bool) (*route.Route, error)
 	SaveRoute(accountID, userID string, route *route.Route) error
 	DeleteRoute(accountID string, routeID route.ID, userID string) error
 	ListRoutes(accountID, userID string) ([]*route.Route, error)
@@ -274,7 +275,7 @@ func (a *Account) getRoutesToSync(peerID string, aclPeers []*nbpeer.Peer) []*rou
 	routes, peerDisabledRoutes := a.getRoutingPeerRoutes(peerID)
 	peerRoutesMembership := make(lookupMap)
 	for _, r := range append(routes, peerDisabledRoutes...) {
-		peerRoutesMembership[string(route.GetHAUniqueID(r))] = struct{}{}
+		peerRoutesMembership[string(r.GetHAUniqueID())] = struct{}{}
 	}
 
 	groupListMap := a.getPeerGroups(peerID)
@@ -292,7 +293,7 @@ func (a *Account) getRoutesToSync(peerID string, aclPeers []*nbpeer.Peer) []*rou
 func (a *Account) filterRoutesFromPeersOfSameHAGroup(routes []*route.Route, peerMemberships lookupMap) []*route.Route {
 	var filteredRoutes []*route.Route
 	for _, r := range routes {
-		_, found := peerMemberships[string(route.GetHAUniqueID(r))]
+		_, found := peerMemberships[string(r.GetHAUniqueID())]
 		if !found {
 			filteredRoutes = append(filteredRoutes, r)
 		}
@@ -375,11 +376,13 @@ func (a *Account) getRoutingPeerRoutes(peerID string) (enabledRoutes []*route.Ro
 	return enabledRoutes, disabledRoutes
 }
 
-// GetRoutesByPrefix return list of routes by account and route prefix
-func (a *Account) GetRoutesByPrefix(prefix netip.Prefix) []*route.Route {
+// GetRoutesByPrefixOrDomains return list of routes by account and route prefix
+func (a *Account) GetRoutesByPrefixOrDomains(prefix netip.Prefix, domains domain.List) []*route.Route {
 	var routes []*route.Route
 	for _, r := range a.Routes {
-		if r.Network.String() == prefix.String() {
+		if r.IsDynamic() && r.Domains.PunycodeString() == domains.PunycodeString() {
+			routes = append(routes, r)
+		} else if r.Network.String() == prefix.String() {
 			routes = append(routes, r)
 		}
 	}

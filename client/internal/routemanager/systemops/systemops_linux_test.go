@@ -1,6 +1,6 @@
 //go:build !android
 
-package routemanager
+package systemops
 
 import (
 	"errors"
@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vishvananda/netlink"
+
+	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 )
 
 var expectedVPNint = "wgtest0"
@@ -138,7 +140,7 @@ func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, intf string) {
 	if dstIPNet.String() == "0.0.0.0/0" {
 		var err error
 		originalNexthop, originalLinkIndex, err = fetchOriginalGateway(netlink.FAMILY_V4)
-		if err != nil && !errors.Is(err, ErrRouteNotFound) {
+		if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
 			t.Logf("Failed to fetch original gateway: %v", err)
 		}
 
@@ -193,7 +195,7 @@ func fetchOriginalGateway(family int) (net.IP, int, error) {
 		}
 	}
 
-	return nil, 0, ErrRouteNotFound
+	return nil, 0, vars.ErrRouteNotFound
 }
 
 func setupDummyInterfacesAndRoutes(t *testing.T) {
