@@ -35,7 +35,6 @@ type connContainer struct {
 type Client struct {
 	log           *log.Entry
 	parentCtx     context.Context
-	ctx           context.Context
 	ctxCancel     context.CancelFunc
 	serverAddress string
 	hashedID      []byte
@@ -66,13 +65,6 @@ func NewClient(ctx context.Context, serverAddress, peerID string) *Client {
 	}
 }
 
-// SetOnDisconnectListener sets a function that will be called when the connection to the relay server is closed.
-func (c *Client) SetOnDisconnectListener(fn func()) {
-	c.listenerMutex.Lock()
-	defer c.listenerMutex.Unlock()
-	c.onDisconnectListener = fn
-}
-
 // Connect establishes a connection to the relay server. It blocks until the connection is established or an error occurs.
 func (c *Client) Connect() error {
 	c.readLoopMutex.Lock()
@@ -92,8 +84,9 @@ func (c *Client) Connect() error {
 
 	c.serviceIsRunning = true
 
-	c.ctx, c.ctxCancel = context.WithCancel(c.parentCtx)
-	context.AfterFunc(c.ctx, func() {
+	var ctx context.Context
+	ctx, c.ctxCancel = context.WithCancel(c.parentCtx)
+	context.AfterFunc(ctx, func() {
 		cErr := c.Close()
 		if cErr != nil {
 			log.Errorf("failed to close relay connection: %s", cErr)
@@ -136,6 +129,19 @@ func (c *Client) RelayRemoteAddress() (net.Addr, error) {
 	return c.remoteAddr, nil
 }
 
+// SetOnDisconnectListener sets a function that will be called when the connection to the relay server is closed.
+func (c *Client) SetOnDisconnectListener(fn func()) {
+	c.listenerMutex.Lock()
+	defer c.listenerMutex.Unlock()
+	c.onDisconnectListener = fn
+}
+
+func (c *Client) HasConns() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.conns) > 0
+}
+
 // Close closes the connection to the relay server and all connections to other peers.
 func (c *Client) Close() error {
 	c.readLoopMutex.Lock()
@@ -143,14 +149,17 @@ func (c *Client) Close() error {
 
 	c.mu.Lock()
 	var err error
-	if c.serviceIsRunning {
-		c.serviceIsRunning = false
-		err = c.relayConn.Close()
+	if !c.serviceIsRunning {
+		return nil
 	}
+
+	c.serviceIsRunning = false
+	err = c.relayConn.Close()
 	c.closeAllConns()
 	c.mu.Unlock()
 
 	c.wgReadLoop.Wait()
+	c.log.Infof("relay client ha been closed: %s", c.serverAddress)
 	c.ctxCancel()
 	return err
 }

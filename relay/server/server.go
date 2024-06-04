@@ -18,7 +18,6 @@ import (
 // Server
 // todo:
 // authentication: provide JWT token via RPC call. The MGM server can forward the token to the agents.
-// connection timeout handling
 type Server struct {
 	store *Store
 

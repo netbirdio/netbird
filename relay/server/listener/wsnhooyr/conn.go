@@ -79,6 +79,7 @@ func (c *Conn) Close() error {
 	return c.Conn.Close(websocket.StatusNormalClosure, "")
 }
 
+// todo: fix io.EOF handling
 func ioErrHandling(err error) error {
 	var wErr *websocket.CloseError
 	if !errors.As(err, &wErr) {
