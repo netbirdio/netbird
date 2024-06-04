@@ -52,7 +52,7 @@ type MockAccountManager struct {
 	UpdatePeerMetaFunc                  func(peerID string, meta nbpeer.PeerSystemMeta) error
 	UpdatePeerSSHKeyFunc                func(peerID string, sshKey string) error
 	UpdatePeerFunc                      func(accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
-	CreateRouteFunc                     func(accountID, prefix, peer string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
+	CreateRouteFunc                     func(accountID, prefix, peer string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, accessControlGroups []string, enabled bool, userID string) (*route.Route, error)
 	GetRouteFunc                        func(accountID string, routeID route.ID, userID string) (*route.Route, error)
 	SaveRouteFunc                       func(accountID string, userID string, route *route.Route) error
 	DeleteRouteFunc                     func(accountID string, routeID route.ID, userID string) error
@@ -412,9 +412,9 @@ func (am *MockAccountManager) UpdatePeer(accountID, userID string, peer *nbpeer.
 }
 
 // CreateRoute mock implementation of CreateRoute from server.AccountManager interface
-func (am *MockAccountManager) CreateRoute(accountID, prefix, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error) {
+func (am *MockAccountManager) CreateRoute(accountID, prefix, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, accessControlGroups []string, enabled bool, userID string) (*route.Route, error) {
 	if am.CreateRouteFunc != nil {
-		return am.CreateRouteFunc(accountID, prefix, peerID, peerGroupIDs, description, netID, masquerade, metric, groups, enabled, userID)
+		return am.CreateRouteFunc(accountID, prefix, peerID, peerGroupIDs, description, netID, masquerade, metric, groups, accessControlGroups, enabled, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method CreateRoute is not implemented")
 }
