@@ -34,24 +34,16 @@ func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) erro
 
 func (r *SysOps) routeCmd(action string, prefix netip.Prefix, nexthop Nexthop) error {
 	inet := "-inet"
+	if prefix.Addr().Is6() {
+		inet = "-inet6"
+	}
+
 	network := prefix.String()
 	if prefix.IsSingleIP() {
 		network = prefix.Addr().String()
 	}
 
-	args := []string{"-n", action}
-	if prefix.Addr().Is6() {
-		inet = "-inet6"
-		// TODO: Remove once we have IPv6 support on the interface
-		// Point the route to lo0 if the nexthop is the WireGuard interface, otherwise the operation fails
-		// without IPv6 support on the interface.
-		if nexthop.Intf != nil && nexthop.Intf.Name == r.wgInterface.Name() {
-			args = append(args, "-blackhole")
-			nexthop.Intf = &net.Interface{Name: "lo0"}
-		}
-	}
-
-	args = append(args, inet, network)
+	args := []string{"-n", action, inet, network}
 	if nexthop.IP.IsValid() {
 		args = append(args, nexthop.IP.Unmap().String())
 	} else if nexthop.Intf != nil {

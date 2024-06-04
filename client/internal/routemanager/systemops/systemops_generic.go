@@ -340,6 +340,10 @@ func GetNextHop(ip netip.Addr) (Nexthop, error) {
 
 	log.Debugf("Route for %s: interface %v nexthop %v, preferred source %v", ip, intf, gateway, preferredSrc)
 	if gateway == nil {
+		if runtime.GOOS == "freebsd" {
+			return Nexthop{Intf: intf}, nil
+		}
+
 		if preferredSrc == nil {
 			return Nexthop{}, vars.ErrRouteNotFound
 		}
