@@ -30,8 +30,8 @@ import (
 const ConnectTimeout = 10 * time.Second
 
 const (
-	errMgmtPublicKey    = "failed getting Management Service public key: %s"
-	errNoMgmtConnection = "no connection to management"
+	errMsgMgmtPublicKey    = "failed getting Management Service public key: %s"
+	errMsgNoMgmtConnection = "no connection to management"
 )
 
 // ConnStateNotifier is a wrapper interface of the status recorders
@@ -132,7 +132,7 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 
 		serverPubKey, err := c.GetServerPublicKey()
 		if err != nil {
-			log.Debugf(errMgmtPublicKey, err)
+			log.Debugf(errMsgMgmtPublicKey, err)
 			return err
 		}
 
@@ -277,7 +277,7 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 // GetServerPublicKey returns server's WireGuard public key (used later for encrypting messages sent to the server)
 func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
 	if !c.ready() {
-		return nil, fmt.Errorf(errNoMgmtConnection)
+		return nil, fmt.Errorf(errMsgNoMgmtConnection)
 	}
 
 	mgmCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
@@ -324,7 +324,7 @@ func (c *GrpcClient) IsHealthy() bool {
 
 func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*proto.LoginResponse, error) {
 	if !c.ready() {
-		return nil, fmt.Errorf(errNoMgmtConnection)
+		return nil, fmt.Errorf(errMsgNoMgmtConnection)
 	}
 	loginReq, err := encryption.EncryptMessage(serverKey, c.key, req)
 	if err != nil {
@@ -443,12 +443,12 @@ func (c *GrpcClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKC
 // It should be used if there is changes on peer posture check after initial sync.
 func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
 	if !c.ready() {
-		return fmt.Errorf(errNoMgmtConnection)
+		return fmt.Errorf(errMsgNoMgmtConnection)
 	}
 
 	serverPubKey, err := c.GetServerPublicKey()
 	if err != nil {
-		log.Debugf(errMgmtPublicKey, err)
+		log.Debugf(errMsgMgmtPublicKey, err)
 		return err
 	}
 
