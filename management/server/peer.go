@@ -3,7 +3,6 @@ package server
 import (
 	"fmt"
 	"net"
-	"slices"
 	"strings"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
@@ -922,62 +920,4 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) {
 		update := toSyncResponse(am, nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain())
 		am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})
 	}
-}
-
-// GetPeerAppliedPostureChecks returns posture checks that are applied to the peer.
-func (am *DefaultAccountManager) GetPeerAppliedPostureChecks(peerKey string) ([]posture.Checks, error) {
-	account, err := am.Store.GetAccountByPeerPubKey(peerKey)
-	if err != nil {
-		log.Errorf("failed while getting peer %s: %v", peerKey, err)
-		return nil, err
-	}
-
-	peer, err := account.FindPeerByPubKey(peerKey)
-	if err != nil {
-		return nil, status.Errorf(status.NotFound, "peer is not registered")
-	}
-	if peer == nil {
-		return nil, nil
-	}
-
-	peerPostureChecks := make(map[string]posture.Checks)
-	for _, policy := range account.Policies {
-		if !policy.Enabled {
-			continue
-		}
-
-	outerLoop:
-		for _, rule := range policy.Rules {
-			if !rule.Enabled {
-				continue
-			}
-
-			for _, sourceGroup := range rule.Sources {
-				group, ok := account.Groups[sourceGroup]
-				if !ok {
-					continue
-				}
-
-				// check if peer is in the rule source group
-				if slices.Contains(group.Peers, peer.ID) {
-					for _, sourcePostureCheckID := range policy.SourcePostureChecks {
-						for _, postureChecks := range account.PostureChecks {
-							if postureChecks.ID == sourcePostureCheckID {
-								peerPostureChecks[sourcePostureCheckID] = *postureChecks
-							}
-						}
-					}
-
-					break outerLoop
-				}
-			}
-		}
-	}
-
-	postureChecksList := make([]posture.Checks, 0, len(peerPostureChecks))
-	for _, check := range peerPostureChecks {
-		postureChecksList = append(postureChecksList, check)
-	}
-
-	return postureChecksList, nil
 }
