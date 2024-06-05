@@ -33,6 +33,15 @@ func EnableIPForwarding() error {
 	return nil
 }
 
+<<<<<<<< HEAD:client/internal/routemanager/systemops/systemops_mobile.go
 func hasSeparateRouting() ([]netip.Prefix, error) {
 	return nil, ErrRoutingIsSeparate
+========
+func AddVPNRoute(netip.Prefix, *net.Interface) error {
+	return nil
+}
+
+func RemoveVPNRoute(netip.Prefix, *net.Interface) error {
+	return nil
+>>>>>>>> cd7a473c (Remove code duplication):client/internal/routemanager/systemops/systemops_android.go
 }
