@@ -53,7 +53,10 @@ func isVpnRoute(addr netip.Addr, vpnRoutes []netip.Prefix, localRoutes []netip.P
 	var longestPrefix netip.Prefix
 	var isVpn bool
 
-	combinedRoutes := append(vpnRoutes, localRoutes...)
+	combinedRoutes := make([]netip.Prefix, len(vpnRoutes)+len(localRoutes))
+	copy(combinedRoutes, vpnRoutes)
+	copy(combinedRoutes[len(vpnRoutes):], localRoutes)
+
 	for _, prefix := range combinedRoutes {
 		// Ignore the default route, it has special handling
 		if prefix.Bits() == 0 {
