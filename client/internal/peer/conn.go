@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	"github.com/netbirdio/netbird/iface"
@@ -99,9 +100,6 @@ type IceCredentials struct {
 	Pwd   string
 }
 
-type BeforeAddPeerHookFunc func(connID nbnet.ConnectionID, IP net.IP) error
-type AfterRemovePeerHookFunc func(connID nbnet.ConnectionID) error
-
 type Conn struct {
 	config ConnConfig
 	mu     sync.Mutex
@@ -136,8 +134,8 @@ type Conn struct {
 	sentExtraSrflx bool
 
 	connID               nbnet.ConnectionID
-	beforeAddPeerHooks   []BeforeAddPeerHookFunc
-	afterRemovePeerHooks []AfterRemovePeerHookFunc
+	beforeAddPeerHooks   []nbnet.AddHookFunc
+	afterRemovePeerHooks []nbnet.RemoveHookFunc
 }
 
 // GetConf returns the connection config
@@ -380,11 +378,11 @@ func isRelayCandidate(candidate ice.Candidate) bool {
 	return candidate.Type() == ice.CandidateTypeRelay
 }
 
-func (conn *Conn) AddBeforeAddPeerHook(hook BeforeAddPeerHookFunc) {
+func (conn *Conn) AddBeforeAddPeerHook(hook nbnet.AddHookFunc) {
 	conn.beforeAddPeerHooks = append(conn.beforeAddPeerHooks, hook)
 }
 
-func (conn *Conn) AddAfterRemovePeerHook(hook AfterRemovePeerHookFunc) {
+func (conn *Conn) AddAfterRemovePeerHook(hook nbnet.RemoveHookFunc) {
 	conn.afterRemovePeerHooks = append(conn.afterRemovePeerHooks, hook)
 }
 
@@ -801,12 +799,13 @@ func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive
 }
 
 func candidateViaRoutes(candidate ice.Candidate, clientRoutes route.HAMap) bool {
-	var routePrefixes []netip.Prefix
+	var vpnRoutes []netip.Prefix
 	for _, routes := range clientRoutes {
 		if len(routes) > 0 && routes[0] != nil {
-			routePrefixes = append(routePrefixes, routes[0].Network)
+			vpnRoutes = append(vpnRoutes, routes[0].Network)
 		}
 	}
+	candidate.Address()
 
 	addr, err := netip.ParseAddr(candidate.Address())
 	if err != nil {
@@ -814,16 +813,10 @@ func candidateViaRoutes(candidate ice.Candidate, clientRoutes route.HAMap) bool 
 		return false
 	}
 
-	for _, prefix := range routePrefixes {
-		// default route is
-		if prefix.Bits() == 0 {
-			continue
-		}
-
-		if prefix.Contains(addr) {
-			log.Debugf("Ignoring candidate [%s], its address is part of routed network %s", candidate.String(), prefix)
-			return true
-		}
+	if isVpn, prefix := systemops.IsAddrRouted(addr, vpnRoutes); isVpn {
+		log.Debugf("Ignoring candidate [%s], its address is routed to network %s", candidate.String(), prefix)
+		return true
 	}
+
 	return false
 }

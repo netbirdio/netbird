@@ -16,7 +16,6 @@ import (
 	"github.com/vishvananda/netlink"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/sysctl"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	nbnet "github.com/netbirdio/netbird/util/net"
@@ -86,7 +85,7 @@ func getSetupRules() []ruleParams {
 // Rule 2 (VPN Traffic Routing): Directs all remaining traffic to the 'NetbirdVPNTableID' custom routing table.
 // This table is where a default route or other specific routes received from the management server are configured,
 // enabling VPN connectivity.
-func (r *SysOps) SetupRouting(initAddresses []net.IP) (_ peer.BeforeAddPeerHookFunc, _ peer.AfterRemovePeerHookFunc, err error) {
+func (r *SysOps) SetupRouting(initAddresses []net.IP) (_ nbnet.AddHookFunc, _ nbnet.RemoveHookFunc, err error) {
 	if isLegacy() {
 		log.Infof("Using legacy routing setup")
 		return r.setupRefCounter(initAddresses)

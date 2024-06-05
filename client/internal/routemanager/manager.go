@@ -28,7 +28,7 @@ import (
 
 // Manager is a route manager interface
 type Manager interface {
-	Init() (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error)
+	Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
 	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error)
 	TriggerSelection(route.HAMap)
 	GetRouteSelector() *routeselector.RouteSelector
@@ -113,7 +113,7 @@ func NewManager(
 }
 
 // Init sets up the routing
-func (m *DefaultManager) Init() (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
 	if nbnet.CustomRoutingDisabled() {
 		return nil, nil, nil
 	}

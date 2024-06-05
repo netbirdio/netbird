@@ -1,8 +1,9 @@
 package net
 
 import (
-	"github.com/netbirdio/netbird/iface/netstack"
 	"os"
+
+	"github.com/netbirdio/netbird/iface/netstack"
 
 	"github.com/google/uuid"
 )
@@ -17,6 +18,9 @@ const (
 // ConnectionID provides a globally unique identifier for network connections.
 // It's used to track connections throughout their lifecycle so the close hook can correlate with the dial hook.
 type ConnectionID string
+
+type AddHookFunc func(connID ConnectionID, IP net.IP) error
+type RemoveHookFunc func(connID ConnectionID) error
 
 // GenerateConnID generates a unique identifier for each connection.
 func GenerateConnID() ConnectionID {

@@ -22,3 +22,15 @@ func EnableIPForwarding() error {
 	log.Infof("Enable IP forwarding is not implemented on %s", runtime.GOOS)
 	return nil
 }
+
+func AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+	return genericAddVPNRoute(prefix, intf)
+}
+
+func RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+	return genericRemoveVPNRoute(prefix, intf)
+}
+
+func hasSeparateRouting() ([]netip.Prefix, error) {
+	return getRoutesFromTable()
+}

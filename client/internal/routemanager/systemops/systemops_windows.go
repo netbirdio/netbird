@@ -18,6 +18,8 @@ import (
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/iface"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type MSFT_NetRoute struct {
