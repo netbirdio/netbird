@@ -8,7 +8,6 @@ import (
 
 	"github.com/magiconair/properties/assert"
 	"github.com/pion/stun/v2"
-	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
