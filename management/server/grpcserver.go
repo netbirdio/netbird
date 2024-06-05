@@ -11,6 +11,7 @@ import (
 	pb "github.com/golang/protobuf/proto" // nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
+	"github.com/netbirdio/netbird/management/server/posture"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
@@ -161,12 +162,15 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart))
 	}
 
-	// keep a connection to the peer and send updates when available
+	return s.handleUpdates(peerKey, peer, updates, srv)
+}
+
+// handleUpdates sends updates to the connected peer until the updates channel is closed.
+func (s *GRPCServer) handleUpdates(peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *UpdateMessage, srv proto.ManagementService_SyncServer) error {
 	for {
 		select {
 		// condition when there are some updates
 		case update, open := <-updates:
-
 			if s.appMetrics != nil {
 				s.appMetrics.GRPCMetrics().UpdateChannelQueueLength(len(updates) + 1)
 			}
@@ -178,21 +182,10 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 			}
 			log.Debugf("received an update for peer %s", peerKey.String())
 
-			encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, update.Update)
-			if err != nil {
-				s.cancelPeerRoutines(peer)
-				return status.Errorf(codes.Internal, "failed processing update message")
+			if err := s.sendUpdate(peerKey, peer, update, srv); err != nil {
+				return err
 			}
 
-			err = srv.SendMsg(&proto.EncryptedMessage{
-				WgPubKey: s.wgKey.PublicKey().String(),
-				Body:     encryptedResp,
-			})
-			if err != nil {
-				s.cancelPeerRoutines(peer)
-				return status.Errorf(codes.Internal, "failed sending update message")
-			}
-			log.Debugf("sent an update to peer %s", peerKey.String())
 		// condition when client <-> server connection has been terminated
 		case <-srv.Context().Done():
 			// happens when connection drops, e.g. client disconnects
@@ -201,6 +194,26 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 			return srv.Context().Err()
 		}
 	}
+}
+
+// sendUpdate encrypts the update message using the peer key and the server's wireguard key,
+// then sends the encrypted message to the connected peer via the sync server.
+func (s *GRPCServer) sendUpdate(peerKey wgtypes.Key, peer *nbpeer.Peer, update *UpdateMessage, srv proto.ManagementService_SyncServer) error {
+	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, update.Update)
+	if err != nil {
+		s.cancelPeerRoutines(peer)
+		return status.Errorf(codes.Internal, "failed processing update message")
+	}
+	err = srv.SendMsg(&proto.EncryptedMessage{
+		WgPubKey: s.wgKey.PublicKey().String(),
+		Body:     encryptedResp,
+	})
+	if err != nil {
+		s.cancelPeerRoutines(peer)
+		return status.Errorf(codes.Internal, "failed sending update message")
+	}
+	log.Debugf("sent an update to peer %s", peerKey.String())
+	return nil
 }
 
 func (s *GRPCServer) cancelPeerRoutines(peer *nbpeer.Peer) {
@@ -353,24 +366,11 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		return nil, msg
 	}
 
-	userID := ""
-	// JWT token is not always provided, it is fine for userID to be empty cuz it might be that peer is already registered,
-	// or it uses a setup key to register.
-
-	if loginReq.GetJwtToken() != "" {
-		for i := 0; i < 3; i++ {
-			userID, err = s.validateToken(loginReq.GetJwtToken())
-			if err == nil {
-				break
-			}
-			log.Warnf("failed validating JWT token sent from peer %s with error %v. "+
-				"Trying again as it may be due to the IdP cache issue", peerKey, err)
-			time.Sleep(200 * time.Millisecond)
-		}
-		if err != nil {
-			return nil, err
-		}
+	userID, err := s.processJwtToken(loginReq, peerKey)
+	if err != nil {
+		return nil, err
 	}
+
 	var sshKey []byte
 	if loginReq.GetPeerKeys() != nil {
 		sshKey = loginReq.GetPeerKeys().GetSshPubKey()
@@ -384,7 +384,6 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		SetupKey:        loginReq.GetSetupKey(),
 		ConnectionIP:    realIP,
 	})
-
 	if err != nil {
 		log.Warnf("failed logging in peer %s: %s", peerKey, err)
 		return nil, mapError(err)
@@ -399,7 +398,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	loginResp := &proto.LoginResponse{
 		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil),
 		PeerConfig:        toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain()),
-		Checks:            toPeerChecks(s.accountManager, peerKey.String()),
+		Checks:            toProtocolChecks(s.accountManager, peerKey.String()),
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
@@ -411,6 +410,31 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		WgPubKey: s.wgKey.PublicKey().String(),
 		Body:     encryptedResp,
 	}, nil
+}
+
+// processJwtToken validates the existence of a JWT token in the login request, and returns the corresponding user ID if
+// the token is valid.
+//
+// The user ID can be empty if the token is not provided, which is acceptable if the peer is already
+// registered or if it uses a setup key to register.
+func (s *GRPCServer) processJwtToken(loginReq *proto.LoginRequest, peerKey wgtypes.Key) (string, error) {
+	userID := ""
+	if loginReq.GetJwtToken() != "" {
+		var err error
+		for i := 0; i < 3; i++ {
+			userID, err = s.validateToken(loginReq.GetJwtToken())
+			if err == nil {
+				break
+			}
+			log.Warnf("failed validating JWT token sent from peer %s with error %v. "+
+				"Trying again as it may be due to the IdP cache issue", peerKey.String(), err)
+			time.Sleep(200 * time.Millisecond)
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+	return userID, nil
 }
 
 func ToResponseProto(configProto Protocol) proto.HostConfig_Protocol {
@@ -527,7 +551,7 @@ func toSyncResponse(accountManager AccountManager, config *Config, peer *nbpeer.
 			FirewallRules:        firewallRules,
 			FirewallRulesIsEmpty: len(firewallRules) == 0,
 		},
-		Checks: toPeerChecks(accountManager, peer.Key),
+		Checks: toProtocolChecks(accountManager, peer.Key),
 	}
 }
 
@@ -691,8 +715,8 @@ func (s *GRPCServer) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) 
 	return &proto.Empty{}, nil
 }
 
-// toPeerChecks returns posture checks for the peer that needs to be evaluated on the client side.
-func toPeerChecks(accountManager AccountManager, peerKey string) []*proto.Checks {
+// toProtocolChecks returns posture checks for the peer that needs to be evaluated on the client side.
+func toProtocolChecks(accountManager AccountManager, peerKey string) []*proto.Checks {
 	postureChecks, err := accountManager.GetPeerAppliedPostureChecks(peerKey)
 	if err != nil {
 		log.Errorf("failed getting peer's: %s posture checks: %v", peerKey, err)
@@ -701,23 +725,29 @@ func toPeerChecks(accountManager AccountManager, peerKey string) []*proto.Checks
 
 	protoChecks := make([]*proto.Checks, 0)
 	for _, postureCheck := range postureChecks {
-		protoCheck := &proto.Checks{}
-
-		if check := postureCheck.Checks.ProcessCheck; check != nil {
-			for _, process := range check.Processes {
-				if process.LinuxPath != "" {
-					protoCheck.Files = append(protoCheck.Files, process.LinuxPath)
-				}
-				if process.MacPath != "" {
-					protoCheck.Files = append(protoCheck.Files, process.MacPath)
-				}
-				if process.WindowsPath != "" {
-					protoCheck.Files = append(protoCheck.Files, process.WindowsPath)
-				}
-			}
-		}
-		protoChecks = append(protoChecks, protoCheck)
+		protoChecks = append(protoChecks, toProtocolCheck(postureCheck))
 	}
 
 	return protoChecks
+}
+
+// toProtocolCheck converts a posture.Checks to a proto.Checks.
+func toProtocolCheck(postureCheck posture.Checks) *proto.Checks {
+	protoCheck := &proto.Checks{}
+
+	if check := postureCheck.Checks.ProcessCheck; check != nil {
+		for _, process := range check.Processes {
+			if process.LinuxPath != "" {
+				protoCheck.Files = append(protoCheck.Files, process.LinuxPath)
+			}
+			if process.MacPath != "" {
+				protoCheck.Files = append(protoCheck.Files, process.MacPath)
+			}
+			if process.WindowsPath != "" {
+				protoCheck.Files = append(protoCheck.Files, process.WindowsPath)
+			}
+		}
+	}
+
+	return protoCheck
 }
