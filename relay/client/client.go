@@ -87,7 +87,7 @@ func (c *Client) Connect() error {
 	var ctx context.Context
 	ctx, c.ctxCancel = context.WithCancel(c.parentCtx)
 	context.AfterFunc(ctx, func() {
-		cErr := c.Close()
+		cErr := c.close(false)
 		if cErr != nil {
 			log.Errorf("failed to close relay connection: %s", cErr)
 		}
@@ -144,22 +144,30 @@ func (c *Client) HasConns() bool {
 
 // Close closes the connection to the relay server and all connections to other peers.
 func (c *Client) Close() error {
+	return c.close(false)
+}
+
+func (c *Client) close(byServer bool) error {
 	c.readLoopMutex.Lock()
 	defer c.readLoopMutex.Unlock()
 
 	c.mu.Lock()
 	var err error
 	if !c.serviceIsRunning {
+		c.mu.Unlock()
 		return nil
 	}
 
 	c.serviceIsRunning = false
-	err = c.relayConn.Close()
 	c.closeAllConns()
+	if !byServer {
+		c.writeCloseMsg()
+		err = c.relayConn.Close()
+	}
 	c.mu.Unlock()
 
 	c.wgReadLoop.Wait()
-	c.log.Infof("relay client ha been closed: %s", c.serverAddress)
+	c.log.Infof("relay connection closed with: %s", c.serverAddress)
 	c.ctxCancel()
 	return err
 }
@@ -232,8 +240,11 @@ func (c *Client) handShake() error {
 }
 
 func (c *Client) readLoop(relayConn net.Conn) {
-	var errExit error
-	var n int
+	var (
+		errExit        error
+		n              int
+		closedByServer bool
+	)
 	for {
 		buf := make([]byte, bufferSize)
 		n, errExit = relayConn.Read(buf)
@@ -243,7 +254,7 @@ func (c *Client) readLoop(relayConn net.Conn) {
 				c.log.Debugf("failed to read message from relay server: %s", errExit)
 			}
 			c.mu.Unlock()
-			break
+			goto Exit
 		}
 
 		msgType, err := messages.DetermineServerMsgType(buf[:n])
@@ -264,7 +275,7 @@ func (c *Client) readLoop(relayConn net.Conn) {
 			c.mu.Lock()
 			if !c.serviceIsRunning {
 				c.mu.Unlock()
-				break
+				goto Exit
 			}
 			container, ok := c.conns[stringID]
 			c.mu.Unlock()
@@ -273,16 +284,19 @@ func (c *Client) readLoop(relayConn net.Conn) {
 				continue
 			}
 
+			// todo review is this can cause panic
 			container.messages <- Msg{buf[:n]}
+		case messages.MsgClose:
+			closedByServer = true
+			log.Debugf("relay connection close by server")
+			goto Exit
 		}
 	}
 
+Exit:
 	c.notifyDisconnected()
-
-	c.log.Tracef("exit from read loop")
 	c.wgReadLoop.Done()
-
-	c.Close()
+	_ = c.close(closedByServer)
 }
 
 // todo check by reference too, the id is not enought because the id come from the outer conn
@@ -364,4 +378,12 @@ func (c *Client) notifyDisconnected() {
 		return
 	}
 	go c.onDisconnectListener()
+}
+
+func (c *Client) writeCloseMsg() {
+	msg := messages.MarshalCloseMsg()
+	_, err := c.relayConn.Write(msg)
+	if err != nil {
+		c.log.Errorf("failed to send close message: %s", err)
+	}
 }

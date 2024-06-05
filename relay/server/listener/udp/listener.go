@@ -21,6 +21,11 @@ type Listener struct {
 	lock sync.Mutex
 }
 
+func (l *Listener) WaitForExitAcceptedConns() {
+	l.wg.Wait()
+	return
+}
+
 func NewListener(address string) listener.Listener {
 	return &Listener{
 		address: address,
@@ -61,11 +66,11 @@ func (l *Listener) Close() error {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 
-	log.Infof("closing UDP server")
 	if l.listener == nil {
 		return nil
 	}
 
+	log.Infof("closing UDP listener")
 	close(l.quit)
 	err := l.listener.Close()
 	l.wg.Wait()

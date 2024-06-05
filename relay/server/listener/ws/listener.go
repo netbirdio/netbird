@@ -33,8 +33,11 @@ func NewListener(address string) listener.Listener {
 	}
 }
 
-// Listen todo: prevent multiple call
 func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
+	if l.server != nil {
+		return errors.New("server is already running")
+	}
+
 	l.acceptFn = acceptFn
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", l.onAccept)
@@ -67,6 +70,10 @@ func (l *Listener) Close() error {
 
 	l.wg.Wait()
 	return nil
+}
+
+func (l *Listener) WaitForExitAcceptedConns() {
+	l.wg.Wait()
 }
 
 func (l *Listener) onAccept(writer http.ResponseWriter, request *http.Request) {

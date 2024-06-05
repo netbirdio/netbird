@@ -10,6 +10,7 @@ const (
 	MsgTypeHello         MsgType = 0
 	MsgTypeHelloResponse MsgType = 1
 	MsgTypeTransport     MsgType = 2
+	MsgClose             MsgType = 3
 )
 
 var (
@@ -26,6 +27,8 @@ func (m MsgType) String() string {
 		return "hello response"
 	case MsgTypeTransport:
 		return "transport"
+	case MsgClose:
+		return "close"
 	default:
 		return "unknown"
 	}
@@ -39,6 +42,8 @@ func DetermineClientMsgType(msg []byte) (MsgType, error) {
 		return msgType, nil
 	case MsgTypeTransport:
 		return msgType, nil
+	case MsgClose:
+		return msgType, nil
 	default:
 		return 0, fmt.Errorf("invalid msg type, len: %d", len(msg))
 	}
@@ -51,6 +56,8 @@ func DetermineServerMsgType(msg []byte) (MsgType, error) {
 	case MsgTypeHelloResponse:
 		return msgType, nil
 	case MsgTypeTransport:
+		return msgType, nil
+	case MsgClose:
 		return msgType, nil
 	default:
 		return 0, fmt.Errorf("invalid msg type (len: %d)", len(msg))
@@ -78,6 +85,14 @@ func UnmarshalHelloMsg(msg []byte) ([]byte, error) {
 func MarshalHelloResponse() []byte {
 	msg := make([]byte, 1)
 	msg[0] = byte(MsgTypeHelloResponse)
+	return msg
+}
+
+// Close message
+
+func MarshalCloseMsg() []byte {
+	msg := make([]byte, 1)
+	msg[0] = byte(MsgClose)
 	return msg
 }
 

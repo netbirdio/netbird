@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -17,7 +18,9 @@ type Conn struct {
 	lAddr *net.TCPAddr
 	rAddr *net.TCPAddr
 
-	ctx context.Context
+	closed   bool
+	closedMu sync.Mutex
+	ctx      context.Context
 }
 
 func NewConn(wsConn *websocket.Conn, lAddr, rAddr *net.TCPAddr) *Conn {
@@ -32,7 +35,7 @@ func NewConn(wsConn *websocket.Conn, lAddr, rAddr *net.TCPAddr) *Conn {
 func (c *Conn) Read(b []byte) (n int, err error) {
 	t, r, err := c.Reader(c.ctx)
 	if err != nil {
-		return 0, ioErrHandling(err)
+		return 0, c.ioErrHandling(err)
 	}
 
 	if t != websocket.MessageBinary {
@@ -42,7 +45,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 
 	n, err = r.Read(b)
 	if err != nil {
-		return 0, ioErrHandling(err)
+		return 0, c.ioErrHandling(err)
 	}
 	return n, err
 }
@@ -76,11 +79,23 @@ func (c *Conn) SetDeadline(t time.Time) error {
 }
 
 func (c *Conn) Close() error {
-	return c.Conn.Close(websocket.StatusNormalClosure, "")
+	c.closedMu.Lock()
+	c.closed = true
+	c.closedMu.Unlock()
+	return c.Conn.CloseNow()
 }
 
-// todo: fix io.EOF handling
-func ioErrHandling(err error) error {
+func (c *Conn) isClosed() bool {
+	c.closedMu.Lock()
+	defer c.closedMu.Unlock()
+	return c.closed
+}
+
+func (c *Conn) ioErrHandling(err error) error {
+	if c.isClosed() {
+		return io.EOF
+	}
+
 	var wErr *websocket.CloseError
 	if !errors.As(err, &wErr) {
 		return err

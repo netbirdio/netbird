@@ -15,11 +15,9 @@ import (
 	ws "github.com/netbirdio/netbird/relay/server/listener/wsnhooyr"
 )
 
-// Server
-// todo:
-// authentication: provide JWT token via RPC call. The MGM server can forward the token to the agents.
 type Server struct {
-	store *Store
+	store   *Store
+	storeMu sync.RWMutex
 
 	UDPListener listener.Listener
 	WSListener  listener.Listener
@@ -27,7 +25,8 @@ type Server struct {
 
 func NewServer() *Server {
 	return &Server{
-		store: NewStore(),
+		store:   NewStore(),
+		storeMu: sync.RWMutex{},
 	}
 }
 
@@ -69,6 +68,11 @@ func (r *Server) Close() error {
 	if r.UDPListener != nil {
 		uErr = r.UDPListener.Close()
 	}
+
+	r.sendCloseMsgs()
+
+	r.WSListener.WaitForExitAcceptedConns()
+
 	err := errors.Join(wErr, uErr)
 	return err
 }
@@ -88,7 +92,7 @@ func (r *Server) accept(conn net.Conn) {
 	r.store.AddPeer(peer)
 	defer func() {
 		r.store.DeletePeer(peer)
-		peer.Log.Infof("peer left")
+		peer.Log.Infof("relay connection closed")
 	}()
 
 	for {
@@ -132,8 +136,31 @@ func (r *Server) accept(conn net.Conn) {
 				}
 				return
 			}()
+		case messages.MsgClose:
+			peer.Log.Infof("peer disconnected gracefully")
+			_ = conn.Close()
+			return
 		}
 	}
+}
+
+func (r *Server) sendCloseMsgs() {
+	msg := messages.MarshalCloseMsg()
+
+	r.storeMu.Lock()
+	log.Debugf("sending close messages to %d peers", len(r.store.peers))
+	for _, p := range r.store.peers {
+		_, err := p.conn.Write(msg)
+		if err != nil {
+			log.Errorf("failed to send close message to peer: %s", p.String())
+		}
+
+		err = p.conn.Close()
+		if err != nil {
+			log.Errorf("failed to close connection to peer: %s", err)
+		}
+	}
+	r.storeMu.Unlock()
 }
 
 func handShake(conn net.Conn) (*Peer, error) {
