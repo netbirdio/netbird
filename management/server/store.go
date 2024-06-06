@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"net/netip"
@@ -11,14 +10,13 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -29,11 +27,14 @@ type Store interface {
 	GetAccountByUser(userID string) (*Account, error)
 	GetAccountByPeerPubKey(peerKey string) (*Account, error)
 	GetAccountIDByPeerPubKey(peerKey string) (string, error)
+	GetAccountIDByUserID(peerKey string) (string, error)
+	GetAccountIDBySetupKey(peerKey string) (string, error)
 	GetAccountByPeerID(peerID string) (*Account, error)
 	GetAccountBySetupKey(setupKey string) (*Account, error) // todo use key hash later
 	GetAccountByPrivateDomain(domain string) (*Account, error)
 	GetTokenIDByHashedToken(secret string) (string, error)
 	GetUserByTokenID(tokenID string) (*User, error)
+	GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	SaveAccount(account *Account) error
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
 	DeleteTokenID2UserIDIndex(tokenID string) error
@@ -53,6 +54,8 @@ type Store interface {
 	// GetStoreEngine should return StoreEngine of the current store implementation.
 	// This is also a method of metrics.DataSource interface.
 	GetStoreEngine() StoreEngine
+	GetPeerByPeerPubKey(peerKey string) (*nbpeer.Peer, error)
+	GetAccountSettings(accountID string) (*Settings, error)
 }
 
 type StoreEngine string
@@ -176,7 +179,7 @@ func NewTestStoreFromJson(dataDir string) (Store, func(), error) {
 		}
 		return store, cleanUp, nil
 	case PostgresStoreEngine:
-		cleanUp, err = createPGDB()
+		cleanUp, err = testutil.CreatePGDB()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -198,34 +201,4 @@ func NewTestStoreFromJson(dataDir string) (Store, func(), error) {
 		}
 		return store, cleanUp, nil
 	}
-}
-
-func createPGDB() (func(), error) {
-	ctx := context.Background()
-	c, err := postgres.RunContainer(ctx,
-		testcontainers.WithImage("postgres:alpine"),
-		postgres.WithDatabase("test"),
-		postgres.WithUsername("postgres"),
-		postgres.WithPassword("postgres"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).WithStartupTimeout(15*time.Second)),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	cleanup := func() {
-		timeout := 10 * time.Second
-		err = c.Stop(ctx, &timeout)
-		if err != nil {
-			log.Warnf("failed to stop container: %s", err)
-		}
-	}
-
-	talksConn, err := c.ConnectionString(ctx)
-	if err != nil {
-		return cleanup, err
-	}
-	return cleanup, os.Setenv("NETBIRD_STORE_ENGINE_POSTGRES_DSN", talksConn)
 }

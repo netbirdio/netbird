@@ -4,7 +4,6 @@ import (
 	"context"
 	"net"
 	"sync"
-	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -167,41 +166,6 @@ var _ = Describe("GrpcClient", func() {
 	})
 
 })
-
-func TestParseFeaturesSupported(t *testing.T) {
-	expectedOnEmptyOrUnsupported := FeaturesSupport{DirectCheck: false}
-	expectedWithDirectCheck := FeaturesSupport{DirectCheck: true}
-	testCases := []struct {
-		name     string
-		input    []uint32
-		expected FeaturesSupport
-	}{
-		{
-			name:     "Should Return DirectCheck Supported",
-			input:    []uint32{DirectCheck},
-			expected: expectedWithDirectCheck,
-		},
-		{
-			name:     "Should Return DirectCheck Unsupported When Nil",
-			input:    nil,
-			expected: expectedOnEmptyOrUnsupported,
-		},
-		{
-			name:     "Should Return DirectCheck Unsupported When Not Known Feature",
-			input:    []uint32{9999},
-			expected: expectedOnEmptyOrUnsupported,
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			result := ParseFeaturesSupported(testCase.input)
-			if result.DirectCheck != testCase.expected.DirectCheck {
-				t.Errorf("Direct check feature should match: Expected: %t, Got: %t", testCase.expected.DirectCheck, result.DirectCheck)
-			}
-		})
-	}
-}
 
 func createSignalClient(addr string, key wgtypes.Key) *GrpcClient {
 	var sigTLSEnabled = false

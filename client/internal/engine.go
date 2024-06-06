@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -117,7 +118,8 @@ type Engine struct {
 	TURNs []*stun.URI
 
 	// clientRoutes is the most recent list of clientRoutes received from the Management Service
-	clientRoutes route.HAMap
+	clientRoutes   route.HAMap
+	clientRoutesMu sync.RWMutex
 
 	clientCtx    context.Context
 	clientCancel context.CancelFunc
@@ -150,6 +152,8 @@ type Engine struct {
 	signalProbe *Probe
 	relayProbe  *Probe
 	wgProbe     *Probe
+
+	wgConnWorker sync.WaitGroup
 }
 
 // Peer is an instance of the Connection Peer
@@ -238,13 +242,16 @@ func (e *Engine) Stop() error {
 		return err
 	}
 
+	e.clientRoutesMu.Lock()
 	e.clientRoutes = nil
+	e.clientRoutesMu.Unlock()
 
 	// very ugly but we want to remove peers from the WireGuard interface first before removing interface.
 	// Removing peers happens in the conn.Close() asynchronously
 	time.Sleep(500 * time.Millisecond)
 
 	e.close()
+	e.wgConnWorker.Wait()
 	log.Infof("stopped Netbird Engine")
 	return nil
 }
@@ -735,7 +742,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
 	}
 
+	e.clientRoutesMu.Lock()
 	e.clientRoutes = clientRoutes
+	e.clientRoutesMu.Unlock()
 
 	protoDNSConfig := networkMap.GetDNSConfig()
 	if protoDNSConfig == nil {
@@ -869,18 +878,25 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 			log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
 		}
 
+		e.wgConnWorker.Add(1)
 		go e.connWorker(conn, peerKey)
 	}
 	return nil
 }
 
 func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
+	defer e.wgConnWorker.Done()
 	for {
 
 		// randomize starting time a bit
 		min := 500
 		max := 2000
-		time.Sleep(time.Duration(rand.Intn(max-min)+min) * time.Millisecond)
+		duration := time.Duration(rand.Intn(max-min)+min) * time.Millisecond
+		select {
+		case <-e.ctx.Done():
+			return
+		case <-time.After(duration):
+		}
 
 		// if peer has been removed -> give up
 		if !e.peerExists(peerKey) {
@@ -967,7 +983,6 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		WgConfig:             wgConfig,
 		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
-		UserspaceBind:        e.wgInterface.IsUserspaceBind(),
 		RosenpassPubKey:      e.getRosenpassPubKey(),
 		RosenpassAddr:        e.getRosenpassAddr(),
 	}
@@ -1030,8 +1045,6 @@ func (e *Engine) receiveSignalEvents() {
 					return err
 				}
 
-				conn.RegisterProtoSupportMeta(msg.Body.GetFeaturesSupported())
-
 				var rosenpassPubKey []byte
 				rosenpassAddr := ""
 				if msg.GetBody().GetRosenpassConfig() != nil {
@@ -1053,8 +1066,6 @@ func (e *Engine) receiveSignalEvents() {
 				if err != nil {
 					return err
 				}
-
-				conn.RegisterProtoSupportMeta(msg.GetBody().GetFeaturesSupported())
 
 				var rosenpassPubKey []byte
 				rosenpassAddr := ""
@@ -1078,7 +1089,8 @@ func (e *Engine) receiveSignalEvents() {
 					log.Errorf("failed on parsing remote candidate %s -> %s", candidate, err)
 					return err
 				}
-				conn.OnRemoteCandidate(candidate)
+
+				conn.OnRemoteCandidate(candidate, e.GetClientRoutes())
 			case sProto.Body_MODE:
 			}
 
@@ -1272,11 +1284,17 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 
 // GetClientRoutes returns the current routes from the route map
 func (e *Engine) GetClientRoutes() route.HAMap {
-	return e.clientRoutes
+	e.clientRoutesMu.RLock()
+	defer e.clientRoutesMu.RUnlock()
+
+	return maps.Clone(e.clientRoutes)
 }
 
 // GetClientRoutesWithNetID returns the current routes from the route map, but the keys consist of the network ID only
 func (e *Engine) GetClientRoutesWithNetID() map[route.NetID][]*route.Route {
+	e.clientRoutesMu.RLock()
+	defer e.clientRoutesMu.RUnlock()
+
 	routes := make(map[route.NetID][]*route.Route, len(e.clientRoutes))
 	for id, v := range e.clientRoutes {
 		routes[id.NetID()] = v
