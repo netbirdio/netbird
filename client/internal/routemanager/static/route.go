@@ -2,6 +2,9 @@ package static
 
 import (
 	"context"
+	"fmt"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/route"
@@ -37,8 +40,15 @@ func (r *Route) RemoveRoute() error {
 }
 
 func (r *Route) AddAllowedIPs(peerKey string) error {
-	_, err := r.allowedIPsRefcounter.Increment(r.route.Network, peerKey)
-	return err
+	if ref, err := r.allowedIPsRefcounter.Increment(r.route.Network, peerKey); err != nil {
+		return fmt.Errorf("add allowed IP %s: %w", r.route.Network, err)
+	} else if ref.Count > 1 && ref.Out != peerKey {
+		log.Warnf("Prefix [%s] is already routed by peer [%s]. HA routing disabled",
+			r.route.Network,
+			ref.Out,
+		)
+	}
+	return nil
 }
 
 func (r *Route) RemoveAllowedIPs() error {
