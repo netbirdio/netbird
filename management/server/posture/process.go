@@ -20,38 +20,21 @@ type ProcessCheck struct {
 var _ Check = (*ProcessCheck)(nil)
 
 func (p *ProcessCheck) Check(peer nbpeer.Peer) (bool, error) {
-	peerActiveProcesses := make([]string, 0, len(peer.Meta.Files))
-	for _, file := range peer.Meta.Files {
-		if file.ProcessIsRunning {
-			peerActiveProcesses = append(peerActiveProcesses, file.Path)
-		}
-	}
+	peerActiveProcesses := extractPeerActiveProcesses(peer.Meta.Files)
 
+	var pathSelector func(Process) string
 	switch peer.Meta.GoOS {
 	case "linux":
-		for _, process := range p.Processes {
-			if process.LinuxPath == "" || !slices.Contains(peerActiveProcesses, process.LinuxPath) {
-				return false, nil
-			}
-		}
-		return true, nil
+		pathSelector = func(process Process) string { return process.LinuxPath }
 	case "darwin":
-		for _, process := range p.Processes {
-			if process.MacPath == "" || !slices.Contains(peerActiveProcesses, process.MacPath) {
-				return false, nil
-			}
-		}
-		return true, nil
+		pathSelector = func(process Process) string { return process.MacPath }
 	case "windows":
-		for _, process := range p.Processes {
-			if process.WindowsPath == "" || !slices.Contains(peerActiveProcesses, process.WindowsPath) {
-				return false, nil
-			}
-		}
-		return true, nil
+		pathSelector = func(process Process) string { return process.WindowsPath }
 	default:
 		return false, fmt.Errorf("unsupported peer's operating system: %s", peer.Meta.GoOS)
 	}
+
+	return p.areAllProcessesRunning(peerActiveProcesses, pathSelector), nil
 }
 
 func (p *ProcessCheck) Name() string {
@@ -69,4 +52,28 @@ func (p *ProcessCheck) Validate() error {
 		}
 	}
 	return nil
+}
+
+// areAllProcessesRunning checks if all processes specified in ProcessCheck are running.
+// It uses the provided pathSelector to get the appropriate process path for the peer's OS.
+// It returns true if all processes are running, otherwise false.
+func (p *ProcessCheck) areAllProcessesRunning(activeProcesses []string, pathSelector func(Process) string) bool {
+	for _, process := range p.Processes {
+		path := pathSelector(process)
+		if path == "" || !slices.Contains(activeProcesses, path) {
+			return false
+		}
+	}
+	return true
+}
+
+// extractPeerActiveProcesses extracts the paths of running processes from the peer meta.
+func extractPeerActiveProcesses(files []nbpeer.File) []string {
+	activeProcesses := make([]string, 0, len(files))
+	for _, file := range files {
+		if file.ProcessIsRunning {
+			activeProcesses = append(activeProcesses, file.Path)
+		}
+	}
+	return activeProcesses
 }

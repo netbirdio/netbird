@@ -261,37 +261,17 @@ func (pc *Checks) Validate() error {
 		return errors.New("posture checks name shouldn't be empty")
 	}
 
-	// posture check should contain at least one check
-	if pc.Checks.NBVersionCheck == nil && pc.Checks.OSVersionCheck == nil &&
-		pc.Checks.GeoLocationCheck == nil && pc.Checks.PeerNetworkRangeCheck == nil && pc.Checks.ProcessCheck == nil {
+	checks := pc.GetChecks()
+	if len(checks) == 0 {
 		return errors.New("posture checks shouldn't be empty")
 	}
 
-	if pc.Checks.NBVersionCheck != nil {
-		if err := pc.Checks.NBVersionCheck.Validate(); err != nil {
+	for _, check := range checks {
+		if err := check.Validate(); err != nil {
 			return err
 		}
 	}
-	if pc.Checks.OSVersionCheck != nil {
-		if err := pc.Checks.OSVersionCheck.Validate(); err != nil {
-			return err
-		}
-	}
-	if pc.Checks.GeoLocationCheck != nil {
-		if err := pc.Checks.GeoLocationCheck.Validate(); err != nil {
-			return err
-		}
-	}
-	if pc.Checks.PeerNetworkRangeCheck != nil {
-		if err := pc.Checks.PeerNetworkRangeCheck.Validate(); err != nil {
-			return err
-		}
-	}
-	if pc.Checks.ProcessCheck != nil {
-		if err := pc.Checks.ProcessCheck.Validate(); err != nil {
-			return err
-		}
-	}
+
 	return nil
 }
 
