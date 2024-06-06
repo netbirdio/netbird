@@ -145,7 +145,6 @@ func (am *DefaultAccountManager) checkRoutePrefixExistsForPeers(account *Account
 }
 
 // CreateRoute creates and saves a new route
-// NOSONAR S107
 func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, accessControlGroupIDs []string, enabled bool, userID string) (*route.Route, error) {
 	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
