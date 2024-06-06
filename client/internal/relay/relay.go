@@ -170,7 +170,7 @@ func ProbeAll(
 
 	var wg sync.WaitGroup
 	for i, uri := range relays {
-		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 
 		wg.Add(1)

@@ -1790,8 +1790,10 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		}
 	}
 
+	start := time.Now()
 	unlock := am.Store.AcquireGlobalLock()
 	defer unlock()
+	log.Debugf("Acquired global lock in %s for user %s", time.Since(start), claims.UserId)
 
 	// We checked if the domain has a primary account already
 	domainAccount, err := am.Store.GetAccountByPrivateDomain(claims.Domain)
@@ -1842,6 +1844,9 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error) {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(peerPubKey)
 	if err != nil {
+		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
+			return nil, nil, status.Errorf(status.Unauthenticated, "peer not registered")
+		}
 		return nil, nil, err
 	}
 
@@ -1869,6 +1874,9 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.I
 func (am *DefaultAccountManager) CancelPeerRoutines(peer *nbpeer.Peer) error {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(peer.Key)
 	if err != nil {
+		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
+			return status.Errorf(status.Unauthenticated, "peer not registered")
+		}
 		return err
 	}
 

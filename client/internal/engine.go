@@ -150,6 +150,8 @@ type Engine struct {
 	signalProbe *Probe
 	relayProbe  *Probe
 	wgProbe     *Probe
+
+	wgConnWorker sync.WaitGroup
 }
 
 // Peer is an instance of the Connection Peer
@@ -245,6 +247,7 @@ func (e *Engine) Stop() error {
 	time.Sleep(500 * time.Millisecond)
 
 	e.close()
+	e.wgConnWorker.Wait()
 	log.Infof("stopped Netbird Engine")
 	return nil
 }
@@ -869,18 +872,25 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 			log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
 		}
 
+		e.wgConnWorker.Add(1)
 		go e.connWorker(conn, peerKey)
 	}
 	return nil
 }
 
 func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
+	defer e.wgConnWorker.Done()
 	for {
 
 		// randomize starting time a bit
 		min := 500
 		max := 2000
-		time.Sleep(time.Duration(rand.Intn(max-min)+min) * time.Millisecond)
+		duration := time.Duration(rand.Intn(max-min)+min) * time.Millisecond
+		select {
+		case <-e.ctx.Done():
+			return
+		case <-time.After(duration):
+		}
 
 		// if peer has been removed -> give up
 		if !e.peerExists(peerKey) {
