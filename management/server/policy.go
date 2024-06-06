@@ -459,36 +459,17 @@ func (am *DefaultAccountManager) savePolicy(account *Account, policy *Policy) (e
 	return
 }
 
-func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
-	result := make([]*proto.FirewallRule, len(update))
-	for i := range update {
-		direction := proto.RuleDirection_IN
-		if update[i].Direction == firewallRuleDirectionOUT {
-			direction = proto.RuleDirection_OUT
-		}
-		action := proto.RuleAction_ACCEPT
-		if update[i].Action == string(PolicyTrafficActionDrop) {
-			action = proto.RuleAction_DROP
-		}
-
-		protocol := proto.RuleProtocol_UNKNOWN
-		switch PolicyRuleProtocolType(update[i].Protocol) {
-		case PolicyRuleProtocolALL:
-			protocol = proto.RuleProtocol_ALL
-		case PolicyRuleProtocolTCP:
-			protocol = proto.RuleProtocol_TCP
-		case PolicyRuleProtocolUDP:
-			protocol = proto.RuleProtocol_UDP
-		case PolicyRuleProtocolICMP:
-			protocol = proto.RuleProtocol_ICMP
-		}
+func toProtocolFirewallRules(rules []*FirewallRule) []*proto.FirewallRule {
+	result := make([]*proto.FirewallRule, len(rules))
+	for i := range rules {
+		rule := rules[i]
 
 		result[i] = &proto.FirewallRule{
-			PeerIP:    update[i].PeerIP,
-			Direction: direction,
-			Action:    action,
-			Protocol:  protocol,
-			Port:      update[i].Port,
+			PeerIP:    rule.PeerIP,
+			Direction: getProtoDirection(rule.Direction),
+			Action:    getProtoAction(rule.Action),
+			Protocol:  getProtoProtocol(rule.Protocol),
+			Port:      rule.Port,
 		}
 	}
 	return result

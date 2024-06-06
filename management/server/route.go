@@ -1,20 +1,19 @@
 package server
 
 import (
+	"fmt"
 	"net/netip"
 	"slices"
 	"strconv"
-	"strings"
 	"unicode/utf8"
-
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 )
 
 // RouteFirewallRule a firewall rule applicable for a routed network.
@@ -146,6 +145,7 @@ func (am *DefaultAccountManager) checkRoutePrefixExistsForPeers(account *Account
 }
 
 // CreateRoute creates and saves a new route
+// NOSONAR S107
 func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, accessControlGroupIDs []string, enabled bool, userID string) (*route.Route, error) {
 	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
@@ -155,11 +155,9 @@ func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, 
 		return nil, err
 	}
 
-	if peerID != "" && len(peerGroupIDs) != 0 {
-		return nil, status.Errorf(
-			status.InvalidArgument,
-			"peer with ID %s and peers group %s should not be provided at the same time",
-			peerID, peerGroupIDs)
+	err = validateCreateRoute(account, peerID, peerGroupIDs, metric, netID, accessControlGroupIDs, groups)
+	if err != nil {
+		return nil, err
 	}
 
 	var newRoute route.Route
@@ -170,34 +168,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, 
 		return nil, status.Errorf(status.InvalidArgument, "failed to parse IP %s", network)
 	}
 
-	if len(peerGroupIDs) > 0 {
-		err = validateGroups(peerGroupIDs, account.Groups)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if len(accessControlGroupIDs) > 0 {
-		err = validateGroups(accessControlGroupIDs, account.Groups)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	err = am.checkRoutePrefixExistsForPeers(account, peerID, newRoute.ID, peerGroupIDs, newPrefix)
-	if err != nil {
-		return nil, err
-	}
-
-	if metric < route.MinMetric || metric > route.MaxMetric {
-		return nil, status.Errorf(status.InvalidArgument, "metric should be between %d and %d", route.MinMetric, route.MaxMetric)
-	}
-
-	if utf8.RuneCountInString(string(netID)) > route.MaxNetIDChar || netID == "" {
-		return nil, status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
-	}
-
-	err = validateGroups(groups, account.Groups)
 	if err != nil {
 		return nil, err
 	}
@@ -237,51 +208,16 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
-	if routeToSave == nil {
-		return status.Errorf(status.InvalidArgument, "route provided is nil")
-	}
-
-	if !routeToSave.Network.IsValid() {
-		return status.Errorf(status.InvalidArgument, "invalid Prefix %s", routeToSave.Network.String())
-	}
-
-	if routeToSave.Metric < route.MinMetric || routeToSave.Metric > route.MaxMetric {
-		return status.Errorf(status.InvalidArgument, "metric should be between %d and %d", route.MinMetric, route.MaxMetric)
-	}
-
-	if utf8.RuneCountInString(string(routeToSave.NetID)) > route.MaxNetIDChar || routeToSave.NetID == "" {
-		return status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
-	}
-
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return err
 	}
 
-	if routeToSave.Peer != "" && len(routeToSave.PeerGroups) != 0 {
-		return status.Errorf(status.InvalidArgument, "peer with ID and peer groups should not be provided at the same time")
-	}
-
-	if len(routeToSave.PeerGroups) > 0 {
-		err = validateGroups(routeToSave.PeerGroups, account.Groups)
-		if err != nil {
-			return err
-		}
-	}
-
-	if len(routeToSave.AccessControlGroups) > 0 {
-		err = validateGroups(routeToSave.AccessControlGroups, account.Groups)
-		if err != nil {
-			return err
-		}
-	}
-
-	err = am.checkRoutePrefixExistsForPeers(account, routeToSave.Peer, routeToSave.ID, routeToSave.Copy().PeerGroups, routeToSave.Network)
-	if err != nil {
+	if err := validateRoute(account, routeToSave); err != nil {
 		return err
 	}
 
-	err = validateGroups(routeToSave.Groups, account.Groups)
+	err = am.checkRoutePrefixExistsForPeers(account, routeToSave.Peer, routeToSave.ID, routeToSave.Copy().PeerGroups, routeToSave.Network)
 	if err != nil {
 		return err
 	}
@@ -418,7 +354,7 @@ func generateRouteFirewallRules(route *route.Route, rule *PolicyRule, groupPeers
 			continue
 		}
 
-		rr := RouteFirewallRule{
+		baseRule := RouteFirewallRule{
 			PeerIP:      peer.IP.String(),
 			Direction:   direction,
 			Action:      string(rule.Action),
@@ -427,40 +363,71 @@ func generateRouteFirewallRules(route *route.Route, rule *PolicyRule, groupPeers
 			NetworkType: int(route.NetworkType),
 		}
 
-		ruleID := rule.ID + rr.PeerIP + strconv.Itoa(firewallRuleDirectionIN) +
-			rr.Protocol + rr.Action + strings.Join(rule.Ports, ",")
+		// generate rule for port range
+		if len(rule.Ports) == 0 {
+			rules = append(rules, generateRulesWithPortRanges(baseRule, rule, rulesExists)...)
+			continue
+		}
+		rules = append(rules, generateRulesWithPorts(baseRule, rule, rulesExists)...)
+	}
+
+	return rules
+}
+
+// generateRuleIDBase generates the base rule ID for checking duplicates.
+func generateRuleIDBase(rule *PolicyRule, baseRule RouteFirewallRule) string {
+	return rule.ID + baseRule.PeerIP + strconv.Itoa(firewallRuleDirectionIN) + baseRule.Protocol + baseRule.Action
+}
+
+// generateRulesForPeer generates rules for a given peer based on ports and port ranges.
+func generateRulesWithPortRanges(baseRule RouteFirewallRule, rule *PolicyRule, rulesExists map[string]struct{}) []*RouteFirewallRule {
+	rules := make([]*RouteFirewallRule, 0)
+
+	ruleIDBase := generateRuleIDBase(rule, baseRule)
+	if len(rule.Ports) == 0 {
+		if len(rule.PortRanges) == 0 {
+			if _, ok := rulesExists[ruleIDBase]; !ok {
+				rulesExists[ruleIDBase] = struct{}{}
+				rules = append(rules, &baseRule)
+			}
+		} else {
+			for _, portRange := range rule.PortRanges {
+				ruleID := fmt.Sprintf("%s%d-%d", ruleIDBase, portRange.Start, portRange.End)
+				if _, ok := rulesExists[ruleID]; !ok {
+					rulesExists[ruleID] = struct{}{}
+					pr := baseRule
+					pr.PortRange = portRange
+					rules = append(rules, &pr)
+				}
+			}
+		}
+		return rules
+	}
+
+	return rules
+}
+
+// generateRulesWithPorts generates rules when specific ports are provided.
+func generateRulesWithPorts(baseRule RouteFirewallRule, rule *PolicyRule, rulesExists map[string]struct{}) []*RouteFirewallRule {
+	rules := make([]*RouteFirewallRule, 0)
+	ruleIDBase := generateRuleIDBase(rule, baseRule)
+
+	for _, port := range rule.Ports {
+		ruleID := ruleIDBase + port
 		if _, ok := rulesExists[ruleID]; ok {
 			continue
 		}
 		rulesExists[ruleID] = struct{}{}
 
-		if len(rule.Ports) == 0 {
-			if len(rule.PortRanges) == 0 {
-				rules = append(rules, &rr)
-				continue
-			}
-
-			for _, portRange := range rule.PortRanges {
-				pr := rr
-				pr.PortRange = portRange
-				rules = append(rules, &pr)
-			}
+		pr := baseRule
+		p, err := strconv.ParseUint(port, 10, 16)
+		if err != nil {
+			log.Errorf("failed to parse port %s for rule: %s", port, rule.ID)
 			continue
 		}
 
-		for _, port := range rule.Ports {
-			pr := rr // clone rule and add set new port
-
-			p, err := strconv.ParseUint(port, 10, 16)
-			if err != nil {
-				log.Errorf("failed to parse port %s for rule: %s", port, rule.ID)
-				continue
-			}
-
-			pr.Port = uint16(p)
-			rules = append(rules, &pr)
-		}
-
+		pr.Port = uint16(p)
+		rules = append(rules, &pr)
 	}
 
 	return rules
@@ -486,58 +453,149 @@ func toProtocolRoutes(routes []*route.Route) []*proto.Route {
 	return protoRoutes
 }
 
-func toProtocolRoutesFirewallRules(update []*RouteFirewallRule) []*proto.RouteFirewallRule {
-	result := make([]*proto.RouteFirewallRule, len(update))
-	for i := range update {
-		direction := proto.RuleDirection_IN
-		if update[i].Direction == firewallRuleDirectionOUT {
-			direction = proto.RuleDirection_OUT
-		}
-		action := proto.RuleAction_ACCEPT
-		if update[i].Action == string(PolicyTrafficActionDrop) {
-			action = proto.RuleAction_DROP
-		}
-
-		protocol := proto.RuleProtocol_UNKNOWN
-		switch PolicyRuleProtocolType(update[i].Protocol) {
-		case PolicyRuleProtocolALL:
-			protocol = proto.RuleProtocol_ALL
-		case PolicyRuleProtocolTCP:
-			protocol = proto.RuleProtocol_TCP
-		case PolicyRuleProtocolUDP:
-			protocol = proto.RuleProtocol_UDP
-		case PolicyRuleProtocolICMP:
-			protocol = proto.RuleProtocol_ICMP
-		}
-
-		networkType := proto.RouteFirewallRule_IPV4
-		if route.NetworkType(update[i].NetworkType) == route.IPv6Network {
-			networkType = proto.RouteFirewallRule_IPV6
-		}
-
-		var portInfo proto.PortInfo
-		if update[i].Port != 0 {
-			portInfo.PortSelection = &proto.PortInfo_Port{Port: uint32(update[i].Port)}
-		} else {
-			if portRange := update[i].PortRange; portRange.Start != 0 && portRange.End != 0 {
-				portInfo.PortSelection = &proto.PortInfo_Range_{
-					Range: &proto.PortInfo_Range{
-						Start: uint32(portRange.Start),
-						End:   uint32(portRange.End),
-					},
-				}
-			}
-		}
-
+func toProtocolRoutesFirewallRules(rules []*RouteFirewallRule) []*proto.RouteFirewallRule {
+	result := make([]*proto.RouteFirewallRule, len(rules))
+	for i := range rules {
+		rule := rules[i]
 		result[i] = &proto.RouteFirewallRule{
-			PeerIP:      update[i].PeerIP,
-			Direction:   direction,
-			Action:      action,
-			NetworkType: networkType,
-			Destination: update[i].Destination,
-			Protocol:    protocol,
-			PortInfo:    &portInfo,
+			PeerIP:      rule.PeerIP,
+			Direction:   getProtoDirection(rule.Direction),
+			Action:      getProtoAction(rule.Action),
+			NetworkType: getProtoNetworkType(rule.NetworkType),
+			Destination: rule.Destination,
+			Protocol:    getProtoProtocol(rule.Protocol),
+			PortInfo:    getProtoPortInfo(rule),
 		}
 	}
+
 	return result
+}
+
+// getProtoDirection converts the direction to proto.RuleDirection.
+func getProtoDirection(direction int) proto.RuleDirection {
+	if direction == firewallRuleDirectionOUT {
+		return proto.RuleDirection_OUT
+	}
+	return proto.RuleDirection_IN
+}
+
+// getProtoAction converts the action to proto.RuleAction.
+func getProtoAction(action string) proto.RuleAction {
+	if action == string(PolicyTrafficActionDrop) {
+		return proto.RuleAction_DROP
+	}
+	return proto.RuleAction_ACCEPT
+}
+
+// getProtoProtocol converts the protocol to proto.RuleProtocol.
+func getProtoProtocol(protocol string) proto.RuleProtocol {
+	switch PolicyRuleProtocolType(protocol) {
+	case PolicyRuleProtocolALL:
+		return proto.RuleProtocol_ALL
+	case PolicyRuleProtocolTCP:
+		return proto.RuleProtocol_TCP
+	case PolicyRuleProtocolUDP:
+		return proto.RuleProtocol_UDP
+	case PolicyRuleProtocolICMP:
+		return proto.RuleProtocol_ICMP
+	default:
+		return proto.RuleProtocol_UNKNOWN
+	}
+}
+
+// getProtoNetworkType converts the network type to proto.RouteFirewallRule_NetworkType.
+func getProtoNetworkType(networkType int) proto.RouteFirewallRule_NetworkType {
+	if route.NetworkType(networkType) == route.IPv6Network {
+		return proto.RouteFirewallRule_IPV6
+	}
+	return proto.RouteFirewallRule_IPV4
+}
+
+// getProtoPortInfo converts the port info to proto.PortInfo.
+func getProtoPortInfo(rule *RouteFirewallRule) *proto.PortInfo {
+	var portInfo proto.PortInfo
+	if rule.Port != 0 {
+		portInfo.PortSelection = &proto.PortInfo_Port{Port: uint32(rule.Port)}
+	} else if portRange := rule.PortRange; portRange.Start != 0 && portRange.End != 0 {
+		portInfo.PortSelection = &proto.PortInfo_Range_{
+			Range: &proto.PortInfo_Range{
+				Start: uint32(portRange.Start),
+				End:   uint32(portRange.End),
+			},
+		}
+	}
+	return &portInfo
+}
+
+// validateCreateRoute validates the input parameters for creating a route and returns an error if any validation fails.
+func validateCreateRoute(account *Account, peerID string, peerGroupIDs []string, metric int, netID route.NetID, accessControlGroupIDs, groups []string) error {
+	if peerID != "" && len(peerGroupIDs) != 0 {
+		return status.Errorf(
+			status.InvalidArgument,
+			"peer with ID %s and peers group %s should not be provided at the same time",
+			peerID, peerGroupIDs)
+	}
+
+	if len(peerGroupIDs) > 0 {
+		err := validateGroups(peerGroupIDs, account.Groups)
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(accessControlGroupIDs) > 0 {
+		err := validateGroups(accessControlGroupIDs, account.Groups)
+		if err != nil {
+			return err
+		}
+	}
+
+	if metric < route.MinMetric || metric > route.MaxMetric {
+		return status.Errorf(status.InvalidArgument, "metric should be between %d and %d", route.MinMetric, route.MaxMetric)
+	}
+
+	if utf8.RuneCountInString(string(netID)) > route.MaxNetIDChar || netID == "" {
+		return status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
+	}
+
+	return validateGroups(groups, account.Groups)
+}
+
+// validateRoute validates the provided route and returns an error if any validation fails.
+func validateRoute(account *Account, routeToSave *route.Route) error {
+	if routeToSave == nil {
+		return status.Errorf(status.InvalidArgument, "route provided is nil")
+	}
+
+	if !routeToSave.Network.IsValid() {
+		return status.Errorf(status.InvalidArgument, "invalid Prefix %s", routeToSave.Network.String())
+	}
+
+	if routeToSave.Metric < route.MinMetric || routeToSave.Metric > route.MaxMetric {
+		return status.Errorf(status.InvalidArgument, "metric should be between %d and %d", route.MinMetric, route.MaxMetric)
+	}
+
+	if utf8.RuneCountInString(string(routeToSave.NetID)) > route.MaxNetIDChar || routeToSave.NetID == "" {
+		return status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
+	}
+
+	if routeToSave.Peer != "" && len(routeToSave.PeerGroups) != 0 {
+		return status.Errorf(status.InvalidArgument, "peer with ID and peer groups should not be provided at the same time")
+	}
+
+	if len(routeToSave.PeerGroups) > 0 {
+		err := validateGroups(routeToSave.PeerGroups, account.Groups)
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(routeToSave.AccessControlGroups) > 0 {
+		err := validateGroups(routeToSave.AccessControlGroups, account.Groups)
+		if err != nil {
+			return err
+		}
+	}
+
+	return validateGroups(routeToSave.Groups, account.Groups)
 }
