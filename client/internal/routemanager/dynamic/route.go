@@ -310,10 +310,9 @@ func (r *Route) incrementAllowedIP(domain domain.Domain, prefix netip.Prefix, pe
 	if ref, err := r.allowedIPsRefcounter.Increment(prefix, peerKey); err != nil {
 		return fmt.Errorf(addAllowedIP, prefix, err)
 	} else if ref.Count > 1 && ref.Out != peerKey {
-		log.Warnf("IP [%s] for domain [%s] was already resolved for a different domain routed by peer [%s]. Routing for this IP will be done by peer [%s], HA routing disabled",
+		log.Warnf("IP [%s] for domain [%s] is already routed by peer [%s]. HA routing disabled",
 			prefix.Addr(),
 			domain.SafeString(),
-			ref.Out,
 			ref.Out,
 		)
 

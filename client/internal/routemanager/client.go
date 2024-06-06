@@ -206,19 +206,10 @@ func (c *clientNetwork) startPeersStatusChangeWatcher() {
 	}
 }
 
-func (c *clientNetwork) removeRouteFromWireguardPeer(peerKey string) error {
+func (c *clientNetwork) removeRouteFromWireguardPeer() error {
 	c.removeStateRoute()
 
-	state, err := c.statusRecorder.GetPeer(peerKey)
-	if err != nil {
-		return fmt.Errorf("get peer state: %w", err)
-	}
-
-	if state.ConnStatus != peer.StatusConnected {
-		return nil
-	}
-
-	if err = c.handler.RemoveAllowedIPs(); err != nil {
+	if err := c.handler.RemoveAllowedIPs(); err != nil {
 		return fmt.Errorf("remove allowed IPs: %w", err)
 	}
 	return nil
@@ -231,7 +222,7 @@ func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 
 	var merr *multierror.Error
 
-	if err := c.removeRouteFromWireguardPeer(c.currentChosen.Peer); err != nil {
+	if err := c.removeRouteFromWireguardPeer(); err != nil {
 		merr = multierror.Append(merr, fmt.Errorf("remove allowed IPs for peer %s: %w", c.currentChosen.Peer, err))
 	}
 	if err := c.handler.RemoveRoute(); err != nil {
@@ -270,7 +261,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 		}
 	} else {
 		// Otherwise, remove the allowed IPs from the previous peer first
-		if err := c.removeRouteFromWireguardPeer(c.currentChosen.Peer); err != nil {
+		if err := c.removeRouteFromWireguardPeer(); err != nil {
 			return fmt.Errorf("remove allowed IPs for peer %s: %w", c.currentChosen.Peer, err)
 		}
 	}
