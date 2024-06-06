@@ -51,11 +51,11 @@ func (rm *Counter[I, O]) Increment(prefix netip.Prefix, in I) (Ref[O], error) {
 	defer rm.refCountMu.Unlock()
 
 	ref := rm.refCountMap[prefix]
-	log.Tracef("Increasing ref count %d for prefix %s", ref.Count, prefix)
+	log.Tracef("Increasing ref count %d for prefix %s with [%v]", ref.Count, prefix, ref.Out)
 
 	// Call AddFunc only if it's a new prefix
 	if ref.Count == 0 {
-		log.Tracef("Adding for prefix %s", prefix)
+		log.Tracef("Adding for prefix %s with [%v]", prefix, ref.Out)
 		out, err := rm.add(prefix, in)
 
 		if errors.Is(err, ErrIgnore) {
@@ -100,9 +100,9 @@ func (rm *Counter[I, O]) Decrement(prefix netip.Prefix) (Ref[O], error) {
 		return ref, nil
 	}
 
-	log.Tracef("Decreasing ref count %d for prefix %s", ref.Count, prefix)
+	log.Tracef("Decreasing ref count %d for prefix %s with [%v]", ref.Count, prefix, ref.Out)
 	if ref.Count == 1 {
-		log.Tracef("Removing for prefix %s", prefix)
+		log.Tracef("Removing for prefix %s with [%v]", prefix, ref.Out)
 		if err := rm.remove(prefix, ref.Out); err != nil {
 			return ref, fmt.Errorf("remove for prefix %s: %w", prefix, err)
 		}
