@@ -805,7 +805,6 @@ func candidateViaRoutes(candidate ice.Candidate, clientRoutes route.HAMap) bool 
 			vpnRoutes = append(vpnRoutes, routes[0].Network)
 		}
 	}
-	candidate.Address()
 
 	addr, err := netip.ParseAddr(candidate.Address())
 	if err != nil {
