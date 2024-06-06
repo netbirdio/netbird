@@ -1,11 +1,14 @@
 package iface
 
 import (
+	"errors"
 	"net"
 	"time"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
+
+var ErrPeerNotFound = errors.New("peer not found")
 
 type wgConfigurer interface {
 	configureInterface(privateKey string, port int) error

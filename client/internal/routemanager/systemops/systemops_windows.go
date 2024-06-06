@@ -1,6 +1,6 @@
 //go:build windows
 
-package routemanager
+package systemops
 
 import (
 	"fmt"
@@ -18,7 +18,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/iface"
 )
 
 type MSFT_NetRoute struct {
@@ -57,14 +56,43 @@ var prefixList []netip.Prefix
 var lastUpdate time.Time
 var mux = sync.Mutex{}
 
-var routeManager *RouteManager
-
-func setupRouting(initAddresses []net.IP, wgIface *iface.WGIface) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
-	return setupRoutingWithRouteManager(&routeManager, initAddresses, wgIface)
+func (r *SysOps) SetupRouting(initAddresses []net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+	return r.setupRefCounter(initAddresses)
 }
 
-func cleanupRouting() error {
-	return cleanupRoutingWithRouteManager(routeManager)
+func (r *SysOps) CleanupRouting() error {
+	return r.cleanupRefCounter()
+}
+
+func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+	if nexthop.IP.Zone() != "" && nexthop.Intf == nil {
+		zone, err := strconv.Atoi(nexthop.IP.Zone())
+		if err != nil {
+			return fmt.Errorf("invalid zone: %w", err)
+		}
+		nexthop.Intf = &net.Interface{Index: zone}
+		nexthop.IP.WithZone("")
+	}
+
+	return addRouteCmd(prefix, nexthop)
+}
+
+func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+	args := []string{"delete", prefix.String()}
+	if nexthop.IP.IsValid() {
+		nexthop.IP.WithZone("")
+		args = append(args, nexthop.IP.Unmap().String())
+	}
+
+	routeCmd := uspfilter.GetSystem32Command("route")
+
+	out, err := exec.Command(routeCmd, args...).CombinedOutput()
+	log.Tracef("route %s: %s", strings.Join(args, " "), out)
+
+	if err != nil {
+		return fmt.Errorf("remove route: %w", err)
+	}
+	return nil
 }
 
 func getRoutesFromTable() ([]netip.Prefix, error) {
@@ -93,7 +121,7 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 func GetRoutes() ([]Route, error) {
 	var entries []MSFT_NetRoute
 
-	query := `SELECT DestinationPrefix, NextHop, InterfaceIndex, InterfaceAlias, AddressFamily FROM MSFT_NetRoute`
+	query := `SELECT DestinationPrefix, Nexthop, InterfaceIndex, InterfaceAlias, AddressFamily FROM MSFT_NetRoute`
 	if err := wmi.QueryNamespace(query, &entries, `ROOT\StandardCimv2`); err != nil {
 		return nil, fmt.Errorf("get routes: %w", err)
 	}
@@ -157,11 +185,11 @@ func GetNeighbors() ([]Neighbor, error) {
 	return neighbors, nil
 }
 
-func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
+func addRouteCmd(prefix netip.Prefix, nexthop Nexthop) error {
 	args := []string{"add", prefix.String()}
 
-	if nexthop.IsValid() {
-		args = append(args, nexthop.Unmap().String())
+	if nexthop.IP.IsValid() {
+		args = append(args, nexthop.IP.Unmap().String())
 	} else {
 		addr := "0.0.0.0"
 		if prefix.Addr().Is6() {
@@ -170,8 +198,8 @@ func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) e
 		args = append(args, addr)
 	}
 
-	if intf != nil {
-		args = append(args, "if", strconv.Itoa(intf.Index))
+	if nexthop.Intf != nil {
+		args = append(args, "if", strconv.Itoa(nexthop.Intf.Index))
 	}
 
 	routeCmd := uspfilter.GetSystem32Command("route")
@@ -182,37 +210,6 @@ func addRouteCmd(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) e
 		return fmt.Errorf("route add: %w", err)
 	}
 
-	return nil
-}
-
-func addToRouteTable(prefix netip.Prefix, nexthop netip.Addr, intf *net.Interface) error {
-	if nexthop.Zone() != "" && intf == nil {
-		zone, err := strconv.Atoi(nexthop.Zone())
-		if err != nil {
-			return fmt.Errorf("invalid zone: %w", err)
-		}
-		intf = &net.Interface{Index: zone}
-		nexthop.WithZone("")
-	}
-
-	return addRouteCmd(prefix, nexthop, intf)
-}
-
-func removeFromRouteTable(prefix netip.Prefix, nexthop netip.Addr, _ *net.Interface) error {
-	args := []string{"delete", prefix.String()}
-	if nexthop.IsValid() {
-		nexthop.WithZone("")
-		args = append(args, nexthop.Unmap().String())
-	}
-
-	routeCmd := uspfilter.GetSystem32Command("route")
-
-	out, err := exec.Command(routeCmd, args...).CombinedOutput()
-	log.Tracef("route %s: %s", strings.Join(args, " "), out)
-
-	if err != nil {
-		return fmt.Errorf("remove route: %w", err)
-	}
 	return nil
 }
 

@@ -6,16 +6,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
-	"net/netip"
 	"syscall"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
+
+	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
 
-func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interface, nexthop6 netip.Addr, intfv6 *net.Interface, callback func()) error {
-	if intfv4 == nil && intfv6 == nil {
+func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, callback func()) error {
+	if nexthopv4.Intf == nil && nexthopv6.Intf == nil {
 		return errors.New("no interfaces available")
 	}
 
@@ -40,7 +40,7 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 
 		// handle interface state changes
 		case update := <-linkChan:
-			if (intfv4 == nil || update.Index != int32(intfv4.Index)) && (intfv6 == nil || update.Index != int32(intfv6.Index)) {
+			if (nexthopv4.Intf == nil || update.Index != int32(nexthopv4.Intf.Index)) && (nexthopv6.Intf == nil || update.Index != int32(nexthopv6.Intf.Index)) {
 				continue
 			}
 
@@ -70,7 +70,7 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 				go callback()
 				return nil
 			case syscall.RTM_DELROUTE:
-				if intfv4 != nil && route.Gw.Equal(nexthopv4.AsSlice()) || intfv6 != nil && route.Gw.Equal(nexthop6.AsSlice()) {
+				if nexthopv4.Intf != nil && route.Gw.Equal(nexthopv4.IP.AsSlice()) || nexthopv6.Intf != nil && route.Gw.Equal(nexthopv6.IP.AsSlice()) {
 					log.Infof("Network monitor: default route removed: via %s, interface %d", route.Gw, route.LinkIndex)
 					go callback()
 					return nil
