@@ -785,6 +785,7 @@ func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
 		return false
 	}
 
+	var modified bool
 	for _, name := range groupsToAdd {
 		group, exists := existedGroupsByName[name]
 		if !exists {
@@ -795,17 +796,22 @@ func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
 			}
 			a.Groups[group.ID] = group
 		}
-		newAutoGroups = append(newAutoGroups, group.ID)
+		if group.Issued == nbgroup.GroupIssuedJWT {
+			newAutoGroups = append(newAutoGroups, group.ID)
+			modified = true
+		}
 	}
 
 	for name, id := range jwtGroupsMap {
 		if !slices.Contains(groupsToRemove, name) {
 			newAutoGroups = append(newAutoGroups, id)
+			continue
 		}
+		modified = true
 	}
 	user.AutoGroups = newAutoGroups
 
-	return true
+	return modified
 }
 
 // UserGroupsAddToPeers adds groups to all peers of user
