@@ -759,7 +759,8 @@ func (a *Account) GetPeer(peerID string) *nbpeer.Peer {
 	return a.Peers[peerID]
 }
 
-// SetJWTGroups to account and to user autoassigned groups
+// SetJWTGroups updates the user's auto groups by synchronizing JWT groups.
+// Returns true if there are changes in the JWT group membership.
 func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
 	if len(groupsNames) == 0 {
 		return false
@@ -770,7 +771,6 @@ func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
 		return false
 	}
 
-	// Create maps for quick lookup
 	existedGroupsByName := make(map[string]*nbgroup.Group)
 	for _, group := range a.Groups {
 		existedGroupsByName[group.Name] = group
