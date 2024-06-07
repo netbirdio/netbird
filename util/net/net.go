@@ -1,6 +1,7 @@
 package net
 
 import (
+	"github.com/netbirdio/netbird/iface/netstack"
 	"os"
 
 	"github.com/google/uuid"
@@ -23,5 +24,8 @@ func GenerateConnID() ConnectionID {
 }
 
 func CustomRoutingDisabled() bool {
+	if netstack.IsEnabled() {
+		return true
+	}
 	return os.Getenv(envDisableCustomRouting) == "true"
 }
