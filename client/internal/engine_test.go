@@ -810,7 +810,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
 	defer cancel()
 
-	sigServer, signalAddr, err := startSignal()
+	sigServer, signalAddr, err := startSignal(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -1013,7 +1013,9 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	return e, err
 }
 
-func startSignal() (*grpc.Server, string, error) {
+func startSignal(t *testing.T) (*grpc.Server, string, error) {
+	t.Helper()
+
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
 	lis, err := net.Listen("tcp", "localhost:0")
@@ -1021,7 +1023,9 @@ func startSignal() (*grpc.Server, string, error) {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	proto.RegisterSignalExchangeServer(s, signalServer.NewServer())
+	srv, err := signalServer.NewServer(nil)
+	require.NoError(t, err)
+	proto.RegisterSignalExchangeServer(s, srv)
 
 	go func() {
 		if err = s.Serve(lis); err != nil {

@@ -3,31 +3,44 @@ package server
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/signal/peer"
-	"github.com/netbirdio/netbird/signal/proto"
+	"io"
+
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	"io"
+
+	"github.com/netbirdio/netbird/signal/metrics"
+	"github.com/netbirdio/netbird/signal/peer"
+	"github.com/netbirdio/netbird/signal/proto"
 )
 
 // Server an instance of a Signal server
 type Server struct {
 	registry *peer.Registry
 	proto.UnimplementedSignalExchangeServer
+
+	metrics *metrics.AppMetrics
 }
 
 // NewServer creates a new Signal server
-func NewServer() *Server {
-	return &Server{
-		registry: peer.NewRegistry(),
+func NewServer(meter metric.Meter) (*Server, error) {
+	appMetrics, err := metrics.NewAppMetrics(meter)
+	if err != nil {
+		return nil, fmt.Errorf("creating app metrics: %v", err)
 	}
+
+	s := &Server{
+		registry: peer.NewRegistry(appMetrics),
+		metrics:  appMetrics,
+	}
+
+	return s, nil
 }
 
 // Send forwards a message to the signal peer
 func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
-
 	if !s.registry.IsPeerRegistered(msg.Key) {
 		return nil, fmt.Errorf("peer %s is not registered", msg.Key)
 	}
@@ -48,15 +61,17 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 
 // ConnectStream connects to the exchange stream
 func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) error {
-
 	p, err := s.connectPeer(stream)
 	if err != nil {
 		return err
 	}
 
+	s.metrics.RegisteredPeers.Add(stream.Context(), 1)
+
 	defer func() {
 		log.Infof("peer disconnected [%s] [streamID %d] ", p.Id, p.StreamID)
 		s.registry.Deregister(p)
+		s.metrics.RegisteredPeers.Add(context.Background(), -1)
 	}()
 
 	//needed to confirm that the peer has been registered so that the client can proceed
@@ -101,7 +116,9 @@ func (s Server) connectPeer(stream proto.SignalExchange_ConnectStreamServer) (*p
 	if meta, hasMeta := metadata.FromIncomingContext(stream.Context()); hasMeta {
 		if id, found := meta[proto.HeaderId]; found {
 			p := peer.NewPeer(id[0], stream)
+
 			s.registry.Register(p)
+
 			return p, nil
 		} else {
 			return nil, status.Errorf(codes.FailedPrecondition, "missing connection header: "+proto.HeaderId)

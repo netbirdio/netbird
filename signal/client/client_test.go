@@ -198,7 +198,11 @@ func startSignal() (*grpc.Server, net.Listener) {
 		panic(err)
 	}
 	s := grpc.NewServer()
-	sigProto.RegisterSignalExchangeServer(s, server.NewServer())
+	srv, err := server.NewServer(nil)
+	if err != nil {
+		panic(err)
+	}
+	sigProto.RegisterSignalExchangeServer(s, srv)
 	go func() {
 		if err := s.Serve(lis); err != nil {
 			log.Fatalf("failed to serve: %v", err)
