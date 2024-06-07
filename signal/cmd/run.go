@@ -103,14 +103,13 @@ var (
 				opts = append(opts, grpc.Creds(transportCredentials))
 			}
 
-			opts = append(opts, signalKaep, signalKasp)
-
 			metricsServer := metrics.NewServer(metricsPort, "")
 			if err != nil {
 				return fmt.Errorf("setup metrics: %v", err)
 			}
 
-			grpcServer := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
+			opts = append(opts, signalKaep, signalKasp, grpc.StatsHandler(otelgrpc.NewServerHandler()))
+			grpcServer := grpc.NewServer(opts...)
 
 			go func() {
 				log.Infof("running metrics server: %s%s", metricsServer.Addr, metricsServer.Endpoint)
