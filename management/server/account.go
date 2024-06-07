@@ -11,16 +11,13 @@ import (
 	"net/netip"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
-	gocache "github.com/patrickmn/go-cache"
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
@@ -35,6 +32,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
+	gocache "github.com/patrickmn/go-cache"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 )
 
 const (
@@ -760,33 +761,33 @@ func (a *Account) GetPeer(peerID string) *nbpeer.Peer {
 
 // SetJWTGroups to account and to user autoassigned groups
 func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
+	if len(groupsNames) == 0 {
+		return false
+	}
+
 	user, ok := a.Users[userID]
 	if !ok {
 		return false
 	}
 
+	// Create maps for quick lookup
 	existedGroupsByName := make(map[string]*nbgroup.Group)
 	for _, group := range a.Groups {
 		existedGroupsByName[group.Name] = group
 	}
 
-	// remove JWT groups from the autogroups, to sync them again
-	removed := 0
-	jwtAutoGroups := make(map[string]struct{})
-	for i, id := range user.AutoGroups {
-		if group, ok := a.Groups[id]; ok && group.Issued == nbgroup.GroupIssuedJWT {
-			jwtAutoGroups[group.Name] = struct{}{}
-			user.AutoGroups = append(user.AutoGroups[:i-removed], user.AutoGroups[i-removed+1:]...)
-			removed++
-		}
+	newAutoGroups, jwtGroupsMap := separateGroups(user.AutoGroups, a.Groups)
+	groupsToAdd := difference(groupsNames, maps.Keys(jwtGroupsMap))
+	groupsToRemove := difference(maps.Keys(jwtGroupsMap), groupsNames)
+
+	// If no groups are added or removed, we should not sync account
+	if len(groupsToAdd) == 0 && len(groupsToRemove) == 0 {
+		return false
 	}
 
-	// create JWT groups if they doesn't exist
-	// and all of them to the autogroups
-	var modified bool
-	for _, name := range groupsNames {
-		group, ok := existedGroupsByName[name]
-		if !ok {
+	for _, name := range groupsToAdd {
+		group, exists := existedGroupsByName[name]
+		if !exists {
 			group = &nbgroup.Group{
 				ID:     xid.New().String(),
 				Name:   name,
@@ -794,22 +795,17 @@ func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
 			}
 			a.Groups[group.ID] = group
 		}
-		// only JWT groups will be synced
-		if group.Issued == nbgroup.GroupIssuedJWT {
-			user.AutoGroups = append(user.AutoGroups, group.ID)
-			if _, ok := jwtAutoGroups[name]; !ok {
-				modified = true
-			}
-			delete(jwtAutoGroups, name)
+		newAutoGroups = append(newAutoGroups, group.ID)
+	}
+
+	for name, id := range jwtGroupsMap {
+		if !slices.Contains(groupsToRemove, name) {
+			newAutoGroups = append(newAutoGroups, id)
 		}
 	}
+	user.AutoGroups = newAutoGroups
 
-	// if not empty it means we removed some groups
-	if len(jwtAutoGroups) > 0 {
-		modified = true
-	}
-
-	return modified
+	return true
 }
 
 // UserGroupsAddToPeers adds groups to all peers of user
@@ -1714,6 +1710,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 							if err := am.Store.SaveAccount(account); err != nil {
 								log.Errorf("failed to save account: %v", err)
 							} else {
+								log.Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
 								am.updateAccountPeers(account)
 								unlock()
 								alreadyUnlocked = true
@@ -2063,4 +2060,23 @@ func userHasAllowedGroup(allowedGroups []string, userGroups []string) bool {
 		}
 	}
 	return false
+}
+
+// separateGroups separates user's auto groups into non-JWT and JWT groups.
+// Returns the list of standard auto groups and a map of JWT auto groups,
+// where the keys are the group names and the values are the group IDs.
+func separateGroups(autoGroups []string, allGroups map[string]*nbgroup.Group) ([]string, map[string]string) {
+	newAutoGroups := make([]string, 0)
+	jwtAutoGroups := make(map[string]string) // map of group name to group ID
+
+	for _, id := range autoGroups {
+		if group, ok := allGroups[id]; ok {
+			if group.Issued == nbgroup.GroupIssuedJWT {
+				jwtAutoGroups[group.Name] = id
+			} else {
+				newAutoGroups = append(newAutoGroups, id)
+			}
+		}
+	}
+	return newAutoGroups, jwtAutoGroups
 }
