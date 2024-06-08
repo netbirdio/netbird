@@ -247,10 +247,15 @@ components:
           description: (Cloud only) Indicates whether peer needs approval
           type: boolean
           example: true
+        ipv6_enabled:
+          type: string
+          enum: [enabled, disabled, auto]
+          example: auto
       required:
         - name
         - ssh_enabled
         - login_expiration_enabled
+        - ipv6_enabled
     PeerBase:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -264,6 +269,10 @@ components:
               description: Peer's public connection IP address
               type: string
               example: 35.64.0.1
+            ip6:
+              description: Peer's IPv6 address
+              type: string
+              example: 2001:db8::0123:4567:890a:bcde
             connected:
               description: Peer to Management connection status
               type: boolean
@@ -310,6 +319,15 @@ components:
               description: Peer's desktop UI version
               type: string
               example: 0.14.0
+            ipv6_supported:
+              description: Whether this peer supports IPv6
+              type: boolean
+              example: true
+            ipv6_enabled:
+              description: Whether IPv6 is enabled for this peer.
+              type: string
+              enum: [enabled, disabled, auto]
+              example: auto
             dns_label:
               description: Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
               type: string
@@ -352,6 +370,8 @@ components:
             - kernel_version
             - last_login
             - last_seen
+            - ipv6_supported
+            - ipv6_enabled
             - login_expiration_enabled
             - login_expired
             - os
@@ -627,8 +647,12 @@ components:
           items:
             type: string
             example: "ch8i4ug6lnn4g9hqv7m1"
+        ipv6_enabled:
+          description: Whether IPv6 should be enabled for all members with IPv6 set to "auto"
+          type: boolean
       required:
         - name
+        - ipv6_enabled
     Group:
       allOf:
         - $ref: '#/components/schemas/GroupMinimum'
@@ -639,8 +663,12 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/PeerMinimum'
+            ipv6_enabled:
+              description: Whether IPv6 should be enabled for all members with IPv6 set to "auto"
+              type: boolean
           required:
             - peers
+            - ipv6_enabled
     PolicyRuleMinimum:
       type: object
       properties:

@@ -379,6 +379,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 		SysProductName:   info.SystemProductName,
 		SysManufacturer:  info.SystemManufacturer,
 		Environment:      &mgmtProto.Environment{Cloud: info.Environment.Cloud, Platform: info.Environment.Platform},
+		Ipv6Supported:      info.Ipv6Supported,
 	}
 
 	assert.Equal(t, ValidKey, actualValidKey)

@@ -20,6 +20,8 @@ type Peer struct {
 	SetupKey string
 	// IP address of the Peer
 	IP net.IP `gorm:"serializer:json"`
+	// IPv6 address of the Peer
+	IP6 *net.IP `gorm:"uniqueIndex:idx_peers_account_id_ip6"`
 	// Meta is a Peer system meta data
 	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	// Name is peer's name (machine name)
@@ -44,9 +46,22 @@ type Peer struct {
 	CreatedAt time.Time
 	// Indicate ephemeral peer attribute
 	Ephemeral bool
-	// Geo location based on connection IP
+	// Geolocation based on connection IP
 	Location Location `gorm:"embedded;embeddedPrefix:location_"`
+	// Whether IPv6 should be enabled or not.
+	V6Setting V6Status
 }
+
+type V6Status string
+
+const (
+	// Inherit IPv6 settings from groups (=> if one group the peer is a member of has IPv6 enabled, it will be enabled).
+	V6Auto V6Status = ""
+	// Enable IPv6 regardless of group settings, as long as it is supported.
+	V6Enabled V6Status = "enabled"
+	// Disable IPv6 regardless of group settings.
+	V6Disabled V6Status = "disabled"
+)
 
 type PeerStatus struct { //nolint:revive
 	// LastSeen is the last time peer was connected to the management service
@@ -96,6 +111,7 @@ type PeerSystemMeta struct { //nolint:revive
 	SystemProductName  string
 	SystemManufacturer string
 	Environment        Environment `gorm:"serializer:json"`
+	Ipv6Supported      bool
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
@@ -130,7 +146,8 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		p.SystemProductName == other.SystemProductName &&
 		p.SystemManufacturer == other.SystemManufacturer &&
 		p.Environment.Cloud == other.Environment.Cloud &&
-		p.Environment.Platform == other.Environment.Platform
+		p.Environment.Platform == other.Environment.Platform &&
+		p.Ipv6Supported == other.Ipv6Supported
 }
 
 // AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
@@ -150,6 +167,7 @@ func (p *Peer) Copy() *Peer {
 		Key:                    p.Key,
 		SetupKey:               p.SetupKey,
 		IP:                     p.IP,
+		IP6:                    p.IP6,
 		Meta:                   p.Meta,
 		Name:                   p.Name,
 		DNSLabel:               p.DNSLabel,
@@ -162,6 +180,7 @@ func (p *Peer) Copy() *Peer {
 		CreatedAt:              p.CreatedAt,
 		Ephemeral:              p.Ephemeral,
 		Location:               p.Location,
+		V6Setting:              p.V6Setting,
 	}
 }
 

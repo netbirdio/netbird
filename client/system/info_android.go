@@ -39,6 +39,7 @@ func GetInfo(ctx context.Context) *Info {
 		WiretrusteeVersion: version.NetbirdVersion(),
 		UIVersion:          extractUIVersion(ctx),
 		KernelVersion:      kernelVersion,
+		Ipv6Supported:      false,
 	}
 
 	return gio

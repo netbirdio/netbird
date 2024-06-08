@@ -34,6 +34,7 @@ type Manager interface {
 	GetRouteSelector() *routeselector.RouteSelector
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
+	ResetV6Routes()
 	EnableServerRouter(firewall firewall.Manager) error
 	Stop()
 }
@@ -145,6 +146,18 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 		}
 
 		return newServerRoutesMap, newClientRoutesIDMap, nil
+	}
+}
+
+// ResetV6Routes deletes all IPv6 routes (necessary if IPv6 address changes).
+// It is expected that UpdateRoute is called afterwards to recreate the routing table.
+func (m *DefaultManager) ResetV6Routes() {
+	for id, client := range m.clientNetworks {
+		if client.network.Addr().Is6() {
+			log.Debugf("stopping client network watcher due to IPv6 address change, %s", id)
+			client.stop()
+			delete(m.clientNetworks, id)
+		}
 	}
 }
 

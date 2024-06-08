@@ -64,6 +64,10 @@ func (m *MockManager) EnableServerRouter(firewall firewall.Manager) error {
 	panic("implement me")
 }
 
+func (m *MockManager) ResetV6Routes() {
+	panic("implement me")
+}
+
 // Stop mock implementation of Stop from Manager interface
 func (m *MockManager) Stop() {
 	if m.StopFunc != nil {

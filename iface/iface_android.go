@@ -3,11 +3,16 @@ package iface
 import (
 	"fmt"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/pion/transport/v3"
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
-func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, mtu int, transportNet transport.Net, args *MobileIFaceArguments) (*WGIface, error) {
+func NewWGIFace(iFaceName string, address string, address6 string, wgPort int, wgPrivKey string, mtu int, transportNet transport.Net, args *MobileIFaceArguments) (*WGIface, error) {
+	if address6 != "" {
+		log.Errorf("Attempted to configure IPv6 address %s on unsupported operating system", address6)
+	}
 	wgAddress, err := parseWGAddress(address)
 	if err != nil {
 		return nil, err
@@ -37,4 +42,8 @@ func (w *WGIface) CreateOnAndroid(routes []string, dns string, searchDomains []s
 // Create this function make sense on mobile only
 func (w *WGIface) Create() error {
 	return fmt.Errorf("this function has not implemented on this platform")
+}
+
+func SupportsIPv6() bool {
+	return false
 }

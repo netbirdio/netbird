@@ -73,6 +73,9 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 
 	for _, testCase := range test.InsertRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
+			if testCase.IsV6 {
+				t.Skip("Environment does not support IPv6, skipping IPv6 test...")
+			}
 			iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 			require.NoError(t, err, "failed to init iptables client")
 
@@ -154,6 +157,9 @@ func TestIptablesManager_RemoveRoutingRules(t *testing.T) {
 
 	for _, testCase := range test.RemoveRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
+			if testCase.IsV6 {
+				t.Skip("Environment does not support IPv6, skipping IPv6 test...")
+			}
 			iptablesClient, _ := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 
 			manager, err := newRouterManager(context.TODO(), iptablesClient)

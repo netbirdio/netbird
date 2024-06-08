@@ -25,6 +25,8 @@ type Group struct {
 	// Peers list of the group
 	Peers []string `gorm:"serializer:json"`
 
+	IPv6Enabled bool
+
 	IntegrationReference integration_reference.IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
 }
 
@@ -38,6 +40,7 @@ func (g *Group) Copy() *Group {
 		ID:                   g.ID,
 		Name:                 g.Name,
 		Issued:               g.Issued,
+		IPv6Enabled:          g.IPv6Enabled,
 		Peers:                make([]string, len(g.Peers)),
 		IntegrationReference: g.IntegrationReference,
 	}

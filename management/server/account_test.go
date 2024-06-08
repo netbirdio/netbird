@@ -69,14 +69,15 @@ func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Ac
 		Key:  "BhRPtynAAYRDy08+q4HTMsos8fs4plTP4NOSh7C1ry8=",
 		Name: "test-host@netbird.io",
 		Meta: nbpeer.PeerSystemMeta{
-			Hostname:  "test-host@netbird.io",
-			GoOS:      "linux",
-			Kernel:    "Linux",
-			Core:      "21.04",
-			Platform:  "x86_64",
-			OS:        "Ubuntu",
-			WtVersion: "development",
-			UIVersion: "development",
+			Hostname:      "test-host@netbird.io",
+			GoOS:          "linux",
+			Kernel:        "Linux",
+			Core:          "21.04",
+			Platform:      "x86_64",
+			OS:            "Ubuntu",
+			WtVersion:     "development",
+			UIVersion:     "development",
+			Ipv6Supported: false,
 		},
 	}
 
@@ -964,78 +965,136 @@ func TestAccountManager_DeleteAccount(t *testing.T) {
 }
 
 func TestAccountManager_AddPeer(t *testing.T) {
-	manager, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
+
+	testCases := []struct {
+		name                string
+		peerIPv6Supported   bool
+		allGroupIPv6Enabled bool
+	}{
+		{
+			name:                "Peer and Group IPv6 enabled",
+			peerIPv6Supported:   true,
+			allGroupIPv6Enabled: true,
+		},
+		{
+			name:                "Peer IPv6 enabled, Group IPv6 disabled",
+			peerIPv6Supported:   true,
+			allGroupIPv6Enabled: false,
+		},
+		{
+			name:                "Peer IPv6 disabled, Group IPv6 enabled",
+			peerIPv6Supported:   false,
+			allGroupIPv6Enabled: true,
+		},
+		{
+			name:                "Peer and Group IPv6 disabled",
+			peerIPv6Supported:   false,
+			allGroupIPv6Enabled: false,
+		},
 	}
 
-	userID := "testingUser"
-	account, err := createAccount(manager, "test_account", userID, "netbird.cloud")
-	if err != nil {
-		t.Fatal(err)
+	for _, c := range testCases {
+		t.Run(c.name, func(t *testing.T) {
+			manager, err := createManager(t)
+			if err != nil {
+				t.Fatal(err)
+				return
+			}
+
+			userID := "testingUser"
+			account, err := createAccount(manager, "test_account", userID, "netbird.cloud")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			serial := account.Network.CurrentSerial() // should be 0
+
+			setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
+			if err != nil {
+				t.Fatal("error creating setup key")
+				return
+			}
+
+			if account.Network.Serial != 0 {
+				t.Errorf("expecting account network to have an initial Serial=0")
+				return
+			}
+
+			account, err = manager.Store.GetAccount(account.Id)
+			if err != nil {
+				t.Fatal(err)
+				return
+			}
+
+			if c.allGroupIPv6Enabled {
+				unlock := manager.Store.AcquireAccountWriteLock(account.Id)
+				groupAll, err := account.GetGroupAll()
+				if err != nil {
+					t.Fatal(err)
+				}
+				groupAll.IPv6Enabled = true
+				err = manager.Store.SaveAccount(account)
+				if err != nil {
+					t.Fatal(err)
+				}
+				unlock()
+			}
+
+			key, err := wgtypes.GeneratePrivateKey()
+			if err != nil {
+				t.Fatal(err)
+				return
+			}
+			expectedPeerKey := key.PublicKey().String()
+			expectedSetupKey := setupKey.Key
+
+			peer, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+				Key:  expectedPeerKey,
+				Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey, Ipv6Supported: c.peerIPv6Supported},
+			})
+			if err != nil {
+				t.Errorf("expecting peer to be added, got failure %v", err)
+				return
+			}
+
+			account, err = manager.Store.GetAccount(account.Id)
+			if err != nil {
+				t.Fatal(err)
+				return
+			}
+
+			if peer.Key != expectedPeerKey {
+				t.Errorf("expecting just added peer to have key = %s, got %s", expectedPeerKey, peer.Key)
+			}
+
+			if !account.Network.Net.Contains(peer.IP) {
+				t.Errorf("expecting just added peer's IP %s to be in a network range %s", peer.IP.String(), account.Network.Net.String())
+			}
+
+			if peer.SetupKey != expectedSetupKey {
+				t.Errorf("expecting just added peer to have SetupKey = %s, got %s", expectedSetupKey, peer.SetupKey)
+			}
+
+			if account.Network.CurrentSerial() != 1 {
+				t.Errorf("expecting Network Serial=%d to be incremented by 1 and be equal to %d when adding new peer to account", serial, account.Network.CurrentSerial())
+			}
+			ev := getEvent(t, account.Id, manager, activity.PeerAddedWithSetupKey)
+
+			assert.NotNil(t, ev)
+			assert.Equal(t, account.Id, ev.AccountID)
+			assert.Equal(t, peer.Name, ev.Meta["name"])
+			assert.Equal(t, peer.FQDN(account.Domain), ev.Meta["fqdn"])
+			assert.Equal(t, setupKey.Id, ev.InitiatorID)
+			assert.Equal(t, peer.ID, ev.TargetID)
+			assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
+			assert.Equal(t, peer.V6Setting, nbpeer.V6Auto)
+			if c.peerIPv6Supported && c.allGroupIPv6Enabled {
+				assert.NotNil(t, peer.IP6)
+			} else {
+				assert.Nil(t, peer.IP6)
+			}
+		})
 	}
-
-	serial := account.Network.CurrentSerial() // should be 0
-
-	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
-	if err != nil {
-		t.Fatal("error creating setup key")
-		return
-	}
-
-	if account.Network.Serial != 0 {
-		t.Errorf("expecting account network to have an initial Serial=0")
-		return
-	}
-
-	key, err := wgtypes.GeneratePrivateKey()
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-	expectedPeerKey := key.PublicKey().String()
-	expectedSetupKey := setupKey.Key
-
-	peer, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
-		Key:  expectedPeerKey,
-		Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-	})
-	if err != nil {
-		t.Errorf("expecting peer to be added, got failure %v", err)
-		return
-	}
-
-	account, err = manager.Store.GetAccount(account.Id)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	if peer.Key != expectedPeerKey {
-		t.Errorf("expecting just added peer to have key = %s, got %s", expectedPeerKey, peer.Key)
-	}
-
-	if !account.Network.Net.Contains(peer.IP) {
-		t.Errorf("expecting just added peer's IP %s to be in a network range %s", peer.IP.String(), account.Network.Net.String())
-	}
-
-	if peer.SetupKey != expectedSetupKey {
-		t.Errorf("expecting just added peer to have SetupKey = %s, got %s", expectedSetupKey, peer.SetupKey)
-	}
-
-	if account.Network.CurrentSerial() != 1 {
-		t.Errorf("expecting Network Serial=%d to be incremented by 1 and be equal to %d when adding new peer to account", serial, account.Network.CurrentSerial())
-	}
-	ev := getEvent(t, account.Id, manager, activity.PeerAddedWithSetupKey)
-
-	assert.NotNil(t, ev)
-	assert.Equal(t, account.Id, ev.AccountID)
-	assert.Equal(t, peer.Name, ev.Meta["name"])
-	assert.Equal(t, peer.FQDN(account.Domain), ev.Meta["fqdn"])
-	assert.Equal(t, setupKey.Id, ev.InitiatorID)
-	assert.Equal(t, peer.ID, ev.TargetID)
-	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
 }
 
 func TestAccountManager_AddPeerWithUserID(t *testing.T) {
@@ -1455,9 +1514,22 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, prefix3, err := route.ParseNetwork("2001:db8:1234:5678::/64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prefix4, err := route.ParseNetwork("2001:db8:1234:6789::/64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer2IP6 := net.ParseIP("2001:db8:abcd:1234::12")
 	account := &Account{
 		Peers: map[string]*nbpeer.Peer{
-			"peer-1": {Key: "peer-1", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}}, "peer-2": {Key: "peer-2", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}}, "peer-3": {Key: "peer-1", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}},
+			"peer-1": {
+				ID: "peer-1", Key: "peer-1", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"},
+			},
+			"peer-2": {ID: "peer-2", Key: "peer-2", Meta: nbpeer.PeerSystemMeta{GoOS: "linux", Ipv6Supported: true}, IP6: &peer2IP6},
+			"peer-3": {ID: "peer-3", Key: "peer-1", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}},
 		},
 		Groups: map[string]*group.Group{"group1": {ID: "group1", Peers: []string{"peer-1", "peer-2"}}},
 		Routes: map[route.ID]*route.Route{
@@ -1467,7 +1539,7 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 				NetID:       "network-1",
 				Description: "network-1",
 				Peer:        "peer-1",
-				NetworkType: 0,
+				NetworkType: route.IPv4Network,
 				Masquerade:  false,
 				Metric:      999,
 				Enabled:     true,
@@ -1479,7 +1551,7 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 				NetID:       "network-2",
 				Description: "network-2",
 				Peer:        "peer-2",
-				NetworkType: 0,
+				NetworkType: route.IPv4Network,
 				Masquerade:  false,
 				Metric:      999,
 				Enabled:     true,
@@ -1491,7 +1563,31 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 				NetID:       "network-1",
 				Description: "network-1",
 				Peer:        "peer-2",
-				NetworkType: 0,
+				NetworkType: route.IPv4Network,
+				Masquerade:  false,
+				Metric:      999,
+				Enabled:     true,
+				Groups:      []string{"group1"},
+			},
+			"route-4": {
+				ID:          "route-4",
+				Network:     prefix3,
+				NetID:       "network-3",
+				Description: "network-3",
+				Peer:        "peer-1",
+				NetworkType: route.IPv6Network,
+				Masquerade:  false,
+				Metric:      999,
+				Enabled:     true,
+				Groups:      []string{"group1"},
+			},
+			"route-5": {
+				ID:          "route-5",
+				Network:     prefix4,
+				NetID:       "network-4",
+				Description: "network-4",
+				Peer:        "peer-2",
+				NetworkType: route.IPv6Network,
 				Masquerade:  false,
 				Metric:      999,
 				Enabled:     true,
@@ -1500,17 +1596,29 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 		},
 	}
 
-	routes := account.getRoutesToSync("peer-2", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-3"}})
+	routes := account.getRoutesToSync("peer-1", []*nbpeer.Peer{{ID: "peer-2", Key: "peer-2"}, {ID: "peer-3", Key: "peer-3"}})
 
 	assert.Len(t, routes, 2)
 	routeIDs := make(map[route.ID]struct{}, 2)
 	for _, r := range routes {
 		routeIDs[r.ID] = struct{}{}
 	}
+	assert.Contains(t, routeIDs, route.ID("route-1"))
+	assert.Contains(t, routeIDs, route.ID("route-2"))
+
+	routes = account.getRoutesToSync("peer-2", []*nbpeer.Peer{{ID: "peer-1", Key: "peer-1"}, {ID: "peer-3", Key: "peer-3"}})
+
+	assert.Len(t, routes, 3)
+
+	routeIDs = make(map[route.ID]struct{}, 2)
+	for _, r := range routes {
+		routeIDs[r.ID] = struct{}{}
+	}
 	assert.Contains(t, routeIDs, route.ID("route-2"))
 	assert.Contains(t, routeIDs, route.ID("route-3"))
+	assert.Contains(t, routeIDs, route.ID("route-5"))
 
-	emptyRoutes := account.getRoutesToSync("peer-3", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-2"}})
+	emptyRoutes := account.getRoutesToSync("peer-3", []*nbpeer.Peer{{ID: "peer-1", Key: "peer-1"}, {ID: "peer-2", Key: "peer-2"}})
 
 	assert.Len(t, emptyRoutes, 0)
 }

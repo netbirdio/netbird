@@ -4,6 +4,7 @@ package nftables
 
 import (
 	"context"
+	"github.com/netbirdio/netbird/iface"
 	"testing"
 
 	"github.com/coreos/go-iptables/iptables"
@@ -29,16 +30,19 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 		t.Skip("nftables not supported on this OS")
 	}
 
-	table, err := createWorkTable()
+	table, table6, err := createWorkTables()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	defer deleteWorkTable()
+	defer deleteWorkTables()
 
 	for _, testCase := range test.InsertRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
-			manager, err := newRouter(context.TODO(), table)
+			if testCase.IsV6 && table6 == nil {
+				t.Skip("Environment does not support IPv6, skipping IPv6 test...")
+			}
+			manager, err := newRouter(context.TODO(), table, table6)
 			require.NoError(t, err, "failed to create router")
 
 			nftablesTestingClient := &nftables.Conn{}
@@ -58,8 +62,13 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 			testingExpression := append(sourceExp, destExp...) //nolint:gocritic
 			fwdRuleKey := firewall.GenKey(firewall.ForwardingFormat, testCase.InputPair.ID)
 
+			chains := manager.chains
+			if testCase.IsV6 {
+				chains = manager.chains6
+			}
+
 			found := 0
-			for _, chain := range manager.chains {
+			for _, chain := range chains {
 				rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
 				require.NoError(t, err, "should list rules for %s table and %s chain", chain.Table.Name, chain.Name)
 				for _, rule := range rules {
@@ -75,7 +84,7 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 			if testCase.InputPair.Masquerade {
 				natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair.ID)
 				found := 0
-				for _, chain := range manager.chains {
+				for _, chain := range chains {
 					rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
 					require.NoError(t, err, "should list rules for %s table and %s chain", chain.Table.Name, chain.Name)
 					for _, rule := range rules {
@@ -94,7 +103,7 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 			inFwdRuleKey := firewall.GenKey(firewall.InForwardingFormat, testCase.InputPair.ID)
 
 			found = 0
-			for _, chain := range manager.chains {
+			for _, chain := range chains {
 				rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
 				require.NoError(t, err, "should list rules for %s table and %s chain", chain.Table.Name, chain.Name)
 				for _, rule := range rules {
@@ -110,7 +119,7 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 			if testCase.InputPair.Masquerade {
 				inNatRuleKey := firewall.GenKey(firewall.InNatFormat, testCase.InputPair.ID)
 				found := 0
-				for _, chain := range manager.chains {
+				for _, chain := range chains {
 					rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
 					require.NoError(t, err, "should list rules for %s table and %s chain", chain.Table.Name, chain.Name)
 					for _, rule := range rules {
@@ -131,16 +140,19 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 		t.Skip("nftables not supported on this OS")
 	}
 
-	table, err := createWorkTable()
+	table, table6, err := createWorkTables()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	defer deleteWorkTable()
+	defer deleteWorkTables()
 
 	for _, testCase := range test.RemoveRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
-			manager, err := newRouter(context.TODO(), table)
+			if testCase.IsV6 && table6 == nil {
+				t.Skip("Environment does not support IPv6, skipping IPv6 test...")
+			}
+			manager, err := newRouter(context.TODO(), table, table6)
 			require.NoError(t, err, "failed to create router")
 
 			nftablesTestingClient := &nftables.Conn{}
@@ -150,11 +162,18 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 			sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
 			destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
 
+			chains := manager.chains
+			workTable := table
+			if testCase.IsV6 {
+				chains = manager.chains6
+				workTable = table6
+			}
+
 			forwardExp := append(sourceExp, append(destExp, exprCounterAccept...)...) //nolint:gocritic
 			forwardRuleKey := firewall.GenKey(firewall.ForwardingFormat, testCase.InputPair.ID)
 			insertedForwarding := nftablesTestingClient.InsertRule(&nftables.Rule{
-				Table:    manager.workTable,
-				Chain:    manager.chains[chainNameRouteingFw],
+				Table:    workTable,
+				Chain:    chains[chainNameRouteingFw],
 				Exprs:    forwardExp,
 				UserData: []byte(forwardRuleKey),
 			})
@@ -163,8 +182,8 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair.ID)
 
 			insertedNat := nftablesTestingClient.InsertRule(&nftables.Rule{
-				Table:    manager.workTable,
-				Chain:    manager.chains[chainNameRoutingNat],
+				Table:    workTable,
+				Chain:    chains[chainNameRoutingNat],
 				Exprs:    natExp,
 				UserData: []byte(natRuleKey),
 			})
@@ -175,8 +194,8 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 			forwardExp = append(sourceExp, append(destExp, exprCounterAccept...)...) //nolint:gocritic
 			inForwardRuleKey := firewall.GenKey(firewall.InForwardingFormat, testCase.InputPair.ID)
 			insertedInForwarding := nftablesTestingClient.InsertRule(&nftables.Rule{
-				Table:    manager.workTable,
-				Chain:    manager.chains[chainNameRouteingFw],
+				Table:    workTable,
+				Chain:    chains[chainNameRouteingFw],
 				Exprs:    forwardExp,
 				UserData: []byte(inForwardRuleKey),
 			})
@@ -185,8 +204,8 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 			inNatRuleKey := firewall.GenKey(firewall.InNatFormat, testCase.InputPair.ID)
 
 			insertedInNat := nftablesTestingClient.InsertRule(&nftables.Rule{
-				Table:    manager.workTable,
-				Chain:    manager.chains[chainNameRoutingNat],
+				Table:    workTable,
+				Chain:    chains[chainNameRoutingNat],
 				Exprs:    natExp,
 				UserData: []byte(inNatRuleKey),
 			})
@@ -199,7 +218,7 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 			err = manager.RemoveRoutingRules(testCase.InputPair)
 			require.NoError(t, err, "shouldn't return error")
 
-			for _, chain := range manager.chains {
+			for _, chain := range chains {
 				rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
 				require.NoError(t, err, "should list rules for %s table and %s chain", chain.Table.Name, chain.Name)
 				for _, rule := range rules {
@@ -238,30 +257,39 @@ func isIptablesClientAvailable(client *iptables.IPTables) bool {
 	return err == nil
 }
 
-func createWorkTable() (*nftables.Table, error) {
+func createWorkTables() (*nftables.Table, *nftables.Table, error) {
 	sConn, err := nftables.New(nftables.AsLasting())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	tables, err := sConn.ListTablesOfFamily(nftables.TableFamilyIPv4)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	for _, t := range tables {
+	tables6, err := sConn.ListTablesOfFamily(nftables.TableFamilyIPv6)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for _, t := range append(tables, tables6...) {
 		if t.Name == tableName {
 			sConn.DelTable(t)
 		}
 	}
 
 	table := sConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv4})
+	var table6 *nftables.Table
+	if iface.SupportsIPv6() {
+		table6 = sConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv6})
+	}
 	err = sConn.Flush()
 
-	return table, err
+	return table, table6, err
 }
 
-func deleteWorkTable() {
+func deleteWorkTables() {
 	sConn, err := nftables.New(nftables.AsLasting())
 	if err != nil {
 		return
@@ -271,6 +299,12 @@ func deleteWorkTable() {
 	if err != nil {
 		return
 	}
+
+	tables6, err := sConn.ListTablesOfFamily(nftables.TableFamilyIPv6)
+	if err != nil {
+		return
+	}
+	tables = append(tables, tables6...)
 
 	for _, t := range tables {
 		if t.Name == tableName {

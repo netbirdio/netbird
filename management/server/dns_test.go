@@ -22,6 +22,7 @@ const (
 	dnsAdminUserID   = "testingAdminUser"
 	dnsRegularUserID = "testingRegularUser"
 	dnsNSGroup1      = "ns1"
+	dnsNSGroup2      = "ns2"
 )
 
 func TestGetDNSSettings(t *testing.T) {
@@ -184,7 +185,7 @@ func TestGetNetworkMap_DNSConfigSync(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, peer2AccountDNSConfig.DNSConfig.CustomZones, 1, "DNS config should have one custom zone for peers not in the disabled group")
 	require.True(t, peer2AccountDNSConfig.DNSConfig.ServiceEnable, "DNS config should have DNS service enabled for peers not in the disabled group")
-	require.Len(t, peer2AccountDNSConfig.DNSConfig.NameServerGroups, 1, "updated DNS config should have 1 nameserver groups since peer 2 is part of the group All")
+	require.Len(t, peer2AccountDNSConfig.DNSConfig.NameServerGroups, 2, "updated DNS config should have 2 nameserver groups since peer 2 is part of the group All and supports IPv6")
 }
 
 func createDNSManager(t *testing.T) (*DefaultAccountManager, error) {
@@ -215,14 +216,15 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 		Key:  dnsPeer1Key,
 		Name: "test-host1@netbird.io",
 		Meta: nbpeer.PeerSystemMeta{
-			Hostname:  "test-host1@netbird.io",
-			GoOS:      "linux",
-			Kernel:    "Linux",
-			Core:      "21.04",
-			Platform:  "x86_64",
-			OS:        "Ubuntu",
-			WtVersion: "development",
-			UIVersion: "development",
+			Hostname:      "test-host1@netbird.io",
+			GoOS:          "linux",
+			Kernel:        "Linux",
+			Core:          "21.04",
+			Platform:      "x86_64",
+			OS:            "Ubuntu",
+			WtVersion:     "development",
+			UIVersion:     "development",
+			Ipv6Supported: false,
 		},
 		DNSLabel: dnsPeer1Key,
 	}
@@ -230,16 +232,18 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 		Key:  dnsPeer2Key,
 		Name: "test-host2@netbird.io",
 		Meta: nbpeer.PeerSystemMeta{
-			Hostname:  "test-host2@netbird.io",
-			GoOS:      "linux",
-			Kernel:    "Linux",
-			Core:      "21.04",
-			Platform:  "x86_64",
-			OS:        "Ubuntu",
-			WtVersion: "development",
-			UIVersion: "development",
+			Hostname:      "test-host2@netbird.io",
+			GoOS:          "linux",
+			Kernel:        "Linux",
+			Core:          "21.04",
+			Platform:      "x86_64",
+			OS:            "Ubuntu",
+			WtVersion:     "development",
+			UIVersion:     "development",
+			Ipv6Supported: true,
 		},
-		DNSLabel: dnsPeer2Key,
+		V6Setting: nbpeer.V6Enabled,
+		DNSLabel:  dnsPeer2Key,
 	}
 
 	domain := "example.com"
@@ -308,6 +312,20 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 			Port:   dns.DefaultDNSPort,
 		}},
 		Primary: true,
+		Enabled: true,
+		Groups:  []string{allGroup.ID},
+	}
+
+	account.NameServerGroups[dnsNSGroup2] = &dns.NameServerGroup{
+		ID:   dnsNSGroup2,
+		Name: "ns-group-2",
+		NameServers: []dns.NameServer{{
+			IP:     netip.MustParseAddr("2001:4860:4860:0:0:0:0:8888"), // Google DNS
+			NSType: dns.UDPNameServerType,
+			Port:   dns.DefaultDNSPort,
+		}},
+		Primary: false,
+		Domains: []string{"example.com"},
 		Enabled: true,
 		Groups:  []string{allGroup.ID},
 	}

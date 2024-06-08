@@ -38,6 +38,7 @@ type clientNetwork struct {
 	peerStateUpdate     chan struct{}
 	routePeersNotifiers map[string]chan struct{}
 	chosenRoute         *route.Route
+	chosenIP            *net.IP
 	network             netip.Prefix
 	updateSerial        uint64
 }
@@ -221,6 +222,7 @@ func (c *clientNetwork) removeRouteFromWireguardPeer(peerKey string) error {
 
 func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 	if c.chosenRoute != nil {
+		// TODO IPv6 (pass wgInterface)
 		if err := removeVPNRoute(c.network, c.getAsInterface()); err != nil {
 			return fmt.Errorf("remove route %s from system, err: %v", c.network, err)
 		}
@@ -261,10 +263,20 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 			return fmt.Errorf("remove route from peer: %v", err)
 		}
 	} else {
+		// TODO recheck IPv6
+		gwAddr := c.wgInterface.Address().IP
+		c.chosenIP = &gwAddr
+		if c.network.Addr().Is6() {
+			if c.wgInterface.Address6() == nil {
+				return fmt.Errorf("Could not assign IPv6 route %s for peer %s because no IPv6 address is assigned",
+					c.network.String(), c.wgInterface.Address().IP.String())
+			}
+			c.chosenIP = &c.wgInterface.Address6().IP
+		}
 		// otherwise add the route to the system
 		if err := addVPNRoute(c.network, c.getAsInterface()); err != nil {
 			return fmt.Errorf("route %s couldn't be added for peer %s, err: %v",
-				c.network.String(), c.wgInterface.Address().IP.String(), err)
+				c.network.String(), c.chosenIP.String(), err)
 		}
 	}
 
