@@ -110,12 +110,13 @@ func MarshalTransportMsg(peerID []byte, payload []byte) []byte {
 	return msg
 }
 
-func UnmarshalTransportPayload(buf []byte) ([]byte, error) {
+func UnmarshalTransportMsg(buf []byte) ([]byte, []byte, error) {
 	headerSize := 1 + IDSize
 	if len(buf) < headerSize {
-		return nil, ErrInvalidMessageLength
+		return nil, nil, ErrInvalidMessageLength
 	}
-	return buf[headerSize:], nil
+
+	return buf[1:headerSize], buf[headerSize:], nil
 }
 
 func UnmarshalTransportID(buf []byte) ([]byte, error) {

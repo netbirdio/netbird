@@ -1,6 +1,7 @@
 package client
 
 import (
+	"io"
 	"net"
 	"time"
 )
@@ -9,15 +10,15 @@ type Conn struct {
 	client      *Client
 	dstID       []byte
 	dstStringID string
-	readerFn    func(b []byte) (n int, err error)
+	messageChan chan Msg
 }
 
-func NewConn(client *Client, dstID []byte, dstStringID string, readerFn func(b []byte) (n int, err error)) *Conn {
+func NewConn(client *Client, dstID []byte, dstStringID string, messageChan chan Msg) *Conn {
 	c := &Conn{
 		client:      client,
 		dstID:       dstID,
 		dstStringID: dstStringID,
-		readerFn:    readerFn,
+		messageChan: messageChan,
 	}
 
 	return c
@@ -28,7 +29,14 @@ func (c *Conn) Write(p []byte) (n int, err error) {
 }
 
 func (c *Conn) Read(b []byte) (n int, err error) {
-	return c.readerFn(b)
+	msg, ok := <-c.messageChan
+	if !ok {
+		return 0, io.EOF
+	}
+
+	n = copy(b, msg.Payload)
+	msg.Free()
+	return n, nil
 }
 
 func (c *Conn) Close() error {
