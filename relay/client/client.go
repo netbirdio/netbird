@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	bufferSize            = 1500 // optimise the buffer size
+	bufferSize            = 8820
 	serverResponseTimeout = 8 * time.Second
 )
 
