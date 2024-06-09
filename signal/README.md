@@ -3,7 +3,7 @@
 This is a netbird signal-exchange server and client library to exchange connection information between netbird peers
 
 ## Command Options
-The CLI accepts the command **management** with the following options:
+The CLI accepts the the following options:
 ```shell
 start Netbird Signal Server daemon
 

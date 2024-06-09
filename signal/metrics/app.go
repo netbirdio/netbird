@@ -8,40 +8,82 @@ import (
 type AppMetrics struct {
 	metric.Meter
 
-	RegisteredPeers metric.Int64UpDownCounter
-	RegisterTimes   metric.Float64Histogram
-	RegisterCalls   metric.Int64Counter
-	DeregisterCalls metric.Int64Counter
+	ActivePeers            metric.Int64UpDownCounter
+	PeerConnectionDuration metric.Int64Histogram
+
+	Registrations        metric.Int64Counter
+	Deregistrations      metric.Int64Counter
+	RegistrationFailures metric.Int64Counter
+	RegistrationDelay    metric.Float64Histogram
+
+	MessagesForwarded      metric.Int64Counter
+	MessageForwardFailures metric.Int64Counter
+	MessageForwardLatency  metric.Float64Histogram
 }
 
 func NewAppMetrics(meter metric.Meter) (*AppMetrics, error) {
-	registeredPeers, err := meter.Int64UpDownCounter("registered_peers_total")
+	activePeers, err := meter.Int64UpDownCounter("active_peers")
 	if err != nil {
 		return nil, err
 	}
 
-	registerTimes, err := meter.Float64Histogram("register_times_milliseconds",
+	peerConnectionDuration, err := meter.Int64Histogram("peer_connection_duration_seconds",
+		metric.WithExplicitBucketBoundaries(getPeerConectionDurationBucketBoundaries()...))
+	if err != nil {
+		return nil, err
+	}
+
+	registrations, err := meter.Int64Counter("registrations_total")
+	if err != nil {
+		return nil, err
+	}
+
+	deregistrations, err := meter.Int64Counter("deregistrations_total")
+	if err != nil {
+		return nil, err
+	}
+
+	registrationFailures, err := meter.Int64Counter("registration_failures_total")
+	if err != nil {
+		return nil, err
+	}
+
+	registrationDelay, err := meter.Float64Histogram("registration_delay_milliseconds",
 		metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...))
 	if err != nil {
 		return nil, err
 	}
 
-	registerCalls, err := meter.Int64Counter("register_calls_total")
+	messagesForwarded, err := meter.Int64Counter("messages_forwarded_total")
 	if err != nil {
 		return nil, err
 	}
 
-	deregisterCalls, err := meter.Int64Counter("deregister_calls_total")
+	messageForwardFailures, err := meter.Int64Counter("message_forward_failures_total")
+	if err != nil {
+		return nil, err
+	}
+
+	messageForwardLatency, err := meter.Float64Histogram("message_forward_latency_milliseconds",
+		metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...))
 	if err != nil {
 		return nil, err
 	}
 
 	return &AppMetrics{
-		Meter:           meter,
-		RegisteredPeers: registeredPeers,
-		RegisterTimes:   registerTimes,
-		RegisterCalls:   registerCalls,
-		DeregisterCalls: deregisterCalls,
+		Meter: meter,
+
+		ActivePeers:            activePeers,
+		PeerConnectionDuration: peerConnectionDuration,
+
+		Registrations:        registrations,
+		Deregistrations:      deregistrations,
+		RegistrationFailures: registrationFailures,
+		RegistrationDelay:    registrationDelay,
+
+		MessagesForwarded:      messagesForwarded,
+		MessageForwardFailures: messageForwardFailures,
+		MessageForwardLatency:  messageForwardLatency,
 	}, nil
 }
 
@@ -58,5 +100,25 @@ func getStandardBucketBoundaries() []float64 {
 		1000,
 		5000,
 		10000,
+	}
+}
+func getPeerConectionDurationBucketBoundaries() []float64 {
+	return []float64{
+		1,
+		60,
+		// 10m
+		600,
+		// 1h
+		3600,
+		// 2h,
+		7200,
+		// 6h,
+		21600,
+		// 12h,
+		43200,
+		// 24h,
+		86400,
+		// 48h,
+		172800,
 	}
 }

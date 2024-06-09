@@ -82,9 +82,9 @@ func (registry *Registry) Register(peer *Peer) {
 	log.Debugf("peer registered [%s]", peer.Id)
 
 	// record time as milliseconds
-	registry.metrics.RegisterTimes.Record(context.Background(), float64(time.Since(start).Nanoseconds())/1e6)
+	registry.metrics.RegistrationDelay.Record(context.Background(), float64(time.Since(start).Nanoseconds())/1e6)
 
-	registry.metrics.RegisterCalls.Add(context.Background(), 1)
+	registry.metrics.Registrations.Add(context.Background(), 1)
 }
 
 // Deregister Peer from the Registry (usually once it disconnects)
@@ -104,5 +104,5 @@ func (registry *Registry) Deregister(peer *Peer) {
 	}
 	log.Debugf("peer deregistered [%s]", peer.Id)
 
-	registry.metrics.DeregisterCalls.Add(context.Background(), 1)
+	registry.metrics.Deregistrations.Add(context.Background(), 1)
 }
