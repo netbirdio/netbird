@@ -356,8 +356,11 @@ func migrateToNetbird(oldPath, newPath string) bool {
 	return true
 }
 
-func getClient(ctx context.Context) (*grpc.ClientConn, error) {
-	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+func getClient(cmd *cobra.Command) (*grpc.ClientConn, error) {
+	SetFlagsFromEnvVars(rootCmd)
+	cmd.SetOut(cmd.OutOrStdout())
+
+	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
