@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -152,7 +153,7 @@ func startSignal(t *testing.T) (*grpc.Server, string, error) {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	srv, err := signalServer.NewServer(nil)
+	srv, err := signalServer.NewServer(otel.Meter(""))
 	require.NoError(t, err)
 	proto.RegisterSignalExchangeServer(s, srv)
 

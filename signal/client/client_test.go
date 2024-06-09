@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -198,7 +199,7 @@ func startSignal() (*grpc.Server, net.Listener) {
 		panic(err)
 	}
 	s := grpc.NewServer()
-	srv, err := server.NewServer(nil)
+	srv, err := server.NewServer(otel.Meter(""))
 	if err != nil {
 		panic(err)
 	}
