@@ -75,5 +75,5 @@ func (c *Conn) SetDeadline(t time.Time) error {
 }
 
 func (c *Conn) Close() error {
-	return c.Conn.Close(websocket.StatusNormalClosure, "")
+	return c.Conn.CloseNow()
 }

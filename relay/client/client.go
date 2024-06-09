@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	ws "github.com/netbirdio/netbird/relay/client/dialer/wsnhooyr"
 	"io"
 	"net"
 	"sync"
@@ -10,7 +11,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/relay/client/dialer/ws"
 	"github.com/netbirdio/netbird/relay/messages"
 )
 
