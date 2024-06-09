@@ -28,7 +28,7 @@ func NewAppMetrics(meter metric.Meter) (*AppMetrics, error) {
 	}
 
 	peerConnectionDuration, err := meter.Int64Histogram("peer_connection_duration_seconds",
-		metric.WithExplicitBucketBoundaries(getPeerConectionDurationBucketBoundaries()...))
+		metric.WithExplicitBucketBoundaries(getPeerConnectionDurationBucketBoundaries()...))
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +102,7 @@ func getStandardBucketBoundaries() []float64 {
 		10000,
 	}
 }
-func getPeerConectionDurationBucketBoundaries() []float64 {
+func getPeerConnectionDurationBucketBoundaries() []float64 {
 	return []float64{
 		1,
 		60,
