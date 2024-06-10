@@ -1459,7 +1459,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 
 		expectedRoutesFirewallRules := []*RouteFirewallRule{
 			{
-				PeerIP:      peerCIp,
+				SourceRange: peerCIp,
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: "192.168.0.0/16",
@@ -1468,7 +1468,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Port:        80,
 			},
 			{
-				PeerIP:      peerCIp,
+				SourceRange: peerCIp,
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: "192.168.0.0/16",
@@ -1477,7 +1477,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Port:        320,
 			},
 			{
-				PeerIP:      peerHIp,
+				SourceRange: peerHIp,
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: "192.168.0.0/16",
@@ -1486,7 +1486,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Port:        80,
 			},
 			{
-				PeerIP:      peerHIp,
+				SourceRange: peerHIp,
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: "192.168.0.0/16",
@@ -1495,7 +1495,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Port:        320,
 			},
 			{
-				PeerIP:      peerBIp,
+				SourceRange: peerBIp,
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: "192.168.0.0/16",
@@ -1504,7 +1504,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Port:        80,
 			},
 			{
-				PeerIP:      peerBIp,
+				SourceRange: peerBIp,
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: "192.168.0.0/16",
@@ -1526,7 +1526,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 
 		expectedRoutesFirewallRules = []*RouteFirewallRule{
 			{
-				PeerIP:      "100.65.250.202",
+				SourceRange: "100.65.250.202",
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: existingNetwork,
@@ -1535,7 +1535,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				PortRange:   RulePortRange{Start: 80, End: 350},
 			},
 			{
-				PeerIP:      "100.65.13.186",
+				SourceRange: "100.65.13.186",
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: existingNetwork,

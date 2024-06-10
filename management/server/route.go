@@ -18,8 +18,8 @@ import (
 
 // RouteFirewallRule a firewall rule applicable for a routed network.
 type RouteFirewallRule struct {
-	// PeerIP IP address of the routing peer.
-	PeerIP string
+	// SourceRange IP range of the routing peer.
+	SourceRange string
 
 	// Direction of the traffic
 	Direction int
@@ -354,7 +354,7 @@ func generateRouteFirewallRules(route *route.Route, rule *PolicyRule, groupPeers
 		}
 
 		baseRule := RouteFirewallRule{
-			PeerIP:      peer.IP.String(),
+			SourceRange: peer.IP.String(),
 			Direction:   direction,
 			Action:      string(rule.Action),
 			Destination: route.Network.String(),
@@ -375,7 +375,7 @@ func generateRouteFirewallRules(route *route.Route, rule *PolicyRule, groupPeers
 
 // generateRuleIDBase generates the base rule ID for checking duplicates.
 func generateRuleIDBase(rule *PolicyRule, baseRule RouteFirewallRule) string {
-	return rule.ID + baseRule.PeerIP + strconv.Itoa(firewallRuleDirectionIN) + baseRule.Protocol + baseRule.Action
+	return rule.ID + baseRule.SourceRange + strconv.Itoa(firewallRuleDirectionIN) + baseRule.Protocol + baseRule.Action
 }
 
 // generateRulesForPeer generates rules for a given peer based on ports and port ranges.
@@ -457,7 +457,7 @@ func toProtocolRoutesFirewallRules(rules []*RouteFirewallRule) []*proto.RouteFir
 	for i := range rules {
 		rule := rules[i]
 		result[i] = &proto.RouteFirewallRule{
-			PeerIP:      rule.PeerIP,
+			SourceRange: rule.SourceRange,
 			Direction:   getProtoDirection(rule.Direction),
 			Action:      getProtoAction(rule.Action),
 			NetworkType: getProtoNetworkType(rule.NetworkType),
