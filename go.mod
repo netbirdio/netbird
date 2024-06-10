@@ -36,6 +36,7 @@ require (
 	github.com/cilium/ebpf v0.15.0
 	github.com/coreos/go-iptables v0.7.0
 	github.com/creack/pty v1.1.18
+	github.com/davecgh/go-spew v1.1.1
 	github.com/eko/gocache/v3 v3.1.1
 	github.com/fsnotify/fsnotify v1.6.0
 	github.com/getlantern/systray v1.2.1
@@ -112,7 +113,6 @@ require (
 	github.com/containerd/containerd v1.7.16 // indirect
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/cpuguy83/dockercfg v0.3.1 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dgraph-io/ristretto v0.1.1 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/distribution/reference v0.6.0 // indirect

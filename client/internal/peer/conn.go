@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/pion/ice/v3"
 	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
@@ -800,6 +801,8 @@ func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive
 
 func candidateViaRoutes(candidate ice.Candidate, clientRoutes route.HAMap) bool {
 	var vpnRoutes []netip.Prefix
+	log.Tracef("ICE: Client routes: %s", spew.Sdump(clientRoutes))
+	log.Tracef("ICE: Candidate: %v", candidate)
 	for _, routes := range clientRoutes {
 		if len(routes) > 0 && routes[0] != nil {
 			vpnRoutes = append(vpnRoutes, routes[0].Network)
