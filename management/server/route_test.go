@@ -1253,64 +1253,49 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 }
 
 func TestAccount_getPeersRoutesFirewall(t *testing.T) {
-	var (
-		peerBIp = "100.65.80.39"
-		peerCIp = "100.65.254.139"
-		peerHIp = "100.65.29.55"
-	)
-
 	account := &Account{
 		Peers: map[string]*nbpeer.Peer{
 			"peerA": {
-				ID:     "peerA",
-				IP:     net.ParseIP("100.65.14.88"),
-				Status: &nbpeer.PeerStatus{},
+				ID: "peerA",
+				IP: net.ParseIP("100.62.3.88"),
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS: "linux",
 				},
 			},
 			"peerB": {
-				ID:     "peerB",
-				IP:     net.ParseIP(peerBIp),
-				Status: &nbpeer.PeerStatus{},
-				Meta:   nbpeer.PeerSystemMeta{},
+				ID: "peerB",
+				IP: net.ParseIP("100.62.60.12"),
 			},
 			"peerC": {
-				ID:     "peerC",
-				IP:     net.ParseIP(peerCIp),
-				Status: &nbpeer.PeerStatus{},
+				ID: "peerC",
+				IP: net.ParseIP("100.65.251.149"),
 			},
 			"peerD": {
-				ID:     "peerD",
-				IP:     net.ParseIP("100.65.62.5"),
-				Status: &nbpeer.PeerStatus{},
+				ID: "peerD",
+				IP: net.ParseIP("100.65.62.5"),
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS: "linux",
 				},
 			},
 			"peerE": {
-				ID:     "peerE",
-				IP:     net.ParseIP("100.65.32.206"),
-				Key:    peer1Key,
-				Status: &nbpeer.PeerStatus{},
+				ID:  "peerE",
+				IP:  net.ParseIP("100.65.32.206"),
+				Key: peer1Key,
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS: "linux",
 				},
 			},
 			"peerF": {
-				ID:     "peerF",
-				IP:     net.ParseIP("100.65.250.202"),
-				Status: &nbpeer.PeerStatus{},
+				ID: "peerF",
+				IP: net.ParseIP("100.65.250.202"),
 			},
 			"peerG": {
-				ID:     "peerG",
-				IP:     net.ParseIP("100.65.13.186"),
-				Status: &nbpeer.PeerStatus{},
+				ID: "peerG",
+				IP: net.ParseIP("100.85.33.116"),
 			},
 			"peerH": {
-				ID:     "peerH",
-				IP:     net.ParseIP(peerHIp),
-				Status: &nbpeer.PeerStatus{},
+				ID: "peerH",
+				IP: net.ParseIP("100.65.29.55"),
 			},
 		},
 		Groups: map[string]*nbgroup.Group{
@@ -1459,7 +1444,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 
 		expectedRoutesFirewallRules := []*RouteFirewallRule{
 			{
-				SourceRange: peerCIp,
+				SourceRange: "100.65.251.149/32",
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: "192.168.0.0/16",
@@ -1468,7 +1453,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Port:        80,
 			},
 			{
-				SourceRange: peerCIp,
+				SourceRange: "100.65.251.149/32",
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: "192.168.0.0/16",
@@ -1477,7 +1462,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Port:        320,
 			},
 			{
-				SourceRange: peerHIp,
+				SourceRange: "100.65.29.55/32",
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: "192.168.0.0/16",
@@ -1486,7 +1471,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Port:        80,
 			},
 			{
-				SourceRange: peerHIp,
+				SourceRange: "100.65.29.55/32",
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: "192.168.0.0/16",
@@ -1495,7 +1480,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Port:        320,
 			},
 			{
-				SourceRange: peerBIp,
+				SourceRange: "100.62.60.12/32",
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: "192.168.0.0/16",
@@ -1504,7 +1489,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Port:        80,
 			},
 			{
-				SourceRange: peerBIp,
+				SourceRange: "100.62.60.12/32",
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: "192.168.0.0/16",
@@ -1526,7 +1511,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 
 		expectedRoutesFirewallRules = []*RouteFirewallRule{
 			{
-				SourceRange: "100.65.250.202",
+				SourceRange: "100.65.250.202/32",
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: existingNetwork,
@@ -1535,7 +1520,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				PortRange:   RulePortRange{Start: 80, End: 350},
 			},
 			{
-				SourceRange: "100.65.13.186",
+				SourceRange: "100.85.33.116/32",
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
 				Destination: existingNetwork,

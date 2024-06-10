@@ -354,7 +354,7 @@ func generateRouteFirewallRules(route *route.Route, rule *PolicyRule, groupPeers
 		}
 
 		baseRule := RouteFirewallRule{
-			SourceRange: peer.IP.String(),
+			SourceRange: fmt.Sprintf(AllowedIPsFormat, peer.IP),
 			Direction:   direction,
 			Action:      string(rule.Action),
 			Destination: route.Network.String(),
