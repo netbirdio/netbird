@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +31,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/iface/bind"
@@ -157,6 +159,9 @@ type Engine struct {
 	wgProbe     *Probe
 
 	wgConnWorker sync.WaitGroup
+
+	// checks are the client-applied posture checks that need to be evaluated on the client
+	checks []*mgmProto.Checks
 }
 
 // Peer is an instance of the Connection Peer
@@ -174,6 +179,7 @@ func NewEngine(
 	config *EngineConfig,
 	mobileDep MobileDependency,
 	statusRecorder *peer.Status,
+	checks []*mgmProto.Checks,
 ) *Engine {
 	return NewEngineWithProbes(
 		clientCtx,
@@ -187,6 +193,7 @@ func NewEngine(
 		nil,
 		nil,
 		nil,
+		checks,
 	)
 }
 
@@ -203,6 +210,7 @@ func NewEngineWithProbes(
 	signalProbe *Probe,
 	relayProbe *Probe,
 	wgProbe *Probe,
+	checks []*mgmProto.Checks,
 ) *Engine {
 
 	return &Engine{
@@ -223,6 +231,7 @@ func NewEngineWithProbes(
 		signalProbe:    signalProbe,
 		relayProbe:     relayProbe,
 		wgProbe:        wgProbe,
+		checks:         checks,
 	}
 }
 
@@ -530,6 +539,10 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		// todo update signal
 	}
 
+	if err := e.updateChecksIfNew(update.Checks); err != nil {
+		return err
+	}
+
 	if update.GetNetworkMap() != nil {
 		// only apply new changes and ignore old ones
 		err := e.updateNetworkMap(update.GetNetworkMap())
@@ -537,7 +550,27 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 			return err
 		}
 	}
+	return nil
+}
 
+// updateChecksIfNew updates checks if there are changes and sync new meta with management
+func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
+	// if checks are equal, we skip the update
+	if isChecksEqual(e.checks, checks) {
+		return nil
+	}
+	e.checks = checks
+
+	info, err := system.GetInfoWithChecks(e.ctx, checks)
+	if err != nil {
+		log.Warnf("failed to get system info with checks: %v", err)
+		info = system.GetInfo(e.ctx)
+	}
+
+	if err := e.mgmClient.SyncMeta(info); err != nil {
+		log.Errorf("could not sync meta: error %s", err)
+		return err
+	}
 	return nil
 }
 
@@ -627,7 +660,14 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 // E.g. when a new peer has been registered and we are allowed to connect to it.
 func (e *Engine) receiveManagementEvents() {
 	go func() {
-		err := e.mgmClient.Sync(e.ctx, e.handleSync)
+		info, err := system.GetInfoWithChecks(e.ctx, e.checks)
+		if err != nil {
+			log.Warnf("failed to get system info with checks: %v", err)
+			info = system.GetInfo(e.ctx)
+		}
+
+		// err = e.mgmClient.Sync(info, e.handleSync)
+		err = e.mgmClient.Sync(e.ctx, info, e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
@@ -1216,7 +1256,8 @@ func (e *Engine) close() {
 }
 
 func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
-	netMap, err := e.mgmClient.GetNetworkMap()
+	info := system.GetInfo(e.ctx)
+	netMap, err := e.mgmClient.GetNetworkMap(info)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1441,4 +1482,11 @@ func (e *Engine) startNetworkMonitor() {
 			log.Errorf("Network monitor: %v", err)
 		}
 	}()
+}
+
+// isChecksEqual checks if two slices of checks are equal.
+func isChecksEqual(checks []*mgmProto.Checks, oChecks []*mgmProto.Checks) bool {
+	return slices.EqualFunc(checks, oChecks, func(checks, oChecks *mgmProto.Checks) bool {
+		return slices.Equal(checks.Files, oChecks.Files)
+	})
 }

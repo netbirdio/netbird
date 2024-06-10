@@ -225,6 +225,9 @@ type Checks struct {
 
 	// PeerNetworkRangeCheck Posture check for allow or deny access based on peer local network addresses
 	PeerNetworkRangeCheck *PeerNetworkRangeCheck `json:"peer_network_range_check,omitempty"`
+
+	// ProcessCheck Posture Check for binaries exist and are running in the peer’s system
+	ProcessCheck *ProcessCheck `json:"process_check,omitempty"`
 }
 
 // City Describe city geographical location information
@@ -947,6 +950,23 @@ type PostureCheckUpdate struct {
 
 	// Name Posture check name identifier
 	Name string `json:"name"`
+}
+
+// Process Describes the operational activity within a peer's system.
+type Process struct {
+	// LinuxPath Path to the process executable file in a Linux operating system
+	LinuxPath *string `json:"linux_path,omitempty"`
+
+	// MacPath Path to the process executable file in a Mac operating system
+	MacPath *string `json:"mac_path,omitempty"`
+
+	// WindowsPath Path to the process executable file in a Windows operating system
+	WindowsPath *string `json:"windows_path,omitempty"`
+}
+
+// ProcessCheck Posture Check for binaries exist and are running in the peer’s system
+type ProcessCheck struct {
+	Processes []Process `json:"processes"`
 }
 
 // Route defines model for Route.

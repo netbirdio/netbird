@@ -252,8 +252,10 @@ func (c *ConnectClient) run(
 			return wrapErr(err)
 		}
 
+		checks := loginResp.GetChecks()
+
 		c.engineMutex.Lock()
-		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, c.statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe)
+		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, c.statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe, checks)
 		c.engineMutex.Unlock()
 
 		err = c.engine.Start()

@@ -30,7 +30,7 @@ type MockAccountManager struct {
 	ListUsersFunc                       func(accountID string) ([]*server.User, error)
 	GetPeersFunc                        func(accountID, userID string) ([]*nbpeer.Peer, error)
 	MarkPeerConnectedFunc               func(peerKey string, connected bool, realIP net.IP) error
-	SyncAndMarkPeerFunc                 func(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, error)
+	SyncAndMarkPeerFunc                 func(peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, error)
 	DeletePeerFunc                      func(accountID, peerKey, userID string) error
 	GetNetworkMapFunc                   func(peerKey string) (*server.NetworkMap, error)
 	GetPeerNetworkFunc                  func(peerKey string) (*server.Network, error)
@@ -83,6 +83,7 @@ type MockAccountManager struct {
 	GetDNSSettingsFunc                  func(accountID, userID string) (*server.DNSSettings, error)
 	SaveDNSSettingsFunc                 func(accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
 	GetPeerFunc                         func(accountID, peerID, userID string) (*nbpeer.Peer, error)
+	GetPeerAppliedPostureChecksFunc     func(peerKey string) ([]posture.Checks, error)
 	UpdateAccountSettingsFunc           func(accountID, userID string, newSettings *server.Settings) (*server.Account, error)
 	LoginPeerFunc                       func(login server.PeerLogin) (*nbpeer.Peer, *server.NetworkMap, error)
 	SyncPeerFunc                        func(sync server.PeerSync, account *server.Account) (*nbpeer.Peer, *server.NetworkMap, error)
@@ -97,12 +98,13 @@ type MockAccountManager struct {
 	GetIdpManagerFunc                   func() idp.Manager
 	UpdateIntegratedValidatorGroupsFunc func(accountID string, userID string, groups []string) error
 	GroupValidationFunc                 func(accountId string, groups []string) (bool, error)
+	SyncPeerMetaFunc                    func(peerPubKey string, meta nbpeer.PeerSystemMeta) error
 	FindExistingPostureCheckFunc        func(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 }
 
-func (am *MockAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, error) {
+func (am *MockAccountManager) SyncAndMarkPeer(peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, error) {
 	if am.SyncAndMarkPeerFunc != nil {
-		return am.SyncAndMarkPeerFunc(peerPubKey, realIP)
+		return am.SyncAndMarkPeerFunc(peerPubKey, meta, realIP)
 	}
 	return nil, nil, status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
 }
@@ -625,6 +627,14 @@ func (am *MockAccountManager) GetPeer(accountID, peerID, userID string) (*nbpeer
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeer is not implemented")
 }
 
+// GetPeerAppliedPostureChecks mocks GetPeerAppliedPostureChecks of the AccountManager interface
+func (am *MockAccountManager) GetPeerAppliedPostureChecks(peerKey string) ([]posture.Checks, error) {
+	if am.GetPeerAppliedPostureChecksFunc != nil {
+		return am.GetPeerAppliedPostureChecksFunc(peerKey)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetPeerAppliedPostureChecks is not implemented")
+}
+
 // UpdateAccountSettings mocks UpdateAccountSettings of the AccountManager interface
 func (am *MockAccountManager) UpdateAccountSettings(accountID, userID string, newSettings *server.Settings) (*server.Account, error) {
 	if am.UpdateAccountSettingsFunc != nil {
@@ -736,6 +746,14 @@ func (am *MockAccountManager) GroupValidation(accountId string, groups []string)
 		return am.GroupValidationFunc(accountId, groups)
 	}
 	return false, status.Errorf(codes.Unimplemented, "method GroupValidation is not implemented")
+}
+
+// SyncPeerMeta mocks SyncPeerMeta of the AccountManager interface
+func (am *MockAccountManager) SyncPeerMeta(peerPubKey string, meta nbpeer.PeerSystemMeta) error {
+	if am.SyncPeerMetaFunc != nil {
+		return am.SyncPeerMetaFunc(peerPubKey, meta)
+	}
+	return status.Errorf(codes.Unimplemented, "method SyncPeerMeta is not implemented")
 }
 
 // FindExistingPostureCheck mocks FindExistingPostureCheck of the AccountManager interface
