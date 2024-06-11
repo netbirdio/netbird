@@ -1,21 +1,24 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/route"
 )
@@ -76,48 +79,71 @@ func getStoreEngineFromEnv() StoreEngine {
 	}
 
 	value := StoreEngine(strings.ToLower(kind))
-	if value == FileStoreEngine || value == SqliteStoreEngine || value == PostgresStoreEngine {
+	if value == SqliteStoreEngine || value == PostgresStoreEngine {
 		return value
 	}
 
 	return SqliteStoreEngine
 }
 
-func getStoreEngineFromDatadir(dataDir string) StoreEngine {
-	storeFile := filepath.Join(dataDir, storeFileName)
-	if _, err := os.Stat(storeFile); err != nil {
-		// json file not found then use sqlite as default
-		return SqliteStoreEngine
-	}
-	return FileStoreEngine
-}
-
-func NewStore(kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
+// getStoreEngine determines the store engine to use
+func getStoreEngine(kind StoreEngine) StoreEngine {
 	if kind == "" {
-		// if store engine is not set in the config we first try to evaluate NETBIRD_STORE_ENGINE
 		kind = getStoreEngineFromEnv()
 		if kind == "" {
-			// NETBIRD_STORE_ENGINE is not set we evaluate default based on dataDir
-			kind = getStoreEngineFromDatadir(dataDir)
+			kind = SqliteStoreEngine
 		}
 	}
+	return kind
+}
+
+// NewStore creates a new store based on the provided engine type, data directory, and telemetry metrics
+func NewStore(kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
+	kind = getStoreEngine(kind)
+
+	if err := checkFileStoreEngine(kind, dataDir); err != nil {
+		return nil, err
+	}
+
 	switch kind {
-	case FileStoreEngine:
-		log.Info("using JSON file store engine")
-		return NewFileStore(dataDir, metrics)
 	case SqliteStoreEngine:
 		log.Info("using SQLite store engine")
 		return NewSqliteStore(dataDir, metrics)
 	case PostgresStoreEngine:
 		log.Info("using Postgres store engine")
-		dsn, ok := os.LookupEnv(postgresDsnEnv)
-		if !ok {
-			return nil, fmt.Errorf("%s is not set", postgresDsnEnv)
-		}
-		return NewPostgresqlStore(dsn, metrics)
+		return newPostgresStore(metrics)
 	default:
-		return nil, fmt.Errorf("unsupported kind of store %s", kind)
+		return handleUnsupportedStoreEngine(kind, dataDir, metrics)
 	}
+}
+
+func checkFileStoreEngine(kind StoreEngine, dataDir string) error {
+	if kind == FileStoreEngine {
+		storeFile := filepath.Join(dataDir, storeFileName)
+		if util.FileExists(storeFile) {
+			return fmt.Errorf("%s is not supported. Please refer to the documentation for migrating to SQLite: https://docs.netbird.io/selfhosted/sqlite-store#rollback-to-json-file-store", FileStoreEngine)
+		}
+	}
+	return nil
+}
+
+// handleUnsupportedStoreEngine handles cases where the store engine is unsupported
+func handleUnsupportedStoreEngine(kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
+	jsonStoreFile := filepath.Join(dataDir, storeFileName)
+	sqliteStoreFile := filepath.Join(dataDir, storeSqliteFileName)
+
+	if util.FileExists(jsonStoreFile) && !util.FileExists(sqliteStoreFile) {
+		log.Warnf("unsupported store engine, but found %s. Automatically migrating to SQLite.", jsonStoreFile)
+
+		if err := MigrateFileStoreToSqlite(dataDir); err != nil {
+			return nil, fmt.Errorf("failed to migrate data to SQLite store: %w", err)
+		}
+
+		log.Info("using SQLite store engine")
+		return NewSqliteStore(dataDir, metrics)
+	}
+
+	return nil, fmt.Errorf("unsupported kind of store: %s", kind)
 }
 
 // migrate migrates the SQLite database to the latest schema
@@ -166,12 +192,10 @@ func NewTestStoreFromJson(dataDir string) (Store, func(), error) {
 	kind := getStoreEngineFromEnv()
 	if kind == "" {
 		// NETBIRD_STORE_ENGINE is not set we evaluate default based on dataDir
-		kind = getStoreEngineFromDatadir(dataDir)
+		kind = SqliteStoreEngine
 	}
 
 	switch kind {
-	case FileStoreEngine:
-		return fstore, cleanUp, nil
 	case SqliteStoreEngine:
 		store, err := NewSqliteStoreFromFileStore(fstore, dataDir, nil)
 		if err != nil {
@@ -201,4 +225,39 @@ func NewTestStoreFromJson(dataDir string) (Store, func(), error) {
 		}
 		return store, cleanUp, nil
 	}
+}
+
+// MigrateFileStoreToSqlite migrates the file store to the SQLite store.
+func MigrateFileStoreToSqlite(dataDir string) error {
+	fileStorePath := path.Join(dataDir, storeFileName)
+	if _, err := os.Stat(fileStorePath); errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%s doesn't exist, couldn't continue the operation", fileStorePath)
+	}
+
+	sqlStorePath := path.Join(dataDir, storeSqliteFileName)
+	if _, err := os.Stat(sqlStorePath); err == nil {
+		return fmt.Errorf("%s already exists, couldn't continue the operation", sqlStorePath)
+	}
+
+	fstore, err := NewFileStore(dataDir, nil)
+	if err != nil {
+		return fmt.Errorf("failed creating file store: %s: %v", dataDir, err)
+	}
+
+	fsStoreAccounts := len(fstore.GetAllAccounts())
+	log.Infof("%d account will be migrated from file store %s to sqlite store %s",
+		fsStoreAccounts, fileStorePath, sqlStorePath)
+
+	store, err := NewSqliteStoreFromFileStore(fstore, dataDir, nil)
+	if err != nil {
+		return fmt.Errorf("failed creating file store: %s: %v", dataDir, err)
+	}
+
+	sqliteStoreAccounts := len(store.GetAllAccounts())
+	if fsStoreAccounts != sqliteStoreAccounts {
+		return fmt.Errorf("failed to migrate accounts from file to sqlite. Expected accounts: %d, got: %d",
+			fsStoreAccounts, sqliteStoreAccounts)
+	}
+
+	return nil
 }
