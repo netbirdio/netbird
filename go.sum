@@ -331,8 +331,8 @@ github.com/munnerz/goautoneg v0.0.0-20120707110453-a547fc61f48d/go.mod h1:+n7T8m
 github.com/mxk/go-flowrate v0.0.0-20140419014527-cca7078d478f/go.mod h1:ZdcZmHo+o7JKHSa8/e818NopupXU1YMK5fe1lsApnBw=
 github.com/nadoo/ipset v0.5.0 h1:5GJUAuZ7ITQQQGne5J96AmFjRtI8Avlbk6CabzYWVUc=
 github.com/nadoo/ipset v0.5.0/go.mod h1:rYF5DQLRGGoQ8ZSWeK+6eX5amAuPqwFkWjhQlEITGJQ=
-github.com/netbirdio/go-netroute v0.0.0-20240611094956-4f3aa8d42039 h1:KD2Ilts6WILVF7B+mo4JnxHSDhYYpYCt++wiUb6xk98=
-github.com/netbirdio/go-netroute v0.0.0-20240611094956-4f3aa8d42039/go.mod h1:sitKsvLph0X5gaDYgpP325JBQ9EK3XNcuLTnR/XfnE0=
+github.com/netbirdio/go-netroute v0.0.0-20240611103808-eb02bd31dec0 h1:8w6juiLzsbFYiYYcKGYHmR/llfXDdh/1QwXZ0YqRpdw=
+github.com/netbirdio/go-netroute v0.0.0-20240611103808-eb02bd31dec0/go.mod h1:sitKsvLph0X5gaDYgpP325JBQ9EK3XNcuLTnR/XfnE0=
 github.com/netbirdio/ice/v3 v3.0.0-20240315174635-e72a50fcb64e h1:PURA50S8u4mF6RrkYYCAvvPCixhqqEiEy3Ej6avh04c=
 github.com/netbirdio/ice/v3 v3.0.0-20240315174635-e72a50fcb64e/go.mod h1:YMLU7qbKfVjmEv7EoZPIVEI+kNYxWCdPK3VS0BU+U4Q=
 github.com/netbirdio/management-integrations/integrations v0.0.0-20240524104853-69c6d89826cd h1:IzGGIJMpz07aPs3R6/4sxZv63JoCMddftLpVodUK+Ec=

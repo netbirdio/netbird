@@ -211,4 +211,4 @@ replace github.com/cloudflare/circl => github.com/cunicu/circl v0.0.0-2023080111
 
 replace github.com/pion/ice/v3 => github.com/netbirdio/ice/v3 v3.0.0-20240315174635-e72a50fcb64e
 
-replace github.com/libp2p/go-netroute => github.com/netbirdio/go-netroute v0.0.0-20240611094956-4f3aa8d42039
+replace github.com/libp2p/go-netroute => github.com/netbirdio/go-netroute v0.0.0-20240611103808-eb02bd31dec0
