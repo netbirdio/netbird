@@ -74,9 +74,11 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 	}
 
 	settings := &server.Settings{
-		PeerLoginExpirationEnabled: req.Settings.PeerLoginExpirationEnabled,
-		PeerLoginExpiration:        time.Duration(float64(time.Second.Nanoseconds()) * float64(req.Settings.PeerLoginExpiration)),
-		RegularUsersViewBlocked:    req.Settings.RegularUsersViewBlocked,
+		PeerLoginExpirationEnabled:      req.Settings.PeerLoginExpirationEnabled,
+		PeerLoginExpiration:             time.Duration(float64(time.Second.Nanoseconds()) * float64(req.Settings.PeerLoginExpiration)),
+		PeerInactivityExpirationEnabled: req.Settings.PeerInactivityExpirationEnabled,
+		PeerInactivityExpiration:        time.Duration(float64(time.Second.Nanoseconds()) * float64(req.Settings.PeerInactivityExpiration)),
+		RegularUsersViewBlocked:         req.Settings.RegularUsersViewBlocked,
 	}
 
 	if req.Settings.Extra != nil {
