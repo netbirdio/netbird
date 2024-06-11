@@ -121,7 +121,8 @@ func checkFileStoreEngine(kind StoreEngine, dataDir string) error {
 	if kind == FileStoreEngine {
 		storeFile := filepath.Join(dataDir, storeFileName)
 		if util.FileExists(storeFile) {
-			return fmt.Errorf("%s is not supported. Please refer to the documentation for migrating to SQLite: https://docs.netbird.io/selfhosted/sqlite-store#rollback-to-json-file-store", FileStoreEngine)
+			return fmt.Errorf("%s is not supported. Please refer to the documentation for migrating to SQLite: "+
+				"https://docs.netbird.io/selfhosted/sqlite-store#migrating-from-json-store-to-sq-lite-store", FileStoreEngine)
 		}
 	}
 	return nil
@@ -186,8 +187,6 @@ func NewTestStoreFromJson(dataDir string) (Store, func(), error) {
 		return nil, nil, err
 	}
 
-	cleanUp := func() {}
-
 	// if store engine is not set in the config we first try to evaluate NETBIRD_STORE_ENGINE
 	kind := getStoreEngineFromEnv()
 	if kind == "" {
@@ -195,14 +194,14 @@ func NewTestStoreFromJson(dataDir string) (Store, func(), error) {
 		kind = SqliteStoreEngine
 	}
 
-	switch kind {
-	case SqliteStoreEngine:
-		store, err := NewSqliteStoreFromFileStore(fstore, dataDir, nil)
-		if err != nil {
-			return nil, nil, err
+	var (
+		store   Store
+		cleanUp = func() {
+			// empty store cleanUp
 		}
-		return store, cleanUp, nil
-	case PostgresStoreEngine:
+	)
+
+	if kind == PostgresStoreEngine {
 		cleanUp, err = testutil.CreatePGDB()
 		if err != nil {
 			return nil, nil, err
@@ -213,18 +212,18 @@ func NewTestStoreFromJson(dataDir string) (Store, func(), error) {
 			return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
 		}
 
-		store, err := NewPostgresqlStoreFromFileStore(fstore, dsn, nil)
+		store, err = NewPostgresqlStoreFromFileStore(fstore, dsn, nil)
 		if err != nil {
 			return nil, nil, err
 		}
-		return store, cleanUp, nil
-	default:
-		store, err := NewSqliteStoreFromFileStore(fstore, dataDir, nil)
+	} else {
+		store, err = NewSqliteStoreFromFileStore(fstore, dataDir, nil)
 		if err != nil {
 			return nil, nil, err
 		}
-		return store, cleanUp, nil
 	}
+
+	return store, cleanUp, nil
 }
 
 // MigrateFileStoreToSqlite migrates the file store to the SQLite store.
