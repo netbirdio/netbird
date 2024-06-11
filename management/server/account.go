@@ -50,7 +50,7 @@ const (
 	CacheExpirationMax              = 7 * 24 * 3600 * time.Second // 7 days
 	CacheExpirationMin              = 3 * 24 * 3600 * time.Second // 3 days
 	DefaultPeerLoginExpiration      = 24 * time.Hour
-	DefaultPeerInactivityExpiration = 20 * time.Second
+	DefaultPeerInactivityExpiration = 1 * time.Second
 )
 
 type userLoggedInOnce bool
@@ -192,8 +192,11 @@ type Settings struct {
 	// Applies to all peers that have Peer.LoginExpirationEnabled set to true.
 	PeerLoginExpiration time.Duration
 
+	// PeerInactivityExpirationEnabled globally enables or disables peer inactivity expiration
 	PeerInactivityExpirationEnabled bool
 
+	// PeerInactivityExpiration is a setting that indicates when peer inactivity expires.
+	// Applies to all peers that have Peer.PeerInactivityExpirationEnabled set to true.
 	PeerInactivityExpiration time.Duration
 
 	// RegularUsersViewBlocked allows to block regular users from viewing even their own peers and some UI elements
@@ -591,6 +594,7 @@ func (a *Account) GetPeersWithExpiration() []*nbpeer.Peer {
 	return peers
 }
 
+// GetExpiredPeers returns peers that have been expired by inactivity
 func (a *Account) GetInactivePeers() []*nbpeer.Peer {
 	var peers []*nbpeer.Peer
 	for _, inactivePeer := range a.GetPeersWithInactivity() {
@@ -602,6 +606,9 @@ func (a *Account) GetInactivePeers() []*nbpeer.Peer {
 	return peers
 }
 
+// GetNextInactivePeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.
+// If there is no peer that expires this function returns false and a duration of 0.
+// This function only considers peers that haven't been expired yet and that are connected.
 func (a *Account) GetNextInactivePeerExpiration() (time.Duration, bool) {
 	peersWithExpiry := a.GetPeersWithInactivity()
 	if len(peersWithExpiry) == 0 {
@@ -610,7 +617,7 @@ func (a *Account) GetNextInactivePeerExpiration() (time.Duration, bool) {
 	var nextExpiry *time.Duration
 	for _, peer := range peersWithExpiry {
 		// consider only connected peers because others will require login on connecting to the management server
-		if peer.Status.LoginExpired {
+		if peer.Status.LoginExpired || peer.Status.Connected {
 			continue
 		}
 		_, duration := peer.SessionExpired(a.Settings.PeerInactivityExpiration)
