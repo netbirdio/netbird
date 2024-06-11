@@ -139,6 +139,13 @@ const (
 	PostureCheckUpdated Activity = 61
 	// PostureCheckDeleted indicates that the user deleted a posture check
 	PostureCheckDeleted Activity = 62
+
+	PeerInactivityExpirationEnabled  Activity = 63
+	PeerInactivityExpirationDisabled Activity = 64
+
+	AccountPeerInactivityExpirationEnabled         Activity = 65
+	AccountPeerInactivityExpirationDisabled        Activity = 66
+	AccountPeerInactivityExpirationDurationUpdated Activity = 67
 )
 
 var activityMap = map[Activity]Code{

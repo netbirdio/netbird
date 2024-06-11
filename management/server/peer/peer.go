@@ -38,6 +38,7 @@ type Peer struct {
 	// LoginExpirationEnabled indicates whether peer's login expiration is enabled and once expired the peer has to re-login.
 	// Works with LastLogin
 	LoginExpirationEnabled bool
+	InactivityExpirationEnabled bool
 	// LastLogin the time when peer performed last login operation
 	LastLogin time.Time
 	// CreatedAt records the time the peer was created
@@ -170,23 +171,24 @@ func (p *Peer) Copy() *Peer {
 		peerStatus = p.Status.Copy()
 	}
 	return &Peer{
-		ID:                     p.ID,
-		AccountID:              p.AccountID,
-		Key:                    p.Key,
-		SetupKey:               p.SetupKey,
-		IP:                     p.IP,
-		Meta:                   p.Meta,
-		Name:                   p.Name,
-		DNSLabel:               p.DNSLabel,
-		Status:                 peerStatus,
-		UserID:                 p.UserID,
-		SSHKey:                 p.SSHKey,
-		SSHEnabled:             p.SSHEnabled,
-		LoginExpirationEnabled: p.LoginExpirationEnabled,
-		LastLogin:              p.LastLogin,
-		CreatedAt:              p.CreatedAt,
-		Ephemeral:              p.Ephemeral,
-		Location:               p.Location,
+		ID:                          p.ID,
+		AccountID:                   p.AccountID,
+		Key:                         p.Key,
+		SetupKey:                    p.SetupKey,
+		IP:                          p.IP,
+		Meta:                        p.Meta,
+		Name:                        p.Name,
+		DNSLabel:                    p.DNSLabel,
+		Status:                      peerStatus,
+		UserID:                      p.UserID,
+		SSHKey:                      p.SSHKey,
+		SSHEnabled:                  p.SSHEnabled,
+		LoginExpirationEnabled:      p.LoginExpirationEnabled,
+		InactivityExpirationEnabled: p.InactivityExpirationEnabled,
+		LastLogin:                   p.LastLogin,
+		CreatedAt:                   p.CreatedAt,
+		Ephemeral:                   p.Ephemeral,
+		Location:                    p.Location,
 	}
 }
 
@@ -217,6 +219,16 @@ func (p *Peer) MarkLoginExpired(expired bool) {
 		newStatus.Connected = false
 	}
 	p.Status = newStatus
+}
+
+func (p *Peer) SessionExpired(expiresIn time.Duration) (bool, time.Duration) {
+	if !p.AddedWithSSOLogin() || !p.InactivityExpirationEnabled || p.Status.Connected {
+		return false, 0
+	}
+	expiresAt := p.Status.LastSeen.Add(expiresIn)
+	now := time.Now()
+	timeLeft := expiresAt.Sub(now)
+	return timeLeft <= 0, timeLeft
 }
 
 // LoginExpired indicates whether the peer's login has expired or not.

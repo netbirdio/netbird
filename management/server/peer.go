@@ -146,6 +146,10 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 		am.checkAndSchedulePeerLoginExpiration(ctx, account)
 	}
 
+	if peer.AddedWithSSOLogin() && peer.InactivityExpirationEnabled && account.Settings.PeerInactivityExpirationEnabled {
+		am.checkAndSchedulePeerInactivityExpiration(ctx, account)
+	}
+
 	if oldStatus.LoginExpired {
 		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
 		// the expired one. Here we notify them that connection is now allowed again.
@@ -215,6 +219,25 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 
 		if peer.AddedWithSSOLogin() && peer.LoginExpirationEnabled && account.Settings.PeerLoginExpirationEnabled {
 			am.checkAndSchedulePeerLoginExpiration(ctx, account)
+		}
+	}
+
+	if peer.InactivityExpirationEnabled != update.InactivityExpirationEnabled {
+
+		if !peer.AddedWithSSOLogin() {
+			return nil, status.Errorf(status.PreconditionFailed, "this peer hasn't been added with the SSO login, therefore the login expiration can't be updated")
+		}
+
+		peer.InactivityExpirationEnabled = update.InactivityExpirationEnabled
+
+		event := activity.PeerInactivityExpirationEnabled
+		if !update.InactivityExpirationEnabled {
+			event = activity.PeerInactivityExpirationDisabled
+		}
+		am.StoreEvent(ctx, userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
+
+		if peer.AddedWithSSOLogin() && peer.InactivityExpirationEnabled && account.Settings.PeerInactivityExpirationEnabled {
+			am.checkAndSchedulePeerInactivityExpiration(ctx, account)
 		}
 	}
 
@@ -443,22 +466,23 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	registrationTime := time.Now().UTC()
 
 	newPeer := &nbpeer.Peer{
-		ID:                     xid.New().String(),
-		Key:                    peer.Key,
-		SetupKey:               upperKey,
-		IP:                     nextIp,
-		Meta:                   peer.Meta,
-		Name:                   peer.Meta.Hostname,
-		DNSLabel:               newLabel,
-		UserID:                 userID,
-		Status:                 &nbpeer.PeerStatus{Connected: false, LastSeen: registrationTime},
-		SSHEnabled:             false,
-		SSHKey:                 peer.SSHKey,
-		LastLogin:              registrationTime,
-		CreatedAt:              registrationTime,
-		LoginExpirationEnabled: addedByUser,
-		Ephemeral:              ephemeral,
-		Location:               peer.Location,
+		ID:                          xid.New().String(),
+		Key:                         peer.Key,
+		SetupKey:                    upperKey,
+		IP:                          nextIp,
+		Meta:                        peer.Meta,
+		Name:                        peer.Meta.Hostname,
+		DNSLabel:                    newLabel,
+		UserID:                      userID,
+		Status:                      &nbpeer.PeerStatus{Connected: false, LastSeen: registrationTime},
+		SSHEnabled:                  false,
+		SSHKey:                      peer.SSHKey,
+		LastLogin:                   registrationTime,
+		CreatedAt:                   registrationTime,
+		LoginExpirationEnabled:      addedByUser,
+		InactivityExpirationEnabled: addedByUser,
+		Ephemeral:                   ephemeral,
+		Location:                    peer.Location,
 	}
 
 	if am.geo != nil && newPeer.Location.ConnectionIP != nil {
