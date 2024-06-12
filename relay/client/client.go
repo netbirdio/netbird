@@ -142,7 +142,10 @@ func (c *Client) Connect() error {
 	return nil
 }
 
-// todo: what should happen of call with the same peerID?
+// OpenConn create a new net.Conn for the destination peer ID. In case if the connection is in progress
+// to the relay server, the function will block until the connection is established or timed out. Otherwise,
+// it will return immediately.
+// todo: what should happen if call with the same peerID with multiple times?
 func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
