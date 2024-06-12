@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+
 	"github.com/netbirdio/netbird/management/server/activity"
 
 	"github.com/netbirdio/netbird/util"
@@ -53,7 +56,10 @@ func startSignal(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	sigProto.RegisterSignalExchangeServer(s, sig.NewServer())
+	srv, err := sig.NewServer(otel.Meter(""))
+	require.NoError(t, err)
+
+	sigProto.RegisterSignalExchangeServer(s, srv)
 	go func() {
 		if err := s.Serve(lis); err != nil {
 			panic(err)
