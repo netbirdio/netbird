@@ -190,7 +190,6 @@ func NewTestStoreFromJson(dataDir string) (Store, func(), error) {
 	// if store engine is not set in the config we first try to evaluate NETBIRD_STORE_ENGINE
 	kind := getStoreEngineFromEnv()
 	if kind == "" {
-		// NETBIRD_STORE_ENGINE is not set we evaluate default based on dataDir
 		kind = SqliteStoreEngine
 	}
 
