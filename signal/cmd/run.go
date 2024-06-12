@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,7 +14,10 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"golang.org/x/crypto/acme/autocert"
+
+	"github.com/netbirdio/netbird/signal/metrics"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/signal/proto"
@@ -26,6 +30,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+)
+
+const (
+	metricsPort = 9090
 )
 
 var (
@@ -95,9 +103,26 @@ var (
 				opts = append(opts, grpc.Creds(transportCredentials))
 			}
 
-			opts = append(opts, signalKaep, signalKasp)
+			metricsServer := metrics.NewServer(metricsPort, "")
+			if err != nil {
+				return fmt.Errorf("setup metrics: %v", err)
+			}
+
+			opts = append(opts, signalKaep, signalKasp, grpc.StatsHandler(otelgrpc.NewServerHandler()))
 			grpcServer := grpc.NewServer(opts...)
-			proto.RegisterSignalExchangeServer(grpcServer, server.NewServer())
+
+			go func() {
+				log.Infof("running metrics server: %s%s", metricsServer.Addr, metricsServer.Endpoint)
+				if err := metricsServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+					log.Fatalf("Failed to start metrics server: %v", err)
+				}
+			}()
+
+			srv, err := server.NewServer(metricsServer.Meter)
+			if err != nil {
+				return fmt.Errorf("creating signal server: %v", err)
+			}
+			proto.RegisterSignalExchangeServer(grpcServer, srv)
 
 			var compatListener net.Listener
 			if signalPort != 10000 {
@@ -150,6 +175,14 @@ var (
 				_ = compatListener.Close()
 				log.Infof("stopped gRPC backward compatibility server")
 			}
+
+			ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
+			defer cancel()
+			if err := metricsServer.Shutdown(ctx); err != nil {
+				log.Errorf("Failed to stop metrics server: %v", err)
+			}
+			log.Infof("stopped metrics server")
+
 			log.Infof("stopped Signal Service")
 
 			return nil
