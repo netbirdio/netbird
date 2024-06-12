@@ -196,9 +196,7 @@ func NewTestStoreFromJson(dataDir string) (Store, func(), error) {
 
 	var (
 		store   Store
-		cleanUp = func() {
-			// empty store cleanUp
-		}
+		cleanUp func()
 	)
 
 	if kind == PostgresStoreEngine {
@@ -221,6 +219,7 @@ func NewTestStoreFromJson(dataDir string) (Store, func(), error) {
 		if err != nil {
 			return nil, nil, err
 		}
+		cleanUp = func() { store.Close() }
 	}
 
 	return store, cleanUp, nil

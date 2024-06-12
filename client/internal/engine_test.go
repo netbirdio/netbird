@@ -816,7 +816,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 		return
 	}
 	defer sigServer.Stop()
-	mgmtServer, mgmtAddr, err := startManagement(dir)
+	mgmtServer, mgmtAddr, err := startManagement(t, dir)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -1032,7 +1032,9 @@ func startSignal() (*grpc.Server, string, error) {
 	return s, lis.Addr().String(), nil
 }
 
-func startManagement(dataDir string) (*grpc.Server, string, error) {
+func startManagement(t *testing.T, dataDir string) (*grpc.Server, string, error) {
+	t.Helper()
+
 	config := &server.Config{
 		Stuns:      []*server.Host{},
 		TURNConfig: &server.TURNConfig{},
@@ -1049,10 +1051,12 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 		return nil, "", err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
-	store, _, err := server.NewTestStoreFromJson(config.Datadir)
+
+	store, cleanUp, err := server.NewTestStoreFromJson(config.Datadir)
 	if err != nil {
 		return nil, "", err
 	}
+	t.Cleanup(cleanUp)
 
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
