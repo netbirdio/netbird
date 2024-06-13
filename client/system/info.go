@@ -58,7 +58,7 @@ type Info struct {
 	SystemProductName  string
 	SystemManufacturer string
 	Environment        Environment
-	Files              []File
+	Files              []File // for posture checks
 }
 
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context
