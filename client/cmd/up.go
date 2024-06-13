@@ -37,10 +37,18 @@ var (
 )
 
 func init() {
+	// enable network monitoring by default on windows and darwin clients
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		networkMonitor = true
+	}
+	upCmd.PersistentFlags().BoolVarP(&networkMonitor, networkMonitorFlag, "N", networkMonitor,
+		`Manage network monitoring. `+
+			`E.g. --network-monitor=false to disable or --network-monitor=true to enable.`,
+	)
+
 	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground")
 	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "Wireguard interface name")
 	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "Wireguard interface listening port")
-	upCmd.PersistentFlags().BoolVarP(&networkMonitor, networkMonitorFlag, "N", false, "Enable network monitoring")
 	upCmd.PersistentFlags().StringSliceVar(&extraIFaceBlackList, extraIFaceBlackListFlag, nil, "Extra list of default interfaces to ignore for listening")
 }
 
