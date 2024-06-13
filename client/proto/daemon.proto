@@ -92,6 +92,8 @@ message LoginRequest {
   repeated string extraIFaceBlacklist = 17;
 
   optional bool networkMonitor = 18;
+
+  optional google.protobuf.Duration dnsRouteInterval = 19;
 }
 
 message LoginResponse {
@@ -233,10 +235,17 @@ message SelectRoutesRequest {
 message SelectRoutesResponse {
 }
 
+message IPList {
+  repeated string ips = 1;
+}
+
+
 message Route {
   string ID = 1;
   string network = 2;
   bool selected = 3;
+  repeated string domains = 4;
+  map<string, IPList> resolvedIPs = 5;
 }
 
 message DebugBundleRequest {

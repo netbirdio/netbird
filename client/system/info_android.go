@@ -44,6 +44,11 @@ func GetInfo(ctx context.Context) *Info {
 	return gio
 }
 
+// checkFileAndProcess checks if the file path exists and if a process is running at that path.
+func checkFileAndProcess(paths []string) ([]File, error) {
+	return []File{}, nil
+}
+
 func uname() []string {
 	res := run("/system/bin/uname", "-a")
 	return strings.Split(res, " ")

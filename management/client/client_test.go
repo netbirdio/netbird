@@ -257,7 +257,7 @@ func TestClient_Sync(t *testing.T) {
 	ch := make(chan *mgmtProto.SyncResponse, 1)
 
 	go func() {
-		err = client.Sync(context.Background(), func(msg *mgmtProto.SyncResponse) error {
+		err = client.Sync(context.Background(), info, func(msg *mgmtProto.SyncResponse) error {
 			ch <- msg
 			return nil
 		})
