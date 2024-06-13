@@ -29,6 +29,11 @@ import (
 
 const ConnectTimeout = 10 * time.Second
 
+const (
+	errMsgMgmtPublicKey    = "failed getting Management Service public key: %s"
+	errMsgNoMgmtConnection = "no connection to management"
+)
+
 // ConnStateNotifier is a wrapper interface of the status recorders
 type ConnStateNotifier interface {
 	MarkManagementDisconnected(error)
@@ -113,13 +118,11 @@ func (c *GrpcClient) ready() bool {
 
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
-func (c *GrpcClient) Sync(ctx context.Context, msgHandler func(msg *proto.SyncResponse) error) error {
-	backOff := defaultBackoff(ctx)
-
+func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
 	operation := func() error {
 		log.Debugf("management connection state %v", c.conn.GetState())
-
 		connState := c.conn.GetState()
+
 		if connState == connectivity.Shutdown {
 			return backoff.Permanent(fmt.Errorf("connection to management has been shut down"))
 		} else if !(connState == connectivity.Ready || connState == connectivity.Idle) {
@@ -129,55 +132,60 @@ func (c *GrpcClient) Sync(ctx context.Context, msgHandler func(msg *proto.SyncRe
 
 		serverPubKey, err := c.GetServerPublicKey()
 		if err != nil {
-			log.Debugf("failed getting Management Service public key: %s", err)
+			log.Debugf(errMsgMgmtPublicKey, err)
 			return err
 		}
 
-		ctx, cancelStream := context.WithCancel(ctx)
-		defer cancelStream()
-		stream, err := c.connectToStream(ctx, *serverPubKey)
-		if err != nil {
-			log.Debugf("failed to open Management Service stream: %s", err)
-			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
-				return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
-			}
-			return err
-		}
-
-		log.Infof("connected to the Management Service stream")
-		c.notifyConnected()
-		// blocking until error
-		err = c.receiveEvents(stream, *serverPubKey, msgHandler)
-		if err != nil {
-			s, _ := gstatus.FromError(err)
-			switch s.Code() {
-			case codes.PermissionDenied:
-				return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
-			case codes.Canceled:
-				log.Debugf("management connection context has been canceled, this usually indicates shutdown")
-				return nil
-			default:
-				backOff.Reset() // reset backoff counter after successful connection
-				c.notifyDisconnected(err)
-				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
-				return err
-			}
-		}
-
-		return nil
+		return c.handleStream(ctx, *serverPubKey, sysInfo, msgHandler)
 	}
 
-	err := backoff.Retry(operation, backOff)
+	err := backoff.Retry(operation, defaultBackoff(ctx))
 	if err != nil {
 		log.Warnf("exiting the Management service connection retry loop due to the unrecoverable error: %s", err)
+	}
+
+	return err
+}
+
+func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info,
+	msgHandler func(msg *proto.SyncResponse) error) error {
+	ctx, cancelStream := context.WithCancel(ctx)
+	defer cancelStream()
+
+	stream, err := c.connectToStream(ctx, serverPubKey, sysInfo)
+	if err != nil {
+		log.Debugf("failed to open Management Service stream: %s", err)
+		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
+			return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
+		}
 		return err
+	}
+
+	log.Infof("connected to the Management Service stream")
+	c.notifyConnected()
+
+	// blocking until error
+	err = c.receiveEvents(stream, serverPubKey, msgHandler)
+	if err != nil {
+		s, _ := gstatus.FromError(err)
+		switch s.Code() {
+		case codes.PermissionDenied:
+			return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
+		case codes.Canceled:
+			log.Debugf("management connection context has been canceled, this usually indicates shutdown")
+			return nil
+		default:
+			c.notifyDisconnected(err)
+			log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
+			return err
+		}
 	}
 
 	return nil
 }
 
 // GetNetworkMap return with the network map
-func (c *GrpcClient) GetNetworkMap() (*proto.NetworkMap, error) {
+func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, error) {
 	serverPubKey, err := c.GetServerPublicKey()
 	if err != nil {
 		log.Debugf("failed getting Management Service public key: %s", err)
@@ -186,7 +194,7 @@ func (c *GrpcClient) GetNetworkMap() (*proto.NetworkMap, error) {
 
 	ctx, cancelStream := context.WithCancel(c.ctx)
 	defer cancelStream()
-	stream, err := c.connectToStream(ctx, *serverPubKey)
+	stream, err := c.connectToStream(ctx, *serverPubKey, sysInfo)
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
 		return nil, err
@@ -219,8 +227,8 @@ func (c *GrpcClient) GetNetworkMap() (*proto.NetworkMap, error) {
 	return decryptedResp.GetNetworkMap(), nil
 }
 
-func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.Key) (proto.ManagementService_SyncClient, error) {
-	req := &proto.SyncRequest{}
+func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info) (proto.ManagementService_SyncClient, error) {
+	req := &proto.SyncRequest{Meta: infoToMetaData(sysInfo)}
 
 	myPrivateKey := c.key
 	myPublicKey := myPrivateKey.PublicKey()
@@ -269,7 +277,7 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 // GetServerPublicKey returns server's WireGuard public key (used later for encrypting messages sent to the server)
 func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
 	if !c.ready() {
-		return nil, fmt.Errorf("no connection to management")
+		return nil, fmt.Errorf(errMsgNoMgmtConnection)
 	}
 
 	mgmCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
@@ -316,7 +324,7 @@ func (c *GrpcClient) IsHealthy() bool {
 
 func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*proto.LoginResponse, error) {
 	if !c.ready() {
-		return nil, fmt.Errorf("no connection to management")
+		return nil, fmt.Errorf(errMsgNoMgmtConnection)
 	}
 	loginReq, err := encryption.EncryptMessage(serverKey, c.key, req)
 	if err != nil {
@@ -431,6 +439,35 @@ func (c *GrpcClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKC
 	return flowInfoResp, nil
 }
 
+// SyncMeta sends updated system metadata to the Management Service.
+// It should be used if there is changes on peer posture check after initial sync.
+func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
+	if !c.ready() {
+		return fmt.Errorf(errMsgNoMgmtConnection)
+	}
+
+	serverPubKey, err := c.GetServerPublicKey()
+	if err != nil {
+		log.Debugf(errMsgMgmtPublicKey, err)
+		return err
+	}
+
+	syncMetaReq, err := encryption.EncryptMessage(*serverPubKey, c.key, &proto.SyncMetaRequest{Meta: infoToMetaData(sysInfo)})
+	if err != nil {
+		log.Errorf("failed to encrypt message: %s", err)
+		return err
+	}
+
+	mgmCtx, cancel := context.WithTimeout(c.ctx, ConnectTimeout)
+	defer cancel()
+
+	_, err = c.realClient.SyncMeta(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     syncMetaReq,
+	})
+	return err
+}
+
 func (c *GrpcClient) notifyDisconnected(err error) {
 	c.connStateCallbackLock.RLock()
 	defer c.connStateCallbackLock.RUnlock()
@@ -464,6 +501,15 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		})
 	}
 
+	files := make([]*proto.File, 0, len(info.Files))
+	for _, file := range info.Files {
+		files = append(files, &proto.File{
+			Path:             file.Path,
+			Exist:            file.Exist,
+			ProcessIsRunning: file.ProcessIsRunning,
+		})
+	}
+
 	return &proto.PeerSystemMeta{
 		Hostname:           info.Hostname,
 		GoOS:               info.GoOS,
@@ -483,5 +529,6 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			Cloud:    info.Environment.Cloud,
 			Platform: info.Environment.Platform,
 		},
+		Files: files,
 	}
 }

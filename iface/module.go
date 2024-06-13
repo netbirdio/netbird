@@ -1,5 +1,4 @@
-//go:build !linux || android
-// +build !linux android
+//go:build (!linux && !freebsd) || android
 
 package iface
 

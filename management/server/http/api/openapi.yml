@@ -817,6 +817,8 @@ components:
           $ref: '#/components/schemas/GeoLocationCheck'
         peer_network_range_check:
           $ref: '#/components/schemas/PeerNetworkRangeCheck'
+        process_check:
+          $ref: '#/components/schemas/ProcessCheck'
     NBVersionCheck:
       description: Posture check for the version of NetBird
       type: object
@@ -905,6 +907,32 @@ components:
       required:
         - ranges
         - action
+    ProcessCheck:
+      description: Posture Check for binaries exist and are running in the peer’s system
+      type: object
+      properties:
+        processes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Process'
+      required:
+        - processes
+    Process:
+      description: Describes the operational activity within a peer's system.
+      type: object
+      properties:
+        linux_path:
+          description: Path to the process executable file in a Linux operating system
+          type: string
+          example: "/usr/local/bin/netbird"
+        mac_path:
+          description: Path to the process executable file in a Mac operating system
+          type: string
+          example: "/Applications/NetBird.app/Contents/MacOS/netbird"
+        windows_path:
+          description: Path to the process executable file in a Windows operating system
+          type: string
+          example: "C:\ProgramData\NetBird\netbird.exe"
     Location:
       description: Describe geographical location information
       type: object
@@ -995,9 +1023,17 @@ components:
             type: string
             example: chacbco6lnnbn6cg5s91
         network:
-          description: Network range in CIDR format
+          description: Network range in CIDR format, Conflicts with domains
           type: string
           example: 10.64.0.0/24
+        domains:
+          description: Domain list to be dynamically resolved. Conflicts with network
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 255
+            example: "example.com"
         metric:
           description: Route metric number. Lowest number has higher priority
           type: integer
@@ -1014,6 +1050,10 @@ components:
           items:
             type: string
             example: "chacdk86lnnboviihd70"
+        keep_route:
+          description: Indicate if the route should be kept after a domain doesn't resolve that IP anymore
+          type: boolean
+          example: true
       required:
         - id
         - description
@@ -1022,10 +1062,13 @@ components:
         # Only one property has to be set
         #- peer
         #- peer_groups
-        - network
+        # Only one property has to be set
+        #- network
+        #- domains
         - metric
         - masquerade
         - groups
+        - keep_route
     Route:
       allOf:
         - type: object
@@ -1035,7 +1078,7 @@ components:
               type: string
               example: chacdk86lnnboviihd7g
             network_type:
-              description: Network type indicating if it is IPv4 or IPv6
+              description: Network type indicating if it is a domain route or a IPv4/IPv6 route
               type: string
               example: IPv4
           required:
