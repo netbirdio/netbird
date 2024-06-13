@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -25,6 +26,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
+)
+
+const (
+	storeSqliteFileName = "store.db"
 )
 
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
@@ -623,10 +628,10 @@ func (s *SqlStore) GetStoreEngine() StoreEngine {
 
 // NewSqliteStore creates a new SQLite store.
 func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	storeStr := "store.db?cache=shared"
+	storeStr := fmt.Sprintf("%s?cache=shared", storeSqliteFileName)
 	if runtime.GOOS == "windows" {
 		// Vo avoid `The process cannot access the file because it is being used by another process` on Windows
-		storeStr = "store.db"
+		storeStr = storeSqliteFileName
 	}
 
 	file := filepath.Join(dataDir, storeStr)
@@ -653,6 +658,15 @@ func NewPostgresqlStore(dsn string, metrics telemetry.AppMetrics) (*SqlStore, er
 	}
 
 	return NewSqlStore(db, PostgresStoreEngine, metrics)
+}
+
+// newPostgresStore initializes a new Postgres store.
+func newPostgresStore(metrics telemetry.AppMetrics) (Store, error) {
+	dsn, ok := os.LookupEnv(postgresDsnEnv)
+	if !ok {
+		return nil, fmt.Errorf("%s is not set", postgresDsnEnv)
+	}
+	return NewPostgresqlStore(dsn, metrics)
 }
 
 // NewSqliteStoreFromFileStore restores a store from FileStore and stores SQLite DB in the file located in datadir.
