@@ -1,8 +1,9 @@
 package posture
 
 import (
-	"fmt"
+	"errors"
 	"net/netip"
+	"regexp"
 
 	"github.com/hashicorp/go-version"
 	"github.com/rs/xid"
@@ -17,15 +18,21 @@ const (
 	OSVersionCheckName        = "OSVersionCheck"
 	GeoLocationCheckName      = "GeoLocationCheck"
 	PeerNetworkRangeCheckName = "PeerNetworkRangeCheck"
+	ProcessCheckName          = "ProcessCheck"
 
 	CheckActionAllow string = "allow"
 	CheckActionDeny  string = "deny"
 )
 
+var (
+	countryCodeRegex = regexp.MustCompile("^[a-zA-Z]{2}$")
+)
+
 // Check represents an interface for performing a check on a peer.
 type Check interface {
-	Check(peer nbpeer.Peer) (bool, error)
 	Name() string
+	Check(peer nbpeer.Peer) (bool, error)
+	Validate() error
 }
 
 type Checks struct {
@@ -51,6 +58,7 @@ type ChecksDefinition struct {
 	OSVersionCheck        *OSVersionCheck        `json:",omitempty"`
 	GeoLocationCheck      *GeoLocationCheck      `json:",omitempty"`
 	PeerNetworkRangeCheck *PeerNetworkRangeCheck `json:",omitempty"`
+	ProcessCheck          *ProcessCheck          `json:",omitempty"`
 }
 
 // Copy returns a copy of a checks definition.
@@ -96,6 +104,13 @@ func (cd ChecksDefinition) Copy() ChecksDefinition {
 		}
 		copy(cdCopy.PeerNetworkRangeCheck.Ranges, peerNetRangeCheck.Ranges)
 	}
+	if cd.ProcessCheck != nil {
+		processCheck := cd.ProcessCheck
+		cdCopy.ProcessCheck = &ProcessCheck{
+			Processes: make([]Process, len(processCheck.Processes)),
+		}
+		copy(cdCopy.ProcessCheck.Processes, processCheck.Processes)
+	}
 	return cdCopy
 }
 
@@ -135,6 +150,9 @@ func (pc *Checks) GetChecks() []Check {
 	}
 	if pc.Checks.PeerNetworkRangeCheck != nil {
 		checks = append(checks, pc.Checks.PeerNetworkRangeCheck)
+	}
+	if pc.Checks.ProcessCheck != nil {
+		checks = append(checks, pc.Checks.ProcessCheck)
 	}
 	return checks
 }
@@ -191,6 +209,10 @@ func buildPostureCheck(postureChecksID string, name string, description string, 
 		}
 	}
 
+	if processCheck := checks.ProcessCheck; processCheck != nil {
+		postureChecks.Checks.ProcessCheck = toProcessCheck(processCheck)
+	}
+
 	return &postureChecks, nil
 }
 
@@ -221,6 +243,10 @@ func (pc *Checks) ToAPIResponse() *api.PostureCheck {
 		checks.PeerNetworkRangeCheck = toPeerNetworkRangeCheckResponse(pc.Checks.PeerNetworkRangeCheck)
 	}
 
+	if pc.Checks.ProcessCheck != nil {
+		checks.ProcessCheck = toProcessCheckResponse(pc.Checks.ProcessCheck)
+	}
+
 	return &api.PostureCheck{
 		Id:          pc.ID,
 		Name:        pc.Name,
@@ -229,44 +255,20 @@ func (pc *Checks) ToAPIResponse() *api.PostureCheck {
 	}
 }
 
+// Validate checks the validity of a posture checks.
 func (pc *Checks) Validate() error {
-	if check := pc.Checks.NBVersionCheck; check != nil {
-		if !isVersionValid(check.MinVersion) {
-			return fmt.Errorf("%s version: %s is not valid", check.Name(), check.MinVersion)
-		}
+	if pc.Name == "" {
+		return errors.New("posture checks name shouldn't be empty")
 	}
 
-	if osCheck := pc.Checks.OSVersionCheck; osCheck != nil {
-		if osCheck.Android != nil {
-			if !isVersionValid(osCheck.Android.MinVersion) {
-				return fmt.Errorf("%s android version: %s is not valid", osCheck.Name(), osCheck.Android.MinVersion)
-			}
-		}
+	checks := pc.GetChecks()
+	if len(checks) == 0 {
+		return errors.New("posture checks shouldn't be empty")
+	}
 
-		if osCheck.Ios != nil {
-			if !isVersionValid(osCheck.Ios.MinVersion) {
-				return fmt.Errorf("%s ios version: %s is not valid", osCheck.Name(), osCheck.Ios.MinVersion)
-			}
-		}
-
-		if osCheck.Darwin != nil {
-			if !isVersionValid(osCheck.Darwin.MinVersion) {
-				return fmt.Errorf("%s  darwin version: %s is not valid", osCheck.Name(), osCheck.Darwin.MinVersion)
-			}
-		}
-
-		if osCheck.Linux != nil {
-			if !isVersionValid(osCheck.Linux.MinKernelVersion) {
-				return fmt.Errorf("%s  linux kernel version: %s is not valid", osCheck.Name(),
-					osCheck.Linux.MinKernelVersion)
-			}
-		}
-
-		if osCheck.Windows != nil {
-			if !isVersionValid(osCheck.Windows.MinKernelVersion) {
-				return fmt.Errorf("%s  windows kernel version: %s is not valid", osCheck.Name(),
-					osCheck.Windows.MinKernelVersion)
-			}
+	for _, check := range checks {
+		if err := check.Validate(); err != nil {
+			return err
 		}
 	}
 
@@ -351,4 +353,41 @@ func toPeerNetworkRangeCheck(check *api.PeerNetworkRangeCheck) (*PeerNetworkRang
 		Ranges: prefixes,
 		Action: string(check.Action),
 	}, nil
+}
+
+func toProcessCheckResponse(check *ProcessCheck) *api.ProcessCheck {
+	processes := make([]api.Process, 0, len(check.Processes))
+	for i := range check.Processes {
+		processes = append(processes, api.Process{
+			LinuxPath:   &check.Processes[i].LinuxPath,
+			MacPath:     &check.Processes[i].MacPath,
+			WindowsPath: &check.Processes[i].WindowsPath,
+		})
+	}
+
+	return &api.ProcessCheck{
+		Processes: processes,
+	}
+}
+
+func toProcessCheck(check *api.ProcessCheck) *ProcessCheck {
+	processes := make([]Process, 0, len(check.Processes))
+	for _, process := range check.Processes {
+		var p Process
+		if process.LinuxPath != nil {
+			p.LinuxPath = *process.LinuxPath
+		}
+		if process.MacPath != nil {
+			p.MacPath = *process.MacPath
+		}
+		if process.WindowsPath != nil {
+			p.WindowsPath = *process.WindowsPath
+		}
+
+		processes = append(processes, p)
+	}
+
+	return &ProcessCheck{
+		Processes: processes,
+	}
 }

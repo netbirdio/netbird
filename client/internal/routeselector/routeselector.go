@@ -3,11 +3,11 @@ package routeselector
 import (
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/hashicorp/go-multierror"
 	"golang.org/x/exp/maps"
 
+	"github.com/netbirdio/netbird/client/errors"
 	route "github.com/netbirdio/netbird/route"
 )
 
@@ -30,10 +30,10 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 		rs.selectedRoutes = map[route.NetID]struct{}{}
 	}
 
-	var multiErr *multierror.Error
+	var err *multierror.Error
 	for _, route := range routes {
 		if !slices.Contains(allRoutes, route) {
-			multiErr = multierror.Append(multiErr, fmt.Errorf("route '%s' is not available", route))
+			err = multierror.Append(err, fmt.Errorf("route '%s' is not available", route))
 			continue
 		}
 
@@ -41,11 +41,7 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 	}
 	rs.selectAll = false
 
-	if multiErr != nil {
-		multiErr.ErrorFormat = formatError
-	}
-
-	return multiErr.ErrorOrNil()
+	return errors.FormatErrorOrNil(err)
 }
 
 // SelectAllRoutes sets the selector to select all routes.
@@ -65,21 +61,17 @@ func (rs *RouteSelector) DeselectRoutes(routes []route.NetID, allRoutes []route.
 		}
 	}
 
-	var multiErr *multierror.Error
+	var err *multierror.Error
 
 	for _, route := range routes {
 		if !slices.Contains(allRoutes, route) {
-			multiErr = multierror.Append(multiErr, fmt.Errorf("route '%s' is not available", route))
+			err = multierror.Append(err, fmt.Errorf("route '%s' is not available", route))
 			continue
 		}
 		delete(rs.selectedRoutes, route)
 	}
 
-	if multiErr != nil {
-		multiErr.ErrorFormat = formatError
-	}
-
-	return multiErr.ErrorOrNil()
+	return errors.FormatErrorOrNil(err)
 }
 
 // DeselectAllRoutes deselects all routes, effectively disabling route selection.
@@ -110,19 +102,4 @@ func (rs *RouteSelector) FilterSelected(routes route.HAMap) route.HAMap {
 		}
 	}
 	return filtered
-}
-
-func formatError(es []error) string {
-	if len(es) == 1 {
-		return fmt.Sprintf("1 error occurred:\n\t* %s", es[0])
-	}
-
-	points := make([]string, len(es))
-	for i, err := range es {
-		points[i] = fmt.Sprintf("* %s", err)
-	}
-
-	return fmt.Sprintf(
-		"%d errors occurred:\n\t%s",
-		len(es), strings.Join(points, "\n\t"))
 }

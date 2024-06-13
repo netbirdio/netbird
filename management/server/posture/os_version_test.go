@@ -150,3 +150,79 @@ func TestOSVersionCheck_Check(t *testing.T) {
 		})
 	}
 }
+
+func TestOSVersionCheck_Validate(t *testing.T) {
+	testCases := []struct {
+		name          string
+		check         OSVersionCheck
+		expectedError bool
+	}{
+		{
+			name: "Valid linux kernel version",
+			check: OSVersionCheck{
+				Linux: &MinKernelVersionCheck{MinKernelVersion: "6.0"},
+			},
+			expectedError: false,
+		},
+		{
+			name: "Valid linux and darwin version",
+			check: OSVersionCheck{
+				Linux:  &MinKernelVersionCheck{MinKernelVersion: "6.0"},
+				Darwin: &MinVersionCheck{MinVersion: "14.2"},
+			},
+			expectedError: false,
+		},
+		{
+			name:          "Invalid empty check",
+			check:         OSVersionCheck{},
+			expectedError: true,
+		},
+		{
+			name: "Invalid empty linux kernel version",
+			check: OSVersionCheck{
+				Linux: &MinKernelVersionCheck{},
+			},
+			expectedError: true,
+		},
+		{
+			name: "Invalid empty linux kernel version with correct darwin version",
+			check: OSVersionCheck{
+				Linux:  &MinKernelVersionCheck{},
+				Darwin: &MinVersionCheck{MinVersion: "14.2"},
+			},
+			expectedError: true,
+		},
+		{
+			name: "Valid windows kernel version",
+			check: OSVersionCheck{
+				Windows: &MinKernelVersionCheck{MinKernelVersion: "10.0"},
+			},
+			expectedError: false,
+		},
+		{
+			name: "Valid ios minimum version",
+			check: OSVersionCheck{
+				Ios: &MinVersionCheck{MinVersion: "13.0"},
+			},
+			expectedError: false,
+		},
+		{
+			name: "Invalid empty window version with valid ios minimum version",
+			check: OSVersionCheck{
+				Windows: &MinKernelVersionCheck{},
+				Ios:     &MinVersionCheck{MinVersion: "13.0"},
+			},
+			expectedError: true,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.check.Validate()
+			if tc.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

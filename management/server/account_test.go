@@ -1435,7 +1435,7 @@ func TestFileStore_GetRoutesByPrefix(t *testing.T) {
 		},
 	}
 
-	routes := account.GetRoutesByPrefix(prefix)
+	routes := account.GetRoutesByPrefixOrDomains(prefix, nil)
 
 	assert.Len(t, routes, 2)
 	routeIDs := make(map[route.ID]struct{}, 2)
@@ -2175,17 +2175,33 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		},
 	}
 
-	t.Run("api group already exists", func(t *testing.T) {
-		updated := account.SetJWTGroups("user1", []string{"group1"})
+	t.Run("empty jwt groups", func(t *testing.T) {
+		updated := account.SetJWTGroups("user1", []string{})
 		assert.False(t, updated, "account should not be updated")
 		assert.Empty(t, account.Users["user1"].AutoGroups, "auto groups must be empty")
+	})
+
+	t.Run("jwt match existing api group", func(t *testing.T) {
+		updated := account.SetJWTGroups("user1", []string{"group1"})
+		assert.False(t, updated, "account should not be updated")
+		assert.Equal(t, 0, len(account.Users["user1"].AutoGroups))
+		assert.Equal(t, account.Groups["group1"].Issued, group.GroupIssuedAPI, "group should be api issued")
+	})
+
+	t.Run("jwt match existing api group in user auto groups", func(t *testing.T) {
+		account.Users["user1"].AutoGroups = []string{"group1"}
+
+		updated := account.SetJWTGroups("user1", []string{"group1"})
+		assert.False(t, updated, "account should not be updated")
+		assert.Equal(t, 1, len(account.Users["user1"].AutoGroups))
+		assert.Equal(t, account.Groups["group1"].Issued, group.GroupIssuedAPI, "group should be api issued")
 	})
 
 	t.Run("add jwt group", func(t *testing.T) {
 		updated := account.SetJWTGroups("user1", []string{"group1", "group2"})
 		assert.True(t, updated, "account should be updated")
 		assert.Len(t, account.Groups, 2, "new group should be added")
-		assert.Len(t, account.Users["user1"].AutoGroups, 1, "new group should be added")
+		assert.Len(t, account.Users["user1"].AutoGroups, 2, "new group should be added")
 		assert.Contains(t, account.Groups, account.Users["user1"].AutoGroups[0], "groups must contain group2 from user groups")
 	})
 

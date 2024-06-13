@@ -36,6 +36,7 @@ const (
 	disableAutoConnectFlag  = "disable-auto-connect"
 	serverSSHAllowedFlag    = "allow-server-ssh"
 	extraIFaceBlackListFlag = "extra-iface-blacklist"
+	dnsRouteIntervalFlag    = "dns-router-interval"
 )
 
 var (
@@ -68,7 +69,9 @@ var (
 	autoConnectDisabled     bool
 	extraIFaceBlackList     []string
 	anonymizeFlag           bool
-	rootCmd                 = &cobra.Command{
+	dnsRouteInterval        time.Duration
+
+	rootCmd = &cobra.Command{
 		Use:          "netbird",
 		Short:        "",
 		Long:         "",

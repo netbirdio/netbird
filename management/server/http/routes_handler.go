@@ -2,11 +2,16 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/netip"
+	"regexp"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/gorilla/mux"
 
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
@@ -14,6 +19,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 )
+
+const maxDomains = 32
+const failedToConvertRoute = "failed to convert route to response: %v"
 
 // RoutesHandler is the routes handler of the account
 type RoutesHandler struct {
@@ -48,7 +56,12 @@ func (h *RoutesHandler) GetAllRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 	apiRoutes := make([]*api.Route, 0)
 	for _, r := range routes {
-		apiRoutes = append(apiRoutes, toRouteResponse(r))
+		route, err := toRouteResponse(r)
+		if err != nil {
+			util.WriteError(status.Errorf(status.Internal, failedToConvertRoute, err), w)
+			return
+		}
+		apiRoutes = append(apiRoutes, route)
 	}
 
 	util.WriteJSONObject(w, apiRoutes)
@@ -70,16 +83,28 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, newPrefix, err := route.ParseNetwork(req.Network)
-	if err != nil {
+	if err := h.validateRoute(req); err != nil {
 		util.WriteError(err, w)
 		return
 	}
 
-	if utf8.RuneCountInString(req.NetworkId) > route.MaxNetIDChar || req.NetworkId == "" {
-		util.WriteError(status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d",
-			route.MaxNetIDChar), w)
-		return
+	var domains domain.List
+	var networkType route.NetworkType
+	var newPrefix netip.Prefix
+	if req.Domains != nil {
+		d, err := validateDomains(*req.Domains)
+		if err != nil {
+			util.WriteError(status.Errorf(status.InvalidArgument, "invalid domains: %v", err), w)
+			return
+		}
+		domains = d
+		networkType = route.DomainNetwork
+	} else if req.Network != nil {
+		networkType, newPrefix, err = route.ParseNetwork(*req.Network)
+		if err != nil {
+			util.WriteError(err, w)
+			return
+		}
 	}
 
 	peerId := ""
@@ -87,36 +112,57 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		peerId = *req.Peer
 	}
 
-	peerGroupIds := []string{}
+	var peerGroupIds []string
 	if req.PeerGroups != nil {
 		peerGroupIds = *req.PeerGroups
 	}
 
-	if (peerId != "" && len(peerGroupIds) > 0) || (peerId == "" && len(peerGroupIds) == 0) {
-		util.WriteError(status.Errorf(status.InvalidArgument, "only one peer or peer_groups should be provided"), w)
-		return
-	}
-
-	// do not allow non Linux peers
+	// Do not allow non-Linux peers
 	if peer := account.GetPeer(peerId); peer != nil {
 		if peer.Meta.GoOS != "linux" {
-			util.WriteError(status.Errorf(status.InvalidArgument, "non-linux peers are non supported as network routes"), w)
+			util.WriteError(status.Errorf(status.InvalidArgument, "non-linux peers are not supported as network routes"), w)
 			return
 		}
 	}
 
-	newRoute, err := h.accountManager.CreateRoute(
-		account.Id, newPrefix.String(), peerId, peerGroupIds,
-		req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, req.Enabled, user.Id,
-	)
+	newRoute, err := h.accountManager.CreateRoute(account.Id, newPrefix, networkType, domains, peerId, peerGroupIds, req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, req.Enabled, user.Id, req.KeepRoute)
 	if err != nil {
 		util.WriteError(err, w)
 		return
 	}
 
-	resp := toRouteResponse(newRoute)
+	routes, err := toRouteResponse(newRoute)
+	if err != nil {
+		util.WriteError(status.Errorf(status.Internal, failedToConvertRoute, err), w)
+		return
+	}
 
-	util.WriteJSONObject(w, &resp)
+	util.WriteJSONObject(w, routes)
+}
+
+func (h *RoutesHandler) validateRoute(req api.PostApiRoutesJSONRequestBody) error {
+	if req.Network != nil && req.Domains != nil {
+		return status.Errorf(status.InvalidArgument, "only one of 'network' or 'domains' should be provided")
+	}
+
+	if req.Network == nil && req.Domains == nil {
+		return status.Errorf(status.InvalidArgument, "either 'network' or 'domains' should be provided")
+	}
+
+	if req.Peer == nil && req.PeerGroups == nil {
+		return status.Errorf(status.InvalidArgument, "either 'peer' or 'peers_group' should be provided")
+	}
+
+	if req.Peer != nil && req.PeerGroups != nil {
+		return status.Errorf(status.InvalidArgument, "only one of 'peer' or 'peer_groups' should be provided")
+	}
+
+	if utf8.RuneCountInString(req.NetworkId) > route.MaxNetIDChar || req.NetworkId == "" {
+		return status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d characters",
+			route.MaxNetIDChar)
+	}
+
+	return nil
 }
 
 // UpdateRoute handles update to a route identified by a given ID
@@ -148,26 +194,8 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	prefixType, newPrefix, err := route.ParseNetwork(req.Network)
-	if err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse update prefix %s for route ID %s",
-			req.Network, routeID), w)
-		return
-	}
-
-	if utf8.RuneCountInString(req.NetworkId) > route.MaxNetIDChar || req.NetworkId == "" {
-		util.WriteError(status.Errorf(status.InvalidArgument,
-			"identifier should be between 1 and %d", route.MaxNetIDChar), w)
-		return
-	}
-
-	if req.Peer != nil && req.PeerGroups != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "only peer or peers_group should be provided"), w)
-		return
-	}
-
-	if req.Peer == nil && req.PeerGroups == nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "either peer or peers_group should be provided"), w)
+	if err := h.validateRoute(req); err != nil {
+		util.WriteError(err, w)
 		return
 	}
 
@@ -186,14 +214,29 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 
 	newRoute := &route.Route{
 		ID:          route.ID(routeID),
-		Network:     newPrefix,
 		NetID:       route.NetID(req.NetworkId),
-		NetworkType: prefixType,
 		Masquerade:  req.Masquerade,
 		Metric:      req.Metric,
 		Description: req.Description,
 		Enabled:     req.Enabled,
 		Groups:      req.Groups,
+		KeepRoute:   req.KeepRoute,
+	}
+
+	if req.Domains != nil {
+		d, err := validateDomains(*req.Domains)
+		if err != nil {
+			util.WriteError(status.Errorf(status.InvalidArgument, "invalid domains: %v", err), w)
+			return
+		}
+		newRoute.Domains = d
+		newRoute.NetworkType = route.DomainNetwork
+	} else if req.Network != nil {
+		newRoute.NetworkType, newRoute.Network, err = route.ParseNetwork(*req.Network)
+		if err != nil {
+			util.WriteError(err, w)
+			return
+		}
 	}
 
 	if req.Peer != nil {
@@ -210,9 +253,13 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := toRouteResponse(newRoute)
+	routes, err := toRouteResponse(newRoute)
+	if err != nil {
+		util.WriteError(status.Errorf(status.Internal, failedToConvertRoute, err), w)
+		return
+	}
 
-	util.WriteJSONObject(w, &resp)
+	util.WriteJSONObject(w, routes)
 }
 
 // DeleteRoute handles route deletion request
@@ -260,25 +307,69 @@ func (h *RoutesHandler) GetRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(w, toRouteResponse(foundRoute))
+	routes, err := toRouteResponse(foundRoute)
+	if err != nil {
+		util.WriteError(status.Errorf(status.Internal, failedToConvertRoute, err), w)
+		return
+	}
+
+	util.WriteJSONObject(w, routes)
 }
 
-func toRouteResponse(serverRoute *route.Route) *api.Route {
+func toRouteResponse(serverRoute *route.Route) (*api.Route, error) {
+	domains, err := serverRoute.Domains.ToStringList()
+	if err != nil {
+		return nil, err
+	}
+	network := serverRoute.Network.String()
 	route := &api.Route{
 		Id:          string(serverRoute.ID),
 		Description: serverRoute.Description,
 		NetworkId:   string(serverRoute.NetID),
 		Enabled:     serverRoute.Enabled,
 		Peer:        &serverRoute.Peer,
-		Network:     serverRoute.Network.String(),
+		Network:     &network,
+		Domains:     &domains,
 		NetworkType: serverRoute.NetworkType.String(),
 		Masquerade:  serverRoute.Masquerade,
 		Metric:      serverRoute.Metric,
 		Groups:      serverRoute.Groups,
+		KeepRoute:   serverRoute.KeepRoute,
 	}
 
 	if len(serverRoute.PeerGroups) > 0 {
 		route.PeerGroups = &serverRoute.PeerGroups
 	}
-	return route
+	return route, nil
+}
+
+// validateDomains checks if each domain in the list is valid and returns a punycode-encoded DomainList.
+func validateDomains(domains []string) (domain.List, error) {
+	if len(domains) == 0 {
+		return nil, fmt.Errorf("domains list is empty")
+	}
+	if len(domains) > maxDomains {
+		return nil, fmt.Errorf("domains list exceeds maximum allowed domains: %d", maxDomains)
+	}
+
+	domainRegex := regexp.MustCompile(`^(?:(?:xn--)?[a-zA-Z0-9_](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?\.)*(?:xn--)?[a-zA-Z0-9](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?$`)
+
+	var domainList domain.List
+
+	for _, d := range domains {
+		d := strings.ToLower(d)
+
+		// handles length and idna conversion
+		punycode, err := domain.FromString(d)
+		if err != nil {
+			return domainList, fmt.Errorf("failed to convert domain to punycode: %s: %v", d, err)
+		}
+
+		if !domainRegex.MatchString(string(punycode)) {
+			return domainList, fmt.Errorf("invalid domain format: %s", d)
+		}
+
+		domainList = append(domainList, punycode)
+	}
+	return domainList, nil
 }
