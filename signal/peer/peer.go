@@ -1,10 +1,14 @@
 package peer
 
 import (
-	"github.com/netbirdio/netbird/signal/proto"
-	log "github.com/sirupsen/logrus"
+	"context"
 	"sync"
 	"time"
+
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/signal/metrics"
+	"github.com/netbirdio/netbird/signal/proto"
 )
 
 // Peer representation of a connected Peer
@@ -33,12 +37,14 @@ type Registry struct {
 	Peers sync.Map
 	// regMutex ensures that registration and de-registrations are safe
 	regMutex sync.Mutex
+	metrics  *metrics.AppMetrics
 }
 
 // NewRegistry creates a new connected Peer registry
-func NewRegistry() *Registry {
+func NewRegistry(metrics *metrics.AppMetrics) *Registry {
 	return &Registry{
 		regMutex: sync.Mutex{},
+		metrics:  metrics,
 	}
 }
 
@@ -60,6 +66,8 @@ func (registry *Registry) IsPeerRegistered(peerId string) bool {
 
 // Register registers peer in the registry
 func (registry *Registry) Register(peer *Peer) {
+	start := time.Now()
+
 	registry.regMutex.Lock()
 	defer registry.regMutex.Unlock()
 
@@ -72,6 +80,11 @@ func (registry *Registry) Register(peer *Peer) {
 		registry.Peers.Store(peer.Id, peer)
 	}
 	log.Debugf("peer registered [%s]", peer.Id)
+
+	// record time as milliseconds
+	registry.metrics.RegistrationDelay.Record(context.Background(), float64(time.Since(start).Nanoseconds())/1e6)
+
+	registry.metrics.Registrations.Add(context.Background(), 1)
 }
 
 // Deregister Peer from the Registry (usually once it disconnects)
@@ -90,4 +103,6 @@ func (registry *Registry) Deregister(peer *Peer) {
 		}
 	}
 	log.Debugf("peer deregistered [%s]", peer.Id)
+
+	registry.metrics.Deregistrations.Add(context.Background(), 1)
 }

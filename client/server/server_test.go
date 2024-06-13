@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -39,7 +41,7 @@ var (
 // we will use a management server started via to simulate the server and capture the number of retries
 func TestConnectWithRetryRuns(t *testing.T) {
 	// start the signal server
-	_, signalAddr, err := startSignal()
+	_, signalAddr, err := startSignal(t)
 	if err != nil {
 		t.Fatalf("failed to start signal server: %v", err)
 	}
@@ -141,7 +143,9 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	return s, lis.Addr().String(), nil
 }
 
-func startSignal() (*grpc.Server, string, error) {
+func startSignal(t *testing.T) (*grpc.Server, string, error) {
+	t.Helper()
+
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
 	lis, err := net.Listen("tcp", "localhost:0")
@@ -149,7 +153,9 @@ func startSignal() (*grpc.Server, string, error) {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	proto.RegisterSignalExchangeServer(s, signalServer.NewServer())
+	srv, err := signalServer.NewServer(otel.Meter(""))
+	require.NoError(t, err)
+	proto.RegisterSignalExchangeServer(s, srv)
 
 	go func() {
 		if err = s.Serve(lis); err != nil {
