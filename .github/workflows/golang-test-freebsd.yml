@@ -1,7 +1,15 @@
 
 name: Test Code FreeBSD
 
-on: [push]
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -12,7 +20,6 @@ jobs:
         id: test
         uses: vmactions/freebsd-vm@v1
         with:
-          envs: 'MYTOKEN MYTOKEN2'
           usesh: true
           prepare: |
             pkg install -y curl
@@ -24,10 +31,8 @@ jobs:
             tar zxf go.tar.gz
             mv go /usr/local/go
             ln -s /usr/local/go/bin/go /usr/local/bin/go
-            git clone https://github.com/netbirdio/netbird.git
-            cd netbird
             go mod tidy
-            go test -v ./client/...
+            go test ./client/...
 
 
 
