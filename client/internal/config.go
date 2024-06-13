@@ -319,11 +319,11 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 
 	if config.NetworkMonitor == nil {
 		// enable network monitoring by default on windows and darwin clients
-		enabled := true
 		if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+			enabled := true
 			config.NetworkMonitor = &enabled
+			updated = true
 		}
-		updated = true
 	}
 
 	if input.CustomDNSAddress != nil && string(input.CustomDNSAddress) != config.CustomDNSAddress {
