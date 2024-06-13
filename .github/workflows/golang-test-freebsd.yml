@@ -36,3 +36,4 @@ jobs:
             go test -timeout 5m -p 1 ./client/... 
             cd client
             go build .
+            cd ..
