@@ -307,24 +307,22 @@ func TestExistsInRouteTable(t *testing.T) {
 	var addressPrefixes []netip.Prefix
 	for _, address := range addresses {
 		p := netip.MustParsePrefix(address.String())
-		if p.Addr().Is6() {
+
+		switch {
+		case p.Addr().Is6():
 			continue
-		}
 		// Windows sometimes has hidden interface link local addrs that don't turn up on any interface
-		if runtime.GOOS == "windows" && p.Addr().IsLinkLocalUnicast() {
+		case runtime.GOOS == "windows" && p.Addr().IsLinkLocalUnicast():
 			continue
-		}
 		// Linux loopback 127/8 is in the local table, not in the main table and always takes precedence
-		if runtime.GOOS == "linux" && p.Addr().IsLoopback() {
+		case runtime.GOOS == "linux" && p.Addr().IsLoopback():
 			continue
-		}
-
 		// FreeBSD loopback 127/8 is not added to the routing table
-		if runtime.GOOS == "freebsd" && p.Addr().IsLoopback() {
+		case runtime.GOOS == "freebsd" && p.Addr().IsLoopback():
 			continue
+		default:
+			addressPrefixes = append(addressPrefixes, p.Masked())
 		}
-
-		addressPrefixes = append(addressPrefixes, p.Masked())
 	}
 
 	for _, prefix := range addressPrefixes {
