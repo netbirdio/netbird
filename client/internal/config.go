@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"runtime"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -64,7 +65,7 @@ type Config struct {
 	AdminURL             *url.URL
 	WgIface              string
 	WgPort               int
-	NetworkMonitor       bool
+	NetworkMonitor       *bool
 	IFaceBlackList       []string
 	DisableIPv6Discovery bool
 	RosenpassEnabled     bool
@@ -304,9 +305,18 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.NetworkMonitor != nil && *input.NetworkMonitor != config.NetworkMonitor {
+	if input.NetworkMonitor != nil && input.NetworkMonitor != config.NetworkMonitor {
 		log.Infof("switching Network Monitor to %t", *input.NetworkMonitor)
-		config.NetworkMonitor = *input.NetworkMonitor
+		config.NetworkMonitor = input.NetworkMonitor
+		updated = true
+	}
+
+	if config.NetworkMonitor == nil {
+		// enable network monitoring by default on windows and darwin clients
+		enabled := true
+		if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+			config.NetworkMonitor = &enabled
+		}
 		updated = true
 	}
 
