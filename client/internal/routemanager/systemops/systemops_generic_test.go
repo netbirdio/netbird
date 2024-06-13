@@ -111,6 +111,9 @@ func TestAddRemoveRoutes(t *testing.T) {
 }
 
 func TestGetNextHop(t *testing.T) {
+	if runtime.GOOS == "freebsd" {
+		t.Skip("skipping on freebsd")
+	}
 	nexthop, err := GetNextHop(netip.MustParseAddr("0.0.0.0"))
 	if err != nil {
 		t.Fatal("shouldn't return error when fetching the gateway: ", err)
@@ -313,6 +316,11 @@ func TestExistsInRouteTable(t *testing.T) {
 		}
 		// Linux loopback 127/8 is in the local table, not in the main table and always takes precedence
 		if runtime.GOOS == "linux" && p.Addr().IsLoopback() {
+			continue
+		}
+
+		// FreeBSD loopback 127/8 is not added to the routing table
+		if runtime.GOOS == "freebsd" && p.Addr().IsLoopback() {
 			continue
 		}
 
