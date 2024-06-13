@@ -108,7 +108,7 @@ func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Liste
 }
 
 func startClientDaemon(
-	t *testing.T, ctx context.Context, managementURL, configPath string,
+	t *testing.T, ctx context.Context, _, configPath string,
 ) (*grpc.Server, net.Listener) {
 	t.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
