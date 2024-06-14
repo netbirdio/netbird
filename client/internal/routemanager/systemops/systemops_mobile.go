@@ -33,18 +33,6 @@ func EnableIPForwarding() error {
 	return nil
 }
 
-func hasSeparateRouting() ([]netip.Prefix, error) {
-	return nil, ErrRoutingIsSeparate
-}
-
-func AddVPNRoute(netip.Prefix, *net.Interface) error {
-	return nil
-}
-
-func RemoveVPNRoute(netip.Prefix, *net.Interface) error {
-	return nil
-}
-
 func IsAddrRouted(netip.Addr, []netip.Prefix) (bool, netip.Prefix) {
 	return false, netip.Prefix{}
 }

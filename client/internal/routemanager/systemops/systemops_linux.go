@@ -501,3 +501,10 @@ func getAddressFamily(prefix netip.Prefix) int {
 	}
 	return netlink.FAMILY_V6
 }
+
+func hasSeparateRouting() ([]netip.Prefix, error) {
+	if isLegacy() {
+		return getRoutesFromTable()
+	}
+	return nil, ErrRoutingIsSeparate
+}

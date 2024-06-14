@@ -23,14 +23,6 @@ func EnableIPForwarding() error {
 	return nil
 }
 
-func AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
-	return genericAddVPNRoute(prefix, intf)
-}
-
-func RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
-	return genericRemoveVPNRoute(prefix, intf)
-}
-
 func hasSeparateRouting() ([]netip.Prefix, error) {
 	return getRoutesFromTable()
 }

@@ -1,6 +1,7 @@
 package net
 
 import (
+	"net"
 	"os"
 
 	"github.com/netbirdio/netbird/iface/netstack"

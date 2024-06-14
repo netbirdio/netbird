@@ -16,7 +16,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/util"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
@@ -29,7 +28,9 @@ var splitDefaultv4_2 = netip.PrefixFrom(netip.AddrFrom4([4]byte{128}), 1)
 var splitDefaultv6_1 = netip.PrefixFrom(netip.IPv6Unspecified(), 1)
 var splitDefaultv6_2 = netip.PrefixFrom(netip.AddrFrom16([16]byte{0x80}), 1)
 
-func (r *SysOps) setupRefCounter(initAddresses []net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+var ErrRoutingIsSeparate = errors.New("routing is separate")
+
+func (r *SysOps) setupRefCounter(initAddresses []net.IP) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
 	initialNextHopV4, err := GetNextHop(netip.IPv4Unspecified())
 	if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
 		log.Errorf("Unable to get initial v4 default next hop: %v", err)
@@ -273,7 +274,7 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 	return r.removeFromRouteTable(prefix, nextHop)
 }
 
-func (r *SysOps) setupHooks(initAddresses []net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+func (r *SysOps) setupHooks(initAddresses []net.IP) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
 	beforeHook := func(connID nbnet.ConnectionID, ip net.IP) error {
 		prefix, err := util.GetPrefixFromIP(ip)
 		if err != nil {
@@ -413,4 +414,59 @@ func isSubRange(prefix netip.Prefix) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// IsAddrRouted checks if the candidate address would route to the vpn, in which case it returns true and the matched prefix.
+func IsAddrRouted(addr netip.Addr, vpnRoutes []netip.Prefix) (bool, netip.Prefix) {
+	localRoutes, err := hasSeparateRouting()
+	if err != nil {
+		if !errors.Is(err, ErrRoutingIsSeparate) {
+			log.Errorf("Failed to get routes: %v", err)
+		}
+		return false, netip.Prefix{}
+	}
+
+	return isVpnRoute(addr, vpnRoutes, localRoutes)
+}
+
+func isVpnRoute(addr netip.Addr, vpnRoutes []netip.Prefix, localRoutes []netip.Prefix) (bool, netip.Prefix) {
+	vpnPrefixMap := map[netip.Prefix]struct{}{}
+	for _, prefix := range vpnRoutes {
+		vpnPrefixMap[prefix] = struct{}{}
+	}
+
+	// remove vpnRoute duplicates
+	for _, prefix := range localRoutes {
+		delete(vpnPrefixMap, prefix)
+	}
+
+	var longestPrefix netip.Prefix
+	var isVpn bool
+
+	combinedRoutes := make([]netip.Prefix, len(vpnRoutes)+len(localRoutes))
+	copy(combinedRoutes, vpnRoutes)
+	copy(combinedRoutes[len(vpnRoutes):], localRoutes)
+
+	for _, prefix := range combinedRoutes {
+		// Ignore the default route, it has special handling
+		if prefix.Bits() == 0 {
+			continue
+		}
+
+		if prefix.Contains(addr) {
+			// Longest prefix match
+			if !longestPrefix.IsValid() || prefix.Bits() > longestPrefix.Bits() {
+				longestPrefix = prefix
+				_, isVpn = vpnPrefixMap[prefix]
+			}
+		}
+	}
+
+	if !longestPrefix.IsValid() {
+		// No route matched
+		return false, netip.Prefix{}
+	}
+
+	// Return true if the longest matching prefix is from vpnRoutes
+	return isVpn, longestPrefix
 }
