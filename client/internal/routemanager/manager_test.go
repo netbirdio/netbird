@@ -436,7 +436,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			require.NoError(t, err, "should update routes")
 
 			expectedWatchers := testCase.clientNetworkWatchersExpected
-			if (runtime.GOOS == "linux" || runtime.GOOS == "windows" || runtime.GOOS == "darwin") && testCase.clientNetworkWatchersExpectedAllowed != 0 {
+			if testCase.clientNetworkWatchersExpectedAllowed != 0 {
 				expectedWatchers = testCase.clientNetworkWatchersExpectedAllowed
 			}
 			require.Len(t, routeManager.clientNetworks, expectedWatchers, "client networks size should match")
