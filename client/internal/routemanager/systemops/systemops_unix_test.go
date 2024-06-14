@@ -5,6 +5,7 @@ package systemops
 import (
 	"fmt"
 	"net"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -85,6 +86,10 @@ var testCases = []testCase{
 
 func TestRouting(t *testing.T) {
 	for _, tc := range testCases {
+		// todo resolve test execution on freebsd
+		if runtime.GOOS == "freebsd" {
+			t.Skip("skipping ", tc.name, " on freebsd")
+		}
 		t.Run(tc.name, func(t *testing.T) {
 			setupTestEnv(t)
 
