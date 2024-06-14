@@ -309,6 +309,10 @@ func (c *ConnectClient) Engine() *Engine {
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
 func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig) (*EngineConfig, error) {
+	nm := false
+	if config.NetworkMonitor != nil {
+		nm = *config.NetworkMonitor
+	}
 	engineConf := &EngineConfig{
 		WgIfaceName:          config.WgIface,
 		WgAddr:               peerConfig.Address,
@@ -316,7 +320,7 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		DisableIPv6Discovery: config.DisableIPv6Discovery,
 		WgPrivateKey:         key,
 		WgPort:               config.WgPort,
-		NetworkMonitor:       *config.NetworkMonitor,
+		NetworkMonitor:       nm,
 		SSHKey:               []byte(config.SSHKey),
 		NATExternalIPs:       config.NATExternalIPs,
 		CustomDNSAddress:     config.CustomDNSAddress,
