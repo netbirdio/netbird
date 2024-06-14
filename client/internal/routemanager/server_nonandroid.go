@@ -5,7 +5,7 @@ package routemanager
 import (
 	"context"
 	"fmt"
-	"net"
+	"net/netip"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -89,7 +89,7 @@ func (m *defaultServerRouter) removeFromServerNetwork(route *route.Route) error 
 		m.mux.Lock()
 		defer m.mux.Unlock()
 
-		routerPair, err := routeToRouterPair(m.wgInterface.Address().Network, route)
+		routerPair, err := routeToRouterPair(route)
 		if err != nil {
 			return fmt.Errorf("parse prefix: %w", err)
 		}
@@ -118,7 +118,7 @@ func (m *defaultServerRouter) addToServerNetwork(route *route.Route) error {
 		m.mux.Lock()
 		defer m.mux.Unlock()
 
-		routerPair, err := routeToRouterPair(m.wgInterface.Address().Network, route)
+		routerPair, err := routeToRouterPair(route)
 		if err != nil {
 			return fmt.Errorf("parse prefix: %w", err)
 		}
@@ -151,7 +151,7 @@ func (m *defaultServerRouter) cleanUp() {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 	for _, r := range m.routes {
-		routerPair, err := routeToRouterPair(m.wgInterface.Address().Network, r)
+		routerPair, err := routeToRouterPair(r)
 		if err != nil {
 			log.Errorf("Failed to convert route to router pair: %v", err)
 			continue
@@ -169,7 +169,10 @@ func (m *defaultServerRouter) cleanUp() {
 	m.statusRecorder.UpdateLocalPeerState(state)
 }
 
-func routeToRouterPair(source *net.IPNet, route *route.Route) (firewall.RouterPair, error) {
+func routeToRouterPair(route *route.Route) (firewall.RouterPair, error) {
+	// TODO: add ipv6
+	source := getDefaultPrefix(route.Network)
+
 	destination := route.Network.Masked().String()
 	if route.IsDynamic() {
 		// TODO: add ipv6
@@ -182,4 +185,11 @@ func routeToRouterPair(source *net.IPNet, route *route.Route) (firewall.RouterPa
 		Destination: destination,
 		Masquerade:  route.Masquerade,
 	}, nil
+}
+
+func getDefaultPrefix(prefix netip.Prefix) netip.Prefix {
+	if prefix.Addr().Is6() {
+		return netip.PrefixFrom(netip.IPv6Unspecified(), 0)
+	}
+	return netip.PrefixFrom(netip.IPv4Unspecified(), 0)
 }
