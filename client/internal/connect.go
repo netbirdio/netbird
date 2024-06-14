@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/iface"
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
+	relayClient "github.com/netbirdio/netbird/relay/client"
 	signal "github.com/netbirdio/netbird/signal/client"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
@@ -244,6 +245,12 @@ func (c *ConnectClient) run(
 
 		c.statusRecorder.MarkSignalConnected()
 
+		relayManager := relayClient.NewManager(engineCtx, loginResp.GetWiretrusteeConfig().GetRelayAddress(), myPrivateKey.PublicKey().String())
+		if err = relayManager.Serve(); err != nil {
+			log.Error(err)
+			return wrapErr(err)
+		}
+
 		peerConfig := loginResp.GetPeerConfig()
 
 		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig)
@@ -253,7 +260,7 @@ func (c *ConnectClient) run(
 		}
 
 		c.engineMutex.Lock()
-		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, c.statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe)
+		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe)
 		c.engineMutex.Unlock()
 
 		err = c.engine.Start()

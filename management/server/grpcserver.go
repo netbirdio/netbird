@@ -450,6 +450,7 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *prot
 			Uri:      config.Signal.URI,
 			Protocol: ToResponseProto(config.Signal.Proto),
 		},
+		RelayAddress: config.RelayAddress,
 	}
 }
 

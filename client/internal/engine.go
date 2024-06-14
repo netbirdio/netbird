@@ -35,6 +35,7 @@ import (
 	"github.com/netbirdio/netbird/iface/bind"
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
+	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
@@ -154,6 +155,8 @@ type Engine struct {
 	wgProbe     *Probe
 
 	wgConnWorker sync.WaitGroup
+
+	relayManager *relayClient.Manager
 }
 
 // Peer is an instance of the Connection Peer
@@ -168,6 +171,7 @@ func NewEngine(
 	clientCancel context.CancelFunc,
 	signalClient signal.Client,
 	mgmClient mgm.Client,
+	relayManager *relayClient.Manager,
 	config *EngineConfig,
 	mobileDep MobileDependency,
 	statusRecorder *peer.Status,
@@ -177,6 +181,7 @@ func NewEngine(
 		clientCancel,
 		signalClient,
 		mgmClient,
+		relayManager,
 		config,
 		mobileDep,
 		statusRecorder,
@@ -193,6 +198,7 @@ func NewEngineWithProbes(
 	clientCancel context.CancelFunc,
 	signalClient signal.Client,
 	mgmClient mgm.Client,
+	relayManager *relayClient.Manager,
 	config *EngineConfig,
 	mobileDep MobileDependency,
 	statusRecorder *peer.Status,
@@ -207,6 +213,7 @@ func NewEngineWithProbes(
 		clientCancel:   clientCancel,
 		signal:         signalClient,
 		mgmClient:      mgmClient,
+		relayManager:   relayManager,
 		peerConns:      make(map[string]*peer.Conn),
 		syncMsgMux:     &sync.Mutex{},
 		config:         config,
@@ -493,10 +500,17 @@ func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKe
 		t = sProto.Body_OFFER
 	}
 
-	msg, err := signal.MarshalCredential(myKey, offerAnswer.WgListenPort, remoteKey, &signal.Credential{
-		UFrag: offerAnswer.IceCredentials.UFrag,
-		Pwd:   offerAnswer.IceCredentials.Pwd,
-	}, t, offerAnswer.RosenpassPubKey, offerAnswer.RosenpassAddr)
+	msg, err := signal.MarshalCredential(
+		myKey,
+		offerAnswer.WgListenPort,
+		remoteKey, &signal.Credential{
+			UFrag: offerAnswer.IceCredentials.UFrag,
+			Pwd:   offerAnswer.IceCredentials.Pwd,
+		},
+		t,
+		offerAnswer.RosenpassPubKey,
+		offerAnswer.RosenpassAddr,
+		offerAnswer.RelaySrvAddress)
 	if err != nil {
 		return err
 	}
@@ -523,6 +537,8 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		if err != nil {
 			return err
 		}
+
+		// todo update relay address in the relay manager
 
 		// todo update signal
 	}
@@ -987,7 +1003,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		RosenpassAddr:        e.getRosenpassAddr(),
 	}
 
-	peerConn, err := peer.NewConn(config, e.statusRecorder, e.wgProxyFactory, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover)
+	peerConn, err := peer.NewConn(config, e.statusRecorder, e.wgProxyFactory, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover, e.relayManager)
 	if err != nil {
 		return nil, err
 	}
@@ -1082,6 +1098,7 @@ func (e *Engine) receiveSignalEvents() {
 					Version:         msg.GetBody().GetNetBirdVersion(),
 					RosenpassPubKey: rosenpassPubKey,
 					RosenpassAddr:   rosenpassAddr,
+					RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
 				})
 			case sProto.Body_CANDIDATE:
 				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)

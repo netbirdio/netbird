@@ -55,19 +55,24 @@ func NewManager(ctx context.Context, serverAddress string, peerID string) *Manag
 
 // Serve starts the manager. It will establish a connection to the relay server and start the relay cleanup loop.
 // todo: consider to return an error if the initial connection to the relay server is not established.
-func (m *Manager) Serve() {
+func (m *Manager) Serve() error {
+	if m.relayClient != nil {
+		return fmt.Errorf("manager already serving")
+	}
+
 	m.relayClient = NewClient(m.ctx, m.srvAddress, m.peerID)
-	m.reconnectGuard = NewGuard(m.ctx, m.relayClient)
-	m.relayClient.SetOnDisconnectListener(m.reconnectGuard.OnDisconnected)
 	err := m.relayClient.Connect()
 	if err != nil {
-		log.Errorf("failed to connect to relay server, keep try to reconnect: %s", err)
-		return
+		log.Errorf("failed to connect to relay server: %s", err)
+		return err
 	}
+
+	m.reconnectGuard = NewGuard(m.ctx, m.relayClient)
+	m.relayClient.SetOnDisconnectListener(m.reconnectGuard.OnDisconnected)
 
 	m.startCleanupLoop()
 
-	return
+	return nil
 }
 
 // OpenConn opens a connection to the given peer key. If the peer is on the same relay server, the connection will be

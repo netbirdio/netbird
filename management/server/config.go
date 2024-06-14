@@ -32,9 +32,10 @@ const (
 
 // Config of the Management service
 type Config struct {
-	Stuns      []*Host
-	TURNConfig *TURNConfig
-	Signal     *Host
+	Stuns        []*Host
+	TURNConfig   *TURNConfig
+	RelayAddress string
+	Signal       *Host
 
 	Datadir                string
 	DataStoreEncryptionKey string
