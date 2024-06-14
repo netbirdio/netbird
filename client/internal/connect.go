@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -245,10 +246,13 @@ func (c *ConnectClient) run(
 
 		c.statusRecorder.MarkSignalConnected()
 
-		relayManager := relayClient.NewManager(engineCtx, loginResp.GetWiretrusteeConfig().GetRelayAddress(), myPrivateKey.PublicKey().String())
-		if err = relayManager.Serve(); err != nil {
-			log.Error(err)
-			return wrapErr(err)
+		relayAddress := relayAddress(loginResp)
+		relayManager := relayClient.NewManager(engineCtx, relayAddress, myPrivateKey.PublicKey().String())
+		if relayAddress != "" {
+			if err = relayManager.Serve(); err != nil {
+				log.Error(err)
+				return wrapErr(err)
+			}
 		}
 
 		peerConfig := loginResp.GetPeerConfig()
@@ -302,6 +306,17 @@ func (c *ConnectClient) run(
 		return err
 	}
 	return nil
+}
+
+func relayAddress(resp *mgmProto.LoginResponse) string {
+	if envRelay := os.Getenv("NB_RELAY_ADDRESS"); envRelay != "" {
+		return envRelay
+	}
+
+	if resp.GetWiretrusteeConfig().GetRelayAddress() != "" {
+		return resp.GetWiretrusteeConfig().GetRelayAddress()
+	}
+	return ""
 }
 
 func (c *ConnectClient) Engine() *Engine {

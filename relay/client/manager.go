@@ -12,6 +12,8 @@ import (
 
 var (
 	relayCleanupInterval = 60 * time.Second
+
+	errRelayClientNotConnected = fmt.Errorf("relay client not connected")
 )
 
 // RelayTrack hold the relay clients for the foregin relay servers.
@@ -80,7 +82,7 @@ func (m *Manager) Serve() error {
 // connection to the relay server.
 func (m *Manager) OpenConn(serverAddress, peerKey string) (net.Conn, error) {
 	if m.relayClient == nil {
-		return nil, fmt.Errorf("relay client not connected")
+		return nil, errRelayClientNotConnected
 	}
 
 	foreign, err := m.isForeignServer(serverAddress)
@@ -101,7 +103,7 @@ func (m *Manager) OpenConn(serverAddress, peerKey string) (net.Conn, error) {
 // This address will be sent to the target peer to choose the common relay server for the communication.
 func (m *Manager) RelayAddress() (net.Addr, error) {
 	if m.relayClient == nil {
-		return nil, fmt.Errorf("relay client not connected")
+		return nil, errRelayClientNotConnected
 	}
 	return m.relayClient.RelayRemoteAddress()
 }
