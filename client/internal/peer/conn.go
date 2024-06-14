@@ -4,19 +4,16 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/netip"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/pion/ice/v3"
 	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
-	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	"github.com/netbirdio/netbird/iface"
@@ -171,14 +168,14 @@ func NewConn(config ConnConfig, statusRecorder *Status, wgProxyFactory *wgproxy.
 	}, nil
 }
 
-func (conn *Conn) reCreateAgent() error {
+func (conn *Conn) reCreateAgent(routes route.HAMap) error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
 	failedTimeout := 6 * time.Second
 
 	var err error
-	transportNet, err := conn.newStdNet()
+	transportNet, err := conn.newStdNet(routes)
 	if err != nil {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
@@ -255,7 +252,7 @@ func (conn *Conn) candidateTypes() []ice.CandidateType {
 // Open opens connection to the remote peer starting ICE candidate gathering process.
 // Blocks until connection has been closed or connection timeout.
 // ConnStatus will be set accordingly
-func (conn *Conn) Open(ctx context.Context) error {
+func (conn *Conn) Open(ctx context.Context, routes route.HAMap) error {
 	log.Debugf("trying to connect to peer %s", conn.config.Key)
 
 	peerState := State{
@@ -278,7 +275,7 @@ func (conn *Conn) Open(ctx context.Context) error {
 		}
 	}()
 
-	err = conn.reCreateAgent()
+	err = conn.reCreateAgent(routes)
 	if err != nil {
 		return err
 	}
@@ -764,10 +761,6 @@ func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMa
 			return
 		}
 
-		if candidateViaRoutes(candidate, haRoutes) {
-			return
-		}
-
 		err := conn.agent.AddRemoteCandidate(candidate)
 		if err != nil {
 			log.Errorf("error while handling remote candidate from peer %s", conn.config.Key)
@@ -797,28 +790,4 @@ func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive
 		RelAddr:   relatedAdd.Address,
 		RelPort:   relatedAdd.Port,
 	})
-}
-
-func candidateViaRoutes(candidate ice.Candidate, clientRoutes route.HAMap) bool {
-	var vpnRoutes []netip.Prefix
-	log.Tracef("ICE: Client routes: %s", spew.Sdump(clientRoutes))
-	log.Tracef("ICE: Candidate: %v", candidate)
-	for _, routes := range clientRoutes {
-		if len(routes) > 0 && routes[0] != nil {
-			vpnRoutes = append(vpnRoutes, routes[0].Network)
-		}
-	}
-
-	addr, err := netip.ParseAddr(candidate.Address())
-	if err != nil {
-		log.Errorf("Failed to parse IP address %s: %v", candidate.Address(), err)
-		return false
-	}
-
-	if isVpn, prefix := systemops.IsAddrRouted(addr, vpnRoutes); isVpn {
-		log.Debugf("Ignoring candidate [%s], its address is routed to network %s", candidate.String(), prefix)
-		return true
-	}
-
-	return false
 }

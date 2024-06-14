@@ -30,7 +30,7 @@ func ProbeSTUN(ctx context.Context, uri *stun.URI) (addr string, probeErr error)
 		}
 	}()
 
-	net, err := stdnet.NewNet(nil)
+	net, err := stdnet.NewNet(nil, nil)
 	if err != nil {
 		probeErr = fmt.Errorf("new net: %w", err)
 		return
@@ -119,7 +119,7 @@ func ProbeTURN(ctx context.Context, uri *stun.URI) (addr string, probeErr error)
 		}
 	}()
 
-	net, err := stdnet.NewNet(nil)
+	net, err := stdnet.NewNet(nil, nil)
 	if err != nil {
 		probeErr = fmt.Errorf("new net: %w", err)
 		return
