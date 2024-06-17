@@ -7,5 +7,5 @@ import (
 )
 
 func (e *Engine) newStdNet() (*stdnet.Net, error) {
-	return stdnet.NewNet(e.config.IFaceBlackList, nil)
+	return stdnet.NewNet(e.config.IFaceBlackList)
 }

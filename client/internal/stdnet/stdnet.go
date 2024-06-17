@@ -5,16 +5,9 @@ package stdnet
 
 import (
 	"fmt"
-	"net"
-	"net/netip"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/pion/transport/v3"
 	"github.com/pion/transport/v3/stdnet"
-	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
-	"github.com/netbirdio/netbird/route"
 )
 
 // Net is an implementation of the net.Net interface
@@ -25,7 +18,6 @@ type Net struct {
 	iFaceDiscover iFaceDiscover
 	// interfaceFilter should return true if the given interfaceName is allowed
 	interfaceFilter func(interfaceName string) bool
-	routes          route.HAMap
 }
 
 // NewNetWithDiscover creates a new StdNet instance.
@@ -38,11 +30,10 @@ func NewNetWithDiscover(iFaceDiscover ExternalIFaceDiscover, disallowList []stri
 }
 
 // NewNet creates a new StdNet instance.
-func NewNet(disallowList []string, routes route.HAMap) (*Net, error) {
+func NewNet(disallowList []string) (*Net, error) {
 	n := &Net{
 		iFaceDiscover:   pionDiscover{},
 		interfaceFilter: InterfaceFilter(disallowList),
-		routes:          routes,
 	}
 	return n, n.UpdateInterfaces()
 }
@@ -103,34 +94,4 @@ func (n *Net) filterInterfaces(interfaces []*transport.Interface) []*transport.I
 		}
 	}
 	return result
-}
-
-func addrViaRoutes(address string, routes route.HAMap) (bool, netip.Prefix, error) {
-	log.Tracef("ICE: Client routes: %s", spew.Sdump(routes))
-	log.Tracef("ICE: addr %v", address)
-
-	// TODO: resolve domain names
-
-	addrStr, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return false, netip.Prefix{}, fmt.Errorf("split host and port: %w", err)
-	}
-
-	ipAddr, err := netip.ParseAddr(addrStr)
-	if err != nil {
-		return false, netip.Prefix{}, fmt.Errorf("parse address: %w", err)
-	}
-
-	var vpnRoutes []netip.Prefix
-	for _, routes := range routes {
-		if len(routes) > 0 && routes[0] != nil {
-			vpnRoutes = append(vpnRoutes, routes[0].Network)
-		}
-	}
-
-	if isVpn, prefix := systemops.IsAddrRouted(ipAddr, vpnRoutes); isVpn {
-		return true, prefix, nil
-	}
-
-	return false, netip.Prefix{}, nil
 }

@@ -62,25 +62,25 @@ func (l *ListenerConfig) ListenPacket(ctx context.Context, network, address stri
 		return nil, fmt.Errorf("listen packet: %w", err)
 	}
 	connID := GenerateConnID()
-	return &PacketConn{PacketConn: pc, ID: connID}, nil
+	return &PacketConn{PacketConn: pc, ID: connID, seenAddrs: &sync.Map{}}, nil
 }
 
 // PacketConn wraps net.PacketConn to override its WriteTo and Close methods to include hook functionality.
 type PacketConn struct {
 	net.PacketConn
 	ID        ConnectionID
-	seenAddrs sync.Map
+	seenAddrs *sync.Map
 }
 
 // WriteTo writes a packet with payload b to addr, executing registered write hooks beforehand.
 func (c *PacketConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
-	callWriteHooks(c.ID, &c.seenAddrs, b, addr)
+	callWriteHooks(c.ID, c.seenAddrs, b, addr)
 	return c.PacketConn.WriteTo(b, addr)
 }
 
 // Close overrides the net.PacketConn Close method to execute all registered hooks before closing the connection.
 func (c *PacketConn) Close() error {
-	c.seenAddrs = sync.Map{}
+	c.seenAddrs = &sync.Map{}
 	return closeConn(c.ID, c.PacketConn)
 }
 
@@ -88,18 +88,18 @@ func (c *PacketConn) Close() error {
 type UDPConn struct {
 	*net.UDPConn
 	ID        ConnectionID
-	seenAddrs sync.Map
+	seenAddrs *sync.Map
 }
 
 // WriteTo writes a packet with payload b to addr, executing registered write hooks beforehand.
 func (c *UDPConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
-	callWriteHooks(c.ID, &c.seenAddrs, b, addr)
+	callWriteHooks(c.ID, c.seenAddrs, b, addr)
 	return c.UDPConn.WriteTo(b, addr)
 }
 
 // Close overrides the net.UDPConn Close method to execute all registered hooks before closing the connection.
 func (c *UDPConn) Close() error {
-	c.seenAddrs = sync.Map{}
+	c.seenAddrs = &sync.Map{}
 	return closeConn(c.ID, c.UDPConn)
 }
 
@@ -168,5 +168,5 @@ func ListenUDP(network string, laddr *net.UDPAddr) (transport.UDPConn, error) {
 		return nil, fmt.Errorf("expected UDPConn, got different type: %T", udpConn)
 	}
 
-	return &UDPConn{UDPConn: udpConn, ID: packetConn.ID}, nil
+	return &UDPConn{UDPConn: udpConn, ID: packetConn.ID, seenAddrs: &sync.Map{}}, nil
 }

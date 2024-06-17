@@ -973,8 +973,7 @@ func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
 		conn.UpdateStunTurn(append(e.STUNs, e.TURNs...))
 		e.syncMsgMux.Unlock()
 
-		routes := e.GetClientRoutes()
-		err := conn.Open(e.ctx, routes)
+		err := conn.Open(e.ctx)
 		if err != nil {
 			log.Debugf("connection to peer %s failed: %v", peerKey, err)
 			var connectionClosedError *peer.ConnectionClosedError
