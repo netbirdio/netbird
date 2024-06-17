@@ -97,7 +97,7 @@ type EngineConfig struct {
 type Engine struct {
 	// signal is a Signal Service client
 	signal   signal.Client
-	signaler *Signaler
+	signaler *peer.Signaler
 	// mgmClient is a Management Service client
 	mgmClient mgm.Client
 	// peerConns is a map that holds all the peers that are known to this peer

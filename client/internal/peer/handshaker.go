@@ -9,7 +9,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/conn"
 
-	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -60,7 +59,7 @@ type Handshaker struct {
 	mu       sync.Mutex
 	ctx      context.Context
 	config   ConnConfig
-	signaler *internal.Signaler
+	signaler *Signaler
 
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
 	remoteOffersCh chan OfferAnswer
@@ -71,7 +70,7 @@ type Handshaker struct {
 	remoteOfferAnswerCreated time.Time
 }
 
-func NewHandshaker(ctx context.Context, config ConnConfig, signaler *internal.Signaler) *Handshaker {
+func NewHandshaker(ctx context.Context, config ConnConfig, signaler *Signaler) *Handshaker {
 	return &Handshaker{
 		ctx:            ctx,
 		config:         config,

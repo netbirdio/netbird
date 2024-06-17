@@ -15,7 +15,6 @@ import (
 	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/iface/bind"
@@ -64,7 +63,7 @@ type ConnectorICE struct {
 	log            *log.Entry
 	config         ConnConfig
 	configICE      ICEConfig
-	signaler       *internal.Signaler
+	signaler       *Signaler
 	iFaceDiscover  stdnet.ExternalIFaceDiscover
 	statusRecorder *Status
 	onICEConnReady OnICEConnReadyCallback
@@ -79,7 +78,7 @@ type ConnectorICE struct {
 	sentExtraSrflx bool
 }
 
-func NewConnectorICE(ctx context.Context, log *log.Entry, config ConnConfig, configICE ICEConfig, signaler *internal.Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, onICEConnReady OnICEConnReadyCallback, doHandshakeFn DoHandshake) *ConnectorICE {
+func NewConnectorICE(ctx context.Context, log *log.Entry, config ConnConfig, configICE ICEConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, onICEConnReady OnICEConnReadyCallback, doHandshakeFn DoHandshake) *ConnectorICE {
 	cice := &ConnectorICE{
 		ctx:            ctx,
 		log:            log,

@@ -1,10 +1,9 @@
-package internal
+package peer
 
 import (
 	"github.com/pion/ice/v3"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
-	"github.com/netbirdio/netbird/client/internal/peer"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 )
@@ -21,11 +20,11 @@ func NewSignaler(signal signal.Client, wgPrivateKey wgtypes.Key) *Signaler {
 	}
 }
 
-func (s *Signaler) SignalOffer(offer peer.OfferAnswer, remoteKey string) error {
+func (s *Signaler) SignalOffer(offer OfferAnswer, remoteKey string) error {
 	return s.signalOfferAnswer(offer, remoteKey, sProto.Body_OFFER)
 }
 
-func (s *Signaler) SignalAnswer(offer peer.OfferAnswer, remoteKey string) error {
+func (s *Signaler) SignalAnswer(offer OfferAnswer, remoteKey string) error {
 	return s.signalOfferAnswer(offer, remoteKey, sProto.Body_ANSWER)
 }
 
@@ -45,7 +44,7 @@ func (s *Signaler) Ready() bool {
 }
 
 // SignalOfferAnswer signals either an offer or an answer to remote peer
-func (s *Signaler) signalOfferAnswer(offerAnswer peer.OfferAnswer, remoteKey string, bodyType sProto.Body_Type) error {
+func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, bodyType sProto.Body_Type) error {
 	msg, err := signal.MarshalCredential(
 		s.wgPrivateKey,
 		offerAnswer.WgListenPort,
