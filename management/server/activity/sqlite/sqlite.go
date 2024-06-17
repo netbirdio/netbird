@@ -235,7 +235,7 @@ func (store *Store) processResult(result *sql.Rows) ([]*activity.Event, error) {
 	}
 
 	if cryptErr != nil {
-		log.Warnf("%s", cryptErr)
+		log.WithContext(ctx).Warnf("%s", cryptErr)
 	}
 
 	return events, nil
@@ -325,7 +325,7 @@ func (store *Store) Close() error {
 }
 
 func updateDeletedUsersTable(db *sql.DB) error {
-	log.Debugf("check deleted_users table version")
+	log.WithContext(ctx).Debugf("check deleted_users table version")
 	rows, err := db.Query(`PRAGMA table_info(deleted_users);`)
 	if err != nil {
 		return err
@@ -360,7 +360,7 @@ func updateDeletedUsersTable(db *sql.DB) error {
 		return nil
 	}
 
-	log.Debugf("update delted_users table")
+	log.WithContext(ctx).Debugf("update delted_users table")
 	_, err = db.Exec(`ALTER TABLE deleted_users ADD COLUMN name TEXT;`)
 	return err
 }

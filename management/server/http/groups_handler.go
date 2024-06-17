@@ -37,7 +37,7 @@ func (h *GroupsHandler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		log.Error(err)
+		log.WithContext(ctx).Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
@@ -119,7 +119,7 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.accountManager.SaveGroup(account.Id, user.Id, &group); err != nil {
-		log.Errorf("failed updating group %s under account %s %v", groupID, account.Id, err)
+		log.WithContext(ctx).Errorf("failed updating group %s under account %s %v", groupID, account.Id, err)
 		util.WriteError(err, w)
 		return
 	}

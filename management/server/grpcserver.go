@@ -60,7 +60,7 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 			return nil, status.Errorf(codes.Internal, "unable to create new jwt middleware, err: %v", err)
 		}
 	} else {
-		log.Debug("unable to use http config to create new jwt middleware")
+		log.WithContext(ctx).Debug("unable to use http config to create new jwt middleware")
 	}
 
 	if appMetrics != nil {
@@ -128,7 +128,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		s.appMetrics.GRPCMetrics().CountSyncRequest()
 	}
 	realIP := getRealIP(srv.Context())
-	log.Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, realIP.String())
+	log.WithContext(ctx).Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, realIP.String())
 
 	syncReq := &proto.SyncRequest{}
 	peerKey, err := s.parseRequest(req, syncReq)
@@ -147,7 +147,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	ctx = context.WithValue(ctx, "accountID", accountID)
 
 	if syncReq.GetMeta() == nil {
-		log.Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
+		log.WithContext(ctx).Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
 	}
 
 	peer, netMap, err := s.accountManager.SyncAndMarkPeer(peerKey.String(), extractPeerMeta(syncReq.GetMeta()), realIP)
@@ -157,7 +157,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 
 	err = s.sendInitialSync(peerKey, peer, netMap, srv)
 	if err != nil {
-		log.Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
+		log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
 		return err
 	}
 
@@ -187,11 +187,11 @@ func (s *GRPCServer) handleUpdates(peerKey wgtypes.Key, peer *nbpeer.Peer, updat
 			}
 
 			if !open {
-				log.Debugf("updates channel for peer %s was closed", peerKey.String())
+				log.WithContext(ctx).Debugf("updates channel for peer %s was closed", peerKey.String())
 				s.cancelPeerRoutines(peer)
 				return nil
 			}
-			log.Debugf("received an update for peer %s", peerKey.String())
+			log.WithContext(ctx).Debugf("received an update for peer %s", peerKey.String())
 
 			if err := s.sendUpdate(peerKey, peer, update, srv); err != nil {
 				return err
@@ -200,7 +200,7 @@ func (s *GRPCServer) handleUpdates(peerKey wgtypes.Key, peer *nbpeer.Peer, updat
 		// condition when client <-> server connection has been terminated
 		case <-srv.Context().Done():
 			// happens when connection drops, e.g. client disconnects
-			log.Debugf("stream of peer %s has been closed", peerKey.String())
+			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
 			s.cancelPeerRoutines(peer)
 			return srv.Context().Err()
 		}
@@ -223,7 +223,7 @@ func (s *GRPCServer) sendUpdate(peerKey wgtypes.Key, peer *nbpeer.Peer, update *
 		s.cancelPeerRoutines(peer)
 		return status.Errorf(codes.Internal, "failed sending update message")
 	}
-	log.Debugf("sent an update to peer %s", peerKey.String())
+	log.WithContext(ctx).Debugf("sent an update to peer %s", peerKey.String())
 	return nil
 }
 
@@ -274,7 +274,7 @@ func mapError(err error) error {
 		default:
 		}
 	}
-	log.Errorf("got an unhandled error: %s", err)
+	log.WithContext(ctx).Errorf("got an unhandled error: %s", err)
 	return status.Errorf(codes.Internal, "failed handling request")
 }
 
@@ -292,7 +292,7 @@ func extractPeerMeta(meta *proto.PeerSystemMeta) nbpeer.PeerSystemMeta {
 	for _, addr := range meta.GetNetworkAddresses() {
 		netAddr, err := netip.ParsePrefix(addr.GetNetIP())
 		if err != nil {
-			log.Warnf("failed to parse netip address, %s: %v", addr.GetNetIP(), err)
+			log.WithContext(ctx).Warnf("failed to parse netip address, %s: %v", addr.GetNetIP(), err)
 			continue
 		}
 		networkAddresses = append(networkAddresses, nbpeer.NetworkAddress{
@@ -335,7 +335,7 @@ func extractPeerMeta(meta *proto.PeerSystemMeta) nbpeer.PeerSystemMeta {
 func (s *GRPCServer) parseRequest(req *proto.EncryptedMessage, parsed pb.Message) (wgtypes.Key, error) {
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
-		log.Warnf("error while parsing peer's WireGuard public key %s.", req.WgPubKey)
+		log.WithContext(ctx).Warnf("error while parsing peer's WireGuard public key %s.", req.WgPubKey)
 		return wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", req.WgPubKey)
 	}
 
@@ -362,7 +362,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		s.appMetrics.GRPCMetrics().CountLoginRequest()
 	}
 	realIP := getRealIP(ctx)
-	log.Debugf("Login request from peer [%s] [%s]", req.WgPubKey, realIP.String())
+	log.WithContext(ctx).Debugf("Login request from peer [%s] [%s]", req.WgPubKey, realIP.String())
 
 	loginReq := &proto.LoginRequest{}
 	peerKey, err := s.parseRequest(req, loginReq)
@@ -373,7 +373,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	if loginReq.GetMeta() == nil {
 		msg := status.Errorf(codes.FailedPrecondition,
 			"peer system meta has to be provided to log in. Peer %s, remote addr %s", peerKey.String(), realIP)
-		log.Warn(msg)
+		log.WithContext(ctx).Warn(msg)
 		return nil, msg
 	}
 
@@ -396,7 +396,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		ConnectionIP:    realIP,
 	})
 	if err != nil {
-		log.Warnf("failed logging in peer %s: %s", peerKey, err)
+		log.WithContext(ctx).Warnf("failed logging in peer %s: %s", peerKey, err)
 		return nil, mapError(err)
 	}
 
@@ -413,7 +413,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
-		log.Warnf("failed encrypting peer %s message", peer.ID)
+		log.WithContext(ctx).Warnf("failed encrypting peer %s message", peer.ID)
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
 
@@ -437,7 +437,7 @@ func (s *GRPCServer) processJwtToken(loginReq *proto.LoginRequest, peerKey wgtyp
 			if err == nil {
 				break
 			}
-			log.Warnf("failed validating JWT token sent from peer %s with error %v. "+
+			log.WithContext(ctx).Warnf("failed validating JWT token sent from peer %s with error %v. "+
 				"Trying again as it may be due to the IdP cache issue", peerKey.String(), err)
 			time.Sleep(200 * time.Millisecond)
 		}
@@ -594,7 +594,7 @@ func (s *GRPCServer) sendInitialSync(peerKey wgtypes.Key, peer *nbpeer.Peer, net
 	})
 
 	if err != nil {
-		log.Errorf("failed sending SyncResponse %v", err)
+		log.WithContext(ctx).Errorf("failed sending SyncResponse %v", err)
 		return status.Errorf(codes.Internal, "error handling request")
 	}
 
@@ -608,14 +608,14 @@ func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
 		errMSG := fmt.Sprintf("error while parsing peer's Wireguard public key %s on GetDeviceAuthorizationFlow request.", req.WgPubKey)
-		log.Warn(errMSG)
+		log.WithContext(ctx).Warn(errMSG)
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
 	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, &proto.DeviceAuthorizationFlowRequest{})
 	if err != nil {
 		errMSG := fmt.Sprintf("error while decrypting peer's message with Wireguard public key %s.", req.WgPubKey)
-		log.Warn(errMSG)
+		log.WithContext(ctx).Warn(errMSG)
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
@@ -660,14 +660,14 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(_ context.Context, req *proto.Encr
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
 		errMSG := fmt.Sprintf("error while parsing peer's Wireguard public key %s on GetPKCEAuthorizationFlow request.", req.WgPubKey)
-		log.Warn(errMSG)
+		log.WithContext(ctx).Warn(errMSG)
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
 	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, &proto.PKCEAuthorizationFlowRequest{})
 	if err != nil {
 		errMSG := fmt.Sprintf("error while decrypting peer's message with Wireguard public key %s.", req.WgPubKey)
-		log.Warn(errMSG)
+		log.WithContext(ctx).Warn(errMSG)
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
@@ -703,7 +703,7 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(_ context.Context, req *proto.Encr
 // peer's under the same account of any updates.
 func (s *GRPCServer) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*proto.Empty, error) {
 	realIP := getRealIP(ctx)
-	log.Debugf("Sync meta request from peer [%s] [%s]", req.WgPubKey, realIP.String())
+	log.WithContext(ctx).Debugf("Sync meta request from peer [%s] [%s]", req.WgPubKey, realIP.String())
 
 	syncMetaReq := &proto.SyncMetaRequest{}
 	peerKey, err := s.parseRequest(req, syncMetaReq)
@@ -714,7 +714,7 @@ func (s *GRPCServer) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) 
 	if syncMetaReq.GetMeta() == nil {
 		msg := status.Errorf(codes.FailedPrecondition,
 			"peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
-		log.Warn(msg)
+		log.WithContext(ctx).Warn(msg)
 		return nil, msg
 	}
 
@@ -730,7 +730,7 @@ func (s *GRPCServer) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) 
 func toProtocolChecks(accountManager AccountManager, peerKey string) []*proto.Checks {
 	postureChecks, err := accountManager.GetPeerAppliedPostureChecks(peerKey)
 	if err != nil {
-		log.Errorf("failed getting peer's: %s posture checks: %v", peerKey, err)
+		log.WithContext(ctx).Errorf("failed getting peer's: %s posture checks: %v", peerKey, err)
 		return nil
 	}
 

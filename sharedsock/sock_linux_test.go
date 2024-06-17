@@ -44,13 +44,13 @@ func TestShouldReadSTUNOnReadFrom(t *testing.T) {
 		default:
 			_, _, err := rawSock.ReadFrom(buf)
 			if err != nil {
-				log.Errorf("error while reading packet %s", err)
+				log.WithContext(ctx).Errorf("error while reading packet %s", err)
 				return
 			}
 
 			err = rcvMSG.Decode()
 			if err != nil {
-				log.Warnf("error while parsing STUN message. The packet doesn't seem to be a STUN packet: %s", err)
+				log.WithContext(ctx).Warnf("error while parsing STUN message. The packet doesn't seem to be a STUN packet: %s", err)
 				return
 			}
 			wg.Done()

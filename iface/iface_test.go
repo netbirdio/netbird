@@ -68,7 +68,7 @@ func TestWGIface_UpdateAddr(t *testing.T) {
 	}
 	assert.Equal(t, addr, addrs[0].String())
 
-	//update WireGuard address
+	// update WireGuard address
 	addr = "100.64.0.2/8"
 	err = iface.UpdateAddr(addr)
 	if err != nil {
@@ -436,7 +436,7 @@ func getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
 	defer func() {
 		err = wg.Close()
 		if err != nil {
-			log.Errorf("got error while closing wgctl: %v", err)
+			log.WithContext(ctx).Errorf("got error while closing wgctl: %v", err)
 		}
 	}()
 

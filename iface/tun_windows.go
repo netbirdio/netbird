@@ -97,7 +97,7 @@ func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		return nil, err
 	}
 	t.udpMux = udpMux
-	log.Debugf("device is ready to use: %s", t.name)
+	log.WithContext(ctx).Debugf("device is ready to use: %s", t.name)
 	return udpMux, nil
 }
 
@@ -150,6 +150,6 @@ func (t *tunDevice) getInterfaceGUIDString() (string, error) {
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
 func (t *tunDevice) assignAddr() error {
 	luid := winipcfg.LUID(t.nativeTunDevice.LUID())
-	log.Debugf("adding address %s to interface: %s", t.address.IP, t.name)
+	log.WithContext(ctx).Debugf("adding address %s to interface: %s", t.address.IP, t.name)
 	return luid.SetIPAddresses([]netip.Prefix{netip.MustParsePrefix(t.address.String())})
 }

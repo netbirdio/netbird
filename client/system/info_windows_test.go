@@ -21,5 +21,5 @@ func Test_sysInfo(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to get system manufacturer: %s", err)
 	}
-	log.Infof("Windows sys info: %s, %s, %s", serialNum, prodName, manufacturer)
+	log.WithContext(ctx).Infof("Windows sys info: %s, %s, %s", serialNum, prodName, manufacturer)
 }

@@ -35,7 +35,7 @@ func (h *EventsHandler) GetAllEvents(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		log.Error(err)
+		log.WithContext(ctx).Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
@@ -63,7 +63,7 @@ func (h *EventsHandler) fillEventsWithUserInfo(events []*api.Event, accountId, u
 	// build email, name maps based on users
 	userInfos, err := h.accountManager.GetUsersFromAccount(accountId, userId)
 	if err != nil {
-		log.Errorf("failed to get users from account: %s", err)
+		log.WithContext(ctx).Errorf("failed to get users from account: %s", err)
 		return err
 	}
 
@@ -80,7 +80,7 @@ func (h *EventsHandler) fillEventsWithUserInfo(events []*api.Event, accountId, u
 		if event.InitiatorEmail == "" {
 			event.InitiatorEmail, ok = emails[event.InitiatorId]
 			if !ok {
-				log.Warnf("failed to resolve email for initiator: %s", event.InitiatorId)
+				log.WithContext(ctx).Warnf("failed to resolve email for initiator: %s", event.InitiatorId)
 			}
 		}
 

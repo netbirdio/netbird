@@ -200,7 +200,7 @@ func (c *Auth0Credentials) requestJWTToken() (*http.Response, error) {
 
 	req.Header.Add("content-type", "application/json")
 
-	log.Debug("requesting new jwt token for idp manager")
+	log.WithContext(ctx).Debug("requesting new jwt token for idp manager")
 
 	res, err = c.httpClient.Do(req)
 	if err != nil {
@@ -267,7 +267,7 @@ func (c *Auth0Credentials) Authenticate() (JWTToken, error) {
 	defer func() {
 		err = res.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing get jwt token response body: %v", err)
+			log.WithContext(ctx).Errorf("error while closing get jwt token response body: %v", err)
 		}
 	}()
 
@@ -353,7 +353,7 @@ func (am *Auth0Manager) GetAccount(accountID string) ([]*UserData, error) {
 			return nil, err
 		}
 
-		log.Debugf("returned user batch for accountID %s on page %d, batch length %d", accountID, page, len(batch))
+		log.WithContext(ctx).Debugf("returned user batch for accountID %s on page %d, batch length %d", accountID, page, len(batch))
 
 		err = res.Body.Close()
 		if err != nil {
@@ -365,7 +365,7 @@ func (am *Auth0Manager) GetAccount(accountID string) ([]*UserData, error) {
 		}
 
 		if len(batch) == 0 || len(batch) < resultsPerPage {
-			log.Debugf("finished loading users for accountID %s", accountID)
+			log.WithContext(ctx).Debugf("finished loading users for accountID %s", accountID)
 			return list, nil
 		}
 	}
@@ -414,7 +414,7 @@ func (am *Auth0Manager) GetUserDataByID(userID string, appMetadata AppMetadata) 
 	defer func() {
 		err = res.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing update user app metadata response body: %v", err)
+			log.WithContext(ctx).Errorf("error while closing update user app metadata response body: %v", err)
 		}
 	}()
 
@@ -449,7 +449,7 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userID string, appMetadata AppMeta
 	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
 	req.Header.Add("content-type", "application/json")
 
-	log.Debugf("updating IdP metadata for user %s", userID)
+	log.WithContext(ctx).Debugf("updating IdP metadata for user %s", userID)
 
 	res, err := am.httpClient.Do(req)
 	if err != nil {
@@ -466,7 +466,7 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userID string, appMetadata AppMeta
 	defer func() {
 		err = res.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing update user app metadata response body: %v", err)
+			log.WithContext(ctx).Errorf("error while closing update user app metadata response body: %v", err)
 		}
 	}()
 
@@ -573,7 +573,7 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 
 	jobResp, err := am.httpClient.Do(exportJobReq)
 	if err != nil {
-		log.Debugf("Couldn't get job response %v", err)
+		log.WithContext(ctx).Debugf("Couldn't get job response %v", err)
 		if am.appMetrics != nil {
 			am.appMetrics.IDPMetrics().CountRequestError()
 		}
@@ -583,7 +583,7 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 	defer func() {
 		err = jobResp.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing update user app metadata response body: %v", err)
+			log.WithContext(ctx).Errorf("error while closing update user app metadata response body: %v", err)
 		}
 	}()
 	if jobResp.StatusCode != 200 {
@@ -597,13 +597,13 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 
 	body, err := io.ReadAll(jobResp.Body)
 	if err != nil {
-		log.Debugf("Couldn't read export job response; %v", err)
+		log.WithContext(ctx).Debugf("Couldn't read export job response; %v", err)
 		return nil, err
 	}
 
 	err = am.helper.Unmarshal(body, &exportJobResp)
 	if err != nil {
-		log.Debugf("Couldn't unmarshal export job response; %v", err)
+		log.WithContext(ctx).Debugf("Couldn't unmarshal export job response; %v", err)
 		return nil, err
 	}
 
@@ -614,11 +614,11 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 		return nil, fmt.Errorf("couldn't get an batch id status %d, %s, response body: %v", jobResp.StatusCode, jobResp.Status, exportJobResp)
 	}
 
-	log.Debugf("batch id status %d, %s, response body: %v", jobResp.StatusCode, jobResp.Status, exportJobResp)
+	log.WithContext(ctx).Debugf("batch id status %d, %s, response body: %v", jobResp.StatusCode, jobResp.Status, exportJobResp)
 
 	done, downloadLink, err := am.checkExportJobStatus(exportJobResp.ID)
 	if err != nil {
-		log.Debugf("Failed at getting status checks from exportJob; %v", err)
+		log.WithContext(ctx).Debugf("Failed at getting status checks from exportJob; %v", err)
 		return nil, err
 	}
 
@@ -651,7 +651,7 @@ func (am *Auth0Manager) GetUserByEmail(email string) ([]*UserData, error) {
 
 	err = am.helper.Unmarshal(body, &userResp)
 	if err != nil {
-		log.Debugf("Couldn't unmarshal export job response; %v", err)
+		log.WithContext(ctx).Debugf("Couldn't unmarshal export job response; %v", err)
 		return nil, err
 	}
 
@@ -676,7 +676,7 @@ func (am *Auth0Manager) CreateUser(email, name, accountID, invitedByEmail string
 
 	resp, err := am.httpClient.Do(req)
 	if err != nil {
-		log.Debugf("Couldn't get job response %v", err)
+		log.WithContext(ctx).Debugf("Couldn't get job response %v", err)
 		if am.appMetrics != nil {
 			am.appMetrics.IDPMetrics().CountRequestError()
 		}
@@ -686,7 +686,7 @@ func (am *Auth0Manager) CreateUser(email, name, accountID, invitedByEmail string
 	defer func() {
 		err = resp.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing create user response body: %v", err)
+			log.WithContext(ctx).Errorf("error while closing create user response body: %v", err)
 		}
 	}()
 	if !(resp.StatusCode == 200 || resp.StatusCode == 201) {
@@ -700,13 +700,13 @@ func (am *Auth0Manager) CreateUser(email, name, accountID, invitedByEmail string
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Debugf("Couldn't read export job response; %v", err)
+		log.WithContext(ctx).Debugf("Couldn't read export job response; %v", err)
 		return nil, err
 	}
 
 	err = am.helper.Unmarshal(body, &createResp)
 	if err != nil {
-		log.Debugf("Couldn't unmarshal export job response; %v", err)
+		log.WithContext(ctx).Debugf("Couldn't unmarshal export job response; %v", err)
 		return nil, err
 	}
 
@@ -714,7 +714,7 @@ func (am *Auth0Manager) CreateUser(email, name, accountID, invitedByEmail string
 		return nil, fmt.Errorf("couldn't create user: response %v", resp)
 	}
 
-	log.Debugf("created user %s in account %s", createResp.ID, accountID)
+	log.WithContext(ctx).Debugf("created user %s in account %s", createResp.ID, accountID)
 
 	return &createResp, nil
 }
@@ -738,7 +738,7 @@ func (am *Auth0Manager) InviteUserByID(userID string) error {
 
 	resp, err := am.httpClient.Do(req)
 	if err != nil {
-		log.Debugf("Couldn't get job response %v", err)
+		log.WithContext(ctx).Debugf("Couldn't get job response %v", err)
 		if am.appMetrics != nil {
 			am.appMetrics.IDPMetrics().CountRequestError()
 		}
@@ -748,7 +748,7 @@ func (am *Auth0Manager) InviteUserByID(userID string) error {
 	defer func() {
 		err = resp.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing invite user response body: %v", err)
+			log.WithContext(ctx).Errorf("error while closing invite user response body: %v", err)
 		}
 	}()
 	if !(resp.StatusCode == 200 || resp.StatusCode == 201) {
@@ -770,7 +770,7 @@ func (am *Auth0Manager) DeleteUser(userID string) error {
 
 	resp, err := am.httpClient.Do(req)
 	if err != nil {
-		log.Debugf("execute delete request: %v", err)
+		log.WithContext(ctx).Debugf("execute delete request: %v", err)
 		if am.appMetrics != nil {
 			am.appMetrics.IDPMetrics().CountRequestError()
 		}
@@ -780,7 +780,7 @@ func (am *Auth0Manager) DeleteUser(userID string) error {
 	defer func() {
 		err = resp.Body.Close()
 		if err != nil {
-			log.Errorf("close delete request body: %v", err)
+			log.WithContext(ctx).Errorf("close delete request body: %v", err)
 		}
 	}()
 	if resp.StatusCode != 204 {
@@ -808,7 +808,7 @@ func (am *Auth0Manager) GetAllConnections(strategy []string) ([]Connection, erro
 
 	resp, err := am.httpClient.Do(req)
 	if err != nil {
-		log.Debugf("execute get connections request: %v", err)
+		log.WithContext(ctx).Debugf("execute get connections request: %v", err)
 		if am.appMetrics != nil {
 			am.appMetrics.IDPMetrics().CountRequestError()
 		}
@@ -818,7 +818,7 @@ func (am *Auth0Manager) GetAllConnections(strategy []string) ([]Connection, erro
 	defer func() {
 		err = resp.Body.Close()
 		if err != nil {
-			log.Errorf("close get connections request body: %v", err)
+			log.WithContext(ctx).Errorf("close get connections request body: %v", err)
 		}
 	}()
 	if resp.StatusCode != 200 {
@@ -830,13 +830,13 @@ func (am *Auth0Manager) GetAllConnections(strategy []string) ([]Connection, erro
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Debugf("Couldn't read get connections response; %v", err)
+		log.WithContext(ctx).Debugf("Couldn't read get connections response; %v", err)
 		return connections, err
 	}
 
 	err = am.helper.Unmarshal(body, &connections)
 	if err != nil {
-		log.Debugf("Couldn't unmarshal get connection response; %v", err)
+		log.WithContext(ctx).Debugf("Couldn't unmarshal get connection response; %v", err)
 		return connections, err
 	}
 
@@ -852,7 +852,7 @@ func (am *Auth0Manager) checkExportJobStatus(jobID string) (bool, string, error)
 	for {
 		select {
 		case <-ctx.Done():
-			log.Debugf("Export job status stopped...\n")
+			log.WithContext(ctx).Debugf("Export job status stopped...\n")
 			return false, "", ctx.Err()
 		case <-retry.C:
 			jwtToken, err := am.credentials.Authenticate()
@@ -872,7 +872,7 @@ func (am *Auth0Manager) checkExportJobStatus(jobID string) (bool, string, error)
 				return false, "", err
 			}
 
-			log.Debugf("current export job status is %v", status.Status)
+			log.WithContext(ctx).Debugf("current export job status is %v", status.Status)
 
 			if status.Status != "completed" {
 				continue
@@ -945,7 +945,7 @@ func doGetReq(client ManagerHTTPClient, url, accessToken string) ([]byte, error)
 	defer func() {
 		err = res.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing body for url %s: %v", url, err)
+			log.WithContext(ctx).Errorf("error while closing body for url %s: %v", url, err)
 		}
 	}()
 	body, err := io.ReadAll(res.Body)

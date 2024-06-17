@@ -104,11 +104,11 @@ func NewJWTValidator(issuer string, audienceList []string, keysLocation string, 
 
 					refreshedKeys, err := getPemKeys(keysLocation)
 					if err != nil {
-						log.Debugf("cannot get JSONWebKey: %v, falling back to old keys", err)
+						log.WithContext(ctx).Debugf("cannot get JSONWebKey: %v, falling back to old keys", err)
 						refreshedKeys = keys
 					}
 
-					log.Debugf("keys refreshed, new UTC expiration time: %s", refreshedKeys.expiresInTime.UTC())
+					log.WithContext(ctx).Debugf("keys refreshed, new UTC expiration time: %s", refreshedKeys.expiresInTime.UTC())
 
 					keys = refreshedKeys
 				}
@@ -141,14 +141,14 @@ func (m *JWTValidator) ValidateAndParse(token string) (*jwt.Token, error) {
 	if token == "" {
 		// Check if it was required
 		if m.options.CredentialsOptional {
-			log.Debugf("no credentials found (CredentialsOptional=true)")
+			log.WithContext(ctx).Debugf("no credentials found (CredentialsOptional=true)")
 			// No error, just no token (and that is ok given that CredentialsOptional is true)
 			return nil, nil //nolint:nilnil
 		}
 
 		// If we get here, the required token is missing
 		errorMsg := "required authorization token not found"
-		log.Debugf("  Error: No credentials found (CredentialsOptional=false)")
+		log.WithContext(ctx).Debugf("  Error: No credentials found (CredentialsOptional=false)")
 		return nil, fmt.Errorf(errorMsg)
 	}
 
@@ -157,7 +157,7 @@ func (m *JWTValidator) ValidateAndParse(token string) (*jwt.Token, error) {
 
 	// Check if there was an error in parsing...
 	if err != nil {
-		log.Errorf("error parsing token: %v", err)
+		log.WithContext(ctx).Errorf("error parsing token: %v", err)
 		return nil, fmt.Errorf("Error parsing token: %w", err)
 	}
 
@@ -165,14 +165,14 @@ func (m *JWTValidator) ValidateAndParse(token string) (*jwt.Token, error) {
 		errorMsg := fmt.Sprintf("Expected %s signing method but token specified %s",
 			m.options.SigningMethod.Alg(),
 			parsedToken.Header["alg"])
-		log.Debugf("error validating token algorithm: %s", errorMsg)
+		log.WithContext(ctx).Debugf("error validating token algorithm: %s", errorMsg)
 		return nil, fmt.Errorf("error validating token algorithm: %s", errorMsg)
 	}
 
 	// Check if the parsed token is valid...
 	if !parsedToken.Valid {
 		errorMsg := "token is invalid"
-		log.Debugf(errorMsg)
+		log.WithContext(ctx).Debugf(errorMsg)
 		return nil, errors.New(errorMsg)
 	}
 
@@ -217,7 +217,7 @@ func getPemCert(token *jwt.Token, jwks *Jwks) (string, error) {
 			cert = "-----BEGIN CERTIFICATE-----\n" + jwks.Keys[k].X5c[0] + "\n-----END CERTIFICATE-----"
 			return cert, nil
 		}
-		log.Debugf("generating validation pem from JWK")
+		log.WithContext(ctx).Debugf("generating validation pem from JWK")
 		return generatePemFromJWK(jwks.Keys[k])
 	}
 
@@ -295,7 +295,7 @@ func getMaxAgeFromCacheHeader(cacheControl string) int {
 			maxAgeStr := strings.TrimPrefix(directive, "max-age=")
 			maxAge, err := strconv.Atoi(maxAgeStr)
 			if err != nil {
-				log.Debugf("error parsing max-age: %v", err)
+				log.WithContext(ctx).Debugf("error parsing max-age: %v", err)
 				return 0
 			}
 

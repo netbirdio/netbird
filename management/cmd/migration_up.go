@@ -4,10 +4,11 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+
+	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/util"
 )
 
 var shortUp = "Migrate JSON file store to SQLite store. Please make a backup of the JSON file before running this command."
@@ -29,7 +30,7 @@ var upCmd = &cobra.Command{
 		if err := server.MigrateFileStoreToSqlite(mgmtDataDir); err != nil {
 			return err
 		}
-		log.Info("Migration finished successfully")
+		log.WithContext(ctx).Info("Migration finished successfully")
 
 		return nil
 	},

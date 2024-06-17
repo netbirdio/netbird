@@ -164,7 +164,7 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 	fn := func(rw http.ResponseWriter, r *http.Request) {
 		reqStart := time.Now()
 		traceID := hash(fmt.Sprintf("%v", r))
-		log.Tracef("HTTP request %v: %v %v", traceID, r.Method, r.URL)
+		log.WithContext(ctx).Tracef("HTTP request %v: %v %v", traceID, r.Method, r.URL)
 
 		metricKey := getRequestCounterKey(r.URL.Path, r.Method)
 
@@ -178,9 +178,9 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 		h.ServeHTTP(w, r)
 
 		if w.Status() > 399 {
-			log.Errorf("HTTP response %v: %v %v status %v", traceID, r.Method, r.URL, w.Status())
+			log.WithContext(ctx).Errorf("HTTP response %v: %v %v status %v", traceID, r.Method, r.URL, w.Status())
 		} else {
-			log.Tracef("HTTP response %v: %v %v status %v", traceID, r.Method, r.URL, w.Status())
+			log.WithContext(ctx).Tracef("HTTP response %v: %v %v status %v", traceID, r.Method, r.URL, w.Status())
 		}
 
 		metricKey = getResponseCounterKey(r.URL.Path, r.Method, w.Status())
@@ -198,7 +198,7 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 		if c, ok := m.httpRequestDurations[durationKey]; ok {
 			c.Record(m.ctx, reqTook.Milliseconds())
 		}
-		log.Debugf("request %s %s took %d ms and finished with status %d", r.Method, r.URL.Path, reqTook.Milliseconds(), w.Status())
+		log.WithContext(ctx).Debugf("request %s %s took %d ms and finished with status %d", r.Method, r.URL.Path, reqTook.Milliseconds(), w.Status())
 
 		if w.Status() == 200 && (r.Method == http.MethodPut || r.Method == http.MethodPost || r.Method == http.MethodDelete) {
 			opts := metric.WithAttributeSet(attribute.NewSet(attribute.String("type", "write")))

@@ -24,7 +24,7 @@ func CheckUncleanShutdown(wgIface string) error {
 		}
 	}
 
-	log.Warnf("detected unclean shutdown, file %s exists", fileUncleanShutdownResolvConfLocation)
+	log.WithContext(ctx).Warnf("detected unclean shutdown, file %s exists", fileUncleanShutdownResolvConfLocation)
 
 	managerData, err := os.ReadFile(fileUncleanShutdownManagerTypeLocation)
 	if err != nil {
@@ -42,7 +42,7 @@ func CheckUncleanShutdown(wgIface string) error {
 		return fmt.Errorf("parse dns address %s failed: %w", dnsAddressStr, err)
 	}
 
-	log.Warnf("restoring unclean shutdown dns settings via previously detected manager: %s", osManagerTypeStr)
+	log.WithContext(ctx).Warnf("restoring unclean shutdown dns settings via previously detected manager: %s", osManagerTypeStr)
 
 	// determine os manager type, so we can invoke the respective restore action
 	osManagerType, err := newOsManagerType(osManagerTypeStr)

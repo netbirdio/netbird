@@ -85,7 +85,7 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 		case "bearer":
 			err := m.checkJWTFromRequest(w, r, auth)
 			if err != nil {
-				log.Errorf("Error when validating JWT claims: %s", err.Error())
+				log.WithContext(ctx).Errorf("Error when validating JWT claims: %s", err.Error())
 				util.WriteError(status.Errorf(status.Unauthorized, "token invalid"), w)
 				return
 			}
@@ -93,7 +93,7 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 		case "token":
 			err := m.checkPATFromRequest(w, r, auth)
 			if err != nil {
-				log.Debugf("Error when validating PAT claims: %s", err.Error())
+				log.WithContext(ctx).Debugf("Error when validating PAT claims: %s", err.Error())
 				util.WriteError(status.Errorf(status.Unauthorized, "token invalid"), w)
 				return
 			}

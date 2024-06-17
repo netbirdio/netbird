@@ -142,7 +142,7 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 	if r.nftSet == nil {
 		err := m.rConn.DelRule(r.nftRule)
 		if err != nil {
-			log.Errorf("failed to delete rule: %v", err)
+			log.WithContext(ctx).Errorf("failed to delete rule: %v", err)
 		}
 		delete(m.rules, r.GetRuleID())
 		return m.rConn.Flush()
@@ -152,7 +152,7 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 	if !ok {
 		err := m.rConn.DelRule(r.nftRule)
 		if err != nil {
-			log.Errorf("failed to delete rule: %v", err)
+			log.WithContext(ctx).Errorf("failed to delete rule: %v", err)
 		}
 		delete(m.rules, r.GetRuleID())
 		return m.rConn.Flush()
@@ -160,10 +160,10 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 	if _, ok := ips[r.ip.String()]; ok {
 		err := m.sConn.SetDeleteElements(r.nftSet, []nftables.SetElement{{Key: r.ip.To4()}})
 		if err != nil {
-			log.Errorf("delete elements for set %q: %v", r.nftSet.Name, err)
+			log.WithContext(ctx).Errorf("delete elements for set %q: %v", r.nftSet.Name, err)
 		}
 		if err := m.sConn.Flush(); err != nil {
-			log.Debugf("flush error of set delete element, %s", r.nftSet.Name)
+			log.WithContext(ctx).Debugf("flush error of set delete element, %s", r.nftSet.Name)
 			return err
 		}
 		m.ipsetStore.DeleteIpFromSet(r.nftSet.Name, r.ip)
@@ -177,7 +177,7 @@ func (m *AclManager) DeleteRule(rule firewall.Rule) error {
 
 	err := m.rConn.DelRule(r.nftRule)
 	if err != nil {
-		log.Errorf("failed to delete rule: %v", err)
+		log.WithContext(ctx).Errorf("failed to delete rule: %v", err)
 	}
 	err = m.rConn.Flush()
 	if err != nil {
@@ -268,7 +268,7 @@ func (m *AclManager) createDefaultAllowRules() error {
 
 	err := m.rConn.Flush()
 	if err != nil {
-		log.Debugf("failed to create default allow rules: %s", err)
+		log.WithContext(ctx).Debugf("failed to create default allow rules: %s", err)
 		return err
 	}
 	return nil
@@ -283,15 +283,15 @@ func (m *AclManager) Flush() error {
 	}
 
 	if err := m.refreshRuleHandles(m.chainInputRules); err != nil {
-		log.Errorf("failed to refresh rule handles ipv4 input chain: %v", err)
+		log.WithContext(ctx).Errorf("failed to refresh rule handles ipv4 input chain: %v", err)
 	}
 
 	if err := m.refreshRuleHandles(m.chainOutputRules); err != nil {
-		log.Errorf("failed to refresh rule handles IPv4 output chain: %v", err)
+		log.WithContext(ctx).Errorf("failed to refresh rule handles IPv4 output chain: %v", err)
 	}
 
 	if err := m.refreshRuleHandles(m.chainPrerouting); err != nil {
-		log.Errorf("failed to refresh rule handles IPv4 prerouting chain: %v", err)
+		log.WithContext(ctx).Errorf("failed to refresh rule handles IPv4 prerouting chain: %v", err)
 	}
 
 	return nil
@@ -584,7 +584,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	chain := m.createChain(chainNameInputRules)
 	err = m.rConn.Flush()
 	if err != nil {
-		log.Debugf("failed to create chain (%s): %s", chain.Name, err)
+		log.WithContext(ctx).Debugf("failed to create chain (%s): %s", chain.Name, err)
 		return err
 	}
 	m.chainInputRules = chain
@@ -593,7 +593,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	chain = m.createChain(chainNameOutputRules)
 	err = m.rConn.Flush()
 	if err != nil {
-		log.Debugf("failed to create chain (%s): %s", chainNameOutputRules, err)
+		log.WithContext(ctx).Debugf("failed to create chain (%s): %s", chainNameOutputRules, err)
 		return err
 	}
 	m.chainOutputRules = chain
@@ -601,14 +601,14 @@ func (m *AclManager) createDefaultChains() (err error) {
 	// netbird-acl-input-filter
 	// type filter hook input priority filter; policy accept;
 	chain = m.createFilterChainWithHook(chainNameInputFilter, nftables.ChainHookInput)
-	//netbird-acl-input-filter iifname "wt0" ip saddr 100.72.0.0/16 ip daddr != 100.72.0.0/16 accept
+	// netbird-acl-input-filter iifname "wt0" ip saddr 100.72.0.0/16 ip daddr != 100.72.0.0/16 accept
 	m.addRouteAllowRule(chain, expr.MetaKeyIIFNAME)
 	m.addFwdAllow(chain, expr.MetaKeyIIFNAME)
 	m.addJumpRule(chain, m.chainInputRules.Name, expr.MetaKeyIIFNAME) // to netbird-acl-input-rules
 	m.addDropExpressions(chain, expr.MetaKeyIIFNAME)
 	err = m.rConn.Flush()
 	if err != nil {
-		log.Debugf("failed to create chain (%s): %s", chain.Name, err)
+		log.WithContext(ctx).Debugf("failed to create chain (%s): %s", chain.Name, err)
 		return err
 	}
 
@@ -621,7 +621,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	m.addDropExpressions(chain, expr.MetaKeyOIFNAME)
 	err = m.rConn.Flush()
 	if err != nil {
-		log.Debugf("failed to create chain (%s): %s", chainNameOutputFilter, err)
+		log.WithContext(ctx).Debugf("failed to create chain (%s): %s", chainNameOutputFilter, err)
 		return err
 	}
 
@@ -633,7 +633,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	m.addDropExpressions(m.chainFwFilter, expr.MetaKeyIIFNAME)
 	err = m.rConn.Flush()
 	if err != nil {
-		log.Debugf("failed to create chain (%s): %s", chainNameForwardFilter, err)
+		log.WithContext(ctx).Debugf("failed to create chain (%s): %s", chainNameForwardFilter, err)
 		return err
 	}
 
@@ -642,7 +642,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	m.chainPrerouting = m.createPreroutingMangle()
 	err = m.rConn.Flush()
 	if err != nil {
-		log.Debugf("failed to create chain (%s): %s", m.chainPrerouting.Name, err)
+		log.WithContext(ctx).Debugf("failed to create chain (%s): %s", m.chainPrerouting.Name, err)
 		return err
 	}
 	return nil
@@ -1095,7 +1095,7 @@ func (m *AclManager) flushWithBackoff() (err error) {
 			if !strings.Contains(err.Error(), "busy") {
 				return
 			}
-			log.Error("failed to flush nftables, retrying...")
+			log.WithContext(ctx).Error("failed to flush nftables, retrying...")
 			if i == backoff-1 {
 				return err
 			}

@@ -78,7 +78,7 @@ func (e *EphemeralManager) OnPeerConnected(peer *nbpeer.Peer) {
 		return
 	}
 
-	log.Tracef("remove peer from ephemeral list: %s", peer.ID)
+	log.WithContext(ctx).Tracef("remove peer from ephemeral list: %s", peer.ID)
 
 	e.peersLock.Lock()
 	defer e.peersLock.Unlock()
@@ -99,11 +99,11 @@ func (e *EphemeralManager) OnPeerDisconnected(peer *nbpeer.Peer) {
 		return
 	}
 
-	log.Tracef("add peer to ephemeral list: %s", peer.ID)
+	log.WithContext(ctx).Tracef("add peer to ephemeral list: %s", peer.ID)
 
 	a, err := e.store.GetAccountByPeerID(peer.ID)
 	if err != nil {
-		log.Errorf("failed to add peer to ephemeral list: %s", err)
+		log.WithContext(ctx).Errorf("failed to add peer to ephemeral list: %s", err)
 		return
 	}
 
@@ -132,11 +132,11 @@ func (e *EphemeralManager) loadEphemeralPeers() {
 			}
 		}
 	}
-	log.Debugf("loaded ephemeral peer(s): %d", count)
+	log.WithContext(ctx).Debugf("loaded ephemeral peer(s): %d", count)
 }
 
 func (e *EphemeralManager) cleanup() {
-	log.Tracef("on ephemeral cleanup")
+	log.WithContext(ctx).Tracef("on ephemeral cleanup")
 	deletePeers := make(map[string]*ephemeralPeer)
 
 	e.peersLock.Lock()
@@ -162,10 +162,10 @@ func (e *EphemeralManager) cleanup() {
 	e.peersLock.Unlock()
 
 	for id, p := range deletePeers {
-		log.Debugf("delete ephemeral peer: %s", id)
+		log.WithContext(ctx).Debugf("delete ephemeral peer: %s", id)
 		err := e.accountManager.DeletePeer(p.account.Id, id, activity.SystemInitiator)
 		if err != nil {
-			log.Errorf("failed to delete ephemeral peer: %s", err)
+			log.WithContext(ctx).Errorf("failed to delete ephemeral peer: %s", err)
 		}
 	}
 }

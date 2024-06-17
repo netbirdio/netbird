@@ -45,12 +45,12 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 
 	m.router, err = newRouterManager(context, iptablesClient)
 	if err != nil {
-		log.Debugf("failed to initialize route related chains: %s", err)
+		log.WithContext(ctx).Debugf("failed to initialize route related chains: %s", err)
 		return nil, err
 	}
 	m.aclMgr, err = newAclManager(iptablesClient, wgIface, m.router.RouteingFwChainName())
 	if err != nil {
-		log.Debugf("failed to initialize ACL manager: %s", err)
+		log.WithContext(ctx).Debugf("failed to initialize ACL manager: %s", err)
 		return nil, err
 	}
 
@@ -109,11 +109,11 @@ func (m *Manager) Reset() error {
 
 	errAcl := m.aclMgr.Reset()
 	if errAcl != nil {
-		log.Errorf("failed to clean up ACL rules from firewall: %s", errAcl)
+		log.WithContext(ctx).Errorf("failed to clean up ACL rules from firewall: %s", errAcl)
 	}
 	errMgr := m.router.Reset()
 	if errMgr != nil {
-		log.Errorf("failed to clean up router rules from firewall: %s", errMgr)
+		log.WithContext(ctx).Errorf("failed to clean up router rules from firewall: %s", errMgr)
 		return errMgr
 	}
 	return errAcl

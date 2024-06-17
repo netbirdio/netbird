@@ -19,7 +19,7 @@ func CreateCertManager(datadir string, letsencryptDomain string) (*autocert.Mana
 		}
 	}
 
-	log.Infof("running with LetsEncrypt (%s). Cert will be stored in %s", letsencryptDomain, certDir)
+	log.WithContext(ctx).Infof("running with LetsEncrypt (%s). Cert will be stored in %s", letsencryptDomain, certDir)
 
 	certManager := &autocert.Manager{
 		Prompt:     autocert.AcceptTOS,

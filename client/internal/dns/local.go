@@ -37,7 +37,7 @@ func (d *localResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 	err := w.WriteMsg(replyMessage)
 	if err != nil {
-		log.Debugf("got an error while writing the local resolver response, error: %v", err)
+		log.WithContext(ctx).Debugf("got an error while writing the local resolver response, error: %v", err)
 	}
 }
 

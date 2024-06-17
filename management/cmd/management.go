@@ -165,7 +165,7 @@ var (
 			}
 
 			if config.DataStoreEncryptionKey != key {
-				log.Infof("update config with activity store key")
+				log.WithContext(ctx).Infof("update config with activity store key")
 				config.DataStoreEncryptionKey = key
 				err := updateMgmtConfig(mgmtConfig, config)
 				if err != nil {
@@ -175,9 +175,9 @@ var (
 
 			geo, err := geolocation.NewGeolocation(config.Datadir)
 			if err != nil {
-				log.Warnf("could not initialize geo location service: %v, we proceed without geo support", err)
+				log.WithContext(ctx).Warnf("could not initialize geo location service: %v, we proceed without geo support", err)
 			} else {
-				log.Infof("geo location service has been initialized from %s", config.Datadir)
+				log.WithContext(ctx).Infof("geo location service has been initialized from %s", config.Datadir)
 			}
 
 			integratedPeerValidator, err := integrations.NewIntegratedValidator(eventStore)
@@ -195,13 +195,13 @@ var (
 			trustedPeers := config.ReverseProxy.TrustedPeers
 			defaultTrustedPeers := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
 			if len(trustedPeers) == 0 || slices.Equal[[]netip.Prefix](trustedPeers, defaultTrustedPeers) {
-				log.Warn("TrustedPeers are configured to default value '0.0.0.0/0', '::/0'. This allows connection IP spoofing.")
+				log.WithContext(ctx).Warn("TrustedPeers are configured to default value '0.0.0.0/0', '::/0'. This allows connection IP spoofing.")
 				trustedPeers = defaultTrustedPeers
 			}
 			trustedHTTPProxies := config.ReverseProxy.TrustedHTTPProxies
 			trustedProxiesCount := config.ReverseProxy.TrustedHTTPProxiesCount
 			if len(trustedHTTPProxies) > 0 && trustedProxiesCount > 0 {
-				log.Warn("TrustedHTTPProxies and TrustedHTTPProxiesCount both are configured. " +
+				log.WithContext(ctx).Warn("TrustedHTTPProxies and TrustedHTTPProxiesCount both are configured. " +
 					"This is not recommended way to extract X-Forwarded-For. Consider using one of these options.")
 			}
 			realipOpts := []realip.Option{
@@ -231,7 +231,7 @@ var (
 			} else if config.HttpConfig.CertFile != "" && config.HttpConfig.CertKey != "" {
 				tlsConfig, err = loadTLSConfig(config.HttpConfig.CertFile, config.HttpConfig.CertKey)
 				if err != nil {
-					log.Errorf("cannot load TLS credentials: %v", err)
+					log.WithContext(ctx).Errorf("cannot load TLS credentials: %v", err)
 					return err
 				}
 				transportCredentials := credentials.NewTLS(tlsConfig)
@@ -273,7 +273,7 @@ var (
 
 			installationID, err := getInstallationID(store)
 			if err != nil {
-				log.Errorf("cannot load TLS credentials: %v", err)
+				log.WithContext(ctx).Errorf("cannot load TLS credentials: %v", err)
 				return err
 			}
 
@@ -294,7 +294,7 @@ var (
 				if err != nil {
 					return err
 				}
-				log.Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
+				log.WithContext(ctx).Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
 			}
 
 			rootHandler := handlerFunc(gRPCAPIHandler, httpAPIHandler)
@@ -311,7 +311,7 @@ var (
 					if err != nil {
 						return fmt.Errorf("failed creating TLS listener on port %d: %v", mgmtPort, err)
 					}
-					log.Infof("running HTTP server (LetsEncrypt challenge handler): %s", cml.Addr().String())
+					log.WithContext(ctx).Infof("running HTTP server (LetsEncrypt challenge handler): %s", cml.Addr().String())
 					serveHTTP(cml, certManager.HTTPHandler(nil))
 				}
 			} else if tlsConfig != nil {
@@ -326,8 +326,8 @@ var (
 				}
 			}
 
-			log.Infof("management server version %s", version.NetbirdVersion())
-			log.Infof("running HTTP server and gRPC server on the same port: %s", listener.Addr().String())
+			log.WithContext(ctx).Infof("management server version %s", version.NetbirdVersion())
+			log.WithContext(ctx).Infof("running HTTP server and gRPC server on the same port: %s", listener.Addr().String())
 			serveGRPCWithHTTP(listener, rootHandler, tlsEnabled)
 
 			SetupCloseHandler()
@@ -346,7 +346,7 @@ var (
 			gRPCAPIHandler.Stop()
 			_ = store.Close()
 			_ = eventStore.Close()
-			log.Infof("stopped Management Service")
+			log.WithContext(ctx).Infof("stopped Management Service")
 
 			return nil
 		},
@@ -385,7 +385,7 @@ func streamInterceptor(
 func notifyStop(msg string) {
 	select {
 	case stopCh <- 1:
-		log.Error(msg)
+		log.WithContext(ctx).Error(msg)
 	default:
 		// stop has been already called, nothing to report
 	}
@@ -445,7 +445,7 @@ func serveGRPCWithHTTP(listener net.Listener, handler http.Handler, tlsEnabled b
 		if err != nil {
 			select {
 			case stopCh <- 1:
-				log.Errorf("failed to serve HTTP and gRPC server: %v", err)
+				log.WithContext(ctx).Errorf("failed to serve HTTP and gRPC server: %v", err)
 			default:
 				// stop has been already called, nothing to report
 			}
@@ -486,26 +486,26 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 	oidcEndpoint := loadedConfig.HttpConfig.OIDCConfigEndpoint
 	if oidcEndpoint != "" {
 		// if OIDCConfigEndpoint is specified, we can load DeviceAuthEndpoint and TokenEndpoint automatically
-		log.Infof("loading OIDC configuration from the provided IDP configuration endpoint %s", oidcEndpoint)
+		log.WithContext(ctx).Infof("loading OIDC configuration from the provided IDP configuration endpoint %s", oidcEndpoint)
 		oidcConfig, err := fetchOIDCConfig(oidcEndpoint)
 		if err != nil {
 			return nil, err
 		}
-		log.Infof("loaded OIDC configuration from the provided IDP configuration endpoint: %s", oidcEndpoint)
+		log.WithContext(ctx).Infof("loaded OIDC configuration from the provided IDP configuration endpoint: %s", oidcEndpoint)
 
-		log.Infof("overriding HttpConfig.AuthIssuer with a new value %s, previously configured value: %s",
+		log.WithContext(ctx).Infof("overriding HttpConfig.AuthIssuer with a new value %s, previously configured value: %s",
 			oidcConfig.Issuer, loadedConfig.HttpConfig.AuthIssuer)
 		loadedConfig.HttpConfig.AuthIssuer = oidcConfig.Issuer
 
-		log.Infof("overriding HttpConfig.AuthKeysLocation (JWT certs) with a new value %s, previously configured value: %s",
+		log.WithContext(ctx).Infof("overriding HttpConfig.AuthKeysLocation (JWT certs) with a new value %s, previously configured value: %s",
 			oidcConfig.JwksURI, loadedConfig.HttpConfig.AuthKeysLocation)
 		loadedConfig.HttpConfig.AuthKeysLocation = oidcConfig.JwksURI
 
 		if !(loadedConfig.DeviceAuthorizationFlow == nil || strings.ToLower(loadedConfig.DeviceAuthorizationFlow.Provider) == string(server.NONE)) {
-			log.Infof("overriding DeviceAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
+			log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
 				oidcConfig.TokenEndpoint, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint)
 			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
-			log.Infof("overriding DeviceAuthorizationFlow.DeviceAuthEndpoint with a new value: %s, previously configured value: %s",
+			log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.DeviceAuthEndpoint with a new value: %s, previously configured value: %s",
 				oidcConfig.DeviceAuthEndpoint, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint)
 			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint = oidcConfig.DeviceAuthEndpoint
 
@@ -513,7 +513,7 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 			if err != nil {
 				return nil, err
 			}
-			log.Infof("overriding DeviceAuthorizationFlow.ProviderConfig.Domain with a new value: %s, previously configured value: %s",
+			log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.ProviderConfig.Domain with a new value: %s, previously configured value: %s",
 				u.Host, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Domain)
 			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Domain = u.Host
 
@@ -523,10 +523,10 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 		}
 
 		if loadedConfig.PKCEAuthorizationFlow != nil {
-			log.Infof("overriding PKCEAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
+			log.WithContext(ctx).Infof("overriding PKCEAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
 				oidcConfig.TokenEndpoint, loadedConfig.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint)
 			loadedConfig.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
-			log.Infof("overriding PKCEAuthorizationFlow.AuthorizationEndpoint with a new value: %s, previously configured value: %s",
+			log.WithContext(ctx).Infof("overriding PKCEAuthorizationFlow.AuthorizationEndpoint with a new value: %s, previously configured value: %s",
 				oidcConfig.AuthorizationEndpoint, loadedConfig.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint)
 			loadedConfig.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint = oidcConfig.AuthorizationEndpoint
 		}
@@ -558,7 +558,7 @@ func fetchOIDCConfig(oidcEndpoint string) (OIDCConfigResponse, error) {
 	defer func() {
 		err := res.Body.Close()
 		if err != nil {
-			log.Debugf("failed closing response body %v", err)
+			log.WithContext(ctx).Debugf("failed closing response body %v", err)
 		}
 	}()
 

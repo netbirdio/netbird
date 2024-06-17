@@ -87,7 +87,7 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(peerID string) {
 	m.cancel(peerID)
 	cancel := make(chan struct{}, 1)
 	m.cancelMap[peerID] = cancel
-	log.Debugf("starting turn refresh for %s", peerID)
+	log.WithContext(ctx).Debugf("starting turn refresh for %s", peerID)
 
 	go func() {
 		// we don't want to regenerate credentials right on expiration, so we do it slightly before (at 3/4 of TTL)
@@ -96,7 +96,7 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(peerID string) {
 		for {
 			select {
 			case <-cancel:
-				log.Debugf("stopping turn refresh for %s", peerID)
+				log.WithContext(ctx).Debugf("stopping turn refresh for %s", peerID)
 				return
 			case <-ticker.C:
 				c := m.GenerateCredentials()
@@ -117,7 +117,7 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(peerID string) {
 						Turns: turns,
 					},
 				}
-				log.Debugf("sending new TURN credentials to peer %s", peerID)
+				log.WithContext(ctx).Debugf("sending new TURN credentials to peer %s", peerID)
 				m.updateManager.SendUpdate(peerID, &UpdateMessage{Update: update})
 			}
 		}

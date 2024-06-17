@@ -151,7 +151,7 @@ func toProtocolDNSConfig(update nbdns.Config) *proto.DNSConfig {
 
 func getPeersCustomZone(account *Account, dnsDomain string) nbdns.CustomZone {
 	if dnsDomain == "" {
-		log.Errorf("no dns domain is set, returning empty zone")
+		log.WithContext(ctx).Errorf("no dns domain is set, returning empty zone")
 		return nbdns.CustomZone{}
 	}
 
@@ -161,7 +161,7 @@ func getPeersCustomZone(account *Account, dnsDomain string) nbdns.CustomZone {
 
 	for _, peer := range account.Peers {
 		if peer.DNSLabel == "" {
-			log.Errorf("found a peer with empty dns label. It was probably caused by a invalid character in its name. Peer Name: %s", peer.Name)
+			log.WithContext(ctx).Errorf("found a peer with empty dns label. It was probably caused by a invalid character in its name. Peer Name: %s", peer.Name)
 			continue
 		}
 
@@ -214,10 +214,10 @@ func addPeerLabelsToAccount(account *Account, peerLabels lookupMap) {
 	for _, peer := range account.Peers {
 		label, err := getPeerHostLabel(peer.Name, peerLabels)
 		if err != nil {
-			log.Errorf("got an error while generating a peer host label. Peer name %s, error: %v. Trying with the peer's meta hostname", peer.Name, err)
+			log.WithContext(ctx).Errorf("got an error while generating a peer host label. Peer name %s, error: %v. Trying with the peer's meta hostname", peer.Name, err)
 			label, err = getPeerHostLabel(peer.Meta.Hostname, peerLabels)
 			if err != nil {
-				log.Errorf("got another error while generating a peer host label with hostname. Peer hostname %s, error: %v. Skipping", peer.Meta.Hostname, err)
+				log.WithContext(ctx).Errorf("got another error while generating a peer host label with hostname. Peer hostname %s, error: %v. Skipping", peer.Meta.Hostname, err)
 				continue
 			}
 		}

@@ -262,7 +262,7 @@ func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*nbpeer.Peer, in
 
 	all, err := a.GetGroupAll()
 	if err != nil {
-		log.Errorf("failed to get group all: %v", err)
+		log.WithContext(ctx).Errorf("failed to get group all: %v", err)
 		all = &nbgroup.Group{}
 	}
 
@@ -542,7 +542,7 @@ func (a *Account) validatePostureChecksOnPeer(sourcePostureChecksID []string, pe
 		for _, check := range postureChecks.GetChecks() {
 			isValid, err := check.Check(*peer)
 			if err != nil {
-				log.Debugf("an error occurred check %s: on peer: %s :%s", check.Name(), peer.ID, err.Error())
+				log.WithContext(ctx).Debugf("an error occurred check %s: on peer: %s :%s", check.Name(), peer.ID, err.Error())
 			}
 			if !isValid {
 				return false
