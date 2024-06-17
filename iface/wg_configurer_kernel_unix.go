@@ -24,7 +24,7 @@ func newWGConfigurer(deviceName string) wgConfigurer {
 }
 
 func (c *wgKernelConfigurer) configureInterface(privateKey string, port int) error {
-	log.WithContext(ctx).Debugf("adding Wireguard private key")
+	log.Debugf("adding Wireguard private key")
 	key, err := wgtypes.ParseKey(privateKey)
 	if err != nil {
 		return err
@@ -172,7 +172,7 @@ func (c *wgKernelConfigurer) getPeer(ifaceName, peerPubKey string) (wgtypes.Peer
 	defer func() {
 		err = wg.Close()
 		if err != nil {
-			log.WithContext(ctx).Errorf("Got error while closing wgctl: %v", err)
+			log.Errorf("Got error while closing wgctl: %v", err)
 		}
 	}()
 

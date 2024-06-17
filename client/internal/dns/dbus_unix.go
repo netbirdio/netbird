@@ -42,7 +42,7 @@ func getDbusObject(dest string, path dbus.ObjectPath) (dbus.BusObject, func(), e
 	closeFunc := func() {
 		closeErr := conn.Close()
 		if closeErr != nil {
-			log.WithContext(ctx).Warnf("got an error closing dbus connection, err: %s", closeErr)
+			log.Warnf("got an error closing dbus connection, err: %s", closeErr)
 		}
 	}
 

@@ -74,7 +74,7 @@ func (c *clientNetwork) getRouterPeerStatuses() map[route.ID]routerPeerStatus {
 	for _, r := range c.routes {
 		peerStatus, err := c.statusRecorder.GetPeer(r.Peer)
 		if err != nil {
-			log.WithContext(ctx).Debugf("couldn't fetch peer state: %v", err)
+			log.Debugf("couldn't fetch peer state: %v", err)
 			continue
 		}
 		routePeerStatuses[r.ID] = routerPeerStatus{
@@ -127,7 +127,7 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]
 		if peerStatus.latency != 0 {
 			latency = peerStatus.latency
 		} else {
-			log.WithContext(ctx).Warnf("peer %s has 0 latency", r.Peer)
+			log.Warnf("peer %s has 0 latency", r.Peer)
 		}
 		tempScore += 1 - latency.Seconds()
 
@@ -161,18 +161,18 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]
 			peers = append(peers, r.Peer)
 		}
 
-		log.WithContext(ctx).Warnf("The network [%v] has not been assigned a routing peer as no peers from the list %s are currently connected", c.handler, peers)
+		log.Warnf("The network [%v] has not been assigned a routing peer as no peers from the list %s are currently connected", c.handler, peers)
 	case chosen != currID:
 		// we compare the current score + 10ms to the chosen score to avoid flapping between routes
 		if currScore != 0 && currScore+0.01 > chosenScore {
-			log.WithContext(ctx).Debugf("Keeping current routing peer because the score difference with latency is less than 0.01(10ms), current: %f, new: %f", currScore, chosenScore)
+			log.Debugf("Keeping current routing peer because the score difference with latency is less than 0.01(10ms), current: %f, new: %f", currScore, chosenScore)
 			return currID
 		}
 		var p string
 		if rt := c.routes[chosen]; rt != nil {
 			p = rt.Peer
 		}
-		log.WithContext(ctx).Infof("New chosen route is %s with peer %s with score %f for network [%v]", chosen, p, chosenScore, c.handler)
+		log.Infof("New chosen route is %s with peer %s with score %f for network [%v]", chosen, p, chosenScore, c.handler)
 	}
 
 	return chosen
@@ -191,7 +191,7 @@ func (c *clientNetwork) watchPeerStatusChanges(ctx context.Context, peerKey stri
 				continue
 			}
 			peerStateUpdate <- struct{}{}
-			log.WithContext(ctx).Debugf("triggered route state update for Peer %s, state: %s", peerKey, state.ConnStatus)
+			log.Debugf("triggered route state update for Peer %s, state: %s", peerKey, state.ConnStatus)
 		}
 	}
 }
@@ -280,26 +280,26 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 func (c *clientNetwork) addStateRoute() {
 	state, err := c.statusRecorder.GetPeer(c.currentChosen.Peer)
 	if err != nil {
-		log.WithContext(ctx).Errorf("Failed to get peer state: %v", err)
+		log.Errorf("Failed to get peer state: %v", err)
 		return
 	}
 
 	state.AddRoute(c.handler.String())
 	if err := c.statusRecorder.UpdatePeerState(state); err != nil {
-		log.WithContext(ctx).Warnf("Failed to update peer state: %v", err)
+		log.Warnf("Failed to update peer state: %v", err)
 	}
 }
 
 func (c *clientNetwork) removeStateRoute() {
 	state, err := c.statusRecorder.GetPeer(c.currentChosen.Peer)
 	if err != nil {
-		log.WithContext(ctx).Errorf("Failed to get peer state: %v", err)
+		log.Errorf("Failed to get peer state: %v", err)
 		return
 	}
 
 	state.DeleteRoute(c.handler.String())
 	if err := c.statusRecorder.UpdatePeerState(state); err != nil {
-		log.WithContext(ctx).Warnf("Failed to update peer state: %v", err)
+		log.Warnf("Failed to update peer state: %v", err)
 	}
 }
 
@@ -333,23 +333,23 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 	for {
 		select {
 		case <-c.ctx.Done():
-			log.WithContext(ctx).Debugf("Stopping watcher for network [%v]", c.handler)
+			log.Debugf("Stopping watcher for network [%v]", c.handler)
 			if err := c.removeRouteFromPeerAndSystem(); err != nil {
-				log.WithContext(ctx).Errorf("Failed to remove routes for [%v]: %v", c.handler, err)
+				log.Errorf("Failed to remove routes for [%v]: %v", c.handler, err)
 			}
 			return
 		case <-c.peerStateUpdate:
 			err := c.recalculateRouteAndUpdatePeerAndSystem()
 			if err != nil {
-				log.WithContext(ctx).Errorf("Failed to recalculate routes for network [%v]: %v", c.handler, err)
+				log.Errorf("Failed to recalculate routes for network [%v]: %v", c.handler, err)
 			}
 		case update := <-c.routeUpdate:
 			if update.updateSerial < c.updateSerial {
-				log.WithContext(ctx).Warnf("Received a routes update with smaller serial number (%d -> %d), ignoring it", c.updateSerial, update.updateSerial)
+				log.Warnf("Received a routes update with smaller serial number (%d -> %d), ignoring it", c.updateSerial, update.updateSerial)
 				continue
 			}
 
-			log.WithContext(ctx).Debugf("Received a new client network route update for [%v]", c.handler)
+			log.Debugf("Received a new client network route update for [%v]", c.handler)
 
 			c.handleUpdate(update)
 
@@ -357,7 +357,7 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 
 			err := c.recalculateRouteAndUpdatePeerAndSystem()
 			if err != nil {
-				log.WithContext(ctx).Errorf("Failed to recalculate routes for network [%v]: %v", c.handler, err)
+				log.Errorf("Failed to recalculate routes for network [%v]: %v", c.handler, err)
 			}
 
 			c.startPeersStatusChangeWatcher()

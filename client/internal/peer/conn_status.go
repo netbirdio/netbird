@@ -23,7 +23,7 @@ func (s ConnStatus) String() string {
 	case StatusDisconnected:
 		return "Disconnected"
 	default:
-		log.WithContext(ctx).Errorf("unknown status: %d", s)
+		log.Errorf("unknown status: %d", s)
 		return "INVALID_PEER_CONNECTION_STATUS"
 	}
 }

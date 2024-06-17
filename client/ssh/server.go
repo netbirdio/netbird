@@ -96,7 +96,7 @@ func (srv *DefaultServer) Stop() error {
 	for _, session := range srv.sessions {
 		err := session.Close()
 		if err != nil {
-			log.WithContext(ctx).Warnf("failed closing SSH session from %v", err)
+			log.Warnf("failed closing SSH session from %v", err)
 		}
 	}
 
@@ -145,7 +145,7 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 		}
 	}()
 
-	log.WithContext(ctx).Infof("Establishing SSH session for %s from host %s", session.User(), session.RemoteAddr().String())
+	log.Infof("Establishing SSH session for %s from host %s", session.User(), session.RemoteAddr().String())
 
 	localUser, err := userNameLookup(session.User())
 	if err != nil {
@@ -154,7 +154,7 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 		if err != nil {
 			return
 		}
-		log.WithContext(ctx).Warnf("failed SSH session from %v, user %s", session.RemoteAddr(), session.User())
+		log.Warnf("failed SSH session from %v, user %s", session.RemoteAddr(), session.User())
 		return
 	}
 
@@ -162,7 +162,7 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 	if isPty {
 		loginCmd, loginArgs, err := getLoginCmd(localUser.Username, session.RemoteAddr())
 		if err != nil {
-			log.WithContext(ctx).Warnf("failed logging-in user %s from remote IP %s", localUser.Username, session.RemoteAddr().String())
+			log.Warnf("failed logging-in user %s from remote IP %s", localUser.Username, session.RemoteAddr().String())
 			return
 		}
 		cmd := exec.Command(loginCmd, loginArgs...)
@@ -182,10 +182,10 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 			}
 		}
 
-		log.WithContext(ctx).Debugf("Login command: %s", cmd.String())
+		log.Debugf("Login command: %s", cmd.String())
 		file, err := pty.Start(cmd)
 		if err != nil {
-			log.WithContext(ctx).Errorf("failed starting SSH server %v", err)
+			log.Errorf("failed starting SSH server %v", err)
 		}
 
 		go func() {
@@ -210,7 +210,7 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 			return
 		}
 	}
-	log.WithContext(ctx).Debugf("SSH session ended")
+	log.Debugf("SSH session ended")
 }
 
 func (srv *DefaultServer) stdInOut(file *os.File, session ssh.Session) {
@@ -245,7 +245,7 @@ func (srv *DefaultServer) stdInOut(file *os.File, session ssh.Session) {
 
 // Start starts SSH server. Blocking
 func (srv *DefaultServer) Start() error {
-	log.WithContext(ctx).Infof("starting SSH server on addr: %s", srv.listener.Addr().String())
+	log.Infof("starting SSH server on addr: %s", srv.listener.Addr().String())
 
 	publicKeyOption := ssh.PublicKeyAuth(srv.publicKeyHandler)
 	hostKeyPEM := ssh.HostKeyPEM(srv.hostKeyPEM)

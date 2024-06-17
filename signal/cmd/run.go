@@ -112,7 +112,7 @@ var (
 			grpcServer := grpc.NewServer(opts...)
 
 			go func() {
-				log.WithContext(ctx).Infof("running metrics server: %s%s", metricsServer.Addr, metricsServer.Endpoint)
+				log.Infof("running metrics server: %s%s", metricsServer.Addr, metricsServer.Endpoint)
 				if err := metricsServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 					log.Fatalf("Failed to start metrics server: %v", err)
 				}
@@ -132,7 +132,7 @@ var (
 				if err != nil {
 					return err
 				}
-				log.WithContext(ctx).Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
+				log.Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
 			}
 
 			var grpcListener net.Listener
@@ -142,10 +142,10 @@ var (
 				if signalPort == 443 {
 					// running gRPC and HTTP cert manager on the same port
 					serveHTTP(httpListener, certManager.HTTPHandler(grpcHandlerFunc(grpcServer)))
-					log.WithContext(ctx).Infof("running HTTP server (LetsEncrypt challenge handler) and gRPC server on the same port: %s", httpListener.Addr().String())
+					log.Infof("running HTTP server (LetsEncrypt challenge handler) and gRPC server on the same port: %s", httpListener.Addr().String())
 				} else {
 					serveHTTP(httpListener, certManager.HTTPHandler(nil))
-					log.WithContext(ctx).Infof("running HTTP server (LetsEncrypt challenge handler): %s", httpListener.Addr().String())
+					log.Infof("running HTTP server (LetsEncrypt challenge handler): %s", httpListener.Addr().String())
 				}
 			}
 
@@ -154,36 +154,36 @@ var (
 				if err != nil {
 					return err
 				}
-				log.WithContext(ctx).Infof("running gRPC server: %s", grpcListener.Addr().String())
+				log.Infof("running gRPC server: %s", grpcListener.Addr().String())
 			}
 
-			log.WithContext(ctx).Infof("signal server version %s", version.NetbirdVersion())
-			log.WithContext(ctx).Infof("started Signal Service")
+			log.Infof("signal server version %s", version.NetbirdVersion())
+			log.Infof("started Signal Service")
 
 			SetupCloseHandler()
 
 			<-stopCh
 			if grpcListener != nil {
 				_ = grpcListener.Close()
-				log.WithContext(ctx).Infof("stopped gRPC server")
+				log.Infof("stopped gRPC server")
 			}
 			if httpListener != nil {
 				_ = httpListener.Close()
-				log.WithContext(ctx).Infof("stopped HTTP server")
+				log.Infof("stopped HTTP server")
 			}
 			if compatListener != nil {
 				_ = compatListener.Close()
-				log.WithContext(ctx).Infof("stopped gRPC backward compatibility server")
+				log.Infof("stopped gRPC backward compatibility server")
 			}
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
 			defer cancel()
 			if err := metricsServer.Shutdown(ctx); err != nil {
-				log.WithContext(ctx).Errorf("Failed to stop metrics server: %v", err)
+				log.Errorf("Failed to stop metrics server: %v", err)
 			}
-			log.WithContext(ctx).Infof("stopped metrics server")
+			log.Infof("stopped metrics server")
 
-			log.WithContext(ctx).Infof("stopped Signal Service")
+			log.Infof("stopped Signal Service")
 
 			return nil
 		},
@@ -203,7 +203,7 @@ func grpcHandlerFunc(grpcServer *grpc.Server) http.Handler {
 func notifyStop(msg string) {
 	select {
 	case stopCh <- 1:
-		log.WithContext(ctx).Error(msg)
+		log.Error(msg)
 	default:
 		// stop has been already called, nothing to report
 	}

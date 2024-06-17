@@ -69,7 +69,7 @@ func Listen(port int, filter BPFFilter) (_ net.PacketConn, err error) {
 	defer func() {
 		if err != nil {
 			if closeErr := rawSock.Close(); closeErr != nil {
-				log.WithContext(ctx).Errorf("Failed to close raw socket: %v", closeErr)
+				log.Errorf("Failed to close raw socket: %v", closeErr)
 			}
 		}
 	}()
@@ -91,7 +91,7 @@ func Listen(port int, filter BPFFilter) (_ net.PacketConn, err error) {
 	var sockErr error
 	rawSock.conn6, sockErr = socket.Socket(unix.AF_INET6, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp6", nil)
 	if sockErr != nil {
-		log.WithContext(ctx).Errorf("Failed to create ipv6 raw socket: %v", err)
+		log.Errorf("Failed to create ipv6 raw socket: %v", err)
 	} else {
 		if err = nbnet.SetSocketMark(rawSock.conn6); err != nil {
 			return nil, fmt.Errorf("failed to set SO_MARK on ipv6 socket: %w", err)
@@ -136,7 +136,7 @@ func (s *SharedSocket) updateRouter() {
 		case <-ticker.C:
 			router, err := netroute.New()
 			if err != nil {
-				log.WithContext(ctx).Errorf("Failed to create and update packet router for stunListener: %s", err)
+				log.Errorf("Failed to create and update packet router for stunListener: %s", err)
 				continue
 			}
 			s.routerMux.Lock()

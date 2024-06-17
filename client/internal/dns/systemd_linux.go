@@ -73,7 +73,7 @@ func newSystemdDbusConfigurator(wgInterface string) (hostManager, error) {
 		return nil, fmt.Errorf("get dbus link method: %w", err)
 	}
 
-	log.WithContext(ctx).Debugf("got dbus Link interface: %s from net interface %s and index %d", s, iface.Name, iface.Index)
+	log.Debugf("got dbus Link interface: %s from net interface %s and index %d", s, iface.Name, iface.Index)
 
 	return &systemdDbusConfigurator{
 		dbusLinkObject: dbus.ObjectPath(s),
@@ -121,7 +121,7 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	}
 
 	if config.RouteAll {
-		log.WithContext(ctx).Infof("configured %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
+		log.Infof("configured %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
 		err = s.callLinkMethod(systemdDbusSetDefaultRouteMethodSuffix, true)
 		if err != nil {
 			return fmt.Errorf("setting link as default dns router, failed with error: %w", err)
@@ -132,19 +132,19 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig) error {
 		})
 		s.routingAll = true
 	} else if s.routingAll {
-		log.WithContext(ctx).Infof("removing %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
+		log.Infof("removing %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
 	}
 
 	// create a backup for unclean shutdown detection before adding domains, as these might end up in the resolv.conf file.
 	// The file content itself is not important for systemd restoration
 	if err := createUncleanShutdownIndicator(defaultResolvConfPath, systemdManager, parsedIP.String()); err != nil {
-		log.WithContext(ctx).Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
+		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
 	}
 
-	log.WithContext(ctx).Infof("adding %d search domains and %d match domains. Search list: %s , Match list: %s", len(searchDomains), len(matchDomains), searchDomains, matchDomains)
+	log.Infof("adding %d search domains and %d match domains. Search list: %s , Match list: %s", len(searchDomains), len(matchDomains), searchDomains, matchDomains)
 	err = s.setDomainsForInterface(domainsInput)
 	if err != nil {
-		log.WithContext(ctx).Error(err)
+		log.Error(err)
 	}
 	return nil
 }
@@ -158,7 +158,7 @@ func (s *systemdDbusConfigurator) setDomainsForInterface(domainsInput []systemdD
 }
 
 func (s *systemdDbusConfigurator) restoreHostDNS() error {
-	log.WithContext(ctx).Infof("reverting link settings and flushing cache")
+	log.Infof("reverting link settings and flushing cache")
 	if !isDbusListenerRunning(systemdResolvedDest, s.dbusLinkObject) {
 		return nil
 	}
@@ -175,7 +175,7 @@ func (s *systemdDbusConfigurator) restoreHostDNS() error {
 	}
 
 	if err := removeUncleanShutdownIndicator(); err != nil {
-		log.WithContext(ctx).Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
+		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
 	}
 
 	return s.flushCaches()
@@ -254,7 +254,7 @@ func isSystemdResolveConfMode() bool {
 
 	var value string
 	if err := getSystemdDbusProperty(systemdDbusResolvConfModeProperty, &value); err != nil {
-		log.WithContext(ctx).Errorf("got an error while checking systemd resolv conf mode, error: %s", err)
+		log.Errorf("got an error while checking systemd resolv conf mode, error: %s", err)
 		return false
 	}
 

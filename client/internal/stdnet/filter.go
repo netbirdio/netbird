@@ -28,7 +28,7 @@ func InterfaceFilter(disallowList []string) func(string) bool {
 		// look for unlisted WireGuard interfaces
 		wg, err := wgctrl.New()
 		if err != nil {
-			log.WithContext(ctx).Debugf("trying to create a wgctrl client failed with: %v", err)
+			log.Debugf("trying to create a wgctrl client failed with: %v", err)
 			return true
 		}
 		defer func() {

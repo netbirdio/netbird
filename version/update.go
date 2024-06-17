@@ -112,30 +112,30 @@ func (u *Update) startFetcher() {
 func (u *Update) fetchVersion() bool {
 	resp, err := http.Get(versionURL)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to fetch version info: %s", err)
+		log.Errorf("failed to fetch version info: %s", err)
 		return false
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.WithContext(ctx).Errorf("invalid status code: %d", resp.StatusCode)
+		log.Errorf("invalid status code: %d", resp.StatusCode)
 		return false
 	}
 
 	if resp.ContentLength > 100 {
-		log.WithContext(ctx).Errorf("too large response: %d", resp.ContentLength)
+		log.Errorf("too large response: %d", resp.ContentLength)
 		return false
 	}
 
 	content, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to read content: %s", err)
+		log.Errorf("failed to read content: %s", err)
 		return false
 	}
 
 	latestAvailable, err := goversion.NewVersion(string(content))
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to parse the version string: %s", err)
+		log.Errorf("failed to parse the version string: %s", err)
 		return false
 	}
 

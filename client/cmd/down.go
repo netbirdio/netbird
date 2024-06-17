@@ -22,7 +22,7 @@ var downCmd = &cobra.Command{
 
 		err := util.InitLog(logLevel, "console")
 		if err != nil {
-			log.WithContext(ctx).Errorf("failed initializing log %v", err)
+			log.Errorf("failed initializing log %v", err)
 			return err
 		}
 
@@ -31,7 +31,7 @@ var downCmd = &cobra.Command{
 
 		conn, err := DialClientGRPCServer(ctx, daemonAddr)
 		if err != nil {
-			log.WithContext(ctx).Errorf("failed to connect to service CLI interface %v", err)
+			log.Errorf("failed to connect to service CLI interface %v", err)
 			return err
 		}
 		defer conn.Close()
@@ -39,7 +39,7 @@ var downCmd = &cobra.Command{
 		daemonClient := proto.NewDaemonServiceClient(conn)
 
 		if _, err := daemonClient.Down(ctx, &proto.DownRequest{}); err != nil {
-			log.WithContext(ctx).Errorf("call service down method: %v", err)
+			log.Errorf("call service down method: %v", err)
 			return err
 		}
 		return nil

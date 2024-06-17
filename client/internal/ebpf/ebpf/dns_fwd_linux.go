@@ -13,7 +13,7 @@ const (
 )
 
 func (tf *GeneralManager) LoadDNSFwd(ip string, dnsPort int) error {
-	log.WithContext(ctx).Debugf("load eBPF DNS forwarder, watching addr: %s:53, redirect to port: %d", ip, dnsPort)
+	log.Debugf("load eBPF DNS forwarder, watching addr: %s:53, redirect to port: %d", ip, dnsPort)
 	tf.lock.Lock()
 	defer tf.lock.Unlock()
 
@@ -41,7 +41,7 @@ func (tf *GeneralManager) LoadDNSFwd(ip string, dnsPort int) error {
 }
 
 func (tf *GeneralManager) FreeDNSFwd() error {
-	log.WithContext(ctx).Debugf("free ebpf DNS forwarder")
+	log.Debugf("free ebpf DNS forwarder")
 	return tf.unsetFeatureFlag(featureFlagDnsForwarder)
 }
 

@@ -159,7 +159,7 @@ func (r *Route) GetHAUniqueID() HAUniqueID {
 	if r.IsDynamic() {
 		domains, err := r.Domains.String()
 		if err != nil {
-			log.WithContext(ctx).Errorf("Failed to convert domains to string: %v", err)
+			log.Errorf("Failed to convert domains to string: %v", err)
 			domains = r.Domains.PunycodeString()
 		}
 		return HAUniqueID(fmt.Sprintf("%s%s%s", r.NetID, haSeparator, domains))

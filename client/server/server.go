@@ -117,13 +117,13 @@ func (s *Server) Start() error {
 	if errorStatus, ok := gstatus.FromError(err); ok && errorStatus.Code() == codes.NotFound {
 		s.config, err = internal.UpdateOrCreateConfig(s.latestConfigInput)
 		if err != nil {
-			log.WithContext(ctx).Warnf("unable to create configuration file: %v", err)
+			log.Warnf("unable to create configuration file: %v", err)
 			return err
 		}
 		state.Set(internal.StatusNeedsLogin)
 		return nil
 	} else if err != nil {
-		log.WithContext(ctx).Warnf("unable to create configuration file: %v", err)
+		log.Warnf("unable to create configuration file: %v", err)
 		return err
 	}
 
@@ -187,7 +187,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
 		err := s.connectClient.RunWithProbes(mgmProbe, signalProbe, relayProbe, wgProbe)
 		if err != nil {
-			log.WithContext(ctx).Debugf("run client connection exited with error: %v. Will retry in the background", err)
+			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
 		}
 
 		if config.DisableAutoConnect {
@@ -205,7 +205,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 
 	err := backoff.Retry(runOperation, backOff)
 	if s, ok := gstatus.FromError(err); ok && s.Code() != codes.Canceled {
-		log.WithContext(ctx).Errorf("received an error when trying to connect: %v", err)
+		log.Errorf("received an error when trying to connect: %v", err)
 	} else {
 		log.Tracef("retry canceled")
 	}
@@ -222,7 +222,7 @@ func getConnectWithBackoff(ctx context.Context) backoff.BackOff {
 		// parse the multiplier from the environment variable string value to float64
 		value, err := strconv.ParseFloat(envValue, 64)
 		if err != nil {
-			log.WithContext(ctx).Warnf("unable to parse environment variable %s: %s. using default: %f", retryMultiplierVar, envValue, multiplier)
+			log.Warnf("unable to parse environment variable %s: %s. using default: %f", retryMultiplierVar, envValue, multiplier)
 		} else {
 			multiplier = value
 		}
@@ -245,7 +245,7 @@ func parseEnvDuration(envVar string, defaultDuration time.Duration) time.Duratio
 		if duration, err := time.ParseDuration(envValue); err == nil {
 			return duration
 		}
-		log.WithContext(ctx).Warnf("unable to parse environment variable %s: %s. using default: %s", envVar, envValue, defaultDuration)
+		log.Warnf("unable to parse environment variable %s: %s. using default: %s", envVar, envValue, defaultDuration)
 	}
 	return defaultDuration
 }
@@ -256,10 +256,10 @@ func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (i
 	err := internal.Login(ctx, s.config, setupKey, jwtToken)
 	if err != nil {
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
-			log.WithContext(ctx).Warnf("failed login: %v", err)
+			log.Warnf("failed login: %v", err)
 			status = internal.StatusNeedsLogin
 		} else {
-			log.WithContext(ctx).Errorf("failed login: %v", err)
+			log.Errorf("failed login: %v", err)
 			status = internal.StatusLoginFailed
 		}
 		return status, err
@@ -408,7 +408,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 
 		if s.oauthAuthFlow.flow != nil && s.oauthAuthFlow.flow.GetClientID(ctx) == oAuthFlow.GetClientID(context.TODO()) {
 			if s.oauthAuthFlow.expiresAt.After(time.Now().Add(90 * time.Second)) {
-				log.WithContext(ctx).Debugf("using previous oauth flow info")
+				log.Debugf("using previous oauth flow info")
 				return &proto.LoginResponse{
 					NeedsSSOLogin:           true,
 					VerificationURI:         s.oauthAuthFlow.info.VerificationURI,
@@ -416,7 +416,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 					UserCode:                s.oauthAuthFlow.info.UserCode,
 				}, nil
 			} else {
-				log.WithContext(ctx).Warnf("canceling previous waiting execution")
+				log.Warnf("canceling previous waiting execution")
 				if s.oauthAuthFlow.waitCancel != nil {
 					s.oauthAuthFlow.waitCancel()
 				}
@@ -425,7 +425,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 
 		authInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
 		if err != nil {
-			log.WithContext(ctx).Errorf("getting a request OAuth flow failed: %v", err)
+			log.Errorf("getting a request OAuth flow failed: %v", err)
 			return nil, err
 		}
 
@@ -519,7 +519,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		s.oauthAuthFlow.expiresAt = time.Now()
 		s.mutex.Unlock()
 		state.Set(internal.StatusLoginFailed)
-		log.WithContext(ctx).Errorf("waiting for browser login failed: %v", err)
+		log.Errorf("waiting for browser login failed: %v", err)
 		return nil, err
 	}
 
@@ -680,7 +680,7 @@ func (s *Server) onSessionExpire() {
 		isUIActive := internal.CheckUIApp()
 		if !isUIActive {
 			if err := sendTerminalNotification(); err != nil {
-				log.WithContext(ctx).Errorf("send session expire terminal notification: %v", err)
+				log.Errorf("send session expire terminal notification: %v", err)
 			}
 		}
 	}

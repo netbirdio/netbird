@@ -41,29 +41,29 @@ func newTunDevice(name string, address WGAddress, port int, key string, transpor
 }
 
 func (t *tunDevice) Create() (wgConfigurer, error) {
-	log.WithContext(ctx).Infof("create tun interface")
+	log.Infof("create tun interface")
 
 	dupTunFd, err := unix.Dup(t.tunFd)
 	if err != nil {
-		log.WithContext(ctx).Errorf("Unable to dup tun fd: %v", err)
+		log.Errorf("Unable to dup tun fd: %v", err)
 		return nil, err
 	}
 
 	err = unix.SetNonblock(dupTunFd, true)
 	if err != nil {
-		log.WithContext(ctx).Errorf("Unable to set tun fd as non blocking: %v", err)
+		log.Errorf("Unable to set tun fd as non blocking: %v", err)
 		_ = unix.Close(dupTunFd)
 		return nil, err
 	}
 	tunDevice, err := tun.CreateTUNFromFile(os.NewFile(uintptr(dupTunFd), "/dev/tun"), 0)
 	if err != nil {
-		log.WithContext(ctx).Errorf("Unable to create new tun device from fd: %v", err)
+		log.Errorf("Unable to create new tun device from fd: %v", err)
 		_ = unix.Close(dupTunFd)
 		return nil, err
 	}
 
 	t.wrapper = newDeviceWrapper(tunDevice)
-	log.WithContext(ctx).Debug("Attaching to interface")
+	log.Debug("Attaching to interface")
 	t.device = device.NewDevice(t.wrapper, t.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
 	// without this property mobile devices can discover remote endpoints if the configured one was wrong.
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
@@ -90,7 +90,7 @@ func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		return nil, err
 	}
 	t.udpMux = udpMux
-	log.WithContext(ctx).Debugf("device is ready to use: %s", t.name)
+	log.Debugf("device is ready to use: %s", t.name)
 	return udpMux, nil
 }
 

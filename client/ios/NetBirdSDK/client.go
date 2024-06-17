@@ -86,8 +86,8 @@ func NewClient(cfgFile, deviceName string, osVersion string, osName string, netw
 
 // Run start the internal client. It is a blocker function
 func (c *Client) Run(fd int32, interfaceName string) error {
-	log.WithContext(ctx).Infof("Starting NetBird client")
-	log.WithContext(ctx).Debugf("Tunnel uses interface: %s", interfaceName)
+	log.Infof("Starting NetBird client")
+	log.Debugf("Tunnel uses interface: %s", interfaceName)
 	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
@@ -115,7 +115,7 @@ func (c *Client) Run(fd int32, interfaceName string) error {
 		return err
 	}
 
-	log.WithContext(ctx).Infof("Auth successful")
+	log.Infof("Auth successful")
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.onHostDnsFn = func([]string) {}
@@ -325,13 +325,13 @@ func (c *Client) SelectRoute(id string) error {
 	routeManager := engine.GetRouteManager()
 	routeSelector := routeManager.GetRouteSelector()
 	if id == "All" {
-		log.WithContext(ctx).Debugf("select all routes")
+		log.Debugf("select all routes")
 		routeSelector.SelectAllRoutes()
 	} else {
-		log.WithContext(ctx).Debugf("select route with id: %s", id)
+		log.Debugf("select route with id: %s", id)
 		routes := toNetIDs([]string{id})
 		if err := routeSelector.SelectRoutes(routes, true, maps.Keys(engine.GetClientRoutesWithNetID())); err != nil {
-			log.WithContext(ctx).Debugf("error when selecting routes: %s", err)
+			log.Debugf("error when selecting routes: %s", err)
 			return fmt.Errorf("select routes: %w", err)
 		}
 	}
@@ -352,13 +352,13 @@ func (c *Client) DeselectRoute(id string) error {
 	routeManager := engine.GetRouteManager()
 	routeSelector := routeManager.GetRouteSelector()
 	if id == "All" {
-		log.WithContext(ctx).Debugf("deselect all routes")
+		log.Debugf("deselect all routes")
 		routeSelector.DeselectAllRoutes()
 	} else {
-		log.WithContext(ctx).Debugf("deselect route with id: %s", id)
+		log.Debugf("deselect route with id: %s", id)
 		routes := toNetIDs([]string{id})
 		if err := routeSelector.DeselectRoutes(routes, maps.Keys(engine.GetClientRoutesWithNetID())); err != nil {
-			log.WithContext(ctx).Debugf("error when deselecting routes: %s", err)
+			log.Debugf("error when deselecting routes: %s", err)
 			return fmt.Errorf("deselect routes: %w", err)
 		}
 	}
