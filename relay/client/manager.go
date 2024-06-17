@@ -108,6 +108,10 @@ func (m *Manager) RelayAddress() (net.Addr, error) {
 	return m.relayClient.RelayRemoteAddress()
 }
 
+func (m *Manager) IsSupported() bool {
+	return m.srvAddress != ""
+}
+
 func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
 	// check if already has a connection to the desired relay server
 	m.relayClientsMutex.RLock()
