@@ -66,7 +66,7 @@ func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status) *
 }
 
 func (u *upstreamResolverBase) stop() {
-	log.Debugf("stopping serving DNS for upstreams %s", u.upstreamServers)
+	log.WithContext(ctx).Debugf("stopping serving DNS for upstreams %s", u.upstreamServers)
 	u.cancel()
 }
 
@@ -130,7 +130,7 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 	u.failsCount.Add(1)
-	log.Error("all queries to the upstream nameservers failed with timeout")
+	log.WithContext(ctx).Error("all queries to the upstream nameservers failed with timeout")
 }
 
 // checkUpstreamFails counts fails and disables or enables upstream resolving
@@ -181,7 +181,7 @@ func (u *upstreamResolverBase) probeAvailability() {
 			err := u.testNameserver(upstream)
 			if err != nil {
 				errors = multierror.Append(errors, err)
-				log.Warnf("probing upstream nameserver %s: %s", upstream, err)
+				log.WithContext(ctx).Warnf("probing upstream nameserver %s: %s", upstream, err)
 				return
 			}
 
@@ -233,11 +233,11 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 
 	err := backoff.Retry(operation, exponentialBackOff)
 	if err != nil {
-		log.Warn(err)
+		log.WithContext(ctx).Warn(err)
 		return
 	}
 
-	log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServers)
+	log.WithContext(ctx).Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServers)
 	u.failsCount.Store(0)
 	u.reactivate()
 	u.disabled = false
@@ -259,7 +259,7 @@ func (u *upstreamResolverBase) disable(err error) {
 		return
 	}
 
-	log.Warnf("Upstream resolving is Disabled for %v", reactivatePeriod)
+	log.WithContext(ctx).Warnf("Upstream resolving is Disabled for %v", reactivatePeriod)
 	u.deactivate(err)
 	u.disabled = true
 	go u.waitUntilResponse()

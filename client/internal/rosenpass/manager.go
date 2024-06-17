@@ -44,7 +44,7 @@ func NewManager(preSharedKey *wgtypes.Key, wgIfaceName string) (*Manager, error)
 	}
 
 	rpKeyHash := hashRosenpassKey(public)
-	log.Debugf("generated new rosenpass key pair with public key %s", rpKeyHash)
+	log.WithContext(ctx).Debugf("generated new rosenpass key pair with public key %s", rpKeyHash)
 	return &Manager{ifaceName: wgIfaceName, rpKeyHash: rpKeyHash, spk: public, ssk: secret, preSharedKey: (*[32]byte)(preSharedKey), rpPeerIDs: make(map[string]*rp.PeerID), lock: sync.Mutex{}}, nil
 }
 
@@ -115,7 +115,7 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 
 	port, err := findRandomAvailableUDPPort()
 	if err != nil {
-		log.Errorf("could not determine a random port for rosenpass server. Error: %s", err)
+		log.WithContext(ctx).Errorf("could not determine a random port for rosenpass server. Error: %s", err)
 		return rp.Config{}, err
 	}
 
@@ -137,7 +137,7 @@ func (m *Manager) OnDisconnected(peerKey string, wgIP string) {
 
 	err := m.removePeer(peerKey)
 	if err != nil {
-		log.Error("failed to remove rosenpass peer", err)
+		log.WithContext(ctx).Error("failed to remove rosenpass peer", err)
 	}
 
 	delete(m.rpPeerIDs, peerKey)
@@ -155,7 +155,7 @@ func (m *Manager) Run() error {
 		return err
 	}
 
-	log.Infof("starting rosenpass server on port %d", m.port)
+	log.WithContext(ctx).Infof("starting rosenpass server on port %d", m.port)
 
 	return m.server.Run()
 }
@@ -165,7 +165,7 @@ func (m *Manager) Close() error {
 	if m.server != nil {
 		err := m.server.Close()
 		if err != nil {
-			log.Errorf("failed closing local rosenpass server")
+			log.WithContext(ctx).Errorf("failed closing local rosenpass server")
 		}
 		m.server = nil
 	}
@@ -178,16 +178,16 @@ func (m *Manager) OnConnected(remoteWireGuardKey string, remoteRosenpassPubKey [
 	defer m.lock.Unlock()
 
 	if remoteRosenpassPubKey == nil {
-		log.Warnf("remote peer with public key %s does not support rosenpass", remoteWireGuardKey)
+		log.WithContext(ctx).Warnf("remote peer with public key %s does not support rosenpass", remoteWireGuardKey)
 		return
 	}
 
 	rpKeyHash := hashRosenpassKey(remoteRosenpassPubKey)
-	log.Debugf("received remote rosenpass key %s, my key %s", rpKeyHash, m.rpKeyHash)
+	log.WithContext(ctx).Debugf("received remote rosenpass key %s, my key %s", rpKeyHash, m.rpKeyHash)
 
 	err := m.addPeer(remoteRosenpassPubKey, remoteRosenpassAddr, wireGuardIP, remoteWireGuardKey)
 	if err != nil {
-		log.Errorf("failed to add rosenpass peer: %s", err)
+		log.WithContext(ctx).Errorf("failed to add rosenpass peer: %s", err)
 		return
 	}
 }

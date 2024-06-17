@@ -178,7 +178,7 @@ func SetupCloseHandler(ctx context.Context, cancel context.CancelFunc) {
 		case <-termCh:
 		}
 
-		log.Info("shutdown signal received")
+		log.WithContext(ctx).Info("shutdown signal received")
 		cancel()
 	}()
 }
@@ -192,7 +192,7 @@ func SetFlagsFromEnvVars(cmd *cobra.Command) {
 		if value, present := os.LookupEnv(oldEnvVar); present {
 			err := flags.Set(f.Name, value)
 			if err != nil {
-				log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, oldEnvVar, err)
+				log.WithContext(ctx).Infof("unable to configure flag %s using variable %s, err: %v", f.Name, oldEnvVar, err)
 			}
 		}
 
@@ -201,7 +201,7 @@ func SetFlagsFromEnvVars(cmd *cobra.Command) {
 		if value, present := os.LookupEnv(newEnvVar); present {
 			err := flags.Set(f.Name, value)
 			if err != nil {
-				log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, newEnvVar, err)
+				log.WithContext(ctx).Infof("unable to configure flag %s using variable %s, err: %v", f.Name, newEnvVar, err)
 			}
 		}
 	})
@@ -231,7 +231,7 @@ func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, e
 // WithBackOff execute function in backoff cycle.
 func WithBackOff(bf func() error) error {
 	return backoff.RetryNotify(bf, CLIBackOffSettings, func(err error, duration time.Duration) {
-		log.Warnf("retrying Login to the Management service in %v due to error %v", duration, err)
+		log.WithContext(ctx).Warnf("retrying Login to the Management service in %v due to error %v", duration, err)
 	})
 }
 

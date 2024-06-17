@@ -87,17 +87,17 @@ func getSetupRules() []ruleParams {
 // enabling VPN connectivity.
 func (r *SysOps) SetupRouting(initAddresses []net.IP) (_ nbnet.AddHookFunc, _ nbnet.RemoveHookFunc, err error) {
 	if isLegacy() {
-		log.Infof("Using legacy routing setup")
+		log.WithContext(ctx).Infof("Using legacy routing setup")
 		return r.setupRefCounter(initAddresses)
 	}
 
 	if err = addRoutingTableName(); err != nil {
-		log.Errorf("Error adding routing table name: %v", err)
+		log.WithContext(ctx).Errorf("Error adding routing table name: %v", err)
 	}
 
 	originalValues, err := sysctl.Setup(r.wgInterface)
 	if err != nil {
-		log.Errorf("Error setting up sysctl: %v", err)
+		log.WithContext(ctx).Errorf("Error setting up sysctl: %v", err)
 		sysctlFailed = true
 	}
 	originalSysctl = originalValues
@@ -105,7 +105,7 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP) (_ nbnet.AddHookFunc, _ nb
 	defer func() {
 		if err != nil {
 			if cleanErr := r.CleanupRouting(); cleanErr != nil {
-				log.Errorf("Error cleaning up routing: %v", cleanErr)
+				log.WithContext(ctx).Errorf("Error cleaning up routing: %v", cleanErr)
 			}
 		}
 	}()
@@ -114,7 +114,7 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP) (_ nbnet.AddHookFunc, _ nb
 	for _, rule := range rules {
 		if err := addRule(rule); err != nil {
 			if errors.Is(err, syscall.EOPNOTSUPP) {
-				log.Warnf("Rule operations are not supported, falling back to the legacy routing setup")
+				log.WithContext(ctx).Warnf("Rule operations are not supported, falling back to the legacy routing setup")
 				setIsLegacy(true)
 				return r.setupRefCounter(initAddresses)
 			}
@@ -172,7 +172,7 @@ func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	}
 
 	if sysctlFailed && (prefix == vars.Defaultv4 || prefix == vars.Defaultv6) {
-		log.Warnf("Default route is configured but sysctl operations failed, VPN traffic may not be routed correctly, consider using NB_USE_LEGACY_ROUTING=true or setting net.ipv4.conf.*.rp_filter to 2 (loose) or 0 (off)")
+		log.WithContext(ctx).Warnf("Default route is configured but sysctl operations failed, VPN traffic may not be routed correctly, consider using NB_USE_LEGACY_ROUTING=true or setting net.ipv4.conf.*.rp_filter to 2 (loose) or 0 (off)")
 	}
 
 	// No need to check if routes exist as main table takes precedence over the VPN table via Rule 1
@@ -411,7 +411,7 @@ func addRoutingTableName() error {
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-			log.Errorf("Error closing rt_tables: %v", err)
+			log.WithContext(ctx).Errorf("Error closing rt_tables: %v", err)
 		}
 	}()
 
@@ -425,7 +425,7 @@ func addRoutingTableName() error {
 
 	// Reopen the file in append mode to add new entries
 	if err := file.Close(); err != nil {
-		log.Errorf("Error closing rt_tables before appending: %v", err)
+		log.WithContext(ctx).Errorf("Error closing rt_tables before appending: %v", err)
 	}
 	file, err = os.OpenFile(rtTablesPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
 	if err != nil {

@@ -129,7 +129,7 @@ func closeManagementSilently(s *grpc.Server, listener net.Listener) {
 	s.GracefulStop()
 	err := listener.Close()
 	if err != nil {
-		log.Warnf("error while closing management listener %v", err)
+		log.WithContext(ctx).Warnf("error while closing management listener %v", err)
 		return
 	}
 }
@@ -405,7 +405,7 @@ func isEqual(a, b *mgmtProto.PeerSystemMeta) bool {
 		}
 	}
 
-	log.Infof("------")
+	log.WithContext(ctx).Infof("------")
 
 	return a.GetHostname() == b.GetHostname() &&
 		a.GetGoOS() == b.GetGoOS() &&

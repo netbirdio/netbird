@@ -26,7 +26,7 @@ type ProbeResult struct {
 func ProbeSTUN(ctx context.Context, uri *stun.URI) (addr string, probeErr error) {
 	defer func() {
 		if probeErr != nil {
-			log.Debugf("stun probe error from %s: %s", uri, probeErr)
+			log.WithContext(ctx).Debugf("stun probe error from %s: %s", uri, probeErr)
 		}
 	}()
 
@@ -63,7 +63,7 @@ func ProbeSTUN(ctx context.Context, uri *stun.URI) (addr string, probeErr error)
 			return
 		}
 
-		log.Debugf("stun probe received address from %s: %s", uri, xorAddr)
+		log.WithContext(ctx).Debugf("stun probe received address from %s: %s", uri, xorAddr)
 		addr = xorAddr.String()
 
 		done <- struct{}{}
@@ -86,7 +86,7 @@ func ProbeSTUN(ctx context.Context, uri *stun.URI) (addr string, probeErr error)
 func ProbeTURN(ctx context.Context, uri *stun.URI) (addr string, probeErr error) {
 	defer func() {
 		if probeErr != nil {
-			log.Debugf("turn probe error from %s: %s", uri, probeErr)
+			log.WithContext(ctx).Debugf("turn probe error from %s: %s", uri, probeErr)
 		}
 	}()
 
@@ -155,7 +155,7 @@ func ProbeTURN(ctx context.Context, uri *stun.URI) (addr string, probeErr error)
 		}
 	}()
 
-	log.Debugf("turn probe relay address from %s: %s", uri, relayConn.LocalAddr())
+	log.WithContext(ctx).Debugf("turn probe relay address from %s: %s", uri, relayConn.LocalAddr())
 
 	return relayConn.LocalAddr().String(), nil
 }

@@ -343,7 +343,7 @@ func (m *UDPMuxDefault) registerConnForAddress(conn *udpMuxedConn, addr string) 
 	existing = append(existing, conn)
 	m.addressMap[addr] = existing
 
-	log.Debugf("ICE: registered %s for %s", addr, conn.params.Key)
+	log.WithContext(ctx).Debugf("ICE: registered %s for %s", addr, conn.params.Key)
 }
 
 func (m *UDPMuxDefault) createMuxedConn(key string) *udpMuxedConn {
@@ -413,7 +413,7 @@ func (m *UDPMuxDefault) HandleSTUNMessage(msg *stun.Message, addr net.Addr) erro
 	// It will be discarded by the further ICE candidate logic if so.
 	for _, conn := range destinationConnList {
 		if err := conn.writePacket(msg.Raw, remoteAddr); err != nil {
-			log.Errorf("could not write packet: %v", err)
+			log.WithContext(ctx).Errorf("could not write packet: %v", err)
 		}
 	}
 

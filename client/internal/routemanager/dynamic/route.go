@@ -105,7 +105,7 @@ func (r *Route) RemoveRoute() error {
 				merr = multierror.Append(merr, fmt.Errorf("remove dynamic route for IP %s: %w", prefix, err))
 			}
 		}
-		log.Debugf("Removed dynamic route(s) for [%s]: %s", domain.SafeString(), strings.ReplaceAll(fmt.Sprintf("%s", prefixes), " ", ", "))
+		log.WithContext(ctx).Debugf("Removed dynamic route(s) for [%s]: %s", domain.SafeString(), strings.ReplaceAll(fmt.Sprintf("%s", prefixes), " ", ", "))
 
 		r.statusRecorder.DeleteResolvedDomainsStates(domain)
 	}
@@ -149,12 +149,12 @@ func (r *Route) RemoveAllowedIPs() error {
 }
 
 func (r *Route) startResolver(ctx context.Context) {
-	log.Debugf("Starting dynamic route resolver for domains [%v]", r)
+	log.WithContext(ctx).Debugf("Starting dynamic route resolver for domains [%v]", r)
 
 	interval := r.interval
 	if interval < minInterval {
 		interval = minInterval
-		log.Warnf("Dynamic route resolver interval %s is too low, setting to minimum value %s", r.interval, minInterval)
+		log.WithContext(ctx).Warnf("Dynamic route resolver interval %s is too low, setting to minimum value %s", r.interval, minInterval)
 	}
 
 	ticker := time.NewTicker(interval)
@@ -165,7 +165,7 @@ func (r *Route) startResolver(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Debugf("Stopping dynamic route resolver for domains [%v]", r)
+			log.WithContext(ctx).Debugf("Stopping dynamic route resolver for domains [%v]", r)
 			return
 		case <-ticker.C:
 			r.update(ctx)
@@ -175,9 +175,9 @@ func (r *Route) startResolver(ctx context.Context) {
 
 func (r *Route) update(ctx context.Context) {
 	if resolved, err := r.resolveDomains(); err != nil {
-		log.Errorf("Failed to resolve domains for route [%v]: %v", r, err)
+		log.WithContext(ctx).Errorf("Failed to resolve domains for route [%v]: %v", r, err)
 	} else if err := r.updateDynamicRoutes(ctx, resolved); err != nil {
-		log.Errorf("Failed to update dynamic routes for [%v]: %v", r, err)
+		log.WithContext(ctx).Errorf("Failed to update dynamic routes for [%v]: %v", r, err)
 	}
 }
 
@@ -244,14 +244,14 @@ func (r *Route) updateDynamicRoutes(ctx context.Context, newDomains domainMap) e
 		if err != nil {
 			merr = multierror.Append(merr, err)
 		} else if len(addedPrefixes) > 0 {
-			log.Debugf("Added dynamic route(s) for [%s]: %s", domain.SafeString(), strings.ReplaceAll(fmt.Sprintf("%s", addedPrefixes), " ", ", "))
+			log.WithContext(ctx).Debugf("Added dynamic route(s) for [%s]: %s", domain.SafeString(), strings.ReplaceAll(fmt.Sprintf("%s", addedPrefixes), " ", ", "))
 		}
 
 		removedPrefixes, err := r.removeRoutes(toRemove)
 		if err != nil {
 			merr = multierror.Append(merr, err)
 		} else if len(removedPrefixes) > 0 {
-			log.Debugf("Removed dynamic route(s) for [%s]: %s", domain.SafeString(), strings.ReplaceAll(fmt.Sprintf("%s", removedPrefixes), " ", ", "))
+			log.WithContext(ctx).Debugf("Removed dynamic route(s) for [%s]: %s", domain.SafeString(), strings.ReplaceAll(fmt.Sprintf("%s", removedPrefixes), " ", ", "))
 		}
 
 		updatedPrefixes := combinePrefixes(oldPrefixes, removedPrefixes, addedPrefixes)
@@ -310,7 +310,7 @@ func (r *Route) incrementAllowedIP(domain domain.Domain, prefix netip.Prefix, pe
 	if ref, err := r.allowedIPsRefcounter.Increment(prefix, peerKey); err != nil {
 		return fmt.Errorf(addAllowedIP, prefix, err)
 	} else if ref.Count > 1 && ref.Out != peerKey {
-		log.Warnf("IP [%s] for domain [%s] is already routed by peer [%s]. HA routing disabled",
+		log.WithContext(ctx).Warnf("IP [%s] for domain [%s] is already routed by peer [%s]. HA routing disabled",
 			prefix.Addr(),
 			domain.SafeString(),
 			ref.Out,

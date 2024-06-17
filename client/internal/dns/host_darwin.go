@@ -60,12 +60,12 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig) error {
 			return fmt.Errorf("remote key from system config: %w", err)
 		}
 		s.primaryServiceID = ""
-		log.Infof("removed %s:%d as main DNS resolver for this peer", config.ServerIP, config.ServerPort)
+		log.WithContext(ctx).Infof("removed %s:%d as main DNS resolver for this peer", config.ServerIP, config.ServerPort)
 	}
 
 	// create a file for unclean shutdown detection
 	if err := createUncleanShutdownIndicator(); err != nil {
-		log.Errorf("failed to create unclean shutdown file: %s", err)
+		log.WithContext(ctx).Errorf("failed to create unclean shutdown file: %s", err)
 	}
 
 	var (
@@ -88,7 +88,7 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	if len(matchDomains) != 0 {
 		err = s.addMatchDomains(matchKey, strings.Join(matchDomains, " "), config.ServerIP, config.ServerPort)
 	} else {
-		log.Infof("removing match domains from the system")
+		log.WithContext(ctx).Infof("removing match domains from the system")
 		err = s.removeKeyFromSystemConfig(matchKey)
 	}
 	if err != nil {
@@ -99,7 +99,7 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	if len(searchDomains) != 0 {
 		err = s.addSearchDomains(searchKey, strings.Join(searchDomains, " "), config.ServerIP, config.ServerPort)
 	} else {
-		log.Infof("removing search domains from the system")
+		log.WithContext(ctx).Infof("removing search domains from the system")
 		err = s.removeKeyFromSystemConfig(searchKey)
 	}
 	if err != nil {
@@ -117,20 +117,20 @@ func (s *systemConfigurator) restoreHostDNS() error {
 		if strings.Contains(key, matchSuffix) {
 			keyType = "match"
 		}
-		log.Infof("removing %s domains from system", keyType)
+		log.WithContext(ctx).Infof("removing %s domains from system", keyType)
 	}
 	if s.primaryServiceID != "" {
 		lines += buildRemoveKeyOperation(getKeyWithInput(primaryServiceSetupKeyFormat, s.primaryServiceID))
-		log.Infof("restoring DNS resolver configuration for system")
+		log.WithContext(ctx).Infof("restoring DNS resolver configuration for system")
 	}
 	_, err := runSystemConfigCommand(wrapCommand(lines))
 	if err != nil {
-		log.Errorf("got an error while cleaning the system configuration: %s", err)
+		log.WithContext(ctx).Errorf("got an error while cleaning the system configuration: %s", err)
 		return fmt.Errorf("clean system: %w", err)
 	}
 
 	if err := removeUncleanShutdownIndicator(); err != nil {
-		log.Errorf("failed to remove unclean shutdown file: %s", err)
+		log.WithContext(ctx).Errorf("failed to remove unclean shutdown file: %s", err)
 	}
 
 	return nil
@@ -154,7 +154,7 @@ func (s *systemConfigurator) addSearchDomains(key, domains string, ip string, po
 		return fmt.Errorf("add dns state: %w", err)
 	}
 
-	log.Infof("added %d search domains to the state. Domain list: %s", len(strings.Split(domains, " ")), domains)
+	log.WithContext(ctx).Infof("added %d search domains to the state. Domain list: %s", len(strings.Split(domains, " ")), domains)
 
 	s.createdKeys[key] = struct{}{}
 
@@ -167,7 +167,7 @@ func (s *systemConfigurator) addMatchDomains(key, domains, dnsServer string, por
 		return fmt.Errorf("add dns state: %w", err)
 	}
 
-	log.Infof("added %d match domains to the state. Domain list: %s", len(strings.Split(domains, " ")), domains)
+	log.WithContext(ctx).Infof("added %d match domains to the state. Domain list: %s", len(strings.Split(domains, " ")), domains)
 
 	s.createdKeys[key] = struct{}{}
 
@@ -205,7 +205,7 @@ func (s *systemConfigurator) addDNSSetupForAll(dnsServer string, port int) error
 		return fmt.Errorf("add dns setup: %w", err)
 	}
 
-	log.Infof("configured %s:%d as main DNS resolver for this peer", dnsServer, port)
+	log.WithContext(ctx).Infof("configured %s:%d as main DNS resolver for this peer", dnsServer, port)
 	s.primaryServiceID = primaryServiceKey
 
 	return nil

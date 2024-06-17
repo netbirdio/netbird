@@ -49,19 +49,19 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 		for _, pairs := range d.rulesPairs {
 			total += len(pairs)
 		}
-		log.Infof(
+		log.WithContext(ctx).Infof(
 			"ACL rules processed in: %v, total rules count: %d",
 			time.Since(start), total)
 	}()
 
 	if d.firewall == nil {
-		log.Debug("firewall manager is not supported, skipping firewall rules")
+		log.WithContext(ctx).Debug("firewall manager is not supported, skipping firewall rules")
 		return
 	}
 
 	defer func() {
 		if err := d.firewall.Flush(); err != nil {
-			log.Error("failed to flush firewall rules: ", err)
+			log.WithContext(ctx).Error("failed to flush firewall rules: ", err)
 		}
 	}()
 
@@ -93,7 +93,7 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 	// if we got empty rules list but management not set networkMap.FirewallRulesIsEmpty flag
 	// we have old version of management without rules handling, we should allow all traffic
 	if len(networkMap.FirewallRules) == 0 && !networkMap.FirewallRulesIsEmpty {
-		log.Warn("this peer is connected to a NetBird Management service with an older version. Allowing all traffic from connected peers")
+		log.WithContext(ctx).Warn("this peer is connected to a NetBird Management service with an older version. Allowing all traffic from connected peers")
 		rules = append(rules,
 			&mgmProto.FirewallRule{
 				PeerIP:    "0.0.0.0",
@@ -125,7 +125,7 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 		}
 		pairID, rulePair, err := d.protoRuleToFirewallRule(r, ipsetName)
 		if err != nil {
-			log.Errorf("failed to apply firewall rule: %+v, %v", r, err)
+			log.WithContext(ctx).Errorf("failed to apply firewall rule: %+v, %v", r, err)
 			d.rollBack(newRulePairs)
 			break
 		}
@@ -139,7 +139,7 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 		if _, ok := newRulePairs[pairID]; !ok {
 			for _, rule := range rules {
 				if err := d.firewall.DeleteRule(rule); err != nil {
-					log.Errorf("failed to delete firewall rule: %v", err)
+					log.WithContext(ctx).Errorf("failed to delete firewall rule: %v", err)
 					continue
 				}
 			}
@@ -413,11 +413,11 @@ func (d *DefaultManager) getRuleGroupingSelector(rule *mgmProto.FirewallRule) st
 }
 
 func (d *DefaultManager) rollBack(newRulePairs map[string][]firewall.Rule) {
-	log.Debugf("rollback ACL to previous state")
+	log.WithContext(ctx).Debugf("rollback ACL to previous state")
 	for _, rules := range newRulePairs {
 		for _, rule := range rules {
 			if err := d.firewall.DeleteRule(rule); err != nil {
-				log.Errorf("failed to delete new firewall rule (id: %v) during rollback: %v", rule.GetRuleID(), err)
+				log.WithContext(ctx).Errorf("failed to delete new firewall rule (id: %v) during rollback: %v", rule.GetRuleID(), err)
 			}
 		}
 	}
