@@ -21,7 +21,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/cenkalti/backoff/v4"
@@ -159,10 +158,7 @@ type serviceClient struct {
 	iInterfacePort *widget.Entry
 
 	// switch elements for settings form
-	sAllowSSH            *widget.Check
-	sRosenpass           *widget.Check
 	sRosenpassPermissive *widget.Check
-	sAutoConnect         *widget.Check
 
 	// observable settings over corresponding iMngURL and iPreSharedKey values.
 	managementURL string
@@ -232,20 +228,7 @@ func (s *serviceClient) showSettingsUI() {
 	s.iPreSharedKey = widget.NewPasswordEntry()
 	s.iInterfaceName = widget.NewEntry()
 	s.iInterfacePort = widget.NewEntry()
-
-	s.sAllowSSH = widget.NewCheck("Allow SSH connections", nil)
-	s.sAutoConnect = widget.NewCheck("Connect automatically when the service starts", nil)
-	s.sRosenpass = widget.NewCheck("Enable post-quantum security via Rosenpass", func(enabled bool) {
-		if enabled {
-			s.sRosenpassPermissive.Enable()
-		} else {
-			s.sRosenpassPermissive.Disable()
-		}
-	})
 	s.sRosenpassPermissive = widget.NewCheck("Enable Rosenpass permissive mode", nil)
-	if !s.sRosenpass.Checked {
-		s.sRosenpassPermissive.Disable()
-	}
 
 	s.wSettings.SetContent(s.getSettingsForm())
 	s.wSettings.Resize(fyne.NewSize(600, 400))
@@ -272,9 +255,7 @@ func showErrorMSG(msg string) {
 func (s *serviceClient) getSettingsForm() *widget.Form {
 	return &widget.Form{
 		Items: []*widget.FormItem{
-			{Text: "Allow SSH", Widget: s.sAllowSSH},
-			{Text: "Connect on Startup", Widget: s.sAutoConnect},
-			{Text: "Quantum-Resistance", Widget: container.NewGridWithColumns(1, s.sRosenpass, s.sRosenpassPermissive)},
+			{Text: "Quantum-Resistance", Widget: s.sRosenpassPermissive},
 			{Text: "Interface Name", Widget: s.iInterfaceName},
 			{Text: "Interface Port", Widget: s.iInterfacePort},
 			{Text: "Management URL", Widget: s.iMngURL},
@@ -762,11 +743,10 @@ func (s *serviceClient) getSrvConfig() {
 		if err == nil {
 			s.iInterfaceName.SetText(config.WgIface)
 			s.iInterfacePort.SetText(strconv.Itoa(config.WgPort))
-
-			s.sAllowSSH.SetChecked(config.ServerSSHAllowed != nil && *config.ServerSSHAllowed)
-			s.sRosenpass.SetChecked(config.RosenpassEnabled)
 			s.sRosenpassPermissive.SetChecked(config.RosenpassPermissive)
-			s.sAutoConnect.SetChecked(!config.DisableAutoConnect)
+			if !config.RosenpassEnabled {
+				s.sRosenpassPermissive.Disable()
+			}
 		}
 	}
 }
@@ -838,17 +818,12 @@ func (s *serviceClient) loadSettings() {
 // based on the values selected in the settings window.
 func (s *serviceClient) updateConfig() error {
 	var updatedConfig internal.ConfigInput
-
 	if s.showAdvancedSettings {
-		disableAutoStart := !s.sAutoConnect.Checked
 		updatedConfig = internal.ConfigInput{
 			ConfigPath:          s.iConfigFile.Text,
-			ServerSSHAllowed:    &s.sAllowSSH.Checked,
-			RosenpassEnabled:    &s.sRosenpass.Checked,
 			RosenpassPermissive: &s.sRosenpassPermissive.Checked,
 			InterfaceName:       &s.iInterfaceName.Text,
 			WireguardPort:       &s.interfacePort,
-			DisableAutoConnect:  &disableAutoStart,
 		}
 	} else {
 		disableAutoStart := !s.mAutoConnect.Checked()
@@ -868,7 +843,32 @@ func (s *serviceClient) updateConfig() error {
 		return err
 	}
 
-	// TODO: down and up based on config changes
+	if err = s.restartClientConn(); err != nil {
+		log.Errorf("restarting client connection: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+// restartClientConn restarts the client connection.
+func (s *serviceClient) restartClientConn() error {
+
+	client, err := s.getSrvClient(failFastTimeout)
+	if err != nil {
+		return err
+	}
+
+	_, err = client.Login(s.ctx, &proto.LoginRequest{})
+	if err != nil {
+		return err
+	}
+
+	_, err = client.Up(s.ctx, &proto.UpRequest{})
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
