@@ -8,6 +8,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -16,6 +18,10 @@ import (
 	"github.com/pion/stun/v2"
 	"github.com/pion/transport/v3"
 )
+
+// FilterFn is a function that filters out candidates based on the address.
+// If it returns true, the address is to be filtered. It also returns the prefix of matching route.
+type FilterFn func(address netip.Addr) (bool, netip.Prefix, error)
 
 // UniversalUDPMuxDefault handles STUN and TURN servers packets by wrapping the original UDPConn
 // It then passes packets to the UDPMux that does the actual connection muxing.
@@ -34,6 +40,7 @@ type UniversalUDPMuxParams struct {
 	UDPConn               net.PacketConn
 	XORMappedAddrCacheTTL time.Duration
 	Net                   transport.Net
+	FilterFn              FilterFn
 }
 
 // NewUniversalUDPMuxDefault creates an implementation of UniversalUDPMux embedding UDPMux
@@ -56,6 +63,7 @@ func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDef
 		PacketConn: params.UDPConn,
 		mux:        m,
 		logger:     params.Logger,
+		filterFn:   params.FilterFn,
 	}
 
 	// embed UDPMux
@@ -105,8 +113,46 @@ func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
 // udpConn is a wrapper around UDPMux conn that overrides ReadFrom and handles STUN/TURN packets
 type udpConn struct {
 	net.PacketConn
-	mux    *UniversalUDPMuxDefault
-	logger logging.LeveledLogger
+	mux      *UniversalUDPMuxDefault
+	logger   logging.LeveledLogger
+	filterFn FilterFn
+	// TODO: reset cache on route changes
+	addrCache sync.Map
+}
+
+func (u *udpConn) WriteTo(b []byte, addr net.Addr) (int, error) {
+	log.Tracef("ICE: WriteTo %s", addr.String())
+
+	// Check cache first
+	if cached, found := u.addrCache.Load(addr.String()); found {
+		if isRouted := cached.(bool); isRouted {
+			return 0, fmt.Errorf("address %s is part of routed network, refusing to write", addr)
+		}
+	} else {
+		// If not found in cache, perform the filter check
+		if u.filterFn != nil {
+
+			host, _, err := net.SplitHostPort(addr.String())
+			if err != nil {
+				return 0, fmt.Errorf("split host and port: %w", err)
+			}
+			a, err := netip.ParseAddr(host)
+			if err != nil {
+				return 0, fmt.Errorf("parse address: %w", err)
+			}
+
+			if isRouted, prefix, err := u.filterFn(a); err != nil {
+				log.Errorf("ICE: Failed to check if address %s is routed: %v", addr, err)
+			} else {
+				u.addrCache.Store(addr.String(), isRouted)
+				if isRouted {
+					return 0, fmt.Errorf("address %s is part of routed network %s, refusing to write", addr, prefix)
+				}
+			}
+		}
+	}
+
+	return u.PacketConn.WriteTo(b, addr)
 }
 
 // GetSharedConn returns the shared udp conn

@@ -30,6 +30,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
+	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -1293,7 +1294,7 @@ func (e *Engine) newWgIface() (*iface.WGIface, error) {
 	default:
 	}
 
-	return iface.NewWGIFace(e.config.WgIfaceName, e.config.WgAddr, e.config.WgPort, e.config.WgPrivateKey.String(), iface.DefaultMTU, transportNet, mArgs)
+	return iface.NewWGIFace(e.config.WgIfaceName, e.config.WgAddr, e.config.WgPort, e.config.WgPrivateKey.String(), iface.DefaultMTU, transportNet, mArgs, e.addrViaRoutes)
 }
 
 func (e *Engine) wgInterfaceCreate() (err error) {
@@ -1489,6 +1490,24 @@ func (e *Engine) startNetworkMonitor() {
 			log.Errorf("Network monitor: %v", err)
 		}
 	}()
+}
+
+func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
+	log.Tracef("ICE: Client routes: %s", spew.Sdump(e.GetClientRoutes()))
+	log.Tracef("ICE: addr %v", addr)
+
+	var vpnRoutes []netip.Prefix
+	for _, routes := range e.GetClientRoutes() {
+		if len(routes) > 0 && routes[0] != nil {
+			vpnRoutes = append(vpnRoutes, routes[0].Network)
+		}
+	}
+
+	if isVpn, prefix := systemops.IsAddrRouted(addr, vpnRoutes); isVpn {
+		return true, prefix, nil
+	}
+
+	return false, netip.Prefix{}, nil
 }
 
 // isChecksEqual checks if two slices of checks are equal.
