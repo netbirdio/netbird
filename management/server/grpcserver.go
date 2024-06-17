@@ -11,11 +11,12 @@ import (
 	pb "github.com/golang/protobuf/proto" // nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
-	"github.com/netbirdio/netbird/management/server/posture"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/netbirdio/netbird/management/server/posture"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
@@ -134,6 +135,12 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	if err != nil {
 		return err
 	}
+
+	ctx := srv.Context()
+	ctx = context.WithValue(ctx, "peerID", peerKey)
+	accountID := "test"
+	// accountID := s.accountManager.GetAccountForPeerKey()
+	ctx = context.WithValue(ctx, "accountID", accountID)
 
 	if syncReq.GetMeta() == nil {
 		log.Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
