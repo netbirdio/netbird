@@ -6,10 +6,10 @@ import (
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/listener"
-	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/util/net"
 )
 
 // MockManager is the mock instance of a route manager
@@ -20,7 +20,7 @@ type MockManager struct {
 	StopFunc             func()
 }
 
-func (m *MockManager) Init() (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+func (m *MockManager) Init() (net.AddHookFunc, net.RemoveHookFunc, error) {
 	return nil, nil, nil
 }
 

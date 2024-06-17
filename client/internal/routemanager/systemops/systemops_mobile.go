@@ -9,10 +9,10 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/internal/peer"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
-func (r *SysOps) SetupRouting([]net.IP) (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+func (r *SysOps) SetupRouting([]net.IP) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
 	return nil, nil, nil
 }
 
@@ -31,4 +31,8 @@ func (r *SysOps) RemoveVPNRoute(netip.Prefix, *net.Interface) error {
 func EnableIPForwarding() error {
 	log.Infof("Enable IP forwarding is not implemented on %s", runtime.GOOS)
 	return nil
+}
+
+func IsAddrRouted(netip.Addr, []netip.Prefix) (bool, netip.Prefix) {
+	return false, netip.Prefix{}
 }
