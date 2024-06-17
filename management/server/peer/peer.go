@@ -222,7 +222,7 @@ func (p *Peer) MarkLoginExpired(expired bool) {
 }
 
 // SessionExpired indicates whether the peer's session has expired or not.
-// If Peer.LastLogin plus the expiresIn duration has happened already; then login has expired.
+// If Peer.LastLogin plus the expiresIn duration has happened already; then session has expired.
 // Return true if a session has expired, false otherwise, and time left to expiration (negative when expired).
 // Session expiration can be disabled/enabled on a Peer level via Peer.LoginExpirationEnabled property.
 // Session expiration can also be disabled/enabled globally on the Account level via Settings.PeerLoginExpirationEnabled.
