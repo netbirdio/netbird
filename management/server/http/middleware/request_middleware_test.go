@@ -13,8 +13,8 @@ func TestRequestMiddleware_Handler(t *testing.T) {
 
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// used to validate if the context is enriched with values
-		if r.Context().Value(context.RequestIDKey) == nil || r.Context().Value(context.RequestIDKey) == "" {
-			t.Errorf("requestID not set in context")
+		if r.Context().Value(context.LogSourceKey) == nil || r.Context().Value(context.LogSourceKey) == "" {
+			t.Errorf("logSource not set in context")
 		}
 		if r.Context().Value(context.RequestIDKey) == nil || r.Context().Value(context.RequestIDKey) == "" {
 			t.Errorf("requestID not set in context")
