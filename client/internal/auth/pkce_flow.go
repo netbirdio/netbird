@@ -124,7 +124,7 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, _ AuthFlowInfo) (
 		defer cancel()
 
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Errorf("failed to close the server: %v", err)
+			log.WithContext(ctx).Errorf("failed to close the server: %v", err)
 		}
 	}()
 
@@ -219,7 +219,7 @@ func createCodeChallenge(codeVerifier string) string {
 func isRedirectURLPortUsed(redirectURL string) bool {
 	parsedURL, err := url.Parse(redirectURL)
 	if err != nil {
-		log.Errorf("failed to parse redirect URL: %v", err)
+		log.WithContext(ctx).Errorf("failed to parse redirect URL: %v", err)
 		return true
 	}
 
@@ -230,7 +230,7 @@ func isRedirectURLPortUsed(redirectURL string) bool {
 	}
 	defer func() {
 		if err := conn.Close(); err != nil {
-			log.Errorf("error while closing the connection: %v", err)
+			log.WithContext(ctx).Errorf("error while closing the connection: %v", err)
 		}
 	}()
 

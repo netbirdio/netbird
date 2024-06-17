@@ -42,20 +42,20 @@ func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, 
 
 	switch check() {
 	case IPTABLES:
-		log.Info("creating an iptables firewall manager")
+		log.WithContext(ctx).Info("creating an iptables firewall manager")
 		fm, errFw = nbiptables.Create(context, iface)
 		if errFw != nil {
-			log.Errorf("failed to create iptables manager: %s", errFw)
+			log.WithContext(ctx).Errorf("failed to create iptables manager: %s", errFw)
 		}
 	case NFTABLES:
-		log.Info("creating an nftables firewall manager")
+		log.WithContext(ctx).Info("creating an nftables firewall manager")
 		fm, errFw = nbnftables.Create(context, iface)
 		if errFw != nil {
-			log.Errorf("failed to create nftables manager: %s", errFw)
+			log.WithContext(ctx).Errorf("failed to create nftables manager: %s", errFw)
 		}
 	default:
 		errFw = fmt.Errorf("no firewall manager found")
-		log.Info("no firewall manager found, trying to use userspace packet filtering firewall")
+		log.WithContext(ctx).Info("no firewall manager found, trying to use userspace packet filtering firewall")
 	}
 
 	if iface.IsUserspaceBind() {
@@ -66,12 +66,12 @@ func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, 
 			fm, errUsp = uspfilter.Create(iface)
 		}
 		if errUsp != nil {
-			log.Debugf("failed to create userspace filtering firewall: %s", errUsp)
+			log.WithContext(ctx).Debugf("failed to create userspace filtering firewall: %s", errUsp)
 			return nil, errUsp
 		}
 
 		if err := fm.AllowNetbird(); err != nil {
-			log.Errorf("failed to allow netbird interface traffic: %v", err)
+			log.WithContext(ctx).Errorf("failed to allow netbird interface traffic: %v", err)
 		}
 		return fm, nil
 	}
@@ -99,7 +99,7 @@ func check() FWType {
 
 		iptablesChains, err = ip.ListChains("filter")
 		if err != nil {
-			log.Errorf("failed to list iptables chains: %s", err)
+			log.WithContext(ctx).Errorf("failed to list iptables chains: %s", err)
 			useIPTABLES = false
 		}
 	}
@@ -132,7 +132,7 @@ func check() FWType {
 		case err == nil && len(nbTablesList) == 1 && nbTablesList[0].Name == "filter":
 			return IPTABLES
 		case err != nil:
-			log.Errorf("failed to list nftables tables on fw manager discovery: %s", err)
+			log.WithContext(ctx).Errorf("failed to list nftables tables on fw manager discovery: %s", err)
 		}
 	}
 

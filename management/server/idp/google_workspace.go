@@ -223,7 +223,7 @@ func (gm *GoogleWorkspaceManager) DeleteUser(userID string) error {
 // If that fails, it falls back to using the default Google credentials path.
 // It returns the retrieved credentials or an error if unsuccessful.
 func getGoogleCredentials(serviceAccountKey string) (*google.Credentials, error) {
-	log.Debug("retrieving google credentials from the base64 encoded service account key")
+	log.WithContext(ctx).Debug("retrieving google credentials from the base64 encoded service account key")
 	decodeKey, err := base64.StdEncoding.DecodeString(serviceAccountKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode service account key: %w", err)
@@ -239,8 +239,8 @@ func getGoogleCredentials(serviceAccountKey string) (*google.Credentials, error)
 		return creds, nil
 	}
 
-	log.Debugf("failed to retrieve Google credentials from ServiceAccountKey: %v", err)
-	log.Debug("falling back to default google credentials location")
+	log.WithContext(ctx).Debugf("failed to retrieve Google credentials from ServiceAccountKey: %v", err)
+	log.WithContext(ctx).Debug("falling back to default google credentials location")
 
 	creds, err = google.FindDefaultCredentials(
 		context.Background(),

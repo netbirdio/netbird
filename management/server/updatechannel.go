@@ -51,13 +51,13 @@ func (p *PeersUpdateManager) SendUpdate(peerID string, update *UpdateMessage) {
 		found = true
 		select {
 		case channel <- update:
-			log.Debugf("update was sent to channel for peer %s", peerID)
+			log.WithContext(ctx).Debugf("update was sent to channel for peer %s", peerID)
 		default:
 			dropped = true
-			log.Warnf("channel for peer %s is %d full", peerID, len(channel))
+			log.WithContext(ctx).Warnf("channel for peer %s is %d full", peerID, len(channel))
 		}
 	} else {
-		log.Debugf("peer %s has no channel", peerID)
+		log.WithContext(ctx).Debugf("peer %s has no channel", peerID)
 	}
 }
 
@@ -84,7 +84,7 @@ func (p *PeersUpdateManager) CreateChannel(peerID string) chan *UpdateMessage {
 	channel := make(chan *UpdateMessage, channelBufferSize)
 	p.peerChannels[peerID] = channel
 
-	log.Debugf("opened updates channel for a peer %s", peerID)
+	log.WithContext(ctx).Debugf("opened updates channel for a peer %s", peerID)
 
 	return channel
 }
@@ -95,7 +95,7 @@ func (p *PeersUpdateManager) closeChannel(peerID string) {
 		close(channel)
 	}
 
-	log.Debugf("closed updates channel of a peer %s", peerID)
+	log.WithContext(ctx).Debugf("closed updates channel of a peer %s", peerID)
 }
 
 // CloseChannels closes updates channel for each given peer

@@ -17,7 +17,7 @@ func main() {
 		panic(err)
 	}
 
-	log.Infof("attached to the raw socket on port %d", port)
+	log.WithContext(ctx).Infof("attached to the raw socket on port %d", port)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	// read packets
@@ -26,15 +26,15 @@ func main() {
 		for {
 			select {
 			case <-ctx.Done():
-				log.Debugf("stopped reading from the shared socket")
+				log.WithContext(ctx).Debugf("stopped reading from the shared socket")
 				return
 			default:
 				size, addr, err := rawSock.ReadFrom(buf)
 				if err != nil {
-					log.Errorf("error while reading packet from the shared socket: %s", err)
+					log.WithContext(ctx).Errorf("error while reading packet from the shared socket: %s", err)
 					continue
 				}
-				log.Infof("read a STUN packet of size %d from %s", size, addr.String())
+				log.WithContext(ctx).Infof("read a STUN packet of size %d from %s", size, addr.String())
 			}
 		}
 	}()
@@ -44,11 +44,11 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 	go func() {
 		for range c {
-			log.Infof("received ^C signal, stopping the program")
+			log.WithContext(ctx).Infof("received ^C signal, stopping the program")
 			cancel()
 			err = rawSock.Close()
 			if err != nil {
-				log.Errorf("failed closing raw socket")
+				log.WithContext(ctx).Errorf("failed closing raw socket")
 			}
 		}
 	}()

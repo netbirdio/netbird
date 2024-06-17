@@ -178,7 +178,7 @@ func restore(file string) (*FileStore, error) {
 
 		allGroup, err := account.GetGroupAll()
 		if err != nil {
-			log.Errorf("unable to find the All group, this should happen only when migrate from a version that didn't support groups. Error: %v", err)
+			log.WithContext(ctx).Errorf("unable to find the All group, this should happen only when migrate from a version that didn't support groups. Error: %v", err)
 			// if the All group didn't exist we probably don't have routes to update
 			continue
 		}
@@ -256,23 +256,23 @@ func (s *FileStore) persist(file string) error {
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountPersistenceDuration(took)
 	}
-	log.Debugf("took %d ms to persist the FileStore", took.Milliseconds())
+	log.WithContext(ctx).Debugf("took %d ms to persist the FileStore", took.Milliseconds())
 	return nil
 }
 
 // AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
 func (s *FileStore) AcquireGlobalLock() (unlock func()) {
-	log.Debugf("acquiring global lock")
+	log.WithContext(ctx).Debugf("acquiring global lock")
 	start := time.Now()
 	s.globalAccountLock.Lock()
 
 	unlock = func() {
 		s.globalAccountLock.Unlock()
-		log.Debugf("released global lock in %v", time.Since(start))
+		log.WithContext(ctx).Debugf("released global lock in %v", time.Since(start))
 	}
 
 	took := time.Since(start)
-	log.Debugf("took %v to acquire global lock", took)
+	log.WithContext(ctx).Debugf("took %v to acquire global lock", took)
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountGlobalLockAcquisitionDuration(took)
 	}
@@ -282,7 +282,7 @@ func (s *FileStore) AcquireGlobalLock() (unlock func()) {
 
 // AcquireAccountWriteLock acquires account lock for writing to a resource and returns a function that releases the lock
 func (s *FileStore) AcquireAccountWriteLock(accountID string) (unlock func()) {
-	log.Debugf("acquiring lock for account %s", accountID)
+	log.WithContext(ctx).Debugf("acquiring lock for account %s", accountID)
 	start := time.Now()
 	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.Mutex{})
 	mtx := value.(*sync.Mutex)
@@ -290,7 +290,7 @@ func (s *FileStore) AcquireAccountWriteLock(accountID string) (unlock func()) {
 
 	unlock = func() {
 		mtx.Unlock()
-		log.Debugf("released lock for account %s in %v", accountID, time.Since(start))
+		log.WithContext(ctx).Debugf("released lock for account %s in %v", accountID, time.Since(start))
 	}
 
 	return unlock
@@ -539,7 +539,7 @@ func (s *FileStore) GetAccountByPeerID(peerID string) (*Account, error) {
 	// check Account.Peers for a match
 	if _, ok := account.Peers[peerID]; !ok {
 		delete(s.PeerID2AccountID, peerID)
-		log.Warnf("removed stale peerID %s to accountID %s index", peerID, accountID)
+		log.WithContext(ctx).Warnf("removed stale peerID %s to accountID %s index", peerID, accountID)
 		return nil, status.NewPeerNotFoundError(peerID)
 	}
 
@@ -572,7 +572,7 @@ func (s *FileStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 	}
 	if stale {
 		delete(s.PeerKeyID2AccountID, peerKey)
-		log.Warnf("removed stale peerKey %s to accountID %s index", peerKey, accountID)
+		log.WithContext(ctx).Warnf("removed stale peerKey %s to accountID %s index", peerKey, accountID)
 		return nil, status.NewPeerNotFoundError(peerKey)
 	}
 
@@ -736,7 +736,7 @@ func (s *FileStore) Close() error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	log.Infof("closing FileStore")
+	log.WithContext(ctx).Infof("closing FileStore")
 
 	return s.persist(s.storeFile)
 }

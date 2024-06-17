@@ -22,12 +22,12 @@ import (
 func (am *DefaultAccountManager) UpdateIntegratedValidatorGroups(accountID string, userID string, groups []string) error {
 	ok, err := am.GroupValidation(accountID, groups)
 	if err != nil {
-		log.Debugf("error validating groups: %s", err.Error())
+		log.WithContext(ctx).Debugf("error validating groups: %s", err.Error())
 		return err
 	}
 
 	if !ok {
-		log.Debugf("invalid groups")
+		log.WithContext(ctx).Debugf("invalid groups")
 		return errors.New("invalid groups")
 	}
 

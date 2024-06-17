@@ -189,7 +189,7 @@ func (am *DefaultAccountManager) deletePostureChecks(account *Account, postureCh
 func (am *DefaultAccountManager) GetPeerAppliedPostureChecks(peerKey string) ([]posture.Checks, error) {
 	account, err := am.Store.GetAccountByPeerPubKey(peerKey)
 	if err != nil {
-		log.Errorf("failed while getting peer %s: %v", peerKey, err)
+		log.WithContext(ctx).Errorf("failed while getting peer %s: %v", peerKey, err)
 		return nil, err
 	}
 

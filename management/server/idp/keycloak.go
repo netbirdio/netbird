@@ -122,7 +122,7 @@ func (kc *KeycloakCredentials) requestJWTToken() (*http.Response, error) {
 	}
 	req.Header.Add("content-type", "application/x-www-form-urlencoded")
 
-	log.Debug("requesting new jwt token for keycloak idp manager")
+	log.WithContext(ctx).Debug("requesting new jwt token for keycloak idp manager")
 
 	resp, err := kc.httpClient.Do(req)
 	if err != nil {

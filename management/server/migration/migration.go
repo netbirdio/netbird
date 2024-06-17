@@ -24,7 +24,7 @@ func MigrateFieldFromGobToJSON[T any, S any](db *gorm.DB, fieldName string) erro
 	var model T
 
 	if !db.Migrator().HasTable(&model) {
-		log.Debugf("Table for %T does not exist, no migration needed", model)
+		log.WithContext(ctx).Debugf("Table for %T does not exist, no migration needed", model)
 		return nil
 	}
 
@@ -38,7 +38,7 @@ func MigrateFieldFromGobToJSON[T any, S any](db *gorm.DB, fieldName string) erro
 	var item string
 	if err := db.Model(model).Select(oldColumnName).First(&item).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			log.Debugf("No records in table %s, no migration needed", tableName)
+			log.WithContext(ctx).Debugf("No records in table %s, no migration needed", tableName)
 			return nil
 		}
 		return fmt.Errorf("fetch first record: %w", err)
@@ -48,7 +48,7 @@ func MigrateFieldFromGobToJSON[T any, S any](db *gorm.DB, fieldName string) erro
 	var syntaxError *json.SyntaxError
 	err = json.Unmarshal([]byte(item), &js)
 	if err == nil || !errors.As(err, &syntaxError) {
-		log.Debugf("No migration needed for %s, %s", tableName, fieldName)
+		log.WithContext(ctx).Debugf("No migration needed for %s, %s", tableName, fieldName)
 		return nil
 	}
 
@@ -97,7 +97,7 @@ func MigrateFieldFromGobToJSON[T any, S any](db *gorm.DB, fieldName string) erro
 		return err
 	}
 
-	log.Infof("Migration of %s.%s from gob to json completed", tableName, fieldName)
+	log.WithContext(ctx).Infof("Migration of %s.%s from gob to json completed", tableName, fieldName)
 
 	return nil
 }
@@ -136,7 +136,7 @@ func MigrateNetIPFieldFromBlobToJSON[T any](db *gorm.DB, fieldName string, index
 		var syntaxError *json.SyntaxError
 		err = json.Unmarshal([]byte(item.String), &js)
 		if err == nil || !errors.As(err, &syntaxError) {
-			log.Debugf("No migration needed for %s, %s", tableName, fieldName)
+			log.WithContext(ctx).Debugf("No migration needed for %s, %s", tableName, fieldName)
 			return nil
 		}
 	}
@@ -167,7 +167,7 @@ func MigrateNetIPFieldFromBlobToJSON[T any](db *gorm.DB, fieldName string, index
 
 			columnIpValue := net.IP(blobValue)
 			if net.ParseIP(columnIpValue.String()) == nil {
-				log.Debugf("failed to parse %s as ip, fallback to ipv6 loopback", oldColumnName)
+				log.WithContext(ctx).Debugf("failed to parse %s as ip, fallback to ipv6 loopback", oldColumnName)
 				columnIpValue = net.IPv6loopback
 			}
 

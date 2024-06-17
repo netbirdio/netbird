@@ -112,7 +112,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 	if am.geo != nil && realIP != nil {
 		location, err := am.geo.Lookup(realIP)
 		if err != nil {
-			log.Warnf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP.String(), err)
+			log.WithContext(ctx).Warnf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP.String(), err)
 		} else {
 			peer.Location.ConnectionIP = realIP
 			peer.Location.CountryCode = location.Country.ISOCode
@@ -120,7 +120,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 			peer.Location.GeoNameID = location.City.GeonameID
 			err = am.Store.SavePeerLocation(account.Id, peer)
 			if err != nil {
-				log.Warnf("could not store location for peer %s: %s", peer.ID, err)
+				log.WithContext(ctx).Warnf("could not store location for peer %s: %s", peer.ID, err)
 			}
 		}
 	}
@@ -584,7 +584,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 			if am.geo != nil && login.ConnectionIP != nil {
 				location, err := am.geo.Lookup(login.ConnectionIP)
 				if err != nil {
-					log.Warnf("failed to get location for new peer realip: [%s]: %v", login.ConnectionIP.String(), err)
+					log.WithContext(ctx).Warnf("failed to get location for new peer realip: [%s]: %v", login.ConnectionIP.String(), err)
 				} else {
 					newPeer.Location.ConnectionIP = login.ConnectionIP
 					newPeer.Location.CountryCode = location.Country.ISOCode
@@ -596,7 +596,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 
 			return am.AddPeer(login.SetupKey, login.UserID, newPeer)
 		}
-		log.Errorf("failed while logging in peer %s: %v", login.WireGuardPubKey, err)
+		log.WithContext(ctx).Errorf("failed while logging in peer %s: %v", login.WireGuardPubKey, err)
 		return nil, nil, status.Errorf(status.Internal, "failed while logging in peer")
 	}
 
@@ -620,15 +620,15 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 			return nil, nil, err
 		}
 		isWriteLock = true
-		log.Debugf("peer login expired, acquiring write lock")
+		log.WithContext(ctx).Debugf("peer login expired, acquiring write lock")
 
 	case peer.UpdateMetaIfNew(login.Meta):
 		isWriteLock = true
-		log.Debugf("peer changed meta, acquiring write lock")
+		log.WithContext(ctx).Debugf("peer changed meta, acquiring write lock")
 
 	default:
 		isWriteLock = false
-		log.Debugf("peer meta is the same, acquiring read lock")
+		log.WithContext(ctx).Debugf("peer meta is the same, acquiring read lock")
 	}
 
 	var unlock func()
@@ -700,7 +700,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 
 	if shouldStoreAccount {
 		if !isWriteLock {
-			log.Errorf("account %s should be stored but is not write locked", accountID)
+			log.WithContext(ctx).Errorf("account %s should be stored but is not write locked", accountID)
 			return nil, nil, status.Errorf(status.Internal, "account should be stored but is not write locked")
 		}
 		err = am.Store.SaveAccount(account)
@@ -749,7 +749,7 @@ func checkAuth(loginUserID string, peer *nbpeer.Peer) error {
 		return status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
 	}
 	if peer.UserID != loginUserID {
-		log.Warnf("user mismatch when logging in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, loginUserID)
+		log.WithContext(ctx).Warnf("user mismatch when logging in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, loginUserID)
 		return status.Errorf(status.Unauthenticated, "can't login")
 	}
 	return nil
@@ -759,7 +759,7 @@ func peerLoginExpired(peer *nbpeer.Peer, settings *Settings) bool {
 	expired, expiresIn := peer.LoginExpired(settings.PeerLoginExpiration)
 	expired = settings.PeerLoginExpirationEnabled && expired
 	if expired || peer.Status.LoginExpired {
-		log.Debugf("peer's %s login expired %v ago", peer.ID, expiresIn)
+		log.WithContext(ctx).Debugf("peer's %s login expired %v ago", peer.ID, expiresIn)
 		return true
 	}
 	return false
@@ -772,12 +772,12 @@ func updatePeerLastLogin(peer *nbpeer.Peer, account *Account) {
 
 func (am *DefaultAccountManager) checkAndUpdatePeerSSHKey(peer *nbpeer.Peer, account *Account, newSSHKey string) (*nbpeer.Peer, error) {
 	if len(newSSHKey) == 0 {
-		log.Debugf("no new SSH key provided for peer %s, skipping update", peer.ID)
+		log.WithContext(ctx).Debugf("no new SSH key provided for peer %s, skipping update", peer.ID)
 		return peer, nil
 	}
 
 	if peer.SSHKey == newSSHKey {
-		log.Debugf("same SSH key provided for peer %s, skipping update", peer.ID)
+		log.WithContext(ctx).Debugf("same SSH key provided for peer %s, skipping update", peer.ID)
 		return peer, nil
 	}
 
@@ -798,7 +798,7 @@ func (am *DefaultAccountManager) checkAndUpdatePeerSSHKey(peer *nbpeer.Peer, acc
 // UpdatePeerSSHKey updates peer's public SSH key
 func (am *DefaultAccountManager) UpdatePeerSSHKey(peerID string, sshKey string) error {
 	if sshKey == "" {
-		log.Debugf("empty SSH key provided for peer %s, skipping update", peerID)
+		log.WithContext(ctx).Debugf("empty SSH key provided for peer %s, skipping update", peerID)
 		return nil
 	}
 
@@ -822,7 +822,7 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerID string, sshKey string) 
 	}
 
 	if peer.SSHKey == sshKey {
-		log.Debugf("same SSH key provided for peer %s, skipping update", peerID)
+		log.WithContext(ctx).Debugf("same SSH key provided for peer %s, skipping update", peerID)
 		return nil
 	}
 
@@ -908,12 +908,12 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) {
 
 	approvedPeersMap, err := am.GetValidatedPeers(account)
 	if err != nil {
-		log.Errorf("failed send out updates to peers, failed to validate peer: %v", err)
+		log.WithContext(ctx).Errorf("failed send out updates to peers, failed to validate peer: %v", err)
 		return
 	}
 	for _, peer := range peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
-			log.Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
+			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
 			continue
 		}
 		remotePeerNetworkMap := account.GetPeerNetworkMap(peer.ID, am.dnsDomain, approvedPeersMap)

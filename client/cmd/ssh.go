@@ -73,7 +73,7 @@ var sshCmd = &cobra.Command{
 		go func() {
 			// blocking
 			if err := runSSH(sshctx, host, []byte(config.SSHKey), cmd); err != nil {
-				log.Debug(err)
+				log.WithContext(ctx).Debug(err)
 				os.Exit(1)
 			}
 			cancel()

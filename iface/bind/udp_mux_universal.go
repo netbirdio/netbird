@@ -77,12 +77,12 @@ func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Debugf("stopped reading from the UDPConn due to finished context")
+			log.WithContext(ctx).Debugf("stopped reading from the UDPConn due to finished context")
 			return
 		default:
 			n, a, err := m.params.UDPConn.ReadFrom(buf)
 			if err != nil {
-				log.Errorf("error while reading packet: %s", err)
+				log.WithContext(ctx).Errorf("error while reading packet: %s", err)
 				continue
 			}
 			msg := &stun.Message{
@@ -90,13 +90,13 @@ func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
 			}
 			err = msg.Decode()
 			if err != nil {
-				log.Warnf("error while parsing STUN message. The packet doesn't seem to be a STUN packet: %s", err)
+				log.WithContext(ctx).Warnf("error while parsing STUN message. The packet doesn't seem to be a STUN packet: %s", err)
 				continue
 			}
 
 			err = m.HandleSTUNMessage(msg, a)
 			if err != nil {
-				log.Errorf("error while handling STUn message: %s", err)
+				log.WithContext(ctx).Errorf("error while handling STUn message: %s", err)
 			}
 		}
 	}
@@ -144,7 +144,7 @@ func (m *UniversalUDPMuxDefault) HandleSTUNMessage(msg *stun.Message, addr net.A
 	if m.isXORMappedResponse(msg, udpAddr.String()) {
 		err := m.handleXORMappedResponse(udpAddr, msg)
 		if err != nil {
-			log.Debugf("%s: %v", fmt.Errorf("failed to get XOR-MAPPED-ADDRESS response"), err)
+			log.WithContext(ctx).Debugf("%s: %v", fmt.Errorf("failed to get XOR-MAPPED-ADDRESS response"), err)
 			return nil
 		}
 		return nil

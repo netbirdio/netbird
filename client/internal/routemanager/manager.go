@@ -119,7 +119,7 @@ func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
 	}
 
 	if err := m.sysOps.CleanupRouting(); err != nil {
-		log.Warnf("Failed cleaning up routing: %v", err)
+		log.WithContext(ctx).Warnf("Failed cleaning up routing: %v", err)
 	}
 
 	mgmtAddress := m.statusRecorder.GetManagementState().URL
@@ -130,7 +130,7 @@ func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
 	if err != nil {
 		return nil, nil, fmt.Errorf("setup routing: %w", err)
 	}
-	log.Info("Routing setup complete")
+	log.WithContext(ctx).Info("Routing setup complete")
 	return beforePeerHook, afterPeerHook, nil
 }
 
@@ -152,20 +152,20 @@ func (m *DefaultManager) Stop() {
 
 	if m.routeRefCounter != nil {
 		if err := m.routeRefCounter.Flush(); err != nil {
-			log.Errorf("Error flushing route ref counter: %v", err)
+			log.WithContext(ctx).Errorf("Error flushing route ref counter: %v", err)
 		}
 	}
 	if m.allowedIPsRefCounter != nil {
 		if err := m.allowedIPsRefCounter.Flush(); err != nil {
-			log.Errorf("Error flushing allowed IPs ref counter: %v", err)
+			log.WithContext(ctx).Errorf("Error flushing allowed IPs ref counter: %v", err)
 		}
 	}
 
 	if !nbnet.CustomRoutingDisabled() {
 		if err := m.sysOps.CleanupRouting(); err != nil {
-			log.Errorf("Error cleaning up routing: %v", err)
+			log.WithContext(ctx).Errorf("Error cleaning up routing: %v", err)
 		} else {
-			log.Info("Routing cleanup complete")
+			log.WithContext(ctx).Info("Routing cleanup complete")
 		}
 	}
 
@@ -176,7 +176,7 @@ func (m *DefaultManager) Stop() {
 func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error) {
 	select {
 	case <-m.ctx.Done():
-		log.Infof("not updating routes as context is closed")
+		log.WithContext(ctx).Infof("not updating routes as context is closed")
 		return nil, nil, m.ctx.Err()
 	default:
 		m.mux.Lock()
@@ -247,7 +247,7 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 func (m *DefaultManager) stopObsoleteClients(networks route.HAMap) {
 	for id, client := range m.clientNetworks {
 		if _, ok := networks[id]; !ok {
-			log.Debugf("Stopping client network watcher, %s", id)
+			log.WithContext(ctx).Debugf("Stopping client network watcher, %s", id)
 			client.cancel()
 			delete(m.clientNetworks, id)
 		}
@@ -284,7 +284,7 @@ func (m *DefaultManager) classifyRoutes(newRoutes []*route.Route) (map[route.ID]
 			ownNetworkIDs[haID] = true
 			// only linux is supported for now
 			if runtime.GOOS != "linux" {
-				log.Warnf("received a route to manage, but agent doesn't support router mode on %s OS", runtime.GOOS)
+				log.WithContext(ctx).Warnf("received a route to manage, but agent doesn't support router mode on %s OS", runtime.GOOS)
 				continue
 			}
 			newServerRoutesMap[newRoute.ID] = newRoute
@@ -321,7 +321,7 @@ func isRouteSupported(route *route.Route) bool {
 	// If prefix is too small, lets assume it is a possible default prefix which is not yet supported
 	// we skip this prefix management
 	if route.Network.Bits() <= vars.MinRangeBits {
-		log.Warnf("This agent version: %s, doesn't support default routes, received %s, skipping this prefix",
+		log.WithContext(ctx).Warnf("This agent version: %s, doesn't support default routes, received %s, skipping this prefix",
 			version.NetbirdVersion(), route.Network)
 		return false
 	}
@@ -334,12 +334,12 @@ func resolveURLsToIPs(urls []string) []net.IP {
 	for _, rawurl := range urls {
 		u, err := url.Parse(rawurl)
 		if err != nil {
-			log.Errorf("Failed to parse url %s: %v", rawurl, err)
+			log.WithContext(ctx).Errorf("Failed to parse url %s: %v", rawurl, err)
 			continue
 		}
 		ipAddrs, err := net.LookupIP(u.Hostname())
 		if err != nil {
-			log.Errorf("Failed to resolve host %s: %v", u.Hostname(), err)
+			log.WithContext(ctx).Errorf("Failed to resolve host %s: %v", u.Hostname(), err)
 			continue
 		}
 		ips = append(ips, ipAddrs...)

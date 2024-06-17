@@ -131,7 +131,7 @@ func (ac *AuthentikCredentials) requestJWTToken() (*http.Response, error) {
 	}
 	req.Header.Add("content-type", "application/x-www-form-urlencoded")
 
-	log.Debug("requesting new jwt token for authentik idp manager")
+	log.WithContext(ctx).Debug("requesting new jwt token for authentik idp manager")
 
 	resp, err := ac.httpClient.Do(req)
 	if err != nil {

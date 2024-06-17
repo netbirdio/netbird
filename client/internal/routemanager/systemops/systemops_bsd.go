@@ -49,7 +49,7 @@ func getRoutesFromTable() ([]netip.Prefix, error) {
 
 		route, err := MsgToRoute(m)
 		if err != nil {
-			log.Warnf("Failed to parse route message: %v", err)
+			log.WithContext(ctx).Warnf("Failed to parse route message: %v", err)
 			continue
 		}
 		if route.Dst.IsValid() {
@@ -65,7 +65,7 @@ func retryFetchRIB() ([]byte, error) {
 		var err error
 		out, err = route.FetchRIB(syscall.AF_UNSPEC, route.RIBTypeRoute, 0)
 		if errors.Is(err, syscall.ENOMEM) {
-			log.Debug("~etrying fetchRIB due to 'cannot allocate memory' error")
+			log.WithContext(ctx).Debug("~etrying fetchRIB due to 'cannot allocate memory' error")
 			return err
 		} else if err != nil {
 			return backoff.Permanent(err)

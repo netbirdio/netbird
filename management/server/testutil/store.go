@@ -33,7 +33,7 @@ func CreatePGDB() (func(), error) {
 		timeout := 10 * time.Second
 		err = c.Stop(ctx, &timeout)
 		if err != nil {
-			log.Warnf("failed to stop container: %s", err)
+			log.WithContext(ctx).Warnf("failed to stop container: %s", err)
 		}
 	}
 

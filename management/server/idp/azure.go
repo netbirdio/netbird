@@ -132,7 +132,7 @@ func (ac *AzureCredentials) requestJWTToken() (*http.Response, error) {
 	}
 	req.Header.Add("content-type", "application/x-www-form-urlencoded")
 
-	log.Debug("requesting new jwt token for azure idp manager")
+	log.WithContext(ctx).Debug("requesting new jwt token for azure idp manager")
 
 	resp, err := ac.httpClient.Do(req)
 	if err != nil {
@@ -335,7 +335,7 @@ func (am *AzureManager) DeleteUser(userID string) error {
 	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
 	req.Header.Add("content-type", "application/json")
 
-	log.Debugf("delete idp user %s", userID)
+	log.WithContext(ctx).Debugf("delete idp user %s", userID)
 
 	resp, err := am.httpClient.Do(req)
 	if err != nil {

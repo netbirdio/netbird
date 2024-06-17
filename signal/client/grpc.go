@@ -85,11 +85,11 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		}))
 
 	if err != nil {
-		log.Errorf("failed to connect to the signalling server %v", err)
+		log.WithContext(ctx).Errorf("failed to connect to the signalling server %v", err)
 		return nil, err
 	}
 
-	log.Debugf("connected to Signal Service: %v", conn.Target())
+	log.WithContext(ctx).Debugf("connected to Signal Service: %v", conn.Target())
 
 	return &GrpcClient{
 		realClient:            proto.NewSignalExchangeClient(conn),
@@ -134,7 +134,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 
 		c.notifyStreamDisconnected()
 
-		log.Debugf("signal connection state %v", c.signalConn.GetState())
+		log.WithContext(ctx).Debugf("signal connection state %v", c.signalConn.GetState())
 		connState := c.signalConn.GetState()
 		if connState == connectivity.Shutdown {
 			return backoff.Permanent(fmt.Errorf("connection to signal has been shut down"))
@@ -149,26 +149,26 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		defer cancelStream()
 		stream, err := c.connect(ctx, c.key.PublicKey().String())
 		if err != nil {
-			log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
+			log.WithContext(ctx).Warnf("disconnected from the Signal Exchange due to an error: %v", err)
 			return err
 		}
 
 		c.notifyStreamConnected()
 
-		log.Infof("connected to the Signal Service stream")
+		log.WithContext(ctx).Infof("connected to the Signal Service stream")
 		c.notifyConnected()
 		// start receiving messages from the Signal stream (from other peers through signal)
 		err = c.receive(stream, msgHandler)
 		if err != nil {
 			if s, ok := status.FromError(err); ok && s.Code() == codes.Canceled {
-				log.Debugf("signal connection context has been canceled, this usually indicates shutdown")
+				log.WithContext(ctx).Debugf("signal connection context has been canceled, this usually indicates shutdown")
 				return nil
 			}
 			// we need this reset because after a successful connection and a consequent error, backoff lib doesn't
 			// reset times and next try will start with a long delay
 			backOff.Reset()
 			c.notifyDisconnected(err)
-			log.Warnf("disconnected from the Signal service but will retry silently. Reason: %v", err)
+			log.WithContext(ctx).Warnf("disconnected from the Signal service but will retry silently. Reason: %v", err)
 			return err
 		}
 
@@ -177,7 +177,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 
 	err := backoff.Retry(operation, backOff)
 	if err != nil {
-		log.Errorf("exiting the Signal service connection retry loop due to the unrecoverable error: %v", err)
+		log.WithContext(ctx).Errorf("exiting the Signal service connection retry loop due to the unrecoverable error: %v", err)
 		return err
 	}
 
@@ -261,7 +261,7 @@ func (c *GrpcClient) IsHealthy() bool {
 	})
 	if err != nil {
 		c.notifyDisconnected(err)
-		log.Warnf("health check returned: %s", err)
+		log.WithContext(ctx).Warnf("health check returned: %s", err)
 		return false
 	}
 	c.notifyConnected()
@@ -295,7 +295,7 @@ func (c *GrpcClient) SendToStream(msg *proto.EncryptedMessage) error {
 
 	err := c.stream.Send(msg)
 	if err != nil {
-		log.Errorf("error while sending message to peer [%s] [error: %v]", msg.RemoteKey, err)
+		log.WithContext(ctx).Errorf("error while sending message to peer [%s] [error: %v]", msg.RemoteKey, err)
 		return err
 	}
 
@@ -386,13 +386,13 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient,
 		msg, err := stream.Recv()
 		switch s, ok := status.FromError(err); {
 		case ok && s.Code() == codes.Canceled:
-			log.Debugf("stream canceled (usually indicates shutdown)")
+			log.WithContext(ctx).Debugf("stream canceled (usually indicates shutdown)")
 			return err
 		case s.Code() == codes.Unavailable:
-			log.Debugf("Signal Service is unavailable")
+			log.WithContext(ctx).Debugf("Signal Service is unavailable")
 			return err
 		case err == io.EOF:
-			log.Debugf("Signal Service stream closed by server")
+			log.WithContext(ctx).Debugf("Signal Service stream closed by server")
 			return err
 		case err != nil:
 			return err
@@ -401,14 +401,14 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient,
 
 		decryptedMessage, err := c.decryptMessage(msg)
 		if err != nil {
-			log.Errorf("failed decrypting message of Peer [key: %s] error: [%s]", msg.Key, err.Error())
+			log.WithContext(ctx).Errorf("failed decrypting message of Peer [key: %s] error: [%s]", msg.Key, err.Error())
 		}
 
 		err = msgHandler(decryptedMessage)
 
 		if err != nil {
-			log.Errorf("error while handling message of Peer [key: %s] error: [%s]", msg.Key, err.Error())
-			//todo send something??
+			log.WithContext(ctx).Errorf("error while handling message of Peer [key: %s] error: [%s]", msg.Key, err.Error())
+			// todo send something??
 		}
 	}
 }

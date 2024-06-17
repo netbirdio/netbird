@@ -21,7 +21,7 @@ import (
 
 func (p *program) Start(svc service.Service) error {
 	// Start should not block. Do the actual work async.
-	log.Info("starting Netbird service") //nolint
+	log.WithContext(ctx).Info("starting Netbird service") //nolint
 	// in any case, even if configuration does not exists we run daemon to serve CLI gRPC API.
 	p.serv = grpc.NewServer()
 
@@ -32,7 +32,7 @@ func (p *program) Start(svc service.Service) error {
 		stat, err := os.Stat(split[1])
 		if err == nil && !stat.IsDir() {
 			if err := os.Remove(split[1]); err != nil {
-				log.Debugf("remove socket file: %v", err)
+				log.WithContext(ctx).Debugf("remove socket file: %v", err)
 			}
 		}
 	case "tcp":
@@ -50,7 +50,7 @@ func (p *program) Start(svc service.Service) error {
 		if split[0] == "unix" {
 			err = os.Chmod(split[1], 0666)
 			if err != nil {
-				log.Errorf("failed setting daemon permissions: %v", split[1])
+				log.WithContext(ctx).Errorf("failed setting daemon permissions: %v", split[1])
 				return
 			}
 		}
@@ -63,7 +63,7 @@ func (p *program) Start(svc service.Service) error {
 
 		log.Printf("started daemon server: %v", split[1])
 		if err := p.serv.Serve(listen); err != nil {
-			log.Errorf("failed to serve daemon requests: %v", err)
+			log.WithContext(ctx).Errorf("failed to serve daemon requests: %v", err)
 		}
 	}()
 	return nil
@@ -77,7 +77,7 @@ func (p *program) Stop(srv service.Service) error {
 	}
 
 	time.Sleep(time.Second * 2)
-	log.Info("stopped Netbird service") //nolint
+	log.WithContext(ctx).Info("stopped Netbird service") //nolint
 	return nil
 }
 

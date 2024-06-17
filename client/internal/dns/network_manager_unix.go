@@ -89,7 +89,7 @@ func newNetworkManagerDbusConfigurator(wgInterface string) (hostManager, error) 
 		return nil, fmt.Errorf("call: %w", err)
 	}
 
-	log.Debugf("got network manager dbus Link Object: %s from net interface %s", s, wgInterface)
+	log.WithContext(ctx).Debugf("got network manager dbus Link Object: %s from net interface %s", s, wgInterface)
 
 	return &networkManagerDbusConfigurator{
 		dbusLinkObject: dbus.ObjectPath(s),
@@ -137,14 +137,14 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig) er
 		priority = networkManagerDbusPrimaryDNSPriority
 		newDomainList = append(newDomainList, "~.")
 		if !n.routingAll {
-			log.Infof("configured %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
+			log.WithContext(ctx).Infof("configured %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
 		}
 	case len(matchDomains) > 0:
 		priority = networkManagerDbusWithMatchDomainPriority
 	}
 
 	if priority != networkManagerDbusPrimaryDNSPriority && n.routingAll {
-		log.Infof("removing %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
+		log.WithContext(ctx).Infof("removing %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
 		n.routingAll = false
 	}
 
@@ -154,10 +154,10 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig) er
 	// create a backup for unclean shutdown detection before adding domains, as these might end up in the resolv.conf file.
 	// The file content itself is not important for network-manager restoration
 	if err := createUncleanShutdownIndicator(defaultResolvConfPath, networkManager, dnsIP.String()); err != nil {
-		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
+		log.WithContext(ctx).Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
 	}
 
-	log.Infof("adding %d search domains and %d match domains. Search list: %s , Match list: %s", len(searchDomains), len(matchDomains), searchDomains, matchDomains)
+	log.WithContext(ctx).Infof("adding %d search domains and %d match domains. Search list: %s , Match list: %s", len(searchDomains), len(matchDomains), searchDomains, matchDomains)
 	err = n.reApplyConnectionSettings(connSettings, configVersion)
 	if err != nil {
 		return fmt.Errorf("reapplying the connection with new settings, error: %w", err)
@@ -172,7 +172,7 @@ func (n *networkManagerDbusConfigurator) restoreHostDNS() error {
 	}
 
 	if err := removeUncleanShutdownIndicator(); err != nil {
-		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
+		log.WithContext(ctx).Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
 	}
 
 	return nil
@@ -260,7 +260,7 @@ func isNetworkManagerSupportedMode() bool {
 	var mode string
 	err := getNetworkManagerDNSProperty(networkManagerDbusDNSManagerModeProperty, &mode)
 	if err != nil {
-		log.Error(err)
+		log.WithContext(ctx).Error(err)
 		return false
 	}
 	switch mode {
@@ -270,7 +270,7 @@ func isNetworkManagerSupportedMode() bool {
 		var rcManager string
 		err = getNetworkManagerDNSProperty(networkManagerDbusDNSManagerRcManagerProperty, &rcManager)
 		if err != nil {
-			log.Error(err)
+			log.WithContext(ctx).Error(err)
 			return false
 		}
 		if rcManager == "unmanaged" {
@@ -298,7 +298,7 @@ func getNetworkManagerDNSProperty(property string, store any) error {
 func isNetworkManagerSupportedVersion() bool {
 	obj, closeConn, err := getDbusObject(networkManagerDest, networkManagerDbusObjectNode)
 	if err != nil {
-		log.Errorf("got error while attempting to get the network manager object, err: %s", err)
+		log.WithContext(ctx).Errorf("got error while attempting to get the network manager object, err: %s", err)
 		return false
 	}
 
@@ -306,12 +306,12 @@ func isNetworkManagerSupportedVersion() bool {
 
 	value, err := obj.GetProperty(networkManagerDbusVersionProperty)
 	if err != nil {
-		log.Errorf("unable to retrieve network manager mode, got error: %s", err)
+		log.WithContext(ctx).Errorf("unable to retrieve network manager mode, got error: %s", err)
 		return false
 	}
 	versionValue, err := parseVersion(value.Value().(string))
 	if err != nil {
-		log.Errorf("nm: parse version: %s", err)
+		log.WithContext(ctx).Errorf("nm: parse version: %s", err)
 		return false
 	}
 
@@ -319,7 +319,7 @@ func isNetworkManagerSupportedVersion() bool {
 	for _, constraint := range supportedNetworkManagerVersionConstraints {
 		constr, err := version.NewConstraint(constraint)
 		if err != nil {
-			log.Errorf("nm: create constraint: %s", err)
+			log.WithContext(ctx).Errorf("nm: create constraint: %s", err)
 			return false
 		}
 
@@ -329,7 +329,7 @@ func isNetworkManagerSupportedVersion() bool {
 		}
 	}
 
-	log.Debugf("network manager constraints [%s] met: %t", strings.Join(supportedNetworkManagerVersionConstraints, " | "), supported)
+	log.WithContext(ctx).Debugf("network manager constraints [%s] met: %t", strings.Join(supportedNetworkManagerVersionConstraints, " | "), supported)
 	return supported
 }
 

@@ -76,7 +76,7 @@ func main() {
 		a.Run()
 	} else {
 		if err := checkPIDFile(); err != nil {
-			log.Errorf("check PID file: %v", err)
+			log.WithContext(ctx).Errorf("check PID file: %v", err)
 			return
 		}
 		systray.Run(client.onTrayReady, client.onTrayExit)
@@ -266,7 +266,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 
 				client, err := s.getSrvClient(failFastTimeout)
 				if err != nil {
-					log.Errorf("get daemon client: %v", err)
+					log.WithContext(ctx).Errorf("get daemon client: %v", err)
 					return
 				}
 
@@ -282,13 +282,13 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 
 				_, err = client.Login(s.ctx, &loginRequest)
 				if err != nil {
-					log.Errorf("login to management URL: %v", err)
+					log.WithContext(ctx).Errorf("login to management URL: %v", err)
 					return
 				}
 
 				_, err = client.Up(s.ctx, &proto.UpRequest{})
 				if err != nil {
-					log.Errorf("login to management URL: %v", err)
+					log.WithContext(ctx).Errorf("login to management URL: %v", err)
 					return
 				}
 
@@ -304,7 +304,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 func (s *serviceClient) login() error {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
-		log.Errorf("get client: %v", err)
+		log.WithContext(ctx).Errorf("get client: %v", err)
 		return err
 	}
 
@@ -312,20 +312,20 @@ func (s *serviceClient) login() error {
 		IsLinuxDesktopClient: runtime.GOOS == "linux",
 	})
 	if err != nil {
-		log.Errorf("login to management URL with: %v", err)
+		log.WithContext(ctx).Errorf("login to management URL with: %v", err)
 		return err
 	}
 
 	if loginResp.NeedsSSOLogin {
 		err = open.Run(loginResp.VerificationURIComplete)
 		if err != nil {
-			log.Errorf("opening the verification uri in the browser failed: %v", err)
+			log.WithContext(ctx).Errorf("opening the verification uri in the browser failed: %v", err)
 			return err
 		}
 
 		_, err = conn.WaitSSOLogin(s.ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
 		if err != nil {
-			log.Errorf("waiting sso login failed with: %v", err)
+			log.WithContext(ctx).Errorf("waiting sso login failed with: %v", err)
 			return err
 		}
 	}
@@ -336,29 +336,29 @@ func (s *serviceClient) login() error {
 func (s *serviceClient) menuUpClick() error {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
-		log.Errorf("get client: %v", err)
+		log.WithContext(ctx).Errorf("get client: %v", err)
 		return err
 	}
 
 	err = s.login()
 	if err != nil {
-		log.Errorf("login failed with: %v", err)
+		log.WithContext(ctx).Errorf("login failed with: %v", err)
 		return err
 	}
 
 	status, err := conn.Status(s.ctx, &proto.StatusRequest{})
 	if err != nil {
-		log.Errorf("get service status: %v", err)
+		log.WithContext(ctx).Errorf("get service status: %v", err)
 		return err
 	}
 
 	if status.Status == string(internal.StatusConnected) {
-		log.Warnf("already connected")
+		log.WithContext(ctx).Warnf("already connected")
 		return err
 	}
 
 	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
-		log.Errorf("up service: %v", err)
+		log.WithContext(ctx).Errorf("up service: %v", err)
 		return err
 	}
 	return nil
@@ -367,23 +367,23 @@ func (s *serviceClient) menuUpClick() error {
 func (s *serviceClient) menuDownClick() error {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
-		log.Errorf("get client: %v", err)
+		log.WithContext(ctx).Errorf("get client: %v", err)
 		return err
 	}
 
 	status, err := conn.Status(s.ctx, &proto.StatusRequest{})
 	if err != nil {
-		log.Errorf("get service status: %v", err)
+		log.WithContext(ctx).Errorf("get service status: %v", err)
 		return err
 	}
 
 	if status.Status != string(internal.StatusConnected) {
-		log.Warnf("already down")
+		log.WithContext(ctx).Warnf("already down")
 		return nil
 	}
 
 	if _, err := s.conn.Down(s.ctx, &proto.DownRequest{}); err != nil {
-		log.Errorf("down service: %v", err)
+		log.WithContext(ctx).Errorf("down service: %v", err)
 		return err
 	}
 
@@ -398,7 +398,7 @@ func (s *serviceClient) updateStatus() error {
 	err = backoff.Retry(func() error {
 		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
 		if err != nil {
-			log.Errorf("get service status: %v", err)
+			log.WithContext(ctx).Errorf("get service status: %v", err)
 			s.setDisconnectedStatus()
 			return err
 		}
@@ -526,7 +526,7 @@ func (s *serviceClient) onTrayReady() {
 		for {
 			err := s.updateStatus()
 			if err != nil {
-				log.Errorf("error while updating status: %v", err)
+				log.WithContext(ctx).Errorf("error while updating status: %v", err)
 			}
 			time.Sleep(2 * time.Second)
 		}
@@ -571,7 +571,7 @@ func (s *serviceClient) onTrayReady() {
 			case <-s.mUpdate.ClickedCh:
 				err := openURL(version.DownloadUrl())
 				if err != nil {
-					log.Errorf("%s", err)
+					log.WithContext(ctx).Errorf("%s", err)
 				}
 			case <-s.mRoutes.ClickedCh:
 				s.mRoutes.Disable()
@@ -581,7 +581,7 @@ func (s *serviceClient) onTrayReady() {
 				}()
 			}
 			if err != nil {
-				log.Errorf("process connection: %v", err)
+				log.WithContext(ctx).Errorf("process connection: %v", err)
 			}
 		}
 	}()
@@ -590,18 +590,18 @@ func (s *serviceClient) onTrayReady() {
 func (s *serviceClient) runSelfCommand(command, arg string) {
 	proc, err := os.Executable()
 	if err != nil {
-		log.Errorf("show %s failed with error: %v", command, err)
+		log.WithContext(ctx).Errorf("show %s failed with error: %v", command, err)
 		return
 	}
 
 	cmd := exec.Command(proc, fmt.Sprintf("--%s=%s", command, arg))
 	out, err := cmd.CombinedOutput()
 	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-		log.Errorf("start %s UI: %v, %s", command, err, string(out))
+		log.WithContext(ctx).Errorf("start %s UI: %v, %s", command, err, string(out))
 		return
 	}
 	if len(out) != 0 {
-		log.Infof("command %s executed: %s", command, string(out))
+		log.WithContext(ctx).Infof("command %s executed: %s", command, string(out))
 	}
 }
 
@@ -646,13 +646,13 @@ func (s *serviceClient) getSrvConfig() {
 
 	conn, err := s.getSrvClient(failFastTimeout)
 	if err != nil {
-		log.Errorf("get client: %v", err)
+		log.WithContext(ctx).Errorf("get client: %v", err)
 		return
 	}
 
 	cfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{})
 	if err != nil {
-		log.Errorf("get config settings from server: %v", err)
+		log.WithContext(ctx).Errorf("get config settings from server: %v", err)
 		return
 	}
 

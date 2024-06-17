@@ -19,7 +19,7 @@ func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error 
 }
 
 func EnableIPForwarding() error {
-	log.Infof("Enable IP forwarding is not implemented on %s", runtime.GOOS)
+	log.WithContext(ctx).Infof("Enable IP forwarding is not implemented on %s", runtime.GOOS)
 	return nil
 }
 

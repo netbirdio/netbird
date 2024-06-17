@@ -25,7 +25,7 @@ func (mock *MockScheduler) Cancel(IDs []string) {
 		mock.CancelFunc(IDs)
 		return
 	}
-	log.Errorf("MockScheduler doesn't have Cancel function defined ")
+	log.WithContext(ctx).Errorf("MockScheduler doesn't have Cancel function defined ")
 }
 
 // Schedule mocks the Schedule function of the Scheduler interface
@@ -34,7 +34,7 @@ func (mock *MockScheduler) Schedule(in time.Duration, ID string, job func() (nex
 		mock.ScheduleFunc(in, ID, job)
 		return
 	}
-	log.Errorf("MockScheduler doesn't have Schedule function defined")
+	log.WithContext(ctx).Errorf("MockScheduler doesn't have Schedule function defined")
 }
 
 // DefaultScheduler is a generic structure that allows to schedule jobs (functions) to run in the future and cancel them.
@@ -57,7 +57,7 @@ func (wm *DefaultScheduler) cancel(ID string) bool {
 	if ok {
 		delete(wm.jobs, ID)
 		close(cancel)
-		log.Debugf("cancelled scheduled job %s", ID)
+		log.WithContext(ctx).Debugf("cancelled scheduled job %s", ID)
 	}
 	return ok
 }
@@ -80,7 +80,7 @@ func (wm *DefaultScheduler) Schedule(in time.Duration, ID string, job func() (ne
 	defer wm.mu.Unlock()
 	cancel := make(chan struct{})
 	if _, ok := wm.jobs[ID]; ok {
-		log.Debugf("couldn't schedule a job %s because it already exists. There are %d total jobs scheduled.",
+		log.WithContext(ctx).Debugf("couldn't schedule a job %s because it already exists. There are %d total jobs scheduled.",
 			ID, len(wm.jobs))
 		return
 	}
@@ -88,25 +88,25 @@ func (wm *DefaultScheduler) Schedule(in time.Duration, ID string, job func() (ne
 	ticker := time.NewTicker(in)
 
 	wm.jobs[ID] = cancel
-	log.Debugf("scheduled a job %s to run in %s. There are %d total jobs scheduled.", ID, in.String(), len(wm.jobs))
+	log.WithContext(ctx).Debugf("scheduled a job %s to run in %s. There are %d total jobs scheduled.", ID, in.String(), len(wm.jobs))
 	go func() {
 		for {
 			select {
 			case <-ticker.C:
 				select {
 				case <-cancel:
-					log.Debugf("scheduled job %s was canceled, stop timer", ID)
+					log.WithContext(ctx).Debugf("scheduled job %s was canceled, stop timer", ID)
 					ticker.Stop()
 					return
 				default:
-					log.Debugf("time to do a scheduled job %s", ID)
+					log.WithContext(ctx).Debugf("time to do a scheduled job %s", ID)
 				}
 				runIn, reschedule := job()
 				if !reschedule {
 					wm.mu.Lock()
 					defer wm.mu.Unlock()
 					delete(wm.jobs, ID)
-					log.Debugf("job %s is not scheduled to run again", ID)
+					log.WithContext(ctx).Debugf("job %s is not scheduled to run again", ID)
 					ticker.Stop()
 					return
 				}
@@ -115,7 +115,7 @@ func (wm *DefaultScheduler) Schedule(in time.Duration, ID string, job func() (ne
 					ticker.Reset(runIn)
 				}
 			case <-cancel:
-				log.Debugf("job %s was canceled, stopping timer", ID)
+				log.WithContext(ctx).Debugf("job %s was canceled, stopping timer", ID)
 				ticker.Stop()
 				return
 			}

@@ -174,7 +174,7 @@ func (appMetrics *defaultAppMetrics) Expose(port int, endpoint string) error {
 		}
 	}()
 
-	log.Infof("enabled application metrics and exposing on http://%s", listener.Addr().String())
+	log.WithContext(ctx).Infof("enabled application metrics and exposing on http://%s", listener.Addr().String())
 
 	return nil
 }

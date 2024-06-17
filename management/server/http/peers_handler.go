@@ -65,7 +65,7 @@ func (h *PeersHandler) getPeer(account *server.Account, peerID, userID string, w
 
 	validPeers, err := h.accountManager.GetValidatedPeers(account)
 	if err != nil {
-		log.Errorf("failed to list appreoved peers: %v", err)
+		log.WithContext(ctx).Errorf("failed to list appreoved peers: %v", err)
 		util.WriteError(fmt.Errorf("internal error"), w)
 		return
 	}
@@ -110,7 +110,7 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 
 	validPeers, err := h.accountManager.GetValidatedPeers(account)
 	if err != nil {
-		log.Errorf("failed to list appreoved peers: %v", err)
+		log.WithContext(ctx).Errorf("failed to list appreoved peers: %v", err)
 		util.WriteError(fmt.Errorf("internal error"), w)
 		return
 	}
@@ -125,7 +125,7 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 func (h *PeersHandler) deletePeer(accountID, userID string, peerID string, w http.ResponseWriter) {
 	err := h.accountManager.DeletePeer(accountID, peerID, userID)
 	if err != nil {
-		log.Errorf("failed to delete peer: %v", err)
+		log.WithContext(ctx).Errorf("failed to delete peer: %v", err)
 		util.WriteError(err, w)
 		return
 	}
@@ -200,7 +200,7 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 	validPeersMap, err := h.accountManager.GetValidatedPeers(account)
 	if err != nil {
-		log.Errorf("failed to list appreoved peers: %v", err)
+		log.WithContext(ctx).Errorf("failed to list appreoved peers: %v", err)
 		util.WriteError(fmt.Errorf("internal error"), w)
 		return
 	}
