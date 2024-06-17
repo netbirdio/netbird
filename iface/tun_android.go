@@ -43,27 +43,27 @@ func newTunDevice(address WGAddress, port int, key string, mtu int, transportNet
 }
 
 func (t *wgTunDevice) Create(routes []string, dns string, searchDomains []string) (wgConfigurer, error) {
-	log.WithContext(ctx).Info("create tun interface")
+	log.Info("create tun interface")
 
 	routesString := routesToString(routes)
 	searchDomainsToString := searchDomainsToString(searchDomains)
 
 	fd, err := t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, dns, searchDomainsToString, routesString)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to create Android interface: %s", err)
+		log.Errorf("failed to create Android interface: %s", err)
 		return nil, err
 	}
 
 	tunDevice, name, err := tun.CreateUnmonitoredTUNFromFD(fd)
 	if err != nil {
 		_ = unix.Close(fd)
-		log.WithContext(ctx).Errorf("failed to create Android interface: %s", err)
+		log.Errorf("failed to create Android interface: %s", err)
 		return nil, err
 	}
 	t.name = name
 	t.wrapper = newDeviceWrapper(tunDevice)
 
-	log.WithContext(ctx).Debugf("attaching to interface %v", name)
+	log.Debugf("attaching to interface %v", name)
 	t.device = device.NewDevice(t.wrapper, t.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
 	// without this property mobile devices can discover remote endpoints if the configured one was wrong.
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
@@ -89,7 +89,7 @@ func (t *wgTunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		return nil, err
 	}
 	t.udpMux = udpMux
-	log.WithContext(ctx).Debugf("device is ready to use: %s", t.name)
+	log.Debugf("device is ready to use: %s", t.name)
 	return udpMux, nil
 }
 

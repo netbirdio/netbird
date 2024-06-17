@@ -31,12 +31,12 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	}
 	defer func() {
 		if err := bundlePath.Close(); err != nil {
-			log.WithContext(ctx).Errorf("failed to close zip file: %v", err)
+			log.Errorf("failed to close zip file: %v", err)
 		}
 
 		if err != nil {
 			if err2 := os.Remove(bundlePath.Name()); err2 != nil {
-				log.WithContext(ctx).Errorf("Failed to remove zip file: %v", err2)
+				log.Errorf("Failed to remove zip file: %v", err2)
 			}
 		}
 	}()
@@ -44,7 +44,7 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	archive := zip.NewWriter(bundlePath)
 	defer func() {
 		if err := archive.Close(); err != nil {
-			log.WithContext(ctx).Errorf("failed to close archive writer: %v", err)
+			log.Errorf("failed to close archive writer: %v", err)
 		}
 	}()
 
@@ -65,7 +65,7 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	}
 	defer func() {
 		if err := logFile.Close(); err != nil {
-			log.WithContext(ctx).Errorf("failed to close original log file: %v", err)
+			log.Errorf("failed to close original log file: %v", err)
 		}
 	}()
 
@@ -105,7 +105,7 @@ func (s *Server) anonymize(reader io.Reader, writer io.WriteCloser, errChan chan
 
 	defer func() {
 		if err := writer.Close(); err != nil {
-			log.WithContext(ctx).Errorf("Failed to close writer: %v", err)
+			log.Errorf("Failed to close writer: %v", err)
 		}
 	}()
 	for scanner.Scan() {
@@ -135,7 +135,7 @@ func (s *Server) SetLogLevel(_ context.Context, req *proto.SetLogLevelRequest) (
 	}
 
 	log.SetLevel(level)
-	log.WithContext(ctx).Infof("Log level set to %s", level.String())
+	log.Infof("Log level set to %s", level.String())
 	return &proto.SetLogLevelResponse{}, nil
 }
 

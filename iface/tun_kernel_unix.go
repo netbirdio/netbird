@@ -59,7 +59,7 @@ func (t *tunKernelDevice) Create() (wgConfigurer, error) {
 	}
 
 	// TODO: do a MTU discovery
-	log.WithContext(ctx).Debugf("setting MTU: %d interface: %s", t.mtu, t.name)
+	log.Debugf("setting MTU: %d interface: %s", t.mtu, t.name)
 
 	if err := link.setMTU(t.mtu); err != nil {
 		return nil, fmt.Errorf("set mtu: %w", err)
@@ -83,10 +83,10 @@ func (t *tunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		return nil, fmt.Errorf("device is not ready yet")
 	}
 
-	log.WithContext(ctx).Debugf("bringing up interface: %s", t.name)
+	log.Debugf("bringing up interface: %s", t.name)
 
 	if err := t.link.up(); err != nil {
-		log.WithContext(ctx).Errorf("error bringing up interface: %s", t.name)
+		log.Errorf("error bringing up interface: %s", t.name)
 
 		return nil, err
 	}
@@ -104,7 +104,7 @@ func (t *tunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	t.udpMuxConn = rawSock
 	t.udpMux = mux
 
-	log.WithContext(ctx).Debugf("device is ready to use: %s", t.name)
+	log.Debugf("device is ready to use: %s", t.name)
 	return t.udpMux, nil
 }
 
@@ -122,18 +122,18 @@ func (t *tunKernelDevice) Close() error {
 
 	var closErr error
 	if err := t.link.Close(); err != nil {
-		log.WithContext(ctx).Debugf("failed to close link: %s", err)
+		log.Debugf("failed to close link: %s", err)
 		closErr = err
 	}
 
 	if t.udpMux != nil {
 		if err := t.udpMux.Close(); err != nil {
-			log.WithContext(ctx).Debugf("failed to close udp mux: %s", err)
+			log.Debugf("failed to close udp mux: %s", err)
 			closErr = err
 		}
 
 		if err := t.udpMuxConn.Close(); err != nil {
-			log.WithContext(ctx).Debugf("failed to close udp mux connection: %s", err)
+			log.Debugf("failed to close udp mux connection: %s", err)
 			closErr = err
 		}
 	}

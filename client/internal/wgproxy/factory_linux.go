@@ -14,7 +14,7 @@ func NewFactory(ctx context.Context, wgPort int) *Factory {
 	ebpfProxy := NewWGEBPFProxy(ctx, wgPort)
 	err := ebpfProxy.listen()
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed to initialize ebpf proxy, fallback to user space proxy: %s", err)
+		log.Warnf("failed to initialize ebpf proxy, fallback to user space proxy: %s", err)
 		return f
 	}
 

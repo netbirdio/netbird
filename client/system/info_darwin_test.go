@@ -19,5 +19,5 @@ func Test_sysInfo(t *testing.T) {
 	if manufacturer == "" {
 		t.Errorf("manufacturer is empty")
 	}
-	log.WithContext(ctx).Infof("Mac sys info: %s, %s, %s", serialNum, prodName, manufacturer)
+	log.Infof("Mac sys info: %s, %s, %s", serialNum, prodName, manufacturer)
 }

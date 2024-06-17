@@ -34,7 +34,7 @@ func newUpstreamResolver(
 
 	index, err := getInterfaceIndex(interfaceName)
 	if err != nil {
-		log.WithContext(ctx).Debugf("unable to get interface index for %s: %s", interfaceName, err)
+		log.Debugf("unable to get interface index for %s: %s", interfaceName, err)
 		return nil, err
 	}
 
@@ -53,7 +53,7 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 	client := &dns.Client{}
 	upstreamHost, _, err := net.SplitHostPort(upstream)
 	if err != nil {
-		log.WithContext(ctx).Errorf("error while parsing upstream host: %s", err)
+		log.Errorf("error while parsing upstream host: %s", err)
 	}
 
 	timeout := upstreamTimeout
@@ -64,7 +64,7 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 
 	upstreamIP := net.ParseIP(upstreamHost)
 	if u.lNet.Contains(upstreamIP) || net.IP.IsPrivate(upstreamIP) {
-		log.WithContext(ctx).Debugf("using private client to query upstream: %s", upstream)
+		log.Debugf("using private client to query upstream: %s", upstream)
 		client = u.getClientPrivate(timeout)
 	}
 
@@ -92,7 +92,7 @@ func (u *upstreamResolverIOS) getClientPrivate(dialTimeout time.Duration) *dns.C
 			}
 
 			if operr != nil {
-				log.WithContext(ctx).Errorf("error while setting socket option: %s", operr)
+				log.Errorf("error while setting socket option: %s", operr)
 			}
 
 			return operr

@@ -221,6 +221,6 @@ func (a *Auth) withBackOff(ctx context.Context, bf func() error) error {
 		bf,
 		backoff.WithContext(cmd.CLIBackOffSettings, ctx),
 		func(err error, duration time.Duration) {
-			log.WithContext(ctx).Warnf("retrying Login to the Management service in %v due to error %v", duration, err)
+			log.Warnf("retrying Login to the Management service in %v due to error %v", duration, err)
 		})
 }

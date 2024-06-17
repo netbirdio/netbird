@@ -133,7 +133,7 @@ func (m *Manager) AllowNetbird() error {
 	}
 
 	if chain == nil {
-		log.WithContext(ctx).Debugf("chain INPUT not found. Skipping add allow netbird rule")
+		log.Debugf("chain INPUT not found. Skipping add allow netbird rule")
 		return nil
 	}
 
@@ -143,7 +143,7 @@ func (m *Manager) AllowNetbird() error {
 	}
 
 	if rule := m.detectAllowNetbirdRule(rules); rule != nil {
-		log.WithContext(ctx).Debugf("allow netbird rule already exists: %v", rule)
+		log.Debugf("allow netbird rule already exists: %v", rule)
 		return nil
 	}
 
@@ -172,13 +172,13 @@ func (m *Manager) Reset() error {
 		if c.Table.Name == "filter" && c.Name == "INPUT" {
 			rules, err := m.rConn.GetRules(c.Table, c)
 			if err != nil {
-				log.WithContext(ctx).Errorf("get rules for chain %q: %v", c.Name, err)
+				log.Errorf("get rules for chain %q: %v", c.Name, err)
 				continue
 			}
 			for _, r := range rules {
 				if bytes.Equal(r.UserData, []byte(allowNetbirdInputRuleID)) {
 					if err := m.rConn.DelRule(r); err != nil {
-						log.WithContext(ctx).Errorf("delete rule: %v", err)
+						log.Errorf("delete rule: %v", err)
 					}
 				}
 			}

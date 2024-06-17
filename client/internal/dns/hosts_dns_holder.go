@@ -51,7 +51,7 @@ func (h *hostsDNSHolder) isContain(upstream string) bool {
 func (h *hostsDNSHolder) normalizeAddress(addr string) (string, error) {
 	a, err := netip.ParseAddr(addr)
 	if err != nil {
-		log.WithContext(ctx).Errorf("invalid upstream IP address: %s, error: %s", addr, err)
+		log.Errorf("invalid upstream IP address: %s, error: %s", addr, err)
 		return "", err
 	}
 

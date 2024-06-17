@@ -8,7 +8,7 @@ const (
 )
 
 func (tf *GeneralManager) LoadWgProxy(proxyPort, wgPort int) error {
-	log.WithContext(ctx).Debugf("load ebpf WG proxy")
+	log.Debugf("load ebpf WG proxy")
 	tf.lock.Lock()
 	defer tf.lock.Unlock()
 
@@ -36,6 +36,6 @@ func (tf *GeneralManager) LoadWgProxy(proxyPort, wgPort int) error {
 }
 
 func (tf *GeneralManager) FreeWGProxy() error {
-	log.WithContext(ctx).Debugf("free ebpf WG proxy")
+	log.Debugf("free ebpf WG proxy")
 	return tf.unsetFeatureFlag(featureFlagWGProxy)
 }
