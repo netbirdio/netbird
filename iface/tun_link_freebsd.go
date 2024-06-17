@@ -64,7 +64,7 @@ func (l *wgLink) assignAddr(address WGAddress) error {
 	ip := address.IP.String()
 	mask := "0x" + address.Network.Mask.String()
 
-	log.Infof("assign addr %s mask %s to %s interface", ip, mask, l.name)
+	log.WithContext(ctx).Infof("assign addr %s mask %s to %s interface", ip, mask, l.name)
 
 	err = link.AssignAddr(ip, mask)
 	if err != nil {

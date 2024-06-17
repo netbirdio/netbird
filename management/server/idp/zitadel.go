@@ -163,7 +163,7 @@ func (zc *ZitadelCredentials) requestJWTToken() (*http.Response, error) {
 	}
 	req.Header.Add("content-type", "application/x-www-form-urlencoded")
 
-	log.Debug("requesting new jwt token for zitadel idp manager")
+	log.WithContext(ctx).Debug("requesting new jwt token for zitadel idp manager")
 
 	resp, err := zc.httpClient.Do(req)
 	if err != nil {

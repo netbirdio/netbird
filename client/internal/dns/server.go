@@ -111,7 +111,7 @@ func NewDefaultServerPermanentUpstream(
 	listener listener.NetworkChangeListener,
 	statusRecorder *peer.Status,
 ) *DefaultServer {
-	log.Debugf("host dns address list is: %v", hostsDnsList)
+	log.WithContext(ctx).Debugf("host dns address list is: %v", hostsDnsList)
 	ds := newDefaultServer(ctx, wgInterface, newServiceViaMemory(wgInterface), statusRecorder)
 	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
@@ -193,7 +193,7 @@ func (s *DefaultServer) Stop() {
 	if s.hostManager != nil {
 		err := s.hostManager.restoreHostDNS()
 		if err != nil {
-			log.Error(err)
+			log.WithContext(ctx).Error(err)
 		}
 	}
 
@@ -207,10 +207,10 @@ func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []string) {
 
 	_, ok := s.dnsMuxMap[nbdns.RootZone]
 	if ok {
-		log.Debugf("on new host DNS config but skip to apply it")
+		log.WithContext(ctx).Debugf("on new host DNS config but skip to apply it")
 		return
 	}
-	log.Debugf("update host DNS settings: %+v", hostsDnsList)
+	log.WithContext(ctx).Debugf("update host DNS settings: %+v", hostsDnsList)
 	s.addHostRootZone()
 }
 
@@ -218,7 +218,7 @@ func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []string) {
 func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) error {
 	select {
 	case <-s.ctx.Done():
-		log.Infof("not updating DNS server as context is closed")
+		log.WithContext(ctx).Infof("not updating DNS server as context is closed")
 		return s.ctx.Err()
 	default:
 		if serial < s.updateSerial {
@@ -239,11 +239,11 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 			UseStringer:     true,
 		})
 		if err != nil {
-			log.Errorf("unable to hash the dns configuration update, got error: %s", err)
+			log.WithContext(ctx).Errorf("unable to hash the dns configuration update, got error: %s", err)
 		}
 
 		if s.previousConfigHash == hash {
-			log.Debugf("not applying the dns configuration update as there is nothing new")
+			log.WithContext(ctx).Debugf("not applying the dns configuration update as there is nothing new")
 			s.updateSerial = serial
 			return nil
 		}
@@ -313,13 +313,13 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 
 	hostUpdate := s.currentConfig
 	if s.service.RuntimePort() != defaultPort && !s.hostManager.supportCustomPort() {
-		log.Warnf("the DNS manager of this peer doesn't support custom port. Disabling primary DNS setup. " +
+		log.WithContext(ctx).Warnf("the DNS manager of this peer doesn't support custom port. Disabling primary DNS setup. " +
 			"Learn more at: https://docs.netbird.io/how-to/manage-dns-in-your-network#local-resolver")
 		hostUpdate.RouteAll = false
 	}
 
 	if err = s.hostManager.applyDNSConfig(hostUpdate); err != nil {
-		log.Error(err)
+		log.WithContext(ctx).Error(err)
 	}
 
 	if s.searchDomainNotifier != nil {
@@ -363,7 +363,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 	var muxUpdates []muxUpdate
 	for _, nsGroup := range nameServerGroups {
 		if len(nsGroup.NameServers) == 0 {
-			log.Warn("received a nameserver group with empty nameserver list")
+			log.WithContext(ctx).Warn("received a nameserver group with empty nameserver list")
 			continue
 		}
 
@@ -380,7 +380,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 		}
 		for _, ns := range nsGroup.NameServers {
 			if ns.NSType != nbdns.UDPNameServerType {
-				log.Warnf("skipping nameserver %s with type %s, this peer supports only %s",
+				log.WithContext(ctx).Warnf("skipping nameserver %s with type %s, this peer supports only %s",
 					ns.IP.String(), ns.NSType.String(), nbdns.UDPNameServerType.String())
 				continue
 			}
@@ -389,7 +389,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 
 		if len(handler.upstreamServers) == 0 {
 			handler.stop()
-			log.Errorf("received a nameserver group with an invalid nameserver list")
+			log.WithContext(ctx).Errorf("received a nameserver group with an invalid nameserver list")
 			continue
 		}
 
@@ -476,7 +476,7 @@ func (s *DefaultServer) updateLocalResolver(update map[string]nbdns.SimpleRecord
 	for key, record := range update {
 		err := s.localResolver.registerRecord(record)
 		if err != nil {
-			log.Warnf("got an error while registering the record (%s), error: %v", record.String(), err)
+			log.WithContext(ctx).Warnf("got an error while registering the record (%s), error: %v", record.String(), err)
 		}
 		updatedMap[key] = struct{}{}
 	}
@@ -570,7 +570,7 @@ func (s *DefaultServer) addHostRootZone() {
 		s.hostsDNSHolder,
 	)
 	if err != nil {
-		log.Errorf("unable to create a new upstream resolver, error: %v", err)
+		log.WithContext(ctx).Errorf("unable to create a new upstream resolver, error: %v", err)
 		return
 	}
 

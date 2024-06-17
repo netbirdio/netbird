@@ -71,7 +71,7 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig) error {
 
 	resolvConf, err := parseBackupResolvConf()
 	if err != nil {
-		log.Errorf("could not read original search domains from %s: %s", fileDefaultResolvConfBackupLocation, err)
+		log.WithContext(ctx).Errorf("could not read original search domains from %s: %s", fileDefaultResolvConfBackupLocation, err)
 	}
 
 	f.repair.stopWatchFileChanges()
@@ -94,21 +94,21 @@ func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP
 		nameServers,
 		options)
 
-	log.Debugf("creating managed file %s", defaultResolvConfPath)
+	log.WithContext(ctx).Debugf("creating managed file %s", defaultResolvConfPath)
 	err := os.WriteFile(defaultResolvConfPath, buf.Bytes(), f.originalPerms)
 	if err != nil {
 		restoreErr := f.restore()
 		if restoreErr != nil {
-			log.Errorf("attempt to restore default file failed with error: %s", err)
+			log.WithContext(ctx).Errorf("attempt to restore default file failed with error: %s", err)
 		}
 		return fmt.Errorf("creating resolver file %s. Error: %w", defaultResolvConfPath, err)
 	}
 
-	log.Infof("created a NetBird managed %s file with the DNS settings. Added %d search domains. Search list: %s", defaultResolvConfPath, len(searchDomainList), searchDomainList)
+	log.WithContext(ctx).Infof("created a NetBird managed %s file with the DNS settings. Added %d search domains. Search list: %s", defaultResolvConfPath, len(searchDomainList), searchDomainList)
 
 	// create another backup for unclean shutdown detection right after overwriting the original resolv.conf
 	if err := createUncleanShutdownIndicator(fileDefaultResolvConfBackupLocation, fileManager, nbNameserverIP); err != nil {
-		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
+		log.WithContext(ctx).Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
 	}
 
 	return nil
@@ -137,7 +137,7 @@ func (f *fileConfigurator) backup() error {
 func (f *fileConfigurator) restore() error {
 	err := removeFirstNbNameserver(fileDefaultResolvConfBackupLocation, f.nbNameserverIP)
 	if err != nil {
-		log.Errorf("Failed to remove netbird nameserver from %s on backup restore: %s", fileDefaultResolvConfBackupLocation, err)
+		log.WithContext(ctx).Errorf("Failed to remove netbird nameserver from %s on backup restore: %s", fileDefaultResolvConfBackupLocation, err)
 	}
 
 	err = copyFile(fileDefaultResolvConfBackupLocation, defaultResolvConfPath)
@@ -146,7 +146,7 @@ func (f *fileConfigurator) restore() error {
 	}
 
 	if err := removeUncleanShutdownIndicator(); err != nil {
-		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
+		log.WithContext(ctx).Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
 	}
 
 	return os.RemoveAll(fileDefaultResolvConfBackupLocation)
@@ -166,7 +166,7 @@ func (f *fileConfigurator) restoreUncleanShutdownDNS(storedDNSAddress *netip.Add
 	currentDNSAddress, err := netip.ParseAddr(resolvConf.nameServers[0])
 	// not a valid first nameserver -> restore
 	if err != nil {
-		log.Errorf("restoring unclean shutdown: parse dns address %s failed: %s", resolvConf.nameServers[0], err)
+		log.WithContext(ctx).Errorf("restoring unclean shutdown: parse dns address %s failed: %s", resolvConf.nameServers[0], err)
 		return restoreResolvConfFile()
 	}
 
@@ -176,7 +176,7 @@ func (f *fileConfigurator) restoreUncleanShutdownDNS(storedDNSAddress *netip.Add
 		return restoreResolvConfFile()
 	}
 
-	log.Info("restoring unclean shutdown: first current nameserver differs from saved nameserver pre-netbird: not restoring")
+	log.WithContext(ctx).Info("restoring unclean shutdown: first current nameserver differs from saved nameserver pre-netbird: not restoring")
 	return nil
 }
 
@@ -186,14 +186,14 @@ func (f *fileConfigurator) isBackupFileExist() bool {
 }
 
 func restoreResolvConfFile() error {
-	log.Debugf("restoring unclean shutdown: restoring %s from %s", defaultResolvConfPath, fileUncleanShutdownResolvConfLocation)
+	log.WithContext(ctx).Debugf("restoring unclean shutdown: restoring %s from %s", defaultResolvConfPath, fileUncleanShutdownResolvConfLocation)
 
 	if err := copyFile(fileUncleanShutdownResolvConfLocation, defaultResolvConfPath); err != nil {
 		return fmt.Errorf("restoring %s from %s: %w", defaultResolvConfPath, fileUncleanShutdownResolvConfLocation, err)
 	}
 
 	if err := removeUncleanShutdownIndicator(); err != nil {
-		log.Errorf("failed to remove unclean shutdown resolv.conf file: %s", err)
+		log.WithContext(ctx).Errorf("failed to remove unclean shutdown resolv.conf file: %s", err)
 	}
 
 	return nil
@@ -278,7 +278,7 @@ func validateAndFillSearchDomains(initialLineChars int, s *[]string, vs []string
 		tmpCharsNumber := initialLineChars + 1 + len(sd)
 		if tmpCharsNumber > fileMaxLineCharsLimit {
 			// lets log all skipped Domains
-			log.Infof("search list line is larger than %d characters. Skipping append of %s domain", fileMaxLineCharsLimit, sd)
+			log.WithContext(ctx).Infof("search list line is larger than %d characters. Skipping append of %s domain", fileMaxLineCharsLimit, sd)
 			continue
 		}
 
@@ -286,7 +286,7 @@ func validateAndFillSearchDomains(initialLineChars int, s *[]string, vs []string
 
 		if len(*s) >= fileMaxNumberOfSearchDomains {
 			// lets log all skipped Domains
-			log.Infof("already appended %d domains to search list. Skipping append of %s domain", fileMaxNumberOfSearchDomains, sd)
+			log.WithContext(ctx).Infof("already appended %d domains to search list. Skipping append of %s domain", fileMaxNumberOfSearchDomains, sd)
 			continue
 		}
 		*s = append(*s, sd)

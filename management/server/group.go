@@ -171,7 +171,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *n
 	for _, p := range addedPeers {
 		peer := account.Peers[p]
 		if peer == nil {
-			log.Errorf("peer %s not found under account %s while saving group", p, accountID)
+			log.WithContext(ctx).Errorf("peer %s not found under account %s while saving group", p, accountID)
 			continue
 		}
 		am.StoreEvent(userID, peer.ID, accountID, activity.GroupAddedToPeer,
@@ -184,7 +184,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *n
 	for _, p := range removedPeers {
 		peer := account.Peers[p]
 		if peer == nil {
-			log.Errorf("peer %s not found under account %s while saving group", p, accountID)
+			log.WithContext(ctx).Errorf("peer %s not found under account %s while saving group", p, accountID)
 			continue
 		}
 		am.StoreEvent(userID, peer.ID, accountID, activity.GroupRemovedFromPeer,

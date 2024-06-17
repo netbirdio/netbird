@@ -34,7 +34,7 @@ func (h *DNSSettingsHandler) GetDNSSettings(w http.ResponseWriter, r *http.Reque
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		log.Error(err)
+		log.WithContext(ctx).Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}

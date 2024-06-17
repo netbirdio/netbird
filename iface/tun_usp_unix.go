@@ -30,7 +30,7 @@ type tunUSPDevice struct {
 }
 
 func newTunUSPDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net) wgTunDevice {
-	log.Infof("using userspace bind mode")
+	log.WithContext(ctx).Infof("using userspace bind mode")
 
 	checkUser()
 
@@ -45,10 +45,10 @@ func newTunUSPDevice(name string, address WGAddress, port int, key string, mtu i
 }
 
 func (t *tunUSPDevice) Create() (wgConfigurer, error) {
-	log.Info("create tun interface")
+	log.WithContext(ctx).Info("create tun interface")
 	tunIface, err := tun.CreateTUN(t.name, t.mtu)
 	if err != nil {
-		log.Debugf("failed to create tun unterface (%s, %d): %s", t.name, t.mtu, err)
+		log.WithContext(ctx).Debugf("failed to create tun unterface (%s, %d): %s", t.name, t.mtu, err)
 		return nil, err
 	}
 	t.wrapper = newDeviceWrapper(tunIface)
@@ -92,7 +92,7 @@ func (t *tunUSPDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	}
 	t.udpMux = udpMux
 
-	log.Debugf("device is ready to use: %s", t.name)
+	log.WithContext(ctx).Debugf("device is ready to use: %s", t.name)
 	return udpMux, nil
 }
 
@@ -139,7 +139,7 @@ func checkUser() {
 	if runtime.GOOS == "freebsd" {
 		euid := os.Geteuid()
 		if euid != 0 {
-			log.Warn("newTunUSPDevice: on netbird must run as root to be able to assign address to the tun interface with ifconfig")
+			log.WithContext(ctx).Warn("newTunUSPDevice: on netbird must run as root to be able to assign address to the tun interface with ifconfig")
 		}
 	}
 }

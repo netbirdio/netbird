@@ -70,7 +70,7 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 			Timeout: 10 * time.Second,
 		}))
 	if err != nil {
-		log.Errorf("failed creating connection to Management Service %v", err)
+		log.WithContext(ctx).Errorf("failed creating connection to Management Service %v", err)
 		return nil, err
 	}
 
@@ -120,7 +120,7 @@ func (c *GrpcClient) ready() bool {
 // Blocking request. The result will be sent via msgHandler callback function
 func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
 	operation := func() error {
-		log.Debugf("management connection state %v", c.conn.GetState())
+		log.WithContext(ctx).Debugf("management connection state %v", c.conn.GetState())
 		connState := c.conn.GetState()
 
 		if connState == connectivity.Shutdown {
@@ -132,7 +132,7 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 
 		serverPubKey, err := c.GetServerPublicKey()
 		if err != nil {
-			log.Debugf(errMsgMgmtPublicKey, err)
+			log.WithContext(ctx).Debugf(errMsgMgmtPublicKey, err)
 			return err
 		}
 
@@ -141,7 +141,7 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 
 	err := backoff.Retry(operation, defaultBackoff(ctx))
 	if err != nil {
-		log.Warnf("exiting the Management service connection retry loop due to the unrecoverable error: %s", err)
+		log.WithContext(ctx).Warnf("exiting the Management service connection retry loop due to the unrecoverable error: %s", err)
 	}
 
 	return err
@@ -154,14 +154,14 @@ func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key,
 
 	stream, err := c.connectToStream(ctx, serverPubKey, sysInfo)
 	if err != nil {
-		log.Debugf("failed to open Management Service stream: %s", err)
+		log.WithContext(ctx).Debugf("failed to open Management Service stream: %s", err)
 		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
 			return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
 		}
 		return err
 	}
 
-	log.Infof("connected to the Management Service stream")
+	log.WithContext(ctx).Infof("connected to the Management Service stream")
 	c.notifyConnected()
 
 	// blocking until error
@@ -172,11 +172,11 @@ func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key,
 		case codes.PermissionDenied:
 			return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
 		case codes.Canceled:
-			log.Debugf("management connection context has been canceled, this usually indicates shutdown")
+			log.WithContext(ctx).Debugf("management connection context has been canceled, this usually indicates shutdown")
 			return nil
 		default:
 			c.notifyDisconnected(err)
-			log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
+			log.WithContext(ctx).Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
 			return err
 		}
 	}
@@ -188,7 +188,7 @@ func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key,
 func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, error) {
 	serverPubKey, err := c.GetServerPublicKey()
 	if err != nil {
-		log.Debugf("failed getting Management Service public key: %s", err)
+		log.WithContext(ctx).Debugf("failed getting Management Service public key: %s", err)
 		return nil, err
 	}
 
@@ -196,7 +196,7 @@ func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, err
 	defer cancelStream()
 	stream, err := c.connectToStream(ctx, *serverPubKey, sysInfo)
 	if err != nil {
-		log.Debugf("failed to open Management Service stream: %s", err)
+		log.WithContext(ctx).Debugf("failed to open Management Service stream: %s", err)
 		return nil, err
 	}
 	defer func() {
@@ -205,18 +205,18 @@ func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, err
 
 	update, err := stream.Recv()
 	if err == io.EOF {
-		log.Debugf("Management stream has been closed by server: %s", err)
+		log.WithContext(ctx).Debugf("Management stream has been closed by server: %s", err)
 		return nil, err
 	}
 	if err != nil {
-		log.Debugf("disconnected from Management Service sync stream: %v", err)
+		log.WithContext(ctx).Debugf("disconnected from Management Service sync stream: %v", err)
 		return nil, err
 	}
 
 	decryptedResp := &proto.SyncResponse{}
 	err = encryption.DecryptMessage(*serverPubKey, c.key, update.Body, decryptedResp)
 	if err != nil {
-		log.Errorf("failed decrypting update message from Management Service: %s", err)
+		log.WithContext(ctx).Errorf("failed decrypting update message from Management Service: %s", err)
 		return nil, err
 	}
 
@@ -235,7 +235,7 @@ func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.K
 
 	encryptedReq, err := encryption.EncryptMessage(serverPubKey, myPrivateKey, req)
 	if err != nil {
-		log.Errorf("failed encrypting message: %s", err)
+		log.WithContext(ctx).Errorf("failed encrypting message: %s", err)
 		return nil, err
 	}
 	syncReq := &proto.EncryptedMessage{WgPubKey: myPublicKey.String(), Body: encryptedReq}
@@ -250,25 +250,25 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 	for {
 		update, err := stream.Recv()
 		if err == io.EOF {
-			log.Debugf("Management stream has been closed by server: %s", err)
+			log.WithContext(ctx).Debugf("Management stream has been closed by server: %s", err)
 			return err
 		}
 		if err != nil {
-			log.Debugf("disconnected from Management Service sync stream: %v", err)
+			log.WithContext(ctx).Debugf("disconnected from Management Service sync stream: %v", err)
 			return err
 		}
 
-		log.Debugf("got an update message from Management Service")
+		log.WithContext(ctx).Debugf("got an update message from Management Service")
 		decryptedResp := &proto.SyncResponse{}
 		err = encryption.DecryptMessage(serverPubKey, c.key, update.Body, decryptedResp)
 		if err != nil {
-			log.Errorf("failed decrypting update message from Management Service: %s", err)
+			log.WithContext(ctx).Errorf("failed decrypting update message from Management Service: %s", err)
 			return err
 		}
 
 		err = msgHandler(decryptedResp)
 		if err != nil {
-			log.Errorf("failed handling an update message received from Management Service: %v", err.Error())
+			log.WithContext(ctx).Errorf("failed handling an update message received from Management Service: %v", err.Error())
 			return err
 		}
 	}
@@ -284,7 +284,7 @@ func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
 	defer cancel()
 	resp, err := c.realClient.GetServerKey(mgmCtx, &proto.Empty{})
 	if err != nil {
-		log.Errorf("failed while getting Management Service public key: %v", err)
+		log.WithContext(ctx).Errorf("failed while getting Management Service public key: %v", err)
 		return nil, fmt.Errorf("failed while getting Management Service public key")
 	}
 
@@ -315,7 +315,7 @@ func (c *GrpcClient) IsHealthy() bool {
 	_, err := c.realClient.GetServerKey(ctx, &proto.Empty{})
 	if err != nil {
 		c.notifyDisconnected(err)
-		log.Warnf("health check returned: %s", err)
+		log.WithContext(ctx).Warnf("health check returned: %s", err)
 		return false
 	}
 	c.notifyConnected()
@@ -328,7 +328,7 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 	}
 	loginReq, err := encryption.EncryptMessage(serverKey, c.key, req)
 	if err != nil {
-		log.Errorf("failed to encrypt message: %s", err)
+		log.WithContext(ctx).Errorf("failed to encrypt message: %s", err)
 		return nil, err
 	}
 	mgmCtx, cancel := context.WithTimeout(c.ctx, ConnectTimeout)
@@ -344,7 +344,7 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 	loginResp := &proto.LoginResponse{}
 	err = encryption.DecryptMessage(serverKey, c.key, resp.Body, loginResp)
 	if err != nil {
-		log.Errorf("failed to decrypt registration message: %s", err)
+		log.WithContext(ctx).Errorf("failed to decrypt registration message: %s", err)
 		return nil, err
 	}
 
@@ -398,7 +398,7 @@ func (c *GrpcClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.D
 	err = encryption.DecryptMessage(serverKey, c.key, resp.Body, flowInfoResp)
 	if err != nil {
 		errWithMSG := fmt.Errorf("failed to decrypt device authorization flow message: %s", err)
-		log.Error(errWithMSG)
+		log.WithContext(ctx).Error(errWithMSG)
 		return nil, errWithMSG
 	}
 
@@ -432,7 +432,7 @@ func (c *GrpcClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKC
 	err = encryption.DecryptMessage(serverKey, c.key, resp.Body, flowInfoResp)
 	if err != nil {
 		errWithMSG := fmt.Errorf("failed to decrypt pkce authorization flow message: %s", err)
-		log.Error(errWithMSG)
+		log.WithContext(ctx).Error(errWithMSG)
 		return nil, errWithMSG
 	}
 
@@ -448,13 +448,13 @@ func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
 
 	serverPubKey, err := c.GetServerPublicKey()
 	if err != nil {
-		log.Debugf(errMsgMgmtPublicKey, err)
+		log.WithContext(ctx).Debugf(errMsgMgmtPublicKey, err)
 		return err
 	}
 
 	syncMetaReq, err := encryption.EncryptMessage(*serverPubKey, c.key, &proto.SyncMetaRequest{Meta: infoToMetaData(sysInfo)})
 	if err != nil {
-		log.Errorf("failed to encrypt message: %s", err)
+		log.WithContext(ctx).Errorf("failed to encrypt message: %s", err)
 		return err
 	}
 

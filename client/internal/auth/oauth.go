@@ -72,8 +72,8 @@ func NewOAuthFlow(ctx context.Context, config *internal.Config, isLinuxDesktopCl
 	pkceFlow, err := authenticateWithPKCEFlow(ctx, config)
 	if err != nil {
 		// fallback to device code flow
-		log.Debugf("failed to initialize pkce authentication with error: %v\n", err)
-		log.Debug("falling back to device code flow")
+		log.WithContext(ctx).Debugf("failed to initialize pkce authentication with error: %v\n", err)
+		log.WithContext(ctx).Debug("falling back to device code flow")
 		return authenticateWithDeviceCodeFlow(ctx, config)
 	}
 	return pkceFlow, nil

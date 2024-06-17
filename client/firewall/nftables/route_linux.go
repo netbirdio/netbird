@@ -66,7 +66,7 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table) (*router, e
 	r.filterTable, err = r.loadFilterTable()
 	if err != nil {
 		if errors.Is(err, errFilterTableNotFound) {
-			log.Warnf("table 'filter' not found for forward rules")
+			log.WithContext(ctx).Warnf("table 'filter' not found for forward rules")
 		} else {
 			return nil, err
 		}
@@ -74,12 +74,12 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table) (*router, e
 
 	err = r.cleanUpDefaultForwardRules()
 	if err != nil {
-		log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
+		log.WithContext(ctx).Errorf("failed to clean up rules from FORWARD chain: %s", err)
 	}
 
 	err = r.createContainers()
 	if err != nil {
-		log.Errorf("failed to create containers for route: %s", err)
+		log.WithContext(ctx).Errorf("failed to create containers for route: %s", err)
 	}
 	return r, err
 }
@@ -92,7 +92,7 @@ func (r *router) RouteingFwChainName() string {
 func (r *router) ResetForwardRules() {
 	err := r.cleanUpDefaultForwardRules()
 	if err != nil {
-		log.Errorf("failed to reset forward rules: %s", err)
+		log.WithContext(ctx).Errorf("failed to reset forward rules: %s", err)
 	}
 }
 
@@ -128,7 +128,7 @@ func (r *router) createContainers() error {
 
 	err := r.refreshRulesMap()
 	if err != nil {
-		log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
+		log.WithContext(ctx).Errorf("failed to clean up rules from FORWARD chain: %s", err)
 	}
 
 	err = r.conn.Flush()
@@ -166,7 +166,7 @@ func (r *router) InsertRoutingRules(pair manager.RouterPair) error {
 	}
 
 	if r.filterTable != nil && !r.isDefaultFwdRulesEnabled {
-		log.Debugf("add default accept forward rule")
+		log.WithContext(ctx).Debugf("add default accept forward rule")
 		r.acceptForwardRule(pair.Source)
 	}
 
@@ -285,7 +285,7 @@ func (r *router) RemoveRoutingRules(pair manager.RouterPair) error {
 	if len(r.rules) == 0 {
 		err := r.cleanUpDefaultForwardRules()
 		if err != nil {
-			log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
+			log.WithContext(ctx).Errorf("failed to clean up rules from FORWARD chain: %s", err)
 		}
 	}
 
@@ -293,7 +293,7 @@ func (r *router) RemoveRoutingRules(pair manager.RouterPair) error {
 	if err != nil {
 		return fmt.Errorf("nftables: received error while applying rule removal for %s: %v", pair.Destination, err)
 	}
-	log.Debugf("nftables: removed rules for %s", pair.Destination)
+	log.WithContext(ctx).Debugf("nftables: removed rules for %s", pair.Destination)
 	return nil
 }
 
@@ -313,7 +313,7 @@ func (r *router) removeRoutingRule(format string, pair manager.RouterPair) error
 			return fmt.Errorf("nftables: unable to remove %s rule for %s: %v", ruleType, pair.Destination, err)
 		}
 
-		log.Debugf("nftables: removing %s rule for %s", ruleType, pair.Destination)
+		log.WithContext(ctx).Debugf("nftables: removing %s rule for %s", ruleType, pair.Destination)
 
 		delete(r.rules, ruleKey)
 	}

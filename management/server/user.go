@@ -232,7 +232,7 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUs
 
 	newUserID := uuid.New().String()
 	newUser := NewUser(newUserID, role, true, nonDeletable, serviceUserName, autoGroups, UserIssuedAPI)
-	log.Debugf("New User: %v", newUser)
+	log.WithContext(ctx).Debugf("New User: %v", newUser)
 	account.Users[newUserID] = newUser
 
 	err = am.Store.SaveAccount(account)
@@ -386,7 +386,7 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 
 	err = am.Store.SaveUserLastLogin(account.Id, claims.UserId, claims.LastLogin)
 	if err != nil {
-		log.Errorf("failed saving user last login: %v", err)
+		log.WithContext(ctx).Errorf("failed saving user last login: %v", err)
 	}
 
 	if newLogin {
@@ -473,7 +473,7 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 func (am *DefaultAccountManager) deleteRegularUser(account *Account, initiatorUserID, targetUserID string) error {
 	tuEmail, tuName, err := am.getEmailAndNameOfTargetUser(account.Id, initiatorUserID, targetUserID)
 	if err != nil {
-		log.Errorf("failed to resolve email address: %s", err)
+		log.WithContext(ctx).Errorf("failed to resolve email address: %s", err)
 		return err
 	}
 
@@ -484,11 +484,11 @@ func (am *DefaultAccountManager) deleteRegularUser(account *Account, initiatorUs
 		if err == nil {
 			err = am.deleteUserFromIDP(targetUserID, account.Id)
 			if err != nil {
-				log.Debugf("failed to delete user from IDP: %s", targetUserID)
+				log.WithContext(ctx).Debugf("failed to delete user from IDP: %s", targetUserID)
 				return err
 			}
 		} else {
-			log.Debugf("skipped deleting user %s from IDP, error: %v", targetUserID, err)
+			log.WithContext(ctx).Debugf("skipped deleting user %s from IDP, error: %v", targetUserID, err)
 		}
 	}
 
@@ -499,7 +499,7 @@ func (am *DefaultAccountManager) deleteRegularUser(account *Account, initiatorUs
 
 	u, err := account.FindUser(targetUserID)
 	if err != nil {
-		log.Errorf("failed to find user %s for deletion, this should never happen: %s", targetUserID, err)
+		log.WithContext(ctx).Errorf("failed to find user %s for deletion, this should never happen: %s", targetUserID, err)
 	}
 
 	var tuCreatedAt time.Time
@@ -835,7 +835,7 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 		}
 
 		if err := am.expireAndUpdatePeers(account, blockedPeers); err != nil {
-			log.Errorf("failed update expired peers: %s", err)
+			log.WithContext(ctx).Errorf("failed update expired peers: %s", err)
 			return nil, err
 		}
 	}
@@ -884,7 +884,7 @@ func (am *DefaultAccountManager) SaveOrAddUser(accountID, initiatorUserID string
 					am.StoreEvent(initiatorUserID, oldUser.Id, accountID, activity.GroupRemovedFromUser,
 						map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
 				} else {
-					log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
+					log.WithContext(ctx).Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
 				}
 			}
 
@@ -913,7 +913,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userID, domain string)
 	start := time.Now()
 	unlock := am.Store.AcquireGlobalLock()
 	defer unlock()
-	log.Debugf("Acquired global lock in %s for user %s", time.Since(start), userID)
+	log.WithContext(ctx).Debugf("Acquired global lock in %s for user %s", time.Since(start), userID)
 
 	lowerDomain := strings.ToLower(domain)
 
@@ -969,7 +969,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 				key := user.IntegrationReference.CacheKey(accountID, user.Id)
 				info, err := am.externalCacheManager.Get(am.ctx, key)
 				if err != nil {
-					log.Infof("Get ExternalCache for key: %s, error: %s", key, err)
+					log.WithContext(ctx).Infof("Get ExternalCache for key: %s, error: %s", key, err)
 					users[user.Id] = true
 					continue
 				}
@@ -984,8 +984,8 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 		if err != nil {
 			return nil, err
 		}
-		log.Debugf("Got %d users from ExternalCache for account %s", len(usersFromIntegration), accountID)
-		log.Debugf("Got %d users from InternalCache for account %s", len(queriedUsers), accountID)
+		log.WithContext(ctx).Debugf("Got %d users from ExternalCache for account %s", len(usersFromIntegration), accountID)
+		log.WithContext(ctx).Debugf("Got %d users from InternalCache for account %s", len(queriedUsers), accountID)
 		queriedUsers = append(queriedUsers, usersFromIntegration...)
 	}
 
@@ -1080,7 +1080,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(account *Account, peers []
 
 func (am *DefaultAccountManager) deleteUserFromIDP(targetUserID, accountID string) error {
 	if am.userDeleteFromIDPEnabled {
-		log.Debugf("user %s deleted from IdP", targetUserID)
+		log.WithContext(ctx).Debugf("user %s deleted from IdP", targetUserID)
 		err := am.idpManager.DeleteUser(targetUserID)
 		if err != nil {
 			return fmt.Errorf("failed to delete user %s from IdP: %s", targetUserID, err)
@@ -1093,7 +1093,7 @@ func (am *DefaultAccountManager) deleteUserFromIDP(targetUserID, accountID strin
 	}
 	err := am.removeUserFromCache(accountID, targetUserID)
 	if err != nil {
-		log.Errorf("remove user from account (%q) cache failed with error: %v", accountID, err)
+		log.WithContext(ctx).Errorf("remove user from account (%q) cache failed with error: %v", accountID, err)
 	}
 	return nil
 }

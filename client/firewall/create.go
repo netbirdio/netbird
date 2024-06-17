@@ -26,7 +26,7 @@ func NewFirewall(context context.Context, iface IFaceMapper) (firewall.Manager, 
 	}
 	err = fm.AllowNetbird()
 	if err != nil {
-		log.Warnf("failed to allow netbird interface traffic: %v", err)
+		log.WithContext(ctx).Warnf("failed to allow netbird interface traffic: %v", err)
 	}
 	return fm, nil
 }

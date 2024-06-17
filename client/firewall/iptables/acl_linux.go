@@ -106,7 +106,7 @@ func (m *aclManager) AddFiltering(
 		}
 
 		if err := ipset.Flush(ipsetName); err != nil {
-			log.Errorf("flush ipset %s before use it: %s", ipsetName, err)
+			log.WithContext(ctx).Errorf("flush ipset %s before use it: %s", ipsetName, err)
 		}
 		if err := ipset.Create(ipsetName); err != nil {
 			return nil, fmt.Errorf("failed to create ipset: %w", err)
@@ -181,7 +181,7 @@ func (m *aclManager) DeleteRule(rule firewall.Rule) error {
 		m.ipsetStore.deleteIpset(r.ipsetName)
 
 		if err := ipset.Destroy(r.ipsetName); err != nil {
-			log.Errorf("delete empty ipset: %v", err)
+			log.WithContext(ctx).Errorf("delete empty ipset: %v", err)
 		}
 	}
 
@@ -194,7 +194,7 @@ DELETERULE:
 	}
 	err := m.iptablesClient.Delete(table, r.chain, r.specs...)
 	if err != nil {
-		log.Debugf("failed to delete rule, %s, %v: %s", r.chain, r.specs, err)
+		log.WithContext(ctx).Debugf("failed to delete rule, %s, %v: %s", r.chain, r.specs, err)
 	}
 	return err
 }
@@ -245,7 +245,7 @@ func (m *aclManager) addPreroutingFilter(ipsetName string, protocol string, port
 func (m *aclManager) cleanChains() error {
 	ok, err := m.iptablesClient.ChainExists(tableName, chainNameOutputRules)
 	if err != nil {
-		log.Debugf("failed to list chains: %s", err)
+		log.WithContext(ctx).Debugf("failed to list chains: %s", err)
 		return err
 	}
 	if ok {
@@ -253,69 +253,69 @@ func (m *aclManager) cleanChains() error {
 		for _, rule := range rules {
 			err := m.iptablesClient.DeleteIfExists(tableName, "OUTPUT", rule...)
 			if err != nil {
-				log.Errorf("failed to delete rule: %v, %s", rule, err)
+				log.WithContext(ctx).Errorf("failed to delete rule: %v, %s", rule, err)
 			}
 		}
 
 		err = m.iptablesClient.ClearAndDeleteChain(tableName, chainNameOutputRules)
 		if err != nil {
-			log.Debugf("failed to clear and delete %s chain: %s", chainNameOutputRules, err)
+			log.WithContext(ctx).Debugf("failed to clear and delete %s chain: %s", chainNameOutputRules, err)
 			return err
 		}
 	}
 
 	ok, err = m.iptablesClient.ChainExists(tableName, chainNameInputRules)
 	if err != nil {
-		log.Debugf("failed to list chains: %s", err)
+		log.WithContext(ctx).Debugf("failed to list chains: %s", err)
 		return err
 	}
 	if ok {
 		for _, rule := range m.entries["INPUT"] {
 			err := m.iptablesClient.DeleteIfExists(tableName, "INPUT", rule...)
 			if err != nil {
-				log.Errorf("failed to delete rule: %v, %s", rule, err)
+				log.WithContext(ctx).Errorf("failed to delete rule: %v, %s", rule, err)
 			}
 		}
 
 		for _, rule := range m.entries["FORWARD"] {
 			err := m.iptablesClient.DeleteIfExists(tableName, "FORWARD", rule...)
 			if err != nil {
-				log.Errorf("failed to delete rule: %v, %s", rule, err)
+				log.WithContext(ctx).Errorf("failed to delete rule: %v, %s", rule, err)
 			}
 		}
 
 		err = m.iptablesClient.ClearAndDeleteChain(tableName, chainNameInputRules)
 		if err != nil {
-			log.Debugf("failed to clear and delete %s chain: %s", chainNameInputRules, err)
+			log.WithContext(ctx).Debugf("failed to clear and delete %s chain: %s", chainNameInputRules, err)
 			return err
 		}
 	}
 
 	ok, err = m.iptablesClient.ChainExists("mangle", "PREROUTING")
 	if err != nil {
-		log.Debugf("failed to list chains: %s", err)
+		log.WithContext(ctx).Debugf("failed to list chains: %s", err)
 		return err
 	}
 	if ok {
 		for _, rule := range m.entries["PREROUTING"] {
 			err := m.iptablesClient.DeleteIfExists("mangle", "PREROUTING", rule...)
 			if err != nil {
-				log.Errorf("failed to delete rule: %v, %s", rule, err)
+				log.WithContext(ctx).Errorf("failed to delete rule: %v, %s", rule, err)
 			}
 		}
 		err = m.iptablesClient.ClearChain("mangle", "PREROUTING")
 		if err != nil {
-			log.Debugf("failed to clear %s chain: %s", "PREROUTING", err)
+			log.WithContext(ctx).Debugf("failed to clear %s chain: %s", "PREROUTING", err)
 			return err
 		}
 	}
 
 	for _, ipsetName := range m.ipsetStore.ipsetNames() {
 		if err := ipset.Flush(ipsetName); err != nil {
-			log.Errorf("flush ipset %q during reset: %v", ipsetName, err)
+			log.WithContext(ctx).Errorf("flush ipset %q during reset: %v", ipsetName, err)
 		}
 		if err := ipset.Destroy(ipsetName); err != nil {
-			log.Errorf("delete ipset %q during reset: %v", ipsetName, err)
+			log.WithContext(ctx).Errorf("delete ipset %q during reset: %v", ipsetName, err)
 		}
 		m.ipsetStore.deleteIpset(ipsetName)
 	}
@@ -326,13 +326,13 @@ func (m *aclManager) cleanChains() error {
 func (m *aclManager) createDefaultChains() error {
 	// chain netbird-acl-input-rules
 	if err := m.iptablesClient.NewChain(tableName, chainNameInputRules); err != nil {
-		log.Debugf("failed to create '%s' chain: %s", chainNameInputRules, err)
+		log.WithContext(ctx).Debugf("failed to create '%s' chain: %s", chainNameInputRules, err)
 		return err
 	}
 
 	// chain netbird-acl-output-rules
 	if err := m.iptablesClient.NewChain(tableName, chainNameOutputRules); err != nil {
-		log.Debugf("failed to create '%s' chain: %s", chainNameOutputRules, err)
+		log.WithContext(ctx).Debugf("failed to create '%s' chain: %s", chainNameOutputRules, err)
 		return err
 	}
 
@@ -341,12 +341,12 @@ func (m *aclManager) createDefaultChains() error {
 			if chainName == "FORWARD" {
 				// position 2 because we add it after router's, jump rule
 				if err := m.iptablesClient.InsertUnique(tableName, "FORWARD", 2, rule...); err != nil {
-					log.Debugf("failed to create input chain jump rule: %s", err)
+					log.WithContext(ctx).Debugf("failed to create input chain jump rule: %s", err)
 					return err
 				}
 			} else {
 				if err := m.iptablesClient.AppendUnique(tableName, chainName, rule...); err != nil {
-					log.Debugf("failed to create input chain jump rule: %s", err)
+					log.WithContext(ctx).Debugf("failed to create input chain jump rule: %s", err)
 					return err
 				}
 			}

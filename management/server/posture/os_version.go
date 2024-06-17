@@ -81,7 +81,7 @@ func (c *OSVersionCheck) Validate() error {
 
 func checkMinVersion(peerGoOS, peerVersion string, check *MinVersionCheck) (bool, error) {
 	if check == nil {
-		log.Debugf("peer %s OS is not allowed in the check", peerGoOS)
+		log.WithContext(ctx).Debugf("peer %s OS is not allowed in the check", peerGoOS)
 		return false, nil
 	}
 
@@ -99,14 +99,14 @@ func checkMinVersion(peerGoOS, peerVersion string, check *MinVersionCheck) (bool
 		return true, nil
 	}
 
-	log.Debugf("peer %s OS version %s is older than minimum allowed version %s", peerGoOS, peerVersion, check.MinVersion)
+	log.WithContext(ctx).Debugf("peer %s OS version %s is older than minimum allowed version %s", peerGoOS, peerVersion, check.MinVersion)
 
 	return false, nil
 }
 
 func checkMinKernelVersion(peerGoOS, peerVersion string, check *MinKernelVersionCheck) (bool, error) {
 	if check == nil {
-		log.Debugf("peer %s OS is not allowed in the check", peerGoOS)
+		log.WithContext(ctx).Debugf("peer %s OS is not allowed in the check", peerGoOS)
 		return false, nil
 	}
 
@@ -124,7 +124,7 @@ func checkMinKernelVersion(peerGoOS, peerVersion string, check *MinKernelVersion
 		return true, nil
 	}
 
-	log.Debugf("peer %s kernel version %s is older than minimum allowed version %s", peerGoOS, peerVersion, check.MinKernelVersion)
+	log.WithContext(ctx).Debugf("peer %s kernel version %s is older than minimum allowed version %s", peerGoOS, peerVersion, check.MinKernelVersion)
 
 	return false, nil
 }

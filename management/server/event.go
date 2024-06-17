@@ -67,7 +67,7 @@ func (am *DefaultAccountManager) StoreEvent(initiatorID, targetID, accountID str
 		})
 		if err != nil {
 			// todo add metric
-			log.Errorf("received an error while storing an activity event, error: %s", err)
+			log.WithContext(ctx).Errorf("received an error while storing an activity event, error: %s", err)
 		}
 	}()
 

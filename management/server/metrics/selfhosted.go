@@ -90,7 +90,7 @@ func (w *Worker) Run() {
 		case <-pushTicker.C:
 			err := w.sendMetrics()
 			if err != nil {
-				log.Error(err)
+				log.WithContext(ctx).Error(err)
 			}
 			w.lastRun = time.Now()
 		}
@@ -125,7 +125,7 @@ func (w *Worker) sendMetrics() error {
 	defer func() {
 		err = jobResp.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing update metrics response body: %v", err)
+			log.WithContext(ctx).Errorf("error while closing update metrics response body: %v", err)
 		}
 	}()
 
@@ -133,7 +133,7 @@ func (w *Worker) sendMetrics() error {
 		return fmt.Errorf("unable to push anonymous metrics, got statusCode %d", jobResp.StatusCode)
 	}
 
-	log.Infof("sent anonymous metrics, next push will happen in %s. "+
+	log.WithContext(ctx).Infof("sent anonymous metrics, next push will happen in %s. "+
 		"You can disable these metrics by running with flag --disable-anonymous-metrics,"+
 		" see more information at https://netbird.io/docs/FAQ/metrics-collection", defaultPushInterval)
 
@@ -342,7 +342,7 @@ func getAPIKey(ctx context.Context) (string, error) {
 	defer func() {
 		err = response.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing metrics token response body: %v", err)
+			log.WithContext(ctx).Errorf("error while closing metrics token response body: %v", err)
 		}
 	}()
 

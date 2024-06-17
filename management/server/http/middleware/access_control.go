@@ -48,7 +48,7 @@ func (a *AccessControl) Handler(h http.Handler) http.Handler {
 
 		user, err := a.getUser(claims)
 		if err != nil {
-			log.Errorf("failed to get user from claims: %s", err)
+			log.WithContext(ctx).Errorf("failed to get user from claims: %s", err)
 			util.WriteError(status.Errorf(status.Unauthorized, "invalid JWT"), w)
 			return
 		}
@@ -63,7 +63,7 @@ func (a *AccessControl) Handler(h http.Handler) http.Handler {
 			case http.MethodDelete, http.MethodPost, http.MethodPatch, http.MethodPut:
 
 				if tokenPathRegexp.MatchString(r.URL.Path) {
-					log.Debugf("valid Path")
+					log.WithContext(ctx).Debugf("valid Path")
 					h.ServeHTTP(w, r)
 					return
 				}

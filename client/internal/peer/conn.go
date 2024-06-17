@@ -179,7 +179,7 @@ func (conn *Conn) reCreateAgent() error {
 	var err error
 	transportNet, err := conn.newStdNet()
 	if err != nil {
-		log.Errorf("failed to create pion's stdnet: %s", err)
+		log.WithContext(ctx).Errorf("failed to create pion's stdnet: %s", err)
 	}
 
 	iceKeepAlive := iceKeepAlive()
@@ -229,7 +229,7 @@ func (conn *Conn) reCreateAgent() error {
 	err = conn.agent.OnSuccessfulSelectedPairBindingResponse(func(p *ice.CandidatePair) {
 		err := conn.statusRecorder.UpdateLatency(conn.config.Key, p.Latency())
 		if err != nil {
-			log.Debugf("failed to update latency for peer %s: %s", conn.config.Key, err)
+			log.WithContext(ctx).Debugf("failed to update latency for peer %s: %s", conn.config.Key, err)
 			return
 		}
 	})
@@ -255,7 +255,7 @@ func (conn *Conn) candidateTypes() []ice.CandidateType {
 // Blocks until connection has been closed or connection timeout.
 // ConnStatus will be set accordingly
 func (conn *Conn) Open(ctx context.Context) error {
-	log.Debugf("trying to connect to peer %s", conn.config.Key)
+	log.WithContext(ctx).Debugf("trying to connect to peer %s", conn.config.Key)
 
 	peerState := State{
 		PubKey:           conn.config.Key,
@@ -266,13 +266,13 @@ func (conn *Conn) Open(ctx context.Context) error {
 	}
 	err := conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
-		log.Warnf("error while updating the state of peer %s,err: %v", conn.config.Key, err)
+		log.WithContext(ctx).Warnf("error while updating the state of peer %s,err: %v", conn.config.Key, err)
 	}
 
 	defer func() {
 		err := conn.cleanup()
 		if err != nil {
-			log.Warnf("error while cleaning up peer connection %s: %v", conn.config.Key, err)
+			log.WithContext(ctx).Warnf("error while cleaning up peer connection %s: %v", conn.config.Key, err)
 			return
 		}
 	}()
@@ -287,7 +287,7 @@ func (conn *Conn) Open(ctx context.Context) error {
 		return err
 	}
 
-	log.Debugf("connection offer sent to peer %s, waiting for the confirmation", conn.config.Key)
+	log.WithContext(ctx).Debugf("connection offer sent to peer %s, waiting for the confirmation", conn.config.Key)
 
 	// Only continue once we got a connection confirmation from the remote peer.
 	// The connection timeout could have happened before a confirmation received from the remote.
@@ -308,7 +308,7 @@ func (conn *Conn) Open(ctx context.Context) error {
 		return NewConnectionClosedError(conn.config.Key)
 	}
 
-	log.Debugf("received connection confirmation from peer %s running version %s and with remote WireGuard listen port %d",
+	log.WithContext(ctx).Debugf("received connection confirmation from peer %s running version %s and with remote WireGuard listen port %d",
 		conn.config.Key, remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort)
 
 	// at this point we received offer/answer and we are ready to gather candidates
@@ -326,7 +326,7 @@ func (conn *Conn) Open(ctx context.Context) error {
 	}
 	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
-		log.Warnf("error while updating the state of peer %s,err: %v", conn.config.Key, err)
+		log.WithContext(ctx).Warnf("error while updating the state of peer %s,err: %v", conn.config.Key, err)
 	}
 
 	err = conn.agent.GatherCandidates()
@@ -361,7 +361,7 @@ func (conn *Conn) Open(ctx context.Context) error {
 		return err
 	}
 
-	log.Infof("connected to peer %s, endpoint address: %s", conn.config.Key, remoteAddr.String())
+	log.WithContext(ctx).Infof("connected to peer %s, endpoint address: %s", conn.config.Key, remoteAddr.String())
 
 	// wait until connection disconnected or has been closed externally (upper layer, e.g. engine)
 	select {
@@ -398,7 +398,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 
 	var endpoint net.Addr
 	if isRelayCandidate(pair.Local) {
-		log.Debugf("setup relay connection")
+		log.WithContext(ctx).Debugf("setup relay connection")
 		conn.wgProxy = conn.wgProxyFactory.GetProxy(conn.ctx)
 		endpoint, err = conn.wgProxy.AddTurnConn(remoteConn)
 		if err != nil {
@@ -411,12 +411,12 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 	}
 
 	endpointUdpAddr, _ := net.ResolveUDPAddr(endpoint.Network(), endpoint.String())
-	log.Debugf("Conn resolved IP for %s: %s", endpoint, endpointUdpAddr.IP)
+	log.WithContext(ctx).Debugf("Conn resolved IP for %s: %s", endpoint, endpointUdpAddr.IP)
 
 	conn.connID = nbnet.GenerateConnID()
 	for _, hook := range conn.beforeAddPeerHooks {
 		if err := hook(conn.connID, endpointUdpAddr.IP); err != nil {
-			log.Errorf("Before add peer hook failed: %v", err)
+			log.WithContext(ctx).Errorf("Before add peer hook failed: %v", err)
 		}
 	}
 
@@ -424,7 +424,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 	if err != nil {
 		if conn.wgProxy != nil {
 			if err := conn.wgProxy.CloseConn(); err != nil {
-				log.Warnf("Failed to close turn connection: %v", err)
+				log.WithContext(ctx).Warnf("Failed to close turn connection: %v", err)
 			}
 		}
 		return nil, fmt.Errorf("update peer: %w", err)
@@ -454,7 +454,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 
 	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
-		log.Warnf("unable to save peer's state, got error: %v", err)
+		log.WithContext(ctx).Warnf("unable to save peer's state, got error: %v", err)
 	}
 
 	_, ipNet, err := net.ParseCIDR(conn.config.WgConfig.AllowedIps)
@@ -478,24 +478,24 @@ func (conn *Conn) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) {
 	time.Sleep(time.Second)
 	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", pair.Remote.Address(), remoteWgPort))
 	if err != nil {
-		log.Warnf("got an error while resolving the udp address, err: %s", err)
+		log.WithContext(ctx).Warnf("got an error while resolving the udp address, err: %s", err)
 		return
 	}
 
 	mux, ok := conn.config.UDPMuxSrflx.(*bind.UniversalUDPMuxDefault)
 	if !ok {
-		log.Warn("invalid udp mux conversion")
+		log.WithContext(ctx).Warn("invalid udp mux conversion")
 		return
 	}
 	_, err = mux.GetSharedConn().WriteTo([]byte{0x6e, 0x62}, addr)
 	if err != nil {
-		log.Warnf("got an error while sending the punch packet, err: %s", err)
+		log.WithContext(ctx).Warnf("got an error while sending the punch packet, err: %s", err)
 	}
 }
 
 // cleanup closes all open resources and sets status to StatusDisconnected
 func (conn *Conn) cleanup() error {
-	log.Debugf("trying to cleanup %s", conn.config.Key)
+	log.WithContext(ctx).Debugf("trying to cleanup %s", conn.config.Key)
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -520,7 +520,7 @@ func (conn *Conn) cleanup() error {
 	if conn.connID != "" {
 		for _, hook := range conn.afterRemovePeerHooks {
 			if err := hook(conn.connID); err != nil {
-				log.Errorf("After remove peer hook failed: %v", err)
+				log.WithContext(ctx).Errorf("After remove peer hook failed: %v", err)
 			}
 		}
 	}
@@ -547,13 +547,13 @@ func (conn *Conn) cleanup() error {
 	if err != nil {
 		// pretty common error because by that time Engine can already remove the peer and status won't be available.
 		// todo rethink status updates
-		log.Debugf("error while updating peer's %s state, err: %v", conn.config.Key, err)
+		log.WithContext(ctx).Debugf("error while updating peer's %s state, err: %v", conn.config.Key, err)
 	}
 	if err := conn.statusRecorder.UpdateWireGuardPeerState(conn.config.Key, iface.WGStats{}); err != nil {
-		log.Debugf("failed to reset wireguard stats for peer %s: %s", conn.config.Key, err)
+		log.WithContext(ctx).Debugf("failed to reset wireguard stats for peer %s: %s", conn.config.Key, err)
 	}
 
-	log.Debugf("cleaned up connection to peer %s", conn.config.Key)
+	log.WithContext(ctx).Debugf("cleaned up connection to peer %s", conn.config.Key)
 	if err1 != nil {
 		return err1
 	}
@@ -602,11 +602,11 @@ func (conn *Conn) onICECandidate(candidate ice.Candidate) {
 	}
 
 	// TODO: reported port is incorrect for CandidateTypeHost, makes understanding ICE use via logs confusing as port is ignored
-	log.Debugf("discovered local candidate %s", candidate.String())
+	log.WithContext(ctx).Debugf("discovered local candidate %s", candidate.String())
 	go func() {
 		err := conn.signalCandidate(candidate)
 		if err != nil {
-			log.Errorf("failed signaling candidate to the remote peer %s %s", conn.config.Key, err)
+			log.WithContext(ctx).Errorf("failed signaling candidate to the remote peer %s %s", conn.config.Key, err)
 		}
 	}()
 
@@ -618,7 +618,7 @@ func (conn *Conn) onICECandidate(candidate ice.Candidate) {
 	// this is useful when network has an existing port forwarding rule for the wireguard port and this peer
 	extraSrflx, err := extraSrflxCandidate(candidate)
 	if err != nil {
-		log.Errorf("failed creating extra server reflexive candidate %s", err)
+		log.WithContext(ctx).Errorf("failed creating extra server reflexive candidate %s", err)
 		return
 	}
 	conn.sentExtraSrflx = true
@@ -626,19 +626,19 @@ func (conn *Conn) onICECandidate(candidate ice.Candidate) {
 	go func() {
 		err = conn.signalCandidate(extraSrflx)
 		if err != nil {
-			log.Errorf("failed signaling the extra server reflexive candidate to the remote peer %s: %s", conn.config.Key, err)
+			log.WithContext(ctx).Errorf("failed signaling the extra server reflexive candidate to the remote peer %s: %s", conn.config.Key, err)
 		}
 	}()
 }
 
 func (conn *Conn) onICESelectedCandidatePair(c1 ice.Candidate, c2 ice.Candidate) {
-	log.Debugf("selected candidate pair [local <-> remote] -> [%s <-> %s], peer %s", c1.String(), c2.String(),
+	log.WithContext(ctx).Debugf("selected candidate pair [local <-> remote] -> [%s <-> %s], peer %s", c1.String(), c2.String(),
 		conn.config.Key)
 }
 
 // onICEConnectionStateChange registers callback of an ICE Agent to track connection state
 func (conn *Conn) onICEConnectionStateChange(state ice.ConnectionState) {
-	log.Debugf("peer %s ICE ConnectionState has changed to %s", conn.config.Key, state.String())
+	log.WithContext(ctx).Debugf("peer %s ICE ConnectionState has changed to %s", conn.config.Key, state.String())
 	if state == ice.ConnectionStateFailed || state == ice.ConnectionStateDisconnected {
 		conn.notifyDisconnected()
 	}
@@ -653,7 +653,7 @@ func (conn *Conn) sendAnswer() error {
 		return err
 	}
 
-	log.Debugf("sending answer to %s", conn.config.Key)
+	log.WithContext(ctx).Debugf("sending answer to %s", conn.config.Key)
 	err = conn.signalAnswer(OfferAnswer{
 		IceCredentials:  IceCredentials{localUFrag, localPwd},
 		WgListenPort:    conn.config.LocalWgPort,
@@ -710,7 +710,7 @@ func (conn *Conn) Close() error {
 		// before conn.Open() another update from management arrives with peers: [1,2,3,4,5]
 		// engine adds a new Conn for 4 and 5
 		// therefore peer 4 has 2 Conn objects
-		log.Warnf("Connection has been already closed or attempted closing not started connection %s", conn.config.Key)
+		log.WithContext(ctx).Warnf("Connection has been already closed or attempted closing not started connection %s", conn.config.Key)
 		return NewConnectionAlreadyClosed(conn.config.Key)
 	}
 }
@@ -725,13 +725,13 @@ func (conn *Conn) Status() ConnStatus {
 // OnRemoteOffer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
 // doesn't block, discards the message if connection wasn't ready
 func (conn *Conn) OnRemoteOffer(offer OfferAnswer) bool {
-	log.Debugf("OnRemoteOffer from peer %s on status %s", conn.config.Key, conn.status.String())
+	log.WithContext(ctx).Debugf("OnRemoteOffer from peer %s on status %s", conn.config.Key, conn.status.String())
 
 	select {
 	case conn.remoteOffersCh <- offer:
 		return true
 	default:
-		log.Debugf("OnRemoteOffer skipping message from peer %s on status %s because is not ready", conn.config.Key, conn.status.String())
+		log.WithContext(ctx).Debugf("OnRemoteOffer skipping message from peer %s on status %s because is not ready", conn.config.Key, conn.status.String())
 		// connection might not be ready yet to receive so we ignore the message
 		return false
 	}
@@ -740,21 +740,21 @@ func (conn *Conn) OnRemoteOffer(offer OfferAnswer) bool {
 // OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
 // doesn't block, discards the message if connection wasn't ready
 func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) bool {
-	log.Debugf("OnRemoteAnswer from peer %s on status %s", conn.config.Key, conn.status.String())
+	log.WithContext(ctx).Debugf("OnRemoteAnswer from peer %s on status %s", conn.config.Key, conn.status.String())
 
 	select {
 	case conn.remoteAnswerCh <- answer:
 		return true
 	default:
 		// connection might not be ready yet to receive so we ignore the message
-		log.Debugf("OnRemoteAnswer skipping message from peer %s on status %s because is not ready", conn.config.Key, conn.status.String())
+		log.WithContext(ctx).Debugf("OnRemoteAnswer skipping message from peer %s on status %s because is not ready", conn.config.Key, conn.status.String())
 		return false
 	}
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
 func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMap) {
-	log.Debugf("OnRemoteCandidate from peer %s -> %s", conn.config.Key, candidate.String())
+	log.WithContext(ctx).Debugf("OnRemoteCandidate from peer %s -> %s", conn.config.Key, candidate.String())
 	go func() {
 		conn.mu.Lock()
 		defer conn.mu.Unlock()
@@ -769,7 +769,7 @@ func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMa
 
 		err := conn.agent.AddRemoteCandidate(candidate)
 		if err != nil {
-			log.Errorf("error while handling remote candidate from peer %s", conn.config.Key)
+			log.WithContext(ctx).Errorf("error while handling remote candidate from peer %s", conn.config.Key)
 			return
 		}
 	}()
@@ -808,12 +808,12 @@ func candidateViaRoutes(candidate ice.Candidate, clientRoutes route.HAMap) bool 
 
 	addr, err := netip.ParseAddr(candidate.Address())
 	if err != nil {
-		log.Errorf("Failed to parse IP address %s: %v", candidate.Address(), err)
+		log.WithContext(ctx).Errorf("Failed to parse IP address %s: %v", candidate.Address(), err)
 		return false
 	}
 
 	if isVpn, prefix := systemops.IsAddrRouted(addr, vpnRoutes); isVpn {
-		log.Debugf("Ignoring candidate [%s], its address is routed to network %s", candidate.String(), prefix)
+		log.WithContext(ctx).Debugf("Ignoring candidate [%s], its address is routed to network %s", candidate.String(), prefix)
 		return true
 	}
 

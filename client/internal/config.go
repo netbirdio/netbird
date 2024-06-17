@@ -144,7 +144,7 @@ func UpdateConfig(input ConfigInput) (*Config, error) {
 // UpdateOrCreateConfig reads existing config or generates a new one
 func UpdateOrCreateConfig(input ConfigInput) (*Config, error) {
 	if !configFileIsExists(input.ConfigPath) {
-		log.Infof("generating new config %s", input.ConfigPath)
+		log.WithContext(ctx).Infof("generating new config %s", input.ConfigPath)
 		cfg, err := createNewConfig(input)
 		if err != nil {
 			return nil, err
@@ -206,14 +206,14 @@ func update(input ConfigInput) (*Config, error) {
 
 func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	if config.ManagementURL == nil {
-		log.Infof("using default Management URL %s", DefaultManagementURL)
+		log.WithContext(ctx).Infof("using default Management URL %s", DefaultManagementURL)
 		config.ManagementURL, err = parseURL("Management URL", DefaultManagementURL)
 		if err != nil {
 			return false, err
 		}
 	}
 	if input.ManagementURL != "" && input.ManagementURL != config.ManagementURL.String() {
-		log.Infof("new Management URL provided, updated to %#v (old value %#v)",
+		log.WithContext(ctx).Infof("new Management URL provided, updated to %#v (old value %#v)",
 			input.ManagementURL, config.ManagementURL.String())
 		URL, err := parseURL("Management URL", input.ManagementURL)
 		if err != nil {
@@ -222,7 +222,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		config.ManagementURL = URL
 		updated = true
 	} else if config.ManagementURL == nil {
-		log.Infof("using default Management URL %s", DefaultManagementURL)
+		log.WithContext(ctx).Infof("using default Management URL %s", DefaultManagementURL)
 		config.ManagementURL, err = parseURL("Management URL", DefaultManagementURL)
 		if err != nil {
 			return false, err
@@ -230,14 +230,14 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	}
 
 	if config.AdminURL == nil {
-		log.Infof("using default Admin URL %s", DefaultManagementURL)
+		log.WithContext(ctx).Infof("using default Admin URL %s", DefaultManagementURL)
 		config.AdminURL, err = parseURL("Admin URL", DefaultAdminURL)
 		if err != nil {
 			return false, err
 		}
 	}
 	if input.AdminURL != "" && input.AdminURL != config.AdminURL.String() {
-		log.Infof("new Admin Panel URL provided, updated to %#v (old value %#v)",
+		log.WithContext(ctx).Infof("new Admin Panel URL provided, updated to %#v (old value %#v)",
 			input.AdminURL, config.AdminURL.String())
 		newURL, err := parseURL("Admin Panel URL", input.AdminURL)
 		if err != nil {
@@ -248,13 +248,13 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	}
 
 	if config.PrivateKey == "" {
-		log.Infof("generated new Wireguard key")
+		log.WithContext(ctx).Infof("generated new Wireguard key")
 		config.PrivateKey = generateKey()
 		updated = true
 	}
 
 	if config.SSHKey == "" {
-		log.Infof("generated new SSH key")
+		log.WithContext(ctx).Infof("generated new SSH key")
 		pem, err := ssh.GeneratePrivateKey(ssh.ED25519)
 		if err != nil {
 			return false, err
@@ -264,29 +264,29 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	}
 
 	if input.WireguardPort != nil && *input.WireguardPort != config.WgPort {
-		log.Infof("updating Wireguard port %d (old value %d)",
+		log.WithContext(ctx).Infof("updating Wireguard port %d (old value %d)",
 			*input.WireguardPort, config.WgPort)
 		config.WgPort = *input.WireguardPort
 		updated = true
 	} else if config.WgPort == 0 {
 		config.WgPort = iface.DefaultWgPort
-		log.Infof("using default Wireguard port %d", config.WgPort)
+		log.WithContext(ctx).Infof("using default Wireguard port %d", config.WgPort)
 		updated = true
 	}
 
 	if input.InterfaceName != nil && *input.InterfaceName != config.WgIface {
-		log.Infof("updating Wireguard interface %#v (old value %#v)",
+		log.WithContext(ctx).Infof("updating Wireguard interface %#v (old value %#v)",
 			*input.InterfaceName, config.WgIface)
 		config.WgIface = *input.InterfaceName
 		updated = true
 	} else if config.WgIface == "" {
 		config.WgIface = iface.WgInterfaceDefault
-		log.Infof("using default Wireguard interface %s", config.WgIface)
+		log.WithContext(ctx).Infof("using default Wireguard interface %s", config.WgIface)
 		updated = true
 	}
 
 	if input.NATExternalIPs != nil && !reflect.DeepEqual(config.NATExternalIPs, input.NATExternalIPs) {
-		log.Infof("updating NAT External IP [ %s ] (old value: [ %s ])",
+		log.WithContext(ctx).Infof("updating NAT External IP [ %s ] (old value: [ %s ])",
 			strings.Join(input.NATExternalIPs, " "),
 			strings.Join(config.NATExternalIPs, " "))
 		config.NATExternalIPs = input.NATExternalIPs
@@ -294,25 +294,25 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	}
 
 	if input.PreSharedKey != nil && *input.PreSharedKey != config.PreSharedKey {
-		log.Infof("new pre-shared key provided, replacing old key")
+		log.WithContext(ctx).Infof("new pre-shared key provided, replacing old key")
 		config.PreSharedKey = *input.PreSharedKey
 		updated = true
 	}
 
 	if input.RosenpassEnabled != nil && *input.RosenpassEnabled != config.RosenpassEnabled {
-		log.Infof("switching Rosenpass to %t", *input.RosenpassEnabled)
+		log.WithContext(ctx).Infof("switching Rosenpass to %t", *input.RosenpassEnabled)
 		config.RosenpassEnabled = *input.RosenpassEnabled
 		updated = true
 	}
 
 	if input.RosenpassPermissive != nil && *input.RosenpassPermissive != config.RosenpassPermissive {
-		log.Infof("switching Rosenpass permissive to %t", *input.RosenpassPermissive)
+		log.WithContext(ctx).Infof("switching Rosenpass permissive to %t", *input.RosenpassPermissive)
 		config.RosenpassPermissive = *input.RosenpassPermissive
 		updated = true
 	}
 
 	if input.NetworkMonitor != nil && input.NetworkMonitor != config.NetworkMonitor {
-		log.Infof("switching Network Monitor to %t", *input.NetworkMonitor)
+		log.WithContext(ctx).Infof("switching Network Monitor to %t", *input.NetworkMonitor)
 		config.NetworkMonitor = input.NetworkMonitor
 		updated = true
 	}
@@ -327,14 +327,14 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	}
 
 	if input.CustomDNSAddress != nil && string(input.CustomDNSAddress) != config.CustomDNSAddress {
-		log.Infof("updating custom DNS address %#v (old value %#v)",
+		log.WithContext(ctx).Infof("updating custom DNS address %#v (old value %#v)",
 			string(input.CustomDNSAddress), config.CustomDNSAddress)
 		config.CustomDNSAddress = string(input.CustomDNSAddress)
 		updated = true
 	}
 
 	if len(config.IFaceBlackList) == 0 {
-		log.Infof("filling in interface blacklist with defaults: [ %s ]",
+		log.WithContext(ctx).Infof("filling in interface blacklist with defaults: [ %s ]",
 			strings.Join(defaultInterfaceBlacklist, " "))
 		config.IFaceBlackList = append(config.IFaceBlackList, defaultInterfaceBlacklist...)
 		updated = true
@@ -342,7 +342,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 
 	if len(input.ExtraIFaceBlackList) > 0 {
 		for _, iFace := range util.SliceDiff(input.ExtraIFaceBlackList, config.IFaceBlackList) {
-			log.Infof("adding new entry to interface blacklist: %s", iFace)
+			log.WithContext(ctx).Infof("adding new entry to interface blacklist: %s", iFace)
 			config.IFaceBlackList = append(config.IFaceBlackList, iFace)
 			updated = true
 		}
@@ -350,9 +350,9 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 
 	if input.DisableAutoConnect != nil && *input.DisableAutoConnect != config.DisableAutoConnect {
 		if *input.DisableAutoConnect {
-			log.Infof("turning off automatic connection on startup")
+			log.WithContext(ctx).Infof("turning off automatic connection on startup")
 		} else {
-			log.Infof("enabling automatic connection on startup")
+			log.WithContext(ctx).Infof("enabling automatic connection on startup")
 		}
 		config.DisableAutoConnect = *input.DisableAutoConnect
 		updated = true
@@ -360,27 +360,27 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 
 	if input.ServerSSHAllowed != nil && *input.ServerSSHAllowed != *config.ServerSSHAllowed {
 		if *input.ServerSSHAllowed {
-			log.Infof("enabling SSH server")
+			log.WithContext(ctx).Infof("enabling SSH server")
 		} else {
-			log.Infof("disabling SSH server")
+			log.WithContext(ctx).Infof("disabling SSH server")
 		}
 		config.ServerSSHAllowed = input.ServerSSHAllowed
 		updated = true
 	} else if config.ServerSSHAllowed == nil {
 		// enables SSH for configs from old versions to preserve backwards compatibility
-		log.Infof("falling back to enabled SSH server for pre-existing configuration")
+		log.WithContext(ctx).Infof("falling back to enabled SSH server for pre-existing configuration")
 		config.ServerSSHAllowed = util.True()
 		updated = true
 	}
 
 	if input.DNSRouteInterval != nil && *input.DNSRouteInterval != config.DNSRouteInterval {
-		log.Infof("updating DNS route interval to %s (old value %s)",
+		log.WithContext(ctx).Infof("updating DNS route interval to %s (old value %s)",
 			input.DNSRouteInterval.String(), config.DNSRouteInterval.String())
 		config.DNSRouteInterval = *input.DNSRouteInterval
 		updated = true
 	} else if config.DNSRouteInterval == 0 {
 		config.DNSRouteInterval = dynamic.DefaultInterval
-		log.Infof("using default DNS route interval %s", config.DNSRouteInterval)
+		log.WithContext(ctx).Infof("using default DNS route interval %s", config.DNSRouteInterval)
 		updated = true
 
 	}
@@ -392,7 +392,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 func parseURL(serviceName, serviceURL string) (*url.URL, error) {
 	parsedMgmtURL, err := url.ParseRequestURI(serviceURL)
 	if err != nil {
-		log.Errorf("failed parsing %s URL %s: [%s]", serviceName, serviceURL, err.Error())
+		log.WithContext(ctx).Errorf("failed parsing %s URL %s: [%s]", serviceName, serviceURL, err.Error())
 		return nil, err
 	}
 
@@ -409,7 +409,7 @@ func parseURL(serviceName, serviceURL string) (*url.URL, error) {
 		case "http":
 			parsedMgmtURL.Host += ":80"
 		default:
-			log.Infof("unable to determine a default port for schema %s in URL %s", parsedMgmtURL.Scheme, serviceURL)
+			log.WithContext(ctx).Infof("unable to determine a default port for schema %s in URL %s", parsedMgmtURL.Scheme, serviceURL)
 		}
 	}
 
@@ -479,30 +479,30 @@ func UpdateOldManagementURL(ctx context.Context, config *Config, configPath stri
 		return nil, err
 	}
 	// here we check whether we could switch from the legacy 33073 port to the new 443
-	log.Infof("attempting to switch from the legacy Management URL %s to the new one %s",
+	log.WithContext(ctx).Infof("attempting to switch from the legacy Management URL %s to the new one %s",
 		config.ManagementURL.String(), newURL.String())
 	key, err := wgtypes.ParseKey(config.PrivateKey)
 	if err != nil {
-		log.Infof("couldn't switch to the new Management %s", newURL.String())
+		log.WithContext(ctx).Infof("couldn't switch to the new Management %s", newURL.String())
 		return config, err
 	}
 
 	client, err := mgm.NewClient(ctx, newURL.Host, key, mgmTlsEnabled)
 	if err != nil {
-		log.Infof("couldn't switch to the new Management %s", newURL.String())
+		log.WithContext(ctx).Infof("couldn't switch to the new Management %s", newURL.String())
 		return config, err
 	}
 	defer func() {
 		err = client.Close()
 		if err != nil {
-			log.Warnf("failed to close the Management service client %v", err)
+			log.WithContext(ctx).Warnf("failed to close the Management service client %v", err)
 		}
 	}()
 
 	// gRPC check
 	_, err = client.GetServerPublicKey()
 	if err != nil {
-		log.Infof("couldn't switch to the new Management %s", newURL.String())
+		log.WithContext(ctx).Infof("couldn't switch to the new Management %s", newURL.String())
 		return nil, err
 	}
 
@@ -512,10 +512,10 @@ func UpdateOldManagementURL(ctx context.Context, config *Config, configPath stri
 		ConfigPath:    configPath,
 	})
 	if err != nil {
-		log.Infof("couldn't switch to the new Management %s", newURL.String())
+		log.WithContext(ctx).Infof("couldn't switch to the new Management %s", newURL.String())
 		return config, fmt.Errorf("failed updating config file: %v", err)
 	}
-	log.Infof("successfully switched to the new Management URL: %s", newURL.String())
+	log.WithContext(ctx).Infof("successfully switched to the new Management URL: %s", newURL.String())
 
 	return newConfig, nil
 }

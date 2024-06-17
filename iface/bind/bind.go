@@ -117,7 +117,7 @@ func (s *ICEBind) filterOutStunMessages(buffers [][]byte, n int, addr net.Addr) 
 
 		muxErr := s.udpMux.HandleSTUNMessage(msg, addr)
 		if muxErr != nil {
-			log.Warnf("failed to handle STUN packet")
+			log.WithContext(ctx).Warnf("failed to handle STUN packet")
 		}
 
 		buffers[i] = []byte{}

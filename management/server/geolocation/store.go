@@ -121,7 +121,7 @@ func (s *SqliteStore) reload() error {
 
 	newSha256sum1, err := calculateFileSHA256(s.filePath)
 	if err != nil {
-		log.Errorf("failed to calculate sha256 sum for '%s': %s", s.filePath, err)
+		log.WithContext(ctx).Errorf("failed to calculate sha256 sum for '%s': %s", s.filePath, err)
 	}
 
 	if !bytes.Equal(s.sha256sum, newSha256sum1) {
@@ -136,7 +136,7 @@ func (s *SqliteStore) reload() error {
 			return fmt.Errorf("sha256 sum changed during reloading of '%s'", s.filePath)
 		}
 
-		log.Infof("Reloading '%s'", s.filePath)
+		log.WithContext(ctx).Infof("Reloading '%s'", s.filePath)
 		_ = s.close()
 		s.closed = true
 
@@ -148,9 +148,9 @@ func (s *SqliteStore) reload() error {
 		s.closed = false
 		s.db = newDb
 
-		log.Infof("Successfully reloaded '%s'", s.filePath)
+		log.WithContext(ctx).Infof("Successfully reloaded '%s'", s.filePath)
 	} else {
-		log.Tracef("No changes in '%s', no need to reload", s.filePath)
+		log.WithContext(ctx).Tracef("No changes in '%s', no need to reload", s.filePath)
 	}
 
 	return nil
@@ -171,7 +171,7 @@ func (s *SqliteStore) close() error {
 func connectDB(filePath string) (*gorm.DB, error) {
 	start := time.Now()
 	defer func() {
-		log.Debugf("took %v to setup geoname db", time.Since(start))
+		log.WithContext(ctx).Debugf("took %v to setup geoname db", time.Since(start))
 	}()
 
 	_, err := fileExists(filePath)

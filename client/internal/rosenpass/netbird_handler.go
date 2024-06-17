@@ -52,13 +52,13 @@ func (h *NetbirdHandler) RemovePeer(pid rp.PeerID) {
 }
 
 func (h *NetbirdHandler) HandshakeCompleted(pid rp.PeerID, key rp.Key) {
-	log.Debug("Handshake complete")
+	log.WithContext(ctx).Debug("Handshake complete")
 	h.outputKey(rp.KeyOutputReasonStale, pid, key)
 }
 
 func (h *NetbirdHandler) HandshakeExpired(pid rp.PeerID) {
 	key, _ := rp.GeneratePresharedKey()
-	log.Debug("Handshake expired")
+	log.WithContext(ctx).Debug("Handshake expired")
 	h.outputKey(rp.KeyOutputReasonStale, pid, key)
 }
 
@@ -70,7 +70,7 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 
 	device, err := h.client.Device(h.ifaceName)
 	if err != nil {
-		log.Errorf("Failed to get WireGuard device: %v", err)
+		log.WithContext(ctx).Errorf("Failed to get WireGuard device: %v", err)
 		return
 	}
 	config := []wgtypes.PeerConfig{
@@ -83,7 +83,7 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 	for _, peer := range device.Peers {
 		if peer.PublicKey == wgtypes.Key(wg.PublicKey) {
 			if publicKeyEmpty(peer.PresharedKey) || peer.PresharedKey == h.presharedKey {
-				log.Debugf("Restart wireguard connection to peer %s", peer.PublicKey)
+				log.WithContext(ctx).Debugf("Restart wireguard connection to peer %s", peer.PublicKey)
 				config = []wgtypes.PeerConfig{
 					{
 						PublicKey:    wgtypes.Key(wg.PublicKey),
@@ -101,7 +101,7 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 					},
 				})
 				if err != nil {
-					slog.Debug("Failed to remove peer")
+					slog.WithContext(ctx).Debug("Failed to remove peer")
 					return
 				}
 			}
@@ -112,7 +112,7 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 	if err = h.client.ConfigureDevice(wg.Interface, wgtypes.Config{
 		Peers: config,
 	}); err != nil {
-		log.Errorf("Failed to apply rosenpass key: %v", err)
+		log.WithContext(ctx).Errorf("Failed to apply rosenpass key: %v", err)
 	}
 }
 

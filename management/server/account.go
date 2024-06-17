@@ -18,6 +18,11 @@ import (
 
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
+	gocache "github.com/patrickmn/go-cache"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
+
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
@@ -33,10 +38,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
-	gocache "github.com/patrickmn/go-cache"
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
 )
 
 const (
@@ -326,7 +327,7 @@ func (a *Account) getRoutingPeerRoutes(peerID string) (enabledRoutes []*route.Ro
 
 	peer := a.GetPeer(peerID)
 	if peer == nil {
-		log.Errorf("peer %s that doesn't exist under account %s", peerID, a.Id)
+		log.WithContext(ctx).Errorf("peer %s that doesn't exist under account %s", peerID, a.Id)
 		return enabledRoutes, disabledRoutes
 	}
 
@@ -355,7 +356,7 @@ func (a *Account) getRoutingPeerRoutes(peerID string) (enabledRoutes []*route.Ro
 		for _, groupID := range r.PeerGroups {
 			group := a.GetGroup(groupID)
 			if group == nil {
-				log.Errorf("route %s has peers group %s that doesn't exist under account %s", r.ID, groupID, a.Id)
+				log.WithContext(ctx).Errorf("route %s has peers group %s that doesn't exist under account %s", r.ID, groupID, a.Id)
 				continue
 			}
 			for _, id := range group.Peers {
@@ -899,9 +900,9 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 			return nil, status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for a single account mode. Please review your input for --single-account-mode-domain", singleAccountModeDomain)
 		}
 		am.singleAccountModeDomain = singleAccountModeDomain
-		log.Infof("single account mode enabled, accounts number %d", len(allAccounts))
+		log.WithContext(ctx).Infof("single account mode enabled, accounts number %d", len(allAccounts))
 	} else {
-		log.Infof("single account mode disabled, accounts number %d", len(allAccounts))
+		log.WithContext(ctx).Infof("single account mode disabled, accounts number %d", len(allAccounts))
 	}
 
 	// if account doesn't have a default group
@@ -939,7 +940,7 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 		go func() {
 			err := am.warmupIDPCache()
 			if err != nil {
-				log.Warnf("failed warming up cache due to error: %v", err)
+				log.WithContext(ctx).Warnf("failed warming up cache due to error: %v", err)
 				// todo retry?
 				return
 			}
@@ -1029,7 +1030,7 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func()
 
 		account, err := am.Store.GetAccount(accountID)
 		if err != nil {
-			log.Errorf("failed getting account %s expiring peers", account.Id)
+			log.WithContext(ctx).Errorf("failed getting account %s expiring peers", account.Id)
 			return account.GetNextPeerExpiration()
 		}
 
@@ -1039,10 +1040,10 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func()
 			peerIDs = append(peerIDs, peer.ID)
 		}
 
-		log.Debugf("discovered %d peers to expire for account %s", len(peerIDs), account.Id)
+		log.WithContext(ctx).Debugf("discovered %d peers to expire for account %s", len(peerIDs), account.Id)
 
 		if err := am.expireAndUpdatePeers(account, expiredPeers); err != nil {
-			log.Errorf("failed updating account peers while expiring peers for account %s", account.Id)
+			log.WithContext(ctx).Errorf("failed updating account peers while expiring peers for account %s", account.Id)
 			return account.GetNextPeerExpiration()
 		}
 
@@ -1067,7 +1068,7 @@ func (am *DefaultAccountManager) newAccount(userID, domain string) (*Account, er
 		statusErr, _ := status.FromError(err)
 		switch {
 		case err == nil:
-			log.Warnf("an account with ID already exists, retrying...")
+			log.WithContext(ctx).Warnf("an account with ID already exists, retrying...")
 			continue
 		case statusErr.Type() == status.NotFound:
 			newAccount := newAccountWithId(accountId, userID, domain)
@@ -1086,7 +1087,7 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	if err != nil {
 		return err
 	}
-	log.Infof("%d entries received from IdP management", len(userData))
+	log.WithContext(ctx).Infof("%d entries received from IdP management", len(userData))
 
 	// If the Identity Provider does not support writing AppMetadata,
 	// in cases like this, we expect it to return all users in an "unset" field.
@@ -1117,7 +1118,7 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 			return err
 		}
 	}
-	log.Infof("warmed up IDP cache with %d entries for %d accounts", rcvdUsers, len(userData))
+	log.WithContext(ctx).Infof("warmed up IDP cache with %d entries for %d accounts", rcvdUsers, len(userData))
 	return nil
 }
 
@@ -1159,19 +1160,19 @@ func (am *DefaultAccountManager) DeleteAccount(accountID, userID string) error {
 
 	err = am.deleteRegularUser(account, userID, userID)
 	if err != nil {
-		log.Errorf("failed deleting user %s. error: %s", userID, err)
+		log.WithContext(ctx).Errorf("failed deleting user %s. error: %s", userID, err)
 		return err
 	}
 
 	err = am.Store.DeleteAccount(account)
 	if err != nil {
-		log.Errorf("failed deleting account %s. error: %s", accountID, err)
+		log.WithContext(ctx).Errorf("failed deleting account %s. error: %s", accountID, err)
 		return err
 	}
 	// cancel peer login expiry job
 	am.peerLoginExpiry.Cancel([]string{account.Id})
 
-	log.Debugf("account %s deleted", accountID)
+	log.WithContext(ctx).Debugf("account %s deleted", accountID)
 	return nil
 }
 
@@ -1212,7 +1213,7 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(userID string, account
 
 		if user != nil && user.AppMetadata.WTAccountID == account.Id {
 			// it was already set, so we skip the unnecessary update
-			log.Debugf("skipping IDP App Meta update because accountID %s has been already set for user %s",
+			log.WithContext(ctx).Debugf("skipping IDP App Meta update because accountID %s has been already set for user %s",
 				account.Id, userID)
 			return nil
 		}
@@ -1231,7 +1232,7 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(userID string, account
 }
 
 func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interface{}) ([]*idp.UserData, error) {
-	log.Debugf("account %s not found in cache, reloading", accountID)
+	log.WithContext(ctx).Debugf("account %s not found in cache, reloading", accountID)
 	accountIDString := fmt.Sprintf("%v", accountID)
 
 	account, err := am.Store.GetAccount(accountIDString)
@@ -1243,7 +1244,7 @@ func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interf
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("%d entries received from IdP management", len(userData))
+	log.WithContext(ctx).Debugf("%d entries received from IdP management", len(userData))
 
 	dataMap := make(map[string]*idp.UserData, len(userData))
 	for _, datum := range userData {
@@ -1257,7 +1258,7 @@ func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interf
 		}
 		datum, ok := dataMap[user.Id]
 		if !ok {
-			log.Warnf("user %s not found in IDP", user.Id)
+			log.WithContext(ctx).Warnf("user %s not found in IDP", user.Id)
 			continue
 		}
 		matchedUserData = append(matchedUserData, datum)
@@ -1293,7 +1294,7 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 		}
 		users[user.Id] = userLoggedInOnce(!user.LastLogin.IsZero())
 	}
-	log.Debugf("looking up user %s of account %s in cache", userID, account.Id)
+	log.WithContext(ctx).Debugf("looking up user %s of account %s in cache", userID, account.Id)
 	userData, err := am.lookupCache(users, account.Id)
 	if err != nil {
 		return nil, err
@@ -1309,14 +1310,14 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 	// or it didn't have its metadata updated with am.addAccountIDToIDPAppMeta
 	user, err := account.FindUser(userID)
 	if err != nil {
-		log.Errorf("failed finding user %s in account %s", userID, account.Id)
+		log.WithContext(ctx).Errorf("failed finding user %s in account %s", userID, account.Id)
 		return nil, err
 	}
 
 	key := user.IntegrationReference.CacheKey(account.Id, userID)
 	ud, err := am.externalCacheManager.Get(am.ctx, key)
 	if err != nil {
-		log.Debugf("failed to get externalCache for key: %s, error: %s", key, err)
+		log.WithContext(ctx).Debugf("failed to get externalCache for key: %s, error: %s", key, err)
 	}
 
 	return ud, nil
@@ -1353,7 +1354,7 @@ func (am *DefaultAccountManager) getAccountFromCache(accountID string, forceRelo
 	}
 	am.cacheMux.Unlock()
 
-	log.Debugf("one request to get account %s is already running", accountID)
+	log.WithContext(ctx).Debugf("one request to get account %s is already running", accountID)
 
 	select {
 	case <-loadingChan:
@@ -1384,14 +1385,14 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]userLoggedI
 			time.Sleep(200 * time.Millisecond)
 		}
 
-		log.Infof("refreshing cache for account %s", accountID)
+		log.WithContext(ctx).Infof("refreshing cache for account %s", accountID)
 		data, err = am.refreshCache(accountID)
 		if err != nil {
 			return nil, err
 		}
 
 		if attempt == maxAttempts {
-			log.Warnf("cache for account %s reached maximum refresh attempts (%d)", accountID, maxAttempts)
+			log.WithContext(ctx).Warnf("cache for account %s reached maximum refresh attempts (%d)", accountID, maxAttempts)
 		}
 	}
 
@@ -1412,18 +1413,18 @@ func (am *DefaultAccountManager) isCacheFresh(accountUsers map[string]userLogged
 		if datum, ok := userDataMap[user]; ok {
 			// check if the matching user data has a pending invite and if the user has logged in once, forcing the cache to be refreshed
 			if datum.AppMetadata.WTPendingInvite != nil && *datum.AppMetadata.WTPendingInvite && loggedInOnce == true { //nolint:gosimple
-				log.Infof("user %s has a pending invite and has logged in once, cache invalid", user)
+				log.WithContext(ctx).Infof("user %s has a pending invite and has logged in once, cache invalid", user)
 				return false
 			}
 			knownUsersCount--
 			continue
 		}
-		log.Debugf("cache doesn't know about %s user", user)
+		log.WithContext(ctx).Debugf("cache doesn't know about %s user", user)
 	}
 
 	// if we know users that are not yet in cache more likely cache is outdated
 	if knownUsersCount > 0 {
-		log.Infof("cache invalid. Users unknown to the cache: %d", knownUsersCount)
+		log.WithContext(ctx).Infof("cache invalid. Users unknown to the cache: %d", knownUsersCount)
 		return false
 	}
 
@@ -1464,7 +1465,7 @@ func (am *DefaultAccountManager) updateAccountDomainAttributes(account *Account,
 			account.DomainCategory = claims.DomainCategory
 		}
 	} else {
-		log.Errorf("claims don't contain a valid domain, skipping domain attributes update. Received claims: %v", claims)
+		log.WithContext(ctx).Errorf("claims don't contain a valid domain, skipping domain attributes update. Received claims: %v", claims)
 	}
 
 	err := am.Store.SaveAccount(account)
@@ -1538,7 +1539,7 @@ func (am *DefaultAccountManager) handleNewUserAccount(domainAcc *Account, claims
 func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) error {
 	// only possible with the enabled IdP manager
 	if am.idpManager == nil {
-		log.Warnf("invites only work with enabled IdP manager")
+		log.WithContext(ctx).Warnf("invites only work with enabled IdP manager")
 		return nil
 	}
 
@@ -1552,16 +1553,16 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 	}
 
 	if user.AppMetadata.WTPendingInvite != nil && *user.AppMetadata.WTPendingInvite {
-		log.Infof("redeeming invite for user %s account %s", userID, account.Id)
+		log.WithContext(ctx).Infof("redeeming invite for user %s account %s", userID, account.Id)
 		// User has already logged in, meaning that IdP should have set wt_pending_invite to false.
 		// Our job is to just reload cache.
 		go func() {
 			_, err = am.refreshCache(account.Id)
 			if err != nil {
-				log.Warnf("failed reloading cache when redeeming user %s under account %s", userID, account.Id)
+				log.WithContext(ctx).Warnf("failed reloading cache when redeeming user %s under account %s", userID, account.Id)
 				return
 			}
-			log.Debugf("user %s of account %s redeemed invite", user.ID, account.Id)
+			log.WithContext(ctx).Debugf("user %s of account %s redeemed invite", user.ID, account.Id)
 			am.StoreEvent(userID, userID, account.Id, activity.UserJoined, nil)
 		}()
 	}
@@ -1658,7 +1659,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 		// We override incoming domain claims to group users under a single account.
 		claims.Domain = am.singleAccountModeDomain
 		claims.DomainCategory = PrivateCategory
-		log.Debugf("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
+		log.WithContext(ctx).Debugf("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
 	}
 
 	newAcc, err := am.getAccountWithAuthorizationClaims(claims)
@@ -1693,7 +1694,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 
 	if account.Settings.JWTGroupsEnabled {
 		if account.Settings.JWTGroupsClaimName == "" {
-			log.Errorf("JWT groups are enabled but no claim name is set")
+			log.WithContext(ctx).Errorf("JWT groups are enabled but no claim name is set")
 			return account, user, nil
 		}
 		if claim, ok := claims.Raw[account.Settings.JWTGroupsClaimName]; ok {
@@ -1703,7 +1704,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 					if g, ok := item.(string); ok {
 						groupsNames = append(groupsNames, g)
 					} else {
-						log.Errorf("JWT claim %q is not a string: %v", account.Settings.JWTGroupsClaimName, item)
+						log.WithContext(ctx).Errorf("JWT claim %q is not a string: %v", account.Settings.JWTGroupsClaimName, item)
 					}
 				}
 
@@ -1719,9 +1720,9 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 							account.UserGroupsRemoveFromPeers(claims.UserId, removeOldGroups...)
 							account.Network.IncSerial()
 							if err := am.Store.SaveAccount(account); err != nil {
-								log.Errorf("failed to save account: %v", err)
+								log.WithContext(ctx).Errorf("failed to save account: %v", err)
 							} else {
-								log.Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
+								log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
 								am.updateAccountPeers(account)
 								unlock()
 								alreadyUnlocked = true
@@ -1749,15 +1750,15 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 						}
 					} else {
 						if err := am.Store.SaveAccount(account); err != nil {
-							log.Errorf("failed to save account: %v", err)
+							log.WithContext(ctx).Errorf("failed to save account: %v", err)
 						}
 					}
 				}
 			} else {
-				log.Debugf("JWT claim %q is not a string array", account.Settings.JWTGroupsClaimName)
+				log.WithContext(ctx).Debugf("JWT claim %q is not a string array", account.Settings.JWTGroupsClaimName)
 			}
 		} else {
-			log.Debugf("JWT claim %q not found", account.Settings.JWTGroupsClaimName)
+			log.WithContext(ctx).Debugf("JWT claim %q not found", account.Settings.JWTGroupsClaimName)
 		}
 	}
 
@@ -1782,7 +1783,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 //
 // Existing user + Existing account + Existing domain reclassified Domain as private -> Nothing changes (index domain)
 func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error) {
-	log.Tracef("getting account with authorization claims. User ID: \"%s\", Account ID: \"%s\", Domain: \"%s\", Domain Category: \"%s\"",
+	log.WithContext(ctx).Tracef("getting account with authorization claims. User ID: \"%s\", Account ID: \"%s\", Domain: \"%s\", Domain Category: \"%s\"",
 		claims.UserId, claims.AccountId, claims.Domain, claims.DomainCategory)
 	if claims.UserId == "" {
 		return nil, fmt.Errorf("user ID is empty")
@@ -1807,7 +1808,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 	start := time.Now()
 	unlock := am.Store.AcquireGlobalLock()
 	defer unlock()
-	log.Debugf("Acquired global lock in %s for user %s", time.Since(start), claims.UserId)
+	log.WithContext(ctx).Debugf("Acquired global lock in %s for user %s", time.Since(start), claims.UserId)
 
 	// We checked if the domain has a primary account already
 	domainAccount, err := am.Store.GetAccountByPrivateDomain(claims.Domain)
@@ -1879,7 +1880,7 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, meta nbpeer.
 
 	err = am.MarkPeerConnected(peerPubKey, true, realIP, account)
 	if err != nil {
-		log.Warnf("failed marking peer as connected %s %v", peerPubKey, err)
+		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
 
 	return peer, netMap, nil
@@ -1904,7 +1905,7 @@ func (am *DefaultAccountManager) CancelPeerRoutines(peer *nbpeer.Peer) error {
 
 	err = am.MarkPeerConnected(peer.Key, false, nil, account)
 	if err != nil {
-		log.Warnf("failed marking peer as connected %s %v", peer.Key, err)
+		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peer.Key, err)
 	}
 
 	return nil
@@ -1987,10 +1988,10 @@ func (am *DefaultAccountManager) CheckUserAccessByJWTGroups(claims jwtclaims.Aut
 }
 
 func (am *DefaultAccountManager) onPeersInvalidated(accountID string) {
-	log.Debugf("validated peers has been invalidated for account %s", accountID)
+	log.WithContext(ctx).Debugf("validated peers has been invalidated for account %s", accountID)
 	updatedAccount, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		log.Errorf("failed to get account %s: %v", accountID, err)
+		log.WithContext(ctx).Errorf("failed to get account %s: %v", accountID, err)
 		return
 	}
 	am.updateAccountPeers(updatedAccount)
@@ -2042,7 +2043,7 @@ func addAllGroup(account *Account) error {
 
 // newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
 func newAccountWithId(accountID, userID, domain string) *Account {
-	log.Debugf("creating new account")
+	log.WithContext(ctx).Debugf("creating new account")
 
 	network := NewNetwork()
 	peers := make(map[string]*nbpeer.Peer)
@@ -2054,7 +2055,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 	dnsSettings := DNSSettings{
 		DisabledManagementGroups: make([]string, 0),
 	}
-	log.Debugf("created new account %s", accountID)
+	log.WithContext(ctx).Debugf("created new account %s", accountID)
 
 	acc := &Account{
 		Id:               accountID,
@@ -2077,7 +2078,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 	}
 
 	if err := addAllGroup(acc); err != nil {
-		log.Errorf("error adding all group to account %s: %v", acc.Id, err)
+		log.WithContext(ctx).Errorf("error adding all group to account %s: %v", acc.Id, err)
 	}
 	return acc
 }

@@ -79,7 +79,7 @@ func (t *tunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		return nil, err
 	}
 	t.udpMux = udpMux
-	log.Debugf("device is ready to use: %s", t.name)
+	log.WithContext(ctx).Debugf("device is ready to use: %s", t.name)
 	return udpMux, nil
 }
 
@@ -120,19 +120,19 @@ func (t *tunDevice) Wrapper() *DeviceWrapper {
 func (t *tunDevice) assignAddr() error {
 	cmd := exec.Command("ifconfig", t.name, "inet", t.address.IP.String(), t.address.IP.String())
 	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Errorf("adding address command '%v' failed with output: %s", cmd.String(), out)
+		log.WithContext(ctx).Errorf("adding address command '%v' failed with output: %s", cmd.String(), out)
 		return err
 	}
 
 	// dummy ipv6 so routing works
 	cmd = exec.Command("ifconfig", t.name, "inet6", "fe80::/64")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Debugf("adding address command '%v' failed with output: %s", cmd.String(), out)
+		log.WithContext(ctx).Debugf("adding address command '%v' failed with output: %s", cmd.String(), out)
 	}
 
 	routeCmd := exec.Command("route", "add", "-net", t.address.Network.String(), "-interface", t.name)
 	if out, err := routeCmd.CombinedOutput(); err != nil {
-		log.Errorf("adding route command '%v' failed with output: %s", routeCmd.String(), out)
+		log.WithContext(ctx).Errorf("adding route command '%v' failed with output: %s", routeCmd.String(), out)
 		return err
 	}
 	return nil

@@ -11,10 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/util"
 
 	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -107,10 +108,10 @@ func NewStore(kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (S
 
 	switch kind {
 	case SqliteStoreEngine:
-		log.Info("using SQLite store engine")
+		log.WithContext(ctx).Info("using SQLite store engine")
 		return NewSqliteStore(dataDir, metrics)
 	case PostgresStoreEngine:
-		log.Info("using Postgres store engine")
+		log.WithContext(ctx).Info("using Postgres store engine")
 		return newPostgresStore(metrics)
 	default:
 		return handleUnsupportedStoreEngine(kind, dataDir, metrics)
@@ -134,13 +135,13 @@ func handleUnsupportedStoreEngine(kind StoreEngine, dataDir string, metrics tele
 	sqliteStoreFile := filepath.Join(dataDir, storeSqliteFileName)
 
 	if util.FileExists(jsonStoreFile) && !util.FileExists(sqliteStoreFile) {
-		log.Warnf("unsupported store engine, but found %s. Automatically migrating to SQLite.", jsonStoreFile)
+		log.WithContext(ctx).Warnf("unsupported store engine, but found %s. Automatically migrating to SQLite.", jsonStoreFile)
 
 		if err := MigrateFileStoreToSqlite(dataDir); err != nil {
 			return nil, fmt.Errorf("failed to migrate data to SQLite store: %w", err)
 		}
 
-		log.Info("using SQLite store engine")
+		log.WithContext(ctx).Info("using SQLite store engine")
 		return NewSqliteStore(dataDir, metrics)
 	}
 
@@ -242,7 +243,7 @@ func MigrateFileStoreToSqlite(dataDir string) error {
 	}
 
 	fsStoreAccounts := len(fstore.GetAllAccounts())
-	log.Infof("%d account will be migrated from file store %s to sqlite store %s",
+	log.WithContext(ctx).Infof("%d account will be migrated from file store %s to sqlite store %s",
 		fsStoreAccounts, fileStorePath, sqlStorePath)
 
 	store, err := NewSqliteStoreFromFileStore(fstore, dataDir, nil)
