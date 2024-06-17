@@ -127,23 +127,27 @@ type serviceClient struct {
 	icUpdateCloud        []byte
 
 	// systray menu items
-	mStatus        *systray.MenuItem
-	mUp            *systray.MenuItem
-	mDown          *systray.MenuItem
-	mAdminPanel    *systray.MenuItem
-	mSettings      *systray.MenuItem
-	mAbout         *systray.MenuItem
-	mVersionUI     *systray.MenuItem
-	mVersionDaemon *systray.MenuItem
-	mUpdate        *systray.MenuItem
-	mQuit          *systray.MenuItem
-	mRoutes        *systray.MenuItem
+	mStatus           *systray.MenuItem
+	mUp               *systray.MenuItem
+	mDown             *systray.MenuItem
+	mAdminPanel       *systray.MenuItem
+	mSettings         *systray.MenuItem
+	mAbout            *systray.MenuItem
+	mVersionUI        *systray.MenuItem
+	mVersionDaemon    *systray.MenuItem
+	mUpdate           *systray.MenuItem
+	mQuit             *systray.MenuItem
+	mRoutes           *systray.MenuItem
+	mAllowSSH         *systray.MenuItem
+	mAutoConnect      *systray.MenuItem
+	mEnableRosenpass  *systray.MenuItem
+	mAdvancedSettings *systray.MenuItem
 
 	// application with main windows.
-	app              fyne.App
-	wSettings        fyne.Window
-	showSettings     bool
-	sendNotification bool
+	app                  fyne.App
+	wSettings            fyne.Window
+	showAdvancedSettings bool
+	sendNotification     bool
 
 	// input elements for settings form
 	iMngURL        *widget.Entry
@@ -155,7 +159,7 @@ type serviceClient struct {
 	iInterfacePort *widget.Entry
 
 	// switch elements for settings form
-	sSSH                 *widget.Check
+	sAllowSSH            *widget.Check
 	sRosenpass           *widget.Check
 	sRosenpassPermissive *widget.Check
 	sAutoConnect         *widget.Check
@@ -164,6 +168,7 @@ type serviceClient struct {
 	managementURL string
 	preSharedKey  string
 	adminURL      string
+	configFile    string
 	interfacePort int
 
 	connected            bool
@@ -171,9 +176,8 @@ type serviceClient struct {
 	daemonVersion        string
 	updateIndicationLock sync.Mutex
 	isUpdateIconActive   bool
-
-	showRoutes bool
-	wRoutes    fyne.Window
+	showRoutes           bool
+	wRoutes              fyne.Window
 }
 
 // newServiceClient instance constructor
@@ -186,9 +190,9 @@ func newServiceClient(addr string, a fyne.App, showSettings bool, showRoutes boo
 		app:              a,
 		sendNotification: false,
 
-		showSettings: showSettings,
-		showRoutes:   showRoutes,
-		update:       version.NewUpdate(),
+		showAdvancedSettings: showSettings,
+		showRoutes:           showRoutes,
+		update:               version.NewUpdate(),
 	}
 
 	if runtime.GOOS == "windows" {
@@ -229,16 +233,16 @@ func (s *serviceClient) showSettingsUI() {
 	s.iInterfaceName = widget.NewEntry()
 	s.iInterfacePort = widget.NewEntry()
 
-	s.sSSH = widget.NewCheck("Allow SSH connections", nil)
+	s.sAllowSSH = widget.NewCheck("Allow SSH connections", nil)
 	s.sAutoConnect = widget.NewCheck("Connect automatically when the service starts", nil)
-	s.sRosenpass = widget.NewCheck("Enable Rosenpass", func(enabled bool) {
+	s.sRosenpass = widget.NewCheck("Enable post-quantum security via Rosenpass", func(enabled bool) {
 		if enabled {
 			s.sRosenpassPermissive.Enable()
 		} else {
 			s.sRosenpassPermissive.Disable()
 		}
 	})
-	s.sRosenpassPermissive = widget.NewCheck("Enable Permissive Mode", nil)
+	s.sRosenpassPermissive = widget.NewCheck("Enable Rosenpass permissive mode", nil)
 	if !s.sRosenpass.Checked {
 		s.sRosenpassPermissive.Disable()
 	}
@@ -268,9 +272,9 @@ func showErrorMSG(msg string) {
 func (s *serviceClient) getSettingsForm() *widget.Form {
 	return &widget.Form{
 		Items: []*widget.FormItem{
-			{Text: "Enable SSH", Widget: s.sSSH},
-			{Text: "Auto-Connect", Widget: s.sAutoConnect},
-			{Text: "Rosenpass", Widget: container.NewGridWithColumns(1, s.sRosenpass, s.sRosenpassPermissive)},
+			{Text: "Allow SSH", Widget: s.sAllowSSH},
+			{Text: "Connect on Startup", Widget: s.sAutoConnect},
+			{Text: "Quantum-Resistance", Widget: container.NewGridWithColumns(1, s.sRosenpass, s.sRosenpassPermissive)},
 			{Text: "Interface Name", Widget: s.iInterfaceName},
 			{Text: "Interface Port", Widget: s.iInterfacePort},
 			{Text: "Management URL", Widget: s.iMngURL},
@@ -339,8 +343,6 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				log.Errorf("failed to update config: %v", err)
 				return
 			}
-
-			s.wSettings.Close()
 		},
 		OnCancel: func() {
 			s.wSettings.Close()
@@ -546,7 +548,14 @@ func (s *serviceClient) onTrayReady() {
 	s.mDown.Disable()
 	s.mAdminPanel = systray.AddMenuItem("Admin Panel", "Netbird Admin Panel")
 	systray.AddSeparator()
+
 	s.mSettings = systray.AddMenuItem("Settings", "Settings of the application")
+	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", "Allow SSH connections", false)
+	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", "Connect automatically when the service starts", false)
+	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", "Enable post-quantum security via Rosenpass", false)
+	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", "Advanced settings of the application")
+	s.loadSettings()
+
 	s.mRoutes = systray.AddMenuItem("Network Routes", "Open the routes management window")
 	s.mRoutes.Disable()
 	systray.AddSeparator()
@@ -605,10 +614,40 @@ func (s *serviceClient) onTrayReady() {
 						return
 					}
 				}()
-			case <-s.mSettings.ClickedCh:
-				s.mSettings.Disable()
+			case <-s.mAllowSSH.ClickedCh:
+				if s.mAllowSSH.Checked() {
+					s.mAllowSSH.Uncheck()
+				} else {
+					s.mAllowSSH.Check()
+				}
+				if err := s.updateConfig(); err != nil {
+					log.Errorf("failed to update config: %v", err)
+					return
+				}
+			case <-s.mAutoConnect.ClickedCh:
+				if s.mAutoConnect.Checked() {
+					s.mAutoConnect.Uncheck()
+				} else {
+					s.mAutoConnect.Check()
+				}
+				if err := s.updateConfig(); err != nil {
+					log.Errorf("failed to update config: %v", err)
+					return
+				}
+			case <-s.mEnableRosenpass.ClickedCh:
+				if s.mEnableRosenpass.Checked() {
+					s.mEnableRosenpass.Uncheck()
+				} else {
+					s.mEnableRosenpass.Check()
+				}
+				if err := s.updateConfig(); err != nil {
+					log.Errorf("failed to update config: %v", err)
+					return
+				}
+			case <-s.mAdvancedSettings.ClickedCh:
+				s.mAdvancedSettings.Disable()
 				go func() {
-					defer s.mSettings.Enable()
+					defer s.mAdvancedSettings.Enable()
 					defer s.getSrvConfig()
 					s.runSelfCommand("settings", "true")
 				}()
@@ -710,8 +749,9 @@ func (s *serviceClient) getSrvConfig() {
 		s.adminURL = cfg.AdminURL
 	}
 	s.preSharedKey = cfg.PreSharedKey
+	s.configFile = cfg.ConfigFile
 
-	if s.showSettings {
+	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
 		s.iAdminURL.SetText(s.adminURL)
 		s.iConfigFile.SetText(cfg.ConfigFile)
@@ -723,7 +763,7 @@ func (s *serviceClient) getSrvConfig() {
 			s.iInterfaceName.SetText(config.WgIface)
 			s.iInterfacePort.SetText(strconv.Itoa(config.WgPort))
 
-			s.sSSH.SetChecked(config.ServerSSHAllowed != nil && *config.ServerSSHAllowed)
+			s.sAllowSSH.SetChecked(config.ServerSSHAllowed != nil && *config.ServerSSHAllowed)
 			s.sRosenpass.SetChecked(config.RosenpassEnabled)
 			s.sRosenpassPermissive.SetChecked(config.RosenpassPermissive)
 			s.sAutoConnect.SetChecked(!config.DisableAutoConnect)
@@ -762,18 +802,65 @@ func (s *serviceClient) onSessionExpire() {
 	}
 }
 
+// loadSettings loads the settings from the config file and updates the UI elements accordingly.
+func (s *serviceClient) loadSettings() {
+	s.getSrvConfig()
+
+	config, err := internal.ReadConfig(s.configFile)
+	if err != nil {
+		log.Errorf("read config %s: %v", s.configFile, err)
+		return
+	}
+
+	if config.ServerSSHAllowed != nil {
+		sshAllowed := *config.ServerSSHAllowed
+		if sshAllowed {
+			s.mAllowSSH.Check()
+		} else {
+			s.mAllowSSH.Uncheck()
+		}
+	}
+
+	if config.DisableAutoConnect {
+		s.mAutoConnect.Uncheck()
+	} else {
+		s.mAutoConnect.Check()
+	}
+
+	if config.RosenpassEnabled {
+		s.mEnableRosenpass.Check()
+	} else {
+		s.mEnableRosenpass.Uncheck()
+	}
+}
+
 // updateConfig updates the configuration parameters
 // based on the values selected in the settings window.
 func (s *serviceClient) updateConfig() error {
-	disableAutoStart := !s.sAutoConnect.Checked
-	updatedConfig := internal.ConfigInput{
-		ConfigPath:          s.iConfigFile.Text,
-		ServerSSHAllowed:    &s.sSSH.Checked,
-		RosenpassEnabled:    &s.sRosenpass.Checked,
-		RosenpassPermissive: &s.sRosenpassPermissive.Checked,
-		InterfaceName:       &s.iInterfaceName.Text,
-		WireguardPort:       &s.interfacePort,
-		DisableAutoConnect:  &disableAutoStart,
+	var updatedConfig internal.ConfigInput
+
+	if s.showAdvancedSettings {
+		disableAutoStart := !s.sAutoConnect.Checked
+		updatedConfig = internal.ConfigInput{
+			ConfigPath:          s.iConfigFile.Text,
+			ServerSSHAllowed:    &s.sAllowSSH.Checked,
+			RosenpassEnabled:    &s.sRosenpass.Checked,
+			RosenpassPermissive: &s.sRosenpassPermissive.Checked,
+			InterfaceName:       &s.iInterfaceName.Text,
+			WireguardPort:       &s.interfacePort,
+			DisableAutoConnect:  &disableAutoStart,
+		}
+	} else {
+		disableAutoStart := !s.mAutoConnect.Checked()
+		sshAllowed := s.mAllowSSH.Checked()
+		rosenpassEnabled := s.mEnableRosenpass.Checked()
+
+		updatedConfig = internal.ConfigInput{
+			ConfigPath:         s.configFile,
+			ServerSSHAllowed:   &sshAllowed,
+			RosenpassEnabled:   &rosenpassEnabled,
+			DisableAutoConnect: &disableAutoStart,
+		}
 	}
 
 	_, err := internal.UpdateConfig(updatedConfig)
