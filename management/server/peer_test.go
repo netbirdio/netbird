@@ -78,6 +78,68 @@ func TestPeer_LoginExpired(t *testing.T) {
 	}
 }
 
+func TestPeer_SessionExpired(t *testing.T) {
+	tt := []struct {
+		name              string
+		expirationEnabled bool
+		lastLogin         time.Time
+		connected         bool
+		expected          bool
+		accountSettings   *Settings
+	}{
+		{
+			name:              "Peer Inactivity Expiration Disabled. Peer Inactivity Should Not Expire",
+			expirationEnabled: false,
+			connected:         false,
+			lastLogin:         time.Now().UTC().Add(-1 * time.Second),
+			accountSettings: &Settings{
+				PeerInactivityExpirationEnabled: true,
+				PeerInactivityExpiration:        time.Hour,
+			},
+			expected: false,
+		},
+		{
+			name:              "Peer Inactivity Should Expire",
+			expirationEnabled: true,
+			connected:         false,
+			lastLogin:         time.Now().UTC().Add(-1 * time.Second),
+			accountSettings: &Settings{
+				PeerInactivityExpirationEnabled: true,
+				PeerInactivityExpiration:        time.Second,
+			},
+			expected: true,
+		},
+		{
+			name:              "Peer Inactivity Should Not Expire",
+			expirationEnabled: true,
+			connected:         true,
+			lastLogin:         time.Now().UTC(),
+			accountSettings: &Settings{
+				PeerInactivityExpirationEnabled: true,
+				PeerInactivityExpiration:        time.Second,
+			},
+			expected: false,
+		},
+	}
+
+	for _, c := range tt {
+		t.Run(c.name, func(t *testing.T) {
+			peerStatus := &nbpeer.PeerStatus{
+				Connected: c.connected,
+			}
+			peer := &nbpeer.Peer{
+				InactivityExpirationEnabled: c.expirationEnabled,
+				LastLogin:                   c.lastLogin,
+				Status:                      peerStatus,
+				UserID:                      userID,
+			}
+
+			expired, _ := peer.SessionExpired(c.accountSettings.PeerInactivityExpiration)
+			assert.Equal(t, expired, c.expected)
+		})
+	}
+}
+
 func TestAccountManager_GetNetworkMap(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
