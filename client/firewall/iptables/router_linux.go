@@ -48,12 +48,12 @@ func newRouterManager(parentCtx context.Context, iptablesClient *iptables.IPTabl
 
 	err := m.cleanUpDefaultForwardRules()
 	if err != nil {
-		log.Errorf("failed to cleanup routing rules: %s", err)
+		log.WithContext(ctx).Errorf("failed to cleanup routing rules: %s", err)
 		return nil, err
 	}
 	err = m.createContainers()
 	if err != nil {
-		log.Errorf("failed to create containers for route: %s", err)
+		log.WithContext(ctx).Errorf("failed to create containers for route: %s", err)
 	}
 	return m, err
 }
@@ -175,27 +175,27 @@ func (i *routerManager) cleanUpDefaultForwardRules() error {
 		return err
 	}
 
-	log.Debug("flushing routing related tables")
+	log.WithContext(ctx).Debug("flushing routing related tables")
 	ok, err := i.iptablesClient.ChainExists(tableFilter, chainRTFWD)
 	if err != nil {
-		log.Errorf("failed check chain %s,error: %v", chainRTFWD, err)
+		log.WithContext(ctx).Errorf("failed check chain %s,error: %v", chainRTFWD, err)
 		return err
 	} else if ok {
 		err = i.iptablesClient.ClearAndDeleteChain(tableFilter, chainRTFWD)
 		if err != nil {
-			log.Errorf("failed cleaning chain %s,error: %v", chainRTFWD, err)
+			log.WithContext(ctx).Errorf("failed cleaning chain %s,error: %v", chainRTFWD, err)
 			return err
 		}
 	}
 
 	ok, err = i.iptablesClient.ChainExists(tableNat, chainRTNAT)
 	if err != nil {
-		log.Errorf("failed check chain %s,error: %v", chainRTNAT, err)
+		log.WithContext(ctx).Errorf("failed check chain %s,error: %v", chainRTNAT, err)
 		return err
 	} else if ok {
 		err = i.iptablesClient.ClearAndDeleteChain(tableNat, chainRTNAT)
 		if err != nil {
-			log.Errorf("failed cleaning chain %s,error: %v", chainRTNAT, err)
+			log.WithContext(ctx).Errorf("failed cleaning chain %s,error: %v", chainRTNAT, err)
 			return err
 		}
 	}

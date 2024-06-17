@@ -33,11 +33,11 @@ var ErrRoutingIsSeparate = errors.New("routing is separate")
 func (r *SysOps) setupRefCounter(initAddresses []net.IP) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
 	initialNextHopV4, err := GetNextHop(netip.IPv4Unspecified())
 	if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
-		log.Errorf("Unable to get initial v4 default next hop: %v", err)
+		log.WithContext(ctx).Errorf("Unable to get initial v4 default next hop: %v", err)
 	}
 	initialNextHopV6, err := GetNextHop(netip.IPv6Unspecified())
 	if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
-		log.Errorf("Unable to get initial v6 default next hop: %v", err)
+		log.WithContext(ctx).Errorf("Unable to get initial v6 default next hop: %v", err)
 	}
 
 	refCounter := refcounter.New(
@@ -92,7 +92,7 @@ func (r *SysOps) addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 	}
 
 	if !prefix.Contains(nexthop.IP) {
-		log.Debugf("Skipping adding a new route for gateway %s because it is not in the network %s", nexthop.IP, prefix)
+		log.WithContext(ctx).Debugf("Skipping adding a new route for gateway %s because it is not in the network %s", nexthop.IP, prefix)
 		return nil
 	}
 
@@ -107,7 +107,7 @@ func (r *SysOps) addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 	}
 
 	if ok {
-		log.Debugf("Skipping adding a new route for gateway %s because it already exists", gatewayPrefix)
+		log.WithContext(ctx).Debugf("Skipping adding a new route for gateway %s because it already exists", gatewayPrefix)
 		return nil
 	}
 
@@ -116,7 +116,7 @@ func (r *SysOps) addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 		return fmt.Errorf("unable to get the next hop for the default gateway address. error: %s", err)
 	}
 
-	log.Debugf("Adding a new route for gateway %s with next hop %s", gatewayPrefix, nexthop.IP)
+	log.WithContext(ctx).Debugf("Adding a new route for gateway %s with next hop %s", gatewayPrefix, nexthop.IP)
 	return r.addToRouteTable(gatewayPrefix, nexthop)
 }
 
@@ -141,7 +141,7 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIfac
 		return Nexthop{}, fmt.Errorf("get next hop: %w", err)
 	}
 
-	log.Debugf("Found next hop %s for prefix %s with interface %v", nexthop.IP, prefix, nexthop.IP)
+	log.WithContext(ctx).Debugf("Found next hop %s for prefix %s with interface %v", nexthop.IP, prefix, nexthop.IP)
 	exitNextHop := Nexthop{
 		IP:   nexthop.IP,
 		Intf: nexthop.Intf,
@@ -154,11 +154,11 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIfac
 
 	// if next hop is the VPN address or the interface is the VPN interface, we should use the initial values
 	if exitNextHop.IP == vpnAddr || exitNextHop.Intf != nil && exitNextHop.Intf.Name == vpnIntf.Name() {
-		log.Debugf("Route for prefix %s is pointing to the VPN interface", prefix)
+		log.WithContext(ctx).Debugf("Route for prefix %s is pointing to the VPN interface", prefix)
 		exitNextHop = initialNextHop
 	}
 
-	log.Debugf("Adding a new route for prefix %s with next hop %s", prefix, exitNextHop.IP)
+	log.WithContext(ctx).Debugf("Adding a new route for prefix %s with next hop %s", prefix, exitNextHop.IP)
 	if err := r.addToRouteTable(prefix, exitNextHop); err != nil {
 		return Nexthop{}, fmt.Errorf("add route to table: %w", err)
 	}
@@ -177,7 +177,7 @@ func (r *SysOps) genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) er
 		}
 		if err := r.addToRouteTable(splitDefaultv4_2, nextHop); err != nil {
 			if err2 := r.removeFromRouteTable(splitDefaultv4_1, nextHop); err2 != nil {
-				log.Warnf("Failed to rollback route addition: %s", err2)
+				log.WithContext(ctx).Warnf("Failed to rollback route addition: %s", err2)
 			}
 			return err
 		}
@@ -188,7 +188,7 @@ func (r *SysOps) genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) er
 		}
 		if err := r.addToRouteTable(splitDefaultv6_2, nextHop); err != nil {
 			if err2 := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err2 != nil {
-				log.Warnf("Failed to rollback route addition: %s", err2)
+				log.WithContext(ctx).Warnf("Failed to rollback route addition: %s", err2)
 			}
 			return fmt.Errorf("add unreachable route split 2: %w", err)
 		}
@@ -200,7 +200,7 @@ func (r *SysOps) genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) er
 		}
 		if err := r.addToRouteTable(splitDefaultv6_2, nextHop); err != nil {
 			if err2 := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err2 != nil {
-				log.Warnf("Failed to rollback route addition: %s", err2)
+				log.WithContext(ctx).Warnf("Failed to rollback route addition: %s", err2)
 			}
 			return fmt.Errorf("add unreachable route split 2: %w", err)
 		}
@@ -218,7 +218,7 @@ func (r *SysOps) addNonExistingRoute(prefix netip.Prefix, intf *net.Interface) e
 		return fmt.Errorf("exists in route table: %w", err)
 	}
 	if ok {
-		log.Warnf("Skipping adding a new route for network %s because it already exists", prefix)
+		log.WithContext(ctx).Warnf("Skipping adding a new route for network %s because it already exists", prefix)
 		return nil
 	}
 
@@ -229,7 +229,7 @@ func (r *SysOps) addNonExistingRoute(prefix netip.Prefix, intf *net.Interface) e
 
 	if ok {
 		if err := r.addRouteForCurrentDefaultGateway(prefix); err != nil {
-			log.Warnf("Unable to add route for current default gateway route. Will proceed without it. error: %s", err)
+			log.WithContext(ctx).Warnf("Unable to add route for current default gateway route. Will proceed without it. error: %s", err)
 		}
 	}
 
@@ -297,7 +297,7 @@ func (r *SysOps) setupHooks(initAddresses []net.IP) (nbnet.AddHookFunc, nbnet.Re
 
 	for _, ip := range initAddresses {
 		if err := beforeHook("init", ip); err != nil {
-			log.Errorf("Failed to add route reference: %v", err)
+			log.WithContext(ctx).Errorf("Failed to add route reference: %v", err)
 		}
 	}
 
@@ -335,11 +335,11 @@ func GetNextHop(ip netip.Addr) (Nexthop, error) {
 	}
 	intf, gateway, preferredSrc, err := r.Route(ip.AsSlice())
 	if err != nil {
-		log.Debugf("Failed to get route for %s: %v", ip, err)
+		log.WithContext(ctx).Debugf("Failed to get route for %s: %v", ip, err)
 		return Nexthop{}, vars.ErrRouteNotFound
 	}
 
-	log.Debugf("Route for %s: interface %v nexthop %v, preferred source %v", ip, intf, gateway, preferredSrc)
+	log.WithContext(ctx).Debugf("Route for %s: interface %v nexthop %v, preferred source %v", ip, intf, gateway, preferredSrc)
 	if gateway == nil {
 		if runtime.GOOS == "freebsd" {
 			return Nexthop{Intf: intf}, nil
@@ -348,7 +348,7 @@ func GetNextHop(ip netip.Addr) (Nexthop, error) {
 		if preferredSrc == nil {
 			return Nexthop{}, vars.ErrRouteNotFound
 		}
-		log.Debugf("No next hop found for IP %s, using preferred source %s", ip, preferredSrc)
+		log.WithContext(ctx).Debugf("No next hop found for IP %s, using preferred source %s", ip, preferredSrc)
 
 		addr, err := ipToAddr(preferredSrc, intf)
 		if err != nil {
@@ -421,7 +421,7 @@ func IsAddrRouted(addr netip.Addr, vpnRoutes []netip.Prefix) (bool, netip.Prefix
 	localRoutes, err := hasSeparateRouting()
 	if err != nil {
 		if !errors.Is(err, ErrRoutingIsSeparate) {
-			log.Errorf("Failed to get routes: %v", err)
+			log.WithContext(ctx).Errorf("Failed to get routes: %v", err)
 		}
 		return false, netip.Prefix{}
 	}

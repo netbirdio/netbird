@@ -25,7 +25,7 @@ type resolvconf struct {
 func newResolvConfConfigurator(wgInterface string) (hostManager, error) {
 	resolvConfEntries, err := parseDefaultResolvConf()
 	if err != nil {
-		log.Errorf("could not read original search domains from %s: %s", defaultResolvConfPath, err)
+		log.WithContext(ctx).Errorf("could not read original search domains from %s: %s", defaultResolvConfPath, err)
 	}
 
 	return &resolvconf{
@@ -45,7 +45,7 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
 	if !config.RouteAll {
 		err = r.restoreHostDNS()
 		if err != nil {
-			log.Errorf("restore host dns: %s", err)
+			log.WithContext(ctx).Errorf("restore host dns: %s", err)
 		}
 		return fmt.Errorf("unable to configure DNS for this peer using resolvconf manager without a nameserver group with all domains configured")
 	}
@@ -62,7 +62,7 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
 
 	// create a backup for unclean shutdown detection before the resolv.conf is changed
 	if err := createUncleanShutdownIndicator(defaultResolvConfPath, resolvConfManager, config.ServerIP); err != nil {
-		log.Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
+		log.WithContext(ctx).Errorf("failed to create unclean shutdown resolv.conf backup: %s", err)
 	}
 
 	err = r.applyConfig(buf)
@@ -70,7 +70,7 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig) error {
 		return fmt.Errorf("apply config: %w", err)
 	}
 
-	log.Infof("added %d search domains. Search list: %s", len(searchDomainList), searchDomainList)
+	log.WithContext(ctx).Infof("added %d search domains. Search list: %s", len(searchDomainList), searchDomainList)
 	return nil
 }
 
@@ -83,7 +83,7 @@ func (r *resolvconf) restoreHostDNS() error {
 	}
 
 	if err := removeUncleanShutdownIndicator(); err != nil {
-		log.Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
+		log.WithContext(ctx).Errorf("failed to remove unclean shutdown resolv.conf backup: %s", err)
 	}
 
 	return nil

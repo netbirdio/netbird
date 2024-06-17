@@ -83,7 +83,7 @@ func Set(key string, desiredValue int, onlyIfOne bool) (int, error) {
 	if err := os.WriteFile(path, []byte(strconv.Itoa(desiredValue)), 0644); err != nil {
 		return currentV, fmt.Errorf("write sysctl %s: %w", key, err)
 	}
-	log.Debugf("Set sysctl %s from %d to %d", key, currentV, desiredValue)
+	log.WithContext(ctx).Debugf("Set sysctl %s from %d to %d", key, currentV, desiredValue)
 
 	return currentV, nil
 }

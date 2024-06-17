@@ -36,7 +36,7 @@ func newWGUSPConfigurer(device *device.Device, deviceName string) wgConfigurer {
 }
 
 func (c *wgUSPConfigurer) configureInterface(privateKey string, port int) error {
-	log.Debugf("adding Wireguard private key")
+	log.WithContext(ctx).Debugf("adding Wireguard private key")
 	key, err := wgtypes.ParseKey(privateKey)
 	if err != nil {
 		return err
@@ -188,7 +188,7 @@ func (t *wgUSPConfigurer) startUAPI() {
 	var err error
 	t.uapiListener, err = openUAPI(t.deviceName)
 	if err != nil {
-		log.Errorf("failed to open uapi listener: %v", err)
+		log.WithContext(ctx).Errorf("failed to open uapi listener: %v", err)
 		return
 	}
 
@@ -210,7 +210,7 @@ func (t *wgUSPConfigurer) close() {
 	if t.uapiListener != nil {
 		err := t.uapiListener.Close()
 		if err != nil {
-			log.Errorf("failed to close uapi listener: %v", err)
+			log.WithContext(ctx).Errorf("failed to close uapi listener: %v", err)
 		}
 	}
 

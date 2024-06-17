@@ -18,7 +18,7 @@ type Peer struct {
 
 	StreamID int64
 
-	//a gRpc connection stream to the Peer
+	// a gRpc connection stream to the Peer
 	Stream proto.SignalExchange_ConnectStreamServer
 }
 
@@ -75,11 +75,11 @@ func (registry *Registry) Register(peer *Peer) {
 	p, loaded := registry.Peers.LoadOrStore(peer.Id, peer)
 	if loaded {
 		pp := p.(*Peer)
-		log.Warnf("peer [%s] is already registered [new streamID %d, previous StreamID %d]. Will override stream.",
+		log.WithContext(ctx).Warnf("peer [%s] is already registered [new streamID %d, previous StreamID %d]. Will override stream.",
 			peer.Id, peer.StreamID, pp.StreamID)
 		registry.Peers.Store(peer.Id, peer)
 	}
-	log.Debugf("peer registered [%s]", peer.Id)
+	log.WithContext(ctx).Debugf("peer registered [%s]", peer.Id)
 
 	// record time as milliseconds
 	registry.metrics.RegistrationDelay.Record(context.Background(), float64(time.Since(start).Nanoseconds())/1e6)
@@ -97,12 +97,12 @@ func (registry *Registry) Deregister(peer *Peer) {
 		pp := p.(*Peer)
 		if peer.StreamID < pp.StreamID {
 			registry.Peers.Store(peer.Id, p)
-			log.Warnf("attempted to remove newer registered stream of a peer [%s] [newer streamID %d, previous StreamID %d]. Ignoring.",
+			log.WithContext(ctx).Warnf("attempted to remove newer registered stream of a peer [%s] [newer streamID %d, previous StreamID %d]. Ignoring.",
 				peer.Id, pp.StreamID, peer.StreamID)
 			return
 		}
 	}
-	log.Debugf("peer deregistered [%s]", peer.Id)
+	log.WithContext(ctx).Debugf("peer deregistered [%s]", peer.Id)
 
 	registry.metrics.Deregistrations.Add(context.Background(), 1)
 }

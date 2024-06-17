@@ -116,12 +116,12 @@ func (c *ConnectClient) run(
 		}
 	}()
 
-	log.Infof("starting NetBird client version %s on %s/%s", version.NetbirdVersion(), runtime.GOOS, runtime.GOARCH)
+	log.WithContext(ctx).Infof("starting NetBird client version %s on %s/%s", version.NetbirdVersion(), runtime.GOOS, runtime.GOARCH)
 
 	// Check if client was not shut down in a clean way and restore DNS config if required.
 	// Otherwise, we might not be able to connect to the management server to retrieve new config.
 	if err := dns.CheckUncleanShutdown(c.config.WgIface); err != nil {
-		log.Errorf("checking unclean shutdown error: %s", err)
+		log.WithContext(ctx).Errorf("checking unclean shutdown error: %s", err)
 	}
 
 	backOff := &backoff.ExponentialBackOff{
@@ -145,7 +145,7 @@ func (c *ConnectClient) run(
 	wrapErr := state.Wrap
 	myPrivateKey, err := wgtypes.ParseKey(c.config.PrivateKey)
 	if err != nil {
-		log.Errorf("failed parsing Wireguard key %s: [%s]", c.config.PrivateKey, err.Error())
+		log.WithContext(ctx).Errorf("failed parsing Wireguard key %s: [%s]", c.config.PrivateKey, err.Error())
 		return wrapErr(err)
 	}
 
@@ -177,7 +177,7 @@ func (c *ConnectClient) run(
 			cancel()
 		}()
 
-		log.Debugf("connecting to the Management service %s", c.config.ManagementURL.Host)
+		log.WithContext(ctx).Debugf("connecting to the Management service %s", c.config.ManagementURL.Host)
 		mgmClient, err := mgm.NewClient(engineCtx, c.config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 		if err != nil {
 			return wrapErr(gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err))
@@ -185,18 +185,18 @@ func (c *ConnectClient) run(
 		mgmNotifier := statusRecorderToMgmConnStateNotifier(c.statusRecorder)
 		mgmClient.SetConnStateListener(mgmNotifier)
 
-		log.Debugf("connected to the Management service %s", c.config.ManagementURL.Host)
+		log.WithContext(ctx).Debugf("connected to the Management service %s", c.config.ManagementURL.Host)
 		defer func() {
 			err = mgmClient.Close()
 			if err != nil {
-				log.Warnf("failed to close the Management service client %v", err)
+				log.WithContext(ctx).Warnf("failed to close the Management service client %v", err)
 			}
 		}()
 
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
 		loginResp, err := loginToManagement(engineCtx, mgmClient, publicSSHKey)
 		if err != nil {
-			log.Debug(err)
+			log.WithContext(ctx).Debug(err)
 			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 				state.Set(StatusNeedsLogin)
 				return backoff.Permanent(wrapErr(err)) // unrecoverable error
@@ -229,13 +229,13 @@ func (c *ConnectClient) run(
 		// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
 		signalClient, err := connectToSignal(engineCtx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
 		if err != nil {
-			log.Error(err)
+			log.WithContext(ctx).Error(err)
 			return wrapErr(err)
 		}
 		defer func() {
 			err = signalClient.Close()
 			if err != nil {
-				log.Warnf("failed closing Signal service client %v", err)
+				log.WithContext(ctx).Warnf("failed closing Signal service client %v", err)
 			}
 		}()
 
@@ -248,7 +248,7 @@ func (c *ConnectClient) run(
 
 		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig)
 		if err != nil {
-			log.Error(err)
+			log.WithContext(ctx).Error(err)
 			return wrapErr(err)
 		}
 
@@ -260,11 +260,11 @@ func (c *ConnectClient) run(
 
 		err = c.engine.Start()
 		if err != nil {
-			log.Errorf("error while starting Netbird Connection Engine: %s", err)
+			log.WithContext(ctx).Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
 		}
 
-		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
+		log.WithContext(ctx).Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
 
 		<-engineCtx.Done()
@@ -274,11 +274,11 @@ func (c *ConnectClient) run(
 
 		err = c.engine.Stop()
 		if err != nil {
-			log.Errorf("failed stopping engine %v", err)
+			log.WithContext(ctx).Errorf("failed stopping engine %v", err)
 			return wrapErr(err)
 		}
 
-		log.Info("stopped NetBird client")
+		log.WithContext(ctx).Info("stopped NetBird client")
 
 		if _, err := state.Status(); errors.Is(err, ErrResetConnection) {
 			return err
@@ -290,7 +290,7 @@ func (c *ConnectClient) run(
 	c.statusRecorder.ClientStart()
 	err = backoff.Retry(operation, backOff)
 	if err != nil {
-		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
+		log.WithContext(ctx).Debugf("exiting client retry loop due to unrecoverable error: %s", err)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 			state.Set(StatusNeedsLogin)
 		}
@@ -343,7 +343,7 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		return nil, err
 	}
 	if port != config.WgPort {
-		log.Infof("using %d as wireguard port: %d is in use", port, config.WgPort)
+		log.WithContext(ctx).Infof("using %d as wireguard port: %d is in use", port, config.WgPort)
 	}
 	engineConf.WgPort = port
 
@@ -361,7 +361,7 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.WiretrusteeConfig, 
 
 	signalClient, err := signal.NewClient(ctx, wtConfig.Signal.Uri, ourPrivateKey, sigTLSEnabled)
 	if err != nil {
-		log.Errorf("error while connecting to the Signal Exchange Service %s: %s", wtConfig.Signal.Uri, err)
+		log.WithContext(ctx).Errorf("error while connecting to the Signal Exchange Service %s: %s", wtConfig.Signal.Uri, err)
 		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Signal Service : %s", err)
 	}
 

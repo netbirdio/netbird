@@ -881,10 +881,10 @@ loop:
 				totalConnected += getConnectedPeers(engine)
 			}
 			if totalConnected == expectedConnected {
-				log.Infof("total connected=%d", totalConnected)
+				log.WithContext(ctx).Infof("total connected=%d", totalConnected)
 				break loop
 			}
-			log.Infof("total connected=%d", totalConnected)
+			log.WithContext(ctx).Infof("total connected=%d", totalConnected)
 		}
 	}
 	// cleanup test

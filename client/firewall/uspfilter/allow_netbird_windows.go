@@ -80,7 +80,7 @@ func isWindowsFirewallReachable() bool {
 
 	_, err := cmd.Output()
 	if err != nil {
-		log.Infof("Windows firewall is not reachable, skipping default rule management. Using only user space rules. Error: %s", err)
+		log.WithContext(ctx).Infof("Windows firewall is not reachable, skipping default rule management. Using only user space rules. Error: %s", err)
 		return false
 	}
 

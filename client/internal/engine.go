@@ -248,7 +248,7 @@ func (e *Engine) Stop() error {
 	if e.networkMonitor != nil {
 		e.networkMonitor.Stop()
 	}
-	log.Info("Network monitor: stopped")
+	log.WithContext(ctx).Info("Network monitor: stopped")
 
 	err := e.removeAllPeers()
 	if err != nil {
@@ -265,7 +265,7 @@ func (e *Engine) Stop() error {
 
 	e.close()
 	e.wgConnWorker.Wait()
-	log.Infof("stopped Netbird Engine")
+	log.WithContext(ctx).Infof("stopped Netbird Engine")
 	return nil
 }
 
@@ -285,17 +285,17 @@ func (e *Engine) Start() error {
 
 	wgIface, err := e.newWgIface()
 	if err != nil {
-		log.Errorf("failed creating wireguard interface instance %s: [%s]", e.config.WgIfaceName, err)
+		log.WithContext(ctx).Errorf("failed creating wireguard interface instance %s: [%s]", e.config.WgIfaceName, err)
 		return fmt.Errorf("new wg interface: %w", err)
 	}
 	e.wgInterface = wgIface
 
 	if e.config.RosenpassEnabled {
-		log.Infof("rosenpass is enabled")
+		log.WithContext(ctx).Infof("rosenpass is enabled")
 		if e.config.RosenpassPermissive {
-			log.Infof("running rosenpass in permissive mode")
+			log.WithContext(ctx).Infof("running rosenpass in permissive mode")
 		} else {
-			log.Infof("running rosenpass in strict mode")
+			log.WithContext(ctx).Infof("running rosenpass in strict mode")
 		}
 		e.rpManager, err = rosenpass.NewManager(e.config.PreSharedKey, e.config.WgIfaceName)
 		if err != nil {
@@ -317,7 +317,7 @@ func (e *Engine) Start() error {
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.config.DNSRouteInterval, e.wgInterface, e.statusRecorder, initialRoutes)
 	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
 	if err != nil {
-		log.Errorf("Failed to initialize route manager: %s", err)
+		log.WithContext(ctx).Errorf("Failed to initialize route manager: %s", err)
 	} else {
 		e.beforePeerHook = beforePeerHook
 		e.afterPeerHook = afterPeerHook
@@ -327,14 +327,14 @@ func (e *Engine) Start() error {
 
 	err = e.wgInterfaceCreate()
 	if err != nil {
-		log.Errorf("failed creating tunnel interface %s: [%s]", e.config.WgIfaceName, err.Error())
+		log.WithContext(ctx).Errorf("failed creating tunnel interface %s: [%s]", e.config.WgIfaceName, err.Error())
 		e.close()
 		return fmt.Errorf("create wg interface: %w", err)
 	}
 
 	e.firewall, err = firewall.NewFirewall(e.ctx, e.wgInterface)
 	if err != nil {
-		log.Errorf("failed creating firewall manager: %s", err)
+		log.WithContext(ctx).Errorf("failed creating firewall manager: %s", err)
 	}
 
 	if e.firewall != nil && e.firewall.IsServerRouteSupported() {
@@ -347,7 +347,7 @@ func (e *Engine) Start() error {
 
 	e.udpMux, err = e.wgInterface.Up()
 	if err != nil {
-		log.Errorf("failed to pull up wgInterface [%s]: %s", e.wgInterface.Name(), err.Error())
+		log.WithContext(ctx).Errorf("failed to pull up wgInterface [%s]: %s", e.wgInterface.Name(), err.Error())
 		e.close()
 		return fmt.Errorf("up wg interface: %w", err)
 	}
@@ -387,7 +387,7 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 			}
 			err := e.statusRecorder.UpdatePeerFQDN(peerPubKey, p.GetFqdn())
 			if err != nil {
-				log.Warnf("error updating peer's %s fqdn in the status recorder, got error: %v", peerPubKey, err)
+				log.WithContext(ctx).Warnf("error updating peer's %s fqdn in the status recorder, got error: %v", peerPubKey, err)
 			}
 		}
 	}
@@ -429,13 +429,13 @@ func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 		if err != nil {
 			return err
 		}
-		log.Infof("removed peer %s", p)
+		log.WithContext(ctx).Infof("removed peer %s", p)
 	}
 	return nil
 }
 
 func (e *Engine) removeAllPeers() error {
-	log.Debugf("removing all peer connections")
+	log.WithContext(ctx).Debugf("removing all peer connections")
 	for p := range e.peerConns {
 		err := e.removePeer(p)
 		if err != nil {
@@ -447,7 +447,7 @@ func (e *Engine) removeAllPeers() error {
 
 // removePeer closes an existing peer connection, removes a peer, and clears authorized key of the SSH server
 func (e *Engine) removePeer(peerKey string) error {
-	log.Debugf("removing peer from engine %s", peerKey)
+	log.WithContext(ctx).Debugf("removing peer from engine %s", peerKey)
 
 	if !isNil(e.sshServer) {
 		e.sshServer.RemoveAuthorizedKey(peerKey)
@@ -456,7 +456,7 @@ func (e *Engine) removePeer(peerKey string) error {
 	defer func() {
 		err := e.statusRecorder.RemovePeer(peerKey)
 		if err != nil {
-			log.Warnf("received error when removing peer %s from status recorder: %v", peerKey, err)
+			log.WithContext(ctx).Warnf("received error when removing peer %s from status recorder: %v", peerKey, err)
 		}
 	}()
 
@@ -564,12 +564,12 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 
 	info, err := system.GetInfoWithChecks(e.ctx, checks)
 	if err != nil {
-		log.Warnf("failed to get system info with checks: %v", err)
+		log.WithContext(ctx).Warnf("failed to get system info with checks: %v", err)
 		info = system.GetInfo(e.ctx)
 	}
 
 	if err := e.mgmClient.SyncMeta(info); err != nil {
-		log.Errorf("could not sync meta: error %s", err)
+		log.WithContext(ctx).Errorf("could not sync meta: error %s", err)
 		return err
 	}
 	return nil
@@ -582,13 +582,13 @@ func isNil(server nbssh.Server) bool {
 func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 
 	if !e.config.ServerSSHAllowed {
-		log.Warnf("running SSH server is not permitted")
+		log.WithContext(ctx).Warnf("running SSH server is not permitted")
 		return nil
 	} else {
 
 		if sshConf.GetSshEnabled() {
 			if runtime.GOOS == "windows" || runtime.GOOS == "freebsd" {
-				log.Warnf("running SSH server on %s is not supported", runtime.GOOS)
+				log.WithContext(ctx).Warnf("running SSH server on %s is not supported", runtime.GOOS)
 				return nil
 			}
 			// start SSH server if it wasn't running
@@ -605,21 +605,21 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 					err = e.sshServer.Start()
 					if err != nil {
 						// will throw error when we stop it even if it is a graceful stop
-						log.Debugf("stopped SSH server with error %v", err)
+						log.WithContext(ctx).Debugf("stopped SSH server with error %v", err)
 					}
 					e.syncMsgMux.Lock()
 					defer e.syncMsgMux.Unlock()
 					e.sshServer = nil
-					log.Infof("stopped SSH server")
+					log.WithContext(ctx).Infof("stopped SSH server")
 				}()
 			} else {
-				log.Debugf("SSH server is already running")
+				log.WithContext(ctx).Debugf("SSH server is already running")
 			}
 		} else if !isNil(e.sshServer) {
 			// Disable SSH server request, so stop it if it was running
 			err := e.sshServer.Stop()
 			if err != nil {
-				log.Warnf("failed to stop SSH server %v", err)
+				log.WithContext(ctx).Warnf("failed to stop SSH server %v", err)
 			}
 			e.sshServer = nil
 		}
@@ -631,19 +631,19 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	if e.wgInterface.Address().String() != conf.Address {
 		oldAddr := e.wgInterface.Address().String()
-		log.Debugf("updating peer address from %s to %s", oldAddr, conf.Address)
+		log.WithContext(ctx).Debugf("updating peer address from %s to %s", oldAddr, conf.Address)
 		err := e.wgInterface.UpdateAddr(conf.Address)
 		if err != nil {
 			return err
 		}
 		e.config.WgAddr = conf.Address
-		log.Infof("updated peer address from %s to %s", oldAddr, conf.Address)
+		log.WithContext(ctx).Infof("updated peer address from %s to %s", oldAddr, conf.Address)
 	}
 
 	if conf.GetSshConfig() != nil {
 		err := e.updateSSH(conf.GetSshConfig())
 		if err != nil {
-			log.Warnf("failed handling SSH server setup %v", err)
+			log.WithContext(ctx).Warnf("failed handling SSH server setup %v", err)
 		}
 	}
 
@@ -663,7 +663,7 @@ func (e *Engine) receiveManagementEvents() {
 	go func() {
 		info, err := system.GetInfoWithChecks(e.ctx, e.checks)
 		if err != nil {
-			log.Warnf("failed to get system info with checks: %v", err)
+			log.WithContext(ctx).Warnf("failed to get system info with checks: %v", err)
 			info = system.GetInfo(e.ctx)
 		}
 
@@ -676,9 +676,9 @@ func (e *Engine) receiveManagementEvents() {
 			e.clientCancel()
 			return
 		}
-		log.Debugf("stopped receiving updates from Management Service")
+		log.WithContext(ctx).Debugf("stopped receiving updates from Management Service")
 	}()
-	log.Debugf("connecting to Management Service updates stream")
+	log.WithContext(ctx).Debugf("connecting to Management Service updates stream")
 }
 
 func (e *Engine) updateSTUNs(stuns []*mgmProto.HostConfig) error {
@@ -686,7 +686,7 @@ func (e *Engine) updateSTUNs(stuns []*mgmProto.HostConfig) error {
 		return nil
 	}
 	var newSTUNs []*stun.URI
-	log.Debugf("got STUNs update from Management Service, updating")
+	log.WithContext(ctx).Debugf("got STUNs update from Management Service, updating")
 	for _, s := range stuns {
 		url, err := stun.ParseURI(s.Uri)
 		if err != nil {
@@ -704,7 +704,7 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 		return nil
 	}
 	var newTURNs []*stun.URI
-	log.Debugf("got TURNs update from Management Service, updating")
+	log.WithContext(ctx).Debugf("got TURNs update from Management Service, updating")
 	for _, turn := range turns {
 		url, err := stun.ParseURI(turn.HostConfig.Uri)
 		if err != nil {
@@ -731,11 +731,11 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	serial := networkMap.GetSerial()
 	if e.networkSerial > serial {
-		log.Debugf("received outdated NetworkMap with serial %d, ignoring", serial)
+		log.WithContext(ctx).Debugf("received outdated NetworkMap with serial %d, ignoring", serial)
 		return nil
 	}
 
-	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
+	log.WithContext(ctx).Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
 	e.updateOfflinePeers(networkMap.GetOfflinePeers())
 
@@ -770,7 +770,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 				if config.GetSshConfig() != nil && config.GetSshConfig().GetSshPubKey() != nil {
 					err := e.sshServer.AddAuthorizedKey(config.WgPubKey, string(config.GetSshConfig().GetSshPubKey()))
 					if err != nil {
-						log.Warnf("failed adding authorized key to SSH DefaultServer %v", err)
+						log.WithContext(ctx).Warnf("failed adding authorized key to SSH DefaultServer %v", err)
 					}
 				}
 			}
@@ -783,7 +783,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	_, clientRoutes, err := e.routeManager.UpdateRoutes(serial, toRoutes(protoRoutes))
 	if err != nil {
-		log.Errorf("failed to update clientRoutes, err: %v", err)
+		log.WithContext(ctx).Errorf("failed to update clientRoutes, err: %v", err)
 	}
 
 	e.clientRoutesMu.Lock()
@@ -797,7 +797,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	err = e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig))
 	if err != nil {
-		log.Errorf("failed to update dns server, err: %v", err)
+		log.WithContext(ctx).Errorf("failed to update dns server, err: %v", err)
 	}
 
 	if e.acl != nil {
@@ -820,7 +820,7 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 		if len(protoRoute.Domains) == 0 {
 			var err error
 			if prefix, err = netip.ParsePrefix(protoRoute.Network); err != nil {
-				log.Errorf("Failed to parse prefix %s: %v", protoRoute.Network, err)
+				log.WithContext(ctx).Errorf("Failed to parse prefix %s: %v", protoRoute.Network, err)
 				continue
 			}
 		}
@@ -886,7 +886,7 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
 func (e *Engine) updateOfflinePeers(offlinePeers []*mgmProto.RemotePeerConfig) {
 	replacement := make([]peer.State, len(offlinePeers))
 	for i, offlinePeer := range offlinePeers {
-		log.Debugf("added offline peer %s", offlinePeer.Fqdn)
+		log.WithContext(ctx).Debugf("added offline peer %s", offlinePeer.Fqdn)
 		replacement[i] = peer.State{
 			IP:               strings.Join(offlinePeer.GetAllowedIps(), ","),
 			PubKey:           offlinePeer.GetWgPubKey(),
@@ -928,7 +928,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 
 		err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn)
 		if err != nil {
-			log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
+			log.WithContext(ctx).Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
 		}
 
 		e.wgConnWorker.Add(1)
@@ -953,12 +953,12 @@ func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
 
 		// if peer has been removed -> give up
 		if !e.peerExists(peerKey) {
-			log.Debugf("peer %s doesn't exist anymore, won't retry connection", peerKey)
+			log.WithContext(ctx).Debugf("peer %s doesn't exist anymore, won't retry connection", peerKey)
 			return
 		}
 
 		if !e.signal.Ready() {
-			log.Infof("signal client isn't ready, skipping connection attempt %s", peerKey)
+			log.WithContext(ctx).Infof("signal client isn't ready, skipping connection attempt %s", peerKey)
 			continue
 		}
 
@@ -969,7 +969,7 @@ func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
 
 		err := conn.Open(e.ctx)
 		if err != nil {
-			log.Debugf("connection to peer %s failed: %v", peerKey, err)
+			log.WithContext(ctx).Debugf("connection to peer %s failed: %v", peerKey, err)
 			var connectionClosedError *peer.ConnectionClosedError
 			switch {
 			case errors.As(err, &connectionClosedError):
@@ -989,7 +989,7 @@ func (e *Engine) peerExists(peerKey string) bool {
 }
 
 func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error) {
-	log.Debugf("creating peer connection %s", pubKey)
+	log.WithContext(ctx).Debugf("creating peer connection %s", pubKey)
 	var stunTurn []*stun.URI
 	stunTurn = append(stunTurn, e.STUNs...)
 	stunTurn = append(stunTurn, e.TURNs...)
@@ -1139,7 +1139,7 @@ func (e *Engine) receiveSignalEvents() {
 			case sProto.Body_CANDIDATE:
 				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)
 				if err != nil {
-					log.Errorf("failed on parsing remote candidate %s -> %s", candidate, err)
+					log.WithContext(ctx).Errorf("failed on parsing remote candidate %s -> %s", candidate, err)
 					return err
 				}
 
@@ -1174,7 +1174,7 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 
 		split := strings.Split(mapping, "/")
 		if len(split) > 2 {
-			log.Warnf("ignoring invalid external mapping '%s', too many delimiters", mapping)
+			log.WithContext(ctx).Warnf("ignoring invalid external mapping '%s', too many delimiters", mapping)
 			break
 		}
 		if len(split) > 1 {
@@ -1183,12 +1183,12 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 			if internalIP == nil {
 				// not a properly formatted IP address, maybe it's interface name?
 				if _, present := ignoredIFaces[internal]; present {
-					log.Warnf("internal interface '%s' in blacklist, ignoring external mapping '%s'", internal, mapping)
+					log.WithContext(ctx).Warnf("internal interface '%s' in blacklist, ignoring external mapping '%s'", internal, mapping)
 					break
 				}
 				internalIP, err = findIPFromInterfaceName(internal)
 				if err != nil {
-					log.Warnf("error finding interface IP for interface '%s', ignoring external mapping '%s': %v", internal, mapping, err)
+					log.WithContext(ctx).Warnf("error finding interface IP for interface '%s', ignoring external mapping '%s': %v", internal, mapping, err)
 					break
 				}
 			}
@@ -1196,7 +1196,7 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 		external = split[0]
 		externalIP = net.ParseIP(external)
 		if externalIP == nil {
-			log.Warnf("invalid external IP, %s, ignoring external IP mapping '%s'", external, mapping)
+			log.WithContext(ctx).Warnf("invalid external IP, %s, ignoring external IP mapping '%s'", external, mapping)
 			break
 		}
 		mappedIP := externalIP.String()
@@ -1204,10 +1204,10 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 			mappedIP = mappedIP + "/" + internalIP.String()
 		}
 		mappedIPs = append(mappedIPs, mappedIP)
-		log.Infof("parsed external IP mapping of '%s' as '%s'", mapping, mappedIP)
+		log.WithContext(ctx).Infof("parsed external IP mapping of '%s' as '%s'", mapping, mappedIP)
 	}
 	if len(mappedIPs) != len(e.config.NATExternalIPs) {
-		log.Warnf("one or more external IP mappings failed to parse, ignoring all mappings")
+		log.WithContext(ctx).Warnf("one or more external IP mappings failed to parse, ignoring all mappings")
 		return nil
 	}
 	return mappedIPs
@@ -1216,7 +1216,7 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 func (e *Engine) close() {
 	if e.wgProxyFactory != nil {
 		if err := e.wgProxyFactory.Free(); err != nil {
-			log.Errorf("failed closing ebpf proxy: %s", err)
+			log.WithContext(ctx).Errorf("failed closing ebpf proxy: %s", err)
 		}
 	}
 
@@ -1230,24 +1230,24 @@ func (e *Engine) close() {
 		e.routeManager.Stop()
 	}
 
-	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
+	log.WithContext(ctx).Debugf("removing Netbird interface %s", e.config.WgIfaceName)
 	if e.wgInterface != nil {
 		if err := e.wgInterface.Close(); err != nil {
-			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
+			log.WithContext(ctx).Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
 		}
 	}
 
 	if !isNil(e.sshServer) {
 		err := e.sshServer.Stop()
 		if err != nil {
-			log.Warnf("failed stopping the SSH server: %v", err)
+			log.WithContext(ctx).Warnf("failed stopping the SSH server: %v", err)
 		}
 	}
 
 	if e.firewall != nil {
 		err := e.firewall.Reset()
 		if err != nil {
-			log.Warnf("failed to reset firewall: %s", err)
+			log.WithContext(ctx).Warnf("failed to reset firewall: %s", err)
 		}
 	}
 
@@ -1270,7 +1270,7 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 func (e *Engine) newWgIface() (*iface.WGIface, error) {
 	transportNet, err := e.newStdNet()
 	if err != nil {
-		log.Errorf("failed to create pion's stdnet: %s", err)
+		log.WithContext(ctx).Errorf("failed to create pion's stdnet: %s", err)
 	}
 
 	var mArgs *iface.MobileIFaceArguments
@@ -1400,7 +1400,7 @@ func (e *Engine) receiveProbeEvents() {
 	if e.signalProbe != nil {
 		go e.signalProbe.Receive(e.ctx, func() bool {
 			healthy := e.signal.IsHealthy()
-			log.Debugf("received signal probe request, healthy: %t", healthy)
+			log.WithContext(ctx).Debugf("received signal probe request, healthy: %t", healthy)
 			return healthy
 		})
 	}
@@ -1408,7 +1408,7 @@ func (e *Engine) receiveProbeEvents() {
 	if e.mgmProbe != nil {
 		go e.mgmProbe.Receive(e.ctx, func() bool {
 			healthy := e.mgmClient.IsHealthy()
-			log.Debugf("received management probe request, healthy: %t", healthy)
+			log.WithContext(ctx).Debugf("received management probe request, healthy: %t", healthy)
 			return healthy
 		})
 	}
@@ -1428,24 +1428,24 @@ func (e *Engine) receiveProbeEvents() {
 				}
 			}
 
-			log.Debugf("received relay probe request, healthy: %t", healthy)
+			log.WithContext(ctx).Debugf("received relay probe request, healthy: %t", healthy)
 			return healthy
 		})
 	}
 
 	if e.wgProbe != nil {
 		go e.wgProbe.Receive(e.ctx, func() bool {
-			log.Debug("received wg probe request")
+			log.WithContext(ctx).Debug("received wg probe request")
 
 			for _, peer := range e.peerConns {
 				key := peer.GetKey()
 				wgStats, err := peer.GetConf().WgConfig.WgInterface.GetStats(key)
 				if err != nil {
-					log.Debugf("failed to get wg stats for peer %s: %s", key, err)
+					log.WithContext(ctx).Debugf("failed to get wg stats for peer %s: %s", key, err)
 				}
 				// wgStats could be zero value, in which case we just reset the stats
 				if err := e.statusRecorder.UpdateWireGuardPeerState(key, wgStats); err != nil {
-					log.Debugf("failed to update wg stats for peer %s: %s", key, err)
+					log.WithContext(ctx).Debugf("failed to update wg stats for peer %s: %s", key, err)
 				}
 			}
 
@@ -1464,23 +1464,23 @@ func (e *Engine) probeTURNs() []relay.ProbeResult {
 
 func (e *Engine) startNetworkMonitor() {
 	if !e.config.NetworkMonitor {
-		log.Infof("Network monitor is disabled, not starting")
+		log.WithContext(ctx).Infof("Network monitor is disabled, not starting")
 		return
 	}
 
 	e.networkMonitor = networkmonitor.New()
 	go func() {
 		err := e.networkMonitor.Start(e.ctx, func() {
-			log.Infof("Network monitor detected network change, restarting engine")
+			log.WithContext(ctx).Infof("Network monitor detected network change, restarting engine")
 			if err := e.Stop(); err != nil {
-				log.Errorf("Failed to stop engine: %v", err)
+				log.WithContext(ctx).Errorf("Failed to stop engine: %v", err)
 			}
 			if err := e.Start(); err != nil {
-				log.Errorf("Failed to start engine: %v", err)
+				log.WithContext(ctx).Errorf("Failed to start engine: %v", err)
 			}
 		})
 		if err != nil && !errors.Is(err, networkmonitor.ErrStopped) {
-			log.Errorf("Network monitor: %v", err)
+			log.WithContext(ctx).Errorf("Network monitor: %v", err)
 		}
 	}()
 }
