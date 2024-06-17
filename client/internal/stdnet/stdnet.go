@@ -128,6 +128,9 @@ func addrViaRoutes(address string, routes route.HAMap) (bool, netip.Prefix, erro
 		}
 	}
 
-	isVpn, prefix := systemops.IsAddrRouted(ipAddr, vpnRoutes)
-	return isVpn, prefix, nil
+	if isVpn, prefix := systemops.IsAddrRouted(ipAddr, vpnRoutes); isVpn {
+		return true, prefix, nil
+	}
+
+	return false, netip.Prefix{}, nil
 }
