@@ -42,6 +42,7 @@ import (
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/util"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
@@ -105,8 +106,8 @@ type Engine struct {
 	// peerConns is a map that holds all the peers that are known to this peer
 	peerConns map[string]*peer.Conn
 
-	beforePeerHook peer.BeforeAddPeerHookFunc
-	afterPeerHook  peer.AfterRemovePeerHookFunc
+	beforePeerHook nbnet.AddHookFunc
+	afterPeerHook  nbnet.RemoveHookFunc
 
 	// rpManager is a Rosenpass manager
 	rpManager *rosenpass.Manager

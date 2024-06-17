@@ -22,3 +22,7 @@ func EnableIPForwarding() error {
 	log.Infof("Enable IP forwarding is not implemented on %s", runtime.GOOS)
 	return nil
 }
+
+func hasSeparateRouting() ([]netip.Prefix, error) {
+	return getRoutesFromTable()
+}
