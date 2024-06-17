@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/pion/ice/v3"
 	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
@@ -259,7 +258,6 @@ func (e *Engine) Stop() error {
 
 	e.clientRoutesMu.Lock()
 	e.clientRoutes = nil
-	log.Tracef("ICE: setting clientRoutes to nil")
 	e.clientRoutesMu.Unlock()
 
 	// very ugly but we want to remove peers from the WireGuard interface first before removing interface.
@@ -750,7 +748,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	e.clientRoutesMu.Lock()
 	e.clientRoutes = clientRoutes
-	log.Tracef("ICE: setting clientRoutes to %s", spew.Sdump(e.clientRoutes))
 	e.clientRoutesMu.Unlock()
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
@@ -944,7 +941,6 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 
 func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
 	defer e.wgConnWorker.Done()
-	log.Tracef("ICE: starting connection worker for peer %s", peerKey)
 	for {
 
 		// randomize starting time a bit
@@ -1492,9 +1488,6 @@ func (e *Engine) startNetworkMonitor() {
 }
 
 func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
-	log.Tracef("ICE: Client routes: %s", spew.Sdump(e.GetClientRoutes()))
-	log.Tracef("ICE: addr %v", addr)
-
 	var vpnRoutes []netip.Prefix
 	for _, routes := range e.GetClientRoutes() {
 		if len(routes) > 0 && routes[0] != nil {

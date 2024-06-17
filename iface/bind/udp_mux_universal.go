@@ -121,7 +121,6 @@ type udpConn struct {
 }
 
 func (u *udpConn) WriteTo(b []byte, addr net.Addr) (int, error) {
-	log.Tracef("ICE: WriteTo %s", addr.String())
 
 	// Check cache first
 	if cached, found := u.addrCache.Load(addr.String()); found {
