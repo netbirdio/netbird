@@ -62,18 +62,18 @@ func (s *serviceViaListener) Listen() error {
 	var err error
 	s.listenIP, s.listenPort, err = s.evalListenAddress()
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to eval runtime address: %s", err)
+		log.Errorf("failed to eval runtime address: %s", err)
 		return fmt.Errorf("eval listen address: %w", err)
 	}
 	s.server.Addr = fmt.Sprintf("%s:%d", s.listenIP, s.listenPort)
-	log.WithContext(ctx).Debugf("starting dns on %s", s.server.Addr)
+	log.Debugf("starting dns on %s", s.server.Addr)
 	go func() {
 		s.setListenerStatus(true)
 		defer s.setListenerStatus(false)
 
 		err := s.server.ListenAndServe()
 		if err != nil {
-			log.WithContext(ctx).Errorf("dns server running with %d port returned an error: %v. Will not retry", s.listenPort, err)
+			log.Errorf("dns server running with %d port returned an error: %v. Will not retry", s.listenPort, err)
 		}
 	}()
 
@@ -93,13 +93,13 @@ func (s *serviceViaListener) Stop() {
 
 	err := s.server.ShutdownContext(ctx)
 	if err != nil {
-		log.WithContext(ctx).Errorf("stopping dns server listener returned an error: %v", err)
+		log.Errorf("stopping dns server listener returned an error: %v", err)
 	}
 
 	if s.ebpfService != nil {
 		err = s.ebpfService.FreeDNSFwd()
 		if err != nil {
-			log.WithContext(ctx).Errorf("stopping traffic forwarder returned an error: %v", err)
+			log.Errorf("stopping traffic forwarder returned an error: %v", err)
 		}
 	}
 }
@@ -182,13 +182,13 @@ func (s *serviceViaListener) tryToBind(ip string, port int) bool {
 	udpAddr := net.UDPAddrFromAddrPort(netip.MustParseAddrPort(addrString))
 	probeListener, err := net.ListenUDP("udp", udpAddr)
 	if err != nil {
-		log.WithContext(ctx).Warnf("binding dns on %s is not available, error: %s", addrString, err)
+		log.Warnf("binding dns on %s is not available, error: %s", addrString, err)
 		return false
 	}
 
 	err = probeListener.Close()
 	if err != nil {
-		log.WithContext(ctx).Errorf("got an error closing the probe listener, error: %s", err)
+		log.Errorf("got an error closing the probe listener, error: %s", err)
 	}
 	return true
 }
@@ -205,14 +205,14 @@ func (s *serviceViaListener) tryToUseeBPF() (ebpfMgr.Manager, uint16, bool) {
 
 	port, err := s.generateFreePort() //nolint:staticcheck,unused
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed to generate a free port for eBPF DNS forwarder server: %s", err)
+		log.Warnf("failed to generate a free port for eBPF DNS forwarder server: %s", err)
 		return nil, 0, false
 	}
 
 	ebpfSrv := ebpf.GetEbpfManagerInstance()
 	err = ebpfSrv.LoadDNSFwd(s.wgInterface.Address().IP.String(), int(port))
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed to load DNS forwarder eBPF program, error: %s", err)
+		log.Warnf("failed to load DNS forwarder eBPF program, error: %s", err)
 		return nil, 0, false
 	}
 
@@ -228,14 +228,14 @@ func (s *serviceViaListener) generateFreePort() (uint16, error) {
 	udpAddr := net.UDPAddrFromAddrPort(netip.MustParseAddrPort("0.0.0.0:0"))
 	probeListener, err := net.ListenUDP("udp", udpAddr)
 	if err != nil {
-		log.WithContext(ctx).Debugf("failed to bind random port for DNS: %s", err)
+		log.Debugf("failed to bind random port for DNS: %s", err)
 		return 0, err
 	}
 
 	addrPort := netip.MustParseAddrPort(probeListener.LocalAddr().String()) // might panic if address is incorrect
 	err = probeListener.Close()
 	if err != nil {
-		log.WithContext(ctx).Debugf("failed to free up DNS port: %s", err)
+		log.Debugf("failed to free up DNS port: %s", err)
 		return 0, err
 	}
 	return addrPort.Port(), nil

@@ -25,7 +25,7 @@ func (a iosHostManager) applyDNSConfig(config HostDNSConfig) error {
 		return fmt.Errorf("marshal: %w", err)
 	}
 	jsonString := string(jsonData)
-	log.WithContext(ctx).Debugf("Applying DNS settings: %s", jsonString)
+	log.Debugf("Applying DNS settings: %s", jsonString)
 	a.dnsManager.ApplyDns(jsonString)
 	return nil
 }

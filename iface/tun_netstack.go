@@ -43,7 +43,7 @@ func newTunNetstackDevice(name string, address WGAddress, wgPort int, key string
 }
 
 func (t *tunNetstackDevice) Create() (wgConfigurer, error) {
-	log.WithContext(ctx).Info("create netstack tun interface")
+	log.Info("create netstack tun interface")
 	t.nsTun = netstack.NewNetStackTun(t.listenAddress, t.address.IP.String(), t.mtu)
 	tunIface, err := t.nsTun.Create()
 	if err != nil {
@@ -64,7 +64,7 @@ func (t *tunNetstackDevice) Create() (wgConfigurer, error) {
 		return nil, err
 	}
 
-	log.WithContext(ctx).Debugf("device has been created: %s", t.name)
+	log.Debugf("device has been created: %s", t.name)
 	return t.configurer, nil
 }
 
@@ -83,7 +83,7 @@ func (t *tunNetstackDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		return nil, err
 	}
 	t.udpMux = udpMux
-	log.WithContext(ctx).Debugf("netstack device is ready to use")
+	log.Debugf("netstack device is ready to use")
 	return udpMux, nil
 }
 

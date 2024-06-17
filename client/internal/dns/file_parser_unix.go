@@ -49,7 +49,7 @@ func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-			log.WithContext(ctx).Errorf("failed closing %s: %s", resolvConfFile, err)
+			log.Errorf("failed closing %s: %s", resolvConfFile, err)
 		}
 	}()
 

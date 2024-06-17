@@ -13,7 +13,7 @@ import (
 func readOsReleaseFile() (osName string, osVer string) {
 	file, err := os.Open("/etc/os-release")
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed to open file /etc/os-release: %s", err)
+		log.Warnf("failed to open file /etc/os-release: %s", err)
 		return "", ""
 	}
 	defer file.Close()

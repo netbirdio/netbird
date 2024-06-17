@@ -23,10 +23,10 @@ func NewNSDialer(net *netstack.Net) *NSDialer {
 }
 
 func (d *NSDialer) Dial(ctx context.Context, network, addr string) (net.Conn, error) {
-	log.WithContext(ctx).Debugf("dialing %s %s", network, addr)
+	log.Debugf("dialing %s %s", network, addr)
 	conn, err := d.net.Dial(network, addr)
 	if err != nil {
-		log.WithContext(ctx).Debugf("failed to deal connection: %s", err)
+		log.Debugf("failed to deal connection: %s", err)
 	}
 	return conn, err
 }

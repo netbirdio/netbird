@@ -38,7 +38,7 @@ func (m *mobileIFaceDiscover) parseInterfacesString(interfaces string) []*transp
 
 		fields := strings.Split(iface, "|")
 		if len(fields) != 2 {
-			log.WithContext(ctx).Warnf("parseInterfacesString: unable to split %q", iface)
+			log.Warnf("parseInterfacesString: unable to split %q", iface)
 			continue
 		}
 
@@ -48,7 +48,7 @@ func (m *mobileIFaceDiscover) parseInterfacesString(interfaces string) []*transp
 		_, err := fmt.Sscanf(fields[0], "%s %d %d %t %t %t %t %t",
 			&name, &index, &mtu, &up, &broadcast, &loopback, &pointToPoint, &multicast)
 		if err != nil {
-			log.WithContext(ctx).Warnf("parseInterfacesString: unable to parse %q: %v", iface, err)
+			log.Warnf("parseInterfacesString: unable to parse %q: %v", iface, err)
 			continue
 		}
 
@@ -83,7 +83,7 @@ func (m *mobileIFaceDiscover) parseInterfacesString(interfaces string) []*transp
 			}
 			ip, ipNet, err := net.ParseCIDR(addr)
 			if err != nil {
-				log.WithContext(ctx).Warnf("%s", err)
+				log.Warnf("%s", err)
 				continue
 			}
 			ipNet.IP = ip

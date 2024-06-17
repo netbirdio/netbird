@@ -40,7 +40,7 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 			neighborv6 = &n
 		}
 	}
-	log.WithContext(ctx).Debugf("Network monitor: initial IPv4 neighbor: %v, IPv6 neighbor: %v", neighborv4, neighborv6)
+	log.Debugf("Network monitor: initial IPv4 neighbor: %v, IPv6 neighbor: %v", neighborv4, neighborv6)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -66,7 +66,7 @@ func changed(
 ) bool {
 	neighbors, err := getNeighbors()
 	if err != nil {
-		log.WithContext(ctx).Errorf("network monitor: error fetching current neighbors: %v", err)
+		log.Errorf("network monitor: error fetching current neighbors: %v", err)
 		return false
 	}
 	if neighborChanged(nexthopv4, neighborv4, neighbors) || neighborChanged(nexthopv6, neighborv6, neighbors) {
@@ -75,7 +75,7 @@ func changed(
 
 	routes, err := getRoutes()
 	if err != nil {
-		log.WithContext(ctx).Errorf("network monitor: error fetching current routes: %v", err)
+		log.Errorf("network monitor: error fetching current routes: %v", err)
 		return false
 	}
 
@@ -105,11 +105,11 @@ func routeChanged(nexthop systemops.Nexthop, intf *net.Interface, routes map[net
 			if r.Interface != nil {
 				intf = r.Interface.Name
 			}
-			log.WithContext(ctx).Infof("network monitor: default route changed: %s via %s (%s)", r.Destination, r.Nexthop, intf)
+			log.Infof("network monitor: default route changed: %s via %s (%s)", r.Destination, r.Nexthop, intf)
 			return true
 		}
 	} else {
-		log.WithContext(ctx).Infof("network monitor: default route is gone")
+		log.Infof("network monitor: default route is gone")
 		return true
 	}
 
@@ -125,10 +125,10 @@ func neighborChanged(nexthop systemops.Nexthop, neighbor *systemops.Neighbor, ne
 	// TODO: consider non-local nexthops, e.g. on point-to-point interfaces
 	if n, ok := neighbors[nexthop.IP]; ok {
 		if n.State != reachable && n.State != permanent {
-			log.WithContext(ctx).Infof("network monitor: neighbor %s (%s) is not reachable: %s", neighbor.IPAddress, neighbor.LinkLayerAddress, stateFromInt(n.State))
+			log.Infof("network monitor: neighbor %s (%s) is not reachable: %s", neighbor.IPAddress, neighbor.LinkLayerAddress, stateFromInt(n.State))
 			return true
 		} else if n.InterfaceIndex != neighbor.InterfaceIndex {
-			log.WithContext(ctx).Infof(
+			log.Infof(
 				"network monitor: neighbor %s (%s) changed interface from '%s' (%d) to '%s' (%d): %s",
 				neighbor.IPAddress,
 				neighbor.LinkLayerAddress,
@@ -141,7 +141,7 @@ func neighborChanged(nexthop systemops.Nexthop, neighbor *systemops.Neighbor, ne
 			return true
 		}
 	} else {
-		log.WithContext(ctx).Infof("network monitor: neighbor %s (%s) is gone", neighbor.IPAddress, neighbor.LinkLayerAddress)
+		log.Infof("network monitor: neighbor %s (%s) is gone", neighbor.IPAddress, neighbor.LinkLayerAddress)
 		return true
 	}
 

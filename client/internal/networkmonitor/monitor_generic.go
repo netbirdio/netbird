@@ -40,10 +40,10 @@ func (nw *NetworkMonitor) Start(ctx context.Context, callback func()) (err error
 		}
 
 		if errv4 == nil {
-			log.WithContext(ctx).Debugf("Network monitor: IPv4 default route: %s, interface: %s", nexthop4.IP, nexthop4.Intf.Name)
+			log.Debugf("Network monitor: IPv4 default route: %s, interface: %s", nexthop4.IP, nexthop4.Intf.Name)
 		}
 		if errv6 == nil {
-			log.WithContext(ctx).Debugf("Network monitor: IPv6 default route: %s, interface: %s", nexthop6.IP, nexthop6.Intf.Name)
+			log.Debugf("Network monitor: IPv6 default route: %s, interface: %s", nexthop6.IP, nexthop6.Intf.Name)
 		}
 
 		// continue if either route was found

@@ -130,13 +130,13 @@ func GetRoutes() ([]Route, error) {
 	for _, entry := range entries {
 		dest, err := netip.ParsePrefix(entry.DestinationPrefix)
 		if err != nil {
-			log.WithContext(ctx).Warnf("Unable to parse route destination %s: %v", entry.DestinationPrefix, err)
+			log.Warnf("Unable to parse route destination %s: %v", entry.DestinationPrefix, err)
 			continue
 		}
 
 		nexthop, err := netip.ParseAddr(entry.NextHop)
 		if err != nil {
-			log.WithContext(ctx).Warnf("Unable to parse route next hop %s: %v", entry.NextHop, err)
+			log.Warnf("Unable to parse route next hop %s: %v", entry.NextHop, err)
 			continue
 		}
 
@@ -169,7 +169,7 @@ func GetNeighbors() ([]Neighbor, error) {
 	for _, entry := range entries {
 		addr, err := netip.ParseAddr(entry.IPAddress)
 		if err != nil {
-			log.WithContext(ctx).Warnf("Unable to parse neighbor IP address %s: %v", entry.IPAddress, err)
+			log.Warnf("Unable to parse neighbor IP address %s: %v", entry.IPAddress, err)
 			continue
 		}
 		neighbors = append(neighbors, Neighbor{
