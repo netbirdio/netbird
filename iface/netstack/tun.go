@@ -45,7 +45,7 @@ func (t *NetStackTun) Create() (tun.Device, error) {
 	go func() {
 		err := t.proxy.ListenAndServe(t.listenAddress)
 		if err != nil {
-			log.WithContext(ctx).Errorf("error in socks5 proxy serving: %s", err)
+			log.Errorf("error in socks5 proxy serving: %s", err)
 		}
 	}()
 
@@ -57,7 +57,7 @@ func (t *NetStackTun) Close() error {
 	if t.proxy != nil {
 		pErr := t.proxy.Close()
 		if pErr != nil {
-			log.WithContext(ctx).Errorf("failed to close socks5 proxy: %s", pErr)
+			log.Errorf("failed to close socks5 proxy: %s", pErr)
 			err = pErr
 		}
 	}
@@ -65,7 +65,7 @@ func (t *NetStackTun) Close() error {
 	if t.tundev != nil {
 		dErr := t.tundev.Close()
 		if dErr != nil {
-			log.WithContext(ctx).Errorf("failed to close netstack tun device: %s", dErr)
+			log.Errorf("failed to close netstack tun device: %s", dErr)
 			err = dErr
 		}
 	}

@@ -22,7 +22,7 @@ const (
 func InitLog(logLevel string, logPath string) error {
 	level, err := log.ParseLevel(logLevel)
 	if err != nil {
-		log.WithContext(ctx).Errorf("Failed parsing log-level %s: %s", logLevel, err)
+		log.Errorf("Failed parsing log-level %s: %s", logLevel, err)
 		return err
 	}
 

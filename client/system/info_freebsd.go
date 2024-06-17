@@ -62,7 +62,7 @@ func _getInfo() string {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		log.WithContext(ctx).Warnf("getInfo: %s", err)
+		log.Warnf("getInfo: %s", err)
 	}
 
 	return out.String()

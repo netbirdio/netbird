@@ -174,7 +174,7 @@ func TestEngine_SSH(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// time.Sleep(250 * time.Millisecond)
+	//time.Sleep(250 * time.Millisecond)
 	assert.NotNil(t, engine.sshServer)
 	assert.Contains(t, sshPeersRemoved, "MNHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=")
 
@@ -881,10 +881,10 @@ loop:
 				totalConnected += getConnectedPeers(engine)
 			}
 			if totalConnected == expectedConnected {
-				log.WithContext(ctx).Infof("total connected=%d", totalConnected)
+				log.Infof("total connected=%d", totalConnected)
 				break loop
 			}
-			log.WithContext(ctx).Infof("total connected=%d", totalConnected)
+			log.Infof("total connected=%d", totalConnected)
 		}
 	}
 	// cleanup test

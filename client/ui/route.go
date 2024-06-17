@@ -54,7 +54,7 @@ func (s *serviceClient) showRoutesUI() {
 func (s *serviceClient) updateRoutes(grid *fyne.Container) {
 	routes, err := s.fetchRoutes()
 	if err != nil {
-		log.WithContext(ctx).Errorf("get client: %v", err)
+		log.Errorf("get client: %v", err)
 		s.showError(fmt.Errorf("get client: %v", err))
 		return
 	}
@@ -122,7 +122,7 @@ func (s *serviceClient) fetchRoutes() ([]*proto.Route, error) {
 func (s *serviceClient) selectRoute(id string, checked bool) {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
-		log.WithContext(ctx).Errorf("get client: %v", err)
+		log.Errorf("get client: %v", err)
 		s.showError(fmt.Errorf("get client: %v", err))
 		return
 	}
@@ -134,25 +134,25 @@ func (s *serviceClient) selectRoute(id string, checked bool) {
 
 	if checked {
 		if _, err := conn.SelectRoutes(s.ctx, req); err != nil {
-			log.WithContext(ctx).Errorf("failed to select route: %v", err)
+			log.Errorf("failed to select route: %v", err)
 			s.showError(fmt.Errorf("failed to select route: %v", err))
 			return
 		}
-		log.WithContext(ctx).Infof("Route %s selected", id)
+		log.Infof("Route %s selected", id)
 	} else {
 		if _, err := conn.DeselectRoutes(s.ctx, req); err != nil {
-			log.WithContext(ctx).Errorf("failed to deselect route: %v", err)
+			log.Errorf("failed to deselect route: %v", err)
 			s.showError(fmt.Errorf("failed to deselect route: %v", err))
 			return
 		}
-		log.WithContext(ctx).Infof("Route %s deselected", id)
+		log.Infof("Route %s deselected", id)
 	}
 }
 
 func (s *serviceClient) selectAllRoutes() {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
-		log.WithContext(ctx).Errorf("get client: %v", err)
+		log.Errorf("get client: %v", err)
 		return
 	}
 
@@ -160,18 +160,18 @@ func (s *serviceClient) selectAllRoutes() {
 		All: true,
 	}
 	if _, err := conn.SelectRoutes(s.ctx, req); err != nil {
-		log.WithContext(ctx).Errorf("failed to select all routes: %v", err)
+		log.Errorf("failed to select all routes: %v", err)
 		s.showError(fmt.Errorf("failed to select all routes: %v", err))
 		return
 	}
 
-	log.WithContext(ctx).Debug("All routes selected")
+	log.Debug("All routes selected")
 }
 
 func (s *serviceClient) deselectAllRoutes() {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
-		log.WithContext(ctx).Errorf("get client: %v", err)
+		log.Errorf("get client: %v", err)
 		return
 	}
 
@@ -179,12 +179,12 @@ func (s *serviceClient) deselectAllRoutes() {
 		All: true,
 	}
 	if _, err := conn.DeselectRoutes(s.ctx, req); err != nil {
-		log.WithContext(ctx).Errorf("failed to deselect all routes: %v", err)
+		log.Errorf("failed to deselect all routes: %v", err)
 		s.showError(fmt.Errorf("failed to deselect all routes: %v", err))
 		return
 	}
 
-	log.WithContext(ctx).Debug("All routes deselected")
+	log.Debug("All routes deselected")
 }
 
 func (s *serviceClient) showError(err error) {

@@ -45,10 +45,10 @@ func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP strin
 		return
 	}
 
-	log.WithContext(ctx).Infof("start to watch resolv.conf: %s", f.operationFile)
+	log.Infof("start to watch resolv.conf: %s", f.operationFile)
 	inotify, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to start inotify watcher for resolv.conf: %s", err)
+		log.Errorf("failed to start inotify watcher for resolv.conf: %s", err)
 		return
 	}
 	f.inotify = inotify
@@ -65,30 +65,30 @@ func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP strin
 
 			rConf, err := parseResolvConfFile(f.operationFile)
 			if err != nil {
-				log.WithContext(ctx).Warnf("failed to parse resolv conf: %s", err)
+				log.Warnf("failed to parse resolv conf: %s", err)
 				continue
 			}
 
-			log.WithContext(ctx).Debugf("check resolv.conf parameters: %s", rConf)
+			log.Debugf("check resolv.conf parameters: %s", rConf)
 			if !isNbParamsMissing(nbSearchDomains, nbNameserverIP, rConf) {
 				log.Tracef("resolv.conf still correct, skip the update")
 				continue
 			}
-			log.WithContext(ctx).Info("broken params in resolv.conf, repairing it...")
+			log.Info("broken params in resolv.conf, repairing it...")
 
 			err = f.inotify.Remove(f.watchDir)
 			if err != nil {
-				log.WithContext(ctx).Errorf("failed to rm inotify watch for resolv.conf: %s", err)
+				log.Errorf("failed to rm inotify watch for resolv.conf: %s", err)
 			}
 
 			err = f.updateFn(nbSearchDomains, nbNameserverIP, rConf)
 			if err != nil {
-				log.WithContext(ctx).Errorf("failed to repair resolv.conf: %v", err)
+				log.Errorf("failed to repair resolv.conf: %v", err)
 			}
 
 			err = f.inotify.Add(f.watchDir)
 			if err != nil {
-				log.WithContext(ctx).Errorf("failed to re-add inotify watch for resolv.conf: %s", err)
+				log.Errorf("failed to re-add inotify watch for resolv.conf: %s", err)
 				return
 			}
 		}
@@ -96,7 +96,7 @@ func (f *repair) watchFileChanges(nbSearchDomains []string, nbNameserverIP strin
 
 	err = f.inotify.Add(f.watchDir)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to add inotify watch for resolv.conf: %s", err)
+		log.Errorf("failed to add inotify watch for resolv.conf: %s", err)
 		return
 	}
 }
@@ -107,7 +107,7 @@ func (f *repair) stopWatchFileChanges() {
 	}
 	err := f.inotify.Close()
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed to close resolv.conf inotify: %v", err)
+		log.Warnf("failed to close resolv.conf inotify: %v", err)
 	}
 	f.inotifyWg.Wait()
 	f.inotify = nil
@@ -153,7 +153,7 @@ func isNbParamsMissing(nbSearchDomains []string, nbNameserverIP string, rConf *r
 func targetFile(filename string) string {
 	target, err := filepath.EvalSymlinks(filename)
 	if err != nil {
-		log.WithContext(ctx).Errorf("evarl err: %s", err)
+		log.Errorf("evarl err: %s", err)
 	}
 	return target
 }

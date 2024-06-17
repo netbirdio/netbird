@@ -65,7 +65,7 @@ func newHostManager(wgInterface string) (hostManager, error) {
 		return nil, err
 	}
 
-	log.WithContext(ctx).Infof("System DNS manager discovered: %s", osManager)
+	log.Infof("System DNS manager discovered: %s", osManager)
 	return newHostManagerFromType(wgInterface, osManager)
 }
 
@@ -89,7 +89,7 @@ func getOSDNSManagerType() (osManagerType, error) {
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-			log.WithContext(ctx).Errorf("close file %s: %s", defaultResolvConfPath, err)
+			log.Errorf("close file %s: %s", defaultResolvConfPath, err)
 		}
 	}()
 
@@ -134,7 +134,7 @@ func getOSDNSManagerType() (osManagerType, error) {
 func checkStub() bool {
 	rConf, err := parseDefaultResolvConf()
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed to parse resolv conf: %s", err)
+		log.Warnf("failed to parse resolv conf: %s", err)
 		return true
 	}
 

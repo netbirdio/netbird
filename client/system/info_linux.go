@@ -41,7 +41,7 @@ func GetInfo(ctx context.Context) *Info {
 
 	addrs, err := networkAddresses()
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed to discover network addresses: %s", err)
+		log.Warnf("failed to discover network addresses: %s", err)
 	}
 
 	serialNum, prodName, manufacturer := sysInfo()
@@ -81,7 +81,7 @@ func _getInfo() string {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		log.WithContext(ctx).Warnf("getInfo: %s", err)
+		log.Warnf("getInfo: %s", err)
 	}
 	return out.String()
 }

@@ -258,7 +258,7 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet, isInco
 			return false
 		}
 	default:
-		log.WithContext(ctx).Errorf("unknown layer: %v", d.decoded[0])
+		log.Errorf("unknown layer: %v", d.decoded[0])
 		return true
 	}
 

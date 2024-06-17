@@ -72,7 +72,7 @@ func DirectWriteJson(file string, obj interface{}) error {
 	defer func() {
 		err = targetFile.Close()
 		if err != nil {
-			log.WithContext(ctx).Errorf("failed to close file %s: %v", file, err)
+			log.Errorf("failed to close file %s: %v", file, err)
 		}
 	}()
 

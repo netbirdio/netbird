@@ -73,12 +73,12 @@ func tunModuleIsLoaded() bool {
 		return true
 	}
 
-	log.WithContext(ctx).Infof("couldn't access device /dev/net/tun, go error %v, "+
+	log.Infof("couldn't access device /dev/net/tun, go error %v, "+
 		"will attempt to load tun module, if running on container add flag --cap-add=NET_ADMIN", err)
 
 	tunLoaded, err := tryToLoadModule("tun")
 	if err != nil {
-		log.WithContext(ctx).Errorf("unable to find or load tun module, got error: %v", err)
+		log.Errorf("unable to find or load tun module, got error: %v", err)
 	}
 	return tunLoaded
 }
@@ -87,7 +87,7 @@ func tunModuleIsLoaded() bool {
 func WireGuardModuleIsLoaded() bool {
 
 	if os.Getenv(envDisableWireGuardKernel) == "true" {
-		log.WithContext(ctx).Debugf("WireGuard kernel module disabled because the %s env is set to true", envDisableWireGuardKernel)
+		log.Debugf("WireGuard kernel module disabled because the %s env is set to true", envDisableWireGuardKernel)
 		return false
 	}
 
@@ -97,7 +97,7 @@ func WireGuardModuleIsLoaded() bool {
 
 	loaded, err := tryToLoadModule("wireguard")
 	if err != nil {
-		log.WithContext(ctx).Info(err)
+		log.Info(err)
 		return false
 	}
 
@@ -134,7 +134,7 @@ func tryToLoadModule(moduleName string) (bool, error) {
 		return false, nil
 	}
 
-	log.WithContext(ctx).Infof("trying to load %s module", moduleName)
+	log.Infof("trying to load %s module", moduleName)
 
 	err = loadModuleWithDependencies(moduleName, modulePath)
 	if err != nil {
@@ -204,7 +204,7 @@ func isBuiltinModule(name string) (bool, error) {
 	defer func() {
 		err := f.Close()
 		if err != nil {
-			log.WithContext(ctx).Errorf("failed closing modules.builtin file, %v", err)
+			log.Errorf("failed closing modules.builtin file, %v", err)
 		}
 	}()
 
@@ -236,7 +236,7 @@ func moduleStatus(name string) (status, error) {
 	defer func() {
 		err := f.Close()
 		if err != nil {
-			log.WithContext(ctx).Errorf("failed closing /proc/modules file, %v", err)
+			log.Errorf("failed closing /proc/modules file, %v", err)
 		}
 	}()
 
@@ -298,7 +298,7 @@ func loadModule(name, path string) error {
 	defer func() {
 		err := f.Close()
 		if err != nil {
-			log.WithContext(ctx).Errorf("failed closing %s file, %v", path, err)
+			log.Errorf("failed closing %s file, %v", path, err)
 		}
 	}()
 
@@ -323,7 +323,7 @@ func getModuleDependencies(name string) ([]module, error) {
 	defer func() {
 		err := f.Close()
 		if err != nil {
-			log.WithContext(ctx).Errorf("failed closing modules.dep file, %v", err)
+			log.Errorf("failed closing modules.dep file, %v", err)
 		}
 	}()
 

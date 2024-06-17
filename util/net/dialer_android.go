@@ -17,7 +17,7 @@ func (d *Dialer) init() {
 			}
 			ok := f(int32(fd))
 			if !ok {
-				log.WithContext(ctx).Errorf("failed to protect socket: %d", fd)
+				log.Errorf("failed to protect socket: %d", fd)
 			}
 		})
 		return err

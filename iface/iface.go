@@ -53,7 +53,7 @@ func (r *WGIface) ToInterface() *net.Interface {
 	name := r.tun.DeviceName()
 	intf, err := net.InterfaceByName(name)
 	if err != nil {
-		log.WithContext(ctx).Warnf("Failed to get interface by name %s: %v", name, err)
+		log.Warnf("Failed to get interface by name %s: %v", name, err)
 		intf = &net.Interface{
 			Name: name,
 		}
@@ -89,7 +89,7 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.D
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.WithContext(ctx).Debugf("updating interface %s peer %s, endpoint %s", w.tun.DeviceName(), peerKey, endpoint)
+	log.Debugf("updating interface %s peer %s, endpoint %s", w.tun.DeviceName(), peerKey, endpoint)
 	return w.configurer.updatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
 }
 
@@ -98,7 +98,7 @@ func (w *WGIface) RemovePeer(peerKey string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.WithContext(ctx).Debugf("Removing peer %s from interface %s ", peerKey, w.tun.DeviceName())
+	log.Debugf("Removing peer %s from interface %s ", peerKey, w.tun.DeviceName())
 	return w.configurer.removePeer(peerKey)
 }
 
@@ -107,7 +107,7 @@ func (w *WGIface) AddAllowedIP(peerKey string, allowedIP string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.WithContext(ctx).Debugf("Adding allowed IP to interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
+	log.Debugf("Adding allowed IP to interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
 	return w.configurer.addAllowedIP(peerKey, allowedIP)
 }
 
@@ -116,7 +116,7 @@ func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.WithContext(ctx).Debugf("Removing allowed IP from interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
+	log.Debugf("Removing allowed IP from interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
 	return w.configurer.removeAllowedIP(peerKey, allowedIP)
 }
 

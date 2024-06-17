@@ -48,7 +48,7 @@ func (s *serviceViaMemory) Listen() error {
 	}
 	s.listenerIsRunning = true
 
-	log.WithContext(ctx).Debugf("dns service listening on: %s", s.RuntimeIP())
+	log.Debugf("dns service listening on: %s", s.RuntimeIP())
 	return nil
 }
 
@@ -61,7 +61,7 @@ func (s *serviceViaMemory) Stop() {
 	}
 
 	if err := s.wgInterface.GetFilter().RemovePacketHook(s.udpFilterHookID); err != nil {
-		log.WithContext(ctx).Errorf("unable to remove DNS packet hook: %s", err)
+		log.Errorf("unable to remove DNS packet hook: %s", err)
 	}
 
 	s.listenerIsRunning = false

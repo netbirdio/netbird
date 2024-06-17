@@ -43,7 +43,7 @@ func (r *Route) AddAllowedIPs(peerKey string) error {
 	if ref, err := r.allowedIPsRefcounter.Increment(r.route.Network, peerKey); err != nil {
 		return fmt.Errorf("add allowed IP %s: %w", r.route.Network, err)
 	} else if ref.Count > 1 && ref.Out != peerKey {
-		log.WithContext(ctx).Warnf("Prefix [%s] is already routed by peer [%s]. HA routing disabled",
+		log.Warnf("Prefix [%s] is already routed by peer [%s]. HA routing disabled",
 			r.route.Network,
 			ref.Out,
 		)

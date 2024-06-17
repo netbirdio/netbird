@@ -104,10 +104,10 @@ func (tf *GeneralManager) unsetFeatureFlag(feature uint16) error {
 }
 
 func (tf *GeneralManager) close() error {
-	log.WithContext(ctx).Debugf("detach ebpf program ")
+	log.Debugf("detach ebpf program ")
 	err := tf.bpfObjs.Close()
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed to close eBpf objects: %s", err)
+		log.Warnf("failed to close eBpf objects: %s", err)
 	}
 
 	err = tf.link.Close()

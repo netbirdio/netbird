@@ -61,7 +61,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 	connID := GenerateConnID()
 	if dialerDialHooks != nil {
 		if err := callDialerHooks(ctx, connID, address, resolver); err != nil {
-			log.WithContext(ctx).Errorf("Failed to call dialer hooks: %v", err)
+			log.Errorf("Failed to call dialer hooks: %v", err)
 		}
 	}
 
@@ -94,7 +94,7 @@ func (c *Conn) Close() error {
 
 	for _, hook := range dialerCloseHooks {
 		if err := hook(c.ID, &c.Conn); err != nil {
-			log.WithContext(ctx).Errorf("Error executing dialer close hook: %v", err)
+			log.Errorf("Error executing dialer close hook: %v", err)
 		}
 	}
 
@@ -111,7 +111,7 @@ func callDialerHooks(ctx context.Context, connID ConnectionID, address string, r
 		return fmt.Errorf("failed to resolve address %s: %w", address, err)
 	}
 
-	log.WithContext(ctx).Debugf("Dialer resolved IPs for %s: %v", address, ips)
+	log.Debugf("Dialer resolved IPs for %s: %v", address, ips)
 
 	var result *multierror.Error
 
@@ -142,7 +142,7 @@ func DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
 	udpConn, ok := conn.(*Conn).Conn.(*net.UDPConn)
 	if !ok {
 		if err := conn.Close(); err != nil {
-			log.WithContext(ctx).Errorf("Failed to close connection: %v", err)
+			log.Errorf("Failed to close connection: %v", err)
 		}
 		return nil, fmt.Errorf("expected UDP connection, got different type: %T", conn)
 	}
@@ -166,7 +166,7 @@ func DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn, error) {
 	tcpConn, ok := conn.(*Conn).Conn.(*net.TCPConn)
 	if !ok {
 		if err := conn.Close(); err != nil {
-			log.WithContext(ctx).Errorf("Failed to close connection: %v", err)
+			log.Errorf("Failed to close connection: %v", err)
 		}
 		return nil, fmt.Errorf("expected TCP connection, got different type: %T", conn)
 	}
