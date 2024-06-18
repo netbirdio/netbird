@@ -125,7 +125,8 @@ func (u *udpConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 	// Check cache first
 	if cached, found := u.addrCache.Load(addr.String()); found {
 		if isRouted := cached.(bool); isRouted {
-			return 0, fmt.Errorf("address %s is part of routed network, refusing to write", addr)
+			log.Infof("Address %s is part of a routed network, refusing to write", addr)
+			return 0, fmt.Errorf("address %s is part of a routed network, refusing to write", addr)
 		}
 	} else {
 		// If not found in cache, perform the filter check
@@ -145,6 +146,7 @@ func (u *udpConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 			} else {
 				u.addrCache.Store(addr.String(), isRouted)
 				if isRouted {
+					log.Infof("Address %s is part of routed network %s, refusing to write", addr, prefix)
 					return 0, fmt.Errorf("address %s is part of routed network %s, refusing to write", addr, prefix)
 				}
 			}
