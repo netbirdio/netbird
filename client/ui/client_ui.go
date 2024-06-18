@@ -563,7 +563,7 @@ func (s *serviceClient) onTrayReady() {
 			case <-s.mAdminPanel.ClickedCh:
 				err = open.Run(s.adminURL)
 			case <-s.mUp.ClickedCh:
-				s.mUp.Disabled()
+				s.mUp.Disable()
 				go func() {
 					defer s.mUp.Enable()
 					err := s.menuUpClick()
@@ -799,8 +799,6 @@ func (s *serviceClient) loadSettings() {
 	} else {
 		s.mEnableRosenpass.Uncheck()
 	}
-
-	return
 }
 
 // updateConfig updates the configuration parameters
