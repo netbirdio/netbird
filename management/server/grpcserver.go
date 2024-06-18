@@ -138,9 +138,11 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 
 	ctx := srv.Context()
 	//nolint
-	ctx = context.WithValue(ctx, "peerID", peerKey)
-	accountID := "test"
-	// accountID := s.accountManager.GetAccountForPeerKey()
+	ctx = context.WithValue(ctx, "peerID", peerKey.String())
+	accountID, err := s.accountManager.GetAccountIDForPeerKey(peerKey.String())
+	if err != nil {
+		return err
+	}
 	//nolint
 	ctx = context.WithValue(ctx, "accountID", accountID)
 
