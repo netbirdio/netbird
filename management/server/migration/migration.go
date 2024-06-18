@@ -35,8 +35,8 @@ func MigrateFieldFromGobToJSON[T any, S any](db *gorm.DB, fieldName string) erro
 	}
 	tableName := stmt.Schema.Table
 
-	var item string
-	if err := db.Model(model).Select(oldColumnName).First(&item).Error; err != nil {
+	var sqliteItem sql.NullString
+	if err := db.Model(model).Select(oldColumnName).First(&sqliteItem).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			log.Debugf("No records in table %s, no migration needed", tableName)
 			return nil
@@ -44,10 +44,13 @@ func MigrateFieldFromGobToJSON[T any, S any](db *gorm.DB, fieldName string) erro
 		return fmt.Errorf("fetch first record: %w", err)
 	}
 
+	item := sqliteItem.String
+
 	var js json.RawMessage
 	var syntaxError *json.SyntaxError
 	err = json.Unmarshal([]byte(item), &js)
-	if err == nil || !errors.As(err, &syntaxError) {
+	// if the item is JSON parsable or an empty string it can not be gob encoded
+	if err == nil || !errors.As(err, &syntaxError) || item == "" {
 		log.Debugf("No migration needed for %s, %s", tableName, fieldName)
 		return nil
 	}
@@ -74,7 +77,6 @@ func MigrateFieldFromGobToJSON[T any, S any](db *gorm.DB, fieldName string) erro
 			if err := gob.NewDecoder(reader).Decode(&field); err != nil {
 				return fmt.Errorf("gob decode error: %w", err)
 			}
-
 			jsonValue, err := json.Marshal(field)
 			if err != nil {
 				return fmt.Errorf("re-encode to JSON: %w", err)
