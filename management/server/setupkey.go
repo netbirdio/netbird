@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"hash/fnv"
 	"strconv"
 	"strings"
@@ -207,9 +208,9 @@ func Hash(s string) uint32 {
 
 // CreateSetupKey generates a new setup key with a given name, type, list of groups IDs to auto-assign to peers registered with this key,
 // and adds it to the specified account. A list of autoGroups IDs can be empty.
-func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string, keyType SetupKeyType,
+func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType SetupKeyType,
 	expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool) (*SetupKey, error) {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
 	keyDuration := DefaultSetupKeyDuration
@@ -217,7 +218,7 @@ func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string
 		keyDuration = expiresIn
 	}
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -230,17 +231,17 @@ func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string
 
 	setupKey := GenerateSetupKey(keyName, keyType, keyDuration, autoGroups, usageLimit, ephemeral)
 	account.SetupKeys[setupKey.Key] = setupKey
-	err = am.Store.SaveAccount(account)
+	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return nil, status.Errorf(status.Internal, "failed adding account key")
 	}
 
-	am.StoreEvent(userID, setupKey.Id, accountID, activity.SetupKeyCreated, setupKey.EventMeta())
+	am.StoreEvent(ctx, userID, setupKey.Id, accountID, activity.SetupKeyCreated, setupKey.EventMeta())
 
 	for _, g := range setupKey.AutoGroups {
 		group := account.GetGroup(g)
 		if group != nil {
-			am.StoreEvent(userID, setupKey.Id, accountID, activity.GroupAddedToSetupKey,
+			am.StoreEvent(ctx, userID, setupKey.Id, accountID, activity.GroupAddedToSetupKey,
 				map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": setupKey.Name})
 		} else {
 			log.WithContext(ctx).Errorf("group %s not found while saving setup key activity event of account %s", g, account.Id)
@@ -254,15 +255,15 @@ func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string
 // Due to the unique nature of a SetupKey certain properties must not be overwritten
 // (e.g. the key itself, creation date, ID, etc).
 // These properties are overwritten: Name, AutoGroups, Revoked. The rest is copied from the existing key.
-func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *SetupKey, userID string) (*SetupKey, error) {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID string, keyToSave *SetupKey, userID string) (*SetupKey, error) {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
 	if keyToSave == nil {
 		return nil, status.Errorf(status.InvalidArgument, "provided setup key to update is nil")
 	}
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -287,12 +288,12 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 
 	account.SetupKeys[newKey.Key] = newKey
 
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return nil, err
 	}
 
 	if !oldKey.Revoked && newKey.Revoked {
-		am.StoreEvent(userID, newKey.Id, accountID, activity.SetupKeyRevoked, newKey.EventMeta())
+		am.StoreEvent(ctx, userID, newKey.Id, accountID, activity.SetupKeyRevoked, newKey.EventMeta())
 	}
 
 	defer func() {
@@ -301,7 +302,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 		for _, g := range removedGroups {
 			group := account.GetGroup(g)
 			if group != nil {
-				am.StoreEvent(userID, oldKey.Id, accountID, activity.GroupRemovedFromSetupKey,
+				am.StoreEvent(ctx, userID, oldKey.Id, accountID, activity.GroupRemovedFromSetupKey,
 					map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": newKey.Name})
 			} else {
 				log.WithContext(ctx).Errorf("group %s not found while saving setup key activity event of account %s", g, account.Id)
@@ -312,7 +313,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 		for _, g := range addedGroups {
 			group := account.GetGroup(g)
 			if group != nil {
-				am.StoreEvent(userID, oldKey.Id, accountID, activity.GroupAddedToSetupKey,
+				am.StoreEvent(ctx, userID, oldKey.Id, accountID, activity.GroupAddedToSetupKey,
 					map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": newKey.Name})
 			} else {
 				log.WithContext(ctx).Errorf("group %s not found while saving setup key activity event of account %s", g, account.Id)
@@ -320,16 +321,16 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 		}
 	}()
 
-	am.updateAccountPeers(account)
+	am.updateAccountPeers(ctx, account)
 
 	return newKey, nil
 }
 
 // ListSetupKeys returns a list of all setup keys of the account
-func (am *DefaultAccountManager) ListSetupKeys(accountID, userID string) ([]*SetupKey, error) {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) ListSetupKeys(ctx context.Context, accountID, userID string) ([]*SetupKey, error) {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -358,11 +359,11 @@ func (am *DefaultAccountManager) ListSetupKeys(accountID, userID string) ([]*Set
 }
 
 // GetSetupKey looks up a SetupKey by KeyID, returns NotFound error if not found.
-func (am *DefaultAccountManager) GetSetupKey(accountID, userID, keyID string) (*SetupKey, error) {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*SetupKey, error) {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}

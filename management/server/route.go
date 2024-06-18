@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/netip"
 	"unicode/utf8"
 
@@ -14,11 +15,11 @@ import (
 )
 
 // GetRoute gets a route object from account and route IDs
-func (am *DefaultAccountManager) GetRoute(accountID string, routeID route.ID, userID string) (*route.Route, error) {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) GetRoute(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error) {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -115,11 +116,11 @@ func (am *DefaultAccountManager) checkRoutePrefixOrDomainsExistForPeers(account 
 }
 
 // CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string, keepRoute bool) (*route.Route, error) {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string, keepRoute bool) (*route.Route, error) {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -191,20 +192,20 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, prefix netip.Pref
 	account.Routes[newRoute.ID] = &newRoute
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return nil, err
 	}
 
-	am.updateAccountPeers(account)
+	am.updateAccountPeers(ctx, account)
 
-	am.StoreEvent(userID, string(newRoute.ID), accountID, activity.RouteCreated, newRoute.EventMeta())
+	am.StoreEvent(ctx, userID, string(newRoute.ID), accountID, activity.RouteCreated, newRoute.EventMeta())
 
 	return &newRoute, nil
 }
 
 // SaveRoute saves route
-func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave *route.Route) error {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userID string, routeToSave *route.Route) error {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
 	if routeToSave == nil {
@@ -219,7 +220,7 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 		return status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
 	}
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}
@@ -260,23 +261,23 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 	account.Routes[routeToSave.ID] = routeToSave
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
-	am.updateAccountPeers(account)
+	am.updateAccountPeers(ctx, account)
 
-	am.StoreEvent(userID, string(routeToSave.ID), accountID, activity.RouteUpdated, routeToSave.EventMeta())
+	am.StoreEvent(ctx, userID, string(routeToSave.ID), accountID, activity.RouteUpdated, routeToSave.EventMeta())
 
 	return nil
 }
 
 // DeleteRoute deletes route with routeID
-func (am *DefaultAccountManager) DeleteRoute(accountID string, routeID route.ID, userID string) error {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID string, routeID route.ID, userID string) error {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}
@@ -288,23 +289,23 @@ func (am *DefaultAccountManager) DeleteRoute(accountID string, routeID route.ID,
 	delete(account.Routes, routeID)
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
-	am.StoreEvent(userID, string(routy.ID), accountID, activity.RouteRemoved, routy.EventMeta())
+	am.StoreEvent(ctx, userID, string(routy.ID), accountID, activity.RouteRemoved, routy.EventMeta())
 
-	am.updateAccountPeers(account)
+	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
 
 // ListRoutes returns a list of routes from account
-func (am *DefaultAccountManager) ListRoutes(accountID, userID string) ([]*route.Route, error) {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) ListRoutes(ctx context.Context, accountID, userID string) ([]*route.Route, error) {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}

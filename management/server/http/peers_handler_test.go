@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -29,7 +30,7 @@ const noUpdateChannelTestPeerID = "no-update-channel"
 func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 	return &PeersHandler{
 		accountManager: &mock_server.MockAccountManager{
-			UpdatePeerFunc: func(accountID, userID string, update *nbpeer.Peer) (*nbpeer.Peer, error) {
+			UpdatePeerFunc: func(_ context.Context, accountID, userID string, update *nbpeer.Peer) (*nbpeer.Peer, error) {
 				var p *nbpeer.Peer
 				for _, peer := range peers {
 					if update.ID == peer.ID {
@@ -42,7 +43,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 				p.Name = update.Name
 				return p, nil
 			},
-			GetPeerFunc: func(accountID, peerID, userID string) (*nbpeer.Peer, error) {
+			GetPeerFunc: func(_ context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error) {
 				var p *nbpeer.Peer
 				for _, peer := range peers {
 					if peerID == peer.ID {
@@ -52,13 +53,13 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 				}
 				return p, nil
 			},
-			GetPeersFunc: func(accountID, userID string) ([]*nbpeer.Peer, error) {
+			GetPeersFunc: func(_ context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
 				return peers, nil
 			},
 			GetDNSDomainFunc: func() string {
 				return "netbird.selfhosted"
 			},
-			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				user := server.NewAdminUser("test_user")
 				return &server.Account{
 					Id:     claims.AccountId,

@@ -1,9 +1,10 @@
 package server
 
 import (
+	"context"
 	"errors"
 
-	"github.com/google/martian/v3/log"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/account"
 )
@@ -19,8 +20,8 @@ import (
 //
 // Returns:
 //   - error: An error if any occurred during the process, otherwise returns nil
-func (am *DefaultAccountManager) UpdateIntegratedValidatorGroups(accountID string, userID string, groups []string) error {
-	ok, err := am.GroupValidation(accountID, groups)
+func (am *DefaultAccountManager) UpdateIntegratedValidatorGroups(ctx context.Context, accountID string, userID string, groups []string) error {
+	ok, err := am.GroupValidation(ctx, accountID, groups)
 	if err != nil {
 		log.WithContext(ctx).Debugf("error validating groups: %s", err.Error())
 		return err
@@ -31,10 +32,10 @@ func (am *DefaultAccountManager) UpdateIntegratedValidatorGroups(accountID strin
 		return errors.New("invalid groups")
 	}
 
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	a, err := am.Store.GetAccountByUser(userID)
+	a, err := am.Store.GetAccountByUser(ctx, userID)
 	if err != nil {
 		return err
 	}
@@ -48,14 +49,14 @@ func (am *DefaultAccountManager) UpdateIntegratedValidatorGroups(accountID strin
 		a.Settings.Extra = extra
 	}
 	extra.IntegratedValidatorGroups = groups
-	return am.Store.SaveAccount(a)
+	return am.Store.SaveAccount(ctx, a)
 }
 
-func (am *DefaultAccountManager) GroupValidation(accountId string, groups []string) (bool, error) {
+func (am *DefaultAccountManager) GroupValidation(ctx context.Context, accountId string, groups []string) (bool, error) {
 	if len(groups) == 0 {
 		return true, nil
 	}
-	accountsGroups, err := am.ListGroups(accountId)
+	accountsGroups, err := am.ListGroups(ctx, accountId)
 	if err != nil {
 		return false, err
 	}

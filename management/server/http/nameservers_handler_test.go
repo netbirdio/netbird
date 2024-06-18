@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -61,13 +62,13 @@ var baseExistingNSGroup = &nbdns.NameServerGroup{
 func initNameserversTestData() *NameserversHandler {
 	return &NameserversHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetNameServerGroupFunc: func(accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error) {
+			GetNameServerGroupFunc: func(_ context.Context, accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error) {
 				if nsGroupID == existingNSGroupID {
 					return baseExistingNSGroup.Copy(), nil
 				}
 				return nil, status.Errorf(status.NotFound, "nameserver group with ID %s not found", nsGroupID)
 			},
-			CreateNameServerGroupFunc: func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, _ string, searchDomains bool) (*nbdns.NameServerGroup, error) {
+			CreateNameServerGroupFunc: func(_ context.Context, accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, _ string, searchDomains bool) (*nbdns.NameServerGroup, error) {
 				return &nbdns.NameServerGroup{
 					ID:                   existingNSGroupID,
 					Name:                 name,
@@ -80,16 +81,16 @@ func initNameserversTestData() *NameserversHandler {
 					SearchDomainsEnabled: searchDomains,
 				}, nil
 			},
-			DeleteNameServerGroupFunc: func(accountID, nsGroupID, _ string) error {
+			DeleteNameServerGroupFunc: func(_ context.Context, accountID, nsGroupID, _ string) error {
 				return nil
 			},
-			SaveNameServerGroupFunc: func(accountID, _ string, nsGroupToSave *nbdns.NameServerGroup) error {
+			SaveNameServerGroupFunc: func(_ context.Context, accountID, _ string, nsGroupToSave *nbdns.NameServerGroup) error {
 				if nsGroupToSave.ID == existingNSGroupID {
 					return nil
 				}
 				return status.Errorf(status.NotFound, "nameserver group with ID %s was not found", nsGroupToSave.ID)
 			},
-			GetAccountFromTokenFunc: func(_ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+			GetAccountFromTokenFunc: func(_ context.Context, _ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return testingNSAccount, testingAccount.Users["test_user"], nil
 			},
 		},

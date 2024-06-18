@@ -272,7 +272,7 @@ func (e *Engine) Stop() error {
 // Start creates a new WireGuard tunnel interface and listens to events from Signal and Management services
 // Connections to remote peers are not established here.
 // However, they will be established once an event with a list of peers to connect to will be received from Management Service
-func (e *Engine) Start() error {
+func (e *Engine) Start(ctx context.Context) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
@@ -307,7 +307,7 @@ func (e *Engine) Start() error {
 		}
 	}
 
-	initialRoutes, dnsServer, err := e.newDnsServer()
+	initialRoutes, dnsServer, err := e.newDnsServer(ctx)
 	if err != nil {
 		e.close()
 		return fmt.Errorf("create dns server: %w", err)
@@ -367,7 +367,7 @@ func (e *Engine) Start() error {
 	e.receiveProbeEvents()
 
 	// starting network monitor at the very last to avoid disruptions
-	e.startNetworkMonitor()
+	e.startNetworkMonitor(ctx)
 
 	return nil
 }
@@ -522,7 +522,7 @@ func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKe
 	return nil
 }
 
-func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
+func (e *Engine) handleSync(ctx context.Context, update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
@@ -540,7 +540,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		// todo update signal
 	}
 
-	if err := e.updateChecksIfNew(update.Checks); err != nil {
+	if err := e.updateChecksIfNew(ctx, update.Checks); err != nil {
 		return err
 	}
 
@@ -555,7 +555,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 }
 
 // updateChecksIfNew updates checks if there are changes and sync new meta with management
-func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
+func (e *Engine) updateChecksIfNew(ctx context.Context, checks []*mgmProto.Checks) error {
 	// if checks are equal, we skip the update
 	if isChecksEqual(e.checks, checks) {
 		return nil
@@ -568,7 +568,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		info = system.GetInfo(e.ctx)
 	}
 
-	if err := e.mgmClient.SyncMeta(info); err != nil {
+	if err := e.mgmClient.SyncMeta(ctx, info); err != nil {
 		log.Errorf("could not sync meta: error %s", err)
 		return err
 	}
@@ -1256,9 +1256,9 @@ func (e *Engine) close() {
 	}
 }
 
-func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
+func (e *Engine) readInitialSettings(ctx context.Context) ([]*route.Route, *nbdns.Config, error) {
 	info := system.GetInfo(e.ctx)
-	netMap, err := e.mgmClient.GetNetworkMap(info)
+	netMap, err := e.mgmClient.GetNetworkMap(ctx, info)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1303,14 +1303,14 @@ func (e *Engine) wgInterfaceCreate() (err error) {
 	return err
 }
 
-func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
+func (e *Engine) newDnsServer(ctx context.Context) ([]*route.Route, dns.Server, error) {
 	// due to tests where we are using a mocked version of the DNS server
 	if e.dnsServer != nil {
 		return nil, e.dnsServer, nil
 	}
 	switch runtime.GOOS {
 	case "android":
-		routes, dnsConfig, err := e.readInitialSettings()
+		routes, dnsConfig, err := e.readInitialSettings(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1462,7 +1462,7 @@ func (e *Engine) probeTURNs() []relay.ProbeResult {
 	return relay.ProbeAll(e.ctx, relay.ProbeTURN, e.TURNs)
 }
 
-func (e *Engine) startNetworkMonitor() {
+func (e *Engine) startNetworkMonitor(ctx context.Context) {
 	if !e.config.NetworkMonitor {
 		log.Infof("Network monitor is disabled, not starting")
 		return
@@ -1475,7 +1475,7 @@ func (e *Engine) startNetworkMonitor() {
 			if err := e.Stop(); err != nil {
 				log.Errorf("Failed to stop engine: %v", err)
 			}
-			if err := e.Start(); err != nil {
+			if err := e.Start(ctx); err != nil {
 				log.Errorf("Failed to start engine: %v", err)
 			}
 		})

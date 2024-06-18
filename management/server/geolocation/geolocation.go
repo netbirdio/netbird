@@ -2,6 +2,7 @@ package geolocation
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -52,7 +53,7 @@ type Country struct {
 	CountryName    string
 }
 
-func NewGeolocation(dataDir string) (*Geolocation, error) {
+func NewGeolocation(ctx context.Context, dataDir string) (*Geolocation, error) {
 	if err := loadGeolocationDatabases(dataDir); err != nil {
 		return nil, fmt.Errorf("failed to load MaxMind databases: %v", err)
 	}
@@ -68,7 +69,7 @@ func NewGeolocation(dataDir string) (*Geolocation, error) {
 		return nil, err
 	}
 
-	locationDB, err := NewSqliteStore(dataDir)
+	locationDB, err := NewSqliteStore(ctx, dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +84,7 @@ func NewGeolocation(dataDir string) (*Geolocation, error) {
 		stopCh:              make(chan struct{}),
 	}
 
-	go geo.reloader()
+	go geo.reloader(ctx)
 
 	return geo, nil
 }
@@ -165,13 +166,13 @@ func (gl *Geolocation) Stop() error {
 	return nil
 }
 
-func (gl *Geolocation) reloader() {
+func (gl *Geolocation) reloader(ctx context.Context) {
 	for {
 		select {
 		case <-gl.stopCh:
 			return
 		case <-time.After(gl.reloadCheckInterval):
-			if err := gl.locationDB.reload(); err != nil {
+			if err := gl.locationDB.reload(ctx); err != nil {
 				log.WithContext(ctx).Errorf("geonames db reload failed: %s", err)
 			}
 
@@ -193,7 +194,7 @@ func (gl *Geolocation) reloader() {
 					log.WithContext(ctx).Errorf("sha256 sum changed during reloading of '%s'", gl.mmdbPath)
 					continue
 				}
-				err = gl.reload(newSha256sum2)
+				err = gl.reload(ctx, newSha256sum2)
 				if err != nil {
 					log.WithContext(ctx).Errorf("mmdb reload failed: %s", err)
 				}
@@ -205,7 +206,7 @@ func (gl *Geolocation) reloader() {
 	}
 }
 
-func (gl *Geolocation) reload(newSha256sum []byte) error {
+func (gl *Geolocation) reload(ctx context.Context, newSha256sum []byte) error {
 	gl.mux.Lock()
 	defer gl.mux.Unlock()
 

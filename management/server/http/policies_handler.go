@@ -35,15 +35,15 @@ func NewPoliciesHandler(accountManager server.AccountManager, authCfg AuthCfg) *
 // GetAllPolicies list for the account
 func (h *Policies) GetAllPolicies(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	accountPolicies, err := h.accountManager.ListPolicies(account.Id, user.Id)
+	accountPolicies, err := h.accountManager.ListPolicies(r.Context(), account.Id, user.Id)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -51,28 +51,28 @@ func (h *Policies) GetAllPolicies(w http.ResponseWriter, r *http.Request) {
 	for _, policy := range accountPolicies {
 		resp := toPolicyResponse(account, policy)
 		if len(resp.Rules) == 0 {
-			util.WriteError(status.Errorf(status.Internal, "no rules in the policy"), w)
+			util.WriteError(r.Context(), status.Errorf(status.Internal, "no rules in the policy"), w)
 			return
 		}
 		policies = append(policies, resp)
 	}
 
-	util.WriteJSONObject(w, policies)
+	util.WriteJSONObject(r.Context(), w, policies)
 }
 
 // UpdatePolicy handles update to a policy identified by a given ID
 func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	policyID := vars["policyId"]
 	if len(policyID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid policy ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid policy ID"), w)
 		return
 	}
 
@@ -84,7 +84,7 @@ func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if policyIdx < 0 {
-		util.WriteError(status.Errorf(status.NotFound, "couldn't find policy id %s", policyID), w)
+		util.WriteError(r.Context(), status.Errorf(status.NotFound, "couldn't find policy id %s", policyID), w)
 		return
 	}
 
@@ -94,9 +94,9 @@ func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 // CreatePolicy handles policy creation request
 func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -118,12 +118,12 @@ func (h *Policies) savePolicy(
 	}
 
 	if req.Name == "" {
-		util.WriteError(status.Errorf(status.InvalidArgument, "policy name shouldn't be empty"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "policy name shouldn't be empty"), w)
 		return
 	}
 
 	if len(req.Rules) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "policy rules shouldn't be empty"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "policy rules shouldn't be empty"), w)
 		return
 	}
 
@@ -137,31 +137,31 @@ func (h *Policies) savePolicy(
 		Enabled:     req.Enabled,
 		Description: req.Description,
 	}
-	for _, r := range req.Rules {
+	for _, rule := range req.Rules {
 		pr := server.PolicyRule{
-			ID:            policyID, //TODO: when policy can contain multiple rules, need refactor
-			Name:          r.Name,
-			Destinations:  groupMinimumsToStrings(account, r.Destinations),
-			Sources:       groupMinimumsToStrings(account, r.Sources),
-			Bidirectional: r.Bidirectional,
+			ID:            policyID, // TODO: when policy can contain multiple rules, need refactor
+			Name:          rule.Name,
+			Destinations:  groupMinimumsToStrings(account, rule.Destinations),
+			Sources:       groupMinimumsToStrings(account, rule.Sources),
+			Bidirectional: rule.Bidirectional,
 		}
 
-		pr.Enabled = r.Enabled
-		if r.Description != nil {
-			pr.Description = *r.Description
+		pr.Enabled = rule.Enabled
+		if rule.Description != nil {
+			pr.Description = *rule.Description
 		}
 
-		switch r.Action {
+		switch rule.Action {
 		case api.PolicyRuleUpdateActionAccept:
 			pr.Action = server.PolicyTrafficActionAccept
 		case api.PolicyRuleUpdateActionDrop:
 			pr.Action = server.PolicyTrafficActionDrop
 		default:
-			util.WriteError(status.Errorf(status.InvalidArgument, "unknown action type"), w)
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "unknown action type"), w)
 			return
 		}
 
-		switch r.Protocol {
+		switch rule.Protocol {
 		case api.PolicyRuleUpdateProtocolAll:
 			pr.Protocol = server.PolicyRuleProtocolALL
 		case api.PolicyRuleUpdateProtocolTcp:
@@ -171,14 +171,14 @@ func (h *Policies) savePolicy(
 		case api.PolicyRuleUpdateProtocolIcmp:
 			pr.Protocol = server.PolicyRuleProtocolICMP
 		default:
-			util.WriteError(status.Errorf(status.InvalidArgument, "unknown protocol type: %v", r.Protocol), w)
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "unknown protocol type: %v", rule.Protocol), w)
 			return
 		}
 
-		if r.Ports != nil && len(*r.Ports) != 0 {
-			for _, v := range *r.Ports {
+		if rule.Ports != nil && len(*rule.Ports) != 0 {
+			for _, v := range *rule.Ports {
 				if port, err := strconv.Atoi(v); err != nil || port < 1 || port > 65535 {
-					util.WriteError(status.Errorf(status.InvalidArgument, "valid port value is in 1..65535 range"), w)
+					util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "valid port value is in 1..65535 range"), w)
 					return
 				}
 				pr.Ports = append(pr.Ports, v)
@@ -189,16 +189,16 @@ func (h *Policies) savePolicy(
 		switch pr.Protocol {
 		case server.PolicyRuleProtocolALL, server.PolicyRuleProtocolICMP:
 			if len(pr.Ports) != 0 {
-				util.WriteError(status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol ports is not allowed"), w)
+				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol ports is not allowed"), w)
 				return
 			}
 			if !pr.Bidirectional {
-				util.WriteError(status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol type flow can be only bi-directional"), w)
+				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol type flow can be only bi-directional"), w)
 				return
 			}
 		case server.PolicyRuleProtocolTCP, server.PolicyRuleProtocolUDP:
 			if !pr.Bidirectional && len(pr.Ports) == 0 {
-				util.WriteError(status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol type flow can be only bi-directional"), w)
+				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol type flow can be only bi-directional"), w)
 				return
 			}
 		}
@@ -210,26 +210,26 @@ func (h *Policies) savePolicy(
 		policy.SourcePostureChecks = sourcePostureChecksToStrings(account, *req.SourcePostureChecks)
 	}
 
-	if err := h.accountManager.SavePolicy(account.Id, user.Id, &policy); err != nil {
-		util.WriteError(err, w)
+	if err := h.accountManager.SavePolicy(r.Context(), account.Id, user.Id, &policy); err != nil {
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	resp := toPolicyResponse(account, &policy)
 	if len(resp.Rules) == 0 {
-		util.WriteError(status.Errorf(status.Internal, "no rules in the policy"), w)
+		util.WriteError(r.Context(), status.Errorf(status.Internal, "no rules in the policy"), w)
 		return
 	}
 
-	util.WriteJSONObject(w, resp)
+	util.WriteJSONObject(r.Context(), w, resp)
 }
 
 // DeletePolicy handles policy deletion request
 func (h *Policies) DeletePolicy(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 	aID := account.Id
@@ -237,24 +237,24 @@ func (h *Policies) DeletePolicy(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	policyID := vars["policyId"]
 	if len(policyID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid policy ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid policy ID"), w)
 		return
 	}
 
-	if err = h.accountManager.DeletePolicy(aID, policyID, user.Id); err != nil {
-		util.WriteError(err, w)
+	if err = h.accountManager.DeletePolicy(r.Context(), aID, policyID, user.Id); err != nil {
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, emptyObject{})
 }
 
 // GetPolicy handles a group Get request identified by ID
 func (h *Policies) GetPolicy(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -263,25 +263,25 @@ func (h *Policies) GetPolicy(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		policyID := vars["policyId"]
 		if len(policyID) == 0 {
-			util.WriteError(status.Errorf(status.InvalidArgument, "invalid policy ID"), w)
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid policy ID"), w)
 			return
 		}
 
-		policy, err := h.accountManager.GetPolicy(account.Id, policyID, user.Id)
+		policy, err := h.accountManager.GetPolicy(r.Context(), account.Id, policyID, user.Id)
 		if err != nil {
-			util.WriteError(err, w)
+			util.WriteError(r.Context(), err, w)
 			return
 		}
 
 		resp := toPolicyResponse(account, policy)
 		if len(resp.Rules) == 0 {
-			util.WriteError(status.Errorf(status.Internal, "no rules in the policy"), w)
+			util.WriteError(r.Context(), status.Errorf(status.Internal, "no rules in the policy"), w)
 			return
 		}
 
-		util.WriteJSONObject(w, resp)
+		util.WriteJSONObject(r.Context(), w, resp)
 	default:
-		util.WriteError(status.Errorf(status.NotFound, "method not found"), w)
+		util.WriteError(r.Context(), status.Errorf(status.NotFound, "method not found"), w)
 	}
 }
 

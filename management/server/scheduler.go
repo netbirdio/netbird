@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -9,29 +10,29 @@ import (
 
 // Scheduler is an interface which implementations can schedule and cancel jobs
 type Scheduler interface {
-	Cancel(IDs []string)
-	Schedule(in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool))
+	Cancel(ctx context.Context, IDs []string)
+	Schedule(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool))
 }
 
 // MockScheduler is a mock implementation of  Scheduler
 type MockScheduler struct {
-	CancelFunc   func(IDs []string)
-	ScheduleFunc func(in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool))
+	CancelFunc   func(ctx context.Context, IDs []string)
+	ScheduleFunc func(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool))
 }
 
 // Cancel mocks the Cancel function of the Scheduler interface
-func (mock *MockScheduler) Cancel(IDs []string) {
+func (mock *MockScheduler) Cancel(ctx context.Context, IDs []string) {
 	if mock.CancelFunc != nil {
-		mock.CancelFunc(IDs)
+		mock.CancelFunc(ctx, IDs)
 		return
 	}
 	log.WithContext(ctx).Errorf("MockScheduler doesn't have Cancel function defined ")
 }
 
 // Schedule mocks the Schedule function of the Scheduler interface
-func (mock *MockScheduler) Schedule(in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
+func (mock *MockScheduler) Schedule(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
 	if mock.ScheduleFunc != nil {
-		mock.ScheduleFunc(in, ID, job)
+		mock.ScheduleFunc(ctx, in, ID, job)
 		return
 	}
 	log.WithContext(ctx).Errorf("MockScheduler doesn't have Schedule function defined")
@@ -52,7 +53,7 @@ func NewDefaultScheduler() *DefaultScheduler {
 	}
 }
 
-func (wm *DefaultScheduler) cancel(ID string) bool {
+func (wm *DefaultScheduler) cancel(ctx context.Context, ID string) bool {
 	cancel, ok := wm.jobs[ID]
 	if ok {
 		delete(wm.jobs, ID)
@@ -64,18 +65,18 @@ func (wm *DefaultScheduler) cancel(ID string) bool {
 
 // Cancel cancels the scheduled job by ID if present.
 // If job wasn't found the function returns false.
-func (wm *DefaultScheduler) Cancel(IDs []string) {
+func (wm *DefaultScheduler) Cancel(ctx context.Context, IDs []string) {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 
 	for _, id := range IDs {
-		wm.cancel(id)
+		wm.cancel(ctx, id)
 	}
 }
 
 // Schedule a job to run in some time in the future. If job returns true then it will be scheduled one more time.
 // If job with the provided ID already exists, a new one won't be scheduled.
-func (wm *DefaultScheduler) Schedule(in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
+func (wm *DefaultScheduler) Schedule(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 	cancel := make(chan struct{})

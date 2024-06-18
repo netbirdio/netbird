@@ -534,20 +534,20 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	Expect(err).NotTo(HaveOccurred())
 	s := grpc.NewServer()
 
-	store, _, err := server.NewTestStoreFromJson(config.Datadir)
+	store, _, err := server.NewTestStoreFromJson(context.Background(), config.Datadir)
 	if err != nil {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
 
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
-	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted",
+	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted",
 		eventStore, nil, false, MocIntegratedValidator{})
 	if err != nil {
 		log.Fatalf("failed creating a manager: %v", err)
 	}
 	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
-	mgmtServer, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, nil, nil)
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, peersUpdateManager, turnManager, nil, nil)
 	Expect(err).NotTo(HaveOccurred())
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {

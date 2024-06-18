@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,8 +49,8 @@ type FileStore struct {
 type StoredAccount struct{}
 
 // NewFileStore restores a store from the file located in the datadir
-func NewFileStore(dataDir string, metrics telemetry.AppMetrics) (*FileStore, error) {
-	fs, err := restore(filepath.Join(dataDir, storeFileName))
+func NewFileStore(ctx context.Context, dataDir string, metrics telemetry.AppMetrics) (*FileStore, error) {
+	fs, err := restore(ctx, filepath.Join(dataDir, storeFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -58,27 +59,27 @@ func NewFileStore(dataDir string, metrics telemetry.AppMetrics) (*FileStore, err
 }
 
 // NewFilestoreFromSqliteStore restores a store from Sqlite and stores to Filestore json in the file located in datadir
-func NewFilestoreFromSqliteStore(sqlStore *SqlStore, dataDir string, metrics telemetry.AppMetrics) (*FileStore, error) {
-	store, err := NewFileStore(dataDir, metrics)
+func NewFilestoreFromSqliteStore(ctx context.Context, sqlStore *SqlStore, dataDir string, metrics telemetry.AppMetrics) (*FileStore, error) {
+	store, err := NewFileStore(ctx, dataDir, metrics)
 	if err != nil {
 		return nil, err
 	}
 
-	err = store.SaveInstallationID(sqlStore.GetInstallationID())
+	err = store.SaveInstallationID(ctx, sqlStore.GetInstallationID())
 	if err != nil {
 		return nil, err
 	}
 
-	for _, account := range sqlStore.GetAllAccounts() {
+	for _, account := range sqlStore.GetAllAccounts(ctx) {
 		store.Accounts[account.Id] = account
 	}
 
-	return store, store.persist(store.storeFile)
+	return store, store.persist(ctx, store.storeFile)
 }
 
 // restore the state of the store from the file.
 // Creates a new empty store file if doesn't exist
-func restore(file string) (*FileStore, error) {
+func restore(ctx context.Context, file string) (*FileStore, error) {
 	if _, err := os.Stat(file); os.IsNotExist(err) {
 		// create a new FileStore if previously didn't exist (e.g. first run)
 		s := &FileStore{
@@ -95,7 +96,7 @@ func restore(file string) (*FileStore, error) {
 			storeFile:               file,
 		}
 
-		err = s.persist(file)
+		err = s.persist(ctx, file)
 		if err != nil {
 			return nil, err
 		}
@@ -165,7 +166,7 @@ func restore(file string) (*FileStore, error) {
 		// for data migration. Can be removed once most base will be with labels
 		existingLabels := account.getPeerDNSLabels()
 		if len(existingLabels) != len(account.Peers) {
-			addPeerLabelsToAccount(account, existingLabels)
+			addPeerLabelsToAccount(ctx, account, existingLabels)
 		}
 
 		// TODO: delete this block after migration
@@ -236,7 +237,7 @@ func restore(file string) (*FileStore, error) {
 	}
 
 	// we need this persist to apply changes we made to account.Peers (we set them to Disconnected)
-	err = store.persist(store.storeFile)
+	err = store.persist(ctx, store.storeFile)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +247,7 @@ func restore(file string) (*FileStore, error) {
 
 // persist account data to a file
 // It is recommended to call it with locking FileStore.mux
-func (s *FileStore) persist(file string) error {
+func (s *FileStore) persist(ctx context.Context, file string) error {
 	start := time.Now()
 	err := util.WriteJson(file, s)
 	if err != nil {
@@ -261,7 +262,7 @@ func (s *FileStore) persist(file string) error {
 }
 
 // AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
-func (s *FileStore) AcquireGlobalLock() (unlock func()) {
+func (s *FileStore) AcquireGlobalLock(ctx context.Context) (unlock func()) {
 	log.WithContext(ctx).Debugf("acquiring global lock")
 	start := time.Now()
 	s.globalAccountLock.Lock()
@@ -281,7 +282,7 @@ func (s *FileStore) AcquireGlobalLock() (unlock func()) {
 }
 
 // AcquireAccountWriteLock acquires account lock for writing to a resource and returns a function that releases the lock
-func (s *FileStore) AcquireAccountWriteLock(accountID string) (unlock func()) {
+func (s *FileStore) AcquireAccountWriteLock(ctx context.Context, accountID string) (unlock func()) {
 	log.WithContext(ctx).Debugf("acquiring lock for account %s", accountID)
 	start := time.Now()
 	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.Mutex{})
@@ -298,11 +299,11 @@ func (s *FileStore) AcquireAccountWriteLock(accountID string) (unlock func()) {
 
 // AcquireAccountReadLock AcquireAccountWriteLock acquires account lock for reading a resource and returns a function that releases the lock
 // This method is still returns a write lock as file store can't handle read locks
-func (s *FileStore) AcquireAccountReadLock(accountID string) (unlock func()) {
-	return s.AcquireAccountWriteLock(accountID)
+func (s *FileStore) AcquireAccountReadLock(ctx context.Context, accountID string) (unlock func()) {
+	return s.AcquireAccountWriteLock(ctx, accountID)
 }
 
-func (s *FileStore) SaveAccount(account *Account) error {
+func (s *FileStore) SaveAccount(ctx context.Context, account *Account) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -338,10 +339,10 @@ func (s *FileStore) SaveAccount(account *Account) error {
 		s.PrivateDomain2AccountID[accountCopy.Domain] = accountCopy.Id
 	}
 
-	return s.persist(s.storeFile)
+	return s.persist(ctx, s.storeFile)
 }
 
-func (s *FileStore) DeleteAccount(account *Account) error {
+func (s *FileStore) DeleteAccount(ctx context.Context, account *Account) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -373,7 +374,7 @@ func (s *FileStore) DeleteAccount(account *Account) error {
 
 	delete(s.Accounts, account.Id)
 
-	return s.persist(s.storeFile)
+	return s.persist(ctx, s.storeFile)
 }
 
 // DeleteHashedPAT2TokenIDIndex removes an entry from the indexing map HashedPAT2TokenID
@@ -397,7 +398,7 @@ func (s *FileStore) DeleteTokenID2UserIDIndex(tokenID string) error {
 }
 
 // GetAccountByPrivateDomain returns account by private domain
-func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
+func (s *FileStore) GetAccountByPrivateDomain(_ context.Context, domain string) (*Account, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -415,7 +416,7 @@ func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 }
 
 // GetAccountBySetupKey returns account by setup key id
-func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
+func (s *FileStore) GetAccountBySetupKey(_ context.Context, setupKey string) (*Account, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -433,7 +434,7 @@ func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 }
 
 // GetTokenIDByHashedToken returns the id of a personal access token by its hashed secret
-func (s *FileStore) GetTokenIDByHashedToken(token string) (string, error) {
+func (s *FileStore) GetTokenIDByHashedToken(_ context.Context, token string) (string, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -446,7 +447,7 @@ func (s *FileStore) GetTokenIDByHashedToken(token string) (string, error) {
 }
 
 // GetUserByTokenID returns a User object a tokenID belongs to
-func (s *FileStore) GetUserByTokenID(tokenID string) (*User, error) {
+func (s *FileStore) GetUserByTokenID(_ context.Context, tokenID string) (*User, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -469,7 +470,7 @@ func (s *FileStore) GetUserByTokenID(tokenID string) (*User, error) {
 }
 
 // GetAllAccounts returns all accounts
-func (s *FileStore) GetAllAccounts() (all []*Account) {
+func (s *FileStore) GetAllAccounts(_ context.Context) (all []*Account) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 	for _, a := range s.Accounts {
@@ -490,7 +491,7 @@ func (s *FileStore) getAccount(accountID string) (*Account, error) {
 }
 
 // GetAccount returns an account for ID
-func (s *FileStore) GetAccount(accountID string) (*Account, error) {
+func (s *FileStore) GetAccount(_ context.Context, accountID string) (*Account, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -503,7 +504,7 @@ func (s *FileStore) GetAccount(accountID string) (*Account, error) {
 }
 
 // GetAccountByUser returns a user account
-func (s *FileStore) GetAccountByUser(userID string) (*Account, error) {
+func (s *FileStore) GetAccountByUser(_ context.Context, userID string) (*Account, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -521,7 +522,7 @@ func (s *FileStore) GetAccountByUser(userID string) (*Account, error) {
 }
 
 // GetAccountByPeerID returns an account for a given peer ID
-func (s *FileStore) GetAccountByPeerID(peerID string) (*Account, error) {
+func (s *FileStore) GetAccountByPeerID(ctx context.Context, peerID string) (*Account, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -547,7 +548,7 @@ func (s *FileStore) GetAccountByPeerID(peerID string) (*Account, error) {
 }
 
 // GetAccountByPeerPubKey returns an account for a given peer WireGuard public key
-func (s *FileStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
+func (s *FileStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*Account, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -579,7 +580,7 @@ func (s *FileStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 	return account.Copy(), nil
 }
 
-func (s *FileStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
+func (s *FileStore) GetAccountIDByPeerPubKey(_ context.Context, peerKey string) (string, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -603,7 +604,7 @@ func (s *FileStore) GetAccountIDByUserID(userID string) (string, error) {
 	return accountID, nil
 }
 
-func (s *FileStore) GetAccountIDBySetupKey(setupKey string) (string, error) {
+func (s *FileStore) GetAccountIDBySetupKey(_ context.Context, setupKey string) (string, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -615,7 +616,7 @@ func (s *FileStore) GetAccountIDBySetupKey(setupKey string) (string, error) {
 	return accountID, nil
 }
 
-func (s *FileStore) GetPeerByPeerPubKey(peerKey string) (*nbpeer.Peer, error) {
+func (s *FileStore) GetPeerByPeerPubKey(_ context.Context, peerKey string) (*nbpeer.Peer, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -638,7 +639,7 @@ func (s *FileStore) GetPeerByPeerPubKey(peerKey string) (*nbpeer.Peer, error) {
 	return nil, status.NewPeerNotFoundError(peerKey)
 }
 
-func (s *FileStore) GetAccountSettings(accountID string) (*Settings, error) {
+func (s *FileStore) GetAccountSettings(_ context.Context, accountID string) (*Settings, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -656,13 +657,13 @@ func (s *FileStore) GetInstallationID() string {
 }
 
 // SaveInstallationID saves the installation ID
-func (s *FileStore) SaveInstallationID(ID string) error {
+func (s *FileStore) SaveInstallationID(ctx context.Context, ID string) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
 	s.InstallationID = ID
 
-	return s.persist(s.storeFile)
+	return s.persist(ctx, s.storeFile)
 }
 
 // SavePeerStatus stores the PeerStatus in memory. It doesn't attempt to persist data to speed up things.
@@ -732,13 +733,13 @@ func (s *FileStore) GetPostureCheckByChecksDefinition(accountID string, checks *
 }
 
 // Close the FileStore persisting data to disk
-func (s *FileStore) Close() error {
+func (s *FileStore) Close(ctx context.Context) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
 	log.WithContext(ctx).Infof("closing FileStore")
 
-	return s.persist(s.storeFile)
+	return s.persist(ctx, s.storeFile)
 }
 
 // GetStoreEngine returns FileStoreEngine

@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -34,9 +35,9 @@ func NewSetupKeysHandler(accountManager server.AccountManager, authCfg AuthCfg) 
 // CreateSetupKey is a POST requests that creates a new SetupKey
 func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -48,13 +49,13 @@ func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request
 	}
 
 	if req.Name == "" {
-		util.WriteError(status.Errorf(status.InvalidArgument, "setup key name shouldn't be empty"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "setup key name shouldn't be empty"), w)
 		return
 	}
 
 	if !(server.SetupKeyType(req.Type) == server.SetupKeyReusable ||
 		server.SetupKeyType(req.Type) == server.SetupKeyOneOff) {
-		util.WriteError(status.Errorf(status.InvalidArgument, "unknown setup key type %s", req.Type), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "unknown setup key type %s", req.Type), w)
 		return
 	}
 
@@ -63,7 +64,7 @@ func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request
 	day := time.Hour * 24
 	year := day * 365
 	if expiresIn < day || expiresIn > year {
-		util.WriteError(status.Errorf(status.InvalidArgument, "expiresIn should be between 1 day and 365 days"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "expiresIn should be between 1 day and 365 days"), w)
 		return
 	}
 
@@ -75,54 +76,54 @@ func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request
 	if req.Ephemeral != nil {
 		ephemeral = *req.Ephemeral
 	}
-	setupKey, err := h.accountManager.CreateSetupKey(account.Id, req.Name, server.SetupKeyType(req.Type), expiresIn,
+	setupKey, err := h.accountManager.CreateSetupKey(r.Context(), account.Id, req.Name, server.SetupKeyType(req.Type), expiresIn,
 		req.AutoGroups, req.UsageLimit, user.Id, ephemeral)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	writeSuccess(w, setupKey)
+	writeSuccess(r.Context(), w, setupKey)
 }
 
 // GetSetupKey is a GET request to get a SetupKey by ID
 func (h *SetupKeysHandler) GetSetupKey(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	keyID := vars["keyId"]
 	if len(keyID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid key ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid key ID"), w)
 		return
 	}
 
-	key, err := h.accountManager.GetSetupKey(account.Id, user.Id, keyID)
+	key, err := h.accountManager.GetSetupKey(r.Context(), account.Id, user.Id, keyID)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	writeSuccess(w, key)
+	writeSuccess(r.Context(), w, key)
 }
 
 // UpdateSetupKey is a PUT request to update server.SetupKey
 func (h *SetupKeysHandler) UpdateSetupKey(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	keyID := vars["keyId"]
 	if len(keyID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid key ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid key ID"), w)
 		return
 	}
 
@@ -134,12 +135,12 @@ func (h *SetupKeysHandler) UpdateSetupKey(w http.ResponseWriter, r *http.Request
 	}
 
 	if req.Name == "" {
-		util.WriteError(status.Errorf(status.InvalidArgument, "setup key name field is invalid: %s", req.Name), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "setup key name field is invalid: %s", req.Name), w)
 		return
 	}
 
 	if req.AutoGroups == nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "setup key AutoGroups field is invalid"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "setup key AutoGroups field is invalid"), w)
 		return
 	}
 
@@ -149,26 +150,26 @@ func (h *SetupKeysHandler) UpdateSetupKey(w http.ResponseWriter, r *http.Request
 	newKey.Name = req.Name
 	newKey.Id = keyID
 
-	newKey, err = h.accountManager.SaveSetupKey(account.Id, newKey, user.Id)
+	newKey, err = h.accountManager.SaveSetupKey(r.Context(), account.Id, newKey, user.Id)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
-	writeSuccess(w, newKey)
+	writeSuccess(r.Context(), w, newKey)
 }
 
 // GetAllSetupKeys is a GET request that returns a list of SetupKey
 func (h *SetupKeysHandler) GetAllSetupKeys(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	setupKeys, err := h.accountManager.ListSetupKeys(account.Id, user.Id)
+	setupKeys, err := h.accountManager.ListSetupKeys(r.Context(), account.Id, user.Id)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -177,15 +178,15 @@ func (h *SetupKeysHandler) GetAllSetupKeys(w http.ResponseWriter, r *http.Reques
 		apiSetupKeys = append(apiSetupKeys, toResponseBody(key))
 	}
 
-	util.WriteJSONObject(w, apiSetupKeys)
+	util.WriteJSONObject(r.Context(), w, apiSetupKeys)
 }
 
-func writeSuccess(w http.ResponseWriter, key *server.SetupKey) {
+func writeSuccess(ctx context.Context, w http.ResponseWriter, key *server.SetupKey) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
 	err := json.NewEncoder(w).Encode(toResponseBody(key))
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(ctx, err, w)
 		return
 	}
 }

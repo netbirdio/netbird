@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -22,10 +23,10 @@ import (
 func initAccountsTestData(account *server.Account, admin *server.User) *AccountsHandler {
 	return &AccountsHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+			GetAccountFromTokenFunc: func(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return account, admin, nil
 			},
-			UpdateAccountSettingsFunc: func(accountID, userID string, newSettings *server.Settings) (*server.Account, error) {
+			UpdateAccountSettingsFunc: func(ctx context.Context, accountID, userID string, newSettings *server.Settings) (*server.Account, error) {
 				halfYearLimit := 180 * 24 * time.Hour
 				if newSettings.PeerLoginExpiration > halfYearLimit {
 					return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")

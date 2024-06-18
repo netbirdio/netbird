@@ -1,6 +1,7 @@
 package migration_test
 
 import (
+	"context"
 	"encoding/gob"
 	"net"
 	"strings"
@@ -30,7 +31,7 @@ func setupDatabase(t *testing.T) *gorm.DB {
 
 func TestMigrateFieldFromGobToJSON_EmptyDB(t *testing.T) {
 	db := setupDatabase(t)
-	err := migration.MigrateFieldFromGobToJSON[server.Account, net.IPNet](db, "network_net")
+	err := migration.MigrateFieldFromGobToJSON[server.Account, net.IPNet](context.Background(), db, "network_net")
 	require.NoError(t, err, "Migration should not fail for an empty database")
 }
 
@@ -63,7 +64,7 @@ func TestMigrateFieldFromGobToJSON_WithGobData(t *testing.T) {
 	err = gob.NewDecoder(strings.NewReader(gobStr)).Decode(&ipnet)
 	require.NoError(t, err, "Failed to decode Gob data")
 
-	err = migration.MigrateFieldFromGobToJSON[server.Account, net.IPNet](db, "network_net")
+	err = migration.MigrateFieldFromGobToJSON[server.Account, net.IPNet](context.Background(), db, "network_net")
 	require.NoError(t, err, "Migration should not fail with Gob data")
 
 	var jsonStr string
@@ -83,7 +84,7 @@ func TestMigrateFieldFromGobToJSON_WithJSONData(t *testing.T) {
 	err = db.Save(&server.Account{Network: &server.Network{Net: *ipnet}}).Error
 	require.NoError(t, err, "Failed to insert JSON data")
 
-	err = migration.MigrateFieldFromGobToJSON[server.Account, net.IPNet](db, "network_net")
+	err = migration.MigrateFieldFromGobToJSON[server.Account, net.IPNet](context.Background(), db, "network_net")
 	require.NoError(t, err, "Migration should not fail with JSON data")
 
 	var jsonStr string
@@ -93,7 +94,7 @@ func TestMigrateFieldFromGobToJSON_WithJSONData(t *testing.T) {
 
 func TestMigrateNetIPFieldFromBlobToJSON_EmptyDB(t *testing.T) {
 	db := setupDatabase(t)
-	err := migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](db, "ip", "idx_peers_account_id_ip")
+	err := migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](context.Background(), db, "ip", "idx_peers_account_id_ip")
 	require.NoError(t, err, "Migration should not fail for an empty database")
 }
 
@@ -130,7 +131,7 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithBlobData(t *testing.T) {
 	err = db.Model(&nbpeer.Peer{}).Select("location_connection_ip").First(&blobValue).Error
 	assert.NoError(t, err, "Failed to fetch blob data")
 
-	err = migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](db, "location_connection_ip", "")
+	err = migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](context.Background(), db, "location_connection_ip", "")
 	require.NoError(t, err, "Migration should not fail with net.IP blob data")
 
 	var jsonStr string
@@ -152,7 +153,7 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithJSONData(t *testing.T) {
 	).Error
 	require.NoError(t, err, "Failed to insert JSON data")
 
-	err = migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](db, "location_connection_ip", "")
+	err = migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](context.Background(), db, "location_connection_ip", "")
 	require.NoError(t, err, "Migration should not fail with net.IP JSON data")
 
 	var jsonStr string

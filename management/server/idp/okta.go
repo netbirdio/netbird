@@ -94,17 +94,17 @@ func NewOktaManager(config OktaClientConfig, appMetrics telemetry.AppMetrics) (*
 }
 
 // Authenticate retrieves access token to use the okta user API.
-func (oc *OktaCredentials) Authenticate() (JWTToken, error) {
+func (oc *OktaCredentials) Authenticate(_ context.Context) (JWTToken, error) {
 	return JWTToken{}, nil
 }
 
 // CreateUser creates a new user in okta Idp and sends an invitation.
-func (om *OktaManager) CreateUser(_, _, _, _ string) (*UserData, error) {
+func (om *OktaManager) CreateUser(_ context.Context, _, _, _, _ string) (*UserData, error) {
 	return nil, fmt.Errorf("method CreateUser not implemented")
 }
 
 // GetUserDataByID requests user data from keycloak via ID.
-func (om *OktaManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
+func (om *OktaManager) GetUserDataByID(_ context.Context, userID string, appMetadata AppMetadata) (*UserData, error) {
 	user, resp, err := om.client.User.GetUser(context.Background(), userID)
 	if err != nil {
 		return nil, err
@@ -132,7 +132,7 @@ func (om *OktaManager) GetUserDataByID(userID string, appMetadata AppMetadata) (
 
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
-func (om *OktaManager) GetUserByEmail(email string) ([]*UserData, error) {
+func (om *OktaManager) GetUserByEmail(_ context.Context, email string) ([]*UserData, error) {
 	user, resp, err := om.client.User.GetUser(context.Background(), url.QueryEscape(email))
 	if err != nil {
 		return nil, err
@@ -160,7 +160,7 @@ func (om *OktaManager) GetUserByEmail(email string) ([]*UserData, error) {
 }
 
 // GetAccount returns all the users for a given profile.
-func (om *OktaManager) GetAccount(accountID string) ([]*UserData, error) {
+func (om *OktaManager) GetAccount(_ context.Context, accountID string) ([]*UserData, error) {
 	users, err := om.getAllUsers()
 	if err != nil {
 		return nil, err
@@ -180,7 +180,7 @@ func (om *OktaManager) GetAccount(accountID string) ([]*UserData, error) {
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
-func (om *OktaManager) GetAllAccounts() (map[string][]*UserData, error) {
+func (om *OktaManager) GetAllAccounts(_ context.Context) (map[string][]*UserData, error) {
 	users, err := om.getAllUsers()
 	if err != nil {
 		return nil, err
@@ -242,18 +242,18 @@ func (om *OktaManager) getAllUsers() ([]*UserData, error) {
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
-func (om *OktaManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
+func (om *OktaManager) UpdateUserAppMetadata(_ context.Context, _ string, _ AppMetadata) error {
 	return nil
 }
 
 // InviteUserByID resend invitations to users who haven't activated,
 // their accounts prior to the expiration period.
-func (om *OktaManager) InviteUserByID(_ string) error {
+func (om *OktaManager) InviteUserByID(_ context.Context, _ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
 }
 
 // DeleteUser from Okta
-func (om *OktaManager) DeleteUser(userID string) error {
+func (om *OktaManager) DeleteUser(_ context.Context, userID string) error {
 	resp, err := om.client.User.DeactivateOrDeleteUser(context.Background(), userID, nil)
 	if err != nil {
 		return err

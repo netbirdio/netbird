@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -63,10 +64,10 @@ var usersTestAccount = &server.Account{
 func initUsersTestData() *UsersHandler {
 	return &UsersHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return usersTestAccount, usersTestAccount.Users[claims.UserId], nil
 			},
-			GetUsersFromAccountFunc: func(accountID, userID string) ([]*server.UserInfo, error) {
+			GetUsersFromAccountFunc: func(_ context.Context, accountID, userID string) ([]*server.UserInfo, error) {
 				users := make([]*server.UserInfo, 0)
 				for _, v := range usersTestAccount.Users {
 					users = append(users, &server.UserInfo{
@@ -81,13 +82,13 @@ func initUsersTestData() *UsersHandler {
 				}
 				return users, nil
 			},
-			CreateUserFunc: func(accountID, userID string, key *server.UserInfo) (*server.UserInfo, error) {
+			CreateUserFunc: func(_ context.Context, accountID, userID string, key *server.UserInfo) (*server.UserInfo, error) {
 				if userID != existingUserID {
 					return nil, status.Errorf(status.NotFound, "user with ID %s does not exists", userID)
 				}
 				return key, nil
 			},
-			DeleteUserFunc: func(accountID string, initiatorUserID string, targetUserID string) error {
+			DeleteUserFunc: func(_ context.Context, accountID string, initiatorUserID string, targetUserID string) error {
 				if targetUserID == notFoundUserID {
 					return status.Errorf(status.NotFound, "user with ID %s does not exists", targetUserID)
 				}
@@ -96,7 +97,7 @@ func initUsersTestData() *UsersHandler {
 				}
 				return nil
 			},
-			SaveUserFunc: func(accountID, userID string, update *server.User) (*server.UserInfo, error) {
+			SaveUserFunc: func(_ context.Context, accountID, userID string, update *server.User) (*server.UserInfo, error) {
 				if update.Id == notFoundUserID {
 					return nil, status.Errorf(status.NotFound, "user with ID %s does not exists", update.Id)
 				}
@@ -111,7 +112,7 @@ func initUsersTestData() *UsersHandler {
 				}
 				return info, nil
 			},
-			InviteUserFunc: func(accountID string, initiatorUserID string, targetUserID string) error {
+			InviteUserFunc: func(_ context.Context, accountID string, initiatorUserID string, targetUserID string) error {
 				if initiatorUserID != existingUserID {
 					return status.Errorf(status.NotFound, "user with ID %s does not exists", initiatorUserID)
 				}
