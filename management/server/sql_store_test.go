@@ -582,7 +582,7 @@ func TestMigrate(t *testing.T) {
 	}
 
 	err = store.db.Save(nRT).Error
-	require.NoError(t, err, "Failed to insert Gob data")
+	require.NoError(t, err, "Failed to insert json nil slice data")
 
 	err = migrate(store.db)
 	require.NoError(t, err, "Migration should not fail on gob populated db")
