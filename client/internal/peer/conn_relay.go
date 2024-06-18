@@ -78,6 +78,8 @@ func (conn *ConnectorRelay) SetupRelayConnection() {
 			rosenpassPubKey: remoteOfferAnswer.RosenpassPubKey,
 			rosenpassAddr:   remoteOfferAnswer.RosenpassAddr,
 		})
+
+		// todo: waitForDisconnection()
 	}
 }
 
@@ -97,8 +99,8 @@ func (conn *ConnectorRelay) preferredRelayServer(myRelayAddress, remoteRelayAddr
 	return remoteRelayAddress
 }
 
-func (conn *ConnectorRelay) RelayIsSupported() bool {
-	return conn.relayManager.IsSupported()
+func (conn *ConnectorRelay) RelayIsSupportedLocally() bool {
+	return conn.relayManager.HasRelayAddress()
 }
 
 // waitForReconnectTry waits for a random duration before trying to reconnect

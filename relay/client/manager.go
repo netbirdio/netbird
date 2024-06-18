@@ -108,7 +108,7 @@ func (m *Manager) RelayAddress() (net.Addr, error) {
 	return m.relayClient.RelayRemoteAddress()
 }
 
-func (m *Manager) IsSupported() bool {
+func (m *Manager) HasRelayAddress() bool {
 	return m.srvAddress != ""
 }
 

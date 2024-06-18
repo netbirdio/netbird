@@ -212,7 +212,7 @@ func NewEngineWithProbes(
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
 		signal:         signalClient,
-		signaler:       NewSignaler(signalClient, config.WgPrivateKey),
+		signaler:       peer.NewSignaler(signalClient, config.WgPrivateKey),
 		mgmClient:      mgmClient,
 		relayManager:   relayManager,
 		peerConns:      make(map[string]*peer.Conn),

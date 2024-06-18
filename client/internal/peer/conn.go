@@ -152,7 +152,7 @@ func (conn *Conn) Open() {
 			log.Warnf("error while updating the state of peer %s,err: %v", conn.config.Key, err)
 		}
 	*/
-	relayIsSupportedLocally := conn.connectorRelay.RelayIsSupported()
+	relayIsSupportedLocally := conn.connectorRelay.RelayIsSupportedLocally()
 	if relayIsSupportedLocally {
 		go conn.connectorRelay.SetupRelayConnection()
 	}

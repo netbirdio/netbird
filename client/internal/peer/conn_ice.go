@@ -97,16 +97,7 @@ func NewConnectorICE(ctx context.Context, log *log.Entry, config ConnConfig, con
 // If the relay mode is supported then try to connect in p2p way only.
 // It is trying to reconnection in a loop until the context is canceled.
 // In case of success connection it will call the onICEConnReady callback.
-func (conn *ConnectorICE) SetupICEConnection(relayMode bool) {
-	var preferredCandidateTypes []ice.CandidateType
-	if relayMode {
-		conn.connPriority = connPriorityICEP2P
-		preferredCandidateTypes = candidateTypesP2P()
-	} else {
-		conn.connPriority = connPriorityICETurn
-		preferredCandidateTypes = candidateTypes()
-	}
-
+func (conn *ConnectorICE) SetupICEConnection(hasRelayOnLocally bool) {
 	for {
 		if !conn.waitForReconnectTry() {
 			return
@@ -118,6 +109,15 @@ func (conn *ConnectorICE) SetupICEConnection(relayMode bool) {
 				conn.log.Infof("signal client isn't ready, skipping connection attempt")
 			}
 			continue
+		}
+
+		var preferredCandidateTypes []ice.CandidateType
+		if hasRelayOnLocally && remoteOfferAnswer.RelaySrvAddress != "" {
+			conn.connPriority = connPriorityICEP2P
+			preferredCandidateTypes = candidateTypesP2P()
+		} else {
+			conn.connPriority = connPriorityICETurn
+			preferredCandidateTypes = candidateTypes()
 		}
 
 		ctx, ctxCancel := context.WithCancel(conn.ctx)
