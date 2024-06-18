@@ -826,6 +826,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		if err != nil {
 			return fmt.Errorf("create peer connection: %w", err)
 		}
+		conn.Open()
 		e.peerConns[peerKey] = conn
 
 		if e.beforePeerHook != nil && e.afterPeerHook != nil {
