@@ -161,11 +161,12 @@ type serviceClient struct {
 	sRosenpassPermissive *widget.Check
 
 	// observable settings over corresponding iMngURL and iPreSharedKey values.
-	managementURL string
-	preSharedKey  string
-	adminURL      string
-	configFile    string
-	interfacePort int
+	managementURL       string
+	preSharedKey        string
+	adminURL            string
+	RosenpassPermissive bool
+	interfaceName       string
+	interfacePort       int
 
 	connected            bool
 	update               *version.Update
@@ -274,55 +275,41 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				}
 			}
 
-			port, err := strconv.Atoi(s.iInterfacePort.Text)
+			port, err := strconv.ParseInt(s.iInterfacePort.Text, 10, 64)
 			if err != nil {
 				dialog.ShowError(errors.New("Invalid interface port"), s.wSettings)
 				return
 			}
-			s.interfacePort = port
 
 			defer s.wSettings.Close()
-			// if management URL or Pre-shared key changed, we try to re-login with new settings.
+
+			// If the management URL, pre-shared key, admin URL, Rosenpass permissive mode,
+			// interface name, or interface port have changed, we attempt to re-login with the new settings.
 			if s.managementURL != s.iMngURL.Text || s.preSharedKey != s.iPreSharedKey.Text ||
-				s.adminURL != s.iAdminURL.Text {
+				s.adminURL != s.iAdminURL.Text || s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
+				s.interfaceName != s.iInterfaceName.Text || s.interfacePort != int(port) {
 
 				s.managementURL = s.iMngURL.Text
 				s.preSharedKey = s.iPreSharedKey.Text
 				s.adminURL = s.iAdminURL.Text
 
-				client, err := s.getSrvClient(failFastTimeout)
-				if err != nil {
-					log.Errorf("get daemon client: %v", err)
-					return
-				}
-
 				loginRequest := proto.LoginRequest{
 					ManagementUrl:        s.iMngURL.Text,
 					AdminURL:             s.iAdminURL.Text,
 					IsLinuxDesktopClient: runtime.GOOS == "linux",
+					RosenpassPermissive:  &s.sRosenpassPermissive.Checked,
+					InterfaceName:        &s.iInterfaceName.Text,
+					WireguardPort:        &port,
 				}
 
 				if s.iPreSharedKey.Text != "**********" {
 					loginRequest.OptionalPreSharedKey = &s.iPreSharedKey.Text
 				}
 
-				_, err = client.Login(s.ctx, &loginRequest)
-				if err != nil {
-					log.Errorf("login to management URL: %v", err)
+				if err := s.restartClient(&loginRequest); err != nil {
+					log.Errorf("restarting client connection: %v", err)
 					return
 				}
-
-				_, err = client.Up(s.ctx, &proto.UpRequest{})
-				if err != nil {
-					log.Errorf("login to management URL: %v", err)
-					return
-				}
-
-			}
-
-			if err := s.updateConfig(); err != nil {
-				log.Errorf("failed to update config: %v", err)
-				return
 			}
 		},
 		OnCancel: func() {
@@ -730,7 +717,9 @@ func (s *serviceClient) getSrvConfig() {
 		s.adminURL = cfg.AdminURL
 	}
 	s.preSharedKey = cfg.PreSharedKey
-	s.configFile = cfg.ConfigFile
+	s.RosenpassPermissive = cfg.RosenpassPermissive
+	s.interfaceName = cfg.InterfaceName
+	s.interfacePort = int(cfg.WireguardPort)
 
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
@@ -738,16 +727,13 @@ func (s *serviceClient) getSrvConfig() {
 		s.iConfigFile.SetText(cfg.ConfigFile)
 		s.iLogFile.SetText(cfg.LogFile)
 		s.iPreSharedKey.SetText(cfg.PreSharedKey)
-
-		config, err := internal.ReadConfig(cfg.ConfigFile)
-		if err == nil {
-			s.iInterfaceName.SetText(config.WgIface)
-			s.iInterfacePort.SetText(strconv.Itoa(config.WgPort))
-			s.sRosenpassPermissive.SetChecked(config.RosenpassPermissive)
-			if !config.RosenpassEnabled {
-				s.sRosenpassPermissive.Disable()
-			}
+		s.iInterfaceName.SetText(cfg.InterfaceName)
+		s.iInterfacePort.SetText(strconv.Itoa(int(cfg.WireguardPort)))
+		s.sRosenpassPermissive.SetChecked(cfg.RosenpassPermissive)
+		if !cfg.RosenpassEnabled {
+			s.sRosenpassPermissive.Disable()
 		}
+
 	}
 }
 
@@ -784,66 +770,54 @@ func (s *serviceClient) onSessionExpire() {
 
 // loadSettings loads the settings from the config file and updates the UI elements accordingly.
 func (s *serviceClient) loadSettings() {
-	s.getSrvConfig()
-
-	config, err := internal.ReadConfig(s.configFile)
+	conn, err := s.getSrvClient(failFastTimeout)
 	if err != nil {
-		log.Errorf("read config %s: %v", s.configFile, err)
+		log.Errorf("get client: %v", err)
 		return
 	}
 
-	if config.ServerSSHAllowed != nil {
-		sshAllowed := *config.ServerSSHAllowed
-		if sshAllowed {
-			s.mAllowSSH.Check()
-		} else {
-			s.mAllowSSH.Uncheck()
-		}
+	cfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{})
+	if err != nil {
+		log.Errorf("get config settings from server: %v", err)
+		return
 	}
 
-	if config.DisableAutoConnect {
+	if cfg.ServerSSHAllowed {
+		s.mAllowSSH.Check()
+	} else {
+		s.mAllowSSH.Uncheck()
+	}
+
+	if cfg.DisableAutoConnect {
 		s.mAutoConnect.Uncheck()
 	} else {
 		s.mAutoConnect.Check()
 	}
 
-	if config.RosenpassEnabled {
+	if cfg.RosenpassEnabled {
 		s.mEnableRosenpass.Check()
 	} else {
 		s.mEnableRosenpass.Uncheck()
 	}
+
+	return
 }
 
 // updateConfig updates the configuration parameters
 // based on the values selected in the settings window.
 func (s *serviceClient) updateConfig() error {
-	var updatedConfig internal.ConfigInput
-	if s.showAdvancedSettings {
-		updatedConfig = internal.ConfigInput{
-			ConfigPath:          s.iConfigFile.Text,
-			RosenpassPermissive: &s.sRosenpassPermissive.Checked,
-			InterfaceName:       &s.iInterfaceName.Text,
-			WireguardPort:       &s.interfacePort,
-		}
-	} else {
-		disableAutoStart := !s.mAutoConnect.Checked()
-		sshAllowed := s.mAllowSSH.Checked()
-		rosenpassEnabled := s.mEnableRosenpass.Checked()
+	disableAutoStart := !s.mAutoConnect.Checked()
+	sshAllowed := s.mAllowSSH.Checked()
+	rosenpassEnabled := s.mEnableRosenpass.Checked()
 
-		updatedConfig = internal.ConfigInput{
-			ConfigPath:         s.configFile,
-			ServerSSHAllowed:   &sshAllowed,
-			RosenpassEnabled:   &rosenpassEnabled,
-			DisableAutoConnect: &disableAutoStart,
-		}
+	loginRequest := proto.LoginRequest{
+		IsLinuxDesktopClient: runtime.GOOS == "linux",
+		ServerSSHAllowed:     &sshAllowed,
+		RosenpassEnabled:     &rosenpassEnabled,
+		DisableAutoConnect:   &disableAutoStart,
 	}
 
-	_, err := internal.UpdateConfig(updatedConfig)
-	if err != nil {
-		return err
-	}
-
-	if err = s.restartClientConn(); err != nil {
+	if err := s.restartClient(&loginRequest); err != nil {
 		log.Errorf("restarting client connection: %v", err)
 		return err
 	}
@@ -851,15 +825,14 @@ func (s *serviceClient) updateConfig() error {
 	return nil
 }
 
-// restartClientConn restarts the client connection.
-func (s *serviceClient) restartClientConn() error {
-
+// restartClient restarts the client connection.
+func (s *serviceClient) restartClient(loginRequest *proto.LoginRequest) error {
 	client, err := s.getSrvClient(failFastTimeout)
 	if err != nil {
 		return err
 	}
 
-	_, err = client.Login(s.ctx, &proto.LoginRequest{})
+	_, err = client.Login(s.ctx, loginRequest)
 	if err != nil {
 		return err
 	}
