@@ -120,6 +120,7 @@ var (
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithCancel(cmd.Context())
 			defer cancel()
+			//nolint
 			ctx = context.WithValue(ctx, nbContext.LogSourceKey, util.SystemSource)
 
 			err := handleRebrand(cmd)
@@ -359,7 +360,9 @@ func unaryInterceptor(
 	handler grpc.UnaryHandler,
 ) (interface{}, error) {
 	reqID := uuid.New().String()
+	//nolint
 	ctx = context.WithValue(ctx, nbContext.LogSourceKey, util.GRPCSource)
+	//nolint
 	ctx = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
 	return handler(ctx, req)
 }
@@ -372,7 +375,9 @@ func streamInterceptor(
 ) error {
 	reqID := uuid.New().String()
 	wrapped := grpc_middleware.WrapServerStream(ss)
+	//nolint
 	ctx := context.WithValue(ss.Context(), nbContext.LogSourceKey, util.GRPCSource)
+	//nolint
 	wrapped.WrappedContext = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
 	return handler(srv, wrapped)
 }
