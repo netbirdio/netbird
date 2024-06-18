@@ -80,7 +80,8 @@ type Conn struct {
 	onConnected    func(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string)
 	onDisconnected func(remotePeer string, wgIP string)
 
-	status ConnStatus
+	statusRelay ConnStatus
+	statusICE   ConnStatus
 
 	workerICE   *WorkerICE
 	workerRelay *WorkerRelay
@@ -113,11 +114,12 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		signaler:       signaler,
 		allowedIPsIP:   allowedIPsIP.String(),
 		handshaker:     NewHandshaker(ctx, config, signaler),
-		status:         StatusDisconnected,
+		statusRelay:    StatusDisconnected,
+		statusICE:      StatusDisconnected,
 		closeCh:        make(chan struct{}),
 	}
-	conn.workerICE = NewWorkerICE(ctx, conn.log, config, config.ICEConfig, signaler, iFaceDiscover, statusRecorder, conn.iCEConnectionIsReady, conn.doHandshake)
-	conn.workerRelay = NewWorkerRelay(ctx, conn.log, relayManager, config, conn.relayConnectionIsReady, conn.doHandshake)
+	conn.workerICE = NewWorkerICE(ctx, conn.log, config, config.ICEConfig, signaler, iFaceDiscover, statusRecorder, conn.iCEConnectionIsReady, conn.onWorkerICEStateChanged, conn.doHandshake)
+	conn.workerRelay = NewWorkerRelay(ctx, conn.log, relayManager, config, conn.relayConnectionIsReady, conn.onWorkerRelayStateChanged, conn.doHandshake)
 	return conn, nil
 }
 
@@ -140,18 +142,6 @@ func (conn *Conn) Open() {
 		conn.log.Warnf("error while updating the state err: %v", err)
 	}
 
-	/*
-		peerState = State{
-			PubKey:           conn.config.Key,
-			ConnStatus:       StatusConnecting,
-			ConnStatusUpdate: time.Now(),
-			Mux:              new(sync.RWMutex),
-		}
-		err = conn.statusRecorder.UpdatePeerState(peerState)
-		if err != nil {
-			log.Warnf("error while updating the state of peer %s,err: %v", conn.config.Key, err)
-		}
-	*/
 	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
 	if relayIsSupportedLocally {
 		go conn.workerRelay.SetupRelayConnection()
@@ -188,15 +178,16 @@ func (conn *Conn) Close() {
 		conn.connID = ""
 	}
 
-	if conn.status == StatusConnected && conn.onDisconnected != nil {
+	if conn.evalStatus() == StatusConnected && conn.onDisconnected != nil {
 		conn.onDisconnected(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps)
 	}
 
-	conn.status = StatusDisconnected
+	conn.statusRelay = StatusDisconnected
+	conn.statusICE = StatusDisconnected
 
 	peerState := State{
 		PubKey:           conn.config.Key,
-		ConnStatus:       conn.status,
+		ConnStatus:       StatusDisconnected,
 		ConnStatusUpdate: time.Now(),
 		Mux:              new(sync.RWMutex),
 	}
@@ -214,7 +205,7 @@ func (conn *Conn) Close() {
 // OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
 // doesn't block, discards the message if connection wasn't ready
 func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) bool {
-	conn.log.Debugf("OnRemoteAnswer, status %s", conn.status.String())
+	conn.log.Debugf("OnRemoteAnswer, status ICE: %s, status relay: %s", conn.statusICE, conn.statusRelay)
 	return conn.handshaker.OnRemoteAnswer(answer)
 }
 
@@ -242,7 +233,7 @@ func (conn *Conn) SetOnDisconnected(handler func(remotePeer string, wgIP string)
 }
 
 func (conn *Conn) OnRemoteOffer(offer OfferAnswer) bool {
-	conn.log.Debugf("OnRemoteOffer, on status %s", conn.status.String())
+	conn.log.Debugf("OnRemoteOffer, on status ICE: %s, status relay: %s", conn.statusICE, conn.statusRelay)
 	return conn.handshaker.OnRemoteOffer(offer)
 }
 
@@ -255,11 +246,63 @@ func (conn *Conn) WgConfig() WgConfig {
 func (conn *Conn) Status() ConnStatus {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
-	return conn.status
+	return conn.evalStatus()
 }
 
 func (conn *Conn) GetKey() string {
 	return conn.config.Key
+}
+
+func (conn *Conn) onWorkerICEStateChanged(newState ConnStatus) {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	defer func() {
+		conn.statusICE = newState
+	}()
+
+	if conn.statusRelay == StatusConnected {
+		return
+	}
+
+	if conn.evalStatus() == newState {
+		return
+	}
+
+	if newState > conn.statusICE {
+		peerState := State{
+			PubKey:           conn.config.Key,
+			ConnStatus:       newState,
+			ConnStatusUpdate: time.Now(),
+			Mux:              new(sync.RWMutex),
+		}
+		_ = conn.statusRecorder.UpdatePeerState(peerState)
+	}
+}
+
+func (conn *Conn) onWorkerRelayStateChanged(newState ConnStatus) {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	defer func() {
+		conn.statusRelay = newState
+	}()
+
+	if conn.statusICE == StatusConnected {
+		return
+	}
+
+	if conn.evalStatus() == newState {
+		return
+	}
+
+	if newState > conn.statusRelay {
+		peerState := State{
+			PubKey:           conn.config.Key,
+			ConnStatus:       newState,
+			ConnStatusUpdate: time.Now(),
+			Mux:              new(sync.RWMutex),
+		}
+		_ = conn.statusRecorder.UpdatePeerState(peerState)
+	}
 }
 
 func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
@@ -269,6 +312,8 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 	if conn.ctx.Err() != nil {
 		return
 	}
+
+	conn.statusRelay = stateConnected
 
 	if conn.currentConnType > connPriorityRelay {
 		return
@@ -325,6 +370,8 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 	if conn.ctx.Err() != nil {
 		return
 	}
+
+	conn.statusICE = stateConnected
 
 	if conn.currentConnType > priority {
 		return
@@ -390,8 +437,6 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 }
 
 func (conn *Conn) updateStatus(peerState State, remoteRosenpassPubKey []byte, remoteRosenpassAddr string) {
-	conn.status = StatusConnected
-
 	peerState.PubKey = conn.config.Key
 	peerState.ConnStatus = StatusConnected
 	peerState.ConnStatusUpdate = time.Now()
@@ -432,6 +477,18 @@ func (conn *Conn) doHandshake() (*OfferAnswer, error) {
 		pwd,
 		addr.String(),
 	})
+}
+
+func (conn *Conn) evalStatus() ConnStatus {
+	if conn.statusRelay == StatusConnected || conn.statusICE == StatusConnected {
+		return StatusConnected
+	}
+
+	if conn.statusRelay == StatusConnecting || conn.statusICE == StatusConnecting {
+		return StatusConnecting
+	}
+
+	return StatusDisconnected
 }
 
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {

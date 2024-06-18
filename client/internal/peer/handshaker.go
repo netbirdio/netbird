@@ -116,7 +116,7 @@ func (h *Handshaker) OnRemoteOffer(offer OfferAnswer) bool {
 	case h.remoteOffersCh <- offer:
 		return true
 	default:
-		log.Debugf("OnRemoteOffer skipping message from peer %s on status %s because is not ready", h.config.Key, conn.status.String())
+		log.Debugf("OnRemoteOffer skipping message from peer %s because is not ready", h.config.Key)
 		// connection might not be ready yet to receive so we ignore the message
 		return false
 	}
@@ -130,7 +130,7 @@ func (h *Handshaker) OnRemoteAnswer(answer OfferAnswer) bool {
 		return true
 	default:
 		// connection might not be ready yet to receive so we ignore the message
-		log.Debugf("OnRemoteAnswer skipping message from peer %s on status %s because is not ready", h.config.Key, conn.status.String())
+		log.Debugf("OnRemoteAnswer skipping message from peer %s because is not ready", h.config.Key)
 		return false
 	}
 }

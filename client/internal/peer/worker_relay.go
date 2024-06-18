@@ -26,16 +26,18 @@ type WorkerRelay struct {
 	relayManager       *relayClient.Manager
 	config             ConnConfig
 	onRelayConnReadyFN OnRelayReadyCallback
+	onStatusChanged    func(ConnStatus)
 	doHandshakeFn      DoHandshake
 }
 
-func NewWorkerRelay(ctx context.Context, log *log.Entry, relayManager *relayClient.Manager, config ConnConfig, onRelayConnReadyFN OnRelayReadyCallback, doHandshakeFn DoHandshake) *WorkerRelay {
+func NewWorkerRelay(ctx context.Context, log *log.Entry, relayManager *relayClient.Manager, config ConnConfig, onRelayConnReadyFN OnRelayReadyCallback, onStatusChanged func(ConnStatus), doHandshakeFn DoHandshake) *WorkerRelay {
 	return &WorkerRelay{
 		ctx:                ctx,
 		log:                log,
 		relayManager:       relayManager,
 		config:             config,
 		onRelayConnReadyFN: onRelayConnReadyFN,
+		onStatusChanged:    onStatusChanged,
 		doHandshakeFn:      doHandshakeFn,
 	}
 }

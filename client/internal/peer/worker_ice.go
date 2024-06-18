@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -59,36 +60,39 @@ type ICEConnInfo struct {
 }
 
 type WorkerICE struct {
-	ctx            context.Context
-	log            *log.Entry
-	config         ConnConfig
-	configICE      ICEConfig
-	signaler       *Signaler
-	iFaceDiscover  stdnet.ExternalIFaceDiscover
-	statusRecorder *Status
-	onICEConnReady OnICEConnReadyCallback
-	doHandshakeFn  DoHandshake
+	ctx             context.Context
+	log             *log.Entry
+	config          ConnConfig
+	configICE       ICEConfig
+	signaler        *Signaler
+	iFaceDiscover   stdnet.ExternalIFaceDiscover
+	statusRecorder  *Status
+	onICEConnReady  OnICEConnReadyCallback
+	onStatusChanged func(ConnStatus)
+	doHandshakeFn   DoHandshake
 
-	connPriority ConnPriority
+	selectedPriority ConnPriority
 
-	agent *ice.Agent
+	agent    *ice.Agent
+	muxAgent sync.RWMutex
 
 	StunTurn []*stun.URI
 
 	sentExtraSrflx bool
 }
 
-func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, configICE ICEConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, onICEConnReady OnICEConnReadyCallback, doHandshakeFn DoHandshake) *WorkerICE {
+func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, configICE ICEConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, onICEConnReady OnICEConnReadyCallback, onStatusChanged func(ConnStatus), doHandshakeFn DoHandshake) *WorkerICE {
 	cice := &WorkerICE{
-		ctx:            ctx,
-		log:            log,
-		config:         config,
-		configICE:      configICE,
-		signaler:       signaler,
-		iFaceDiscover:  ifaceDiscover,
-		statusRecorder: statusRecorder,
-		onICEConnReady: onICEConnReady,
-		doHandshakeFn:  doHandshakeFn,
+		ctx:             ctx,
+		log:             log,
+		config:          config,
+		configICE:       configICE,
+		signaler:        signaler,
+		iFaceDiscover:   ifaceDiscover,
+		statusRecorder:  statusRecorder,
+		onICEConnReady:  onICEConnReady,
+		onStatusChanged: onStatusChanged,
+		doHandshakeFn:   doHandshakeFn,
 	}
 	return cice
 }
@@ -103,6 +107,8 @@ func (w *WorkerICE) SetupICEConnection(hasRelayOnLocally bool) {
 			return
 		}
 
+		w.onStatusChanged(StatusConnecting)
+
 		remoteOfferAnswer, err := w.doHandshakeFn()
 		if err != nil {
 			if errors.Is(err, ErrSignalIsNotReady) {
@@ -113,10 +119,10 @@ func (w *WorkerICE) SetupICEConnection(hasRelayOnLocally bool) {
 
 		var preferredCandidateTypes []ice.CandidateType
 		if hasRelayOnLocally && remoteOfferAnswer.RelaySrvAddress != "" {
-			w.connPriority = connPriorityICEP2P
+			w.selectedPriority = connPriorityICEP2P
 			preferredCandidateTypes = candidateTypesP2P()
 		} else {
-			w.connPriority = connPriorityICETurn
+			w.selectedPriority = connPriorityICETurn
 			preferredCandidateTypes = candidateTypes()
 		}
 
@@ -126,7 +132,9 @@ func (w *WorkerICE) SetupICEConnection(hasRelayOnLocally bool) {
 			ctxCancel()
 			continue
 		}
+		w.muxAgent.Lock()
 		w.agent = agent
+		w.muxAgent.Unlock()
 
 		err = w.agent.GatherCandidates()
 		if err != nil {
@@ -172,16 +180,19 @@ func (w *WorkerICE) SetupICEConnection(hasRelayOnLocally bool) {
 			Relayed:                    isRelayed(pair),
 			RelayedOnLocal:             isRelayCandidate(pair.Local),
 		}
-		go w.onICEConnReady(w.connPriority, ci)
+		go w.onICEConnReady(w.selectedPriority, ci)
 
 		<-ctx.Done()
 		ctxCancel()
 		_ = w.agent.Close()
+		w.onStatusChanged(StatusDisconnected)
 	}
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
 func (w *WorkerICE) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMap) {
+	w.muxAgent.RLocker()
+	defer w.muxAgent.RUnlock()
 	w.log.Debugf("OnRemoteCandidate from peer %s -> %s", w.config.Key, candidate.String())
 	if w.agent == nil {
 		return
