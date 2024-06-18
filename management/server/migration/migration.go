@@ -36,7 +36,7 @@ func MigrateFieldFromGobToJSON[T any, S any](db *gorm.DB, fieldName string) erro
 	tableName := stmt.Schema.Table
 
 	var sqliteItem sql.NullString
-	if err := db.Model(model).Select(oldColumnName).First(&sqliteItem).Order("id").Error; err != nil {
+	if err := db.Model(model).Select(oldColumnName).First(&sqliteItem).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			log.Debugf("No records in table %s, no migration needed", tableName)
 			return nil
