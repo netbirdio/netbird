@@ -108,10 +108,14 @@ func (conn *ConnectorRelay) waitForReconnectTry() bool {
 	minWait := 500
 	maxWait := 2000
 	duration := time.Duration(rand.Intn(maxWait-minWait)+minWait) * time.Millisecond
+
+	timeout := time.NewTimer(duration)
+	defer timeout.Stop()
+
 	select {
 	case <-conn.ctx.Done():
 		return false
-	case <-time.After(duration):
+	case <-timeout.C:
 		return true
 	}
 }

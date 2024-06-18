@@ -112,7 +112,6 @@ func (h *Handshaker) Handshake(args HandshakeArgs) (*OfferAnswer, error) {
 // OnRemoteOffer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
 // doesn't block, discards the message if connection wasn't ready
 func (h *Handshaker) OnRemoteOffer(offer OfferAnswer) bool {
-
 	select {
 	case h.remoteOffersCh <- offer:
 		return true
@@ -173,6 +172,9 @@ func (h *Handshaker) sendAnswer() error {
 }
 
 func (h *Handshaker) waitForRemoteOfferConfirmation() (*OfferAnswer, error) {
+	timeout := time.NewTimer(h.config.Timeout)
+	defer timeout.Stop()
+
 	select {
 	case remoteOfferAnswer := <-h.remoteOffersCh:
 		// received confirmation from the remote peer -> ready to proceed
@@ -183,7 +185,7 @@ func (h *Handshaker) waitForRemoteOfferConfirmation() (*OfferAnswer, error) {
 		return &remoteOfferAnswer, nil
 	case remoteOfferAnswer := <-h.remoteAnswerCh:
 		return &remoteOfferAnswer, nil
-	case <-time.After(h.config.Timeout):
+	case <-timeout.C:
 		return nil, NewConnectionTimeoutError(h.config.Key, h.config.Timeout)
 	case <-h.ctx.Done():
 		// closed externally

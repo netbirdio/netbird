@@ -24,8 +24,11 @@ func NewGuard(context context.Context, relayClient *Client) *Guard {
 }
 
 func (g *Guard) OnDisconnected() {
+	timeout := time.NewTimer(reconnectingTimeout)
+	defer timeout.Stop()
+
 	select {
-	case <-time.After(time.Second):
+	case <-timeout.C:
 		_ = g.relayClient.Connect()
 	case <-g.ctx.Done():
 		return
