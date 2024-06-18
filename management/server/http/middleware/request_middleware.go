@@ -26,13 +26,17 @@ func NewRequestMiddleware(claimsExtract *jwtclaims.ClaimsExtractor) *RequestMidd
 // Handler method of the middleware which enriches context with requestID and accountID
 func (a *RequestMiddleware) Handler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		//nolint
 		ctx := context.WithValue(r.Context(), nbContext.LogSourceKey, util.HTTPSource)
 
 		reqID := uuid.New().String()
+		//nolint
 		ctx = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
 
 		claims := a.claimsExtract.FromRequestContext(r)
+		//nolint
 		ctx = context.WithValue(ctx, nbContext.InitiatorIDKey, claims.UserId)
+		//nolint
 		ctx = context.WithValue(ctx, nbContext.AccountIDKey, claims.AccountId)
 
 		h.ServeHTTP(w, r.WithContext(ctx))
