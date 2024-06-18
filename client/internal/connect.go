@@ -54,24 +54,22 @@ func NewConnectClient(
 }
 
 // Run with main logic.
-func (c *ConnectClient) Run(ctx context.Context) error {
-	return c.run(ctx, MobileDependency{}, nil, nil, nil, nil)
+func (c *ConnectClient) Run() error {
+	return c.run(MobileDependency{}, nil, nil, nil, nil)
 }
 
 // RunWithProbes runs the client's main logic with probes attached
 func (c *ConnectClient) RunWithProbes(
-	ctx context.Context,
 	mgmProbe *Probe,
 	signalProbe *Probe,
 	relayProbe *Probe,
 	wgProbe *Probe,
 ) error {
-	return c.run(ctx, MobileDependency{}, mgmProbe, signalProbe, relayProbe, wgProbe)
+	return c.run(MobileDependency{}, mgmProbe, signalProbe, relayProbe, wgProbe)
 }
 
 // RunOnAndroid with main logic on mobile system
 func (c *ConnectClient) RunOnAndroid(
-	ctx context.Context,
 	tunAdapter iface.TunAdapter,
 	iFaceDiscover stdnet.ExternalIFaceDiscover,
 	networkChangeListener listener.NetworkChangeListener,
@@ -86,11 +84,10 @@ func (c *ConnectClient) RunOnAndroid(
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 	}
-	return c.run(ctx, mobileDependency, nil, nil, nil, nil)
+	return c.run(mobileDependency, nil, nil, nil, nil)
 }
 
 func (c *ConnectClient) RunOniOS(
-	ctx context.Context,
 	fileDescriptor int32,
 	networkChangeListener listener.NetworkChangeListener,
 	dnsManager dns.IosDnsManager,
@@ -103,11 +100,10 @@ func (c *ConnectClient) RunOniOS(
 		NetworkChangeListener: networkChangeListener,
 		DnsManager:            dnsManager,
 	}
-	return c.run(ctx, mobileDependency, nil, nil, nil, nil)
+	return c.run(mobileDependency, nil, nil, nil, nil)
 }
 
 func (c *ConnectClient) run(
-	ctx context.Context,
 	mobileDependency MobileDependency,
 	mgmProbe *Probe,
 	signalProbe *Probe,
@@ -262,7 +258,7 @@ func (c *ConnectClient) run(
 		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, c.statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe, checks)
 		c.engineMutex.Unlock()
 
-		err = c.engine.Start(ctx)
+		err = c.engine.Start()
 		if err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
@@ -375,13 +371,13 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.WiretrusteeConfig, 
 // loginToManagement creates Management Services client, establishes a connection, logs-in and gets a global Wiretrustee config (signal, turn, stun hosts, etc)
 func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte) (*mgmProto.LoginResponse, error) {
 
-	serverPublicKey, err := client.GetServerPublicKey(ctx)
+	serverPublicKey, err := client.GetServerPublicKey()
 	if err != nil {
 		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed while getting Management Service public key: %s", err)
 	}
 
 	sysInfo := system.GetInfo(ctx)
-	loginResp, err := client.Login(ctx, *serverPublicKey, sysInfo, pubSSHKey)
+	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey)
 	if err != nil {
 		return nil, err
 	}
