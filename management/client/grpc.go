@@ -118,7 +118,7 @@ func (c *GrpcClient) ready() bool {
 
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
-func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
+func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler func(ctx context.Context, msg *proto.SyncResponse) error) error {
 	operation := func() error {
 		log.WithContext(ctx).Debugf("management connection state %v", c.conn.GetState())
 		connState := c.conn.GetState()
@@ -130,7 +130,7 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 			return fmt.Errorf("connection to management is not ready and in %s state", connState)
 		}
 
-		serverPubKey, err := c.GetServerPublicKey()
+		serverPubKey, err := c.GetServerPublicKey(ctx)
 		if err != nil {
 			log.WithContext(ctx).Debugf(errMsgMgmtPublicKey, err)
 			return err
@@ -148,7 +148,7 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 }
 
 func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info,
-	msgHandler func(msg *proto.SyncResponse) error) error {
+	msgHandler func(ctx context.Context, msg *proto.SyncResponse) error) error {
 	ctx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
 
@@ -165,7 +165,7 @@ func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key,
 	c.notifyConnected()
 
 	// blocking until error
-	err = c.receiveEvents(stream, serverPubKey, msgHandler)
+	err = c.receiveEvents(ctx, stream, serverPubKey, msgHandler)
 	if err != nil {
 		s, _ := gstatus.FromError(err)
 		switch s.Code() {
@@ -185,8 +185,8 @@ func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key,
 }
 
 // GetNetworkMap return with the network map
-func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, error) {
-	serverPubKey, err := c.GetServerPublicKey()
+func (c *GrpcClient) GetNetworkMap(ctx context.Context, sysInfo *system.Info) (*proto.NetworkMap, error) {
+	serverPubKey, err := c.GetServerPublicKey(ctx)
 	if err != nil {
 		log.WithContext(ctx).Debugf("failed getting Management Service public key: %s", err)
 		return nil, err
@@ -246,7 +246,7 @@ func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.K
 	return sync, nil
 }
 
-func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, serverPubKey wgtypes.Key, msgHandler func(msg *proto.SyncResponse) error) error {
+func (c *GrpcClient) receiveEvents(ctx context.Context, stream proto.ManagementService_SyncClient, serverPubKey wgtypes.Key, msgHandler func(ctx context.Context, msg *proto.SyncResponse) error) error {
 	for {
 		update, err := stream.Recv()
 		if err == io.EOF {
@@ -266,7 +266,7 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 			return err
 		}
 
-		err = msgHandler(decryptedResp)
+		err = msgHandler(ctx, decryptedResp)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed handling an update message received from Management Service: %v", err.Error())
 			return err
@@ -275,7 +275,7 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 }
 
 // GetServerPublicKey returns server's WireGuard public key (used later for encrypting messages sent to the server)
-func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
+func (c *GrpcClient) GetServerPublicKey(ctx context.Context) (*wgtypes.Key, error) {
 	if !c.ready() {
 		return nil, fmt.Errorf(errMsgNoMgmtConnection)
 	}
@@ -322,7 +322,7 @@ func (c *GrpcClient) IsHealthy() bool {
 	return true
 }
 
-func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*proto.LoginResponse, error) {
+func (c *GrpcClient) login(ctx context.Context, serverKey wgtypes.Key, req *proto.LoginRequest) (*proto.LoginResponse, error) {
 	if !c.ready() {
 		return nil, fmt.Errorf(errMsgNoMgmtConnection)
 	}
@@ -354,26 +354,26 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 // Register registers peer on Management Server. It actually calls a Login endpoint with a provided setup key
 // Takes care of encrypting and decrypting messages.
 // This method will also collect system info and send it with the request (e.g. hostname, os, etc)
-func (c *GrpcClient) Register(serverKey wgtypes.Key, setupKey string, jwtToken string, sysInfo *system.Info, pubSSHKey []byte) (*proto.LoginResponse, error) {
+func (c *GrpcClient) Register(ctx context.Context, serverKey wgtypes.Key, setupKey string, jwtToken string, sysInfo *system.Info, pubSSHKey []byte) (*proto.LoginResponse, error) {
 	keys := &proto.PeerKeys{
 		SshPubKey: pubSSHKey,
 		WgPubKey:  []byte(c.key.PublicKey().String()),
 	}
-	return c.login(serverKey, &proto.LoginRequest{SetupKey: setupKey, Meta: infoToMetaData(sysInfo), JwtToken: jwtToken, PeerKeys: keys})
+	return c.login(ctx, serverKey, &proto.LoginRequest{SetupKey: setupKey, Meta: infoToMetaData(sysInfo), JwtToken: jwtToken, PeerKeys: keys})
 }
 
 // Login attempts login to Management Server. Takes care of encrypting and decrypting messages.
-func (c *GrpcClient) Login(serverKey wgtypes.Key, sysInfo *system.Info, pubSSHKey []byte) (*proto.LoginResponse, error) {
+func (c *GrpcClient) Login(ctx context.Context, serverKey wgtypes.Key, sysInfo *system.Info, pubSSHKey []byte) (*proto.LoginResponse, error) {
 	keys := &proto.PeerKeys{
 		SshPubKey: pubSSHKey,
 		WgPubKey:  []byte(c.key.PublicKey().String()),
 	}
-	return c.login(serverKey, &proto.LoginRequest{Meta: infoToMetaData(sysInfo), PeerKeys: keys})
+	return c.login(ctx, serverKey, &proto.LoginRequest{Meta: infoToMetaData(sysInfo), PeerKeys: keys})
 }
 
 // GetDeviceAuthorizationFlow returns a device authorization flow information.
 // It also takes care of encrypting and decrypting messages.
-func (c *GrpcClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error) {
+func (c *GrpcClient) GetDeviceAuthorizationFlow(ctx context.Context, serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error) {
 	if !c.ready() {
 		return nil, fmt.Errorf("no connection to management in order to get device authorization flow")
 	}
@@ -407,7 +407,7 @@ func (c *GrpcClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.D
 
 // GetPKCEAuthorizationFlow returns a pkce authorization flow information.
 // It also takes care of encrypting and decrypting messages.
-func (c *GrpcClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error) {
+func (c *GrpcClient) GetPKCEAuthorizationFlow(ctx context.Context, serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error) {
 	if !c.ready() {
 		return nil, fmt.Errorf("no connection to management in order to get pkce authorization flow")
 	}
@@ -441,12 +441,12 @@ func (c *GrpcClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKC
 
 // SyncMeta sends updated system metadata to the Management Service.
 // It should be used if there is changes on peer posture check after initial sync.
-func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
+func (c *GrpcClient) SyncMeta(ctx context.Context, sysInfo *system.Info) error {
 	if !c.ready() {
 		return fmt.Errorf(errMsgNoMgmtConnection)
 	}
 
-	serverPubKey, err := c.GetServerPublicKey()
+	serverPubKey, err := c.GetServerPublicKey(ctx)
 	if err != nil {
 		log.WithContext(ctx).Debugf(errMsgMgmtPublicKey, err)
 		return err

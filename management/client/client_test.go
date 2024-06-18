@@ -129,7 +129,7 @@ func closeManagementSilently(s *grpc.Server, listener net.Listener) {
 	s.GracefulStop()
 	err := listener.Close()
 	if err != nil {
-		log.WithContext(ctx).Warnf("error while closing management listener %v", err)
+		log.Warnf("error while closing management listener %v", err)
 		return
 	}
 }
@@ -148,7 +148,7 @@ func TestClient_GetServerPublicKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	key, err := client.GetServerPublicKey()
+	key, err := client.GetServerPublicKey(ctx)
 	if err != nil {
 		t.Error("couldn't retrieve management public key")
 	}
@@ -170,12 +170,12 @@ func TestClient_LoginUnregistered_ShouldThrow_401(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, err := client.GetServerPublicKey()
+	key, err := client.GetServerPublicKey(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sysInfo := system.GetInfo(context.TODO())
-	_, err = client.Login(*key, sysInfo, nil)
+	_, err = client.Login(ctx, *key, sysInfo, nil)
 	if err == nil {
 		t.Error("expecting err on unregistered login, got nil")
 	}
@@ -198,12 +198,12 @@ func TestClient_LoginRegistered(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	key, err := client.GetServerPublicKey()
+	key, err := client.GetServerPublicKey(ctx)
 	if err != nil {
 		t.Error(err)
 	}
 	info := system.GetInfo(context.TODO())
-	resp, err := client.Register(*key, ValidKey, "", info, nil)
+	resp, err := client.Register(ctx, *key, ValidKey, "", info, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -227,13 +227,13 @@ func TestClient_Sync(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	serverKey, err := client.GetServerPublicKey()
+	serverKey, err := client.GetServerPublicKey(ctx)
 	if err != nil {
 		t.Error(err)
 	}
 
 	info := system.GetInfo(context.TODO())
-	_, err = client.Register(*serverKey, ValidKey, "", info, nil)
+	_, err = client.Register(ctx, *serverKey, ValidKey, "", info, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -249,7 +249,7 @@ func TestClient_Sync(t *testing.T) {
 	}
 
 	info = system.GetInfo(context.TODO())
-	_, err = remoteClient.Register(*serverKey, ValidKey, "", info, nil)
+	_, err = remoteClient.Register(ctx, *serverKey, ValidKey, "", info, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestClient_Sync(t *testing.T) {
 	ch := make(chan *mgmtProto.SyncResponse, 1)
 
 	go func() {
-		err = client.Sync(context.Background(), info, func(msg *mgmtProto.SyncResponse) error {
+		err = client.Sync(context.Background(), info, func(ctx context.Context, msg *mgmtProto.SyncResponse) error {
 			ch <- msg
 			return nil
 		})
@@ -306,7 +306,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 		t.Fatalf("error while creating testClient: %v", err)
 	}
 
-	key, err := testClient.GetServerPublicKey()
+	key, err := testClient.GetServerPublicKey(ctx)
 	if err != nil {
 		t.Fatalf("error while getting server public key from testclient, %v", err)
 	}
@@ -347,7 +347,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 	}
 
 	info := system.GetInfo(context.TODO())
-	_, err = testClient.Register(*key, ValidKey, "", info, nil)
+	_, err = testClient.Register(ctx, *key, ValidKey, "", info, nil)
 	if err != nil {
 		t.Errorf("error while trying to register client: %v", err)
 	}
@@ -405,7 +405,7 @@ func isEqual(a, b *mgmtProto.PeerSystemMeta) bool {
 		}
 	}
 
-	log.WithContext(ctx).Infof("------")
+	log.Infof("------")
 
 	return a.GetHostname() == b.GetHostname() &&
 		a.GetGoOS() == b.GetGoOS() &&
@@ -459,7 +459,7 @@ func Test_GetDeviceAuthorizationFlow(t *testing.T) {
 		}, nil
 	}
 
-	flowInfo, err := client.GetDeviceAuthorizationFlow(serverKey)
+	flowInfo, err := client.GetDeviceAuthorizationFlow(ctx, serverKey)
 	if err != nil {
 		t.Error("error while retrieving device auth flow information")
 	}
@@ -505,7 +505,7 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 		}, nil
 	}
 
-	flowInfo, err := client.GetPKCEAuthorizationFlow(serverKey)
+	flowInfo, err := client.GetPKCEAuthorizationFlow(ctx, serverKey)
 	if err != nil {
 		t.Error("error while retrieving pkce auth flow information")
 	}

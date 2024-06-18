@@ -69,13 +69,13 @@ func GetDeviceAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmU
 		}
 	}()
 
-	serverKey, err := mgmClient.GetServerPublicKey()
+	serverKey, err := mgmClient.GetServerPublicKey(ctx)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed while getting Management Service public key: %v", err)
 		return DeviceAuthorizationFlow{}, err
 	}
 
-	protoDeviceAuthorizationFlow, err := mgmClient.GetDeviceAuthorizationFlow(*serverKey)
+	protoDeviceAuthorizationFlow, err := mgmClient.GetDeviceAuthorizationFlow(ctx, *serverKey)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			log.WithContext(ctx).Warnf("server couldn't find device flow, contact admin: %v", err)
