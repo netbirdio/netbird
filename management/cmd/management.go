@@ -255,15 +255,6 @@ var (
 				KeysLocation: config.HttpConfig.AuthKeysLocation,
 			}
 
-			// // Handle system interrupts to gracefully shutdown the application
-			// go func() {
-			// 	c := make(chan os.Signal, 1)
-			// 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-			// 	<-c
-			// 	log.Infof("received interrupt signal, shutting down...")
-			// 	cancel()
-			// }()
-
 			httpAPIHandler, err := httpapi.APIHandler(ctx, accountManager, geo, *jwtValidator, appMetrics, httpAPIAuthCfg, integratedPeerValidator)
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
