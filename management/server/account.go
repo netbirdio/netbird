@@ -138,7 +138,7 @@ type AccountManager interface {
 	CancelPeerRoutines(ctx context.Context, peer *nbpeer.Peer) error
 	SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error
 	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
-	GetAccountIDForPeerKey(peerKey string) (string, error)
+	GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error)
 }
 
 type DefaultAccountManager struct {
@@ -2005,8 +2005,8 @@ func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, chec
 	return am.Store.GetPostureCheckByChecksDefinition(accountID, checks)
 }
 
-func (am *DefaultAccountManager) GetAccountIDForPeerKey(peerKey string) (string, error) {
-	return am.Store.GetAccountIDByPeerPubKey(peerKey)
+func (am *DefaultAccountManager) GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error) {
+	return am.Store.GetAccountIDByPeerPubKey(ctx, peerKey)
 }
 
 // addAllGroup to account object if it doesn't exist
