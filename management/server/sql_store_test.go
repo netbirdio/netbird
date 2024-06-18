@@ -585,7 +585,7 @@ func TestMigrate(t *testing.T) {
 	require.NoError(t, err, "Failed to insert json nil slice data")
 
 	err = migrate(store.db)
-	require.NoError(t, err, "Migration should not fail on gob populated db")
+	require.NoError(t, err, "Migration should not fail on json nil slice populated db")
 
 	err = migrate(store.db)
 	require.NoError(t, err, "Migration should not fail on migrated db")
