@@ -185,7 +185,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 	runOperation := func() error {
 		log.Tracef("running client connection")
 		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
-		err := s.connectClient.RunWithProbes(ctx, mgmProbe, signalProbe, relayProbe, wgProbe)
+		err := s.connectClient.RunWithProbes(mgmProbe, signalProbe, relayProbe, wgProbe)
 		if err != nil {
 			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
 		}
