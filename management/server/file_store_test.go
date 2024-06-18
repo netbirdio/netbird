@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/sha256"
 	"net"
 	"path/filepath"
@@ -27,12 +28,12 @@ func TestStalePeerIndices(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir, nil)
+	store, err := NewFileStore(context.Background(), storeDir, nil)
 	if err != nil {
 		return
 	}
 
-	account, err := store.GetAccount("bf1c8084-ba50-4ce7-9439-34653001fc3b")
+	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
 	require.NoError(t, err)
 
 	peerID := "some_peer"
@@ -42,24 +43,24 @@ func TestStalePeerIndices(t *testing.T) {
 		Key: peerKey,
 	}
 
-	err = store.SaveAccount(account)
+	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	account.DeletePeer(peerID)
 
-	err = store.SaveAccount(account)
+	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
-	_, err = store.GetAccountByPeerID(peerID)
+	_, err = store.GetAccountByPeerID(context.Background(), peerID)
 	require.Error(t, err, "expecting to get an error when found stale index")
 
-	_, err = store.GetAccountByPeerPubKey(peerKey)
+	_, err = store.GetAccountByPeerPubKey(context.Background(), peerKey)
 	require.Error(t, err, "expecting to get an error when found stale index")
 }
 
 func TestNewStore(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
+	defer store.Close(context.Background())
 
 	if store.Accounts == nil || len(store.Accounts) != 0 {
 		t.Errorf("expected to create a new empty Accounts map when creating a new FileStore")
@@ -88,9 +89,9 @@ func TestNewStore(t *testing.T) {
 
 func TestSaveAccount(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
+	defer store.Close(context.Background())
 
-	account := newAccountWithId("account_id", "testuser", "")
+	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
 	setupKey := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
@@ -103,7 +104,7 @@ func TestSaveAccount(t *testing.T) {
 	}
 
 	// SaveAccount should trigger persist
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return
 	}
@@ -133,11 +134,11 @@ func TestDeleteAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir, nil)
+	store, err := NewFileStore(context.Background(), storeDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer store.Close(context.Background())
 
 	var account *Account
 	for _, a := range store.Accounts {
@@ -147,7 +148,7 @@ func TestDeleteAccount(t *testing.T) {
 
 	require.NotNil(t, account, "failed to restore a FileStore file and get at least one account")
 
-	err = store.DeleteAccount(account)
+	err = store.DeleteAccount(context.Background(), account)
 	require.NoError(t, err, "failed to delete account, error: %v", err)
 
 	_, ok := store.Accounts[account.Id]
@@ -183,9 +184,9 @@ func TestDeleteAccount(t *testing.T) {
 
 func TestStore(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
+	defer store.Close(context.Background())
 
-	account := newAccountWithId("account_id", "testuser", "")
+	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
 	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:      "peerkey",
 		SetupKey: "peerkeysetupkey",
@@ -228,12 +229,12 @@ func TestStore(t *testing.T) {
 	})
 
 	// SaveAccount should trigger persist
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return
 	}
 
-	restored, err := NewFileStore(store.storeFile, nil)
+	restored, err := NewFileStore(context.Background(), store.storeFile, nil)
 	if err != nil {
 		return
 	}
@@ -281,7 +282,7 @@ func TestRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir, nil)
+	store, err := NewFileStore(context.Background(), storeDir, nil)
 	if err != nil {
 		return
 	}
@@ -319,7 +320,7 @@ func TestRestoreGroups_Migration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir, nil)
+	store, err := NewFileStore(context.Background(), storeDir, nil)
 	if err != nil {
 		return
 	}
@@ -332,11 +333,11 @@ func TestRestoreGroups_Migration(t *testing.T) {
 			Name: "All",
 		},
 	}
-	err = store.SaveAccount(account)
+	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err, "failed to save account")
 
 	// restore account with default group with empty Issue field
-	if store, err = NewFileStore(storeDir, nil); err != nil {
+	if store, err = NewFileStore(context.Background(), storeDir, nil); err != nil {
 		return
 	}
 	account = store.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
@@ -353,18 +354,18 @@ func TestGetAccountByPrivateDomain(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir, nil)
+	store, err := NewFileStore(context.Background(), storeDir, nil)
 	if err != nil {
 		return
 	}
 
 	existingDomain := "test.com"
 
-	account, err := store.GetAccountByPrivateDomain(existingDomain)
+	account, err := store.GetAccountByPrivateDomain(context.Background(), existingDomain)
 	require.NoError(t, err, "should found account")
 	require.Equal(t, existingDomain, account.Domain, "domains should match")
 
-	_, err = store.GetAccountByPrivateDomain("missing-domain.com")
+	_, err = store.GetAccountByPrivateDomain(context.Background(), "missing-domain.com")
 	require.Error(t, err, "should return error on domain lookup")
 }
 
@@ -382,7 +383,7 @@ func TestFileStore_GetAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir, nil)
+	store, err := NewFileStore(context.Background(), storeDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,7 +394,7 @@ func TestFileStore_GetAccount(t *testing.T) {
 		return
 	}
 
-	account, err := store.GetAccount(expected.Id)
+	account, err := store.GetAccount(context.Background(), expected.Id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,13 +425,13 @@ func TestFileStore_GetTokenIDByHashedToken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir, nil)
+	store, err := NewFileStore(context.Background(), storeDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	hashedToken := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"].Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs["9dj38s35-63fb-11ec-90d6-0242ac120003"].HashedToken
-	tokenID, err := store.GetTokenIDByHashedToken(hashedToken)
+	tokenID, err := store.GetTokenIDByHashedToken(context.Background(), hashedToken)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -441,7 +442,7 @@ func TestFileStore_GetTokenIDByHashedToken(t *testing.T) {
 
 func TestFileStore_DeleteHashedPAT2TokenIDIndex(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
+	defer store.Close(context.Background())
 	store.HashedPAT2TokenID["someHashedToken"] = "someTokenId"
 
 	err := store.DeleteHashedPAT2TokenIDIndex("someHashedToken")
@@ -478,13 +479,13 @@ func TestFileStore_GetTokenIDByHashedToken_Failure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir, nil)
+	store, err := NewFileStore(context.Background(), storeDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	wrongToken := sha256.Sum256([]byte("someNotValidTokenThatFails1234"))
-	_, err = store.GetTokenIDByHashedToken(string(wrongToken[:]))
+	_, err = store.GetTokenIDByHashedToken(context.Background(), string(wrongToken[:]))
 
 	assert.Error(t, err, "GetTokenIDByHashedToken should throw error if token invalid")
 }
@@ -503,13 +504,13 @@ func TestFileStore_GetUserByTokenID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir, nil)
+	store, err := NewFileStore(context.Background(), storeDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	tokenID := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"].Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs["9dj38s35-63fb-11ec-90d6-0242ac120003"].ID
-	user, err := store.GetUserByTokenID(tokenID)
+	user, err := store.GetUserByTokenID(context.Background(), tokenID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -531,13 +532,13 @@ func TestFileStore_GetUserByTokenID_Failure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir, nil)
+	store, err := NewFileStore(context.Background(), storeDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	wrongTokenID := "someNonExistingTokenID"
-	_, err = store.GetUserByTokenID(wrongTokenID)
+	_, err = store.GetUserByTokenID(context.Background(), wrongTokenID)
 
 	assert.Error(t, err, "GetUserByTokenID should throw error if tokenID invalid")
 }
@@ -550,7 +551,7 @@ func TestFileStore_SavePeerStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir, nil)
+	store, err := NewFileStore(context.Background(), storeDir, nil)
 	if err != nil {
 		return
 	}
@@ -576,7 +577,7 @@ func TestFileStore_SavePeerStatus(t *testing.T) {
 		Status:   &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
 	}
 
-	err = store.SaveAccount(account)
+	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -602,11 +603,11 @@ func TestFileStore_SavePeerLocation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir, nil)
+	store, err := NewFileStore(context.Background(), storeDir, nil)
 	if err != nil {
 		return
 	}
-	account, err := store.GetAccount("bf1c8084-ba50-4ce7-9439-34653001fc3b")
+	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
 	require.NoError(t, err)
 
 	peer := &nbpeer.Peer{
@@ -625,7 +626,7 @@ func TestFileStore_SavePeerLocation(t *testing.T) {
 	assert.Error(t, err)
 
 	account.Peers[peer.ID] = peer
-	err = store.SaveAccount(account)
+	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	peer.Location.ConnectionIP = net.ParseIP("35.1.1.1")
@@ -636,7 +637,7 @@ func TestFileStore_SavePeerLocation(t *testing.T) {
 	err = store.SavePeerLocation(account.Id, account.Peers[peer.ID])
 	assert.NoError(t, err)
 
-	account, err = store.GetAccount(account.Id)
+	account, err = store.GetAccount(context.Background(), account.Id)
 	require.NoError(t, err)
 
 	actual := account.Peers[peer.ID].Location
@@ -645,7 +646,7 @@ func TestFileStore_SavePeerLocation(t *testing.T) {
 
 func newStore(t *testing.T) *FileStore {
 	t.Helper()
-	store, err := NewFileStore(t.TempDir(), nil)
+	store, err := NewFileStore(context.Background(), t.TempDir(), nil)
 	if err != nil {
 		t.Errorf("failed creating a new store")
 	}

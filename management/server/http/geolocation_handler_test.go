@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -35,13 +36,13 @@ func initGeolocationTestData(t *testing.T) *GeolocationsHandler {
 	err = util.CopyFileContents(geonamesDBPath, path.Join(tempDir, geolocation.GeoSqliteDBFile))
 	assert.NoError(t, err)
 
-	geo, err := geolocation.NewGeolocation(tempDir)
+	geo, err := geolocation.NewGeolocation(context.Background(), tempDir)
 	assert.NoError(t, err)
 	t.Cleanup(func() { _ = geo.Stop() })
 
 	return &GeolocationsHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				user := server.NewAdminUser("test_user")
 				return &server.Account{
 					Id: claims.AccountId,

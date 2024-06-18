@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/base64"
@@ -16,7 +17,7 @@ import (
 // TURNCredentialsManager used to manage TURN credentials
 type TURNCredentialsManager interface {
 	GenerateCredentials() TURNCredentials
-	SetupRefresh(peerKey string)
+	SetupRefresh(ctx context.Context, peerKey string)
 	CancelRefresh(peerKey string)
 }
 
@@ -81,7 +82,7 @@ func (m *TimeBasedAuthSecretsManager) CancelRefresh(peerID string) {
 
 // SetupRefresh starts peer credentials refresh. Since credentials are expiring (TTL) it is necessary to always generate them and send to the peer.
 // A goroutine is created and put into TimeBasedAuthSecretsManager.cancelMap. This routine should be cancelled if peer is gone.
-func (m *TimeBasedAuthSecretsManager) SetupRefresh(peerID string) {
+func (m *TimeBasedAuthSecretsManager) SetupRefresh(ctx context.Context, peerID string) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 	m.cancel(peerID)
@@ -118,7 +119,7 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(peerID string) {
 					},
 				}
 				log.WithContext(ctx).Debugf("sending new TURN credentials to peer %s", peerID)
-				m.updateManager.SendUpdate(peerID, &UpdateMessage{Update: update})
+				m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
 			}
 		}
 	}()

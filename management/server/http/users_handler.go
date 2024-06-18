@@ -41,22 +41,22 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	userID := vars["userId"]
 	if len(userID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user ID"), w)
 		return
 	}
 
 	existingUser, ok := account.Users[userID]
 	if !ok {
-		util.WriteError(status.Errorf(status.NotFound, "couldn't find user with ID %s", userID), w)
+		util.WriteError(r.Context(), status.Errorf(status.NotFound, "couldn't find user with ID %s", userID), w)
 		return
 	}
 
@@ -74,11 +74,11 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	userRole := server.StrRoleToUserRole(req.Role)
 	if userRole == server.UserRoleUnknown {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user role"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user role"), w)
 		return
 	}
 
-	newUser, err := h.accountManager.SaveUser(account.Id, user.Id, &server.User{
+	newUser, err := h.accountManager.SaveUser(r.Context(), account.Id, user.Id, &server.User{
 		Id:                   userID,
 		Role:                 userRole,
 		AutoGroups:           req.AutoGroups,
@@ -88,10 +88,10 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
-	util.WriteJSONObject(w, toUserResponse(newUser, claims.UserId))
+	util.WriteJSONObject(r.Context(), w, toUserResponse(newUser, claims.UserId))
 }
 
 // DeleteUser is a DELETE request to delete a user
@@ -102,26 +102,26 @@ func (h *UsersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	targetUserID := vars["userId"]
 	if len(targetUserID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user ID"), w)
 		return
 	}
 
-	err = h.accountManager.DeleteUser(account.Id, user.Id, targetUserID)
+	err = h.accountManager.DeleteUser(r.Context(), account.Id, user.Id, targetUserID)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, emptyObject{})
 }
 
 // CreateUser creates a User in the system with a status "invited" (effectively this is a user invite).
@@ -132,9 +132,9 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -146,7 +146,7 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if server.StrRoleToUserRole(req.Role) == server.UserRoleUnknown {
-		util.WriteError(status.Errorf(status.InvalidArgument, "unknown user role %s", req.Role), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "unknown user role %s", req.Role), w)
 		return
 	}
 
@@ -160,7 +160,7 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		name = *req.Name
 	}
 
-	newUser, err := h.accountManager.CreateUser(account.Id, user.Id, &server.UserInfo{
+	newUser, err := h.accountManager.CreateUser(r.Context(), account.Id, user.Id, &server.UserInfo{
 		Email:         email,
 		Name:          name,
 		Role:          req.Role,
@@ -169,10 +169,10 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		Issued:        server.UserIssuedAPI,
 	})
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
-	util.WriteJSONObject(w, toUserResponse(newUser, claims.UserId))
+	util.WriteJSONObject(r.Context(), w, toUserResponse(newUser, claims.UserId))
 }
 
 // GetAllUsers returns a list of users of the account this user belongs to.
@@ -184,42 +184,42 @@ func (h *UsersHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	data, err := h.accountManager.GetUsersFromAccount(account.Id, user.Id)
+	data, err := h.accountManager.GetUsersFromAccount(r.Context(), account.Id, user.Id)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	serviceUser := r.URL.Query().Get("service_user")
 
 	users := make([]*api.User, 0)
-	for _, r := range data {
-		if r.NonDeletable {
+	for _, d := range data {
+		if d.NonDeletable {
 			continue
 		}
 		if serviceUser == "" {
-			users = append(users, toUserResponse(r, claims.UserId))
+			users = append(users, toUserResponse(d, claims.UserId))
 			continue
 		}
 
 		includeServiceUser, err := strconv.ParseBool(serviceUser)
-		log.WithContext(ctx).Debugf("Should include service user: %v", includeServiceUser)
+		log.WithContext(r.Context()).Debugf("Should include service user: %v", includeServiceUser)
 		if err != nil {
-			util.WriteError(status.Errorf(status.InvalidArgument, "invalid service_user query parameter"), w)
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid service_user query parameter"), w)
 			return
 		}
-		if includeServiceUser == r.IsServiceUser {
-			users = append(users, toUserResponse(r, claims.UserId))
+		if includeServiceUser == d.IsServiceUser {
+			users = append(users, toUserResponse(d, claims.UserId))
 		}
 	}
 
-	util.WriteJSONObject(w, users)
+	util.WriteJSONObject(r.Context(), w, users)
 }
 
 // InviteUser resend invitations to users who haven't activated their accounts,
@@ -231,26 +231,26 @@ func (h *UsersHandler) InviteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	targetUserID := vars["userId"]
 	if len(targetUserID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user ID"), w)
 		return
 	}
 
-	err = h.accountManager.InviteUser(account.Id, user.Id, targetUserID)
+	err = h.accountManager.InviteUser(r.Context(), account.Id, user.Id, targetUserID)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, emptyObject{})
 }
 
 func toUserResponse(user *server.UserInfo, currenUserID string) *api.User {

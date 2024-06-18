@@ -1,6 +1,7 @@
 package posture
 
 import (
+	"context"
 	"fmt"
 	"slices"
 
@@ -19,7 +20,7 @@ type ProcessCheck struct {
 
 var _ Check = (*ProcessCheck)(nil)
 
-func (p *ProcessCheck) Check(peer nbpeer.Peer) (bool, error) {
+func (p *ProcessCheck) Check(_ context.Context, peer nbpeer.Peer) (bool, error) {
 	peerActiveProcesses := extractPeerActiveProcesses(peer.Meta.Files)
 
 	var pathSelector func(Process) string

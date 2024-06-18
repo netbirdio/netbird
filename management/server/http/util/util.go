@@ -1,6 +1,7 @@
 package util
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,12 +20,12 @@ type ErrorResponse struct {
 }
 
 // WriteJSONObject simply writes object to the HTTP response in JSON format
-func WriteJSONObject(w http.ResponseWriter, obj interface{}) {
+func WriteJSONObject(ctx context.Context, w http.ResponseWriter, obj interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
 	err := json.NewEncoder(w).Encode(obj)
 	if err != nil {
-		WriteError(err, w)
+		WriteError(ctx, err, w)
 		return
 	}
 }
@@ -76,7 +77,7 @@ func WriteErrorResponse(errMsg string, httpStatus int, w http.ResponseWriter) {
 
 // WriteError converts an error to an JSON error response.
 // If it is known internal error of type server.Error then it sets the messages from the error, a generic message otherwise
-func WriteError(err error, w http.ResponseWriter) {
+func WriteError(ctx context.Context, err error, w http.ResponseWriter) {
 	log.WithContext(ctx).Errorf("got a handler error: %s", err.Error())
 	errStatus, ok := status.FromError(err)
 	httpStatus := http.StatusInternalServerError

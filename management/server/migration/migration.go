@@ -1,6 +1,7 @@
 package migration
 
 import (
+	"context"
 	"database/sql"
 	"encoding/gob"
 	"encoding/json"
@@ -16,7 +17,7 @@ import (
 // MigrateFieldFromGobToJSON migrates a column from Gob encoding to JSON encoding.
 // T is the type of the model that contains the field to be migrated.
 // S is the type of the field to be migrated.
-func MigrateFieldFromGobToJSON[T any, S any](db *gorm.DB, fieldName string) error {
+func MigrateFieldFromGobToJSON[T any, S any](ctx context.Context, db *gorm.DB, fieldName string) error {
 
 	oldColumnName := fieldName
 	newColumnName := fieldName + "_tmp"
@@ -104,7 +105,7 @@ func MigrateFieldFromGobToJSON[T any, S any](db *gorm.DB, fieldName string) erro
 
 // MigrateNetIPFieldFromBlobToJSON migrates a Net IP column from Blob encoding to JSON encoding.
 // T is the type of the model that contains the field to be migrated.
-func MigrateNetIPFieldFromBlobToJSON[T any](db *gorm.DB, fieldName string, indexName string) error {
+func MigrateNetIPFieldFromBlobToJSON[T any](ctx context.Context, db *gorm.DB, fieldName string, indexName string) error {
 	oldColumnName := fieldName
 	newColumnName := fieldName + "_tmp"
 

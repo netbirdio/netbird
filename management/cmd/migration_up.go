@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"flag"
 	"fmt"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/management/server"
+	nbContext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -27,7 +29,9 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("failed initializing log %v", err)
 		}
 
-		if err := server.MigrateFileStoreToSqlite(mgmtDataDir); err != nil {
+		ctx := context.WithValue(cmd.Context(), nbContext.LogSourceKey, util.SystemSource)
+
+		if err := server.MigrateFileStoreToSqlite(ctx, mgmtDataDir); err != nil {
 			return err
 		}
 		log.WithContext(ctx).Info("Migration finished successfully")

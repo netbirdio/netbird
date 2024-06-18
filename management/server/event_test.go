@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -35,7 +36,7 @@ func TestDefaultAccountManager_GetEvents(t *testing.T) {
 	accountID := "accountID"
 
 	t.Run("get empty events list", func(t *testing.T) {
-		events, err := manager.GetEvents(accountID, userID)
+		events, err := manager.GetEvents(context.Background(), accountID, userID)
 		if err != nil {
 			return
 		}
@@ -45,7 +46,7 @@ func TestDefaultAccountManager_GetEvents(t *testing.T) {
 
 	t.Run("get events", func(t *testing.T) {
 		generateAndStoreEvents(t, manager, activity.PeerAddedByUser, userID, "peer", accountID, 10)
-		events, err := manager.GetEvents(accountID, userID)
+		events, err := manager.GetEvents(context.Background(), accountID, userID)
 		if err != nil {
 			return
 		}
@@ -56,7 +57,7 @@ func TestDefaultAccountManager_GetEvents(t *testing.T) {
 
 	t.Run("get events without duplicates", func(t *testing.T) {
 		generateAndStoreEvents(t, manager, activity.UserJoined, userID, "", accountID, 10)
-		events, err := manager.GetEvents(accountID, userID)
+		events, err := manager.GetEvents(context.Background(), accountID, userID)
 		if err != nil {
 			return
 		}

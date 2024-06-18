@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 
@@ -34,11 +35,11 @@ func (d DNSSettings) Copy() DNSSettings {
 }
 
 // GetDNSSettings validates a user role and returns the DNS settings for the provided account ID
-func (am *DefaultAccountManager) GetDNSSettings(accountID string, userID string) (*DNSSettings, error) {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) GetDNSSettings(ctx context.Context, accountID string, userID string) (*DNSSettings, error) {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -56,11 +57,11 @@ func (am *DefaultAccountManager) GetDNSSettings(accountID string, userID string)
 }
 
 // SaveDNSSettings validates a user role and updates the account's DNS settings
-func (am *DefaultAccountManager) SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID string, userID string, dnsSettingsToSave *DNSSettings) error {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}
@@ -89,7 +90,7 @@ func (am *DefaultAccountManager) SaveDNSSettings(accountID string, userID string
 	account.DNSSettings = dnsSettingsToSave.Copy()
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
@@ -97,17 +98,17 @@ func (am *DefaultAccountManager) SaveDNSSettings(accountID string, userID string
 	for _, id := range addedGroups {
 		group := account.GetGroup(id)
 		meta := map[string]any{"group": group.Name, "group_id": group.ID}
-		am.StoreEvent(userID, accountID, accountID, activity.GroupAddedToDisabledManagementGroups, meta)
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.GroupAddedToDisabledManagementGroups, meta)
 	}
 
 	removedGroups := difference(oldSettings.DisabledManagementGroups, dnsSettingsToSave.DisabledManagementGroups)
 	for _, id := range removedGroups {
 		group := account.GetGroup(id)
 		meta := map[string]any{"group": group.Name, "group_id": group.ID}
-		am.StoreEvent(userID, accountID, accountID, activity.GroupRemovedFromDisabledManagementGroups, meta)
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.GroupRemovedFromDisabledManagementGroups, meta)
 	}
 
-	am.updateAccountPeers(account)
+	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
@@ -149,7 +150,7 @@ func toProtocolDNSConfig(update nbdns.Config) *proto.DNSConfig {
 	return protoUpdate
 }
 
-func getPeersCustomZone(account *Account, dnsDomain string) nbdns.CustomZone {
+func getPeersCustomZone(ctx context.Context, account *Account, dnsDomain string) nbdns.CustomZone {
 	if dnsDomain == "" {
 		log.WithContext(ctx).Errorf("no dns domain is set, returning empty zone")
 		return nbdns.CustomZone{}
@@ -210,7 +211,7 @@ func peerIsNameserver(peer *nbpeer.Peer, nsGroup *nbdns.NameServerGroup) bool {
 	return false
 }
 
-func addPeerLabelsToAccount(account *Account, peerLabels lookupMap) {
+func addPeerLabelsToAccount(ctx context.Context, account *Account, peerLabels lookupMap) {
 	for _, peer := range account.Peers {
 		label, err := getPeerHostLabel(peer.Name, peerLabels)
 		if err != nil {

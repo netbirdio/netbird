@@ -1,6 +1,7 @@
 package idp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -60,7 +61,7 @@ type mockAuth0Credentials struct {
 	err      error
 }
 
-func (mc *mockAuth0Credentials) Authenticate() (JWTToken, error) {
+func (mc *mockAuth0Credentials) Authenticate(_ context.Context) (JWTToken, error) {
 	return mc.jwtToken, mc.err
 }
 
@@ -126,7 +127,7 @@ func TestAuth0_RequestJWTToken(t *testing.T) {
 				helper:       testCase.helper,
 			}
 
-			res, err := creds.requestJWTToken()
+			res, err := creds.requestJWTToken(context.Background())
 			if err != nil {
 				if testCase.expectedFuncExitErrDiff != nil {
 					assert.EqualError(t, err, testCase.expectedFuncExitErrDiff.Error(), "errors should be the same")
@@ -295,7 +296,7 @@ func TestAuth0_Authenticate(t *testing.T) {
 
 			creds.jwtToken.expiresInTime = testCase.inputExpireToken
 
-			_, err := creds.Authenticate()
+			_, err := creds.Authenticate(context.Background())
 			if err != nil {
 				if testCase.expectedFuncExitErrDiff != nil {
 					assert.EqualError(t, err, testCase.expectedFuncExitErrDiff.Error(), "errors should be the same")
@@ -417,7 +418,7 @@ func TestAuth0_UpdateUserAppMetadata(t *testing.T) {
 				helper:      testCase.helper,
 			}
 
-			err := manager.UpdateUserAppMetadata("1", testCase.appMetadata)
+			err := manager.UpdateUserAppMetadata(context.Background(), "1", testCase.appMetadata)
 			testCase.assertErrFunc(t, err, testCase.assertErrFuncMessage)
 
 			assert.Equal(t, testCase.expectedReqBody, jwtReqClient.reqBody, "request body should match")

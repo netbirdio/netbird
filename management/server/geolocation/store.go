@@ -2,6 +2,7 @@ package geolocation
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -50,10 +51,10 @@ type SqliteStore struct {
 	sha256sum []byte
 }
 
-func NewSqliteStore(dataDir string) (*SqliteStore, error) {
+func NewSqliteStore(ctx context.Context, dataDir string) (*SqliteStore, error) {
 	file := filepath.Join(dataDir, GeoSqliteDBFile)
 
-	db, err := connectDB(file)
+	db, err := connectDB(ctx, file)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +116,7 @@ func (s *SqliteStore) GetCitiesByCountry(countryISOCode string) ([]City, error) 
 }
 
 // reload attempts to reload the SqliteStore's database if the database file has changed.
-func (s *SqliteStore) reload() error {
+func (s *SqliteStore) reload(ctx context.Context) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -140,7 +141,7 @@ func (s *SqliteStore) reload() error {
 		_ = s.close()
 		s.closed = true
 
-		newDb, err := connectDB(s.filePath)
+		newDb, err := connectDB(ctx, s.filePath)
 		if err != nil {
 			return err
 		}
@@ -168,7 +169,7 @@ func (s *SqliteStore) close() error {
 }
 
 // connectDB connects to an SQLite database and prepares it by setting up an in-memory database.
-func connectDB(filePath string) (*gorm.DB, error) {
+func connectDB(ctx context.Context, filePath string) (*gorm.DB, error) {
 	start := time.Now()
 	defer func() {
 		log.WithContext(ctx).Debugf("took %v to setup geoname db", time.Since(start))

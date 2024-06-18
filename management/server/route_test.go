@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/netip"
 	"testing"
 
@@ -421,13 +422,13 @@ func TestCreateRoute(t *testing.T) {
 			if testCase.createInitRoute {
 				groupAll, errInit := account.GetGroupAll()
 				require.NoError(t, errInit)
-				_, errInit = am.CreateRoute(account.Id, existingNetwork, 1, nil, "", []string{routeGroup3, routeGroup4}, "", existingRouteID, false, 1000, []string{groupAll.ID}, true, userID, false)
+				_, errInit = am.CreateRoute(context.Background(), account.Id, existingNetwork, 1, nil, "", []string{routeGroup3, routeGroup4}, "", existingRouteID, false, 1000, []string{groupAll.ID}, true, userID, false)
 				require.NoError(t, errInit)
-				_, errInit = am.CreateRoute(account.Id, netip.Prefix{}, 3, existingDomains, "", []string{routeGroup3, routeGroup4}, "", existingRouteID, false, 1000, []string{groupAll.ID}, true, userID, false)
+				_, errInit = am.CreateRoute(context.Background(), account.Id, netip.Prefix{}, 3, existingDomains, "", []string{routeGroup3, routeGroup4}, "", existingRouteID, false, 1000, []string{groupAll.ID}, true, userID, false)
 				require.NoError(t, errInit)
 			}
 
-			outRoute, err := am.CreateRoute(account.Id, testCase.inputArgs.network, testCase.inputArgs.networkType, testCase.inputArgs.domains, testCase.inputArgs.peerKey, testCase.inputArgs.peerGroupIDs, testCase.inputArgs.description, testCase.inputArgs.netID, testCase.inputArgs.masquerade, testCase.inputArgs.metric, testCase.inputArgs.groups, testCase.inputArgs.enabled, userID, testCase.inputArgs.keepRoute)
+			outRoute, err := am.CreateRoute(context.Background(), account.Id, testCase.inputArgs.network, testCase.inputArgs.networkType, testCase.inputArgs.domains, testCase.inputArgs.peerKey, testCase.inputArgs.peerGroupIDs, testCase.inputArgs.description, testCase.inputArgs.netID, testCase.inputArgs.masquerade, testCase.inputArgs.metric, testCase.inputArgs.groups, testCase.inputArgs.enabled, userID, testCase.inputArgs.keepRoute)
 
 			testCase.errFunc(t, err)
 
@@ -925,7 +926,7 @@ func TestSaveRoute(t *testing.T) {
 
 			account.Routes[testCase.existingRoute.ID] = testCase.existingRoute
 
-			err = am.Store.SaveAccount(account)
+			err = am.Store.SaveAccount(context.Background(), account)
 			if err != nil {
 				t.Error("account should be saved")
 			}
@@ -963,7 +964,7 @@ func TestSaveRoute(t *testing.T) {
 				}
 			}
 
-			err = am.SaveRoute(account.Id, userID, routeToSave)
+			err = am.SaveRoute(context.Background(), account.Id, userID, routeToSave)
 
 			testCase.errFunc(t, err)
 
@@ -971,7 +972,7 @@ func TestSaveRoute(t *testing.T) {
 				return
 			}
 
-			account, err = am.Store.GetAccount(account.Id)
+			account, err = am.Store.GetAccount(context.Background(), account.Id)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1012,17 +1013,17 @@ func TestDeleteRoute(t *testing.T) {
 
 	account.Routes[testingRoute.ID] = testingRoute
 
-	err = am.Store.SaveAccount(account)
+	err = am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Error("failed to save account")
 	}
 
-	err = am.DeleteRoute(account.Id, testingRoute.ID, userID)
+	err = am.DeleteRoute(context.Background(), account.Id, testingRoute.ID, userID)
 	if err != nil {
 		t.Error("deleting route failed with error: ", err)
 	}
 
-	savedAccount, err := am.Store.GetAccount(account.Id)
+	savedAccount, err := am.Store.GetAccount(context.Background(), account.Id)
 	if err != nil {
 		t.Error("failed to retrieve saved account with error: ", err)
 	}
@@ -1056,27 +1057,27 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 		t.Error("failed to init testing account")
 	}
 
-	newAccountRoutes, err := am.GetNetworkMap(peer1ID)
+	newAccountRoutes, err := am.GetNetworkMap(context.Background(), peer1ID)
 	require.NoError(t, err)
 	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
 
-	newRoute, err := am.CreateRoute(account.Id, baseRoute.Network, baseRoute.NetworkType, baseRoute.Domains, baseRoute.Peer, baseRoute.PeerGroups, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, baseRoute.Enabled, userID, baseRoute.KeepRoute)
+	newRoute, err := am.CreateRoute(context.Background(), account.Id, baseRoute.Network, baseRoute.NetworkType, baseRoute.Domains, baseRoute.Peer, baseRoute.PeerGroups, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, baseRoute.Enabled, userID, baseRoute.KeepRoute)
 	require.NoError(t, err)
 	require.Equal(t, newRoute.Enabled, true)
 
-	peer1Routes, err := am.GetNetworkMap(peer1ID)
+	peer1Routes, err := am.GetNetworkMap(context.Background(), peer1ID)
 	require.NoError(t, err)
 	assert.Len(t, peer1Routes.Routes, 1, "HA route should have 1 server route")
 
-	peer2Routes, err := am.GetNetworkMap(peer2ID)
+	peer2Routes, err := am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
 	assert.Len(t, peer2Routes.Routes, 1, "HA route should have 1 server route")
 
-	peer4Routes, err := am.GetNetworkMap(peer4ID)
+	peer4Routes, err := am.GetNetworkMap(context.Background(), peer4ID)
 	require.NoError(t, err)
 	assert.Len(t, peer4Routes.Routes, 1, "HA route should have 1 server route")
 
-	groups, err := am.ListGroups(account.Id)
+	groups, err := am.ListGroups(context.Background(), account.Id)
 	require.NoError(t, err)
 	var groupHA1, groupHA2 *nbgroup.Group
 	for _, group := range groups {
@@ -1088,35 +1089,35 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 		}
 	}
 
-	err = am.GroupDeletePeer(account.Id, groupHA1.ID, peer2ID)
+	err = am.GroupDeletePeer(context.Background(), account.Id, groupHA1.ID, peer2ID)
 	require.NoError(t, err)
 
-	peer2RoutesAfterDelete, err := am.GetNetworkMap(peer2ID)
+	peer2RoutesAfterDelete, err := am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
 	assert.Len(t, peer2RoutesAfterDelete.Routes, 2, "after peer deletion group should have 2 client routes")
 
-	err = am.GroupDeletePeer(account.Id, groupHA2.ID, peer4ID)
+	err = am.GroupDeletePeer(context.Background(), account.Id, groupHA2.ID, peer4ID)
 	require.NoError(t, err)
 
-	peer2RoutesAfterDelete, err = am.GetNetworkMap(peer2ID)
+	peer2RoutesAfterDelete, err = am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
 	assert.Len(t, peer2RoutesAfterDelete.Routes, 1, "after peer deletion group should have only 1 route")
 
-	err = am.GroupAddPeer(account.Id, groupHA2.ID, peer4ID)
+	err = am.GroupAddPeer(context.Background(), account.Id, groupHA2.ID, peer4ID)
 	require.NoError(t, err)
 
-	peer1RoutesAfterAdd, err := am.GetNetworkMap(peer1ID)
+	peer1RoutesAfterAdd, err := am.GetNetworkMap(context.Background(), peer1ID)
 	require.NoError(t, err)
 	assert.Len(t, peer1RoutesAfterAdd.Routes, 1, "HA route should have more than 1 route")
 
-	peer2RoutesAfterAdd, err := am.GetNetworkMap(peer2ID)
+	peer2RoutesAfterAdd, err := am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
 	assert.Len(t, peer2RoutesAfterAdd.Routes, 2, "HA route should have 2 client routes")
 
-	err = am.DeleteRoute(account.Id, newRoute.ID, userID)
+	err = am.DeleteRoute(context.Background(), account.Id, newRoute.ID, userID)
 	require.NoError(t, err)
 
-	peer1DeletedRoute, err := am.GetNetworkMap(peer1ID)
+	peer1DeletedRoute, err := am.GetNetworkMap(context.Background(), peer1ID)
 	require.NoError(t, err)
 	assert.Len(t, peer1DeletedRoute.Routes, 0, "we should receive one route for peer1")
 }
@@ -1147,14 +1148,14 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 		t.Error("failed to init testing account")
 	}
 
-	newAccountRoutes, err := am.GetNetworkMap(peer1ID)
+	newAccountRoutes, err := am.GetNetworkMap(context.Background(), peer1ID)
 	require.NoError(t, err)
 	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
 
-	createdRoute, err := am.CreateRoute(account.Id, baseRoute.Network, baseRoute.NetworkType, baseRoute.Domains, peer1ID, []string{}, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, false, userID, baseRoute.KeepRoute)
+	createdRoute, err := am.CreateRoute(context.Background(), account.Id, baseRoute.Network, baseRoute.NetworkType, baseRoute.Domains, peer1ID, []string{}, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, false, userID, baseRoute.KeepRoute)
 	require.NoError(t, err)
 
-	noDisabledRoutes, err := am.GetNetworkMap(peer1ID)
+	noDisabledRoutes, err := am.GetNetworkMap(context.Background(), peer1ID)
 	require.NoError(t, err)
 	require.Len(t, noDisabledRoutes.Routes, 0, "no routes for disabled routes")
 
@@ -1165,22 +1166,22 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	expectedRoute := enabledRoute.Copy()
 	expectedRoute.Peer = peer1Key
 
-	err = am.SaveRoute(account.Id, userID, enabledRoute)
+	err = am.SaveRoute(context.Background(), account.Id, userID, enabledRoute)
 	require.NoError(t, err)
 
-	peer1Routes, err := am.GetNetworkMap(peer1ID)
+	peer1Routes, err := am.GetNetworkMap(context.Background(), peer1ID)
 	require.NoError(t, err)
 	require.Len(t, peer1Routes.Routes, 1, "we should receive one route for peer1")
 	require.True(t, expectedRoute.IsEqual(peer1Routes.Routes[0]), "received route should be equal")
 
-	peer2Routes, err := am.GetNetworkMap(peer2ID)
+	peer2Routes, err := am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
 	require.Len(t, peer2Routes.Routes, 0, "no routes for peers not in the distribution group")
 
-	err = am.GroupAddPeer(account.Id, routeGroup1, peer2ID)
+	err = am.GroupAddPeer(context.Background(), account.Id, routeGroup1, peer2ID)
 	require.NoError(t, err)
 
-	peer2Routes, err = am.GetNetworkMap(peer2ID)
+	peer2Routes, err = am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
 	require.Len(t, peer2Routes.Routes, 1, "we should receive one route")
 	require.True(t, peer1Routes.Routes[0].IsEqual(peer2Routes.Routes[0]), "routes should be the same for peers in the same group")
@@ -1190,10 +1191,10 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 		Name:  "peer1 group",
 		Peers: []string{peer1ID},
 	}
-	err = am.SaveGroup(account.Id, userID, newGroup)
+	err = am.SaveGroup(context.Background(), account.Id, userID, newGroup)
 	require.NoError(t, err)
 
-	rules, err := am.ListPolicies(account.Id, "testingUser")
+	rules, err := am.ListPolicies(context.Background(), account.Id, "testingUser")
 	require.NoError(t, err)
 
 	defaultRule := rules[0]
@@ -1203,24 +1204,24 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	newPolicy.Rules[0].Sources = []string{newGroup.ID}
 	newPolicy.Rules[0].Destinations = []string{newGroup.ID}
 
-	err = am.SavePolicy(account.Id, userID, newPolicy)
+	err = am.SavePolicy(context.Background(), account.Id, userID, newPolicy)
 	require.NoError(t, err)
 
-	err = am.DeletePolicy(account.Id, defaultRule.ID, userID)
+	err = am.DeletePolicy(context.Background(), account.Id, defaultRule.ID, userID)
 	require.NoError(t, err)
 
-	peer1GroupRoutes, err := am.GetNetworkMap(peer1ID)
+	peer1GroupRoutes, err := am.GetNetworkMap(context.Background(), peer1ID)
 	require.NoError(t, err)
 	require.Len(t, peer1GroupRoutes.Routes, 1, "we should receive one route for peer1")
 
-	peer2GroupRoutes, err := am.GetNetworkMap(peer2ID)
+	peer2GroupRoutes, err := am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
 	require.Len(t, peer2GroupRoutes.Routes, 0, "we should not receive routes for peer2")
 
-	err = am.DeleteRoute(account.Id, enabledRoute.ID, userID)
+	err = am.DeleteRoute(context.Background(), account.Id, enabledRoute.ID, userID)
 	require.NoError(t, err)
 
-	peer1DeletedRoute, err := am.GetNetworkMap(peer1ID)
+	peer1DeletedRoute, err := am.GetNetworkMap(context.Background(), peer1ID)
 	require.NoError(t, err)
 	require.Len(t, peer1DeletedRoute.Routes, 0, "we should receive one route for peer1")
 }
@@ -1232,13 +1233,13 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{})
+	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{})
 }
 
 func createRouterStore(t *testing.T) (Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, cleanUp, err := NewTestStoreFromJson(dataDir)
+	store, cleanUp, err := NewTestStoreFromJson(context.Background(), dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -1253,8 +1254,8 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	accountID := "testingAcc"
 	domain := "example.com"
 
-	account := newAccountWithId(accountID, userID, domain)
-	err := am.Store.SaveAccount(account)
+	account := newAccountWithId(context.Background(), accountID, userID, domain)
+	err := am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return nil, err
 	}
@@ -1389,7 +1390,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	}
 	account.Peers[peer5.ID] = peer5
 
-	err = am.Store.SaveAccount(account)
+	err = am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return nil, err
 	}
@@ -1397,19 +1398,19 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	if err != nil {
 		return nil, err
 	}
-	err = am.GroupAddPeer(accountID, groupAll.ID, peer1ID)
+	err = am.GroupAddPeer(context.Background(), accountID, groupAll.ID, peer1ID)
 	if err != nil {
 		return nil, err
 	}
-	err = am.GroupAddPeer(accountID, groupAll.ID, peer2ID)
+	err = am.GroupAddPeer(context.Background(), accountID, groupAll.ID, peer2ID)
 	if err != nil {
 		return nil, err
 	}
-	err = am.GroupAddPeer(accountID, groupAll.ID, peer3ID)
+	err = am.GroupAddPeer(context.Background(), accountID, groupAll.ID, peer3ID)
 	if err != nil {
 		return nil, err
 	}
-	err = am.GroupAddPeer(accountID, groupAll.ID, peer4ID)
+	err = am.GroupAddPeer(context.Background(), accountID, groupAll.ID, peer4ID)
 	if err != nil {
 		return nil, err
 	}
@@ -1448,11 +1449,11 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	}
 
 	for _, group := range newGroup {
-		err = am.SaveGroup(accountID, userID, group)
+		err = am.SaveGroup(context.Background(), accountID, userID, group)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	return am.Store.GetAccount(account.Id)
+	return am.Store.GetAccount(context.Background(), account.Id)
 }

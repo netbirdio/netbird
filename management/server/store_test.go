@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -15,13 +16,13 @@ type benchCase struct {
 
 var newFs = func(b *testing.B) Store {
 	b.Helper()
-	store, _ := NewFileStore(b.TempDir(), nil)
+	store, _ := NewFileStore(context.Background(), b.TempDir(), nil)
 	return store
 }
 
 var newSqlite = func(b *testing.B) Store {
 	b.Helper()
-	store, _ := NewSqliteStore(b.TempDir(), nil)
+	store, _ := NewSqliteStore(context.Background(), b.TempDir(), nil)
 	return store
 }
 
@@ -76,13 +77,13 @@ func BenchmarkTest_StoreRead(b *testing.B) {
 			_ = newAccount(store, i)
 		}
 
-		accounts := store.GetAllAccounts()
+		accounts := store.GetAllAccounts(context.Background())
 		id := accounts[c.size-1].Id
 
 		b.Run(name, func(b *testing.B) {
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
-					_, _ = store.GetAccount(id)
+					_, _ = store.GetAccount(context.Background(), id)
 				}
 			})
 		})

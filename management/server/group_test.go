@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -26,7 +27,7 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 	}
 	for _, group := range account.Groups {
 		group.Issued = nbgroup.GroupIssuedIntegration
-		err = am.SaveGroup(account.Id, groupAdminUserID, group)
+		err = am.SaveGroup(context.Background(), account.Id, groupAdminUserID, group)
 		if err != nil {
 			t.Errorf("should allow to create %s groups", nbgroup.GroupIssuedIntegration)
 		}
@@ -34,7 +35,7 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 
 	for _, group := range account.Groups {
 		group.Issued = nbgroup.GroupIssuedJWT
-		err = am.SaveGroup(account.Id, groupAdminUserID, group)
+		err = am.SaveGroup(context.Background(), account.Id, groupAdminUserID, group)
 		if err != nil {
 			t.Errorf("should allow to create %s groups", nbgroup.GroupIssuedJWT)
 		}
@@ -42,7 +43,7 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 	for _, group := range account.Groups {
 		group.Issued = nbgroup.GroupIssuedAPI
 		group.ID = ""
-		err = am.SaveGroup(account.Id, groupAdminUserID, group)
+		err = am.SaveGroup(context.Background(), account.Id, groupAdminUserID, group)
 		if err == nil {
 			t.Errorf("should not create api group with the same name, %s", group.Name)
 		}
@@ -104,7 +105,7 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			err = am.DeleteGroup(account.Id, groupAdminUserID, testCase.groupID)
+			err = am.DeleteGroup(context.Background(), account.Id, groupAdminUserID, testCase.groupID)
 			if err == nil {
 				t.Errorf("delete %s group successfully", testCase.groupID)
 				return
@@ -225,7 +226,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 		Id:         "example user",
 		AutoGroups: []string{groupForUsers.ID},
 	}
-	account := newAccountWithId(accountID, groupAdminUserID, domain)
+	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain)
 	account.Routes[routeResource.ID] = routeResource
 	account.Routes[routePeerGroupResource.ID] = routePeerGroupResource
 	account.NameServerGroups[nameServerGroup.ID] = nameServerGroup
@@ -233,18 +234,18 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 	account.SetupKeys[setupKey.Id] = setupKey
 	account.Users[user.Id] = user
 
-	err := am.Store.SaveAccount(account)
+	err := am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return nil, err
 	}
 
-	_ = am.SaveGroup(accountID, groupAdminUserID, groupForRoute)
-	_ = am.SaveGroup(accountID, groupAdminUserID, groupForRoute2)
-	_ = am.SaveGroup(accountID, groupAdminUserID, groupForNameServerGroups)
-	_ = am.SaveGroup(accountID, groupAdminUserID, groupForPolicies)
-	_ = am.SaveGroup(accountID, groupAdminUserID, groupForSetupKeys)
-	_ = am.SaveGroup(accountID, groupAdminUserID, groupForUsers)
-	_ = am.SaveGroup(accountID, groupAdminUserID, groupForIntegration)
+	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForRoute)
+	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForRoute2)
+	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForNameServerGroups)
+	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForPolicies)
+	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForSetupKeys)
+	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForUsers)
+	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForIntegration)
 
-	return am.Store.GetAccount(account.Id)
+	return am.Store.GetAccount(context.Background(), account.Id)
 }

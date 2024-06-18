@@ -67,13 +67,13 @@ func GetPKCEAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmURL
 		}
 	}()
 
-	serverKey, err := mgmClient.GetServerPublicKey()
+	serverKey, err := mgmClient.GetServerPublicKey(ctx)
 	if err != nil {
 		log.Errorf("failed while getting Management Service public key: %v", err)
 		return PKCEAuthorizationFlow{}, err
 	}
 
-	protoPKCEAuthorizationFlow, err := mgmClient.GetPKCEAuthorizationFlow(*serverKey)
+	protoPKCEAuthorizationFlow, err := mgmClient.GetPKCEAuthorizationFlow(ctx, *serverKey)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			log.Warnf("server couldn't find pkce flow, contact admin: %v", err)

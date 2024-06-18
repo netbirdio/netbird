@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/rs/xid"
@@ -21,11 +22,11 @@ func (e *GroupLinkError) Error() string {
 }
 
 // GetGroup object of the peers
-func (am *DefaultAccountManager) GetGroup(accountID, groupID, userID string) (*nbgroup.Group, error) {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) GetGroup(ctx context.Context, accountID, groupID, userID string) (*nbgroup.Group, error) {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -48,11 +49,11 @@ func (am *DefaultAccountManager) GetGroup(accountID, groupID, userID string) (*n
 }
 
 // GetAllGroups returns all groups in an account
-func (am *DefaultAccountManager) GetAllGroups(accountID string, userID string) ([]*nbgroup.Group, error) {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) GetAllGroups(ctx context.Context, accountID string, userID string) ([]*nbgroup.Group, error) {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -75,11 +76,11 @@ func (am *DefaultAccountManager) GetAllGroups(accountID string, userID string) (
 }
 
 // GetGroupByName filters all groups in an account by name and returns the one with the most peers
-func (am *DefaultAccountManager) GetGroupByName(groupName, accountID string) (*nbgroup.Group, error) {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, accountID string) (*nbgroup.Group, error) {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -108,11 +109,11 @@ func (am *DefaultAccountManager) GetGroupByName(groupName, accountID string) (*n
 }
 
 // SaveGroup object of the peers
-func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *nbgroup.Group) error {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) SaveGroup(ctx context.Context, accountID, userID string, newGroup *nbgroup.Group) error {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}
@@ -150,11 +151,11 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *n
 	account.Groups[newGroup.ID] = newGroup
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
-	am.updateAccountPeers(account)
+	am.updateAccountPeers(ctx, account)
 
 	// the following snippet tracks the activity and stores the group events in the event store.
 	// It has to happen after all the operations have been successfully performed.
@@ -165,7 +166,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *n
 		removedPeers = difference(oldGroup.Peers, newGroup.Peers)
 	} else {
 		addedPeers = append(addedPeers, newGroup.Peers...)
-		am.StoreEvent(userID, newGroup.ID, accountID, activity.GroupCreated, newGroup.EventMeta())
+		am.StoreEvent(ctx, userID, newGroup.ID, accountID, activity.GroupCreated, newGroup.EventMeta())
 	}
 
 	for _, p := range addedPeers {
@@ -174,7 +175,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *n
 			log.WithContext(ctx).Errorf("peer %s not found under account %s while saving group", p, accountID)
 			continue
 		}
-		am.StoreEvent(userID, peer.ID, accountID, activity.GroupAddedToPeer,
+		am.StoreEvent(ctx, userID, peer.ID, accountID, activity.GroupAddedToPeer,
 			map[string]any{
 				"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
 				"peer_fqdn": peer.FQDN(am.GetDNSDomain()),
@@ -187,7 +188,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *n
 			log.WithContext(ctx).Errorf("peer %s not found under account %s while saving group", p, accountID)
 			continue
 		}
-		am.StoreEvent(userID, peer.ID, accountID, activity.GroupRemovedFromPeer,
+		am.StoreEvent(ctx, userID, peer.ID, accountID, activity.GroupRemovedFromPeer,
 			map[string]any{
 				"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
 				"peer_fqdn": peer.FQDN(am.GetDNSDomain()),
@@ -213,11 +214,11 @@ func difference(a, b []string) []string {
 }
 
 // DeleteGroup object of the peers
-func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) error {
-	unlock := am.Store.AcquireAccountWriteLock(accountId)
+func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountId, userId, groupID string) error {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountId)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountId)
+	account, err := am.Store.GetAccount(ctx, accountId)
 	if err != nil {
 		return err
 	}
@@ -315,23 +316,23 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 	delete(account.Groups, groupID)
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
-	am.StoreEvent(userId, groupID, accountId, activity.GroupDeleted, g.EventMeta())
+	am.StoreEvent(ctx, userId, groupID, accountId, activity.GroupDeleted, g.EventMeta())
 
-	am.updateAccountPeers(account)
+	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
 
 // ListGroups objects of the peers
-func (am *DefaultAccountManager) ListGroups(accountID string) ([]*nbgroup.Group, error) {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) ListGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error) {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -345,11 +346,11 @@ func (am *DefaultAccountManager) ListGroups(accountID string) ([]*nbgroup.Group,
 }
 
 // GroupAddPeer appends peer to the group
-func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerID string) error {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, groupID, peerID string) error {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}
@@ -371,21 +372,21 @@ func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerID string)
 	}
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
-	am.updateAccountPeers(account)
+	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
 
 // GroupDeletePeer removes peer from the group
-func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerID string) error {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID, groupID, peerID string) error {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}
@@ -399,13 +400,13 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerID stri
 	for i, itemID := range group.Peers {
 		if itemID == peerID {
 			group.Peers = append(group.Peers[:i], group.Peers[i+1:]...)
-			if err := am.Store.SaveAccount(account); err != nil {
+			if err := am.Store.SaveAccount(ctx, account); err != nil {
 				return err
 			}
 		}
 	}
 
-	am.updateAccountPeers(account)
+	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
