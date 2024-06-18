@@ -58,7 +58,7 @@ type ICEConnInfo struct {
 	RelayedOnLocal             bool
 }
 
-type ConnectorICE struct {
+type WorkerICE struct {
 	ctx            context.Context
 	log            *log.Entry
 	config         ConnConfig
@@ -78,8 +78,8 @@ type ConnectorICE struct {
 	sentExtraSrflx bool
 }
 
-func NewConnectorICE(ctx context.Context, log *log.Entry, config ConnConfig, configICE ICEConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, onICEConnReady OnICEConnReadyCallback, doHandshakeFn DoHandshake) *ConnectorICE {
-	cice := &ConnectorICE{
+func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, configICE ICEConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, onICEConnReady OnICEConnReadyCallback, doHandshakeFn DoHandshake) *WorkerICE {
+	cice := &WorkerICE{
 		ctx:            ctx,
 		log:            log,
 		config:         config,
@@ -97,38 +97,38 @@ func NewConnectorICE(ctx context.Context, log *log.Entry, config ConnConfig, con
 // If the relay mode is supported then try to connect in p2p way only.
 // It is trying to reconnection in a loop until the context is canceled.
 // In case of success connection it will call the onICEConnReady callback.
-func (conn *ConnectorICE) SetupICEConnection(hasRelayOnLocally bool) {
+func (w *WorkerICE) SetupICEConnection(hasRelayOnLocally bool) {
 	for {
-		if !conn.waitForReconnectTry() {
+		if !w.waitForReconnectTry() {
 			return
 		}
 
-		remoteOfferAnswer, err := conn.doHandshakeFn()
+		remoteOfferAnswer, err := w.doHandshakeFn()
 		if err != nil {
 			if errors.Is(err, ErrSignalIsNotReady) {
-				conn.log.Infof("signal client isn't ready, skipping connection attempt")
+				w.log.Infof("signal client isn't ready, skipping connection attempt")
 			}
 			continue
 		}
 
 		var preferredCandidateTypes []ice.CandidateType
 		if hasRelayOnLocally && remoteOfferAnswer.RelaySrvAddress != "" {
-			conn.connPriority = connPriorityICEP2P
+			w.connPriority = connPriorityICEP2P
 			preferredCandidateTypes = candidateTypesP2P()
 		} else {
-			conn.connPriority = connPriorityICETurn
+			w.connPriority = connPriorityICETurn
 			preferredCandidateTypes = candidateTypes()
 		}
 
-		ctx, ctxCancel := context.WithCancel(conn.ctx)
-		agent, err := conn.reCreateAgent(ctxCancel, preferredCandidateTypes)
+		ctx, ctxCancel := context.WithCancel(w.ctx)
+		agent, err := w.reCreateAgent(ctxCancel, preferredCandidateTypes)
 		if err != nil {
 			ctxCancel()
 			continue
 		}
-		conn.agent = agent
+		w.agent = agent
 
-		err = conn.agent.GatherCandidates()
+		err = w.agent.GatherCandidates()
 		if err != nil {
 			ctxCancel()
 			continue
@@ -137,13 +137,13 @@ func (conn *ConnectorICE) SetupICEConnection(hasRelayOnLocally bool) {
 		// will block until connection succeeded
 		// but it won't release if ICE Agent went into Disconnected or Failed state,
 		// so we have to cancel it with the provided context once agent detected a broken connection
-		remoteConn, err := conn.turnAgentDial(remoteOfferAnswer)
+		remoteConn, err := w.turnAgentDial(remoteOfferAnswer)
 		if err != nil {
 			ctxCancel()
 			continue
 		}
 
-		pair, err := conn.agent.GetSelectedCandidatePair()
+		pair, err := w.agent.GetSelectedCandidatePair()
 		if err != nil {
 			ctxCancel()
 			continue
@@ -157,7 +157,7 @@ func (conn *ConnectorICE) SetupICEConnection(hasRelayOnLocally bool) {
 			}
 
 			// To support old version's with direct mode we attempt to punch an additional role with the remote WireGuard port
-			go conn.punchRemoteWGPort(pair, remoteWgPort)
+			go w.punchRemoteWGPort(pair, remoteWgPort)
 		}
 
 		ci := ICEConnInfo{
@@ -172,18 +172,18 @@ func (conn *ConnectorICE) SetupICEConnection(hasRelayOnLocally bool) {
 			Relayed:                    isRelayed(pair),
 			RelayedOnLocal:             isRelayCandidate(pair.Local),
 		}
-		go conn.onICEConnReady(conn.connPriority, ci)
+		go w.onICEConnReady(w.connPriority, ci)
 
 		<-ctx.Done()
 		ctxCancel()
-		_ = conn.agent.Close()
+		_ = w.agent.Close()
 	}
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
-func (conn *ConnectorICE) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMap) {
-	conn.log.Debugf("OnRemoteCandidate from peer %s -> %s", conn.config.Key, candidate.String())
-	if conn.agent == nil {
+func (w *WorkerICE) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMap) {
+	w.log.Debugf("OnRemoteCandidate from peer %s -> %s", w.config.Key, candidate.String())
+	if w.agent == nil {
 		return
 	}
 
@@ -191,25 +191,25 @@ func (conn *ConnectorICE) OnRemoteCandidate(candidate ice.Candidate, haRoutes ro
 		return
 	}
 
-	err := conn.agent.AddRemoteCandidate(candidate)
+	err := w.agent.AddRemoteCandidate(candidate)
 	if err != nil {
-		conn.log.Errorf("error while handling remote candidate")
+		w.log.Errorf("error while handling remote candidate")
 		return
 	}
 }
 
-func (conn *ConnectorICE) GetLocalUserCredentials() (frag string, pwd string, err error) {
-	if conn.agent == nil {
+func (w *WorkerICE) GetLocalUserCredentials() (frag string, pwd string, err error) {
+	if w.agent == nil {
 		return "", "", errors.New("ICE Agent is not initialized")
 	}
-	return conn.agent.GetLocalUserCredentials()
+	return w.agent.GetLocalUserCredentials()
 }
 
-func (conn *ConnectorICE) reCreateAgent(ctxCancel context.CancelFunc, relaySupport []ice.CandidateType) (*ice.Agent, error) {
+func (w *WorkerICE) reCreateAgent(ctxCancel context.CancelFunc, relaySupport []ice.CandidateType) (*ice.Agent, error) {
 	failedTimeout := 6 * time.Second
-	transportNet, err := conn.newStdNet()
+	transportNet, err := w.newStdNet()
 	if err != nil {
-		conn.log.Errorf("failed to create pion's stdnet: %s", err)
+		w.log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 
 	iceKeepAlive := iceKeepAlive()
@@ -219,36 +219,36 @@ func (conn *ConnectorICE) reCreateAgent(ctxCancel context.CancelFunc, relaySuppo
 	agentConfig := &ice.AgentConfig{
 		MulticastDNSMode:       ice.MulticastDNSModeDisabled,
 		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
-		Urls:                   conn.configICE.StunTurn.Load().([]*stun.URI),
+		Urls:                   w.configICE.StunTurn.Load().([]*stun.URI),
 		CandidateTypes:         relaySupport,
 		FailedTimeout:          &failedTimeout,
-		InterfaceFilter:        stdnet.InterfaceFilter(conn.configICE.InterfaceBlackList),
-		UDPMux:                 conn.configICE.UDPMux,
-		UDPMuxSrflx:            conn.configICE.UDPMuxSrflx,
-		NAT1To1IPs:             conn.configICE.NATExternalIPs,
+		InterfaceFilter:        stdnet.InterfaceFilter(w.configICE.InterfaceBlackList),
+		UDPMux:                 w.configICE.UDPMux,
+		UDPMuxSrflx:            w.configICE.UDPMuxSrflx,
+		NAT1To1IPs:             w.configICE.NATExternalIPs,
 		Net:                    transportNet,
 		DisconnectedTimeout:    &iceDisconnectedTimeout,
 		KeepaliveInterval:      &iceKeepAlive,
 		RelayAcceptanceMinWait: &iceRelayAcceptanceMinWait,
 	}
 
-	if conn.configICE.DisableIPv6Discovery {
+	if w.configICE.DisableIPv6Discovery {
 		agentConfig.NetworkTypes = []ice.NetworkType{ice.NetworkTypeUDP4}
 	}
 
-	conn.sentExtraSrflx = false
+	w.sentExtraSrflx = false
 	agent, err := ice.NewAgent(agentConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	err = agent.OnCandidate(conn.onICECandidate)
+	err = agent.OnCandidate(w.onICECandidate)
 	if err != nil {
 		return nil, err
 	}
 
 	err = agent.OnConnectionStateChange(func(state ice.ConnectionState) {
-		conn.log.Debugf("ICE ConnectionState has changed to %s", state.String())
+		w.log.Debugf("ICE ConnectionState has changed to %s", state.String())
 		if state == ice.ConnectionStateFailed || state == ice.ConnectionStateDisconnected {
 			ctxCancel()
 		}
@@ -257,15 +257,15 @@ func (conn *ConnectorICE) reCreateAgent(ctxCancel context.CancelFunc, relaySuppo
 		return nil, err
 	}
 
-	err = agent.OnSelectedCandidatePairChange(conn.onICESelectedCandidatePair)
+	err = agent.OnSelectedCandidatePairChange(w.onICESelectedCandidatePair)
 	if err != nil {
 		return nil, err
 	}
 
 	err = agent.OnSuccessfulSelectedPairBindingResponse(func(p *ice.CandidatePair) {
-		err := conn.statusRecorder.UpdateLatency(conn.config.Key, p.Latency())
+		err := w.statusRecorder.UpdateLatency(w.config.Key, p.Latency())
 		if err != nil {
-			conn.log.Debugf("failed to update latency for peer: %s", err)
+			w.log.Debugf("failed to update latency for peer: %s", err)
 			return
 		}
 	})
@@ -276,44 +276,44 @@ func (conn *ConnectorICE) reCreateAgent(ctxCancel context.CancelFunc, relaySuppo
 	return agent, nil
 }
 
-func (conn *ConnectorICE) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) {
+func (w *WorkerICE) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) {
 	// wait local endpoint configuration
 	time.Sleep(time.Second)
 	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", pair.Remote.Address(), remoteWgPort))
 	if err != nil {
-		conn.log.Warnf("got an error while resolving the udp address, err: %s", err)
+		w.log.Warnf("got an error while resolving the udp address, err: %s", err)
 		return
 	}
 
-	mux, ok := conn.configICE.UDPMuxSrflx.(*bind.UniversalUDPMuxDefault)
+	mux, ok := w.configICE.UDPMuxSrflx.(*bind.UniversalUDPMuxDefault)
 	if !ok {
-		conn.log.Warn("invalid udp mux conversion")
+		w.log.Warn("invalid udp mux conversion")
 		return
 	}
 	_, err = mux.GetSharedConn().WriteTo([]byte{0x6e, 0x62}, addr)
 	if err != nil {
-		conn.log.Warnf("got an error while sending the punch packet, err: %s", err)
+		w.log.Warnf("got an error while sending the punch packet, err: %s", err)
 	}
 }
 
 // onICECandidate is a callback attached to an ICE Agent to receive new local connection candidates
 // and then signals them to the remote peer
-func (conn *ConnectorICE) onICECandidate(candidate ice.Candidate) {
+func (w *WorkerICE) onICECandidate(candidate ice.Candidate) {
 	// nil means candidate gathering has been ended
 	if candidate == nil {
 		return
 	}
 
 	// TODO: reported port is incorrect for CandidateTypeHost, makes understanding ICE use via logs confusing as port is ignored
-	conn.log.Debugf("discovered local candidate %s", candidate.String())
+	w.log.Debugf("discovered local candidate %s", candidate.String())
 	go func() {
-		err := conn.signaler.SignalICECandidate(candidate, conn.config.Key)
+		err := w.signaler.SignalICECandidate(candidate, w.config.Key)
 		if err != nil {
-			conn.log.Errorf("failed signaling candidate to the remote peer %s %s", conn.config.Key, err)
+			w.log.Errorf("failed signaling candidate to the remote peer %s %s", w.config.Key, err)
 		}
 	}()
 
-	if !conn.shouldSendExtraSrflxCandidate(candidate) {
+	if !w.shouldSendExtraSrflxCandidate(candidate) {
 		return
 	}
 
@@ -321,42 +321,42 @@ func (conn *ConnectorICE) onICECandidate(candidate ice.Candidate) {
 	// this is useful when network has an existing port forwarding rule for the wireguard port and this peer
 	extraSrflx, err := extraSrflxCandidate(candidate)
 	if err != nil {
-		conn.log.Errorf("failed creating extra server reflexive candidate %s", err)
+		w.log.Errorf("failed creating extra server reflexive candidate %s", err)
 		return
 	}
-	conn.sentExtraSrflx = true
+	w.sentExtraSrflx = true
 
 	go func() {
-		err = conn.signaler.SignalICECandidate(extraSrflx, conn.config.Key)
+		err = w.signaler.SignalICECandidate(extraSrflx, w.config.Key)
 		if err != nil {
-			conn.log.Errorf("failed signaling the extra server reflexive candidate: %s", err)
+			w.log.Errorf("failed signaling the extra server reflexive candidate: %s", err)
 		}
 	}()
 }
 
-func (conn *ConnectorICE) onICESelectedCandidatePair(c1 ice.Candidate, c2 ice.Candidate) {
-	conn.log.Debugf("selected candidate pair [local <-> remote] -> [%s <-> %s], peer %s", c1.String(), c2.String(),
-		conn.config.Key)
+func (w *WorkerICE) onICESelectedCandidatePair(c1 ice.Candidate, c2 ice.Candidate) {
+	w.log.Debugf("selected candidate pair [local <-> remote] -> [%s <-> %s], peer %s", c1.String(), c2.String(),
+		w.config.Key)
 }
 
-func (conn *ConnectorICE) shouldSendExtraSrflxCandidate(candidate ice.Candidate) bool {
-	if !conn.sentExtraSrflx && candidate.Type() == ice.CandidateTypeServerReflexive && candidate.Port() != candidate.RelatedAddress().Port {
+func (w *WorkerICE) shouldSendExtraSrflxCandidate(candidate ice.Candidate) bool {
+	if !w.sentExtraSrflx && candidate.Type() == ice.CandidateTypeServerReflexive && candidate.Port() != candidate.RelatedAddress().Port {
 		return true
 	}
 	return false
 }
 
-func (conn *ConnectorICE) turnAgentDial(remoteOfferAnswer *OfferAnswer) (*ice.Conn, error) {
-	isControlling := conn.config.LocalKey > conn.config.Key
+func (w *WorkerICE) turnAgentDial(remoteOfferAnswer *OfferAnswer) (*ice.Conn, error) {
+	isControlling := w.config.LocalKey > w.config.Key
 	if isControlling {
-		return conn.agent.Dial(conn.ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
+		return w.agent.Dial(w.ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	} else {
-		return conn.agent.Accept(conn.ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
+		return w.agent.Accept(w.ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	}
 }
 
 // waitForReconnectTry waits for a random duration before trying to reconnect
-func (conn *ConnectorICE) waitForReconnectTry() bool {
+func (w *WorkerICE) waitForReconnectTry() bool {
 	minWait := 500
 	maxWait := 2000
 	duration := time.Duration(rand.Intn(maxWait-minWait)+minWait) * time.Millisecond
@@ -365,7 +365,7 @@ func (conn *ConnectorICE) waitForReconnectTry() bool {
 	defer timeout.Stop()
 
 	select {
-	case <-conn.ctx.Done():
+	case <-w.ctx.Done():
 		return false
 	case <-timeout.C:
 		return true

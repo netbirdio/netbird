@@ -82,8 +82,8 @@ type Conn struct {
 
 	status ConnStatus
 
-	connectorICE   *ConnectorICE
-	connectorRelay *ConnectorRelay
+	workerICE   *WorkerICE
+	workerRelay *WorkerRelay
 
 	connID               nbnet.ConnectionID
 	beforeAddPeerHooks   []BeforeAddPeerHookFunc
@@ -116,8 +116,8 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		status:         StatusDisconnected,
 		closeCh:        make(chan struct{}),
 	}
-	conn.connectorICE = NewConnectorICE(ctx, conn.log, config, config.ICEConfig, signaler, iFaceDiscover, statusRecorder, conn.iCEConnectionIsReady, conn.doHandshake)
-	conn.connectorRelay = NewConnectorRelay(ctx, conn.log, relayManager, config, conn.relayConnectionIsReady, conn.doHandshake)
+	conn.workerICE = NewWorkerICE(ctx, conn.log, config, config.ICEConfig, signaler, iFaceDiscover, statusRecorder, conn.iCEConnectionIsReady, conn.doHandshake)
+	conn.workerRelay = NewWorkerRelay(ctx, conn.log, relayManager, config, conn.relayConnectionIsReady, conn.doHandshake)
 	return conn, nil
 }
 
@@ -152,11 +152,11 @@ func (conn *Conn) Open() {
 			log.Warnf("error while updating the state of peer %s,err: %v", conn.config.Key, err)
 		}
 	*/
-	relayIsSupportedLocally := conn.connectorRelay.RelayIsSupportedLocally()
+	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
 	if relayIsSupportedLocally {
-		go conn.connectorRelay.SetupRelayConnection()
+		go conn.workerRelay.SetupRelayConnection()
 	}
-	go conn.connectorICE.SetupICEConnection(relayIsSupportedLocally)
+	go conn.workerICE.SetupICEConnection(relayIsSupportedLocally)
 }
 
 // Close closes this peer Conn issuing a close event to the Conn closeCh
@@ -221,7 +221,7 @@ func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) bool {
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
 func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMap) {
-	conn.connectorICE.OnRemoteCandidate(candidate, haRoutes)
+	conn.workerICE.OnRemoteCandidate(candidate, haRoutes)
 }
 
 func (conn *Conn) AddBeforeAddPeerHook(hook BeforeAddPeerHookFunc) {
@@ -419,12 +419,12 @@ func (conn *Conn) doHandshake() (*OfferAnswer, error) {
 		return nil, ErrSignalIsNotReady
 	}
 
-	uFreg, pwd, err := conn.connectorICE.GetLocalUserCredentials()
+	uFreg, pwd, err := conn.workerICE.GetLocalUserCredentials()
 	if err != nil {
 		conn.log.Errorf("failed to get local user credentials: %v", err)
 	}
 
-	addr, err := conn.connectorRelay.RelayAddress()
+	addr, err := conn.workerRelay.RelayAddress()
 	if err != nil {
 		conn.log.Errorf("failed to get local relay address: %v", err)
 	}

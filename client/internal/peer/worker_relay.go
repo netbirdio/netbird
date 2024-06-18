@@ -20,7 +20,7 @@ type RelayConnInfo struct {
 	rosenpassAddr   string
 }
 
-type ConnectorRelay struct {
+type WorkerRelay struct {
 	ctx                context.Context
 	log                *log.Entry
 	relayManager       *relayClient.Manager
@@ -29,8 +29,8 @@ type ConnectorRelay struct {
 	doHandshakeFn      DoHandshake
 }
 
-func NewConnectorRelay(ctx context.Context, log *log.Entry, relayManager *relayClient.Manager, config ConnConfig, onRelayConnReadyFN OnRelayReadyCallback, doHandshakeFn DoHandshake) *ConnectorRelay {
-	return &ConnectorRelay{
+func NewWorkerRelay(ctx context.Context, log *log.Entry, relayManager *relayClient.Manager, config ConnConfig, onRelayConnReadyFN OnRelayReadyCallback, doHandshakeFn DoHandshake) *WorkerRelay {
+	return &WorkerRelay{
 		ctx:                ctx,
 		log:                log,
 		relayManager:       relayManager,
@@ -41,39 +41,39 @@ func NewConnectorRelay(ctx context.Context, log *log.Entry, relayManager *relayC
 }
 
 // SetupRelayConnection todo: this function is not completed. Make no sense to put it in a for loop because we are not waiting for any event
-func (conn *ConnectorRelay) SetupRelayConnection() {
+func (w *WorkerRelay) SetupRelayConnection() {
 	for {
-		if !conn.waitForReconnectTry() {
+		if !w.waitForReconnectTry() {
 			return
 		}
 
-		remoteOfferAnswer, err := conn.doHandshakeFn()
+		remoteOfferAnswer, err := w.doHandshakeFn()
 		if err != nil {
 			if errors.Is(err, ErrSignalIsNotReady) {
-				conn.log.Infof("signal client isn't ready, skipping connection attempt")
+				w.log.Infof("signal client isn't ready, skipping connection attempt")
 			}
-			conn.log.Errorf("failed to do handshake: %v", err)
+			w.log.Errorf("failed to do handshake: %v", err)
 			continue
 		}
 
-		if !conn.isRelaySupported(remoteOfferAnswer) {
+		if !w.isRelaySupported(remoteOfferAnswer) {
 			// todo should we retry?
 			continue
 		}
 
 		// the relayManager will return with error in case if the connection has lost with relay server
-		currentRelayAddress, err := conn.relayManager.RelayAddress()
+		currentRelayAddress, err := w.relayManager.RelayAddress()
 		if err != nil {
 			continue
 		}
 
-		srv := conn.preferredRelayServer(currentRelayAddress.String(), remoteOfferAnswer.RelaySrvAddress)
-		relayedConn, err := conn.relayManager.OpenConn(srv, conn.config.Key)
+		srv := w.preferredRelayServer(currentRelayAddress.String(), remoteOfferAnswer.RelaySrvAddress)
+		relayedConn, err := w.relayManager.OpenConn(srv, w.config.Key)
 		if err != nil {
 			continue
 		}
 
-		go conn.onRelayConnReadyFN(RelayConnInfo{
+		go w.onRelayConnReadyFN(RelayConnInfo{
 			relayedConn:     relayedConn,
 			rosenpassPubKey: remoteOfferAnswer.RosenpassPubKey,
 			rosenpassAddr:   remoteOfferAnswer.RosenpassAddr,
@@ -83,28 +83,28 @@ func (conn *ConnectorRelay) SetupRelayConnection() {
 	}
 }
 
-func (conn *ConnectorRelay) RelayAddress() (net.Addr, error) {
-	return conn.relayManager.RelayAddress()
+func (w *WorkerRelay) RelayAddress() (net.Addr, error) {
+	return w.relayManager.RelayAddress()
 }
 
 // todo check my side too
-func (conn *ConnectorRelay) isRelaySupported(answer *OfferAnswer) bool {
+func (w *WorkerRelay) isRelaySupported(answer *OfferAnswer) bool {
 	return answer.RelaySrvAddress != ""
 }
 
-func (conn *ConnectorRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress string) string {
-	if conn.config.LocalKey > conn.config.Key {
+func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress string) string {
+	if w.config.LocalKey > w.config.Key {
 		return myRelayAddress
 	}
 	return remoteRelayAddress
 }
 
-func (conn *ConnectorRelay) RelayIsSupportedLocally() bool {
-	return conn.relayManager.HasRelayAddress()
+func (w *WorkerRelay) RelayIsSupportedLocally() bool {
+	return w.relayManager.HasRelayAddress()
 }
 
 // waitForReconnectTry waits for a random duration before trying to reconnect
-func (conn *ConnectorRelay) waitForReconnectTry() bool {
+func (w *WorkerRelay) waitForReconnectTry() bool {
 	minWait := 500
 	maxWait := 2000
 	duration := time.Duration(rand.Intn(maxWait-minWait)+minWait) * time.Millisecond
@@ -113,7 +113,7 @@ func (conn *ConnectorRelay) waitForReconnectTry() bool {
 	defer timeout.Stop()
 
 	select {
-	case <-conn.ctx.Done():
+	case <-w.ctx.Done():
 		return false
 	case <-timeout.C:
 		return true
