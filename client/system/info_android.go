@@ -32,7 +32,7 @@ func GetInfo(ctx context.Context) *Info {
 		GoOS:               runtime.GOOS,
 		Kernel:             kernel,
 		Platform:           "unknown",
-		OS:                 "android",
+		OS:                 "Android",
 		OSVersion:          osVersion(),
 		Hostname:           extractDeviceName(ctx, "android"),
 		CPUs:               runtime.NumCPU(),
@@ -77,5 +77,6 @@ func run(name string, arg ...string) string {
 	if err != nil {
 		log.Errorf("getInfo: %s", err)
 	}
-	return out.String()
+
+	return strings.TrimSpace(out.String())
 }
