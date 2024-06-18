@@ -162,6 +162,7 @@ func (conn *Conn) Open() {
 // Close closes this peer Conn issuing a close event to the Conn closeCh
 func (conn *Conn) Close() {
 	conn.mu.Lock()
+	defer conn.mu.Unlock()
 	conn.ctxCancel()
 
 	if conn.wgProxy != nil {
@@ -208,8 +209,6 @@ func (conn *Conn) Close() {
 	if err := conn.statusRecorder.UpdateWireGuardPeerState(conn.config.Key, iface.WGStats{}); err != nil {
 		conn.log.Debugf("failed to reset wireguard stats for peer: %s", err)
 	}
-
-	conn.mu.Unlock()
 }
 
 // OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
