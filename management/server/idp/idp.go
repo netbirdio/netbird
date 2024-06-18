@@ -1,6 +1,7 @@
 package idp
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -16,14 +17,14 @@ const (
 
 // Manager idp manager interface
 type Manager interface {
-	UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error
-	GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error)
-	GetAccount(accountId string) ([]*UserData, error)
-	GetAllAccounts() (map[string][]*UserData, error)
-	CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error)
-	GetUserByEmail(email string) ([]*UserData, error)
-	InviteUserByID(userID string) error
-	DeleteUser(userID string) error
+	UpdateUserAppMetadata(ctx context.Context, userId string, appMetadata AppMetadata) error
+	GetUserDataByID(ctx context.Context, userId string, appMetadata AppMetadata) (*UserData, error)
+	GetAccount(ctx context.Context, accountId string) ([]*UserData, error)
+	GetAllAccounts(ctx context.Context) (map[string][]*UserData, error)
+	CreateUser(ctx context.Context, email, name, accountID, invitedByEmail string) (*UserData, error)
+	GetUserByEmail(ctx context.Context, email string) ([]*UserData, error)
+	InviteUserByID(ctx context.Context, userID string) error
+	DeleteUser(ctx context.Context, userID string) error
 }
 
 // ClientConfig defines common client configuration for all IdP manager
@@ -51,7 +52,7 @@ type Config struct {
 
 // ManagerCredentials interface that authenticates using the credential of each type of idp
 type ManagerCredentials interface {
-	Authenticate() (JWTToken, error)
+	Authenticate(ctx context.Context) (JWTToken, error)
 }
 
 // ManagerHTTPClient http client interface for API calls
@@ -91,7 +92,7 @@ type JWTToken struct {
 }
 
 // NewManager returns a new idp manager based on the configuration that it receives
-func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error) {
+func NewManager(ctx context.Context, config Config, appMetrics telemetry.AppMetrics) (Manager, error) {
 	if config.ClientConfig != nil {
 		config.ClientConfig.Issuer = strings.TrimSuffix(config.ClientConfig.Issuer, "/")
 	}
@@ -175,7 +176,7 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 			ServiceAccountKey: config.ExtraConfig["ServiceAccountKey"],
 			CustomerID:        config.ExtraConfig["CustomerId"],
 		}
-		return NewGoogleWorkspaceManager(googleClientConfig, appMetrics)
+		return NewGoogleWorkspaceManager(ctx, googleClientConfig, appMetrics)
 	case "jumpcloud":
 		jumpcloudConfig := JumpCloudClientConfig{
 			APIToken: config.ExtraConfig["ApiToken"],

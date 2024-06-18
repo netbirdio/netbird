@@ -79,6 +79,9 @@ var (
 		Short: "start NetBird Management Server",
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
+
+			ctx := context.WithValue(cmd.Context(), nbContext.LogSourceKey, util.SystemSource)
+
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
 				return fmt.Errorf("failed initializing log %v", err)
@@ -87,7 +90,7 @@ var (
 			// detect whether user specified a port
 			userPort := cmd.Flag("port").Changed
 
-			config, err = loadMgmtConfig(mgmtConfig)
+			config, err = loadMgmtConfig(ctx, mgmtConfig)
 			if err != nil {
 				return fmt.Errorf("failed reading provided config file: %s: %v", mgmtConfig, err)
 			}
@@ -137,11 +140,11 @@ var (
 			if err != nil {
 				return err
 			}
-			err = appMetrics.Expose(mgmtMetricsPort, "/metrics")
+			err = appMetrics.Expose(ctx, mgmtMetricsPort, "/metrics")
 			if err != nil {
 				return err
 			}
-			store, err := server.NewStore(config.StoreConfig.Engine, config.Datadir, appMetrics)
+			store, err := server.NewStore(ctx, config.StoreConfig.Engine, config.Datadir, appMetrics)
 			if err != nil {
 				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
 			}
@@ -149,7 +152,7 @@ var (
 
 			var idpManager idp.Manager
 			if config.IdpManagerConfig != nil {
-				idpManager, err = idp.NewManager(*config.IdpManagerConfig, appMetrics)
+				idpManager, err = idp.NewManager(ctx, *config.IdpManagerConfig, appMetrics)
 				if err != nil {
 					return fmt.Errorf("failed retrieving a new idp manager with err: %v", err)
 				}
@@ -172,7 +175,7 @@ var (
 				}
 			}
 
-			geo, err := geolocation.NewGeolocation(config.Datadir)
+			geo, err := geolocation.NewGeolocation(ctx, config.Datadir)
 			if err != nil {
 				log.WithContext(ctx).Warnf("could not initialize geo location service: %v, we proceed without geo support", err)
 			} else {
@@ -183,7 +186,7 @@ var (
 			if err != nil {
 				return fmt.Errorf("failed to initialize integrated peer validator: %v", err)
 			}
-			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
+			accountManager, err := server.BuildManager(ctx, store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
 				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
@@ -239,6 +242,7 @@ var (
 			}
 
 			jwtValidator, err := jwtclaims.NewJWTValidator(
+				ctx,
 				config.HttpConfig.AuthIssuer,
 				config.GetAuthAudiences(),
 				config.HttpConfig.AuthKeysLocation,
@@ -270,16 +274,16 @@ var (
 			}
 
 			ephemeralManager := server.NewEphemeralManager(store, accountManager)
-			ephemeralManager.LoadInitialPeers()
+			ephemeralManager.LoadInitialPeers(ctx)
 
 			gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
-			srv, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, appMetrics, ephemeralManager)
+			srv, err := server.NewServer(ctx, config, accountManager, peersUpdateManager, turnManager, appMetrics, ephemeralManager)
 			if err != nil {
 				return fmt.Errorf("failed creating gRPC API handler: %v", err)
 			}
 			mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
 
-			installationID, err := getInstallationID(store)
+			installationID, err := getInstallationID(ctx, store)
 			if err != nil {
 				log.WithContext(ctx).Errorf("cannot load TLS credentials: %v", err)
 				return err
@@ -291,14 +295,14 @@ var (
 					idpManager = config.IdpManagerConfig.ManagerType
 				}
 				metricsWorker := metrics.NewWorker(ctx, installationID, store, peersUpdateManager, idpManager)
-				go metricsWorker.Run()
+				go metricsWorker.Run(ctx)
 			}
 
 			var compatListener net.Listener
 			if mgmtPort != ManagementLegacyPort {
 				// The Management gRPC server was running on port 33073 previously. Old agents that are already connected to it
 				// are using port 33073. For compatibility purposes we keep running a 2nd gRPC server on port 33073.
-				compatListener, err = serveGRPC(gRPCAPIHandler, ManagementLegacyPort)
+				compatListener, err = serveGRPC(ctx, gRPCAPIHandler, ManagementLegacyPort)
 				if err != nil {
 					return err
 				}
@@ -320,7 +324,7 @@ var (
 						return fmt.Errorf("failed creating TLS listener on port %d: %v", mgmtPort, err)
 					}
 					log.WithContext(ctx).Infof("running HTTP server (LetsEncrypt challenge handler): %s", cml.Addr().String())
-					serveHTTP(cml, certManager.HTTPHandler(nil))
+					serveHTTP(ctx, cml, certManager.HTTPHandler(nil))
 				}
 			} else if tlsConfig != nil {
 				listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", mgmtPort), tlsConfig)
@@ -336,7 +340,7 @@ var (
 
 			log.WithContext(ctx).Infof("management server version %s", version.NetbirdVersion())
 			log.WithContext(ctx).Infof("running HTTP server and gRPC server on the same port: %s", listener.Addr().String())
-			serveGRPCWithHTTP(listener, rootHandler, tlsEnabled)
+			serveGRPCWithHTTP(ctx, listener, rootHandler, tlsEnabled)
 
 			SetupCloseHandler()
 
@@ -352,7 +356,7 @@ var (
 				_ = certManager.Listener().Close()
 			}
 			gRPCAPIHandler.Stop()
-			_ = store.Close()
+			_ = store.Close(ctx)
 			_ = eventStore.Close()
 			log.WithContext(ctx).Infof("stopped Management Service")
 
@@ -386,7 +390,7 @@ func streamInterceptor(
 	return handler(srv, wrapped)
 }
 
-func notifyStop(msg string) {
+func notifyStop(ctx context.Context, msg string) {
 	select {
 	case stopCh <- 1:
 		log.WithContext(ctx).Error(msg)
@@ -395,21 +399,21 @@ func notifyStop(msg string) {
 	}
 }
 
-func getInstallationID(store server.Store) (string, error) {
+func getInstallationID(ctx context.Context, store server.Store) (string, error) {
 	installationID := store.GetInstallationID()
 	if installationID != "" {
 		return installationID, nil
 	}
 
 	installationID = strings.ToUpper(uuid.New().String())
-	err := store.SaveInstallationID(installationID)
+	err := store.SaveInstallationID(ctx, installationID)
 	if err != nil {
 		return "", err
 	}
 	return installationID, nil
 }
 
-func serveGRPC(grpcServer *grpc.Server, port int) (net.Listener, error) {
+func serveGRPC(ctx context.Context, grpcServer *grpc.Server, port int) (net.Listener, error) {
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return nil, err
@@ -417,22 +421,22 @@ func serveGRPC(grpcServer *grpc.Server, port int) (net.Listener, error) {
 	go func() {
 		err := grpcServer.Serve(listener)
 		if err != nil {
-			notifyStop(fmt.Sprintf("failed running gRPC server on port %d: %v", port, err))
+			notifyStop(ctx, fmt.Sprintf("failed running gRPC server on port %d: %v", port, err))
 		}
 	}()
 	return listener, nil
 }
 
-func serveHTTP(httpListener net.Listener, handler http.Handler) {
+func serveHTTP(ctx context.Context, httpListener net.Listener, handler http.Handler) {
 	go func() {
 		err := http.Serve(httpListener, handler)
 		if err != nil {
-			notifyStop(fmt.Sprintf("failed running HTTP server: %v", err))
+			notifyStop(ctx, fmt.Sprintf("failed running HTTP server: %v", err))
 		}
 	}()
 }
 
-func serveGRPCWithHTTP(listener net.Listener, handler http.Handler, tlsEnabled bool) {
+func serveGRPCWithHTTP(ctx context.Context, listener net.Listener, handler http.Handler, tlsEnabled bool) {
 	go func() {
 		var err error
 		if tlsEnabled {
@@ -469,7 +473,7 @@ func handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler) http.Handle
 	})
 }
 
-func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
+func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config, error) {
 	loadedConfig := &server.Config{}
 	_, err := util.ReadJson(mgmtConfigPath, loadedConfig)
 	if err != nil {
@@ -491,7 +495,7 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 	if oidcEndpoint != "" {
 		// if OIDCConfigEndpoint is specified, we can load DeviceAuthEndpoint and TokenEndpoint automatically
 		log.WithContext(ctx).Infof("loading OIDC configuration from the provided IDP configuration endpoint %s", oidcEndpoint)
-		oidcConfig, err := fetchOIDCConfig(oidcEndpoint)
+		oidcConfig, err := fetchOIDCConfig(ctx, oidcEndpoint)
 		if err != nil {
 			return nil, err
 		}
@@ -553,7 +557,7 @@ type OIDCConfigResponse struct {
 }
 
 // fetchOIDCConfig fetches OIDC configuration from the IDP
-func fetchOIDCConfig(oidcEndpoint string) (OIDCConfigResponse, error) {
+func fetchOIDCConfig(ctx context.Context, oidcEndpoint string) (OIDCConfigResponse, error) {
 	res, err := http.Get(oidcEndpoint)
 	if err != nil {
 		return OIDCConfigResponse{}, fmt.Errorf("failed fetching OIDC configuration from endpoint %s %v", oidcEndpoint, err)

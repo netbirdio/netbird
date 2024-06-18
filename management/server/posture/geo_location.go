@@ -1,6 +1,7 @@
 package posture
 
 import (
+	"context"
 	"fmt"
 	"slices"
 
@@ -25,7 +26,7 @@ type GeoLocationCheck struct {
 	Action string
 }
 
-func (g *GeoLocationCheck) Check(peer nbpeer.Peer) (bool, error) {
+func (g *GeoLocationCheck) Check(_ context.Context, peer nbpeer.Peer) (bool, error) {
 	// deny if the peer location is not evaluated
 	if peer.Location.CountryCode == "" && peer.Location.CityName == "" {
 		return false, fmt.Errorf("peer's location is not set")

@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -33,16 +34,16 @@ func NewEventsHandler(accountManager server.AccountManager, authCfg AuthCfg) *Ev
 // GetAllEvents list of the given account
 func (h *EventsHandler) GetAllEvents(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		log.WithContext(ctx).Error(err)
+		log.WithContext(r.Context()).Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
-	accountEvents, err := h.accountManager.GetEvents(account.Id, user.Id)
+	accountEvents, err := h.accountManager.GetEvents(r.Context(), account.Id, user.Id)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 	events := make([]*api.Event, len(accountEvents))
@@ -50,18 +51,18 @@ func (h *EventsHandler) GetAllEvents(w http.ResponseWriter, r *http.Request) {
 		events[i] = toEventResponse(e)
 	}
 
-	err = h.fillEventsWithUserInfo(events, account.Id, user.Id)
+	err = h.fillEventsWithUserInfo(r.Context(), events, account.Id, user.Id)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(w, events)
+	util.WriteJSONObject(r.Context(), w, events)
 }
 
-func (h *EventsHandler) fillEventsWithUserInfo(events []*api.Event, accountId, userId string) error {
+func (h *EventsHandler) fillEventsWithUserInfo(ctx context.Context, events []*api.Event, accountId, userId string) error {
 	// build email, name maps based on users
-	userInfos, err := h.accountManager.GetUsersFromAccount(accountId, userId)
+	userInfos, err := h.accountManager.GetUsersFromAccount(ctx, accountId, userId)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get users from account: %s", err)
 		return err

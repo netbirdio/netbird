@@ -1,6 +1,7 @@
 package posture
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/hashicorp/go-version"
@@ -15,7 +16,7 @@ type NBVersionCheck struct {
 
 var _ Check = (*NBVersionCheck)(nil)
 
-func (n *NBVersionCheck) Check(peer nbpeer.Peer) (bool, error) {
+func (n *NBVersionCheck) Check(ctx context.Context, peer nbpeer.Peer) (bool, error) {
 	peerNBVersion, err := version.NewVersion(peer.Meta.WtVersion)
 	if err != nil {
 		return false, err

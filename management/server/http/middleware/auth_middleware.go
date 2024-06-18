@@ -19,16 +19,16 @@ import (
 )
 
 // GetAccountFromPATFunc function
-type GetAccountFromPATFunc func(token string) (*server.Account, *server.User, *server.PersonalAccessToken, error)
+type GetAccountFromPATFunc func(ctx context.Context, token string) (*server.Account, *server.User, *server.PersonalAccessToken, error)
 
 // ValidateAndParseTokenFunc function
-type ValidateAndParseTokenFunc func(token string) (*jwt.Token, error)
+type ValidateAndParseTokenFunc func(ctx context.Context, token string) (*jwt.Token, error)
 
 // MarkPATUsedFunc function
-type MarkPATUsedFunc func(token string) error
+type MarkPATUsedFunc func(ctx context.Context, token string) error
 
 // CheckUserAccessByJWTGroupsFunc function
-type CheckUserAccessByJWTGroupsFunc func(claims jwtclaims.AuthorizationClaims) error
+type CheckUserAccessByJWTGroupsFunc func(ctx context.Context, claims jwtclaims.AuthorizationClaims) error
 
 // AuthMiddleware middleware to verify personal access tokens (PAT) and JWT tokens
 type AuthMiddleware struct {
@@ -85,21 +85,21 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 		case "bearer":
 			err := m.checkJWTFromRequest(w, r, auth)
 			if err != nil {
-				log.WithContext(ctx).Errorf("Error when validating JWT claims: %s", err.Error())
-				util.WriteError(status.Errorf(status.Unauthorized, "token invalid"), w)
+				log.WithContext(r.Context()).Errorf("Error when validating JWT claims: %s", err.Error())
+				util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "token invalid"), w)
 				return
 			}
 			h.ServeHTTP(w, r)
 		case "token":
 			err := m.checkPATFromRequest(w, r, auth)
 			if err != nil {
-				log.WithContext(ctx).Debugf("Error when validating PAT claims: %s", err.Error())
-				util.WriteError(status.Errorf(status.Unauthorized, "token invalid"), w)
+				log.WithContext(r.Context()).Debugf("Error when validating PAT claims: %s", err.Error())
+				util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "token invalid"), w)
 				return
 			}
 			h.ServeHTTP(w, r)
 		default:
-			util.WriteError(status.Errorf(status.Unauthorized, "no valid authentication provided"), w)
+			util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "no valid authentication provided"), w)
 			return
 		}
 	})
@@ -114,7 +114,7 @@ func (m *AuthMiddleware) checkJWTFromRequest(w http.ResponseWriter, r *http.Requ
 		return fmt.Errorf("Error extracting token: %w", err)
 	}
 
-	validatedToken, err := m.validateAndParseToken(token)
+	validatedToken, err := m.validateAndParseToken(r.Context(), token)
 	if err != nil {
 		return err
 	}
@@ -123,7 +123,7 @@ func (m *AuthMiddleware) checkJWTFromRequest(w http.ResponseWriter, r *http.Requ
 		return nil
 	}
 
-	if err := m.verifyUserAccess(validatedToken); err != nil {
+	if err := m.verifyUserAccess(r.Context(), validatedToken); err != nil {
 		return err
 	}
 
@@ -138,9 +138,9 @@ func (m *AuthMiddleware) checkJWTFromRequest(w http.ResponseWriter, r *http.Requ
 // verifyUserAccess checks if a user, based on a validated JWT token,
 // is allowed access, particularly in cases where the admin enabled JWT
 // group propagation and designated certain groups with access permissions.
-func (m *AuthMiddleware) verifyUserAccess(validatedToken *jwt.Token) error {
+func (m *AuthMiddleware) verifyUserAccess(ctx context.Context, validatedToken *jwt.Token) error {
 	authClaims := m.claimsExtractor.FromToken(validatedToken)
-	return m.checkUserAccessByJWTGroups(authClaims)
+	return m.checkUserAccessByJWTGroups(ctx, authClaims)
 }
 
 // CheckPATFromRequest checks if the PAT is valid
@@ -152,7 +152,7 @@ func (m *AuthMiddleware) checkPATFromRequest(w http.ResponseWriter, r *http.Requ
 		return fmt.Errorf("Error extracting token: %w", err)
 	}
 
-	account, user, pat, err := m.getAccountFromPAT(token)
+	account, user, pat, err := m.getAccountFromPAT(r.Context(), token)
 	if err != nil {
 		return fmt.Errorf("invalid Token: %w", err)
 	}
@@ -160,7 +160,7 @@ func (m *AuthMiddleware) checkPATFromRequest(w http.ResponseWriter, r *http.Requ
 		return fmt.Errorf("token expired")
 	}
 
-	err = m.markPATUsed(pat.ID)
+	err = m.markPATUsed(r.Context(), pat.ID)
 	if err != nil {
 		return err
 	}

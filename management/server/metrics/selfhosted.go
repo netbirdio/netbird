@@ -46,7 +46,7 @@ type properties map[string]interface{}
 
 // DataSource metric data source
 type DataSource interface {
-	GetAllAccounts() []*server.Account
+	GetAllAccounts(ctx context.Context) []*server.Account
 	GetStoreEngine() server.StoreEngine
 }
 
@@ -81,14 +81,14 @@ func NewWorker(ctx context.Context, id string, dataSource DataSource, connManage
 }
 
 // Run runs the metrics worker
-func (w *Worker) Run() {
+func (w *Worker) Run(ctx context.Context) {
 	pushTicker := time.NewTicker(defaultPushInterval)
 	for {
 		select {
 		case <-w.ctx.Done():
 			return
 		case <-pushTicker.C:
-			err := w.sendMetrics()
+			err := w.sendMetrics(ctx)
 			if err != nil {
 				log.WithContext(ctx).Error(err)
 			}
@@ -97,13 +97,13 @@ func (w *Worker) Run() {
 	}
 }
 
-func (w *Worker) sendMetrics() error {
+func (w *Worker) sendMetrics(ctx context.Context) error {
 	apiKey, err := getAPIKey(w.ctx)
 	if err != nil {
 		return err
 	}
 
-	payload := w.generatePayload(apiKey)
+	payload := w.generatePayload(ctx, apiKey)
 
 	payloadString, err := buildMetricsPayload(payload)
 	if err != nil {
@@ -140,8 +140,8 @@ func (w *Worker) sendMetrics() error {
 	return nil
 }
 
-func (w *Worker) generatePayload(apiKey string) pushPayload {
-	properties := w.generateProperties()
+func (w *Worker) generatePayload(ctx context.Context, apiKey string) pushPayload {
+	properties := w.generateProperties(ctx)
 
 	return pushPayload{
 		APIKey:     apiKey,
@@ -152,7 +152,7 @@ func (w *Worker) generatePayload(apiKey string) pushPayload {
 	}
 }
 
-func (w *Worker) generateProperties() properties {
+func (w *Worker) generateProperties(ctx context.Context) properties {
 	var (
 		uptime                    float64
 		accounts                  int
@@ -192,7 +192,7 @@ func (w *Worker) generateProperties() properties {
 	connections := w.connManager.GetAllConnectedPeers()
 	version = nbversion.NetbirdVersion()
 
-	for _, account := range w.dataSource.GetAllAccounts() {
+	for _, account := range w.dataSource.GetAllAccounts(ctx) {
 		accounts++
 
 		if account.Settings.PeerLoginExpirationEnabled {

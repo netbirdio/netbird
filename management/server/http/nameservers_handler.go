@@ -36,16 +36,16 @@ func NewNameserversHandler(accountManager server.AccountManager, authCfg AuthCfg
 // GetAllNameservers returns the list of nameserver groups for the account
 func (h *NameserversHandler) GetAllNameservers(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		log.WithContext(ctx).Error(err)
+		log.WithContext(r.Context()).Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
-	nsGroups, err := h.accountManager.ListNameServerGroups(account.Id, user.Id)
+	nsGroups, err := h.accountManager.ListNameServerGroups(r.Context(), account.Id, user.Id)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -54,15 +54,15 @@ func (h *NameserversHandler) GetAllNameservers(w http.ResponseWriter, r *http.Re
 		apiNameservers = append(apiNameservers, toNameserverGroupResponse(r))
 	}
 
-	util.WriteJSONObject(w, apiNameservers)
+	util.WriteJSONObject(r.Context(), w, apiNameservers)
 }
 
 // CreateNameserverGroup handles nameserver group creation request
 func (h *NameserversHandler) CreateNameserverGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -75,33 +75,33 @@ func (h *NameserversHandler) CreateNameserverGroup(w http.ResponseWriter, r *htt
 
 	nsList, err := toServerNSList(req.Nameservers)
 	if err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid NS servers format"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid NS servers format"), w)
 		return
 	}
 
-	nsGroup, err := h.accountManager.CreateNameServerGroup(account.Id, req.Name, req.Description, nsList, req.Groups, req.Primary, req.Domains, req.Enabled, user.Id, req.SearchDomainsEnabled)
+	nsGroup, err := h.accountManager.CreateNameServerGroup(r.Context(), account.Id, req.Name, req.Description, nsList, req.Groups, req.Primary, req.Domains, req.Enabled, user.Id, req.SearchDomainsEnabled)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	resp := toNameserverGroupResponse(nsGroup)
 
-	util.WriteJSONObject(w, &resp)
+	util.WriteJSONObject(r.Context(), w, &resp)
 }
 
 // UpdateNameserverGroup handles update to a nameserver group identified by a given ID
 func (h *NameserversHandler) UpdateNameserverGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	nsGroupID := mux.Vars(r)["nsgroupId"]
 	if len(nsGroupID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid nameserver group ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid nameserver group ID"), w)
 		return
 	}
 
@@ -114,7 +114,7 @@ func (h *NameserversHandler) UpdateNameserverGroup(w http.ResponseWriter, r *htt
 
 	nsList, err := toServerNSList(req.Nameservers)
 	if err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid NS servers format"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid NS servers format"), w)
 		return
 	}
 
@@ -130,66 +130,66 @@ func (h *NameserversHandler) UpdateNameserverGroup(w http.ResponseWriter, r *htt
 		SearchDomainsEnabled: req.SearchDomainsEnabled,
 	}
 
-	err = h.accountManager.SaveNameServerGroup(account.Id, user.Id, updatedNSGroup)
+	err = h.accountManager.SaveNameServerGroup(r.Context(), account.Id, user.Id, updatedNSGroup)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	resp := toNameserverGroupResponse(updatedNSGroup)
 
-	util.WriteJSONObject(w, &resp)
+	util.WriteJSONObject(r.Context(), w, &resp)
 }
 
 // DeleteNameserverGroup handles nameserver group deletion request
 func (h *NameserversHandler) DeleteNameserverGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	nsGroupID := mux.Vars(r)["nsgroupId"]
 	if len(nsGroupID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid nameserver group ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid nameserver group ID"), w)
 		return
 	}
 
-	err = h.accountManager.DeleteNameServerGroup(account.Id, nsGroupID, user.Id)
+	err = h.accountManager.DeleteNameServerGroup(r.Context(), account.Id, nsGroupID, user.Id)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, emptyObject{})
 }
 
 // GetNameserverGroup handles a nameserver group Get request identified by ID
 func (h *NameserversHandler) GetNameserverGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		log.WithContext(ctx).Error(err)
+		log.WithContext(r.Context()).Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
 	nsGroupID := mux.Vars(r)["nsgroupId"]
 	if len(nsGroupID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid nameserver group ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid nameserver group ID"), w)
 		return
 	}
 
-	nsGroup, err := h.accountManager.GetNameServerGroup(account.Id, user.Id, nsGroupID)
+	nsGroup, err := h.accountManager.GetNameServerGroup(r.Context(), account.Id, user.Id, nsGroupID)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	resp := toNameserverGroupResponse(nsGroup)
 
-	util.WriteJSONObject(w, &resp)
+	util.WriteJSONObject(r.Context(), w, &resp)
 }
 
 func toServerNSList(apiNSList []api.Nameserver) ([]nbdns.NameServer, error) {

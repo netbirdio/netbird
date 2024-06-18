@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"context"
 	"testing"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -21,7 +22,7 @@ func (mockDatasource) GetAllConnectedPeers() map[string]struct{} {
 }
 
 // GetAllAccounts returns a list of *server.Account for use in tests with predefined information
-func (mockDatasource) GetAllAccounts() []*server.Account {
+func (mockDatasource) GetAllAccounts(_ context.Context) []*server.Account {
 	return []*server.Account{
 		{
 			Id:       "1",
@@ -188,7 +189,7 @@ func TestGenerateProperties(t *testing.T) {
 		connManager: ds,
 	}
 
-	properties := worker.generateProperties()
+	properties := worker.generateProperties(context.Background())
 
 	if properties["accounts"] != 2 {
 		t.Errorf("expected 2 accounts, got %d", properties["accounts"])
