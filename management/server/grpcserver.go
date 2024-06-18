@@ -140,7 +140,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	}
 
 	ctx = context.WithValue(ctx, "peerID", peerKey.String())
-	accountID, err := s.accountManager.GetAccountIDForPeerKey(peerKey.String())
+	accountID, err := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String())
 	if err != nil {
 		return err
 	}
