@@ -100,14 +100,14 @@ func getMgmClient(ctx context.Context, privateKey string, mgmURL *url.URL) (*mgm
 }
 
 func doMgmLogin(ctx context.Context, mgmClient *mgm.GrpcClient, pubSSHKey []byte) (*wgtypes.Key, error) {
-	serverKey, err := mgmClient.GetServerPublicKey()
+	serverKey, err := mgmClient.GetServerPublicKey(ctx)
 	if err != nil {
 		log.Errorf("failed while getting Management Service public key: %v", err)
 		return nil, err
 	}
 
 	sysInfo := system.GetInfo(ctx)
-	_, err = mgmClient.Login(*serverKey, sysInfo, pubSSHKey)
+	_, err = mgmClient.Login(ctx, *serverKey, sysInfo, pubSSHKey)
 	return serverKey, err
 }
 
@@ -121,7 +121,7 @@ func registerPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.
 
 	log.Debugf("sending peer registration request to Management Service")
 	info := system.GetInfo(ctx)
-	loginResp, err := client.Register(serverPublicKey, validSetupKey.String(), jwtToken, info, pubSSHKey)
+	loginResp, err := client.Register(ctx, serverPublicKey, validSetupKey.String(), jwtToken, info, pubSSHKey)
 	if err != nil {
 		log.Errorf("failed registering peer %v,%s", err, validSetupKey.String())
 		return nil, err
