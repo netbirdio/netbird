@@ -10,14 +10,16 @@ import (
 )
 
 type Conn struct {
-	*websocket.Conn
 	ctx context.Context
+	*websocket.Conn
+	srvAddr *net.TCPAddr
 }
 
-func NewConn(wsConn *websocket.Conn) net.Conn {
+func NewConn(wsConn *websocket.Conn, srvAddr *net.TCPAddr) net.Conn {
 	return &Conn{
-		Conn: wsConn,
-		ctx:  context.Background(),
+		ctx:     context.Background(),
+		Conn:    wsConn,
+		srvAddr: srvAddr,
 	}
 }
 
@@ -40,8 +42,7 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 }
 
 func (c *Conn) RemoteAddr() net.Addr {
-	// todo: implement me
-	return nil
+	return c.srvAddr
 }
 
 func (c *Conn) LocalAddr() net.Addr {
