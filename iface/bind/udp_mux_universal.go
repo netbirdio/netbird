@@ -121,26 +121,28 @@ type udpConn struct {
 }
 
 func (u *udpConn) WriteTo(b []byte, addr net.Addr) (int, error) {
-	if cached, found := u.addrCache.Load(addr.String()); found {
-		return u.handleCachedAddress(cached, addr)
+	if u.filterFn == nil {
+		return u.PacketConn.WriteTo(b, addr)
+	}
+
+	if isRouted, found := u.addrCache.Load(addr.String()); found {
+		return u.handleCachedAddress(isRouted.(bool), b, addr)
 	}
 
 	return u.handleUncachedAddress(b, addr)
 }
 
-func (u *udpConn) handleCachedAddress(cached interface{}, addr net.Addr) (int, error) {
-	if isRouted := cached.(bool); isRouted {
+func (u *udpConn) handleCachedAddress(isRouted bool, b []byte, addr net.Addr) (int, error) {
+	if isRouted {
 		log.Infof("Address %s is part of a routed network, refusing to write", addr)
 		return 0, fmt.Errorf("address %s is part of a routed network, refusing to write", addr)
 	}
-	return u.PacketConn.WriteTo(nil, addr)
+	return u.PacketConn.WriteTo(b, addr)
 }
 
 func (u *udpConn) handleUncachedAddress(b []byte, addr net.Addr) (int, error) {
-	if u.filterFn != nil {
-		if err := u.performFilterCheck(addr); err != nil {
-			return 0, err
-		}
+	if err := u.performFilterCheck(addr); err != nil {
+		return 0, err
 	}
 	return u.PacketConn.WriteTo(b, addr)
 }
@@ -148,19 +150,22 @@ func (u *udpConn) handleUncachedAddress(b []byte, addr net.Addr) (int, error) {
 func (u *udpConn) performFilterCheck(addr net.Addr) error {
 	host, err := getHostFromAddr(addr)
 	if err != nil {
-		return fmt.Errorf("split host and port: %w", err)
+		log.Errorf("Failed to get host from address %s: %v", addr, err)
+		return nil
 	}
 
 	a, err := netip.ParseAddr(host)
 	if err != nil {
-		return fmt.Errorf("parse address: %w", err)
+		log.Errorf("Failed to parse address %s: %v", addr, err)
+		return nil
 	}
 
 	if isRouted, prefix, err := u.filterFn(a); err != nil {
-		log.Errorf("ICE: Failed to check if address %s is routed: %v", addr, err)
+		log.Errorf("Failed to check if address %s is routed: %v", addr, err)
 	} else {
 		u.addrCache.Store(addr.String(), isRouted)
 		if isRouted {
+			// Extra log, as the error only shows up with ICE logging enabled
 			log.Infof("Address %s is part of routed network %s, refusing to write", addr, prefix)
 			return fmt.Errorf("address %s is part of routed network %s, refusing to write", addr, prefix)
 		}
