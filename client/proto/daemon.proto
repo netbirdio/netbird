@@ -147,6 +147,18 @@ message GetConfigResponse {
 
   // adminURL settings value.
   string adminURL = 5;
+
+  string interfaceName = 6;
+
+  int64 wireguardPort = 7;
+
+  bool disableAutoConnect = 9;
+
+  bool serverSSHAllowed = 10;
+
+  bool rosenpassEnabled = 11;
+
+  bool rosenpassPermissive = 12;
 }
 
 // PeerState contains the latest state of a peer
