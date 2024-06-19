@@ -57,6 +57,7 @@ type HandshakeArgs struct {
 type Handshaker struct {
 	mu       sync.Mutex
 	ctx      context.Context
+	log      *log.Entry
 	config   ConnConfig
 	signaler *Signaler
 
@@ -71,9 +72,10 @@ type Handshaker struct {
 	handshakeArgs HandshakeArgs
 }
 
-func NewHandshaker(ctx context.Context, config ConnConfig, signaler *Signaler) *Handshaker {
+func NewHandshaker(ctx context.Context, log *log.Entry, config ConnConfig, signaler *Signaler) *Handshaker {
 	return &Handshaker{
 		ctx:            ctx,
+		log:            log,
 		config:         config,
 		signaler:       signaler,
 		remoteOffersCh: make(chan OfferAnswer),
@@ -92,6 +94,7 @@ func (h *Handshaker) Handshake(args HandshakeArgs) (*OfferAnswer, error) {
 		return cachedOfferAnswer, nil
 	}
 
+	h.log.Debugf("send offer")
 	err := h.sendOffer(args)
 	if err != nil {
 		return nil, err
@@ -106,8 +109,8 @@ func (h *Handshaker) Handshake(args HandshakeArgs) (*OfferAnswer, error) {
 	}
 	h.storeRemoteOfferAnswer(remoteOfferAnswer)
 
-	log.Debugf("received connection confirmation from peer %s running version %s and with remote WireGuard listen port %d",
-		h.config.Key, remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort)
+	h.log.Debugf("received connection confirmation, running version %s and with remote WireGuard listen port %d",
+		remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort)
 
 	return remoteOfferAnswer, nil
 }
@@ -119,7 +122,7 @@ func (h *Handshaker) OnRemoteOffer(offer OfferAnswer) bool {
 	case h.remoteOffersCh <- offer:
 		return true
 	default:
-		log.Debugf("OnRemoteOffer skipping message from peer %s because is not ready", h.config.Key)
+		h.log.Debugf("OnRemoteOffer skipping message because is not ready")
 		// connection might not be ready yet to receive so we ignore the message
 		return false
 	}
@@ -133,7 +136,7 @@ func (h *Handshaker) OnRemoteAnswer(answer OfferAnswer) bool {
 		return true
 	default:
 		// connection might not be ready yet to receive so we ignore the message
-		log.Debugf("OnRemoteAnswer skipping message from peer %s because is not ready", h.config.Key)
+		h.log.Debugf("OnRemoteAnswer skipping message because is not ready")
 		return false
 	}
 }
@@ -153,7 +156,7 @@ func (h *Handshaker) sendOffer(args HandshakeArgs) error {
 }
 
 func (h *Handshaker) sendAnswer() error {
-	log.Debugf("sending answer to %s", h.config.Key)
+	h.log.Debugf("sending answer")
 	answer := OfferAnswer{
 		IceCredentials:  IceCredentials{h.handshakeArgs.IceUFrag, h.handshakeArgs.IcePwd},
 		WgListenPort:    h.config.LocalWgPort,

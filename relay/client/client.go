@@ -111,6 +111,7 @@ func NewClient(ctx context.Context, serverAddress, peerID string) *Client {
 
 // Connect establishes a connection to the relay server. It blocks until the connection is established or an error occurs.
 func (c *Client) Connect() error {
+	log.Infof("connecting to relay server: %s", c.serverAddress)
 	c.readLoopMutex.Lock()
 	defer c.readLoopMutex.Unlock()
 
@@ -139,6 +140,7 @@ func (c *Client) Connect() error {
 	c.wgReadLoop.Add(1)
 	go c.readLoop(c.relayConn)
 
+	log.Infof("relay connection established with: %s", c.serverAddress)
 	return nil
 }
 

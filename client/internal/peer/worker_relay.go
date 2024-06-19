@@ -54,12 +54,14 @@ func (w *WorkerRelay) SetupRelayConnection() {
 			if errors.Is(err, ErrSignalIsNotReady) {
 				w.log.Infof("signal client isn't ready, skipping connection attempt")
 			}
-			w.log.Errorf("failed to do handshake: %v", err)
+			w.log.Errorf("%s", err)
 			continue
 		}
 
 		if !w.isRelaySupported(remoteOfferAnswer) {
 			// todo should we retry?
+			// if the remote peer doesn't support relay make no sense to retry infinity
+			// but if the remote peer supports relay just the connection is lost we should retry
 			continue
 		}
 
@@ -81,7 +83,7 @@ func (w *WorkerRelay) SetupRelayConnection() {
 			rosenpassAddr:   remoteOfferAnswer.RosenpassAddr,
 		})
 
-		// todo: waitForDisconnection()
+		<-w.ctx.Done()
 	}
 }
 

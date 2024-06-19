@@ -111,9 +111,10 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 	}
 
 	ctx, ctxCancel := context.WithCancel(engineCtx)
+	connLog := log.WithField("peer", config.Key)
 
 	var conn = &Conn{
-		log:            log.WithField("peer", config.Key),
+		log:            connLog,
 		ctx:            ctx,
 		ctxCancel:      ctxCancel,
 		config:         config,
@@ -121,7 +122,7 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		wgProxyFactory: wgProxyFactory,
 		signaler:       signaler,
 		allowedIPsIP:   allowedIPsIP.String(),
-		handshaker:     NewHandshaker(ctx, config, signaler),
+		handshaker:     NewHandshaker(ctx, connLog, config, signaler),
 		statusRelay:    StatusDisconnected,
 		statusICE:      StatusDisconnected,
 	}
@@ -138,8 +139,8 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		DoHandshake:     conn.doHandshake,
 	}
 
-	conn.workerRelay = NewWorkerRelay(ctx, conn.log, relayManager, config, rFns)
-	conn.workerICE = NewWorkerICE(ctx, conn.log, config, config.ICEConfig, signaler, iFaceDiscover, statusRecorder, wFns)
+	conn.workerRelay = NewWorkerRelay(ctx, connLog, relayManager, config, rFns)
+	conn.workerICE = NewWorkerICE(ctx, connLog, config, config.ICEConfig, signaler, iFaceDiscover, statusRecorder, wFns)
 	return conn, nil
 }
 
@@ -148,7 +149,7 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 // be used.
 // todo implement on disconnected event from ICE and relay too.
 func (conn *Conn) Open() {
-	conn.log.Debugf("trying to connect to peer")
+	conn.log.Debugf("open connection to peer")
 
 	peerState := State{
 		PubKey:           conn.config.Key,
@@ -333,10 +334,16 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 		return
 	}
 
+	conn.log.Debugf("relay connection is ready")
+
 	conn.statusRelay = stateConnected
 
 	if conn.currentConnType > connPriorityRelay {
 		return
+	}
+
+	if conn.currentConnType != 0 {
+		conn.log.Infof("update connection to Relay type")
 	}
 
 	wgProxy := conn.wgProxyFactory.GetProxy(conn.ctx)
@@ -391,10 +398,16 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 		return
 	}
 
+	conn.log.Debugf("ICE connection is ready")
+
 	conn.statusICE = stateConnected
 
 	if conn.currentConnType > priority {
 		return
+	}
+
+	if conn.currentConnType != 0 {
+		conn.log.Infof("update connection to ICE type")
 	}
 
 	var (

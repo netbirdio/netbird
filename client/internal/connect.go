@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -309,8 +308,8 @@ func (c *ConnectClient) run(
 }
 
 func relayAddress(resp *mgmProto.LoginResponse) string {
-	if envRelay := os.Getenv("NB_RELAY_ADDRESS"); envRelay != "" {
-		return envRelay
+	if ra := peer.ForcedRelayAddress(); ra != "" {
+		return ra
 	}
 
 	if resp.GetWiretrusteeConfig().GetRelayAddress() != "" {

@@ -215,6 +215,7 @@ func (w *WorkerICE) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HA
 	defer w.muxAgent.Unlock()
 	w.log.Debugf("OnRemoteCandidate from peer %s -> %s", w.config.Key, candidate.String())
 	if w.agent == nil {
+		w.log.Warnf("ICE Agent is not initialized yet")
 		return
 	}
 
