@@ -255,14 +255,16 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				}
 			}
 
+			iAdminURL := strings.TrimSpace(s.iAdminURL.Text)
+			iMngURL := strings.TrimSpace(s.iMngURL.Text)
 			defer s.wSettings.Close()
 			// if management URL or Pre-shared key changed, we try to re-login with new settings.
-			if s.managementURL != s.iMngURL.Text || s.preSharedKey != s.iPreSharedKey.Text ||
-				s.adminURL != s.iAdminURL.Text {
+			if s.managementURL != iMngURL || s.preSharedKey != s.iPreSharedKey.Text ||
+				s.adminURL != iAdminURL {
 
-				s.managementURL = s.iMngURL.Text
+				s.managementURL = iMngURL
 				s.preSharedKey = s.iPreSharedKey.Text
-				s.adminURL = s.iAdminURL.Text
+				s.adminURL = iAdminURL
 
 				client, err := s.getSrvClient(failFastTimeout)
 				if err != nil {
@@ -271,8 +273,8 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				}
 
 				loginRequest := proto.LoginRequest{
-					ManagementUrl:        s.iMngURL.Text,
-					AdminURL:             s.iAdminURL.Text,
+					ManagementUrl:        iMngURL,
+					AdminURL:             iAdminURL,
 					IsLinuxDesktopClient: runtime.GOOS == "linux",
 				}
 
