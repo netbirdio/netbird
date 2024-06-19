@@ -281,21 +281,24 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				return
 			}
 
+			iAdminURL := strings.TrimSpace(s.iAdminURL.Text)
+			iMngURL := strings.TrimSpace(s.iMngURL.Text)
+
 			defer s.wSettings.Close()
 
 			// If the management URL, pre-shared key, admin URL, Rosenpass permissive mode,
 			// interface name, or interface port have changed, we attempt to re-login with the new settings.
-			if s.managementURL != s.iMngURL.Text || s.preSharedKey != s.iPreSharedKey.Text ||
-				s.adminURL != s.iAdminURL.Text || s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
+			if s.managementURL != iMngURL || s.preSharedKey != s.iPreSharedKey.Text ||
+				s.adminURL != iAdminURL || s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
 				s.interfaceName != s.iInterfaceName.Text || s.interfacePort != int(port) {
 
-				s.managementURL = s.iMngURL.Text
+				s.managementURL = iMngURL
 				s.preSharedKey = s.iPreSharedKey.Text
-				s.adminURL = s.iAdminURL.Text
+				s.adminURL = iAdminURL
 
 				loginRequest := proto.LoginRequest{
-					ManagementUrl:        s.iMngURL.Text,
-					AdminURL:             s.iAdminURL.Text,
+					ManagementUrl:        iMngURL,
+					AdminURL:             iAdminURL,
 					IsLinuxDesktopClient: runtime.GOOS == "linux",
 					RosenpassPermissive:  &s.sRosenpassPermissive.Checked,
 					InterfaceName:        &s.iInterfaceName.Text,
