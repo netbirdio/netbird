@@ -12,33 +12,33 @@ import (
 	relayClient "github.com/netbirdio/netbird/relay/client"
 )
 
-type OnRelayReadyCallback func(info RelayConnInfo)
-
 type RelayConnInfo struct {
 	relayedConn     net.Conn
 	rosenpassPubKey []byte
 	rosenpassAddr   string
 }
 
-type WorkerRelay struct {
-	ctx                context.Context
-	log                *log.Entry
-	relayManager       *relayClient.Manager
-	config             ConnConfig
-	onRelayConnReadyFN OnRelayReadyCallback
-	onStatusChanged    func(ConnStatus)
-	doHandshakeFn      DoHandshake
+type WorkerRelayCallbacks struct {
+	OnConnReady     func(RelayConnInfo)
+	OnStatusChanged func(ConnStatus)
+	DoHandshake     func() (*OfferAnswer, error)
 }
 
-func NewWorkerRelay(ctx context.Context, log *log.Entry, relayManager *relayClient.Manager, config ConnConfig, onRelayConnReadyFN OnRelayReadyCallback, onStatusChanged func(ConnStatus), doHandshakeFn DoHandshake) *WorkerRelay {
+type WorkerRelay struct {
+	ctx          context.Context
+	log          *log.Entry
+	relayManager *relayClient.Manager
+	config       ConnConfig
+	conn         WorkerRelayCallbacks
+}
+
+func NewWorkerRelay(ctx context.Context, log *log.Entry, relayManager *relayClient.Manager, config ConnConfig, callbacks WorkerRelayCallbacks) *WorkerRelay {
 	return &WorkerRelay{
-		ctx:                ctx,
-		log:                log,
-		relayManager:       relayManager,
-		config:             config,
-		onRelayConnReadyFN: onRelayConnReadyFN,
-		onStatusChanged:    onStatusChanged,
-		doHandshakeFn:      doHandshakeFn,
+		ctx:          ctx,
+		log:          log,
+		relayManager: relayManager,
+		config:       config,
+		conn:         callbacks,
 	}
 }
 
@@ -49,7 +49,7 @@ func (w *WorkerRelay) SetupRelayConnection() {
 			return
 		}
 
-		remoteOfferAnswer, err := w.doHandshakeFn()
+		remoteOfferAnswer, err := w.conn.DoHandshake()
 		if err != nil {
 			if errors.Is(err, ErrSignalIsNotReady) {
 				w.log.Infof("signal client isn't ready, skipping connection attempt")
@@ -75,7 +75,7 @@ func (w *WorkerRelay) SetupRelayConnection() {
 			continue
 		}
 
-		go w.onRelayConnReadyFN(RelayConnInfo{
+		go w.conn.OnConnReady(RelayConnInfo{
 			relayedConn:     relayedConn,
 			rosenpassPubKey: remoteOfferAnswer.RosenpassPubKey,
 			rosenpassAddr:   remoteOfferAnswer.RosenpassAddr,
@@ -89,8 +89,10 @@ func (w *WorkerRelay) RelayAddress() (net.Addr, error) {
 	return w.relayManager.RelayAddress()
 }
 
-// todo check my side too
 func (w *WorkerRelay) isRelaySupported(answer *OfferAnswer) bool {
+	if !w.relayManager.HasRelayAddress() {
+		return false
+	}
 	return answer.RelaySrvAddress != ""
 }
 

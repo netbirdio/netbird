@@ -63,6 +63,15 @@ type ConnConfig struct {
 type BeforeAddPeerHookFunc func(connID nbnet.ConnectionID, IP net.IP) error
 type AfterRemovePeerHookFunc func(connID nbnet.ConnectionID) error
 
+type WorkerCallbacks struct {
+	OnRelayReadyCallback func(info RelayConnInfo)
+	OnRelayStatusChanged func(ConnStatus)
+
+	OnICEConnReadyCallback func(ConnPriority, ICEConnInfo)
+	OnICEStatusChanged     func(ConnStatus)
+	DoHandshake            func(*OfferAnswer, error)
+}
+
 type Conn struct {
 	log            *log.Entry
 	mu             sync.Mutex
@@ -116,8 +125,21 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		statusRelay:    StatusDisconnected,
 		statusICE:      StatusDisconnected,
 	}
-	conn.workerICE = NewWorkerICE(ctx, conn.log, config, config.ICEConfig, signaler, iFaceDiscover, statusRecorder, conn.iCEConnectionIsReady, conn.onWorkerICEStateChanged, conn.doHandshake)
-	conn.workerRelay = NewWorkerRelay(ctx, conn.log, relayManager, config, conn.relayConnectionIsReady, conn.onWorkerRelayStateChanged, conn.doHandshake)
+
+	rFns := WorkerRelayCallbacks{
+		OnConnReady:     conn.relayConnectionIsReady,
+		OnStatusChanged: conn.onWorkerRelayStateChanged,
+		DoHandshake:     conn.doHandshake,
+	}
+
+	wFns := WorkerICECallbacks{
+		OnConnReady:     conn.iCEConnectionIsReady,
+		OnStatusChanged: conn.onWorkerICEStateChanged,
+		DoHandshake:     conn.doHandshake,
+	}
+
+	conn.workerRelay = NewWorkerRelay(ctx, conn.log, relayManager, config, rFns)
+	conn.workerICE = NewWorkerICE(ctx, conn.log, config, config.ICEConfig, signaler, iFaceDiscover, statusRecorder, wFns)
 	return conn, nil
 }
 

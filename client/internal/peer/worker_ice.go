@@ -53,8 +53,6 @@ type ICEConfig struct {
 	NATExternalIPs []string
 }
 
-type OnICEConnReadyCallback func(ConnPriority, ICEConnInfo)
-
 type ICEConnInfo struct {
 	RemoteConn                 net.Conn
 	RosenpassPubKey            []byte
@@ -68,17 +66,21 @@ type ICEConnInfo struct {
 	RelayedOnLocal             bool
 }
 
+type WorkerICECallbacks struct {
+	OnConnReady     func(ConnPriority, ICEConnInfo)
+	OnStatusChanged func(ConnStatus)
+	DoHandshake     func() (*OfferAnswer, error)
+}
+
 type WorkerICE struct {
-	ctx             context.Context
-	log             *log.Entry
-	config          ConnConfig
-	configICE       ICEConfig
-	signaler        *Signaler
-	iFaceDiscover   stdnet.ExternalIFaceDiscover
-	statusRecorder  *Status
-	onICEConnReady  OnICEConnReadyCallback
-	onStatusChanged func(ConnStatus)
-	doHandshakeFn   DoHandshake
+	ctx            context.Context
+	log            *log.Entry
+	config         ConnConfig
+	configICE      ICEConfig
+	signaler       *Signaler
+	iFaceDiscover  stdnet.ExternalIFaceDiscover
+	statusRecorder *Status
+	conn           WorkerICECallbacks
 
 	selectedPriority ConnPriority
 
@@ -92,18 +94,16 @@ type WorkerICE struct {
 	localPwd       string
 }
 
-func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, configICE ICEConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, onICEConnReady OnICEConnReadyCallback, onStatusChanged func(ConnStatus), doHandshakeFn DoHandshake) *WorkerICE {
+func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, configICE ICEConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, callBacks WorkerICECallbacks) *WorkerICE {
 	cice := &WorkerICE{
-		ctx:             ctx,
-		log:             log,
-		config:          config,
-		configICE:       configICE,
-		signaler:        signaler,
-		iFaceDiscover:   ifaceDiscover,
-		statusRecorder:  statusRecorder,
-		onICEConnReady:  onICEConnReady,
-		onStatusChanged: onStatusChanged,
-		doHandshakeFn:   doHandshakeFn,
+		ctx:            ctx,
+		log:            log,
+		config:         config,
+		configICE:      configICE,
+		signaler:       signaler,
+		iFaceDiscover:  ifaceDiscover,
+		statusRecorder: statusRecorder,
+		conn:           callBacks,
 	}
 	return cice
 }
@@ -118,9 +118,9 @@ func (w *WorkerICE) SetupICEConnection(hasRelayOnLocally bool) {
 			return
 		}
 
-		w.onStatusChanged(StatusConnecting)
+		w.conn.OnStatusChanged(StatusConnecting)
 
-		remoteOfferAnswer, err := w.doHandshakeFn()
+		remoteOfferAnswer, err := w.conn.DoHandshake()
 		if err != nil {
 			if errors.Is(err, ErrSignalIsNotReady) {
 				w.log.Infof("signal client isn't ready, skipping connection attempt")
@@ -200,12 +200,12 @@ func (w *WorkerICE) SetupICEConnection(hasRelayOnLocally bool) {
 			Relayed:                    isRelayed(pair),
 			RelayedOnLocal:             isRelayCandidate(pair.Local),
 		}
-		go w.onICEConnReady(w.selectedPriority, ci)
+		go w.conn.OnConnReady(w.selectedPriority, ci)
 
 		<-ctx.Done()
 		ctxCancel()
 		_ = w.agent.Close()
-		w.onStatusChanged(StatusDisconnected)
+		w.conn.OnStatusChanged(StatusDisconnected)
 	}
 }
 
