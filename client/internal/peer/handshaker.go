@@ -7,7 +7,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/conn"
 
 	"github.com/netbirdio/netbird/version"
 )
@@ -68,6 +67,8 @@ type Handshaker struct {
 
 	remoteOfferAnswer        *OfferAnswer
 	remoteOfferAnswerCreated time.Time
+
+	handshakeArgs HandshakeArgs
 }
 
 func NewHandshaker(ctx context.Context, config ConnConfig, signaler *Signaler) *Handshaker {
@@ -83,6 +84,8 @@ func NewHandshaker(ctx context.Context, config ConnConfig, signaler *Signaler) *
 func (h *Handshaker) Handshake(args HandshakeArgs) (*OfferAnswer, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	h.handshakeArgs = args
 
 	cachedOfferAnswer, ok := h.cachedHandshake()
 	if ok {
@@ -150,20 +153,16 @@ func (h *Handshaker) sendOffer(args HandshakeArgs) error {
 }
 
 func (h *Handshaker) sendAnswer() error {
-	localUFrag, localPwd, err := conn.connectorICE.GetLocalUserCredentials()
-	if err != nil {
-		return err
-	}
-
 	log.Debugf("sending answer to %s", h.config.Key)
 	answer := OfferAnswer{
-		IceCredentials:  IceCredentials{localUFrag, localPwd},
+		IceCredentials:  IceCredentials{h.handshakeArgs.IceUFrag, h.handshakeArgs.IcePwd},
 		WgListenPort:    h.config.LocalWgPort,
 		Version:         version.NetbirdVersion(),
 		RosenpassPubKey: h.config.RosenpassPubKey,
 		RosenpassAddr:   h.config.RosenpassAddr,
+		RelaySrvAddress: h.handshakeArgs.RelayAddr,
 	}
-	err = h.signaler.SignalAnswer(answer, h.config.Key)
+	err := h.signaler.SignalAnswer(answer, h.config.Key)
 	if err != nil {
 		return err
 	}
