@@ -616,7 +616,7 @@ func (am *Auth0Manager) GetAllAccounts(ctx context.Context) (map[string][]*UserD
 
 	log.WithContext(ctx).Debugf("batch id status %d, %s, response body: %v", jobResp.StatusCode, jobResp.Status, exportJobResp)
 
-	done, downloadLink, err := am.checkExportJobStatus(exportJobResp.ID)
+	done, downloadLink, err := am.checkExportJobStatus(ctx, exportJobResp.ID)
 	if err != nil {
 		log.WithContext(ctx).Debugf("Failed at getting status checks from exportJob; %v", err)
 		return nil, err
@@ -845,8 +845,8 @@ func (am *Auth0Manager) GetAllConnections(ctx context.Context, strategy []string
 
 // checkExportJobStatus checks the status of the job created at CreateExportUsersJob.
 // If the status is "completed", then return the downloadLink
-func (am *Auth0Manager) checkExportJobStatus(jobID string) (bool, string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+func (am *Auth0Manager) checkExportJobStatus(ctx context.Context, jobID string) (bool, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	retry := time.NewTicker(10 * time.Second)
 	for {

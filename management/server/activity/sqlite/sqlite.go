@@ -259,7 +259,7 @@ func (store *Store) Get(ctx context.Context, accountID string, offset, limit int
 }
 
 // Save an event in the SQLite events table end encrypt the "email" element in meta map
-func (store *Store) Save(event *activity.Event) (*activity.Event, error) {
+func (store *Store) Save(_ context.Context, event *activity.Event) (*activity.Event, error) {
 	var jsonMeta string
 	meta, err := store.saveDeletedUserEmailAndNameInEncrypted(event)
 	if err != nil {
@@ -318,7 +318,7 @@ func (store *Store) saveDeletedUserEmailAndNameInEncrypted(event *activity.Event
 }
 
 // Close the Store
-func (store *Store) Close() error {
+func (store *Store) Close(_ context.Context) error {
 	if store.db != nil {
 		return store.db.Close()
 	}
