@@ -30,7 +30,7 @@ type tunNetstackDevice struct {
 	configurer wgConfigurer
 }
 
-func newTunNetstackDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net, listenAddress string) wgTunDevice {
+func newTunNetstackDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net, listenAddress string, filterFn bind.FilterFn) wgTunDevice {
 	return &tunNetstackDevice{
 		name:          name,
 		address:       address,
@@ -38,7 +38,7 @@ func newTunNetstackDevice(name string, address WGAddress, wgPort int, key string
 		key:           key,
 		mtu:           mtu,
 		listenAddress: listenAddress,
-		iceBind:       bind.NewICEBind(transportNet),
+		iceBind:       bind.NewICEBind(transportNet, filterFn),
 	}
 }
 

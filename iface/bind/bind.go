@@ -28,11 +28,14 @@ type ICEBind struct {
 
 	transportNet transport.Net
 	udpMux       *UniversalUDPMuxDefault
+
+	filterFn FilterFn
 }
 
-func NewICEBind(transportNet transport.Net) *ICEBind {
+func NewICEBind(transportNet transport.Net, filterFn FilterFn) *ICEBind {
 	ib := &ICEBind{
 		transportNet: transportNet,
+		filterFn:     filterFn,
 	}
 
 	rc := receiverCreator{
@@ -59,8 +62,9 @@ func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketC
 
 	s.udpMux = NewUniversalUDPMuxDefault(
 		UniversalUDPMuxParams{
-			UDPConn: conn,
-			Net:     s.transportNet,
+			UDPConn:  conn,
+			Net:      s.transportNet,
+			FilterFn: s.filterFn,
 		},
 	)
 	return func(bufs [][]byte, sizes []int, eps []wgConn.Endpoint) (n int, err error) {
