@@ -134,7 +134,6 @@ func (u *udpConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 
 func (u *udpConn) handleCachedAddress(isRouted bool, b []byte, addr net.Addr) (int, error) {
 	if isRouted {
-		log.Infof("Address %s is part of a routed network, refusing to write", addr)
 		return 0, fmt.Errorf("address %s is part of a routed network, refusing to write", addr)
 	}
 	return u.PacketConn.WriteTo(b, addr)
