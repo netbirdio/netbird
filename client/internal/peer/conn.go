@@ -75,7 +75,6 @@ type Conn struct {
 	signaler       *Signaler
 	allowedIPsIP   string
 	handshaker     *Handshaker
-	closeCh        chan struct{}
 
 	onConnected    func(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string)
 	onDisconnected func(remotePeer string, wgIP string)
@@ -116,7 +115,6 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		handshaker:     NewHandshaker(ctx, config, signaler),
 		statusRelay:    StatusDisconnected,
 		statusICE:      StatusDisconnected,
-		closeCh:        make(chan struct{}),
 	}
 	conn.workerICE = NewWorkerICE(ctx, conn.log, config, config.ICEConfig, signaler, iFaceDiscover, statusRecorder, conn.iCEConnectionIsReady, conn.onWorkerICEStateChanged, conn.doHandshake)
 	conn.workerRelay = NewWorkerRelay(ctx, conn.log, relayManager, config, conn.relayConnectionIsReady, conn.onWorkerRelayStateChanged, conn.doHandshake)
