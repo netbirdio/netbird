@@ -120,6 +120,8 @@ func (w *WorkerICE) SetupICEConnection(hasRelayOnLocally bool) {
 
 		w.conn.OnStatusChanged(StatusConnecting)
 
+		w.log.Debugf("trying to establish ICE connection with peer %s", w.config.Key)
+
 		remoteOfferAnswer, err := w.conn.DoHandshake()
 		if err != nil {
 			if errors.Is(err, ErrSignalIsNotReady) {

@@ -49,6 +49,8 @@ func (w *WorkerRelay) SetupRelayConnection() {
 			return
 		}
 
+		w.log.Debugf("trying to establish Relay connection with peer %s", w.config.Key)
+
 		remoteOfferAnswer, err := w.conn.DoHandshake()
 		if err != nil {
 			if errors.Is(err, ErrSignalIsNotReady) {
@@ -59,6 +61,7 @@ func (w *WorkerRelay) SetupRelayConnection() {
 		}
 
 		if !w.isRelaySupported(remoteOfferAnswer) {
+			w.log.Infof("Relay is not supported by remote peer")
 			// todo should we retry?
 			// if the remote peer doesn't support relay make no sense to retry infinity
 			// but if the remote peer supports relay just the connection is lost we should retry
@@ -68,12 +71,14 @@ func (w *WorkerRelay) SetupRelayConnection() {
 		// the relayManager will return with error in case if the connection has lost with relay server
 		currentRelayAddress, err := w.relayManager.RelayAddress()
 		if err != nil {
+			w.log.Infof("local Relay connection is lost, skipping connection attempt")
 			continue
 		}
 
 		srv := w.preferredRelayServer(currentRelayAddress.String(), remoteOfferAnswer.RelaySrvAddress)
 		relayedConn, err := w.relayManager.OpenConn(srv, w.config.Key)
 		if err != nil {
+			w.log.Infof("failed to open relay connection: %s", err)
 			continue
 		}
 

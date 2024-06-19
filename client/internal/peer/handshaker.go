@@ -94,7 +94,6 @@ func (h *Handshaker) Handshake(args HandshakeArgs) (*OfferAnswer, error) {
 		return cachedOfferAnswer, nil
 	}
 
-	h.log.Debugf("send offer")
 	err := h.sendOffer(args)
 	if err != nil {
 		return nil, err
