@@ -393,7 +393,7 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 	}
 
 	endpointUdpAddr, _ := net.ResolveUDPAddr(endpoint.Network(), endpoint.String())
-	conn.log.Debugf("Conn resolved IP for %s: %s", endpoint, endpointUdpAddr.IP)
+	conn.log.Debugf("Conn resolved IP is %s for endopint %s", endpoint, endpointUdpAddr.IP)
 
 	conn.connID = nbnet.GenerateConnID()
 	for _, hook := range conn.beforeAddPeerHooks {
@@ -461,20 +461,20 @@ func (conn *Conn) doHandshake() (*OfferAnswer, error) {
 		return nil, ErrSignalIsNotReady
 	}
 
-	uFreg, pwd, err := conn.workerICE.GetLocalUserCredentials()
+	var (
+		ha  HandshakeArgs
+		err error
+	)
+	ha.IceUFrag, ha.IcePwd, err = conn.workerICE.GetLocalUserCredentials()
 	if err != nil {
 		conn.log.Errorf("failed to get local user credentials: %v", err)
 	}
 
 	addr, err := conn.workerRelay.RelayAddress()
-	if err != nil {
-		conn.log.Errorf("failed to get local relay address: %v", err)
+	if err == nil {
+		ha.RelayAddr = addr.String()
 	}
-	return conn.handshaker.Handshake(HandshakeArgs{
-		uFreg,
-		pwd,
-		addr.String(),
-	})
+	return conn.handshaker.Handshake(ha)
 }
 
 func (conn *Conn) evalStatus() ConnStatus {

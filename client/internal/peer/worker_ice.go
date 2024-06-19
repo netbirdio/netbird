@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pion/ice/v3"
+	"github.com/pion/randutil"
 	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
 
@@ -27,6 +28,14 @@ const (
 	iceDisconnectedTimeoutDefault = 6 * time.Second
 	// iceRelayAcceptanceMinWaitDefault is the same as in the Pion ICE package
 	iceRelayAcceptanceMinWaitDefault = 2 * time.Second
+
+	lenUFrag   = 16
+	lenPwd     = 32
+	runesAlpha = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+)
+
+var (
+	failedTimeout = 6 * time.Second
 )
 
 type ICEConfig struct {
@@ -74,11 +83,13 @@ type WorkerICE struct {
 	selectedPriority ConnPriority
 
 	agent    *ice.Agent
-	muxAgent sync.RWMutex
+	muxAgent sync.Mutex
 
 	StunTurn []*stun.URI
 
 	sentExtraSrflx bool
+	localUfrag     string
+	localPwd       string
 }
 
 func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, configICE ICEConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, onICEConnReady OnICEConnReadyCallback, onStatusChanged func(ConnStatus), doHandshakeFn DoHandshake) *WorkerICE {
@@ -127,13 +138,22 @@ func (w *WorkerICE) SetupICEConnection(hasRelayOnLocally bool) {
 		}
 
 		ctx, ctxCancel := context.WithCancel(w.ctx)
+		w.muxAgent.Lock()
 		agent, err := w.reCreateAgent(ctxCancel, preferredCandidateTypes)
 		if err != nil {
 			ctxCancel()
+			w.muxAgent.Unlock()
 			continue
 		}
-		w.muxAgent.Lock()
 		w.agent = agent
+		// generate credentials for the next loop. Important the credentials are generated before handshake, because
+		// the handshake could provide a cached offer-answer
+		w.localUfrag, w.localPwd, err = generateICECredentials()
+		if err != nil {
+			ctxCancel()
+			w.muxAgent.Unlock()
+			continue
+		}
 		w.muxAgent.Unlock()
 
 		err = w.agent.GatherCandidates()
@@ -191,8 +211,8 @@ func (w *WorkerICE) SetupICEConnection(hasRelayOnLocally bool) {
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
 func (w *WorkerICE) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMap) {
-	w.muxAgent.RLocker()
-	defer w.muxAgent.RUnlock()
+	w.muxAgent.Lock()
+	defer w.muxAgent.Unlock()
 	w.log.Debugf("OnRemoteCandidate from peer %s -> %s", w.config.Key, candidate.String())
 	if w.agent == nil {
 		return
@@ -210,14 +230,18 @@ func (w *WorkerICE) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HA
 }
 
 func (w *WorkerICE) GetLocalUserCredentials() (frag string, pwd string, err error) {
-	if w.agent == nil {
-		return "", "", errors.New("ICE Agent is not initialized")
+	w.muxAgent.Lock()
+	defer w.muxAgent.Unlock()
+
+	if w.localUfrag != "" && w.localPwd != "" {
+		return w.localUfrag, w.localPwd, nil
 	}
-	return w.agent.GetLocalUserCredentials()
+
+	w.localUfrag, w.localPwd, err = generateICECredentials()
+	return w.localUfrag, w.localPwd, err
 }
 
 func (w *WorkerICE) reCreateAgent(ctxCancel context.CancelFunc, relaySupport []ice.CandidateType) (*ice.Agent, error) {
-	failedTimeout := 6 * time.Second
 	transportNet, err := w.newStdNet()
 	if err != nil {
 		w.log.Errorf("failed to create pion's stdnet: %s", err)
@@ -232,15 +256,17 @@ func (w *WorkerICE) reCreateAgent(ctxCancel context.CancelFunc, relaySupport []i
 		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
 		Urls:                   w.configICE.StunTurn.Load().([]*stun.URI),
 		CandidateTypes:         relaySupport,
-		FailedTimeout:          &failedTimeout,
 		InterfaceFilter:        stdnet.InterfaceFilter(w.configICE.InterfaceBlackList),
 		UDPMux:                 w.configICE.UDPMux,
 		UDPMuxSrflx:            w.configICE.UDPMuxSrflx,
 		NAT1To1IPs:             w.configICE.NATExternalIPs,
 		Net:                    transportNet,
+		FailedTimeout:          &failedTimeout,
 		DisconnectedTimeout:    &iceDisconnectedTimeout,
 		KeepaliveInterval:      &iceKeepAlive,
 		RelayAcceptanceMinWait: &iceRelayAcceptanceMinWait,
+		LocalUfrag:             w.localUfrag,
+		LocalPwd:               w.localPwd,
 	}
 
 	if w.configICE.DisableIPv6Discovery {
@@ -447,4 +473,18 @@ func isRelayed(pair *ice.CandidatePair) bool {
 		return true
 	}
 	return false
+}
+
+func generateICECredentials() (string, string, error) {
+	ufrag, err := randutil.GenerateCryptoRandomString(lenUFrag, runesAlpha)
+	if err != nil {
+		return "", "", err
+	}
+
+	pwd, err := randutil.GenerateCryptoRandomString(lenPwd, runesAlpha)
+	if err != nil {
+		return "", "", err
+	}
+	return ufrag, pwd, nil
+
 }
