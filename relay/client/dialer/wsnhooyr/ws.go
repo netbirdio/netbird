@@ -19,7 +19,7 @@ func Dial(address string) (net.Conn, error) {
 		return nil, err
 	}
 
-	url := fmt.Sprintf("ws://%s:%d"+addr.IP.String(), addr.Port)
+	url := fmt.Sprintf("ws://%s:%d", addr.IP.String(), addr.Port)
 	opts := &websocket.DialOptions{
 		Host: hostName,
 	}
