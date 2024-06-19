@@ -27,6 +27,8 @@ type tunKernelDevice struct {
 	link       *wgLink
 	udpMuxConn net.PacketConn
 	udpMux     *bind.UniversalUDPMuxDefault
+
+	filterFn bind.FilterFn
 }
 
 func newTunDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net) wgTunDevice {
@@ -96,8 +98,9 @@ func (t *tunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		return nil, err
 	}
 	bindParams := bind.UniversalUDPMuxParams{
-		UDPConn: rawSock,
-		Net:     t.transportNet,
+		UDPConn:  rawSock,
+		Net:      t.transportNet,
+		FilterFn: t.filterFn,
 	}
 	mux := bind.NewUniversalUDPMuxDefault(bindParams)
 	go mux.ReadFromConn(t.ctx)

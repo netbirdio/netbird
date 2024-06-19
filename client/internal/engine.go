@@ -29,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
+	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -735,6 +736,20 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		return nil
 	}
 
+	protoRoutes := networkMap.GetRoutes()
+	if protoRoutes == nil {
+		protoRoutes = []*mgmProto.Route{}
+	}
+
+	_, clientRoutes, err := e.routeManager.UpdateRoutes(serial, toRoutes(protoRoutes))
+	if err != nil {
+		log.Errorf("failed to update clientRoutes, err: %v", err)
+	}
+
+	e.clientRoutesMu.Lock()
+	e.clientRoutes = clientRoutes
+	e.clientRoutesMu.Unlock()
+
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
 	e.updateOfflinePeers(networkMap.GetOfflinePeers())
@@ -776,19 +791,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 			}
 		}
 	}
-	protoRoutes := networkMap.GetRoutes()
-	if protoRoutes == nil {
-		protoRoutes = []*mgmProto.Route{}
-	}
-
-	_, clientRoutes, err := e.routeManager.UpdateRoutes(serial, toRoutes(protoRoutes))
-	if err != nil {
-		log.Errorf("failed to update clientRoutes, err: %v", err)
-	}
-
-	e.clientRoutesMu.Lock()
-	e.clientRoutes = clientRoutes
-	e.clientRoutesMu.Unlock()
 
 	protoDNSConfig := networkMap.GetDNSConfig()
 	if protoDNSConfig == nil {
@@ -1287,7 +1289,7 @@ func (e *Engine) newWgIface() (*iface.WGIface, error) {
 	default:
 	}
 
-	return iface.NewWGIFace(e.config.WgIfaceName, e.config.WgAddr, e.config.WgPort, e.config.WgPrivateKey.String(), iface.DefaultMTU, transportNet, mArgs)
+	return iface.NewWGIFace(e.config.WgIfaceName, e.config.WgAddr, e.config.WgPort, e.config.WgPrivateKey.String(), iface.DefaultMTU, transportNet, mArgs, e.addrViaRoutes)
 }
 
 func (e *Engine) wgInterfaceCreate() (err error) {
@@ -1483,6 +1485,21 @@ func (e *Engine) startNetworkMonitor() {
 			log.Errorf("Network monitor: %v", err)
 		}
 	}()
+}
+
+func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
+	var vpnRoutes []netip.Prefix
+	for _, routes := range e.GetClientRoutes() {
+		if len(routes) > 0 && routes[0] != nil {
+			vpnRoutes = append(vpnRoutes, routes[0].Network)
+		}
+	}
+
+	if isVpn, prefix := systemops.IsAddrRouted(addr, vpnRoutes); isVpn {
+		return true, prefix, nil
+	}
+
+	return false, netip.Prefix{}, nil
 }
 
 // isChecksEqual checks if two slices of checks are equal.
