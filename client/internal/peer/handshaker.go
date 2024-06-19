@@ -117,6 +117,10 @@ func (h *Handshaker) Handshake(args HandshakeArgs) (*OfferAnswer, error) {
 // OnRemoteOffer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
 // doesn't block, discards the message if connection wasn't ready
 func (h *Handshaker) OnRemoteOffer(offer OfferAnswer) bool {
+	// todo remove this if signaling can support relay
+	if ForcedRelayAddress() != "" {
+		offer.RelaySrvAddress = ForcedRelayAddress()
+	}
 	select {
 	case h.remoteOffersCh <- offer:
 		return true
@@ -130,6 +134,10 @@ func (h *Handshaker) OnRemoteOffer(offer OfferAnswer) bool {
 // OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
 // doesn't block, discards the message if connection wasn't ready
 func (h *Handshaker) OnRemoteAnswer(answer OfferAnswer) bool {
+	// todo remove this if signaling can support relay
+	if ForcedRelayAddress() != "" {
+		answer.RelaySrvAddress = ForcedRelayAddress()
+	}
 	select {
 	case h.remoteAnswerCh <- answer:
 		return true
