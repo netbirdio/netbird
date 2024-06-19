@@ -101,7 +101,7 @@ type MockAccountManager struct {
 	GroupValidationFunc                 func(ctx context.Context, accountId string, groups []string) (bool, error)
 	SyncPeerMetaFunc                    func(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error
 	FindExistingPostureCheckFunc        func(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
-	GetAccountIDForPeerKeyFunc          func(peerKey string) (string, error)
+	GetAccountIDForPeerKeyFunc          func(ctx context.Context, peerKey string) (string, error)
 }
 
 func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, error) {
@@ -769,9 +769,9 @@ func (am *MockAccountManager) FindExistingPostureCheck(accountID string, checks 
 }
 
 // GetAccountIDForPeerKey mocks GetAccountIDForPeerKey of the AccountManager interface
-func (am *MockAccountManager) GetAccountIDForPeerKey(peerKey string) (string, error) {
+func (am *MockAccountManager) GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error) {
 	if am.GetAccountIDForPeerKeyFunc != nil {
-		return am.GetAccountIDForPeerKeyFunc(peerKey)
+		return am.GetAccountIDForPeerKeyFunc(ctx, peerKey)
 	}
 	return "", status.Errorf(codes.Unimplemented, "method GetAccountIDForPeerKey is not implemented")
 }
