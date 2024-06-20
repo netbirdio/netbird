@@ -1,6 +1,7 @@
 package util
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -57,7 +58,7 @@ func WriteJson(file string, obj interface{}) error {
 }
 
 // DirectWriteJson writes JSON config object to a file creating parent directories if required without creating a temporary file
-func DirectWriteJson(file string, obj interface{}) error {
+func DirectWriteJson(ctx context.Context, file string, obj interface{}) error {
 
 	_, _, err := prepareConfigFileDir(file)
 	if err != nil {

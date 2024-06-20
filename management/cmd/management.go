@@ -80,7 +80,7 @@ var (
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
 
-			ctx := context.WithValue(cmd.Context(), nbContext.LogSourceKey, util.SystemSource)
+			ctx := context.WithValue(cmd.Context(), util.LogSourceKey, util.SystemSource)
 
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
@@ -162,7 +162,7 @@ var (
 			if disableSingleAccMode {
 				mgmtSingleAccModeDomain = ""
 			}
-			eventStore, key, err := integrations.InitEventStore(config.Datadir, config.DataStoreEncryptionKey)
+			eventStore, key, err := integrations.InitEventStore(ctx, config.Datadir, config.DataStoreEncryptionKey)
 			if err != nil {
 				return fmt.Errorf("failed to initialize database: %s", err)
 			}
@@ -170,7 +170,7 @@ var (
 			if config.DataStoreEncryptionKey != key {
 				log.WithContext(ctx).Infof("update config with activity store key")
 				config.DataStoreEncryptionKey = key
-				err := updateMgmtConfig(mgmtConfig, config)
+				err := updateMgmtConfig(ctx, mgmtConfig, config)
 				if err != nil {
 					return fmt.Errorf("failed to write out store encryption key: %s", err)
 				}
@@ -539,8 +539,8 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config,
 	return loadedConfig, err
 }
 
-func updateMgmtConfig(path string, config *server.Config) error {
-	return util.DirectWriteJson(path, config)
+func updateMgmtConfig(ctx context.Context, path string, config *server.Config) error {
+	return util.DirectWriteJson(ctx, path, config)
 }
 
 // OIDCConfigResponse used for parsing OIDC config response
