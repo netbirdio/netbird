@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/netip"
 	"unicode/utf8"
 
@@ -51,7 +52,7 @@ func (am *DefaultAccountManager) checkRoutePrefixOrDomainsExistForPeers(account 
 
 	for _, prefixRoute := range routesWithPrefix {
 		// we skip route(s) with the same network ID as we want to allow updating of the existing route
-		// when create a new route routeID is newly generated so nothing will be skipped
+		// when creating a new route routeID is newly generated so nothing will be skipped
 		if routeID == prefixRoute.ID {
 			continue
 		}
@@ -65,8 +66,9 @@ func (am *DefaultAccountManager) checkRoutePrefixOrDomainsExistForPeers(account 
 			group := account.GetGroup(groupID)
 			if group == nil {
 				return status.Errorf(
-					status.InvalidArgument, "failed to add route with prefix %s - peer group %s doesn't exist",
-					prefix.String(), groupID)
+					status.InvalidArgument, "failed to add route with %s - peer group %s doesn't exist",
+					getRouteDescriptor(prefix, domains), groupID,
+				)
 			}
 
 			for _, pID := range group.Peers {
@@ -83,18 +85,18 @@ func (am *DefaultAccountManager) checkRoutePrefixOrDomainsExistForPeers(account 
 		}
 		if _, ok := seenPeers[peerID]; ok {
 			return status.Errorf(status.AlreadyExists,
-				"failed to add route with prefix %s - peer %s already has this route", prefix.String(), peerID)
+				"failed to add route with %s - peer %s already has this route", getRouteDescriptor(prefix, domains), peerID)
 		}
 	}
 
 	// check that peerGroupIDs are not in any route peerGroups list
 	for _, groupID := range peerGroupIDs {
-		group := account.GetGroup(groupID) // we validated the group existent before entering this function, o need to check again.
+		group := account.GetGroup(groupID) // we validated the group existence before entering this function, no need to check again.
 
 		if _, ok := seenPeerGroups[groupID]; ok {
 			return status.Errorf(
-				status.AlreadyExists, "failed to add route with prefix %s - peer group %s already has this route",
-				prefix.String(), group.Name)
+				status.AlreadyExists, "failed to add route with %s - peer group %s already has this route",
+				getRouteDescriptor(prefix, domains), group.Name)
 		}
 
 		// check that the peers from peerGroupIDs groups are not the same peers we saw in routesWithPrefix
@@ -105,13 +107,20 @@ func (am *DefaultAccountManager) checkRoutePrefixOrDomainsExistForPeers(account 
 					return status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
 				}
 				return status.Errorf(status.AlreadyExists,
-					"failed to add route with prefix %s - peer %s from the group %s already has this route",
-					prefix.String(), peer.Name, group.Name)
+					"failed to add route with %s - peer %s from the group %s already has this route",
+					getRouteDescriptor(prefix, domains), peer.Name, group.Name)
 			}
 		}
 	}
 
 	return nil
+}
+
+func getRouteDescriptor(prefix netip.Prefix, domains domain.List) string {
+	if len(domains) > 0 {
+		return fmt.Sprintf("domains [%s]", domains.SafeString())
+	}
+	return fmt.Sprintf("prefix %s", prefix.String())
 }
 
 // CreateRoute creates and saves a new route
