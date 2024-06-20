@@ -18,6 +18,11 @@ import (
 
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
+	gocache "github.com/patrickmn/go-cache"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
+
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
@@ -33,10 +38,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
-	gocache "github.com/patrickmn/go-cache"
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
 )
 
 const (
@@ -383,9 +384,9 @@ func (a *Account) getRoutingPeerRoutes(peerID string) (enabledRoutes []*route.Ro
 func (a *Account) GetRoutesByPrefixOrDomains(prefix netip.Prefix, domains domain.List) []*route.Route {
 	var routes []*route.Route
 	for _, r := range a.Routes {
-		if r.IsDynamic() && r.Domains.PunycodeString() == domains.PunycodeString() {
-			routes = append(routes, r)
-		} else if r.Network.String() == prefix.String() {
+		dynamic := r.IsDynamic()
+		if dynamic && r.Domains.PunycodeString() == domains.PunycodeString() ||
+			!dynamic && r.Network.String() == prefix.String() {
 			routes = append(routes, r)
 		}
 	}
