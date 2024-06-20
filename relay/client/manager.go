@@ -91,10 +91,10 @@ func (m *Manager) OpenConn(serverAddress, peerKey string) (net.Conn, error) {
 	}
 
 	if !foreign {
-		log.Debugf("open connection to permanent server: %s", peerKey)
+		log.Debugf("open peer connection via permanent server: %s", peerKey)
 		return m.relayClient.OpenConn(peerKey)
 	} else {
-		log.Debugf("open connection to foreign server: %s", serverAddress)
+		log.Debugf("open peer connection via foreign server: %s", serverAddress)
 		return m.openConnVia(serverAddress, peerKey)
 	}
 }

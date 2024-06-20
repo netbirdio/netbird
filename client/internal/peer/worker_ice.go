@@ -113,6 +113,7 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, config
 // It is trying to reconnection in a loop until the context is canceled.
 // In case of success connection it will call the onICEConnReady callback.
 func (w *WorkerICE) SetupICEConnection(hasRelayOnLocally bool) {
+	time.Sleep(20 * time.Second)
 	for {
 		if !w.waitForReconnectTry() {
 			return

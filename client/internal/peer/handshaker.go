@@ -87,6 +87,7 @@ func (h *Handshaker) Handshake(args HandshakeArgs) (*OfferAnswer, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	h.log.Infof("start handshake with remote peer")
 	h.handshakeArgs = args
 
 	cachedOfferAnswer, ok := h.cachedHandshake()
@@ -195,6 +196,7 @@ func (h *Handshaker) waitForRemoteOfferConfirmation() (*OfferAnswer, error) {
 	case remoteOfferAnswer := <-h.remoteAnswerCh:
 		return &remoteOfferAnswer, nil
 	case <-timeout.C:
+		h.log.Debugf("handshake timeout")
 		return nil, NewConnectionTimeoutError(h.config.Key, h.config.Timeout)
 	case <-h.ctx.Done():
 		// closed externally

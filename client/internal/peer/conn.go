@@ -80,7 +80,8 @@ type Conn struct {
 	config         ConnConfig
 	statusRecorder *Status
 	wgProxyFactory *wgproxy.Factory
-	wgProxy        wgproxy.Proxy
+	wgProxyICE     wgproxy.Proxy
+	wgProxyRelay   wgproxy.Proxy
 	signaler       *Signaler
 	allowedIPsIP   string
 	handshaker     *Handshaker
@@ -99,6 +100,8 @@ type Conn struct {
 	afterRemovePeerHooks []AfterRemovePeerHookFunc
 
 	currentConnType ConnPriority
+
+	endpointRelay *net.UDPAddr
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
@@ -147,7 +150,6 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 // Open opens connection to the remote peer
 // It will try to establish a connection using ICE and in parallel with relay. The higher priority connection type will
 // be used.
-// todo implement on disconnected event from ICE and relay too.
 func (conn *Conn) Open() {
 	conn.log.Debugf("open connection to peer")
 
@@ -176,12 +178,20 @@ func (conn *Conn) Close() {
 	defer conn.mu.Unlock()
 	conn.ctxCancel()
 
-	if conn.wgProxy != nil {
-		err := conn.wgProxy.CloseConn()
+	if conn.wgProxyRelay != nil {
+		err := conn.wgProxyRelay.CloseConn()
 		if err != nil {
-			conn.log.Errorf("failed to close wg proxy: %v", err)
+			conn.log.Errorf("failed to close wg proxy for relay: %v", err)
 		}
-		conn.wgProxy = nil
+		conn.wgProxyRelay = nil
+	}
+
+	if conn.wgProxyICE != nil {
+		err := conn.wgProxyICE.CloseConn()
+		if err != nil {
+			conn.log.Errorf("failed to close wg proxy for ice: %v", err)
+		}
+		conn.wgProxyICE = nil
 	}
 
 	// todo: is it problem if we try to remove a peer what is never existed?
@@ -277,6 +287,7 @@ func (conn *Conn) GetKey() string {
 func (conn *Conn) onWorkerICEStateChanged(newState ConnStatus) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
+	log.Debugf("ICE connection state changed to %s", newState)
 	defer func() {
 		conn.statusICE = newState
 	}()
@@ -286,6 +297,16 @@ func (conn *Conn) onWorkerICEStateChanged(newState ConnStatus) {
 	}
 
 	if conn.evalStatus() == newState {
+		return
+	}
+
+	if conn.endpointRelay != nil {
+		err := conn.configureWGEndpoint(conn.endpointRelay)
+		if err != nil {
+			conn.log.Errorf("failed to switch back to relay conn: %v", err)
+		}
+		// todo update status to relay related things
+		log.Debugf("switched back to relay connection")
 		return
 	}
 
@@ -306,6 +327,8 @@ func (conn *Conn) onWorkerRelayStateChanged(newState ConnStatus) {
 	defer func() {
 		conn.statusRelay = newState
 	}()
+
+	conn.log.Debugf("Relay connection state changed to %s", newState)
 
 	if conn.statusICE == StatusConnected {
 		return
@@ -363,7 +386,7 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 		}
 	}
 
-	err = conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, endpointUdpAddr, conn.config.WgConfig.PreSharedKey)
+	err = conn.configureWGEndpoint(endpointUdpAddr)
 	if err != nil {
 		if err := wgProxy.CloseConn(); err != nil {
 			conn.log.Warnf("Failed to close relay connection: %v", err)
@@ -371,14 +394,14 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 		conn.log.Errorf("Failed to update wg peer configuration: %v", err)
 		return
 	}
+	conn.endpointRelay = endpointUdpAddr
 
-	if conn.wgProxy != nil {
-		if err := conn.wgProxy.CloseConn(); err != nil {
+	if conn.wgProxyRelay != nil {
+		if err := conn.wgProxyRelay.CloseConn(); err != nil {
 			conn.log.Warnf("failed to close depracated wg proxy conn: %v", err)
 		}
 	}
-	conn.wgProxy = wgProxy
-
+	conn.wgProxyRelay = wgProxy
 	conn.currentConnType = connPriorityRelay
 
 	peerState := State{
@@ -408,6 +431,8 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 
 	if conn.currentConnType != 0 {
 		conn.log.Infof("update connection to ICE type")
+	} else {
+		conn.log.Infof("set ICE to active connection")
 	}
 
 	var (
@@ -417,7 +442,7 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 	if iceConnInfo.RelayedOnLocal {
 		conn.log.Debugf("setup ice turn connection")
 		wgProxy = conn.wgProxyFactory.GetProxy(conn.ctx)
-		ep, err := conn.wgProxy.AddTurnConn(iceConnInfo.RemoteConn)
+		ep, err := conn.wgProxyICE.AddTurnConn(iceConnInfo.RemoteConn)
 		if err != nil {
 			conn.log.Errorf("failed to add turn net.Conn to local proxy: %v", err)
 			return
@@ -448,12 +473,12 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 		return
 	}
 
-	if conn.wgProxy != nil {
-		if err := conn.wgProxy.CloseConn(); err != nil {
+	if conn.wgProxyICE != nil {
+		if err := conn.wgProxyICE.CloseConn(); err != nil {
 			conn.log.Warnf("failed to close depracated wg proxy conn: %v", err)
 		}
 	}
-	conn.wgProxy = wgProxy
+	conn.wgProxyICE = wgProxy
 
 	conn.currentConnType = priority
 
@@ -469,6 +494,15 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 	conn.updateStatus(peerState, iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr)
 }
 
+func (conn *Conn) configureWGEndpoint(addr *net.UDPAddr) error {
+	return conn.config.WgConfig.WgInterface.UpdatePeer(
+		conn.config.WgConfig.RemoteKey,
+		conn.config.WgConfig.AllowedIps,
+		defaultWgKeepAlive,
+		addr,
+		conn.config.WgConfig.PreSharedKey,
+	)
+}
 func (conn *Conn) updateStatus(peerState State, remoteRosenpassPubKey []byte, remoteRosenpassAddr string) {
 	peerState.PubKey = conn.config.Key
 	peerState.ConnStatus = StatusConnected

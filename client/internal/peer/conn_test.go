@@ -2,15 +2,19 @@ package peer
 
 import (
 	"context"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/magiconair/properties/assert"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	"github.com/netbirdio/netbird/iface"
+	relayClient "github.com/netbirdio/netbird/relay/client"
+	"github.com/netbirdio/netbird/util"
 )
 
 var connConf = ConnConfig{
@@ -21,6 +25,12 @@ var connConf = ConnConfig{
 	ICEConfig: ICEConfig{
 		InterfaceBlackList: nil,
 	},
+}
+
+func TestMain(m *testing.M) {
+	_ = util.InitLog("trace", "console")
+	code := m.Run()
+	os.Exit(code)
 }
 
 func TestNewConn_interfaceFilter(t *testing.T) {
@@ -157,4 +167,51 @@ func TestConn_Status(t *testing.T) {
 			assert.Equal(t, got, table.want, "they should be equal")
 		})
 	}
+}
+
+func TestConn_Switch(t *testing.T) {
+	ctx := context.Background()
+
+	wgProxyFactory := wgproxy.NewFactory(ctx, connConf.LocalWgPort)
+	connConfAlice := ConnConfig{
+		Key:         "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+		LocalKey:    "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+		Timeout:     time.Second,
+		LocalWgPort: 51820,
+		ICEConfig: ICEConfig{
+			InterfaceBlackList: nil,
+		},
+		WgConfig: WgConfig{
+			WgListenPort: 51820,
+			RemoteKey:    "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+			AllowedIps:   "172.16.254.0/16",
+		},
+	}
+	relayManagerAlice := relayClient.NewManager(ctx, "127.0.0.1:1234", connConf.LocalKey)
+	connAlice, err := NewConn(ctx, connConfAlice, NewRecorder("https://mgm"), wgProxyFactory, nil, nil, relayManagerAlice)
+	if err != nil {
+		log.Fatalf("failed to create conn: %v", err)
+	}
+	connAlice.Open()
+
+	connConfbob := ConnConfig{
+		Key:         "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+		LocalKey:    "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+		Timeout:     time.Second,
+		LocalWgPort: 51820,
+		ICEConfig: ICEConfig{
+			InterfaceBlackList: nil,
+		},
+		WgConfig: WgConfig{
+			WgListenPort: 51820,
+			RemoteKey:    "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+			AllowedIps:   "172.16.254.0/16",
+		},
+	}
+	relayManagerBob := relayClient.NewManager(ctx, "127.0.0.1:1234", connConf.LocalKey)
+	connBob, err := NewConn(ctx, connConfbob, NewRecorder("https://mgm"), wgProxyFactory, nil, nil, relayManagerBob)
+	if err != nil {
+		log.Fatalf("failed to create conn: %v", err)
+	}
+	connBob.Open()
 }
