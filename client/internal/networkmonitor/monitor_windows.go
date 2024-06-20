@@ -108,7 +108,7 @@ func routeChanged(nexthop systemops.Nexthop, intf *net.Interface, routes map[net
 			if r.Interface != nil {
 				newIntf = r.Interface.Name
 			}
-			log.Infof("network monitor: default route changed: %s from %s (%s) to %s (%s)", r.Destination, nexthop.IP, oldIntf, nexthop.IP, newIntf)
+			log.Infof("network monitor: default route changed: %s from %s (%s) to %s (%s)", r.Destination, nexthop.IP, oldIntf, r.Nexthop, newIntf)
 			return true
 		}
 	} else {
