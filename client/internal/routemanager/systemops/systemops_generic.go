@@ -356,7 +356,7 @@ func GetNextHop(ip netip.Addr) (Nexthop, error) {
 			return Nexthop{}, fmt.Errorf("convert preferred source to address: %w", err)
 		}
 		return Nexthop{
-			IP:   addr.Unmap(),
+			IP:   addr,
 			Intf: intf,
 		}, nil
 	}
