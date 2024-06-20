@@ -427,6 +427,7 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string, validatedPeersMap 
 	}
 
 	routesUpdate := a.getRoutesToSync(peerID, peersToConnect)
+	routesFirewallRules := a.getPeerRoutesFirewallRules(peerID, validatedPeersMap)
 
 	dnsManagementStatus := a.getPeerDNSManagementStatus(peerID)
 	dnsUpdate := nbdns.Config{
@@ -444,12 +445,13 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string, validatedPeersMap 
 	}
 
 	return &NetworkMap{
-		Peers:         peersToConnect,
-		Network:       a.Network.Copy(),
-		Routes:        routesUpdate,
-		DNSConfig:     dnsUpdate,
-		OfflinePeers:  expiredPeers,
-		FirewallRules: firewallRules,
+		Peers:               peersToConnect,
+		Network:             a.Network.Copy(),
+		Routes:              routesUpdate,
+		DNSConfig:           dnsUpdate,
+		OfflinePeers:        expiredPeers,
+		FirewallRules:       firewallRules,
+		RoutesFirewallRules: routesFirewallRules,
 	}
 }
 
