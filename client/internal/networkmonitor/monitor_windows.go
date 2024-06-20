@@ -101,11 +101,14 @@ func routeChanged(nexthop systemops.Nexthop, intf *net.Interface, routes map[net
 
 	if r, ok := routes[unspec]; ok {
 		if r.Nexthop != nexthop.IP || compareIntf(r.Interface, intf) != 0 {
-			intf := "<nil>"
-			if r.Interface != nil {
-				intf = r.Interface.Name
+			oldIntf, newIntf := "<nil>", "<nil>"
+			if intf != nil {
+				oldIntf = intf.Name
 			}
-			log.Infof("network monitor: default route changed: %s via %s (%s)", r.Destination, r.Nexthop, intf)
+			if r.Interface != nil {
+				newIntf = r.Interface.Name
+			}
+			log.Infof("network monitor: default route changed: %s from %s (%s) to %s (%s)", r.Destination, nexthop.IP, oldIntf, nexthop.IP, newIntf)
 			return true
 		}
 	} else {
