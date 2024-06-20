@@ -26,6 +26,7 @@ func Dial(address string) (net.Conn, error) {
 
 	wsConn, _, err := websocket.Dial(context.Background(), url, opts)
 	if err != nil {
+		log.Errorf("failed to dial to Relay server '%s': %s", url, err)
 		return nil, err
 	}
 

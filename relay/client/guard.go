@@ -3,6 +3,8 @@ package client
 import (
 	"context"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -24,13 +26,20 @@ func NewGuard(context context.Context, relayClient *Client) *Guard {
 }
 
 func (g *Guard) OnDisconnected() {
-	timeout := time.NewTimer(reconnectingTimeout)
-	defer timeout.Stop()
+	ticker := time.NewTicker(reconnectingTimeout)
+	defer ticker.Stop()
 
-	select {
-	case <-timeout.C:
-		_ = g.relayClient.Connect()
-	case <-g.ctx.Done():
-		return
+	for {
+		select {
+		case <-ticker.C:
+			err := g.relayClient.Connect()
+			if err != nil {
+				log.Errorf("failed to reconnect to relay server: %s", err)
+				continue
+			}
+			return
+		case <-g.ctx.Done():
+			return
+		}
 	}
 }

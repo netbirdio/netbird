@@ -19,6 +19,10 @@ const (
 	serverResponseTimeout = 8 * time.Second
 )
 
+var (
+	ErrConnAlreadyExists = fmt.Errorf("connection already exists")
+)
+
 // Msg carry the payload from the server to the client. With this sturct, the net.Conn can free the buffer.
 type Msg struct {
 	Payload []byte
@@ -157,6 +161,11 @@ func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
 	}
 
 	hashedID, hashedStringID := messages.HashID(dstPeerID)
+	_, ok := c.conns[hashedStringID]
+	if ok {
+		return nil, ErrConnAlreadyExists
+	}
+
 	log.Infof("open connection to peer: %s", hashedStringID)
 	msgChannel := make(chan Msg, 2)
 	conn := NewConn(c, hashedID, hashedStringID, msgChannel)
