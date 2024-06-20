@@ -92,7 +92,7 @@ func toNetIP(a route.Addr) netip.Addr {
 	case *route.Inet6Addr:
 		ip := netip.AddrFrom16(t.IP)
 		if t.ZoneID != 0 {
-			ip.WithZone(strconv.Itoa(t.ZoneID))
+			ip = ip.WithZone(strconv.Itoa(t.ZoneID))
 		}
 		return ip
 	default:
