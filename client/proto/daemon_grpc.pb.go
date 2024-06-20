@@ -39,6 +39,8 @@ type DaemonServiceClient interface {
 	DeselectRoutes(ctx context.Context, in *SelectRoutesRequest, opts ...grpc.CallOption) (*SelectRoutesResponse, error)
 	// DebugBundle creates a debug bundle
 	DebugBundle(ctx context.Context, in *DebugBundleRequest, opts ...grpc.CallOption) (*DebugBundleResponse, error)
+	// GetLogLevel gets the log level of the daemon
+	GetLogLevel(ctx context.Context, in *GetLogLevelRequest, opts ...grpc.CallOption) (*GetLogLevelResponse, error)
 	// SetLogLevel sets the log level of the daemon
 	SetLogLevel(ctx context.Context, in *SetLogLevelRequest, opts ...grpc.CallOption) (*SetLogLevelResponse, error)
 }
@@ -141,6 +143,15 @@ func (c *daemonServiceClient) DebugBundle(ctx context.Context, in *DebugBundleRe
 	return out, nil
 }
 
+func (c *daemonServiceClient) GetLogLevel(ctx context.Context, in *GetLogLevelRequest, opts ...grpc.CallOption) (*GetLogLevelResponse, error) {
+	out := new(GetLogLevelResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/GetLogLevel", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *daemonServiceClient) SetLogLevel(ctx context.Context, in *SetLogLevelRequest, opts ...grpc.CallOption) (*SetLogLevelResponse, error) {
 	out := new(SetLogLevelResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/SetLogLevel", in, out, opts...)
@@ -175,6 +186,8 @@ type DaemonServiceServer interface {
 	DeselectRoutes(context.Context, *SelectRoutesRequest) (*SelectRoutesResponse, error)
 	// DebugBundle creates a debug bundle
 	DebugBundle(context.Context, *DebugBundleRequest) (*DebugBundleResponse, error)
+	// GetLogLevel gets the log level of the daemon
+	GetLogLevel(context.Context, *GetLogLevelRequest) (*GetLogLevelResponse, error)
 	// SetLogLevel sets the log level of the daemon
 	SetLogLevel(context.Context, *SetLogLevelRequest) (*SetLogLevelResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
@@ -213,6 +226,9 @@ func (UnimplementedDaemonServiceServer) DeselectRoutes(context.Context, *SelectR
 }
 func (UnimplementedDaemonServiceServer) DebugBundle(context.Context, *DebugBundleRequest) (*DebugBundleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DebugBundle not implemented")
+}
+func (UnimplementedDaemonServiceServer) GetLogLevel(context.Context, *GetLogLevelRequest) (*GetLogLevelResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetLogLevel not implemented")
 }
 func (UnimplementedDaemonServiceServer) SetLogLevel(context.Context, *SetLogLevelRequest) (*SetLogLevelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetLogLevel not implemented")
@@ -410,6 +426,24 @@ func _DaemonService_DebugBundle_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_GetLogLevel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetLogLevelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).GetLogLevel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/GetLogLevel",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).GetLogLevel(ctx, req.(*GetLogLevelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DaemonService_SetLogLevel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SetLogLevelRequest)
 	if err := dec(in); err != nil {
@@ -474,6 +508,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DebugBundle",
 			Handler:    _DaemonService_DebugBundle_Handler,
+		},
+		{
+			MethodName: "GetLogLevel",
+			Handler:    _DaemonService_GetLogLevel_Handler,
 		},
 		{
 			MethodName: "SetLogLevel",

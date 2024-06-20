@@ -365,6 +365,12 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		s.latestConfigInput.ExtraIFaceBlackList = msg.ExtraIFaceBlacklist
 	}
 
+	if msg.DnsRouteInterval != nil {
+		duration := msg.DnsRouteInterval.AsDuration()
+		inputConfig.DNSRouteInterval = &duration
+		s.latestConfigInput.DNSRouteInterval = &duration
+	}
+
 	s.mutex.Unlock()
 
 	if msg.OptionalPreSharedKey != nil {
@@ -662,11 +668,17 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 	}
 
 	return &proto.GetConfigResponse{
-		ManagementUrl: managementURL,
-		AdminURL:      adminURL,
-		ConfigFile:    s.latestConfigInput.ConfigPath,
-		LogFile:       s.logFile,
-		PreSharedKey:  preSharedKey,
+		ManagementUrl:       managementURL,
+		ConfigFile:          s.latestConfigInput.ConfigPath,
+		LogFile:             s.logFile,
+		PreSharedKey:        preSharedKey,
+		AdminURL:            adminURL,
+		InterfaceName:       s.config.WgIface,
+		WireguardPort:       int64(s.config.WgPort),
+		DisableAutoConnect:  s.config.DisableAutoConnect,
+		ServerSSHAllowed:    *s.config.ServerSSHAllowed,
+		RosenpassEnabled:    s.config.RosenpassEnabled,
+		RosenpassPermissive: s.config.RosenpassPermissive,
 	}, nil
 }
 func (s *Server) onSessionExpire() {

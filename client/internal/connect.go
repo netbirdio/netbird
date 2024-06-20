@@ -252,8 +252,10 @@ func (c *ConnectClient) run(
 			return wrapErr(err)
 		}
 
+		checks := loginResp.GetChecks()
+
 		c.engineMutex.Lock()
-		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, c.statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe)
+		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, c.statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe, checks)
 		c.engineMutex.Unlock()
 
 		err = c.engine.Start()
@@ -307,6 +309,10 @@ func (c *ConnectClient) Engine() *Engine {
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
 func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig) (*EngineConfig, error) {
+	nm := false
+	if config.NetworkMonitor != nil {
+		nm = *config.NetworkMonitor
+	}
 	engineConf := &EngineConfig{
 		WgIfaceName:          config.WgIface,
 		WgAddr:               peerConfig.Address,
@@ -314,13 +320,14 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		DisableIPv6Discovery: config.DisableIPv6Discovery,
 		WgPrivateKey:         key,
 		WgPort:               config.WgPort,
-		NetworkMonitor:       config.NetworkMonitor,
+		NetworkMonitor:       nm,
 		SSHKey:               []byte(config.SSHKey),
 		NATExternalIPs:       config.NATExternalIPs,
 		CustomDNSAddress:     config.CustomDNSAddress,
 		RosenpassEnabled:     config.RosenpassEnabled,
 		RosenpassPermissive:  config.RosenpassPermissive,
 		ServerSSHAllowed:     util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
+		DNSRouteInterval:     config.DNSRouteInterval,
 	}
 
 	if config.PreSharedKey != "" {

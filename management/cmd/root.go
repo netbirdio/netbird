@@ -75,7 +75,6 @@ func init() {
 	migrationCmd.MarkFlagRequired("datadir") //nolint
 
 	migrationCmd.AddCommand(upCmd)
-	migrationCmd.AddCommand(downCmd)
 
 	rootCmd.AddCommand(migrationCmd)
 }
