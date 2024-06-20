@@ -104,7 +104,7 @@ func initRoutesTestData() *RoutesHandler {
 				}
 				return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 			},
-			CreateRouteFunc: func(accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups []string,accessControlGroups []string, enabled bool, _ string, keepRoute bool) (*route.Route, error) {
+			CreateRouteFunc: func(accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, accessControlGroups []string, enabled bool, _ string, keepRoute bool) (*route.Route, error) {
 				if peerID == notFoundPeerID {
 					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
 				}
@@ -112,18 +112,18 @@ func initRoutesTestData() *RoutesHandler {
 					return nil, status.Errorf(status.InvalidArgument, "peer groups with ID %s not found", peerGroups[0])
 				}
 				return &route.Route{
-					ID:          existingRouteID,
-					NetID:       netID,
-					Peer:        peerID,
-					PeerGroups:  peerGroups,
-					Network:     prefix,
-					Domains:     domains,
-					NetworkType: networkType,
-					Description: description,
-					Masquerade:  masquerade,
-					Enabled:     enabled,
-					Groups:      groups,
-					KeepRoute:   keepRoute,
+					ID:                  existingRouteID,
+					NetID:               netID,
+					Peer:                peerID,
+					PeerGroups:          peerGroups,
+					Network:             prefix,
+					Domains:             domains,
+					NetworkType:         networkType,
+					Description:         description,
+					Masquerade:          masquerade,
+					Enabled:             enabled,
+					Groups:              groups,
+					KeepRoute:           keepRoute,
 					AccessControlGroups: accessControlGroups,
 				}, nil
 			},
@@ -268,7 +268,7 @@ func TestRoutesHandlers(t *testing.T) {
 				Id:                  existingRouteID,
 				Description:         "Post",
 				NetworkId:           "awesomeNet",
-				Network:             "192.168.0.0/16",
+				Network:             toPtr("192.168.0.0/16"),
 				Peer:                &existingPeerID,
 				NetworkType:         route.IPv4NetworkString,
 				Masquerade:          false,
