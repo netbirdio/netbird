@@ -717,7 +717,7 @@ services:
     volumes:
       - netbird_caddy_data:/data
       - ./Caddyfile:/etc/caddy/Caddyfile
-  #UI dashboard
+  # UI dashboard
   dashboard:
     image: netbirdio/dashboard:latest
     restart: unless-stopped
