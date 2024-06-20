@@ -454,9 +454,14 @@ message RouteFirewallRule {
   // Details about the port.
   PortInfo portInfo = 7;
 
+  // IsDynamic indicate if the route is DNS route.
+  bool isDynamic =8;
+
   enum NetworkType {
-    IPV4 = 0;
-    IPV6 = 1;
+    UNKNOWN = 0;
+    IPV4 = 1;
+    IPV6 = 2;
+    Domain = 3;
   }
 }
 

@@ -1573,9 +1573,15 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 					"peerB",
 				},
 			},
+			"contractors": {
+				ID:    "contractors",
+				Name:  "Contractors",
+				Peers: []string{},
+			},
 		},
 		Routes: map[route.ID]*route.Route{
 			"route1": {
+				ID:                  "route1",
 				Network:             netip.MustParsePrefix("192.168.0.0/16"),
 				NetID:               "route1",
 				NetworkType:         route.IPv4Network,
@@ -1588,7 +1594,8 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				AccessControlGroups: []string{"route1"},
 			},
 			"route2": {
-				Network:             netip.MustParsePrefix(existingNetwork),
+				ID:                  "route2",
+				Network:             existingNetwork,
 				NetID:               "route2",
 				NetworkType:         route.IPv4Network,
 				Peer:                "peerE",
@@ -1598,6 +1605,19 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				Enabled:             true,
 				Groups:              []string{"finance"},
 				AccessControlGroups: []string{"route2"},
+			},
+			"route3": {
+				ID:                  "route3",
+				Network:             netip.MustParsePrefix("172.16.0.0/16"),
+				NetID:               "route3",
+				NetworkType:         route.DomainNetwork,
+				Peer:                "peerE",
+				Description:         "Allow all traffic to routed DNS network",
+				Masquerade:          false,
+				Metric:              9999,
+				Enabled:             true,
+				Groups:              []string{"contractors"},
+				AccessControlGroups: []string{},
 			},
 		},
 		Policies: []*Policy{
@@ -1669,6 +1689,10 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 		route2 := account.Routes["route2"]
 		policies = getAllRoutePoliciesFromGroups(account, route2.AccessControlGroups)
 		assert.Len(t, policies, 1)
+
+		route3 := account.Routes["route3"]
+		policies = getAllRoutePoliciesFromGroups(account, route3.AccessControlGroups)
+		assert.Len(t, policies, 0)
 	})
 
 	t.Run("check peer routes firewall rules", func(t *testing.T) {
@@ -1738,16 +1762,16 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 		assert.Len(t, routesFirewallRules, 6)
 		assert.ElementsMatch(t, routesFirewallRules, expectedRoutesFirewallRules)
 
-		// peerE is a single routing peer for route 2
+		// peerE is a single routing peer for route 2 and route 3
 		routesFirewallRules = account.getPeerRoutesFirewallRules("peerE", validatedPeers)
-		assert.Len(t, routesFirewallRules, 2)
+		assert.Len(t, routesFirewallRules, 3)
 
 		expectedRoutesFirewallRules = []*RouteFirewallRule{
 			{
 				SourceRange: "100.65.250.202/32",
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
-				Destination: existingNetwork,
+				Destination: existingNetwork.String(),
 				Protocol:    "tcp",
 				NetworkType: int(route.IPv4Network),
 				PortRange:   RulePortRange{Start: 80, End: 350},
@@ -1756,10 +1780,18 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				SourceRange: "100.65.13.186/32",
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
-				Destination: existingNetwork,
+				Destination: existingNetwork.String(),
 				Protocol:    "tcp",
 				NetworkType: int(route.IPv4Network),
 				PortRange:   RulePortRange{Start: 80, End: 350},
+			},
+			{
+				SourceRange: "0.0.0.0/0",
+				Direction:   firewallRuleDirectionIN,
+				Action:      "accept",
+				Destination: "172.16.0.0/16",
+				NetworkType: int(route.DomainNetwork),
+				IsDynamic:   true,
 			},
 		}
 		assert.ElementsMatch(t, routesFirewallRules, expectedRoutesFirewallRules)
