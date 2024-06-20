@@ -3,6 +3,7 @@ package wgproxy
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 
 	log "github.com/sirupsen/logrus"
@@ -64,7 +65,6 @@ func (p *WGUserSpaceProxy) Free() error {
 // proxyToRemote proxies everything from Wireguard to the RemoteKey peer
 // blocks
 func (p *WGUserSpaceProxy) proxyToRemote() {
-
 	buf := make([]byte, 1500)
 	for {
 		select {
@@ -78,6 +78,9 @@ func (p *WGUserSpaceProxy) proxyToRemote() {
 
 			_, err = p.remoteConn.Write(buf[:n])
 			if err != nil {
+				if err == io.EOF {
+					p.cancel()
+				}
 				continue
 			}
 		}
@@ -96,6 +99,10 @@ func (p *WGUserSpaceProxy) proxyToLocal() {
 		default:
 			n, err := p.remoteConn.Read(buf)
 			if err != nil {
+				if err == io.EOF {
+					p.cancel()
+					return
+				}
 				continue
 			}
 
