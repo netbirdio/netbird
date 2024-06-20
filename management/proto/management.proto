@@ -38,6 +38,12 @@ service ManagementService {
   // EncryptedMessage of the request has a body of PKCEAuthorizationFlowRequest.
   // EncryptedMessage of the response has a body of PKCEAuthorizationFlow.
   rpc GetPKCEAuthorizationFlow(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // SyncMeta is used to sync metadata of the peer.
+  // After sync the peer if there is a change in peer posture check which  needs to be evaluated by the client,
+  // sync meta will evaluate the checks and update the peer meta with the result.
+  // EncryptedMessage of the request has a body of Empty.
+  rpc  SyncMeta(EncryptedMessage) returns (Empty) {}
 }
 
 message EncryptedMessage {
@@ -50,7 +56,10 @@ message EncryptedMessage {
   int32 version = 3;
 }
 
-message SyncRequest {}
+message SyncRequest {
+  // Meta data of the peer
+  PeerSystemMeta meta = 1;
+}
 
 // SyncResponse represents a state that should be applied to the local peer (e.g. Wiretrustee servers config as well as local peer and remote peers configs)
 message SyncResponse {
@@ -69,6 +78,14 @@ message SyncResponse {
   bool remotePeersIsEmpty = 4;
 
   NetworkMap NetworkMap = 5;
+
+  // Posture checks to be evaluated by client
+  repeated Checks Checks = 6;
+}
+
+message  SyncMetaRequest {
+  // Meta data of the peer
+  PeerSystemMeta meta = 1;
 }
 
 message LoginRequest {
@@ -82,6 +99,7 @@ message LoginRequest {
   PeerKeys peerKeys = 4;
 
 }
+
 // PeerKeys is additional peer info like SSH pub key and WireGuard public key.
 // This message is sent on Login or register requests, or when a key rotation has to happen.
 message PeerKeys {
@@ -98,6 +116,16 @@ message Environment {
   string cloud = 1;
   // platform is the platform the agent is running on if applicable.
   string platform = 2;
+}
+
+// File represents a file on the system.
+message File {
+  // path is the path to the file.
+  string path = 1;
+  // exist indicate whether the file exists.
+  bool exist = 2;
+  // processIsRunning indicates whether the file is a running process or not.
+  bool processIsRunning = 3;
 }
 
 // PeerSystemMeta is machine meta data like OS and version.
@@ -117,6 +145,7 @@ message PeerSystemMeta {
   string sysProductName = 13;
   string sysManufacturer = 14;
   Environment environment = 15;
+  repeated File files = 16;
 }
 
 message LoginResponse {
@@ -124,6 +153,8 @@ message LoginResponse {
   WiretrusteeConfig wiretrusteeConfig = 1;
   // Peer local config
   PeerConfig peerConfig = 2;
+  // Posture checks to be evaluated by client
+  repeated Checks Checks = 3;
 }
 
 message ServerKeyResponse {
@@ -303,6 +334,8 @@ message Route {
   int64  Metric = 5;
   bool   Masquerade = 6;
   string NetID = 7;
+  repeated string Domains = 8;
+  bool keepRoute = 9;
 }
 
 // DNSConfig represents a dns.Update
@@ -370,4 +403,8 @@ message FirewallRule {
 message NetworkAddress {
   string netIP = 1;
   string mac = 2;
+}
+
+message Checks {
+  repeated string Files= 1;
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/rs/xid"
 
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -39,10 +40,10 @@ func (am *DefaultAccountManager) GetRoute(accountID string, routeID route.ID, us
 	return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 }
 
-// checkRoutePrefixExistsForPeers checks if a route with a given prefix exists for a single peer or multiple peer groups.
-func (am *DefaultAccountManager) checkRoutePrefixExistsForPeers(account *Account, peerID string, routeID route.ID, peerGroupIDs []string, prefix netip.Prefix) error {
+// checkRoutePrefixOrDomainsExistForPeers checks if a route with a given prefix exists for a single peer or multiple peer groups.
+func (am *DefaultAccountManager) checkRoutePrefixOrDomainsExistForPeers(account *Account, peerID string, routeID route.ID, peerGroupIDs []string, prefix netip.Prefix, domains domain.List) error {
 	// routes can have both peer and peer_groups
-	routesWithPrefix := account.GetRoutesByPrefix(prefix)
+	routesWithPrefix := account.GetRoutesByPrefixOrDomains(prefix, domains)
 
 	// lets remember all the peers and the peer groups from routesWithPrefix
 	seenPeers := make(map[string]bool)
@@ -114,13 +115,25 @@ func (am *DefaultAccountManager) checkRoutePrefixExistsForPeers(account *Account
 }
 
 // CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, accessControlGroupIDs []string, enabled bool, userID string) (*route.Route, error) {
+func (am *DefaultAccountManager) CreateRoute(accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool) (*route.Route, error) {
 	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(domains) > 0 && prefix.IsValid() {
+		return nil, status.Errorf(status.InvalidArgument, "domains and network should not be provided at the same time")
+	}
+
+	if len(domains) == 0 && !prefix.IsValid() {
+		return nil, status.Errorf(status.InvalidArgument, "invalid Prefix")
+	}
+
+	if len(domains) > 0 {
+		prefix = getPlaceholderIP()
 	}
 
 	if peerID != "" && len(peerGroupIDs) != 0 {
@@ -132,11 +145,6 @@ func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, 
 
 	var newRoute route.Route
 	newRoute.ID = route.ID(xid.New().String())
-
-	prefixType, newPrefix, err := route.ParseNetwork(network)
-	if err != nil {
-		return nil, status.Errorf(status.InvalidArgument, "failed to parse IP %s", network)
-	}
 
 	if len(peerGroupIDs) > 0 {
 		err = validateGroups(peerGroupIDs, account.Groups)
@@ -152,7 +160,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, 
 		}
 	}
 
-	err = am.checkRoutePrefixExistsForPeers(account, peerID, newRoute.ID, peerGroupIDs, newPrefix)
+	err = am.checkRoutePrefixOrDomainsExistForPeers(account, peerID, newRoute.ID, peerGroupIDs, prefix, domains)
 	if err != nil {
 		return nil, err
 	}
@@ -172,14 +180,16 @@ func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, 
 
 	newRoute.Peer = peerID
 	newRoute.PeerGroups = peerGroupIDs
-	newRoute.Network = newPrefix
-	newRoute.NetworkType = prefixType
+	newRoute.Network = prefix
+	newRoute.Domains = domains
+	newRoute.NetworkType = networkType
 	newRoute.Description = description
 	newRoute.NetID = netID
 	newRoute.Masquerade = masquerade
 	newRoute.Metric = metric
 	newRoute.Enabled = enabled
 	newRoute.Groups = groups
+	newRoute.KeepRoute = keepRoute
 	newRoute.AccessControlGroups = accessControlGroupIDs
 
 	if account.Routes == nil {
@@ -209,10 +219,6 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 		return status.Errorf(status.InvalidArgument, "route provided is nil")
 	}
 
-	if !routeToSave.Network.IsValid() {
-		return status.Errorf(status.InvalidArgument, "invalid Prefix %s", routeToSave.Network.String())
-	}
-
 	if routeToSave.Metric < route.MinMetric || routeToSave.Metric > route.MaxMetric {
 		return status.Errorf(status.InvalidArgument, "metric should be between %d and %d", route.MinMetric, route.MaxMetric)
 	}
@@ -224,6 +230,18 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return err
+	}
+
+	if len(routeToSave.Domains) > 0 && routeToSave.Network.IsValid() {
+		return status.Errorf(status.InvalidArgument, "domains and network should not be provided at the same time")
+	}
+
+	if len(routeToSave.Domains) == 0 && !routeToSave.Network.IsValid() {
+		return status.Errorf(status.InvalidArgument, "invalid Prefix")
+	}
+
+	if len(routeToSave.Domains) > 0 {
+		routeToSave.Network = getPlaceholderIP()
 	}
 
 	if routeToSave.Peer != "" && len(routeToSave.PeerGroups) != 0 {
@@ -244,7 +262,7 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 		}
 	}
 
-	err = am.checkRoutePrefixExistsForPeers(account, routeToSave.Peer, routeToSave.ID, routeToSave.Copy().PeerGroups, routeToSave.Network)
+	err = am.checkRoutePrefixOrDomainsExistForPeers(account, routeToSave.Peer, routeToSave.ID, routeToSave.Copy().PeerGroups, routeToSave.Network, routeToSave.Domains)
 	if err != nil {
 		return err
 	}
@@ -328,10 +346,12 @@ func toProtocolRoute(route *route.Route) *proto.Route {
 		ID:          string(route.ID),
 		NetID:       string(route.NetID),
 		Network:     route.Network.String(),
+		Domains:     route.Domains.ToPunycodeList(),
 		NetworkType: int64(route.NetworkType),
 		Peer:        route.Peer,
 		Metric:      int64(route.Metric),
 		Masquerade:  route.Masquerade,
+		KeepRoute:   route.KeepRoute,
 	}
 }
 
@@ -341,4 +361,10 @@ func toProtocolRoutes(routes []*route.Route) []*proto.Route {
 		protoRoutes = append(protoRoutes, toProtocolRoute(r))
 	}
 	return protoRoutes
+}
+
+// getPlaceholderIP returns a placeholder IP address for the route if domains are used
+func getPlaceholderIP() netip.Prefix {
+	// Using an IP from the documentation range to minimize impact in case older clients try to set a route
+	return netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 0, 2, 0}), 32)
 }

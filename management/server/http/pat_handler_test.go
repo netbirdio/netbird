@@ -27,12 +27,12 @@ const (
 	notFoundUserID    = "notFoundUserID"
 	existingTokenID   = "existingTokenID"
 	notFoundTokenID   = "notFoundTokenID"
-	domain            = "hotmail.com"
+	testDomain        = "hotmail.com"
 )
 
 var testAccount = &server.Account{
 	Id:     existingAccountID,
-	Domain: domain,
+	Domain: testDomain,
 	Users: map[string]*server.User{
 		existingUserID: {
 			Id: existingUserID,
@@ -117,7 +117,7 @@ func initPATTestData() *PATHandler {
 			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
 				return jwtclaims.AuthorizationClaims{
 					UserId:    existingUserID,
-					Domain:    domain,
+					Domain:    testDomain,
 					AccountId: testNSGroupAccountID,
 				}
 			}),

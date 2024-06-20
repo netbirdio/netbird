@@ -108,3 +108,33 @@ func TestNBVersionCheck_Check(t *testing.T) {
 		})
 	}
 }
+
+func TestNBVersionCheck_Validate(t *testing.T) {
+	testCases := []struct {
+		name          string
+		check         NBVersionCheck
+		expectedError bool
+	}{
+		{
+			name:          "Valid NBVersionCheck",
+			check:         NBVersionCheck{MinVersion: "1.0"},
+			expectedError: false,
+		},
+		{
+			name:          "Invalid NBVersionCheck",
+			check:         NBVersionCheck{},
+			expectedError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.check.Validate()
+			if tc.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

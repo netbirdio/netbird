@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"time"
 )
 
@@ -79,6 +80,13 @@ type Environment struct {
 	Platform string
 }
 
+// File is a file on the system.
+type File struct {
+	Path             string
+	Exist            bool
+	ProcessIsRunning bool
+}
+
 // PeerSystemMeta is a metadata of a Peer machine system
 type PeerSystemMeta struct { //nolint:revive
 	Hostname           string
@@ -96,24 +104,22 @@ type PeerSystemMeta struct { //nolint:revive
 	SystemProductName  string
 	SystemManufacturer string
 	Environment        Environment `gorm:"serializer:json"`
+	Files              []File      `gorm:"serializer:json"`
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
-	if len(p.NetworkAddresses) != len(other.NetworkAddresses) {
+	equalNetworkAddresses := slices.EqualFunc(p.NetworkAddresses, other.NetworkAddresses, func(addr NetworkAddress, oAddr NetworkAddress) bool {
+		return addr.Mac == oAddr.Mac && addr.NetIP == oAddr.NetIP
+	})
+	if !equalNetworkAddresses {
 		return false
 	}
 
-	for _, addr := range p.NetworkAddresses {
-		var found bool
-		for _, oAddr := range other.NetworkAddresses {
-			if addr.Mac == oAddr.Mac && addr.NetIP == oAddr.NetIP {
-				found = true
-				continue
-			}
-		}
-		if !found {
-			return false
-		}
+	equalFiles := slices.EqualFunc(p.Files, other.Files, func(file File, oFile File) bool {
+		return file.Path == oFile.Path && file.Exist == oFile.Exist && file.ProcessIsRunning == oFile.ProcessIsRunning
+	})
+	if !equalFiles {
+		return false
 	}
 
 	return p.Hostname == other.Hostname &&
@@ -131,6 +137,26 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		p.SystemManufacturer == other.SystemManufacturer &&
 		p.Environment.Cloud == other.Environment.Cloud &&
 		p.Environment.Platform == other.Environment.Platform
+}
+
+func (p PeerSystemMeta) isEmpty() bool {
+	return p.Hostname == "" &&
+		p.GoOS == "" &&
+		p.Kernel == "" &&
+		p.Core == "" &&
+		p.Platform == "" &&
+		p.OS == "" &&
+		p.OSVersion == "" &&
+		p.WtVersion == "" &&
+		p.UIVersion == "" &&
+		p.KernelVersion == "" &&
+		len(p.NetworkAddresses) == 0 &&
+		p.SystemSerialNumber == "" &&
+		p.SystemProductName == "" &&
+		p.SystemManufacturer == "" &&
+		p.Environment.Cloud == "" &&
+		p.Environment.Platform == "" &&
+		len(p.Files) == 0
 }
 
 // AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
@@ -168,6 +194,10 @@ func (p *Peer) Copy() *Peer {
 // UpdateMetaIfNew updates peer's system metadata if new information is provided
 // returns true if meta was updated, false otherwise
 func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) bool {
+	if meta.isEmpty() {
+		return false
+	}
+
 	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
 	if meta.UIVersion == "" {
 		meta.UIVersion = p.Meta.UIVersion

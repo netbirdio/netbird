@@ -4,17 +4,19 @@ import (
 	"fmt"
 
 	"github.com/pion/transport/v3"
+
+	"github.com/netbirdio/netbird/iface/bind"
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
-func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, mtu int, transportNet transport.Net, args *MobileIFaceArguments) (*WGIface, error) {
+func NewWGIFace(iFaceName string, address string, wgPort int, wgPrivKey string, mtu int, transportNet transport.Net, args *MobileIFaceArguments, filterFn bind.FilterFn) (*WGIface, error) {
 	wgAddress, err := parseWGAddress(address)
 	if err != nil {
 		return nil, err
 	}
 
 	wgIFace := &WGIface{
-		tun:           newTunDevice(wgAddress, wgPort, wgPrivKey, mtu, transportNet, args.TunAdapter),
+		tun:           newTunDevice(wgAddress, wgPort, wgPrivKey, mtu, transportNet, args.TunAdapter, filterFn),
 		userspaceBind: true,
 	}
 	return wgIFace, nil

@@ -27,7 +27,7 @@ const (
 
 var usersTestAccount = &server.Account{
 	Id:     existingAccountID,
-	Domain: domain,
+	Domain: testDomain,
 	Users: map[string]*server.User{
 		existingUserID: {
 			Id:            existingUserID,
@@ -127,7 +127,7 @@ func initUsersTestData() *UsersHandler {
 			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
 				return jwtclaims.AuthorizationClaims{
 					UserId:    existingUserID,
-					Domain:    domain,
+					Domain:    testDomain,
 					AccountId: existingAccountID,
 				}
 			}),

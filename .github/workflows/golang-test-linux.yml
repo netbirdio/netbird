@@ -15,7 +15,7 @@ jobs:
     strategy:
       matrix:
         arch: [ '386','amd64' ]
-        store: [ 'jsonfile', 'sqlite', 'postgres']
+        store: [ 'sqlite', 'postgres']
     runs-on: ubuntu-latest
     steps:
       - name: Install Go
@@ -86,7 +86,10 @@ jobs:
         run: CGO_ENABLED=0 go test -c -o sharedsock-testing.bin ./sharedsock
 
       - name: Generate RouteManager Test bin
-        run: CGO_ENABLED=1 go test -c -o routemanager-testing.bin -tags netgo -ldflags '-w -extldflags "-static -ldbus-1 -lpcap"' ./client/internal/routemanager/...
+        run: CGO_ENABLED=0 go test -c -o routemanager-testing.bin  ./client/internal/routemanager
+
+      - name: Generate SystemOps Test bin
+        run: CGO_ENABLED=1 go test -c -o systemops-testing.bin -tags netgo -ldflags '-w -extldflags "-static -ldbus-1 -lpcap"' ./client/internal/routemanager/systemops
 
       - name: Generate nftables Manager Test bin
         run: CGO_ENABLED=0 go test -c -o nftablesmanager-testing.bin ./client/firewall/nftables/...
@@ -107,6 +110,9 @@ jobs:
 
       - name: Run RouteManager tests in docker
         run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/routemanager --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/routemanager-testing.bin  -test.timeout 5m -test.parallel 1
+
+      - name: Run SystemOps tests in docker
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/routemanager/systemops --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/systemops-testing.bin  -test.timeout 5m -test.parallel 1
 
       - name: Run nftables Manager tests in docker
         run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/firewall --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/nftablesmanager-testing.bin  -test.timeout 5m -test.parallel 1

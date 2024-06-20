@@ -25,6 +25,11 @@ func GetInfo(ctx context.Context) *Info {
 	return gio
 }
 
+// checkFileAndProcess checks if the file path exists and if a process is running at that path.
+func checkFileAndProcess(paths []string) ([]File, error) {
+	return []File{}, nil
+}
+
 // extractOsVersion extracts operating system version from context or returns the default
 func extractOsVersion(ctx context.Context, defaultName string) string {
 	v, ok := ctx.Value(OsVersionCtxKey).(string)

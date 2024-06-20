@@ -18,7 +18,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/iface/bind"
-	signal "github.com/netbirdio/netbird/signal/client"
+	"github.com/netbirdio/netbird/route"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	nbnet "github.com/netbirdio/netbird/util/net"
 	"github.com/netbirdio/netbird/version"
@@ -68,9 +68,6 @@ type ConnConfig struct {
 
 	NATExternalIPs []string
 
-	// UsesBind indicates whether the WireGuard interface is userspace and uses bind.ICEBind
-	UserspaceBind bool
-
 	// RosenpassPubKey is this peer's Rosenpass public key
 	RosenpassPubKey []byte
 	// RosenpassPubKey is this peer's RosenpassAddr server address (IP:port)
@@ -101,9 +98,6 @@ type IceCredentials struct {
 	Pwd   string
 }
 
-type BeforeAddPeerHookFunc func(connID nbnet.ConnectionID, IP net.IP) error
-type AfterRemovePeerHookFunc func(connID nbnet.ConnectionID) error
-
 type Conn struct {
 	config ConnConfig
 	mu     sync.Mutex
@@ -133,30 +127,13 @@ type Conn struct {
 	wgProxyFactory *wgproxy.Factory
 	wgProxy        wgproxy.Proxy
 
-	remoteModeCh chan ModeMessage
-	meta         meta
-
 	adapter        iface.TunAdapter
 	iFaceDiscover  stdnet.ExternalIFaceDiscover
 	sentExtraSrflx bool
 
-	remoteEndpoint *net.UDPAddr
-	remoteConn     *ice.Conn
-
 	connID               nbnet.ConnectionID
-	beforeAddPeerHooks   []BeforeAddPeerHookFunc
-	afterRemovePeerHooks []AfterRemovePeerHookFunc
-}
-
-// meta holds meta information about a connection
-type meta struct {
-	protoSupport signal.FeaturesSupport
-}
-
-// ModeMessage represents a connection mode chosen by the peer
-type ModeMessage struct {
-	// Direct indicates that it decided to use a direct connection
-	Direct bool
+	beforeAddPeerHooks   []nbnet.AddHookFunc
+	afterRemovePeerHooks []nbnet.RemoveHookFunc
 }
 
 // GetConf returns the connection config
@@ -185,7 +162,6 @@ func NewConn(config ConnConfig, statusRecorder *Status, wgProxyFactory *wgproxy.
 		remoteOffersCh: make(chan OfferAnswer),
 		remoteAnswerCh: make(chan OfferAnswer),
 		statusRecorder: statusRecorder,
-		remoteModeCh:   make(chan ModeMessage, 1),
 		wgProxyFactory: wgProxyFactory,
 		adapter:        adapter,
 		iFaceDiscover:  iFaceDiscover,
@@ -353,7 +329,7 @@ func (conn *Conn) Open(ctx context.Context) error {
 
 	err = conn.agent.GatherCandidates()
 	if err != nil {
-		return err
+		return fmt.Errorf("gather candidates: %v", err)
 	}
 
 	// will block until connection succeeded
@@ -370,13 +346,11 @@ func (conn *Conn) Open(ctx context.Context) error {
 		return err
 	}
 
-	// dynamically set remote WireGuard port is other side specified a different one from the default one
+	// dynamically set remote WireGuard port if other side specified a different one from the default one
 	remoteWgPort := iface.DefaultWgPort
 	if remoteOfferAnswer.WgListenPort != 0 {
 		remoteWgPort = remoteOfferAnswer.WgListenPort
 	}
-
-	conn.remoteConn = remoteConn
 
 	// the ice connection has been established successfully so we are ready to start the proxy
 	remoteAddr, err := conn.configureConnection(remoteConn, remoteWgPort, remoteOfferAnswer.RosenpassPubKey,
@@ -402,11 +376,11 @@ func isRelayCandidate(candidate ice.Candidate) bool {
 	return candidate.Type() == ice.CandidateTypeRelay
 }
 
-func (conn *Conn) AddBeforeAddPeerHook(hook BeforeAddPeerHookFunc) {
+func (conn *Conn) AddBeforeAddPeerHook(hook nbnet.AddHookFunc) {
 	conn.beforeAddPeerHooks = append(conn.beforeAddPeerHooks, hook)
 }
 
-func (conn *Conn) AddAfterRemovePeerHook(hook AfterRemovePeerHookFunc) {
+func (conn *Conn) AddAfterRemovePeerHook(hook nbnet.RemoveHookFunc) {
 	conn.afterRemovePeerHooks = append(conn.afterRemovePeerHooks, hook)
 }
 
@@ -435,7 +409,6 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 	}
 
 	endpointUdpAddr, _ := net.ResolveUDPAddr(endpoint.Network(), endpoint.String())
-	conn.remoteEndpoint = endpointUdpAddr
 	log.Debugf("Conn resolved IP for %s: %s", endpoint, endpointUdpAddr.IP)
 
 	conn.connID = nbnet.GenerateConnID()
@@ -621,40 +594,39 @@ func (conn *Conn) SetSendSignalMessage(handler func(message *sProto.Message) err
 // onICECandidate is a callback attached to an ICE Agent to receive new local connection candidates
 // and then signals them to the remote peer
 func (conn *Conn) onICECandidate(candidate ice.Candidate) {
-	if candidate != nil {
-		// TODO: reported port is incorrect for CandidateTypeHost, makes understanding ICE use via logs confusing as port is ignored
-		log.Debugf("discovered local candidate %s", candidate.String())
-		go func() {
-			err := conn.signalCandidate(candidate)
-			if err != nil {
-				log.Errorf("failed signaling candidate to the remote peer %s %s", conn.config.Key, err)
-			}
-
-			// sends an extra server reflexive candidate to the remote peer with our related port (usually the wireguard port)
-			// this is useful when network has an existing port forwarding rule for the wireguard port and this peer
-			if !conn.sentExtraSrflx && candidate.Type() == ice.CandidateTypeServerReflexive && candidate.Port() != candidate.RelatedAddress().Port {
-				relatedAdd := candidate.RelatedAddress()
-				extraSrflx, err := ice.NewCandidateServerReflexive(&ice.CandidateServerReflexiveConfig{
-					Network:   candidate.NetworkType().String(),
-					Address:   candidate.Address(),
-					Port:      relatedAdd.Port,
-					Component: candidate.Component(),
-					RelAddr:   relatedAdd.Address,
-					RelPort:   relatedAdd.Port,
-				})
-				if err != nil {
-					log.Errorf("failed creating extra server reflexive candidate %s", err)
-					return
-				}
-				err = conn.signalCandidate(extraSrflx)
-				if err != nil {
-					log.Errorf("failed signaling the extra server reflexive candidate to the remote peer %s: %s", conn.config.Key, err)
-					return
-				}
-				conn.sentExtraSrflx = true
-			}
-		}()
+	// nil means candidate gathering has been ended
+	if candidate == nil {
+		return
 	}
+
+	// TODO: reported port is incorrect for CandidateTypeHost, makes understanding ICE use via logs confusing as port is ignored
+	log.Debugf("discovered local candidate %s", candidate.String())
+	go func() {
+		err := conn.signalCandidate(candidate)
+		if err != nil {
+			log.Errorf("failed signaling candidate to the remote peer %s %s", conn.config.Key, err)
+		}
+	}()
+
+	if !conn.shouldSendExtraSrflxCandidate(candidate) {
+		return
+	}
+
+	// sends an extra server reflexive candidate to the remote peer with our related port (usually the wireguard port)
+	// this is useful when network has an existing port forwarding rule for the wireguard port and this peer
+	extraSrflx, err := extraSrflxCandidate(candidate)
+	if err != nil {
+		log.Errorf("failed creating extra server reflexive candidate %s", err)
+		return
+	}
+	conn.sentExtraSrflx = true
+
+	go func() {
+		err = conn.signalCandidate(extraSrflx)
+		if err != nil {
+			log.Errorf("failed signaling the extra server reflexive candidate to the remote peer %s: %s", conn.config.Key, err)
+		}
+	}()
 }
 
 func (conn *Conn) onICESelectedCandidatePair(c1 ice.Candidate, c2 ice.Candidate) {
@@ -779,7 +751,7 @@ func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) bool {
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
-func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate) {
+func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMap) {
 	log.Debugf("OnRemoteCandidate from peer %s -> %s", conn.config.Key, candidate.String())
 	go func() {
 		conn.mu.Lock()
@@ -801,8 +773,21 @@ func (conn *Conn) GetKey() string {
 	return conn.config.Key
 }
 
-// RegisterProtoSupportMeta register supported proto message in the connection metadata
-func (conn *Conn) RegisterProtoSupportMeta(support []uint32) {
-	protoSupport := signal.ParseFeaturesSupported(support)
-	conn.meta.protoSupport = protoSupport
+func (conn *Conn) shouldSendExtraSrflxCandidate(candidate ice.Candidate) bool {
+	if !conn.sentExtraSrflx && candidate.Type() == ice.CandidateTypeServerReflexive && candidate.Port() != candidate.RelatedAddress().Port {
+		return true
+	}
+	return false
+}
+
+func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive, error) {
+	relatedAdd := candidate.RelatedAddress()
+	return ice.NewCandidateServerReflexive(&ice.CandidateServerReflexiveConfig{
+		Network:   candidate.NetworkType().String(),
+		Address:   candidate.Address(),
+		Port:      relatedAdd.Port,
+		Component: candidate.Component(),
+		RelAddr:   relatedAdd.Address,
+		RelPort:   relatedAdd.Port,
+	})
 }

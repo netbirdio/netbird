@@ -36,6 +36,7 @@ const (
 	disableAutoConnectFlag  = "disable-auto-connect"
 	serverSSHAllowedFlag    = "allow-server-ssh"
 	extraIFaceBlackListFlag = "extra-iface-blacklist"
+	dnsRouteIntervalFlag    = "dns-router-interval"
 )
 
 var (
@@ -68,7 +69,9 @@ var (
 	autoConnectDisabled     bool
 	extraIFaceBlackList     []string
 	anonymizeFlag           bool
-	rootCmd                 = &cobra.Command{
+	dnsRouteInterval        time.Duration
+
+	rootCmd = &cobra.Command{
 		Use:          "netbird",
 		Short:        "",
 		Long:         "",
@@ -353,8 +356,11 @@ func migrateToNetbird(oldPath, newPath string) bool {
 	return true
 }
 
-func getClient(ctx context.Context) (*grpc.ClientConn, error) {
-	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+func getClient(cmd *cobra.Command) (*grpc.ClientConn, error) {
+	SetFlagsFromEnvVars(rootCmd)
+	cmd.SetOut(cmd.OutOrStdout())
+
+	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+

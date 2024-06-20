@@ -151,8 +151,22 @@ func TestChecks_Validate(t *testing.T) {
 		expectedError bool
 	}{
 		{
+			name:          "Empty name",
+			checks:        Checks{},
+			expectedError: true,
+		},
+		{
+			name: "Empty checks",
+			checks: Checks{
+				Name:   "Default",
+				Checks: ChecksDefinition{},
+			},
+			expectedError: true,
+		},
+		{
 			name: "Valid checks version",
 			checks: Checks{
+				Name: "default",
 				Checks: ChecksDefinition{
 					NBVersionCheck: &NBVersionCheck{
 						MinVersion: "0.25.0",
@@ -260,6 +274,14 @@ func TestChecks_Copy(t *testing.T) {
 					netip.MustParsePrefix("10.0.0.0/8"),
 				},
 				Action: CheckActionDeny,
+			},
+			ProcessCheck: &ProcessCheck{
+				Processes: []Process{
+					{
+						MacPath:     "/Applications/NetBird.app/Contents/MacOS/netbird",
+						WindowsPath: "C:\\ProgramData\\NetBird\\netbird.exe",
+					},
+				},
 			},
 		},
 	}

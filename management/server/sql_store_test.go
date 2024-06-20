@@ -13,6 +13,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
+	"github.com/netbirdio/netbird/management/server/testutil"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -558,6 +559,7 @@ func TestMigrate(t *testing.T) {
 	rt := &route{
 		Network:    prefix,
 		PeerGroups: []string{"group1", "group2"},
+		Route:      route2.Route{ID: "route1"},
 	}
 
 	err = store.db.Save(rt).Error
@@ -568,6 +570,26 @@ func TestMigrate(t *testing.T) {
 
 	err = migrate(store.db)
 	require.NoError(t, err, "Migration should not fail on migrated db")
+
+	err = store.db.Delete(rt).Where("id = ?", "route1").Error
+	require.NoError(t, err, "Failed to delete Gob data")
+
+	prefix = netip.MustParsePrefix("12.0.0.0/24")
+	nRT := &route2.Route{
+		Network: prefix,
+		ID:      "route2",
+		Peer:    "peer-id",
+	}
+
+	err = store.db.Save(nRT).Error
+	require.NoError(t, err, "Failed to insert json nil slice data")
+
+	err = migrate(store.db)
+	require.NoError(t, err, "Migration should not fail on json nil slice populated db")
+
+	err = migrate(store.db)
+	require.NoError(t, err, "Migration should not fail on migrated db")
+
 }
 
 func newSqliteStore(t *testing.T) *SqlStore {
@@ -618,7 +640,7 @@ func newAccount(store Store, id int) error {
 func newPostgresqlStore(t *testing.T) *SqlStore {
 	t.Helper()
 
-	cleanUp, err := createPGDB()
+	cleanUp, err := testutil.CreatePGDB()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -649,7 +671,7 @@ func newPostgresqlStoreFromFile(t *testing.T, filename string) *SqlStore {
 	fStore, err := NewFileStore(storeDir, nil)
 	require.NoError(t, err)
 
-	cleanUp, err := createPGDB()
+	cleanUp, err := testutil.CreatePGDB()
 	if err != nil {
 		t.Fatal(err)
 	}

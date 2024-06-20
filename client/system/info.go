@@ -8,6 +8,7 @@ import (
 
 	"google.golang.org/grpc/metadata"
 
+	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -20,6 +21,9 @@ const OsVersionCtxKey = "OsVersion"
 // OsNameCtxKey context key for operating system name
 const OsNameCtxKey = "OsName"
 
+// UiVersionCtxKey context key for user UI version
+const UiVersionCtxKey = "user-agent"
+
 type NetworkAddress struct {
 	NetIP netip.Prefix
 	Mac   string
@@ -28,6 +32,12 @@ type NetworkAddress struct {
 type Environment struct {
 	Cloud    string
 	Platform string
+}
+
+type File struct {
+	Path             string
+	Exist            bool
+	ProcessIsRunning bool
 }
 
 // Info is an object that contains machine information
@@ -48,6 +58,7 @@ type Info struct {
 	SystemProductName  string
 	SystemManufacturer string
 	Environment        Environment
+	Files              []File // for posture checks
 }
 
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context
@@ -128,4 +139,22 @@ func isDuplicated(addresses []NetworkAddress, addr NetworkAddress) bool {
 		}
 	}
 	return false
+}
+
+// GetInfoWithChecks retrieves and parses the system information with applied checks.
+func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks) (*Info, error) {
+	processCheckPaths := make([]string, 0)
+	for _, check := range checks {
+		processCheckPaths = append(processCheckPaths, check.GetFiles()...)
+	}
+
+	files, err := checkFileAndProcess(processCheckPaths)
+	if err != nil {
+		return nil, err
+	}
+
+	info := GetInfo(ctx)
+	info.Files = files
+
+	return info, nil
 }

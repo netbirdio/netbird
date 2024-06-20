@@ -40,6 +40,9 @@ service DaemonService {
   // DebugBundle creates a debug bundle
   rpc DebugBundle(DebugBundleRequest) returns (DebugBundleResponse) {}
 
+  // GetLogLevel gets the log level of the daemon
+  rpc GetLogLevel(GetLogLevelRequest) returns (GetLogLevelResponse) {}
+
   // SetLogLevel sets the log level of the daemon
   rpc SetLogLevel(SetLogLevelRequest) returns (SetLogLevelResponse) {}
 };
@@ -89,6 +92,8 @@ message LoginRequest {
   repeated string extraIFaceBlacklist = 17;
 
   optional bool networkMonitor = 18;
+
+  optional google.protobuf.Duration dnsRouteInterval = 19;
 }
 
 message LoginResponse {
@@ -142,6 +147,18 @@ message GetConfigResponse {
 
   // adminURL settings value.
   string adminURL = 5;
+
+  string interfaceName = 6;
+
+  int64 wireguardPort = 7;
+
+  bool disableAutoConnect = 9;
+
+  bool serverSSHAllowed = 10;
+
+  bool rosenpassEnabled = 11;
+
+  bool rosenpassPermissive = 12;
 }
 
 // PeerState contains the latest state of a peer
@@ -230,10 +247,17 @@ message SelectRoutesRequest {
 message SelectRoutesResponse {
 }
 
+message IPList {
+  repeated string ips = 1;
+}
+
+
 message Route {
   string ID = 1;
   string network = 2;
   bool selected = 3;
+  repeated string domains = 4;
+  map<string, IPList> resolvedIPs = 5;
 }
 
 message DebugBundleRequest {
@@ -254,6 +278,13 @@ enum LogLevel {
   INFO = 5;
   DEBUG = 6;
   TRACE = 7;
+}
+
+message GetLogLevelRequest {
+}
+
+message GetLogLevelResponse {
+  LogLevel level = 1;
 }
 
 message SetLogLevelRequest {
