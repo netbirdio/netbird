@@ -121,7 +121,7 @@ var (
 			ctx, cancel := context.WithCancel(cmd.Context())
 			defer cancel()
 			//nolint
-			ctx = context.WithValue(ctx, nbContext.LogSourceKey, util.SystemSource)
+			ctx = context.WithValue(ctx, util.LogSourceKey, util.SystemSource)
 
 			err := handleRebrand(cmd)
 			if err != nil {
@@ -361,7 +361,7 @@ func unaryInterceptor(
 ) (interface{}, error) {
 	reqID := uuid.New().String()
 	//nolint
-	ctx = context.WithValue(ctx, nbContext.LogSourceKey, util.GRPCSource)
+	ctx = context.WithValue(ctx, util.LogSourceKey, util.GRPCSource)
 	//nolint
 	ctx = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
 	return handler(ctx, req)
@@ -376,7 +376,7 @@ func streamInterceptor(
 	reqID := uuid.New().String()
 	wrapped := grpc_middleware.WrapServerStream(ss)
 	//nolint
-	ctx := context.WithValue(ss.Context(), nbContext.LogSourceKey, util.GRPCSource)
+	ctx := context.WithValue(ss.Context(), util.LogSourceKey, util.GRPCSource)
 	//nolint
 	wrapped.WrappedContext = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
 	return handler(srv, wrapped)

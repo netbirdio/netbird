@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	nbContext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/posture"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -138,13 +139,13 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 
 	ctx := srv.Context()
 	//nolint
-	ctx = context.WithValue(ctx, "peerID", peerKey.String())
+	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
 	accountID, err := s.accountManager.GetAccountIDForPeerKey(peerKey.String())
 	if err != nil {
 		return err
 	}
 	//nolint
-	ctx = context.WithValue(ctx, "accountID", accountID)
+	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
 	if syncReq.GetMeta() == nil {
 		log.Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
@@ -369,6 +370,14 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	if err != nil {
 		return nil, err
 	}
+
+	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
+	accountID, err := s.accountManager.GetAccountIDForPeerKey(peerKey.String())
+	if err != nil {
+		return nil, err
+	}
+	//nolint
+	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
 	if loginReq.GetMeta() == nil {
 		msg := status.Errorf(codes.FailedPrecondition,

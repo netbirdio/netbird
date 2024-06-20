@@ -13,6 +13,8 @@ import (
 type LogSource string
 
 const (
+	LogSourceKey = "logSource"
+
 	HTTPSource   LogSource = "HTTP"
 	GRPCSource   LogSource = "GRPC"
 	SystemSource LogSource = "SYSTEM"
@@ -38,7 +40,7 @@ func InitLog(logLevel string, logPath string) error {
 		log.SetOutput(io.Writer(lumberjackLogger))
 	}
 
-	log.SetFormatter(&CustomFormatter{})
+	log.SetFormatter(NewCustomFormatter())
 	log.SetLevel(level)
 	return nil
 }
@@ -48,12 +50,23 @@ type CustomFormatter struct {
 	log.TextFormatter
 }
 
+// NewCustomFormatter creates a new CustomFormatter
+func NewCustomFormatter() *CustomFormatter {
+	formatter := CustomFormatter{}
+	formatter.TextFormatter.DisableSorting = true
+	return &formatter
+}
 func (f *CustomFormatter) Format(entry *log.Entry) ([]byte, error) {
 	if entry.Context == nil {
 		return f.TextFormatter.Format(entry)
 	}
+	source, ok := entry.Context.Value(LogSourceKey).(LogSource)
+	if !ok {
+		f.TextFormatter.Format(entry)
+	}
 
-	switch entry.Context.Value("source").(LogSource) {
+	entry.Data["source"] = source
+	switch source {
 	case HTTPSource:
 		return f.formatHTTPLog(entry)
 	case GRPCSource:
@@ -67,13 +80,13 @@ func (f *CustomFormatter) Format(entry *log.Entry) ([]byte, error) {
 
 func (f *CustomFormatter) formatHTTPLog(entry *log.Entry) ([]byte, error) {
 	if ctxReqID, ok := entry.Context.Value(context.RequestIDKey).(string); ok {
-		entry.Data["requestID"] = ctxReqID
+		entry.Data[context.RequestIDKey] = ctxReqID
 	}
 	if ctxAccountID, ok := entry.Context.Value(context.AccountIDKey).(string); ok {
-		entry.Data["accountID"] = ctxAccountID
+		entry.Data[context.AccountIDKey] = ctxAccountID
 	}
-	if ctxInitiatorID, ok := entry.Context.Value(context.InitiatorIDKey).(string); ok {
-		entry.Data["initiatorID"] = ctxInitiatorID
+	if ctxInitiatorID, ok := entry.Context.Value(context.UserIDKey).(string); ok {
+		entry.Data[context.UserIDKey] = ctxInitiatorID
 	}
 
 	return f.TextFormatter.Format(entry)
@@ -81,13 +94,13 @@ func (f *CustomFormatter) formatHTTPLog(entry *log.Entry) ([]byte, error) {
 
 func (f *CustomFormatter) formatGRPCLog(entry *log.Entry) ([]byte, error) {
 	if ctxReqID, ok := entry.Context.Value(context.RequestIDKey).(string); ok {
-		entry.Data["requestID"] = ctxReqID
+		entry.Data[context.RequestIDKey] = ctxReqID
 	}
 	if ctxAccountID, ok := entry.Context.Value(context.AccountIDKey).(string); ok {
-		entry.Data["accountID"] = ctxAccountID
+		entry.Data[context.AccountIDKey] = ctxAccountID
 	}
-	if ctxDeviceID, ok := entry.Context.Value(context.DeviceIDKey).(string); ok {
-		entry.Data["deviceID"] = ctxDeviceID
+	if ctxDeviceID, ok := entry.Context.Value(context.PeerIDKey).(string); ok {
+		entry.Data[context.PeerIDKey] = ctxDeviceID
 	}
 
 	return f.TextFormatter.Format(entry)
@@ -95,10 +108,16 @@ func (f *CustomFormatter) formatGRPCLog(entry *log.Entry) ([]byte, error) {
 
 func (f *CustomFormatter) formatSystemLog(entry *log.Entry) ([]byte, error) {
 	if ctxReqID, ok := entry.Context.Value(context.RequestIDKey).(string); ok {
-		entry.Data["requestID"] = ctxReqID
+		entry.Data[context.RequestIDKey] = ctxReqID
+	}
+	if ctxInitiatorID, ok := entry.Context.Value(context.UserIDKey).(string); ok {
+		entry.Data[context.UserIDKey] = ctxInitiatorID
 	}
 	if ctxAccountID, ok := entry.Context.Value(context.AccountIDKey).(string); ok {
-		entry.Data["accountID"] = ctxAccountID
+		entry.Data[context.AccountIDKey] = ctxAccountID
+	}
+	if ctxDeviceID, ok := entry.Context.Value(context.PeerIDKey).(string); ok {
+		entry.Data[context.PeerIDKey] = ctxDeviceID
 	}
 
 	return f.TextFormatter.Format(entry)
