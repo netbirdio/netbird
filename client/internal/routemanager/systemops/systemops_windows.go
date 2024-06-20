@@ -145,6 +145,10 @@ func GetRoutes() ([]Route, error) {
 				Index: int(entry.InterfaceIndex),
 				Name:  entry.InterfaceAlias,
 			}
+
+			if nexthop.Is6() && (nexthop.IsLinkLocalUnicast() || nexthop.IsLinkLocalMulticast()) {
+				nexthop = nexthop.WithZone(strconv.Itoa(int(entry.InterfaceIndex)))
+			}
 		}
 
 		routes = append(routes, Route{
