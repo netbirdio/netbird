@@ -12,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server"
+	nbContext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -89,7 +90,6 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 				util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "token invalid"), w)
 				return
 			}
-			h.ServeHTTP(w, r)
 		case "token":
 			err := m.checkPATFromRequest(w, r, auth)
 			if err != nil {
@@ -97,11 +97,15 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 				util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "token invalid"), w)
 				return
 			}
-			h.ServeHTTP(w, r)
 		default:
 			util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "no valid authentication provided"), w)
 			return
 		}
+		claims := m.claimsExtractor.FromRequestContext(r)
+		ctx := context.WithValue(r.Context(), nbContext.UserIDKey, claims.UserId)
+		//nolint
+		ctx = context.WithValue(ctx, nbContext.AccountIDKey, claims.AccountId)
+		h.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

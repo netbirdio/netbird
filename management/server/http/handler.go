@@ -63,9 +63,6 @@ func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationMa
 		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
 	)
 
-	requestMiddleware := middleware.NewRequestMiddleware(
-		claimsExtractor)
-
 	acMiddleware := middleware.NewAccessControl(
 		authCfg.Audience,
 		authCfg.UserIDClaim,
@@ -76,7 +73,7 @@ func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationMa
 
 	prefix := apiPrefix
 	router := rootRouter.PathPrefix(prefix).Subrouter()
-	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler, acMiddleware.Handler, requestMiddleware.Handler)
+	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler, acMiddleware.Handler)
 
 	api := apiHandler{
 		Router:             router,

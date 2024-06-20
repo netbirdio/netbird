@@ -8,9 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	nbContext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -163,8 +167,14 @@ func getResponseCounterKey(endpoint, method string, status int) string {
 func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 	fn := func(rw http.ResponseWriter, r *http.Request) {
 		reqStart := time.Now()
-		traceID := hash(fmt.Sprintf("%v", r))
-		log.WithContext(r.Context()).Tracef("HTTP request %v: %v %v", traceID, r.Method, r.URL)
+
+		ctx := context.WithValue(r.Context(), util.LogSourceKey, util.HTTPSource)
+
+		reqID := uuid.New().String()
+		//nolint
+		ctx = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
+
+		log.WithContext(r.Context()).Tracef("HTTP request %v: %v %v", reqID, r.Method, r.URL)
 
 		metricKey := getRequestCounterKey(r.URL.Path, r.Method)
 
@@ -175,12 +185,12 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 
 		w := WrapResponseWriter(rw)
 
-		h.ServeHTTP(w, r)
+		h.ServeHTTP(w, r.WithContext(ctx))
 
 		if w.Status() > 399 {
-			log.WithContext(r.Context()).Errorf("HTTP response %v: %v %v status %v", traceID, r.Method, r.URL, w.Status())
+			log.WithContext(r.Context()).Errorf("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())
 		} else {
-			log.WithContext(r.Context()).Tracef("HTTP response %v: %v %v status %v", traceID, r.Method, r.URL, w.Status())
+			log.WithContext(r.Context()).Tracef("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())
 		}
 
 		metricKey = getResponseCounterKey(r.URL.Path, r.Method, w.Status())
