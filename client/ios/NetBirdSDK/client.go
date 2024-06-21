@@ -122,7 +122,7 @@ func (c *Client) Run(fd int32, interfaceName string) error {
 	cfg.WgIface = interfaceName
 
 	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
-	return c.connectClient.RunOniOS(ctx, fd, c.networkChangeListener, c.dnsManager)
+	return c.connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager)
 }
 
 // Stop the internal client and free the resources

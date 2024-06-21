@@ -18,7 +18,7 @@ type Peer struct {
 
 	StreamID int64
 
-	// a gRpc connection stream to the Peer
+	//a gRpc connection stream to the Peer
 	Stream proto.SignalExchange_ConnectStreamServer
 }
 

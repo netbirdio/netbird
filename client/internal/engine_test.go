@@ -109,7 +109,7 @@ func TestEngine_SSH(t *testing.T) {
 			},
 		}, nil
 	}
-	err = engine.Start(ctx)
+	err = engine.Start()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestEngine_SSH(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// time.Sleep(250 * time.Millisecond)
+	//time.Sleep(250 * time.Millisecond)
 	assert.NotNil(t, engine.sshServer)
 	assert.Contains(t, sshPeersRemoved, "MNHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=")
 
@@ -394,9 +394,9 @@ func TestEngine_Sync(t *testing.T) {
 	// feed updates to Engine via mocked Management client
 	updates := make(chan *mgmtProto.SyncResponse)
 	defer close(updates)
-	syncFunc := func(ctx context.Context, info *system.Info, msgHandler func(ctx context.Context, msg *mgmtProto.SyncResponse) error) error {
+	syncFunc := func(ctx context.Context, info *system.Info, msgHandler func(msg *mgmtProto.SyncResponse) error) error {
 		for msg := range updates {
-			err := msgHandler(ctx, msg)
+			err := msgHandler(msg)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -423,7 +423,7 @@ func TestEngine_Sync(t *testing.T) {
 		}
 	}()
 
-	err = engine.Start(ctx)
+	err = engine.Start()
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -844,7 +844,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 			engine.dnsServer = &dns.MockServer{}
 			mu.Lock()
 			defer mu.Unlock()
-			err = engine.Start(ctx)
+			err = engine.Start()
 			if err != nil {
 				t.Errorf("unable to start engine for peer %d with error %v", j, err)
 				wg.Done()
@@ -983,13 +983,13 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		return nil, err
 	}
 
-	publicKey, err := mgmtClient.GetServerPublicKey(context.Background())
+	publicKey, err := mgmtClient.GetServerPublicKey()
 	if err != nil {
 		return nil, err
 	}
 
 	info := system.GetInfo(ctx)
-	resp, err := mgmtClient.Register(context.Background(), *publicKey, setupKey, "", info, nil)
+	resp, err := mgmtClient.Register(*publicKey, setupKey, "", info, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1057,7 +1057,7 @@ func startManagement(t *testing.T, dataDir string) (*grpc.Server, string, error)
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
-	store, cleanUp, err := server.NewTestStoreFromJson(context.Background(), config.Datadir)
+	store, cleanUp, err := server.NewTestStoreFromJson(config.Datadir)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1069,12 +1069,12 @@ func startManagement(t *testing.T, dataDir string) (*grpc.Server, string, error)
 		return nil, "", err
 	}
 	ia, _ := integrations.NewIntegratedValidator(eventStore)
-	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia)
+	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia)
 	if err != nil {
 		return nil, "", err
 	}
 	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, peersUpdateManager, turnManager, nil, nil)
+	mgmtServer, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, nil, nil)
 	if err != nil {
 		return nil, "", err
 	}

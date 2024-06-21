@@ -5,9 +5,8 @@ import (
 	"os"
 	"os/signal"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/sharedsock"
+	log "github.com/sirupsen/logrus"
 )
 
 func main() {

@@ -3,9 +3,8 @@ package iface
 import (
 	"fmt"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/iface/freebsd"
+	log "github.com/sirupsen/logrus"
 )
 
 type wgLink struct {

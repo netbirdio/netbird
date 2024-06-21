@@ -408,7 +408,7 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient,
 
 		if err != nil {
 			log.Errorf("error while handling message of Peer [key: %s] error: [%s]", msg.Key, err.Error())
-			// todo send something??
+			//todo send something??
 		}
 	}
 }

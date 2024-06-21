@@ -62,10 +62,10 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 	}
 
 	if dstPeer, found := s.registry.Get(msg.RemoteKey); found {
-		// forward the message to the target peer
+		//forward the message to the target peer
 		if err := dstPeer.Stream.Send(msg); err != nil {
 			log.Errorf("error while forwarding message from peer [%s] to peer [%s] %v", msg.Key, msg.RemoteKey, err)
-			// todo respond to the sender?
+			//todo respond to the sender?
 
 			s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeError)))
 		} else {
@@ -73,7 +73,7 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 		}
 	} else {
 		log.Debugf("message from peer [%s] can't be forwarded to peer [%s] because destination peer is not connected", msg.Key, msg.RemoteKey)
-		// todo respond to the sender?
+		//todo respond to the sender?
 
 		s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeNotConnected)))
 	}
@@ -99,7 +99,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 		s.metrics.ActivePeers.Add(context.Background(), -1)
 	}()
 
-	// needed to confirm that the peer has been registered so that the client can proceed
+	//needed to confirm that the peer has been registered so that the client can proceed
 	header := metadata.Pairs(proto.HeaderRegistered, "1")
 	err = stream.SendHeader(header)
 	if err != nil {
@@ -111,7 +111,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 
 	for {
 
-		// read incoming messages
+		//read incoming messages
 		msg, err := stream.Recv()
 		if err == io.EOF {
 			break
@@ -124,10 +124,10 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 
 		// lookup the target peer where the message is going to
 		if dstPeer, found := s.registry.Get(msg.RemoteKey); found {
-			// forward the message to the target peer
+			//forward the message to the target peer
 			if err := dstPeer.Stream.Send(msg); err != nil {
 				log.Errorf("error while forwarding message from peer [%s] to peer [%s] %v", p.Id, msg.RemoteKey, err)
-				// todo respond to the sender?
+				//todo respond to the sender?
 
 				// in milliseconds
 				s.metrics.MessageForwardLatency.Record(stream.Context(), float64(time.Since(start).Nanoseconds())/1e6)
@@ -137,7 +137,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 			}
 		} else {
 			log.Debugf("message from peer [%s] can't be forwarded to peer [%s] because destination peer is not connected", p.Id, msg.RemoteKey)
-			// todo respond to the sender?
+			//todo respond to the sender?
 
 			s.metrics.MessageForwardFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelType, labelTypeNotConnected)))
 		}

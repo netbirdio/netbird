@@ -601,7 +601,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	// netbird-acl-input-filter
 	// type filter hook input priority filter; policy accept;
 	chain = m.createFilterChainWithHook(chainNameInputFilter, nftables.ChainHookInput)
-	// netbird-acl-input-filter iifname "wt0" ip saddr 100.72.0.0/16 ip daddr != 100.72.0.0/16 accept
+	//netbird-acl-input-filter iifname "wt0" ip saddr 100.72.0.0/16 ip daddr != 100.72.0.0/16 accept
 	m.addRouteAllowRule(chain, expr.MetaKeyIIFNAME)
 	m.addFwdAllow(chain, expr.MetaKeyIIFNAME)
 	m.addJumpRule(chain, m.chainInputRules.Name, expr.MetaKeyIIFNAME) // to netbird-acl-input-rules

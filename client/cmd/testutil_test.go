@@ -76,7 +76,7 @@ func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Liste
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	store, cleanUp, err := mgmt.NewTestStoreFromJson(context.Background(), config.Datadir)
+	store, cleanUp, err := mgmt.NewTestStoreFromJson(config.Datadir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,12 +88,12 @@ func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Liste
 		return nil, nil
 	}
 	iv, _ := integrations.NewIntegratedValidator(eventStore)
-	accountManager, err := mgmt.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, iv)
+	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, iv)
 	if err != nil {
 		t.Fatal(err)
 	}
 	turnManager := mgmt.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
-	mgmtServer, err := mgmt.NewServer(context.Background(), config, accountManager, peersUpdateManager, turnManager, nil, nil)
+	mgmtServer, err := mgmt.NewServer(config, accountManager, peersUpdateManager, turnManager, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

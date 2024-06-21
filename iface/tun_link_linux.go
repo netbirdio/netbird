@@ -91,7 +91,7 @@ func (l *wgLink) up() error {
 }
 
 func (l *wgLink) assignAddr(address WGAddress) error {
-	// delete existing addresses
+	//delete existing addresses
 	list, err := netlink.AddrList(l, 0)
 	if err != nil {
 		return fmt.Errorf("list addr: %w", err)
