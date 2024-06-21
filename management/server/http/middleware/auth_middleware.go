@@ -102,6 +102,7 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 			return
 		}
 		claims := m.claimsExtractor.FromRequestContext(r)
+		//nolint
 		ctx := context.WithValue(r.Context(), nbContext.UserIDKey, claims.UserId)
 		//nolint
 		ctx = context.WithValue(ctx, nbContext.AccountIDKey, claims.AccountId)

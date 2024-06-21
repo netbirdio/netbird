@@ -62,7 +62,7 @@ func (f *CustomFormatter) Format(entry *log.Entry) ([]byte, error) {
 	}
 	source, ok := entry.Context.Value(LogSourceKey).(LogSource)
 	if !ok {
-		f.TextFormatter.Format(entry)
+		return f.TextFormatter.Format(entry)
 	}
 
 	entry.Data["source"] = source
