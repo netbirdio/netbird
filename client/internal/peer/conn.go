@@ -89,8 +89,9 @@ type Conn struct {
 	onConnected    func(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string)
 	onDisconnected func(remotePeer string, wgIP string)
 
-	statusRelay ConnStatus
-	statusICE   ConnStatus
+	statusRelay     ConnStatus
+	statusICE       ConnStatus
+	currentConnType ConnPriority
 
 	workerICE   *WorkerICE
 	workerRelay *WorkerRelay
@@ -98,8 +99,6 @@ type Conn struct {
 	connID               nbnet.ConnectionID
 	beforeAddPeerHooks   []BeforeAddPeerHookFunc
 	afterRemovePeerHooks []AfterRemovePeerHookFunc
-
-	currentConnType ConnPriority
 
 	endpointRelay *net.UDPAddr
 }
@@ -366,8 +365,12 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 
 	conn.statusRelay = stateConnected
 
+	// todo review this condition
 	if conn.currentConnType > connPriorityRelay {
-		return
+		if conn.statusICE == StatusConnected {
+			log.Debugf("do not switch to relay because current priority is: %v", conn.currentConnType)
+			return
+		}
 	}
 
 	if conn.currentConnType != 0 {
@@ -430,6 +433,7 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 
 	conn.statusICE = stateConnected
 
+	// todo review this condition
 	if conn.currentConnType > priority {
 		return
 	}
