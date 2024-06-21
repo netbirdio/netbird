@@ -372,6 +372,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		return nil, err
 	}
 
+	//nolint
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
 	accountID, err := s.accountManager.GetAccountIDForPeerKey(peerKey.String())
 	if err != nil {

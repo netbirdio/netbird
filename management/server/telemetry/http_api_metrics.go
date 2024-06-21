@@ -3,7 +3,6 @@ package telemetry
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"net/http"
 	"strings"
 	"time"
@@ -168,6 +167,7 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 	fn := func(rw http.ResponseWriter, r *http.Request) {
 		reqStart := time.Now()
 
+		//nolint
 		ctx := context.WithValue(r.Context(), util.LogSourceKey, util.HTTPSource)
 
 		reqID := uuid.New().String()
@@ -221,13 +221,4 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(fn)
-}
-
-func hash(s string) uint32 {
-	h := fnv.New32a()
-	_, err := h.Write([]byte(s))
-	if err != nil {
-		panic(err)
-	}
-	return h.Sum32()
 }
