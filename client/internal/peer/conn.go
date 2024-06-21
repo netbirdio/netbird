@@ -140,13 +140,18 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		DoHandshake:     conn.doHandshake,
 	}
 
-	conn.handshaker = NewHandshaker(ctx, connLog, config, signaler, conn.onNewOffer)
-	go conn.handshaker.Listen()
-	conn.workerRelay = NewWorkerRelay(ctx, connLog, relayManager, config, rFns)
+	conn.handshaker = NewHandshaker(ctx, connLog, config, signaler)
+	conn.workerRelay = NewWorkerRelay(ctx, connLog, config, relayManager, rFns)
 	conn.workerICE, err = NewWorkerICE(ctx, connLog, config, config.ICEConfig, signaler, iFaceDiscover, statusRecorder, wFns)
 	if err != nil {
 		return nil, err
 	}
+
+	conn.handshaker.AddOnNewOfferListener(conn.workerRelay.OnNewOffer)
+	conn.handshaker.AddOnNewOfferListener(conn.workerICE.OnNewOffer)
+
+	go conn.handshaker.Listen()
+
 	return conn, nil
 }
 
@@ -169,9 +174,6 @@ func (conn *Conn) Open() {
 	}
 
 	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
-	if relayIsSupportedLocally {
-		go conn.workerRelay.SetupRelayConnection()
-	}
 	go conn.workerICE.SetupICEConnection(relayIsSupportedLocally)
 }
 
@@ -555,12 +557,6 @@ func (conn *Conn) evalStatus() ConnStatus {
 	}
 
 	return StatusDisconnected
-}
-
-func (conn *Conn) onNewOffer(answer *OfferAnswer) {
-	// todo move to this callback into handshaker
-	go conn.workerRelay.OnNewOffer(answer)
-	go conn.workerICE.OnNewOffer(answer)
 }
 
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {

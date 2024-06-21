@@ -53,12 +53,12 @@ type HandshakeArgs struct {
 }
 
 type Handshaker struct {
-	mu                 sync.Mutex
-	ctx                context.Context
-	log                *log.Entry
-	config             ConnConfig
-	signaler           *Signaler
-	onNewOfferListener func(*OfferAnswer)
+	mu                  sync.Mutex
+	ctx                 context.Context
+	log                 *log.Entry
+	config              ConnConfig
+	signaler            *Signaler
+	onNewOfferListeners []func(*OfferAnswer)
 
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
 	remoteOffersCh chan OfferAnswer
@@ -71,16 +71,19 @@ type Handshaker struct {
 	lastOfferArgs HandshakeArgs
 }
 
-func NewHandshaker(ctx context.Context, log *log.Entry, config ConnConfig, signaler *Signaler, onNewOfferListener func(*OfferAnswer)) *Handshaker {
+func NewHandshaker(ctx context.Context, log *log.Entry, config ConnConfig, signaler *Signaler) *Handshaker {
 	return &Handshaker{
-		ctx:                ctx,
-		log:                log,
-		config:             config,
-		signaler:           signaler,
-		remoteOffersCh:     make(chan OfferAnswer),
-		remoteAnswerCh:     make(chan OfferAnswer),
-		onNewOfferListener: onNewOfferListener,
+		ctx:            ctx,
+		log:            log,
+		config:         config,
+		signaler:       signaler,
+		remoteOffersCh: make(chan OfferAnswer),
+		remoteAnswerCh: make(chan OfferAnswer),
 	}
+}
+
+func (h *Handshaker) AddOnNewOfferListener(offer func(remoteOfferAnswer *OfferAnswer)) {
+	h.onNewOfferListeners = append(h.onNewOfferListeners, offer)
 }
 
 func (h *Handshaker) Listen() {
@@ -96,7 +99,9 @@ func (h *Handshaker) Listen() {
 		}
 
 		h.log.Debugf("received connection confirmation, running version %s and with remote WireGuard listen port %d", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort)
-		go h.onNewOfferListener(remoteOfferAnswer)
+		for _, listener := range h.onNewOfferListeners {
+			go listener(remoteOfferAnswer)
+		}
 	}
 }
 

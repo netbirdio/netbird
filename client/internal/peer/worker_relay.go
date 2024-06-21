@@ -23,24 +23,19 @@ type WorkerRelayCallbacks struct {
 type WorkerRelay struct {
 	ctx          context.Context
 	log          *log.Entry
-	relayManager *relayClient.Manager
 	config       ConnConfig
+	relayManager *relayClient.Manager
 	conn         WorkerRelayCallbacks
 }
 
-func NewWorkerRelay(ctx context.Context, log *log.Entry, relayManager *relayClient.Manager, config ConnConfig, callbacks WorkerRelayCallbacks) *WorkerRelay {
+func NewWorkerRelay(ctx context.Context, log *log.Entry, config ConnConfig, relayManager *relayClient.Manager, callbacks WorkerRelayCallbacks) *WorkerRelay {
 	return &WorkerRelay{
 		ctx:          ctx,
 		log:          log,
-		relayManager: relayManager,
 		config:       config,
+		relayManager: relayManager,
 		conn:         callbacks,
 	}
-}
-
-// SetupRelayConnection todo: this function is not completed. Make no sense to put it in a for loop because we are not waiting for any event
-func (w *WorkerRelay) SetupRelayConnection() {
-
 }
 
 func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
