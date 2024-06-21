@@ -19,12 +19,12 @@ func TestNewSQLiteStore(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	defer store.Close() //nolint
+	defer store.Close(context.Background()) //nolint
 
 	accountID := "account_1"
 
 	for i := 0; i < 10; i++ {
-		_, err = store.Save(&activity.Event{
+		_, err = store.Save(context.Background(), &activity.Event{
 			Timestamp:   time.Now().UTC(),
 			Activity:    activity.PeerAddedByUser,
 			InitiatorID: "user_" + fmt.Sprint(i),

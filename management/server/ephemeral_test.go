@@ -14,11 +14,11 @@ type MockStore struct {
 	account *Account
 }
 
-func (s *MockStore) GetAllAccounts() []*Account {
+func (s *MockStore) GetAllAccounts(_ context.Context) []*Account {
 	return []*Account{s.account}
 }
 
-func (s *MockStore) GetAccountByPeerID(peerId string) (*Account, error) {
+func (s *MockStore) GetAccountByPeerID(_ context.Context, peerId string) (*Account, error) {
 	_, ok := s.account.Peers[peerId]
 	if ok {
 		return s.account, nil
@@ -32,7 +32,7 @@ type MocAccountManager struct {
 	store *MockStore
 }
 
-func (a MocAccountManager) DeletePeer(accountID, peerID, userID string) error {
+func (a MocAccountManager) DeletePeer(_ context.Context, accountID, peerID, userID string) error {
 	delete(a.store.account.Peers, peerID)
 	return nil //nolint:nil
 }

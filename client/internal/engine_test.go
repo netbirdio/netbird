@@ -174,7 +174,7 @@ func TestEngine_SSH(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	//time.Sleep(250 * time.Millisecond)
+	// time.Sleep(250 * time.Millisecond)
 	assert.NotNil(t, engine.sshServer)
 	assert.Contains(t, sshPeersRemoved, "MNHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=")
 
@@ -1057,7 +1057,7 @@ func startManagement(t *testing.T, dataDir string) (*grpc.Server, string, error)
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
-	store, cleanUp, err := server.NewTestStoreFromJson(config.Datadir)
+	store, cleanUp, err := server.NewTestStoreFromJson(context.Background(), config.Datadir)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1069,12 +1069,12 @@ func startManagement(t *testing.T, dataDir string) (*grpc.Server, string, error)
 		return nil, "", err
 	}
 	ia, _ := integrations.NewIntegratedValidator(eventStore)
-	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia)
+	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia)
 	if err != nil {
 		return nil, "", err
 	}
 	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
-	mgmtServer, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, nil, nil)
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, peersUpdateManager, turnManager, nil, nil)
 	if err != nil {
 		return nil, "", err
 	}
