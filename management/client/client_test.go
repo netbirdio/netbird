@@ -62,7 +62,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	store, cleanUp, err := mgmt.NewTestStoreFromJson(context.Background(), config.Datadir)
+	store, cleanUp, err := mgmt.NewTestStoreFromJson(config.Datadir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,12 +71,12 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	peersUpdateManager := mgmt.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 	ia, _ := integrations.NewIntegratedValidator(eventStore)
-	accountManager, err := mgmt.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia)
+	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia)
 	if err != nil {
 		t.Fatal(err)
 	}
 	turnManager := mgmt.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
-	mgmtServer, err := mgmt.NewServer(context.Background(), config, accountManager, peersUpdateManager, turnManager, nil, nil)
+	mgmtServer, err := mgmt.NewServer(config, accountManager, peersUpdateManager, turnManager, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestClient_GetServerPublicKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	key, err := client.GetServerPublicKey(ctx)
+	key, err := client.GetServerPublicKey()
 	if err != nil {
 		t.Error("couldn't retrieve management public key")
 	}
@@ -170,12 +170,12 @@ func TestClient_LoginUnregistered_ShouldThrow_401(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, err := client.GetServerPublicKey(ctx)
+	key, err := client.GetServerPublicKey()
 	if err != nil {
 		t.Fatal(err)
 	}
 	sysInfo := system.GetInfo(context.TODO())
-	_, err = client.Login(ctx, *key, sysInfo, nil)
+	_, err = client.Login(*key, sysInfo, nil)
 	if err == nil {
 		t.Error("expecting err on unregistered login, got nil")
 	}
@@ -198,12 +198,12 @@ func TestClient_LoginRegistered(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	key, err := client.GetServerPublicKey(ctx)
+	key, err := client.GetServerPublicKey()
 	if err != nil {
 		t.Error(err)
 	}
 	info := system.GetInfo(context.TODO())
-	resp, err := client.Register(ctx, *key, ValidKey, "", info, nil)
+	resp, err := client.Register(*key, ValidKey, "", info, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -227,13 +227,13 @@ func TestClient_Sync(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	serverKey, err := client.GetServerPublicKey(ctx)
+	serverKey, err := client.GetServerPublicKey()
 	if err != nil {
 		t.Error(err)
 	}
 
 	info := system.GetInfo(context.TODO())
-	_, err = client.Register(ctx, *serverKey, ValidKey, "", info, nil)
+	_, err = client.Register(*serverKey, ValidKey, "", info, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -249,7 +249,7 @@ func TestClient_Sync(t *testing.T) {
 	}
 
 	info = system.GetInfo(context.TODO())
-	_, err = remoteClient.Register(ctx, *serverKey, ValidKey, "", info, nil)
+	_, err = remoteClient.Register(*serverKey, ValidKey, "", info, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestClient_Sync(t *testing.T) {
 	ch := make(chan *mgmtProto.SyncResponse, 1)
 
 	go func() {
-		err = client.Sync(context.Background(), info, func(ctx context.Context, msg *mgmtProto.SyncResponse) error {
+		err = client.Sync(context.Background(), info, func(msg *mgmtProto.SyncResponse) error {
 			ch <- msg
 			return nil
 		})
@@ -306,7 +306,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 		t.Fatalf("error while creating testClient: %v", err)
 	}
 
-	key, err := testClient.GetServerPublicKey(ctx)
+	key, err := testClient.GetServerPublicKey()
 	if err != nil {
 		t.Fatalf("error while getting server public key from testclient, %v", err)
 	}
@@ -319,7 +319,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 	mgmtMockServer.LoginFunc = func(ctx context.Context, msg *mgmtProto.EncryptedMessage) (*mgmtProto.EncryptedMessage, error) {
 		peerKey, err := wgtypes.ParseKey(msg.GetWgPubKey())
 		if err != nil {
-			log.WithContext(ctx).Warnf("error while parsing peer's Wireguard public key %s on Sync request.", msg.WgPubKey)
+			log.Warnf("error while parsing peer's Wireguard public key %s on Sync request.", msg.WgPubKey)
 			return nil, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", msg.WgPubKey)
 		}
 
@@ -347,7 +347,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 	}
 
 	info := system.GetInfo(context.TODO())
-	_, err = testClient.Register(ctx, *key, ValidKey, "", info, nil)
+	_, err = testClient.Register(*key, ValidKey, "", info, nil)
 	if err != nil {
 		t.Errorf("error while trying to register client: %v", err)
 	}
@@ -459,7 +459,7 @@ func Test_GetDeviceAuthorizationFlow(t *testing.T) {
 		}, nil
 	}
 
-	flowInfo, err := client.GetDeviceAuthorizationFlow(ctx, serverKey)
+	flowInfo, err := client.GetDeviceAuthorizationFlow(serverKey)
 	if err != nil {
 		t.Error("error while retrieving device auth flow information")
 	}
@@ -505,7 +505,7 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 		}, nil
 	}
 
-	flowInfo, err := client.GetPKCEAuthorizationFlow(ctx, serverKey)
+	flowInfo, err := client.GetPKCEAuthorizationFlow(serverKey)
 	if err != nil {
 		t.Error("error while retrieving pkce auth flow information")
 	}
