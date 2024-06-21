@@ -142,7 +142,8 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
 	accountID, err := s.accountManager.GetAccountIDForPeerKey(peerKey.String())
 	if err != nil {
-		return err
+		// this case should not happen and already indicates an issue but we don't want the system to fail due to being unable to log in detail
+		accountID = "UNKNOWN"
 	}
 	//nolint
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
@@ -374,7 +375,8 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
 	accountID, err := s.accountManager.GetAccountIDForPeerKey(peerKey.String())
 	if err != nil {
-		return nil, err
+		// this case should not happen and already indicates an issue but we don't want the system to fail due to being unable to log in detail
+		accountID = "UNKNOWN"
 	}
 	//nolint
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
