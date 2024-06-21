@@ -94,8 +94,6 @@ type WorkerICE struct {
 	localPwd           string
 	creadantialHasUsed bool
 	hasRelayOnLocally  bool
-	onDisconnected     context.CancelFunc
-	onOfferReceived    context.CancelFunc
 	tickerCancel       context.CancelFunc
 	ticker             *time.Ticker
 }
@@ -274,7 +272,6 @@ func (w *WorkerICE) GetLocalUserCredentials() (frag string, pwd string) {
 }
 
 func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, relaySupport []ice.CandidateType) (*ice.Agent, error) {
-	log.Debugf("--RECREATE AGENT-----")
 	transportNet, err := w.newStdNet()
 	if err != nil {
 		w.log.Errorf("failed to create pion's stdnet: %s", err)
@@ -285,9 +282,9 @@ func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, relaySupport [
 	iceRelayAcceptanceMinWait := iceRelayAcceptanceMinWait()
 
 	agentConfig := &ice.AgentConfig{
-		MulticastDNSMode: ice.MulticastDNSModeDisabled,
-		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
-		//Urls:                   w.configICE.StunTurn.Load().([]*stun.URI),
+		MulticastDNSMode:       ice.MulticastDNSModeDisabled,
+		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
+		Urls:                   w.configICE.StunTurn.Load().([]*stun.URI),
 		CandidateTypes:         relaySupport,
 		InterfaceFilter:        stdnet.InterfaceFilter(w.configICE.InterfaceBlackList),
 		UDPMux:                 w.configICE.UDPMux,
@@ -326,14 +323,6 @@ func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, relaySupport [
 			agentCancel()
 			_ = agent.Close()
 			w.agent = nil
-
-			// generate credentials for the next agent creation loop
-			localUfrag, localPwd, err := generateICECredentials()
-			if err != nil {
-				log.Errorf("failed to generate new ICE credentials: %s", err)
-			}
-			w.localUfrag = localUfrag
-			w.localPwd = localPwd
 
 			w.muxAgent.Unlock()
 			go w.sendOffer()
@@ -510,7 +499,7 @@ func candidateTypes() []ice.CandidateType {
 }
 
 func candidateTypesP2P() []ice.CandidateType {
-	return []ice.CandidateType{ice.CandidateTypeHost}
+	return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive}
 }
 
 func isRelayCandidate(candidate ice.Candidate) bool {
@@ -525,7 +514,6 @@ func isRelayed(pair *ice.CandidatePair) bool {
 }
 
 func generateICECredentials() (string, string, error) {
-	log.Debugf("-----GENERATE CREDENTIALS------")
 	ufrag, err := randutil.GenerateCryptoRandomString(lenUFrag, runesAlpha)
 	if err != nil {
 		return "", "", err

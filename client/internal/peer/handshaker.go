@@ -19,8 +19,6 @@ var (
 	ErrSignalIsNotReady = errors.New("signal is not ready")
 )
 
-type DoHandshake func() (*OfferAnswer, error)
-
 // IceCredentials ICE protocol credentials struct
 type IceCredentials struct {
 	UFrag string
@@ -54,20 +52,6 @@ type HandshakeArgs struct {
 	RelayAddr string
 }
 
-func (a HandshakeArgs) Equal(args HandshakeArgs) bool {
-	if a.IceUFrag != args.IceUFrag {
-		return false
-	}
-
-	if a.IcePwd != args.IcePwd {
-		return false
-	}
-	if a.RelayAddr != args.RelayAddr {
-		return false
-	}
-	return true
-}
-
 type Handshaker struct {
 	mu                 sync.Mutex
 	ctx                context.Context
@@ -84,7 +68,6 @@ type Handshaker struct {
 	remoteOfferAnswer        *OfferAnswer
 	remoteOfferAnswerCreated time.Time
 
-	lastSentOffer time.Time
 	lastOfferArgs HandshakeArgs
 }
 
@@ -105,6 +88,7 @@ func (h *Handshaker) Listen() {
 		remoteOfferAnswer, err := h.waitForRemoteOfferConfirmation()
 		if err != nil {
 			if _, ok := err.(*ConnectionClosedError); ok {
+				log.Tracef("stop handshaker")
 				return
 			}
 			log.Errorf("failed to received remote offer confirmation: %s", err)
@@ -120,17 +104,12 @@ func (h *Handshaker) SendOffer(args HandshakeArgs) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if h.lastOfferArgs.Equal(args) && h.lastSentOffer.After(time.Now().Add(-time.Second)) {
-		return nil
-	}
-
 	err := h.sendOffer(args)
 	if err != nil {
 		return err
 	}
 
 	h.lastOfferArgs = args
-	h.lastSentOffer = time.Now()
 	return nil
 }
 
@@ -187,6 +166,7 @@ func (h *Handshaker) waitForRemoteOfferConfirmation() (*OfferAnswer, error) {
 
 // sendOffer prepares local user credentials and signals them to the remote peer
 func (h *Handshaker) sendOffer(args HandshakeArgs) error {
+	log.Debugf("SEND OFFER: %s", args.IceUFrag)
 	offer := OfferAnswer{
 		IceCredentials:  IceCredentials{args.IceUFrag, args.IcePwd},
 		WgListenPort:    h.config.LocalWgPort,
@@ -201,6 +181,7 @@ func (h *Handshaker) sendOffer(args HandshakeArgs) error {
 
 func (h *Handshaker) sendAnswer() error {
 	h.log.Debugf("sending answer")
+	log.Debugf("SEND ANSWER: %s", h.lastOfferArgs.IceUFrag)
 	answer := OfferAnswer{
 		IceCredentials:  IceCredentials{h.lastOfferArgs.IceUFrag, h.lastOfferArgs.IcePwd},
 		WgListenPort:    h.config.LocalWgPort,
