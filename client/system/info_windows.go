@@ -38,22 +38,22 @@ func GetInfo(ctx context.Context) *Info {
 
 	addrs, err := networkAddresses()
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed to discover network addresses: %s", err)
+		log.Warnf("failed to discover network addresses: %s", err)
 	}
 
 	serialNum, err := sysNumber()
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed to get system serial number: %s", err)
+		log.Warnf("failed to get system serial number: %s", err)
 	}
 
 	prodName, err := sysProductName()
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed to get system product name: %s", err)
+		log.Warnf("failed to get system product name: %s", err)
 	}
 
 	manufacturer, err := sysManufacturer()
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed to get system manufacturer: %s", err)
+		log.Warnf("failed to get system manufacturer: %s", err)
 	}
 
 	env := Environment{
@@ -89,7 +89,7 @@ func getOSNameAndVersion() (string, string) {
 	query := wmi.CreateQuery(&dst, "")
 	err := wmi.Query(query, &dst)
 	if err != nil {
-		log.WithContext(ctx).Error(err)
+		log.Error(err)
 		return "Windows", getBuildVersion()
 	}
 
@@ -116,32 +116,32 @@ func getOSNameAndVersion() (string, string) {
 func getBuildVersion() string {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion`, registry.QUERY_VALUE)
 	if err != nil {
-		log.WithContext(ctx).Error(err)
+		log.Error(err)
 		return "0.0.0.0"
 	}
 	defer func() {
 		deferErr := k.Close()
 		if deferErr != nil {
-			log.WithContext(ctx).Error(deferErr)
+			log.Error(deferErr)
 		}
 	}()
 
 	major, _, err := k.GetIntegerValue("CurrentMajorVersionNumber")
 	if err != nil {
-		log.WithContext(ctx).Error(err)
+		log.Error(err)
 	}
 	minor, _, err := k.GetIntegerValue("CurrentMinorVersionNumber")
 	if err != nil {
-		log.WithContext(ctx).Error(err)
+		log.Error(err)
 	}
 	build, _, err := k.GetStringValue("CurrentBuildNumber")
 	if err != nil {
-		log.WithContext(ctx).Error(err)
+		log.Error(err)
 	}
 	// Update Build Revision
 	ubr, _, err := k.GetIntegerValue("UBR")
 	if err != nil {
-		log.WithContext(ctx).Error(err)
+		log.Error(err)
 	}
 	ver := fmt.Sprintf("%d.%d.%s.%d", major, minor, build, ubr)
 	return ver

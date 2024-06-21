@@ -24,7 +24,7 @@ func CheckUncleanShutdown(string) error {
 		}
 	}
 
-	log.WithContext(ctx).Warnf("detected unclean shutdown, file %s exists. Restoring unclean shutdown dns settings.", fileUncleanShutdownFileLocation)
+	log.Warnf("detected unclean shutdown, file %s exists. Restoring unclean shutdown dns settings.", fileUncleanShutdownFileLocation)
 
 	manager, err := newHostManager()
 	if err != nil {

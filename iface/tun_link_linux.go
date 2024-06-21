@@ -60,10 +60,10 @@ func (l *wgLink) recreate() error {
 		}
 	}
 
-	log.WithContext(ctx).Debugf("adding device: %s", name)
+	log.Debugf("adding device: %s", name)
 	err = netlink.LinkAdd(l)
 	if os.IsExist(err) {
-		log.WithContext(ctx).Infof("interface %s already exists. Will reuse.", name)
+		log.Infof("interface %s already exists. Will reuse.", name)
 	} else if err != nil {
 		return fmt.Errorf("link add: %w", err)
 	}
@@ -73,7 +73,7 @@ func (l *wgLink) recreate() error {
 
 func (l *wgLink) setMTU(mtu int) error {
 	if err := netlink.LinkSetMTU(l, mtu); err != nil {
-		log.WithContext(ctx).Errorf("error setting MTU on interface: %s", l.attrs.Name)
+		log.Errorf("error setting MTU on interface: %s", l.attrs.Name)
 
 		return fmt.Errorf("link set mtu: %w", err)
 	}
@@ -83,7 +83,7 @@ func (l *wgLink) setMTU(mtu int) error {
 
 func (l *wgLink) up() error {
 	if err := netlink.LinkSetUp(l); err != nil {
-		log.WithContext(ctx).Errorf("error bringing up interface: %s", l.attrs.Name)
+		log.Errorf("error bringing up interface: %s", l.attrs.Name)
 		return fmt.Errorf("link setup: %w", err)
 	}
 
@@ -110,7 +110,7 @@ func (l *wgLink) assignAddr(address WGAddress) error {
 	name := l.attrs.Name
 	addrStr := address.String()
 
-	log.WithContext(ctx).Debugf("adding address %s to interface: %s", addrStr, name)
+	log.Debugf("adding address %s to interface: %s", addrStr, name)
 
 	addr, err := netlink.ParseAddr(addrStr)
 	if err != nil {
@@ -119,7 +119,7 @@ func (l *wgLink) assignAddr(address WGAddress) error {
 
 	err = netlink.AddrAdd(l, addr)
 	if os.IsExist(err) {
-		log.WithContext(ctx).Infof("interface %s already has the address: %s", name, addrStr)
+		log.Infof("interface %s already has the address: %s", name, addrStr)
 	} else if err != nil {
 		return fmt.Errorf("add addr: %w", err)
 	}

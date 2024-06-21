@@ -436,7 +436,7 @@ func getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
 	defer func() {
 		err = wg.Close()
 		if err != nil {
-			log.WithContext(ctx).Errorf("got error while closing wgctl: %v", err)
+			log.Errorf("got error while closing wgctl: %v", err)
 		}
 	}()
 

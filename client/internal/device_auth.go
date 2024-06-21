@@ -45,7 +45,7 @@ func GetDeviceAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmU
 	// validate our peer's Wireguard PRIVATE key
 	myPrivateKey, err := wgtypes.ParseKey(privateKey)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed parsing Wireguard key %s: [%s]", privateKey, err.Error())
+		log.Errorf("failed parsing Wireguard key %s: [%s]", privateKey, err.Error())
 		return DeviceAuthorizationFlow{}, err
 	}
 
@@ -54,34 +54,34 @@ func GetDeviceAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmU
 		mgmTLSEnabled = true
 	}
 
-	log.WithContext(ctx).Debugf("connecting to Management Service %s", mgmURL.String())
+	log.Debugf("connecting to Management Service %s", mgmURL.String())
 	mgmClient, err := mgm.NewClient(ctx, mgmURL.Host, myPrivateKey, mgmTLSEnabled)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed connecting to Management Service %s %v", mgmURL.String(), err)
+		log.Errorf("failed connecting to Management Service %s %v", mgmURL.String(), err)
 		return DeviceAuthorizationFlow{}, err
 	}
-	log.WithContext(ctx).Debugf("connected to the Management service %s", mgmURL.String())
+	log.Debugf("connected to the Management service %s", mgmURL.String())
 
 	defer func() {
 		err = mgmClient.Close()
 		if err != nil {
-			log.WithContext(ctx).Warnf("failed to close the Management service client %v", err)
+			log.Warnf("failed to close the Management service client %v", err)
 		}
 	}()
 
 	serverKey, err := mgmClient.GetServerPublicKey(ctx)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed while getting Management Service public key: %v", err)
+		log.Errorf("failed while getting Management Service public key: %v", err)
 		return DeviceAuthorizationFlow{}, err
 	}
 
 	protoDeviceAuthorizationFlow, err := mgmClient.GetDeviceAuthorizationFlow(ctx, *serverKey)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-			log.WithContext(ctx).Warnf("server couldn't find device flow, contact admin: %v", err)
+			log.Warnf("server couldn't find device flow, contact admin: %v", err)
 			return DeviceAuthorizationFlow{}, err
 		}
-		log.WithContext(ctx).Errorf("failed to retrieve device flow: %v", err)
+		log.Errorf("failed to retrieve device flow: %v", err)
 		return DeviceAuthorizationFlow{}, err
 	}
 

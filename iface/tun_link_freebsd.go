@@ -3,8 +3,9 @@ package iface
 import (
 	"fmt"
 
-	"github.com/netbirdio/netbird/iface/freebsd"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/iface/freebsd"
 )
 
 type wgLink struct {
@@ -64,7 +65,7 @@ func (l *wgLink) assignAddr(address WGAddress) error {
 	ip := address.IP.String()
 	mask := "0x" + address.Network.Mask.String()
 
-	log.WithContext(ctx).Infof("assign addr %s mask %s to %s interface", ip, mask, l.name)
+	log.Infof("assign addr %s mask %s to %s interface", ip, mask, l.name)
 
 	err = link.AssignAddr(ip, mask)
 	if err != nil {

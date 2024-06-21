@@ -75,7 +75,7 @@ func run(name string, arg ...string) string {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		log.WithContext(ctx).Errorf("getInfo: %s", err)
+		log.Errorf("getInfo: %s", err)
 	}
 	return out.String()
 }

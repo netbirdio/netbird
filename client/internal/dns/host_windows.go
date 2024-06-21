@@ -62,12 +62,12 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig) error {
 			return fmt.Errorf("delete interface registry key property: %w", err)
 		}
 		r.routingAll = false
-		log.WithContext(ctx).Infof("removed %s as main DNS forwarder for this peer", config.ServerIP)
+		log.Infof("removed %s as main DNS forwarder for this peer", config.ServerIP)
 	}
 
 	// create a file for unclean shutdown detection
 	if err := createUncleanShutdownIndicator(r.guid); err != nil {
-		log.WithContext(ctx).Errorf("failed to create unclean shutdown file: %s", err)
+		log.Errorf("failed to create unclean shutdown file: %s", err)
 	}
 
 	var (
@@ -108,7 +108,7 @@ func (r *registryConfigurator) addDNSSetupForAll(ip string) error {
 		return fmt.Errorf("adding dns setup for all failed with error: %w", err)
 	}
 	r.routingAll = true
-	log.WithContext(ctx).Infof("configured %s:53 as main DNS forwarder for this peer", ip)
+	log.Infof("configured %s:53 as main DNS forwarder for this peer", ip)
 	return nil
 }
 
@@ -146,14 +146,14 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip string) er
 		return fmt.Errorf("unable to set registry value for %s, error: %w", dnsPolicyConfigConfigOptionsKey, err)
 	}
 
-	log.WithContext(ctx).Infof("added %d match domains to the state. Domain list: %s", len(domains), domains)
+	log.Infof("added %d match domains to the state. Domain list: %s", len(domains), domains)
 
 	return nil
 }
 
 func (r *registryConfigurator) restoreHostDNS() error {
 	if err := removeRegistryKeyFromDNSPolicyConfig(dnsPolicyConfigMatchPath); err != nil {
-		log.WithContext(ctx).Errorf("remove registry key from dns policy config: %s", err)
+		log.Errorf("remove registry key from dns policy config: %s", err)
 	}
 
 	if err := r.deleteInterfaceRegistryKeyProperty(interfaceConfigSearchListKey); err != nil {
@@ -161,7 +161,7 @@ func (r *registryConfigurator) restoreHostDNS() error {
 	}
 
 	if err := removeUncleanShutdownIndicator(); err != nil {
-		log.WithContext(ctx).Errorf("failed to remove unclean shutdown file: %s", err)
+		log.Errorf("failed to remove unclean shutdown file: %s", err)
 	}
 
 	return nil
@@ -173,7 +173,7 @@ func (r *registryConfigurator) updateSearchDomains(domains []string) error {
 		return fmt.Errorf("adding search domain failed with error: %w", err)
 	}
 
-	log.WithContext(ctx).Infof("updated the search domains in the registry with %d domains. Domain list: %s", len(domains), domains)
+	log.Infof("updated the search domains in the registry with %d domains. Domain list: %s", len(domains), domains)
 
 	return nil
 }
@@ -242,6 +242,6 @@ func removeRegistryKeyFromDNSPolicyConfig(regKeyPath string) error {
 
 func closer(closer io.Closer) {
 	if err := closer.Close(); err != nil {
-		log.WithContext(ctx).Errorf("failed to close: %s", err)
+		log.Errorf("failed to close: %s", err)
 	}
 }

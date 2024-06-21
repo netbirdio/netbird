@@ -18,7 +18,7 @@ func (l *ListenerConfig) init() {
 			}
 			ok := f(int32(fd))
 			if !ok {
-				log.WithContext(ctx).Errorf("failed to protect listener socket: %d", fd)
+				log.Errorf("failed to protect listener socket: %d", fd)
 			}
 		})
 		return err

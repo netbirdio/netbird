@@ -27,11 +27,11 @@ func IsLoginRequired(ctx context.Context, privateKey string, mgmURL *url.URL, ss
 		if err != nil {
 			cStatus, ok := status.FromError(err)
 			if !ok || ok && cStatus.Code() != codes.Canceled {
-				log.WithContext(ctx).Warnf("failed to close the Management service client, err: %v", err)
+				log.Warnf("failed to close the Management service client, err: %v", err)
 			}
 		}
 	}()
-	log.WithContext(ctx).Debugf("connected to the Management service %s", mgmURL.String())
+	log.Debugf("connected to the Management service %s", mgmURL.String())
 
 	pubSSHKey, err := ssh.GeneratePublicKey([]byte(sshKey))
 	if err != nil {
@@ -56,11 +56,11 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 		if err != nil {
 			cStatus, ok := status.FromError(err)
 			if !ok || ok && cStatus.Code() != codes.Canceled {
-				log.WithContext(ctx).Warnf("failed to close the Management service client, err: %v", err)
+				log.Warnf("failed to close the Management service client, err: %v", err)
 			}
 		}
 	}()
-	log.WithContext(ctx).Debugf("connected to the Management service %s", config.ManagementURL.String())
+	log.Debugf("connected to the Management service %s", config.ManagementURL.String())
 
 	pubSSHKey, err := ssh.GeneratePublicKey([]byte(config.SSHKey))
 	if err != nil {
@@ -69,7 +69,7 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 
 	serverKey, err := doMgmLogin(ctx, mgmClient, pubSSHKey)
 	if serverKey != nil && isRegistrationNeeded(err) {
-		log.WithContext(ctx).Debugf("peer registration required")
+		log.Debugf("peer registration required")
 		_, err = registerPeer(ctx, *serverKey, mgmClient, setupKey, jwtToken, pubSSHKey)
 		return err
 	}
@@ -81,7 +81,7 @@ func getMgmClient(ctx context.Context, privateKey string, mgmURL *url.URL) (*mgm
 	// validate our peer's Wireguard PRIVATE key
 	myPrivateKey, err := wgtypes.ParseKey(privateKey)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed parsing Wireguard key %s: [%s]", privateKey, err.Error())
+		log.Errorf("failed parsing Wireguard key %s: [%s]", privateKey, err.Error())
 		return nil, err
 	}
 
@@ -90,10 +90,10 @@ func getMgmClient(ctx context.Context, privateKey string, mgmURL *url.URL) (*mgm
 		mgmTlsEnabled = true
 	}
 
-	log.WithContext(ctx).Debugf("connecting to the Management service %s", mgmURL.String())
+	log.Debugf("connecting to the Management service %s", mgmURL.String())
 	mgmClient, err := mgm.NewClient(ctx, mgmURL.Host, myPrivateKey, mgmTlsEnabled)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed connecting to the Management service %s %v", mgmURL.String(), err)
+		log.Errorf("failed connecting to the Management service %s %v", mgmURL.String(), err)
 		return nil, err
 	}
 	return mgmClient, err
@@ -102,7 +102,7 @@ func getMgmClient(ctx context.Context, privateKey string, mgmURL *url.URL) (*mgm
 func doMgmLogin(ctx context.Context, mgmClient *mgm.GrpcClient, pubSSHKey []byte) (*wgtypes.Key, error) {
 	serverKey, err := mgmClient.GetServerPublicKey(ctx)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed while getting Management Service public key: %v", err)
+		log.Errorf("failed while getting Management Service public key: %v", err)
 		return nil, err
 	}
 
@@ -119,15 +119,15 @@ func registerPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.
 		return nil, status.Errorf(codes.InvalidArgument, "invalid setup-key or no sso information provided, err: %v", err)
 	}
 
-	log.WithContext(ctx).Debugf("sending peer registration request to Management Service")
+	log.Debugf("sending peer registration request to Management Service")
 	info := system.GetInfo(ctx)
 	loginResp, err := client.Register(ctx, serverPublicKey, validSetupKey.String(), jwtToken, info, pubSSHKey)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed registering peer %v,%s", err, validSetupKey.String())
+		log.Errorf("failed registering peer %v,%s", err, validSetupKey.String())
 		return nil, err
 	}
 
-	log.WithContext(ctx).Infof("peer has been successfully registered on Management Service")
+	log.Infof("peer has been successfully registered on Management Service")
 
 	return loginResp, nil
 }

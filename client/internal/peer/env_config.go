@@ -22,10 +22,10 @@ func iceKeepAlive() time.Duration {
 		return iceKeepAliveDefault
 	}
 
-	log.WithContext(ctx).Infof("setting ICE keep alive interval to %s seconds", keepAliveEnv)
+	log.Infof("setting ICE keep alive interval to %s seconds", keepAliveEnv)
 	keepAliveEnvSec, err := strconv.Atoi(keepAliveEnv)
 	if err != nil {
-		log.WithContext(ctx).Warnf("invalid value %s set for %s, using default %v", keepAliveEnv, envICEKeepAliveIntervalSec, iceKeepAliveDefault)
+		log.Warnf("invalid value %s set for %s, using default %v", keepAliveEnv, envICEKeepAliveIntervalSec, iceKeepAliveDefault)
 		return iceKeepAliveDefault
 	}
 
@@ -38,10 +38,10 @@ func iceDisconnectedTimeout() time.Duration {
 		return iceDisconnectedTimeoutDefault
 	}
 
-	log.WithContext(ctx).Infof("setting ICE disconnected timeout to %s seconds", disconnectedTimeoutEnv)
+	log.Infof("setting ICE disconnected timeout to %s seconds", disconnectedTimeoutEnv)
 	disconnectedTimeoutSec, err := strconv.Atoi(disconnectedTimeoutEnv)
 	if err != nil {
-		log.WithContext(ctx).Warnf("invalid value %s set for %s, using default %v", disconnectedTimeoutEnv, envICEDisconnectedTimeoutSec, iceDisconnectedTimeoutDefault)
+		log.Warnf("invalid value %s set for %s, using default %v", disconnectedTimeoutEnv, envICEDisconnectedTimeoutSec, iceDisconnectedTimeoutDefault)
 		return iceDisconnectedTimeoutDefault
 	}
 
@@ -54,10 +54,10 @@ func iceRelayAcceptanceMinWait() time.Duration {
 		return iceRelayAcceptanceMinWaitDefault
 	}
 
-	log.WithContext(ctx).Infof("setting ICE relay acceptance min wait to %s seconds", iceRelayAcceptanceMinWaitEnv)
+	log.Infof("setting ICE relay acceptance min wait to %s seconds", iceRelayAcceptanceMinWaitEnv)
 	disconnectedTimeoutSec, err := strconv.Atoi(iceRelayAcceptanceMinWaitEnv)
 	if err != nil {
-		log.WithContext(ctx).Warnf("invalid value %s set for %s, using default %v", iceRelayAcceptanceMinWaitEnv, envICERelayAcceptanceMinWaitSec, iceRelayAcceptanceMinWaitDefault)
+		log.Warnf("invalid value %s set for %s, using default %v", iceRelayAcceptanceMinWaitEnv, envICERelayAcceptanceMinWaitSec, iceRelayAcceptanceMinWaitDefault)
 		return iceRelayAcceptanceMinWaitDefault
 	}
 

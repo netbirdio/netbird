@@ -50,7 +50,7 @@ func (m *defaultServerRouter) updateRoutes(routesMap map[route.ID]*route.Route) 
 		oldRoute := m.routes[routeID]
 		err := m.removeFromServerNetwork(oldRoute)
 		if err != nil {
-			log.WithContext(ctx).Errorf("Unable to remove route id: %s, network %s, from server, got: %v",
+			log.Errorf("Unable to remove route id: %s, network %s, from server, got: %v",
 				oldRoute.ID, oldRoute.Network, err)
 		}
 		delete(m.routes, routeID)
@@ -64,7 +64,7 @@ func (m *defaultServerRouter) updateRoutes(routesMap map[route.ID]*route.Route) 
 
 		err := m.addToServerNetwork(newRoute)
 		if err != nil {
-			log.WithContext(ctx).Errorf("Unable to add route %s from server, got: %v", newRoute.ID, err)
+			log.Errorf("Unable to add route %s from server, got: %v", newRoute.ID, err)
 			continue
 		}
 		m.routes[id] = newRoute
@@ -83,7 +83,7 @@ func (m *defaultServerRouter) updateRoutes(routesMap map[route.ID]*route.Route) 
 func (m *defaultServerRouter) removeFromServerNetwork(route *route.Route) error {
 	select {
 	case <-m.ctx.Done():
-		log.WithContext(ctx).Infof("Not removing from server network because context is done")
+		log.Infof("Not removing from server network because context is done")
 		return m.ctx.Err()
 	default:
 		m.mux.Lock()
@@ -112,7 +112,7 @@ func (m *defaultServerRouter) removeFromServerNetwork(route *route.Route) error 
 func (m *defaultServerRouter) addToServerNetwork(route *route.Route) error {
 	select {
 	case <-m.ctx.Done():
-		log.WithContext(ctx).Infof("Not adding to server network because context is done")
+		log.Infof("Not adding to server network because context is done")
 		return m.ctx.Err()
 	default:
 		m.mux.Lock()
@@ -153,13 +153,13 @@ func (m *defaultServerRouter) cleanUp() {
 	for _, r := range m.routes {
 		routerPair, err := routeToRouterPair(m.wgInterface.Address().Network, r)
 		if err != nil {
-			log.WithContext(ctx).Errorf("Failed to convert route to router pair: %v", err)
+			log.Errorf("Failed to convert route to router pair: %v", err)
 			continue
 		}
 
 		err = m.firewall.RemoveRoutingRules(routerPair)
 		if err != nil {
-			log.WithContext(ctx).Errorf("Failed to remove cleanup route: %v", err)
+			log.Errorf("Failed to remove cleanup route: %v", err)
 		}
 
 	}

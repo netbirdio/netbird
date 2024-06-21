@@ -82,7 +82,7 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 			defer func() {
 				err := manager.Reset()
 				if err != nil {
-					log.WithContext(ctx).Errorf("failed to reset iptables manager: %s", err)
+					log.Errorf("failed to reset iptables manager: %s", err)
 				}
 			}()
 

@@ -182,7 +182,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 	defer func() {
 		err := conn.Close()
 		if err != nil {
-			log.WithContext(ctx).Warnf("failed closing daemon gRPC client connection %v", err)
+			log.Warnf("failed closing daemon gRPC client connection %v", err)
 			return
 		}
 	}()

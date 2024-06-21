@@ -108,16 +108,16 @@ func callWriteHooks(id ConnectionID, seenAddrs *sync.Map, b []byte, addr net.Add
 	if _, loaded := seenAddrs.LoadOrStore(addr.String(), true); !loaded {
 		ipStr, _, splitErr := net.SplitHostPort(addr.String())
 		if splitErr != nil {
-			log.WithContext(ctx).Errorf("Error splitting IP address and port: %v", splitErr)
+			log.Errorf("Error splitting IP address and port: %v", splitErr)
 			return
 		}
 
 		ip, err := net.ResolveIPAddr("ip", ipStr)
 		if err != nil {
-			log.WithContext(ctx).Errorf("Error resolving IP address: %v", err)
+			log.Errorf("Error resolving IP address: %v", err)
 			return
 		}
-		log.WithContext(ctx).Debugf("Listener resolved IP for %s: %s", addr, ip)
+		log.Debugf("Listener resolved IP for %s: %s", addr, ip)
 
 		func() {
 			listenerWriteHooksMutex.RLock()
@@ -125,7 +125,7 @@ func callWriteHooks(id ConnectionID, seenAddrs *sync.Map, b []byte, addr net.Add
 
 			for _, hook := range listenerWriteHooks {
 				if err := hook(id, ip, b); err != nil {
-					log.WithContext(ctx).Errorf("Error executing listener write hook: %v", err)
+					log.Errorf("Error executing listener write hook: %v", err)
 				}
 			}
 		}()
@@ -140,7 +140,7 @@ func closeConn(id ConnectionID, conn net.PacketConn) error {
 
 	for _, hook := range listenerCloseHooks {
 		if err := hook(id, conn); err != nil {
-			log.WithContext(ctx).Errorf("Error executing listener close hook: %v", err)
+			log.Errorf("Error executing listener close hook: %v", err)
 		}
 	}
 
@@ -163,7 +163,7 @@ func ListenUDP(network string, laddr *net.UDPAddr) (transport.UDPConn, error) {
 	udpConn, ok := packetConn.PacketConn.(*net.UDPConn)
 	if !ok {
 		if err := packetConn.Close(); err != nil {
-			log.WithContext(ctx).Errorf("Failed to close connection: %v", err)
+			log.Errorf("Failed to close connection: %v", err)
 		}
 		return nil, fmt.Errorf("expected UDPConn, got different type: %T", udpConn)
 	}
