@@ -125,7 +125,6 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		wgProxyFactory: wgProxyFactory,
 		signaler:       signaler,
 		allowedIPsIP:   allowedIPsIP.String(),
-		handshaker:     NewHandshaker(ctx, connLog, config, signaler),
 		statusRelay:    StatusDisconnected,
 		statusICE:      StatusDisconnected,
 	}
@@ -133,7 +132,6 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 	rFns := WorkerRelayCallbacks{
 		OnConnReady:     conn.relayConnectionIsReady,
 		OnStatusChanged: conn.onWorkerRelayStateChanged,
-		DoHandshake:     conn.doHandshake,
 	}
 
 	wFns := WorkerICECallbacks{
@@ -142,8 +140,13 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		DoHandshake:     conn.doHandshake,
 	}
 
+	conn.handshaker = NewHandshaker(ctx, connLog, config, signaler, conn.onNewOffer)
+	go conn.handshaker.Listen()
 	conn.workerRelay = NewWorkerRelay(ctx, connLog, relayManager, config, rFns)
-	conn.workerICE = NewWorkerICE(ctx, connLog, config, config.ICEConfig, signaler, iFaceDiscover, statusRecorder, wFns)
+	conn.workerICE, err = NewWorkerICE(ctx, connLog, config, config.ICEConfig, signaler, iFaceDiscover, statusRecorder, wFns)
+	if err != nil {
+		return nil, err
+	}
 	return conn, nil
 }
 
@@ -525,25 +528,21 @@ func (conn *Conn) updateStatus(peerState State, remoteRosenpassPubKey []byte, re
 	return
 }
 
-func (conn *Conn) doHandshake() (*OfferAnswer, error) {
+func (conn *Conn) doHandshake() error {
 	if !conn.signaler.Ready() {
-		return nil, ErrSignalIsNotReady
+		return ErrSignalIsNotReady
 	}
 
 	var (
 		ha  HandshakeArgs
 		err error
 	)
-	ha.IceUFrag, ha.IcePwd, err = conn.workerICE.GetLocalUserCredentials()
-	if err != nil {
-		conn.log.Errorf("failed to get local user credentials: %v", err)
-	}
-
+	ha.IceUFrag, ha.IcePwd = conn.workerICE.GetLocalUserCredentials()
 	addr, err := conn.workerRelay.RelayAddress()
 	if err == nil {
 		ha.RelayAddr = addr.String()
 	}
-	return conn.handshaker.Handshake(ha)
+	return conn.handshaker.SendOffer(ha)
 }
 
 func (conn *Conn) evalStatus() ConnStatus {
@@ -556,6 +555,12 @@ func (conn *Conn) evalStatus() ConnStatus {
 	}
 
 	return StatusDisconnected
+}
+
+func (conn *Conn) onNewOffer(answer *OfferAnswer) {
+	// todo move to this callback into handshaker
+	go conn.workerRelay.OnNewOffer(answer)
+	go conn.workerICE.OnNewOffer(answer)
 }
 
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {

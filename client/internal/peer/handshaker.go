@@ -54,12 +54,27 @@ type HandshakeArgs struct {
 	RelayAddr string
 }
 
+func (a HandshakeArgs) Equal(args HandshakeArgs) bool {
+	if a.IceUFrag != args.IceUFrag {
+		return false
+	}
+
+	if a.IcePwd != args.IcePwd {
+		return false
+	}
+	if a.RelayAddr != args.RelayAddr {
+		return false
+	}
+	return true
+}
+
 type Handshaker struct {
-	mu       sync.Mutex
-	ctx      context.Context
-	log      *log.Entry
-	config   ConnConfig
-	signaler *Signaler
+	mu                 sync.Mutex
+	ctx                context.Context
+	log                *log.Entry
+	config             ConnConfig
+	signaler           *Signaler
+	onNewOfferListener func(*OfferAnswer)
 
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
 	remoteOffersCh chan OfferAnswer
@@ -69,50 +84,54 @@ type Handshaker struct {
 	remoteOfferAnswer        *OfferAnswer
 	remoteOfferAnswerCreated time.Time
 
-	handshakeArgs HandshakeArgs
+	lastSentOffer time.Time
+	lastOfferArgs HandshakeArgs
 }
 
-func NewHandshaker(ctx context.Context, log *log.Entry, config ConnConfig, signaler *Signaler) *Handshaker {
+func NewHandshaker(ctx context.Context, log *log.Entry, config ConnConfig, signaler *Signaler, onNewOfferListener func(*OfferAnswer)) *Handshaker {
 	return &Handshaker{
-		ctx:            ctx,
-		log:            log,
-		config:         config,
-		signaler:       signaler,
-		remoteOffersCh: make(chan OfferAnswer),
-		remoteAnswerCh: make(chan OfferAnswer),
+		ctx:                ctx,
+		log:                log,
+		config:             config,
+		signaler:           signaler,
+		remoteOffersCh:     make(chan OfferAnswer),
+		remoteAnswerCh:     make(chan OfferAnswer),
+		onNewOfferListener: onNewOfferListener,
 	}
 }
 
-func (h *Handshaker) Handshake(args HandshakeArgs) (*OfferAnswer, error) {
+func (h *Handshaker) Listen() {
+	for {
+		remoteOfferAnswer, err := h.waitForRemoteOfferConfirmation()
+		if err != nil {
+			if _, ok := err.(*ConnectionClosedError); ok {
+				return
+			}
+			log.Errorf("failed to received remote offer confirmation: %s", err)
+			continue
+		}
+
+		h.log.Debugf("received connection confirmation, running version %s and with remote WireGuard listen port %d", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort)
+		go h.onNewOfferListener(remoteOfferAnswer)
+	}
+}
+
+func (h *Handshaker) SendOffer(args HandshakeArgs) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	h.log.Infof("start handshake with remote peer")
-	h.handshakeArgs = args
-
-	cachedOfferAnswer, ok := h.cachedHandshake()
-	if ok {
-		return cachedOfferAnswer, nil
+	if h.lastOfferArgs.Equal(args) && h.lastSentOffer.After(time.Now().Add(-time.Second)) {
+		return nil
 	}
 
 	err := h.sendOffer(args)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	// Only continue once we got a connection confirmation from the remote peer.
-	// The connection timeout could have happened before a confirmation received from the remote.
-	// The connection could have also been closed externally (e.g. when we received an update from the management that peer shouldn't be connected)
-	remoteOfferAnswer, err := h.waitForRemoteOfferConfirmation()
-	if err != nil {
-		return nil, err
-	}
-	h.storeRemoteOfferAnswer(remoteOfferAnswer)
-
-	h.log.Debugf("received connection confirmation, running version %s and with remote WireGuard listen port %d",
-		remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort)
-
-	return remoteOfferAnswer, nil
+	h.lastOfferArgs = args
+	h.lastSentOffer = time.Now()
+	return nil
 }
 
 // OnRemoteOffer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
@@ -149,6 +168,23 @@ func (h *Handshaker) OnRemoteAnswer(answer OfferAnswer) bool {
 	}
 }
 
+func (h *Handshaker) waitForRemoteOfferConfirmation() (*OfferAnswer, error) {
+	select {
+	case remoteOfferAnswer := <-h.remoteOffersCh:
+		// received confirmation from the remote peer -> ready to proceed
+		err := h.sendAnswer()
+		if err != nil {
+			return nil, err
+		}
+		return &remoteOfferAnswer, nil
+	case remoteOfferAnswer := <-h.remoteAnswerCh:
+		return &remoteOfferAnswer, nil
+	case <-h.ctx.Done():
+		// closed externally
+		return nil, NewConnectionClosedError(h.config.Key)
+	}
+}
+
 // sendOffer prepares local user credentials and signals them to the remote peer
 func (h *Handshaker) sendOffer(args HandshakeArgs) error {
 	offer := OfferAnswer{
@@ -166,12 +202,12 @@ func (h *Handshaker) sendOffer(args HandshakeArgs) error {
 func (h *Handshaker) sendAnswer() error {
 	h.log.Debugf("sending answer")
 	answer := OfferAnswer{
-		IceCredentials:  IceCredentials{h.handshakeArgs.IceUFrag, h.handshakeArgs.IcePwd},
+		IceCredentials:  IceCredentials{h.lastOfferArgs.IceUFrag, h.lastOfferArgs.IcePwd},
 		WgListenPort:    h.config.LocalWgPort,
 		Version:         version.NetbirdVersion(),
 		RosenpassPubKey: h.config.RosenpassPubKey,
 		RosenpassAddr:   h.config.RosenpassAddr,
-		RelaySrvAddress: h.handshakeArgs.RelayAddr,
+		RelaySrvAddress: h.lastOfferArgs.RelayAddr,
 	}
 	err := h.signaler.SignalAnswer(answer, h.config.Key)
 	if err != nil {
@@ -179,44 +215,4 @@ func (h *Handshaker) sendAnswer() error {
 	}
 
 	return nil
-}
-
-func (h *Handshaker) waitForRemoteOfferConfirmation() (*OfferAnswer, error) {
-	timeout := time.NewTimer(h.config.Timeout)
-	defer timeout.Stop()
-
-	select {
-	case remoteOfferAnswer := <-h.remoteOffersCh:
-		// received confirmation from the remote peer -> ready to proceed
-		err := h.sendAnswer()
-		if err != nil {
-			return nil, err
-		}
-		return &remoteOfferAnswer, nil
-	case remoteOfferAnswer := <-h.remoteAnswerCh:
-		return &remoteOfferAnswer, nil
-	case <-timeout.C:
-		h.log.Debugf("handshake timeout")
-		return nil, NewConnectionTimeoutError(h.config.Key, h.config.Timeout)
-	case <-h.ctx.Done():
-		// closed externally
-		return nil, NewConnectionClosedError(h.config.Key)
-	}
-}
-
-func (h *Handshaker) storeRemoteOfferAnswer(answer *OfferAnswer) {
-	h.remoteOfferAnswer = answer
-	h.remoteOfferAnswerCreated = time.Now()
-}
-
-func (h *Handshaker) cachedHandshake() (*OfferAnswer, bool) {
-	if h.remoteOfferAnswer == nil {
-		return nil, false
-	}
-
-	if time.Since(h.remoteOfferAnswerCreated) > handshakeCacheTimeout {
-		return nil, false
-	}
-
-	return h.remoteOfferAnswer, true
 }

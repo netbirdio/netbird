@@ -2,7 +2,6 @@ package peer
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -69,7 +68,7 @@ type ICEConnInfo struct {
 type WorkerICECallbacks struct {
 	OnConnReady     func(ConnPriority, ICEConnInfo)
 	OnStatusChanged func(ConnStatus)
-	DoHandshake     func() (*OfferAnswer, error)
+	DoHandshake     func() error
 }
 
 type WorkerICE struct {
@@ -90,12 +89,19 @@ type WorkerICE struct {
 	StunTurn []*stun.URI
 
 	sentExtraSrflx bool
-	localUfrag     string
-	localPwd       string
+
+	localUfrag         string
+	localPwd           string
+	creadantialHasUsed bool
+	hasRelayOnLocally  bool
+	onDisconnected     context.CancelFunc
+	onOfferReceived    context.CancelFunc
+	tickerCancel       context.CancelFunc
+	ticker             *time.Ticker
 }
 
-func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, configICE ICEConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, callBacks WorkerICECallbacks) *WorkerICE {
-	cice := &WorkerICE{
+func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, configICE ICEConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, callBacks WorkerICECallbacks) (*WorkerICE, error) {
+	w := &WorkerICE{
 		ctx:            ctx,
 		log:            log,
 		config:         config,
@@ -105,111 +111,139 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, config
 		statusRecorder: statusRecorder,
 		conn:           callBacks,
 	}
-	return cice
+
+	localUfrag, localPwd, err := generateICECredentials()
+	if err != nil {
+		return nil, err
+	}
+	w.localUfrag = localUfrag
+	w.localPwd = localPwd
+	return w, nil
 }
 
-// SetupICEConnection sets up an ICE connection with the remote peer.
-// If the relay mode is supported then try to connect in p2p way only.
-// It is trying to reconnection in a loop until the context is canceled.
-// In case of success connection it will call the onICEConnReady callback.
 func (w *WorkerICE) SetupICEConnection(hasRelayOnLocally bool) {
-	time.Sleep(20 * time.Second)
+	w.muxAgent.Lock()
+	defer w.muxAgent.Unlock()
+	if w.agent != nil {
+		return
+	}
+
+	w.hasRelayOnLocally = hasRelayOnLocally
+	go w.sendOffer()
+}
+
+func (w *WorkerICE) sendOffer() {
+	w.ticker = time.NewTicker(w.config.Timeout)
+	defer w.ticker.Stop()
+
+	tickerCtx, tickerCancel := context.WithCancel(w.ctx)
+	w.tickerCancel = tickerCancel
+	w.conn.OnStatusChanged(StatusConnecting)
+
+	w.log.Debugf("ICE trigger a new handshake")
+	err := w.conn.DoHandshake()
+	if err != nil {
+		w.log.Errorf("%s", err)
+	}
+
 	for {
-		if !w.waitForReconnectTry() {
+		w.log.Debugf("ICE trigger new reconnect handshake")
+		select {
+		case <-w.ticker.C:
+			err := w.conn.DoHandshake()
+			if err != nil {
+				w.log.Errorf("%s", err)
+			}
+		case <-tickerCtx.Done():
+			w.log.Debugf("left reconnect loop")
+			return
+		case <-w.ctx.Done():
 			return
 		}
-
-		w.conn.OnStatusChanged(StatusConnecting)
-
-		w.log.Debugf("trying to establish ICE connection with peer %s", w.config.Key)
-
-		remoteOfferAnswer, err := w.conn.DoHandshake()
-		if err != nil {
-			if errors.Is(err, ErrSignalIsNotReady) {
-				w.log.Infof("signal client isn't ready, skipping connection attempt")
-			}
-			continue
-		}
-
-		var preferredCandidateTypes []ice.CandidateType
-		if hasRelayOnLocally && remoteOfferAnswer.RelaySrvAddress != "" {
-			w.selectedPriority = connPriorityICEP2P
-			preferredCandidateTypes = candidateTypesP2P()
-		} else {
-			w.selectedPriority = connPriorityICETurn
-			preferredCandidateTypes = candidateTypes()
-		}
-
-		ctx, ctxCancel := context.WithCancel(w.ctx)
-		w.muxAgent.Lock()
-		agent, err := w.reCreateAgent(ctxCancel, preferredCandidateTypes)
-		if err != nil {
-			ctxCancel()
-			w.muxAgent.Unlock()
-			continue
-		}
-		w.agent = agent
-		// generate credentials for the next loop. Important the credentials are generated before handshake, because
-		// the handshake could provide a cached offer-answer
-		w.localUfrag, w.localPwd, err = generateICECredentials()
-		if err != nil {
-			ctxCancel()
-			w.muxAgent.Unlock()
-			continue
-		}
-		w.muxAgent.Unlock()
-
-		err = w.agent.GatherCandidates()
-		if err != nil {
-			ctxCancel()
-			continue
-		}
-
-		// will block until connection succeeded
-		// but it won't release if ICE Agent went into Disconnected or Failed state,
-		// so we have to cancel it with the provided context once agent detected a broken connection
-		remoteConn, err := w.turnAgentDial(remoteOfferAnswer)
-		if err != nil {
-			ctxCancel()
-			continue
-		}
-
-		pair, err := w.agent.GetSelectedCandidatePair()
-		if err != nil {
-			ctxCancel()
-			continue
-		}
-
-		if !isRelayCandidate(pair.Local) {
-			// dynamically set remote WireGuard port if other side specified a different one from the default one
-			remoteWgPort := iface.DefaultWgPort
-			if remoteOfferAnswer.WgListenPort != 0 {
-				remoteWgPort = remoteOfferAnswer.WgListenPort
-			}
-
-			// To support old version's with direct mode we attempt to punch an additional role with the remote WireGuard port
-			go w.punchRemoteWGPort(pair, remoteWgPort)
-		}
-
-		ci := ICEConnInfo{
-			RemoteConn:                 remoteConn,
-			RosenpassPubKey:            remoteOfferAnswer.RosenpassPubKey,
-			RosenpassAddr:              remoteOfferAnswer.RosenpassAddr,
-			LocalIceCandidateType:      pair.Local.Type().String(),
-			RemoteIceCandidateType:     pair.Remote.Type().String(),
-			LocalIceCandidateEndpoint:  fmt.Sprintf("%s:%d", pair.Local.Address(), pair.Local.Port()),
-			RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Remote.Port()),
-			Direct:                     !isRelayCandidate(pair.Local),
-			Relayed:                    isRelayed(pair),
-			RelayedOnLocal:             isRelayCandidate(pair.Local),
-		}
-		go w.conn.OnConnReady(w.selectedPriority, ci)
-
-		<-ctx.Done()
-		ctxCancel()
-		_ = w.agent.Close()
-		w.conn.OnStatusChanged(StatusDisconnected)
 	}
+}
+
+func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
+	log.Debugf("OnNewOffer for ICE")
+	w.muxAgent.Lock()
+
+	if w.agent != nil {
+		log.Debugf("agent already exists, skipping the offer")
+		w.muxAgent.Unlock()
+		return
+	}
+
+	// cancel reconnection loop
+	w.log.Debugf("canceling reconnection loop")
+	w.tickerCancel()
+
+	var preferredCandidateTypes []ice.CandidateType
+	if w.hasRelayOnLocally && remoteOfferAnswer.RelaySrvAddress != "" {
+		w.selectedPriority = connPriorityICEP2P
+		preferredCandidateTypes = candidateTypesP2P()
+	} else {
+		w.selectedPriority = connPriorityICETurn
+		preferredCandidateTypes = candidateTypes()
+	}
+
+	w.log.Debugf("recreate agent")
+	agentCtx, agentCancel := context.WithCancel(w.ctx)
+	agent, err := w.reCreateAgent(agentCancel, preferredCandidateTypes)
+	if err != nil {
+		w.log.Errorf("failed to recreate ICE Agent: %s", err)
+		return
+	}
+	w.agent = agent
+	w.muxAgent.Unlock()
+
+	w.log.Debugf("gather candidates")
+	err = w.agent.GatherCandidates()
+	if err != nil {
+		w.log.Debugf("failed to gather candidates: %s", err)
+		return
+	}
+
+	// will block until connection succeeded
+	// but it won't release if ICE Agent went into Disconnected or Failed state,
+	// so we have to cancel it with the provided context once agent detected a broken connection
+	w.log.Debugf("turnAgentDial")
+	remoteConn, err := w.turnAgentDial(agentCtx, remoteOfferAnswer)
+	if err != nil {
+		w.log.Debugf("failed to dial the remote peer: %s", err)
+		return
+	}
+
+	w.log.Debugf("GetSelectedCandidatePair")
+	pair, err := w.agent.GetSelectedCandidatePair()
+	if err != nil {
+		return
+	}
+
+	if !isRelayCandidate(pair.Local) {
+		// dynamically set remote WireGuard port if other side specified a different one from the default one
+		remoteWgPort := iface.DefaultWgPort
+		if remoteOfferAnswer.WgListenPort != 0 {
+			remoteWgPort = remoteOfferAnswer.WgListenPort
+		}
+
+		// To support old version's with direct mode we attempt to punch an additional role with the remote WireGuard port
+		go w.punchRemoteWGPort(pair, remoteWgPort)
+	}
+
+	ci := ICEConnInfo{
+		RemoteConn:                 remoteConn,
+		RosenpassPubKey:            remoteOfferAnswer.RosenpassPubKey,
+		RosenpassAddr:              remoteOfferAnswer.RosenpassAddr,
+		LocalIceCandidateType:      pair.Local.Type().String(),
+		RemoteIceCandidateType:     pair.Remote.Type().String(),
+		LocalIceCandidateEndpoint:  fmt.Sprintf("%s:%d", pair.Local.Address(), pair.Local.Port()),
+		RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Remote.Port()),
+		Direct:                     !isRelayCandidate(pair.Local),
+		Relayed:                    isRelayed(pair),
+		RelayedOnLocal:             isRelayCandidate(pair.Local),
+	}
+	w.log.Debugf("on conn ready")
+	go w.conn.OnConnReady(w.selectedPriority, ci)
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
@@ -233,19 +267,14 @@ func (w *WorkerICE) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HA
 	}
 }
 
-func (w *WorkerICE) GetLocalUserCredentials() (frag string, pwd string, err error) {
+func (w *WorkerICE) GetLocalUserCredentials() (frag string, pwd string) {
 	w.muxAgent.Lock()
 	defer w.muxAgent.Unlock()
-
-	if w.localUfrag != "" && w.localPwd != "" {
-		return w.localUfrag, w.localPwd, nil
-	}
-
-	w.localUfrag, w.localPwd, err = generateICECredentials()
-	return w.localUfrag, w.localPwd, err
+	return w.localUfrag, w.localPwd
 }
 
-func (w *WorkerICE) reCreateAgent(ctxCancel context.CancelFunc, relaySupport []ice.CandidateType) (*ice.Agent, error) {
+func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, relaySupport []ice.CandidateType) (*ice.Agent, error) {
+	log.Debugf("--RECREATE AGENT-----")
 	transportNet, err := w.newStdNet()
 	if err != nil {
 		w.log.Errorf("failed to create pion's stdnet: %s", err)
@@ -256,9 +285,9 @@ func (w *WorkerICE) reCreateAgent(ctxCancel context.CancelFunc, relaySupport []i
 	iceRelayAcceptanceMinWait := iceRelayAcceptanceMinWait()
 
 	agentConfig := &ice.AgentConfig{
-		MulticastDNSMode:       ice.MulticastDNSModeDisabled,
-		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
-		Urls:                   w.configICE.StunTurn.Load().([]*stun.URI),
+		MulticastDNSMode: ice.MulticastDNSModeDisabled,
+		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
+		//Urls:                   w.configICE.StunTurn.Load().([]*stun.URI),
 		CandidateTypes:         relaySupport,
 		InterfaceFilter:        stdnet.InterfaceFilter(w.configICE.InterfaceBlackList),
 		UDPMux:                 w.configICE.UDPMux,
@@ -291,7 +320,23 @@ func (w *WorkerICE) reCreateAgent(ctxCancel context.CancelFunc, relaySupport []i
 	err = agent.OnConnectionStateChange(func(state ice.ConnectionState) {
 		w.log.Debugf("ICE ConnectionState has changed to %s", state.String())
 		if state == ice.ConnectionStateFailed || state == ice.ConnectionStateDisconnected {
-			ctxCancel()
+			w.conn.OnStatusChanged(StatusDisconnected)
+
+			w.muxAgent.Lock()
+			agentCancel()
+			_ = agent.Close()
+			w.agent = nil
+
+			// generate credentials for the next agent creation loop
+			localUfrag, localPwd, err := generateICECredentials()
+			if err != nil {
+				log.Errorf("failed to generate new ICE credentials: %s", err)
+			}
+			w.localUfrag = localUfrag
+			w.localPwd = localPwd
+
+			w.muxAgent.Unlock()
+			go w.sendOffer()
 		}
 	})
 	if err != nil {
@@ -387,12 +432,12 @@ func (w *WorkerICE) shouldSendExtraSrflxCandidate(candidate ice.Candidate) bool 
 	return false
 }
 
-func (w *WorkerICE) turnAgentDial(remoteOfferAnswer *OfferAnswer) (*ice.Conn, error) {
+func (w *WorkerICE) turnAgentDial(ctx context.Context, remoteOfferAnswer *OfferAnswer) (*ice.Conn, error) {
 	isControlling := w.config.LocalKey > w.config.Key
 	if isControlling {
-		return w.agent.Dial(w.ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
+		return w.agent.Dial(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	} else {
-		return w.agent.Accept(w.ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
+		return w.agent.Accept(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	}
 }
 
@@ -465,7 +510,7 @@ func candidateTypes() []ice.CandidateType {
 }
 
 func candidateTypesP2P() []ice.CandidateType {
-	return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive}
+	return []ice.CandidateType{ice.CandidateTypeHost}
 }
 
 func isRelayCandidate(candidate ice.Candidate) bool {
@@ -480,6 +525,7 @@ func isRelayed(pair *ice.CandidatePair) bool {
 }
 
 func generateICECredentials() (string, string, error) {
+	log.Debugf("-----GENERATE CREDENTIALS------")
 	ufrag, err := randutil.GenerateCryptoRandomString(lenUFrag, runesAlpha)
 	if err != nil {
 		return "", "", err
