@@ -471,7 +471,7 @@ initEnvironment() {
     ZDB=$(renderDockerComposePostgres)
     ZITADEL_DB_ENV=$(renderZitadelPostgresEnv)
     renderPostgresEnv > zdb.env
-  elif [[ $DATABASE == "cockroach" ]]; then
+  elif [[ $ZITADEL_DATABASE == "cockroach" ]]; then
     echo "Use CockroachDB as Zitadel database."
     ZDB=$(renderDockerComposeCockroachDB)
     ZITADEL_DB_ENV=$(renderZitadelCockroachDBEnv)

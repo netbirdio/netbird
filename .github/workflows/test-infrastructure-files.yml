@@ -215,7 +215,7 @@ jobs:
         run: bash -x infrastructure_files/getting-started-with-zitadel.sh
         env:
           NETBIRD_DOMAIN: use-ip
-          DATABASE: cockroach
+          ZITADEL_DATABASE: cockroach
 
       - name: test Caddy file gen CockroachDB
         run: test -f Caddyfile
