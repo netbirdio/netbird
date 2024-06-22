@@ -184,10 +184,13 @@ jobs:
       - name: test zdb.env file gen
         run: test -f zdb.env
 
-      - name: run script with Zitadel CockroachDB
+      - name: Postgres run cleanup
         run: |
+          docker-compose down
           rm -f docker-compose.yml Caddyfile zitadel.env dashboard.env machinekey/zitadel-admin-sa.token turnserver.conf management.json zdb.env
-          bash -x infrastructure_files/getting-started-with-zitadel.sh
+
+      - name: run script with Zitadel CockroachDB
+        run: bash -x infrastructure_files/getting-started-with-zitadel.sh
         env:
           NETBIRD_DOMAIN: use-ip
           DATABASE: cockroach
