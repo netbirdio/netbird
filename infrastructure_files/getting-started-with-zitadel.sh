@@ -832,8 +832,6 @@ renderDockerComposeCockroachDB() {
     networks: [netbird]
     image: 'cockroachdb/cockroach:latest-v23.2'
     command: 'start-single-node --advertise-addr zdb'
-    env_file:
-      - ./zdb.env
     volumes:
       - netbird_zdb_data:/cockroach/cockroach-data
       - netbird_zdb_certs:/cockroach/certs
@@ -857,16 +855,16 @@ renderDockerComposePostgres() {
     restart: 'always'
     networks: [netbird]
     image: 'postgres:16-alpine'
+    env_file:
+      - ./zdb.env
+    volumes:
+      - netbird_zdb_data:/var/lib/postgresql/data:rw
     healthcheck:
       test: ["CMD-SHELL", "pg_isready", "-d", "db_prod"]
       interval: 5s
       timeout: 60s
       retries: 10
       start_period: 5s
-    ports:
-      - '5432:5432'
-    volumes:
-      - netbird_zdb_data:/var/lib/postgresql/data:rw
 
 volumes:
 EOF
