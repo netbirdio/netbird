@@ -464,11 +464,14 @@ initEnvironment() {
   fi
 
   if [[ $ZITADEL_DATABASE == "" ]]; then
-    CRDB=$(renderDockerComposeCockroachDB)
-    ZITADEL_DB_ENV=$(renderZidatelCockroachDBEnv)
-  elif [[ $DATABASE == "postgres" ]]; then
+    echo "Use Postgres as default Zitadel database."
+    echo "For using CockroachDB please the environment variable 'export ZITADEL_DATABASE=cockroach'."
     CRDB=$(renderDockerComposePostgres)
     ZITADEL_DB_ENV=$(renderZidatelPostgresEnv)
+  elif [[ $DATABASE == "cockroach" ]]; then
+    echo "Use CockroachDB as Zitadel database."
+    CRDB=$(renderDockerComposeCockroachDB)
+    ZITADEL_DB_ENV=$(renderZidatelCockroachDBEnv)
   fi
 
   echo Rendering initial files...
