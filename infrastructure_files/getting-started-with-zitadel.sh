@@ -360,9 +360,6 @@ init_zitadel() {
 
   DATE=$(add_organization_user_manager "$INSTANCE_URL" "$PAT" "$MACHINE_USER_ID")
 
-  POSTGRES_ROOT_PASSWORD="$(openssl rand -base64 32 | sed 's/=//g')@"
-  POSTGRES_ZITADEL_PASSWORD="$(openssl rand -base64 32 | sed 's/=//g')@"
-
   ZITADEL_ADMIN_USERNAME="admin@$NETBIRD_DOMAIN"
   ZITADEL_ADMIN_PASSWORD="$(openssl rand -base64 32 | sed 's/=//g')@"
 
@@ -469,13 +466,15 @@ initEnvironment() {
   if [[ $ZITADEL_DATABASE == "" ]]; then
     echo "Use Postgres as default Zitadel database."
     echo "For using CockroachDB please the environment variable 'export ZITADEL_DATABASE=cockroach'."
+    POSTGRES_ROOT_PASSWORD="$(openssl rand -base64 32 | sed 's/=//g')@"
+    POSTGRES_ZITADEL_PASSWORD="$(openssl rand -base64 32 | sed 's/=//g')@"
     ZDB=$(renderDockerComposePostgres)
-    ZITADEL_DB_ENV=$(renderZidatelPostgresEnv)
+    ZITADEL_DB_ENV=$(renderZitadelPostgresEnv)
     renderPostgresEnv > zdb.env
   elif [[ $DATABASE == "cockroach" ]]; then
     echo "Use CockroachDB as Zitadel database."
     ZDB=$(renderDockerComposeCockroachDB)
-    ZITADEL_DB_ENV=$(renderZidatelCockroachDBEnv)
+    ZITADEL_DB_ENV=$(renderZitadelCockroachDBEnv)
   fi
 
   echo Rendering initial files...
@@ -491,7 +490,7 @@ initEnvironment() {
 
   init_crdb
 
-  echo -e "\nStarting Zidatel IDP for user management\n\n"
+  echo -e "\nStarting Zitadel IDP for user management\n\n"
   $DOCKER_COMPOSE_COMMAND up -d caddy zitadel
   init_zitadel
 
@@ -709,7 +708,7 @@ $ZITADEL_DB_ENV
 EOF
 }
 
-renderZidatelCockroachDBEnv() {
+renderZitadelCockroachDBEnv() {
   cat <<EOF
 ZITADEL_DATABASE_COCKROACH_HOST=zdb
 ZITADEL_DATABASE_COCKROACH_USER_USERNAME=zitadel_user
@@ -724,7 +723,7 @@ ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_KEY="/zdb-certs/client.root.key"
 EOF
 }
 
-renderZidatelPostgresEnv() {
+renderZitadelPostgresEnv() {
   cat <<EOF
 ZITADEL_DATABASE_POSTGRES_HOST=zdb
 ZITADEL_DATABASE_POSTGRES_PORT=5432
