@@ -187,6 +187,11 @@ func (am *DefaultAccountManager) deletePostureChecks(account *Account, postureCh
 // getPeerPostureChecks returns the posture checks applied for a given peer.
 func (am *DefaultAccountManager) getPeerPostureChecks(account *Account, peer *nbpeer.Peer) []*posture.Checks {
 	peerPostureChecks := make(map[string]posture.Checks)
+
+	if len(account.PostureChecks) == 0 {
+		return nil
+	}
+
 	for _, policy := range account.Policies {
 		if !policy.Enabled {
 			continue
