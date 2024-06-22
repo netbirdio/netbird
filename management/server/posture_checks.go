@@ -184,8 +184,8 @@ func (am *DefaultAccountManager) deletePostureChecks(account *Account, postureCh
 	return postureChecks, nil
 }
 
-// collectPeerPostureChecks collects the posture checks applied for a given peer.
-func (am *DefaultAccountManager) collectPeerPostureChecks(account *Account, peer *nbpeer.Peer) []*posture.Checks {
+// getPeerPostureChecks returns the posture checks applied for a given peer.
+func (am *DefaultAccountManager) getPeerPostureChecks(account *Account, peer *nbpeer.Peer) []*posture.Checks {
 	peerPostureChecks := make(map[string]posture.Checks)
 	for _, policy := range account.Policies {
 		if !policy.Enabled {

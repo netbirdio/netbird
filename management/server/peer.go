@@ -515,7 +515,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *nbpeer.P
 		return nil, nil, nil, err
 	}
 
-	postureChecks := am.collectPeerPostureChecks(account, peer)
+	postureChecks := am.getPeerPostureChecks(account, peer)
 	networkMap := account.GetPeerNetworkMap(newPeer.ID, am.dnsDomain, approvedPeersMap)
 	return newPeer, networkMap, postureChecks, nil
 }
@@ -570,7 +570,7 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync, account *Account) (*nbp
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	postureChecks = am.collectPeerPostureChecks(account, peer)
+	postureChecks = am.getPeerPostureChecks(account, peer)
 
 	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain, validPeersMap), postureChecks, nil
 }
@@ -736,7 +736,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*nbpeer.Peer, *Netw
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	postureChecks = am.collectPeerPostureChecks(account, peer)
+	postureChecks = am.getPeerPostureChecks(account, peer)
 
 	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain, approvedPeersMap), postureChecks, nil
 }
@@ -928,7 +928,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) {
 			continue
 		}
 
-		postureChecks := am.collectPeerPostureChecks(account, peer)
+		postureChecks := am.getPeerPostureChecks(account, peer)
 		remotePeerNetworkMap := account.GetPeerNetworkMap(peer.ID, am.dnsDomain, approvedPeersMap)
 		update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks)
 		am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})
