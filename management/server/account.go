@@ -84,7 +84,7 @@ type AccountManager interface {
 	UpdatePeer(accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
 	GetNetworkMap(peerID string) (*NetworkMap, error)
 	GetPeerNetwork(peerID string) (*Network, error)
-	AddPeer(setupKey, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, *NetworkMap, error)
+	AddPeer(setupKey, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)
 	CreatePAT(accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error)
 	DeletePAT(accountID string, initiatorUserID string, targetUserID string, tokenID string) error
 	GetPAT(accountID string, initiatorUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error)
@@ -119,10 +119,9 @@ type AccountManager interface {
 	GetDNSSettings(accountID string, userID string) (*DNSSettings, error)
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
 	GetPeer(accountID, peerID, userID string) (*nbpeer.Peer, error)
-	GetPeerAppliedPostureChecks(peerKey string) ([]posture.Checks, error)
 	UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error)
-	LoginPeer(login PeerLogin) (*nbpeer.Peer, *NetworkMap, error)                // used by peer gRPC API
-	SyncPeer(sync PeerSync, account *Account) (*nbpeer.Peer, *NetworkMap, error) // used by peer gRPC API
+	LoginPeer(login PeerLogin) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)                // used by peer gRPC API
+	SyncPeer(sync PeerSync, account *Account) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) // used by peer gRPC API
 	GetAllConnectedPeers() (map[string]struct{}, error)
 	HasConnectedChannel(peerID string) bool
 	GetExternalCacheManager() ExternalCacheManager
@@ -134,7 +133,7 @@ type AccountManager interface {
 	UpdateIntegratedValidatorGroups(accountID string, userID string, groups []string) error
 	GroupValidation(accountId string, groups []string) (bool, error)
 	GetValidatedPeers(account *Account) (map[string]struct{}, error)
-	SyncAndMarkPeer(peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error)
+	SyncAndMarkPeer(peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)
 	CancelPeerRoutines(peer *nbpeer.Peer) error
 	SyncPeerMeta(peerPubKey string, meta nbpeer.PeerSystemMeta) error
 	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
@@ -1856,13 +1855,13 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 	}
 }
 
-func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error) {
+func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(peerPubKey)
 	if err != nil {
 		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
-			return nil, nil, status.Errorf(status.Unauthenticated, "peer not registered")
+			return nil, nil, nil, status.Errorf(status.Unauthenticated, "peer not registered")
 		}
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	unlock := am.Store.AcquireAccountReadLock(accountID)
@@ -1870,12 +1869,12 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, meta nbpeer.
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	peer, netMap, err := am.SyncPeer(PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, account)
+	peer, netMap, postureChecks, err := am.SyncPeer(PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, account)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	err = am.MarkPeerConnected(peerPubKey, true, realIP, account)
@@ -1883,7 +1882,7 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, meta nbpeer.
 		log.Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
 
-	return peer, netMap, nil
+	return peer, netMap, postureChecks, nil
 }
 
 func (am *DefaultAccountManager) CancelPeerRoutines(peer *nbpeer.Peer) error {
@@ -1926,7 +1925,7 @@ func (am *DefaultAccountManager) SyncPeerMeta(peerPubKey string, meta nbpeer.Pee
 		return err
 	}
 
-	_, _, err = am.SyncPeer(PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, UpdateAccountPeers: true}, account)
+	_, _, _, err = am.SyncPeer(PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, UpdateAccountPeers: true}, account)
 	if err != nil {
 		return mapError(err)
 	}
