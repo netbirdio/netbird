@@ -61,14 +61,16 @@ wait_crdb() {
 }
 
 init_crdb() {
-  echo -e "\nInitializing Zitadel's CockroachDB\n\n"
-  $DOCKER_COMPOSE_COMMAND up -d crdb
-  echo ""
-  # shellcheck disable=SC2028
-  echo -n "Waiting cockroachDB  to become ready "
-  wait_crdb
-  $DOCKER_COMPOSE_COMMAND exec -T crdb /bin/bash -c "cp /cockroach/certs/* /zitadel-certs/ && cockroach cert create-client --overwrite --certs-dir /zitadel-certs/ --ca-key /zitadel-certs/ca.key zitadel_user && chown -R 1000:1000 /zitadel-certs/"
-  handle_request_command_status $? "init_crdb failed" ""
+  if [[ $ZITADEL_DATABASE == "" ]]; then
+    echo -e "\nInitializing Zitadel's CockroachDB\n\n"
+    $DOCKER_COMPOSE_COMMAND up -d crdb
+    echo ""
+    # shellcheck disable=SC2028
+    echo -n "Waiting cockroachDB  to become ready "
+    wait_crdb
+    $DOCKER_COMPOSE_COMMAND exec -T crdb /bin/bash -c "cp /cockroach/certs/* /zitadel-certs/ && cockroach cert create-client --overwrite --certs-dir /zitadel-certs/ --ca-key /zitadel-certs/ca.key zitadel_user && chown -R 1000:1000 /zitadel-certs/"
+    handle_request_command_status $? "init_crdb failed" ""
+  fi
 }
 
 get_main_ip_address() {
@@ -156,7 +158,7 @@ create_new_application() {
       "'"$BASE_REDIRECT_URL2"'"
     ],
     "postLogoutRedirectUris": [
-       "'"$LOGOUT_URL"'"
+      "'"$LOGOUT_URL"'"
     ],
     "RESPONSETypes": [
       "OIDC_RESPONSE_TYPE_CODE"
@@ -461,6 +463,14 @@ initEnvironment() {
     exit 1
   fi
 
+  if [[ $ZITADEL_DATABASE == "" ]]; then
+    CRDB=$(renderDockerComposeCockroachDB)
+    ZITADEL_DB_ENV=$(renderZidatelCockroachDBEnv)
+  elif [[ $DATABASE == "postgres" ]]; then
+    CRDB=$(renderDockerComposePostgres)
+    ZITADEL_DB_ENV=$(renderZidatelPostgresEnv)
+  fi
+
   echo Rendering initial files...
   renderDockerCompose > docker-compose.yml
   renderCaddyfile > Caddyfile
@@ -634,15 +644,15 @@ renderManagementJson() {
         "ExtraConfig": {
             "ManagementEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/management/v1"
         }
-     },
-   "DeviceAuthorizationFlow": {
-       "Provider": "hosted",
-       "ProviderConfig": {
-           "Audience": "$NETBIRD_AUTH_CLIENT_ID_CLI",
-           "ClientID": "$NETBIRD_AUTH_CLIENT_ID_CLI",
-           "Scope": "openid"
-       }
-     },
+    },
+  "DeviceAuthorizationFlow": {
+      "Provider": "hosted",
+      "ProviderConfig": {
+          "Audience": "$NETBIRD_AUTH_CLIENT_ID_CLI",
+          "ClientID": "$NETBIRD_AUTH_CLIENT_ID_CLI",
+          "Scope": "openid"
+      }
+    },
     "PKCEAuthorizationFlow": {
         "ProviderConfig": {
             "Audience": "$NETBIRD_AUTH_CLIENT_ID_CLI",
@@ -679,6 +689,21 @@ renderZitadelEnv() {
   cat <<EOF
 ZITADEL_LOG_LEVEL=debug
 ZITADEL_MASTERKEY=$ZITADEL_MASTERKEY
+ZITADEL_EXTERNALSECURE=$ZITADEL_EXTERNALSECURE
+ZITADEL_TLS_ENABLED="false"
+ZITADEL_EXTERNALPORT=$NETBIRD_PORT
+ZITADEL_EXTERNALDOMAIN=$NETBIRD_DOMAIN
+ZITADEL_FIRSTINSTANCE_PATPATH=/machinekey/zitadel-admin-sa.token
+ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME=zitadel-admin-sa
+ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME=Admin
+ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_SCOPES=openid
+ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE=$ZIDATE_TOKEN_EXPIRATION_DATE
+$ZITADEL_DB_ENV
+EOF
+}
+
+renderZidatelCockroachDBEnv() {
+  cat <<EOF
 ZITADEL_DATABASE_COCKROACH_HOST=crdb
 ZITADEL_DATABASE_COCKROACH_USER_USERNAME=zitadel_user
 ZITADEL_DATABASE_COCKROACH_USER_SSL_MODE=verify-full
@@ -689,15 +714,20 @@ ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_MODE=verify-full
 ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_ROOTCERT="/crdb-certs/ca.crt"
 ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_CERT="/crdb-certs/client.root.crt"
 ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_KEY="/crdb-certs/client.root.key"
-ZITADEL_EXTERNALSECURE=$ZITADEL_EXTERNALSECURE
-ZITADEL_TLS_ENABLED="false"
-ZITADEL_EXTERNALPORT=$NETBIRD_PORT
-ZITADEL_EXTERNALDOMAIN=$NETBIRD_DOMAIN
-ZITADEL_FIRSTINSTANCE_PATPATH=/machinekey/zitadel-admin-sa.token
-ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME=zitadel-admin-sa
-ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME=Admin
-ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_SCOPES=openid
-ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE=$ZIDATE_TOKEN_EXPIRATION_DATE
+EOF
+}
+
+renderZidatelPostgresEnv() {
+  cat <<EOF
+ZITADEL_DATABASE_POSTGRES_HOST=crdb
+ZITADEL_DATABASE_POSTGRES_PORT=5432
+ZITADEL_DATABASE_POSTGRES_DATABASE=zitadel
+ZITADEL_DATABASE_POSTGRES_USER_USERNAME=zitadel
+ZITADEL_DATABASE_POSTGRES_USER_PASSWORD=zitadel
+ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE=disable
+ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME=root
+ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD=postgres
+ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE=disable
 EOF
 }
 
@@ -770,7 +800,20 @@ services:
     volumes:
       - ./machinekey:/machinekey
       - netbird_zitadel_certs:/crdb-certs:ro
-  # CockroachDB for zitadel
+$CRDB
+  netbird_management:
+  netbird_caddy_data:
+  netbird_crdb_data:
+  netbird_zitadel_certs:
+
+networks:
+  netbird:
+EOF
+}
+
+renderDockerComposeCockroachDB() {
+  cat <<EOF
+  # CockroachDB for Zitadel
   crdb:
     restart: 'always'
     networks: [netbird]
@@ -788,14 +831,32 @@ services:
       start_period: '20s'
 
 volumes:
-  netbird_management:
-  netbird_caddy_data:
-  netbird_crdb_data:
   netbird_crdb_certs:
-  netbird_zitadel_certs:
+EOF
+}
 
-networks:
-  netbird:
+renderDockerComposePostgres() {
+  cat <<EOF
+  # Postgres for Zitadel
+  crdb:
+    restart: 'always'
+    networks: [netbird]
+    image: 'postgres:16-alpine'
+    environment:
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready", "-d", "db_prod"]
+      interval: 5s
+      timeout: 60s
+      retries: 10
+      start_period: 5s
+    ports:
+      - '5432:5432'
+    volumes:
+      - netbird_crdb_data:/var/lib/postgresql/data:rw
+
+volumes:
 EOF
 }
 
