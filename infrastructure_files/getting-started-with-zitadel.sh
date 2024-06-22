@@ -63,12 +63,12 @@ wait_crdb() {
 init_crdb() {
   if [[ $ZITADEL_DATABASE == "cockroach" ]]; then
     echo -e "\nInitializing Zitadel's CockroachDB\n\n"
-    $DOCKER_COMPOSE_COMMAND up -d zrdb
+    $DOCKER_COMPOSE_COMMAND up -d zdb
     echo ""
     # shellcheck disable=SC2028
     echo -n "Waiting cockroachDB  to become ready "
     wait_crdb
-    $DOCKER_COMPOSE_COMMAND exec -T zrdb /bin/bash -c "cp /cockroach/certs/* /zitadel-certs/ && cockroach cert create-client --overwrite --certs-dir /zitadel-certs/ --ca-key /zitadel-certs/ca.key zitadel_user && chown -R 1000:1000 /zitadel-certs/"
+    $DOCKER_COMPOSE_COMMAND exec -T zdb /bin/bash -c "cp /cockroach/certs/* /zitadel-certs/ && cockroach cert create-client --overwrite --certs-dir /zitadel-certs/ --ca-key /zitadel-certs/ca.key zitadel_user && chown -R 1000:1000 /zitadel-certs/"
     handle_request_command_status $? "init_crdb failed" ""
   fi
 }

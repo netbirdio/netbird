@@ -209,7 +209,6 @@ jobs:
         run: |
           docker-compose down
           rm -rf docker-compose.yml Caddyfile zitadel.env dashboard.env machinekey/zitadel-admin-sa.token turnserver.conf management.json zdb.env
-          ls -la ./
 
       - name: run script with Zitadel CockroachDB
         run: bash -x infrastructure_files/getting-started-with-zitadel.sh
