@@ -282,14 +282,15 @@ func (e *Engine) Start() error {
 	}
 	e.ctx, e.cancel = context.WithCancel(e.clientCtx)
 
-	e.wgProxyFactory = wgproxy.NewFactory(e.ctx, e.config.WgPort)
-
 	wgIface, err := e.newWgIface()
 	if err != nil {
 		log.Errorf("failed creating wireguard interface instance %s: [%s]", e.config.WgIfaceName, err)
 		return fmt.Errorf("new wg interface: %w", err)
 	}
 	e.wgInterface = wgIface
+
+	userspace := e.wgInterface.IsUserspaceBind()
+	e.wgProxyFactory = wgproxy.NewFactory(e.ctx, userspace, e.config.WgPort)
 
 	if e.config.RosenpassEnabled {
 		log.Infof("rosenpass is enabled")
