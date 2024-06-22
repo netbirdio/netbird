@@ -360,6 +360,9 @@ init_zitadel() {
 
   DATE=$(add_organization_user_manager "$INSTANCE_URL" "$PAT" "$MACHINE_USER_ID")
 
+  POSTGRES_ROOT_PASSWORD="$(openssl rand -base64 32 | sed 's/=//g')@"
+  POSTGRES_ZITADEL_PASSWORD="$(openssl rand -base64 32 | sed 's/=//g')@"
+
   ZITADEL_ADMIN_USERNAME="admin@$NETBIRD_DOMAIN"
   ZITADEL_ADMIN_PASSWORD="$(openssl rand -base64 32 | sed 's/=//g')@"
 
@@ -468,6 +471,7 @@ initEnvironment() {
     echo "For using CockroachDB please the environment variable 'export ZITADEL_DATABASE=cockroach'."
     ZDB=$(renderDockerComposePostgres)
     ZITADEL_DB_ENV=$(renderZidatelPostgresEnv)
+    renderPostgresEnv > zdb.env
   elif [[ $DATABASE == "cockroach" ]]; then
     echo "Use CockroachDB as Zitadel database."
     ZDB=$(renderDockerComposeCockroachDB)
@@ -726,11 +730,18 @@ ZITADEL_DATABASE_POSTGRES_HOST=zdb
 ZITADEL_DATABASE_POSTGRES_PORT=5432
 ZITADEL_DATABASE_POSTGRES_DATABASE=zitadel
 ZITADEL_DATABASE_POSTGRES_USER_USERNAME=zitadel
-ZITADEL_DATABASE_POSTGRES_USER_PASSWORD=zitadel
+ZITADEL_DATABASE_POSTGRES_USER_PASSWORD=$POSTGRES_ZITADEL_PASSWORD
 ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE=disable
 ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME=root
-ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD=postgres
+ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD=$POSTGRES_ROOT_PASSWORD
 ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE=disable
+EOF
+}
+
+renderPostgresEnv() {
+  cat <<EOF
+POSTGRES_USER=root
+POSTGRES_PASSWORD=$POSTGRES_ROOT_PASSWORD
 EOF
 }
 
@@ -804,9 +815,9 @@ services:
       - ./machinekey:/machinekey
       - netbird_zitadel_certs:/zdb-certs:ro
 $ZDB
+  netbird_zdb_data:
   netbird_management:
   netbird_caddy_data:
-  netbird_zdb_data:
   netbird_zitadel_certs:
 
 networks:
@@ -845,9 +856,6 @@ renderDockerComposePostgres() {
     restart: 'always'
     networks: [netbird]
     image: 'postgres:16-alpine'
-    environment:
-      - POSTGRES_USER=root
-      - POSTGRES_PASSWORD=postgres
     healthcheck:
       test: ["CMD-SHELL", "pg_isready", "-d", "db_prod"]
       interval: 5s
