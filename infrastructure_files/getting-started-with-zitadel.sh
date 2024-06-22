@@ -466,11 +466,11 @@ initEnvironment() {
   if [[ $ZITADEL_DATABASE == "" ]]; then
     echo "Use Postgres as default Zitadel database."
     echo "For using CockroachDB please the environment variable 'export ZITADEL_DATABASE=cockroach'."
-    CRDB=$(renderDockerComposePostgres)
+    ZDB=$(renderDockerComposePostgres)
     ZITADEL_DB_ENV=$(renderZidatelPostgresEnv)
   elif [[ $DATABASE == "cockroach" ]]; then
     echo "Use CockroachDB as Zitadel database."
-    CRDB=$(renderDockerComposeCockroachDB)
+    ZDB=$(renderDockerComposeCockroachDB)
     ZITADEL_DB_ENV=$(renderZidatelCockroachDBEnv)
   fi
 
@@ -707,22 +707,22 @@ EOF
 
 renderZidatelCockroachDBEnv() {
   cat <<EOF
-ZITADEL_DATABASE_COCKROACH_HOST=crdb
+ZITADEL_DATABASE_COCKROACH_HOST=zdb
 ZITADEL_DATABASE_COCKROACH_USER_USERNAME=zitadel_user
 ZITADEL_DATABASE_COCKROACH_USER_SSL_MODE=verify-full
-ZITADEL_DATABASE_COCKROACH_USER_SSL_ROOTCERT="/crdb-certs/ca.crt"
-ZITADEL_DATABASE_COCKROACH_USER_SSL_CERT="/crdb-certs/client.zitadel_user.crt"
-ZITADEL_DATABASE_COCKROACH_USER_SSL_KEY="/crdb-certs/client.zitadel_user.key"
+ZITADEL_DATABASE_COCKROACH_USER_SSL_ROOTCERT="/zdb-certs/ca.crt"
+ZITADEL_DATABASE_COCKROACH_USER_SSL_CERT="/zdb-certs/client.zitadel_user.crt"
+ZITADEL_DATABASE_COCKROACH_USER_SSL_KEY="/zdb-certs/client.zitadel_user.key"
 ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_MODE=verify-full
-ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_ROOTCERT="/crdb-certs/ca.crt"
-ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_CERT="/crdb-certs/client.root.crt"
-ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_KEY="/crdb-certs/client.root.key"
+ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_ROOTCERT="/zdb-certs/ca.crt"
+ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_CERT="/zdb-certs/client.root.crt"
+ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_KEY="/zdb-certs/client.root.key"
 EOF
 }
 
 renderZidatelPostgresEnv() {
   cat <<EOF
-ZITADEL_DATABASE_POSTGRES_HOST=crdb
+ZITADEL_DATABASE_POSTGRES_HOST=zdb
 ZITADEL_DATABASE_POSTGRES_PORT=5432
 ZITADEL_DATABASE_POSTGRES_DATABASE=zitadel
 ZITADEL_DATABASE_POSTGRES_USER_USERNAME=zitadel
@@ -798,15 +798,15 @@ services:
     env_file:
       - ./zitadel.env
     depends_on:
-      crdb:
+      zdb:
         condition: 'service_healthy'
     volumes:
       - ./machinekey:/machinekey
-      - netbird_zitadel_certs:/crdb-certs:ro
-$CRDB
+      - netbird_zitadel_certs:/zdb-certs:ro
+$ZDB
   netbird_management:
   netbird_caddy_data:
-  netbird_crdb_data:
+  netbird_zdb_data:
   netbird_zitadel_certs:
 
 networks:
@@ -817,14 +817,14 @@ EOF
 renderDockerComposeCockroachDB() {
   cat <<EOF
   # CockroachDB for Zitadel
-  crdb:
+  zdb:
     restart: 'always'
     networks: [netbird]
     image: 'cockroachdb/cockroach:latest-v23.2'
-    command: 'start-single-node --advertise-addr crdb'
+    command: 'start-single-node --advertise-addr zdb'
     volumes:
-      - netbird_crdb_data:/cockroach/cockroach-data
-      - netbird_crdb_certs:/cockroach/certs
+      - netbird_zdb_data:/cockroach/cockroach-data
+      - netbird_zdb_certs:/cockroach/certs
       - netbird_zitadel_certs:/zitadel-certs
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8080/health?ready=1" ]
@@ -834,14 +834,14 @@ renderDockerComposeCockroachDB() {
       start_period: '20s'
 
 volumes:
-  netbird_crdb_certs:
+  netbird_zdb_certs:
 EOF
 }
 
 renderDockerComposePostgres() {
   cat <<EOF
   # Postgres for Zitadel
-  crdb:
+  zdb:
     restart: 'always'
     networks: [netbird]
     image: 'postgres:16-alpine'
@@ -857,7 +857,7 @@ renderDockerComposePostgres() {
     ports:
       - '5432:5432'
     volumes:
-      - netbird_crdb_data:/var/lib/postgresql/data:rw
+      - netbird_zdb_data:/var/lib/postgresql/data:rw
 
 volumes:
 EOF
