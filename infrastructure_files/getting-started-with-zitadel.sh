@@ -61,7 +61,7 @@ wait_crdb() {
 }
 
 init_crdb() {
-  if [[ $ZITADEL_DATABASE == "" ]]; then
+  if [[ $ZITADEL_DATABASE == "cockroach" ]]; then
     echo -e "\nInitializing Zitadel's CockroachDB\n\n"
     $DOCKER_COMPOSE_COMMAND up -d crdb
     echo ""
