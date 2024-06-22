@@ -832,6 +832,8 @@ renderDockerComposeCockroachDB() {
     networks: [netbird]
     image: 'cockroachdb/cockroach:latest-v23.2'
     command: 'start-single-node --advertise-addr zdb'
+    env_file:
+      - ./zdb.env
     volumes:
       - netbird_zdb_data:/cockroach/cockroach-data
       - netbird_zdb_certs:/cockroach/certs
