@@ -207,7 +207,7 @@ jobs:
 
       - name: Postgres run cleanup
         run: |
-          docker-compose down
+          docker-compose down --volumes --rmi
           rm -rf docker-compose.yml Caddyfile zitadel.env dashboard.env machinekey/zitadel-admin-sa.token turnserver.conf management.json zdb.env
 
       - name: run script with Zitadel CockroachDB

@@ -66,7 +66,7 @@ init_crdb() {
     $DOCKER_COMPOSE_COMMAND up -d zdb
     echo ""
     # shellcheck disable=SC2028
-    echo -n "Waiting cockroachDB  to become ready "
+    echo -n "Waiting CockroachDB to become ready"
     wait_crdb
     $DOCKER_COMPOSE_COMMAND exec -T zdb /bin/bash -c "cp /cockroach/certs/* /zitadel-certs/ && cockroach cert create-client --overwrite --certs-dir /zitadel-certs/ --ca-key /zitadel-certs/ca.key zitadel_user && chown -R 1000:1000 /zitadel-certs/"
     handle_request_command_status $? "init_crdb failed" ""
