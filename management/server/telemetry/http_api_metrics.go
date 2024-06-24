@@ -12,8 +12,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/netbirdio/netbird/formatter"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -168,7 +168,7 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 		reqStart := time.Now()
 
 		//nolint
-		ctx := context.WithValue(r.Context(), util.LogSourceKey, util.HTTPSource)
+		ctx := context.WithValue(r.Context(), formatter.LogSourceKey, formatter.HTTPSource)
 
 		reqID := uuid.New().String()
 		//nolint
