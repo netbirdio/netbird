@@ -7,8 +7,10 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net"
 	"net/netip"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -18,7 +20,7 @@ import (
 const (
 	netbirdDNSStateKeyFormat            = "State:/Network/Service/NetBird-%s/DNS"
 	globalIPv4State                     = "State:/Network/Global/IPv4"
-	primaryServiceSetupKeyFormat        = "Setup:/Network/Service/%s/DNS"
+	primaryServiceStateKeyFormat        = "State:/Network/Service/%s/DNS"
 	keySupplementalMatchDomains         = "SupplementalMatchDomains"
 	keySupplementalMatchDomainsNoSearch = "SupplementalMatchDomainsNoSearch"
 	keyServerAddresses                  = "ServerAddresses"
@@ -28,12 +30,20 @@ const (
 	scutilPath                          = "/usr/sbin/scutil"
 	searchSuffix                        = "Search"
 	matchSuffix                         = "Match"
+	localSuffix                         = "Local"
+	mgmtSuffix                          = "Mgmt"
 )
 
+// PrimaryServiceConfig from Network services
+type PrimaryServiceConfig struct {
+	DomainName    string
+	SearchDomains []string
+	ServerAddress string
+}
+
 type systemConfigurator struct {
-	// primaryServiceID primary interface in the system. AKA the interface with the default route
-	primaryServiceID string
-	createdKeys      map[string]struct{}
+	createdKeys          map[string]struct{}
+	primaryServiceConfig PrimaryServiceConfig
 }
 
 func newHostManager() (hostManager, error) {
@@ -49,20 +59,6 @@ func (s *systemConfigurator) supportCustomPort() bool {
 func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig) error {
 	var err error
 
-	if config.RouteAll {
-		err = s.addDNSSetupForAll(config.ServerIP, config.ServerPort)
-		if err != nil {
-			return fmt.Errorf("add dns setup for all: %w", err)
-		}
-	} else if s.primaryServiceID != "" {
-		err = s.removeKeyFromSystemConfig(getKeyWithInput(primaryServiceSetupKeyFormat, s.primaryServiceID))
-		if err != nil {
-			return fmt.Errorf("remote key from system config: %w", err)
-		}
-		s.primaryServiceID = ""
-		log.Infof("removed %s:%d as main DNS resolver for this peer", config.ServerIP, config.ServerPort)
-	}
-
 	// create a file for unclean shutdown detection
 	if err := createUncleanShutdownIndicator(); err != nil {
 		log.Errorf("failed to create unclean shutdown file: %s", err)
@@ -72,6 +68,25 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig) error {
 		searchDomains []string
 		matchDomains  []string
 	)
+
+	err = s.recordPrimaryServiceDNSConfig(true)
+	if err != nil {
+		log.Errorf("unable to update record of System's DNS config: %s", err.Error())
+	}
+
+	MgmtKey := getKeyWithInput(netbirdDNSStateKeyFormat, "Mgmt")
+	err = s.addMatchDomains(MgmtKey, "netbird.yelpcorp.com netbird-canary.yelpcorp.com google.com", s.primaryServiceConfig.ServerAddress, 53)
+	if err != nil {
+		log.Errorf("add mgmt domains: %s", err.Error())
+	}
+
+	if config.RouteAll {
+		searchDomains = append(searchDomains, "\"\"")
+		err = s.addLocalDNS()
+		if err != nil {
+			log.Infof("failed to enable split DNS")
+		}
+	}
 
 	for _, dConf := range config.Domains {
 		if dConf.Disabled {
@@ -119,10 +134,6 @@ func (s *systemConfigurator) restoreHostDNS() error {
 		}
 		log.Infof("removing %s domains from system", keyType)
 	}
-	if s.primaryServiceID != "" {
-		lines += buildRemoveKeyOperation(getKeyWithInput(primaryServiceSetupKeyFormat, s.primaryServiceID))
-		log.Infof("restoring DNS resolver configuration for system")
-	}
 	_, err := runSystemConfigCommand(wrapCommand(lines))
 	if err != nil {
 		log.Errorf("got an error while cleaning the system configuration: %s", err)
@@ -146,6 +157,98 @@ func (s *systemConfigurator) removeKeyFromSystemConfig(key string) error {
 	delete(s.createdKeys, key)
 
 	return nil
+}
+
+func (s *systemConfigurator) addLocalDNS() error {
+	if s.primaryServiceConfig.ServerAddress == "" || len(s.primaryServiceConfig.SearchDomains) == 0 {
+		err := s.recordPrimaryServiceDNSConfig(true)
+		log.Errorf("Unable to get system DNS configuration")
+		return err
+	}
+	localKey := getKeyWithInput(netbirdDNSStateKeyFormat, localSuffix)
+	if s.primaryServiceConfig.ServerAddress != "" && len(s.primaryServiceConfig.SearchDomains) != 0 {
+		err := s.addSearchDomains(localKey, strings.Join(s.primaryServiceConfig.SearchDomains, " "), s.primaryServiceConfig.ServerAddress, 53)
+		if err != nil {
+			return fmt.Errorf("couldn't add local network DNS conf: %w", err)
+		}
+	} else {
+		log.Info("Not enabling local DNS server")
+	}
+
+	return nil
+}
+
+func (s *systemConfigurator) recordPrimaryServiceDNSConfig(force bool) error {
+	if s.primaryServiceConfig.ServerAddress != "" && len(s.primaryServiceConfig.SearchDomains) != 0 && !force {
+		return nil
+	}
+
+	primaryServiceKey, _, err := s.getPrimaryService()
+	if err != nil || primaryServiceKey == "" {
+		return fmt.Errorf("couldn't find the primary service key: %w", err)
+	}
+
+	s.primaryServiceConfig, err = s.getPrimaryServiceConfig(primaryServiceKey)
+	if err != nil {
+		return fmt.Errorf("couldn't get current DNS config: %w", err)
+	}
+
+	return nil
+}
+
+func (s *systemConfigurator) getPrimaryServiceConfig(serviceKey string) (PrimaryServiceConfig, error) {
+	dnsServiceKey := getKeyWithInput(primaryServiceStateKeyFormat, serviceKey)
+	line := buildCommandLine("show", dnsServiceKey, "")
+	stdinCommands := wrapCommand(line)
+
+	b, err := runSystemConfigCommand(stdinCommands)
+	if err != nil {
+		return PrimaryServiceConfig{}, fmt.Errorf("sending the command: %w", err)
+	}
+
+	var config PrimaryServiceConfig
+	inSearchDomainsArray := false
+	inServerAddressesArray := false
+
+	scanner := bufio.NewScanner(bytes.NewReader(b))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		switch {
+		case strings.HasPrefix(line, "DomainName :"):
+			domainName := strings.TrimSpace(strings.Split(line, ":")[1])
+			config.DomainName = domainName
+		case line == "SearchDomains : <array> {":
+			inSearchDomainsArray = true
+			continue
+		case line == "ServerAddresses : <array> {":
+			inServerAddressesArray = true
+			continue
+		case line == "}":
+			inSearchDomainsArray = false
+			inServerAddressesArray = false
+		}
+
+		if inSearchDomainsArray {
+			domain := strings.Split(line, " : ")[1]
+			config.SearchDomains = append(config.SearchDomains, domain)
+		} else if inServerAddressesArray {
+			address := strings.Split(line, " : ")[1]
+			if ip := net.ParseIP(address); ip != nil && ip.To4() != nil {
+				config.ServerAddress = address
+				inServerAddressesArray = false // Stop reading after finding the first IPv4 address
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return config, err
+	}
+
+	if config.DomainName != "" && !slices.Contains(config.SearchDomains, config.DomainName) {
+		config.SearchDomains = append(config.SearchDomains, config.DomainName)
+	}
+
+	return config, nil
 }
 
 func (s *systemConfigurator) addSearchDomains(key, domains string, ip string, port int) error {
@@ -194,23 +297,6 @@ func (s *systemConfigurator) addDNSState(state, domains, dnsServer string, port 
 	return nil
 }
 
-func (s *systemConfigurator) addDNSSetupForAll(dnsServer string, port int) error {
-	primaryServiceKey, existingNameserver, err := s.getPrimaryService()
-	if err != nil || primaryServiceKey == "" {
-		return fmt.Errorf("couldn't find the primary service key: %w", err)
-	}
-
-	err = s.addDNSSetup(getKeyWithInput(primaryServiceSetupKeyFormat, primaryServiceKey), dnsServer, port, existingNameserver)
-	if err != nil {
-		return fmt.Errorf("add dns setup: %w", err)
-	}
-
-	log.Infof("configured %s:%d as main DNS resolver for this peer", dnsServer, port)
-	s.primaryServiceID = primaryServiceKey
-
-	return nil
-}
-
 func (s *systemConfigurator) getPrimaryService() (string, string, error) {
 	line := buildCommandLine("show", globalIPv4State, "")
 	stdinCommands := wrapCommand(line)
@@ -237,19 +323,6 @@ func (s *systemConfigurator) getPrimaryService() (string, string, error) {
 	}
 
 	return primaryService, router, nil
-}
-
-func (s *systemConfigurator) addDNSSetup(setupKey, dnsServer string, port int, existingDNSServer string) error {
-	lines := buildAddCommandLine(keySupplementalMatchDomainsNoSearch, digitSymbol+strconv.Itoa(0))
-	lines += buildAddCommandLine(keyServerAddresses, arraySymbol+dnsServer+" "+existingDNSServer)
-	lines += buildAddCommandLine(keyServerPort, digitSymbol+strconv.Itoa(port))
-	addDomainCommand := buildCreateStateWithOperation(setupKey, lines)
-	stdinCommands := wrapCommand(addDomainCommand)
-	_, err := runSystemConfigCommand(stdinCommands)
-	if err != nil {
-		return fmt.Errorf("applying dns setup, error: %w", err)
-	}
-	return nil
 }
 
 func (s *systemConfigurator) restoreUncleanShutdownDNS(*netip.Addr) error {
