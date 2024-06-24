@@ -22,6 +22,8 @@ const (
 
 	userDataAcceptForwardRuleSrc = "frwacceptsrc"
 	userDataAcceptForwardRuleDst = "frwacceptdst"
+
+	loopbackInterface = "lo\x00"
 )
 
 // some presets for building nftable rules
@@ -126,6 +128,22 @@ func (r *router) createContainers() error {
 		Type:     nftables.ChainTypeNAT,
 	})
 
+	// Add RETURN rule for loopback interface
+	loRule := &nftables.Rule{
+		Table: r.workTable,
+		Chain: r.chains[chainNameRoutingNat],
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     []byte(loopbackInterface),
+			},
+			&expr.Verdict{Kind: expr.VerdictReturn},
+		},
+	}
+	r.conn.InsertRule(loRule)
+
 	err := r.refreshRulesMap()
 	if err != nil {
 		log.Errorf("failed to clean up rules from FORWARD chain: %s", err)
@@ -138,28 +156,28 @@ func (r *router) createContainers() error {
 	return nil
 }
 
-// InsertRoutingRules inserts a nftable rule pair to the forwarding chain and if enabled, to the nat chain
-func (r *router) InsertRoutingRules(pair manager.RouterPair) error {
+// AddRoutingRules appends a nftable rule pair to the forwarding chain and if enabled, to the nat chain
+func (r *router) AddRoutingRules(pair manager.RouterPair) error {
 	err := r.refreshRulesMap()
 	if err != nil {
 		return err
 	}
 
-	err = r.insertRoutingRule(manager.ForwardingFormat, chainNameRouteingFw, pair, false)
+	err = r.addRoutingRule(manager.ForwardingFormat, chainNameRouteingFw, pair, false)
 	if err != nil {
 		return err
 	}
-	err = r.insertRoutingRule(manager.InForwardingFormat, chainNameRouteingFw, manager.GetInPair(pair), false)
+	err = r.addRoutingRule(manager.InForwardingFormat, chainNameRouteingFw, manager.GetInPair(pair), false)
 	if err != nil {
 		return err
 	}
 
 	if pair.Masquerade {
-		err = r.insertRoutingRule(manager.NatFormat, chainNameRoutingNat, pair, true)
+		err = r.addRoutingRule(manager.NatFormat, chainNameRoutingNat, pair, true)
 		if err != nil {
 			return err
 		}
-		err = r.insertRoutingRule(manager.InNatFormat, chainNameRoutingNat, manager.GetInPair(pair), true)
+		err = r.addRoutingRule(manager.InNatFormat, chainNameRoutingNat, manager.GetInPair(pair), true)
 		if err != nil {
 			return err
 		}
@@ -177,8 +195,8 @@ func (r *router) InsertRoutingRules(pair manager.RouterPair) error {
 	return nil
 }
 
-// insertRoutingRule inserts a nftable rule to the conn client flush queue
-func (r *router) insertRoutingRule(format, chainName string, pair manager.RouterPair, isNat bool) error {
+// addRoutingRule inserts a nftable rule to the conn client flush queue
+func (r *router) addRoutingRule(format, chainName string, pair manager.RouterPair, isNat bool) error {
 	sourceExp := generateCIDRMatcherExpressions(true, pair.Source)
 	destExp := generateCIDRMatcherExpressions(false, pair.Destination)
 
@@ -199,7 +217,7 @@ func (r *router) insertRoutingRule(format, chainName string, pair manager.Router
 		}
 	}
 
-	r.rules[ruleKey] = r.conn.InsertRule(&nftables.Rule{
+	r.rules[ruleKey] = r.conn.AddRule(&nftables.Rule{
 		Table:    r.workTable,
 		Chain:    r.chains[chainName],
 		Exprs:    expression,

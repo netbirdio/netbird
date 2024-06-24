@@ -47,7 +47,7 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 
 			require.NoError(t, err, "shouldn't return error")
 
-			err = manager.InsertRoutingRules(testCase.InputPair)
+			err = manager.AddRoutingRules(testCase.InputPair)
 			defer func() {
 				_ = manager.RemoveRoutingRules(testCase.InputPair)
 			}()
