@@ -57,8 +57,6 @@ type ConfigInput struct {
 	NetworkMonitor      *bool
 	DisableAutoConnect  *bool
 	ExtraIFaceBlackList []string
-	ClientCertPath      string
-	ClientCertKeyPath   string
 	DNSRouteInterval    *time.Duration
 	ClientCertPath      string
 	ClientCertKeyPath   string
