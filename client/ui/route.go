@@ -90,7 +90,6 @@ func (s *serviceClient) updateRoutes(grid *fyne.Container) {
 		// our selectors are only for display
 		noopFunc := func(_ string) {
 			// do nothing
-			return
 		}
 
 		domainsSelector := widget.NewSelect(domains, noopFunc)
