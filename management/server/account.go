@@ -930,7 +930,7 @@ func BuildManager(ctx context.Context, store Store, peersUpdateManager *PeersUpd
 
 	goCacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
 	goCacheStore := cacheStore.NewGoCache(goCacheClient)
-	am.cacheManager = cache.NewLoadable[[]*idp.UserData](am.loadAccountWrapper, cache.New[[]*idp.UserData](goCacheStore))
+	am.cacheManager = cache.NewLoadable[[]*idp.UserData](am.loadAccount, cache.New[[]*idp.UserData](goCacheStore))
 
 	// TODO: what is max expiration time? Should be quite long
 	am.externalCacheManager = cache.New[*idp.UserData](
@@ -953,14 +953,6 @@ func BuildManager(ctx context.Context, store Store, peersUpdateManager *PeersUpd
 	})
 
 	return am, nil
-}
-
-func (am *DefaultAccountManager) loadAccountWrapper(ctx context.Context, key any) ([]*idp.UserData, error) {
-	accountID, ok := key.(string)
-	if !ok {
-		return nil, fmt.Errorf("invalid key type")
-	}
-	return am.loadAccount(ctx, accountID)
 }
 
 func (am *DefaultAccountManager) GetExternalCacheManager() ExternalCacheManager {
