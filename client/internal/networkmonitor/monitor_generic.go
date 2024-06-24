@@ -6,14 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"runtime/debug"
 
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/internal/routemanager"
+	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
 
 // Start begins monitoring network changes. When a change is detected, it calls the callback asynchronously and returns.
@@ -29,23 +28,22 @@ func (nw *NetworkMonitor) Start(ctx context.Context, callback func()) (err error
 	nw.wg.Add(1)
 	defer nw.wg.Done()
 
-	var nexthop4, nexthop6 netip.Addr
-	var intf4, intf6 *net.Interface
+	var nexthop4, nexthop6 systemops.Nexthop
 
 	operation := func() error {
 		var errv4, errv6 error
-		nexthop4, intf4, errv4 = routemanager.GetNextHop(netip.IPv4Unspecified())
-		nexthop6, intf6, errv6 = routemanager.GetNextHop(netip.IPv6Unspecified())
+		nexthop4, errv4 = systemops.GetNextHop(netip.IPv4Unspecified())
+		nexthop6, errv6 = systemops.GetNextHop(netip.IPv6Unspecified())
 
 		if errv4 != nil && errv6 != nil {
 			return errors.New("failed to get default next hops")
 		}
 
 		if errv4 == nil {
-			log.Debugf("Network monitor: IPv4 default route: %s, interface: %s", nexthop4, intf4.Name)
+			log.Debugf("Network monitor: IPv4 default route: %s, interface: %s", nexthop4.IP, nexthop4.Intf.Name)
 		}
 		if errv6 == nil {
-			log.Debugf("Network monitor: IPv6 default route: %s, interface: %s", nexthop6, intf6.Name)
+			log.Debugf("Network monitor: IPv6 default route: %s, interface: %s", nexthop6.IP, nexthop6.Intf.Name)
 		}
 
 		// continue if either route was found
@@ -65,7 +63,7 @@ func (nw *NetworkMonitor) Start(ctx context.Context, callback func()) (err error
 		}
 	}()
 
-	if err := checkChange(ctx, nexthop4, intf4, nexthop6, intf6, callback); err != nil {
+	if err := checkChange(ctx, nexthop4, nexthop6, callback); err != nil {
 		return fmt.Errorf("check change: %w", err)
 	}
 

@@ -1,0 +1,39 @@
+
+name: Test Code FreeBSD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test in FreeBSD
+        id: test
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            pkg install -y curl
+            pkg install -y git
+
+          run: |
+            set -x
+            curl -o go.tar.gz https://go.dev/dl/go1.21.11.freebsd-amd64.tar.gz -L
+            tar zxf go.tar.gz
+            mv go /usr/local/go
+            ln -s /usr/local/go/bin/go /usr/local/bin/go
+            go mod tidy
+            go test -timeout 5m -p 1 ./iface/...
+            go test -timeout 5m -p 1 ./client/... 
+            cd client
+            go build .
+            cd ..

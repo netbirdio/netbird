@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -20,9 +21,11 @@ import (
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/geolocation"
@@ -81,7 +84,7 @@ type AccountManager interface {
 	UpdatePeer(accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
 	GetNetworkMap(peerID string) (*NetworkMap, error)
 	GetPeerNetwork(peerID string) (*Network, error)
-	AddPeer(setupKey, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, *NetworkMap, error)
+	AddPeer(setupKey, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)
 	CreatePAT(accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error)
 	DeletePAT(accountID string, initiatorUserID string, targetUserID string, tokenID string) error
 	GetPAT(accountID string, initiatorUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error)
@@ -101,7 +104,7 @@ type AccountManager interface {
 	DeletePolicy(accountID, policyID, userID string) error
 	ListPolicies(accountID, userID string) ([]*Policy, error)
 	GetRoute(accountID string, routeID route.ID, userID string) (*route.Route, error)
-	CreateRoute(accountID, prefix, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
+	CreateRoute(accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string, keepRoute bool) (*route.Route, error)
 	SaveRoute(accountID, userID string, route *route.Route) error
 	DeleteRoute(accountID string, routeID route.ID, userID string) error
 	ListRoutes(accountID, userID string) ([]*route.Route, error)
@@ -117,8 +120,8 @@ type AccountManager interface {
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
 	GetPeer(accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error)
-	LoginPeer(login PeerLogin) (*nbpeer.Peer, *NetworkMap, error)                // used by peer gRPC API
-	SyncPeer(sync PeerSync, account *Account) (*nbpeer.Peer, *NetworkMap, error) // used by peer gRPC API
+	LoginPeer(login PeerLogin) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)                // used by peer gRPC API
+	SyncPeer(sync PeerSync, account *Account) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) // used by peer gRPC API
 	GetAllConnectedPeers() (map[string]struct{}, error)
 	HasConnectedChannel(peerID string) bool
 	GetExternalCacheManager() ExternalCacheManager
@@ -130,8 +133,10 @@ type AccountManager interface {
 	UpdateIntegratedValidatorGroups(accountID string, userID string, groups []string) error
 	GroupValidation(accountId string, groups []string) (bool, error)
 	GetValidatedPeers(account *Account) (map[string]struct{}, error)
-	SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error)
+	SyncAndMarkPeer(peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)
 	CancelPeerRoutines(peer *nbpeer.Peer) error
+	SyncPeerMeta(peerPubKey string, meta nbpeer.PeerSystemMeta) error
+	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 }
 
 type DefaultAccountManager struct {
@@ -241,6 +246,11 @@ type Account struct {
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
 }
 
+// Subclass used in gorm to only load settings and not whole account
+type AccountSettings struct {
+	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
+}
+
 type UserPermissions struct {
 	DashboardView string `json:"dashboard_view"`
 }
@@ -268,7 +278,7 @@ func (a *Account) getRoutesToSync(peerID string, aclPeers []*nbpeer.Peer) []*rou
 	routes, peerDisabledRoutes := a.getRoutingPeerRoutes(peerID)
 	peerRoutesMembership := make(lookupMap)
 	for _, r := range append(routes, peerDisabledRoutes...) {
-		peerRoutesMembership[string(route.GetHAUniqueID(r))] = struct{}{}
+		peerRoutesMembership[string(r.GetHAUniqueID())] = struct{}{}
 	}
 
 	groupListMap := a.getPeerGroups(peerID)
@@ -286,7 +296,7 @@ func (a *Account) getRoutesToSync(peerID string, aclPeers []*nbpeer.Peer) []*rou
 func (a *Account) filterRoutesFromPeersOfSameHAGroup(routes []*route.Route, peerMemberships lookupMap) []*route.Route {
 	var filteredRoutes []*route.Route
 	for _, r := range routes {
-		_, found := peerMemberships[string(route.GetHAUniqueID(r))]
+		_, found := peerMemberships[string(r.GetHAUniqueID())]
 		if !found {
 			filteredRoutes = append(filteredRoutes, r)
 		}
@@ -369,11 +379,13 @@ func (a *Account) getRoutingPeerRoutes(peerID string) (enabledRoutes []*route.Ro
 	return enabledRoutes, disabledRoutes
 }
 
-// GetRoutesByPrefix return list of routes by account and route prefix
-func (a *Account) GetRoutesByPrefix(prefix netip.Prefix) []*route.Route {
+// GetRoutesByPrefixOrDomains return list of routes by account and route prefix
+func (a *Account) GetRoutesByPrefixOrDomains(prefix netip.Prefix, domains domain.List) []*route.Route {
 	var routes []*route.Route
 	for _, r := range a.Routes {
-		if r.Network.String() == prefix.String() {
+		dynamic := r.IsDynamic()
+		if dynamic && r.Domains.PunycodeString() == domains.PunycodeString() ||
+			!dynamic && r.Network.String() == prefix.String() {
 			routes = append(routes, r)
 		}
 	}
@@ -752,8 +764,13 @@ func (a *Account) GetPeer(peerID string) *nbpeer.Peer {
 	return a.Peers[peerID]
 }
 
-// SetJWTGroups to account and to user autoassigned groups
+// SetJWTGroups updates the user's auto groups by synchronizing JWT groups.
+// Returns true if there are changes in the JWT group membership.
 func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
+	if len(groupsNames) == 0 {
+		return false
+	}
+
 	user, ok := a.Users[userID]
 	if !ok {
 		return false
@@ -764,23 +781,19 @@ func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
 		existedGroupsByName[group.Name] = group
 	}
 
-	// remove JWT groups from the autogroups, to sync them again
-	removed := 0
-	jwtAutoGroups := make(map[string]struct{})
-	for i, id := range user.AutoGroups {
-		if group, ok := a.Groups[id]; ok && group.Issued == nbgroup.GroupIssuedJWT {
-			jwtAutoGroups[group.Name] = struct{}{}
-			user.AutoGroups = append(user.AutoGroups[:i-removed], user.AutoGroups[i-removed+1:]...)
-			removed++
-		}
+	newAutoGroups, jwtGroupsMap := separateGroups(user.AutoGroups, a.Groups)
+	groupsToAdd := difference(groupsNames, maps.Keys(jwtGroupsMap))
+	groupsToRemove := difference(maps.Keys(jwtGroupsMap), groupsNames)
+
+	// If no groups are added or removed, we should not sync account
+	if len(groupsToAdd) == 0 && len(groupsToRemove) == 0 {
+		return false
 	}
 
-	// create JWT groups if they doesn't exist
-	// and all of them to the autogroups
 	var modified bool
-	for _, name := range groupsNames {
-		group, ok := existedGroupsByName[name]
-		if !ok {
+	for _, name := range groupsToAdd {
+		group, exists := existedGroupsByName[name]
+		if !exists {
 			group = &nbgroup.Group{
 				ID:     xid.New().String(),
 				Name:   name,
@@ -788,20 +801,20 @@ func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
 			}
 			a.Groups[group.ID] = group
 		}
-		// only JWT groups will be synced
 		if group.Issued == nbgroup.GroupIssuedJWT {
-			user.AutoGroups = append(user.AutoGroups, group.ID)
-			if _, ok := jwtAutoGroups[name]; !ok {
-				modified = true
-			}
-			delete(jwtAutoGroups, name)
+			newAutoGroups = append(newAutoGroups, group.ID)
+			modified = true
 		}
 	}
 
-	// if not empty it means we removed some groups
-	if len(jwtAutoGroups) > 0 {
+	for name, id := range jwtGroupsMap {
+		if !slices.Contains(groupsToRemove, name) {
+			newAutoGroups = append(newAutoGroups, id)
+			continue
+		}
 		modified = true
 	}
+	user.AutoGroups = newAutoGroups
 
 	return modified
 }
@@ -1708,6 +1721,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 							if err := am.Store.SaveAccount(account); err != nil {
 								log.Errorf("failed to save account: %v", err)
 							} else {
+								log.Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
 								am.updateAccountPeers(account)
 								unlock()
 								alreadyUnlocked = true
@@ -1841,13 +1855,13 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 	}
 }
 
-func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error) {
+func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(peerPubKey)
 	if err != nil {
 		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
-			return nil, nil, status.Errorf(status.Unauthenticated, "peer not registered")
+			return nil, nil, nil, status.Errorf(status.Unauthenticated, "peer not registered")
 		}
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	unlock := am.Store.AcquireAccountReadLock(accountID)
@@ -1855,12 +1869,12 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.I
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	peer, netMap, err := am.SyncPeer(PeerSync{WireGuardPubKey: peerPubKey}, account)
+	peer, netMap, postureChecks, err := am.SyncPeer(PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, account)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	err = am.MarkPeerConnected(peerPubKey, true, realIP, account)
@@ -1868,7 +1882,7 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(peerPubKey string, realIP net.I
 		log.Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
 
-	return peer, netMap, nil
+	return peer, netMap, postureChecks, nil
 }
 
 func (am *DefaultAccountManager) CancelPeerRoutines(peer *nbpeer.Peer) error {
@@ -1895,6 +1909,27 @@ func (am *DefaultAccountManager) CancelPeerRoutines(peer *nbpeer.Peer) error {
 
 	return nil
 
+}
+
+func (am *DefaultAccountManager) SyncPeerMeta(peerPubKey string, meta nbpeer.PeerSystemMeta) error {
+	accountID, err := am.Store.GetAccountIDByPeerPubKey(peerPubKey)
+	if err != nil {
+		return err
+	}
+
+	unlock := am.Store.AcquireAccountReadLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	_, _, _, err = am.SyncPeer(PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, UpdateAccountPeers: true}, account)
+	if err != nil {
+		return mapError(err)
+	}
+	return nil
 }
 
 // GetAllConnectedPeers returns connected peers based on peersUpdateManager.GetAllConnectedPeers()
@@ -1959,6 +1994,10 @@ func (am *DefaultAccountManager) onPeersInvalidated(accountID string) {
 		return
 	}
 	am.updateAccountPeers(updatedAccount)
+}
+
+func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
+	return am.Store.GetPostureCheckByChecksDefinition(accountID, checks)
 }
 
 // addAllGroup to account object if it doesn't exist
@@ -2053,4 +2092,23 @@ func userHasAllowedGroup(allowedGroups []string, userGroups []string) bool {
 		}
 	}
 	return false
+}
+
+// separateGroups separates user's auto groups into non-JWT and JWT groups.
+// Returns the list of standard auto groups and a map of JWT auto groups,
+// where the keys are the group names and the values are the group IDs.
+func separateGroups(autoGroups []string, allGroups map[string]*nbgroup.Group) ([]string, map[string]string) {
+	newAutoGroups := make([]string, 0)
+	jwtAutoGroups := make(map[string]string) // map of group name to group ID
+
+	for _, id := range autoGroups {
+		if group, ok := allGroups[id]; ok {
+			if group.Issued == nbgroup.GroupIssuedJWT {
+				jwtAutoGroups[group.Name] = id
+			} else {
+				newAutoGroups = append(newAutoGroups, id)
+			}
+		}
+	}
+	return newAutoGroups, jwtAutoGroups
 }

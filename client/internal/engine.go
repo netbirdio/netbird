@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand"
 	"net"
 	"net/netip"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -27,17 +29,21 @@ import (
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
+	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/iface/bind"
 	mgm "github.com/netbirdio/netbird/management/client"
+	"github.com/netbirdio/netbird/management/domain"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/route"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/util"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
@@ -88,6 +94,8 @@ type EngineConfig struct {
 	RosenpassPermissive bool
 
 	ServerSSHAllowed bool
+
+	DNSRouteInterval time.Duration
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -99,8 +107,8 @@ type Engine struct {
 	// peerConns is a map that holds all the peers that are known to this peer
 	peerConns map[string]*peer.Conn
 
-	beforePeerHook peer.BeforeAddPeerHookFunc
-	afterPeerHook  peer.AfterRemovePeerHookFunc
+	beforePeerHook nbnet.AddHookFunc
+	afterPeerHook  nbnet.RemoveHookFunc
 
 	// rpManager is a Rosenpass manager
 	rpManager *rosenpass.Manager
@@ -117,7 +125,8 @@ type Engine struct {
 	TURNs []*stun.URI
 
 	// clientRoutes is the most recent list of clientRoutes received from the Management Service
-	clientRoutes route.HAMap
+	clientRoutes   route.HAMap
+	clientRoutesMu sync.RWMutex
 
 	clientCtx    context.Context
 	clientCancel context.CancelFunc
@@ -152,6 +161,9 @@ type Engine struct {
 	wgProbe     *Probe
 
 	wgConnWorker sync.WaitGroup
+
+	// checks are the client-applied posture checks that need to be evaluated on the client
+	checks []*mgmProto.Checks
 }
 
 // Peer is an instance of the Connection Peer
@@ -169,6 +181,7 @@ func NewEngine(
 	config *EngineConfig,
 	mobileDep MobileDependency,
 	statusRecorder *peer.Status,
+	checks []*mgmProto.Checks,
 ) *Engine {
 	return NewEngineWithProbes(
 		clientCtx,
@@ -182,6 +195,7 @@ func NewEngine(
 		nil,
 		nil,
 		nil,
+		checks,
 	)
 }
 
@@ -198,6 +212,7 @@ func NewEngineWithProbes(
 	signalProbe *Probe,
 	relayProbe *Probe,
 	wgProbe *Probe,
+	checks []*mgmProto.Checks,
 ) *Engine {
 
 	return &Engine{
@@ -218,6 +233,7 @@ func NewEngineWithProbes(
 		signalProbe:    signalProbe,
 		relayProbe:     relayProbe,
 		wgProbe:        wgProbe,
+		checks:         checks,
 	}
 }
 
@@ -240,7 +256,9 @@ func (e *Engine) Stop() error {
 		return err
 	}
 
+	e.clientRoutesMu.Lock()
 	e.clientRoutes = nil
+	e.clientRoutesMu.Unlock()
 
 	// very ugly but we want to remove peers from the WireGuard interface first before removing interface.
 	// Removing peers happens in the conn.Close() asynchronously
@@ -264,14 +282,15 @@ func (e *Engine) Start() error {
 	}
 	e.ctx, e.cancel = context.WithCancel(e.clientCtx)
 
-	e.wgProxyFactory = wgproxy.NewFactory(e.ctx, e.config.WgPort)
-
 	wgIface, err := e.newWgIface()
 	if err != nil {
 		log.Errorf("failed creating wireguard interface instance %s: [%s]", e.config.WgIfaceName, err)
 		return fmt.Errorf("new wg interface: %w", err)
 	}
 	e.wgInterface = wgIface
+
+	userspace := e.wgInterface.IsUserspaceBind()
+	e.wgProxyFactory = wgproxy.NewFactory(e.ctx, userspace, e.config.WgPort)
 
 	if e.config.RosenpassEnabled {
 		log.Infof("rosenpass is enabled")
@@ -297,7 +316,7 @@ func (e *Engine) Start() error {
 	}
 	e.dnsServer = dnsServer
 
-	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, initialRoutes)
+	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.config.DNSRouteInterval, e.wgInterface, e.statusRecorder, initialRoutes)
 	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
 	if err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)
@@ -523,6 +542,10 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		// todo update signal
 	}
 
+	if err := e.updateChecksIfNew(update.Checks); err != nil {
+		return err
+	}
+
 	if update.GetNetworkMap() != nil {
 		// only apply new changes and ignore old ones
 		err := e.updateNetworkMap(update.GetNetworkMap())
@@ -530,7 +553,27 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 			return err
 		}
 	}
+	return nil
+}
 
+// updateChecksIfNew updates checks if there are changes and sync new meta with management
+func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
+	// if checks are equal, we skip the update
+	if isChecksEqual(e.checks, checks) {
+		return nil
+	}
+	e.checks = checks
+
+	info, err := system.GetInfoWithChecks(e.ctx, checks)
+	if err != nil {
+		log.Warnf("failed to get system info with checks: %v", err)
+		info = system.GetInfo(e.ctx)
+	}
+
+	if err := e.mgmClient.SyncMeta(info); err != nil {
+		log.Errorf("could not sync meta: error %s", err)
+		return err
+	}
 	return nil
 }
 
@@ -546,8 +589,8 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 	} else {
 
 		if sshConf.GetSshEnabled() {
-			if runtime.GOOS == "windows" {
-				log.Warnf("running SSH server on Windows is not supported")
+			if runtime.GOOS == "windows" || runtime.GOOS == "freebsd" {
+				log.Warnf("running SSH server on %s is not supported", runtime.GOOS)
 				return nil
 			}
 			// start SSH server if it wasn't running
@@ -620,7 +663,14 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 // E.g. when a new peer has been registered and we are allowed to connect to it.
 func (e *Engine) receiveManagementEvents() {
 	go func() {
-		err := e.mgmClient.Sync(e.ctx, e.handleSync)
+		info, err := system.GetInfoWithChecks(e.ctx, e.checks)
+		if err != nil {
+			log.Warnf("failed to get system info with checks: %v", err)
+			info = system.GetInfo(e.ctx)
+		}
+
+		// err = e.mgmClient.Sync(info, e.handleSync)
+		err = e.mgmClient.Sync(e.ctx, info, e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
@@ -687,6 +737,20 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		return nil
 	}
 
+	protoRoutes := networkMap.GetRoutes()
+	if protoRoutes == nil {
+		protoRoutes = []*mgmProto.Route{}
+	}
+
+	_, clientRoutes, err := e.routeManager.UpdateRoutes(serial, toRoutes(protoRoutes))
+	if err != nil {
+		log.Errorf("failed to update clientRoutes, err: %v", err)
+	}
+
+	e.clientRoutesMu.Lock()
+	e.clientRoutes = clientRoutes
+	e.clientRoutesMu.Unlock()
+
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
 	e.updateOfflinePeers(networkMap.GetOfflinePeers())
@@ -728,17 +792,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 			}
 		}
 	}
-	protoRoutes := networkMap.GetRoutes()
-	if protoRoutes == nil {
-		protoRoutes = []*mgmProto.Route{}
-	}
-
-	_, clientRoutes, err := e.routeManager.UpdateRoutes(serial, toRoutes(protoRoutes))
-	if err != nil {
-		log.Errorf("failed to update clientRoutes, err: %v", err)
-	}
-
-	e.clientRoutes = clientRoutes
 
 	protoDNSConfig := networkMap.GetDNSConfig()
 	if protoDNSConfig == nil {
@@ -766,15 +819,24 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 	routes := make([]*route.Route, 0)
 	for _, protoRoute := range protoRoutes {
-		_, prefix, _ := route.ParseNetwork(protoRoute.Network)
+		var prefix netip.Prefix
+		if len(protoRoute.Domains) == 0 {
+			var err error
+			if prefix, err = netip.ParsePrefix(protoRoute.Network); err != nil {
+				log.Errorf("Failed to parse prefix %s: %v", protoRoute.Network, err)
+				continue
+			}
+		}
 		convertedRoute := &route.Route{
 			ID:          route.ID(protoRoute.ID),
 			Network:     prefix,
+			Domains:     domain.FromPunycodeList(protoRoute.Domains),
 			NetID:       route.NetID(protoRoute.NetID),
 			NetworkType: route.NetworkType(protoRoute.NetworkType),
 			Peer:        protoRoute.Peer,
 			Metric:      int(protoRoute.Metric),
 			Masquerade:  protoRoute.Masquerade,
+			KeepRoute:   protoRoute.KeepRoute,
 		}
 		routes = append(routes, convertedRoute)
 	}
@@ -977,7 +1039,6 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		WgConfig:             wgConfig,
 		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
-		UserspaceBind:        e.wgInterface.IsUserspaceBind(),
 		RosenpassPubKey:      e.getRosenpassPubKey(),
 		RosenpassAddr:        e.getRosenpassAddr(),
 	}
@@ -1040,8 +1101,6 @@ func (e *Engine) receiveSignalEvents() {
 					return err
 				}
 
-				conn.RegisterProtoSupportMeta(msg.Body.GetFeaturesSupported())
-
 				var rosenpassPubKey []byte
 				rosenpassAddr := ""
 				if msg.GetBody().GetRosenpassConfig() != nil {
@@ -1063,8 +1122,6 @@ func (e *Engine) receiveSignalEvents() {
 				if err != nil {
 					return err
 				}
-
-				conn.RegisterProtoSupportMeta(msg.GetBody().GetFeaturesSupported())
 
 				var rosenpassPubKey []byte
 				rosenpassAddr := ""
@@ -1088,7 +1145,8 @@ func (e *Engine) receiveSignalEvents() {
 					log.Errorf("failed on parsing remote candidate %s -> %s", candidate, err)
 					return err
 				}
-				conn.OnRemoteCandidate(candidate)
+
+				conn.OnRemoteCandidate(candidate, e.GetClientRoutes())
 			case sProto.Body_MODE:
 			}
 
@@ -1202,7 +1260,8 @@ func (e *Engine) close() {
 }
 
 func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
-	netMap, err := e.mgmClient.GetNetworkMap()
+	info := system.GetInfo(e.ctx)
+	netMap, err := e.mgmClient.GetNetworkMap(info)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1231,7 +1290,7 @@ func (e *Engine) newWgIface() (*iface.WGIface, error) {
 	default:
 	}
 
-	return iface.NewWGIFace(e.config.WgIfaceName, e.config.WgAddr, e.config.WgPort, e.config.WgPrivateKey.String(), iface.DefaultMTU, transportNet, mArgs)
+	return iface.NewWGIFace(e.config.WgIfaceName, e.config.WgAddr, e.config.WgPort, e.config.WgPrivateKey.String(), iface.DefaultMTU, transportNet, mArgs, e.addrViaRoutes)
 }
 
 func (e *Engine) wgInterfaceCreate() (err error) {
@@ -1282,11 +1341,17 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 
 // GetClientRoutes returns the current routes from the route map
 func (e *Engine) GetClientRoutes() route.HAMap {
-	return e.clientRoutes
+	e.clientRoutesMu.RLock()
+	defer e.clientRoutesMu.RUnlock()
+
+	return maps.Clone(e.clientRoutes)
 }
 
 // GetClientRoutesWithNetID returns the current routes from the route map, but the keys consist of the network ID only
 func (e *Engine) GetClientRoutesWithNetID() map[route.NetID][]*route.Route {
+	e.clientRoutesMu.RLock()
+	defer e.clientRoutesMu.RUnlock()
+
 	routes := make(map[route.NetID][]*route.Route, len(e.clientRoutes))
 	for id, v := range e.clientRoutes {
 		routes[id.NetID()] = v
@@ -1421,4 +1486,26 @@ func (e *Engine) startNetworkMonitor() {
 			log.Errorf("Network monitor: %v", err)
 		}
 	}()
+}
+
+func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
+	var vpnRoutes []netip.Prefix
+	for _, routes := range e.GetClientRoutes() {
+		if len(routes) > 0 && routes[0] != nil {
+			vpnRoutes = append(vpnRoutes, routes[0].Network)
+		}
+	}
+
+	if isVpn, prefix := systemops.IsAddrRouted(addr, vpnRoutes); isVpn {
+		return true, prefix, nil
+	}
+
+	return false, netip.Prefix{}, nil
+}
+
+// isChecksEqual checks if two slices of checks are equal.
+func isChecksEqual(checks []*mgmProto.Checks, oChecks []*mgmProto.Checks) bool {
+	return slices.EqualFunc(checks, oChecks, func(checks, oChecks *mgmProto.Checks) bool {
+		return slices.Equal(checks.Files, oChecks.Files)
+	})
 }

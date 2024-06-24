@@ -92,7 +92,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		return
 	}
 
-	peer1, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	peer1, _, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-1"},
 	})
@@ -106,7 +106,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	_, _, err = manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	_, _, _, err = manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
 	})
@@ -165,7 +165,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 		return
 	}
 
-	peer1, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	peer1, _, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-1"},
 	})
@@ -179,7 +179,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	peer2, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	peer2, _, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
 	})
@@ -341,7 +341,7 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		return
 	}
 
-	peer1, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	peer1, _, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-1"},
 	})
@@ -355,7 +355,7 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	_, _, err = manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	_, _, _, err = manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
 	})
@@ -413,7 +413,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 		return
 	}
 
-	peer1, _, err := manager.AddPeer("", someUser, &nbpeer.Peer{
+	peer1, _, _, err := manager.AddPeer("", someUser, &nbpeer.Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
 	})
@@ -429,7 +429,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 
 	// the second peer added with a setup key
-	peer2, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	peer2, _, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
 	})
@@ -601,7 +601,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 
-			_, _, err = manager.AddPeer("", someUser, &nbpeer.Peer{
+			_, _, _, err = manager.AddPeer("", someUser, &nbpeer.Peer{
 				Key:  peerKey1.PublicKey().String(),
 				Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-1"},
 			})
@@ -610,7 +610,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 
-			_, _, err = manager.AddPeer("", adminUser, &nbpeer.Peer{
+			_, _, _, err = manager.AddPeer("", adminUser, &nbpeer.Peer{
 				Key:  peerKey2.PublicKey().String(),
 				Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
 			})

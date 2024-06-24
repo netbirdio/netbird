@@ -85,7 +85,7 @@ func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Ac
 		setupKey = key.Key
 	}
 
-	_, _, err := manager.AddPeer(setupKey, userID, peer)
+	_, _, _, err := manager.AddPeer(setupKey, userID, peer)
 	if err != nil {
 		t.Error("expected to add new peer successfully after creating new account, but failed", err)
 	}
@@ -997,7 +997,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 	expectedPeerKey := key.PublicKey().String()
 	expectedSetupKey := setupKey.Key
 
-	peer, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	peer, _, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
 		Key:  expectedPeerKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
 	})
@@ -1065,7 +1065,7 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 	expectedPeerKey := key.PublicKey().String()
 	expectedUserID := userID
 
-	peer, _, err := manager.AddPeer("", userID, &nbpeer.Peer{
+	peer, _, _, err := manager.AddPeer("", userID, &nbpeer.Peer{
 		Key:  expectedPeerKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
 	})
@@ -1140,7 +1140,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		}
 		expectedPeerKey := key.PublicKey().String()
 
-		peer, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+		peer, _, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
 			Key:  expectedPeerKey,
 			Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
 		})
@@ -1315,7 +1315,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 
 	peerKey := key.PublicKey().String()
 
-	peer, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	peer, _, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: peerKey},
 	})
@@ -1435,7 +1435,7 @@ func TestFileStore_GetRoutesByPrefix(t *testing.T) {
 		},
 	}
 
-	routes := account.GetRoutesByPrefix(prefix)
+	routes := account.GetRoutesByPrefixOrDomains(prefix, nil)
 
 	assert.Len(t, routes, 2)
 	routeIDs := make(map[route.ID]struct{}, 2)
@@ -1662,7 +1662,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 
 	key, err := wgtypes.GenerateKey()
 	require.NoError(t, err, "unable to generate WireGuard key")
-	peer, _, err := manager.AddPeer("", userID, &nbpeer.Peer{
+	peer, _, _, err := manager.AddPeer("", userID, &nbpeer.Peer{
 		Key:                    key.PublicKey().String(),
 		Meta:                   nbpeer.PeerSystemMeta{Hostname: "test-peer"},
 		LoginExpirationEnabled: true,
@@ -1715,7 +1715,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 
 	key, err := wgtypes.GenerateKey()
 	require.NoError(t, err, "unable to generate WireGuard key")
-	_, _, err = manager.AddPeer("", userID, &nbpeer.Peer{
+	_, _, _, err = manager.AddPeer("", userID, &nbpeer.Peer{
 		Key:                    key.PublicKey().String(),
 		Meta:                   nbpeer.PeerSystemMeta{Hostname: "test-peer"},
 		LoginExpirationEnabled: true,
@@ -1759,7 +1759,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 
 	key, err := wgtypes.GenerateKey()
 	require.NoError(t, err, "unable to generate WireGuard key")
-	_, _, err = manager.AddPeer("", userID, &nbpeer.Peer{
+	_, _, _, err = manager.AddPeer("", userID, &nbpeer.Peer{
 		Key:                    key.PublicKey().String(),
 		Meta:                   nbpeer.PeerSystemMeta{Hostname: "test-peer"},
 		LoginExpirationEnabled: true,
@@ -2175,17 +2175,33 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		},
 	}
 
-	t.Run("api group already exists", func(t *testing.T) {
-		updated := account.SetJWTGroups("user1", []string{"group1"})
+	t.Run("empty jwt groups", func(t *testing.T) {
+		updated := account.SetJWTGroups("user1", []string{})
 		assert.False(t, updated, "account should not be updated")
 		assert.Empty(t, account.Users["user1"].AutoGroups, "auto groups must be empty")
+	})
+
+	t.Run("jwt match existing api group", func(t *testing.T) {
+		updated := account.SetJWTGroups("user1", []string{"group1"})
+		assert.False(t, updated, "account should not be updated")
+		assert.Equal(t, 0, len(account.Users["user1"].AutoGroups))
+		assert.Equal(t, account.Groups["group1"].Issued, group.GroupIssuedAPI, "group should be api issued")
+	})
+
+	t.Run("jwt match existing api group in user auto groups", func(t *testing.T) {
+		account.Users["user1"].AutoGroups = []string{"group1"}
+
+		updated := account.SetJWTGroups("user1", []string{"group1"})
+		assert.False(t, updated, "account should not be updated")
+		assert.Equal(t, 1, len(account.Users["user1"].AutoGroups))
+		assert.Equal(t, account.Groups["group1"].Issued, group.GroupIssuedAPI, "group should be api issued")
 	})
 
 	t.Run("add jwt group", func(t *testing.T) {
 		updated := account.SetJWTGroups("user1", []string{"group1", "group2"})
 		assert.True(t, updated, "account should be updated")
 		assert.Len(t, account.Groups, 2, "new group should be added")
-		assert.Len(t, account.Users["user1"].AutoGroups, 1, "new group should be added")
+		assert.Len(t, account.Users["user1"].AutoGroups, 2, "new group should be added")
 		assert.Contains(t, account.Groups, account.Users["user1"].AutoGroups[0], "groups must contain group2 from user groups")
 	})
 

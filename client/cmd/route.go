@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
@@ -49,7 +50,7 @@ func init() {
 }
 
 func routesList(cmd *cobra.Command, _ []string) error {
-	conn, err := getClient(cmd.Context())
+	conn, err := getClient(cmd)
 	if err != nil {
 		return err
 	}
@@ -66,20 +67,62 @@ func routesList(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	cmd.Println("Available Routes:")
-	for _, route := range resp.Routes {
-		selectedStatus := "Not Selected"
-		if route.GetSelected() {
-			selectedStatus = "Selected"
-		}
-		cmd.Printf("\n  - ID: %s\n    Network: %s\n    Status: %s\n", route.GetID(), route.GetNetwork(), selectedStatus)
-	}
+	printRoutes(cmd, resp)
 
 	return nil
 }
 
+func printRoutes(cmd *cobra.Command, resp *proto.ListRoutesResponse) {
+	cmd.Println("Available Routes:")
+	for _, route := range resp.Routes {
+		printRoute(cmd, route)
+	}
+}
+
+func printRoute(cmd *cobra.Command, route *proto.Route) {
+	selectedStatus := getSelectedStatus(route)
+	domains := route.GetDomains()
+
+	if len(domains) > 0 {
+		printDomainRoute(cmd, route, domains, selectedStatus)
+	} else {
+		printNetworkRoute(cmd, route, selectedStatus)
+	}
+}
+
+func getSelectedStatus(route *proto.Route) string {
+	if route.GetSelected() {
+		return "Selected"
+	}
+	return "Not Selected"
+}
+
+func printDomainRoute(cmd *cobra.Command, route *proto.Route, domains []string, selectedStatus string) {
+	cmd.Printf("\n  - ID: %s\n    Domains: %s\n    Status: %s\n", route.GetID(), strings.Join(domains, ", "), selectedStatus)
+	resolvedIPs := route.GetResolvedIPs()
+
+	if len(resolvedIPs) > 0 {
+		printResolvedIPs(cmd, domains, resolvedIPs)
+	} else {
+		cmd.Printf("    Resolved IPs: -\n")
+	}
+}
+
+func printNetworkRoute(cmd *cobra.Command, route *proto.Route, selectedStatus string) {
+	cmd.Printf("\n  - ID: %s\n    Network: %s\n    Status: %s\n", route.GetID(), route.GetNetwork(), selectedStatus)
+}
+
+func printResolvedIPs(cmd *cobra.Command, domains []string, resolvedIPs map[string]*proto.IPList) {
+	cmd.Printf("    Resolved IPs:\n")
+	for _, domain := range domains {
+		if ipList, exists := resolvedIPs[domain]; exists {
+			cmd.Printf("      [%s]: %s\n", domain, strings.Join(ipList.GetIps(), ", "))
+		}
+	}
+}
+
 func routesSelect(cmd *cobra.Command, args []string) error {
-	conn, err := getClient(cmd.Context())
+	conn, err := getClient(cmd)
 	if err != nil {
 		return err
 	}
@@ -106,7 +149,7 @@ func routesSelect(cmd *cobra.Command, args []string) error {
 }
 
 func routesDeselect(cmd *cobra.Command, args []string) error {
-	conn, err := getClient(cmd.Context())
+	conn, err := getClient(cmd)
 	if err != nil {
 		return err
 	}

@@ -261,15 +261,15 @@ func TestRouteSelector_FilterSelected(t *testing.T) {
 	require.NoError(t, err)
 
 	routes := route.HAMap{
-		"route1-10.0.0.0/8":     {},
-		"route2-192.168.0.0/16": {},
-		"route3-172.16.0.0/12":  {},
+		"route1|10.0.0.0/8":     {},
+		"route2|192.168.0.0/16": {},
+		"route3|172.16.0.0/12":  {},
 	}
 
 	filtered := rs.FilterSelected(routes)
 
 	assert.Equal(t, route.HAMap{
-		"route1-10.0.0.0/8":     {},
-		"route2-192.168.0.0/16": {},
+		"route1|10.0.0.0/8":     {},
+		"route2|192.168.0.0/16": {},
 	}, filtered)
 }

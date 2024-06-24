@@ -75,3 +75,23 @@ func FromError(err error) (s *Error, ok bool) {
 	}
 	return nil, false
 }
+
+// NewPeerNotFoundError creates a new Error with NotFound type for a missing peer
+func NewPeerNotFoundError(peerKey string) error {
+	return Errorf(NotFound, "peer not found: %s", peerKey)
+}
+
+// NewAccountNotFoundError creates a new Error with NotFound type for a missing account
+func NewAccountNotFoundError(accountKey string) error {
+	return Errorf(NotFound, "account not found: %s", accountKey)
+}
+
+// NewUserNotFoundError creates a new Error with NotFound type for a missing user
+func NewUserNotFoundError(userKey string) error {
+	return Errorf(NotFound, "user not found: %s", userKey)
+}
+
+// NewPeerNotRegisteredError creates a new Error with NotFound type for a missing peer
+func NewPeerNotRegisteredError() error {
+	return Errorf(Unauthenticated, "peer is not registered")
+}

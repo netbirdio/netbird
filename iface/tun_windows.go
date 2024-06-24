@@ -29,14 +29,14 @@ type tunDevice struct {
 	configurer      wgConfigurer
 }
 
-func newTunDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net) wgTunDevice {
+func newTunDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) wgTunDevice {
 	return &tunDevice{
 		name:    name,
 		address: address,
 		port:    port,
 		key:     key,
 		mtu:     mtu,
-		iceBind: bind.NewICEBind(transportNet),
+		iceBind: bind.NewICEBind(transportNet, filterFn),
 	}
 }
 

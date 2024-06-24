@@ -1,4 +1,4 @@
-//go:build !(linux && 386)
+//go:build !(linux && 386) && !freebsd
 
 package main
 
@@ -20,7 +20,7 @@ import (
 func (s *serviceClient) showRoutesUI() {
 	s.wRoutes = s.app.NewWindow("NetBird Routes")
 
-	grid := container.New(layout.NewGridLayout(2))
+	grid := container.New(layout.NewGridLayout(3))
 	go s.updateRoutes(grid)
 	routeCheckContainer := container.NewVBox()
 	routeCheckContainer.Add(grid)
@@ -61,14 +61,16 @@ func (s *serviceClient) updateRoutes(grid *fyne.Container) {
 
 	grid.Objects = nil
 	idHeader := widget.NewLabelWithStyle("      ID", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	networkHeader := widget.NewLabelWithStyle("Network", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	networkHeader := widget.NewLabelWithStyle("Network/Domains", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	resolvedIPsHeader := widget.NewLabelWithStyle("Resolved IPs", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 
 	grid.Add(idHeader)
 	grid.Add(networkHeader)
+	grid.Add(resolvedIPsHeader)
 	for _, route := range routes {
 		r := route
 
-		checkBox := widget.NewCheck(r.ID, func(checked bool) {
+		checkBox := widget.NewCheck(r.GetID(), func(checked bool) {
 			s.selectRoute(r.ID, checked)
 		})
 		checkBox.Checked = route.Selected
@@ -76,10 +78,45 @@ func (s *serviceClient) updateRoutes(grid *fyne.Container) {
 		checkBox.Refresh()
 
 		grid.Add(checkBox)
-		grid.Add(widget.NewLabel(r.Network))
+		network := r.GetNetwork()
+		domains := r.GetDomains()
+
+		if len(domains) == 0 {
+			grid.Add(widget.NewLabel(network))
+			grid.Add(widget.NewLabel(""))
+			continue
+		}
+
+		// our selectors are only for display
+		noopFunc := func(_ string) {
+			// do nothing
+		}
+
+		domainsSelector := widget.NewSelect(domains, noopFunc)
+		domainsSelector.Selected = domains[0]
+		grid.Add(domainsSelector)
+
+		var resolvedIPsList []string
+		for _, domain := range domains {
+			if ipList, exists := r.GetResolvedIPs()[domain]; exists {
+				resolvedIPsList = append(resolvedIPsList, fmt.Sprintf("%s: %s", domain, strings.Join(ipList.GetIps(), ", ")))
+			}
+		}
+
+		if len(resolvedIPsList) == 0 {
+			grid.Add(widget.NewLabel(""))
+			continue
+		}
+
+		// TODO: limit width within the selector display
+		resolvedIPsSelector := widget.NewSelect(resolvedIPsList, noopFunc)
+		resolvedIPsSelector.Selected = resolvedIPsList[0]
+		resolvedIPsSelector.Resize(fyne.NewSize(100, 100))
+		grid.Add(resolvedIPsSelector)
 	}
 
 	s.wRoutes.Content().Refresh()
+	grid.Refresh()
 }
 
 func (s *serviceClient) fetchRoutes() ([]*proto.Route, error) {

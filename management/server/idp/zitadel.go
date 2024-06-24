@@ -154,7 +154,7 @@ func (zc *ZitadelCredentials) requestJWTToken() (*http.Response, error) {
 	data.Set("client_id", zc.clientConfig.ClientID)
 	data.Set("client_secret", zc.clientConfig.ClientSecret)
 	data.Set("grant_type", zc.clientConfig.GrantType)
-	data.Set("scope", "urn:zitadel:iam:org:project:id:zitadel:aud")
+	data.Set("scope", "openid urn:zitadel:iam:org:project:id:zitadel:aud")
 
 	payload := strings.NewReader(data.Encode())
 	req, err := http.NewRequest(http.MethodPost, zc.clientConfig.TokenEndpoint, payload)
