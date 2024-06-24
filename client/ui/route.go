@@ -80,33 +80,37 @@ func (s *serviceClient) updateRoutes(grid *fyne.Container) {
 		grid.Add(checkBox)
 		network := r.GetNetwork()
 		domains := r.GetDomains()
-		if len(domains) > 0 {
-			domainsSelector := widget.NewSelect(domains, func(_ string) {})
-			domainsSelector.Selected = domains[0]
-			grid.Add(domainsSelector)
-		} else {
+
+		if len(domains) == 0 {
 			grid.Add(widget.NewLabel(network))
+			grid.Add(widget.NewLabel(""))
+			continue
 		}
 
-		if len(domains) > 0 {
-			var resolvedIPsList []string
-			for _, domain := range domains {
-				if ipList, exists := r.GetResolvedIPs()[domain]; exists {
-					resolvedIPsList = append(resolvedIPsList, fmt.Sprintf("%s: %s", domain, strings.Join(ipList.GetIps(), ", ")))
-				}
+		// our selectors are only for display
+		noopFunc := func(_ string) {}
+
+		domainsSelector := widget.NewSelect(domains, noopFunc)
+		domainsSelector.Selected = domains[0]
+		grid.Add(domainsSelector)
+
+		var resolvedIPsList []string
+		for _, domain := range domains {
+			if ipList, exists := r.GetResolvedIPs()[domain]; exists {
+				resolvedIPsList = append(resolvedIPsList, fmt.Sprintf("%s: %s", domain, strings.Join(ipList.GetIps(), ", ")))
 			}
-			if len(resolvedIPsList) > 0 {
-				// TODO: limit width within the selector display
-				resolvedIPsSelector := widget.NewSelect(resolvedIPsList, func(_ string) {})
-				resolvedIPsSelector.Selected = resolvedIPsList[0]
-				resolvedIPsSelector.Resize(fyne.NewSize(100, 100))
-				grid.Add(resolvedIPsSelector)
-			} else {
-				grid.Add(widget.NewLabel(""))
-			}
-		} else {
-			grid.Add(widget.NewLabel(""))
 		}
+
+		if len(resolvedIPsList) == 0 {
+			grid.Add(widget.NewLabel(""))
+			continue
+		}
+
+		// TODO: limit width within the selector display
+		resolvedIPsSelector := widget.NewSelect(resolvedIPsList, noopFunc)
+		resolvedIPsSelector.Selected = resolvedIPsList[0]
+		resolvedIPsSelector.Resize(fyne.NewSize(100, 100))
+		grid.Add(resolvedIPsSelector)
 	}
 
 	s.wRoutes.Content().Refresh()
