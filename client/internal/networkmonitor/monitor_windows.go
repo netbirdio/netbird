@@ -99,23 +99,33 @@ func routeChanged(nexthop systemops.Nexthop, intf *net.Interface, routes []syste
 		return false
 	}
 
-	var unspec netip.Prefix
-	if nexthop.IP.Is6() {
-		unspec = netip.PrefixFrom(netip.IPv6Unspecified(), 0)
-	} else {
-		unspec = netip.PrefixFrom(netip.IPv4Unspecified(), 0)
+	unspec := getUnspecifiedPrefix(nexthop.IP)
+	defaultRoutes, foundMatchingRoute := processRoutes(nexthop, intf, routes, unspec)
+
+	log.Tracef("network monitor: all default routes:\n%s", strings.Join(defaultRoutes, "\n"))
+
+	if !foundMatchingRoute {
+		logRouteChange(nexthop.IP, intf)
+		return true
 	}
 
-	foundMatchingRoute := false
+	return false
+}
+
+func getUnspecifiedPrefix(ip netip.Addr) netip.Prefix {
+	if ip.Is6() {
+		return netip.PrefixFrom(netip.IPv6Unspecified(), 0)
+	}
+	return netip.PrefixFrom(netip.IPv4Unspecified(), 0)
+}
+
+func processRoutes(nexthop systemops.Nexthop, intf *net.Interface, routes []systemops.Route, unspec netip.Prefix) ([]string, bool) {
 	var defaultRoutes []string
+	foundMatchingRoute := false
 
 	for _, r := range routes {
 		if r.Destination == unspec {
-			newIntf := "<nil>"
-			if r.Interface != nil {
-				newIntf = r.Interface.Name
-			}
-			routeInfo := fmt.Sprintf("Nexthop: %s, Interface: %s", r.Nexthop, newIntf)
+			routeInfo := formatRouteInfo(r)
 			defaultRoutes = append(defaultRoutes, routeInfo)
 
 			if r.Nexthop == nexthop.IP && compareIntf(r.Interface, intf) == 0 {
@@ -125,19 +135,23 @@ func routeChanged(nexthop systemops.Nexthop, intf *net.Interface, routes []syste
 		}
 	}
 
-	log.Tracef("network monitor: all default routes:\n%s", strings.Join(defaultRoutes, "\n"))
+	return defaultRoutes, foundMatchingRoute
+}
 
-	if !foundMatchingRoute {
-		oldIntf := "<nil>"
-		if intf != nil {
-			oldIntf = intf.Name
-		}
-
-		log.Infof("network monitor: default route for %s (%s) is gone or changed", nexthop.IP, oldIntf)
-		return true
+func formatRouteInfo(r systemops.Route) string {
+	newIntf := "<nil>"
+	if r.Interface != nil {
+		newIntf = r.Interface.Name
 	}
+	return fmt.Sprintf("Nexthop: %s, Interface: %s", r.Nexthop, newIntf)
+}
 
-	return false
+func logRouteChange(ip netip.Addr, intf *net.Interface) {
+	oldIntf := "<nil>"
+	if intf != nil {
+		oldIntf = intf.Name
+	}
+	log.Infof("network monitor: default route for %s (%s) is gone or changed", ip, oldIntf)
 }
 
 func neighborChanged(nexthop systemops.Nexthop, neighbor *systemops.Neighbor, neighbors map[netip.Addr]systemops.Neighbor) bool {
