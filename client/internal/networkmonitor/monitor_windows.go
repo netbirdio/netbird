@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -93,7 +94,7 @@ func changed(
 }
 
 // routeChanged checks if the default routes still point to our nexthop/interface
-func routeChanged(nexthop systemops.Nexthop, intf *net.Interface, routes map[netip.Prefix]systemops.Route) bool {
+func routeChanged(nexthop systemops.Nexthop, intf *net.Interface, routes []systemops.Route) bool {
 	if !nexthop.IP.IsValid() {
 		return false
 	}
@@ -105,25 +106,31 @@ func routeChanged(nexthop systemops.Nexthop, intf *net.Interface, routes map[net
 		unspec = netip.PrefixFrom(netip.IPv4Unspecified(), 0)
 	}
 
-	if r, ok := routes[unspec]; ok {
-		if r.Nexthop != nexthop.IP || compareIntf(r.Interface, intf) != 0 {
-			oldIntf, newIntf := "<nil>", "<nil>"
-			if intf != nil {
-				oldIntf = intf.Name
+	log.Debugf("network monitor: expected nexthop: %s, interface: %s", nexthop.IP, intf.Name)
+
+	foundMatchingRoute := false
+	var defaultRoutes []string
+
+	for _, r := range routes {
+		if r.Destination == unspec {
+			routeInfo := fmt.Sprintf("Nexthop: %s, Interface: %s", r.Nexthop, r.Interface.Name)
+			defaultRoutes = append(defaultRoutes, routeInfo)
+
+			if r.Nexthop == nexthop.IP && compareIntf(r.Interface, intf) == 0 {
+				foundMatchingRoute = true
+				log.Debugf("network monitor: found matching default route: %s", routeInfo)
 			}
-			if r.Interface != nil {
-				newIntf = r.Interface.Name
-			}
-			log.Infof("network monitor: default route changed: %s from %s (%s) to %s (%s)", r.Destination, nexthop.IP, oldIntf, r.Nexthop, newIntf)
-			return true
 		}
-	} else {
-		log.Infof("network monitor: default route is gone")
+	}
+
+	log.Tracef("network monitor: all default routes:\n%s", strings.Join(defaultRoutes, "\n"))
+
+	if !foundMatchingRoute {
+		log.Infof("network monitor: default route for %s (%s) is gone or changed", nexthop.IP, intf.Name)
 		return true
 	}
 
 	return false
-
 }
 
 func neighborChanged(nexthop systemops.Nexthop, neighbor *systemops.Neighbor, neighbors map[netip.Addr]systemops.Neighbor) bool {
@@ -171,18 +178,13 @@ func getNeighbors() (map[netip.Addr]systemops.Neighbor, error) {
 	return neighbours, nil
 }
 
-func getRoutes() (map[netip.Prefix]systemops.Route, error) {
+func getRoutes() ([]systemops.Route, error) {
 	entries, err := systemops.GetRoutes()
 	if err != nil {
 		return nil, fmt.Errorf("get routes: %w", err)
 	}
 
-	routes := make(map[netip.Prefix]systemops.Route, len(entries))
-	for _, entry := range entries {
-		routes[entry.Destination] = entry
-	}
-
-	return routes, nil
+	return entries, nil
 }
 
 func stateFromInt(state uint8) string {
