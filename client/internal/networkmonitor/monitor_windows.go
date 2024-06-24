@@ -106,14 +106,16 @@ func routeChanged(nexthop systemops.Nexthop, intf *net.Interface, routes []syste
 		unspec = netip.PrefixFrom(netip.IPv4Unspecified(), 0)
 	}
 
-	log.Debugf("network monitor: expected nexthop: %s, interface: %s", nexthop.IP, intf.Name)
-
 	foundMatchingRoute := false
 	var defaultRoutes []string
 
 	for _, r := range routes {
 		if r.Destination == unspec {
-			routeInfo := fmt.Sprintf("Nexthop: %s, Interface: %s", r.Nexthop, r.Interface.Name)
+			newIntf := "<nil>"
+			if r.Interface != nil {
+				newIntf = r.Interface.Name
+			}
+			routeInfo := fmt.Sprintf("Nexthop: %s, Interface: %s", r.Nexthop, newIntf)
 			defaultRoutes = append(defaultRoutes, routeInfo)
 
 			if r.Nexthop == nexthop.IP && compareIntf(r.Interface, intf) == 0 {
@@ -126,7 +128,12 @@ func routeChanged(nexthop systemops.Nexthop, intf *net.Interface, routes []syste
 	log.Tracef("network monitor: all default routes:\n%s", strings.Join(defaultRoutes, "\n"))
 
 	if !foundMatchingRoute {
-		log.Infof("network monitor: default route for %s (%s) is gone or changed", nexthop.IP, intf.Name)
+		oldIntf := "<nil>"
+		if intf != nil {
+			oldIntf = intf.Name
+		}
+
+		log.Infof("network monitor: default route for %s (%s) is gone or changed", nexthop.IP, oldIntf)
 		return true
 	}
 
