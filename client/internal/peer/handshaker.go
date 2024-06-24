@@ -171,7 +171,6 @@ func (h *Handshaker) waitForRemoteOfferConfirmation() (*OfferAnswer, error) {
 
 // sendOffer prepares local user credentials and signals them to the remote peer
 func (h *Handshaker) sendOffer(args HandshakeArgs) error {
-	log.Debugf("SEND OFFER: %s", args.IceUFrag)
 	offer := OfferAnswer{
 		IceCredentials:  IceCredentials{args.IceUFrag, args.IcePwd},
 		WgListenPort:    h.config.LocalWgPort,
@@ -186,7 +185,6 @@ func (h *Handshaker) sendOffer(args HandshakeArgs) error {
 
 func (h *Handshaker) sendAnswer() error {
 	h.log.Debugf("sending answer")
-	log.Debugf("SEND ANSWER: %s", h.lastOfferArgs.IceUFrag)
 	answer := OfferAnswer{
 		IceCredentials:  IceCredentials{h.lastOfferArgs.IceUFrag, h.lastOfferArgs.IcePwd},
 		WgListenPort:    h.config.LocalWgPort,
