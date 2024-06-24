@@ -57,17 +57,11 @@ type ConfigInput struct {
 	NetworkMonitor      *bool
 	DisableAutoConnect  *bool
 	ExtraIFaceBlackList []string
-<<<<<<< HEAD
 	ClientCertPath      string
 	ClientCertKeyPath   string
-=======
-<<<<<<< HEAD
 	DNSRouteInterval    *time.Duration
-=======
 	ClientCertPath      string
 	ClientCertKeyPath   string
->>>>>>> 2f6fe2d7 (Add mTLS support for SSO)
->>>>>>> main
 }
 
 // Config Configuration type
@@ -391,9 +385,6 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
 	if input.DNSRouteInterval != nil && *input.DNSRouteInterval != config.DNSRouteInterval {
 		log.Infof("updating DNS route interval to %s (old value %s)",
 			input.DNSRouteInterval.String(), config.DNSRouteInterval.String())
@@ -406,8 +397,6 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 
 	}
 
-=======
->>>>>>> main
 	if input.ClientCertKeyPath != "" {
 		config.ClientCertKeyPath = input.ClientCertKeyPath
 		updated = true
@@ -427,10 +416,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Info("Loaded client mTLS cert/key pair")
 		}
 	}
-<<<<<<< HEAD
-=======
->>>>>>> 2f6fe2d7 (Add mTLS support for SSO)
->>>>>>> main
+
 	return updated, nil
 }
 
