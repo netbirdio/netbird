@@ -401,16 +401,6 @@ func (c *Client) closeConn(id string) error {
 	return nil
 }
 
-func (c *Client) onDisconnect() {
-	c.listenerMutex.Lock()
-	defer c.listenerMutex.Unlock()
-
-	if c.onDisconnectListener == nil {
-		return
-	}
-	c.onDisconnectListener()
-}
-
 func (c *Client) notifyDisconnected() {
 	c.listenerMutex.Lock()
 	defer c.listenerMutex.Unlock()
