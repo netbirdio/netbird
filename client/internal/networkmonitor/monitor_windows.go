@@ -33,12 +33,8 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 			return fmt.Errorf("get neighbors: %w", err)
 		}
 
-		if n, ok := initialNeighbors[nexthopv4.IP]; ok {
-			neighborv4 = &n
-		}
-		if n, ok := initialNeighbors[nexthopv6.IP]; ok {
-			neighborv6 = &n
-		}
+		neighborv4 = assignNeighbor(nexthopv4, initialNeighbors)
+		neighborv6 = assignNeighbor(nexthopv6, initialNeighbors)
 	}
 	log.Debugf("Network monitor: initial IPv4 neighbor: %v, IPv6 neighbor: %v", neighborv4, neighborv6)
 
@@ -56,6 +52,16 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 			}
 		}
 	}
+}
+
+func assignNeighbor(nexthop systemops.Nexthop, initialNeighbors map[netip.Addr]systemops.Neighbor) *systemops.Neighbor {
+	if n, ok := initialNeighbors[nexthop.IP]; ok &&
+		n.State != unreachable &&
+		n.State != incomplete &&
+		n.State != tbd {
+		return &n
+	}
+	return nil
 }
 
 func changed(
@@ -127,7 +133,7 @@ func neighborChanged(nexthop systemops.Nexthop, neighbor *systemops.Neighbor, ne
 
 	// TODO: consider non-local nexthops, e.g. on point-to-point interfaces
 	if n, ok := neighbors[nexthop.IP]; ok {
-		if n.State != reachable && n.State != permanent {
+		if n.State == unreachable || n.State == incomplete {
 			log.Infof("network monitor: neighbor %s (%s) is not reachable: %s", neighbor.IPAddress, neighbor.LinkLayerAddress, stateFromInt(n.State))
 			return true
 		} else if n.InterfaceIndex != neighbor.InterfaceIndex {
