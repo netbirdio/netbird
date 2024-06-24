@@ -106,10 +106,9 @@ type Config struct {
 	// it's set to false by default due to backwards compatibility
 	DisableAutoConnect bool
 
-<<<<<<< HEAD
 	// DNSRouteInterval is the interval in which the DNS routes are updated
 	DNSRouteInterval time.Duration
-=======
+
 	//Path to a certificate used for mTLS authentication
 	ClientCertPath string
 
@@ -117,7 +116,6 @@ type Config struct {
 	ClientCertKeyPath string
 
 	ClientCertKeyPair *tls.Certificate `json:"-"`
->>>>>>> 2f6fe2d7 (Add mTLS support for SSO)
 }
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
