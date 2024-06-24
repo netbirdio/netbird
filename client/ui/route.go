@@ -81,23 +81,31 @@ func (s *serviceClient) updateRoutes(grid *fyne.Container) {
 		network := r.GetNetwork()
 		domains := r.GetDomains()
 		if len(domains) > 0 {
-			network = strings.Join(domains, ", ")
+			domainsSelector := widget.NewSelect(domains, func(_ string) {})
+			domainsSelector.Selected = domains[0]
+			grid.Add(domainsSelector)
+		} else {
+			grid.Add(widget.NewLabel(network))
 		}
-		grid.Add(widget.NewLabel(network))
 
 		if len(domains) > 0 {
 			var resolvedIPsList []string
-			for _, domain := range r.GetDomains() {
+			for _, domain := range domains {
 				if ipList, exists := r.GetResolvedIPs()[domain]; exists {
 					resolvedIPsList = append(resolvedIPsList, fmt.Sprintf("%s: %s", domain, strings.Join(ipList.GetIps(), ", ")))
 				}
 			}
-			// TODO: limit width
-			resolvedIPsLabel := widget.NewLabel(strings.Join(resolvedIPsList, ", "))
-			grid.Add(resolvedIPsLabel)
+			if len(resolvedIPsList) > 0 {
+				// TODO: limit width within the selector display
+				resolvedIPsSelector := widget.NewSelect(resolvedIPsList, func(_ string) {})
+				resolvedIPsSelector.Selected = resolvedIPsList[0]
+				resolvedIPsSelector.Resize(fyne.NewSize(100, 100))
+				grid.Add(resolvedIPsSelector)
+			} else {
+				grid.Add(widget.NewLabel(""))
+			}
 		} else {
 			grid.Add(widget.NewLabel(""))
-
 		}
 	}
 
