@@ -28,6 +28,7 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("failed initializing log %v", err)
 		}
 
+		//nolint
 		ctx := context.WithValue(cmd.Context(), util.LogSourceKey, util.SystemSource)
 
 		if err := server.MigrateFileStoreToSqlite(ctx, mgmtDataDir); err != nil {
