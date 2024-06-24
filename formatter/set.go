@@ -1,10 +1,20 @@
 package formatter
 
-import "github.com/sirupsen/logrus"
+import (
+	"os"
+
+	"github.com/sirupsen/logrus"
+)
 
 // SetTextFormatter set the text formatter for given logger.
 func SetTextFormatter(logger *logrus.Logger) {
-	logger.Formatter = NewTextFormatter()
+	var formatter logrus.Formatter
+	if os.Getenv("NB_LOG_FORMAT") == "json" {
+		formatter = &logrus.JSONFormatter{}
+	} else {
+		formatter = NewTextFormatter()
+	}
+	logger.Formatter = formatter
 	logger.ReportCaller = true
 	logger.AddHook(NewContextHook())
 }
