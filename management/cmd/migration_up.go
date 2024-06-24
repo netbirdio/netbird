@@ -8,6 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
+	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/util"
 )
@@ -29,7 +30,7 @@ var upCmd = &cobra.Command{
 		}
 
 		//nolint
-		ctx := context.WithValue(cmd.Context(), util.LogSourceKey, util.SystemSource)
+		ctx := context.WithValue(cmd.Context(), formatter.LogSourceKey, formatter.SystemSource)
 
 		if err := server.MigrateFileStoreToSqlite(ctx, mgmtDataDir); err != nil {
 			return err
