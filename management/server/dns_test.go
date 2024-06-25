@@ -256,11 +256,11 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 		return nil, err
 	}
 
-	savedPeer1, _, err := am.AddPeer("", dnsAdminUserID, peer1)
+	savedPeer1, _, _, err := am.AddPeer("", dnsAdminUserID, peer1)
 	if err != nil {
 		return nil, err
 	}
-	_, _, err = am.AddPeer("", dnsAdminUserID, peer2)
+	_, _, _, err = am.AddPeer("", dnsAdminUserID, peer2)
 	if err != nil {
 		return nil, err
 	}

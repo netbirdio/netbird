@@ -71,7 +71,6 @@ func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 			return fmt.Errorf("invalid zone: %w", err)
 		}
 		nexthop.Intf = &net.Interface{Index: zone}
-		nexthop.IP.WithZone("")
 	}
 
 	return addRouteCmd(prefix, nexthop)
@@ -80,8 +79,8 @@ func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 	args := []string{"delete", prefix.String()}
 	if nexthop.IP.IsValid() {
-		nexthop.IP.WithZone("")
-		args = append(args, nexthop.IP.Unmap().String())
+		ip := nexthop.IP.WithZone("")
+		args = append(args, ip.Unmap().String())
 	}
 
 	routeCmd := uspfilter.GetSystem32Command("route")
@@ -146,6 +145,10 @@ func GetRoutes() ([]Route, error) {
 				Index: int(entry.InterfaceIndex),
 				Name:  entry.InterfaceAlias,
 			}
+
+			if nexthop.Is6() && (nexthop.IsLinkLocalUnicast() || nexthop.IsLinkLocalMulticast()) {
+				nexthop = nexthop.WithZone(strconv.Itoa(int(entry.InterfaceIndex)))
+			}
 		}
 
 		routes = append(routes, Route{
@@ -189,7 +192,8 @@ func addRouteCmd(prefix netip.Prefix, nexthop Nexthop) error {
 	args := []string{"add", prefix.String()}
 
 	if nexthop.IP.IsValid() {
-		args = append(args, nexthop.IP.Unmap().String())
+		ip := nexthop.IP.WithZone("")
+		args = append(args, ip.Unmap().String())
 	} else {
 		addr := "0.0.0.0"
 		if prefix.Addr().Is6() {

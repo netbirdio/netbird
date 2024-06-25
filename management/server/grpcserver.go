@@ -139,12 +139,12 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		log.Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
 	}
 
-	peer, netMap, err := s.accountManager.SyncAndMarkPeer(peerKey.String(), extractPeerMeta(syncReq.GetMeta()), realIP)
+	peer, netMap, postureChecks, err := s.accountManager.SyncAndMarkPeer(peerKey.String(), extractPeerMeta(syncReq.GetMeta()), realIP)
 	if err != nil {
 		return mapError(err)
 	}
 
-	err = s.sendInitialSync(peerKey, peer, netMap, srv)
+	err = s.sendInitialSync(peerKey, peer, netMap, postureChecks, srv)
 	if err != nil {
 		log.Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
 		return err
@@ -376,7 +376,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		sshKey = loginReq.GetPeerKeys().GetSshPubKey()
 	}
 
-	peer, netMap, err := s.accountManager.LoginPeer(PeerLogin{
+	peer, netMap, postureChecks, err := s.accountManager.LoginPeer(PeerLogin{
 		WireGuardPubKey: peerKey.String(),
 		SSHKey:          string(sshKey),
 		Meta:            extractPeerMeta(loginReq.GetMeta()),
@@ -398,7 +398,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	loginResp := &proto.LoginResponse{
 		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil),
 		PeerConfig:        toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain()),
-		Checks:            toProtocolChecks(s.accountManager, peerKey.String()),
+		Checks:            toProtocolChecks(postureChecks),
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
@@ -520,7 +520,7 @@ func toRemotePeerConfig(peers []*nbpeer.Peer, dnsName string) []*proto.RemotePee
 	return remotePeers
 }
 
-func toSyncResponse(accountManager AccountManager, config *Config, peer *nbpeer.Peer, turnCredentials *TURNCredentials, networkMap *NetworkMap, dnsName string) *proto.SyncResponse {
+func toSyncResponse(config *Config, peer *nbpeer.Peer, turnCredentials *TURNCredentials, networkMap *NetworkMap, dnsName string, checks []*posture.Checks) *proto.SyncResponse {
 	wtConfig := toWiretrusteeConfig(config, turnCredentials)
 
 	pConfig := toPeerConfig(peer, networkMap.Network, dnsName)
@@ -551,7 +551,7 @@ func toSyncResponse(accountManager AccountManager, config *Config, peer *nbpeer.
 			FirewallRules:        firewallRules,
 			FirewallRulesIsEmpty: len(firewallRules) == 0,
 		},
-		Checks: toProtocolChecks(accountManager, peer.Key),
+		Checks: toProtocolChecks(checks),
 	}
 }
 
@@ -561,7 +561,7 @@ func (s *GRPCServer) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Em
 }
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
-func (s *GRPCServer) sendInitialSync(peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *NetworkMap, srv proto.ManagementService_SyncServer) error {
+func (s *GRPCServer) sendInitialSync(peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *NetworkMap, postureChecks []*posture.Checks, srv proto.ManagementService_SyncServer) error {
 	// make secret time based TURN credentials optional
 	var turnCredentials *TURNCredentials
 	if s.config.TURNConfig.TimeBasedCredentials {
@@ -570,7 +570,7 @@ func (s *GRPCServer) sendInitialSync(peerKey wgtypes.Key, peer *nbpeer.Peer, net
 	} else {
 		turnCredentials = nil
 	}
-	plainResp := toSyncResponse(s.accountManager, s.config, peer, turnCredentials, networkMap, s.accountManager.GetDNSDomain())
+	plainResp := toSyncResponse(s.config, peer, turnCredentials, networkMap, s.accountManager.GetDNSDomain(), postureChecks)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {
@@ -715,15 +715,9 @@ func (s *GRPCServer) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) 
 	return &proto.Empty{}, nil
 }
 
-// toProtocolChecks returns posture checks for the peer that needs to be evaluated on the client side.
-func toProtocolChecks(accountManager AccountManager, peerKey string) []*proto.Checks {
-	postureChecks, err := accountManager.GetPeerAppliedPostureChecks(peerKey)
-	if err != nil {
-		log.Errorf("failed getting peer's: %s posture checks: %v", peerKey, err)
-		return nil
-	}
-
-	protoChecks := make([]*proto.Checks, 0)
+// toProtocolChecks converts posture checks to protocol checks.
+func toProtocolChecks(postureChecks []*posture.Checks) []*proto.Checks {
+	protoChecks := make([]*proto.Checks, 0, len(postureChecks))
 	for _, postureCheck := range postureChecks {
 		protoChecks = append(protoChecks, toProtocolCheck(postureCheck))
 	}
@@ -732,7 +726,7 @@ func toProtocolChecks(accountManager AccountManager, peerKey string) []*proto.Ch
 }
 
 // toProtocolCheck converts a posture.Checks to a proto.Checks.
-func toProtocolCheck(postureCheck posture.Checks) *proto.Checks {
+func toProtocolCheck(postureCheck *posture.Checks) *proto.Checks {
 	protoCheck := &proto.Checks{}
 
 	if check := postureCheck.Checks.ProcessCheck; check != nil {
