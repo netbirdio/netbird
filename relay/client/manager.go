@@ -194,6 +194,7 @@ func (m *Manager) isForeignServer(address string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("relay client not connected")
 	}
+	log.Debugf("check if foreign server: %s != %s", rAddr.String(), address)
 	return rAddr.String() != address, nil
 }
 

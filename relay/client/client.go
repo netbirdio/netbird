@@ -371,7 +371,11 @@ func (c *Client) writeTo(id string, dstID []byte, payload []byte) (int, error) {
 			return 0, io.EOF
 		}
 	*/
-	msg := messages.MarshalTransportMsg(dstID, payload)
+	msg, err := messages.MarshalTransportMsg(dstID, payload)
+	if err != nil {
+		log.Errorf("failed to marshal transport message: %s", err)
+		return 0, err
+	}
 	n, err := c.relayConn.Write(msg)
 	if err != nil {
 		log.Errorf("failed to write transport message: %s", err)
