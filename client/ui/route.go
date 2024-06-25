@@ -156,35 +156,44 @@ func (s *serviceClient) getFilteredRoutes(f filter) ([]*proto.Route, error) {
 		s.showError(fmt.Errorf("get client: %v", err))
 		return nil, err
 	}
-	var filteredRoutes []*proto.Route
 	switch f {
 	case overlappingRoutes:
-		existingRange := make(map[string][]*proto.Route)
-		for _, route := range routes {
-			if r, exists := existingRange[route.GetNetwork()]; exists {
-				r = append(r, route)
-				existingRange[route.GetNetwork()] = r
-			} else {
-				existingRange[route.GetNetwork()] = []*proto.Route{route}
-			}
-		}
-		for _, r := range existingRange {
-			if len(r) > 1 {
-				filteredRoutes = append(filteredRoutes, r...)
-			}
-		}
+		return getOverlappingRoutes(routes), nil
 	case exitNodeRoutes:
-		for _, route := range routes {
-			if route.Network == "0.0.0.0/0" {
-				filteredRoutes = append(filteredRoutes, route)
-			}
-		}
+		return getExitNodeRoutes(routes), nil
 	default:
-		filteredRoutes = routes
 	}
-	return filteredRoutes, nil
+	return routes, nil
 }
 
+func getOverlappingRoutes(routes []*proto.Route) []*proto.Route {
+	var filteredRoutes []*proto.Route
+	existingRange := make(map[string][]*proto.Route)
+	for _, route := range routes {
+		if r, exists := existingRange[route.GetNetwork()]; exists {
+			r = append(r, route)
+			existingRange[route.GetNetwork()] = r
+		} else {
+			existingRange[route.GetNetwork()] = []*proto.Route{route}
+		}
+	}
+	for _, r := range existingRange {
+		if len(r) > 1 {
+			filteredRoutes = append(filteredRoutes, r...)
+		}
+	}
+	return filteredRoutes
+}
+
+func getExitNodeRoutes(routes []*proto.Route) []*proto.Route {
+	var filteredRoutes []*proto.Route
+	for _, route := range routes {
+		if route.Network == "0.0.0.0/0" {
+			filteredRoutes = append(filteredRoutes, route)
+		}
+	}
+	return filteredRoutes
+}
 func (s *serviceClient) fetchRoutes() ([]*proto.Route, error) {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
