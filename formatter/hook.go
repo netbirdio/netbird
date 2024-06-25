@@ -11,14 +11,14 @@ import (
 	"github.com/netbirdio/netbird/management/server/context"
 )
 
-type LogSource string
+type ExecutionContext string
 
 const (
-	LogSourceKey = "logSource"
+	ExecutionContextKey = "executionContext"
 
-	HTTPSource   LogSource = "HTTP"
-	GRPCSource   LogSource = "GRPC"
-	SystemSource LogSource = "SYSTEM"
+	HTTPSource   ExecutionContext = "HTTP"
+	GRPCSource   ExecutionContext = "GRPC"
+	SystemSource ExecutionContext = "SYSTEM"
 )
 
 // ContextHook is a custom hook for add the source information for the entry
@@ -47,12 +47,12 @@ func (hook ContextHook) Fire(entry *logrus.Entry) error {
 		return nil
 	}
 
-	source, ok := entry.Context.Value(LogSourceKey).(LogSource)
+	source, ok := entry.Context.Value(ExecutionContextKey).(ExecutionContext)
 	if !ok {
 		return nil
 	}
 
-	entry.Data["actor"] = source
+	entry.Data["context"] = source
 
 	switch source {
 	case HTTPSource:
