@@ -173,7 +173,7 @@ jobs:
           retention-days: 3
 
   release_ui_darwin:
-    runs-on: macos-11
+    runs-on: macos-latest
     steps:
       - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: echo "flags=--snapshot" >> $GITHUB_ENV
