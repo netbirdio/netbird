@@ -121,6 +121,8 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 		log.Tracef("took %s to query the upstream %s", t, upstream)
 
+		rm.Truncate(512)
+
 		err = w.WriteMsg(rm)
 		if err != nil {
 			log.WithError(err).Error("got an error while writing the upstream resolver response")
