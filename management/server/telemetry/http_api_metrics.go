@@ -168,7 +168,7 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 		reqStart := time.Now()
 
 		//nolint
-		ctx := context.WithValue(r.Context(), formatter.LogSourceKey, formatter.HTTPSource)
+		ctx := context.WithValue(r.Context(), formatter.ExecutionContextKey, formatter.HTTPSource)
 
 		reqID := uuid.New().String()
 		//nolint
