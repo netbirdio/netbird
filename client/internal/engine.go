@@ -160,7 +160,8 @@ type Engine struct {
 	relayProbe  *Probe
 	wgProbe     *Probe
 
-	wgConnWorker sync.WaitGroup
+	wgConnWorker               sync.WaitGroup
+	lastNetworkChangeTimestamp *NetworkChangeTimestamp
 
 	// checks are the client-applied posture checks that need to be evaluated on the client
 	checks []*mgmProto.Checks
@@ -170,6 +171,12 @@ type Engine struct {
 type Peer struct {
 	WgPubKey     string
 	WgAllowedIps string
+}
+
+// NetworkChangeTimestamp is a thread-safe structure that holds the timestamp of the last network change
+type NetworkChangeTimestamp struct {
+	mu    sync.Mutex
+	value int64
 }
 
 // NewEngine creates a new Connection Engine
@@ -216,24 +223,25 @@ func NewEngineWithProbes(
 ) *Engine {
 
 	return &Engine{
-		clientCtx:      clientCtx,
-		clientCancel:   clientCancel,
-		signal:         signalClient,
-		mgmClient:      mgmClient,
-		peerConns:      make(map[string]*peer.Conn),
-		syncMsgMux:     &sync.Mutex{},
-		config:         config,
-		mobileDep:      mobileDep,
-		STUNs:          []*stun.URI{},
-		TURNs:          []*stun.URI{},
-		networkSerial:  0,
-		sshServerFunc:  nbssh.DefaultSSHServer,
-		statusRecorder: statusRecorder,
-		mgmProbe:       mgmProbe,
-		signalProbe:    signalProbe,
-		relayProbe:     relayProbe,
-		wgProbe:        wgProbe,
-		checks:         checks,
+		clientCtx:                  clientCtx,
+		clientCancel:               clientCancel,
+		signal:                     signalClient,
+		mgmClient:                  mgmClient,
+		peerConns:                  make(map[string]*peer.Conn),
+		syncMsgMux:                 &sync.Mutex{},
+		config:                     config,
+		mobileDep:                  mobileDep,
+		STUNs:                      []*stun.URI{},
+		TURNs:                      []*stun.URI{},
+		networkSerial:              0,
+		sshServerFunc:              nbssh.DefaultSSHServer,
+		statusRecorder:             statusRecorder,
+		mgmProbe:                   mgmProbe,
+		signalProbe:                signalProbe,
+		relayProbe:                 relayProbe,
+		wgProbe:                    wgProbe,
+		lastNetworkChangeTimestamp: &NetworkChangeTimestamp{},
+		checks:                     checks,
 	}
 }
 
@@ -244,6 +252,7 @@ func (e *Engine) Stop() error {
 	if e.cancel != nil {
 		e.cancel()
 	}
+	e.cancel = nil
 
 	// stopping network monitor first to avoid starting the engine again
 	if e.networkMonitor != nil {
@@ -377,7 +386,6 @@ func (e *Engine) Start() error {
 // modifyPeers updates peers that have been modified (e.g. IP address has been changed).
 // It closes the existing connection, removes it from the peerConns map, and creates a new one.
 func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
-
 	// first, check if peers have been modified
 	var modified []*mgmProto.RemotePeerConfig
 	for _, p := range peersUpdate {
@@ -1474,7 +1482,20 @@ func (e *Engine) startNetworkMonitor() {
 	e.networkMonitor = networkmonitor.New()
 	go func() {
 		err := e.networkMonitor.Start(e.ctx, func() {
-			log.Infof("Network monitor detected network change, restarting engine")
+			log.Infof("Network monitor: detected network change")
+			e.lastNetworkChangeTimestamp.mu.Lock()
+			defer e.lastNetworkChangeTimestamp.mu.Unlock()
+			now := time.Now().Unix()
+			if e.lastNetworkChangeTimestamp.value+3 > now || e.cancel == nil {
+				log.Infof("Network monitor: skipping engine restart")
+				return
+			}
+			log.Infof("Network monitor: detected network change, restarting engine")
+			e.lastNetworkChangeTimestamp.value = now
+			if e.cancel == nil {
+				log.Info("Network monitor: restart already in progress, skipping")
+				return
+			}
 			if err := e.Stop(); err != nil {
 				log.Errorf("Failed to stop engine: %v", err)
 			}
