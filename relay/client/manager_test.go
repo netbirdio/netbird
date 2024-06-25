@@ -61,11 +61,11 @@ func TestForeignConn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get relay address: %s", err)
 	}
-	connAliceToBob, err := clientAlice.OpenConn(bobsSrvAddr.String(), idBob)
+	connAliceToBob, err := clientAlice.OpenConn(bobsSrvAddr.String(), idBob, nil)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
-	connBobToAlice, err := clientBob.OpenConn(bobsSrvAddr.String(), idAlice)
+	connBobToAlice, err := clientBob.OpenConn(bobsSrvAddr.String(), idAlice, nil)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -139,7 +139,7 @@ func TestForeginConnClose(t *testing.T) {
 	mgr := NewManager(mCtx, addr1, idAlice)
 	mgr.Serve()
 
-	conn, err := mgr.OpenConn(addr2, "anotherpeer")
+	conn, err := mgr.OpenConn(addr2, "anotherpeer", nil)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -198,7 +198,7 @@ func TestForeginAutoClose(t *testing.T) {
 	mgr.Serve()
 
 	t.Log("open connection to another peer")
-	conn, err := mgr.OpenConn(addr2, "anotherpeer")
+	conn, err := mgr.OpenConn(addr2, "anotherpeer", nil)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -246,7 +246,7 @@ func TestAutoReconnect(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to get relay address: %s", err)
 	}
-	conn, err := clientAlice.OpenConn(ra.String(), "bob")
+	conn, err := clientAlice.OpenConn(ra.String(), "bob", nil)
 	if err != nil {
 		t.Errorf("failed to bind channel: %s", err)
 	}
@@ -264,7 +264,7 @@ func TestAutoReconnect(t *testing.T) {
 	time.Sleep(reconnectingTimeout + 1*time.Second)
 
 	log.Infof("reopent the connection")
-	_, err = clientAlice.OpenConn(ra.String(), "bob")
+	_, err = clientAlice.OpenConn(ra.String(), "bob", nil)
 	if err != nil {
 		t.Errorf("failed to open channel: %s", err)
 	}

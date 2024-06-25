@@ -21,7 +21,6 @@ func NewGuard(context context.Context, relayClient *Client) *Guard {
 		ctx:         context,
 		relayClient: relayClient,
 	}
-
 	return g
 }
 

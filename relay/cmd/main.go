@@ -32,7 +32,7 @@ func init() {
 func waitForExitSignal() {
 	osSigs := make(chan os.Signal, 1)
 	signal.Notify(osSigs, syscall.SIGINT, syscall.SIGTERM)
-	_ = <-osSigs
+	<-osSigs
 }
 
 func execute(cmd *cobra.Command, args []string) {

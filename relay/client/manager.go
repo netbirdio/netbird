@@ -44,19 +44,22 @@ type Manager struct {
 
 	relayClients      map[string]*RelayTrack
 	relayClientsMutex sync.RWMutex
+
+	onDisconnectedListeners map[string]map[*func()]struct{}
+	listenerLock            sync.Mutex
 }
 
 func NewManager(ctx context.Context, serverAddress string, peerID string) *Manager {
 	return &Manager{
-		ctx:          ctx,
-		srvAddress:   serverAddress,
-		peerID:       peerID,
-		relayClients: make(map[string]*RelayTrack),
+		ctx:                     ctx,
+		srvAddress:              serverAddress,
+		peerID:                  peerID,
+		relayClients:            make(map[string]*RelayTrack),
+		onDisconnectedListeners: make(map[string]map[*func()]struct{}),
 	}
 }
 
 // Serve starts the manager. It will establish a connection to the relay server and start the relay cleanup loop.
-// todo: consider to return an error if the initial connection to the relay server is not established.
 func (m *Manager) Serve() error {
 	if m.relayClient != nil {
 		return fmt.Errorf("manager already serving")
@@ -70,8 +73,9 @@ func (m *Manager) Serve() error {
 	}
 
 	m.reconnectGuard = NewGuard(m.ctx, m.relayClient)
-	m.relayClient.SetOnDisconnectListener(m.reconnectGuard.OnDisconnected)
-
+	m.relayClient.SetOnDisconnectListener(func() {
+		m.onServerDisconnected(m.srvAddress)
+	})
 	m.startCleanupLoop()
 
 	return nil
@@ -80,7 +84,7 @@ func (m *Manager) Serve() error {
 // OpenConn opens a connection to the given peer key. If the peer is on the same relay server, the connection will be
 // established via the relay server. If the peer is on a different relay server, the manager will establish a new
 // connection to the relay server.
-func (m *Manager) OpenConn(serverAddress, peerKey string) (net.Conn, error) {
+func (m *Manager) OpenConn(serverAddress, peerKey string, onClosedListener func()) (net.Conn, error) {
 	if m.relayClient == nil {
 		return nil, errRelayClientNotConnected
 	}
@@ -90,13 +94,26 @@ func (m *Manager) OpenConn(serverAddress, peerKey string) (net.Conn, error) {
 		return nil, err
 	}
 
+	var (
+		netConn net.Conn
+	)
 	if !foreign {
 		log.Debugf("open peer connection via permanent server: %s", peerKey)
-		return m.relayClient.OpenConn(peerKey)
+		netConn, err = m.relayClient.OpenConn(peerKey)
 	} else {
 		log.Debugf("open peer connection via foreign server: %s", serverAddress)
-		return m.openConnVia(serverAddress, peerKey)
+		netConn, err = m.openConnVia(serverAddress, peerKey)
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if onClosedListener != nil {
+		m.addListener(serverAddress, onClosedListener)
+	}
+
+	return netConn, err
 }
 
 // RelayAddress returns the address of the permanent relay server. It could change if the network connection is lost.
@@ -152,7 +169,7 @@ func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
 	}
 	// if connection closed then delete the relay client from the list
 	relayClient.SetOnDisconnectListener(func() {
-		m.deleteRelayConn(serverAddress)
+		m.onServerDisconnected(serverAddress)
 	})
 	rt.relayClient = relayClient
 	rt.Unlock()
@@ -164,11 +181,12 @@ func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
 	return conn, nil
 }
 
-func (m *Manager) deleteRelayConn(address string) {
-	log.Infof("deleting relay client for %s", address)
-	m.relayClientsMutex.Lock()
-	delete(m.relayClients, address)
-	m.relayClientsMutex.Unlock()
+func (m *Manager) onServerDisconnected(serverAddress string) {
+	if serverAddress == m.srvAddress {
+		m.reconnectGuard.OnDisconnected()
+	}
+
+	m.notifyOnDisconnectListeners(serverAddress)
 }
 
 func (m *Manager) isForeignServer(address string) (bool, error) {
@@ -212,8 +230,33 @@ func (m *Manager) cleanUpUnusedRelays() {
 		go func() {
 			_ = rt.relayClient.Close()
 		}()
-		log.Debugf("clean up relay client: %s", addr)
+		log.Debugf("clean up unused relay server connection: %s", addr)
 		delete(m.relayClients, addr)
 		rt.Unlock()
 	}
+}
+
+func (m *Manager) addListener(serverAddress string, onClosedListener func()) {
+	m.listenerLock.Lock()
+	l, ok := m.onDisconnectedListeners[serverAddress]
+	if !ok {
+		l = make(map[*func()]struct{})
+	}
+	l[&onClosedListener] = struct{}{}
+	m.onDisconnectedListeners[serverAddress] = l
+	m.listenerLock.Unlock()
+}
+
+func (m *Manager) notifyOnDisconnectListeners(serverAddress string) {
+	m.listenerLock.Lock()
+	l, ok := m.onDisconnectedListeners[serverAddress]
+	if !ok {
+		return
+	}
+	for f := range l {
+		go (*f)()
+	}
+	delete(m.onDisconnectedListeners, serverAddress)
+	m.listenerLock.Unlock()
+
 }

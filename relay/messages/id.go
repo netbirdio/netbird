@@ -16,5 +16,5 @@ func HashID(peerID string) ([]byte, string) {
 }
 
 func HashIDToString(idHash []byte) string {
-	return base64.StdEncoding.EncodeToString(idHash[:])
+	return base64.StdEncoding.EncodeToString(idHash)
 }

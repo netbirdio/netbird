@@ -4,15 +4,10 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/version"
-)
-
-const (
-	handshakeCacheTimeout = 3 * time.Second
 )
 
 var (
@@ -65,9 +60,6 @@ type Handshaker struct {
 	// remoteAnswerCh is a channel used to wait for remote credentials answer (confirmation of our offer) to proceed with the connection
 	remoteAnswerCh chan OfferAnswer
 
-	remoteOfferAnswer        *OfferAnswer
-	remoteOfferAnswerCreated time.Time
-
 	lastOfferArgs HandshakeArgs
 }
 
@@ -88,6 +80,7 @@ func (h *Handshaker) AddOnNewOfferListener(offer func(remoteOfferAnswer *OfferAn
 
 func (h *Handshaker) Listen() {
 	for {
+		log.Debugf("wait for remote offer confirmation")
 		remoteOfferAnswer, err := h.waitForRemoteOfferConfirmation()
 		if err != nil {
 			if _, ok := err.(*ConnectionClosedError); ok {

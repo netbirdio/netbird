@@ -3,7 +3,6 @@ package peer
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/netip"
 	"runtime"
@@ -68,18 +67,18 @@ type ICEConnInfo struct {
 type WorkerICECallbacks struct {
 	OnConnReady     func(ConnPriority, ICEConnInfo)
 	OnStatusChanged func(ConnStatus)
-	DoHandshake     func() error
 }
 
 type WorkerICE struct {
-	ctx            context.Context
-	log            *log.Entry
-	config         ConnConfig
-	configICE      ICEConfig
-	signaler       *Signaler
-	iFaceDiscover  stdnet.ExternalIFaceDiscover
-	statusRecorder *Status
-	conn           WorkerICECallbacks
+	ctx               context.Context
+	log               *log.Entry
+	config            ConnConfig
+	configICE         ICEConfig
+	signaler          *Signaler
+	iFaceDiscover     stdnet.ExternalIFaceDiscover
+	statusRecorder    *Status
+	hasRelayOnLocally bool
+	conn              WorkerICECallbacks
 
 	selectedPriority ConnPriority
 
@@ -90,24 +89,21 @@ type WorkerICE struct {
 
 	sentExtraSrflx bool
 
-	localUfrag         string
-	localPwd           string
-	creadantialHasUsed bool
-	hasRelayOnLocally  bool
-	tickerCancel       context.CancelFunc
-	ticker             *time.Ticker
+	localUfrag string
+	localPwd   string
 }
 
-func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, configICE ICEConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, callBacks WorkerICECallbacks) (*WorkerICE, error) {
+func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, configICE ICEConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, hasRelayOnLocally bool, callBacks WorkerICECallbacks) (*WorkerICE, error) {
 	w := &WorkerICE{
-		ctx:            ctx,
-		log:            log,
-		config:         config,
-		configICE:      configICE,
-		signaler:       signaler,
-		iFaceDiscover:  ifaceDiscover,
-		statusRecorder: statusRecorder,
-		conn:           callBacks,
+		ctx:               ctx,
+		log:               log,
+		config:            config,
+		configICE:         configICE,
+		signaler:          signaler,
+		iFaceDiscover:     ifaceDiscover,
+		statusRecorder:    statusRecorder,
+		hasRelayOnLocally: hasRelayOnLocally,
+		conn:              callBacks,
 	}
 
 	localUfrag, localPwd, err := generateICECredentials()
@@ -119,61 +115,15 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, config
 	return w, nil
 }
 
-func (w *WorkerICE) SetupICEConnection(hasRelayOnLocally bool) {
-	w.muxAgent.Lock()
-	defer w.muxAgent.Unlock()
-	if w.agent != nil {
-		return
-	}
-
-	w.hasRelayOnLocally = hasRelayOnLocally
-	go w.sendOffer()
-}
-
-func (w *WorkerICE) sendOffer() {
-	w.ticker = time.NewTicker(w.config.Timeout)
-	defer w.ticker.Stop()
-
-	tickerCtx, tickerCancel := context.WithCancel(w.ctx)
-	w.tickerCancel = tickerCancel
-	w.conn.OnStatusChanged(StatusConnecting)
-
-	w.log.Debugf("ICE trigger a new handshake")
-	err := w.conn.DoHandshake()
-	if err != nil {
-		w.log.Errorf("%s", err)
-	}
-
-	for {
-		w.log.Debugf("ICE trigger new reconnect handshake")
-		select {
-		case <-w.ticker.C:
-			err := w.conn.DoHandshake()
-			if err != nil {
-				w.log.Errorf("%s", err)
-			}
-		case <-tickerCtx.Done():
-			w.log.Debugf("left reconnect loop")
-			return
-		case <-w.ctx.Done():
-			return
-		}
-	}
-}
-
 func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
-	log.Debugf("OnNewOffer for ICE")
+	w.log.Debugf("OnNewOffer for ICE")
 	w.muxAgent.Lock()
 
 	if w.agent != nil {
-		log.Debugf("agent already exists, skipping the offer")
+		w.log.Debugf("agent already exists, skipping the offer")
 		w.muxAgent.Unlock()
 		return
 	}
-
-	// cancel reconnection loop
-	w.log.Debugf("canceling reconnection loop")
-	w.tickerCancel()
 
 	var preferredCandidateTypes []ice.CandidateType
 	if w.hasRelayOnLocally && remoteOfferAnswer.RelaySrvAddress != "" {
@@ -184,7 +134,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		preferredCandidateTypes = candidateTypes()
 	}
 
-	w.log.Debugf("recreate agent")
+	w.log.Debugf("recreate ICE agent")
 	agentCtx, agentCancel := context.WithCancel(w.ctx)
 	agent, err := w.reCreateAgent(agentCancel, preferredCandidateTypes)
 	if err != nil {
@@ -204,14 +154,14 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	// will block until connection succeeded
 	// but it won't release if ICE Agent went into Disconnected or Failed state,
 	// so we have to cancel it with the provided context once agent detected a broken connection
-	w.log.Debugf("turnAgentDial")
+	w.log.Debugf("turn agent dial")
 	remoteConn, err := w.turnAgentDial(agentCtx, remoteOfferAnswer)
 	if err != nil {
 		w.log.Debugf("failed to dial the remote peer: %s", err)
 		return
 	}
+	w.log.Debugf("agent dial succeeded")
 
-	w.log.Debugf("GetSelectedCandidatePair")
 	pair, err := w.agent.GetSelectedCandidatePair()
 	if err != nil {
 		return
@@ -240,7 +190,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		Relayed:                    isRelayed(pair),
 		RelayedOnLocal:             isRelayCandidate(pair.Local),
 	}
-	w.log.Debugf("on conn ready")
+	w.log.Debugf("on ICE conn read to use ready")
 	go w.conn.OnConnReady(w.selectedPriority, ci)
 }
 
@@ -325,7 +275,6 @@ func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, relaySupport [
 			w.agent = nil
 
 			w.muxAgent.Unlock()
-			go w.sendOffer()
 		}
 	})
 	if err != nil {
@@ -427,23 +376,6 @@ func (w *WorkerICE) turnAgentDial(ctx context.Context, remoteOfferAnswer *OfferA
 		return w.agent.Dial(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	} else {
 		return w.agent.Accept(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
-	}
-}
-
-// waitForReconnectTry waits for a random duration before trying to reconnect
-func (w *WorkerICE) waitForReconnectTry() bool {
-	minWait := 500
-	maxWait := 2000
-	duration := time.Duration(rand.Intn(maxWait-minWait)+minWait) * time.Millisecond
-
-	timeout := time.NewTimer(duration)
-	defer timeout.Stop()
-
-	select {
-	case <-w.ctx.Done():
-		return false
-	case <-timeout.C:
-		return true
 	}
 }
 

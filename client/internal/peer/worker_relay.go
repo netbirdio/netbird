@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"errors"
 	"net"
 
 	log "github.com/sirupsen/logrus"
@@ -16,8 +17,8 @@ type RelayConnInfo struct {
 }
 
 type WorkerRelayCallbacks struct {
-	OnConnReady     func(RelayConnInfo)
-	OnStatusChanged func(ConnStatus)
+	OnConnReady    func(RelayConnInfo)
+	OnDisconnected func()
 }
 
 type WorkerRelay struct {
@@ -41,9 +42,6 @@ func NewWorkerRelay(ctx context.Context, log *log.Entry, config ConnConfig, rela
 func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	if !w.isRelaySupported(remoteOfferAnswer) {
 		w.log.Infof("Relay is not supported by remote peer")
-		// todo should we retry?
-		// if the remote peer doesn't support relay make no sense to retry infinity
-		// but if the remote peer supports relay just the connection is lost we should retry
 		return
 	}
 
@@ -55,12 +53,19 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	}
 
 	srv := w.preferredRelayServer(currentRelayAddress.String(), remoteOfferAnswer.RelaySrvAddress)
-	relayedConn, err := w.relayManager.OpenConn(srv, w.config.Key)
+
+	relayedConn, err := w.relayManager.OpenConn(srv, w.config.Key, w.conn.OnDisconnected)
 	if err != nil {
+		// todo handle all type errors
+		if errors.Is(err, relayClient.ErrConnAlreadyExists) {
+			w.log.Infof("do not need to reopen relay connection")
+			return
+		}
 		w.log.Infof("do not need to reopen relay connection: %s", err)
 		return
 	}
 
+	w.log.Debugf("Relay connection established with %s", srv)
 	go w.conn.OnConnReady(RelayConnInfo{
 		relayedConn:     relayedConn,
 		rosenpassPubKey: remoteOfferAnswer.RosenpassPubKey,
@@ -72,6 +77,14 @@ func (w *WorkerRelay) RelayAddress() (net.Addr, error) {
 	return w.relayManager.RelayAddress()
 }
 
+func (w *WorkerRelay) IsController() bool {
+	return w.config.LocalKey > w.config.Key
+}
+
+func (w *WorkerRelay) RelayIsSupportedLocally() bool {
+	return w.relayManager.HasRelayAddress()
+}
+
 func (w *WorkerRelay) isRelaySupported(answer *OfferAnswer) bool {
 	if !w.relayManager.HasRelayAddress() {
 		return false
@@ -80,12 +93,8 @@ func (w *WorkerRelay) isRelaySupported(answer *OfferAnswer) bool {
 }
 
 func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress string) string {
-	if w.config.LocalKey > w.config.Key {
+	if w.IsController() {
 		return myRelayAddress
 	}
 	return remoteRelayAddress
-}
-
-func (w *WorkerRelay) RelayIsSupportedLocally() bool {
-	return w.relayManager.HasRelayAddress()
 }

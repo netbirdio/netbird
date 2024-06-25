@@ -80,7 +80,7 @@ func (r *Server) Close() error {
 func (r *Server) accept(conn net.Conn) {
 	peer, err := handShake(conn)
 	if err != nil {
-		log.Errorf("failed to handshake wiht %s: %s", conn.RemoteAddr(), err)
+		log.Errorf("failed to handshake with %s: %s", conn.RemoteAddr(), err)
 		cErr := conn.Close()
 		if cErr != nil {
 			log.Errorf("failed to close connection, %s: %s", conn.RemoteAddr(), cErr)
@@ -134,7 +134,6 @@ func (r *Server) accept(conn net.Conn) {
 				if err != nil {
 					peer.Log.Errorf("failed to write transport message to: %s", dp.String())
 				}
-				return
 			}()
 		case messages.MsgClose:
 			peer.Log.Infof("peer disconnected gracefully")
