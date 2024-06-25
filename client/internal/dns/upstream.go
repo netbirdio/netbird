@@ -78,6 +78,10 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}()
 
 	log.WithField("question", r.Question[0]).Trace("received an upstream question")
+	// set the EDNS0 buffer size to 4096 bytes to support larger dns records
+	if r.Extra == nil {
+		r.SetEdns0(4096, true)
+	}
 
 	select {
 	case <-u.ctx.Done():
