@@ -15,6 +15,11 @@ import (
 	ws "github.com/netbirdio/netbird/relay/server/listener/wsnhooyr"
 )
 
+const (
+	bufferSize       = 8820
+	maxHandshakeSize = 90
+)
+
 type Server struct {
 	store   *Store
 	storeMu sync.RWMutex
@@ -95,8 +100,8 @@ func (r *Server) accept(conn net.Conn) {
 		peer.Log.Infof("relay connection closed")
 	}()
 
+	buf := make([]byte, bufferSize)
 	for {
-		buf := make([]byte, 1500) // todo: optimize buffer size
 		n, err := conn.Read(buf)
 		if err != nil {
 			if err != io.EOF {
@@ -105,36 +110,36 @@ func (r *Server) accept(conn net.Conn) {
 			return
 		}
 
-		msgType, err := messages.DetermineClientMsgType(buf[:n])
+		msg := buf[:n]
+
+		msgType, err := messages.DetermineClientMsgType(msg)
 		if err != nil {
 			peer.Log.Errorf("failed to determine message type: %s", err)
 			return
 		}
 		switch msgType {
 		case messages.MsgTypeTransport:
-			msg := buf[:n]
 			peerID, err := messages.UnmarshalTransportID(msg)
 			if err != nil {
 				peer.Log.Errorf("failed to unmarshal transport message: %s", err)
 				continue
 			}
-			go func() {
-				stringPeerID := messages.HashIDToString(peerID)
-				dp, ok := r.store.Peer(stringPeerID)
-				if !ok {
-					peer.Log.Errorf("peer not found: %s", stringPeerID)
-					return
-				}
-				err := messages.UpdateTransportMsg(msg, peer.ID())
-				if err != nil {
-					peer.Log.Errorf("failed to update transport message: %s", err)
-					return
-				}
-				_, err = dp.conn.Write(msg)
-				if err != nil {
-					peer.Log.Errorf("failed to write transport message to: %s", dp.String())
-				}
-			}()
+			stringPeerID := messages.HashIDToString(peerID)
+			dp, ok := r.store.Peer(stringPeerID)
+			if !ok {
+				peer.Log.Errorf("peer not found: %s", stringPeerID)
+				continue
+			}
+			err = messages.UpdateTransportMsg(msg, peer.ID())
+			if err != nil {
+				peer.Log.Errorf("failed to update transport message: %s", err)
+				continue
+			}
+			peer.Log.Infof("write transport msg!!!!")
+			_, err = dp.conn.Write(msg)
+			if err != nil {
+				peer.Log.Errorf("failed to write transport message to: %s", dp.String())
+			}
 		case messages.MsgClose:
 			peer.Log.Infof("peer disconnected gracefully")
 			_ = conn.Close()
@@ -163,7 +168,7 @@ func (r *Server) sendCloseMsgs() {
 }
 
 func handShake(conn net.Conn) (*Peer, error) {
-	buf := make([]byte, 1500)
+	buf := make([]byte, maxHandshakeSize)
 	n, err := conn.Read(buf)
 	if err != nil {
 		log.Errorf("failed to read message: %s", err)

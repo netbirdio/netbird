@@ -371,6 +371,7 @@ func (c *Client) writeTo(id string, dstID []byte, payload []byte) (int, error) {
 			return 0, io.EOF
 		}
 	*/
+	// todo: use buffer pool instead of create new transport msg.
 	msg, err := messages.MarshalTransportMsg(dstID, payload)
 	if err != nil {
 		log.Errorf("failed to marshal transport message: %s", err)
