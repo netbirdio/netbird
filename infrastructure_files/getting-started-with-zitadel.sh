@@ -430,6 +430,12 @@ initEnvironment() {
   TURN_MAX_PORT=65535
   TURN_EXTERNAL_IP_CONFIG=$(get_turn_external_ip)
 
+  if [ ! "$ZITADEL_DATABASE" ]; then
+    echo "Set Postgres as default Zitadel database."
+    echo "For using CockroachDB please the environment variable 'export ZITADEL_DATABASE=cockroach'."
+    ZITADEL_DATABASE="postgres"
+  fi
+
   if ! check_nb_domain "$NETBIRD_DOMAIN"; then
     NETBIRD_DOMAIN=$(read_nb_domain)
   fi
@@ -463,9 +469,7 @@ initEnvironment() {
     exit 1
   fi
 
-  if [[ $ZITADEL_DATABASE == "" ]]; then
-    echo "Use Postgres as default Zitadel database."
-    echo "For using CockroachDB please the environment variable 'export ZITADEL_DATABASE=cockroach'."
+  if [[ $ZITADEL_DATABASE == "postgres" ]]; then
     POSTGRES_ROOT_PASSWORD="$(openssl rand -base64 32 | sed 's/=//g')@"
     POSTGRES_ZITADEL_PASSWORD="$(openssl rand -base64 32 | sed 's/=//g')@"
     ZDB=$(renderDockerComposePostgres)
