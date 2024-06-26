@@ -167,6 +167,8 @@ type DefaultAccountManager struct {
 	userDeleteFromIDPEnabled bool
 
 	integratedPeerValidator integrated_validator.IntegratedValidator
+
+	networkMapHash map[string]uint64
 }
 
 // Settings represents Account settings structure that can be modified via API and Dashboard

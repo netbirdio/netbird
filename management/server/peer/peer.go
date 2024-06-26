@@ -47,6 +47,8 @@ type Peer struct {
 	Ephemeral bool
 	// Geo location based on connection IP
 	Location Location `gorm:"embedded;embeddedPrefix:location_"`
+
+	NetworkMapHash uint64 `hash:"ignore"`
 }
 
 type PeerStatus struct { //nolint:revive

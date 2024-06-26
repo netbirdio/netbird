@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mitchellh/hashstructure/v2"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -915,6 +916,18 @@ func updatePeerMeta(peer *nbpeer.Peer, meta nbpeer.PeerSystemMeta, account *Acco
 // updateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) updateAccountPeers(account *Account) {
+	start := time.Now()
+	var skipUpdate int
+	defer func() {
+		duration := time.Since(start)
+		log.Printf("Finished execution of updateAccountPeers, took %v\n", duration)
+		log.Println("not updated peers: ", skipUpdate)
+	}()
+
+	if am.networkMapHash == nil {
+		am.networkMapHash = map[string]uint64{}
+	}
+
 	peers := account.GetPeers()
 
 	approvedPeersMap, err := am.GetValidatedPeers(account)
@@ -922,14 +935,32 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) {
 		log.Errorf("failed send out updates to peers, failed to validate peer: %v", err)
 		return
 	}
+
 	for _, peer := range peers {
-		if !am.peersUpdateManager.HasChannel(peer.ID) {
-			log.Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
-			continue
+		//if !am.peersUpdateManager.HasChannel(peer.ID) {
+		//	log.Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
+		//	continue
+		//}
+
+		remotePeerNetworkMap := account.GetPeerNetworkMap(peer.ID, am.dnsDomain, approvedPeersMap)
+		hash, err := hashstructure.Hash(remotePeerNetworkMap, hashstructure.FormatV2, &hashstructure.HashOptions{
+			ZeroNil:         true,
+			IgnoreZeroValue: true,
+			SlicesAsSets:    true,
+			UseStringer:     true,
+		})
+		if err != nil {
+			log.Errorf("failed to generate network map hash: %v", err)
+		} else {
+			if am.networkMapHash[peer.ID] == hash {
+				log.Debugf("not sending network map update to peer: %s as there is nothing new", peer.ID)
+				skipUpdate++
+				continue
+			}
+			am.networkMapHash[peer.ID] = hash
 		}
 
 		postureChecks := am.getPeerPostureChecks(account, peer)
-		remotePeerNetworkMap := account.GetPeerNetworkMap(peer.ID, am.dnsDomain, approvedPeersMap)
 		update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks)
 		am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})
 	}
