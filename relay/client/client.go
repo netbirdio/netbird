@@ -250,13 +250,6 @@ func (c *Client) connect() error {
 }
 
 func (c *Client) handShake() error {
-	defer func() {
-		err := c.relayConn.SetReadDeadline(time.Time{})
-		if err != nil {
-			log.Errorf("failed to reset read deadline: %s", err)
-		}
-	}()
-
 	msg, err := messages.MarshalHelloMsg(c.hashedID)
 	if err != nil {
 		log.Errorf("failed to marshal hello message: %s", err)
@@ -267,15 +260,8 @@ func (c *Client) handShake() error {
 		log.Errorf("failed to send hello message: %s", err)
 		return err
 	}
-
-	err = c.relayConn.SetReadDeadline(time.Now().Add(serverResponseTimeout))
-	if err != nil {
-		log.Errorf("failed to set read deadline: %s", err)
-		return err
-	}
-
-	buf := make([]byte, 1500) // todo: optimise buffer size
-	n, err := c.relayConn.Read(buf)
+	buf := make([]byte, messages.MaxHandshakeSize)
+	n, err := c.readWithTimeout(buf)
 	if err != nil {
 		log.Errorf("failed to read hello response: %s", err)
 		return err
@@ -389,6 +375,29 @@ func (c *Client) closeAllConns() {
 		container.close()
 	}
 	c.conns = make(map[string]*connContainer)
+}
+
+func (c *Client) readWithTimeout(buf []byte) (int, error) {
+	ctx, cancel := context.WithTimeout(c.parentCtx, serverResponseTimeout)
+	defer cancel()
+
+	readDone := make(chan struct{})
+	var (
+		n   int
+		err error
+	)
+
+	go func() {
+		n, err = c.relayConn.Read(buf)
+		close(readDone)
+	}()
+
+	select {
+	case <-ctx.Done():
+		return 0, fmt.Errorf("read operation timed out")
+	case <-readDone:
+		return n, err
+	}
 }
 
 // todo check by reference too, the id is not enought because the id come from the outer conn

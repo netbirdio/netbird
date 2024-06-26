@@ -13,6 +13,10 @@ import (
 	"nhooyr.io/websocket"
 )
 
+const (
+	writeTimeout = 10 * time.Second
+)
+
 type Conn struct {
 	*websocket.Conn
 	lAddr *net.TCPAddr
@@ -50,8 +54,14 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 	return n, err
 }
 
+// Write writes a binary message with the given payload.
+// It does not block until fill the internal buffer.
+// If the buffer filled up, wait until the buffer is drained or timeout.
 func (c *Conn) Write(b []byte) (int, error) {
-	err := c.Conn.Write(c.ctx, websocket.MessageBinary, b)
+	ctx, ctxCancel := context.WithTimeout(c.ctx, writeTimeout)
+	defer ctxCancel()
+
+	err := c.Conn.Write(ctx, websocket.MessageBinary, b)
 	return len(b), err
 }
 

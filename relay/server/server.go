@@ -16,8 +16,7 @@ import (
 )
 
 const (
-	bufferSize       = 8820
-	maxHandshakeSize = 90
+	bufferSize = 8820
 )
 
 type Server struct {
@@ -135,7 +134,6 @@ func (r *Server) accept(conn net.Conn) {
 				peer.Log.Errorf("failed to update transport message: %s", err)
 				continue
 			}
-			peer.Log.Infof("write transport msg!!!!")
 			_, err = dp.conn.Write(msg)
 			if err != nil {
 				peer.Log.Errorf("failed to write transport message to: %s", dp.String())
@@ -168,7 +166,7 @@ func (r *Server) sendCloseMsgs() {
 }
 
 func handShake(conn net.Conn) (*Peer, error) {
-	buf := make([]byte, maxHandshakeSize)
+	buf := make([]byte, messages.MaxHandshakeSize)
 	n, err := conn.Read(buf)
 	if err != nil {
 		log.Errorf("failed to read message: %s", err)

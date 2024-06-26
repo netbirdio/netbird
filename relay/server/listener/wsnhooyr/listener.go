@@ -29,7 +29,6 @@ func NewListener(address string) listener.Listener {
 	}
 }
 
-// Listen todo: prevent multiple call
 func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 	l.acceptFn = acceptFn
 	mux := http.NewServeMux()

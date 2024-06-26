@@ -51,27 +51,14 @@ func (c *Conn) LocalAddr() net.Addr {
 }
 
 func (c *Conn) SetReadDeadline(t time.Time) error {
-	// todo: implement me
 	return nil
 }
 
 func (c *Conn) SetWriteDeadline(t time.Time) error {
-	// todo: implement me
 	return nil
 }
 
 func (c *Conn) SetDeadline(t time.Time) error {
-	// todo: implement me
-	errR := c.SetReadDeadline(t)
-	errW := c.SetWriteDeadline(t)
-
-	if errR != nil {
-		return errR
-	}
-
-	if errW != nil {
-		return errW
-	}
 	return nil
 }
 

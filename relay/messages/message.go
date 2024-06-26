@@ -15,6 +15,8 @@ const (
 
 	headerSizeTransport = 1 + IDSize     // 1 byte for msg type, IDSize for peerID
 	headerSizeHello     = 1 + 4 + IDSize // 1 byte for msg type, 4 byte for magic header, IDSize for peerID
+
+	MaxHandshakeSize = 90
 )
 
 var (
