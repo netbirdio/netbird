@@ -771,11 +771,21 @@ services:
     networks: [netbird]
     env_file:
       - ./dashboard.env
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
   # Signal
   signal:
     image: netbirdio/signal:latest
     restart: unless-stopped
     networks: [netbird]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
   # Management
   management:
     image: netbirdio/management:latest
@@ -793,16 +803,26 @@ services:
       "--dns-domain=netbird.selfhosted",
       "--idp-sign-key-refresh-enabled",
     ]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
   # Coturn, AKA relay server
   coturn:
     image: coturn/coturn
     restart: unless-stopped
-    domainname: netbird.relay.selfhosted
+    #domainname: netbird.relay.selfhosted
     volumes:
       - ./turnserver.conf:/etc/turnserver.conf:ro
     network_mode: host
     command:
       - -c /etc/turnserver.conf
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
   # Zitadel - identity provider
   zitadel:
     restart: 'always'
@@ -817,6 +837,11 @@ services:
     volumes:
       - ./machinekey:/machinekey
       - netbird_zitadel_certs:/zdb-certs:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
 $ZDB
   netbird_zdb_data:
   netbird_management:
@@ -846,6 +871,11 @@ renderDockerComposeCockroachDB() {
       timeout: '30s'
       retries: 5
       start_period: '20s'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
 
 volumes:
   netbird_zdb_certs:
@@ -869,6 +899,11 @@ renderDockerComposePostgres() {
       timeout: 60s
       retries: 10
       start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
 
 volumes:
 EOF

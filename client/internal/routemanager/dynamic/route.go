@@ -23,7 +23,8 @@ import (
 const (
 	DefaultInterval = time.Minute
 
-	minInterval = 2 * time.Second
+	minInterval     = 2 * time.Second
+	failureInterval = 5 * time.Second
 
 	addAllowedIP = "add allowed IP %s: %w"
 )
@@ -160,7 +161,12 @@ func (r *Route) startResolver(ctx context.Context) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	r.update(ctx)
+	if err := r.update(ctx); err != nil {
+		log.Errorf("Failed to resolve domains for route [%v]: %v", r, err)
+		if interval > failureInterval {
+			ticker.Reset(failureInterval)
+		}
+	}
 
 	for {
 		select {
@@ -168,17 +174,28 @@ func (r *Route) startResolver(ctx context.Context) {
 			log.Debugf("Stopping dynamic route resolver for domains [%v]", r)
 			return
 		case <-ticker.C:
-			r.update(ctx)
+			if err := r.update(ctx); err != nil {
+				log.Errorf("Failed to resolve domains for route [%v]: %v", r, err)
+				// Use a lower ticker interval if the update fails
+				if interval > failureInterval {
+					ticker.Reset(failureInterval)
+				}
+			} else if interval > failureInterval {
+				// Reset to the original interval if the update succeeds
+				ticker.Reset(interval)
+			}
 		}
 	}
 }
 
-func (r *Route) update(ctx context.Context) {
+func (r *Route) update(ctx context.Context) error {
 	if resolved, err := r.resolveDomains(); err != nil {
-		log.Errorf("Failed to resolve domains for route [%v]: %v", r, err)
+		return fmt.Errorf("resolve domains: %w", err)
 	} else if err := r.updateDynamicRoutes(ctx, resolved); err != nil {
-		log.Errorf("Failed to update dynamic routes for [%v]: %v", r, err)
+		return fmt.Errorf("update dynamic routes: %w", err)
 	}
+
+	return nil
 }
 
 func (r *Route) resolveDomains() (domainMap, error) {
