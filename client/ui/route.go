@@ -95,8 +95,6 @@ func (s *serviceClient) updateRoutes(grid *fyne.Container, f filter) {
 		return
 	}
 
-	fmt.Println(f, " filteredRoutes: ", filteredRoutes)
-
 	for _, route := range filteredRoutes {
 		r := route
 
