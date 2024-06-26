@@ -51,15 +51,15 @@ func (c *Conn) LocalAddr() net.Addr {
 }
 
 func (c *Conn) SetReadDeadline(t time.Time) error {
-	return nil
+	return fmt.Errorf("not implemented")
 }
 
 func (c *Conn) SetWriteDeadline(t time.Time) error {
-	return nil
+	return fmt.Errorf("not implemented")
 }
 
 func (c *Conn) SetDeadline(t time.Time) error {
-	return nil
+	return fmt.Errorf("not implemented")
 }
 
 func (c *Conn) Close() error {
