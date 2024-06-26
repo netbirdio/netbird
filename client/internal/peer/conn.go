@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/rand"
 	"net"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -155,7 +156,9 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 	}
 
 	conn.handshaker.AddOnNewOfferListener(conn.workerRelay.OnNewOffer)
-	conn.handshaker.AddOnNewOfferListener(conn.workerICE.OnNewOffer)
+	if os.Getenv("NB_FORCE_RELAY") != "true" {
+		conn.handshaker.AddOnNewOfferListener(conn.workerICE.OnNewOffer)
+	}
 
 	go conn.handshaker.Listen()
 
