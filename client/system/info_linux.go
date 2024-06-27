@@ -89,5 +89,5 @@ func _getInfo() string {
 func sysInfo() (serialNumber string, productName string, manufacturer string) {
 	var si sysinfo.SysInfo
 	si.GetSysInfo()
-	return si.Chassis.Serial, si.Product.Name, si.Product.Vendor
+	return si.Product.Serial, si.Product.Name, si.Product.Vendor
 }
