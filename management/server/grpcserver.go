@@ -11,11 +11,13 @@ import (
 	pb "github.com/golang/protobuf/proto" // nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
-	"github.com/netbirdio/netbird/management/server/posture"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	nbContext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/posture"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
@@ -134,6 +136,17 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	if err != nil {
 		return err
 	}
+
+	ctx := srv.Context()
+	//nolint
+	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
+	accountID, err := s.accountManager.GetAccountIDForPeerKey(peerKey.String())
+	if err != nil {
+		// this case should not happen and already indicates an issue but we don't want the system to fail due to being unable to log in detail
+		accountID = "UNKNOWN"
+	}
+	//nolint
+	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
 	if syncReq.GetMeta() == nil {
 		log.Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
@@ -358,6 +371,16 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	if err != nil {
 		return nil, err
 	}
+
+	//nolint
+	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
+	accountID, err := s.accountManager.GetAccountIDForPeerKey(peerKey.String())
+	if err != nil {
+		// this case should not happen and already indicates an issue but we don't want the system to fail due to being unable to log in detail
+		accountID = "UNKNOWN"
+	}
+	//nolint
+	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
 	if loginReq.GetMeta() == nil {
 		msg := status.Errorf(codes.FailedPrecondition,

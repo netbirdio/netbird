@@ -18,6 +18,11 @@ import (
 
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
+	gocache "github.com/patrickmn/go-cache"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
+
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
@@ -33,10 +38,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
-	gocache "github.com/patrickmn/go-cache"
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
 )
 
 const (
@@ -137,6 +138,7 @@ type AccountManager interface {
 	CancelPeerRoutines(peer *nbpeer.Peer) error
 	SyncPeerMeta(peerPubKey string, meta nbpeer.PeerSystemMeta) error
 	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
+	GetAccountIDForPeerKey(peerKey string) (string, error)
 }
 
 type DefaultAccountManager struct {
@@ -1998,6 +2000,10 @@ func (am *DefaultAccountManager) onPeersInvalidated(accountID string) {
 
 func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
 	return am.Store.GetPostureCheckByChecksDefinition(accountID, checks)
+}
+
+func (am *DefaultAccountManager) GetAccountIDForPeerKey(peerKey string) (string, error) {
+	return am.Store.GetAccountIDByPeerPubKey(peerKey)
 }
 
 // addAllGroup to account object if it doesn't exist

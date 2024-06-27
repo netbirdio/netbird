@@ -11,10 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/util"
 
 	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"

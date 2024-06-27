@@ -3,14 +3,17 @@ package telemetry
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	"github.com/netbirdio/netbird/formatter"
+	nbContext "github.com/netbirdio/netbird/management/server/context"
 )
 
 const (
@@ -163,8 +166,15 @@ func getResponseCounterKey(endpoint, method string, status int) string {
 func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 	fn := func(rw http.ResponseWriter, r *http.Request) {
 		reqStart := time.Now()
-		traceID := hash(fmt.Sprintf("%v", r))
-		log.Tracef("HTTP request %v: %v %v", traceID, r.Method, r.URL)
+
+		//nolint
+		ctx := context.WithValue(r.Context(), formatter.ExecutionContextKey, formatter.HTTPSource)
+
+		reqID := uuid.New().String()
+		//nolint
+		ctx = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
+
+		log.Tracef("HTTP request %v: %v %v", reqID, r.Method, r.URL)
 
 		metricKey := getRequestCounterKey(r.URL.Path, r.Method)
 
@@ -175,12 +185,12 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 
 		w := WrapResponseWriter(rw)
 
-		h.ServeHTTP(w, r)
+		h.ServeHTTP(w, r.WithContext(ctx))
 
 		if w.Status() > 399 {
-			log.Errorf("HTTP response %v: %v %v status %v", traceID, r.Method, r.URL, w.Status())
+			log.Errorf("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())
 		} else {
-			log.Tracef("HTTP response %v: %v %v status %v", traceID, r.Method, r.URL, w.Status())
+			log.Tracef("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())
 		}
 
 		metricKey = getResponseCounterKey(r.URL.Path, r.Method, w.Status())
@@ -211,13 +221,4 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(fn)
-}
-
-func hash(s string) uint32 {
-	h := fnv.New32a()
-	_, err := h.Write([]byte(s))
-	if err != nil {
-		panic(err)
-	}
-	return h.Sum32()
 }

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	grpcMiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -35,8 +36,10 @@ import (
 	"github.com/netbirdio/management-integrations/integrations"
 
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/formatter"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
+	nbContext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -116,6 +119,11 @@ var (
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithCancel(cmd.Context())
+			defer cancel()
+			//nolint
+			ctx = context.WithValue(ctx, formatter.ExecutionContextKey, formatter.SystemSource)
+
 			err := handleRebrand(cmd)
 			if err != nil {
 				return fmt.Errorf("failed to migrate files %v", err)
@@ -206,8 +214,8 @@ var (
 			gRPCOpts := []grpc.ServerOption{
 				grpc.KeepaliveEnforcementPolicy(kaep),
 				grpc.KeepaliveParams(kasp),
-				grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...)),
-				grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...)),
+				grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...), unaryInterceptor),
+				grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor),
 			}
 
 			var certManager *autocert.Manager
@@ -249,8 +257,6 @@ var (
 				KeysLocation: config.HttpConfig.AuthKeysLocation,
 			}
 
-			ctx, cancel := context.WithCancel(cmd.Context())
-			defer cancel()
 			httpAPIHandler, err := httpapi.APIHandler(ctx, accountManager, geo, *jwtValidator, appMetrics, httpAPIAuthCfg, integratedPeerValidator)
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
@@ -347,6 +353,35 @@ var (
 		},
 	}
 )
+
+func unaryInterceptor(
+	ctx context.Context,
+	req interface{},
+	info *grpc.UnaryServerInfo,
+	handler grpc.UnaryHandler,
+) (interface{}, error) {
+	reqID := uuid.New().String()
+	//nolint
+	ctx = context.WithValue(ctx, formatter.ExecutionContextKey, formatter.GRPCSource)
+	//nolint
+	ctx = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
+	return handler(ctx, req)
+}
+
+func streamInterceptor(
+	srv interface{},
+	ss grpc.ServerStream,
+	info *grpc.StreamServerInfo,
+	handler grpc.StreamHandler,
+) error {
+	reqID := uuid.New().String()
+	wrapped := grpcMiddleware.WrapServerStream(ss)
+	//nolint
+	ctx := context.WithValue(ss.Context(), formatter.ExecutionContextKey, formatter.GRPCSource)
+	//nolint
+	wrapped.WrappedContext = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
+	return handler(srv, wrapped)
+}
 
 func notifyStop(msg string) {
 	select {

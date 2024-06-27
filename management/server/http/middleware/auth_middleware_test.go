@@ -15,15 +15,16 @@ import (
 )
 
 const (
-	audience    = "audience"
-	userIDClaim = "userIDClaim"
-	accountID   = "accountID"
-	domain      = "domain"
-	userID      = "userID"
-	tokenID     = "tokenID"
-	PAT         = "nbp_PAT"
-	JWT         = "JWT"
-	wrongToken  = "wrongToken"
+	audience       = "audience"
+	userIDClaim    = "userIDClaim"
+	accountID      = "accountID"
+	domain         = "domain"
+	domainCategory = "domainCategory"
+	userID         = "userID"
+	tokenID        = "tokenID"
+	PAT            = "nbp_PAT"
+	JWT            = "JWT"
+	wrongToken     = "wrongToken"
 )
 
 var testAccount = &server.Account{
