@@ -1,36 +1,27 @@
 package server
 
 import (
+	"context"
 	"errors"
-	"fmt"
-	"io"
-	"net"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/relay/messages"
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/udp"
-	ws "github.com/netbirdio/netbird/relay/server/listener/wsnhooyr"
-)
-
-const (
-	bufferSize = 8820
+	"github.com/netbirdio/netbird/relay/server/listener/ws"
 )
 
 type Server struct {
-	store   *Store
-	storeMu sync.RWMutex
-
-	UDPListener listener.Listener
-	WSListener  listener.Listener
+	relay       *Relay
+	uDPListener listener.Listener
+	wSListener  listener.Listener
 }
 
 func NewServer() *Server {
 	return &Server{
-		store:   NewStore(),
-		storeMu: sync.RWMutex{},
+		relay: NewRelay(),
 	}
 }
 
@@ -38,21 +29,21 @@ func (r *Server) Listen(address string) error {
 	wg := sync.WaitGroup{}
 	wg.Add(2)
 
-	r.WSListener = ws.NewListener(address)
+	r.wSListener = ws.NewListener(address)
 	var wslErr error
 	go func() {
 		defer wg.Done()
-		wslErr = r.WSListener.Listen(r.accept)
+		wslErr = r.wSListener.Listen(r.relay.Accept)
 		if wslErr != nil {
 			log.Errorf("failed to bind ws server: %s", wslErr)
 		}
 	}()
 
-	r.UDPListener = udp.NewListener(address)
+	r.uDPListener = udp.NewListener(address)
 	var udpLErr error
 	go func() {
 		defer wg.Done()
-		udpLErr = r.UDPListener.Listen(r.accept)
+		udpLErr = r.uDPListener.Listen(r.relay.Accept)
 		if udpLErr != nil {
 			log.Errorf("failed to bind ws server: %s", udpLErr)
 		}
@@ -64,131 +55,21 @@ func (r *Server) Listen(address string) error {
 
 func (r *Server) Close() error {
 	var wErr error
-	if r.WSListener != nil {
-		wErr = r.WSListener.Close()
+	// stop service new connections
+	if r.wSListener != nil {
+		wErr = r.wSListener.Close()
 	}
 
 	var uErr error
-	if r.UDPListener != nil {
-		uErr = r.UDPListener.Close()
+	if r.uDPListener != nil {
+		uErr = r.uDPListener.Close()
 	}
 
-	r.sendCloseMsgs()
-
-	r.WSListener.WaitForExitAcceptedConns()
+	// close accepted connections gracefully
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	r.relay.Close(ctx)
 
 	err := errors.Join(wErr, uErr)
 	return err
-}
-
-func (r *Server) accept(conn net.Conn) {
-	peer, err := handShake(conn)
-	if err != nil {
-		log.Errorf("failed to handshake with %s: %s", conn.RemoteAddr(), err)
-		cErr := conn.Close()
-		if cErr != nil {
-			log.Errorf("failed to close connection, %s: %s", conn.RemoteAddr(), cErr)
-		}
-		return
-	}
-	peer.Log.Infof("peer connected from: %s", conn.RemoteAddr())
-
-	r.store.AddPeer(peer)
-	defer func() {
-		r.store.DeletePeer(peer)
-		peer.Log.Infof("relay connection closed")
-	}()
-
-	buf := make([]byte, bufferSize)
-	for {
-		n, err := conn.Read(buf)
-		if err != nil {
-			if err != io.EOF {
-				peer.Log.Errorf("failed to read message: %s", err)
-			}
-			return
-		}
-
-		msg := buf[:n]
-
-		msgType, err := messages.DetermineClientMsgType(msg)
-		if err != nil {
-			peer.Log.Errorf("failed to determine message type: %s", err)
-			return
-		}
-		switch msgType {
-		case messages.MsgTypeTransport:
-			peerID, err := messages.UnmarshalTransportID(msg)
-			if err != nil {
-				peer.Log.Errorf("failed to unmarshal transport message: %s", err)
-				continue
-			}
-			stringPeerID := messages.HashIDToString(peerID)
-			dp, ok := r.store.Peer(stringPeerID)
-			if !ok {
-				peer.Log.Errorf("peer not found: %s", stringPeerID)
-				continue
-			}
-			err = messages.UpdateTransportMsg(msg, peer.ID())
-			if err != nil {
-				peer.Log.Errorf("failed to update transport message: %s", err)
-				continue
-			}
-			_, err = dp.conn.Write(msg)
-			if err != nil {
-				peer.Log.Errorf("failed to write transport message to: %s", dp.String())
-			}
-		case messages.MsgClose:
-			peer.Log.Infof("peer disconnected gracefully")
-			_ = conn.Close()
-			return
-		}
-	}
-}
-
-func (r *Server) sendCloseMsgs() {
-	msg := messages.MarshalCloseMsg()
-
-	r.storeMu.Lock()
-	log.Debugf("sending close messages to %d peers", len(r.store.peers))
-	for _, p := range r.store.peers {
-		_, err := p.conn.Write(msg)
-		if err != nil {
-			log.Errorf("failed to send close message to peer: %s", p.String())
-		}
-
-		err = p.conn.Close()
-		if err != nil {
-			log.Errorf("failed to close connection to peer: %s", err)
-		}
-	}
-	r.storeMu.Unlock()
-}
-
-func handShake(conn net.Conn) (*Peer, error) {
-	buf := make([]byte, messages.MaxHandshakeSize)
-	n, err := conn.Read(buf)
-	if err != nil {
-		log.Errorf("failed to read message: %s", err)
-		return nil, err
-	}
-	msgType, err := messages.DetermineClientMsgType(buf[:n])
-	if err != nil {
-		return nil, err
-	}
-	if msgType != messages.MsgTypeHello {
-		tErr := fmt.Errorf("invalid message type")
-		log.Errorf("failed to handshake: %s", tErr)
-		return nil, tErr
-	}
-	peerId, err := messages.UnmarshalHelloMsg(buf[:n])
-	if err != nil {
-		log.Errorf("failed to handshake: %s", err)
-		return nil, err
-	}
-	p := NewPeer(peerId, conn)
-
-	msg := messages.MarshalHelloResponse()
-	_, err = conn.Write(msg)
-	return p, err
 }

@@ -21,11 +21,6 @@ type Listener struct {
 	lock sync.Mutex
 }
 
-func (l *Listener) WaitForExitAcceptedConns() {
-	l.wg.Wait()
-	return
-}
-
 func NewListener(address string) listener.Listener {
 	return &Listener{
 		address: address,
