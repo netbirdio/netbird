@@ -1,6 +1,7 @@
 package posture
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -233,7 +234,7 @@ func TestProcessCheck_Check(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			isValid, err := tt.check.Check(tt.input)
+			isValid, err := tt.check.Check(context.Background(), tt.input)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {

@@ -1,15 +1,18 @@
 package activity
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 // Store provides an interface to store or stream events.
 type Store interface {
 	// Save an event in the store
-	Save(event *Event) (*Event, error)
+	Save(ctx context.Context, event *Event) (*Event, error)
 	// Get returns "limit" number of events from the "offset" index ordered descending or ascending by a timestamp
-	Get(accountID string, offset, limit int, descending bool) ([]*Event, error)
+	Get(ctx context.Context, accountID string, offset, limit int, descending bool) ([]*Event, error)
 	// Close the sink flushing events if necessary
-	Close() error
+	Close(ctx context.Context) error
 }
 
 // InMemoryEventStore implements the Store interface storing data in-memory
@@ -20,7 +23,7 @@ type InMemoryEventStore struct {
 }
 
 // Save sets the Event.ID to 1
-func (store *InMemoryEventStore) Save(event *Event) (*Event, error) {
+func (store *InMemoryEventStore) Save(_ context.Context, event *Event) (*Event, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	if store.events == nil {
@@ -33,7 +36,7 @@ func (store *InMemoryEventStore) Save(event *Event) (*Event, error) {
 }
 
 // Get returns a list of ALL events that belong to the given accountID without taking offset, limit and order into consideration
-func (store *InMemoryEventStore) Get(accountID string, offset, limit int, descending bool) ([]*Event, error) {
+func (store *InMemoryEventStore) Get(_ context.Context, accountID string, offset, limit int, descending bool) ([]*Event, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	events := make([]*Event, 0)
@@ -46,7 +49,7 @@ func (store *InMemoryEventStore) Get(accountID string, offset, limit int, descen
 }
 
 // Close cleans up the event list
-func (store *InMemoryEventStore) Close() error {
+func (store *InMemoryEventStore) Close(_ context.Context) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	store.events = make([]*Event, 0)

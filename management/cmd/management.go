@@ -80,6 +80,10 @@ var (
 		Short: "start NetBird Management Server",
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
+
+			//nolint
+			ctx := context.WithValue(cmd.Context(), formatter.ExecutionContextKey, formatter.SystemSource)
+
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
 				return fmt.Errorf("failed initializing log %v", err)
@@ -88,7 +92,7 @@ var (
 			// detect whether user specified a port
 			userPort := cmd.Flag("port").Changed
 
-			config, err = loadMgmtConfig(mgmtConfig)
+			config, err = loadMgmtConfig(ctx, mgmtConfig)
 			if err != nil {
 				return fmt.Errorf("failed reading provided config file: %s: %v", mgmtConfig, err)
 			}
@@ -139,11 +143,11 @@ var (
 			if err != nil {
 				return err
 			}
-			err = appMetrics.Expose(mgmtMetricsPort, "/metrics")
+			err = appMetrics.Expose(ctx, mgmtMetricsPort, "/metrics")
 			if err != nil {
 				return err
 			}
-			store, err := server.NewStore(config.StoreConfig.Engine, config.Datadir, appMetrics)
+			store, err := server.NewStore(ctx, config.StoreConfig.Engine, config.Datadir, appMetrics)
 			if err != nil {
 				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
 			}
@@ -151,7 +155,7 @@ var (
 
 			var idpManager idp.Manager
 			if config.IdpManagerConfig != nil {
-				idpManager, err = idp.NewManager(*config.IdpManagerConfig, appMetrics)
+				idpManager, err = idp.NewManager(ctx, *config.IdpManagerConfig, appMetrics)
 				if err != nil {
 					return fmt.Errorf("failed retrieving a new idp manager with err: %v", err)
 				}
@@ -160,32 +164,32 @@ var (
 			if disableSingleAccMode {
 				mgmtSingleAccModeDomain = ""
 			}
-			eventStore, key, err := integrations.InitEventStore(config.Datadir, config.DataStoreEncryptionKey)
+			eventStore, key, err := integrations.InitEventStore(ctx, config.Datadir, config.DataStoreEncryptionKey)
 			if err != nil {
 				return fmt.Errorf("failed to initialize database: %s", err)
 			}
 
 			if config.DataStoreEncryptionKey != key {
-				log.Infof("update config with activity store key")
+				log.WithContext(ctx).Infof("update config with activity store key")
 				config.DataStoreEncryptionKey = key
-				err := updateMgmtConfig(mgmtConfig, config)
+				err := updateMgmtConfig(ctx, mgmtConfig, config)
 				if err != nil {
 					return fmt.Errorf("failed to write out store encryption key: %s", err)
 				}
 			}
 
-			geo, err := geolocation.NewGeolocation(config.Datadir)
+			geo, err := geolocation.NewGeolocation(ctx, config.Datadir)
 			if err != nil {
-				log.Warnf("could not initialize geo location service: %v, we proceed without geo support", err)
+				log.WithContext(ctx).Warnf("could not initialize geo location service: %v, we proceed without geo support", err)
 			} else {
-				log.Infof("geo location service has been initialized from %s", config.Datadir)
+				log.WithContext(ctx).Infof("geo location service has been initialized from %s", config.Datadir)
 			}
 
 			integratedPeerValidator, err := integrations.NewIntegratedValidator(eventStore)
 			if err != nil {
 				return fmt.Errorf("failed to initialize integrated peer validator: %v", err)
 			}
-			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
+			accountManager, err := server.BuildManager(ctx, store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
 				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
@@ -196,13 +200,13 @@ var (
 			trustedPeers := config.ReverseProxy.TrustedPeers
 			defaultTrustedPeers := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
 			if len(trustedPeers) == 0 || slices.Equal[[]netip.Prefix](trustedPeers, defaultTrustedPeers) {
-				log.Warn("TrustedPeers are configured to default value '0.0.0.0/0', '::/0'. This allows connection IP spoofing.")
+				log.WithContext(ctx).Warn("TrustedPeers are configured to default value '0.0.0.0/0', '::/0'. This allows connection IP spoofing.")
 				trustedPeers = defaultTrustedPeers
 			}
 			trustedHTTPProxies := config.ReverseProxy.TrustedHTTPProxies
 			trustedProxiesCount := config.ReverseProxy.TrustedHTTPProxiesCount
 			if len(trustedHTTPProxies) > 0 && trustedProxiesCount > 0 {
-				log.Warn("TrustedHTTPProxies and TrustedHTTPProxiesCount both are configured. " +
+				log.WithContext(ctx).Warn("TrustedHTTPProxies and TrustedHTTPProxiesCount both are configured. " +
 					"This is not recommended way to extract X-Forwarded-For. Consider using one of these options.")
 			}
 			realipOpts := []realip.Option{
@@ -232,7 +236,7 @@ var (
 			} else if config.HttpConfig.CertFile != "" && config.HttpConfig.CertKey != "" {
 				tlsConfig, err = loadTLSConfig(config.HttpConfig.CertFile, config.HttpConfig.CertKey)
 				if err != nil {
-					log.Errorf("cannot load TLS credentials: %v", err)
+					log.WithContext(ctx).Errorf("cannot load TLS credentials: %v", err)
 					return err
 				}
 				transportCredentials := credentials.NewTLS(tlsConfig)
@@ -241,6 +245,7 @@ var (
 			}
 
 			jwtValidator, err := jwtclaims.NewJWTValidator(
+				ctx,
 				config.HttpConfig.AuthIssuer,
 				config.GetAuthAudiences(),
 				config.HttpConfig.AuthKeysLocation,
@@ -263,18 +268,18 @@ var (
 			}
 
 			ephemeralManager := server.NewEphemeralManager(store, accountManager)
-			ephemeralManager.LoadInitialPeers()
+			ephemeralManager.LoadInitialPeers(ctx)
 
 			gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
-			srv, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, appMetrics, ephemeralManager)
+			srv, err := server.NewServer(ctx, config, accountManager, peersUpdateManager, turnManager, appMetrics, ephemeralManager)
 			if err != nil {
 				return fmt.Errorf("failed creating gRPC API handler: %v", err)
 			}
 			mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
 
-			installationID, err := getInstallationID(store)
+			installationID, err := getInstallationID(ctx, store)
 			if err != nil {
-				log.Errorf("cannot load TLS credentials: %v", err)
+				log.WithContext(ctx).Errorf("cannot load TLS credentials: %v", err)
 				return err
 			}
 
@@ -284,18 +289,18 @@ var (
 					idpManager = config.IdpManagerConfig.ManagerType
 				}
 				metricsWorker := metrics.NewWorker(ctx, installationID, store, peersUpdateManager, idpManager)
-				go metricsWorker.Run()
+				go metricsWorker.Run(ctx)
 			}
 
 			var compatListener net.Listener
 			if mgmtPort != ManagementLegacyPort {
 				// The Management gRPC server was running on port 33073 previously. Old agents that are already connected to it
 				// are using port 33073. For compatibility purposes we keep running a 2nd gRPC server on port 33073.
-				compatListener, err = serveGRPC(gRPCAPIHandler, ManagementLegacyPort)
+				compatListener, err = serveGRPC(ctx, gRPCAPIHandler, ManagementLegacyPort)
 				if err != nil {
 					return err
 				}
-				log.Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
+				log.WithContext(ctx).Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
 			}
 
 			rootHandler := handlerFunc(gRPCAPIHandler, httpAPIHandler)
@@ -312,8 +317,8 @@ var (
 					if err != nil {
 						return fmt.Errorf("failed creating TLS listener on port %d: %v", mgmtPort, err)
 					}
-					log.Infof("running HTTP server (LetsEncrypt challenge handler): %s", cml.Addr().String())
-					serveHTTP(cml, certManager.HTTPHandler(nil))
+					log.WithContext(ctx).Infof("running HTTP server (LetsEncrypt challenge handler): %s", cml.Addr().String())
+					serveHTTP(ctx, cml, certManager.HTTPHandler(nil))
 				}
 			} else if tlsConfig != nil {
 				listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", mgmtPort), tlsConfig)
@@ -327,9 +332,9 @@ var (
 				}
 			}
 
-			log.Infof("management server version %s", version.NetbirdVersion())
-			log.Infof("running HTTP server and gRPC server on the same port: %s", listener.Addr().String())
-			serveGRPCWithHTTP(listener, rootHandler, tlsEnabled)
+			log.WithContext(ctx).Infof("management server version %s", version.NetbirdVersion())
+			log.WithContext(ctx).Infof("running HTTP server and gRPC server on the same port: %s", listener.Addr().String())
+			serveGRPCWithHTTP(ctx, listener, rootHandler, tlsEnabled)
 
 			SetupCloseHandler()
 
@@ -345,9 +350,9 @@ var (
 				_ = certManager.Listener().Close()
 			}
 			gRPCAPIHandler.Stop()
-			_ = store.Close()
-			_ = eventStore.Close()
-			log.Infof("stopped Management Service")
+			_ = store.Close(ctx)
+			_ = eventStore.Close(ctx)
+			log.WithContext(ctx).Infof("stopped Management Service")
 
 			return nil
 		},
@@ -383,30 +388,30 @@ func streamInterceptor(
 	return handler(srv, wrapped)
 }
 
-func notifyStop(msg string) {
+func notifyStop(ctx context.Context, msg string) {
 	select {
 	case stopCh <- 1:
-		log.Error(msg)
+		log.WithContext(ctx).Error(msg)
 	default:
 		// stop has been already called, nothing to report
 	}
 }
 
-func getInstallationID(store server.Store) (string, error) {
+func getInstallationID(ctx context.Context, store server.Store) (string, error) {
 	installationID := store.GetInstallationID()
 	if installationID != "" {
 		return installationID, nil
 	}
 
 	installationID = strings.ToUpper(uuid.New().String())
-	err := store.SaveInstallationID(installationID)
+	err := store.SaveInstallationID(ctx, installationID)
 	if err != nil {
 		return "", err
 	}
 	return installationID, nil
 }
 
-func serveGRPC(grpcServer *grpc.Server, port int) (net.Listener, error) {
+func serveGRPC(ctx context.Context, grpcServer *grpc.Server, port int) (net.Listener, error) {
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return nil, err
@@ -414,22 +419,22 @@ func serveGRPC(grpcServer *grpc.Server, port int) (net.Listener, error) {
 	go func() {
 		err := grpcServer.Serve(listener)
 		if err != nil {
-			notifyStop(fmt.Sprintf("failed running gRPC server on port %d: %v", port, err))
+			notifyStop(ctx, fmt.Sprintf("failed running gRPC server on port %d: %v", port, err))
 		}
 	}()
 	return listener, nil
 }
 
-func serveHTTP(httpListener net.Listener, handler http.Handler) {
+func serveHTTP(ctx context.Context, httpListener net.Listener, handler http.Handler) {
 	go func() {
 		err := http.Serve(httpListener, handler)
 		if err != nil {
-			notifyStop(fmt.Sprintf("failed running HTTP server: %v", err))
+			notifyStop(ctx, fmt.Sprintf("failed running HTTP server: %v", err))
 		}
 	}()
 }
 
-func serveGRPCWithHTTP(listener net.Listener, handler http.Handler, tlsEnabled bool) {
+func serveGRPCWithHTTP(ctx context.Context, listener net.Listener, handler http.Handler, tlsEnabled bool) {
 	go func() {
 		var err error
 		if tlsEnabled {
@@ -446,7 +451,7 @@ func serveGRPCWithHTTP(listener net.Listener, handler http.Handler, tlsEnabled b
 		if err != nil {
 			select {
 			case stopCh <- 1:
-				log.Errorf("failed to serve HTTP and gRPC server: %v", err)
+				log.WithContext(ctx).Errorf("failed to serve HTTP and gRPC server: %v", err)
 			default:
 				// stop has been already called, nothing to report
 			}
@@ -466,7 +471,7 @@ func handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler) http.Handle
 	})
 }
 
-func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
+func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config, error) {
 	loadedConfig := &server.Config{}
 	_, err := util.ReadJson(mgmtConfigPath, loadedConfig)
 	if err != nil {
@@ -487,26 +492,26 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 	oidcEndpoint := loadedConfig.HttpConfig.OIDCConfigEndpoint
 	if oidcEndpoint != "" {
 		// if OIDCConfigEndpoint is specified, we can load DeviceAuthEndpoint and TokenEndpoint automatically
-		log.Infof("loading OIDC configuration from the provided IDP configuration endpoint %s", oidcEndpoint)
-		oidcConfig, err := fetchOIDCConfig(oidcEndpoint)
+		log.WithContext(ctx).Infof("loading OIDC configuration from the provided IDP configuration endpoint %s", oidcEndpoint)
+		oidcConfig, err := fetchOIDCConfig(ctx, oidcEndpoint)
 		if err != nil {
 			return nil, err
 		}
-		log.Infof("loaded OIDC configuration from the provided IDP configuration endpoint: %s", oidcEndpoint)
+		log.WithContext(ctx).Infof("loaded OIDC configuration from the provided IDP configuration endpoint: %s", oidcEndpoint)
 
-		log.Infof("overriding HttpConfig.AuthIssuer with a new value %s, previously configured value: %s",
+		log.WithContext(ctx).Infof("overriding HttpConfig.AuthIssuer with a new value %s, previously configured value: %s",
 			oidcConfig.Issuer, loadedConfig.HttpConfig.AuthIssuer)
 		loadedConfig.HttpConfig.AuthIssuer = oidcConfig.Issuer
 
-		log.Infof("overriding HttpConfig.AuthKeysLocation (JWT certs) with a new value %s, previously configured value: %s",
+		log.WithContext(ctx).Infof("overriding HttpConfig.AuthKeysLocation (JWT certs) with a new value %s, previously configured value: %s",
 			oidcConfig.JwksURI, loadedConfig.HttpConfig.AuthKeysLocation)
 		loadedConfig.HttpConfig.AuthKeysLocation = oidcConfig.JwksURI
 
 		if !(loadedConfig.DeviceAuthorizationFlow == nil || strings.ToLower(loadedConfig.DeviceAuthorizationFlow.Provider) == string(server.NONE)) {
-			log.Infof("overriding DeviceAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
+			log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
 				oidcConfig.TokenEndpoint, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint)
 			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
-			log.Infof("overriding DeviceAuthorizationFlow.DeviceAuthEndpoint with a new value: %s, previously configured value: %s",
+			log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.DeviceAuthEndpoint with a new value: %s, previously configured value: %s",
 				oidcConfig.DeviceAuthEndpoint, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint)
 			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint = oidcConfig.DeviceAuthEndpoint
 
@@ -514,7 +519,7 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 			if err != nil {
 				return nil, err
 			}
-			log.Infof("overriding DeviceAuthorizationFlow.ProviderConfig.Domain with a new value: %s, previously configured value: %s",
+			log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.ProviderConfig.Domain with a new value: %s, previously configured value: %s",
 				u.Host, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Domain)
 			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Domain = u.Host
 
@@ -524,10 +529,10 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 		}
 
 		if loadedConfig.PKCEAuthorizationFlow != nil {
-			log.Infof("overriding PKCEAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
+			log.WithContext(ctx).Infof("overriding PKCEAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
 				oidcConfig.TokenEndpoint, loadedConfig.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint)
 			loadedConfig.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
-			log.Infof("overriding PKCEAuthorizationFlow.AuthorizationEndpoint with a new value: %s, previously configured value: %s",
+			log.WithContext(ctx).Infof("overriding PKCEAuthorizationFlow.AuthorizationEndpoint with a new value: %s, previously configured value: %s",
 				oidcConfig.AuthorizationEndpoint, loadedConfig.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint)
 			loadedConfig.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint = oidcConfig.AuthorizationEndpoint
 		}
@@ -536,8 +541,8 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 	return loadedConfig, err
 }
 
-func updateMgmtConfig(path string, config *server.Config) error {
-	return util.DirectWriteJson(path, config)
+func updateMgmtConfig(ctx context.Context, path string, config *server.Config) error {
+	return util.DirectWriteJson(ctx, path, config)
 }
 
 // OIDCConfigResponse used for parsing OIDC config response
@@ -550,7 +555,7 @@ type OIDCConfigResponse struct {
 }
 
 // fetchOIDCConfig fetches OIDC configuration from the IDP
-func fetchOIDCConfig(oidcEndpoint string) (OIDCConfigResponse, error) {
+func fetchOIDCConfig(ctx context.Context, oidcEndpoint string) (OIDCConfigResponse, error) {
 	res, err := http.Get(oidcEndpoint)
 	if err != nil {
 		return OIDCConfigResponse{}, fmt.Errorf("failed fetching OIDC configuration from endpoint %s %v", oidcEndpoint, err)
@@ -559,7 +564,7 @@ func fetchOIDCConfig(oidcEndpoint string) (OIDCConfigResponse, error) {
 	defer func() {
 		err := res.Body.Close()
 		if err != nil {
-			log.Debugf("failed closing response body %v", err)
+			log.WithContext(ctx).Debugf("failed closing response body %v", err)
 		}
 	}()
 

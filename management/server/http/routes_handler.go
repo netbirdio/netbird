@@ -43,36 +43,36 @@ func NewRoutesHandler(accountManager server.AccountManager, authCfg AuthCfg) *Ro
 // GetAllRoutes returns the list of routes for the account
 func (h *RoutesHandler) GetAllRoutes(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	routes, err := h.accountManager.ListRoutes(account.Id, user.Id)
+	routes, err := h.accountManager.ListRoutes(r.Context(), account.Id, user.Id)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 	apiRoutes := make([]*api.Route, 0)
-	for _, r := range routes {
-		route, err := toRouteResponse(r)
+	for _, route := range routes {
+		route, err := toRouteResponse(route)
 		if err != nil {
-			util.WriteError(status.Errorf(status.Internal, failedToConvertRoute, err), w)
+			util.WriteError(r.Context(), status.Errorf(status.Internal, failedToConvertRoute, err), w)
 			return
 		}
 		apiRoutes = append(apiRoutes, route)
 	}
 
-	util.WriteJSONObject(w, apiRoutes)
+	util.WriteJSONObject(r.Context(), w, apiRoutes)
 }
 
 // CreateRoute handles route creation request
 func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -84,7 +84,7 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.validateRoute(req); err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -94,7 +94,7 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	if req.Domains != nil {
 		d, err := validateDomains(*req.Domains)
 		if err != nil {
-			util.WriteError(status.Errorf(status.InvalidArgument, "invalid domains: %v", err), w)
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid domains: %v", err), w)
 			return
 		}
 		domains = d
@@ -102,7 +102,7 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	} else if req.Network != nil {
 		networkType, newPrefix, err = route.ParseNetwork(*req.Network)
 		if err != nil {
-			util.WriteError(err, w)
+			util.WriteError(r.Context(), err, w)
 			return
 		}
 	}
@@ -120,24 +120,24 @@ func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	// Do not allow non-Linux peers
 	if peer := account.GetPeer(peerId); peer != nil {
 		if peer.Meta.GoOS != "linux" {
-			util.WriteError(status.Errorf(status.InvalidArgument, "non-linux peers are not supported as network routes"), w)
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "non-linux peers are not supported as network routes"), w)
 			return
 		}
 	}
 
-	newRoute, err := h.accountManager.CreateRoute(account.Id, newPrefix, networkType, domains, peerId, peerGroupIds, req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, req.Enabled, user.Id, req.KeepRoute)
+	newRoute, err := h.accountManager.CreateRoute(r.Context(), account.Id, newPrefix, networkType, domains, peerId, peerGroupIds, req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, req.Enabled, user.Id, req.KeepRoute)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	routes, err := toRouteResponse(newRoute)
 	if err != nil {
-		util.WriteError(status.Errorf(status.Internal, failedToConvertRoute, err), w)
+		util.WriteError(r.Context(), status.Errorf(status.Internal, failedToConvertRoute, err), w)
 		return
 	}
 
-	util.WriteJSONObject(w, routes)
+	util.WriteJSONObject(r.Context(), w, routes)
 }
 
 func (h *RoutesHandler) validateRoute(req api.PostApiRoutesJSONRequestBody) error {
@@ -168,22 +168,22 @@ func (h *RoutesHandler) validateRoute(req api.PostApiRoutesJSONRequestBody) erro
 // UpdateRoute handles update to a route identified by a given ID
 func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	routeID := vars["routeId"]
 	if len(routeID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid route ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid route ID"), w)
 		return
 	}
 
-	_, err = h.accountManager.GetRoute(account.Id, route.ID(routeID), user.Id)
+	_, err = h.accountManager.GetRoute(r.Context(), account.Id, route.ID(routeID), user.Id)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -195,7 +195,7 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.validateRoute(req); err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -207,7 +207,7 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	// do not allow non Linux peers
 	if peer := account.GetPeer(peerID); peer != nil {
 		if peer.Meta.GoOS != "linux" {
-			util.WriteError(status.Errorf(status.InvalidArgument, "non-linux peers are non supported as network routes"), w)
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "non-linux peers are non supported as network routes"), w)
 			return
 		}
 	}
@@ -226,7 +226,7 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	if req.Domains != nil {
 		d, err := validateDomains(*req.Domains)
 		if err != nil {
-			util.WriteError(status.Errorf(status.InvalidArgument, "invalid domains: %v", err), w)
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid domains: %v", err), w)
 			return
 		}
 		newRoute.Domains = d
@@ -234,7 +234,7 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	} else if req.Network != nil {
 		newRoute.NetworkType, newRoute.Network, err = route.ParseNetwork(*req.Network)
 		if err != nil {
-			util.WriteError(err, w)
+			util.WriteError(r.Context(), err, w)
 			return
 		}
 	}
@@ -247,73 +247,73 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		newRoute.PeerGroups = *req.PeerGroups
 	}
 
-	err = h.accountManager.SaveRoute(account.Id, user.Id, newRoute)
+	err = h.accountManager.SaveRoute(r.Context(), account.Id, user.Id, newRoute)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	routes, err := toRouteResponse(newRoute)
 	if err != nil {
-		util.WriteError(status.Errorf(status.Internal, failedToConvertRoute, err), w)
+		util.WriteError(r.Context(), status.Errorf(status.Internal, failedToConvertRoute, err), w)
 		return
 	}
 
-	util.WriteJSONObject(w, routes)
+	util.WriteJSONObject(r.Context(), w, routes)
 }
 
 // DeleteRoute handles route deletion request
 func (h *RoutesHandler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	routeID := mux.Vars(r)["routeId"]
 	if len(routeID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid route ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid route ID"), w)
 		return
 	}
 
-	err = h.accountManager.DeleteRoute(account.Id, route.ID(routeID), user.Id)
+	err = h.accountManager.DeleteRoute(r.Context(), account.Id, route.ID(routeID), user.Id)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, emptyObject{})
 }
 
 // GetRoute handles a route Get request identified by ID
 func (h *RoutesHandler) GetRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	routeID := mux.Vars(r)["routeId"]
 	if len(routeID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid route ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid route ID"), w)
 		return
 	}
 
-	foundRoute, err := h.accountManager.GetRoute(account.Id, route.ID(routeID), user.Id)
+	foundRoute, err := h.accountManager.GetRoute(r.Context(), account.Id, route.ID(routeID), user.Id)
 	if err != nil {
-		util.WriteError(status.Errorf(status.NotFound, "route not found"), w)
+		util.WriteError(r.Context(), status.Errorf(status.NotFound, "route not found"), w)
 		return
 	}
 
 	routes, err := toRouteResponse(foundRoute)
 	if err != nil {
-		util.WriteError(status.Errorf(status.Internal, failedToConvertRoute, err), w)
+		util.WriteError(r.Context(), status.Errorf(status.Internal, failedToConvertRoute, err), w)
 		return
 	}
 
-	util.WriteJSONObject(w, routes)
+	util.WriteJSONObject(r.Context(), w, routes)
 }
 
 func toRouteResponse(serverRoute *route.Route) (*api.Route, error) {

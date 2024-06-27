@@ -1,24 +1,26 @@
 package server
 
 import (
+	"context"
 	"slices"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
 	errMsgPostureAdminOnly = "only users with admin power are allowed to view posture checks"
 )
 
-func (am *DefaultAccountManager) GetPostureChecks(accountID, postureChecksID, userID string) (*posture.Checks, error) {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error) {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -41,11 +43,11 @@ func (am *DefaultAccountManager) GetPostureChecks(accountID, postureChecksID, us
 	return nil, status.Errorf(status.NotFound, "posture checks with ID %s not found", postureChecksID)
 }
 
-func (am *DefaultAccountManager) SavePostureChecks(accountID, userID string, postureChecks *posture.Checks) error {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) error {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}
@@ -76,23 +78,23 @@ func (am *DefaultAccountManager) SavePostureChecks(accountID, userID string, pos
 		account.Network.IncSerial()
 	}
 
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
-	am.StoreEvent(userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
+	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 	if exists {
-		am.updateAccountPeers(account)
+		am.updateAccountPeers(ctx, account)
 	}
 
 	return nil
 }
 
-func (am *DefaultAccountManager) DeletePostureChecks(accountID, postureChecksID, userID string) error {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accountID, postureChecksID, userID string) error {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}
@@ -111,20 +113,20 @@ func (am *DefaultAccountManager) DeletePostureChecks(accountID, postureChecksID,
 		return err
 	}
 
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
-	am.StoreEvent(userID, postureChecks.ID, accountID, activity.PostureCheckDeleted, postureChecks.EventMeta())
+	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, activity.PostureCheckDeleted, postureChecks.EventMeta())
 
 	return nil
 }
 
-func (am *DefaultAccountManager) ListPostureChecks(accountID, userID string) ([]*posture.Checks, error) {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountID, userID string) ([]*posture.Checks, error) {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -186,10 +188,10 @@ func (am *DefaultAccountManager) deletePostureChecks(account *Account, postureCh
 }
 
 // GetPeerAppliedPostureChecks returns posture checks that are applied to the peer.
-func (am *DefaultAccountManager) GetPeerAppliedPostureChecks(peerKey string) ([]posture.Checks, error) {
-	account, err := am.Store.GetAccountByPeerPubKey(peerKey)
+func (am *DefaultAccountManager) GetPeerAppliedPostureChecks(ctx context.Context, peerKey string) ([]posture.Checks, error) {
+	account, err := am.Store.GetAccountByPeerPubKey(ctx, peerKey)
 	if err != nil {
-		log.Errorf("failed while getting peer %s: %v", peerKey, err)
+		log.WithContext(ctx).Errorf("failed while getting peer %s: %v", peerKey, err)
 		return nil, err
 	}
 

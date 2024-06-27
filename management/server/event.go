@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -11,11 +12,11 @@ import (
 )
 
 // GetEvents returns a list of activity events of an account
-func (am *DefaultAccountManager) GetEvents(accountID, userID string) ([]*activity.Event, error) {
-	unlock := am.Store.AcquireAccountWriteLock(accountID)
+func (am *DefaultAccountManager) GetEvents(ctx context.Context, accountID, userID string) ([]*activity.Event, error) {
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +30,7 @@ func (am *DefaultAccountManager) GetEvents(accountID, userID string) ([]*activit
 		return nil, status.Errorf(status.PermissionDenied, "only users with admin power can view events")
 	}
 
-	events, err := am.eventStore.Get(accountID, 0, 10000, true)
+	events, err := am.eventStore.Get(ctx, accountID, 0, 10000, true)
 	if err != nil {
 		return nil, err
 	}
@@ -54,10 +55,10 @@ func (am *DefaultAccountManager) GetEvents(accountID, userID string) ([]*activit
 	return filtered, nil
 }
 
-func (am *DefaultAccountManager) StoreEvent(initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
+func (am *DefaultAccountManager) StoreEvent(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
 
 	go func() {
-		_, err := am.eventStore.Save(&activity.Event{
+		_, err := am.eventStore.Save(ctx, &activity.Event{
 			Timestamp:   time.Now().UTC(),
 			Activity:    activityID,
 			InitiatorID: initiatorID,
@@ -67,7 +68,7 @@ func (am *DefaultAccountManager) StoreEvent(initiatorID, targetID, accountID str
 		})
 		if err != nil {
 			// todo add metric
-			log.Errorf("received an error while storing an activity event, error: %s", err)
+			log.WithContext(ctx).Errorf("received an error while storing an activity event, error: %s", err)
 		}
 	}()
 

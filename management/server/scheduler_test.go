@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"runtime"
@@ -20,7 +21,7 @@ func TestScheduler_Performance(t *testing.T) {
 	minMs := 50
 	for i := 0; i < n; i++ {
 		millis := time.Duration(rand.Intn(maxMs-minMs)+minMs) * time.Millisecond
-		go scheduler.Schedule(millis, fmt.Sprintf("test-scheduler-job-%d", i), func() (nextRunIn time.Duration, reschedule bool) {
+		go scheduler.Schedule(context.Background(), millis, fmt.Sprintf("test-scheduler-job-%d", i), func() (nextRunIn time.Duration, reschedule bool) {
 			time.Sleep(millis)
 			wg.Done()
 			return 0, false
@@ -53,19 +54,19 @@ func TestScheduler_Cancel(t *testing.T) {
 		sleepTime = 20 * time.Millisecond
 	}
 
-	scheduler.Schedule(scheduletime, jobID1, func() (nextRunIn time.Duration, reschedule bool) {
+	scheduler.Schedule(context.Background(), scheduletime, jobID1, func() (nextRunIn time.Duration, reschedule bool) {
 		tt := p[0]
 		<-tChan
 		t.Logf("job %s", tt)
 		return scheduletime, true
 	})
-	scheduler.Schedule(scheduletime, jobID2, func() (nextRunIn time.Duration, reschedule bool) {
+	scheduler.Schedule(context.Background(), scheduletime, jobID2, func() (nextRunIn time.Duration, reschedule bool) {
 		return scheduletime, true
 	})
 
 	time.Sleep(sleepTime)
 	assert.Len(t, scheduler.jobs, 2)
-	scheduler.Cancel([]string{jobID1})
+	scheduler.Cancel(context.Background(), []string{jobID1})
 	close(tChan)
 	p = []string{}
 	time.Sleep(sleepTime)
@@ -83,7 +84,7 @@ func TestScheduler_Schedule(t *testing.T) {
 		wg.Done()
 		return 0, false
 	}
-	scheduler.Schedule(300*time.Millisecond, jobID, job)
+	scheduler.Schedule(context.Background(), 300*time.Millisecond, jobID, job)
 	failed := waitTimeout(wg, time.Second)
 	if failed {
 		t.Fatal("timed out while waiting for test to finish")
@@ -107,12 +108,12 @@ func TestScheduler_Schedule(t *testing.T) {
 		return 0, false
 	}
 
-	scheduler.Schedule(300*time.Millisecond, jobID, job)
+	scheduler.Schedule(context.Background(), 300*time.Millisecond, jobID, job)
 	failed = waitTimeout(wg, time.Second)
 	if failed {
 		t.Fatal("timed out while waiting for test to finish")
 		return
 	}
-	scheduler.cancel(jobID)
+	scheduler.cancel(context.Background(), jobID)
 
 }

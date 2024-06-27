@@ -44,7 +44,6 @@ require (
 	github.com/golang/mock v1.6.0
 	github.com/google/go-cmp v0.6.0
 	github.com/google/gopacket v1.1.19
-	github.com/google/martian/v3 v3.0.0
 	github.com/google/nftables v0.0.0-20220808154552-2eca00135732
 	github.com/gopacket/gopacket v1.1.1
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.0.2-0.20240212192251-757544f21357
@@ -58,7 +57,7 @@ require (
 	github.com/miekg/dns v1.1.43
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/nadoo/ipset v0.5.0
-	github.com/netbirdio/management-integrations/integrations v0.0.0-20240524104853-69c6d89826cd
+	github.com/netbirdio/management-integrations/integrations v0.0.0-20240619131216-f5a5611cdbd0
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible

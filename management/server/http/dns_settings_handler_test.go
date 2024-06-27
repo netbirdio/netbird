@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -42,16 +43,16 @@ var testingDNSSettingsAccount = &server.Account{
 func initDNSSettingsTestData() *DNSSettingsHandler {
 	return &DNSSettingsHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetDNSSettingsFunc: func(accountID string, userID string) (*server.DNSSettings, error) {
+			GetDNSSettingsFunc: func(ctx context.Context, accountID string, userID string) (*server.DNSSettings, error) {
 				return &testingDNSSettingsAccount.DNSSettings, nil
 			},
-			SaveDNSSettingsFunc: func(accountID string, userID string, dnsSettingsToSave *server.DNSSettings) error {
+			SaveDNSSettingsFunc: func(ctx context.Context, accountID string, userID string, dnsSettingsToSave *server.DNSSettings) error {
 				if dnsSettingsToSave != nil {
 					return nil
 				}
 				return status.Errorf(status.InvalidArgument, "the dns settings provided are nil")
 			},
-			GetAccountFromTokenFunc: func(_ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+			GetAccountFromTokenFunc: func(ctx context.Context, _ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return testingDNSSettingsAccount, testingDNSSettingsAccount.Users[testDNSSettingsUserID], nil
 			},
 		},
