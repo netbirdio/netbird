@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	grpcMiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -375,7 +375,7 @@ func streamInterceptor(
 	handler grpc.StreamHandler,
 ) error {
 	reqID := uuid.New().String()
-	wrapped := grpc_middleware.WrapServerStream(ss)
+	wrapped := grpcMiddleware.WrapServerStream(ss)
 	//nolint
 	ctx := context.WithValue(ss.Context(), formatter.ExecutionContextKey, formatter.GRPCSource)
 	//nolint
