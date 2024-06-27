@@ -2,6 +2,7 @@ package util
 
 import (
 	"io"
+	"os"
 	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
@@ -30,7 +31,11 @@ func InitLog(logLevel string, logPath string) error {
 		log.SetOutput(io.Writer(lumberjackLogger))
 	}
 
-	formatter.SetTextFormatter(log.StandardLogger())
+	if os.Getenv("NB_LOG_FORMAT") == "json" {
+		formatter.SetJSONFormatter(log.StandardLogger())
+	} else {
+		formatter.SetTextFormatter(log.StandardLogger())
+	}
 	log.SetLevel(level)
 	return nil
 }
