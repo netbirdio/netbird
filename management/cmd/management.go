@@ -81,6 +81,7 @@ var (
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
 
+			//nolint
 			ctx := context.WithValue(cmd.Context(), formatter.ExecutionContextKey, formatter.SystemSource)
 
 			err := util.InitLog(logLevel, logFile)
