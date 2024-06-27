@@ -11,7 +11,8 @@ const (
 	MsgTypeHello         MsgType = 0
 	MsgTypeHelloResponse MsgType = 1
 	MsgTypeTransport     MsgType = 2
-	MsgClose             MsgType = 3
+	MsgTypeClose         MsgType = 3
+	MsgTypeHealthCheck   MsgType = 4
 
 	headerSizeTransport = 1 + IDSize     // 1 byte for msg type, IDSize for peerID
 	headerSizeHello     = 1 + 4 + IDSize // 1 byte for msg type, 4 byte for magic header, IDSize for peerID
@@ -23,6 +24,8 @@ var (
 	ErrInvalidMessageLength = fmt.Errorf("invalid message length")
 
 	magicHeader = []byte{0x21, 0x12, 0xA4, 0x42}
+
+	healthCheckMsg = []byte{byte(MsgTypeHealthCheck)}
 )
 
 type MsgType byte
@@ -35,7 +38,7 @@ func (m MsgType) String() string {
 		return "hello response"
 	case MsgTypeTransport:
 		return "transport"
-	case MsgClose:
+	case MsgTypeClose:
 		return "close"
 	default:
 		return "unknown"
@@ -49,7 +52,9 @@ func DetermineClientMsgType(msg []byte) (MsgType, error) {
 		return msgType, nil
 	case MsgTypeTransport:
 		return msgType, nil
-	case MsgClose:
+	case MsgTypeClose:
+		return msgType, nil
+	case MsgTypeHealthCheck:
 		return msgType, nil
 	default:
 		return 0, fmt.Errorf("invalid msg type, len: %d", len(msg))
@@ -63,7 +68,9 @@ func DetermineServerMsgType(msg []byte) (MsgType, error) {
 		return msgType, nil
 	case MsgTypeTransport:
 		return msgType, nil
-	case MsgClose:
+	case MsgTypeClose:
+		return msgType, nil
+	case MsgTypeHealthCheck:
 		return msgType, nil
 	default:
 		return 0, fmt.Errorf("invalid msg type (len: %d)", len(msg))
@@ -100,8 +107,8 @@ func MarshalHelloResponse() []byte {
 
 func MarshalCloseMsg() []byte {
 	msg := make([]byte, 1)
-	msg[0] = byte(MsgClose)
-	return msg
+	msg[0] = byte(MsgTypeClose)
+	return healthCheckMsg
 }
 
 // Transport message
@@ -140,4 +147,10 @@ func UpdateTransportMsg(msg []byte, peerID []byte) error {
 	}
 	copy(msg[1:], peerID)
 	return nil
+}
+
+// health check message
+
+func MarshalHealthcheck() []byte {
+	return healthCheckMsg
 }

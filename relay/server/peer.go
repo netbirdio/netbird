@@ -10,6 +10,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/relay/healthcheck"
 	"github.com/netbirdio/netbird/relay/messages"
 )
 
@@ -38,6 +39,11 @@ func NewPeer(id []byte, conn net.Conn, store *Store) *Peer {
 }
 
 func (p *Peer) Work() {
+	ctx, cancel := context.WithCancel(context.Background())
+	hc := healthcheck.NewSender(ctx)
+	go p.healthcheck(ctx, hc)
+	defer cancel()
+
 	buf := make([]byte, bufferSize)
 	for {
 		n, err := p.conn.Read(buf)
@@ -56,7 +62,8 @@ func (p *Peer) Work() {
 			return
 		}
 		switch msgType {
-		case messages.MsgHealthCheck:
+		case messages.MsgTypeHealthCheck:
+			hc.OnHCResponse()
 		case messages.MsgTypeTransport:
 			peerID, err := messages.UnmarshalTransportID(msg)
 			if err != nil {
@@ -78,7 +85,7 @@ func (p *Peer) Work() {
 			if err != nil {
 				p.log.Errorf("failed to write transport message to: %s", dp.String())
 			}
-		case messages.MsgClose:
+		case messages.MsgTypeClose:
 			p.log.Infof("peer exited gracefully")
 			_ = p.conn.Close()
 			return
@@ -133,5 +140,25 @@ func (p *Peer) writeWithTimeout(ctx context.Context, buf []byte) (int, error) {
 		return 0, fmt.Errorf("write operation timed out")
 	case <-writeDone:
 		return n, err
+	}
+}
+
+func (p *Peer) healthcheck(ctx context.Context, hc *healthcheck.Sender) {
+	for {
+		select {
+		case <-hc.HealthCheck:
+			p.log.Debugf("sending healthcheck message")
+			_, err := p.Write(messages.MarshalHealthcheck())
+			if err != nil {
+				p.log.Errorf("failed to send healthcheck message: %s", err)
+				return
+			}
+		case <-hc.Timeout:
+			p.log.Errorf("peer healthcheck timeout")
+			_ = p.conn.Close()
+			return
+		case <-ctx.Done():
+			return
+		}
 	}
 }

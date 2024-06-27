@@ -141,6 +141,7 @@ func (c *Client) Connect() error {
 			log.Errorf("failed to close relay connection: %s", cErr)
 		}
 	})
+
 	c.wgReadLoop.Add(1)
 	go c.readLoop(c.relayConn)
 
@@ -306,6 +307,12 @@ func (c *Client) readLoop(relayConn net.Conn) {
 		}
 
 		switch msgType {
+		case messages.MsgTypeHealthCheck:
+			msg := messages.MarshalHealthcheck()
+			_, err := c.relayConn.Write(msg)
+			if err != nil {
+				c.log.Errorf("failed to send heartbeat response: %s", err)
+			}
 		case messages.MsgTypeTransport:
 			peerID, payload, err := messages.UnmarshalTransportMsg(buf[:n])
 			if err != nil {
@@ -330,7 +337,7 @@ func (c *Client) readLoop(relayConn net.Conn) {
 				bufPool: c.bufPool,
 				bufPtr:  bufPtr,
 				Payload: payload})
-		case messages.MsgClose:
+		case messages.MsgTypeClose:
 			closedByServer = true
 			log.Debugf("relay connection close by server")
 			goto Exit
