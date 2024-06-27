@@ -30,7 +30,7 @@ var upCmd = &cobra.Command{
 		}
 
 		//nolint
-		ctx := context.WithValue(cmd.Context(), formatter.LogSourceKey, formatter.SystemSource)
+		ctx := context.WithValue(cmd.Context(), formatter.ExecutionContextKey, formatter.SystemSource)
 
 		if err := server.MigrateFileStoreToSqlite(ctx, mgmtDataDir); err != nil {
 			return err
