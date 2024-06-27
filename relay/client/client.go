@@ -203,31 +203,6 @@ func (c *Client) Close() error {
 	return c.close(false)
 }
 
-func (c *Client) close(byServer bool) error {
-	c.readLoopMutex.Lock()
-	defer c.readLoopMutex.Unlock()
-
-	c.mu.Lock()
-	var err error
-	if !c.serviceIsRunning {
-		c.mu.Unlock()
-		return nil
-	}
-
-	c.serviceIsRunning = false
-	c.closeAllConns()
-	if !byServer {
-		c.writeCloseMsg()
-		err = c.relayConn.Close()
-	}
-	c.mu.Unlock()
-
-	c.wgReadLoop.Wait()
-	c.log.Infof("relay connection closed with: %s", c.serverAddress)
-	c.ctxCancel()
-	return err
-}
-
 func (c *Client) connect() error {
 	conn, err := ws.Dial(c.serverAddress)
 	if err != nil {
@@ -384,6 +359,64 @@ func (c *Client) closeAllConns() {
 	c.conns = make(map[string]*connContainer)
 }
 
+// todo check by reference too, the id is not enought because the id come from the outer conn
+func (c *Client) closeConn(id string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	container, ok := c.conns[id]
+	if !ok {
+		return fmt.Errorf("connection already closed")
+	}
+	container.close()
+	delete(c.conns, id)
+
+	return nil
+}
+
+func (c *Client) close(byServer bool) error {
+	c.readLoopMutex.Lock()
+	defer c.readLoopMutex.Unlock()
+
+	c.mu.Lock()
+	var err error
+	if !c.serviceIsRunning {
+		c.mu.Unlock()
+		return nil
+	}
+
+	c.serviceIsRunning = false
+	c.closeAllConns()
+	if !byServer {
+		c.writeCloseMsg()
+		err = c.relayConn.Close()
+	}
+	c.mu.Unlock()
+
+	c.wgReadLoop.Wait()
+	c.log.Infof("relay connection closed with: %s", c.serverAddress)
+	c.ctxCancel()
+	return err
+}
+
+func (c *Client) notifyDisconnected() {
+	c.listenerMutex.Lock()
+	defer c.listenerMutex.Unlock()
+
+	if c.onDisconnectListener == nil {
+		return
+	}
+	go c.onDisconnectListener()
+}
+
+func (c *Client) writeCloseMsg() {
+	msg := messages.MarshalCloseMsg()
+	_, err := c.relayConn.Write(msg)
+	if err != nil {
+		c.log.Errorf("failed to send close message: %s", err)
+	}
+}
+
 func (c *Client) readWithTimeout(buf []byte) (int, error) {
 	ctx, cancel := context.WithTimeout(c.parentCtx, serverResponseTimeout)
 	defer cancel()
@@ -404,38 +437,5 @@ func (c *Client) readWithTimeout(buf []byte) (int, error) {
 		return 0, fmt.Errorf("read operation timed out")
 	case <-readDone:
 		return n, err
-	}
-}
-
-// todo check by reference too, the id is not enought because the id come from the outer conn
-func (c *Client) closeConn(id string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	container, ok := c.conns[id]
-	if !ok {
-		return fmt.Errorf("connection already closed")
-	}
-	container.close()
-	delete(c.conns, id)
-
-	return nil
-}
-
-func (c *Client) notifyDisconnected() {
-	c.listenerMutex.Lock()
-	defer c.listenerMutex.Unlock()
-
-	if c.onDisconnectListener == nil {
-		return
-	}
-	go c.onDisconnectListener()
-}
-
-func (c *Client) writeCloseMsg() {
-	msg := messages.MarshalCloseMsg()
-	_, err := c.relayConn.Write(msg)
-	if err != nil {
-		c.log.Errorf("failed to send close message: %s", err)
 	}
 }
