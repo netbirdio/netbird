@@ -1,7 +1,7 @@
 package server
 
 import (
-	"github.com/mitchellh/hashstructure/v2"
+	"github.com/r3labs/diff"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -36,12 +36,12 @@ func updateAccountPeers(account *Account) {
 
 func updateAccountPeersWithHash(account *Account) {
 	//start := time.Now()
-	var skipUpdate int
-	defer func() {
-		//duration := time.Since(start)
-		//log.Printf("Finished execution of updateAccountPeers, took %v\n", duration.Nanoseconds())
-		//log.Println("not updated peers: ", skipUpdate)
-	}()
+	//var skipUpdate int
+	//defer func() {
+	//	duration := time.Since(start)
+	//	log.Printf("Finished execution of updateAccountPeers, took %v\n", duration.Nanoseconds())
+	//	log.Println("not updated peers: ", skipUpdate)
+	//}()
 
 	peers := account.GetPeers()
 	approvedPeersMap := make(map[string]struct{}, len(peers))
@@ -57,25 +57,39 @@ func updateAccountPeersWithHash(account *Account) {
 
 		remotePeerNetworkMap := account.GetPeerNetworkMap(peer.ID, "netbird.io", approvedPeersMap)
 		//log.Println("firewall rules: ", len(remotePeerNetworkMap.FirewallRules))
-		hashStr, err := hashstructure.Hash(remotePeerNetworkMap, hashstructure.FormatV2, &hashstructure.HashOptions{
-			ZeroNil:         true,
-			IgnoreZeroValue: true,
-			SlicesAsSets:    true,
-			UseStringer:     true,
-		})
-		if err != nil {
-			log.Errorf("failed to generate network map hash: %v", err)
-		} else {
-			if peer.NetworkMapHash == hashStr {
-				//log.Debugf("not sending network map update to peer: %s as there is nothing new", peer.ID)
-				skipUpdate++
-				continue
-			}
-			peer.NetworkMapHash = hashStr
-		}
+		//hashStr, err := hashstructure.Hash(remotePeerNetworkMap, hashstructure.FormatV2, &hashstructure.HashOptions{
+		//	ZeroNil:         true,
+		//	IgnoreZeroValue: true,
+		//	SlicesAsSets:    true,
+		//	UseStringer:     true,
+		//	//Hasher:          xxhash.New(),
+		//})
+		//if err != nil {
+		//	log.Errorf("failed to generate network map hash: %v", err)
+		//} else {
+		//	if peer.NetworkMapHash == hashStr {
+		//		//log.Debugf("not sending network map update to peer: %s as there is nothing new", peer.ID)
+		//		skipUpdate++
+		//		continue
+		//	}
+		//	peer.NetworkMapHash = hashStr
+		//}
 
-		//postureChecks := am.getPeerPostureChecks(account, peer)
-		//update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks)
-		//am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})update
+		if peer.NetworkMap == nil {
+			peer.NetworkMap = remotePeerNetworkMap
+		} else {
+			changelog, err := diff.Diff(peer.NetworkMap, remotePeerNetworkMap)
+			if err != nil {
+				log.Errorf("failed to generate network map diff: %v", err)
+			} else {
+				if len(changelog) == 0 {
+					continue
+				}
+			}
+
+		}
 	}
 }
+
+//48868101197
+// 8700718125
