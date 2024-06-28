@@ -23,6 +23,7 @@ type Receiver struct {
 	live      bool
 }
 
+// NewReceiver creates a new healthcheck receiver and start the timer in the background
 func NewReceiver() *Receiver {
 	ctx, ctxCancel := context.WithCancel(context.Background())
 
@@ -37,6 +38,7 @@ func NewReceiver() *Receiver {
 	return r
 }
 
+// Heartbeat acknowledge the heartbeat has been received
 func (r *Receiver) Heartbeat() {
 	select {
 	case r.heartbeat <- struct{}{}:
@@ -44,6 +46,7 @@ func (r *Receiver) Heartbeat() {
 	}
 }
 
+// Stop check the timeout and do not send new notifications
 func (r *Receiver) Stop() {
 	r.ctxCancel()
 }
