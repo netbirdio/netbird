@@ -185,7 +185,7 @@ var (
 				log.WithContext(ctx).Infof("geo location service has been initialized from %s", config.Datadir)
 			}
 
-			integratedPeerValidator, err := integrations.NewIntegratedValidator(eventStore)
+			integratedPeerValidator, err := integrations.NewIntegratedValidator(ctx, eventStore)
 			if err != nil {
 				return fmt.Errorf("failed to initialize integrated peer validator: %v", err)
 			}
@@ -339,7 +339,7 @@ var (
 			SetupCloseHandler()
 
 			<-stopCh
-			integratedPeerValidator.Stop()
+			integratedPeerValidator.Stop(ctx)
 			if geo != nil {
 				_ = geo.Stop()
 			}
