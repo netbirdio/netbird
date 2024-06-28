@@ -10,7 +10,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	ws "github.com/netbirdio/netbird/relay/client/dialer/wsnhooyr"
+	"github.com/netbirdio/netbird/relay/client/dialer/ws"
 	"github.com/netbirdio/netbird/relay/messages"
 )
 
