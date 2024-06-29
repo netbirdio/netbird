@@ -20,7 +20,7 @@ type Receiver struct {
 	ctx       context.Context
 	ctxCancel context.CancelFunc
 	heartbeat chan struct{}
-	live      bool
+	alive     bool
 }
 
 // NewReceiver creates a new healthcheck receiver and start the timer in the background
@@ -60,19 +60,24 @@ func (r *Receiver) waitForHealthcheck() {
 	for {
 		select {
 		case <-r.heartbeat:
-			r.live = true
+			r.alive = true
 		case <-ticker.C:
-			if r.live {
-				r.live = false
+			if r.alive {
+				r.alive = false
 				continue
 			}
-			select {
-			case r.OnTimeout <- struct{}{}:
-			default:
-			}
+
+			r.notifyTimeout()
 			return
 		case <-r.ctx.Done():
 			return
 		}
+	}
+}
+
+func (r *Receiver) notifyTimeout() {
+	select {
+	case r.OnTimeout <- struct{}{}:
+	default:
 	}
 }
