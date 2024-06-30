@@ -300,8 +300,10 @@ func (c *Client) readLoop(relayConn net.Conn) {
 			log.Debugf("on new heartbeat")
 			msg := messages.MarshalHealthcheck()
 			_, wErr := c.relayConn.Write(msg)
-			if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
-				c.log.Errorf("failed to send heartbeat: %s", wErr)
+			if wErr != nil {
+				if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
+					c.log.Errorf("failed to send heartbeat: %s", wErr)
+				}
 			}
 			hc.Heartbeat()
 		case messages.MsgTypeTransport:
