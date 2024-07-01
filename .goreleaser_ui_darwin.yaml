@@ -5,8 +5,8 @@ builds:
     binary: netbird-ui
     env:
       - CGO_ENABLED=1
-      - CGO_CFLAGS=-mmacosx-version-min=11.0
-
+      - MACOSX_DEPLOYMENT_TARGET=11.0
+      - MACOS_DEPLOYMENT_TARGET=11.0
     goos:
       - darwin
     goarch:
