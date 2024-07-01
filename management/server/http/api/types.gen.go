@@ -971,6 +971,9 @@ type ProcessCheck struct {
 
 // Route defines model for Route.
 type Route struct {
+	// AccessControlGroups Access control group identifier associated with route.
+	AccessControlGroups *[]string `json:"access_control_groups,omitempty"`
+
 	// Description Route description
 	Description string `json:"description"`
 
@@ -1013,6 +1016,9 @@ type Route struct {
 
 // RouteRequest defines model for RouteRequest.
 type RouteRequest struct {
+	// AccessControlGroups Access control group identifier associated with route.
+	AccessControlGroups *[]string `json:"access_control_groups,omitempty"`
+
 	// Description Route description
 	Description string `json:"description"`
 

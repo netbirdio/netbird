@@ -124,7 +124,7 @@ func getRouteDescriptor(prefix netip.Prefix, domains domain.List) string {
 }
 
 // CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string, keepRoute bool) (*route.Route, error) {
+func (am *DefaultAccountManager) CreateRoute(accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool) (*route.Route, error) {
 	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
 
@@ -162,6 +162,13 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, prefix netip.Pref
 		}
 	}
 
+	if len(accessControlGroupIDs) > 0 {
+		err = validateGroups(accessControlGroupIDs, account.Groups)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	err = am.checkRoutePrefixOrDomainsExistForPeers(account, peerID, newRoute.ID, peerGroupIDs, prefix, domains)
 	if err != nil {
 		return nil, err
@@ -192,6 +199,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, prefix netip.Pref
 	newRoute.Enabled = enabled
 	newRoute.Groups = groups
 	newRoute.KeepRoute = keepRoute
+	newRoute.AccessControlGroups = accessControlGroupIDs
 
 	if account.Routes == nil {
 		account.Routes = make(map[route.ID]*route.Route)
@@ -251,6 +259,13 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 
 	if len(routeToSave.PeerGroups) > 0 {
 		err = validateGroups(routeToSave.PeerGroups, account.Groups)
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(routeToSave.AccessControlGroups) > 0 {
+		err = validateGroups(routeToSave.AccessControlGroups, account.Groups)
 		if err != nil {
 			return err
 		}

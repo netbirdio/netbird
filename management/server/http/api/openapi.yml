@@ -1054,6 +1054,12 @@ components:
           description: Indicate if the route should be kept after a domain doesn't resolve that IP anymore
           type: boolean
           example: true
+        access_control_groups:
+          description: Access control group identifier associated with route.
+          type: array
+          items:
+            type: string
+            example: "chacbco6lnnbn6cg5s91"
       required:
         - id
         - description
