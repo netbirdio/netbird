@@ -3,7 +3,9 @@ builds:
   - id: netbird-ui-darwin
     dir: client/ui
     binary: netbird-ui
-    env: [CGO_ENABLED=1]
+    env:
+      - CGO_ENABLED=1
+      - CGO_CFLAGS=-mmacosx-version-min=11.0
 
     goos:
       - darwin

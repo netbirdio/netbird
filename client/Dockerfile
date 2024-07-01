@@ -1,4 +1,4 @@
-FROM alpine:3.18.5
+FROM alpine:3.19
 RUN apk add --no-cache ca-certificates iptables ip6tables
 ENV NB_FOREGROUND_MODE=true
 ENTRYPOINT [ "/usr/local/bin/netbird","up"]
