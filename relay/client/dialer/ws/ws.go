@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"nhooyr.io/websocket"
@@ -13,30 +14,46 @@ import (
 )
 
 func Dial(address string) (net.Conn, error) {
-
-	hostName, _, err := net.SplitHostPort(address)
-
-	addr, err := net.ResolveTCPAddr("tcp", address)
+	wsURL, err := prepareURL(address)
 	if err != nil {
-		log.Errorf("failed to resolve address of Relay server: %s", address)
 		return nil, err
 	}
 
-	url := fmt.Sprintf("ws://%s:%d", addr.IP.String(), addr.Port)
 	opts := &websocket.DialOptions{
-		Host:       hostName,
 		HTTPClient: httpClientNbDialer(),
 	}
 
-	wsConn, _, err := websocket.Dial(context.Background(), url, opts)
+	wsConn, _, err := websocket.Dial(context.Background(), wsURL, opts)
 	if err != nil {
-		log.Errorf("failed to dial to Relay server '%s': %s", url, err)
+		log.Errorf("failed to dial to Relay server '%s': %s", wsURL, err)
 		return nil, err
 	}
 
-	conn := NewConn(wsConn, addr)
+	/*
+		response.Body.(net.Conn).LocalAddr()
+		unc, ok := response.Body.(net.Conn)
+		if !ok {
+			log.Errorf("failed to get local address: %s", err)
+			return nil, fmt.Errorf("failed to get local address")
+		}
 
+	*/
+	// todo figure out the proper address
+	dummy := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 8080,
+	}
+
+	conn := NewConn(wsConn, dummy, dummy)
 	return conn, nil
+}
+
+func prepareURL(address string) (string, error) {
+	if !strings.HasPrefix(address, "rel") {
+		return "", fmt.Errorf("unsupported scheme: %s", address)
+	}
+
+	return strings.Replace(address, "rel", "ws", 1), nil
 }
 
 func httpClientNbDialer() *http.Client {

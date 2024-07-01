@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"sync"
 	"time"
@@ -12,6 +13,11 @@ import (
 	"github.com/netbirdio/netbird/relay/server/listener/udp"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
 )
+
+type Config struct {
+	Address   string
+	TLSConfig *tls.Config
+}
 
 type Server struct {
 	relay       *Relay
@@ -25,11 +31,15 @@ func NewServer() *Server {
 	}
 }
 
-func (r *Server) Listen(address string) error {
+func (r *Server) Listen(cfg Config) error {
 	wg := sync.WaitGroup{}
 	wg.Add(2)
 
-	r.wSListener = ws.NewListener(address)
+	r.wSListener = &ws.Listener{
+		Address:   cfg.Address,
+		TLSConfig: cfg.TLSConfig,
+	}
+
 	var wslErr error
 	go func() {
 		defer wg.Done()
@@ -39,7 +49,7 @@ func (r *Server) Listen(address string) error {
 		}
 	}()
 
-	r.uDPListener = udp.NewListener(address)
+	r.uDPListener = udp.NewListener(cfg.Address)
 	var udpLErr error
 	go func() {
 		defer wg.Done()

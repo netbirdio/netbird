@@ -23,10 +23,10 @@ func TestMain(m *testing.M) {
 func TestClient(t *testing.T) {
 	ctx := context.Background()
 
-	addr := "localhost:1234"
+	srvCfg := server.Config{Address: "localhost:1234"}
 	srv := server.NewServer()
 	go func() {
-		err := srv.Listen(addr)
+		err := srv.Listen(srvCfg)
 		if err != nil {
 			t.Fatalf("failed to bind server: %s", err)
 		}
@@ -39,21 +39,21 @@ func TestClient(t *testing.T) {
 		}
 	}()
 
-	clientAlice := NewClient(ctx, addr, "alice")
+	clientAlice := NewClient(ctx, srvCfg.Address, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
 	defer clientAlice.Close()
 
-	clientPlaceHolder := NewClient(ctx, addr, "clientPlaceHolder")
+	clientPlaceHolder := NewClient(ctx, srvCfg.Address, "clientPlaceHolder")
 	err = clientPlaceHolder.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
 	defer clientPlaceHolder.Close()
 
-	clientBob := NewClient(ctx, addr, "bob")
+	clientBob := NewClient(ctx, srvCfg.Address, "bob")
 	err = clientBob.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -91,16 +91,16 @@ func TestClient(t *testing.T) {
 
 func TestRegistration(t *testing.T) {
 	ctx := context.Background()
-	addr := "localhost:1234"
+	srvCfg := server.Config{Address: "localhost:1234"}
 	srv := server.NewServer()
 	go func() {
-		err := srv.Listen(addr)
+		err := srv.Listen(srvCfg)
 		if err != nil {
 			t.Fatalf("failed to bind server: %s", err)
 		}
 	}()
 
-	clientAlice := NewClient(ctx, addr, "alice")
+	clientAlice := NewClient(ctx, srvCfg.Address, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
 		_ = srv.Close()
@@ -156,10 +156,10 @@ func TestEcho(t *testing.T) {
 	ctx := context.Background()
 	idAlice := "alice"
 	idBob := "bob"
-	addr := "localhost:1234"
+	srvCfg := server.Config{Address: "localhost:1234"}
 	srv := server.NewServer()
 	go func() {
-		err := srv.Listen(addr)
+		err := srv.Listen(srvCfg)
 		if err != nil {
 			t.Fatalf("failed to bind server: %s", err)
 		}
@@ -172,7 +172,7 @@ func TestEcho(t *testing.T) {
 		}
 	}()
 
-	clientAlice := NewClient(ctx, addr, idAlice)
+	clientAlice := NewClient(ctx, srvCfg.Address, idAlice)
 	err := clientAlice.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -184,7 +184,7 @@ func TestEcho(t *testing.T) {
 		}
 	}()
 
-	clientBob := NewClient(ctx, addr, idBob)
+	clientBob := NewClient(ctx, srvCfg.Address, idBob)
 	err = clientBob.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -236,10 +236,10 @@ func TestEcho(t *testing.T) {
 func TestBindToUnavailabePeer(t *testing.T) {
 	ctx := context.Background()
 
-	addr := "localhost:1234"
+	srvCfg := server.Config{Address: "localhost:1234"}
 	srv := server.NewServer()
 	go func() {
-		err := srv.Listen(addr)
+		err := srv.Listen(srvCfg)
 		if err != nil {
 			t.Fatalf("failed to bind server: %s", err)
 		}
@@ -253,7 +253,7 @@ func TestBindToUnavailabePeer(t *testing.T) {
 		}
 	}()
 
-	clientAlice := NewClient(ctx, addr, "alice")
+	clientAlice := NewClient(ctx, srvCfg.Address, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -273,10 +273,10 @@ func TestBindToUnavailabePeer(t *testing.T) {
 func TestBindReconnect(t *testing.T) {
 	ctx := context.Background()
 
-	addr := "localhost:1234"
+	srvCfg := server.Config{Address: "localhost:1234"}
 	srv := server.NewServer()
 	go func() {
-		err := srv.Listen(addr)
+		err := srv.Listen(srvCfg)
 		if err != nil {
 			t.Errorf("failed to bind server: %s", err)
 		}
@@ -290,7 +290,7 @@ func TestBindReconnect(t *testing.T) {
 		}
 	}()
 
-	clientAlice := NewClient(ctx, addr, "alice")
+	clientAlice := NewClient(ctx, srvCfg.Address, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -301,7 +301,7 @@ func TestBindReconnect(t *testing.T) {
 		t.Errorf("failed to bind channel: %s", err)
 	}
 
-	clientBob := NewClient(ctx, addr, "bob")
+	clientBob := NewClient(ctx, srvCfg.Address, "bob")
 	err = clientBob.Connect()
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -318,7 +318,7 @@ func TestBindReconnect(t *testing.T) {
 		t.Errorf("failed to close client: %s", err)
 	}
 
-	clientAlice = NewClient(ctx, addr, "alice")
+	clientAlice = NewClient(ctx, srvCfg.Address, "alice")
 	err = clientAlice.Connect()
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -355,10 +355,10 @@ func TestBindReconnect(t *testing.T) {
 func TestCloseConn(t *testing.T) {
 	ctx := context.Background()
 
-	addr := "localhost:1234"
+	srvCfg := server.Config{Address: "localhost:1234"}
 	srv := server.NewServer()
 	go func() {
-		err := srv.Listen(addr)
+		err := srv.Listen(srvCfg)
 		if err != nil {
 			t.Errorf("failed to bind server: %s", err)
 		}
@@ -372,7 +372,7 @@ func TestCloseConn(t *testing.T) {
 		}
 	}()
 
-	clientAlice := NewClient(ctx, addr, "alice")
+	clientAlice := NewClient(ctx, srvCfg.Address, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -403,10 +403,10 @@ func TestCloseConn(t *testing.T) {
 func TestCloseRelayConn(t *testing.T) {
 	ctx := context.Background()
 
-	addr := "localhost:1234"
+	srvCfg := server.Config{Address: "localhost:1234"}
 	srv := server.NewServer()
 	go func() {
-		err := srv.Listen(addr)
+		err := srv.Listen(srvCfg)
 		if err != nil {
 			t.Errorf("failed to bind server: %s", err)
 		}
@@ -419,7 +419,7 @@ func TestCloseRelayConn(t *testing.T) {
 		}
 	}()
 
-	clientAlice := NewClient(ctx, addr, "alice")
+	clientAlice := NewClient(ctx, srvCfg.Address, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -446,10 +446,10 @@ func TestCloseRelayConn(t *testing.T) {
 func TestCloseByServer(t *testing.T) {
 	ctx := context.Background()
 
-	addr1 := "localhost:1234"
+	srvCfg := server.Config{Address: "localhost:1234"}
 	srv1 := server.NewServer()
 	go func() {
-		err := srv1.Listen(addr1)
+		err := srv1.Listen(srvCfg)
 		if err != nil {
 			t.Fatalf("failed to bind server: %s", err)
 		}
@@ -457,7 +457,7 @@ func TestCloseByServer(t *testing.T) {
 
 	idAlice := "alice"
 	log.Debugf("connect by alice")
-	relayClient := NewClient(ctx, addr1, idAlice)
+	relayClient := NewClient(ctx, srvCfg.Address, idAlice)
 	err := relayClient.Connect()
 	if err != nil {
 		log.Fatalf("failed to connect to server: %s", err)
@@ -489,10 +489,10 @@ func TestCloseByServer(t *testing.T) {
 func TestCloseByClient(t *testing.T) {
 	ctx := context.Background()
 
-	addr1 := "localhost:1234"
+	srvCfg := server.Config{Address: "localhost:1234"}
 	srv := server.NewServer()
 	go func() {
-		err := srv.Listen(addr1)
+		err := srv.Listen(srvCfg)
 		if err != nil {
 			t.Fatalf("failed to bind server: %s", err)
 		}
@@ -500,7 +500,7 @@ func TestCloseByClient(t *testing.T) {
 
 	idAlice := "alice"
 	log.Debugf("connect by alice")
-	relayClient := NewClient(ctx, addr1, idAlice)
+	relayClient := NewClient(ctx, srvCfg.Address, idAlice)
 	err := relayClient.Connect()
 	if err != nil {
 		log.Fatalf("failed to connect to server: %s", err)

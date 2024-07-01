@@ -13,10 +13,12 @@ import (
 func TestForeignConn(t *testing.T) {
 	ctx := context.Background()
 
-	addr1 := "localhost:1234"
+	srvCfg1 := server.Config{
+		Address: "localhost:1234",
+	}
 	srv1 := server.NewServer()
 	go func() {
-		err := srv1.Listen(addr1)
+		err := srv1.Listen(srvCfg1)
 		if err != nil {
 			t.Fatalf("failed to bind server: %s", err)
 		}
@@ -29,10 +31,12 @@ func TestForeignConn(t *testing.T) {
 		}
 	}()
 
-	addr2 := "localhost:2234"
+	srvCfg2 := server.Config{
+		Address: "localhost:2234",
+	}
 	srv2 := server.NewServer()
 	go func() {
-		err := srv2.Listen(addr2)
+		err := srv2.Listen(srvCfg2)
 		if err != nil {
 			t.Fatalf("failed to bind server: %s", err)
 		}
@@ -49,12 +53,12 @@ func TestForeignConn(t *testing.T) {
 	log.Debugf("connect by alice")
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	clientAlice := NewManager(mCtx, addr1, idAlice)
+	clientAlice := NewManager(mCtx, srvCfg1.Address, idAlice)
 	clientAlice.Serve()
 
 	idBob := "bob"
 	log.Debugf("connect by bob")
-	clientBob := NewManager(mCtx, addr2, idBob)
+	clientBob := NewManager(mCtx, srvCfg2.Address, idBob)
 	clientBob.Serve()
 
 	bobsSrvAddr, err := clientBob.RelayAddress()
@@ -100,10 +104,12 @@ func TestForeignConn(t *testing.T) {
 func TestForeginConnClose(t *testing.T) {
 	ctx := context.Background()
 
-	addr1 := "localhost:1234"
+	srvCfg1 := server.Config{
+		Address: "localhost:1234",
+	}
 	srv1 := server.NewServer()
 	go func() {
-		err := srv1.Listen(addr1)
+		err := srv1.Listen(srvCfg1)
 		if err != nil {
 			t.Fatalf("failed to bind server: %s", err)
 		}
@@ -116,10 +122,12 @@ func TestForeginConnClose(t *testing.T) {
 		}
 	}()
 
-	addr2 := "localhost:2234"
+	srvCfg2 := server.Config{
+		Address: "localhost:2234",
+	}
 	srv2 := server.NewServer()
 	go func() {
-		err := srv2.Listen(addr2)
+		err := srv2.Listen(srvCfg2)
 		if err != nil {
 			t.Fatalf("failed to bind server: %s", err)
 		}
@@ -136,10 +144,10 @@ func TestForeginConnClose(t *testing.T) {
 	log.Debugf("connect by alice")
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	mgr := NewManager(mCtx, addr1, idAlice)
+	mgr := NewManager(mCtx, srvCfg1.Address, idAlice)
 	mgr.Serve()
 
-	conn, err := mgr.OpenConn(addr2, "anotherpeer", nil)
+	conn, err := mgr.OpenConn(srvCfg2.Address, "anotherpeer", nil)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -153,11 +161,13 @@ func TestForeginConnClose(t *testing.T) {
 func TestForeginAutoClose(t *testing.T) {
 	ctx := context.Background()
 	relayCleanupInterval = 1 * time.Second
-	addr1 := "localhost:1234"
+	srvCfg1 := server.Config{
+		Address: "localhost:1234",
+	}
 	srv1 := server.NewServer()
 	go func() {
 		t.Log("binding server 1.")
-		err := srv1.Listen(addr1)
+		err := srv1.Listen(srvCfg1)
 		if err != nil {
 			t.Fatalf("failed to bind server: %s", err)
 		}
@@ -172,11 +182,13 @@ func TestForeginAutoClose(t *testing.T) {
 		t.Logf("server 1. closed")
 	}()
 
-	addr2 := "localhost:2234"
+	srvCfg2 := server.Config{
+		Address: "localhost:2234",
+	}
 	srv2 := server.NewServer()
 	go func() {
 		t.Log("binding server 2.")
-		err := srv2.Listen(addr2)
+		err := srv2.Listen(srvCfg2)
 		if err != nil {
 			t.Fatalf("failed to bind server: %s", err)
 		}
@@ -194,11 +206,11 @@ func TestForeginAutoClose(t *testing.T) {
 	t.Log("connect to server 1.")
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	mgr := NewManager(mCtx, addr1, idAlice)
+	mgr := NewManager(mCtx, srvCfg1.Address, idAlice)
 	mgr.Serve()
 
 	t.Log("open connection to another peer")
-	conn, err := mgr.OpenConn(addr2, "anotherpeer", nil)
+	conn, err := mgr.OpenConn(srvCfg2.Address, "anotherpeer", nil)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -222,10 +234,12 @@ func TestAutoReconnect(t *testing.T) {
 	ctx := context.Background()
 	reconnectingTimeout = 2 * time.Second
 
-	addr := "localhost:1234"
+	srvCfg := server.Config{
+		Address: "localhost:1234",
+	}
 	srv := server.NewServer()
 	go func() {
-		err := srv.Listen(addr)
+		err := srv.Listen(srvCfg)
 		if err != nil {
 			t.Errorf("failed to bind server: %s", err)
 		}
@@ -240,7 +254,7 @@ func TestAutoReconnect(t *testing.T) {
 
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	clientAlice := NewManager(mCtx, addr, "alice")
+	clientAlice := NewManager(mCtx, srvCfg.Address, "alice")
 	clientAlice.Serve()
 	ra, err := clientAlice.RelayAddress()
 	if err != nil {

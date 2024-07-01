@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -10,21 +11,16 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"nhooyr.io/websocket"
-
-	"github.com/netbirdio/netbird/relay/server/listener"
 )
 
 type Listener struct {
-	address string
+	// Address is the address to listen on.
+	Address string
+	// TLSConfig is the TLS configuration for the server.
+	TLSConfig *tls.Config
 
 	server   *http.Server
 	acceptFn func(conn net.Conn)
-}
-
-func NewListener(address string) listener.Listener {
-	return &Listener{
-		address: address,
-	}
 }
 
 func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
@@ -33,12 +29,19 @@ func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 	mux.HandleFunc("/", l.onAccept)
 
 	l.server = &http.Server{
-		Addr:    l.address,
-		Handler: mux,
+		Addr:      l.Address,
+		Handler:   mux,
+		TLSConfig: l.TLSConfig,
 	}
 
-	log.Infof("WS server is listening on address: %s", l.address)
-	err := l.server.ListenAndServe()
+	log.Infof("WS server is listening on address: %s", l.Address)
+	var err error
+	if l.TLSConfig != nil {
+		err = l.server.ListenAndServeTLS("", "")
+
+	} else {
+		err = l.server.ListenAndServe()
+	}
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}

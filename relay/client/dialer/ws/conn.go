@@ -12,14 +12,16 @@ import (
 type Conn struct {
 	ctx context.Context
 	*websocket.Conn
-	srvAddr *net.TCPAddr
+	srvAddr   net.Addr
+	localAddr net.Addr
 }
 
-func NewConn(wsConn *websocket.Conn, srvAddr *net.TCPAddr) net.Conn {
+func NewConn(wsConn *websocket.Conn, srvAddr, localAddr net.Addr) net.Conn {
 	return &Conn{
-		ctx:     context.Background(),
-		Conn:    wsConn,
-		srvAddr: srvAddr,
+		ctx:       context.Background(),
+		Conn:      wsConn,
+		srvAddr:   srvAddr,
+		localAddr: localAddr,
 	}
 }
 
@@ -46,8 +48,7 @@ func (c *Conn) RemoteAddr() net.Addr {
 }
 
 func (c *Conn) LocalAddr() net.Addr {
-	// todo: implement me
-	return nil
+	return c.localAddr
 }
 
 func (c *Conn) SetReadDeadline(t time.Time) error {
