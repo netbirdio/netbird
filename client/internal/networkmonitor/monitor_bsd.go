@@ -45,24 +45,6 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 			msg := (*unix.RtMsghdr)(unsafe.Pointer(&buf[0]))
 
 			switch msg.Type {
-
-			// handle interface state changes
-			case unix.RTM_IFINFO:
-				ifinfo, err := parseInterfaceMessage(buf[:n])
-				if err != nil {
-					log.Errorf("Network monitor: error parsing interface message: %v", err)
-					continue
-				}
-				if msg.Flags&unix.IFF_UP != 0 {
-					continue
-				}
-				if (nexthopv4.Intf == nil || ifinfo.Index != nexthopv4.Intf.Index) && (nexthopv6.Intf == nil || ifinfo.Index != nexthopv6.Intf.Index) {
-					continue
-				}
-
-				log.Infof("Network monitor: monitored interface (%s) is down.", ifinfo.Name)
-				go callback()
-
 			// handle route changes
 			case unix.RTM_ADD, syscall.RTM_DELETE:
 				route, err := parseRouteMessage(buf[:n])
@@ -92,24 +74,6 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 			}
 		}
 	}
-}
-
-func parseInterfaceMessage(buf []byte) (*route.InterfaceMessage, error) {
-	msgs, err := route.ParseRIB(route.RIBTypeInterface, buf)
-	if err != nil {
-		return nil, fmt.Errorf("parse RIB: %v", err)
-	}
-
-	if len(msgs) != 1 {
-		return nil, fmt.Errorf("unexpected RIB message msgs: %v", msgs)
-	}
-
-	msg, ok := msgs[0].(*route.InterfaceMessage)
-	if !ok {
-		return nil, fmt.Errorf("unexpected RIB message type: %T", msgs[0])
-	}
-
-	return msg, nil
 }
 
 func parseRouteMessage(buf []byte) (*systemops.Route, error) {
