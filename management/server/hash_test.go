@@ -6,11 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mitchellh/hashstructure/v2"
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	route2 "github.com/netbirdio/netbird/route"
+	"github.com/r3labs/diff"
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 )
 
 func initTestAccount(b *testing.B, numPerAccount int) *Account {
@@ -308,4 +311,114 @@ func BenchmarkTest_updateAccountPeersWithDiff2000(b *testing.B) {
 		log.Debug(i)
 		updateAccountPeersWithDiff(account)
 	}
+}
+
+type TestStruct struct {
+	Name     string
+	Value    int
+	Ignored  string `diff:"-" hash:"ignore"`
+	Compared string
+}
+
+func TestDiffIgnoreTag(t *testing.T) {
+	a := TestStruct{
+		Name:     "test",
+		Value:    30,
+		Ignored:  "This should be ignored",
+		Compared: "This should be compared",
+	}
+
+	b := TestStruct{
+		Name:     "test",
+		Value:    31,
+		Ignored:  "This is different but should be ignored",
+		Compared: "This is different and should be compared",
+	}
+
+	changelog, err := diff.Diff(a, b)
+	assert.NoError(t, err)
+
+	// Check that only the expected fields are in the changelog
+	assert.Len(t, changelog, 2)
+
+	// Check that the 'Age' field change is detected
+	ageChange := getChangeForField(changelog, "Value")
+	assert.NotNil(t, ageChange)
+	assert.Equal(t, 30, ageChange.From)
+	assert.Equal(t, 31, ageChange.To)
+
+	// Check that the 'Compared' field change is detected
+	comparedChange := getChangeForField(changelog, "Compared")
+	assert.NotNil(t, comparedChange)
+	assert.Equal(t, "This should be compared", comparedChange.From)
+	assert.Equal(t, "This is different and should be compared", comparedChange.To)
+
+	// Check that the 'Ignored' field is not in the changelog
+	ignoredChange := getChangeForField(changelog, "Ignored")
+	assert.Nil(t, ignoredChange)
+}
+
+func TestHashIgnoreTag(t *testing.T) {
+	a := TestStruct{
+		Name:     "test",
+		Value:    30,
+		Ignored:  "This should be ignored",
+		Compared: "This should be compared",
+	}
+
+	b := TestStruct{
+		Name:     "test",
+		Value:    30,
+		Ignored:  "This is different but should be ignored",
+		Compared: "This should be compared",
+	}
+
+	c := TestStruct{
+		Name:     "test",
+		Value:    31,
+		Ignored:  "This should be ignored",
+		Compared: "This should be compared",
+	}
+
+	d := TestStruct{
+		Name:     "test",
+		Value:    30,
+		Ignored:  "This should be ignored",
+		Compared: "This is different and should be compared",
+	}
+
+	opts := &hashstructure.HashOptions{
+		ZeroNil:         true,
+		IgnoreZeroValue: true,
+		SlicesAsSets:    true,
+		UseStringer:     true,
+	}
+
+	hashA, err := hashstructure.Hash(a, hashstructure.FormatV2, opts)
+	assert.NoError(t, err)
+
+	hashB, err := hashstructure.Hash(b, hashstructure.FormatV2, opts)
+	assert.NoError(t, err)
+
+	hashC, err := hashstructure.Hash(c, hashstructure.FormatV2, opts)
+	assert.NoError(t, err)
+
+	hashD, err := hashstructure.Hash(d, hashstructure.FormatV2, opts)
+	assert.NoError(t, err)
+
+	// Test that changing the ignored field does not change the hash
+	assert.Equal(t, hashA, hashB)
+
+	// Test that changing a non-ignored field does change the hash
+	assert.NotEqual(t, hashA, hashC)
+	assert.NotEqual(t, hashA, hashD)
+}
+
+func getChangeForField(changelog diff.Changelog, fieldName string) *diff.Change {
+	for _, change := range changelog {
+		if change.Path[0] == fieldName {
+			return &change
+		}
+	}
+	return nil
 }
