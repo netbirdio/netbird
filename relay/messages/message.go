@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 
+	"go.mongodb.org/mongo-driver/bson"
+
 	log "github.com/sirupsen/logrus"
 )
 
@@ -43,6 +45,10 @@ func (m MsgType) String() string {
 	default:
 		return "unknown"
 	}
+}
+
+type HelloResponse struct {
+	DomainAddress string
 }
 
 func DetermineClientMsgType(msg []byte) (MsgType, error) {
@@ -97,10 +103,32 @@ func UnmarshalHelloMsg(msg []byte) ([]byte, error) {
 	return msg[5:], nil
 }
 
-func MarshalHelloResponse() []byte {
-	msg := make([]byte, 1)
+func MarshalHelloResponse(DomainAddress string) ([]byte, error) {
+	payload := HelloResponse{
+		DomainAddress: DomainAddress,
+	}
+	helloResponse, err := bson.Marshal(payload)
+	if err != nil {
+		log.Errorf("failed to marshal hello response: %s", err)
+		return nil, err
+	}
+	msg := make([]byte, 1, 1+len(helloResponse))
 	msg[0] = byte(MsgTypeHelloResponse)
-	return msg
+	msg = append(msg, helloResponse...)
+	return msg, nil
+}
+
+func UnmarshalHelloResponse(msg []byte) (string, error) {
+	if len(msg) < 2 {
+		return "", fmt.Errorf("invalid 'hello response' message")
+	}
+	payload := HelloResponse{}
+	err := bson.Unmarshal(msg[1:], &payload)
+	if err != nil {
+		log.Errorf("failed to unmarshal hello response: %s", err)
+		return "", err
+	}
+	return payload.DomainAddress, nil
 }
 
 // Close message

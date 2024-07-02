@@ -16,9 +16,11 @@ import (
 )
 
 var (
-	listenAddress      string
+	listenAddress string
+	// in HA every peer connect to a common domain, the instance domain has been distributed during the p2p connection
+	exposedAddress     string
 	letsencryptDataDir string
-	letsencryptDomain  string
+	letsencryptDomains []string
 
 	rootCmd = &cobra.Command{
 		Use:   "relay",
@@ -31,8 +33,9 @@ var (
 func init() {
 	_ = util.InitLog("trace", "console")
 	rootCmd.PersistentFlags().StringVarP(&listenAddress, "listen-address", "l", ":1235", "listen address")
+	rootCmd.PersistentFlags().StringVarP(&exposedAddress, "exposed-address", "e", "", "instance domain address (or ip) and port, it will be distributes between peers")
 	rootCmd.PersistentFlags().StringVarP(&letsencryptDataDir, "letsencrypt-data-dir", "d", "", "a directory to store Let's Encrypt data. Required if Let's Encrypt is enabled.")
-	rootCmd.PersistentFlags().StringVarP(&letsencryptDomain, "letsencrypt-domain", "a", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
+	rootCmd.PersistentFlags().StringArrayVarP(&letsencryptDomains, "letsencrypt-domains", "a", nil, "list of domains to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 }
 
 func waitForExitSignal() {
@@ -42,7 +45,7 @@ func waitForExitSignal() {
 }
 
 func execute(cmd *cobra.Command, args []string) {
-	srvCfg := server.Config{
+	srvListenerCfg := server.ListenerConfig{
 		Address: listenAddress,
 	}
 	if hasLetsEncrypt() {
@@ -51,11 +54,12 @@ func execute(cmd *cobra.Command, args []string) {
 			log.Errorf("%s", err)
 			os.Exit(1)
 		}
-		srvCfg.TLSConfig = tlscfg
+		srvListenerCfg.TLSConfig = tlscfg
 	}
 
-	srv := server.NewServer()
-	err := srv.Listen(srvCfg)
+	tlsSupport := srvListenerCfg.TLSConfig != nil
+	srv := server.NewServer(exposedAddress, tlsSupport)
+	err := srv.Listen(srvListenerCfg)
 	if err != nil {
 		log.Errorf("failed to bind server: %s", err)
 		os.Exit(1)
@@ -71,11 +75,11 @@ func execute(cmd *cobra.Command, args []string) {
 }
 
 func hasLetsEncrypt() bool {
-	return letsencryptDataDir != "" && letsencryptDomain != ""
+	return letsencryptDataDir != "" && letsencryptDomains != nil && len(letsencryptDomains) > 0
 }
 
 func setupTLS() (*tls.Config, error) {
-	certManager, err := encryption.CreateCertManager(letsencryptDataDir, letsencryptDomain)
+	certManager, err := encryption.CreateCertManager(letsencryptDataDir, letsencryptDomains...)
 	if err != nil {
 		return nil, fmt.Errorf("failed creating LetsEncrypt cert manager: %v", err)
 	}

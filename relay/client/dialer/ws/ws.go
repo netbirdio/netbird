@@ -29,22 +29,7 @@ func Dial(address string) (net.Conn, error) {
 		return nil, err
 	}
 
-	/*
-		response.Body.(net.Conn).LocalAddr()
-		unc, ok := response.Body.(net.Conn)
-		if !ok {
-			log.Errorf("failed to get local address: %s", err)
-			return nil, fmt.Errorf("failed to get local address")
-		}
-
-	*/
-	// todo figure out the proper address
-	dummy := &net.TCPAddr{
-		IP:   net.ParseIP("127.0.0.1"),
-		Port: 8080,
-	}
-
-	conn := NewConn(wsConn, dummy, dummy)
+	conn := NewConn(wsConn)
 	return conn, nil
 }
 

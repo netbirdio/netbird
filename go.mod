@@ -47,7 +47,6 @@ require (
 	github.com/google/martian/v3 v3.0.0
 	github.com/google/nftables v0.0.0-20220808154552-2eca00135732
 	github.com/gopacket/gopacket v1.1.1
-	github.com/gorilla/websocket v1.5.1
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.0.2-0.20240212192251-757544f21357
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-secure-stdlib/base62 v0.1.2
@@ -64,6 +63,7 @@ require (
 	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pion/logging v0.2.2
+	github.com/pion/randutil v0.1.0
 	github.com/pion/stun/v2 v2.0.0
 	github.com/pion/transport/v3 v3.0.1
 	github.com/pion/turn/v3 v3.0.1
@@ -77,6 +77,7 @@ require (
 	github.com/things-go/go-socks5 v0.0.4
 	github.com/yusufpapurcu/wmi v1.2.4
 	github.com/zcalusic/sysinfo v1.0.2
+	go.mongodb.org/mongo-driver v1.16.0
 	go.opentelemetry.io/otel v1.26.0
 	go.opentelemetry.io/otel/exporters/prometheus v0.48.0
 	go.opentelemetry.io/otel/metric v1.26.0
@@ -173,7 +174,6 @@ require (
 	github.com/pegasus-kv/thrift v0.13.0 // indirect
 	github.com/pion/dtls/v2 v2.2.10 // indirect
 	github.com/pion/mdns v0.0.12 // indirect
-	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/transport/v2 v2.2.4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

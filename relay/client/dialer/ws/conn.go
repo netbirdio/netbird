@@ -12,16 +12,12 @@ import (
 type Conn struct {
 	ctx context.Context
 	*websocket.Conn
-	srvAddr   net.Addr
-	localAddr net.Addr
 }
 
-func NewConn(wsConn *websocket.Conn, srvAddr, localAddr net.Addr) net.Conn {
+func NewConn(wsConn *websocket.Conn) net.Conn {
 	return &Conn{
-		ctx:       context.Background(),
-		Conn:      wsConn,
-		srvAddr:   srvAddr,
-		localAddr: localAddr,
+		ctx:  context.Background(),
+		Conn: wsConn,
 	}
 }
 
@@ -44,11 +40,11 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 }
 
 func (c *Conn) RemoteAddr() net.Addr {
-	return c.srvAddr
+	panic("not implemented")
 }
 
 func (c *Conn) LocalAddr() net.Addr {
-	return c.localAddr
+	panic("not implemented")
 }
 
 func (c *Conn) SetReadDeadline(t time.Time) error {

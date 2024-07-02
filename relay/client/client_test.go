@@ -23,8 +23,8 @@ func TestMain(m *testing.M) {
 func TestClient(t *testing.T) {
 	ctx := context.Background()
 
-	srvCfg := server.Config{Address: "localhost:1234"}
-	srv := server.NewServer()
+	srvCfg := server.ListenerConfig{Address: "localhost:1234"}
+	srv := server.NewServer(srvCfg.Address, false)
 	go func() {
 		err := srv.Listen(srvCfg)
 		if err != nil {
@@ -91,8 +91,8 @@ func TestClient(t *testing.T) {
 
 func TestRegistration(t *testing.T) {
 	ctx := context.Background()
-	srvCfg := server.Config{Address: "localhost:1234"}
-	srv := server.NewServer()
+	srvCfg := server.ListenerConfig{Address: "localhost:1234"}
+	srv := server.NewServer(srvCfg.Address, false)
 	go func() {
 		err := srv.Listen(srvCfg)
 		if err != nil {
@@ -156,8 +156,8 @@ func TestEcho(t *testing.T) {
 	ctx := context.Background()
 	idAlice := "alice"
 	idBob := "bob"
-	srvCfg := server.Config{Address: "localhost:1234"}
-	srv := server.NewServer()
+	srvCfg := server.ListenerConfig{Address: "localhost:1234"}
+	srv := server.NewServer(srvCfg.Address, false)
 	go func() {
 		err := srv.Listen(srvCfg)
 		if err != nil {
@@ -236,8 +236,8 @@ func TestEcho(t *testing.T) {
 func TestBindToUnavailabePeer(t *testing.T) {
 	ctx := context.Background()
 
-	srvCfg := server.Config{Address: "localhost:1234"}
-	srv := server.NewServer()
+	srvCfg := server.ListenerConfig{Address: "localhost:1234"}
+	srv := server.NewServer(srvCfg.Address, false)
 	go func() {
 		err := srv.Listen(srvCfg)
 		if err != nil {
@@ -273,8 +273,8 @@ func TestBindToUnavailabePeer(t *testing.T) {
 func TestBindReconnect(t *testing.T) {
 	ctx := context.Background()
 
-	srvCfg := server.Config{Address: "localhost:1234"}
-	srv := server.NewServer()
+	srvCfg := server.ListenerConfig{Address: "localhost:1234"}
+	srv := server.NewServer(srvCfg.Address, false)
 	go func() {
 		err := srv.Listen(srvCfg)
 		if err != nil {
@@ -355,8 +355,8 @@ func TestBindReconnect(t *testing.T) {
 func TestCloseConn(t *testing.T) {
 	ctx := context.Background()
 
-	srvCfg := server.Config{Address: "localhost:1234"}
-	srv := server.NewServer()
+	srvCfg := server.ListenerConfig{Address: "localhost:1234"}
+	srv := server.NewServer(srvCfg.Address, false)
 	go func() {
 		err := srv.Listen(srvCfg)
 		if err != nil {
@@ -403,8 +403,8 @@ func TestCloseConn(t *testing.T) {
 func TestCloseRelayConn(t *testing.T) {
 	ctx := context.Background()
 
-	srvCfg := server.Config{Address: "localhost:1234"}
-	srv := server.NewServer()
+	srvCfg := server.ListenerConfig{Address: "localhost:1234"}
+	srv := server.NewServer(srvCfg.Address, false)
 	go func() {
 		err := srv.Listen(srvCfg)
 		if err != nil {
@@ -446,8 +446,8 @@ func TestCloseRelayConn(t *testing.T) {
 func TestCloseByServer(t *testing.T) {
 	ctx := context.Background()
 
-	srvCfg := server.Config{Address: "localhost:1234"}
-	srv1 := server.NewServer()
+	srvCfg := server.ListenerConfig{Address: "localhost:1234"}
+	srv1 := server.NewServer(srvCfg.Address, false)
 	go func() {
 		err := srv1.Listen(srvCfg)
 		if err != nil {
@@ -489,8 +489,8 @@ func TestCloseByServer(t *testing.T) {
 func TestCloseByClient(t *testing.T) {
 	ctx := context.Background()
 
-	srvCfg := server.Config{Address: "localhost:1234"}
-	srv := server.NewServer()
+	srvCfg := server.ListenerConfig{Address: "localhost:1234"}
+	srv := server.NewServer(srvCfg.Address, false)
 	go func() {
 		err := srv.Listen(srvCfg)
 		if err != nil {

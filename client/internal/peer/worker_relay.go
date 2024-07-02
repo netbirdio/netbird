@@ -46,13 +46,13 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	}
 
 	// the relayManager will return with error in case if the connection has lost with relay server
-	currentRelayAddress, err := w.relayManager.RelayAddress()
+	currentRelayAddress, err := w.relayManager.RelayInstanceAddress()
 	if err != nil {
 		w.log.Infof("local Relay connection is lost, skipping connection attempt")
 		return
 	}
 
-	srv := w.preferredRelayServer(currentRelayAddress.String(), remoteOfferAnswer.RelaySrvAddress)
+	srv := w.preferredRelayServer(currentRelayAddress, remoteOfferAnswer.RelaySrvAddress)
 
 	relayedConn, err := w.relayManager.OpenConn(srv, w.config.Key, w.conn.OnDisconnected)
 	if err != nil {
@@ -73,8 +73,8 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	})
 }
 
-func (w *WorkerRelay) RelayAddress() (net.Addr, error) {
-	return w.relayManager.RelayAddress()
+func (w *WorkerRelay) RelayInstanceAddress() (string, error) {
+	return w.relayManager.RelayInstanceAddress()
 }
 
 func (w *WorkerRelay) IsController() bool {

@@ -606,9 +606,9 @@ func (conn *Conn) doHandshake() error {
 		err error
 	)
 	ha.IceUFrag, ha.IcePwd = conn.workerICE.GetLocalUserCredentials()
-	addr, err := conn.workerRelay.RelayAddress()
+	addr, err := conn.workerRelay.RelayInstanceAddress()
 	if err == nil {
-		ha.RelayAddr = addr.String()
+		ha.RelayAddr = addr
 	}
 	conn.log.Tracef("send new offer: %#v", ha)
 	return conn.handshaker.SendOffer(ha)

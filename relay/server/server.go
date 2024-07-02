@@ -14,7 +14,7 @@ import (
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
 )
 
-type Config struct {
+type ListenerConfig struct {
 	Address   string
 	TLSConfig *tls.Config
 }
@@ -25,13 +25,13 @@ type Server struct {
 	wSListener  listener.Listener
 }
 
-func NewServer() *Server {
+func NewServer(exposedAddress string, tlsSupport bool) *Server {
 	return &Server{
-		relay: NewRelay(),
+		relay: NewRelay(exposedAddress, tlsSupport),
 	}
 }
 
-func (r *Server) Listen(cfg Config) error {
+func (r *Server) Listen(cfg ListenerConfig) error {
 	wg := sync.WaitGroup{}
 	wg.Add(2)
 

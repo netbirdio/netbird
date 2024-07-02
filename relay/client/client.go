@@ -97,7 +97,7 @@ func (cc *connContainer) close() {
 type Client struct {
 	log           *log.Entry
 	parentCtx     context.Context
-	serverAddress string
+	connectionURL string
 	hashedID      []byte
 
 	bufPool *sync.Pool
@@ -108,20 +108,19 @@ type Client struct {
 	mu               sync.Mutex // protect serviceIsRunning and conns
 	readLoopMutex    sync.Mutex
 	wgReadLoop       sync.WaitGroup
-
-	remoteAddr net.Addr
+	instanceURL      string
 
 	onDisconnectListener func()
 	listenerMutex        sync.Mutex
 }
 
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
-func NewClient(ctx context.Context, serverAddress, peerID string) *Client {
+func NewClient(ctx context.Context, serverURL, peerID string) *Client {
 	hashedID, hashedStringId := messages.HashID(peerID)
 	return &Client{
 		log:           log.WithField("client_id", hashedStringId),
 		parentCtx:     ctx,
-		serverAddress: serverAddress,
+		connectionURL: serverURL,
 		hashedID:      hashedID,
 		bufPool: &sync.Pool{
 			New: func() any {
@@ -135,7 +134,7 @@ func NewClient(ctx context.Context, serverAddress, peerID string) *Client {
 
 // Connect establishes a connection to the relay server. It blocks until the connection is established or an error occurs.
 func (c *Client) Connect() error {
-	c.log.Infof("connecting to relay server: %s", c.serverAddress)
+	c.log.Infof("connecting to relay server: %s", c.connectionURL)
 	c.readLoopMutex.Lock()
 	defer c.readLoopMutex.Unlock()
 
@@ -156,7 +155,7 @@ func (c *Client) Connect() error {
 	c.wgReadLoop.Add(1)
 	go c.readLoop(c.relayConn)
 
-	log.Infof("relay connection established with: %s", c.serverAddress)
+	log.Infof("relay connection established with: %s", c.connectionURL)
 	return nil
 }
 
@@ -186,14 +185,14 @@ func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
 	return conn, nil
 }
 
-// RelayRemoteAddress returns the IP address of the relay server. It could change after the close and reopen the connection.
-func (c *Client) RelayRemoteAddress() (net.Addr, error) {
+// ServerInstanceURL returns the address of the relay server. It could change after the close and reopen the connection.
+func (c *Client) ServerInstanceURL() (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.remoteAddr == nil {
-		return nil, fmt.Errorf("relay connection is not established")
+	if c.instanceURL == "" {
+		return "", fmt.Errorf("relay connection is not established")
 	}
-	return c.remoteAddr, nil
+	return c.instanceURL, nil
 }
 
 // SetOnDisconnectListener sets a function that will be called when the connection to the relay server is closed.
@@ -215,7 +214,7 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect() error {
-	conn, err := ws.Dial(c.serverAddress)
+	conn, err := ws.Dial(c.connectionURL)
 	if err != nil {
 		return err
 	}
@@ -230,8 +229,6 @@ func (c *Client) connect() error {
 		c.relayConn = nil
 		return err
 	}
-
-	c.remoteAddr = conn.RemoteAddr()
 
 	return nil
 }
@@ -264,6 +261,12 @@ func (c *Client) handShake() error {
 		log.Errorf("unexpected message type: %s", msgType)
 		return fmt.Errorf("unexpected message type")
 	}
+
+	domain, err := messages.UnmarshalHelloResponse(buf[:n])
+	if err != nil {
+		return err
+	}
+	c.instanceURL = domain
 	return nil
 }
 
@@ -435,7 +438,7 @@ func (c *Client) close(gracefullyExit bool) error {
 	c.mu.Unlock()
 
 	c.wgReadLoop.Wait()
-	c.log.Infof("relay connection closed with: %s", c.serverAddress)
+	c.log.Infof("relay connection closed with: %s", c.connectionURL)
 	return err
 }
 

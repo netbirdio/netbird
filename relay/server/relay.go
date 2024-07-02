@@ -12,16 +12,24 @@ import (
 )
 
 type Relay struct {
-	store *Store
+	store      *Store
+	instaceURL string // domain:port
 
 	closed  bool
 	closeMu sync.RWMutex
 }
 
-func NewRelay() *Relay {
-	return &Relay{
+func NewRelay(exposedAddress string, tlsSupport bool) *Relay {
+	r := &Relay{
 		store: NewStore(),
 	}
+
+	if tlsSupport {
+		r.instaceURL = fmt.Sprintf("rels://%s", exposedAddress)
+	} else {
+		r.instaceURL = fmt.Sprintf("rel://%s", exposedAddress)
+	}
+	return r
 }
 
 func (r *Relay) Accept(conn net.Conn) {
@@ -31,7 +39,7 @@ func (r *Relay) Accept(conn net.Conn) {
 		return
 	}
 
-	peerID, err := handShake(conn)
+	peerID, err := r.handShake(conn)
 	if err != nil {
 		log.Errorf("failed to handshake with %s: %s", conn.RemoteAddr(), err)
 		cErr := conn.Close()
@@ -68,7 +76,7 @@ func (r *Relay) Close(ctx context.Context) {
 	r.closeMu.Unlock()
 }
 
-func handShake(conn net.Conn) ([]byte, error) {
+func (r *Relay) handShake(conn net.Conn) ([]byte, error) {
 	buf := make([]byte, messages.MaxHandshakeSize)
 	n, err := conn.Read(buf)
 	if err != nil {
@@ -79,18 +87,20 @@ func handShake(conn net.Conn) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if msgType != messages.MsgTypeHello {
 		tErr := fmt.Errorf("invalid message type")
 		log.Errorf("failed to handshake: %s", tErr)
 		return nil, tErr
 	}
+
 	peerID, err := messages.UnmarshalHelloMsg(buf[:n])
 	if err != nil {
 		log.Errorf("failed to handshake: %s", err)
 		return nil, err
 	}
 
-	msg := messages.MarshalHelloResponse()
+	msg, _ := messages.MarshalHelloResponse(r.instaceURL)
 	_, err = conn.Write(msg)
 	if err != nil {
 		return nil, err

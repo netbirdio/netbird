@@ -35,9 +35,9 @@ func NewRelayTrack() *RelayTrack {
 // relay servers will be closed if there is no active connection. Periodically the manager will check if there is any
 // unused relay connection and close it.
 type Manager struct {
-	ctx        context.Context
-	srvAddress string
-	peerID     string
+	ctx       context.Context
+	serverURL string
+	peerID    string
 
 	relayClient    *Client
 	reconnectGuard *Guard
@@ -49,10 +49,10 @@ type Manager struct {
 	listenerLock            sync.Mutex
 }
 
-func NewManager(ctx context.Context, serverAddress string, peerID string) *Manager {
+func NewManager(ctx context.Context, serverURL string, peerID string) *Manager {
 	return &Manager{
 		ctx:                     ctx,
-		srvAddress:              serverAddress,
+		serverURL:               serverURL,
 		peerID:                  peerID,
 		relayClients:            make(map[string]*RelayTrack),
 		onDisconnectedListeners: make(map[string]map[*func()]struct{}),
@@ -65,7 +65,7 @@ func (m *Manager) Serve() error {
 		return fmt.Errorf("manager already serving")
 	}
 
-	m.relayClient = NewClient(m.ctx, m.srvAddress, m.peerID)
+	m.relayClient = NewClient(m.ctx, m.serverURL, m.peerID)
 	err := m.relayClient.Connect()
 	if err != nil {
 		log.Errorf("failed to connect to relay server: %s", err)
@@ -74,7 +74,7 @@ func (m *Manager) Serve() error {
 
 	m.reconnectGuard = NewGuard(m.ctx, m.relayClient)
 	m.relayClient.SetOnDisconnectListener(func() {
-		m.onServerDisconnected(m.srvAddress)
+		m.onServerDisconnected(m.serverURL)
 	})
 	m.startCleanupLoop()
 
@@ -116,17 +116,17 @@ func (m *Manager) OpenConn(serverAddress, peerKey string, onClosedListener func(
 	return netConn, err
 }
 
-// RelayAddress returns the address of the permanent relay server. It could change if the network connection is lost.
+// RelayInstanceAddress returns the address of the permanent relay server. It could change if the network connection is lost.
 // This address will be sent to the target peer to choose the common relay server for the communication.
-func (m *Manager) RelayAddress() (net.Addr, error) {
+func (m *Manager) RelayInstanceAddress() (string, error) {
 	if m.relayClient == nil {
-		return nil, errRelayClientNotConnected
+		return "", errRelayClientNotConnected
 	}
-	return m.relayClient.RelayRemoteAddress()
+	return m.relayClient.ServerInstanceURL()
 }
 
 func (m *Manager) HasRelayAddress() bool {
-	return m.srvAddress != ""
+	return m.serverURL != ""
 }
 
 func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
@@ -182,7 +182,7 @@ func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
 }
 
 func (m *Manager) onServerDisconnected(serverAddress string) {
-	if serverAddress == m.srvAddress {
+	if serverAddress == m.serverURL {
 		m.reconnectGuard.OnDisconnected()
 	}
 
@@ -190,11 +190,11 @@ func (m *Manager) onServerDisconnected(serverAddress string) {
 }
 
 func (m *Manager) isForeignServer(address string) (bool, error) {
-	rAddr, err := m.relayClient.RelayRemoteAddress()
+	rAddr, err := m.relayClient.ServerInstanceURL()
 	if err != nil {
 		return false, fmt.Errorf("relay client not connected")
 	}
-	return rAddr.String() != address, nil
+	return rAddr != address, nil
 }
 
 func (m *Manager) startCleanupLoop() {
