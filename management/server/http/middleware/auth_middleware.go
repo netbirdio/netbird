@@ -114,6 +114,7 @@ func (m *AuthMiddleware) checkJWTFromRequest(w http.ResponseWriter, r *http.Requ
 		return fmt.Errorf("Error extracting token: %w", err)
 	}
 
+	log.Errorf("TOKEN: %s", token)
 	validatedToken, err := m.validateAndParseToken(token)
 	if err != nil {
 		return err
