@@ -19,13 +19,8 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 		return errors.New("no interfaces available")
 	}
 
-	linkChan := make(chan netlink.LinkUpdate)
 	done := make(chan struct{})
 	defer close(done)
-
-	if err := netlink.LinkSubscribe(linkChan, done); err != nil {
-		return fmt.Errorf("subscribe to link updates: %v", err)
-	}
 
 	routeChan := make(chan netlink.RouteUpdate)
 	if err := netlink.RouteSubscribe(routeChan, done); err != nil {
@@ -37,25 +32,6 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 		select {
 		case <-ctx.Done():
 			return ErrStopped
-
-		// handle interface state changes
-		case update := <-linkChan:
-			if (nexthopv4.Intf == nil || update.Index != int32(nexthopv4.Intf.Index)) && (nexthopv6.Intf == nil || update.Index != int32(nexthopv6.Intf.Index)) {
-				continue
-			}
-
-			switch update.Header.Type {
-			case syscall.RTM_DELLINK:
-				log.Infof("Network monitor: monitored interface (%s) is gone", update.Link.Attrs().Name)
-				go callback()
-				return nil
-			case syscall.RTM_NEWLINK:
-				if (update.IfInfomsg.Flags&syscall.IFF_RUNNING) == 0 && update.Link.Attrs().OperState == netlink.OperDown {
-					log.Infof("Network monitor: monitored interface (%s) is down.", update.Link.Attrs().Name)
-					go callback()
-					return nil
-				}
-			}
 
 		// handle route changes
 		case route := <-routeChan:
