@@ -80,6 +80,7 @@ func main() {
 			log.Errorf("check PID file: %v", err)
 			return
 		}
+		client.setDefaultFonts()
 		systray.Run(client.onTrayReady, client.onTrayExit)
 	}
 }
@@ -875,4 +876,89 @@ func checkPIDFile() error {
 	}
 
 	return os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0o664) //nolint:gosec
+}
+
+func (s *serviceClient) setDefaultFonts() {
+	var (
+		defaultFontPath string
+	)
+
+	//TODO: Linux Multiple Language Support
+	switch runtime.GOOS {
+	case "darwin":
+		defaultFontPath = "/Library/Fonts/Arial Unicode.ttf"
+	case "windows":
+		fontPath := s.getWindowsFontFilePath()
+		defaultFontPath = fontPath
+	}
+
+	_, err := os.Stat(defaultFontPath)
+
+	if err == nil {
+		os.Setenv("FYNE_FONT", defaultFontPath)
+	}
+}
+
+func (s *serviceClient) getWindowsFontFilePath() (fontPath string) {
+	/*
+		https://learn.microsoft.com/en-us/windows/apps/design/globalizing/loc-international-fonts
+		https://learn.microsoft.com/en-us/typography/fonts/windows_11_font_list
+	*/
+
+	var (
+		fontFolder  string = "C:/Windows/Fonts"
+		fontMapping        = map[string]string{
+			"default":     "Segoeui.ttf",
+			"zh-CN":       "Msyh.ttc",
+			"am-ET":       "Ebrima.ttf",
+			"nirmala":     "Nirmala.ttf",
+			"chr-CHER-US": "Gadugi.ttf",
+			"zh-HK":       "Msjh.ttc",
+			"zh-TW":       "Msjh.ttc",
+			"ja-JP":       "Yugothm.ttc",
+			"km-KH":       "Leelawui.ttf",
+			"ko-KR":       "Malgun.ttf",
+			"th-TH":       "Leelawui.ttf",
+			"ti-ET":       "Ebrima.ttf",
+		}
+		nirMalaLang = []string{
+			"as-IN",
+			"bn-BD",
+			"bn-IN",
+			"gu-IN",
+			"hi-IN",
+			"kn-IN",
+			"kok-IN",
+			"ml-IN",
+			"mr-IN",
+			"ne-NP",
+			"or-IN",
+			"pa-IN",
+			"si-LK",
+			"ta-IN",
+			"te-IN",
+		}
+	)
+	cmd := exec.Command("powershell", "-Command", "(Get-Culture).Name")
+	output, err := cmd.Output()
+	if err != nil {
+		log.Errorf("Failed to get Windows default language setting: %v", err)
+		fontPath = path.Join(fontFolder, fontMapping["default"])
+		return
+	}
+	defaultLanguage := strings.TrimSpace(string(output))
+
+	for _, lang := range nirMalaLang {
+		if defaultLanguage == lang {
+			fontPath = path.Join(fontFolder, fontMapping["nirmala"])
+			return
+		}
+	}
+
+	if font, ok := fontMapping[defaultLanguage]; ok {
+		fontPath = path.Join(fontFolder, font)
+	} else {
+		fontPath = path.Join(fontFolder, fontMapping["default"])
+	}
+	return
 }
