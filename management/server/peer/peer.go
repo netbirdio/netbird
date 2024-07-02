@@ -18,38 +18,38 @@ type Peer struct {
 	// WireGuard public key
 	Key string `gorm:"index"`
 	// A setup key this peer was registered with
-	SetupKey string `diff:"-"`
+	SetupKey string `diff:"-" hash:"ignore"`
 	// IP address of the Peer
 	IP net.IP `gorm:"serializer:json"`
 	// Meta is a Peer system meta data
-	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_" diff:"-"`
+	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_" diff:"-" hash:"ignore"`
 	// Name is peer's name (machine name)
 	Name string
 	// DNSLabel is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's
 	// domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DNSLabel string
 	// Status peer's management connection status
-	Status *PeerStatus `gorm:"embedded;embeddedPrefix:peer_status_" diff:"-"`
+	Status *PeerStatus `gorm:"embedded;embeddedPrefix:peer_status_" diff:"-" hash:"ignore"`
 	// The user ID that registered the peer
-	UserID string `diff:"-"`
+	UserID string `diff:"-" hash:"ignore"`
 	// SSHKey is a public SSH key of the peer
 	SSHKey string
 	// SSHEnabled indicates whether SSH server is enabled on the peer
 	SSHEnabled bool
 	// LoginExpirationEnabled indicates whether peer's login expiration is enabled and once expired the peer has to re-login.
 	// Works with LastLogin
-	LoginExpirationEnabled bool `diff:"-"`
+	LoginExpirationEnabled bool `diff:"-" hash:"ignore"`
 	// LastLogin the time when peer performed last login operation
-	LastLogin time.Time `diff:"-"`
+	LastLogin time.Time `diff:"-" hash:"ignore"`
 	// CreatedAt records the time the peer was created
-	CreatedAt time.Time `diff:"-"`
+	CreatedAt time.Time `diff:"-" hash:"ignore"`
 	// Indicate ephemeral peer attribute
-	Ephemeral bool `diff:"-"`
+	Ephemeral bool `diff:"-" hash:"ignore"`
 	// Geo location based on connection IP
-	Location Location `gorm:"embedded;embeddedPrefix:location_" diff:"-"`
+	Location Location `gorm:"embedded;embeddedPrefix:location_" diff:"-" hash:"ignore"`
 
-	NetworkMap any `diff:"-"`
-	//NetworkMapHash uint64 `hash:"ignore"`
+	NetworkMap     any    `diff:"-" hash:"ignore"`
+	NetworkMapHash uint64 ` diff:"-" hash:"ignore"`
 }
 
 type PeerStatus struct { //nolint:revive

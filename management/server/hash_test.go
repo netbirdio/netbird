@@ -159,6 +159,15 @@ func BenchmarkTest_updateAccountPeersWithHash100(b *testing.B) {
 	}
 }
 
+func BenchmarkTest_updateAccountPeersWithDiff100(b *testing.B) {
+	account := initTestAccount(b, 100)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		log.Debug(i)
+		updateAccountPeersWithDiff(account)
+	}
+}
+
 // 1000 - 6717416375 ns/op
 // 500 -  1732888875 ns/op
 func BenchmarkTest_updateAccountPeers200(b *testing.B) {
@@ -177,6 +186,15 @@ func BenchmarkTest_updateAccountPeersWithHash200(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		log.Debug(i)
 		updateAccountPeersWithHash(account)
+	}
+}
+
+func BenchmarkTest_updateAccountPeersWithDiff200(b *testing.B) {
+	account := initTestAccount(b, 200)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		log.Debug(i)
+		updateAccountPeersWithDiff(account)
 	}
 }
 
@@ -199,6 +217,15 @@ func BenchmarkTest_updateAccountPeersWithHash500(b *testing.B) {
 	}
 }
 
+func BenchmarkTest_updateAccountPeersWithDiff500(b *testing.B) {
+	account := initTestAccount(b, 500)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		log.Debug(i)
+		updateAccountPeersWithDiff(account)
+	}
+}
+
 func BenchmarkTest_updateAccountPeers1000(b *testing.B) {
 	account := initTestAccount(b, 1000)
 	b.ResetTimer()
@@ -215,6 +242,15 @@ func BenchmarkTest_updateAccountPeersWithHash1000(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		log.Debug(i)
 		updateAccountPeersWithHash(account)
+	}
+}
+
+func BenchmarkTest_updateAccountPeersWithDiff1000(b *testing.B) {
+	account := initTestAccount(b, 1000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		log.Debug(i)
+		updateAccountPeersWithDiff(account)
 	}
 }
 
@@ -237,6 +273,15 @@ func BenchmarkTest_updateAccountPeersWithHash1500(b *testing.B) {
 	}
 }
 
+func BenchmarkTest_updateAccountPeersWithDiff1500(b *testing.B) {
+	account := initTestAccount(b, 1500)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		log.Debug(i)
+		updateAccountPeersWithDiff(account)
+	}
+}
+
 func BenchmarkTest_updateAccountPeers2000(b *testing.B) {
 	account := initTestAccount(b, 2000)
 	b.ResetTimer()
@@ -253,5 +298,14 @@ func BenchmarkTest_updateAccountPeersWithHash2000(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		log.Debug(i)
 		updateAccountPeersWithHash(account)
+	}
+}
+
+func BenchmarkTest_updateAccountPeersWithDiff2000(b *testing.B) {
+	account := initTestAccount(b, 2000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		log.Debug(i)
+		updateAccountPeersWithDiff(account)
 	}
 }
