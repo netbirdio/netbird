@@ -18,8 +18,9 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/ebpf"
 	ebpfMgr "github.com/netbirdio/netbird/client/internal/ebpf/manager"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
+
+const loopbackIPv4Addres = "127.0.0.1"
 
 // WGEBPFProxy definition for proxy with EBPF support
 type WGEBPFProxy struct {
@@ -72,10 +73,10 @@ func (p *WGEBPFProxy) listen() error {
 
 	addr := net.UDPAddr{
 		Port: wgPorxyPort,
-		IP:   net.ParseIP("127.0.0.1"),
+		IP:   net.ParseIP(loopbackIPv4Addres),
 	}
 
-	conn, err := nbnet.ListenUDP("udp", &addr)
+	conn, err := net.ListenUDP("udp", &addr)
 	if err != nil {
 		cErr := p.Free()
 		if cErr != nil {
@@ -101,7 +102,7 @@ func (p *WGEBPFProxy) AddTurnConn(turnConn net.Conn) (net.Addr, error) {
 	log.Infof("turn conn added to wg proxy store: %s, endpoint port: :%d", turnConn.RemoteAddr(), wgEndpointPort)
 
 	wgEndpoint := &net.UDPAddr{
-		IP:   net.ParseIP("127.0.0.1"),
+		IP:   net.ParseIP(loopbackIPv4Addres),
 		Port: int(wgEndpointPort),
 	}
 	return wgEndpoint, nil
@@ -249,27 +250,11 @@ func (p *WGEBPFProxy) prepareSenderRawSocket() (net.PacketConn, error) {
 		return nil, fmt.Errorf("binding to lo interface failed: %w", err)
 	}
 
-	// Set the fwmark on the socket.
-	err = nbnet.SetSocketOpt(fd)
-	if err != nil {
-		return nil, fmt.Errorf("setting fwmark failed: %w", err)
-	}
-
-	// Convert the file descriptor to a PacketConn.
-	file := os.NewFile(uintptr(fd), fmt.Sprintf("fd %d", fd))
-	if file == nil {
-		return nil, fmt.Errorf("converting fd to file failed")
-	}
-	packetConn, err := net.FilePacketConn(file)
-	if err != nil {
-		return nil, fmt.Errorf("converting file to packet conn failed: %w", err)
-	}
-
-	return packetConn, nil
+	return net.FilePacketConn(os.NewFile(uintptr(fd), fmt.Sprintf("fd %d", fd)))
 }
 
 func (p *WGEBPFProxy) sendPkg(data []byte, port uint16) error {
-	localhost := net.ParseIP("127.0.0.1")
+	localhost := net.ParseIP(loopbackIPv4Addres)
 
 	payload := gopacket.Payload(data)
 	ipH := &layers.IPv4{
