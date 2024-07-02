@@ -31,11 +31,11 @@ type MockAccountManager struct {
 	ListUsersFunc                       func(ctx context.Context, accountID string) ([]*server.User, error)
 	GetPeersFunc                        func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
 	MarkPeerConnectedFunc               func(ctx context.Context, peerKey string, connected bool, realIP net.IP) error
-	SyncAndMarkPeerFunc                 func(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, error)
+	SyncAndMarkPeerFunc                 func(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error)
 	DeletePeerFunc                      func(ctx context.Context, accountID, peerKey, userID string) error
 	GetNetworkMapFunc                   func(ctx context.Context, peerKey string) (*server.NetworkMap, error)
 	GetPeerNetworkFunc                  func(ctx context.Context, peerKey string) (*server.Network, error)
-	AddPeerFunc                         func(ctx context.Context, setupKey string, userId string, peer *nbpeer.Peer) (*nbpeer.Peer, *server.NetworkMap, error)
+	AddPeerFunc                         func(ctx context.Context, setupKey string, userId string, peer *nbpeer.Peer) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error)
 	GetGroupFunc                        func(ctx context.Context, accountID, groupID, userID string) (*group.Group, error)
 	GetAllGroupsFunc                    func(ctx context.Context, accountID, userID string) ([]*group.Group, error)
 	GetGroupByNameFunc                  func(ctx context.Context, accountID, groupName string) (*group.Group, error)
@@ -85,8 +85,8 @@ type MockAccountManager struct {
 	SaveDNSSettingsFunc                 func(ctx context.Context, accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
 	GetPeerFunc                         func(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettingsFunc           func(ctx context.Context, accountID, userID string, newSettings *server.Settings) (*server.Account, error)
-	LoginPeerFunc                       func(ctx context.Context, login server.PeerLogin) (*nbpeer.Peer, *server.NetworkMap, error)
-	SyncPeerFunc                        func(ctx context.Context, sync server.PeerSync, account *server.Account) (*nbpeer.Peer, *server.NetworkMap, error)
+	LoginPeerFunc                       func(ctx context.Context, login server.PeerLogin) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error)
+	SyncPeerFunc                        func(ctx context.Context, sync server.PeerSync, account *server.Account) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error)
 	InviteUserFunc                      func(ctx context.Context, accountID string, initiatorUserID string, targetUserEmail string) error
 	GetAllConnectedPeersFunc            func() (map[string]struct{}, error)
 	HasConnectedChannelFunc             func(peerID string) bool
