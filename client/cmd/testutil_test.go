@@ -87,7 +87,7 @@ func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Liste
 	if err != nil {
 		return nil, nil
 	}
-	iv, _ := integrations.NewIntegratedValidator(eventStore)
+	iv, _ := integrations.NewIntegratedValidator(context.Background(), eventStore)
 	accountManager, err := mgmt.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, iv)
 	if err != nil {
 		t.Fatal(err)
