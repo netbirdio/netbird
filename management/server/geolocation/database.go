@@ -28,8 +28,10 @@ func loadGeolocationDatabases(dataDir string) error {
 		exists, _ := fileExists(path.Join(dataDir, file))
 		if exists {
 			continue
+		}else{
+			log.Infof("geo location file %s not found , file will be downloaded", file)
 		}
-
+		
 		switch file {
 		case MMDBFileName:
 			extractFunc := func(src string, dst string) error {
