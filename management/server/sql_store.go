@@ -132,7 +132,7 @@ func (s *SqlStore) SaveAccount(ctx context.Context, account *Account) error {
 	start := time.Now()
 
 	// todo: remove this check after the issue is resolved
-	s.checkAccountDomainBeforeSave(account.Id, account.Domain)
+	s.checkAccountDomainBeforeSave(ctx, account.Id, account.Domain)
 
 	generateAccountSQLTypes(account)
 
@@ -208,18 +208,18 @@ func generateAccountSQLTypes(account *Account) {
 }
 
 // checkAccountDomainBeforeSave temporary method to troubleshoot an issue with domains getting blank
-func (s *SqlStore) checkAccountDomainBeforeSave(accountID, newDomain string) {
+func (s *SqlStore) checkAccountDomainBeforeSave(ctx context.Context, accountID, newDomain string) {
 	var acc Account
 	var domain string
 	result := s.db.Model(&acc).Select("domain").Where(idQueryCondition, accountID).First(&domain)
 	if result.Error != nil {
 		if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			log.Errorf("error when getting account %s from the store to check domain: %s", accountID, result.Error)
+			log.WithContext(ctx).Errorf("error when getting account %s from the store to check domain: %s", accountID, result.Error)
 		}
 		return
 	}
 	if domain != "" && newDomain == "" {
-		log.Warnf("saving an account with empty domain when there was a domain set. Previous domain %s, Account ID: %s, Trace: %s", domain, accountID, debug.Stack())
+		log.WithContext(ctx).Warnf("saving an account with empty domain when there was a domain set. Previous domain %s, Account ID: %s, Trace: %s", domain, accountID, debug.Stack())
 	}
 }
 

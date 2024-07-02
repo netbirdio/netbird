@@ -92,7 +92,7 @@ func getStoreEngineFromEnv() StoreEngine {
 // If no engine is specified, it attempts to retrieve it from the environment.
 // If still not specified, it defaults to using SQLite.
 // Additionally, it handles the migration from a JSON store file to SQLite if applicable.
-func getStoreEngine(dataDir string, kind StoreEngine) StoreEngine {
+func getStoreEngine(ctx context.Context, dataDir string, kind StoreEngine) StoreEngine {
 	if kind == "" {
 		kind = getStoreEngineFromEnv()
 		if kind == "" {
@@ -103,11 +103,11 @@ func getStoreEngine(dataDir string, kind StoreEngine) StoreEngine {
 			sqliteStoreFile := filepath.Join(dataDir, storeSqliteFileName)
 
 			if util.FileExists(jsonStoreFile) && !util.FileExists(sqliteStoreFile) {
-				log.Warnf("unsupported store engine specified, but found %s. Automatically migrating to SQLite.", jsonStoreFile)
+				log.WithContext(ctx).Warnf("unsupported store engine specified, but found %s. Automatically migrating to SQLite.", jsonStoreFile)
 
 				// Attempt to migrate from JSON store to SQLite
-				if err := MigrateFileStoreToSqlite(dataDir); err != nil {
-					log.Errorf("failed to migrate filestore to SQLite: %v", err)
+				if err := MigrateFileStoreToSqlite(ctx, dataDir); err != nil {
+					log.WithContext(ctx).Errorf("failed to migrate filestore to SQLite: %v", err)
 					kind = FileStoreEngine
 				}
 			}
@@ -119,7 +119,7 @@ func getStoreEngine(dataDir string, kind StoreEngine) StoreEngine {
 
 // NewStore creates a new store based on the provided engine type, data directory, and telemetry metrics
 func NewStore(ctx context.Context, kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
-	kind = getStoreEngine(dataDir, kind)
+	kind = getStoreEngine(ctx, dataDir, kind)
 
 	if err := checkFileStoreEngine(kind, dataDir); err != nil {
 		return nil, err

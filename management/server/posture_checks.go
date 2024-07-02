@@ -4,8 +4,6 @@ import (
 	"context"
 	"slices"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"

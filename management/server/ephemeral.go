@@ -169,10 +169,10 @@ func (e *EphemeralManager) cleanup(ctx context.Context) {
 	e.peersLock.Unlock()
 
 	for id, p := range deletePeers {
-		log.Debugf("delete ephemeral peer: %s", id)
+		log.WithContext(ctx).Debugf("delete ephemeral peer: %s", id)
 		err := e.accountManager.DeletePeer(ctx, p.account.Id, id, activity.SystemInitiator)
 		if err != nil {
-			log.Errorf("failed to delete ephemeral peer: %s", err)
+			log.WithContext(ctx).Errorf("failed to delete ephemeral peer: %s", err)
 		}
 	}
 }
