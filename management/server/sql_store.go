@@ -31,6 +31,7 @@ import (
 
 const (
 	storeSqliteFileName = "store.db"
+	idQueryCondition    = "id = ?"
 )
 
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
@@ -209,7 +210,7 @@ func generateAccountSQLTypes(account *Account) {
 func (s *SqlStore) checkAccountDomainBeforeSave(accountID, newDomain string) {
 	var acc Account
 	var domain string
-	result := s.db.Model(&acc).Select("domain").Where("id = ?", accountID).First(&domain)
+	result := s.db.Model(&acc).Select("domain").Where(idQueryCondition, accountID).First(&domain)
 	if result.Error != nil {
 		if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			log.Errorf("error when getting account %s from the store to check domain: %s", accountID, result.Error)
@@ -262,7 +263,7 @@ func (s *SqlStore) SaveInstallationID(ID string) error {
 func (s *SqlStore) GetInstallationID() string {
 	var installation installation
 
-	if result := s.db.First(&installation, "id = ?", s.installationPK); result.Error != nil {
+	if result := s.db.First(&installation, idQueryCondition, s.installationPK); result.Error != nil {
 		return ""
 	}
 
@@ -370,7 +371,7 @@ func (s *SqlStore) GetTokenIDByHashedToken(hashedToken string) (string, error) {
 
 func (s *SqlStore) GetUserByTokenID(tokenID string) (*User, error) {
 	var token PersonalAccessToken
-	result := s.db.First(&token, "id = ?", tokenID)
+	result := s.db.First(&token, idQueryCondition, tokenID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -384,7 +385,7 @@ func (s *SqlStore) GetUserByTokenID(tokenID string) (*User, error) {
 	}
 
 	var user User
-	result = s.db.Preload("PATsG").First(&user, "id = ?", token.UserID)
+	result = s.db.Preload("PATsG").First(&user, idQueryCondition, token.UserID)
 	if result.Error != nil {
 		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 	}
@@ -419,7 +420,7 @@ func (s *SqlStore) GetAccount(accountID string) (*Account, error) {
 	result := s.db.Model(&account).
 		Preload("UsersG.PATsG"). // have to be specifies as this is nester reference
 		Preload(clause.Associations).
-		First(&account, "id = ?", accountID)
+		First(&account, idQueryCondition, accountID)
 	if result.Error != nil {
 		log.Errorf("error when getting account %s from the store: %s", accountID, result.Error)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -483,7 +484,7 @@ func (s *SqlStore) GetAccount(accountID string) (*Account, error) {
 
 func (s *SqlStore) GetAccountByUser(userID string) (*Account, error) {
 	var user User
-	result := s.db.Select("account_id").First(&user, "id = ?", userID)
+	result := s.db.Select("account_id").First(&user, idQueryCondition, userID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -500,7 +501,7 @@ func (s *SqlStore) GetAccountByUser(userID string) (*Account, error) {
 
 func (s *SqlStore) GetAccountByPeerID(peerID string) (*Account, error) {
 	var peer nbpeer.Peer
-	result := s.db.Select("account_id").First(&peer, "id = ?", peerID)
+	result := s.db.Select("account_id").First(&peer, idQueryCondition, peerID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -553,7 +554,7 @@ func (s *SqlStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
 func (s *SqlStore) GetAccountIDByUserID(userID string) (string, error) {
 	var user User
 	var accountID string
-	result := s.db.Model(&user).Select("account_id").Where("id = ?", userID).First(&accountID)
+	result := s.db.Model(&user).Select("account_id").Where(idQueryCondition, userID).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -595,7 +596,7 @@ func (s *SqlStore) GetPeerByPeerPubKey(peerKey string) (*nbpeer.Peer, error) {
 
 func (s *SqlStore) GetAccountSettings(accountID string) (*Settings, error) {
 	var accountSettings AccountSettings
-	if err := s.db.Model(&Account{}).Where("id = ?", accountID).First(&accountSettings).Error; err != nil {
+	if err := s.db.Model(&Account{}).Where(idQueryCondition, accountID).First(&accountSettings).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "settings not found")
 		}
