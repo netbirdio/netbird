@@ -250,17 +250,7 @@ func (p *WGEBPFProxy) prepareSenderRawSocket() (net.PacketConn, error) {
 		return nil, fmt.Errorf("binding to lo interface failed: %w", err)
 	}
 
-	// Convert the file descriptor to a PacketConn.
-	file := os.NewFile(uintptr(fd), fmt.Sprintf("fd %d", fd))
-	if file == nil {
-		return nil, fmt.Errorf("converting fd to file failed")
-	}
-	packetConn, err := net.FilePacketConn(file)
-	if err != nil {
-		return nil, fmt.Errorf("converting file to packet conn failed: %w", err)
-	}
-
-	return packetConn, nil
+	return net.FilePacketConn(os.NewFile(uintptr(fd), fmt.Sprintf("fd %d", fd)))
 }
 
 func (p *WGEBPFProxy) sendPkg(data []byte, port uint16) error {
