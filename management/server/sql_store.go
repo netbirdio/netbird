@@ -218,7 +218,7 @@ func (s *SqlStore) checkAccountDomainBeforeSave(accountID, newDomain string) {
 		return
 	}
 	if domain != "" && newDomain == "" {
-		log.Warnf("saving an account with empty domain when there was a domain set. Previous domain %s, Account ID: %s", domain, accountID, debug.Stack())
+		log.Warnf("saving an account with empty domain when there was a domain set. Previous domain %s, Account ID: %s, Trace: %s", domain, accountID, debug.Stack())
 	}
 }
 
