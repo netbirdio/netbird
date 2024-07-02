@@ -1029,7 +1029,7 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func()
 
 		account, err := am.Store.GetAccount(accountID)
 		if err != nil {
-			log.Errorf("failed getting account %s expiring peers", account.Id)
+			log.Errorf("failed getting account %s expiring peers", accountID)
 			return account.GetNextPeerExpiration()
 		}
 
