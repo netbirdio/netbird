@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"runtime"
 
 	log "github.com/sirupsen/logrus"
 
@@ -35,7 +36,11 @@ func (p *WGUserSpaceProxy) AddTurnConn(turnConn net.Conn) (net.Addr, error) {
 	p.remoteConn = turnConn
 
 	var err error
-	p.localConn, err = nbnet.NewDialer().DialContext(p.ctx, "udp", fmt.Sprintf(":%d", p.localWGListenPort))
+	if runtime.GOOS == "ios" || runtime.GOOS == "android" {
+		p.localConn, err = nbnet.NewDialer().DialContext(p.ctx, "udp", fmt.Sprintf(":%d", p.localWGListenPort))
+	} else {
+		p.localConn, err = net.Dial("udp", fmt.Sprintf(":%d", p.localWGListenPort))
+	}
 	if err != nil {
 		log.Errorf("failed dialing to local Wireguard port %s", err)
 		return nil, err
