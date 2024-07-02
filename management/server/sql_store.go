@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -128,38 +129,10 @@ func (s *SqlStore) AcquireAccountReadLock(accountID string) (unlock func()) {
 func (s *SqlStore) SaveAccount(account *Account) error {
 	start := time.Now()
 
-	for _, key := range account.SetupKeys {
-		account.SetupKeysG = append(account.SetupKeysG, *key)
-	}
+	// todo: remove this check after the issue is resolved
+	s.checkAccountDomainBeforeSave(account.Id, account.Domain)
 
-	for id, peer := range account.Peers {
-		peer.ID = id
-		account.PeersG = append(account.PeersG, *peer)
-	}
-
-	for id, user := range account.Users {
-		user.Id = id
-		for id, pat := range user.PATs {
-			pat.ID = id
-			user.PATsG = append(user.PATsG, *pat)
-		}
-		account.UsersG = append(account.UsersG, *user)
-	}
-
-	for id, group := range account.Groups {
-		group.ID = id
-		account.GroupsG = append(account.GroupsG, *group)
-	}
-
-	for id, route := range account.Routes {
-		route.ID = id
-		account.RoutesG = append(account.RoutesG, *route)
-	}
-
-	for id, ns := range account.NameServerGroups {
-		ns.ID = id
-		account.NameServerGroupsG = append(account.NameServerGroupsG, *ns)
-	}
+	generateAccountSQLTypes(account)
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.Select(clause.Associations).Delete(account.Policies, "account_id = ?", account.Id)
@@ -194,6 +167,58 @@ func (s *SqlStore) SaveAccount(account *Account) error {
 	log.Debugf("took %d ms to persist an account to the store", took.Milliseconds())
 
 	return err
+}
+
+// generateAccountSQLTypes generates the GORM compatible types for the account
+func generateAccountSQLTypes(account *Account) {
+	for _, key := range account.SetupKeys {
+		account.SetupKeysG = append(account.SetupKeysG, *key)
+	}
+
+	for id, peer := range account.Peers {
+		peer.ID = id
+		account.PeersG = append(account.PeersG, *peer)
+	}
+
+	for id, user := range account.Users {
+		user.Id = id
+		for id, pat := range user.PATs {
+			pat.ID = id
+			user.PATsG = append(user.PATsG, *pat)
+		}
+		account.UsersG = append(account.UsersG, *user)
+	}
+
+	for id, group := range account.Groups {
+		group.ID = id
+		account.GroupsG = append(account.GroupsG, *group)
+	}
+
+	for id, route := range account.Routes {
+		route.ID = id
+		account.RoutesG = append(account.RoutesG, *route)
+	}
+
+	for id, ns := range account.NameServerGroups {
+		ns.ID = id
+		account.NameServerGroupsG = append(account.NameServerGroupsG, *ns)
+	}
+}
+
+// checkAccountDomainBeforeSave temporary method to troubleshoot an issue with domains getting blank
+func (s *SqlStore) checkAccountDomainBeforeSave(accountID, newDomain string) {
+	var acc Account
+	var domain string
+	result := s.db.Model(&acc).Select("domain").Where("id = ?", accountID).First(&domain)
+	if result.Error != nil {
+		if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			log.Errorf("error when getting account %s from the store to check domain: %s", accountID, result.Error)
+		}
+		return
+	}
+	if domain != "" && newDomain == "" {
+		log.Warnf("saving an account with empty domain when there was a domain set. Previous domain %s, Account ID: %s", domain, accountID, debug.Stack())
+	}
 }
 
 func (s *SqlStore) DeleteAccount(account *Account) error {
