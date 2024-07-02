@@ -333,12 +333,6 @@ github.com/netbirdio/go-netroute v0.0.0-20240611143515-f59b0e1d3944 h1:TDtJKmM6S
 github.com/netbirdio/go-netroute v0.0.0-20240611143515-f59b0e1d3944/go.mod h1:sHA6TRxjQ6RLbnI+3R4DZo2Eseg/iKiPRfNmcuNySVQ=
 github.com/netbirdio/ice/v3 v3.0.0-20240315174635-e72a50fcb64e h1:PURA50S8u4mF6RrkYYCAvvPCixhqqEiEy3Ej6avh04c=
 github.com/netbirdio/ice/v3 v3.0.0-20240315174635-e72a50fcb64e/go.mod h1:YMLU7qbKfVjmEv7EoZPIVEI+kNYxWCdPK3VS0BU+U4Q=
-github.com/netbirdio/management-integrations v0.0.0-20240619131216-f5a5611cdbd0 h1:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=
-github.com/netbirdio/management-integrations v0.0.0-20240619131216-f5a5611cdbd0/go.mod h1:nvKVrV5GFN/c3I1kP/KGZV9m1qnNS3CzngPfxejohJs=
-github.com/netbirdio/management-integrations v0.0.0-20240702195808-81edc0a6fc46 h1:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=
-github.com/netbirdio/management-integrations v0.0.0-20240702195808-81edc0a6fc46/go.mod h1:nvKVrV5GFN/c3I1kP/KGZV9m1qnNS3CzngPfxejohJs=
-github.com/netbirdio/management-integrations/integrations v0.0.0-20240619131216-f5a5611cdbd0 h1:rFQ9SLsyjTwRpS1bAEEp+e9FwNaPeq/ZNNSbluTOG0E=
-github.com/netbirdio/management-integrations/integrations v0.0.0-20240619131216-f5a5611cdbd0/go.mod h1:RJkJuWoQDyOu01RjFk5BRnqlB6u38FuaeiKrCJyXHCs=
 github.com/netbirdio/management-integrations/integrations v0.0.0-20240702195808-81edc0a6fc46 h1:YhgPE0PDlOqC/hrHR2L4mqfXVqrpYjVRrO8DIqjhQtk=
 github.com/netbirdio/management-integrations/integrations v0.0.0-20240702195808-81edc0a6fc46/go.mod h1:nykwWZnxb+sJz2Z//CEq45CMRWSHllH8pODKRB8eY7Y=
 github.com/netbirdio/service v0.0.0-20230215170314-b923b89432b0 h1:hirFRfx3grVA/9eEyjME5/z3nxdJlN9kfQpvWWPk32g=
