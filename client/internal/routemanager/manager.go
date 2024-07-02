@@ -306,7 +306,7 @@ func (m *DefaultManager) classifyRoutes(newRoutes []*route.Route) (map[route.ID]
 
 func (m *DefaultManager) clientRoutes(initialRoutes []*route.Route) []*route.Route {
 	_, crMap := m.classifyRoutes(initialRoutes)
-	rs := make([]*route.Route, len(crMap))
+	rs := make([]*route.Route, 0, len(crMap))
 	for _, routes := range crMap {
 		rs = append(rs, routes...)
 	}

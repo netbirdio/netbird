@@ -84,7 +84,6 @@ type MockAccountManager struct {
 	GetDNSSettingsFunc                  func(ctx context.Context, accountID, userID string) (*server.DNSSettings, error)
 	SaveDNSSettingsFunc                 func(ctx context.Context, accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
 	GetPeerFunc                         func(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
-	GetPeerAppliedPostureChecksFunc     func(ctx context.Context, peerKey string) ([]posture.Checks, error)
 	UpdateAccountSettingsFunc           func(ctx context.Context, accountID, userID string, newSettings *server.Settings) (*server.Account, error)
 	LoginPeerFunc                       func(ctx context.Context, login server.PeerLogin) (*nbpeer.Peer, *server.NetworkMap, error)
 	SyncPeerFunc                        func(ctx context.Context, sync server.PeerSync, account *server.Account) (*nbpeer.Peer, *server.NetworkMap, error)
@@ -104,11 +103,11 @@ type MockAccountManager struct {
 	GetAccountIDForPeerKeyFunc          func(ctx context.Context, peerKey string) (string, error)
 }
 
-func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, error) {
+func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error) {
 	if am.SyncAndMarkPeerFunc != nil {
 		return am.SyncAndMarkPeerFunc(ctx, peerPubKey, meta, realIP)
 	}
-	return nil, nil, status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
+	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
 }
 
 func (am *MockAccountManager) CancelPeerRoutines(_ context.Context, peer *nbpeer.Peer) error {
@@ -286,11 +285,11 @@ func (am *MockAccountManager) AddPeer(
 	setupKey string,
 	userId string,
 	peer *nbpeer.Peer,
-) (*nbpeer.Peer, *server.NetworkMap, error) {
+) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error) {
 	if am.AddPeerFunc != nil {
 		return am.AddPeerFunc(ctx, setupKey, userId, peer)
 	}
-	return nil, nil, status.Errorf(codes.Unimplemented, "method AddPeer is not implemented")
+	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method AddPeer is not implemented")
 }
 
 // GetGroupByName mock implementation of GetGroupByName from server.AccountManager interface
@@ -631,14 +630,6 @@ func (am *MockAccountManager) GetPeer(ctx context.Context, accountID, peerID, us
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeer is not implemented")
 }
 
-// GetPeerAppliedPostureChecks mocks GetPeerAppliedPostureChecks of the AccountManager interface
-func (am *MockAccountManager) GetPeerAppliedPostureChecks(ctx context.Context, peerKey string) ([]posture.Checks, error) {
-	if am.GetPeerAppliedPostureChecksFunc != nil {
-		return am.GetPeerAppliedPostureChecksFunc(ctx, peerKey)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetPeerAppliedPostureChecks is not implemented")
-}
-
 // UpdateAccountSettings mocks UpdateAccountSettings of the AccountManager interface
 func (am *MockAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *server.Settings) (*server.Account, error) {
 	if am.UpdateAccountSettingsFunc != nil {
@@ -648,19 +639,19 @@ func (am *MockAccountManager) UpdateAccountSettings(ctx context.Context, account
 }
 
 // LoginPeer mocks LoginPeer of the AccountManager interface
-func (am *MockAccountManager) LoginPeer(ctx context.Context, login server.PeerLogin) (*nbpeer.Peer, *server.NetworkMap, error) {
+func (am *MockAccountManager) LoginPeer(ctx context.Context, login server.PeerLogin) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error) {
 	if am.LoginPeerFunc != nil {
 		return am.LoginPeerFunc(ctx, login)
 	}
-	return nil, nil, status.Errorf(codes.Unimplemented, "method LoginPeer is not implemented")
+	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method LoginPeer is not implemented")
 }
 
 // SyncPeer mocks SyncPeer of the AccountManager interface
-func (am *MockAccountManager) SyncPeer(ctx context.Context, sync server.PeerSync, account *server.Account) (*nbpeer.Peer, *server.NetworkMap, error) {
+func (am *MockAccountManager) SyncPeer(ctx context.Context, sync server.PeerSync, account *server.Account) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error) {
 	if am.SyncPeerFunc != nil {
 		return am.SyncPeerFunc(ctx, sync, account)
 	}
-	return nil, nil, status.Errorf(codes.Unimplemented, "method SyncPeer is not implemented")
+	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method SyncPeer is not implemented")
 }
 
 // GetAllConnectedPeers mocks GetAllConnectedPeers of the AccountManager interface

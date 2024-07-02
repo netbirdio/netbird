@@ -178,34 +178,79 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: run script
+      - name: run script with Zitadel PostgreSQL
         run: NETBIRD_DOMAIN=use-ip bash -x infrastructure_files/getting-started-with-zitadel.sh
 
-      - name: test Caddy file gen
+      - name: test Caddy file gen postgres
         run: test -f Caddyfile
-      - name: test docker-compose file gen
+
+      - name: test docker-compose file gen postgres
         run: test -f docker-compose.yml
-      - name: test management.json file gen
+
+      - name: test management.json file gen postgres
         run: test -f management.json
-      - name: test turnserver.conf file gen
+
+      - name: test turnserver.conf file gen postgres
         run: | 
           set -x
           test -f turnserver.conf
           grep external-ip turnserver.conf
-      - name: test zitadel.env file gen
+
+      - name: test zitadel.env file gen postgres
         run: test -f zitadel.env
-      - name: test dashboard.env file gen
+
+      - name: test dashboard.env file gen postgres
         run: test -f dashboard.env
+
+      - name: test zdb.env file gen postgres
+        run: test -f zdb.env
+
+      - name: Postgres run cleanup
+        run: |
+          docker-compose down --volumes --rmi all
+          rm -rf docker-compose.yml Caddyfile zitadel.env dashboard.env machinekey/zitadel-admin-sa.token turnserver.conf management.json zdb.env
+
+      - name: run script with Zitadel CockroachDB
+        run: bash -x infrastructure_files/getting-started-with-zitadel.sh
+        env:
+          NETBIRD_DOMAIN: use-ip
+          ZITADEL_DATABASE: cockroach
+
+      - name: test Caddy file gen CockroachDB
+        run: test -f Caddyfile
+
+      - name: test docker-compose file gen CockroachDB
+        run: test -f docker-compose.yml
+
+      - name: test management.json file gen CockroachDB
+        run: test -f management.json
+
+      - name: test turnserver.conf file gen CockroachDB
+        run: | 
+          set -x
+          test -f turnserver.conf
+          grep external-ip turnserver.conf
+
+      - name: test zitadel.env file gen CockroachDB
+        run: test -f zitadel.env
+
+      - name: test dashboard.env file gen CockroachDB
+        run: test -f dashboard.env
+
   test-download-geolite2-script:
     runs-on: ubuntu-latest
     steps:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y unzip sqlite3
+
       - name: Checkout code
         uses: actions/checkout@v3
+
       - name: test script
         run: bash -x infrastructure_files/download-geolite2.sh
+
       - name: test mmdb file exists
         run: test -f GeoLite2-City.mmdb
+
       - name: test geonames file exists
         run: test -f geonames.db

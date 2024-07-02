@@ -560,6 +560,7 @@ func TestMigrate(t *testing.T) {
 	rt := &route{
 		Network:    prefix,
 		PeerGroups: []string{"group1", "group2"},
+		Route:      route2.Route{ID: "route1"},
 	}
 
 	err = store.db.Save(rt).Error
@@ -570,6 +571,26 @@ func TestMigrate(t *testing.T) {
 
 	err = migrate(context.Background(), store.db)
 	require.NoError(t, err, "Migration should not fail on migrated db")
+
+	err = store.db.Delete(rt).Where("id = ?", "route1").Error
+	require.NoError(t, err, "Failed to delete Gob data")
+
+	prefix = netip.MustParsePrefix("12.0.0.0/24")
+	nRT := &route2.Route{
+		Network: prefix,
+		ID:      "route2",
+		Peer:    "peer-id",
+	}
+
+	err = store.db.Save(nRT).Error
+	require.NoError(t, err, "Failed to insert json nil slice data")
+
+	err = migrate(store.db)
+	require.NoError(t, err, "Migration should not fail on json nil slice populated db")
+
+	err = migrate(store.db)
+	require.NoError(t, err, "Migration should not fail on migrated db")
+
 }
 
 func newSqliteStore(t *testing.T) *SqlStore {

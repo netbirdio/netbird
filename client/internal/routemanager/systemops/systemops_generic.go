@@ -154,7 +154,8 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIfac
 
 	// if next hop is the VPN address or the interface is the VPN interface, we should use the initial values
 	if exitNextHop.IP == vpnAddr || exitNextHop.Intf != nil && exitNextHop.Intf.Name == vpnIntf.Name() {
-		log.Debugf("Route for prefix %s is pointing to the VPN interface", prefix)
+		log.Debugf("Route for prefix %s is pointing to the VPN interface, using initial next hop %v", prefix, initialNextHop)
+
 		exitNextHop = initialNextHop
 	}
 
@@ -355,7 +356,7 @@ func GetNextHop(ip netip.Addr) (Nexthop, error) {
 			return Nexthop{}, fmt.Errorf("convert preferred source to address: %w", err)
 		}
 		return Nexthop{
-			IP:   addr.Unmap(),
+			IP:   addr,
 			Intf: intf,
 		}, nil
 	}
@@ -379,12 +380,12 @@ func ipToAddr(ip net.IP, intf *net.Interface) (netip.Addr, error) {
 	}
 
 	if intf != nil && (addr.IsLinkLocalMulticast() || addr.IsLinkLocalUnicast()) {
-		log.Tracef("Adding zone %s to address %s", intf.Name, addr)
+		zone := intf.Name
 		if runtime.GOOS == "windows" {
-			addr = addr.WithZone(strconv.Itoa(intf.Index))
-		} else {
-			addr = addr.WithZone(intf.Name)
+			zone = strconv.Itoa(intf.Index)
 		}
+		log.Tracef("Adding zone %s to address %s", zone, addr)
+		addr = addr.WithZone(zone)
 	}
 
 	return addr.Unmap(), nil

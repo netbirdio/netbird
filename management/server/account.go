@@ -385,9 +385,9 @@ func (a *Account) getRoutingPeerRoutes(ctx context.Context, peerID string) (enab
 func (a *Account) GetRoutesByPrefixOrDomains(prefix netip.Prefix, domains domain.List) []*route.Route {
 	var routes []*route.Route
 	for _, r := range a.Routes {
-		if r.IsDynamic() && r.Domains.PunycodeString() == domains.PunycodeString() {
-			routes = append(routes, r)
-		} else if r.Network.String() == prefix.String() {
+		dynamic := r.IsDynamic()
+		if dynamic && r.Domains.PunycodeString() == domains.PunycodeString() ||
+			!dynamic && r.Network.String() == prefix.String() {
 			routes = append(routes, r)
 		}
 	}
@@ -1033,7 +1033,7 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, acc
 
 		account, err := am.Store.GetAccount(ctx, accountID)
 		if err != nil {
-			log.WithContext(ctx).Errorf("failed getting account %s expiring peers", account.Id)
+			log.WithContext(ctx).Errorf("failed getting account %s expiring peers", accountID)
 			return account.GetNextPeerExpiration()
 		}
 
@@ -1860,13 +1860,13 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(ctx context.C
 	}
 }
 
-func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, error) {
+func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, peerPubKey)
 	if err != nil {
 		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
-			return nil, nil, status.Errorf(status.Unauthenticated, "peer not registered")
+			return nil, nil, nil, status.Errorf(status.Unauthenticated, "peer not registered")
 		}
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	unlock := am.Store.AcquireAccountReadLock(ctx, accountID)
@@ -1874,12 +1874,12 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey
 
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	peer, netMap, err := am.SyncPeer(ctx, PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, account)
+	peer, netMap, postureChecks, err := am.SyncPeer(ctx, PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, account)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	err = am.MarkPeerConnected(ctx, peerPubKey, true, realIP, account)
@@ -1887,7 +1887,7 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey
 		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
 
-	return peer, netMap, nil
+	return peer, netMap, postureChecks, nil
 }
 
 func (am *DefaultAccountManager) CancelPeerRoutines(ctx context.Context, peer *nbpeer.Peer) error {
@@ -1930,7 +1930,7 @@ func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey st
 		return err
 	}
 
-	_, _, err = am.SyncPeer(ctx, PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, UpdateAccountPeers: true}, account)
+	_, _, _, err = am.SyncPeer(ctx, PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, UpdateAccountPeers: true}, account)
 	if err != nil {
 		return mapError(ctx, err)
 	}

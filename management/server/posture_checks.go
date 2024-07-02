@@ -187,35 +187,13 @@ func (am *DefaultAccountManager) deletePostureChecks(account *Account, postureCh
 	return postureChecks, nil
 }
 
-// GetPeerAppliedPostureChecks returns posture checks that are applied to the peer.
-func (am *DefaultAccountManager) GetPeerAppliedPostureChecks(ctx context.Context, peerKey string) ([]posture.Checks, error) {
-	account, err := am.Store.GetAccountByPeerPubKey(ctx, peerKey)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed while getting peer %s: %v", peerKey, err)
-		return nil, err
-	}
-
-	peer, err := account.FindPeerByPubKey(peerKey)
-	if err != nil {
-		return nil, status.Errorf(status.NotFound, "peer is not registered")
-	}
-	if peer == nil {
-		return nil, nil
-	}
-
-	peerPostureChecks := am.collectPeerPostureChecks(account, peer)
-
-	postureChecksList := make([]posture.Checks, 0, len(peerPostureChecks))
-	for _, check := range peerPostureChecks {
-		postureChecksList = append(postureChecksList, check)
-	}
-
-	return postureChecksList, nil
-}
-
-// collectPeerPostureChecks collects the posture checks applied for a given peer.
-func (am *DefaultAccountManager) collectPeerPostureChecks(account *Account, peer *nbpeer.Peer) map[string]posture.Checks {
+// getPeerPostureChecks returns the posture checks applied for a given peer.
+func (am *DefaultAccountManager) getPeerPostureChecks(account *Account, peer *nbpeer.Peer) []*posture.Checks {
 	peerPostureChecks := make(map[string]posture.Checks)
+
+	if len(account.PostureChecks) == 0 {
+		return nil
+	}
 
 	for _, policy := range account.Policies {
 		if !policy.Enabled {
@@ -227,7 +205,13 @@ func (am *DefaultAccountManager) collectPeerPostureChecks(account *Account, peer
 		}
 	}
 
-	return peerPostureChecks
+	postureChecksList := make([]*posture.Checks, 0, len(peerPostureChecks))
+	for _, check := range peerPostureChecks {
+		checkCopy := check
+		postureChecksList = append(postureChecksList, &checkCopy)
+	}
+
+	return postureChecksList
 }
 
 // isPeerInPolicySourceGroups checks if a peer is present in any of the policy rule source groups.

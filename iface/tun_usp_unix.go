@@ -29,7 +29,7 @@ type tunUSPDevice struct {
 	configurer wgConfigurer
 }
 
-func newTunUSPDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net) wgTunDevice {
+func newTunUSPDevice(name string, address WGAddress, port int, key string, mtu int, transportNet transport.Net, filterFn bind.FilterFn) wgTunDevice {
 	log.Infof("using userspace bind mode")
 
 	checkUser()
@@ -40,7 +40,7 @@ func newTunUSPDevice(name string, address WGAddress, port int, key string, mtu i
 		port:    port,
 		key:     key,
 		mtu:     mtu,
-		iceBind: bind.NewICEBind(transportNet),
+		iceBind: bind.NewICEBind(transportNet, filterFn),
 	}
 }
 

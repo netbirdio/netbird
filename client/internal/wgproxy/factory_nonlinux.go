@@ -4,6 +4,6 @@ package wgproxy
 
 import "context"
 
-func NewFactory(ctx context.Context, wgPort int) *Factory {
+func NewFactory(ctx context.Context, _ bool, wgPort int) *Factory {
 	return &Factory{wgPort: wgPort}
 }

@@ -95,7 +95,7 @@ func (m *Manager) InsertRoutingRules(pair firewall.RouterPair) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.router.InsertRoutingRules(pair)
+	return m.router.AddRoutingRules(pair)
 }
 
 func (m *Manager) RemoveRoutingRules(pair firewall.RouterPair) error {
