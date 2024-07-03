@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -80,7 +81,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userId, false)
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userId, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -92,7 +93,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		return
 	}
 
-	peer1, _, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	peer1, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-1"},
 	})
@@ -106,7 +107,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	_, _, _, err = manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	_, _, _, err = manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
 	})
@@ -116,7 +117,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		return
 	}
 
-	networkMap, err := manager.GetNetworkMap(peer1.ID)
+	networkMap, err := manager.GetNetworkMap(context.Background(), peer1.ID)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -165,7 +166,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 		return
 	}
 
-	peer1, _, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	peer1, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-1"},
 	})
@@ -179,7 +180,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	peer2, _, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	peer2, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
 	})
@@ -188,13 +189,13 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 		return
 	}
 
-	policies, err := manager.ListPolicies(account.Id, userID)
+	policies, err := manager.ListPolicies(context.Background(), account.Id, userID)
 	if err != nil {
 		t.Errorf("expecting to get a list of rules, got failure %v", err)
 		return
 	}
 
-	err = manager.DeletePolicy(account.Id, policies[0].ID, userID)
+	err = manager.DeletePolicy(context.Background(), account.Id, policies[0].ID, userID)
 	if err != nil {
 		t.Errorf("expecting to delete 1 group, got failure %v", err)
 		return
@@ -213,12 +214,12 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	group1.Peers = append(group1.Peers, peer1.ID)
 	group2.Peers = append(group2.Peers, peer2.ID)
 
-	err = manager.SaveGroup(account.Id, userID, &group1)
+	err = manager.SaveGroup(context.Background(), account.Id, userID, &group1)
 	if err != nil {
 		t.Errorf("expecting group1 to be added, got failure %v", err)
 		return
 	}
-	err = manager.SaveGroup(account.Id, userID, &group2)
+	err = manager.SaveGroup(context.Background(), account.Id, userID, &group2)
 	if err != nil {
 		t.Errorf("expecting group2 to be added, got failure %v", err)
 		return
@@ -235,13 +236,13 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 			Action:        PolicyTrafficActionAccept,
 		},
 	}
-	err = manager.SavePolicy(account.Id, userID, &policy)
+	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return
 	}
 
-	networkMap1, err := manager.GetNetworkMap(peer1.ID)
+	networkMap1, err := manager.GetNetworkMap(context.Background(), peer1.ID)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -264,7 +265,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 		)
 	}
 
-	networkMap2, err := manager.GetNetworkMap(peer2.ID)
+	networkMap2, err := manager.GetNetworkMap(context.Background(), peer2.ID)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -283,13 +284,13 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	}
 
 	policy.Enabled = false
-	err = manager.SavePolicy(account.Id, userID, &policy)
+	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return
 	}
 
-	networkMap1, err = manager.GetNetworkMap(peer1.ID)
+	networkMap1, err = manager.GetNetworkMap(context.Background(), peer1.ID)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -304,7 +305,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 		return
 	}
 
-	networkMap2, err = manager.GetNetworkMap(peer2.ID)
+	networkMap2, err = manager.GetNetworkMap(context.Background(), peer2.ID)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -329,7 +330,7 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userId, false)
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userId, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -341,7 +342,7 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		return
 	}
 
-	peer1, _, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	peer1, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-1"},
 	})
@@ -355,7 +356,7 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	_, _, _, err = manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	_, _, _, err = manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
 	})
@@ -365,7 +366,7 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		return
 	}
 
-	network, err := manager.GetPeerNetwork(peer1.ID)
+	network, err := manager.GetPeerNetwork(context.Background(), peer1.ID)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -387,21 +388,21 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	accountID := "test_account"
 	adminUser := "account_creator"
 	someUser := "some_user"
-	account := newAccountWithId(accountID, adminUser, "")
+	account := newAccountWithId(context.Background(), accountID, adminUser, "")
 	account.Users[someUser] = &User{
 		Id:   someUser,
 		Role: UserRoleUser,
 	}
 	account.Settings.RegularUsersViewBlocked = false
 
-	err = manager.Store.SaveAccount(account)
+	err = manager.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 
 	// two peers one added by a regular user and one with a setup key
-	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, adminUser, false)
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, adminUser, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -413,7 +414,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 		return
 	}
 
-	peer1, _, _, err := manager.AddPeer("", someUser, &nbpeer.Peer{
+	peer1, _, _, err := manager.AddPeer(context.Background(), "", someUser, &nbpeer.Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
 	})
@@ -429,7 +430,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 
 	// the second peer added with a setup key
-	peer2, _, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	peer2, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
 	})
@@ -439,7 +440,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 
 	// the user can see its own peer
-	peer, err := manager.GetPeer(accountID, peer1.ID, someUser)
+	peer, err := manager.GetPeer(context.Background(), accountID, peer1.ID, someUser)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -447,7 +448,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	assert.NotNil(t, peer)
 
 	// the user can see peer2 because peer1 of the user has access to peer2 due to the All group and the default rule 0 all-to-all access
-	peer, err = manager.GetPeer(accountID, peer2.ID, someUser)
+	peer, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -456,7 +457,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 
 	// delete the all-to-all policy so that user's peer1 has no access to peer2
 	for _, policy := range account.Policies {
-		err = manager.DeletePolicy(accountID, policy.ID, adminUser)
+		err = manager.DeletePolicy(context.Background(), accountID, policy.ID, adminUser)
 		if err != nil {
 			t.Fatal(err)
 			return
@@ -464,18 +465,18 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 
 	// at this point the user can't see the details of peer2
-	peer, err = manager.GetPeer(accountID, peer2.ID, someUser) //nolint
+	peer, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser) //nolint
 	assert.Error(t, err)
 
 	// admin users can always access all the peers
-	peer, err = manager.GetPeer(accountID, peer1.ID, adminUser)
+	peer, err = manager.GetPeer(context.Background(), accountID, peer1.ID, adminUser)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 	assert.NotNil(t, peer)
 
-	peer, err = manager.GetPeer(accountID, peer2.ID, adminUser)
+	peer, err = manager.GetPeer(context.Background(), accountID, peer2.ID, adminUser)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -574,7 +575,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			accountID := "test_account"
 			adminUser := "account_creator"
 			someUser := "some_user"
-			account := newAccountWithId(accountID, adminUser, "")
+			account := newAccountWithId(context.Background(), accountID, adminUser, "")
 			account.Users[someUser] = &User{
 				Id:            someUser,
 				Role:          testCase.role,
@@ -583,7 +584,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			account.Policies = []*Policy{}
 			account.Settings.RegularUsersViewBlocked = testCase.limitedViewSettings
 
-			err = manager.Store.SaveAccount(account)
+			err = manager.Store.SaveAccount(context.Background(), account)
 			if err != nil {
 				t.Fatal(err)
 				return
@@ -601,7 +602,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 
-			_, _, _, err = manager.AddPeer("", someUser, &nbpeer.Peer{
+			_, _, _, err = manager.AddPeer(context.Background(), "", someUser, &nbpeer.Peer{
 				Key:  peerKey1.PublicKey().String(),
 				Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-1"},
 			})
@@ -610,7 +611,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 
-			_, _, _, err = manager.AddPeer("", adminUser, &nbpeer.Peer{
+			_, _, _, err = manager.AddPeer(context.Background(), "", adminUser, &nbpeer.Peer{
 				Key:  peerKey2.PublicKey().String(),
 				Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
 			})
@@ -619,7 +620,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 
-			peers, err := manager.GetPeers(accountID, someUser)
+			peers, err := manager.GetPeers(context.Background(), accountID, someUser)
 			if err != nil {
 				t.Fatal(err)
 				return

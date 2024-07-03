@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/base64"
@@ -46,7 +47,7 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	secret := "some_secret"
 	peersManager := NewPeersUpdateManager(nil)
 	peer := "some_peer"
-	updateChannel := peersManager.CreateChannel(peer)
+	updateChannel := peersManager.CreateChannel(context.Background(), peer)
 
 	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
 		CredentialsTTL: ttl,
@@ -54,7 +55,7 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 		Turns:          []*Host{TurnTestHost},
 	})
 
-	tested.SetupRefresh(peer)
+	tested.SetupRefresh(context.Background(), peer)
 
 	if _, ok := tested.cancelMap[peer]; !ok {
 		t.Errorf("expecting peer to be present in a cancel map, got not present")
@@ -102,7 +103,7 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 		Turns:          []*Host{TurnTestHost},
 	})
 
-	tested.SetupRefresh(peer)
+	tested.SetupRefresh(context.Background(), peer)
 	if _, ok := tested.cancelMap[peer]; !ok {
 		t.Errorf("expecting peer to be present in a cancel map, got not present")
 	}

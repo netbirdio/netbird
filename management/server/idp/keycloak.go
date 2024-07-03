@@ -1,6 +1,7 @@
 package idp
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -109,7 +110,7 @@ func (kc *KeycloakCredentials) jwtStillValid() bool {
 }
 
 // requestJWTToken performs request to get jwt token.
-func (kc *KeycloakCredentials) requestJWTToken() (*http.Response, error) {
+func (kc *KeycloakCredentials) requestJWTToken(ctx context.Context) (*http.Response, error) {
 	data := url.Values{}
 	data.Set("client_id", kc.clientConfig.ClientID)
 	data.Set("client_secret", kc.clientConfig.ClientSecret)
@@ -122,7 +123,7 @@ func (kc *KeycloakCredentials) requestJWTToken() (*http.Response, error) {
 	}
 	req.Header.Add("content-type", "application/x-www-form-urlencoded")
 
-	log.Debug("requesting new jwt token for keycloak idp manager")
+	log.WithContext(ctx).Debug("requesting new jwt token for keycloak idp manager")
 
 	resp, err := kc.httpClient.Do(req)
 	if err != nil {
@@ -174,7 +175,7 @@ func (kc *KeycloakCredentials) parseRequestJWTResponse(rawBody io.ReadCloser) (J
 }
 
 // Authenticate retrieves access token to use the keycloak Management API.
-func (kc *KeycloakCredentials) Authenticate() (JWTToken, error) {
+func (kc *KeycloakCredentials) Authenticate(ctx context.Context) (JWTToken, error) {
 	kc.mux.Lock()
 	defer kc.mux.Unlock()
 
@@ -188,7 +189,7 @@ func (kc *KeycloakCredentials) Authenticate() (JWTToken, error) {
 		return kc.jwtToken, nil
 	}
 
-	resp, err := kc.requestJWTToken()
+	resp, err := kc.requestJWTToken(ctx)
 	if err != nil {
 		return kc.jwtToken, err
 	}
@@ -205,18 +206,18 @@ func (kc *KeycloakCredentials) Authenticate() (JWTToken, error) {
 }
 
 // CreateUser creates a new user in keycloak Idp and sends an invite.
-func (km *KeycloakManager) CreateUser(_, _, _, _ string) (*UserData, error) {
+func (km *KeycloakManager) CreateUser(_ context.Context, _, _, _, _ string) (*UserData, error) {
 	return nil, fmt.Errorf("method CreateUser not implemented")
 }
 
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
-func (km *KeycloakManager) GetUserByEmail(email string) ([]*UserData, error) {
+func (km *KeycloakManager) GetUserByEmail(ctx context.Context, email string) ([]*UserData, error) {
 	q := url.Values{}
 	q.Add("email", email)
 	q.Add("exact", "true")
 
-	body, err := km.get("users", q)
+	body, err := km.get(ctx, "users", q)
 	if err != nil {
 		return nil, err
 	}
@@ -240,8 +241,8 @@ func (km *KeycloakManager) GetUserByEmail(email string) ([]*UserData, error) {
 }
 
 // GetUserDataByID requests user data from keycloak via ID.
-func (km *KeycloakManager) GetUserDataByID(userID string, _ AppMetadata) (*UserData, error) {
-	body, err := km.get("users/"+userID, nil)
+func (km *KeycloakManager) GetUserDataByID(ctx context.Context, userID string, _ AppMetadata) (*UserData, error) {
+	body, err := km.get(ctx, "users/"+userID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -260,8 +261,8 @@ func (km *KeycloakManager) GetUserDataByID(userID string, _ AppMetadata) (*UserD
 }
 
 // GetAccount returns all the users for a given account profile.
-func (km *KeycloakManager) GetAccount(accountID string) ([]*UserData, error) {
-	profiles, err := km.fetchAllUserProfiles()
+func (km *KeycloakManager) GetAccount(ctx context.Context, accountID string) ([]*UserData, error) {
+	profiles, err := km.fetchAllUserProfiles(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -283,8 +284,8 @@ func (km *KeycloakManager) GetAccount(accountID string) ([]*UserData, error) {
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
-func (km *KeycloakManager) GetAllAccounts() (map[string][]*UserData, error) {
-	profiles, err := km.fetchAllUserProfiles()
+func (km *KeycloakManager) GetAllAccounts(ctx context.Context) (map[string][]*UserData, error) {
+	profiles, err := km.fetchAllUserProfiles(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -303,19 +304,19 @@ func (km *KeycloakManager) GetAllAccounts() (map[string][]*UserData, error) {
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
-func (km *KeycloakManager) UpdateUserAppMetadata(_ string, _ AppMetadata) error {
+func (km *KeycloakManager) UpdateUserAppMetadata(_ context.Context, _ string, _ AppMetadata) error {
 	return nil
 }
 
 // InviteUserByID resend invitations to users who haven't activated,
 // their accounts prior to the expiration period.
-func (km *KeycloakManager) InviteUserByID(_ string) error {
+func (km *KeycloakManager) InviteUserByID(_ context.Context, _ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
 }
 
 // DeleteUser from Keycloak by user ID.
-func (km *KeycloakManager) DeleteUser(userID string) error {
-	jwtToken, err := km.credentials.Authenticate()
+func (km *KeycloakManager) DeleteUser(ctx context.Context, userID string) error {
+	jwtToken, err := km.credentials.Authenticate(ctx)
 	if err != nil {
 		return err
 	}
@@ -353,8 +354,8 @@ func (km *KeycloakManager) DeleteUser(userID string) error {
 	return nil
 }
 
-func (km *KeycloakManager) fetchAllUserProfiles() ([]keycloakProfile, error) {
-	totalUsers, err := km.totalUsersCount()
+func (km *KeycloakManager) fetchAllUserProfiles(ctx context.Context) ([]keycloakProfile, error) {
+	totalUsers, err := km.totalUsersCount(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -362,7 +363,7 @@ func (km *KeycloakManager) fetchAllUserProfiles() ([]keycloakProfile, error) {
 	q := url.Values{}
 	q.Add("max", fmt.Sprint(*totalUsers))
 
-	body, err := km.get("users", q)
+	body, err := km.get(ctx, "users", q)
 	if err != nil {
 		return nil, err
 	}
@@ -377,8 +378,8 @@ func (km *KeycloakManager) fetchAllUserProfiles() ([]keycloakProfile, error) {
 }
 
 // get perform Get requests.
-func (km *KeycloakManager) get(resource string, q url.Values) ([]byte, error) {
-	jwtToken, err := km.credentials.Authenticate()
+func (km *KeycloakManager) get(ctx context.Context, resource string, q url.Values) ([]byte, error) {
+	jwtToken, err := km.credentials.Authenticate(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -414,8 +415,8 @@ func (km *KeycloakManager) get(resource string, q url.Values) ([]byte, error) {
 
 // totalUsersCount returns the total count of all user created.
 // Used when fetching all registered accounts with pagination.
-func (km *KeycloakManager) totalUsersCount() (*int, error) {
-	body, err := km.get("users/count", nil)
+func (km *KeycloakManager) totalUsersCount(ctx context.Context) (*int, error) {
+	body, err := km.get(ctx, "users/count", nil)
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -35,7 +36,7 @@ func NewPeersUpdateManager(metrics telemetry.AppMetrics) *PeersUpdateManager {
 }
 
 // SendUpdate sends update message to the peer's channel
-func (p *PeersUpdateManager) SendUpdate(peerID string, update *UpdateMessage) {
+func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, update *UpdateMessage) {
 	start := time.Now()
 	var found, dropped bool
 
@@ -51,18 +52,18 @@ func (p *PeersUpdateManager) SendUpdate(peerID string, update *UpdateMessage) {
 		found = true
 		select {
 		case channel <- update:
-			log.Debugf("update was sent to channel for peer %s", peerID)
+			log.WithContext(ctx).Debugf("update was sent to channel for peer %s", peerID)
 		default:
 			dropped = true
-			log.Warnf("channel for peer %s is %d full", peerID, len(channel))
+			log.WithContext(ctx).Warnf("channel for peer %s is %d full", peerID, len(channel))
 		}
 	} else {
-		log.Debugf("peer %s has no channel", peerID)
+		log.WithContext(ctx).Debugf("peer %s has no channel", peerID)
 	}
 }
 
 // CreateChannel creates a go channel for a given peer used to deliver updates relevant to the peer.
-func (p *PeersUpdateManager) CreateChannel(peerID string) chan *UpdateMessage {
+func (p *PeersUpdateManager) CreateChannel(ctx context.Context, peerID string) chan *UpdateMessage {
 	start := time.Now()
 
 	closed := false
@@ -84,22 +85,22 @@ func (p *PeersUpdateManager) CreateChannel(peerID string) chan *UpdateMessage {
 	channel := make(chan *UpdateMessage, channelBufferSize)
 	p.peerChannels[peerID] = channel
 
-	log.Debugf("opened updates channel for a peer %s", peerID)
+	log.WithContext(ctx).Debugf("opened updates channel for a peer %s", peerID)
 
 	return channel
 }
 
-func (p *PeersUpdateManager) closeChannel(peerID string) {
+func (p *PeersUpdateManager) closeChannel(ctx context.Context, peerID string) {
 	if channel, ok := p.peerChannels[peerID]; ok {
 		delete(p.peerChannels, peerID)
 		close(channel)
 	}
 
-	log.Debugf("closed updates channel of a peer %s", peerID)
+	log.WithContext(ctx).Debugf("closed updates channel of a peer %s", peerID)
 }
 
 // CloseChannels closes updates channel for each given peer
-func (p *PeersUpdateManager) CloseChannels(peerIDs []string) {
+func (p *PeersUpdateManager) CloseChannels(ctx context.Context, peerIDs []string) {
 	start := time.Now()
 
 	p.channelsMux.Lock()
@@ -111,12 +112,12 @@ func (p *PeersUpdateManager) CloseChannels(peerIDs []string) {
 	}()
 
 	for _, id := range peerIDs {
-		p.closeChannel(id)
+		p.closeChannel(ctx, id)
 	}
 }
 
 // CloseChannel closes updates channel of a given peer
-func (p *PeersUpdateManager) CloseChannel(peerID string) {
+func (p *PeersUpdateManager) CloseChannel(ctx context.Context, peerID string) {
 	start := time.Now()
 
 	p.channelsMux.Lock()
@@ -127,7 +128,7 @@ func (p *PeersUpdateManager) CloseChannel(peerID string) {
 		}
 	}()
 
-	p.closeChannel(peerID)
+	p.closeChannel(ctx, peerID)
 }
 
 // GetAllConnectedPeers returns a copy of the connected peers map

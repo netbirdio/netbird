@@ -7,6 +7,18 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server/context"
+)
+
+type ExecutionContext string
+
+const (
+	ExecutionContextKey = "executionContext"
+
+	HTTPSource   ExecutionContext = "HTTP"
+	GRPCSource   ExecutionContext = "GRPC"
+	SystemSource ExecutionContext = "SYSTEM"
 )
 
 // ContextHook is a custom hook for add the source information for the entry
@@ -30,6 +42,27 @@ func (hook ContextHook) Levels() []logrus.Level {
 func (hook ContextHook) Fire(entry *logrus.Entry) error {
 	src := hook.parseSrc(entry.Caller.File)
 	entry.Data["source"] = fmt.Sprintf("%s:%v", src, entry.Caller.Line)
+
+	if entry.Context == nil {
+		return nil
+	}
+
+	source, ok := entry.Context.Value(ExecutionContextKey).(ExecutionContext)
+	if !ok {
+		return nil
+	}
+
+	entry.Data["context"] = source
+
+	switch source {
+	case HTTPSource:
+		addHTTPFields(entry)
+	case GRPCSource:
+		addGRPCFields(entry)
+	case SystemSource:
+		addSystemFields(entry)
+	}
+
 	return nil
 }
 
@@ -58,4 +91,43 @@ func (hook ContextHook) parseSrc(filePath string) string {
 	_, pkg := path.Split(path.Dir(filePath))
 	file := path.Base(filePath)
 	return fmt.Sprintf("%s/%s", pkg, file)
+}
+
+func addHTTPFields(entry *logrus.Entry) {
+	if ctxReqID, ok := entry.Context.Value(context.RequestIDKey).(string); ok {
+		entry.Data[context.RequestIDKey] = ctxReqID
+	}
+	if ctxAccountID, ok := entry.Context.Value(context.AccountIDKey).(string); ok {
+		entry.Data[context.AccountIDKey] = ctxAccountID
+	}
+	if ctxInitiatorID, ok := entry.Context.Value(context.UserIDKey).(string); ok {
+		entry.Data[context.UserIDKey] = ctxInitiatorID
+	}
+}
+
+func addGRPCFields(entry *logrus.Entry) {
+	if ctxReqID, ok := entry.Context.Value(context.RequestIDKey).(string); ok {
+		entry.Data[context.RequestIDKey] = ctxReqID
+	}
+	if ctxAccountID, ok := entry.Context.Value(context.AccountIDKey).(string); ok {
+		entry.Data[context.AccountIDKey] = ctxAccountID
+	}
+	if ctxDeviceID, ok := entry.Context.Value(context.PeerIDKey).(string); ok {
+		entry.Data[context.PeerIDKey] = ctxDeviceID
+	}
+}
+
+func addSystemFields(entry *logrus.Entry) {
+	if ctxReqID, ok := entry.Context.Value(context.RequestIDKey).(string); ok {
+		entry.Data[context.RequestIDKey] = ctxReqID
+	}
+	if ctxInitiatorID, ok := entry.Context.Value(context.UserIDKey).(string); ok {
+		entry.Data[context.UserIDKey] = ctxInitiatorID
+	}
+	if ctxAccountID, ok := entry.Context.Value(context.AccountIDKey).(string); ok {
+		entry.Data[context.AccountIDKey] = ctxAccountID
+	}
+	if ctxDeviceID, ok := entry.Context.Value(context.PeerIDKey).(string); ok {
+		entry.Data[context.PeerIDKey] = ctxDeviceID
+	}
 }

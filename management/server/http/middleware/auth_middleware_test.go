@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,15 +16,16 @@ import (
 )
 
 const (
-	audience    = "audience"
-	userIDClaim = "userIDClaim"
-	accountID   = "accountID"
-	domain      = "domain"
-	userID      = "userID"
-	tokenID     = "tokenID"
-	PAT         = "nbp_PAT"
-	JWT         = "JWT"
-	wrongToken  = "wrongToken"
+	audience       = "audience"
+	userIDClaim    = "userIDClaim"
+	accountID      = "accountID"
+	domain         = "domain"
+	domainCategory = "domainCategory"
+	userID         = "userID"
+	tokenID        = "tokenID"
+	PAT            = "nbp_PAT"
+	JWT            = "JWT"
+	wrongToken     = "wrongToken"
 )
 
 var testAccount = &server.Account{
@@ -47,14 +49,14 @@ var testAccount = &server.Account{
 	},
 }
 
-func mockGetAccountFromPAT(token string) (*server.Account, *server.User, *server.PersonalAccessToken, error) {
+func mockGetAccountFromPAT(_ context.Context, token string) (*server.Account, *server.User, *server.PersonalAccessToken, error) {
 	if token == PAT {
 		return testAccount, testAccount.Users[userID], testAccount.Users[userID].PATs[tokenID], nil
 	}
 	return nil, nil, nil, fmt.Errorf("PAT invalid")
 }
 
-func mockValidateAndParseToken(token string) (*jwt.Token, error) {
+func mockValidateAndParseToken(_ context.Context, token string) (*jwt.Token, error) {
 	if token == JWT {
 		return &jwt.Token{
 			Claims: jwt.MapClaims{
@@ -67,14 +69,14 @@ func mockValidateAndParseToken(token string) (*jwt.Token, error) {
 	return nil, fmt.Errorf("JWT invalid")
 }
 
-func mockMarkPATUsed(token string) error {
+func mockMarkPATUsed(_ context.Context, token string) error {
 	if token == tokenID {
 		return nil
 	}
 	return fmt.Errorf("Should never get reached")
 }
 
-func mockCheckUserAccessByJWTGroups(claims jwtclaims.AuthorizationClaims) error {
+func mockCheckUserAccessByJWTGroups(_ context.Context, claims jwtclaims.AuthorizationClaims) error {
 	if testAccount.Id != claims.AccountId {
 		return fmt.Errorf("account with id %s does not exist", claims.AccountId)
 	}
