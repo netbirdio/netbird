@@ -1,6 +1,7 @@
 package posture
 
 import (
+	"context"
 	"errors"
 	"net/netip"
 	"regexp"
@@ -31,7 +32,7 @@ var (
 // Check represents an interface for performing a check on a peer.
 type Check interface {
 	Name() string
-	Check(peer nbpeer.Peer) (bool, error)
+	Check(ctx context.Context, peer nbpeer.Peer) (bool, error)
 	Validate() error
 }
 

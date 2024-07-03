@@ -2,6 +2,7 @@ package jwtclaims
 
 import (
 	"bytes"
+	"context"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
@@ -69,8 +70,8 @@ type JWTValidator struct {
 }
 
 // NewJWTValidator constructor
-func NewJWTValidator(issuer string, audienceList []string, keysLocation string, idpSignkeyRefreshEnabled bool) (*JWTValidator, error) {
-	keys, err := getPemKeys(keysLocation)
+func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, keysLocation string, idpSignkeyRefreshEnabled bool) (*JWTValidator, error) {
+	keys, err := getPemKeys(ctx, keysLocation)
 	if err != nil {
 		return nil, err
 	}
@@ -102,19 +103,19 @@ func NewJWTValidator(issuer string, audienceList []string, keysLocation string, 
 					lock.Lock()
 					defer lock.Unlock()
 
-					refreshedKeys, err := getPemKeys(keysLocation)
+					refreshedKeys, err := getPemKeys(ctx, keysLocation)
 					if err != nil {
-						log.Debugf("cannot get JSONWebKey: %v, falling back to old keys", err)
+						log.WithContext(ctx).Debugf("cannot get JSONWebKey: %v, falling back to old keys", err)
 						refreshedKeys = keys
 					}
 
-					log.Debugf("keys refreshed, new UTC expiration time: %s", refreshedKeys.expiresInTime.UTC())
+					log.WithContext(ctx).Debugf("keys refreshed, new UTC expiration time: %s", refreshedKeys.expiresInTime.UTC())
 
 					keys = refreshedKeys
 				}
 			}
 
-			cert, err := getPemCert(token, keys)
+			cert, err := getPemCert(ctx, token, keys)
 			if err != nil {
 				return nil, err
 			}
@@ -136,19 +137,19 @@ func NewJWTValidator(issuer string, audienceList []string, keysLocation string, 
 }
 
 // ValidateAndParse validates the token and returns the parsed token
-func (m *JWTValidator) ValidateAndParse(token string) (*jwt.Token, error) {
+func (m *JWTValidator) ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error) {
 	// If the token is empty...
 	if token == "" {
 		// Check if it was required
 		if m.options.CredentialsOptional {
-			log.Debugf("no credentials found (CredentialsOptional=true)")
+			log.WithContext(ctx).Debugf("no credentials found (CredentialsOptional=true)")
 			// No error, just no token (and that is ok given that CredentialsOptional is true)
 			return nil, nil //nolint:nilnil
 		}
 
 		// If we get here, the required token is missing
 		errorMsg := "required authorization token not found"
-		log.Debugf("  Error: No credentials found (CredentialsOptional=false)")
+		log.WithContext(ctx).Debugf("  Error: No credentials found (CredentialsOptional=false)")
 		return nil, fmt.Errorf(errorMsg)
 	}
 
@@ -157,7 +158,7 @@ func (m *JWTValidator) ValidateAndParse(token string) (*jwt.Token, error) {
 
 	// Check if there was an error in parsing...
 	if err != nil {
-		log.Errorf("error parsing token: %v", err)
+		log.WithContext(ctx).Errorf("error parsing token: %v", err)
 		return nil, fmt.Errorf("Error parsing token: %w", err)
 	}
 
@@ -165,14 +166,14 @@ func (m *JWTValidator) ValidateAndParse(token string) (*jwt.Token, error) {
 		errorMsg := fmt.Sprintf("Expected %s signing method but token specified %s",
 			m.options.SigningMethod.Alg(),
 			parsedToken.Header["alg"])
-		log.Debugf("error validating token algorithm: %s", errorMsg)
+		log.WithContext(ctx).Debugf("error validating token algorithm: %s", errorMsg)
 		return nil, fmt.Errorf("error validating token algorithm: %s", errorMsg)
 	}
 
 	// Check if the parsed token is valid...
 	if !parsedToken.Valid {
 		errorMsg := "token is invalid"
-		log.Debugf(errorMsg)
+		log.WithContext(ctx).Debugf(errorMsg)
 		return nil, errors.New(errorMsg)
 	}
 
@@ -184,7 +185,7 @@ func (jwks *Jwks) stillValid() bool {
 	return !jwks.expiresInTime.IsZero() && time.Now().Add(5*time.Second).Before(jwks.expiresInTime)
 }
 
-func getPemKeys(keysLocation string) (*Jwks, error) {
+func getPemKeys(ctx context.Context, keysLocation string) (*Jwks, error) {
 	resp, err := http.Get(keysLocation)
 	if err != nil {
 		return nil, err
@@ -198,13 +199,13 @@ func getPemKeys(keysLocation string) (*Jwks, error) {
 	}
 
 	cacheControlHeader := resp.Header.Get("Cache-Control")
-	expiresIn := getMaxAgeFromCacheHeader(cacheControlHeader)
+	expiresIn := getMaxAgeFromCacheHeader(ctx, cacheControlHeader)
 	jwks.expiresInTime = time.Now().Add(time.Duration(expiresIn) * time.Second)
 
 	return jwks, err
 }
 
-func getPemCert(token *jwt.Token, jwks *Jwks) (string, error) {
+func getPemCert(ctx context.Context, token *jwt.Token, jwks *Jwks) (string, error) {
 	// todo as we load the jkws when the server is starting, we should build a JKS map with the pem cert at the boot time
 	cert := ""
 
@@ -217,7 +218,7 @@ func getPemCert(token *jwt.Token, jwks *Jwks) (string, error) {
 			cert = "-----BEGIN CERTIFICATE-----\n" + jwks.Keys[k].X5c[0] + "\n-----END CERTIFICATE-----"
 			return cert, nil
 		}
-		log.Debugf("generating validation pem from JWK")
+		log.WithContext(ctx).Debugf("generating validation pem from JWK")
 		return generatePemFromJWK(jwks.Keys[k])
 	}
 
@@ -284,7 +285,7 @@ func convertExponentStringToInt(stringExponent string) (int, error) {
 }
 
 // getMaxAgeFromCacheHeader extracts max-age directive from the Cache-Control header
-func getMaxAgeFromCacheHeader(cacheControl string) int {
+func getMaxAgeFromCacheHeader(ctx context.Context, cacheControl string) int {
 	// Split into individual directives
 	directives := strings.Split(cacheControl, ",")
 
@@ -295,7 +296,7 @@ func getMaxAgeFromCacheHeader(cacheControl string) int {
 			maxAgeStr := strings.TrimPrefix(directive, "max-age=")
 			maxAge, err := strconv.Atoi(maxAgeStr)
 			if err != nil {
-				log.Debugf("error parsing max-age: %v", err)
+				log.WithContext(ctx).Debugf("error parsing max-age: %v", err)
 				return 0
 			}
 

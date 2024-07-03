@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -13,17 +14,17 @@ import (
 func TestNewSQLiteStore(t *testing.T) {
 	dataDir := t.TempDir()
 	key, _ := GenerateKey()
-	store, err := NewSQLiteStore(dataDir, key)
+	store, err := NewSQLiteStore(context.Background(), dataDir, key)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
-	defer store.Close() //nolint
+	defer store.Close(context.Background()) //nolint
 
 	accountID := "account_1"
 
 	for i := 0; i < 10; i++ {
-		_, err = store.Save(&activity.Event{
+		_, err = store.Save(context.Background(), &activity.Event{
 			Timestamp:   time.Now().UTC(),
 			Activity:    activity.PeerAddedByUser,
 			InitiatorID: "user_" + fmt.Sprint(i),
@@ -36,7 +37,7 @@ func TestNewSQLiteStore(t *testing.T) {
 		}
 	}
 
-	result, err := store.Get(accountID, 0, 10, false)
+	result, err := store.Get(context.Background(), accountID, 0, 10, false)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -45,7 +46,7 @@ func TestNewSQLiteStore(t *testing.T) {
 	assert.Len(t, result, 10)
 	assert.True(t, result[0].Timestamp.Before(result[len(result)-1].Timestamp))
 
-	result, err = store.Get(accountID, 0, 5, true)
+	result, err = store.Get(context.Background(), accountID, 0, 5, true)
 	if err != nil {
 		t.Fatal(err)
 		return

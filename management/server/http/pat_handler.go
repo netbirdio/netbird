@@ -34,22 +34,22 @@ func NewPATsHandler(accountManager server.AccountManager, authCfg AuthCfg) *PATH
 // GetAllTokens is HTTP GET handler that returns a list of all personal access tokens for the given user
 func (h *PATHandler) GetAllTokens(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	userID := vars["userId"]
 	if len(userID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user ID"), w)
 		return
 	}
 
-	pats, err := h.accountManager.GetAllPATs(account.Id, user.Id, userID)
+	pats, err := h.accountManager.GetAllPATs(r.Context(), account.Id, user.Id, userID)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -58,53 +58,53 @@ func (h *PATHandler) GetAllTokens(w http.ResponseWriter, r *http.Request) {
 		patResponse = append(patResponse, toPATResponse(pat))
 	}
 
-	util.WriteJSONObject(w, patResponse)
+	util.WriteJSONObject(r.Context(), w, patResponse)
 }
 
 // GetToken is HTTP GET handler that returns a personal access token for the given user
 func (h *PATHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	targetUserID := vars["userId"]
 	if len(targetUserID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user ID"), w)
 		return
 	}
 
 	tokenID := vars["tokenId"]
 	if len(tokenID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid token ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid token ID"), w)
 		return
 	}
 
-	pat, err := h.accountManager.GetPAT(account.Id, user.Id, targetUserID, tokenID)
+	pat, err := h.accountManager.GetPAT(r.Context(), account.Id, user.Id, targetUserID, tokenID)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(w, toPATResponse(pat))
+	util.WriteJSONObject(r.Context(), w, toPATResponse(pat))
 }
 
 // CreateToken is HTTP POST handler that creates a personal access token for the given user
 func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	targetUserID := vars["userId"]
 	if len(targetUserID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user ID"), w)
 		return
 	}
 
@@ -115,44 +115,44 @@ func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pat, err := h.accountManager.CreatePAT(account.Id, user.Id, targetUserID, req.Name, req.ExpiresIn)
+	pat, err := h.accountManager.CreatePAT(r.Context(), account.Id, user.Id, targetUserID, req.Name, req.ExpiresIn)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(w, toPATGeneratedResponse(pat))
+	util.WriteJSONObject(r.Context(), w, toPATGeneratedResponse(pat))
 }
 
 // DeleteToken is HTTP DELETE handler that deletes a personal access token for the given user
 func (h *PATHandler) DeleteToken(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	targetUserID := vars["userId"]
 	if len(targetUserID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid user ID"), w)
 		return
 	}
 
 	tokenID := vars["tokenId"]
 	if len(tokenID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid token ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid token ID"), w)
 		return
 	}
 
-	err = h.accountManager.DeletePAT(account.Id, user.Id, targetUserID, tokenID)
+	err = h.accountManager.DeletePAT(r.Context(), account.Id, user.Id, targetUserID, tokenID)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, emptyObject{})
 }
 
 func toPATResponse(pat *server.PersonalAccessToken) *api.PersonalAccessToken {

@@ -2,6 +2,7 @@ package geolocation
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -50,10 +51,10 @@ type SqliteStore struct {
 	sha256sum []byte
 }
 
-func NewSqliteStore(dataDir string) (*SqliteStore, error) {
+func NewSqliteStore(ctx context.Context, dataDir string) (*SqliteStore, error) {
 	file := filepath.Join(dataDir, GeoSqliteDBFile)
 
-	db, err := connectDB(file)
+	db, err := connectDB(ctx, file)
 	if err != nil {
 		return nil, err
 	}
@@ -115,13 +116,13 @@ func (s *SqliteStore) GetCitiesByCountry(countryISOCode string) ([]City, error) 
 }
 
 // reload attempts to reload the SqliteStore's database if the database file has changed.
-func (s *SqliteStore) reload() error {
+func (s *SqliteStore) reload(ctx context.Context) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
 	newSha256sum1, err := calculateFileSHA256(s.filePath)
 	if err != nil {
-		log.Errorf("failed to calculate sha256 sum for '%s': %s", s.filePath, err)
+		log.WithContext(ctx).Errorf("failed to calculate sha256 sum for '%s': %s", s.filePath, err)
 	}
 
 	if !bytes.Equal(s.sha256sum, newSha256sum1) {
@@ -136,11 +137,11 @@ func (s *SqliteStore) reload() error {
 			return fmt.Errorf("sha256 sum changed during reloading of '%s'", s.filePath)
 		}
 
-		log.Infof("Reloading '%s'", s.filePath)
+		log.WithContext(ctx).Infof("Reloading '%s'", s.filePath)
 		_ = s.close()
 		s.closed = true
 
-		newDb, err := connectDB(s.filePath)
+		newDb, err := connectDB(ctx, s.filePath)
 		if err != nil {
 			return err
 		}
@@ -148,9 +149,9 @@ func (s *SqliteStore) reload() error {
 		s.closed = false
 		s.db = newDb
 
-		log.Infof("Successfully reloaded '%s'", s.filePath)
+		log.WithContext(ctx).Infof("Successfully reloaded '%s'", s.filePath)
 	} else {
-		log.Tracef("No changes in '%s', no need to reload", s.filePath)
+		log.WithContext(ctx).Tracef("No changes in '%s', no need to reload", s.filePath)
 	}
 
 	return nil
@@ -168,10 +169,10 @@ func (s *SqliteStore) close() error {
 }
 
 // connectDB connects to an SQLite database and prepares it by setting up an in-memory database.
-func connectDB(filePath string) (*gorm.DB, error) {
+func connectDB(ctx context.Context, filePath string) (*gorm.DB, error) {
 	start := time.Now()
 	defer func() {
-		log.Debugf("took %v to setup geoname db", time.Since(start))
+		log.WithContext(ctx).Debugf("took %v to setup geoname db", time.Since(start))
 	}()
 
 	_, err := fileExists(filePath)

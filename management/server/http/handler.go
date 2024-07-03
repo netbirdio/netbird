@@ -9,6 +9,7 @@ import (
 	"github.com/rs/cors"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
@@ -56,6 +57,11 @@ func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationMa
 	)
 
 	corsMiddleware := cors.AllowAll()
+
+	claimsExtractor = jwtclaims.NewClaimsExtractor(
+		jwtclaims.WithAudience(authCfg.Audience),
+		jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
+	)
 
 	acMiddleware := middleware.NewAccessControl(
 		authCfg.Audience,
