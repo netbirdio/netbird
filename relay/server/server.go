@@ -83,3 +83,7 @@ func (r *Server) Close() error {
 	err := errors.Join(wErr, uErr)
 	return err
 }
+
+func (r *Server) InstanceURL() string {
+	return r.relay.instaceURL
+}

@@ -107,3 +107,7 @@ func (r *Relay) handShake(conn net.Conn) ([]byte, error) {
 	}
 	return peerID, nil
 }
+
+func (r *Relay) InstanceURL() string {
+	return r.instaceURL
+}
