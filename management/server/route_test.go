@@ -433,9 +433,9 @@ func TestCreateRoute(t *testing.T) {
 			if testCase.createInitRoute {
 				groupAll, errInit := account.GetGroupAll()
 				require.NoError(t, errInit)
-				_, errInit = am.CreateRoute(context.Background(), account.Id, existingNetwork, 1, nil, "", []string{routeGroup3, routeGroup4}, "", existingRouteID, false, 1000, []string{groupAll.ID},[]string{}, true, userID, false)
+				_, errInit = am.CreateRoute(context.Background(), account.Id, existingNetwork, 1, nil, "", []string{routeGroup3, routeGroup4}, "", existingRouteID, false, 1000, []string{groupAll.ID}, []string{}, true, userID, false)
 				require.NoError(t, errInit)
-				_, errInit = am.CreateRoute(context.Background(), account.Id, netip.Prefix{}, 3, existingDomains, "", []string{routeGroup3, routeGroup4}, "", existingRouteID, false, 1000, []string{groupAll.ID},[]string{groupAll.ID}, true, userID, false)
+				_, errInit = am.CreateRoute(context.Background(), account.Id, netip.Prefix{}, 3, existingDomains, "", []string{routeGroup3, routeGroup4}, "", existingRouteID, false, 1000, []string{groupAll.ID}, []string{groupAll.ID}, true, userID, false)
 				require.NoError(t, errInit)
 			}
 
@@ -1073,7 +1073,7 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
 
-	newRoute, err := am.CreateRoute(context.Background(), account.Id, baseRoute.Network, baseRoute.NetworkType, baseRoute.Domains, baseRoute.Peer, baseRoute.PeerGroups, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, baseRoute.AccessControlGroups,baseRoute.Enabled, userID, baseRoute.KeepRoute)
+	newRoute, err := am.CreateRoute(context.Background(), account.Id, baseRoute.Network, baseRoute.NetworkType, baseRoute.Domains, baseRoute.Peer, baseRoute.PeerGroups, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, baseRoute.AccessControlGroups, baseRoute.Enabled, userID, baseRoute.KeepRoute)
 	require.NoError(t, err)
 	require.Equal(t, newRoute.Enabled, true)
 
@@ -1165,7 +1165,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
 
-	createdRoute, err := am.CreateRoute(context.Background(), account.Id, baseRoute.Network, baseRoute.NetworkType, baseRoute.Domains, peer1ID, []string{}, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, baseRoute.AccessControlGroups,false, userID, baseRoute.KeepRoute)
+	createdRoute, err := am.CreateRoute(context.Background(), account.Id, baseRoute.Network, baseRoute.NetworkType, baseRoute.Domains, peer1ID, []string{}, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, baseRoute.AccessControlGroups, false, userID, baseRoute.KeepRoute)
 	require.NoError(t, err)
 
 	noDisabledRoutes, err := am.GetNetworkMap(context.Background(), peer1ID)
@@ -1697,7 +1697,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 	})
 
 	t.Run("check peer routes firewall rules", func(t *testing.T) {
-		routesFirewallRules := account.getPeerRoutesFirewallRules("peerA", validatedPeers)
+		routesFirewallRules := account.getPeerRoutesFirewallRules(context.Background(), "peerA", validatedPeers)
 		assert.Len(t, routesFirewallRules, 6)
 
 		expectedRoutesFirewallRules := []*RouteFirewallRule{
@@ -1759,12 +1759,12 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 		assert.ElementsMatch(t, routesFirewallRules, expectedRoutesFirewallRules)
 
 		// peerD is also the routing peer for route1, should contain same routes firewall rules as peerA
-		routesFirewallRules = account.getPeerRoutesFirewallRules("peerD", validatedPeers)
+		routesFirewallRules = account.getPeerRoutesFirewallRules(context.Background(), "peerD", validatedPeers)
 		assert.Len(t, routesFirewallRules, 6)
 		assert.ElementsMatch(t, routesFirewallRules, expectedRoutesFirewallRules)
 
 		// peerE is a single routing peer for route 2 and route 3
-		routesFirewallRules = account.getPeerRoutesFirewallRules("peerE", validatedPeers)
+		routesFirewallRules = account.getPeerRoutesFirewallRules(context.Background(), "peerE", validatedPeers)
 		assert.Len(t, routesFirewallRules, 3)
 
 		expectedRoutesFirewallRules = []*RouteFirewallRule{
@@ -1798,7 +1798,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 		assert.ElementsMatch(t, routesFirewallRules, expectedRoutesFirewallRules)
 
 		// peerC is part of route1 distribution groups but should not receive the routes firewall rules
-		routesFirewallRules = account.getPeerRoutesFirewallRules("peerC", validatedPeers)
+		routesFirewallRules = account.getPeerRoutesFirewallRules(context.Background(), "peerC", validatedPeers)
 		assert.Len(t, routesFirewallRules, 0)
 	})
 

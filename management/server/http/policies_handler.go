@@ -176,7 +176,7 @@ func (h *Policies) savePolicy(
 		}
 
 		if (rule.Ports != nil && len(*rule.Ports) != 0) && (rule.PortRanges != nil && len(*rule.PortRanges) != 0) {
-			util.WriteError(status.Errorf(status.InvalidArgument, "specify either individual ports or port ranges, not both"), w)
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "specify either individual ports or port ranges, not both"), w)
 			return
 		}
 
@@ -193,7 +193,7 @@ func (h *Policies) savePolicy(
 		if rule.PortRanges != nil && len(*rule.PortRanges) != 0 {
 			for _, portRange := range *rule.PortRanges {
 				if portRange.Start < 1 || portRange.End > 65535 {
-					util.WriteError(status.Errorf(status.InvalidArgument, "valid port value is in 1..65535 range"), w)
+					util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "valid port value is in 1..65535 range"), w)
 					return
 				}
 				pr.PortRanges = append(pr.PortRanges, server.RulePortRange{
@@ -206,7 +206,7 @@ func (h *Policies) savePolicy(
 		// validate policy object
 		switch pr.Protocol {
 		case server.PolicyRuleProtocolALL, server.PolicyRuleProtocolICMP:
-			if len(pr.Ports) == 0 || len(pr.PortRanges) != 0{
+			if len(pr.Ports) == 0 || len(pr.PortRanges) != 0 {
 				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol ports is not allowed"), w)
 				return
 			}
@@ -215,7 +215,7 @@ func (h *Policies) savePolicy(
 				return
 			}
 		case server.PolicyRuleProtocolTCP, server.PolicyRuleProtocolUDP:
-			if !pr.Bidirectional && (len(pr.Ports) == 0 || len(pr.PortRanges) != 0){
+			if !pr.Bidirectional && (len(pr.Ports) == 0 || len(pr.PortRanges) != 0) {
 				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol type flow can be only bi-directional"), w)
 				return
 			}

@@ -428,7 +428,7 @@ func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain strin
 	}
 
 	routesUpdate := a.getRoutesToSync(ctx, peerID, peersToConnect)
-	routesFirewallRules := a.getPeerRoutesFirewallRules(peerID, validatedPeersMap)
+	routesFirewallRules := a.getPeerRoutesFirewallRules(ctx, peerID, validatedPeersMap)
 
 	dnsManagementStatus := a.getPeerDNSManagementStatus(peerID)
 	dnsUpdate := nbdns.Config{

@@ -414,10 +414,10 @@ func getPlaceholderIP() netip.Prefix {
 }
 
 // getPeerRoutesFirewallRules gets the routes firewall rules associated with a routing peer ID for the account.
-func (a *Account) getPeerRoutesFirewallRules(peerID string, validatedPeersMap map[string]struct{}) []*RouteFirewallRule {
+func (a *Account) getPeerRoutesFirewallRules(ctx context.Context, peerID string, validatedPeersMap map[string]struct{}) []*RouteFirewallRule {
 	routesFirewallRules := make([]*RouteFirewallRule, 0, len(a.Routes))
 
-	enabledRoutes, _ := a.getRoutingPeerRoutes(peerID)
+	enabledRoutes, _ := a.getRoutingPeerRoutes(ctx, peerID)
 	for _, route := range enabledRoutes {
 		// If no access control groups are specified, accept all incoming traffic.
 		if len(route.AccessControlGroups) == 0 {
@@ -444,8 +444,8 @@ func (a *Account) getPeerRoutesFirewallRules(peerID string, validatedPeersMap ma
 					continue
 				}
 
-				distributionGroupPeers, _ := getAllPeersFromGroups(a, route.Groups, peerID, nil, validatedPeersMap)
-				rules := generateRouteFirewallRules(route, rule, distributionGroupPeers, firewallRuleDirectionIN)
+				distributionGroupPeers, _ := getAllPeersFromGroups(ctx, a, route.Groups, peerID, nil, validatedPeersMap)
+				rules := generateRouteFirewallRules(ctx, route, rule, distributionGroupPeers, firewallRuleDirectionIN)
 				routesFirewallRules = append(routesFirewallRules, rules...)
 			}
 		}
@@ -481,7 +481,7 @@ func getAllRoutePoliciesFromGroups(account *Account, accessControlGroups []strin
 }
 
 // generateRouteFirewallRules generates a list of firewall rules for a given route.
-func generateRouteFirewallRules(route *route.Route, rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) []*RouteFirewallRule {
+func generateRouteFirewallRules(ctx context.Context, route *route.Route, rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) []*RouteFirewallRule {
 	rulesExists := make(map[string]struct{})
 	rules := make([]*RouteFirewallRule, 0)
 
@@ -505,7 +505,7 @@ func generateRouteFirewallRules(route *route.Route, rule *PolicyRule, groupPeers
 			rules = append(rules, generateRulesWithPortRanges(baseRule, rule, rulesExists)...)
 			continue
 		}
-		rules = append(rules, generateRulesWithPorts(baseRule, rule, rulesExists)...)
+		rules = append(rules, generateRulesWithPorts(ctx, baseRule, rule, rulesExists)...)
 	}
 
 	return rules
@@ -545,7 +545,7 @@ func generateRulesWithPortRanges(baseRule RouteFirewallRule, rule *PolicyRule, r
 }
 
 // generateRulesWithPorts generates rules when specific ports are provided.
-func generateRulesWithPorts(baseRule RouteFirewallRule, rule *PolicyRule, rulesExists map[string]struct{}) []*RouteFirewallRule {
+func generateRulesWithPorts(ctx context.Context, baseRule RouteFirewallRule, rule *PolicyRule, rulesExists map[string]struct{}) []*RouteFirewallRule {
 	rules := make([]*RouteFirewallRule, 0)
 	ruleIDBase := generateRuleIDBase(rule, baseRule)
 
@@ -559,7 +559,7 @@ func generateRulesWithPorts(baseRule RouteFirewallRule, rule *PolicyRule, rulesE
 		pr := baseRule
 		p, err := strconv.ParseUint(port, 10, 16)
 		if err != nil {
-			log.Errorf("failed to parse port %s for rule: %s", port, rule.ID)
+			log.WithContext(ctx).Errorf("failed to parse port %s for rule: %s", port, rule.ID)
 			continue
 		}
 
