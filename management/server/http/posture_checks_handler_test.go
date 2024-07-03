@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -33,14 +34,14 @@ func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksH
 
 	return &PostureChecksHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetPostureChecksFunc: func(accountID, postureChecksID, userID string) (*posture.Checks, error) {
+			GetPostureChecksFunc: func(_ context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error) {
 				p, ok := testPostureChecks[postureChecksID]
 				if !ok {
 					return nil, status.Errorf(status.NotFound, "posture checks not found")
 				}
 				return p, nil
 			},
-			SavePostureChecksFunc: func(accountID, userID string, postureChecks *posture.Checks) error {
+			SavePostureChecksFunc: func(_ context.Context, accountID, userID string, postureChecks *posture.Checks) error {
 				postureChecks.ID = "postureCheck"
 				testPostureChecks[postureChecks.ID] = postureChecks
 
@@ -50,7 +51,7 @@ func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksH
 
 				return nil
 			},
-			DeletePostureChecksFunc: func(accountID, postureChecksID, userID string) error {
+			DeletePostureChecksFunc: func(_ context.Context, accountID, postureChecksID, userID string) error {
 				_, ok := testPostureChecks[postureChecksID]
 				if !ok {
 					return status.Errorf(status.NotFound, "posture checks not found")
@@ -59,14 +60,14 @@ func initPostureChecksTestData(postureChecks ...*posture.Checks) *PostureChecksH
 
 				return nil
 			},
-			ListPostureChecksFunc: func(accountID, userID string) ([]*posture.Checks, error) {
+			ListPostureChecksFunc: func(_ context.Context, accountID, userID string) ([]*posture.Checks, error) {
 				accountPostureChecks := make([]*posture.Checks, len(testPostureChecks))
 				for _, p := range testPostureChecks {
 					accountPostureChecks = append(accountPostureChecks, p)
 				}
 				return accountPostureChecks, nil
 			},
-			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				user := server.NewAdminUser("test_user")
 				return &server.Account{
 					Id: claims.AccountId,

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -11,10 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/util"
 
 	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -24,41 +26,41 @@ import (
 )
 
 type Store interface {
-	GetAllAccounts() []*Account
-	GetAccount(accountID string) (*Account, error)
-	DeleteAccount(account *Account) error
-	GetAccountByUser(userID string) (*Account, error)
-	GetAccountByPeerPubKey(peerKey string) (*Account, error)
-	GetAccountIDByPeerPubKey(peerKey string) (string, error)
+	GetAllAccounts(ctx context.Context) []*Account
+	GetAccount(ctx context.Context, accountID string) (*Account, error)
+	DeleteAccount(ctx context.Context, account *Account) error
+	GetAccountByUser(ctx context.Context, userID string) (*Account, error)
+	GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*Account, error)
+	GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountIDByUserID(peerKey string) (string, error)
-	GetAccountIDBySetupKey(peerKey string) (string, error)
-	GetAccountByPeerID(peerID string) (*Account, error)
-	GetAccountBySetupKey(setupKey string) (*Account, error) // todo use key hash later
-	GetAccountByPrivateDomain(domain string) (*Account, error)
-	GetTokenIDByHashedToken(secret string) (string, error)
-	GetUserByTokenID(tokenID string) (*User, error)
+	GetAccountIDBySetupKey(ctx context.Context, peerKey string) (string, error)
+	GetAccountByPeerID(ctx context.Context, peerID string) (*Account, error)
+	GetAccountBySetupKey(ctx context.Context, setupKey string) (*Account, error) // todo use key hash later
+	GetAccountByPrivateDomain(ctx context.Context, domain string) (*Account, error)
+	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
+	GetUserByTokenID(ctx context.Context, tokenID string) (*User, error)
 	GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
-	SaveAccount(account *Account) error
+	SaveAccount(ctx context.Context, account *Account) error
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
 	DeleteTokenID2UserIDIndex(tokenID string) error
 	GetInstallationID() string
-	SaveInstallationID(ID string) error
+	SaveInstallationID(ctx context.Context, ID string) error
 	// AcquireAccountWriteLock should attempt to acquire account lock for write purposes and return a function that releases the lock
-	AcquireAccountWriteLock(accountID string) func()
+	AcquireAccountWriteLock(ctx context.Context, accountID string) func()
 	// AcquireAccountReadLock should attempt to acquire account lock for read purposes and return a function that releases the lock
-	AcquireAccountReadLock(accountID string) func()
+	AcquireAccountReadLock(ctx context.Context, accountID string) func()
 	// AcquireGlobalLock should attempt to acquire a global lock and return a function that releases the lock
-	AcquireGlobalLock() func()
+	AcquireGlobalLock(ctx context.Context) func()
 	SavePeerStatus(accountID, peerID string, status nbpeer.PeerStatus) error
 	SavePeerLocation(accountID string, peer *nbpeer.Peer) error
 	SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error
 	// Close should close the store persisting all unsaved data.
-	Close() error
+	Close(ctx context.Context) error
 	// GetStoreEngine should return StoreEngine of the current store implementation.
 	// This is also a method of metrics.DataSource interface.
 	GetStoreEngine() StoreEngine
-	GetPeerByPeerPubKey(peerKey string) (*nbpeer.Peer, error)
-	GetAccountSettings(accountID string) (*Settings, error)
+	GetPeerByPeerPubKey(ctx context.Context, peerKey string) (*nbpeer.Peer, error)
+	GetAccountSettings(ctx context.Context, accountID string) (*Settings, error)
 }
 
 type StoreEngine string
@@ -86,20 +88,38 @@ func getStoreEngineFromEnv() StoreEngine {
 	return SqliteStoreEngine
 }
 
-// getStoreEngine determines the store engine to use
-func getStoreEngine(kind StoreEngine) StoreEngine {
+// getStoreEngine determines the store engine to use.
+// If no engine is specified, it attempts to retrieve it from the environment.
+// If still not specified, it defaults to using SQLite.
+// Additionally, it handles the migration from a JSON store file to SQLite if applicable.
+func getStoreEngine(ctx context.Context, dataDir string, kind StoreEngine) StoreEngine {
 	if kind == "" {
 		kind = getStoreEngineFromEnv()
 		if kind == "" {
 			kind = SqliteStoreEngine
+
+			// Migrate if it is the first run with a JSON file existing and no SQLite file present
+			jsonStoreFile := filepath.Join(dataDir, storeFileName)
+			sqliteStoreFile := filepath.Join(dataDir, storeSqliteFileName)
+
+			if util.FileExists(jsonStoreFile) && !util.FileExists(sqliteStoreFile) {
+				log.WithContext(ctx).Warnf("unsupported store engine specified, but found %s. Automatically migrating to SQLite.", jsonStoreFile)
+
+				// Attempt to migrate from JSON store to SQLite
+				if err := MigrateFileStoreToSqlite(ctx, dataDir); err != nil {
+					log.WithContext(ctx).Errorf("failed to migrate filestore to SQLite: %v", err)
+					kind = FileStoreEngine
+				}
+			}
 		}
 	}
+
 	return kind
 }
 
 // NewStore creates a new store based on the provided engine type, data directory, and telemetry metrics
-func NewStore(kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
-	kind = getStoreEngine(kind)
+func NewStore(ctx context.Context, kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
+	kind = getStoreEngine(ctx, dataDir, kind)
 
 	if err := checkFileStoreEngine(kind, dataDir); err != nil {
 		return nil, err
@@ -107,13 +127,13 @@ func NewStore(kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (S
 
 	switch kind {
 	case SqliteStoreEngine:
-		log.Info("using SQLite store engine")
-		return NewSqliteStore(dataDir, metrics)
+		log.WithContext(ctx).Info("using SQLite store engine")
+		return NewSqliteStore(ctx, dataDir, metrics)
 	case PostgresStoreEngine:
-		log.Info("using Postgres store engine")
-		return newPostgresStore(metrics)
+		log.WithContext(ctx).Info("using Postgres store engine")
+		return newPostgresStore(ctx, metrics)
 	default:
-		return handleUnsupportedStoreEngine(kind, dataDir, metrics)
+		return nil, fmt.Errorf("unsupported kind of store: %s", kind)
 	}
 }
 
@@ -128,28 +148,9 @@ func checkFileStoreEngine(kind StoreEngine, dataDir string) error {
 	return nil
 }
 
-// handleUnsupportedStoreEngine handles cases where the store engine is unsupported
-func handleUnsupportedStoreEngine(kind StoreEngine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
-	jsonStoreFile := filepath.Join(dataDir, storeFileName)
-	sqliteStoreFile := filepath.Join(dataDir, storeSqliteFileName)
-
-	if util.FileExists(jsonStoreFile) && !util.FileExists(sqliteStoreFile) {
-		log.Warnf("unsupported store engine, but found %s. Automatically migrating to SQLite.", jsonStoreFile)
-
-		if err := MigrateFileStoreToSqlite(dataDir); err != nil {
-			return nil, fmt.Errorf("failed to migrate data to SQLite store: %w", err)
-		}
-
-		log.Info("using SQLite store engine")
-		return NewSqliteStore(dataDir, metrics)
-	}
-
-	return nil, fmt.Errorf("unsupported kind of store: %s", kind)
-}
-
 // migrate migrates the SQLite database to the latest schema
-func migrate(db *gorm.DB) error {
-	migrations := getMigrations()
+func migrate(ctx context.Context, db *gorm.DB) error {
+	migrations := getMigrations(ctx)
 
 	for _, m := range migrations {
 		if err := m(db); err != nil {
@@ -160,29 +161,29 @@ func migrate(db *gorm.DB) error {
 	return nil
 }
 
-func getMigrations() []migrationFunc {
+func getMigrations(ctx context.Context) []migrationFunc {
 	return []migrationFunc{
 		func(db *gorm.DB) error {
-			return migration.MigrateFieldFromGobToJSON[Account, net.IPNet](db, "network_net")
+			return migration.MigrateFieldFromGobToJSON[Account, net.IPNet](ctx, db, "network_net")
 		},
 		func(db *gorm.DB) error {
-			return migration.MigrateFieldFromGobToJSON[route.Route, netip.Prefix](db, "network")
+			return migration.MigrateFieldFromGobToJSON[route.Route, netip.Prefix](ctx, db, "network")
 		},
 		func(db *gorm.DB) error {
-			return migration.MigrateFieldFromGobToJSON[route.Route, []string](db, "peer_groups")
+			return migration.MigrateFieldFromGobToJSON[route.Route, []string](ctx, db, "peer_groups")
 		},
 		func(db *gorm.DB) error {
-			return migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](db, "location_connection_ip", "")
+			return migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](ctx, db, "location_connection_ip", "")
 		},
 		func(db *gorm.DB) error {
-			return migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](db, "ip", "idx_peers_account_id_ip")
+			return migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](ctx, db, "ip", "idx_peers_account_id_ip")
 		},
 	}
 }
 
 // NewTestStoreFromJson is only used in tests
-func NewTestStoreFromJson(dataDir string) (Store, func(), error) {
-	fstore, err := NewFileStore(dataDir, nil)
+func NewTestStoreFromJson(ctx context.Context, dataDir string) (Store, func(), error) {
+	fstore, err := NewFileStore(ctx, dataDir, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -209,23 +210,23 @@ func NewTestStoreFromJson(dataDir string) (Store, func(), error) {
 			return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
 		}
 
-		store, err = NewPostgresqlStoreFromFileStore(fstore, dsn, nil)
+		store, err = NewPostgresqlStoreFromFileStore(ctx, fstore, dsn, nil)
 		if err != nil {
 			return nil, nil, err
 		}
 	} else {
-		store, err = NewSqliteStoreFromFileStore(fstore, dataDir, nil)
+		store, err = NewSqliteStoreFromFileStore(ctx, fstore, dataDir, nil)
 		if err != nil {
 			return nil, nil, err
 		}
-		cleanUp = func() { store.Close() }
+		cleanUp = func() { store.Close(ctx) }
 	}
 
 	return store, cleanUp, nil
 }
 
 // MigrateFileStoreToSqlite migrates the file store to the SQLite store.
-func MigrateFileStoreToSqlite(dataDir string) error {
+func MigrateFileStoreToSqlite(ctx context.Context, dataDir string) error {
 	fileStorePath := path.Join(dataDir, storeFileName)
 	if _, err := os.Stat(fileStorePath); errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("%s doesn't exist, couldn't continue the operation", fileStorePath)
@@ -236,21 +237,21 @@ func MigrateFileStoreToSqlite(dataDir string) error {
 		return fmt.Errorf("%s already exists, couldn't continue the operation", sqlStorePath)
 	}
 
-	fstore, err := NewFileStore(dataDir, nil)
+	fstore, err := NewFileStore(ctx, dataDir, nil)
 	if err != nil {
 		return fmt.Errorf("failed creating file store: %s: %v", dataDir, err)
 	}
 
-	fsStoreAccounts := len(fstore.GetAllAccounts())
-	log.Infof("%d account will be migrated from file store %s to sqlite store %s",
+	fsStoreAccounts := len(fstore.GetAllAccounts(ctx))
+	log.WithContext(ctx).Infof("%d account will be migrated from file store %s to sqlite store %s",
 		fsStoreAccounts, fileStorePath, sqlStorePath)
 
-	store, err := NewSqliteStoreFromFileStore(fstore, dataDir, nil)
+	store, err := NewSqliteStoreFromFileStore(ctx, fstore, dataDir, nil)
 	if err != nil {
 		return fmt.Errorf("failed creating file store: %s: %v", dataDir, err)
 	}
 
-	sqliteStoreAccounts := len(store.GetAllAccounts())
+	sqliteStoreAccounts := len(store.GetAllAccounts(ctx))
 	if fsStoreAccounts != sqliteStoreAccounts {
 		return fmt.Errorf("failed to migrate accounts from file to sqlite. Expected accounts: %d, got: %d",
 			fsStoreAccounts, sqliteStoreAccounts)

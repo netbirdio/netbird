@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,13 +33,13 @@ var TestPeers = map[string]*nbpeer.Peer{
 func initGroupTestData(user *server.User, _ ...*nbgroup.Group) *GroupsHandler {
 	return &GroupsHandler{
 		accountManager: &mock_server.MockAccountManager{
-			SaveGroupFunc: func(accountID, userID string, group *nbgroup.Group) error {
+			SaveGroupFunc: func(_ context.Context, accountID, userID string, group *nbgroup.Group) error {
 				if !strings.HasPrefix(group.ID, "id-") {
 					group.ID = "id-was-set"
 				}
 				return nil
 			},
-			GetGroupFunc: func(_, groupID, _ string) (*nbgroup.Group, error) {
+			GetGroupFunc: func(_ context.Context, _, groupID, _ string) (*nbgroup.Group, error) {
 				if groupID != "idofthegroup" {
 					return nil, status.Errorf(status.NotFound, "not found")
 				}
@@ -55,7 +56,7 @@ func initGroupTestData(user *server.User, _ ...*nbgroup.Group) *GroupsHandler {
 					Issued: nbgroup.GroupIssuedAPI,
 				}, nil
 			},
-			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
@@ -70,7 +71,7 @@ func initGroupTestData(user *server.User, _ ...*nbgroup.Group) *GroupsHandler {
 					},
 				}, user, nil
 			},
-			DeleteGroupFunc: func(accountID, userId, groupID string) error {
+			DeleteGroupFunc: func(_ context.Context, accountID, userId, groupID string) error {
 				if groupID == "linked-grp" {
 					return &server.GroupLinkError{
 						Resource: "something",

@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -86,7 +87,7 @@ type Store struct {
 }
 
 // NewSQLiteStore creates a new Store with an event table if not exists.
-func NewSQLiteStore(dataDir string, encryptionKey string) (*Store, error) {
+func NewSQLiteStore(ctx context.Context, dataDir string, encryptionKey string) (*Store, error) {
 	dbFile := filepath.Join(dataDir, eventSinkDB)
 	db, err := sql.Open("sqlite3", dbFile)
 	if err != nil {
@@ -111,7 +112,7 @@ func NewSQLiteStore(dataDir string, encryptionKey string) (*Store, error) {
 		return nil, err
 	}
 
-	err = updateDeletedUsersTable(db)
+	err = updateDeletedUsersTable(ctx, db)
 	if err != nil {
 		_ = db.Close()
 		return nil, err
@@ -153,7 +154,7 @@ func NewSQLiteStore(dataDir string, encryptionKey string) (*Store, error) {
 	return s, nil
 }
 
-func (store *Store) processResult(result *sql.Rows) ([]*activity.Event, error) {
+func (store *Store) processResult(ctx context.Context, result *sql.Rows) ([]*activity.Event, error) {
 	events := make([]*activity.Event, 0)
 	var cryptErr error
 	for result.Next() {
@@ -235,14 +236,14 @@ func (store *Store) processResult(result *sql.Rows) ([]*activity.Event, error) {
 	}
 
 	if cryptErr != nil {
-		log.Warnf("%s", cryptErr)
+		log.WithContext(ctx).Warnf("%s", cryptErr)
 	}
 
 	return events, nil
 }
 
 // Get returns "limit" number of events from index ordered descending or ascending by a timestamp
-func (store *Store) Get(accountID string, offset, limit int, descending bool) ([]*activity.Event, error) {
+func (store *Store) Get(ctx context.Context, accountID string, offset, limit int, descending bool) ([]*activity.Event, error) {
 	stmt := store.selectDescStatement
 	if !descending {
 		stmt = store.selectAscStatement
@@ -254,11 +255,11 @@ func (store *Store) Get(accountID string, offset, limit int, descending bool) ([
 	}
 
 	defer result.Close() //nolint
-	return store.processResult(result)
+	return store.processResult(ctx, result)
 }
 
 // Save an event in the SQLite events table end encrypt the "email" element in meta map
-func (store *Store) Save(event *activity.Event) (*activity.Event, error) {
+func (store *Store) Save(_ context.Context, event *activity.Event) (*activity.Event, error) {
 	var jsonMeta string
 	meta, err := store.saveDeletedUserEmailAndNameInEncrypted(event)
 	if err != nil {
@@ -317,15 +318,15 @@ func (store *Store) saveDeletedUserEmailAndNameInEncrypted(event *activity.Event
 }
 
 // Close the Store
-func (store *Store) Close() error {
+func (store *Store) Close(_ context.Context) error {
 	if store.db != nil {
 		return store.db.Close()
 	}
 	return nil
 }
 
-func updateDeletedUsersTable(db *sql.DB) error {
-	log.Debugf("check deleted_users table version")
+func updateDeletedUsersTable(ctx context.Context, db *sql.DB) error {
+	log.WithContext(ctx).Debugf("check deleted_users table version")
 	rows, err := db.Query(`PRAGMA table_info(deleted_users);`)
 	if err != nil {
 		return err
@@ -360,7 +361,7 @@ func updateDeletedUsersTable(db *sql.DB) error {
 		return nil
 	}
 
-	log.Debugf("update delted_users table")
+	log.WithContext(ctx).Debugf("update delted_users table")
 	_, err = db.Exec(`ALTER TABLE deleted_users ADD COLUMN name TEXT;`)
 	return err
 }

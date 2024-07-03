@@ -35,34 +35,34 @@ func NewAccountsHandler(accountManager server.AccountManager, authCfg AuthCfg) *
 // GetAllAccounts is HTTP GET handler that returns a list of accounts. Effectively returns just a single account.
 func (h *AccountsHandler) GetAllAccounts(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	if !(user.HasAdminPower() || user.IsServiceUser) {
-		util.WriteError(status.Errorf(status.PermissionDenied, "the user has no permission to access account data"), w)
+		util.WriteError(r.Context(), status.Errorf(status.PermissionDenied, "the user has no permission to access account data"), w)
 		return
 	}
 
 	resp := toAccountResponse(account)
-	util.WriteJSONObject(w, []*api.Account{resp})
+	util.WriteJSONObject(r.Context(), w, []*api.Account{resp})
 }
 
 // UpdateAccount is HTTP PUT handler that updates the provided account. Updates only account settings (server.Settings)
 func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	_, user, err := h.accountManager.GetAccountFromToken(claims)
+	_, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	accountID := vars["accountId"]
 	if len(accountID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid accountID ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid accountID ID"), w)
 		return
 	}
 
@@ -96,15 +96,15 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 		settings.JWTAllowGroups = *req.Settings.JwtAllowGroups
 	}
 
-	updatedAccount, err := h.accountManager.UpdateAccountSettings(accountID, user.Id, settings)
+	updatedAccount, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, user.Id, settings)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	resp := toAccountResponse(updatedAccount)
 
-	util.WriteJSONObject(w, &resp)
+	util.WriteJSONObject(r.Context(), w, &resp)
 }
 
 // DeleteAccount is a HTTP DELETE handler to delete an account
@@ -118,17 +118,17 @@ func (h *AccountsHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) 
 	vars := mux.Vars(r)
 	targetAccountID := vars["accountId"]
 	if len(targetAccountID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid account ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid account ID"), w)
 		return
 	}
 
-	err := h.accountManager.DeleteAccount(targetAccountID, claims.UserId)
+	err := h.accountManager.DeleteAccount(r.Context(), targetAccountID, claims.UserId)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, emptyObject{})
 }
 
 func toAccountResponse(account *server.Account) *api.Account {

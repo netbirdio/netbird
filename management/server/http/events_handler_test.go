@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -22,13 +23,13 @@ import (
 func initEventsTestData(account string, user *server.User, events ...*activity.Event) *EventsHandler {
 	return &EventsHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetEventsFunc: func(accountID, userID string) ([]*activity.Event, error) {
+			GetEventsFunc: func(_ context.Context, accountID, userID string) ([]*activity.Event, error) {
 				if accountID == account {
 					return events, nil
 				}
 				return []*activity.Event{}, nil
 			},
-			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
@@ -37,7 +38,7 @@ func initEventsTestData(account string, user *server.User, events ...*activity.E
 					},
 				}, user, nil
 			},
-			GetUsersFromAccountFunc: func(accountID, userID string) ([]*server.UserInfo, error) {
+			GetUsersFromAccountFunc: func(_ context.Context, accountID, userID string) ([]*server.UserInfo, error) {
 				return make([]*server.UserInfo, 0), nil
 			},
 		},

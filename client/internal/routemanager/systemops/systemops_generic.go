@@ -356,7 +356,7 @@ func GetNextHop(ip netip.Addr) (Nexthop, error) {
 			return Nexthop{}, fmt.Errorf("convert preferred source to address: %w", err)
 		}
 		return Nexthop{
-			IP:   addr.Unmap(),
+			IP:   addr,
 			Intf: intf,
 		}, nil
 	}
@@ -380,12 +380,12 @@ func ipToAddr(ip net.IP, intf *net.Interface) (netip.Addr, error) {
 	}
 
 	if intf != nil && (addr.IsLinkLocalMulticast() || addr.IsLinkLocalUnicast()) {
-		log.Tracef("Adding zone %s to address %s", intf.Name, addr)
+		zone := intf.Name
 		if runtime.GOOS == "windows" {
-			addr = addr.WithZone(strconv.Itoa(intf.Index))
-		} else {
-			addr = addr.WithZone(intf.Name)
+			zone = strconv.Itoa(intf.Index)
 		}
+		log.Tracef("Adding zone %s to address %s", zone, addr)
+		addr = addr.WithZone(zone)
 	}
 
 	return addr.Unmap(), nil

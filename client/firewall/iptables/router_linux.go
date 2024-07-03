@@ -74,12 +74,12 @@ func (i *routerManager) InsertRoutingRules(pair firewall.RouterPair) error {
 		return nil
 	}
 
-	err = i.insertRoutingRule(firewall.NatFormat, tableNat, chainRTNAT, routingFinalNatJump, pair)
+	err = i.addNATRule(firewall.NatFormat, tableNat, chainRTNAT, routingFinalNatJump, pair)
 	if err != nil {
 		return err
 	}
 
-	err = i.insertRoutingRule(firewall.InNatFormat, tableNat, chainRTNAT, routingFinalNatJump, firewall.GetInPair(pair))
+	err = i.addNATRule(firewall.InNatFormat, tableNat, chainRTNAT, routingFinalNatJump, firewall.GetInPair(pair))
 	if err != nil {
 		return err
 	}
@@ -101,6 +101,7 @@ func (i *routerManager) insertRoutingRule(keyFormat, table, chain, jump string, 
 		}
 		delete(i.rules, ruleKey)
 	}
+
 	err = i.iptablesClient.Insert(table, chain, 1, rule...)
 	if err != nil {
 		return fmt.Errorf("error while adding new %s rule for %s: %v", getIptablesRuleType(table), pair.Destination, err)
@@ -317,12 +318,43 @@ func (i *routerManager) createChain(table, newChain string) error {
 			return fmt.Errorf("couldn't create chain %s in %s table, error: %v", newChain, table, err)
 		}
 
+		// Add the loopback return rule to the NAT chain
+		loopbackRule := []string{"-o", "lo", "-j", "RETURN"}
+		err = i.iptablesClient.Insert(table, newChain, 1, loopbackRule...)
+		if err != nil {
+			return fmt.Errorf("failed to add loopback return rule to %s: %v", chainRTNAT, err)
+		}
+
 		err = i.iptablesClient.Append(table, newChain, "-j", "RETURN")
 		if err != nil {
 			return fmt.Errorf("couldn't create chain %s default rule, error: %v", newChain, err)
 		}
 
 	}
+	return nil
+}
+
+// addNATRule appends an iptables rule pair to the nat chain
+func (i *routerManager) addNATRule(keyFormat, table, chain, jump string, pair firewall.RouterPair) error {
+	ruleKey := firewall.GenKey(keyFormat, pair.ID)
+	rule := genRuleSpec(jump, pair.Source, pair.Destination)
+	existingRule, found := i.rules[ruleKey]
+	if found {
+		err := i.iptablesClient.DeleteIfExists(table, chain, existingRule...)
+		if err != nil {
+			return fmt.Errorf("error while removing existing NAT rule for %s: %v", pair.Destination, err)
+		}
+		delete(i.rules, ruleKey)
+	}
+
+	// inserting after loopback ignore rule
+	err := i.iptablesClient.Insert(table, chain, 2, rule...)
+	if err != nil {
+		return fmt.Errorf("error while appending new NAT rule for %s: %v", pair.Destination, err)
+	}
+
+	i.rules[ruleKey] = rule
+
 	return nil
 }
 

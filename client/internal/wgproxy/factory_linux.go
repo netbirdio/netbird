@@ -8,8 +8,12 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func NewFactory(ctx context.Context, wgPort int) *Factory {
+func NewFactory(ctx context.Context, userspace bool, wgPort int) *Factory {
 	f := &Factory{wgPort: wgPort}
+
+	if userspace {
+		return f
+	}
 
 	ebpfProxy := NewWGEBPFProxy(ctx, wgPort)
 	err := ebpfProxy.listen()

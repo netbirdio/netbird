@@ -56,7 +56,7 @@ func ShouldBypass(requestPath string, h http.Handler, w http.ResponseWriter, r *
 	for bypassPath := range bypassPaths {
 		matched, err := path.Match(bypassPath, requestPath)
 		if err != nil {
-			log.Errorf("Error matching path %s with %s from %s: %v", bypassPath, requestPath, GetList(), err)
+			log.WithContext(r.Context()).Errorf("Error matching path %s with %s from %s: %v", bypassPath, requestPath, GetList(), err)
 			continue
 		}
 		if matched {

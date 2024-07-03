@@ -1,6 +1,7 @@
 package posture
 
 import (
+	"context"
 	"net/netip"
 	"testing"
 
@@ -137,7 +138,7 @@ func TestPeerNetworkRangeCheck_Check(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			isValid, err := tt.check.Check(tt.peer)
+			isValid, err := tt.check.Check(context.Background(), tt.peer)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {

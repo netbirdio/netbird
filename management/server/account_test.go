@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/sha256"
 	b64 "encoding/base64"
 	"encoding/json"
@@ -29,11 +30,11 @@ import (
 type MocIntegratedValidator struct {
 }
 
-func (a MocIntegratedValidator) ValidateExtraSettings(newExtraSettings *account.ExtraSettings, oldExtraSettings *account.ExtraSettings, peers map[string]*nbpeer.Peer, userID string, accountID string) error {
+func (a MocIntegratedValidator) ValidateExtraSettings(_ context.Context, newExtraSettings *account.ExtraSettings, oldExtraSettings *account.ExtraSettings, peers map[string]*nbpeer.Peer, userID string, accountID string) error {
 	return nil
 }
 
-func (a MocIntegratedValidator) ValidatePeer(update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, error) {
+func (a MocIntegratedValidator) ValidatePeer(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *account.ExtraSettings) (*nbpeer.Peer, error) {
 	return update, nil
 }
 func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups map[string]*group.Group, peers map[string]*nbpeer.Peer, extraSettings *account.ExtraSettings) (map[string]struct{}, error) {
@@ -44,15 +45,15 @@ func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups map[s
 	return validatedPeers, nil
 }
 
-func (MocIntegratedValidator) PreparePeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer {
+func (MocIntegratedValidator) PreparePeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) *nbpeer.Peer {
 	return peer
 }
 
-func (MocIntegratedValidator) IsNotValidPeer(accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (bool, bool, error) {
+func (MocIntegratedValidator) IsNotValidPeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *account.ExtraSettings) (bool, bool, error) {
 	return false, false, nil
 }
 
-func (MocIntegratedValidator) PeerDeleted(_, _ string) error {
+func (MocIntegratedValidator) PeerDeleted(_ context.Context, _, _ string) error {
 	return nil
 }
 
@@ -60,7 +61,7 @@ func (MocIntegratedValidator) SetPeerInvalidationListener(func(accountID string)
 
 }
 
-func (MocIntegratedValidator) Stop() {
+func (MocIntegratedValidator) Stop(_ context.Context) {
 }
 
 func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Account, userID string) {
@@ -85,7 +86,7 @@ func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Ac
 		setupKey = key.Key
 	}
 
-	_, _, err := manager.AddPeer(setupKey, userID, peer)
+	_, _, _, err := manager.AddPeer(context.Background(), setupKey, userID, peer)
 	if err != nil {
 		t.Error("expected to add new peer successfully after creating new account, but failed", err)
 	}
@@ -395,7 +396,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 	}
 
 	for _, testCase := range tt {
-		account := newAccountWithId("account-1", userID, "netbird.io")
+		account := newAccountWithId(context.Background(), "account-1", userID, "netbird.io")
 		account.UpdateSettings(&testCase.accountSettings)
 		account.Network = network
 		account.Peers = testCase.peers
@@ -409,7 +410,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 			validatedPeers[p] = struct{}{}
 		}
 
-		networkMap := account.GetPeerNetworkMap(testCase.peerID, "netbird.io", validatedPeers)
+		networkMap := account.GetPeerNetworkMap(context.Background(), testCase.peerID, "netbird.io", validatedPeers)
 		assert.Len(t, networkMap.Peers, len(testCase.expectedPeers))
 		assert.Len(t, networkMap.OfflinePeers, len(testCase.expectedOfflinePeers))
 	}
@@ -419,7 +420,7 @@ func TestNewAccount(t *testing.T) {
 	domain := "netbird.io"
 	userId := "account_creator"
 	accountID := "account_id"
-	account := newAccountWithId(accountID, userId, domain)
+	account := newAccountWithId(context.Background(), accountID, userId, domain)
 	verifyNewAccountHasDefaultFields(t, account, userId, domain, []string{userId})
 }
 
@@ -430,7 +431,7 @@ func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 		return
 	}
 
-	account, err := manager.GetOrCreateAccountByUser(userID, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +440,7 @@ func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 		return
 	}
 
-	account, err = manager.Store.GetAccountByUser(userID)
+	account, err = manager.Store.GetAccountByUser(context.Background(), userID)
 	if err != nil {
 		t.Errorf("expected to get existing account after creation, no account was found for a user %s", userID)
 		return
@@ -630,11 +631,11 @@ func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
 			manager, err := createManager(t)
 			require.NoError(t, err, "unable to create account manager")
 
-			initAccount, err := manager.GetAccountByUserOrAccountID(testCase.inputInitUserParams.UserId, testCase.inputInitUserParams.AccountId, testCase.inputInitUserParams.Domain)
+			initAccount, err := manager.GetAccountByUserOrAccountID(context.Background(), testCase.inputInitUserParams.UserId, testCase.inputInitUserParams.AccountId, testCase.inputInitUserParams.Domain)
 			require.NoError(t, err, "create init user failed")
 
 			if testCase.inputUpdateAttrs {
-				err = manager.updateAccountDomainAttributes(initAccount, jwtclaims.AuthorizationClaims{UserId: testCase.inputInitUserParams.UserId, Domain: testCase.inputInitUserParams.Domain, DomainCategory: testCase.inputInitUserParams.DomainCategory}, true)
+				err = manager.updateAccountDomainAttributes(context.Background(), initAccount, jwtclaims.AuthorizationClaims{UserId: testCase.inputInitUserParams.UserId, Domain: testCase.inputInitUserParams.Domain, DomainCategory: testCase.inputInitUserParams.DomainCategory}, true)
 				require.NoError(t, err, "update init user failed")
 			}
 
@@ -642,7 +643,7 @@ func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
 				testCase.inputClaims.AccountId = initAccount.Id
 			}
 
-			account, _, err := manager.GetAccountFromToken(testCase.inputClaims)
+			account, _, err := manager.GetAccountFromToken(context.Background(), testCase.inputClaims)
 			require.NoError(t, err, "support function failed")
 			verifyNewAccountHasDefaultFields(t, account, testCase.expectedCreatedBy, testCase.inputClaims.Domain, testCase.expectedUsers)
 			verifyCanAddPeerToAccount(t, manager, account, testCase.expectedCreatedBy)
@@ -661,12 +662,12 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 	userId := "user-id"
 	domain := "test.domain"
 
-	initAccount := newAccountWithId("", userId, domain)
+	initAccount := newAccountWithId(context.Background(), "", userId, domain)
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
 	accountID := initAccount.Id
-	acc, err := manager.GetAccountByUserOrAccountID(userId, accountID, domain)
+	acc, err := manager.GetAccountByUserOrAccountID(context.Background(), userId, accountID, domain)
 	require.NoError(t, err, "create init user failed")
 	// as initAccount was created without account id we have to take the id after account initialization
 	// that happens inside the GetAccountByUserOrAccountID where the id is getting generated
@@ -682,18 +683,18 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 	}
 
 	t.Run("JWT groups disabled", func(t *testing.T) {
-		account, _, err := manager.GetAccountFromToken(claims)
+		account, _, err := manager.GetAccountFromToken(context.Background(), claims)
 		require.NoError(t, err, "get account by token failed")
 		require.Len(t, account.Groups, 1, "only ALL group should exists")
 	})
 
 	t.Run("JWT groups enabled without claim name", func(t *testing.T) {
 		initAccount.Settings.JWTGroupsEnabled = true
-		err := manager.Store.SaveAccount(initAccount)
+		err := manager.Store.SaveAccount(context.Background(), initAccount)
 		require.NoError(t, err, "save account failed")
-		require.Len(t, manager.Store.GetAllAccounts(), 1, "only one account should exist")
+		require.Len(t, manager.Store.GetAllAccounts(context.Background()), 1, "only one account should exist")
 
-		account, _, err := manager.GetAccountFromToken(claims)
+		account, _, err := manager.GetAccountFromToken(context.Background(), claims)
 		require.NoError(t, err, "get account by token failed")
 		require.Len(t, account.Groups, 1, "if group claim is not set no group added from JWT")
 	})
@@ -701,11 +702,11 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 	t.Run("JWT groups enabled", func(t *testing.T) {
 		initAccount.Settings.JWTGroupsEnabled = true
 		initAccount.Settings.JWTGroupsClaimName = "idp-groups"
-		err := manager.Store.SaveAccount(initAccount)
+		err := manager.Store.SaveAccount(context.Background(), initAccount)
 		require.NoError(t, err, "save account failed")
-		require.Len(t, manager.Store.GetAllAccounts(), 1, "only one account should exist")
+		require.Len(t, manager.Store.GetAllAccounts(context.Background()), 1, "only one account should exist")
 
-		account, _, err := manager.GetAccountFromToken(claims)
+		account, _, err := manager.GetAccountFromToken(context.Background(), claims)
 		require.NoError(t, err, "get account by token failed")
 		require.Len(t, account.Groups, 3, "groups should be added to the account")
 
@@ -728,7 +729,7 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 
 func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 	store := newStore(t)
-	account := newAccountWithId("account_id", "testuser", "")
+	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
 
 	token := "nbp_9999EUDNdkeusjentDLSJEn1902u84390W6W"
 	hashedToken := sha256.Sum256([]byte(token))
@@ -742,7 +743,7 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 			},
 		},
 	}
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -751,7 +752,7 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 		Store: store,
 	}
 
-	account, user, pat, err := am.GetAccountFromPAT(token)
+	account, user, pat, err := am.GetAccountFromPAT(context.Background(), token)
 	if err != nil {
 		t.Fatalf("Error when getting Account from PAT: %s", err)
 	}
@@ -763,7 +764,7 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 
 func TestDefaultAccountManager_MarkPATUsed(t *testing.T) {
 	store := newStore(t)
-	account := newAccountWithId("account_id", "testuser", "")
+	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
 
 	token := "nbp_9999EUDNdkeusjentDLSJEn1902u84390W6W"
 	hashedToken := sha256.Sum256([]byte(token))
@@ -778,7 +779,7 @@ func TestDefaultAccountManager_MarkPATUsed(t *testing.T) {
 			},
 		},
 	}
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -787,12 +788,12 @@ func TestDefaultAccountManager_MarkPATUsed(t *testing.T) {
 		Store: store,
 	}
 
-	err = am.MarkPATUsed("tokenId")
+	err = am.MarkPATUsed(context.Background(), "tokenId")
 	if err != nil {
 		t.Fatalf("Error when marking PAT used: %s", err)
 	}
 
-	account, err = am.Store.GetAccount("account_id")
+	account, err = am.Store.GetAccount(context.Background(), "account_id")
 	if err != nil {
 		t.Fatalf("Error when getting account: %s", err)
 	}
@@ -807,7 +808,7 @@ func TestAccountManager_PrivateAccount(t *testing.T) {
 	}
 
 	userId := "test_user"
-	account, err := manager.GetOrCreateAccountByUser(userId, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), userId, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -815,7 +816,7 @@ func TestAccountManager_PrivateAccount(t *testing.T) {
 		t.Fatalf("expected to create an account for a user %s", userId)
 	}
 
-	account, err = manager.Store.GetAccountByUser(userId)
+	account, err = manager.Store.GetAccountByUser(context.Background(), userId)
 	if err != nil {
 		t.Errorf("expected to get existing account after creation, no account was found for a user %s", userId)
 	}
@@ -834,7 +835,7 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 
 	userId := "test_user"
 	domain := "hotmail.com"
-	account, err := manager.GetOrCreateAccountByUser(userId, domain)
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), userId, domain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -848,7 +849,7 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 
 	domain = "gmail.com"
 
-	account, err = manager.GetOrCreateAccountByUser(userId, domain)
+	account, err = manager.GetOrCreateAccountByUser(context.Background(), userId, domain)
 	if err != nil {
 		t.Fatalf("got the following error while retrieving existing acc: %v", err)
 	}
@@ -871,7 +872,7 @@ func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
 
 	userId := "test_user"
 
-	account, err := manager.GetAccountByUserOrAccountID(userId, "", "")
+	account, err := manager.GetAccountByUserOrAccountID(context.Background(), userId, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -880,20 +881,20 @@ func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
 		return
 	}
 
-	_, err = manager.GetAccountByUserOrAccountID("", account.Id, "")
+	_, err = manager.GetAccountByUserOrAccountID(context.Background(), "", account.Id, "")
 	if err != nil {
 		t.Errorf("expected to get existing account after creation using userid, no account was found for a account %s", account.Id)
 	}
 
-	_, err = manager.GetAccountByUserOrAccountID("", "", "")
+	_, err = manager.GetAccountByUserOrAccountID(context.Background(), "", "", "")
 	if err == nil {
 		t.Errorf("expected an error when user and account IDs are empty")
 	}
 }
 
 func createAccount(am *DefaultAccountManager, accountID, userID, domain string) (*Account, error) {
-	account := newAccountWithId(accountID, userID, domain)
-	err := am.Store.SaveAccount(account)
+	account := newAccountWithId(context.Background(), accountID, userID, domain)
+	err := am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return nil, err
 	}
@@ -915,7 +916,7 @@ func TestAccountManager_GetAccount(t *testing.T) {
 	}
 
 	// AddAccount has been already tested so we can assume it is correct and compare results
-	getAccount, err := manager.Store.GetAccount(account.Id)
+	getAccount, err := manager.Store.GetAccount(context.Background(), account.Id)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -952,12 +953,12 @@ func TestAccountManager_DeleteAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.DeleteAccount(account.Id, userId)
+	err = manager.DeleteAccount(context.Background(), account.Id, userId)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	getAccount, err := manager.Store.GetAccount(account.Id)
+	getAccount, err := manager.Store.GetAccount(context.Background(), account.Id)
 	if err == nil {
 		t.Fatal(fmt.Errorf("expected to get an error when trying to get deleted account, got %v", getAccount))
 	}
@@ -978,7 +979,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 
 	serial := account.Network.CurrentSerial() // should be 0
 
-	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -997,7 +998,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 	expectedPeerKey := key.PublicKey().String()
 	expectedSetupKey := setupKey.Key
 
-	peer, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	peer, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
 		Key:  expectedPeerKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
 	})
@@ -1006,7 +1007,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		return
 	}
 
-	account, err = manager.Store.GetAccount(account.Id)
+	account, err = manager.Store.GetAccount(context.Background(), account.Id)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -1045,7 +1046,7 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 		return
 	}
 
-	account, err := manager.GetOrCreateAccountByUser(userID, "netbird.cloud")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "netbird.cloud")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1065,7 +1066,7 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 	expectedPeerKey := key.PublicKey().String()
 	expectedUserID := userID
 
-	peer, _, err := manager.AddPeer("", userID, &nbpeer.Peer{
+	peer, _, _, err := manager.AddPeer(context.Background(), "", userID, &nbpeer.Peer{
 		Key:  expectedPeerKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
 	})
@@ -1074,7 +1075,7 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 		return
 	}
 
-	account, err = manager.Store.GetAccount(account.Id)
+	account, err = manager.Store.GetAccount(context.Background(), account.Id)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -1121,7 +1122,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -1140,7 +1141,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		}
 		expectedPeerKey := key.PublicKey().String()
 
-		peer, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+		peer, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
 			Key:  expectedPeerKey,
 			Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
 		})
@@ -1156,14 +1157,14 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 	peer2 := getPeer()
 	peer3 := getPeer()
 
-	account, err = manager.Store.GetAccount(account.Id)
+	account, err = manager.Store.GetAccount(context.Background(), account.Id)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 
-	updMsg := manager.peersUpdateManager.CreateChannel(peer1.ID)
-	defer manager.peersUpdateManager.CloseChannel(peer1.ID)
+	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 
 	group := group.Group{
 		ID:    "group-id",
@@ -1197,7 +1198,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			}
 		}()
 
-		if err := manager.SaveGroup(account.Id, userID, &group); err != nil {
+		if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
 			t.Errorf("save group: %v", err)
 			return
 		}
@@ -1217,7 +1218,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			}
 		}()
 
-		if err := manager.DeletePolicy(account.Id, account.Policies[0].ID, userID); err != nil {
+		if err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID); err != nil {
 			t.Errorf("delete default rule: %v", err)
 			return
 		}
@@ -1237,7 +1238,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			}
 		}()
 
-		if err := manager.SavePolicy(account.Id, userID, &policy); err != nil {
+		if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy); err != nil {
 			t.Errorf("delete default rule: %v", err)
 			return
 		}
@@ -1256,7 +1257,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			}
 		}()
 
-		if err := manager.DeletePeer(account.Id, peer3.ID, userID); err != nil {
+		if err := manager.DeletePeer(context.Background(), account.Id, peer3.ID, userID); err != nil {
 			t.Errorf("delete peer: %v", err)
 			return
 		}
@@ -1277,9 +1278,9 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		}()
 
 		// clean policy is pre requirement for delete group
-		_ = manager.DeletePolicy(account.Id, policy.ID, userID)
+		_ = manager.DeletePolicy(context.Background(), account.Id, policy.ID, userID)
 
-		if err := manager.DeleteGroup(account.Id, "", group.ID); err != nil {
+		if err := manager.DeleteGroup(context.Background(), account.Id, "", group.ID); err != nil {
 			t.Errorf("delete group: %v", err)
 			return
 		}
@@ -1301,7 +1302,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -1315,7 +1316,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 
 	peerKey := key.PublicKey().String()
 
-	peer, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+	peer, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: peerKey},
 	})
@@ -1324,12 +1325,12 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		return
 	}
 
-	err = manager.DeletePeer(account.Id, peerKey, userID)
+	err = manager.DeletePeer(context.Background(), account.Id, peerKey, userID)
 	if err != nil {
 		return
 	}
 
-	account, err = manager.Store.GetAccount(account.Id)
+	account, err = manager.Store.GetAccount(context.Background(), account.Id)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -1357,7 +1358,7 @@ func getEvent(t *testing.T, accountID string, manager AccountManager, eventType 
 		case <-time.After(time.Second):
 			t.Fatal("no PeerAddedWithSetupKey event was generated")
 		default:
-			events, err := manager.GetEvents(accountID, userID)
+			events, err := manager.GetEvents(context.Background(), accountID, userID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1389,7 +1390,7 @@ func TestGetUsersFromAccount(t *testing.T) {
 		account.Users[user.Id] = user
 	}
 
-	userInfos, err := manager.GetUsersFromAccount(accountId, "1")
+	userInfos, err := manager.GetUsersFromAccount(context.Background(), accountId, "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1500,7 +1501,7 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 		},
 	}
 
-	routes := account.getRoutesToSync("peer-2", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-3"}})
+	routes := account.getRoutesToSync(context.Background(), "peer-2", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-3"}})
 
 	assert.Len(t, routes, 2)
 	routeIDs := make(map[route.ID]struct{}, 2)
@@ -1510,7 +1511,7 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 	assert.Contains(t, routeIDs, route.ID("route-2"))
 	assert.Contains(t, routeIDs, route.ID("route-3"))
 
-	emptyRoutes := account.getRoutesToSync("peer-3", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-2"}})
+	emptyRoutes := account.getRoutesToSync(context.Background(), "peer-3", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-2"}})
 
 	assert.Len(t, emptyRoutes, 0)
 }
@@ -1646,7 +1647,7 @@ func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	account, err := manager.GetAccountByUserOrAccountID(context.Background(), userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
 	assert.NotNil(t, account.Settings)
@@ -1658,23 +1659,23 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	_, err = manager.GetAccountByUserOrAccountID(userID, "", "")
+	_, err = manager.GetAccountByUserOrAccountID(context.Background(), userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
 	require.NoError(t, err, "unable to generate WireGuard key")
-	peer, _, err := manager.AddPeer("", userID, &nbpeer.Peer{
+	peer, _, _, err := manager.AddPeer(context.Background(), "", userID, &nbpeer.Peer{
 		Key:                    key.PublicKey().String(),
 		Meta:                   nbpeer.PeerSystemMeta{Hostname: "test-peer"},
 		LoginExpirationEnabled: true,
 	})
 	require.NoError(t, err, "unable to add peer")
 
-	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	account, err := manager.GetAccountByUserOrAccountID(context.Background(), userID, "", "")
 	require.NoError(t, err, "unable to get the account")
-	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil, account)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, account)
 	require.NoError(t, err, "unable to mark peer connected")
-	account, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+	account, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: true,
 	})
@@ -1683,10 +1684,10 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	wg := &sync.WaitGroup{}
 	wg.Add(2)
 	manager.peerLoginExpiry = &MockScheduler{
-		CancelFunc: func(IDs []string) {
+		CancelFunc: func(ctx context.Context, IDs []string) {
 			wg.Done()
 		},
-		ScheduleFunc: func(in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
+		ScheduleFunc: func(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
 			wg.Done()
 		},
 	}
@@ -1694,11 +1695,11 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	// disable expiration first
 	update := peer.Copy()
 	update.LoginExpirationEnabled = false
-	_, err = manager.UpdatePeer(account.Id, userID, update)
+	_, err = manager.UpdatePeer(context.Background(), account.Id, userID, update)
 	require.NoError(t, err, "unable to update peer")
 	// enabling expiration should trigger the routine
 	update.LoginExpirationEnabled = true
-	_, err = manager.UpdatePeer(account.Id, userID, update)
+	_, err = manager.UpdatePeer(context.Background(), account.Id, userID, update)
 	require.NoError(t, err, "unable to update peer")
 
 	failed := waitTimeout(wg, time.Second)
@@ -1711,18 +1712,18 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	account, err := manager.GetAccountByUserOrAccountID(context.Background(), userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
 	require.NoError(t, err, "unable to generate WireGuard key")
-	_, _, err = manager.AddPeer("", userID, &nbpeer.Peer{
+	_, _, _, err = manager.AddPeer(context.Background(), "", userID, &nbpeer.Peer{
 		Key:                    key.PublicKey().String(),
 		Meta:                   nbpeer.PeerSystemMeta{Hostname: "test-peer"},
 		LoginExpirationEnabled: true,
 	})
 	require.NoError(t, err, "unable to add peer")
-	_, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+	_, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: true,
 	})
@@ -1731,18 +1732,18 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	wg := &sync.WaitGroup{}
 	wg.Add(2)
 	manager.peerLoginExpiry = &MockScheduler{
-		CancelFunc: func(IDs []string) {
+		CancelFunc: func(ctx context.Context, IDs []string) {
 			wg.Done()
 		},
-		ScheduleFunc: func(in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
+		ScheduleFunc: func(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
 			wg.Done()
 		},
 	}
 
-	account, err = manager.GetAccountByUserOrAccountID(userID, "", "")
+	account, err = manager.GetAccountByUserOrAccountID(context.Background(), userID, "", "")
 	require.NoError(t, err, "unable to get the account")
 	// when we mark peer as connected, the peer login expiration routine should trigger
-	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil, account)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, account)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	failed := waitTimeout(wg, time.Second)
@@ -1755,35 +1756,35 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	_, err = manager.GetAccountByUserOrAccountID(userID, "", "")
+	_, err = manager.GetAccountByUserOrAccountID(context.Background(), userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
 	require.NoError(t, err, "unable to generate WireGuard key")
-	_, _, err = manager.AddPeer("", userID, &nbpeer.Peer{
+	_, _, _, err = manager.AddPeer(context.Background(), "", userID, &nbpeer.Peer{
 		Key:                    key.PublicKey().String(),
 		Meta:                   nbpeer.PeerSystemMeta{Hostname: "test-peer"},
 		LoginExpirationEnabled: true,
 	})
 	require.NoError(t, err, "unable to add peer")
 
-	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	account, err := manager.GetAccountByUserOrAccountID(context.Background(), userID, "", "")
 	require.NoError(t, err, "unable to get the account")
-	err = manager.MarkPeerConnected(key.PublicKey().String(), true, nil, account)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, account)
 	require.NoError(t, err, "unable to mark peer connected")
 
 	wg := &sync.WaitGroup{}
 	wg.Add(2)
 	manager.peerLoginExpiry = &MockScheduler{
-		CancelFunc: func(IDs []string) {
+		CancelFunc: func(ctx context.Context, IDs []string) {
 			wg.Done()
 		},
-		ScheduleFunc: func(in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
+		ScheduleFunc: func(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
 			wg.Done()
 		},
 	}
 	// enabling PeerLoginExpirationEnabled should trigger the expiration job
-	account, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+	account, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: true,
 	})
@@ -1796,7 +1797,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	wg.Add(1)
 
 	// disabling PeerLoginExpirationEnabled should trigger cancel
-	_, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+	_, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: false,
 	})
@@ -1811,10 +1812,10 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	account, err := manager.GetAccountByUserOrAccountID(context.Background(), userID, "", "")
 	require.NoError(t, err, "unable to create an account")
 
-	updated, err := manager.UpdateAccountSettings(account.Id, userID, &Settings{
+	updated, err := manager.UpdateAccountSettings(context.Background(), account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: false,
 	})
@@ -1822,19 +1823,19 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	assert.False(t, updated.Settings.PeerLoginExpirationEnabled)
 	assert.Equal(t, updated.Settings.PeerLoginExpiration, time.Hour)
 
-	account, err = manager.GetAccountByUserOrAccountID("", account.Id, "")
+	account, err = manager.GetAccountByUserOrAccountID(context.Background(), "", account.Id, "")
 	require.NoError(t, err, "unable to get account by ID")
 
 	assert.False(t, account.Settings.PeerLoginExpirationEnabled)
 	assert.Equal(t, account.Settings.PeerLoginExpiration, time.Hour)
 
-	_, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+	_, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Second,
 		PeerLoginExpirationEnabled: false,
 	})
 	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration less than one hour")
 
-	_, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+	_, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Hour * 24 * 181,
 		PeerLoginExpirationEnabled: false,
 	})
@@ -2295,7 +2296,7 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 	}
 	eventStore := &activity.InMemoryEventStore{}
 
-	manager, err := BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{})
+	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{})
 	if err != nil {
 		return nil, err
 	}
@@ -2306,7 +2307,7 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 func createStore(t *testing.T) (Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, cleanUp, err := NewTestStoreFromJson(dataDir)
+	store, cleanUp, err := NewTestStoreFromJson(context.Background(), dataDir)
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -89,7 +90,7 @@ var testingAccount = &server.Account{
 func initRoutesTestData() *RoutesHandler {
 	return &RoutesHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetRouteFunc: func(_ string, routeID route.ID, _ string) (*route.Route, error) {
+			GetRouteFunc: func(_ context.Context, _ string, routeID route.ID, _ string) (*route.Route, error) {
 				if routeID == existingRouteID {
 					return baseExistingRoute, nil
 				}
@@ -104,7 +105,7 @@ func initRoutesTestData() *RoutesHandler {
 				}
 				return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 			},
-			CreateRouteFunc: func(accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, accessControlGroups []string, enabled bool, _ string, keepRoute bool) (*route.Route, error) {
+			CreateRouteFunc: func(_ context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroups []string, enabled bool, _ string, keepRoute bool) (*route.Route, error) {
 				if peerID == notFoundPeerID {
 					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
 				}
@@ -127,19 +128,19 @@ func initRoutesTestData() *RoutesHandler {
 					AccessControlGroups: accessControlGroups,
 				}, nil
 			},
-			SaveRouteFunc: func(_, _ string, r *route.Route) error {
+			SaveRouteFunc: func(_ context.Context, _, _ string, r *route.Route) error {
 				if r.Peer == notFoundPeerID {
 					return status.Errorf(status.InvalidArgument, "peer with ID %s not found", r.Peer)
 				}
 				return nil
 			},
-			DeleteRouteFunc: func(_ string, routeID route.ID, _ string) error {
+			DeleteRouteFunc: func(_ context.Context, _ string, routeID route.ID, _ string) error {
 				if routeID != existingRouteID {
 					return status.Errorf(status.NotFound, "Peer with ID %s not found", routeID)
 				}
 				return nil
 			},
-			GetAccountFromTokenFunc: func(_ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+			GetAccountFromTokenFunc: func(_ context.Context, _ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return testingAccount, testingAccount.Users["test_user"], nil
 			},
 		},

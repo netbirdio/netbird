@@ -39,12 +39,12 @@ type GoogleWorkspaceCredentials struct {
 	appMetrics   telemetry.AppMetrics
 }
 
-func (gc *GoogleWorkspaceCredentials) Authenticate() (JWTToken, error) {
+func (gc *GoogleWorkspaceCredentials) Authenticate(_ context.Context) (JWTToken, error) {
 	return JWTToken{}, nil
 }
 
 // NewGoogleWorkspaceManager creates a new instance of the GoogleWorkspaceManager.
-func NewGoogleWorkspaceManager(config GoogleWorkspaceClientConfig, appMetrics telemetry.AppMetrics) (*GoogleWorkspaceManager, error) {
+func NewGoogleWorkspaceManager(ctx context.Context, config GoogleWorkspaceClientConfig, appMetrics telemetry.AppMetrics) (*GoogleWorkspaceManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
@@ -66,7 +66,7 @@ func NewGoogleWorkspaceManager(config GoogleWorkspaceClientConfig, appMetrics te
 	}
 
 	// Create a new Admin SDK Directory service client
-	adminCredentials, err := getGoogleCredentials(config.ServiceAccountKey)
+	adminCredentials, err := getGoogleCredentials(ctx, config.ServiceAccountKey)
 	if err != nil {
 		return nil, err
 	}
@@ -90,12 +90,12 @@ func NewGoogleWorkspaceManager(config GoogleWorkspaceClientConfig, appMetrics te
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
-func (gm *GoogleWorkspaceManager) UpdateUserAppMetadata(_ string, _ AppMetadata) error {
+func (gm *GoogleWorkspaceManager) UpdateUserAppMetadata(_ context.Context, _ string, _ AppMetadata) error {
 	return nil
 }
 
 // GetUserDataByID requests user data from Google Workspace via ID.
-func (gm *GoogleWorkspaceManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
+func (gm *GoogleWorkspaceManager) GetUserDataByID(_ context.Context, userID string, appMetadata AppMetadata) (*UserData, error) {
 	user, err := gm.usersService.Get(userID).Do()
 	if err != nil {
 		return nil, err
@@ -112,7 +112,7 @@ func (gm *GoogleWorkspaceManager) GetUserDataByID(userID string, appMetadata App
 }
 
 // GetAccount returns all the users for a given profile.
-func (gm *GoogleWorkspaceManager) GetAccount(accountID string) ([]*UserData, error) {
+func (gm *GoogleWorkspaceManager) GetAccount(_ context.Context, accountID string) ([]*UserData, error) {
 	users, err := gm.getAllUsers()
 	if err != nil {
 		return nil, err
@@ -132,7 +132,7 @@ func (gm *GoogleWorkspaceManager) GetAccount(accountID string) ([]*UserData, err
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
-func (gm *GoogleWorkspaceManager) GetAllAccounts() (map[string][]*UserData, error) {
+func (gm *GoogleWorkspaceManager) GetAllAccounts(_ context.Context) (map[string][]*UserData, error) {
 	users, err := gm.getAllUsers()
 	if err != nil {
 		return nil, err
@@ -177,13 +177,13 @@ func (gm *GoogleWorkspaceManager) getAllUsers() ([]*UserData, error) {
 }
 
 // CreateUser creates a new user in Google Workspace and sends an invitation.
-func (gm *GoogleWorkspaceManager) CreateUser(_, _, _, _ string) (*UserData, error) {
+func (gm *GoogleWorkspaceManager) CreateUser(_ context.Context, _, _, _, _ string) (*UserData, error) {
 	return nil, fmt.Errorf("method CreateUser not implemented")
 }
 
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
-func (gm *GoogleWorkspaceManager) GetUserByEmail(email string) ([]*UserData, error) {
+func (gm *GoogleWorkspaceManager) GetUserByEmail(_ context.Context, email string) ([]*UserData, error) {
 	user, err := gm.usersService.Get(email).Do()
 	if err != nil {
 		return nil, err
@@ -201,12 +201,12 @@ func (gm *GoogleWorkspaceManager) GetUserByEmail(email string) ([]*UserData, err
 
 // InviteUserByID resend invitations to users who haven't activated,
 // their accounts prior to the expiration period.
-func (gm *GoogleWorkspaceManager) InviteUserByID(_ string) error {
+func (gm *GoogleWorkspaceManager) InviteUserByID(_ context.Context, _ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
 }
 
 // DeleteUser from GoogleWorkspace.
-func (gm *GoogleWorkspaceManager) DeleteUser(userID string) error {
+func (gm *GoogleWorkspaceManager) DeleteUser(_ context.Context, userID string) error {
 	if err := gm.usersService.Delete(userID).Do(); err != nil {
 		return err
 	}
@@ -222,8 +222,8 @@ func (gm *GoogleWorkspaceManager) DeleteUser(userID string) error {
 // It decodes the base64-encoded serviceAccountKey and attempts to obtain credentials using it.
 // If that fails, it falls back to using the default Google credentials path.
 // It returns the retrieved credentials or an error if unsuccessful.
-func getGoogleCredentials(serviceAccountKey string) (*google.Credentials, error) {
-	log.Debug("retrieving google credentials from the base64 encoded service account key")
+func getGoogleCredentials(ctx context.Context, serviceAccountKey string) (*google.Credentials, error) {
+	log.WithContext(ctx).Debug("retrieving google credentials from the base64 encoded service account key")
 	decodeKey, err := base64.StdEncoding.DecodeString(serviceAccountKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode service account key: %w", err)
@@ -239,8 +239,8 @@ func getGoogleCredentials(serviceAccountKey string) (*google.Credentials, error)
 		return creds, nil
 	}
 
-	log.Debugf("failed to retrieve Google credentials from ServiceAccountKey: %v", err)
-	log.Debug("falling back to default google credentials location")
+	log.WithContext(ctx).Debugf("failed to retrieve Google credentials from ServiceAccountKey: %v", err)
+	log.WithContext(ctx).Debug("falling back to default google credentials location")
 
 	creds, err = google.FindDefaultCredentials(
 		context.Background(),

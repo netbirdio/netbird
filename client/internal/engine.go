@@ -282,14 +282,15 @@ func (e *Engine) Start() error {
 	}
 	e.ctx, e.cancel = context.WithCancel(e.clientCtx)
 
-	e.wgProxyFactory = wgproxy.NewFactory(e.ctx, e.config.WgPort)
-
 	wgIface, err := e.newWgIface()
 	if err != nil {
 		log.Errorf("failed creating wireguard interface instance %s: [%s]", e.config.WgIfaceName, err)
 		return fmt.Errorf("new wg interface: %w", err)
 	}
 	e.wgInterface = wgIface
+
+	userspace := e.wgInterface.IsUserspaceBind()
+	e.wgProxyFactory = wgproxy.NewFactory(e.ctx, userspace, e.config.WgPort)
 
 	if e.config.RosenpassEnabled {
 		log.Infof("rosenpass is enabled")
@@ -1464,6 +1465,15 @@ func (e *Engine) probeTURNs() []relay.ProbeResult {
 	return relay.ProbeAll(e.ctx, relay.ProbeTURN, e.TURNs)
 }
 
+func (e *Engine) restartEngine() {
+	if err := e.Stop(); err != nil {
+		log.Errorf("Failed to stop engine: %v", err)
+	}
+	if err := e.Start(); err != nil {
+		log.Errorf("Failed to start engine: %v", err)
+	}
+}
+
 func (e *Engine) startNetworkMonitor() {
 	if !e.config.NetworkMonitor {
 		log.Infof("Network monitor is disabled, not starting")
@@ -1472,14 +1482,29 @@ func (e *Engine) startNetworkMonitor() {
 
 	e.networkMonitor = networkmonitor.New()
 	go func() {
+		var mu sync.Mutex
+		var debounceTimer *time.Timer
+
+		// Start the network monitor with a callback, Start will block until the monitor is stopped,
+		// a network change is detected, or an error occurs on start up
 		err := e.networkMonitor.Start(e.ctx, func() {
-			log.Infof("Network monitor detected network change, restarting engine")
-			if err := e.Stop(); err != nil {
-				log.Errorf("Failed to stop engine: %v", err)
+			// This function is called when a network change is detected
+			mu.Lock()
+			defer mu.Unlock()
+
+			if debounceTimer != nil {
+				debounceTimer.Stop()
 			}
-			if err := e.Start(); err != nil {
-				log.Errorf("Failed to start engine: %v", err)
-			}
+
+			// Set a new timer to debounce rapid network changes
+			debounceTimer = time.AfterFunc(1*time.Second, func() {
+				// This function is called after the debounce period
+				mu.Lock()
+				defer mu.Unlock()
+
+				log.Infof("Network monitor detected network change, restarting engine")
+				e.restartEngine()
+			})
 		})
 		if err != nil && !errors.Is(err, networkmonitor.ErrStopped) {
 			log.Errorf("Network monitor: %v", err)

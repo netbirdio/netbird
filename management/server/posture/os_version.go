@@ -1,6 +1,7 @@
 package posture
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -28,20 +29,20 @@ type OSVersionCheck struct {
 
 var _ Check = (*OSVersionCheck)(nil)
 
-func (c *OSVersionCheck) Check(peer nbpeer.Peer) (bool, error) {
+func (c *OSVersionCheck) Check(ctx context.Context, peer nbpeer.Peer) (bool, error) {
 	peerGoOS := peer.Meta.GoOS
 	switch peerGoOS {
 	case "android":
-		return checkMinVersion(peerGoOS, peer.Meta.OSVersion, c.Android)
+		return checkMinVersion(ctx, peerGoOS, peer.Meta.OSVersion, c.Android)
 	case "darwin":
-		return checkMinVersion(peerGoOS, peer.Meta.OSVersion, c.Darwin)
+		return checkMinVersion(ctx, peerGoOS, peer.Meta.OSVersion, c.Darwin)
 	case "ios":
-		return checkMinVersion(peerGoOS, peer.Meta.OSVersion, c.Ios)
+		return checkMinVersion(ctx, peerGoOS, peer.Meta.OSVersion, c.Ios)
 	case "linux":
 		kernelVersion := strings.Split(peer.Meta.KernelVersion, "-")[0]
-		return checkMinKernelVersion(peerGoOS, kernelVersion, c.Linux)
+		return checkMinKernelVersion(ctx, peerGoOS, kernelVersion, c.Linux)
 	case "windows":
-		return checkMinKernelVersion(peerGoOS, peer.Meta.KernelVersion, c.Windows)
+		return checkMinKernelVersion(ctx, peerGoOS, peer.Meta.KernelVersion, c.Windows)
 	}
 	return true, nil
 }
@@ -79,9 +80,9 @@ func (c *OSVersionCheck) Validate() error {
 	return nil
 }
 
-func checkMinVersion(peerGoOS, peerVersion string, check *MinVersionCheck) (bool, error) {
+func checkMinVersion(ctx context.Context, peerGoOS, peerVersion string, check *MinVersionCheck) (bool, error) {
 	if check == nil {
-		log.Debugf("peer %s OS is not allowed in the check", peerGoOS)
+		log.WithContext(ctx).Debugf("peer %s OS is not allowed in the check", peerGoOS)
 		return false, nil
 	}
 
@@ -99,14 +100,14 @@ func checkMinVersion(peerGoOS, peerVersion string, check *MinVersionCheck) (bool
 		return true, nil
 	}
 
-	log.Debugf("peer %s OS version %s is older than minimum allowed version %s", peerGoOS, peerVersion, check.MinVersion)
+	log.WithContext(ctx).Debugf("peer %s OS version %s is older than minimum allowed version %s", peerGoOS, peerVersion, check.MinVersion)
 
 	return false, nil
 }
 
-func checkMinKernelVersion(peerGoOS, peerVersion string, check *MinKernelVersionCheck) (bool, error) {
+func checkMinKernelVersion(ctx context.Context, peerGoOS, peerVersion string, check *MinKernelVersionCheck) (bool, error) {
 	if check == nil {
-		log.Debugf("peer %s OS is not allowed in the check", peerGoOS)
+		log.WithContext(ctx).Debugf("peer %s OS is not allowed in the check", peerGoOS)
 		return false, nil
 	}
 
@@ -124,7 +125,7 @@ func checkMinKernelVersion(peerGoOS, peerVersion string, check *MinKernelVersion
 		return true, nil
 	}
 
-	log.Debugf("peer %s kernel version %s is older than minimum allowed version %s", peerGoOS, peerVersion, check.MinKernelVersion)
+	log.WithContext(ctx).Debugf("peer %s kernel version %s is older than minimum allowed version %s", peerGoOS, peerVersion, check.MinKernelVersion)
 
 	return false, nil
 }

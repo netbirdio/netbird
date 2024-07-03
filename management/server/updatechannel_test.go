@@ -1,20 +1,21 @@
 package server
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/netbirdio/netbird/management/proto"
 )
 
-//var peersUpdater *PeersUpdateManager
+// var peersUpdater *PeersUpdateManager
 
 func TestCreateChannel(t *testing.T) {
 	peer := "test-create"
 	peersUpdater := NewPeersUpdateManager(nil)
-	defer peersUpdater.CloseChannel(peer)
+	defer peersUpdater.CloseChannel(context.Background(), peer)
 
-	_ = peersUpdater.CreateChannel(peer)
+	_ = peersUpdater.CreateChannel(context.Background(), peer)
 	if _, ok := peersUpdater.peerChannels[peer]; !ok {
 		t.Error("Error creating the channel")
 	}
@@ -28,11 +29,11 @@ func TestSendUpdate(t *testing.T) {
 			Serial: 0,
 		},
 	}}
-	_ = peersUpdater.CreateChannel(peer)
+	_ = peersUpdater.CreateChannel(context.Background(), peer)
 	if _, ok := peersUpdater.peerChannels[peer]; !ok {
 		t.Error("Error creating the channel")
 	}
-	peersUpdater.SendUpdate(peer, update1)
+	peersUpdater.SendUpdate(context.Background(), peer, update1)
 	select {
 	case <-peersUpdater.peerChannels[peer]:
 	default:
@@ -40,7 +41,7 @@ func TestSendUpdate(t *testing.T) {
 	}
 
 	for range [channelBufferSize]int{} {
-		peersUpdater.SendUpdate(peer, update1)
+		peersUpdater.SendUpdate(context.Background(), peer, update1)
 	}
 
 	update2 := &UpdateMessage{Update: &proto.SyncResponse{
@@ -49,7 +50,7 @@ func TestSendUpdate(t *testing.T) {
 		},
 	}}
 
-	peersUpdater.SendUpdate(peer, update2)
+	peersUpdater.SendUpdate(context.Background(), peer, update2)
 	timeout := time.After(5 * time.Second)
 	for range [channelBufferSize]int{} {
 		select {
@@ -67,11 +68,11 @@ func TestSendUpdate(t *testing.T) {
 func TestCloseChannel(t *testing.T) {
 	peer := "test-close"
 	peersUpdater := NewPeersUpdateManager(nil)
-	_ = peersUpdater.CreateChannel(peer)
+	_ = peersUpdater.CreateChannel(context.Background(), peer)
 	if _, ok := peersUpdater.peerChannels[peer]; !ok {
 		t.Error("Error creating the channel")
 	}
-	peersUpdater.CloseChannel(peer)
+	peersUpdater.CloseChannel(context.Background(), peer)
 	if _, ok := peersUpdater.peerChannels[peer]; ok {
 		t.Error("Error closing the channel")
 	}

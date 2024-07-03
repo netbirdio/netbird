@@ -1,6 +1,7 @@
 package posture
 
 import (
+	"context"
 	"fmt"
 	"net/netip"
 	"slices"
@@ -16,7 +17,7 @@ type PeerNetworkRangeCheck struct {
 
 var _ Check = (*PeerNetworkRangeCheck)(nil)
 
-func (p *PeerNetworkRangeCheck) Check(peer nbpeer.Peer) (bool, error) {
+func (p *PeerNetworkRangeCheck) Check(ctx context.Context, peer nbpeer.Peer) (bool, error) {
 	if len(peer.Meta.NetworkAddresses) == 0 {
 		return false, fmt.Errorf("peer's does not contain peer network range addresses")
 	}

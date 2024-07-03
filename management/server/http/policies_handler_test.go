@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -30,21 +31,21 @@ func initPoliciesTestData(policies ...*server.Policy) *Policies {
 	}
 	return &Policies{
 		accountManager: &mock_server.MockAccountManager{
-			GetPolicyFunc: func(_, policyID, _ string) (*server.Policy, error) {
+			GetPolicyFunc: func(_ context.Context, _, policyID, _ string) (*server.Policy, error) {
 				policy, ok := testPolicies[policyID]
 				if !ok {
 					return nil, status.Errorf(status.NotFound, "policy not found")
 				}
 				return policy, nil
 			},
-			SavePolicyFunc: func(_, _ string, policy *server.Policy) error {
+			SavePolicyFunc: func(_ context.Context, _, _ string, policy *server.Policy) error {
 				if !strings.HasPrefix(policy.ID, "id-") {
 					policy.ID = "id-was-set"
 					policy.Rules[0].ID = "id-was-set"
 				}
 				return nil
 			},
-			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				user := server.NewAdminUser("test_user")
 				return &server.Account{
 					Id:     claims.AccountId,
