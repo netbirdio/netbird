@@ -153,7 +153,7 @@ func (w *Worker) sendMetrics(ctx context.Context) error {
 
 	log.WithContext(ctx).Infof("sent anonymous metrics, next push will happen in %s. "+
 		"You can disable these metrics by running with flag --disable-anonymous-metrics,"+
-		" see more information at https://netbird.io/docs/FAQ/metrics-collection", getMetricsInterval(ctx))
+		" see more information at https://docs.netbird.io/about-netbird/faq#why-and-what-are-the-anonymous-usage-metrics", getMetricsInterval(ctx))
 
 	return nil
 }
