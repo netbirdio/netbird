@@ -2,9 +2,8 @@ package messages
 
 import (
 	"bytes"
+	"encoding/gob"
 	"fmt"
-
-	"go.mongodb.org/mongo-driver/bson"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -107,14 +106,19 @@ func MarshalHelloResponse(DomainAddress string) ([]byte, error) {
 	payload := HelloResponse{
 		DomainAddress: DomainAddress,
 	}
-	helloResponse, err := bson.Marshal(payload)
+
+	buf := new(bytes.Buffer)
+	enc := gob.NewEncoder(buf)
+
+	err := enc.Encode(payload)
 	if err != nil {
-		log.Errorf("failed to marshal hello response: %s", err)
+		log.Errorf("failed to gob encode hello response: %s", err)
 		return nil, err
 	}
-	msg := make([]byte, 1, 1+len(helloResponse))
+
+	msg := make([]byte, 1, 1+buf.Len())
 	msg[0] = byte(MsgTypeHelloResponse)
-	msg = append(msg, helloResponse...)
+	msg = append(msg, buf.Bytes()...)
 	return msg, nil
 }
 
@@ -123,9 +127,12 @@ func UnmarshalHelloResponse(msg []byte) (string, error) {
 		return "", fmt.Errorf("invalid 'hello response' message")
 	}
 	payload := HelloResponse{}
-	err := bson.Unmarshal(msg[1:], &payload)
+	buf := bytes.NewBuffer(msg[1:])
+	dec := gob.NewDecoder(buf)
+
+	err := dec.Decode(&payload)
 	if err != nil {
-		log.Errorf("failed to unmarshal hello response: %s", err)
+		log.Errorf("failed to gob decode hello response: %s", err)
 		return "", err
 	}
 	return payload.DomainAddress, nil
