@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -24,6 +25,7 @@ const (
 	allRoutes             filter = "all"
 	overlappingRoutes     filter = "overlapping"
 	exitNodeRoutes        filter = "exit-node"
+	getClientFMT                 = "get client: %v"
 )
 
 type filter string
@@ -95,6 +97,8 @@ func (s *serviceClient) updateRoutes(grid *fyne.Container, f filter) {
 		return
 	}
 
+	sortRoutesByIDs(filteredRoutes)
+
 	for _, route := range filteredRoutes {
 		r := route
 
@@ -150,8 +154,8 @@ func (s *serviceClient) updateRoutes(grid *fyne.Container, f filter) {
 func (s *serviceClient) getFilteredRoutes(f filter) ([]*proto.Route, error) {
 	routes, err := s.fetchRoutes()
 	if err != nil {
-		log.Errorf("get client: %v", err)
-		s.showError(fmt.Errorf("get client: %v", err))
+		log.Errorf(getClientFMT, err)
+		s.showError(fmt.Errorf(getClientFMT, err))
 		return nil, err
 	}
 	switch f {
@@ -168,6 +172,9 @@ func getOverlappingRoutes(routes []*proto.Route) []*proto.Route {
 	var filteredRoutes []*proto.Route
 	existingRange := make(map[string][]*proto.Route)
 	for _, route := range routes {
+		if len(route.Domains) > 0 {
+			continue
+		}
 		if r, exists := existingRange[route.GetNetwork()]; exists {
 			r = append(r, route)
 			existingRange[route.GetNetwork()] = r
@@ -192,10 +199,17 @@ func getExitNodeRoutes(routes []*proto.Route) []*proto.Route {
 	}
 	return filteredRoutes
 }
+
+func sortRoutesByIDs(routes []*proto.Route) {
+	sort.Slice(routes, func(i, j int) bool {
+		return strings.ToLower(routes[i].GetID()) < strings.ToLower(routes[j].GetID())
+	})
+}
+
 func (s *serviceClient) fetchRoutes() ([]*proto.Route, error) {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
-		return nil, fmt.Errorf("get client: %v", err)
+		return nil, fmt.Errorf(getClientFMT, err)
 	}
 
 	resp, err := conn.ListRoutes(s.ctx, &proto.ListRoutesRequest{})
@@ -209,8 +223,8 @@ func (s *serviceClient) fetchRoutes() ([]*proto.Route, error) {
 func (s *serviceClient) selectRoute(id string, checked bool) {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
-		log.Errorf("get client: %v", err)
-		s.showError(fmt.Errorf("get client: %v", err))
+		log.Errorf(getClientFMT, err)
+		s.showError(fmt.Errorf(getClientFMT, err))
 		return
 	}
 
@@ -239,7 +253,7 @@ func (s *serviceClient) selectRoute(id string, checked bool) {
 func (s *serviceClient) selectAllFilteredRoutes(f filter) {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
-		log.Errorf("get client: %v", err)
+		log.Errorf(getClientFMT, err)
 		return
 	}
 
@@ -256,7 +270,7 @@ func (s *serviceClient) selectAllFilteredRoutes(f filter) {
 func (s *serviceClient) deselectAllFilteredRoutes(f filter) {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
-		log.Errorf("get client: %v", err)
+		log.Errorf(getClientFMT, err)
 		return
 	}
 
