@@ -15,8 +15,10 @@ const (
 	MsgTypeClose         MsgType = 3
 	MsgTypeHealthCheck   MsgType = 4
 
-	headerSizeTransport = 1 + IDSize     // 1 byte for msg type, IDSize for peerID
-	headerSizeHello     = 1 + 4 + IDSize // 1 byte for msg type, 4 byte for magic header, IDSize for peerID
+	sizeOfMsgType       = 1
+	sizeOfMagicBye      = 4
+	headerSizeTransport = sizeOfMsgType + IDSize                  // 1 byte for msg type, IDSize for peerID
+	headerSizeHello     = sizeOfMsgType + sizeOfMagicBye + IDSize // 1 byte for msg type, 4 byte for magic header, IDSize for peerID
 
 	MaxHandshakeSize = 90
 )
@@ -47,7 +49,7 @@ func (m MsgType) String() string {
 }
 
 type HelloResponse struct {
-	DomainAddress string
+	InstanceAddress string
 }
 
 func DetermineClientMsgType(msg []byte) (MsgType, error) {
@@ -83,28 +85,29 @@ func DetermineServerMsgType(msg []byte) (MsgType, error) {
 }
 
 // MarshalHelloMsg initial hello message
-func MarshalHelloMsg(peerID []byte) ([]byte, error) {
+func MarshalHelloMsg(peerID []byte, additions []byte) ([]byte, error) {
 	if len(peerID) != IDSize {
 		return nil, fmt.Errorf("invalid peerID length: %d", len(peerID))
 	}
-	msg := make([]byte, 5, headerSizeHello)
+	msg := make([]byte, 5, headerSizeHello+len(additions))
 	msg[0] = byte(MsgTypeHello)
 	copy(msg[1:5], magicHeader)
 	msg = append(msg, peerID...)
+	msg = append(msg, additions...)
 	return msg, nil
 }
 
-func UnmarshalHelloMsg(msg []byte) ([]byte, error) {
+func UnmarshalHelloMsg(msg []byte) ([]byte, []byte, error) {
 	if len(msg) < headerSizeHello {
-		return nil, fmt.Errorf("invalid 'hello' messge")
+		return nil, nil, fmt.Errorf("invalid 'hello' messge")
 	}
 	bytes.Equal(msg[1:5], magicHeader)
-	return msg[5:], nil
+	return msg[5:], msg[headerSizeHello:], nil
 }
 
 func MarshalHelloResponse(DomainAddress string) ([]byte, error) {
 	payload := HelloResponse{
-		DomainAddress: DomainAddress,
+		InstanceAddress: DomainAddress,
 	}
 
 	buf := new(bytes.Buffer)
@@ -135,7 +138,7 @@ func UnmarshalHelloResponse(msg []byte) (string, error) {
 		log.Errorf("failed to gob decode hello response: %s", err)
 		return "", err
 	}
-	return payload.DomainAddress, nil
+	return payload.InstanceAddress, nil
 }
 
 // Close message

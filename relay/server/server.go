@@ -9,6 +9,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	auth "github.com/netbirdio/netbird/relay/auth/hmac"
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/udp"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
@@ -25,9 +26,12 @@ type Server struct {
 	wSListener  listener.Listener
 }
 
-func NewServer(exposedAddress string, tlsSupport bool) *Server {
+func NewServer(exposedAddress string, tlsSupport bool, authSecret string) *Server {
 	return &Server{
-		relay: NewRelay(exposedAddress, tlsSupport),
+		relay: NewRelay(
+			exposedAddress,
+			tlsSupport,
+			auth.NewTimedHMACValidator(authSecret, 24*time.Hour)),
 	}
 }
 

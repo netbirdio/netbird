@@ -169,7 +169,7 @@ func Test_SyncProtocol(t *testing.T) {
 	}
 
 	if wiretrusteeConfig.GetSignal() == nil {
-		t.Fatal("expecting SyncResponse to have WiretrusteeConfig with non-nil Signal config")
+		t.Fatal("expecting SyncResponse to have WiretrusteeConfig with non-nil Signal turnCfg")
 	}
 
 	expectedSignalConfig := &mgmtProto.HostConfig{
@@ -418,7 +418,7 @@ func startManagement(t *testing.T, config *Config) (*grpc.Server, string, error)
 	if err != nil {
 		return nil, "", err
 	}
-	turnManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
+	turnManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, "")
 
 	ephemeralMgr := NewEphemeralManager(store, accountManager)
 	mgmtServer, err := NewServer(config, accountManager, peersUpdateManager, turnManager, nil, ephemeralMgr)

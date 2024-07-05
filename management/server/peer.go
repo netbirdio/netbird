@@ -900,7 +900,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) {
 			continue
 		}
 		remotePeerNetworkMap := account.GetPeerNetworkMap(peer.ID, am.dnsDomain, approvedPeersMap)
-		update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain())
+		update := toSyncResponse(nil, peer, nil, nil, remotePeerNetworkMap, am.GetDNSDomain())
 		am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})
 	}
 }

@@ -122,7 +122,7 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	if err != nil {
 		return nil, "", err
 	}
-	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
+	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, "")
 	mgmtServer, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, nil, nil)
 	if err != nil {
 		return nil, "", err

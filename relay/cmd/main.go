@@ -24,6 +24,7 @@ var (
 	letsencryptDomains []string
 	tlsCertFile        string
 	tlsKeyFile         string
+	authSecret         string
 
 	rootCmd = &cobra.Command{
 		Use:   "relay",
@@ -41,7 +42,7 @@ func init() {
 	rootCmd.PersistentFlags().StringArrayVarP(&letsencryptDomains, "letsencrypt-domains", "a", nil, "list of domains to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 	rootCmd.PersistentFlags().StringVarP(&tlsCertFile, "tls-cert-file", "c", "", "")
 	rootCmd.PersistentFlags().StringVarP(&tlsKeyFile, "tls-key-file", "k", "", "")
-
+	rootCmd.PersistentFlags().StringVarP(&authSecret, "auth-secret", "s", "", "log level")
 }
 
 func waitForExitSignal() {
@@ -53,6 +54,11 @@ func waitForExitSignal() {
 func execute(cmd *cobra.Command, args []string) {
 	if exposedAddress == "" {
 		log.Errorf("exposed address is required")
+		os.Exit(1)
+	}
+
+	if authSecret == "" {
+		log.Errorf("auth secret is required")
 		os.Exit(1)
 	}
 
@@ -76,7 +82,7 @@ func execute(cmd *cobra.Command, args []string) {
 	}
 
 	tlsSupport := srvListenerCfg.TLSConfig != nil
-	srv := server.NewServer(exposedAddress, tlsSupport)
+	srv := server.NewServer(exposedAddress, tlsSupport, authSecret)
 	log.Infof("server will be available on: %s", srv.InstanceURL())
 	err := srv.Listen(srvListenerCfg)
 	if err != nil {

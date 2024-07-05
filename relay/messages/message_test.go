@@ -6,12 +6,12 @@ import (
 
 func TestMarshalHelloMsg(t *testing.T) {
 	peerID := []byte("abdFAaBcawquEiCMzAabYosuUaGLtSNhKxz+")
-	bHello, err := MarshalHelloMsg(peerID)
+	bHello, err := MarshalHelloMsg(peerID, nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
 
-	receivedPeerID, err := UnmarshalHelloMsg(bHello)
+	receivedPeerID, _, err := UnmarshalHelloMsg(bHello)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}

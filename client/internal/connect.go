@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/iface"
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/relay/auth/hmac"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	signal "github.com/netbirdio/netbird/signal/client"
 	"github.com/netbirdio/netbird/util"
@@ -245,9 +246,10 @@ func (c *ConnectClient) run(
 
 		c.statusRecorder.MarkSignalConnected()
 
-		relayAddress := relayAddress(loginResp)
-		relayManager := relayClient.NewManager(engineCtx, relayAddress, myPrivateKey.PublicKey().String())
-		if relayAddress != "" {
+		relayURL, token := parseRelayInfo(loginResp)
+		relayManager := relayClient.NewManager(engineCtx, relayURL, myPrivateKey.PublicKey().String())
+		if relayURL != "" {
+			relayManager.UpdateToken(token)
 			if err = relayManager.Serve(); err != nil {
 				log.Error(err)
 				return wrapErr(err)
@@ -307,15 +309,27 @@ func (c *ConnectClient) run(
 	return nil
 }
 
-func relayAddress(resp *mgmProto.LoginResponse) string {
+func parseRelayInfo(resp *mgmProto.LoginResponse) (string, hmac.Token) {
+	// todo remove this
 	if ra := peer.ForcedRelayAddress(); ra != "" {
-		return ra
+		return ra, hmac.Token{}
 	}
 
-	if resp.GetWiretrusteeConfig().GetRelayAddress() != "" {
-		return resp.GetWiretrusteeConfig().GetRelayAddress()
+	msg := resp.GetWiretrusteeConfig().GetRelay()
+	if msg == nil {
+		return "", hmac.Token{}
 	}
-	return ""
+
+	var url string
+	if msg.GetUrls() != nil && len(msg.GetUrls()) > 0 {
+		url = msg.GetUrls()[0]
+	}
+
+	token := hmac.Token{
+		Payload:   msg.GetTokenPayload(),
+		Signature: msg.GetTokenSignature(),
+	}
+	return url, token
 }
 
 func (c *ConnectClient) Engine() *Engine {

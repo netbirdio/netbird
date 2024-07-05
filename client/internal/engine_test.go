@@ -1071,7 +1071,7 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
+	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, "")
 	mgmtServer, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, nil, nil)
 	if err != nil {
 		return nil, "", err

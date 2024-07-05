@@ -10,6 +10,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	auth "github.com/netbirdio/netbird/relay/auth/hmac"
 	"github.com/netbirdio/netbird/relay/client/dialer/ws"
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	"github.com/netbirdio/netbird/relay/messages"
@@ -98,6 +99,7 @@ type Client struct {
 	log           *log.Entry
 	parentCtx     context.Context
 	connectionURL string
+	authStore     *auth.Store
 	hashedID      []byte
 
 	bufPool *sync.Pool
@@ -115,12 +117,13 @@ type Client struct {
 }
 
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
-func NewClient(ctx context.Context, serverURL, peerID string) *Client {
+func NewClient(ctx context.Context, serverURL string, authStore *auth.Store, peerID string) *Client {
 	hashedID, hashedStringId := messages.HashID(peerID)
 	return &Client{
 		log:           log.WithField("client_id", hashedStringId),
 		parentCtx:     ctx,
 		connectionURL: serverURL,
+		authStore:     authStore,
 		hashedID:      hashedID,
 		bufPool: &sync.Pool{
 			New: func() any {
@@ -234,7 +237,12 @@ func (c *Client) connect() error {
 }
 
 func (c *Client) handShake() error {
-	msg, err := messages.MarshalHelloMsg(c.hashedID)
+	t, err := c.authStore.Token()
+	if err != nil {
+		return err
+	}
+
+	msg, err := messages.MarshalHelloMsg(c.hashedID, t)
 	if err != nil {
 		log.Errorf("failed to marshal hello message: %s", err)
 		return err
@@ -262,11 +270,11 @@ func (c *Client) handShake() error {
 		return fmt.Errorf("unexpected message type")
 	}
 
-	domain, err := messages.UnmarshalHelloResponse(buf[:n])
+	ia, err := messages.UnmarshalHelloResponse(buf[:n])
 	if err != nil {
 		return err
 	}
-	c.instanceURL = domain
+	c.instanceURL = ia
 	return nil
 }
 

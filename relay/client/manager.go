@@ -8,6 +8,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	relayAuth "github.com/netbirdio/netbird/relay/auth/hmac"
 )
 
 var (
@@ -35,9 +37,10 @@ func NewRelayTrack() *RelayTrack {
 // relay servers will be closed if there is no active connection. Periodically the manager will check if there is any
 // unused relay connection and close it.
 type Manager struct {
-	ctx       context.Context
-	serverURL string
-	peerID    string
+	ctx        context.Context
+	serverURL  string
+	peerID     string
+	tokenStore *relayAuth.Store
 
 	relayClient    *Client
 	reconnectGuard *Guard
@@ -54,6 +57,7 @@ func NewManager(ctx context.Context, serverURL string, peerID string) *Manager {
 		ctx:                     ctx,
 		serverURL:               serverURL,
 		peerID:                  peerID,
+		tokenStore:              &relayAuth.Store{},
 		relayClients:            make(map[string]*RelayTrack),
 		onDisconnectedListeners: make(map[string]map[*func()]struct{}),
 	}
@@ -65,7 +69,7 @@ func (m *Manager) Serve() error {
 		return fmt.Errorf("manager already serving")
 	}
 
-	m.relayClient = NewClient(m.ctx, m.serverURL, m.peerID)
+	m.relayClient = NewClient(m.ctx, m.serverURL, m.tokenStore, m.peerID)
 	err := m.relayClient.Connect()
 	if err != nil {
 		log.Errorf("failed to connect to relay server: %s", err)
@@ -158,7 +162,7 @@ func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
 	m.relayClients[serverAddress] = rt
 	m.relayClientsMutex.Unlock()
 
-	relayClient := NewClient(m.ctx, serverAddress, m.peerID)
+	relayClient := NewClient(m.ctx, serverAddress, m.tokenStore, m.peerID)
 	err := relayClient.Connect()
 	if err != nil {
 		rt.Unlock()
@@ -259,4 +263,8 @@ func (m *Manager) notifyOnDisconnectListeners(serverAddress string) {
 	delete(m.onDisconnectedListeners, serverAddress)
 	m.listenerLock.Unlock()
 
+}
+
+func (m *Manager) UpdateToken(token relayAuth.Token) {
+	m.tokenStore.UpdateToken(token)
 }

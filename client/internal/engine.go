@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
+
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/relay"
@@ -36,6 +37,7 @@ import (
 	"github.com/netbirdio/netbird/iface/bind"
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
+	auth "github.com/netbirdio/netbird/relay/auth/hmac"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
 	signal "github.com/netbirdio/netbird/signal/client"
@@ -467,12 +469,13 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	defer e.syncMsgMux.Unlock()
 
 	if update.GetWiretrusteeConfig() != nil {
-		err := e.updateTURNs(update.GetWiretrusteeConfig().GetTurns())
+		wCfg := update.GetWiretrusteeConfig()
+		err := e.updateTURNs(wCfg.GetTurns())
 		if err != nil {
 			return err
 		}
 
-		err = e.updateSTUNs(update.GetWiretrusteeConfig().GetStuns())
+		err = e.updateSTUNs(wCfg.GetStuns())
 		if err != nil {
 			return err
 		}
@@ -482,8 +485,16 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		stunTurn = append(stunTurn, e.TURNs...)
 		e.StunTurn.Store(stunTurn)
 
-		// todo update relay address in the relay manager
+		relayMsg := wCfg.GetRelay()
+		if relayMsg != nil {
+			c := auth.Token{
+				Payload:   relayMsg.GetTokenPayload(),
+				Signature: relayMsg.GetTokenSignature(),
+			}
+			e.relayManager.UpdateToken(c)
+		}
 
+		// todo update relay address in the relay manager
 		// todo update signal
 	}
 

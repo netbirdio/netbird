@@ -8,20 +8,24 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/relay/auth"
 	"github.com/netbirdio/netbird/relay/messages"
 )
 
 type Relay struct {
+	validator auth.Validator
+
 	store      *Store
-	instaceURL string // domain:port
+	instaceURL string
 
 	closed  bool
 	closeMu sync.RWMutex
 }
 
-func NewRelay(exposedAddress string, tlsSupport bool) *Relay {
+func NewRelay(exposedAddress string, tlsSupport bool, validator auth.Validator) *Relay {
 	r := &Relay{
-		store: NewStore(),
+		validator: validator,
+		store:     NewStore(),
 	}
 
 	if tlsSupport {
@@ -29,6 +33,7 @@ func NewRelay(exposedAddress string, tlsSupport bool) *Relay {
 	} else {
 		r.instaceURL = fmt.Sprintf("rel://%s", exposedAddress)
 	}
+
 	return r
 }
 
@@ -94,10 +99,15 @@ func (r *Relay) handShake(conn net.Conn) ([]byte, error) {
 		return nil, tErr
 	}
 
-	peerID, err := messages.UnmarshalHelloMsg(buf[:n])
+	peerID, authPayload, err := messages.UnmarshalHelloMsg(buf[:n])
 	if err != nil {
 		log.Errorf("failed to handshake: %s", err)
 		return nil, err
+	}
+
+	if err := r.validator.Validate(authPayload); err != nil {
+		log.Errorf("failed to authenticate peer with id: %s, %s", peerID, err)
+		return nil, fmt.Errorf("failed to authenticate peer")
 	}
 
 	msg, _ := messages.MarshalHelloResponse(r.instaceURL)

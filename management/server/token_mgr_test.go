@@ -26,18 +26,18 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 		CredentialsTTL: ttl,
 		Secret:         secret,
 		Turns:          []*Host{TurnTestHost},
-	})
+	}, "")
 
-	credentials := tested.GenerateCredentials()
+	credentials, _ := tested.Generate()
 
-	if credentials.Username == "" {
+	if credentials.Payload == "" {
 		t.Errorf("expected generated TURN username not to be empty, got empty")
 	}
-	if credentials.Password == "" {
+	if credentials.Signature == "" {
 		t.Errorf("expected generated TURN password not to be empty, got empty")
 	}
 
-	validateMAC(t, credentials.Username, credentials.Password, []byte(secret))
+	validateMAC(t, credentials.Payload, credentials.Signature, []byte(secret))
 
 }
 
@@ -52,7 +52,7 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 		CredentialsTTL: ttl,
 		Secret:         secret,
 		Turns:          []*Host{TurnTestHost},
-	})
+	}, "")
 
 	tested.SetupRefresh(peer)
 
@@ -100,7 +100,7 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 		CredentialsTTL: ttl,
 		Secret:         secret,
 		Turns:          []*Host{TurnTestHost},
-	})
+	}, "")
 
 	tested.SetupRefresh(peer)
 	if _, ok := tested.cancelMap[peer]; !ok {
