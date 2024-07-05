@@ -192,9 +192,10 @@ func (p *PeersUpdateManager) HasChannel(peerID string) bool {
 
 // handlePeerMessageUpdate checks if the update message for a peer is new and should be sent.
 func (p *PeersUpdateManager) handlePeerMessageUpdate(ctx context.Context, peerID string, update *UpdateMessage) bool {
-	p.channelsMux.RLock()
+	p.channelsMux.Lock()
+	defer p.channelsMux.Unlock()
+
 	previousUpdateMsg := p.peerUpdateMessage[peerID]
-	p.channelsMux.RUnlock()
 
 	if previousUpdateMsg != nil {
 		updated, err := isNewPeerUpdateMessage(previousUpdateMsg, update)
@@ -212,10 +213,7 @@ func (p *PeersUpdateManager) handlePeerMessageUpdate(ctx context.Context, peerID
 		log.WithContext(ctx).Debugf("peer %s network map serial not changed, skip sending update", peerID)
 		return false
 	}
-
-	p.channelsMux.Lock()
 	p.peerUpdateMessage[peerID] = update
-	p.channelsMux.Unlock()
 
 	return true
 }
