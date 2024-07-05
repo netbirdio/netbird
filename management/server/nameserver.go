@@ -85,6 +85,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 		return nil, err
 	}
 
+	// todo: check distribution groups if they have any peers
 	am.updateAccountPeers(ctx, account)
 
 	am.StoreEvent(ctx, userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
@@ -120,6 +121,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 		return err
 	}
 
+	// todo: check before and after distribution groups if they have any peers
 	am.updateAccountPeers(ctx, account)
 
 	am.StoreEvent(ctx, userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
@@ -150,6 +152,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 		return err
 	}
 
+	// todo: check distribution groups if they have any peers
 	am.updateAccountPeers(ctx, account)
 
 	am.StoreEvent(ctx, userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())

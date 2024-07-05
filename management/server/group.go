@@ -155,6 +155,7 @@ func (am *DefaultAccountManager) SaveGroup(ctx context.Context, accountID, userI
 		return err
 	}
 
+	// todo: check if groups is in use by dns, acl, routes and before/after peers
 	am.updateAccountPeers(ctx, account)
 
 	// the following snippet tracks the activity and stores the group events in the event store.
@@ -322,6 +323,7 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountId, use
 
 	am.StoreEvent(ctx, userId, groupID, accountId, activity.GroupDeleted, g.EventMeta())
 
+	// todo: check if groups is in use by dns, acl, routes and if it has peers
 	am.updateAccountPeers(ctx, account)
 
 	return nil
@@ -376,6 +378,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 		return err
 	}
 
+	// todo: check if groups is in use by dns, acl, routes
 	am.updateAccountPeers(ctx, account)
 
 	return nil
@@ -406,6 +409,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 		}
 	}
 
+	// todo: check if groups is in use by dns, acl, routes
 	am.updateAccountPeers(ctx, account)
 
 	return nil

@@ -320,7 +320,7 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 			}
 		}
 	}()
-
+	// todo: remove it, not needed here since we don't update anything else
 	am.updateAccountPeers(ctx, account)
 
 	return newKey, nil

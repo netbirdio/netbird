@@ -7,9 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server/posture"
 
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -217,6 +218,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		return nil, err
 	}
 
+	// todo: don't call it if peer is not expired and Peer.LoginExpirationEnabled was set to false
 	am.updateAccountPeers(ctx, account)
 
 	return peer, nil
@@ -289,6 +291,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		return err
 	}
 
+	// todo: evaluate if peer was part of a group that has is used in a active dns, route, acl
 	am.updateAccountPeers(ctx, account)
 
 	return nil
@@ -509,6 +512,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
+	// todo: evaluate if peer is part of a group that has is used in a active dns, route, acl
 	am.updateAccountPeers(ctx, account)
 
 	approvedPeersMap, err := am.GetValidatedPeers(account)
@@ -544,6 +548,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 			return nil, nil, nil, err
 		}
 
+		// todo: review this logic
 		if sync.UpdateAccountPeers {
 			am.updateAccountPeers(ctx, account)
 		}
@@ -563,6 +568,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 		return peer, emptyMap, postureChecks, nil
 	}
 
+	// todo: review this logic and combine with the previous
 	if isStatusChanged {
 		am.updateAccountPeers(ctx, account)
 	}
@@ -802,11 +808,13 @@ func (am *DefaultAccountManager) checkAndUpdatePeerSSHKey(ctx context.Context, p
 	}
 
 	// trigger network map update
+	// todo: remove this since it is called by the caller function
 	am.updateAccountPeers(ctx, account)
 
 	return peer, nil
 }
 
+// todo: not in use, remove it
 // UpdatePeerSSHKey updates peer's public SSH key
 func (am *DefaultAccountManager) UpdatePeerSSHKey(ctx context.Context, peerID string, sshKey string) error {
 	if sshKey == "" {

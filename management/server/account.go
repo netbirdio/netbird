@@ -1726,6 +1726,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims
 								log.WithContext(ctx).Errorf("failed to save account: %v", err)
 							} else {
 								log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
+								// todo: optimize this as part of the group optimizations
 								am.updateAccountPeers(ctx, account)
 								unlock()
 								alreadyUnlocked = true

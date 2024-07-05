@@ -364,6 +364,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	}
 	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
 
+	// todo: call if before and after source and destination groups are not empty
 	am.updateAccountPeers(ctx, account)
 
 	return nil
@@ -391,6 +392,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 	am.StoreEvent(ctx, userID, policy.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
+	// todo: call if source and destination groups are not empty
 	am.updateAccountPeers(ctx, account)
 
 	return nil

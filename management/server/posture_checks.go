@@ -82,6 +82,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 	if exists {
+		// todo: check if posture check is linked to a policy
 		am.updateAccountPeers(ctx, account)
 	}
 

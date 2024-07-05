@@ -204,7 +204,10 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return nil, err
 	}
-
+	// todo: call if one of the three is true:
+	// 1. distribution groups are not empty
+	// 2. routing groups are not empy
+	// 3. there is a routing peer
 	am.updateAccountPeers(ctx, account)
 
 	am.StoreEvent(ctx, userID, string(newRoute.ID), accountID, activity.RouteCreated, newRoute.EventMeta())
@@ -273,7 +276,10 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
-
+	// todo: call if one of the three is true:
+	// 1. before and after distribution groups are not empty
+	// 2. before and after routing groups are not empy
+	// 3. there is a routing peer
 	am.updateAccountPeers(ctx, account)
 
 	am.StoreEvent(ctx, userID, string(routeToSave.ID), accountID, activity.RouteUpdated, routeToSave.EventMeta())
@@ -303,7 +309,10 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 	}
 
 	am.StoreEvent(ctx, userID, string(routy.ID), accountID, activity.RouteRemoved, routy.EventMeta())
-
+	// todo: call if one of the three is true:
+	// 1. distribution groups are not empty
+	// 2. routing groups are not empy
+	// 3. there is a routing peer
 	am.updateAccountPeers(ctx, account)
 
 	return nil

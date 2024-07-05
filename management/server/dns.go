@@ -108,6 +108,7 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.GroupRemovedFromDisabledManagementGroups, meta)
 	}
 
+	// todo: check if before/after groups are in use by dns, acl, routes and if it has peers
 	am.updateAccountPeers(ctx, account)
 
 	return nil

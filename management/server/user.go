@@ -517,6 +517,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account 
 	meta := map[string]any{"name": tuName, "email": tuEmail, "created_at": tuCreatedAt}
 	am.StoreEvent(ctx, initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
 
+	// todo: call only if user had a peer linked to it and peer propagation is enabled
 	am.updateAccountPeers(ctx, account)
 
 	return nil
@@ -851,7 +852,8 @@ func (am *DefaultAccountManager) SaveOrAddUser(ctx context.Context, accountID, i
 		if err = am.Store.SaveAccount(ctx, account); err != nil {
 			return nil, err
 		}
-
+		// todo: call only if is existing user, it has a peer linked to it and peer propagation is enabled
+		// new users don't need to call this
 		am.updateAccountPeers(ctx, account)
 	} else {
 		if err = am.Store.SaveAccount(ctx, account); err != nil {
