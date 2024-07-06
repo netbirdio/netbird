@@ -69,6 +69,7 @@ type AccountManager interface {
 	ListSetupKeys(ctx context.Context, accountID, userID string) ([]*SetupKey, error)
 	SaveUser(ctx context.Context, accountID, initiatorUserID string, update *User) (*UserInfo, error)
 	SaveOrAddUser(ctx context.Context, accountID, initiatorUserID string, update *User, addIfNotExists bool) (*UserInfo, error)
+	SaveOrAddUsers(ctx context.Context, accountID, initiatorUserID string, updates []*User, addIfNotExists bool) ([]*UserInfo, error)
 	GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(ctx context.Context, userID, accountID, domain string) (*Account, error)
 	GetAccountFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*Account, *User, error)

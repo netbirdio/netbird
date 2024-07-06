@@ -64,6 +64,7 @@ type MockAccountManager struct {
 	ListSetupKeysFunc                   func(ctx context.Context, accountID, userID string) ([]*server.SetupKey, error)
 	SaveUserFunc                        func(ctx context.Context, accountID, userID string, user *server.User) (*server.UserInfo, error)
 	SaveOrAddUserFunc                   func(ctx context.Context, accountID, userID string, user *server.User, addIfNotExists bool) (*server.UserInfo, error)
+	SaveOrAddUsersFunc                  func(ctx context.Context, accountID, initiatorUserID string, update []*server.User, addIfNotExists bool) ([]*server.UserInfo, error)
 	DeleteUserFunc                      func(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error
 	CreatePATFunc                       func(ctx context.Context, accountID string, initiatorUserID string, targetUserId string, tokenName string, expiresIn int) (*server.PersonalAccessTokenGenerated, error)
 	DeletePATFunc                       func(ctx context.Context, accountID string, initiatorUserID string, targetUserId string, tokenID string) error
@@ -500,6 +501,14 @@ func (am *MockAccountManager) SaveOrAddUser(ctx context.Context, accountID, user
 		return am.SaveOrAddUserFunc(ctx, accountID, userID, user, addIfNotExists)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method SaveOrAddUser is not implemented")
+}
+
+// SaveOrAddUsers mocks SaveOrAddUsers of the AccountManager interface
+func (am *MockAccountManager) SaveOrAddUsers(ctx context.Context, accountID, userID string, users []*server.User, addIfNotExists bool) ([]*server.UserInfo, error) {
+	if am.SaveOrAddUsersFunc != nil {
+		return am.SaveOrAddUsersFunc(ctx, accountID, userID, users, addIfNotExists)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method SaveOrAddUsers is not implemented")
 }
 
 // DeleteUser mocks DeleteUser of the AccountManager interface
