@@ -65,15 +65,15 @@ func TestDefaultManager(t *testing.T) {
 	t.Run("apply firewall rules", func(t *testing.T) {
 		acl.ApplyFiltering(networkMap)
 
-		if len(acl.rulesPairs) != 2 {
-			t.Errorf("firewall rules not applied: %v", acl.rulesPairs)
+		if len(acl.peerRulesPairs) != 2 {
+			t.Errorf("firewall rules not applied: %v", acl.peerRulesPairs)
 			return
 		}
 	})
 
 	t.Run("add extra rules", func(t *testing.T) {
 		existedPairs := map[string]struct{}{}
-		for id := range acl.rulesPairs {
+		for id := range acl.peerRulesPairs {
 			existedPairs[id] = struct{}{}
 		}
 
@@ -92,14 +92,14 @@ func TestDefaultManager(t *testing.T) {
 		acl.ApplyFiltering(networkMap)
 
 		// we should have one old and one new rule in the existed rules
-		if len(acl.rulesPairs) != 2 {
+		if len(acl.peerRulesPairs) != 2 {
 			t.Errorf("firewall rules not applied")
 			return
 		}
 
 		// check that old rule was removed
 		previousCount := 0
-		for id := range acl.rulesPairs {
+		for id := range acl.peerRulesPairs {
 			if _, ok := existedPairs[id]; ok {
 				previousCount++
 			}
@@ -113,15 +113,15 @@ func TestDefaultManager(t *testing.T) {
 		networkMap.FirewallRules = networkMap.FirewallRules[:0]
 
 		networkMap.FirewallRulesIsEmpty = true
-		if acl.ApplyFiltering(networkMap); len(acl.rulesPairs) != 0 {
-			t.Errorf("rules should be empty if FirewallRulesIsEmpty is set, got: %v", len(acl.rulesPairs))
+		if acl.ApplyFiltering(networkMap); len(acl.peerRulesPairs) != 0 {
+			t.Errorf("rules should be empty if FirewallRulesIsEmpty is set, got: %v", len(acl.peerRulesPairs))
 			return
 		}
 
 		networkMap.FirewallRulesIsEmpty = false
 		acl.ApplyFiltering(networkMap)
-		if len(acl.rulesPairs) != 2 {
-			t.Errorf("rules should contain 2 rules if FirewallRulesIsEmpty is not set, got: %v", len(acl.rulesPairs))
+		if len(acl.peerRulesPairs) != 2 {
+			t.Errorf("rules should contain 2 rules if FirewallRulesIsEmpty is not set, got: %v", len(acl.peerRulesPairs))
 			return
 		}
 	})
@@ -357,8 +357,8 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 
 	acl.ApplyFiltering(networkMap)
 
-	if len(acl.rulesPairs) != 4 {
-		t.Errorf("expect 4 rules (last must be SSH), got: %d", len(acl.rulesPairs))
+	if len(acl.peerRulesPairs) != 4 {
+		t.Errorf("expect 4 rules (last must be SSH), got: %d", len(acl.peerRulesPairs))
 		return
 	}
 }

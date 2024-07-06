@@ -345,7 +345,7 @@ func (am *MockAccountManager) DeleteRule(ctx context.Context, accountID, ruleID,
 	if am.DeleteRuleFunc != nil {
 		return am.DeleteRuleFunc(ctx, accountID, ruleID, userID)
 	}
-	return status.Errorf(codes.Unimplemented, "method DeleteRule is not implemented")
+	return status.Errorf(codes.Unimplemented, "method DeletePeerRule is not implemented")
 }
 
 // GetPolicy mock implementation of GetPolicy from server.AccountManager interface
