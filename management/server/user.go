@@ -745,14 +745,6 @@ func (am *DefaultAccountManager) SaveUser(ctx context.Context, accountID, initia
 	return am.SaveOrAddUser(ctx, accountID, initiatorUserID, update, false) // false means do not create user and throw status.NotFound
 }
 
-// SaveUsers saves updates to the given users.
-// If the user doesn't exist, it will throw status.NotFound error.
-// Note: This function does not acquire the global lock.
-// It is the caller's responsibility to ensure proper locking is in place before invoking this method.
-func (am *DefaultAccountManager) SaveUsers(ctx context.Context, accountID, initiatorUserID string, update []*User) ([]*UserInfo, error) {
-	return am.SaveOrAddUsers(ctx, accountID, initiatorUserID, update, false)
-}
-
 // SaveOrAddUser updates the given user. If addIfNotExists is set to true it will add user when no exist
 // Only User.AutoGroups, User.Role, and User.Blocked fields are allowed to be updated for now.
 func (am *DefaultAccountManager) SaveOrAddUser(ctx context.Context, accountID, initiatorUserID string, update *User, addIfNotExists bool) (*UserInfo, error) {
