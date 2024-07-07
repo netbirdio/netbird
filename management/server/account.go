@@ -96,6 +96,7 @@ type AccountManager interface {
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*nbgroup.Group, error)
 	GetGroupByName(ctx context.Context, groupName, accountID string) (*nbgroup.Group, error)
 	SaveGroup(ctx context.Context, accountID, userID string, group *nbgroup.Group) error
+	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*nbgroup.Group) error
 	DeleteGroup(ctx context.Context, accountId, userId, groupID string) error
 	ListGroups(ctx context.Context, accountId string) ([]*nbgroup.Group, error)
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
