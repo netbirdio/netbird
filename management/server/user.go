@@ -790,7 +790,10 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	}
 
 	updatedUsers := make([]*UserInfo, 0, len(updates))
-	var expiredPeers []*nbpeer.Peer
+	var (
+		expiredPeers  []*nbpeer.Peer
+		eventsToStore []func()
+	)
 
 	for _, update := range updates {
 		if update == nil {
@@ -838,7 +841,8 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			account.UserGroupsRemoveFromPeers(oldUser.Id, removedGroups...)
 		}
 
-		storeUserUpdateEvents(ctx, am, initiatorUser.Id, oldUser, newUser, account, transferredOwnerRole)
+		events := am.prepareUserUpdateEvents(ctx, initiatorUser.Id, oldUser, newUser, account, transferredOwnerRole)
+		eventsToStore = append(eventsToStore, events...)
 
 		updatedUserInfo, err := getUserInfo(ctx, am, newUser, account)
 		if err != nil {
@@ -863,13 +867,69 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		am.updateAccountPeers(ctx, account)
 	}
 
+	for _, storeEvent := range eventsToStore {
+		storeEvent()
+	}
+
 	return updatedUsers, nil
 }
 
-// handleOwnerRoleTransfer updates the role of the initiatorUser if the initiatorUser is the owner,
-// the update user is not the initiatorUser, and the update user has the role of owner. It sets the role of
-// the initiatorUser to admin, updates it in the account.Users map, and returns true. Otherwise,
-// it returns false.
+// prepareUserUpdateEvents prepares a list user update events based on the changes between the old and new user data.
+func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, initiatorUserID string, oldUser, newUser *User, account *Account, transferredOwnerRole bool) []func() {
+	var eventsToStore []func()
+
+	if oldUser.IsBlocked() != newUser.IsBlocked() {
+		if newUser.IsBlocked() {
+			eventsToStore = append(eventsToStore, func() {
+				am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.UserBlocked, nil)
+			})
+		} else {
+			eventsToStore = append(eventsToStore, func() {
+				am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.UserUnblocked, nil)
+			})
+		}
+	}
+
+	switch {
+	case transferredOwnerRole:
+		eventsToStore = append(eventsToStore, func() {
+			am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.TransferredOwnerRole, nil)
+		})
+	case oldUser.Role != newUser.Role:
+		eventsToStore = append(eventsToStore, func() {
+			am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
+		})
+	}
+
+	if newUser.AutoGroups != nil {
+		removedGroups := difference(oldUser.AutoGroups, newUser.AutoGroups)
+		addedGroups := difference(newUser.AutoGroups, oldUser.AutoGroups)
+		for _, g := range removedGroups {
+			group := account.GetGroup(g)
+			if group != nil {
+				eventsToStore = append(eventsToStore, func() {
+					am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.GroupRemovedFromUser,
+						map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
+				})
+
+			} else {
+				log.WithContext(ctx).Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
+			}
+		}
+		for _, g := range addedGroups {
+			group := account.GetGroup(g)
+			if group != nil {
+				eventsToStore = append(eventsToStore, func() {
+					am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.GroupAddedToUser,
+						map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
+				})
+			}
+		}
+	}
+
+	return eventsToStore
+}
+
 func handleOwnerRoleTransfer(account *Account, initiatorUser, update *User) bool {
 	if initiatorUser.Role == UserRoleOwner && initiatorUser.Id != update.Id && update.Role == UserRoleOwner {
 		newInitiatorUser := initiatorUser.Copy()
@@ -880,43 +940,18 @@ func handleOwnerRoleTransfer(account *Account, initiatorUser, update *User) bool
 	return false
 }
 
-// storeUserUpdateEvents stores user update events based on the changes between the old and new user data.
-func storeUserUpdateEvents(ctx context.Context, am *DefaultAccountManager, initiatorUserID string, oldUser, newUser *User, account *Account, transferredOwnerRole bool) {
-	if oldUser.IsBlocked() != newUser.IsBlocked() {
-		if newUser.IsBlocked() {
-			am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.UserBlocked, nil)
-		} else {
-			am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.UserUnblocked, nil)
+// getUserInfo retrieves the UserInfo for a given User and Account.
+// If the AccountManager has a non-nil idpManager and the User is not a service user,
+// it will attempt to look up the UserData from the cache.
+func getUserInfo(ctx context.Context, am *DefaultAccountManager, user *User, account *Account) (*UserInfo, error) {
+	if !isNil(am.idpManager) && !user.IsServiceUser {
+		userData, err := am.lookupUserInCache(ctx, user.Id, account)
+		if err != nil {
+			return nil, err
 		}
+		return user.ToUserInfo(userData, account.Settings)
 	}
-
-	switch {
-	case transferredOwnerRole:
-		am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.TransferredOwnerRole, nil)
-	case oldUser.Role != newUser.Role:
-		am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
-	}
-
-	if newUser.AutoGroups != nil {
-		removedGroups := difference(oldUser.AutoGroups, newUser.AutoGroups)
-		addedGroups := difference(newUser.AutoGroups, oldUser.AutoGroups)
-		for _, g := range removedGroups {
-			group := account.GetGroup(g)
-			if group != nil {
-				am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.GroupRemovedFromUser,
-					map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
-			} else {
-				log.WithContext(ctx).Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
-			}
-		}
-		for _, g := range addedGroups {
-			group := account.GetGroup(g)
-			if group != nil {
-				am.StoreEvent(ctx, initiatorUserID, oldUser.Id, account.Id, activity.GroupAddedToUser,
-					map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
-			}
-		}
-	}
+	return user.ToUserInfo(nil, account.Settings)
 }
 
 // validateUserUpdate validates the update operation for a user.
@@ -948,20 +983,6 @@ func validateUserUpdate(account *Account, initiatorUser, oldUser, update *User) 
 	}
 
 	return nil
-}
-
-// getUserInfo retrieves the UserInfo for a given User and Account.
-// If the AccountManager has a non-nil idpManager and the User is not a service user,
-// it will attempt to look up the UserData from the cache.
-func getUserInfo(ctx context.Context, am *DefaultAccountManager, user *User, account *Account) (*UserInfo, error) {
-	if !isNil(am.idpManager) && !user.IsServiceUser {
-		userData, err := am.lookupUserInCache(ctx, user.Id, account)
-		if err != nil {
-			return nil, err
-		}
-		return user.ToUserInfo(userData, account.Settings)
-	}
-	return user.ToUserInfo(nil, account.Settings)
 }
 
 // GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
