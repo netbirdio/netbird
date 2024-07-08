@@ -48,6 +48,9 @@ func TestClient(t *testing.T) {
 		}
 	}()
 
+	// wait for server to start
+	time.Sleep(300 * time.Millisecond)
+
 	t.Log("alice connecting to server")
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
 	err := clientAlice.Connect()
@@ -113,6 +116,9 @@ func TestRegistration(t *testing.T) {
 			t.Fatalf("failed to bind server: %s", err)
 		}
 	}()
+
+	// wait for server to start
+	time.Sleep(300 * time.Millisecond)
 
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
 	err := clientAlice.Connect()
@@ -185,6 +191,9 @@ func TestEcho(t *testing.T) {
 			t.Errorf("failed to close server: %s", err)
 		}
 	}()
+
+	// wait for server to start
+	time.Sleep(300 * time.Millisecond)
 
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, idAlice)
 	err := clientAlice.Connect()
@@ -267,6 +276,9 @@ func TestBindToUnavailabePeer(t *testing.T) {
 		}
 	}()
 
+	// wait for server to start
+	time.Sleep(300 * time.Millisecond)
+
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
@@ -303,6 +315,9 @@ func TestBindReconnect(t *testing.T) {
 			t.Errorf("failed to close server: %s", err)
 		}
 	}()
+
+	// wait for server to start
+	time.Sleep(300 * time.Millisecond)
 
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
 	err := clientAlice.Connect()
@@ -386,6 +401,9 @@ func TestCloseConn(t *testing.T) {
 		}
 	}()
 
+	// wait for server to start
+	time.Sleep(300 * time.Millisecond)
+
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
@@ -433,6 +451,9 @@ func TestCloseRelayConn(t *testing.T) {
 		}
 	}()
 
+	// wait for server to start
+	time.Sleep(300 * time.Millisecond)
+
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
@@ -468,6 +489,9 @@ func TestCloseByServer(t *testing.T) {
 			t.Fatalf("failed to bind server: %s", err)
 		}
 	}()
+
+	// wait for server to start
+	time.Sleep(300 * time.Millisecond)
 
 	idAlice := "alice"
 	log.Debugf("connect by alice")
@@ -511,6 +535,9 @@ func TestCloseByClient(t *testing.T) {
 			t.Fatalf("failed to bind server: %s", err)
 		}
 	}()
+
+	// wait for server to start
+	time.Sleep(300 * time.Millisecond)
 
 	idAlice := "alice"
 	log.Debugf("connect by alice")
