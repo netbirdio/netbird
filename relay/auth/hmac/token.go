@@ -8,7 +8,6 @@ import (
 	"encoding/gob"
 	"fmt"
 	"strconv"
-	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -40,7 +39,6 @@ func unmarshalToken(payload []byte) (Token, error) {
 
 // TimedHMAC generates token with TTL and using pre-shared secret known to TURN server
 type TimedHMAC struct {
-	mux        sync.Mutex
 	secret     string
 	timeToLive time.Duration
 }

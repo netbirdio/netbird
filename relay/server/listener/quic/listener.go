@@ -18,8 +18,7 @@ import (
 )
 
 type Listener struct {
-	address    string
-	onAcceptFn func(conn net.Conn)
+	address string
 
 	listener *quic.Listener
 	quit     chan struct{}
@@ -88,7 +87,7 @@ func (l *Listener) acceptLoop(acceptFn func(conn net.Conn)) {
 
 // Setup a bare-bones TLS config for the server
 func generateTLSConfig() *tls.Config {
-	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		panic(err)
 	}

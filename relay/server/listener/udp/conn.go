@@ -6,21 +6,21 @@ import (
 	"time"
 )
 
-type UDPConn struct {
+type Conn struct {
 	*net.UDPConn
 	addr       *net.UDPAddr
 	msgChannel chan []byte
 }
 
-func NewConn(conn *net.UDPConn, addr *net.UDPAddr) *UDPConn {
-	return &UDPConn{
+func NewConn(conn *net.UDPConn, addr *net.UDPAddr) *Conn {
+	return &Conn{
 		UDPConn:    conn,
 		addr:       addr,
 		msgChannel: make(chan []byte),
 	}
 }
 
-func (u *UDPConn) Read(b []byte) (n int, err error) {
+func (u *Conn) Read(b []byte) (n int, err error) {
 	msg, ok := <-u.msgChannel
 	if !ok {
 		return 0, io.EOF
@@ -30,39 +30,39 @@ func (u *UDPConn) Read(b []byte) (n int, err error) {
 	return n, nil
 }
 
-func (u *UDPConn) Write(b []byte) (n int, err error) {
+func (u *Conn) Write(b []byte) (n int, err error) {
 	return u.UDPConn.WriteTo(b, u.addr)
 }
 
-func (u *UDPConn) Close() error {
+func (u *Conn) Close() error {
 	//TODO implement me
 	//panic("implement me")
 	return nil
 }
 
-func (u *UDPConn) LocalAddr() net.Addr {
+func (u *Conn) LocalAddr() net.Addr {
 	return u.UDPConn.LocalAddr()
 }
 
-func (u *UDPConn) RemoteAddr() net.Addr {
+func (u *Conn) RemoteAddr() net.Addr {
 	return u.addr
 }
 
-func (u *UDPConn) SetDeadline(t time.Time) error {
+func (u *Conn) SetDeadline(t time.Time) error {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (u *UDPConn) SetReadDeadline(t time.Time) error {
+func (u *Conn) SetReadDeadline(t time.Time) error {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (u *UDPConn) SetWriteDeadline(t time.Time) error {
+func (u *Conn) SetWriteDeadline(t time.Time) error {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (u *UDPConn) onNewMsg(b []byte) {
+func (u *Conn) onNewMsg(b []byte) {
 	u.msgChannel <- b
 }

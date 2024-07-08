@@ -66,7 +66,7 @@ func (r *Relay) Accept(conn net.Conn) {
 }
 
 func (r *Relay) Close(ctx context.Context) {
-	log.Infof("closeing connection with all peers")
+	log.Infof("close connection with all peers")
 	r.closeMu.Lock()
 	wg := sync.WaitGroup{}
 	peers := r.store.Peers()

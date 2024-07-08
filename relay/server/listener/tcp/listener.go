@@ -10,7 +10,7 @@ import (
 )
 
 // Listener
-// Is it just demo code. It does not work in real life environment because the TCP is a streaming protocol, adn
+// Is it just demo code. It does not work in real life environment because the TCP is a streaming protocol, and
 // it does not handle framing.
 type Listener struct {
 	address string

@@ -18,7 +18,7 @@ var (
 	errRelayClientNotConnected = fmt.Errorf("relay client not connected")
 )
 
-// RelayTrack hold the relay clients for the foregin relay servers.
+// RelayTrack hold the relay clients for the foreign relay servers.
 // With the mutex can ensure we can open new connection in case the relay connection has been established with
 // the relay server.
 type RelayTrack struct {

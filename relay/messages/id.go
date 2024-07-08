@@ -18,7 +18,9 @@ var (
 func HashID(peerID string) ([]byte, string) {
 	idHash := sha256.Sum256([]byte(peerID))
 	idHashString := string(prefix) + base64.StdEncoding.EncodeToString(idHash[:])
-	prefixedHash := append(prefix, idHash[:]...)
+	var prefixedHash []byte
+	prefixedHash = append(prefixedHash, prefix...)
+	prefixedHash = append(prefixedHash, idHash[:]...)
 	return prefixedHash, idHashString
 }
 

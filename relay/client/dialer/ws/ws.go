@@ -23,11 +23,12 @@ func Dial(address string) (net.Conn, error) {
 		HTTPClient: httpClientNbDialer(),
 	}
 
-	wsConn, _, err := websocket.Dial(context.Background(), wsURL, opts)
+	wsConn, resp, err := websocket.Dial(context.Background(), wsURL, opts)
 	if err != nil {
 		log.Errorf("failed to dial to Relay server '%s': %s", wsURL, err)
 		return nil, err
 	}
+	_ = resp.Body.Close()
 
 	conn := NewConn(wsConn)
 	return conn, nil

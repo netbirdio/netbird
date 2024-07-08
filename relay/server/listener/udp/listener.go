@@ -11,7 +11,7 @@ import (
 
 type Listener struct {
 	address    string
-	conns      map[string]*UDPConn
+	conns      map[string]*Conn
 	onAcceptFn func(conn net.Conn)
 
 	listener *net.UDPConn
@@ -24,7 +24,7 @@ type Listener struct {
 func NewListener(address string) listener.Listener {
 	return &Listener{
 		address: address,
-		conns:   make(map[string]*UDPConn),
+		conns:   make(map[string]*Conn),
 	}
 }
 
