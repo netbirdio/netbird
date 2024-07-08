@@ -53,12 +53,12 @@ func TestForeignConn(t *testing.T) {
 	log.Debugf("connect by alice")
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	clientAlice := NewManager(mCtx, srvCfg1.Address, idAlice)
+	clientAlice := NewManager(mCtx, toURL(srvCfg1), idAlice)
 	clientAlice.Serve()
 
 	idBob := "bob"
 	log.Debugf("connect by bob")
-	clientBob := NewManager(mCtx, srvCfg2.Address, idBob)
+	clientBob := NewManager(mCtx, toURL(srvCfg2), idBob)
 	clientBob.Serve()
 
 	bobsSrvAddr, err := clientBob.RelayInstanceAddress()
@@ -144,10 +144,10 @@ func TestForeginConnClose(t *testing.T) {
 	log.Debugf("connect by alice")
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	mgr := NewManager(mCtx, srvCfg1.Address, idAlice)
+	mgr := NewManager(mCtx, toURL(srvCfg1), idAlice)
 	mgr.Serve()
 
-	conn, err := mgr.OpenConn(srvCfg2.Address, "anotherpeer", nil)
+	conn, err := mgr.OpenConn(toURL(srvCfg2), "anotherpeer", nil)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -206,11 +206,11 @@ func TestForeginAutoClose(t *testing.T) {
 	t.Log("connect to server 1.")
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	mgr := NewManager(mCtx, srvCfg1.Address, idAlice)
+	mgr := NewManager(mCtx, toURL(srvCfg1), idAlice)
 	mgr.Serve()
 
 	t.Log("open connection to another peer")
-	conn, err := mgr.OpenConn(srvCfg2.Address, "anotherpeer", nil)
+	conn, err := mgr.OpenConn(toURL(srvCfg2), "anotherpeer", nil)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -254,7 +254,7 @@ func TestAutoReconnect(t *testing.T) {
 
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	clientAlice := NewManager(mCtx, srvCfg.Address, "alice")
+	clientAlice := NewManager(mCtx, toURL(srvCfg), "alice")
 	clientAlice.Serve()
 	ra, err := clientAlice.RelayInstanceAddress()
 	if err != nil {
@@ -282,4 +282,8 @@ func TestAutoReconnect(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to open channel: %s", err)
 	}
+}
+
+func toURL(address server.ListenerConfig) string {
+	return "rel://" + address.Address
 }
