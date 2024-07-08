@@ -316,6 +316,7 @@ func (s *SqlStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.P
 func (s *SqlStore) SaveUsers(account *Account) error {
 	for id, user := range account.Users {
 		user.Id = id
+		user.AccountID = account.Id
 		for id, pat := range user.PATs {
 			pat.ID = id
 			user.PATsG = append(user.PATsG, *pat)
@@ -330,6 +331,7 @@ func (s *SqlStore) SaveUsers(account *Account) error {
 func (s *SqlStore) SaveGroups(account *Account) error {
 	for id, group := range account.Groups {
 		group.ID = id
+		group.AccountID = account.Id
 		account.GroupsG = append(account.GroupsG, *group)
 	}
 	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&account.GroupsG).Error
