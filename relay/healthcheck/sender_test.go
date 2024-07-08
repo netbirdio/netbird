@@ -6,11 +6,14 @@ import (
 	"time"
 )
 
-func TestNewHealthPeriod(t *testing.T) {
+func TestMain(m *testing.M) {
 	// override the health check interval to speed up the test
 	healthCheckInterval = 1 * time.Second
 	healthCheckTimeout = 100 * time.Millisecond
+	m.Run()
+}
 
+func TestNewHealthPeriod(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	hc := NewSender(ctx)
@@ -30,10 +33,6 @@ func TestNewHealthPeriod(t *testing.T) {
 }
 
 func TestNewHealthFailed(t *testing.T) {
-	// override the health check interval to speed up the test
-	healthCheckInterval = 1 * time.Second
-	healthCheckTimeout = 500 * time.Millisecond
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	hc := NewSender(ctx)
@@ -46,18 +45,17 @@ func TestNewHealthFailed(t *testing.T) {
 }
 
 func TestNewHealthcheckStop(t *testing.T) {
-
 	ctx, cancel := context.WithCancel(context.Background())
 	hc := NewSender(ctx)
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(300 * time.Millisecond)
 	cancel()
 
 	select {
 	case <-hc.HealthCheck:
-		t.Fatalf("is not closed")
+		t.Fatalf("health check on received")
 	case <-hc.Timeout:
-		t.Fatalf("is not closed")
+		t.Fatalf("health check timedout")
 	case <-ctx.Done():
 		// expected
 	case <-time.After(1 * time.Second):
