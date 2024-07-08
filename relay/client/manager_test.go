@@ -202,6 +202,8 @@ func TestForeginAutoClose(t *testing.T) {
 		t.Logf("server 2 closed.")
 	}()
 
+	// wait for servers to start
+	time.Sleep(300 * time.Second)
 	idAlice := "alice"
 	t.Log("connect to server 1.")
 	mCtx, cancel := context.WithCancel(ctx)
