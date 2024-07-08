@@ -308,7 +308,6 @@ func (c *Client) readLoop(relayConn net.Conn) {
 
 		switch msgType {
 		case messages.MsgTypeHealthCheck:
-			log.Debugf("on new heartbeat")
 			msg := messages.MarshalHealthcheck()
 			_, wErr := c.relayConn.Write(msg)
 			if wErr != nil {

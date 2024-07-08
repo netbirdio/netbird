@@ -32,10 +32,10 @@ func TestMain(m *testing.M) {
 func TestClient(t *testing.T) {
 	ctx := context.Background()
 
-	srvCfg := server.ListenerConfig{Address: serverListenAddr}
 	srv := server.NewServer(serverURL, false, av)
 	go func() {
-		err := srv.Listen(srvCfg)
+		listenCfg := server.ListenerConfig{Address: serverListenAddr}
+		err := srv.Listen(listenCfg)
 		if err != nil {
 			t.Fatalf("failed to bind server: %s", err)
 		}
@@ -48,6 +48,7 @@ func TestClient(t *testing.T) {
 		}
 	}()
 
+	t.Log("alice connecting to server")
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
 	err := clientAlice.Connect()
 	if err != nil {
@@ -55,6 +56,7 @@ func TestClient(t *testing.T) {
 	}
 	defer clientAlice.Close()
 
+	t.Log("placeholder connecting to server")
 	clientPlaceHolder := NewClient(ctx, serverURL, hmacTokenStore, "clientPlaceHolder")
 	err = clientPlaceHolder.Connect()
 	if err != nil {
@@ -62,6 +64,7 @@ func TestClient(t *testing.T) {
 	}
 	defer clientPlaceHolder.Close()
 
+	t.Log("Bob connecting to server")
 	clientBob := NewClient(ctx, serverURL, hmacTokenStore, "bob")
 	err = clientBob.Connect()
 	if err != nil {
@@ -69,11 +72,13 @@ func TestClient(t *testing.T) {
 	}
 	defer clientBob.Close()
 
+	t.Log("Alice open connection to Bob")
 	connAliceToBob, err := clientAlice.OpenConn("bob")
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
 
+	t.Log("Bob open connection to Alice")
 	connBobToAlice, err := clientBob.OpenConn("alice")
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)

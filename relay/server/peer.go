@@ -147,7 +147,6 @@ func (p *Peer) healthcheck(ctx context.Context, hc *healthcheck.Sender) {
 	for {
 		select {
 		case <-hc.HealthCheck:
-			p.log.Debugf("sending healthcheck message")
 			_, err := p.Write(messages.MarshalHealthcheck())
 			if err != nil {
 				p.log.Errorf("failed to send healthcheck message: %s", err)

@@ -89,6 +89,8 @@ func MarshalHelloMsg(peerID []byte, additions []byte) ([]byte, error) {
 	if len(peerID) != IDSize {
 		return nil, fmt.Errorf("invalid peerID length: %d", len(peerID))
 	}
+
+	// 5 = 1 byte for msg type, 4 byte for magic header
 	msg := make([]byte, 5, headerSizeHello+len(additions))
 	msg[0] = byte(MsgTypeHello)
 	copy(msg[1:5], magicHeader)
@@ -101,8 +103,10 @@ func UnmarshalHelloMsg(msg []byte) ([]byte, []byte, error) {
 	if len(msg) < headerSizeHello {
 		return nil, nil, fmt.Errorf("invalid 'hello' messge")
 	}
-	bytes.Equal(msg[1:5], magicHeader)
-	return msg[5:], msg[headerSizeHello:], nil
+	if !bytes.Equal(msg[1:5], magicHeader) {
+		return nil, nil, fmt.Errorf("invalid magic header")
+	}
+	return msg[5 : 5+IDSize], msg[headerSizeHello:], nil
 }
 
 func MarshalHelloResponse(DomainAddress string) ([]byte, error) {

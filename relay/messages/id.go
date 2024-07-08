@@ -8,7 +8,7 @@ import (
 
 const (
 	prefixLength = 4
-	IDSize       = sha256.Size + 4 // 4 is equal with len(prefix)
+	IDSize       = prefixLength + sha256.Size
 )
 
 var (
