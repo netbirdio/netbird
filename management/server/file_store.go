@@ -746,3 +746,11 @@ func (s *FileStore) Close(ctx context.Context) error {
 func (s *FileStore) GetStoreEngine() StoreEngine {
 	return FileStoreEngine
 }
+
+func (s *FileStore) SaveUsers(_ *Account) error {
+	return status.Errorf(status.Internal, "SaveUsers is not implemented")
+}
+
+func (s *FileStore) SaveGroups(_ *Account) error {
+	return status.Errorf(status.Internal, "SaveGroups is not implemented")
+}

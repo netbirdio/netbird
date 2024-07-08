@@ -41,6 +41,8 @@ type Store interface {
 	GetUserByTokenID(ctx context.Context, tokenID string) (*User, error)
 	GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	SaveAccount(ctx context.Context, account *Account) error
+	SaveUsers(account *Account) error
+	SaveGroups(account *Account) error
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
 	DeleteTokenID2UserIDIndex(tokenID string) error
 	GetInstallationID() string

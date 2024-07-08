@@ -311,6 +311,30 @@ func (s *SqlStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.P
 	return nil
 }
 
+// SaveUsers saves the given list of users to the database.
+// It updates existing users if a conflict occurs.
+func (s *SqlStore) SaveUsers(account *Account) error {
+	for id, user := range account.Users {
+		user.Id = id
+		for id, pat := range user.PATs {
+			pat.ID = id
+			user.PATsG = append(user.PATsG, *pat)
+		}
+		account.UsersG = append(account.UsersG, *user)
+	}
+	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&account.UsersG).Error
+}
+
+// SaveGroups saves the given list of groups to the database.
+// It updates existing groups if a conflict occurs.
+func (s *SqlStore) SaveGroups(account *Account) error {
+	for id, group := range account.Groups {
+		group.ID = id
+		account.GroupsG = append(account.GroupsG, *group)
+	}
+	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&account.GroupsG).Error
+}
+
 // DeleteHashedPAT2TokenIDIndex is noop in SqlStore
 func (s *SqlStore) DeleteHashedPAT2TokenIDIndex(hashedToken string) error {
 	return nil
@@ -652,6 +676,8 @@ func (s *SqlStore) Close(_ context.Context) error {
 func (s *SqlStore) GetStoreEngine() StoreEngine {
 	return s.storeEngine
 }
+
+//func (s *SqlStore) SaveGroups()
 
 // NewSqliteStore creates a new SQLite store.
 func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMetrics) (*SqlStore, error) {
