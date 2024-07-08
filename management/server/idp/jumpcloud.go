@@ -74,7 +74,7 @@ func NewJumpCloudManager(config JumpCloudClientConfig, appMetrics telemetry.AppM
 }
 
 // Authenticate retrieves access token to use the JumpCloud user API.
-func (jc *JumpCloudCredentials) Authenticate() (JWTToken, error) {
+func (jc *JumpCloudCredentials) Authenticate(_ context.Context) (JWTToken, error) {
 	return JWTToken{}, nil
 }
 
@@ -85,12 +85,12 @@ func (jm *JumpCloudManager) authenticationContext() context.Context {
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
-func (jm *JumpCloudManager) UpdateUserAppMetadata(_ string, _ AppMetadata) error {
+func (jm *JumpCloudManager) UpdateUserAppMetadata(_ context.Context, _ string, _ AppMetadata) error {
 	return nil
 }
 
 // GetUserDataByID requests user data from JumpCloud via ID.
-func (jm *JumpCloudManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
+func (jm *JumpCloudManager) GetUserDataByID(_ context.Context, userID string, appMetadata AppMetadata) (*UserData, error) {
 	authCtx := jm.authenticationContext()
 	user, resp, err := jm.client.SystemusersApi.SystemusersGet(authCtx, userID, contentType, accept, nil)
 	if err != nil {
@@ -116,7 +116,7 @@ func (jm *JumpCloudManager) GetUserDataByID(userID string, appMetadata AppMetada
 }
 
 // GetAccount returns all the users for a given profile.
-func (jm *JumpCloudManager) GetAccount(accountID string) ([]*UserData, error) {
+func (jm *JumpCloudManager) GetAccount(_ context.Context, accountID string) ([]*UserData, error) {
 	authCtx := jm.authenticationContext()
 	userList, resp, err := jm.client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, nil)
 	if err != nil {
@@ -148,7 +148,7 @@ func (jm *JumpCloudManager) GetAccount(accountID string) ([]*UserData, error) {
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
-func (jm *JumpCloudManager) GetAllAccounts() (map[string][]*UserData, error) {
+func (jm *JumpCloudManager) GetAllAccounts(_ context.Context) (map[string][]*UserData, error) {
 	authCtx := jm.authenticationContext()
 	userList, resp, err := jm.client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, nil)
 	if err != nil {
@@ -177,13 +177,13 @@ func (jm *JumpCloudManager) GetAllAccounts() (map[string][]*UserData, error) {
 }
 
 // CreateUser creates a new user in JumpCloud Idp and sends an invitation.
-func (jm *JumpCloudManager) CreateUser(_, _, _, _ string) (*UserData, error) {
+func (jm *JumpCloudManager) CreateUser(_ context.Context, _, _, _, _ string) (*UserData, error) {
 	return nil, fmt.Errorf("method CreateUser not implemented")
 }
 
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
-func (jm *JumpCloudManager) GetUserByEmail(email string) ([]*UserData, error) {
+func (jm *JumpCloudManager) GetUserByEmail(_ context.Context, email string) ([]*UserData, error) {
 	searchFilter := map[string]interface{}{
 		"searchFilter": map[string]interface{}{
 			"filter": []string{email},
@@ -219,12 +219,12 @@ func (jm *JumpCloudManager) GetUserByEmail(email string) ([]*UserData, error) {
 
 // InviteUserByID resend invitations to users who haven't activated,
 // their accounts prior to the expiration period.
-func (jm *JumpCloudManager) InviteUserByID(_ string) error {
+func (jm *JumpCloudManager) InviteUserByID(_ context.Context, _ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
 }
 
 // DeleteUser from jumpCloud directory
-func (jm *JumpCloudManager) DeleteUser(userID string) error {
+func (jm *JumpCloudManager) DeleteUser(_ context.Context, userID string) error {
 	authCtx := jm.authenticationContext()
 	_, resp, err := jm.client.SystemusersApi.SystemusersDelete(authCtx, userID, contentType, accept, nil)
 	if err != nil {

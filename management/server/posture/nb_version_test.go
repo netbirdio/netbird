@@ -1,6 +1,7 @@
 package posture
 
 import (
+	"context"
 	"testing"
 
 	"github.com/netbirdio/netbird/management/server/peer"
@@ -98,13 +99,43 @@ func TestNBVersionCheck_Check(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			isValid, err := tt.check.Check(tt.input)
+			isValid, err := tt.check.Check(context.Background(), tt.input)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 			}
 			assert.Equal(t, tt.isValid, isValid)
+		})
+	}
+}
+
+func TestNBVersionCheck_Validate(t *testing.T) {
+	testCases := []struct {
+		name          string
+		check         NBVersionCheck
+		expectedError bool
+	}{
+		{
+			name:          "Valid NBVersionCheck",
+			check:         NBVersionCheck{MinVersion: "1.0"},
+			expectedError: false,
+		},
+		{
+			name:          "Invalid NBVersionCheck",
+			check:         NBVersionCheck{},
+			expectedError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.check.Validate()
+			if tc.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
 		})
 	}
 }

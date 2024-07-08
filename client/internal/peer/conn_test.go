@@ -46,7 +46,7 @@ func TestNewConn_interfaceFilter(t *testing.T) {
 }
 
 func TestConn_GetKey(t *testing.T) {
-	wgProxyFactory := wgproxy.NewFactory(context.Background(), connConf.LocalWgPort)
+	wgProxyFactory := wgproxy.NewFactory(context.Background(), false, connConf.LocalWgPort)
 	defer func() {
 		_ = wgProxyFactory.Free()
 	}()
@@ -61,7 +61,7 @@ func TestConn_GetKey(t *testing.T) {
 }
 
 func TestConn_OnRemoteOffer(t *testing.T) {
-	wgProxyFactory := wgproxy.NewFactory(context.Background(), connConf.LocalWgPort)
+	wgProxyFactory := wgproxy.NewFactory(context.Background(), false, connConf.LocalWgPort)
 	defer func() {
 		_ = wgProxyFactory.Free()
 	}()
@@ -98,7 +98,7 @@ func TestConn_OnRemoteOffer(t *testing.T) {
 }
 
 func TestConn_OnRemoteAnswer(t *testing.T) {
-	wgProxyFactory := wgproxy.NewFactory(context.Background(), connConf.LocalWgPort)
+	wgProxyFactory := wgproxy.NewFactory(context.Background(), false, connConf.LocalWgPort)
 	defer func() {
 		_ = wgProxyFactory.Free()
 	}()
@@ -134,7 +134,7 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 	wg.Wait()
 }
 func TestConn_Status(t *testing.T) {
-	wgProxyFactory := wgproxy.NewFactory(context.Background(), connConf.LocalWgPort)
+	wgProxyFactory := wgproxy.NewFactory(context.Background(), false, connConf.LocalWgPort)
 	defer func() {
 		_ = wgProxyFactory.Free()
 	}()
@@ -172,7 +172,7 @@ func TestConn_Status(t *testing.T) {
 func TestConn_Switch(t *testing.T) {
 	ctx := context.Background()
 
-	wgProxyFactory := wgproxy.NewFactory(ctx, connConf.LocalWgPort)
+	wgProxyFactory := wgproxy.NewFactory(ctx, false, connConf.LocalWgPort)
 	connConfAlice := ConnConfig{
 		Key:         "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
 		LocalKey:    "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",

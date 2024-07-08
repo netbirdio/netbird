@@ -183,7 +183,7 @@ func (c *Auth0Credentials) jwtStillValid() bool {
 }
 
 // requestJWTToken performs request to get jwt token
-func (c *Auth0Credentials) requestJWTToken() (*http.Response, error) {
+func (c *Auth0Credentials) requestJWTToken(ctx context.Context) (*http.Response, error) {
 	var res *http.Response
 	reqURL := c.clientConfig.AuthIssuer + "/oauth/token"
 
@@ -200,7 +200,7 @@ func (c *Auth0Credentials) requestJWTToken() (*http.Response, error) {
 
 	req.Header.Add("content-type", "application/json")
 
-	log.Debug("requesting new jwt token for idp manager")
+	log.WithContext(ctx).Debug("requesting new jwt token for idp manager")
 
 	res, err = c.httpClient.Do(req)
 	if err != nil {
@@ -247,7 +247,7 @@ func (c *Auth0Credentials) parseRequestJWTResponse(rawBody io.ReadCloser) (JWTTo
 }
 
 // Authenticate retrieves access token to use the Auth0 Management API
-func (c *Auth0Credentials) Authenticate() (JWTToken, error) {
+func (c *Auth0Credentials) Authenticate(ctx context.Context) (JWTToken, error) {
 	c.mux.Lock()
 	defer c.mux.Unlock()
 
@@ -260,14 +260,14 @@ func (c *Auth0Credentials) Authenticate() (JWTToken, error) {
 		return c.jwtToken, nil
 	}
 
-	res, err := c.requestJWTToken()
+	res, err := c.requestJWTToken(ctx)
 	if err != nil {
 		return c.jwtToken, err
 	}
 	defer func() {
 		err = res.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing get jwt token response body: %v", err)
+			log.WithContext(ctx).Errorf("error while closing get jwt token response body: %v", err)
 		}
 	}()
 
@@ -301,8 +301,8 @@ func requestByUserIDURL(authIssuer, userID string) string {
 }
 
 // GetAccount returns all the users for a given profile. Calls Auth0 API.
-func (am *Auth0Manager) GetAccount(accountID string) ([]*UserData, error) {
-	jwtToken, err := am.credentials.Authenticate()
+func (am *Auth0Manager) GetAccount(ctx context.Context, accountID string) ([]*UserData, error) {
+	jwtToken, err := am.credentials.Authenticate(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -353,7 +353,7 @@ func (am *Auth0Manager) GetAccount(accountID string) ([]*UserData, error) {
 			return nil, err
 		}
 
-		log.Debugf("returned user batch for accountID %s on page %d, batch length %d", accountID, page, len(batch))
+		log.WithContext(ctx).Debugf("returned user batch for accountID %s on page %d, batch length %d", accountID, page, len(batch))
 
 		err = res.Body.Close()
 		if err != nil {
@@ -365,7 +365,7 @@ func (am *Auth0Manager) GetAccount(accountID string) ([]*UserData, error) {
 		}
 
 		if len(batch) == 0 || len(batch) < resultsPerPage {
-			log.Debugf("finished loading users for accountID %s", accountID)
+			log.WithContext(ctx).Debugf("finished loading users for accountID %s", accountID)
 			return list, nil
 		}
 	}
@@ -374,8 +374,8 @@ func (am *Auth0Manager) GetAccount(accountID string) ([]*UserData, error) {
 }
 
 // GetUserDataByID requests user data from auth0 via ID
-func (am *Auth0Manager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
-	jwtToken, err := am.credentials.Authenticate()
+func (am *Auth0Manager) GetUserDataByID(ctx context.Context, userID string, appMetadata AppMetadata) (*UserData, error) {
+	jwtToken, err := am.credentials.Authenticate(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -414,7 +414,7 @@ func (am *Auth0Manager) GetUserDataByID(userID string, appMetadata AppMetadata) 
 	defer func() {
 		err = res.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing update user app metadata response body: %v", err)
+			log.WithContext(ctx).Errorf("error while closing update user app metadata response body: %v", err)
 		}
 	}()
 
@@ -426,9 +426,9 @@ func (am *Auth0Manager) GetUserDataByID(userID string, appMetadata AppMetadata) 
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userId and metadata map
-func (am *Auth0Manager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
+func (am *Auth0Manager) UpdateUserAppMetadata(ctx context.Context, userID string, appMetadata AppMetadata) error {
 
-	jwtToken, err := am.credentials.Authenticate()
+	jwtToken, err := am.credentials.Authenticate(ctx)
 	if err != nil {
 		return err
 	}
@@ -449,7 +449,7 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userID string, appMetadata AppMeta
 	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
 	req.Header.Add("content-type", "application/json")
 
-	log.Debugf("updating IdP metadata for user %s", userID)
+	log.WithContext(ctx).Debugf("updating IdP metadata for user %s", userID)
 
 	res, err := am.httpClient.Do(req)
 	if err != nil {
@@ -466,7 +466,7 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userID string, appMetadata AppMeta
 	defer func() {
 		err = res.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing update user app metadata response body: %v", err)
+			log.WithContext(ctx).Errorf("error while closing update user app metadata response body: %v", err)
 		}
 	}()
 
@@ -530,9 +530,9 @@ func buildUserExportRequest() (string, error) {
 }
 
 func (am *Auth0Manager) createRequest(
-	method string, endpoint string, body io.Reader,
+	ctx context.Context, method string, endpoint string, body io.Reader,
 ) (*http.Request, error) {
-	jwtToken, err := am.credentials.Authenticate()
+	jwtToken, err := am.credentials.Authenticate(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -548,8 +548,8 @@ func (am *Auth0Manager) createRequest(
 	return req, nil
 }
 
-func (am *Auth0Manager) createPostRequest(endpoint string, payloadStr string) (*http.Request, error) {
-	req, err := am.createRequest("POST", endpoint, strings.NewReader(payloadStr))
+func (am *Auth0Manager) createPostRequest(ctx context.Context, endpoint string, payloadStr string) (*http.Request, error) {
+	req, err := am.createRequest(ctx, "POST", endpoint, strings.NewReader(payloadStr))
 	if err != nil {
 		return nil, err
 	}
@@ -560,20 +560,20 @@ func (am *Auth0Manager) createPostRequest(endpoint string, payloadStr string) (*
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
-func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
+func (am *Auth0Manager) GetAllAccounts(ctx context.Context) (map[string][]*UserData, error) {
 	payloadString, err := buildUserExportRequest()
 	if err != nil {
 		return nil, err
 	}
 
-	exportJobReq, err := am.createPostRequest("/api/v2/jobs/users-exports", payloadString)
+	exportJobReq, err := am.createPostRequest(ctx, "/api/v2/jobs/users-exports", payloadString)
 	if err != nil {
 		return nil, err
 	}
 
 	jobResp, err := am.httpClient.Do(exportJobReq)
 	if err != nil {
-		log.Debugf("Couldn't get job response %v", err)
+		log.WithContext(ctx).Debugf("Couldn't get job response %v", err)
 		if am.appMetrics != nil {
 			am.appMetrics.IDPMetrics().CountRequestError()
 		}
@@ -583,7 +583,7 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 	defer func() {
 		err = jobResp.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing update user app metadata response body: %v", err)
+			log.WithContext(ctx).Errorf("error while closing update user app metadata response body: %v", err)
 		}
 	}()
 	if jobResp.StatusCode != 200 {
@@ -597,13 +597,13 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 
 	body, err := io.ReadAll(jobResp.Body)
 	if err != nil {
-		log.Debugf("Couldn't read export job response; %v", err)
+		log.WithContext(ctx).Debugf("Couldn't read export job response; %v", err)
 		return nil, err
 	}
 
 	err = am.helper.Unmarshal(body, &exportJobResp)
 	if err != nil {
-		log.Debugf("Couldn't unmarshal export job response; %v", err)
+		log.WithContext(ctx).Debugf("Couldn't unmarshal export job response; %v", err)
 		return nil, err
 	}
 
@@ -614,16 +614,16 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 		return nil, fmt.Errorf("couldn't get an batch id status %d, %s, response body: %v", jobResp.StatusCode, jobResp.Status, exportJobResp)
 	}
 
-	log.Debugf("batch id status %d, %s, response body: %v", jobResp.StatusCode, jobResp.Status, exportJobResp)
+	log.WithContext(ctx).Debugf("batch id status %d, %s, response body: %v", jobResp.StatusCode, jobResp.Status, exportJobResp)
 
-	done, downloadLink, err := am.checkExportJobStatus(exportJobResp.ID)
+	done, downloadLink, err := am.checkExportJobStatus(ctx, exportJobResp.ID)
 	if err != nil {
-		log.Debugf("Failed at getting status checks from exportJob; %v", err)
+		log.WithContext(ctx).Debugf("Failed at getting status checks from exportJob; %v", err)
 		return nil, err
 	}
 
 	if done {
-		return am.downloadProfileExport(downloadLink)
+		return am.downloadProfileExport(ctx, downloadLink)
 	}
 
 	return nil, fmt.Errorf("failed extracting user profiles from auth0")
@@ -632,13 +632,13 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 // GetUserByEmail searches users with a given email. If no users have been found, this function returns an empty list.
 // This function can return multiple users. This is due to the Auth0 internals - there could be multiple users with
 // the same email but different connections that are considered as separate accounts (e.g., Google and username/password).
-func (am *Auth0Manager) GetUserByEmail(email string) ([]*UserData, error) {
-	jwtToken, err := am.credentials.Authenticate()
+func (am *Auth0Manager) GetUserByEmail(ctx context.Context, email string) ([]*UserData, error) {
+	jwtToken, err := am.credentials.Authenticate(ctx)
 	if err != nil {
 		return nil, err
 	}
 	reqURL := am.authIssuer + "/api/v2/users-by-email?email=" + url.QueryEscape(email)
-	body, err := doGetReq(am.httpClient, reqURL, jwtToken.AccessToken)
+	body, err := doGetReq(ctx, am.httpClient, reqURL, jwtToken.AccessToken)
 	if err != nil {
 		return nil, err
 	}
@@ -651,7 +651,7 @@ func (am *Auth0Manager) GetUserByEmail(email string) ([]*UserData, error) {
 
 	err = am.helper.Unmarshal(body, &userResp)
 	if err != nil {
-		log.Debugf("Couldn't unmarshal export job response; %v", err)
+		log.WithContext(ctx).Debugf("Couldn't unmarshal export job response; %v", err)
 		return nil, err
 	}
 
@@ -659,13 +659,13 @@ func (am *Auth0Manager) GetUserByEmail(email string) ([]*UserData, error) {
 }
 
 // CreateUser creates a new user in Auth0 Idp and sends an invite
-func (am *Auth0Manager) CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error) {
+func (am *Auth0Manager) CreateUser(ctx context.Context, email, name, accountID, invitedByEmail string) (*UserData, error) {
 
 	payloadString, err := buildCreateUserRequestPayload(email, name, accountID, invitedByEmail)
 	if err != nil {
 		return nil, err
 	}
-	req, err := am.createPostRequest("/api/v2/users", payloadString)
+	req, err := am.createPostRequest(ctx, "/api/v2/users", payloadString)
 	if err != nil {
 		return nil, err
 	}
@@ -676,7 +676,7 @@ func (am *Auth0Manager) CreateUser(email, name, accountID, invitedByEmail string
 
 	resp, err := am.httpClient.Do(req)
 	if err != nil {
-		log.Debugf("Couldn't get job response %v", err)
+		log.WithContext(ctx).Debugf("Couldn't get job response %v", err)
 		if am.appMetrics != nil {
 			am.appMetrics.IDPMetrics().CountRequestError()
 		}
@@ -686,7 +686,7 @@ func (am *Auth0Manager) CreateUser(email, name, accountID, invitedByEmail string
 	defer func() {
 		err = resp.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing create user response body: %v", err)
+			log.WithContext(ctx).Errorf("error while closing create user response body: %v", err)
 		}
 	}()
 	if !(resp.StatusCode == 200 || resp.StatusCode == 201) {
@@ -700,13 +700,13 @@ func (am *Auth0Manager) CreateUser(email, name, accountID, invitedByEmail string
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Debugf("Couldn't read export job response; %v", err)
+		log.WithContext(ctx).Debugf("Couldn't read export job response; %v", err)
 		return nil, err
 	}
 
 	err = am.helper.Unmarshal(body, &createResp)
 	if err != nil {
-		log.Debugf("Couldn't unmarshal export job response; %v", err)
+		log.WithContext(ctx).Debugf("Couldn't unmarshal export job response; %v", err)
 		return nil, err
 	}
 
@@ -714,14 +714,14 @@ func (am *Auth0Manager) CreateUser(email, name, accountID, invitedByEmail string
 		return nil, fmt.Errorf("couldn't create user: response %v", resp)
 	}
 
-	log.Debugf("created user %s in account %s", createResp.ID, accountID)
+	log.WithContext(ctx).Debugf("created user %s in account %s", createResp.ID, accountID)
 
 	return &createResp, nil
 }
 
 // InviteUserByID resend invitations to users who haven't activated,
 // their accounts prior to the expiration period.
-func (am *Auth0Manager) InviteUserByID(userID string) error {
+func (am *Auth0Manager) InviteUserByID(ctx context.Context, userID string) error {
 	userVerificationReq := userVerificationJobRequest{
 		UserID: userID,
 	}
@@ -731,14 +731,14 @@ func (am *Auth0Manager) InviteUserByID(userID string) error {
 		return err
 	}
 
-	req, err := am.createPostRequest("/api/v2/jobs/verification-email", string(payload))
+	req, err := am.createPostRequest(ctx, "/api/v2/jobs/verification-email", string(payload))
 	if err != nil {
 		return err
 	}
 
 	resp, err := am.httpClient.Do(req)
 	if err != nil {
-		log.Debugf("Couldn't get job response %v", err)
+		log.WithContext(ctx).Debugf("Couldn't get job response %v", err)
 		if am.appMetrics != nil {
 			am.appMetrics.IDPMetrics().CountRequestError()
 		}
@@ -748,7 +748,7 @@ func (am *Auth0Manager) InviteUserByID(userID string) error {
 	defer func() {
 		err = resp.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing invite user response body: %v", err)
+			log.WithContext(ctx).Errorf("error while closing invite user response body: %v", err)
 		}
 	}()
 	if !(resp.StatusCode == 200 || resp.StatusCode == 201) {
@@ -762,15 +762,15 @@ func (am *Auth0Manager) InviteUserByID(userID string) error {
 }
 
 // DeleteUser from Auth0
-func (am *Auth0Manager) DeleteUser(userID string) error {
-	req, err := am.createRequest(http.MethodDelete, "/api/v2/users/"+url.QueryEscape(userID), nil)
+func (am *Auth0Manager) DeleteUser(ctx context.Context, userID string) error {
+	req, err := am.createRequest(ctx, http.MethodDelete, "/api/v2/users/"+url.QueryEscape(userID), nil)
 	if err != nil {
 		return err
 	}
 
 	resp, err := am.httpClient.Do(req)
 	if err != nil {
-		log.Debugf("execute delete request: %v", err)
+		log.WithContext(ctx).Debugf("execute delete request: %v", err)
 		if am.appMetrics != nil {
 			am.appMetrics.IDPMetrics().CountRequestError()
 		}
@@ -780,7 +780,7 @@ func (am *Auth0Manager) DeleteUser(userID string) error {
 	defer func() {
 		err = resp.Body.Close()
 		if err != nil {
-			log.Errorf("close delete request body: %v", err)
+			log.WithContext(ctx).Errorf("close delete request body: %v", err)
 		}
 	}()
 	if resp.StatusCode != 204 {
@@ -795,20 +795,20 @@ func (am *Auth0Manager) DeleteUser(userID string) error {
 
 // GetAllConnections returns detailed list of all connections filtered by given params.
 // Note this method is not part of the IDP Manager interface as this is Auth0 specific.
-func (am *Auth0Manager) GetAllConnections(strategy []string) ([]Connection, error) {
+func (am *Auth0Manager) GetAllConnections(ctx context.Context, strategy []string) ([]Connection, error) {
 	var connections []Connection
 
 	q := make(url.Values)
 	q.Set("strategy", strings.Join(strategy, ","))
 
-	req, err := am.createRequest(http.MethodGet, "/api/v2/connections?"+q.Encode(), nil)
+	req, err := am.createRequest(ctx, http.MethodGet, "/api/v2/connections?"+q.Encode(), nil)
 	if err != nil {
 		return connections, err
 	}
 
 	resp, err := am.httpClient.Do(req)
 	if err != nil {
-		log.Debugf("execute get connections request: %v", err)
+		log.WithContext(ctx).Debugf("execute get connections request: %v", err)
 		if am.appMetrics != nil {
 			am.appMetrics.IDPMetrics().CountRequestError()
 		}
@@ -818,7 +818,7 @@ func (am *Auth0Manager) GetAllConnections(strategy []string) ([]Connection, erro
 	defer func() {
 		err = resp.Body.Close()
 		if err != nil {
-			log.Errorf("close get connections request body: %v", err)
+			log.WithContext(ctx).Errorf("close get connections request body: %v", err)
 		}
 	}()
 	if resp.StatusCode != 200 {
@@ -830,13 +830,13 @@ func (am *Auth0Manager) GetAllConnections(strategy []string) ([]Connection, erro
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Debugf("Couldn't read get connections response; %v", err)
+		log.WithContext(ctx).Debugf("Couldn't read get connections response; %v", err)
 		return connections, err
 	}
 
 	err = am.helper.Unmarshal(body, &connections)
 	if err != nil {
-		log.Debugf("Couldn't unmarshal get connection response; %v", err)
+		log.WithContext(ctx).Debugf("Couldn't unmarshal get connection response; %v", err)
 		return connections, err
 	}
 
@@ -845,23 +845,23 @@ func (am *Auth0Manager) GetAllConnections(strategy []string) ([]Connection, erro
 
 // checkExportJobStatus checks the status of the job created at CreateExportUsersJob.
 // If the status is "completed", then return the downloadLink
-func (am *Auth0Manager) checkExportJobStatus(jobID string) (bool, string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+func (am *Auth0Manager) checkExportJobStatus(ctx context.Context, jobID string) (bool, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	retry := time.NewTicker(10 * time.Second)
 	for {
 		select {
 		case <-ctx.Done():
-			log.Debugf("Export job status stopped...\n")
+			log.WithContext(ctx).Debugf("Export job status stopped...\n")
 			return false, "", ctx.Err()
 		case <-retry.C:
-			jwtToken, err := am.credentials.Authenticate()
+			jwtToken, err := am.credentials.Authenticate(ctx)
 			if err != nil {
 				return false, "", err
 			}
 
 			statusURL := am.authIssuer + "/api/v2/jobs/" + jobID
-			body, err := doGetReq(am.httpClient, statusURL, jwtToken.AccessToken)
+			body, err := doGetReq(ctx, am.httpClient, statusURL, jwtToken.AccessToken)
 			if err != nil {
 				return false, "", err
 			}
@@ -872,7 +872,7 @@ func (am *Auth0Manager) checkExportJobStatus(jobID string) (bool, string, error)
 				return false, "", err
 			}
 
-			log.Debugf("current export job status is %v", status.Status)
+			log.WithContext(ctx).Debugf("current export job status is %v", status.Status)
 
 			if status.Status != "completed" {
 				continue
@@ -884,8 +884,8 @@ func (am *Auth0Manager) checkExportJobStatus(jobID string) (bool, string, error)
 }
 
 // downloadProfileExport downloads user profiles from auth0 batch job
-func (am *Auth0Manager) downloadProfileExport(location string) (map[string][]*UserData, error) {
-	body, err := doGetReq(am.httpClient, location, "")
+func (am *Auth0Manager) downloadProfileExport(ctx context.Context, location string) (map[string][]*UserData, error) {
+	body, err := doGetReq(ctx, am.httpClient, location, "")
 	if err != nil {
 		return nil, err
 	}
@@ -927,7 +927,7 @@ func (am *Auth0Manager) downloadProfileExport(location string) (map[string][]*Us
 }
 
 // Boilerplate implementation for Get Requests.
-func doGetReq(client ManagerHTTPClient, url, accessToken string) ([]byte, error) {
+func doGetReq(ctx context.Context, client ManagerHTTPClient, url, accessToken string) ([]byte, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -945,7 +945,7 @@ func doGetReq(client ManagerHTTPClient, url, accessToken string) ([]byte, error)
 	defer func() {
 		err = res.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing body for url %s: %v", url, err)
+			log.WithContext(ctx).Errorf("error while closing body for url %s: %v", url, err)
 		}
 	}()
 	body, err := io.ReadAll(res.Body)

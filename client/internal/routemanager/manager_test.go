@@ -407,7 +407,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun43%d", n), "100.65.65.2/24", 33100, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil)
+			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun43%d", n), "100.65.65.2/24", 33100, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil, nil)
 			require.NoError(t, err, "should create testing WGIface interface")
 			defer wgInterface.Close()
 
@@ -416,7 +416,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 
 			statusRecorder := peer.NewRecorder("https://mgm")
 			ctx := context.TODO()
-			routeManager := NewManager(ctx, localPeerKey, wgInterface, statusRecorder, nil)
+			routeManager := NewManager(ctx, localPeerKey, 0, wgInterface, statusRecorder, nil)
 
 			_, _, err = routeManager.Init()
 
@@ -436,7 +436,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			require.NoError(t, err, "should update routes")
 
 			expectedWatchers := testCase.clientNetworkWatchersExpected
-			if (runtime.GOOS == "linux" || runtime.GOOS == "windows" || runtime.GOOS == "darwin") && testCase.clientNetworkWatchersExpectedAllowed != 0 {
+			if testCase.clientNetworkWatchersExpectedAllowed != 0 {
 				expectedWatchers = testCase.clientNetworkWatchersExpectedAllowed
 			}
 			require.Len(t, routeManager.clientNetworks, expectedWatchers, "client networks size should match")

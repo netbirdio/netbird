@@ -106,8 +106,8 @@ func (r *Relay) handShake(conn net.Conn) ([]byte, error) {
 	}
 
 	if err := r.validator.Validate(authPayload); err != nil {
-		log.Errorf("failed to authenticate peer with id: %s, %s", peerID, err)
-		return nil, fmt.Errorf("failed to authenticate peer")
+		log.Errorf("failed to authenticate connection: %s", err)
+		return nil, err
 	}
 
 	msg, _ := messages.MarshalHelloResponse(r.instaceURL)

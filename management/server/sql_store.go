@@ -1,11 +1,14 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +30,11 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
+const (
+	storeSqliteFileName = "store.db"
+	idQueryCondition    = "id = ?"
+)
+
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
 type SqlStore struct {
 	db                *gorm.DB
@@ -45,7 +53,7 @@ type installation struct {
 type migrationFunc func(*gorm.DB) error
 
 // NewSqlStore creates a new SqlStore instance.
-func NewSqlStore(db *gorm.DB, storeEngine StoreEngine, metrics telemetry.AppMetrics) (*SqlStore, error) {
+func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine StoreEngine, metrics telemetry.AppMetrics) (*SqlStore, error) {
 	sql, err := db.DB()
 	if err != nil {
 		return nil, err
@@ -53,7 +61,7 @@ func NewSqlStore(db *gorm.DB, storeEngine StoreEngine, metrics telemetry.AppMetr
 	conns := runtime.NumCPU()
 	sql.SetMaxOpenConns(conns) // TODO: make it configurable
 
-	if err := migrate(db); err != nil {
+	if err := migrate(ctx, db); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	err = db.AutoMigrate(
@@ -69,18 +77,18 @@ func NewSqlStore(db *gorm.DB, storeEngine StoreEngine, metrics telemetry.AppMetr
 }
 
 // AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
-func (s *SqlStore) AcquireGlobalLock() (unlock func()) {
-	log.Tracef("acquiring global lock")
+func (s *SqlStore) AcquireGlobalLock(ctx context.Context) (unlock func()) {
+	log.WithContext(ctx).Tracef("acquiring global lock")
 	start := time.Now()
 	s.globalAccountLock.Lock()
 
 	unlock = func() {
 		s.globalAccountLock.Unlock()
-		log.Tracef("released global lock in %v", time.Since(start))
+		log.WithContext(ctx).Tracef("released global lock in %v", time.Since(start))
 	}
 
 	took := time.Since(start)
-	log.Tracef("took %v to acquire global lock", took)
+	log.WithContext(ctx).Tracef("took %v to acquire global lock", took)
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountGlobalLockAcquisitionDuration(took)
 	}
@@ -88,8 +96,8 @@ func (s *SqlStore) AcquireGlobalLock() (unlock func()) {
 	return unlock
 }
 
-func (s *SqlStore) AcquireAccountWriteLock(accountID string) (unlock func()) {
-	log.Tracef("acquiring write lock for account %s", accountID)
+func (s *SqlStore) AcquireAccountWriteLock(ctx context.Context, accountID string) (unlock func()) {
+	log.WithContext(ctx).Tracef("acquiring write lock for account %s", accountID)
 
 	start := time.Now()
 	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.RWMutex{})
@@ -98,14 +106,14 @@ func (s *SqlStore) AcquireAccountWriteLock(accountID string) (unlock func()) {
 
 	unlock = func() {
 		mtx.Unlock()
-		log.Tracef("released write lock for account %s in %v", accountID, time.Since(start))
+		log.WithContext(ctx).Tracef("released write lock for account %s in %v", accountID, time.Since(start))
 	}
 
 	return unlock
 }
 
-func (s *SqlStore) AcquireAccountReadLock(accountID string) (unlock func()) {
-	log.Tracef("acquiring read lock for account %s", accountID)
+func (s *SqlStore) AcquireAccountReadLock(ctx context.Context, accountID string) (unlock func()) {
+	log.WithContext(ctx).Tracef("acquiring read lock for account %s", accountID)
 
 	start := time.Now()
 	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.RWMutex{})
@@ -114,15 +122,57 @@ func (s *SqlStore) AcquireAccountReadLock(accountID string) (unlock func()) {
 
 	unlock = func() {
 		mtx.RUnlock()
-		log.Tracef("released read lock for account %s in %v", accountID, time.Since(start))
+		log.WithContext(ctx).Tracef("released read lock for account %s in %v", accountID, time.Since(start))
 	}
 
 	return unlock
 }
 
-func (s *SqlStore) SaveAccount(account *Account) error {
+func (s *SqlStore) SaveAccount(ctx context.Context, account *Account) error {
 	start := time.Now()
 
+	// todo: remove this check after the issue is resolved
+	s.checkAccountDomainBeforeSave(ctx, account.Id, account.Domain)
+
+	generateAccountSQLTypes(account)
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Select(clause.Associations).Delete(account.Policies, "account_id = ?", account.Id)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		result = tx.Select(clause.Associations).Delete(account.UsersG, "account_id = ?", account.Id)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		result = tx.Select(clause.Associations).Delete(account)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		result = tx.
+			Session(&gorm.Session{FullSaveAssociations: true}).
+			Clauses(clause.OnConflict{UpdateAll: true}).
+			Create(account)
+		if result.Error != nil {
+			return result.Error
+		}
+		return nil
+	})
+
+	took := time.Since(start)
+	if s.metrics != nil {
+		s.metrics.StoreMetrics().CountPersistenceDuration(took)
+	}
+	log.WithContext(ctx).Debugf("took %d ms to persist an account to the store", took.Milliseconds())
+
+	return err
+}
+
+// generateAccountSQLTypes generates the GORM compatible types for the account
+func generateAccountSQLTypes(account *Account) {
 	for _, key := range account.SetupKeys {
 		account.SetupKeysG = append(account.SetupKeysG, *key)
 	}
@@ -155,43 +205,25 @@ func (s *SqlStore) SaveAccount(account *Account) error {
 		ns.ID = id
 		account.NameServerGroupsG = append(account.NameServerGroupsG, *ns)
 	}
-
-	err := s.db.Transaction(func(tx *gorm.DB) error {
-		result := tx.Select(clause.Associations).Delete(account.Policies, "account_id = ?", account.Id)
-		if result.Error != nil {
-			return result.Error
-		}
-
-		result = tx.Select(clause.Associations).Delete(account.UsersG, "account_id = ?", account.Id)
-		if result.Error != nil {
-			return result.Error
-		}
-
-		result = tx.Select(clause.Associations).Delete(account)
-		if result.Error != nil {
-			return result.Error
-		}
-
-		result = tx.
-			Session(&gorm.Session{FullSaveAssociations: true}).
-			Clauses(clause.OnConflict{UpdateAll: true}).
-			Create(account)
-		if result.Error != nil {
-			return result.Error
-		}
-		return nil
-	})
-
-	took := time.Since(start)
-	if s.metrics != nil {
-		s.metrics.StoreMetrics().CountPersistenceDuration(took)
-	}
-	log.Debugf("took %d ms to persist an account to the store", took.Milliseconds())
-
-	return err
 }
 
-func (s *SqlStore) DeleteAccount(account *Account) error {
+// checkAccountDomainBeforeSave temporary method to troubleshoot an issue with domains getting blank
+func (s *SqlStore) checkAccountDomainBeforeSave(ctx context.Context, accountID, newDomain string) {
+	var acc Account
+	var domain string
+	result := s.db.Model(&acc).Select("domain").Where(idQueryCondition, accountID).First(&domain)
+	if result.Error != nil {
+		if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			log.WithContext(ctx).Errorf("error when getting account %s from the store to check domain: %s", accountID, result.Error)
+		}
+		return
+	}
+	if domain != "" && newDomain == "" {
+		log.WithContext(ctx).Warnf("saving an account with empty domain when there was a domain set. Previous domain %s, Account ID: %s, Trace: %s", domain, accountID, debug.Stack())
+	}
+}
+
+func (s *SqlStore) DeleteAccount(ctx context.Context, account *Account) error {
 	start := time.Now()
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -217,12 +249,12 @@ func (s *SqlStore) DeleteAccount(account *Account) error {
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountPersistenceDuration(took)
 	}
-	log.Debugf("took %d ms to delete an account to the store", took.Milliseconds())
+	log.WithContext(ctx).Debugf("took %d ms to delete an account to the store", took.Milliseconds())
 
 	return err
 }
 
-func (s *SqlStore) SaveInstallationID(ID string) error {
+func (s *SqlStore) SaveInstallationID(_ context.Context, ID string) error {
 	installation := installation{InstallationIDValue: ID}
 	installation.ID = uint(s.installationPK)
 
@@ -232,7 +264,7 @@ func (s *SqlStore) SaveInstallationID(ID string) error {
 func (s *SqlStore) GetInstallationID() string {
 	var installation installation
 
-	if result := s.db.First(&installation, "id = ?", s.installationPK); result.Error != nil {
+	if result := s.db.First(&installation, idQueryCondition, s.installationPK); result.Error != nil {
 		return ""
 	}
 
@@ -289,7 +321,7 @@ func (s *SqlStore) DeleteTokenID2UserIDIndex(tokenID string) error {
 	return nil
 }
 
-func (s *SqlStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
+func (s *SqlStore) GetAccountByPrivateDomain(ctx context.Context, domain string) (*Account, error) {
 	var account Account
 
 	result := s.db.First(&account, "domain = ? and is_domain_primary_account = ? and domain_category = ?",
@@ -298,22 +330,22 @@ func (s *SqlStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: provided domain is not registered or is not private")
 		}
-		log.Errorf("error when getting account from the store: %s", result.Error)
+		log.WithContext(ctx).Errorf("error when getting account from the store: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "issue getting account from store")
 	}
 
 	// TODO:  rework to not call GetAccount
-	return s.GetAccount(account.Id)
+	return s.GetAccount(ctx, account.Id)
 }
 
-func (s *SqlStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
+func (s *SqlStore) GetAccountBySetupKey(ctx context.Context, setupKey string) (*Account, error) {
 	var key SetupKey
 	result := s.db.Select("account_id").First(&key, "key = ?", strings.ToUpper(setupKey))
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 		}
-		log.Errorf("error when getting setup key from the store: %s", result.Error)
+		log.WithContext(ctx).Errorf("error when getting setup key from the store: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "issue getting setup key from store")
 	}
 
@@ -321,31 +353,31 @@ func (s *SqlStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 	}
 
-	return s.GetAccount(key.AccountID)
+	return s.GetAccount(ctx, key.AccountID)
 }
 
-func (s *SqlStore) GetTokenIDByHashedToken(hashedToken string) (string, error) {
+func (s *SqlStore) GetTokenIDByHashedToken(ctx context.Context, hashedToken string) (string, error) {
 	var token PersonalAccessToken
 	result := s.db.First(&token, "hashed_token = ?", hashedToken)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
 		}
-		log.Errorf("error when getting token from the store: %s", result.Error)
+		log.WithContext(ctx).Errorf("error when getting token from the store: %s", result.Error)
 		return "", status.Errorf(status.Internal, "issue getting account from store")
 	}
 
 	return token.ID, nil
 }
 
-func (s *SqlStore) GetUserByTokenID(tokenID string) (*User, error) {
+func (s *SqlStore) GetUserByTokenID(ctx context.Context, tokenID string) (*User, error) {
 	var token PersonalAccessToken
-	result := s.db.First(&token, "id = ?", tokenID)
+	result := s.db.First(&token, idQueryCondition, tokenID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 		}
-		log.Errorf("error when getting token from the store: %s", result.Error)
+		log.WithContext(ctx).Errorf("error when getting token from the store: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "issue getting account from store")
 	}
 
@@ -354,7 +386,7 @@ func (s *SqlStore) GetUserByTokenID(tokenID string) (*User, error) {
 	}
 
 	var user User
-	result = s.db.Preload("PATsG").First(&user, "id = ?", token.UserID)
+	result = s.db.Preload("PATsG").First(&user, idQueryCondition, token.UserID)
 	if result.Error != nil {
 		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 	}
@@ -367,7 +399,7 @@ func (s *SqlStore) GetUserByTokenID(tokenID string) (*User, error) {
 	return &user, nil
 }
 
-func (s *SqlStore) GetAllAccounts() (all []*Account) {
+func (s *SqlStore) GetAllAccounts(ctx context.Context) (all []*Account) {
 	var accounts []Account
 	result := s.db.Find(&accounts)
 	if result.Error != nil {
@@ -375,7 +407,7 @@ func (s *SqlStore) GetAllAccounts() (all []*Account) {
 	}
 
 	for _, account := range accounts {
-		if acc, err := s.GetAccount(account.Id); err == nil {
+		if acc, err := s.GetAccount(ctx, account.Id); err == nil {
 			all = append(all, acc)
 		}
 	}
@@ -383,15 +415,15 @@ func (s *SqlStore) GetAllAccounts() (all []*Account) {
 	return all
 }
 
-func (s *SqlStore) GetAccount(accountID string) (*Account, error) {
+func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*Account, error) {
 
 	var account Account
 	result := s.db.Model(&account).
 		Preload("UsersG.PATsG"). // have to be specifies as this is nester reference
 		Preload(clause.Associations).
-		First(&account, "id = ?", accountID)
+		First(&account, idQueryCondition, accountID)
 	if result.Error != nil {
-		log.Errorf("error when getting account %s from the store: %s", accountID, result.Error)
+		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found")
 		}
@@ -451,9 +483,9 @@ func (s *SqlStore) GetAccount(accountID string) (*Account, error) {
 	return &account, nil
 }
 
-func (s *SqlStore) GetAccountByUser(userID string) (*Account, error) {
+func (s *SqlStore) GetAccountByUser(ctx context.Context, userID string) (*Account, error) {
 	var user User
-	result := s.db.Select("account_id").First(&user, "id = ?", userID)
+	result := s.db.Select("account_id").First(&user, idQueryCondition, userID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -465,17 +497,17 @@ func (s *SqlStore) GetAccountByUser(userID string) (*Account, error) {
 		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 	}
 
-	return s.GetAccount(user.AccountID)
+	return s.GetAccount(ctx, user.AccountID)
 }
 
-func (s *SqlStore) GetAccountByPeerID(peerID string) (*Account, error) {
+func (s *SqlStore) GetAccountByPeerID(ctx context.Context, peerID string) (*Account, error) {
 	var peer nbpeer.Peer
-	result := s.db.Select("account_id").First(&peer, "id = ?", peerID)
+	result := s.db.Select("account_id").First(&peer, idQueryCondition, peerID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 		}
-		log.Errorf("error when getting peer from the store: %s", result.Error)
+		log.WithContext(ctx).Errorf("error when getting peer from the store: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "issue getting account from store")
 	}
 
@@ -483,10 +515,10 @@ func (s *SqlStore) GetAccountByPeerID(peerID string) (*Account, error) {
 		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 	}
 
-	return s.GetAccount(peer.AccountID)
+	return s.GetAccount(ctx, peer.AccountID)
 }
 
-func (s *SqlStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
+func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*Account, error) {
 	var peer nbpeer.Peer
 
 	result := s.db.Select("account_id").First(&peer, "key = ?", peerKey)
@@ -494,7 +526,7 @@ func (s *SqlStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 		}
-		log.Errorf("error when getting peer from the store: %s", result.Error)
+		log.WithContext(ctx).Errorf("error when getting peer from the store: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "issue getting account from store")
 	}
 
@@ -502,10 +534,10 @@ func (s *SqlStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 	}
 
-	return s.GetAccount(peer.AccountID)
+	return s.GetAccount(ctx, peer.AccountID)
 }
 
-func (s *SqlStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
+func (s *SqlStore) GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error) {
 	var peer nbpeer.Peer
 	var accountID string
 	result := s.db.Model(&peer).Select("account_id").Where("key = ?", peerKey).First(&accountID)
@@ -513,7 +545,7 @@ func (s *SqlStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
 		}
-		log.Errorf("error when getting peer from the store: %s", result.Error)
+		log.WithContext(ctx).Errorf("error when getting peer from the store: %s", result.Error)
 		return "", status.Errorf(status.Internal, "issue getting account from store")
 	}
 
@@ -523,7 +555,7 @@ func (s *SqlStore) GetAccountIDByPeerPubKey(peerKey string) (string, error) {
 func (s *SqlStore) GetAccountIDByUserID(userID string) (string, error) {
 	var user User
 	var accountID string
-	result := s.db.Model(&user).Select("account_id").Where("id = ?", userID).First(&accountID)
+	result := s.db.Model(&user).Select("account_id").Where(idQueryCondition, userID).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -534,7 +566,7 @@ func (s *SqlStore) GetAccountIDByUserID(userID string) (string, error) {
 	return accountID, nil
 }
 
-func (s *SqlStore) GetAccountIDBySetupKey(setupKey string) (string, error) {
+func (s *SqlStore) GetAccountIDBySetupKey(ctx context.Context, setupKey string) (string, error) {
 	var key SetupKey
 	var accountID string
 	result := s.db.Model(&key).Select("account_id").Where("key = ?", strings.ToUpper(setupKey)).First(&accountID)
@@ -542,34 +574,34 @@ func (s *SqlStore) GetAccountIDBySetupKey(setupKey string) (string, error) {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
 		}
-		log.Errorf("error when getting setup key from the store: %s", result.Error)
+		log.WithContext(ctx).Errorf("error when getting setup key from the store: %s", result.Error)
 		return "", status.Errorf(status.Internal, "issue getting setup key from store")
 	}
 
 	return accountID, nil
 }
 
-func (s *SqlStore) GetPeerByPeerPubKey(peerKey string) (*nbpeer.Peer, error) {
+func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, peerKey string) (*nbpeer.Peer, error) {
 	var peer nbpeer.Peer
 	result := s.db.First(&peer, "key = ?", peerKey)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "peer not found")
 		}
-		log.Errorf("error when getting peer from the store: %s", result.Error)
+		log.WithContext(ctx).Errorf("error when getting peer from the store: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "issue getting peer from store")
 	}
 
 	return &peer, nil
 }
 
-func (s *SqlStore) GetAccountSettings(accountID string) (*Settings, error) {
+func (s *SqlStore) GetAccountSettings(ctx context.Context, accountID string) (*Settings, error) {
 	var accountSettings AccountSettings
-	if err := s.db.Model(&Account{}).Where("id = ?", accountID).First(&accountSettings).Error; err != nil {
+	if err := s.db.Model(&Account{}).Where(idQueryCondition, accountID).First(&accountSettings).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "settings not found")
 		}
-		log.Errorf("error when getting settings from the store: %s", err)
+		log.WithContext(ctx).Errorf("error when getting settings from the store: %s", err)
 		return nil, status.Errorf(status.Internal, "issue getting settings from store")
 	}
 	return accountSettings.Settings, nil
@@ -608,7 +640,7 @@ func (s *SqlStore) GetPostureCheckByChecksDefinition(accountID string, checks *p
 }
 
 // Close closes the underlying DB connection
-func (s *SqlStore) Close() error {
+func (s *SqlStore) Close(_ context.Context) error {
 	sql, err := s.db.DB()
 	if err != nil {
 		return fmt.Errorf("get db: %w", err)
@@ -622,11 +654,11 @@ func (s *SqlStore) GetStoreEngine() StoreEngine {
 }
 
 // NewSqliteStore creates a new SQLite store.
-func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	storeStr := "store.db?cache=shared"
+func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMetrics) (*SqlStore, error) {
+	storeStr := fmt.Sprintf("%s?cache=shared", storeSqliteFileName)
 	if runtime.GOOS == "windows" {
 		// Vo avoid `The process cannot access the file because it is being used by another process` on Windows
-		storeStr = "store.db"
+		storeStr = storeSqliteFileName
 	}
 
 	file := filepath.Join(dataDir, storeStr)
@@ -639,11 +671,11 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqlStore, er
 		return nil, err
 	}
 
-	return NewSqlStore(db, SqliteStoreEngine, metrics)
+	return NewSqlStore(ctx, db, SqliteStoreEngine, metrics)
 }
 
 // NewPostgresqlStore creates a new Postgres store.
-func NewPostgresqlStore(dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
+func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger:      logger.Default.LogMode(logger.Silent),
 		PrepareStmt: true,
@@ -652,23 +684,32 @@ func NewPostgresqlStore(dsn string, metrics telemetry.AppMetrics) (*SqlStore, er
 		return nil, err
 	}
 
-	return NewSqlStore(db, PostgresStoreEngine, metrics)
+	return NewSqlStore(ctx, db, PostgresStoreEngine, metrics)
+}
+
+// newPostgresStore initializes a new Postgres store.
+func newPostgresStore(ctx context.Context, metrics telemetry.AppMetrics) (Store, error) {
+	dsn, ok := os.LookupEnv(postgresDsnEnv)
+	if !ok {
+		return nil, fmt.Errorf("%s is not set", postgresDsnEnv)
+	}
+	return NewPostgresqlStore(ctx, dsn, metrics)
 }
 
 // NewSqliteStoreFromFileStore restores a store from FileStore and stores SQLite DB in the file located in datadir.
-func NewSqliteStoreFromFileStore(fileStore *FileStore, dataDir string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	store, err := NewSqliteStore(dataDir, metrics)
+func NewSqliteStoreFromFileStore(ctx context.Context, fileStore *FileStore, dataDir string, metrics telemetry.AppMetrics) (*SqlStore, error) {
+	store, err := NewSqliteStore(ctx, dataDir, metrics)
 	if err != nil {
 		return nil, err
 	}
 
-	err = store.SaveInstallationID(fileStore.InstallationID)
+	err = store.SaveInstallationID(ctx, fileStore.InstallationID)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, account := range fileStore.GetAllAccounts() {
-		err := store.SaveAccount(account)
+	for _, account := range fileStore.GetAllAccounts(ctx) {
+		err := store.SaveAccount(ctx, account)
 		if err != nil {
 			return nil, err
 		}
@@ -678,19 +719,19 @@ func NewSqliteStoreFromFileStore(fileStore *FileStore, dataDir string, metrics t
 }
 
 // NewPostgresqlStoreFromFileStore restores a store from FileStore and stores Postgres DB.
-func NewPostgresqlStoreFromFileStore(fileStore *FileStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	store, err := NewPostgresqlStore(dsn, metrics)
+func NewPostgresqlStoreFromFileStore(ctx context.Context, fileStore *FileStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
+	store, err := NewPostgresqlStore(ctx, dsn, metrics)
 	if err != nil {
 		return nil, err
 	}
 
-	err = store.SaveInstallationID(fileStore.InstallationID)
+	err = store.SaveInstallationID(ctx, fileStore.InstallationID)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, account := range fileStore.GetAllAccounts() {
-		err := store.SaveAccount(account)
+	for _, account := range fileStore.GetAllAccounts(ctx) {
+		err := store.SaveAccount(ctx, account)
 		if err != nil {
 			return nil, err
 		}

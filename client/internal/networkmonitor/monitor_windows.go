@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/internal/routemanager"
+	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
 
 const (
@@ -25,20 +26,16 @@ const (
 
 const interval = 10 * time.Second
 
-func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interface, nexthopv6 netip.Addr, intfv6 *net.Interface, callback func()) error {
-	var neighborv4, neighborv6 *routemanager.Neighbor
+func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, callback func()) error {
+	var neighborv4, neighborv6 *systemops.Neighbor
 	{
 		initialNeighbors, err := getNeighbors()
 		if err != nil {
 			return fmt.Errorf("get neighbors: %w", err)
 		}
 
-		if n, ok := initialNeighbors[nexthopv4]; ok {
-			neighborv4 = &n
-		}
-		if n, ok := initialNeighbors[nexthopv6]; ok {
-			neighborv6 = &n
-		}
+		neighborv4 = assignNeighbor(nexthopv4, initialNeighbors)
+		neighborv6 = assignNeighbor(nexthopv6, initialNeighbors)
 	}
 	log.Debugf("Network monitor: initial IPv4 neighbor: %v, IPv6 neighbor: %v", neighborv4, neighborv6)
 
@@ -50,7 +47,7 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 		case <-ctx.Done():
 			return ErrStopped
 		case <-ticker.C:
-			if changed(nexthopv4, intfv4, neighborv4, nexthopv6, intfv6, neighborv6) {
+			if changed(nexthopv4, neighborv4, nexthopv6, neighborv6) {
 				go callback()
 				return nil
 			}
@@ -58,13 +55,21 @@ func checkChange(ctx context.Context, nexthopv4 netip.Addr, intfv4 *net.Interfac
 	}
 }
 
+func assignNeighbor(nexthop systemops.Nexthop, initialNeighbors map[netip.Addr]systemops.Neighbor) *systemops.Neighbor {
+	if n, ok := initialNeighbors[nexthop.IP]; ok &&
+		n.State != unreachable &&
+		n.State != incomplete &&
+		n.State != tbd {
+		return &n
+	}
+	return nil
+}
+
 func changed(
-	nexthopv4 netip.Addr,
-	intfv4 *net.Interface,
-	neighborv4 *routemanager.Neighbor,
-	nexthopv6 netip.Addr,
-	intfv6 *net.Interface,
-	neighborv6 *routemanager.Neighbor,
+	nexthopv4 systemops.Nexthop,
+	neighborv4 *systemops.Neighbor,
+	nexthopv6 systemops.Nexthop,
+	neighborv6 *systemops.Neighbor,
 ) bool {
 	neighbors, err := getNeighbors()
 	if err != nil {
@@ -81,7 +86,7 @@ func changed(
 		return false
 	}
 
-	if routeChanged(nexthopv4, intfv4, routes) || routeChanged(nexthopv6, intfv6, routes) {
+	if routeChanged(nexthopv4, nexthopv4.Intf, routes) || routeChanged(nexthopv6, nexthopv6.Intf, routes) {
 		return true
 	}
 
@@ -89,44 +94,74 @@ func changed(
 }
 
 // routeChanged checks if the default routes still point to our nexthop/interface
-func routeChanged(nexthop netip.Addr, intf *net.Interface, routes map[netip.Prefix]routemanager.Route) bool {
-	if !nexthop.IsValid() {
+func routeChanged(nexthop systemops.Nexthop, intf *net.Interface, routes []systemops.Route) bool {
+	if !nexthop.IP.IsValid() {
 		return false
 	}
 
-	var unspec netip.Prefix
-	if nexthop.Is6() {
-		unspec = netip.PrefixFrom(netip.IPv6Unspecified(), 0)
-	} else {
-		unspec = netip.PrefixFrom(netip.IPv4Unspecified(), 0)
-	}
+	unspec := getUnspecifiedPrefix(nexthop.IP)
+	defaultRoutes, foundMatchingRoute := processRoutes(nexthop, intf, routes, unspec)
 
-	if r, ok := routes[unspec]; ok {
-		if r.Nexthop != nexthop || compareIntf(r.Interface, intf) != 0 {
-			intf := "<nil>"
-			if r.Interface != nil {
-				intf = r.Interface.Name
-			}
-			log.Infof("network monitor: default route changed: %s via %s (%s)", r.Destination, r.Nexthop, intf)
-			return true
-		}
-	} else {
-		log.Infof("network monitor: default route is gone")
+	log.Tracef("network monitor: all default routes:\n%s", strings.Join(defaultRoutes, "\n"))
+
+	if !foundMatchingRoute {
+		logRouteChange(nexthop.IP, intf)
 		return true
 	}
 
 	return false
-
 }
 
-func neighborChanged(nexthop netip.Addr, neighbor *routemanager.Neighbor, neighbors map[netip.Addr]routemanager.Neighbor) bool {
+func getUnspecifiedPrefix(ip netip.Addr) netip.Prefix {
+	if ip.Is6() {
+		return netip.PrefixFrom(netip.IPv6Unspecified(), 0)
+	}
+	return netip.PrefixFrom(netip.IPv4Unspecified(), 0)
+}
+
+func processRoutes(nexthop systemops.Nexthop, intf *net.Interface, routes []systemops.Route, unspec netip.Prefix) ([]string, bool) {
+	var defaultRoutes []string
+	foundMatchingRoute := false
+
+	for _, r := range routes {
+		if r.Destination == unspec {
+			routeInfo := formatRouteInfo(r)
+			defaultRoutes = append(defaultRoutes, routeInfo)
+
+			if r.Nexthop == nexthop.IP && compareIntf(r.Interface, intf) == 0 {
+				foundMatchingRoute = true
+				log.Debugf("network monitor: found matching default route: %s", routeInfo)
+			}
+		}
+	}
+
+	return defaultRoutes, foundMatchingRoute
+}
+
+func formatRouteInfo(r systemops.Route) string {
+	newIntf := "<nil>"
+	if r.Interface != nil {
+		newIntf = r.Interface.Name
+	}
+	return fmt.Sprintf("Nexthop: %s, Interface: %s", r.Nexthop, newIntf)
+}
+
+func logRouteChange(ip netip.Addr, intf *net.Interface) {
+	oldIntf := "<nil>"
+	if intf != nil {
+		oldIntf = intf.Name
+	}
+	log.Infof("network monitor: default route for %s (%s) is gone or changed", ip, oldIntf)
+}
+
+func neighborChanged(nexthop systemops.Nexthop, neighbor *systemops.Neighbor, neighbors map[netip.Addr]systemops.Neighbor) bool {
 	if neighbor == nil {
 		return false
 	}
 
 	// TODO: consider non-local nexthops, e.g. on point-to-point interfaces
-	if n, ok := neighbors[nexthop]; ok {
-		if n.State != reachable && n.State != permanent {
+	if n, ok := neighbors[nexthop.IP]; ok {
+		if n.State == unreachable || n.State == incomplete {
 			log.Infof("network monitor: neighbor %s (%s) is not reachable: %s", neighbor.IPAddress, neighbor.LinkLayerAddress, stateFromInt(n.State))
 			return true
 		} else if n.InterfaceIndex != neighbor.InterfaceIndex {
@@ -150,13 +185,13 @@ func neighborChanged(nexthop netip.Addr, neighbor *routemanager.Neighbor, neighb
 	return false
 }
 
-func getNeighbors() (map[netip.Addr]routemanager.Neighbor, error) {
-	entries, err := routemanager.GetNeighbors()
+func getNeighbors() (map[netip.Addr]systemops.Neighbor, error) {
+	entries, err := systemops.GetNeighbors()
 	if err != nil {
 		return nil, fmt.Errorf("get neighbors: %w", err)
 	}
 
-	neighbours := make(map[netip.Addr]routemanager.Neighbor, len(entries))
+	neighbours := make(map[netip.Addr]systemops.Neighbor, len(entries))
 	for _, entry := range entries {
 		neighbours[entry.IPAddress] = entry
 	}
@@ -164,18 +199,13 @@ func getNeighbors() (map[netip.Addr]routemanager.Neighbor, error) {
 	return neighbours, nil
 }
 
-func getRoutes() (map[netip.Prefix]routemanager.Route, error) {
-	entries, err := routemanager.GetRoutes()
+func getRoutes() ([]systemops.Route, error) {
+	entries, err := systemops.GetRoutes()
 	if err != nil {
 		return nil, fmt.Errorf("get routes: %w", err)
 	}
 
-	routes := make(map[netip.Prefix]routemanager.Route, len(entries))
-	for _, entry := range entries {
-		routes[entry.Destination] = entry
-	}
-
-	return routes, nil
+	return entries, nil
 }
 
 func stateFromInt(state uint8) string {

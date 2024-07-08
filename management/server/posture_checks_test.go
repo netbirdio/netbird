@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,15 +29,15 @@ func TestDefaultAccountManager_PostureCheck(t *testing.T) {
 
 	t.Run("Generic posture check flow", func(t *testing.T) {
 		// regular users can not create checks
-		err := am.SavePostureChecks(account.Id, regularUserID, &posture.Checks{})
+		err := am.SavePostureChecks(context.Background(), account.Id, regularUserID, &posture.Checks{})
 		assert.Error(t, err)
 
 		// regular users cannot list check
-		_, err = am.ListPostureChecks(account.Id, regularUserID)
+		_, err = am.ListPostureChecks(context.Background(), account.Id, regularUserID)
 		assert.Error(t, err)
 
 		// should be possible to create posture check with uniq name
-		err = am.SavePostureChecks(account.Id, adminUserID, &posture.Checks{
+		err = am.SavePostureChecks(context.Background(), account.Id, adminUserID, &posture.Checks{
 			ID:   postureCheckID,
 			Name: postureCheckName,
 			Checks: posture.ChecksDefinition{
@@ -48,12 +49,12 @@ func TestDefaultAccountManager_PostureCheck(t *testing.T) {
 		assert.NoError(t, err)
 
 		// admin users can list check
-		checks, err := am.ListPostureChecks(account.Id, adminUserID)
+		checks, err := am.ListPostureChecks(context.Background(), account.Id, adminUserID)
 		assert.NoError(t, err)
 		assert.Len(t, checks, 1)
 
 		// should not be possible to create posture check with non uniq name
-		err = am.SavePostureChecks(account.Id, adminUserID, &posture.Checks{
+		err = am.SavePostureChecks(context.Background(), account.Id, adminUserID, &posture.Checks{
 			ID:   "new-id",
 			Name: postureCheckName,
 			Checks: posture.ChecksDefinition{
@@ -69,7 +70,7 @@ func TestDefaultAccountManager_PostureCheck(t *testing.T) {
 		assert.Error(t, err)
 
 		// admins can update posture checks
-		err = am.SavePostureChecks(account.Id, adminUserID, &posture.Checks{
+		err = am.SavePostureChecks(context.Background(), account.Id, adminUserID, &posture.Checks{
 			ID:   postureCheckID,
 			Name: postureCheckName,
 			Checks: posture.ChecksDefinition{
@@ -81,13 +82,13 @@ func TestDefaultAccountManager_PostureCheck(t *testing.T) {
 		assert.NoError(t, err)
 
 		// users should not be able to delete posture checks
-		err = am.DeletePostureChecks(account.Id, postureCheckID, regularUserID)
+		err = am.DeletePostureChecks(context.Background(), account.Id, postureCheckID, regularUserID)
 		assert.Error(t, err)
 
 		// admin should be able to delete posture checks
-		err = am.DeletePostureChecks(account.Id, postureCheckID, adminUserID)
+		err = am.DeletePostureChecks(context.Background(), account.Id, postureCheckID, adminUserID)
 		assert.NoError(t, err)
-		checks, err = am.ListPostureChecks(account.Id, adminUserID)
+		checks, err = am.ListPostureChecks(context.Background(), account.Id, adminUserID)
 		assert.NoError(t, err)
 		assert.Len(t, checks, 0)
 	})
@@ -106,14 +107,14 @@ func initTestPostureChecksAccount(am *DefaultAccountManager) (*Account, error) {
 		Role: UserRoleUser,
 	}
 
-	account := newAccountWithId(accountID, groupAdminUserID, domain)
+	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain)
 	account.Users[admin.Id] = admin
 	account.Users[user.Id] = user
 
-	err := am.Store.SaveAccount(account)
+	err := am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return nil, err
 	}
 
-	return am.Store.GetAccount(account.Id)
+	return am.Store.GetAccount(context.Background(), account.Id)
 }

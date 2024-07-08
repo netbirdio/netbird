@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"net"
@@ -34,7 +35,7 @@ func TestSqlite_NewStore(t *testing.T) {
 
 	store := newSqliteStore(t)
 
-	if len(store.GetAllAccounts()) != 0 {
+	if len(store.GetAllAccounts(context.Background())) != 0 {
 		t.Errorf("expected to create a new empty Accounts map when creating a new FileStore")
 	}
 }
@@ -46,7 +47,7 @@ func TestSqlite_SaveAccount_Large(t *testing.T) {
 
 	store := newSqliteStore(t)
 
-	account := newAccountWithId("account_id", "testuser", "")
+	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
 	groupALL, err := account.GetGroupAll()
 	if err != nil {
 		t.Fatal(err)
@@ -117,14 +118,14 @@ func TestSqlite_SaveAccount_Large(t *testing.T) {
 		account.SetupKeys[setupKey.Key] = setupKey
 	}
 
-	err = store.SaveAccount(account)
+	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
-	if len(store.GetAllAccounts()) != 1 {
+	if len(store.GetAllAccounts(context.Background())) != 1 {
 		t.Errorf("expecting 1 Accounts to be stored after SaveAccount()")
 	}
 
-	a, err := store.GetAccount(account.Id)
+	a, err := store.GetAccount(context.Background(), account.Id)
 	if a == nil {
 		t.Errorf("expecting Account to be stored after SaveAccount(): %v", err)
 	}
@@ -191,7 +192,7 @@ func TestSqlite_SaveAccount(t *testing.T) {
 
 	store := newSqliteStore(t)
 
-	account := newAccountWithId("account_id", "testuser", "")
+	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
 	setupKey := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
@@ -203,10 +204,10 @@ func TestSqlite_SaveAccount(t *testing.T) {
 		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
-	account2 := newAccountWithId("account_id2", "testuser2", "")
+	account2 := newAccountWithId(context.Background(), "account_id2", "testuser2", "")
 	setupKey = GenerateDefaultSetupKey()
 	account2.SetupKeys[setupKey.Key] = setupKey
 	account2.Peers["testpeer2"] = &nbpeer.Peer{
@@ -218,14 +219,14 @@ func TestSqlite_SaveAccount(t *testing.T) {
 		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
-	err = store.SaveAccount(account2)
+	err = store.SaveAccount(context.Background(), account2)
 	require.NoError(t, err)
 
-	if len(store.GetAllAccounts()) != 2 {
+	if len(store.GetAllAccounts(context.Background())) != 2 {
 		t.Errorf("expecting 2 Accounts to be stored after SaveAccount()")
 	}
 
-	a, err := store.GetAccount(account.Id)
+	a, err := store.GetAccount(context.Background(), account.Id)
 	if a == nil {
 		t.Errorf("expecting Account to be stored after SaveAccount(): %v", err)
 	}
@@ -239,19 +240,19 @@ func TestSqlite_SaveAccount(t *testing.T) {
 		return
 	}
 
-	if a, err := store.GetAccountByPeerPubKey("peerkey"); a == nil {
+	if a, err := store.GetAccountByPeerPubKey(context.Background(), "peerkey"); a == nil {
 		t.Errorf("expecting PeerKeyID2AccountID index updated after SaveAccount(): %v", err)
 	}
 
-	if a, err := store.GetAccountByUser("testuser"); a == nil {
+	if a, err := store.GetAccountByUser(context.Background(), "testuser"); a == nil {
 		t.Errorf("expecting UserID2AccountID index updated after SaveAccount(): %v", err)
 	}
 
-	if a, err := store.GetAccountByPeerID("testpeer"); a == nil {
+	if a, err := store.GetAccountByPeerID(context.Background(), "testpeer"); a == nil {
 		t.Errorf("expecting PeerID2AccountID index updated after SaveAccount(): %v", err)
 	}
 
-	if a, err := store.GetAccountBySetupKey(setupKey.Key); a == nil {
+	if a, err := store.GetAccountBySetupKey(context.Background(), setupKey.Key); a == nil {
 		t.Errorf("expecting SetupKeyID2AccountID index updated after SaveAccount(): %v", err)
 	}
 }
@@ -270,7 +271,7 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 		Name: "test token",
 	}}
 
-	account := newAccountWithId("account_id", testUserID, "")
+	account := newAccountWithId(context.Background(), "account_id", testUserID, "")
 	setupKey := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
@@ -283,33 +284,33 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	}
 	account.Users[testUserID] = user
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
-	if len(store.GetAllAccounts()) != 1 {
+	if len(store.GetAllAccounts(context.Background())) != 1 {
 		t.Errorf("expecting 1 Accounts to be stored after SaveAccount()")
 	}
 
-	err = store.DeleteAccount(account)
+	err = store.DeleteAccount(context.Background(), account)
 	require.NoError(t, err)
 
-	if len(store.GetAllAccounts()) != 0 {
+	if len(store.GetAllAccounts(context.Background())) != 0 {
 		t.Errorf("expecting 0 Accounts to be stored after DeleteAccount()")
 	}
 
-	_, err = store.GetAccountByPeerPubKey("peerkey")
+	_, err = store.GetAccountByPeerPubKey(context.Background(), "peerkey")
 	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by peer public key")
 
-	_, err = store.GetAccountByUser("testuser")
+	_, err = store.GetAccountByUser(context.Background(), "testuser")
 	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by user")
 
-	_, err = store.GetAccountByPeerID("testpeer")
+	_, err = store.GetAccountByPeerID(context.Background(), "testpeer")
 	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by peer id")
 
-	_, err = store.GetAccountBySetupKey(setupKey.Key)
+	_, err = store.GetAccountBySetupKey(context.Background(), setupKey.Key)
 	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by setup key")
 
-	_, err = store.GetAccount(account.Id)
+	_, err = store.GetAccount(context.Background(), account.Id)
 	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by id")
 
 	for _, policy := range account.Policies {
@@ -339,11 +340,11 @@ func TestSqlite_GetAccount(t *testing.T) {
 
 	id := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	account, err := store.GetAccount(id)
+	account, err := store.GetAccount(context.Background(), id)
 	require.NoError(t, err)
 	require.Equal(t, id, account.Id, "account id should match")
 
-	_, err = store.GetAccount("non-existing-account")
+	_, err = store.GetAccount(context.Background(), "non-existing-account")
 	assert.Error(t, err)
 	parsedErr, ok := status.FromError(err)
 	require.True(t, ok)
@@ -357,7 +358,7 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 
 	store := newSqliteStoreFromFile(t, "testdata/store.json")
 
-	account, err := store.GetAccount("bf1c8084-ba50-4ce7-9439-34653001fc3b")
+	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
 	require.NoError(t, err)
 
 	// save status of non-existing peer
@@ -379,13 +380,13 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 		Status:   &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
 	}
 
-	err = store.SaveAccount(account)
+	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	err = store.SavePeerStatus(account.Id, "testpeer", newStatus)
 	require.NoError(t, err)
 
-	account, err = store.GetAccount(account.Id)
+	account, err = store.GetAccount(context.Background(), account.Id)
 	require.NoError(t, err)
 
 	actual := account.Peers["testpeer"].Status
@@ -398,7 +399,7 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 
 	store := newSqliteStoreFromFile(t, "testdata/store.json")
 
-	account, err := store.GetAccount("bf1c8084-ba50-4ce7-9439-34653001fc3b")
+	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
 	require.NoError(t, err)
 
 	peer := &nbpeer.Peer{
@@ -417,7 +418,7 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 	assert.Error(t, err)
 
 	account.Peers[peer.ID] = peer
-	err = store.SaveAccount(account)
+	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	peer.Location.ConnectionIP = net.ParseIP("35.1.1.1")
@@ -428,7 +429,7 @@ func TestSqlite_SavePeerLocation(t *testing.T) {
 	err = store.SavePeerLocation(account.Id, account.Peers[peer.ID])
 	assert.NoError(t, err)
 
-	account, err = store.GetAccount(account.Id)
+	account, err = store.GetAccount(context.Background(), account.Id)
 	require.NoError(t, err)
 
 	actual := account.Peers[peer.ID].Location
@@ -451,11 +452,11 @@ func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {
 
 	existingDomain := "test.com"
 
-	account, err := store.GetAccountByPrivateDomain(existingDomain)
+	account, err := store.GetAccountByPrivateDomain(context.Background(), existingDomain)
 	require.NoError(t, err, "should found account")
 	require.Equal(t, existingDomain, account.Domain, "domains should match")
 
-	_, err = store.GetAccountByPrivateDomain("missing-domain.com")
+	_, err = store.GetAccountByPrivateDomain(context.Background(), "missing-domain.com")
 	require.Error(t, err, "should return error on domain lookup")
 	parsedErr, ok := status.FromError(err)
 	require.True(t, ok)
@@ -472,11 +473,11 @@ func TestSqlite_GetTokenIDByHashedToken(t *testing.T) {
 	hashed := "SoMeHaShEdToKeN"
 	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
 
-	token, err := store.GetTokenIDByHashedToken(hashed)
+	token, err := store.GetTokenIDByHashedToken(context.Background(), hashed)
 	require.NoError(t, err)
 	require.Equal(t, id, token)
 
-	_, err = store.GetTokenIDByHashedToken("non-existing-hash")
+	_, err = store.GetTokenIDByHashedToken(context.Background(), "non-existing-hash")
 	require.Error(t, err)
 	parsedErr, ok := status.FromError(err)
 	require.True(t, ok)
@@ -492,11 +493,11 @@ func TestSqlite_GetUserByTokenID(t *testing.T) {
 
 	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
 
-	user, err := store.GetUserByTokenID(id)
+	user, err := store.GetUserByTokenID(context.Background(), id)
 	require.NoError(t, err)
 	require.Equal(t, id, user.PATs[id].ID)
 
-	_, err = store.GetUserByTokenID("non-existing-id")
+	_, err = store.GetUserByTokenID(context.Background(), "non-existing-id")
 	require.Error(t, err)
 	parsedErr, ok := status.FromError(err)
 	require.True(t, ok)
@@ -510,7 +511,7 @@ func TestMigrate(t *testing.T) {
 
 	store := newSqliteStore(t)
 
-	err := migrate(store.db)
+	err := migrate(context.Background(), store.db)
 	require.NoError(t, err, "Migration should not fail on empty db")
 
 	_, ipnet, err := net.ParseCIDR("10.0.0.0/24")
@@ -559,22 +560,43 @@ func TestMigrate(t *testing.T) {
 	rt := &route{
 		Network:    prefix,
 		PeerGroups: []string{"group1", "group2"},
+		Route:      route2.Route{ID: "route1"},
 	}
 
 	err = store.db.Save(rt).Error
 	require.NoError(t, err, "Failed to insert Gob data")
 
-	err = migrate(store.db)
+	err = migrate(context.Background(), store.db)
 	require.NoError(t, err, "Migration should not fail on gob populated db")
 
-	err = migrate(store.db)
+	err = migrate(context.Background(), store.db)
 	require.NoError(t, err, "Migration should not fail on migrated db")
+
+	err = store.db.Delete(rt).Where("id = ?", "route1").Error
+	require.NoError(t, err, "Failed to delete Gob data")
+
+	prefix = netip.MustParsePrefix("12.0.0.0/24")
+	nRT := &route2.Route{
+		Network: prefix,
+		ID:      "route2",
+		Peer:    "peer-id",
+	}
+
+	err = store.db.Save(nRT).Error
+	require.NoError(t, err, "Failed to insert json nil slice data")
+
+	err = migrate(context.Background(), store.db)
+	require.NoError(t, err, "Migration should not fail on json nil slice populated db")
+
+	err = migrate(context.Background(), store.db)
+	require.NoError(t, err, "Migration should not fail on migrated db")
+
 }
 
 func newSqliteStore(t *testing.T) *SqlStore {
 	t.Helper()
 
-	store, err := NewSqliteStore(t.TempDir(), nil)
+	store, err := NewSqliteStore(context.Background(), t.TempDir(), nil)
 	require.NoError(t, err)
 	require.NotNil(t, store)
 
@@ -589,10 +611,10 @@ func newSqliteStoreFromFile(t *testing.T, filename string) *SqlStore {
 	err := util.CopyFileContents(filename, filepath.Join(storeDir, "store.json"))
 	require.NoError(t, err)
 
-	fStore, err := NewFileStore(storeDir, nil)
+	fStore, err := NewFileStore(context.Background(), storeDir, nil)
 	require.NoError(t, err)
 
-	store, err := NewSqliteStoreFromFileStore(fStore, storeDir, nil)
+	store, err := NewSqliteStoreFromFileStore(context.Background(), fStore, storeDir, nil)
 	require.NoError(t, err)
 	require.NotNil(t, store)
 
@@ -601,7 +623,7 @@ func newSqliteStoreFromFile(t *testing.T, filename string) *SqlStore {
 
 func newAccount(store Store, id int) error {
 	str := fmt.Sprintf("%s-%d", uuid.New().String(), id)
-	account := newAccountWithId(str, str+"-testuser", "example.com")
+	account := newAccountWithId(context.Background(), str, str+"-testuser", "example.com")
 	setupKey := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["p"+str] = &nbpeer.Peer{
@@ -613,7 +635,7 @@ func newAccount(store Store, id int) error {
 		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
-	return store.SaveAccount(account)
+	return store.SaveAccount(context.Background(), account)
 }
 
 func newPostgresqlStore(t *testing.T) *SqlStore {
@@ -630,7 +652,7 @@ func newPostgresqlStore(t *testing.T) *SqlStore {
 		t.Fatalf("could not initialize postgresql store: %s is not set", postgresDsnEnv)
 	}
 
-	store, err := NewPostgresqlStore(postgresDsn, nil)
+	store, err := NewPostgresqlStore(context.Background(), postgresDsn, nil)
 	if err != nil {
 		t.Fatalf("could not initialize postgresql store: %s", err)
 	}
@@ -647,7 +669,7 @@ func newPostgresqlStoreFromFile(t *testing.T, filename string) *SqlStore {
 	err := util.CopyFileContents(filename, filepath.Join(storeDir, "store.json"))
 	require.NoError(t, err)
 
-	fStore, err := NewFileStore(storeDir, nil)
+	fStore, err := NewFileStore(context.Background(), storeDir, nil)
 	require.NoError(t, err)
 
 	cleanUp, err := testutil.CreatePGDB()
@@ -661,7 +683,7 @@ func newPostgresqlStoreFromFile(t *testing.T, filename string) *SqlStore {
 		t.Fatalf("could not initialize postgresql store: %s is not set", postgresDsnEnv)
 	}
 
-	store, err := NewPostgresqlStoreFromFileStore(fStore, postgresDsn, nil)
+	store, err := NewPostgresqlStoreFromFileStore(context.Background(), fStore, postgresDsn, nil)
 	require.NoError(t, err)
 	require.NotNil(t, store)
 
@@ -675,7 +697,7 @@ func TestPostgresql_NewStore(t *testing.T) {
 
 	store := newPostgresqlStore(t)
 
-	if len(store.GetAllAccounts()) != 0 {
+	if len(store.GetAllAccounts(context.Background())) != 0 {
 		t.Errorf("expected to create a new empty Accounts map when creating a new FileStore")
 	}
 }
@@ -687,7 +709,7 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 
 	store := newPostgresqlStore(t)
 
-	account := newAccountWithId("account_id", "testuser", "")
+	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
 	setupKey := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
@@ -699,10 +721,10 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
-	account2 := newAccountWithId("account_id2", "testuser2", "")
+	account2 := newAccountWithId(context.Background(), "account_id2", "testuser2", "")
 	setupKey = GenerateDefaultSetupKey()
 	account2.SetupKeys[setupKey.Key] = setupKey
 	account2.Peers["testpeer2"] = &nbpeer.Peer{
@@ -714,14 +736,14 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
-	err = store.SaveAccount(account2)
+	err = store.SaveAccount(context.Background(), account2)
 	require.NoError(t, err)
 
-	if len(store.GetAllAccounts()) != 2 {
+	if len(store.GetAllAccounts(context.Background())) != 2 {
 		t.Errorf("expecting 2 Accounts to be stored after SaveAccount()")
 	}
 
-	a, err := store.GetAccount(account.Id)
+	a, err := store.GetAccount(context.Background(), account.Id)
 	if a == nil {
 		t.Errorf("expecting Account to be stored after SaveAccount(): %v", err)
 	}
@@ -735,19 +757,19 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 		return
 	}
 
-	if a, err := store.GetAccountByPeerPubKey("peerkey"); a == nil {
+	if a, err := store.GetAccountByPeerPubKey(context.Background(), "peerkey"); a == nil {
 		t.Errorf("expecting PeerKeyID2AccountID index updated after SaveAccount(): %v", err)
 	}
 
-	if a, err := store.GetAccountByUser("testuser"); a == nil {
+	if a, err := store.GetAccountByUser(context.Background(), "testuser"); a == nil {
 		t.Errorf("expecting UserID2AccountID index updated after SaveAccount(): %v", err)
 	}
 
-	if a, err := store.GetAccountByPeerID("testpeer"); a == nil {
+	if a, err := store.GetAccountByPeerID(context.Background(), "testpeer"); a == nil {
 		t.Errorf("expecting PeerID2AccountID index updated after SaveAccount(): %v", err)
 	}
 
-	if a, err := store.GetAccountBySetupKey(setupKey.Key); a == nil {
+	if a, err := store.GetAccountBySetupKey(context.Background(), setupKey.Key); a == nil {
 		t.Errorf("expecting SetupKeyID2AccountID index updated after SaveAccount(): %v", err)
 	}
 }
@@ -766,7 +788,7 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 		Name: "test token",
 	}}
 
-	account := newAccountWithId("account_id", testUserID, "")
+	account := newAccountWithId(context.Background(), "account_id", testUserID, "")
 	setupKey := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
@@ -779,33 +801,33 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 	}
 	account.Users[testUserID] = user
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
-	if len(store.GetAllAccounts()) != 1 {
+	if len(store.GetAllAccounts(context.Background())) != 1 {
 		t.Errorf("expecting 1 Accounts to be stored after SaveAccount()")
 	}
 
-	err = store.DeleteAccount(account)
+	err = store.DeleteAccount(context.Background(), account)
 	require.NoError(t, err)
 
-	if len(store.GetAllAccounts()) != 0 {
+	if len(store.GetAllAccounts(context.Background())) != 0 {
 		t.Errorf("expecting 0 Accounts to be stored after DeleteAccount()")
 	}
 
-	_, err = store.GetAccountByPeerPubKey("peerkey")
+	_, err = store.GetAccountByPeerPubKey(context.Background(), "peerkey")
 	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by peer public key")
 
-	_, err = store.GetAccountByUser("testuser")
+	_, err = store.GetAccountByUser(context.Background(), "testuser")
 	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by user")
 
-	_, err = store.GetAccountByPeerID("testpeer")
+	_, err = store.GetAccountByPeerID(context.Background(), "testpeer")
 	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by peer id")
 
-	_, err = store.GetAccountBySetupKey(setupKey.Key)
+	_, err = store.GetAccountBySetupKey(context.Background(), setupKey.Key)
 	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by setup key")
 
-	_, err = store.GetAccount(account.Id)
+	_, err = store.GetAccount(context.Background(), account.Id)
 	require.Error(t, err, "expecting error after removing DeleteAccount when getting account by id")
 
 	for _, policy := range account.Policies {
@@ -833,7 +855,7 @@ func TestPostgresql_SavePeerStatus(t *testing.T) {
 
 	store := newPostgresqlStoreFromFile(t, "testdata/store.json")
 
-	account, err := store.GetAccount("bf1c8084-ba50-4ce7-9439-34653001fc3b")
+	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
 	require.NoError(t, err)
 
 	// save status of non-existing peer
@@ -852,13 +874,13 @@ func TestPostgresql_SavePeerStatus(t *testing.T) {
 		Status:   &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
 	}
 
-	err = store.SaveAccount(account)
+	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	err = store.SavePeerStatus(account.Id, "testpeer", newStatus)
 	require.NoError(t, err)
 
-	account, err = store.GetAccount(account.Id)
+	account, err = store.GetAccount(context.Background(), account.Id)
 	require.NoError(t, err)
 
 	actual := account.Peers["testpeer"].Status
@@ -874,11 +896,11 @@ func TestPostgresql_TestGetAccountByPrivateDomain(t *testing.T) {
 
 	existingDomain := "test.com"
 
-	account, err := store.GetAccountByPrivateDomain(existingDomain)
+	account, err := store.GetAccountByPrivateDomain(context.Background(), existingDomain)
 	require.NoError(t, err, "should found account")
 	require.Equal(t, existingDomain, account.Domain, "domains should match")
 
-	_, err = store.GetAccountByPrivateDomain("missing-domain.com")
+	_, err = store.GetAccountByPrivateDomain(context.Background(), "missing-domain.com")
 	require.Error(t, err, "should return error on domain lookup")
 }
 
@@ -892,7 +914,7 @@ func TestPostgresql_GetTokenIDByHashedToken(t *testing.T) {
 	hashed := "SoMeHaShEdToKeN"
 	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
 
-	token, err := store.GetTokenIDByHashedToken(hashed)
+	token, err := store.GetTokenIDByHashedToken(context.Background(), hashed)
 	require.NoError(t, err)
 	require.Equal(t, id, token)
 }
@@ -906,7 +928,7 @@ func TestPostgresql_GetUserByTokenID(t *testing.T) {
 
 	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
 
-	user, err := store.GetUserByTokenID(id)
+	user, err := store.GetUserByTokenID(context.Background(), id)
 	require.NoError(t, err)
 	require.Equal(t, id, user.PATs[id].ID)
 }

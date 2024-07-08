@@ -1,5 +1,4 @@
-//go:build linux || windows
-// +build linux windows
+//go:build linux || windows || freebsd
 
 package iface
 

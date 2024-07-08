@@ -116,7 +116,7 @@ func (ac *AuthentikCredentials) jwtStillValid() bool {
 }
 
 // requestJWTToken performs request to get jwt token.
-func (ac *AuthentikCredentials) requestJWTToken() (*http.Response, error) {
+func (ac *AuthentikCredentials) requestJWTToken(ctx context.Context) (*http.Response, error) {
 	data := url.Values{}
 	data.Set("client_id", ac.clientConfig.ClientID)
 	data.Set("username", ac.clientConfig.Username)
@@ -131,7 +131,7 @@ func (ac *AuthentikCredentials) requestJWTToken() (*http.Response, error) {
 	}
 	req.Header.Add("content-type", "application/x-www-form-urlencoded")
 
-	log.Debug("requesting new jwt token for authentik idp manager")
+	log.WithContext(ctx).Debug("requesting new jwt token for authentik idp manager")
 
 	resp, err := ac.httpClient.Do(req)
 	if err != nil {
@@ -183,7 +183,7 @@ func (ac *AuthentikCredentials) parseRequestJWTResponse(rawBody io.ReadCloser) (
 }
 
 // Authenticate retrieves access token to use the authentik management API.
-func (ac *AuthentikCredentials) Authenticate() (JWTToken, error) {
+func (ac *AuthentikCredentials) Authenticate(ctx context.Context) (JWTToken, error) {
 	ac.mux.Lock()
 	defer ac.mux.Unlock()
 
@@ -197,7 +197,7 @@ func (ac *AuthentikCredentials) Authenticate() (JWTToken, error) {
 		return ac.jwtToken, nil
 	}
 
-	resp, err := ac.requestJWTToken()
+	resp, err := ac.requestJWTToken(ctx)
 	if err != nil {
 		return ac.jwtToken, err
 	}
@@ -214,13 +214,13 @@ func (ac *AuthentikCredentials) Authenticate() (JWTToken, error) {
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
-func (am *AuthentikManager) UpdateUserAppMetadata(_ string, _ AppMetadata) error {
+func (am *AuthentikManager) UpdateUserAppMetadata(_ context.Context, _ string, _ AppMetadata) error {
 	return nil
 }
 
 // GetUserDataByID requests user data from authentik via ID.
-func (am *AuthentikManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
-	ctx, err := am.authenticationContext()
+func (am *AuthentikManager) GetUserDataByID(ctx context.Context, userID string, appMetadata AppMetadata) (*UserData, error) {
+	ctx, err := am.authenticationContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -254,8 +254,8 @@ func (am *AuthentikManager) GetUserDataByID(userID string, appMetadata AppMetada
 }
 
 // GetAccount returns all the users for a given profile.
-func (am *AuthentikManager) GetAccount(accountID string) ([]*UserData, error) {
-	users, err := am.getAllUsers()
+func (am *AuthentikManager) GetAccount(ctx context.Context, accountID string) ([]*UserData, error) {
+	users, err := am.getAllUsers(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -274,8 +274,8 @@ func (am *AuthentikManager) GetAccount(accountID string) ([]*UserData, error) {
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
-func (am *AuthentikManager) GetAllAccounts() (map[string][]*UserData, error) {
-	users, err := am.getAllUsers()
+func (am *AuthentikManager) GetAllAccounts(ctx context.Context) (map[string][]*UserData, error) {
+	users, err := am.getAllUsers(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -291,12 +291,12 @@ func (am *AuthentikManager) GetAllAccounts() (map[string][]*UserData, error) {
 }
 
 // getAllUsers returns all users in a Authentik account.
-func (am *AuthentikManager) getAllUsers() ([]*UserData, error) {
+func (am *AuthentikManager) getAllUsers(ctx context.Context) ([]*UserData, error) {
 	users := make([]*UserData, 0)
 
 	page := int32(1)
 	for {
-		ctx, err := am.authenticationContext()
+		ctx, err := am.authenticationContext(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -329,14 +329,14 @@ func (am *AuthentikManager) getAllUsers() ([]*UserData, error) {
 }
 
 // CreateUser creates a new user in authentik Idp and sends an invitation.
-func (am *AuthentikManager) CreateUser(_, _, _, _ string) (*UserData, error) {
+func (am *AuthentikManager) CreateUser(_ context.Context, _, _, _, _ string) (*UserData, error) {
 	return nil, fmt.Errorf("method CreateUser not implemented")
 }
 
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
-func (am *AuthentikManager) GetUserByEmail(email string) ([]*UserData, error) {
-	ctx, err := am.authenticationContext()
+func (am *AuthentikManager) GetUserByEmail(ctx context.Context, email string) ([]*UserData, error) {
+	ctx, err := am.authenticationContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -368,13 +368,13 @@ func (am *AuthentikManager) GetUserByEmail(email string) ([]*UserData, error) {
 
 // InviteUserByID resend invitations to users who haven't activated,
 // their accounts prior to the expiration period.
-func (am *AuthentikManager) InviteUserByID(_ string) error {
+func (am *AuthentikManager) InviteUserByID(_ context.Context, _ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
 }
 
 // DeleteUser from Authentik
-func (am *AuthentikManager) DeleteUser(userID string) error {
-	ctx, err := am.authenticationContext()
+func (am *AuthentikManager) DeleteUser(ctx context.Context, userID string) error {
+	ctx, err := am.authenticationContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -404,8 +404,8 @@ func (am *AuthentikManager) DeleteUser(userID string) error {
 	return nil
 }
 
-func (am *AuthentikManager) authenticationContext() (context.Context, error) {
-	jwtToken, err := am.credentials.Authenticate()
+func (am *AuthentikManager) authenticationContext(ctx context.Context) (context.Context, error) {
+	jwtToken, err := am.credentials.Authenticate(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,7 @@
 package posture
 
 import (
+	"context"
 	"net/netip"
 	"testing"
 
@@ -137,13 +138,62 @@ func TestPeerNetworkRangeCheck_Check(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			isValid, err := tt.check.Check(tt.peer)
+			isValid, err := tt.check.Check(context.Background(), tt.peer)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 			}
 			assert.Equal(t, tt.isValid, isValid)
+		})
+	}
+}
+
+func TestNetworkCheck_Validate(t *testing.T) {
+	testCases := []struct {
+		name          string
+		check         PeerNetworkRangeCheck
+		expectedError bool
+	}{
+		{
+			name: "Valid network range",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionAllow,
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("192.168.1.0/24"),
+					netip.MustParsePrefix("10.0.0.0/8"),
+				},
+			},
+			expectedError: false,
+		},
+		{
+			name: "Invalid empty network range",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionDeny,
+				Ranges: []netip.Prefix{},
+			},
+			expectedError: true,
+		},
+		{
+			name: "Invalid check action",
+			check: PeerNetworkRangeCheck{
+				Action: "unknownAction",
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("10.0.0.0/8"),
+				},
+			},
+			expectedError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.check.Validate()
+			if tc.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
 		})
 	}
 }

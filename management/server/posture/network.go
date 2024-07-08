@@ -1,11 +1,13 @@
 package posture
 
 import (
+	"context"
 	"fmt"
 	"net/netip"
 	"slices"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/status"
 )
 
 type PeerNetworkRangeCheck struct {
@@ -15,7 +17,7 @@ type PeerNetworkRangeCheck struct {
 
 var _ Check = (*PeerNetworkRangeCheck)(nil)
 
-func (p *PeerNetworkRangeCheck) Check(peer nbpeer.Peer) (bool, error) {
+func (p *PeerNetworkRangeCheck) Check(ctx context.Context, peer nbpeer.Peer) (bool, error) {
 	if len(peer.Meta.NetworkAddresses) == 0 {
 		return false, fmt.Errorf("peer's does not contain peer network range addresses")
 	}
@@ -51,4 +53,20 @@ func (p *PeerNetworkRangeCheck) Check(peer nbpeer.Peer) (bool, error) {
 
 func (p *PeerNetworkRangeCheck) Name() string {
 	return PeerNetworkRangeCheckName
+}
+
+func (p *PeerNetworkRangeCheck) Validate() error {
+	if p.Action == "" {
+		return status.Errorf(status.InvalidArgument, "action for peer network range check shouldn't be empty")
+	}
+
+	allowedActions := []string{CheckActionAllow, CheckActionDeny}
+	if !slices.Contains(allowedActions, p.Action) {
+		return fmt.Errorf("%s action is not valid", p.Name())
+	}
+
+	if len(p.Ranges) == 0 {
+		return fmt.Errorf("%s network ranges shouldn't be empty", p.Name())
+	}
+	return nil
 }

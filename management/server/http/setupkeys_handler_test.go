@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,7 +34,7 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 ) *SetupKeysHandler {
 	return &SetupKeysHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+			GetAccountFromTokenFunc: func(_ context.Context, claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return &server.Account{
 					Id:     testAccountID,
 					Domain: "hotmail.com",
@@ -49,7 +50,7 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 					},
 				}, user, nil
 			},
-			CreateSetupKeyFunc: func(_ string, keyName string, typ server.SetupKeyType, _ time.Duration, _ []string,
+			CreateSetupKeyFunc: func(_ context.Context, _ string, keyName string, typ server.SetupKeyType, _ time.Duration, _ []string,
 				_ int, _ string, ephemeral bool,
 			) (*server.SetupKey, error) {
 				if keyName == newKey.Name || typ != newKey.Type {
@@ -59,7 +60,7 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 				}
 				return nil, fmt.Errorf("failed creating setup key")
 			},
-			GetSetupKeyFunc: func(accountID, userID, keyID string) (*server.SetupKey, error) {
+			GetSetupKeyFunc: func(_ context.Context, accountID, userID, keyID string) (*server.SetupKey, error) {
 				switch keyID {
 				case defaultKey.Id:
 					return defaultKey, nil
@@ -70,14 +71,14 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 				}
 			},
 
-			SaveSetupKeyFunc: func(accountID string, key *server.SetupKey, _ string) (*server.SetupKey, error) {
+			SaveSetupKeyFunc: func(_ context.Context, accountID string, key *server.SetupKey, _ string) (*server.SetupKey, error) {
 				if key.Id == updatedSetupKey.Id {
 					return updatedSetupKey, nil
 				}
 				return nil, status.Errorf(status.NotFound, "key %s not found", key.Id)
 			},
 
-			ListSetupKeysFunc: func(accountID, userID string) ([]*server.SetupKey, error) {
+			ListSetupKeysFunc: func(_ context.Context, accountID, userID string) ([]*server.SetupKey, error) {
 				return []*server.SetupKey{defaultKey}, nil
 			},
 		},

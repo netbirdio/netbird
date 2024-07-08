@@ -62,7 +62,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	store, cleanUp, err := mgmt.NewTestStoreFromJson(config.Datadir)
+	store, cleanUp, err := mgmt.NewTestStoreFromJson(context.Background(), config.Datadir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,13 +70,13 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 
 	peersUpdateManager := mgmt.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
-	ia, _ := integrations.NewIntegratedValidator(eventStore)
-	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia)
+	ia, _ := integrations.NewIntegratedValidator(context.Background(), eventStore)
+	accountManager, err := mgmt.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia)
 	if err != nil {
 		t.Fatal(err)
 	}
 	turnManager := mgmt.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, "")
-	mgmtServer, err := mgmt.NewServer(config, accountManager, peersUpdateManager, turnManager, nil, nil)
+	mgmtServer, err := mgmt.NewServer(context.Background(), config, accountManager, peersUpdateManager, turnManager, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestClient_Sync(t *testing.T) {
 	ch := make(chan *mgmtProto.SyncResponse, 1)
 
 	go func() {
-		err = client.Sync(context.Background(), func(msg *mgmtProto.SyncResponse) error {
+		err = client.Sync(context.Background(), info, func(msg *mgmtProto.SyncResponse) error {
 			ch <- msg
 			return nil
 		})

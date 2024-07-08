@@ -62,9 +62,6 @@ type ConnConfig struct {
 	ICEConfig ICEConfig
 }
 
-type BeforeAddPeerHookFunc func(connID nbnet.ConnectionID, IP net.IP) error
-type AfterRemovePeerHookFunc func(connID nbnet.ConnectionID) error
-
 type WorkerCallbacks struct {
 	OnRelayReadyCallback func(info RelayConnInfo)
 	OnRelayStatusChanged func(ConnStatus)
@@ -99,8 +96,8 @@ type Conn struct {
 	workerRelay *WorkerRelay
 
 	connID               nbnet.ConnectionID
-	beforeAddPeerHooks   []BeforeAddPeerHookFunc
-	afterRemovePeerHooks []AfterRemovePeerHookFunc
+	beforeAddPeerHooks   []nbnet.AddHookFunc
+	afterRemovePeerHooks []nbnet.RemoveHookFunc
 
 	endpointRelay *net.UDPAddr
 
@@ -266,11 +263,10 @@ func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMa
 	conn.workerICE.OnRemoteCandidate(candidate, haRoutes)
 }
 
-func (conn *Conn) AddBeforeAddPeerHook(hook BeforeAddPeerHookFunc) {
+func (conn *Conn) AddBeforeAddPeerHook(hook nbnet.AddHookFunc) {
 	conn.beforeAddPeerHooks = append(conn.beforeAddPeerHooks, hook)
 }
-
-func (conn *Conn) AddAfterRemovePeerHook(hook AfterRemovePeerHookFunc) {
+func (conn *Conn) AddAfterRemovePeerHook(hook nbnet.RemoveHookFunc) {
 	conn.afterRemovePeerHooks = append(conn.afterRemovePeerHooks, hook)
 }
 

@@ -28,28 +28,11 @@ func GetInfo(ctx context.Context) *Info {
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	releaseInfo := _getReleaseInfo()
-	for strings.Contains(info, "broken pipe") {
-		releaseInfo = _getReleaseInfo()
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	osRelease := strings.Split(releaseInfo, "\n")
-	var osName string
-	var osVer string
-	for _, s := range osRelease {
-		if strings.HasPrefix(s, "NAME=") {
-			osName = strings.Split(s, "=")[1]
-			osName = strings.ReplaceAll(osName, "\"", "")
-		} else if strings.HasPrefix(s, "VERSION_ID=") {
-			osVer = strings.Split(s, "=")[1]
-			osVer = strings.ReplaceAll(osVer, "\"", "")
-		}
-	}
-
 	osStr := strings.ReplaceAll(info, "\n", "")
 	osStr = strings.ReplaceAll(osStr, "\r\n", "")
 	osInfo := strings.Split(osStr, " ")
+
+	osName, osVersion := readOsReleaseFile()
 	if osName == "" {
 		osName = osInfo[3]
 	}
@@ -72,7 +55,7 @@ func GetInfo(ctx context.Context) *Info {
 		Kernel:             osInfo[0],
 		Platform:           osInfo[2],
 		OS:                 osName,
-		OSVersion:          osVer,
+		OSVersion:          osVersion,
 		Hostname:           extractDeviceName(ctx, systemHostname),
 		GoOS:               runtime.GOOS,
 		CPUs:               runtime.NumCPU(),
@@ -103,22 +86,12 @@ func _getInfo() string {
 	return out.String()
 }
 
-func _getReleaseInfo() string {
-	cmd := exec.Command("cat", "/etc/os-release")
-	cmd.Stdin = strings.NewReader("some")
-	var out bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if err != nil {
-		log.Warnf("geucwReleaseInfo: %s", err)
-	}
-	return out.String()
-}
-
 func sysInfo() (serialNumber string, productName string, manufacturer string) {
 	var si sysinfo.SysInfo
 	si.GetSysInfo()
-	return si.Chassis.Serial, si.Product.Name, si.Product.Vendor
+	serial := si.Chassis.Serial
+	if (serial == "Default string" || serial == "") && si.Product.Serial != "" {
+		serial = si.Product.Serial
+	}
+	return serial, si.Product.Name, si.Product.Vendor
 }

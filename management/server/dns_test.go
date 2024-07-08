@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/netip"
 	"testing"
 
@@ -35,7 +36,7 @@ func TestGetDNSSettings(t *testing.T) {
 		t.Fatal("failed to init testing account")
 	}
 
-	dnsSettings, err := am.GetDNSSettings(account.Id, dnsAdminUserID)
+	dnsSettings, err := am.GetDNSSettings(context.Background(), account.Id, dnsAdminUserID)
 	if err != nil {
 		t.Fatalf("Got an error when trying to retrieve the DNS settings with an admin user, err: %s", err)
 	}
@@ -48,12 +49,12 @@ func TestGetDNSSettings(t *testing.T) {
 		DisabledManagementGroups: []string{group1ID},
 	}
 
-	err = am.Store.SaveAccount(account)
+	err = am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Error("failed to save testing account with new DNS settings")
 	}
 
-	dnsSettings, err = am.GetDNSSettings(account.Id, dnsAdminUserID)
+	dnsSettings, err = am.GetDNSSettings(context.Background(), account.Id, dnsAdminUserID)
 	if err != nil {
 		t.Errorf("Got an error when trying to retrieve the DNS settings with an admin user, err: %s", err)
 	}
@@ -62,7 +63,7 @@ func TestGetDNSSettings(t *testing.T) {
 		t.Errorf("DNS settings should have one disabled mgmt group, groups: %s", dnsSettings.DisabledManagementGroups)
 	}
 
-	_, err = am.GetDNSSettings(account.Id, dnsRegularUserID)
+	_, err = am.GetDNSSettings(context.Background(), account.Id, dnsRegularUserID)
 	if err == nil {
 		t.Errorf("An error should be returned when getting the DNS settings with a regular user")
 	}
@@ -122,7 +123,7 @@ func TestSaveDNSSettings(t *testing.T) {
 				t.Error("failed to init testing account")
 			}
 
-			err = am.SaveDNSSettings(account.Id, testCase.userID, testCase.inputSettings)
+			err = am.SaveDNSSettings(context.Background(), account.Id, testCase.userID, testCase.inputSettings)
 			if err != nil {
 				if testCase.shouldFail {
 					return
@@ -130,7 +131,7 @@ func TestSaveDNSSettings(t *testing.T) {
 				t.Error(err)
 			}
 
-			updatedAccount, err := am.Store.GetAccount(account.Id)
+			updatedAccount, err := am.Store.GetAccount(context.Background(), account.Id)
 			if err != nil {
 				t.Errorf("should be able to retrieve updated account, got err: %s", err)
 			}
@@ -164,27 +165,27 @@ func TestGetNetworkMap_DNSConfigSync(t *testing.T) {
 		t.Error("failed to init testing account")
 	}
 
-	newAccountDNSConfig, err := am.GetNetworkMap(peer1.ID)
+	newAccountDNSConfig, err := am.GetNetworkMap(context.Background(), peer1.ID)
 	require.NoError(t, err)
-	require.Len(t, newAccountDNSConfig.DNSConfig.CustomZones, 1, "default DNS turnCfg should have one custom zone for peers")
-	require.True(t, newAccountDNSConfig.DNSConfig.ServiceEnable, "default DNS turnCfg should have local DNS service enabled")
-	require.Len(t, newAccountDNSConfig.DNSConfig.NameServerGroups, 0, "updated DNS turnCfg should have no nameserver groups since peer 1 is NS for the only existing NS group")
+	require.Len(t, newAccountDNSConfig.DNSConfig.CustomZones, 1, "default DNS config should have one custom zone for peers")
+	require.True(t, newAccountDNSConfig.DNSConfig.ServiceEnable, "default DNS config should have local DNS service enabled")
+	require.Len(t, newAccountDNSConfig.DNSConfig.NameServerGroups, 0, "updated DNS config should have no nameserver groups since peer 1 is NS for the only existing NS group")
 
 	dnsSettings := account.DNSSettings.Copy()
 	dnsSettings.DisabledManagementGroups = append(dnsSettings.DisabledManagementGroups, dnsGroup1ID)
 	account.DNSSettings = dnsSettings
-	err = am.Store.SaveAccount(account)
+	err = am.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
-	updatedAccountDNSConfig, err := am.GetNetworkMap(peer1.ID)
+	updatedAccountDNSConfig, err := am.GetNetworkMap(context.Background(), peer1.ID)
 	require.NoError(t, err)
-	require.Len(t, updatedAccountDNSConfig.DNSConfig.CustomZones, 0, "updated DNS turnCfg should have no custom zone when peer belongs to a disabled group")
-	require.False(t, updatedAccountDNSConfig.DNSConfig.ServiceEnable, "updated DNS turnCfg should have local DNS service disabled when peer belongs to a disabled group")
-	peer2AccountDNSConfig, err := am.GetNetworkMap(peer2.ID)
+	require.Len(t, updatedAccountDNSConfig.DNSConfig.CustomZones, 0, "updated DNS config should have no custom zone when peer belongs to a disabled group")
+	require.False(t, updatedAccountDNSConfig.DNSConfig.ServiceEnable, "updated DNS config should have local DNS service disabled when peer belongs to a disabled group")
+	peer2AccountDNSConfig, err := am.GetNetworkMap(context.Background(), peer2.ID)
 	require.NoError(t, err)
-	require.Len(t, peer2AccountDNSConfig.DNSConfig.CustomZones, 1, "DNS turnCfg should have one custom zone for peers not in the disabled group")
-	require.True(t, peer2AccountDNSConfig.DNSConfig.ServiceEnable, "DNS turnCfg should have DNS service enabled for peers not in the disabled group")
-	require.Len(t, peer2AccountDNSConfig.DNSConfig.NameServerGroups, 1, "updated DNS turnCfg should have 1 nameserver groups since peer 2 is part of the group All")
+	require.Len(t, peer2AccountDNSConfig.DNSConfig.CustomZones, 1, "DNS config should have one custom zone for peers not in the disabled group")
+	require.True(t, peer2AccountDNSConfig.DNSConfig.ServiceEnable, "DNS config should have DNS service enabled for peers not in the disabled group")
+	require.Len(t, peer2AccountDNSConfig.DNSConfig.NameServerGroups, 1, "updated DNS config should have 1 nameserver groups since peer 2 is part of the group All")
 }
 
 func createDNSManager(t *testing.T) (*DefaultAccountManager, error) {
@@ -194,13 +195,13 @@ func createDNSManager(t *testing.T) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.test", eventStore, nil, false, MocIntegratedValidator{})
+	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.test", eventStore, nil, false, MocIntegratedValidator{})
 }
 
 func createDNSStore(t *testing.T) (Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, cleanUp, err := NewTestStoreFromJson(dataDir)
+	store, cleanUp, err := NewTestStoreFromJson(context.Background(), dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -244,28 +245,28 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 
 	domain := "example.com"
 
-	account := newAccountWithId(dnsAccountID, dnsAdminUserID, domain)
+	account := newAccountWithId(context.Background(), dnsAccountID, dnsAdminUserID, domain)
 
 	account.Users[dnsRegularUserID] = &User{
 		Id:   dnsRegularUserID,
 		Role: UserRoleUser,
 	}
 
-	err := am.Store.SaveAccount(account)
+	err := am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return nil, err
 	}
 
-	savedPeer1, _, err := am.AddPeer("", dnsAdminUserID, peer1)
+	savedPeer1, _, _, err := am.AddPeer(context.Background(), "", dnsAdminUserID, peer1)
 	if err != nil {
 		return nil, err
 	}
-	_, _, err = am.AddPeer("", dnsAdminUserID, peer2)
+	_, _, _, err = am.AddPeer(context.Background(), "", dnsAdminUserID, peer2)
 	if err != nil {
 		return nil, err
 	}
 
-	account, err = am.Store.GetAccount(account.Id)
+	account, err = am.Store.GetAccount(context.Background(), account.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -312,10 +313,10 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 		Groups:  []string{allGroup.ID},
 	}
 
-	err = am.Store.SaveAccount(account)
+	err = am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return nil, err
 	}
 
-	return am.Store.GetAccount(account.Id)
+	return am.Store.GetAccount(context.Background(), account.Id)
 }

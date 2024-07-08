@@ -39,10 +39,10 @@ const (
 
 func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -52,7 +52,7 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	pat, err := am.CreatePAT(mockAccountID, mockUserID, mockUserID, mockTokenName, mockExpiresIn)
+	pat, err := am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenName, mockExpiresIn)
 	if err != nil {
 		t.Fatalf("Error when adding PAT to user: %s", err)
 	}
@@ -77,13 +77,13 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 
 func TestUser_CreatePAT_ForDifferentUser(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 	account.Users[mockTargetUserId] = &User{
 		Id:            mockTargetUserId,
 		IsServiceUser: false,
 	}
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -93,19 +93,19 @@ func TestUser_CreatePAT_ForDifferentUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	_, err = am.CreatePAT(mockAccountID, mockUserID, mockTargetUserId, mockTokenName, mockExpiresIn)
+	_, err = am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockTargetUserId, mockTokenName, mockExpiresIn)
 	assert.Errorf(t, err, "Creating PAT for different user should thorw error")
 }
 
 func TestUser_CreatePAT_ForServiceUser(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 	account.Users[mockTargetUserId] = &User{
 		Id:            mockTargetUserId,
 		IsServiceUser: true,
 	}
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -115,7 +115,7 @@ func TestUser_CreatePAT_ForServiceUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	pat, err := am.CreatePAT(mockAccountID, mockUserID, mockTargetUserId, mockTokenName, mockExpiresIn)
+	pat, err := am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockTargetUserId, mockTokenName, mockExpiresIn)
 	if err != nil {
 		t.Fatalf("Error when adding PAT to user: %s", err)
 	}
@@ -125,10 +125,10 @@ func TestUser_CreatePAT_ForServiceUser(t *testing.T) {
 
 func TestUser_CreatePAT_WithWrongExpiration(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -138,16 +138,16 @@ func TestUser_CreatePAT_WithWrongExpiration(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	_, err = am.CreatePAT(mockAccountID, mockUserID, mockUserID, mockTokenName, mockWrongExpiresIn)
+	_, err = am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenName, mockWrongExpiresIn)
 	assert.Errorf(t, err, "Wrong expiration should thorw error")
 }
 
 func TestUser_CreatePAT_WithEmptyName(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -157,14 +157,14 @@ func TestUser_CreatePAT_WithEmptyName(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	_, err = am.CreatePAT(mockAccountID, mockUserID, mockUserID, mockEmptyTokenName, mockExpiresIn)
+	_, err = am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockEmptyTokenName, mockExpiresIn)
 	assert.Errorf(t, err, "Wrong expiration should thorw error")
 }
 
 func TestUser_DeletePAT(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 	account.Users[mockUserID] = &User{
 		Id: mockUserID,
 		PATs: map[string]*PersonalAccessToken{
@@ -174,7 +174,7 @@ func TestUser_DeletePAT(t *testing.T) {
 			},
 		},
 	}
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -184,7 +184,7 @@ func TestUser_DeletePAT(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	err = am.DeletePAT(mockAccountID, mockUserID, mockUserID, mockTokenID1)
+	err = am.DeletePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenID1)
 	if err != nil {
 		t.Fatalf("Error when adding PAT to user: %s", err)
 	}
@@ -196,8 +196,8 @@ func TestUser_DeletePAT(t *testing.T) {
 
 func TestUser_GetPAT(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 	account.Users[mockUserID] = &User{
 		Id: mockUserID,
 		PATs: map[string]*PersonalAccessToken{
@@ -207,7 +207,7 @@ func TestUser_GetPAT(t *testing.T) {
 			},
 		},
 	}
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -217,7 +217,7 @@ func TestUser_GetPAT(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	pat, err := am.GetPAT(mockAccountID, mockUserID, mockUserID, mockTokenID1)
+	pat, err := am.GetPAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenID1)
 	if err != nil {
 		t.Fatalf("Error when adding PAT to user: %s", err)
 	}
@@ -228,8 +228,8 @@ func TestUser_GetPAT(t *testing.T) {
 
 func TestUser_GetAllPATs(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 	account.Users[mockUserID] = &User{
 		Id: mockUserID,
 		PATs: map[string]*PersonalAccessToken{
@@ -243,7 +243,7 @@ func TestUser_GetAllPATs(t *testing.T) {
 			},
 		},
 	}
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -253,7 +253,7 @@ func TestUser_GetAllPATs(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	pats, err := am.GetAllPATs(mockAccountID, mockUserID, mockUserID)
+	pats, err := am.GetAllPATs(context.Background(), mockAccountID, mockUserID, mockUserID)
 	if err != nil {
 		t.Fatalf("Error when adding PAT to user: %s", err)
 	}
@@ -330,10 +330,10 @@ func validateStruct(s interface{}) (err error) {
 
 func TestUser_CreateServiceUser(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -343,7 +343,7 @@ func TestUser_CreateServiceUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	user, err := am.createServiceUser(mockAccountID, mockUserID, mockRole, mockServiceUserName, false, []string{"group1", "group2"})
+	user, err := am.createServiceUser(context.Background(), mockAccountID, mockUserID, mockRole, mockServiceUserName, false, []string{"group1", "group2"})
 	if err != nil {
 		t.Fatalf("Error when creating service user: %s", err)
 	}
@@ -360,7 +360,7 @@ func TestUser_CreateServiceUser(t *testing.T) {
 	assert.True(t, user.IsServiceUser)
 	assert.Equal(t, "active", user.Status)
 
-	_, err = am.createServiceUser(mockAccountID, mockUserID, UserRoleOwner, mockServiceUserName, false, nil)
+	_, err = am.createServiceUser(context.Background(), mockAccountID, mockUserID, UserRoleOwner, mockServiceUserName, false, nil)
 	if err == nil {
 		t.Fatal("should return error when creating service user with owner role")
 	}
@@ -368,10 +368,10 @@ func TestUser_CreateServiceUser(t *testing.T) {
 
 func TestUser_CreateUser_ServiceUser(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -381,7 +381,7 @@ func TestUser_CreateUser_ServiceUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	user, err := am.CreateUser(mockAccountID, mockUserID, &UserInfo{
+	user, err := am.CreateUser(context.Background(), mockAccountID, mockUserID, &UserInfo{
 		Name:          mockServiceUserName,
 		Role:          mockRole,
 		IsServiceUser: true,
@@ -407,10 +407,10 @@ func TestUser_CreateUser_ServiceUser(t *testing.T) {
 
 func TestUser_CreateUser_RegularUser(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -420,7 +420,7 @@ func TestUser_CreateUser_RegularUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	_, err = am.CreateUser(mockAccountID, mockUserID, &UserInfo{
+	_, err = am.CreateUser(context.Background(), mockAccountID, mockUserID, &UserInfo{
 		Name:          mockServiceUserName,
 		Role:          mockRole,
 		IsServiceUser: false,
@@ -432,10 +432,10 @@ func TestUser_CreateUser_RegularUser(t *testing.T) {
 
 func TestUser_InviteNewUser(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -459,7 +459,7 @@ func TestUser_InviteNewUser(t *testing.T) {
 	}
 
 	idpMock := idp.MockIDP{
-		CreateUserFunc: func(email, name, accountID, invitedByEmail string) (*idp.UserData, error) {
+		CreateUserFunc: func(_ context.Context, email, name, accountID, invitedByEmail string) (*idp.UserData, error) {
 			newData := &idp.UserData{
 				Email: email,
 				Name:  name,
@@ -470,7 +470,7 @@ func TestUser_InviteNewUser(t *testing.T) {
 
 			return newData, nil
 		},
-		GetAccountFunc: func(accountId string) ([]*idp.UserData, error) {
+		GetAccountFunc: func(_ context.Context, accountId string) ([]*idp.UserData, error) {
 			return mockData, nil
 		},
 	}
@@ -478,7 +478,7 @@ func TestUser_InviteNewUser(t *testing.T) {
 	am.idpManager = &idpMock
 
 	// test if new invite with regular role works
-	_, err = am.inviteNewUser(mockAccountID, mockUserID, &UserInfo{
+	_, err = am.inviteNewUser(context.Background(), mockAccountID, mockUserID, &UserInfo{
 		Name:          mockServiceUserName,
 		Role:          mockRole,
 		Email:         "test@teste.com",
@@ -489,7 +489,7 @@ func TestUser_InviteNewUser(t *testing.T) {
 	assert.NoErrorf(t, err, "Invite user should not throw error")
 
 	// test if new invite with owner role fails
-	_, err = am.inviteNewUser(mockAccountID, mockUserID, &UserInfo{
+	_, err = am.inviteNewUser(context.Background(), mockAccountID, mockUserID, &UserInfo{
 		Name:          mockServiceUserName,
 		Role:          string(UserRoleOwner),
 		Email:         "test2@teste.com",
@@ -532,10 +532,10 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := newStore(t)
-			account := newAccountWithId(mockAccountID, mockUserID, "")
+			account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 			account.Users[mockServiceUserID] = tt.serviceUser
 
-			err := store.SaveAccount(account)
+			err := store.SaveAccount(context.Background(), account)
 			if err != nil {
 				t.Fatalf("Error when saving account: %s", err)
 			}
@@ -545,7 +545,7 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 				eventStore: &activity.InMemoryEventStore{},
 			}
 
-			err = am.DeleteUser(mockAccountID, mockUserID, mockServiceUserID)
+			err = am.DeleteUser(context.Background(), mockAccountID, mockUserID, mockServiceUserID)
 			tt.assertErrFunc(t, err, tt.assertErrMessage)
 
 			if err != nil {
@@ -561,10 +561,10 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 
 func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -574,7 +574,7 @@ func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	err = am.DeleteUser(mockAccountID, mockUserID, mockUserID)
+	err = am.DeleteUser(context.Background(), mockAccountID, mockUserID, mockUserID)
 	if err == nil {
 		t.Fatalf("failed to prevent self deletion")
 	}
@@ -582,8 +582,8 @@ func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 
 func TestUser_DeleteUser_regularUser(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
 	targetId := "user2"
 	account.Users[targetId] = &User{
@@ -612,7 +612,7 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 		Role:          UserRoleOwner,
 	}
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -655,7 +655,7 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			err = am.DeleteUser(mockAccountID, mockUserID, testCase.userID)
+			err = am.DeleteUser(context.Background(), mockAccountID, mockUserID, testCase.userID)
 			testCase.assertErrFunc(t, err, testCase.assertErrMessage)
 		})
 	}
@@ -664,10 +664,10 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 
 func TestDefaultAccountManager_GetUser(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -681,7 +681,7 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 		UserId: mockUserID,
 	}
 
-	user, err := am.GetUser(claims)
+	user, err := am.GetUser(context.Background(), claims)
 	if err != nil {
 		t.Fatalf("Error when checking user role: %s", err)
 	}
@@ -693,12 +693,12 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 
 func TestDefaultAccountManager_ListUsers(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 	account.Users["normal_user1"] = NewRegularUser("normal_user1")
 	account.Users["normal_user2"] = NewRegularUser("normal_user2")
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -708,7 +708,7 @@ func TestDefaultAccountManager_ListUsers(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	users, err := am.ListUsers(mockAccountID)
+	users, err := am.ListUsers(context.Background(), mockAccountID)
 	if err != nil {
 		t.Fatalf("Error when checking user role: %s", err)
 	}
@@ -775,12 +775,12 @@ func TestDefaultAccountManager_ListUsers_DashboardPermissions(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			store := newStore(t)
-			account := newAccountWithId(mockAccountID, mockUserID, "")
+			account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 			account.Users["normal_user1"] = NewUser("normal_user1", testCase.role, false, false, "", []string{}, UserIssuedAPI)
 			account.Settings.RegularUsersViewBlocked = testCase.limitedViewSettings
 			delete(account.Users, mockUserID)
 
-			err := store.SaveAccount(account)
+			err := store.SaveAccount(context.Background(), account)
 			if err != nil {
 				t.Fatalf("Error when saving account: %s", err)
 			}
@@ -790,7 +790,7 @@ func TestDefaultAccountManager_ListUsers_DashboardPermissions(t *testing.T) {
 				eventStore: &activity.InMemoryEventStore{},
 			}
 
-			users, err := am.ListUsers(mockAccountID)
+			users, err := am.ListUsers(context.Background(), mockAccountID)
 			if err != nil {
 				t.Fatalf("Error when checking user role: %s", err)
 			}
@@ -806,8 +806,8 @@ func TestDefaultAccountManager_ListUsers_DashboardPermissions(t *testing.T) {
 
 func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 	externalUser := &User{
 		Id:     "externalUser",
 		Role:   UserRoleUser,
@@ -819,7 +819,7 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	}
 	account.Users[externalUser.Id] = externalUser
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -846,7 +846,7 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	err = cacheManager.Set(context.Background(), cacheKey, &idp.UserData{ID: externalUser.Id, Name: "Test User", Email: "user@example.com"})
 	assert.NoError(t, err)
 
-	infos, err := am.GetUsersFromAccount(mockAccountID, mockUserID)
+	infos, err := am.GetUsersFromAccount(context.Background(), mockAccountID, mockUserID)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(infos))
 	var user *UserInfo
@@ -870,15 +870,15 @@ func TestUser_IsAdmin(t *testing.T) {
 
 func TestUser_GetUsersFromAccount_ForAdmin(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 	account.Users[mockServiceUserID] = &User{
 		Id:            mockServiceUserID,
 		Role:          "user",
 		IsServiceUser: true,
 	}
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -888,7 +888,7 @@ func TestUser_GetUsersFromAccount_ForAdmin(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	users, err := am.GetUsersFromAccount(mockAccountID, mockUserID)
+	users, err := am.GetUsersFromAccount(context.Background(), mockAccountID, mockUserID)
 	if err != nil {
 		t.Fatalf("Error when getting users from account: %s", err)
 	}
@@ -898,16 +898,16 @@ func TestUser_GetUsersFromAccount_ForAdmin(t *testing.T) {
 
 func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 	store := newStore(t)
-	defer store.Close()
+	defer store.Close(context.Background())
 
-	account := newAccountWithId(mockAccountID, mockUserID, "")
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
 	account.Users[mockServiceUserID] = &User{
 		Id:            mockServiceUserID,
 		Role:          "user",
 		IsServiceUser: true,
 	}
 
-	err := store.SaveAccount(account)
+	err := store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
@@ -917,7 +917,7 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	users, err := am.GetUsersFromAccount(mockAccountID, mockServiceUserID)
+	users, err := am.GetUsersFromAccount(context.Background(), mockAccountID, mockServiceUserID)
 	if err != nil {
 		t.Fatalf("Error when getting users from account: %s", err)
 	}
@@ -1069,7 +1069,7 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			// create an account and an admin user
-			account, err := manager.GetOrCreateAccountByUser(ownerUserID, "netbird.io")
+			account, err := manager.GetOrCreateAccountByUser(context.Background(), ownerUserID, "netbird.io")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1078,12 +1078,12 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 			account.Users[regularUserID] = NewRegularUser(regularUserID)
 			account.Users[adminUserID] = NewAdminUser(adminUserID)
 			account.Users[serviceUserID] = &User{IsServiceUser: true, Id: serviceUserID, Role: UserRoleAdmin, ServiceUserName: "service"}
-			err = manager.Store.SaveAccount(account)
+			err = manager.Store.SaveAccount(context.Background(), account)
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			updated, err := manager.SaveUser(account.Id, tc.initiatorID, tc.update)
+			updated, err := manager.SaveUser(context.Background(), account.Id, tc.initiatorID, tc.update)
 			if tc.expectedErr {
 				require.Errorf(t, err, "expecting SaveUser to throw an error")
 			} else {

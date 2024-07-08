@@ -35,16 +35,16 @@ func NewGroupsHandler(accountManager server.AccountManager, authCfg AuthCfg) *Gr
 // GetAllGroups list for the account
 func (h *GroupsHandler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		log.Error(err)
+		log.WithContext(r.Context()).Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
-	groups, err := h.accountManager.GetAllGroups(account.Id, user.Id)
+	groups, err := h.accountManager.GetAllGroups(r.Context(), account.Id, user.Id)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -53,42 +53,42 @@ func (h *GroupsHandler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 		groupsResponse = append(groupsResponse, toGroupResponse(account, group))
 	}
 
-	util.WriteJSONObject(w, groupsResponse)
+	util.WriteJSONObject(r.Context(), w, groupsResponse)
 }
 
 // UpdateGroup handles update to a group identified by a given ID
 func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	groupID, ok := vars["groupId"]
 	if !ok {
-		util.WriteError(status.Errorf(status.InvalidArgument, "group ID field is missing"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "group ID field is missing"), w)
 		return
 	}
 	if len(groupID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "group ID can't be empty"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "group ID can't be empty"), w)
 		return
 	}
 
 	eg, ok := account.Groups[groupID]
 	if !ok {
-		util.WriteError(status.Errorf(status.NotFound, "couldn't find group with ID %s", groupID), w)
+		util.WriteError(r.Context(), status.Errorf(status.NotFound, "couldn't find group with ID %s", groupID), w)
 		return
 	}
 
 	allGroup, err := account.GetGroupAll()
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 	if allGroup.ID == groupID {
-		util.WriteError(status.Errorf(status.InvalidArgument, "updating group ALL is not allowed"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "updating group ALL is not allowed"), w)
 		return
 	}
 
@@ -100,7 +100,7 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Name == "" {
-		util.WriteError(status.Errorf(status.InvalidArgument, "group name shouldn't be empty"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "group name shouldn't be empty"), w)
 		return
 	}
 
@@ -118,21 +118,21 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		IntegrationReference: eg.IntegrationReference,
 	}
 
-	if err := h.accountManager.SaveGroup(account.Id, user.Id, &group); err != nil {
-		log.Errorf("failed updating group %s under account %s %v", groupID, account.Id, err)
-		util.WriteError(err, w)
+	if err := h.accountManager.SaveGroup(r.Context(), account.Id, user.Id, &group); err != nil {
+		log.WithContext(r.Context()).Errorf("failed updating group %s under account %s %v", groupID, account.Id, err)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(w, toGroupResponse(account, &group))
+	util.WriteJSONObject(r.Context(), w, toGroupResponse(account, &group))
 }
 
 // CreateGroup handles group creation request
 func (h *GroupsHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -144,7 +144,7 @@ func (h *GroupsHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Name == "" {
-		util.WriteError(status.Errorf(status.InvalidArgument, "group name shouldn't be empty"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "group name shouldn't be empty"), w)
 		return
 	}
 
@@ -160,62 +160,62 @@ func (h *GroupsHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		Issued: nbgroup.GroupIssuedAPI,
 	}
 
-	err = h.accountManager.SaveGroup(account.Id, user.Id, &group)
+	err = h.accountManager.SaveGroup(r.Context(), account.Id, user.Id, &group)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(w, toGroupResponse(account, &group))
+	util.WriteJSONObject(r.Context(), w, toGroupResponse(account, &group))
 }
 
 // DeleteGroup handles group deletion request
 func (h *GroupsHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 	aID := account.Id
 
 	groupID := mux.Vars(r)["groupId"]
 	if len(groupID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid group ID"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid group ID"), w)
 		return
 	}
 
 	allGroup, err := account.GetGroupAll()
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	if allGroup.ID == groupID {
-		util.WriteError(status.Errorf(status.InvalidArgument, "deleting group ALL is not allowed"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "deleting group ALL is not allowed"), w)
 		return
 	}
 
-	err = h.accountManager.DeleteGroup(aID, user.Id, groupID)
+	err = h.accountManager.DeleteGroup(r.Context(), aID, user.Id, groupID)
 	if err != nil {
 		_, ok := err.(*server.GroupLinkError)
 		if ok {
 			util.WriteErrorResponse(err.Error(), http.StatusBadRequest, w)
 			return
 		}
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(w, emptyObject{})
+	util.WriteJSONObject(r.Context(), w, emptyObject{})
 }
 
 // GetGroup returns a group
 func (h *GroupsHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -223,19 +223,19 @@ func (h *GroupsHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		groupID := mux.Vars(r)["groupId"]
 		if len(groupID) == 0 {
-			util.WriteError(status.Errorf(status.InvalidArgument, "invalid group ID"), w)
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid group ID"), w)
 			return
 		}
 
-		group, err := h.accountManager.GetGroup(account.Id, groupID, user.Id)
+		group, err := h.accountManager.GetGroup(r.Context(), account.Id, groupID, user.Id)
 		if err != nil {
-			util.WriteError(err, w)
+			util.WriteError(r.Context(), err, w)
 			return
 		}
 
-		util.WriteJSONObject(w, toGroupResponse(account, group))
+		util.WriteJSONObject(r.Context(), w, toGroupResponse(account, group))
 	default:
-		util.WriteError(status.Errorf(status.NotFound, "HTTP method not found"), w)
+		util.WriteError(r.Context(), status.Errorf(status.NotFound, "HTTP method not found"), w)
 		return
 	}
 }

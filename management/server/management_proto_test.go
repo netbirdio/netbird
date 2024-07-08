@@ -134,7 +134,8 @@ func Test_SyncProtocol(t *testing.T) {
 	// take the first registered peer as a base for the test. Total four.
 	key := *peers[0]
 
-	message, err := encryption.EncryptMessage(*serverKey, key, &mgmtProto.SyncRequest{})
+	syncReq := &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}}
+	message, err := encryption.EncryptMessage(*serverKey, key, syncReq)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -169,7 +170,7 @@ func Test_SyncProtocol(t *testing.T) {
 	}
 
 	if wiretrusteeConfig.GetSignal() == nil {
-		t.Fatal("expecting SyncResponse to have WiretrusteeConfig with non-nil Signal turnCfg")
+		t.Fatal("expecting SyncResponse to have WiretrusteeConfig with non-nil Signal config")
 	}
 
 	expectedSignalConfig := &mgmtProto.HostConfig{
@@ -405,7 +406,7 @@ func startManagement(t *testing.T, config *Config) (*grpc.Server, string, error)
 		return nil, "", err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
-	store, cleanUp, err := NewTestStoreFromJson(config.Datadir)
+	store, cleanUp, err := NewTestStoreFromJson(context.Background(), config.Datadir)
 	if err != nil {
 		return nil, "", err
 	}
@@ -413,7 +414,7 @@ func startManagement(t *testing.T, config *Config) (*grpc.Server, string, error)
 
 	peersUpdateManager := NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
-	accountManager, err := BuildManager(store, peersUpdateManager, nil, "", "netbird.selfhosted",
+	accountManager, err := BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted",
 		eventStore, nil, false, MocIntegratedValidator{})
 	if err != nil {
 		return nil, "", err
@@ -421,7 +422,7 @@ func startManagement(t *testing.T, config *Config) (*grpc.Server, string, error)
 	turnManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, "")
 
 	ephemeralMgr := NewEphemeralManager(store, accountManager)
-	mgmtServer, err := NewServer(config, accountManager, peersUpdateManager, turnManager, nil, ephemeralMgr)
+	mgmtServer, err := NewServer(context.Background(), config, accountManager, peersUpdateManager, turnManager, nil, ephemeralMgr)
 	if err != nil {
 		return nil, "", err
 	}

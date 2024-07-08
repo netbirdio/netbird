@@ -3,8 +3,10 @@ builds:
   - id: netbird-ui-darwin
     dir: client/ui
     binary: netbird-ui
-    env: [CGO_ENABLED=1]
-
+    env:
+      - CGO_ENABLED=1
+      - MACOSX_DEPLOYMENT_TARGET=11.0
+      - MACOS_DEPLOYMENT_TARGET=11.0
     goos:
       - darwin
     goarch:

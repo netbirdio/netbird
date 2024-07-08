@@ -1,6 +1,7 @@
 package idp
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -110,7 +111,7 @@ func (ac *AzureCredentials) jwtStillValid() bool {
 }
 
 // requestJWTToken performs request to get jwt token.
-func (ac *AzureCredentials) requestJWTToken() (*http.Response, error) {
+func (ac *AzureCredentials) requestJWTToken(ctx context.Context) (*http.Response, error) {
 	data := url.Values{}
 	data.Set("client_id", ac.clientConfig.ClientID)
 	data.Set("client_secret", ac.clientConfig.ClientSecret)
@@ -132,7 +133,7 @@ func (ac *AzureCredentials) requestJWTToken() (*http.Response, error) {
 	}
 	req.Header.Add("content-type", "application/x-www-form-urlencoded")
 
-	log.Debug("requesting new jwt token for azure idp manager")
+	log.WithContext(ctx).Debug("requesting new jwt token for azure idp manager")
 
 	resp, err := ac.httpClient.Do(req)
 	if err != nil {
@@ -184,7 +185,7 @@ func (ac *AzureCredentials) parseRequestJWTResponse(rawBody io.ReadCloser) (JWTT
 }
 
 // Authenticate retrieves access token to use the azure Management API.
-func (ac *AzureCredentials) Authenticate() (JWTToken, error) {
+func (ac *AzureCredentials) Authenticate(ctx context.Context) (JWTToken, error) {
 	ac.mux.Lock()
 	defer ac.mux.Unlock()
 
@@ -198,7 +199,7 @@ func (ac *AzureCredentials) Authenticate() (JWTToken, error) {
 		return ac.jwtToken, nil
 	}
 
-	resp, err := ac.requestJWTToken()
+	resp, err := ac.requestJWTToken(ctx)
 	if err != nil {
 		return ac.jwtToken, err
 	}
@@ -215,16 +216,16 @@ func (ac *AzureCredentials) Authenticate() (JWTToken, error) {
 }
 
 // CreateUser creates a new user in azure AD Idp.
-func (am *AzureManager) CreateUser(_, _, _, _ string) (*UserData, error) {
+func (am *AzureManager) CreateUser(_ context.Context, _, _, _, _ string) (*UserData, error) {
 	return nil, fmt.Errorf("method CreateUser not implemented")
 }
 
 // GetUserDataByID requests user data from keycloak via ID.
-func (am *AzureManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
+func (am *AzureManager) GetUserDataByID(ctx context.Context, userID string, appMetadata AppMetadata) (*UserData, error) {
 	q := url.Values{}
 	q.Add("$select", profileFields)
 
-	body, err := am.get("users/"+userID, q)
+	body, err := am.get(ctx, "users/"+userID, q)
 	if err != nil {
 		return nil, err
 	}
@@ -247,11 +248,11 @@ func (am *AzureManager) GetUserDataByID(userID string, appMetadata AppMetadata) 
 
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
-func (am *AzureManager) GetUserByEmail(email string) ([]*UserData, error) {
+func (am *AzureManager) GetUserByEmail(ctx context.Context, email string) ([]*UserData, error) {
 	q := url.Values{}
 	q.Add("$select", profileFields)
 
-	body, err := am.get("users/"+email, q)
+	body, err := am.get(ctx, "users/"+email, q)
 	if err != nil {
 		return nil, err
 	}
@@ -273,8 +274,8 @@ func (am *AzureManager) GetUserByEmail(email string) ([]*UserData, error) {
 }
 
 // GetAccount returns all the users for a given profile.
-func (am *AzureManager) GetAccount(accountID string) ([]*UserData, error) {
-	users, err := am.getAllUsers()
+func (am *AzureManager) GetAccount(ctx context.Context, accountID string) ([]*UserData, error) {
+	users, err := am.getAllUsers(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -293,8 +294,8 @@ func (am *AzureManager) GetAccount(accountID string) ([]*UserData, error) {
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
-func (am *AzureManager) GetAllAccounts() (map[string][]*UserData, error) {
-	users, err := am.getAllUsers()
+func (am *AzureManager) GetAllAccounts(ctx context.Context) (map[string][]*UserData, error) {
+	users, err := am.getAllUsers(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -310,19 +311,19 @@ func (am *AzureManager) GetAllAccounts() (map[string][]*UserData, error) {
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userID.
-func (am *AzureManager) UpdateUserAppMetadata(_ string, _ AppMetadata) error {
+func (am *AzureManager) UpdateUserAppMetadata(_ context.Context, _ string, _ AppMetadata) error {
 	return nil
 }
 
 // InviteUserByID resend invitations to users who haven't activated,
 // their accounts prior to the expiration period.
-func (am *AzureManager) InviteUserByID(_ string) error {
+func (am *AzureManager) InviteUserByID(_ context.Context, _ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
 }
 
 // DeleteUser from Azure.
-func (am *AzureManager) DeleteUser(userID string) error {
-	jwtToken, err := am.credentials.Authenticate()
+func (am *AzureManager) DeleteUser(ctx context.Context, userID string) error {
+	jwtToken, err := am.credentials.Authenticate(ctx)
 	if err != nil {
 		return err
 	}
@@ -335,7 +336,7 @@ func (am *AzureManager) DeleteUser(userID string) error {
 	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
 	req.Header.Add("content-type", "application/json")
 
-	log.Debugf("delete idp user %s", userID)
+	log.WithContext(ctx).Debugf("delete idp user %s", userID)
 
 	resp, err := am.httpClient.Do(req)
 	if err != nil {
@@ -358,7 +359,7 @@ func (am *AzureManager) DeleteUser(userID string) error {
 }
 
 // getAllUsers returns all users in an Azure AD account.
-func (am *AzureManager) getAllUsers() ([]*UserData, error) {
+func (am *AzureManager) getAllUsers(ctx context.Context) ([]*UserData, error) {
 	users := make([]*UserData, 0)
 
 	q := url.Values{}
@@ -366,7 +367,7 @@ func (am *AzureManager) getAllUsers() ([]*UserData, error) {
 	q.Add("$top", "500")
 
 	for nextLink := "users"; nextLink != ""; {
-		body, err := am.get(nextLink, q)
+		body, err := am.get(ctx, nextLink, q)
 		if err != nil {
 			return nil, err
 		}
@@ -391,8 +392,8 @@ func (am *AzureManager) getAllUsers() ([]*UserData, error) {
 }
 
 // get perform Get requests.
-func (am *AzureManager) get(resource string, q url.Values) ([]byte, error) {
-	jwtToken, err := am.credentials.Authenticate()
+func (am *AzureManager) get(ctx context.Context, resource string, q url.Values) ([]byte, error) {
+	jwtToken, err := am.credentials.Authenticate(ctx)
 	if err != nil {
 		return nil, err
 	}

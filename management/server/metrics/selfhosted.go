@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -24,7 +25,7 @@ const (
 	// payloadEndpoint metrics defaultEndpoint to send anonymous data
 	payloadEndpoint = "https://metrics.netbird.io"
 	// defaultPushInterval default interval to push metrics
-	defaultPushInterval = 24 * time.Hour
+	defaultPushInterval = 12 * time.Hour
 	// requestTimeout http request timeout
 	requestTimeout = 45 * time.Second
 )
@@ -46,7 +47,7 @@ type properties map[string]interface{}
 
 // DataSource metric data source
 type DataSource interface {
-	GetAllAccounts() []*server.Account
+	GetAllAccounts(ctx context.Context) []*server.Account
 	GetStoreEngine() server.StoreEngine
 }
 
@@ -81,29 +82,45 @@ func NewWorker(ctx context.Context, id string, dataSource DataSource, connManage
 }
 
 // Run runs the metrics worker
-func (w *Worker) Run() {
-	pushTicker := time.NewTicker(defaultPushInterval)
+func (w *Worker) Run(ctx context.Context) {
+	interval := getMetricsInterval(ctx)
+
+	pushTicker := time.NewTicker(interval)
 	for {
 		select {
 		case <-w.ctx.Done():
 			return
 		case <-pushTicker.C:
-			err := w.sendMetrics()
+			err := w.sendMetrics(ctx)
 			if err != nil {
-				log.Error(err)
+				log.WithContext(ctx).Error(err)
 			}
 			w.lastRun = time.Now()
 		}
 	}
 }
 
-func (w *Worker) sendMetrics() error {
+func getMetricsInterval(ctx context.Context) time.Duration {
+	interval := defaultPushInterval
+	if os.Getenv("NETBIRD_METRICS_INTERVAL_IN_SECONDS") != "" {
+		newInterval, err := time.ParseDuration(os.Getenv("NETBIRD_METRICS_INTERVAL_IN_SECONDS") + "s")
+		if err != nil {
+			log.WithContext(ctx).Errorf("unable to parse NETBIRD_METRICS_INTERVAL_IN_SECONDS, using default interval %v. Error: %v", defaultPushInterval, err)
+		} else {
+			log.WithContext(ctx).Infof("using NETBIRD_METRICS_INTERVAL_IN_SECONDS %s", newInterval)
+			interval = newInterval
+		}
+	}
+	return interval
+}
+
+func (w *Worker) sendMetrics(ctx context.Context) error {
 	apiKey, err := getAPIKey(w.ctx)
 	if err != nil {
 		return err
 	}
 
-	payload := w.generatePayload(apiKey)
+	payload := w.generatePayload(ctx, apiKey)
 
 	payloadString, err := buildMetricsPayload(payload)
 	if err != nil {
@@ -112,10 +129,11 @@ func (w *Worker) sendMetrics() error {
 
 	httpClient := http.Client{}
 
-	exportJobReq, err := createPostRequest(w.ctx, payloadEndpoint+"/capture/", payloadString)
+	exportJobReq, cancelCTX, err := createPostRequest(w.ctx, payloadEndpoint+"/capture/", payloadString)
 	if err != nil {
 		return fmt.Errorf("unable to create metrics post request %v", err)
 	}
+	defer cancelCTX()
 
 	jobResp, err := httpClient.Do(exportJobReq)
 	if err != nil {
@@ -125,7 +143,7 @@ func (w *Worker) sendMetrics() error {
 	defer func() {
 		err = jobResp.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing update metrics response body: %v", err)
+			log.WithContext(ctx).Errorf("error while closing update metrics response body: %v", err)
 		}
 	}()
 
@@ -133,15 +151,15 @@ func (w *Worker) sendMetrics() error {
 		return fmt.Errorf("unable to push anonymous metrics, got statusCode %d", jobResp.StatusCode)
 	}
 
-	log.Infof("sent anonymous metrics, next push will happen in %s. "+
+	log.WithContext(ctx).Infof("sent anonymous metrics, next push will happen in %s. "+
 		"You can disable these metrics by running with flag --disable-anonymous-metrics,"+
-		" see more information at https://netbird.io/docs/FAQ/metrics-collection", defaultPushInterval)
+		" see more information at https://docs.netbird.io/about-netbird/faq#why-and-what-are-the-anonymous-usage-metrics", getMetricsInterval(ctx))
 
 	return nil
 }
 
-func (w *Worker) generatePayload(apiKey string) pushPayload {
-	properties := w.generateProperties()
+func (w *Worker) generatePayload(ctx context.Context, apiKey string) pushPayload {
+	properties := w.generateProperties(ctx)
 
 	return pushPayload{
 		APIKey:     apiKey,
@@ -152,7 +170,7 @@ func (w *Worker) generatePayload(apiKey string) pushPayload {
 	}
 }
 
-func (w *Worker) generateProperties() properties {
+func (w *Worker) generateProperties(ctx context.Context) properties {
 	var (
 		uptime                    float64
 		accounts                  int
@@ -192,7 +210,7 @@ func (w *Worker) generateProperties() properties {
 	connections := w.connManager.GetAllConnectedPeers()
 	version = nbversion.NetbirdVersion()
 
-	for _, account := range w.dataSource.GetAllAccounts() {
+	for _, account := range w.dataSource.GetAllAccounts(ctx) {
 		accounts++
 
 		if account.Settings.PeerLoginExpirationEnabled {
@@ -342,7 +360,7 @@ func getAPIKey(ctx context.Context) (string, error) {
 	defer func() {
 		err = response.Body.Close()
 		if err != nil {
-			log.Errorf("error while closing metrics token response body: %v", err)
+			log.WithContext(ctx).Errorf("error while closing metrics token response body: %v", err)
 		}
 	}()
 
@@ -373,20 +391,20 @@ func buildMetricsPayload(payload pushPayload) (string, error) {
 	return string(str), nil
 }
 
-func createPostRequest(ctx context.Context, endpoint string, payloadStr string) (*http.Request, error) {
+func createPostRequest(ctx context.Context, endpoint string, payloadStr string) (*http.Request, context.CancelFunc, error) {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
-	defer cancel()
 	reqURL := endpoint
 
 	payload := strings.NewReader(payloadStr)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, payload)
 	if err != nil {
-		return nil, err
+		cancel()
+		return nil, nil, err
 	}
 	req.Header.Add("content-type", "application/json")
 
-	return req, nil
+	return req, cancel, nil
 }
 
 func getMinMaxVersion(inputList []string) (string, string) {

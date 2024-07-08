@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -27,12 +28,12 @@ const (
 	notFoundUserID    = "notFoundUserID"
 	existingTokenID   = "existingTokenID"
 	notFoundTokenID   = "notFoundTokenID"
-	domain            = "hotmail.com"
+	testDomain        = "hotmail.com"
 )
 
 var testAccount = &server.Account{
 	Id:     existingAccountID,
-	Domain: domain,
+	Domain: testDomain,
 	Users: map[string]*server.User{
 		existingUserID: {
 			Id: existingUserID,
@@ -63,7 +64,7 @@ var testAccount = &server.Account{
 func initPATTestData() *PATHandler {
 	return &PATHandler{
 		accountManager: &mock_server.MockAccountManager{
-			CreatePATFunc: func(accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*server.PersonalAccessTokenGenerated, error) {
+			CreatePATFunc: func(_ context.Context, accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*server.PersonalAccessTokenGenerated, error) {
 				if accountID != existingAccountID {
 					return nil, status.Errorf(status.NotFound, "account with ID %s not found", accountID)
 				}
@@ -76,10 +77,10 @@ func initPATTestData() *PATHandler {
 				}, nil
 			},
 
-			GetAccountFromTokenFunc: func(_ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+			GetAccountFromTokenFunc: func(_ context.Context, _ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return testAccount, testAccount.Users[existingUserID], nil
 			},
-			DeletePATFunc: func(accountID string, initiatorUserID string, targetUserID string, tokenID string) error {
+			DeletePATFunc: func(_ context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error {
 				if accountID != existingAccountID {
 					return status.Errorf(status.NotFound, "account with ID %s not found", accountID)
 				}
@@ -91,7 +92,7 @@ func initPATTestData() *PATHandler {
 				}
 				return nil
 			},
-			GetPATFunc: func(accountID string, initiatorUserID string, targetUserID string, tokenID string) (*server.PersonalAccessToken, error) {
+			GetPATFunc: func(_ context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*server.PersonalAccessToken, error) {
 				if accountID != existingAccountID {
 					return nil, status.Errorf(status.NotFound, "account with ID %s not found", accountID)
 				}
@@ -103,7 +104,7 @@ func initPATTestData() *PATHandler {
 				}
 				return testAccount.Users[existingUserID].PATs[existingTokenID], nil
 			},
-			GetAllPATsFunc: func(accountID string, initiatorUserID string, targetUserID string) ([]*server.PersonalAccessToken, error) {
+			GetAllPATsFunc: func(_ context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*server.PersonalAccessToken, error) {
 				if accountID != existingAccountID {
 					return nil, status.Errorf(status.NotFound, "account with ID %s not found", accountID)
 				}
@@ -117,7 +118,7 @@ func initPATTestData() *PATHandler {
 			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
 				return jwtclaims.AuthorizationClaims{
 					UserId:    existingUserID,
-					Domain:    domain,
+					Domain:    testDomain,
 					AccountId: testNSGroupAccountID,
 				}
 			}),

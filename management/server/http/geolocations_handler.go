@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"regexp"
 
 	"github.com/gorilla/mux"
 
@@ -11,6 +12,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
+)
+
+var (
+	countryCodeRegex = regexp.MustCompile("^[a-zA-Z]{2}$")
 )
 
 // GeolocationsHandler is a handler that returns locations.
@@ -35,19 +40,19 @@ func NewGeolocationsHandlerHandler(accountManager server.AccountManager, geoloca
 // GetAllCountries retrieves a list of all countries
 func (l *GeolocationsHandler) GetAllCountries(w http.ResponseWriter, r *http.Request) {
 	if err := l.authenticateUser(r); err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	if l.geolocationManager == nil {
 		// TODO: update error message to include geo db self hosted doc link when ready
-		util.WriteError(status.Errorf(status.PreconditionFailed, "Geo location database is not initialized"), w)
+		util.WriteError(r.Context(), status.Errorf(status.PreconditionFailed, "Geo location database is not initialized"), w)
 		return
 	}
 
 	allCountries, err := l.geolocationManager.GetAllCountries()
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -55,32 +60,32 @@ func (l *GeolocationsHandler) GetAllCountries(w http.ResponseWriter, r *http.Req
 	for _, country := range allCountries {
 		countries = append(countries, toCountryResponse(country))
 	}
-	util.WriteJSONObject(w, countries)
+	util.WriteJSONObject(r.Context(), w, countries)
 }
 
 // GetCitiesByCountry retrieves a list of cities based on the given country code
 func (l *GeolocationsHandler) GetCitiesByCountry(w http.ResponseWriter, r *http.Request) {
 	if err := l.authenticateUser(r); err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	countryCode := vars["country"]
 	if !countryCodeRegex.MatchString(countryCode) {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid country code"), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid country code"), w)
 		return
 	}
 
 	if l.geolocationManager == nil {
-		// TODO: update error message to include geo db self hosted doc link when ready
-		util.WriteError(status.Errorf(status.PreconditionFailed, "Geo location database is not initialized"), w)
+		util.WriteError(r.Context(), status.Errorf(status.PreconditionFailed, "Geo location database is not initialized. "+
+			"Check the self-hosted Geo database documentation at https://docs.netbird.io/selfhosted/geo-support"), w)
 		return
 	}
 
 	allCities, err := l.geolocationManager.GetCitiesByCountry(countryCode)
 	if err != nil {
-		util.WriteError(err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
@@ -88,12 +93,12 @@ func (l *GeolocationsHandler) GetCitiesByCountry(w http.ResponseWriter, r *http.
 	for _, city := range allCities {
 		cities = append(cities, toCityResponse(city))
 	}
-	util.WriteJSONObject(w, cities)
+	util.WriteJSONObject(r.Context(), w, cities)
 }
 
 func (l *GeolocationsHandler) authenticateUser(r *http.Request) error {
 	claims := l.claimsExtractor.FromRequestContext(r)
-	_, user, err := l.accountManager.GetAccountFromToken(claims)
+	_, user, err := l.accountManager.GetAccountFromToken(r.Context(), claims)
 	if err != nil {
 		return err
 	}

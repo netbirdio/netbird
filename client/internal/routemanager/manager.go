@@ -2,18 +2,23 @@ package routemanager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"net/url"
 	"runtime"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
+	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
+	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
@@ -21,14 +26,9 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
-var defaultv4 = netip.PrefixFrom(netip.IPv4Unspecified(), 0)
-
-// nolint:unused
-var defaultv6 = netip.PrefixFrom(netip.IPv6Unspecified(), 0)
-
 // Manager is a route manager interface
 type Manager interface {
-	Init() (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error)
+	Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
 	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap, error)
 	TriggerSelection(route.HAMap)
 	GetRouteSelector() *routeselector.RouteSelector
@@ -40,30 +40,70 @@ type Manager interface {
 
 // DefaultManager is the default instance of a route manager
 type DefaultManager struct {
-	ctx            context.Context
-	stop           context.CancelFunc
-	mux            sync.Mutex
-	clientNetworks map[route.HAUniqueID]*clientNetwork
-	routeSelector  *routeselector.RouteSelector
-	serverRouter   serverRouter
-	statusRecorder *peer.Status
-	wgInterface    *iface.WGIface
-	pubKey         string
-	notifier       *notifier
+	ctx                  context.Context
+	stop                 context.CancelFunc
+	mux                  sync.Mutex
+	clientNetworks       map[route.HAUniqueID]*clientNetwork
+	routeSelector        *routeselector.RouteSelector
+	serverRouter         serverRouter
+	sysOps               *systemops.SysOps
+	statusRecorder       *peer.Status
+	wgInterface          *iface.WGIface
+	pubKey               string
+	notifier             *notifier
+	routeRefCounter      *refcounter.RouteRefCounter
+	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter
+	dnsRouteInterval     time.Duration
 }
 
-func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, initialRoutes []*route.Route) *DefaultManager {
+func NewManager(
+	ctx context.Context,
+	pubKey string,
+	dnsRouteInterval time.Duration,
+	wgInterface *iface.WGIface,
+	statusRecorder *peer.Status,
+	initialRoutes []*route.Route,
+) *DefaultManager {
 	mCTX, cancel := context.WithCancel(ctx)
+	sysOps := systemops.NewSysOps(wgInterface)
+
 	dm := &DefaultManager{
-		ctx:            mCTX,
-		stop:           cancel,
-		clientNetworks: make(map[route.HAUniqueID]*clientNetwork),
-		routeSelector:  routeselector.NewRouteSelector(),
-		statusRecorder: statusRecorder,
-		wgInterface:    wgInterface,
-		pubKey:         pubKey,
-		notifier:       newNotifier(),
+		ctx:              mCTX,
+		stop:             cancel,
+		dnsRouteInterval: dnsRouteInterval,
+		clientNetworks:   make(map[route.HAUniqueID]*clientNetwork),
+		routeSelector:    routeselector.NewRouteSelector(),
+		sysOps:           sysOps,
+		statusRecorder:   statusRecorder,
+		wgInterface:      wgInterface,
+		pubKey:           pubKey,
+		notifier:         newNotifier(),
 	}
+
+	dm.routeRefCounter = refcounter.New(
+		func(prefix netip.Prefix, _ any) (any, error) {
+			return nil, sysOps.AddVPNRoute(prefix, wgInterface.ToInterface())
+		},
+		func(prefix netip.Prefix, _ any) error {
+			return sysOps.RemoveVPNRoute(prefix, wgInterface.ToInterface())
+		},
+	)
+
+	dm.allowedIPsRefCounter = refcounter.New(
+		func(prefix netip.Prefix, peerKey string) (string, error) {
+			// save peerKey to use it in the remove function
+			return peerKey, wgInterface.AddAllowedIP(peerKey, prefix.String())
+		},
+		func(prefix netip.Prefix, peerKey string) error {
+			if err := wgInterface.RemoveAllowedIP(peerKey, prefix.String()); err != nil {
+				if !errors.Is(err, iface.ErrPeerNotFound) && !errors.Is(err, iface.ErrAllowedIPNotFound) {
+					return err
+				}
+				log.Tracef("Remove allowed IPs %s for %s: %v", prefix, peerKey, err)
+			}
+			return nil
+		},
+	)
 
 	if runtime.GOOS == "android" {
 		cr := dm.clientRoutes(initialRoutes)
@@ -73,12 +113,12 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 }
 
 // Init sets up the routing
-func (m *DefaultManager) Init() (peer.BeforeAddPeerHookFunc, peer.AfterRemovePeerHookFunc, error) {
+func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
 	if nbnet.CustomRoutingDisabled() {
 		return nil, nil, nil
 	}
 
-	if err := cleanupRouting(); err != nil {
+	if err := m.sysOps.CleanupRouting(); err != nil {
 		log.Warnf("Failed cleaning up routing: %v", err)
 	}
 
@@ -86,7 +126,7 @@ func (m *DefaultManager) Init() (peer.BeforeAddPeerHookFunc, peer.AfterRemovePee
 	signalAddress := m.statusRecorder.GetSignalState().URL
 	ips := resolveURLsToIPs([]string{mgmtAddress, signalAddress})
 
-	beforePeerHook, afterPeerHook, err := setupRouting(ips, m.wgInterface)
+	beforePeerHook, afterPeerHook, err := m.sysOps.SetupRouting(ips)
 	if err != nil {
 		return nil, nil, fmt.Errorf("setup routing: %w", err)
 	}
@@ -110,8 +150,19 @@ func (m *DefaultManager) Stop() {
 		m.serverRouter.cleanUp()
 	}
 
+	if m.routeRefCounter != nil {
+		if err := m.routeRefCounter.Flush(); err != nil {
+			log.Errorf("Error flushing route ref counter: %v", err)
+		}
+	}
+	if m.allowedIPsRefCounter != nil {
+		if err := m.allowedIPsRefCounter.Flush(); err != nil {
+			log.Errorf("Error flushing allowed IPs ref counter: %v", err)
+		}
+	}
+
 	if !nbnet.CustomRoutingDisabled() {
-		if err := cleanupRouting(); err != nil {
+		if err := m.sysOps.CleanupRouting(); err != nil {
 			log.Errorf("Error cleaning up routing: %v", err)
 		} else {
 			log.Info("Routing cleanup complete")
@@ -185,7 +236,7 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 			continue
 		}
 
-		clientNetworkWatcher := newClientNetworkWatcher(m.ctx, m.wgInterface, m.statusRecorder, routes[0].Network)
+		clientNetworkWatcher := newClientNetworkWatcher(m.ctx, m.dnsRouteInterval, m.wgInterface, m.statusRecorder, routes[0], m.routeRefCounter, m.allowedIPsRefCounter)
 		m.clientNetworks[id] = clientNetworkWatcher
 		go clientNetworkWatcher.peersStateAndUpdateWatcher()
 		clientNetworkWatcher.sendUpdateToClientNetworkWatcher(routesUpdate{routes: routes})
@@ -197,7 +248,7 @@ func (m *DefaultManager) stopObsoleteClients(networks route.HAMap) {
 	for id, client := range m.clientNetworks {
 		if _, ok := networks[id]; !ok {
 			log.Debugf("Stopping client network watcher, %s", id)
-			client.stop()
+			client.cancel()
 			delete(m.clientNetworks, id)
 		}
 	}
@@ -210,7 +261,7 @@ func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks rout
 	for id, routes := range networks {
 		clientNetworkWatcher, found := m.clientNetworks[id]
 		if !found {
-			clientNetworkWatcher = newClientNetworkWatcher(m.ctx, m.wgInterface, m.statusRecorder, routes[0].Network)
+			clientNetworkWatcher = newClientNetworkWatcher(m.ctx, m.dnsRouteInterval, m.wgInterface, m.statusRecorder, routes[0], m.routeRefCounter, m.allowedIPsRefCounter)
 			m.clientNetworks[id] = clientNetworkWatcher
 			go clientNetworkWatcher.peersStateAndUpdateWatcher()
 		}
@@ -228,7 +279,7 @@ func (m *DefaultManager) classifyRoutes(newRoutes []*route.Route) (map[route.ID]
 	ownNetworkIDs := make(map[route.HAUniqueID]bool)
 
 	for _, newRoute := range newRoutes {
-		haID := route.GetHAUniqueID(newRoute)
+		haID := newRoute.GetHAUniqueID()
 		if newRoute.Peer == m.pubKey {
 			ownNetworkIDs[haID] = true
 			// only linux is supported for now
@@ -241,9 +292,9 @@ func (m *DefaultManager) classifyRoutes(newRoutes []*route.Route) (map[route.ID]
 	}
 
 	for _, newRoute := range newRoutes {
-		haID := route.GetHAUniqueID(newRoute)
+		haID := newRoute.GetHAUniqueID()
 		if !ownNetworkIDs[haID] {
-			if !isPrefixSupported(newRoute.Network) {
+			if !isRouteSupported(newRoute) {
 				continue
 			}
 			newClientRoutesIDMap[haID] = append(newClientRoutesIDMap[haID], newRoute)
@@ -255,23 +306,23 @@ func (m *DefaultManager) classifyRoutes(newRoutes []*route.Route) (map[route.ID]
 
 func (m *DefaultManager) clientRoutes(initialRoutes []*route.Route) []*route.Route {
 	_, crMap := m.classifyRoutes(initialRoutes)
-	rs := make([]*route.Route, 0)
+	rs := make([]*route.Route, 0, len(crMap))
 	for _, routes := range crMap {
 		rs = append(rs, routes...)
 	}
 	return rs
 }
 
-func isPrefixSupported(prefix netip.Prefix) bool {
-	if !nbnet.CustomRoutingDisabled() {
+func isRouteSupported(route *route.Route) bool {
+	if !nbnet.CustomRoutingDisabled() || route.IsDynamic() {
 		return true
 	}
 
 	// If prefix is too small, lets assume it is a possible default prefix which is not yet supported
 	// we skip this prefix management
-	if prefix.Bits() <= minRangeBits {
+	if route.Network.Bits() <= vars.MinRangeBits {
 		log.Warnf("This agent version: %s, doesn't support default routes, received %s, skipping this prefix",
-			version.NetbirdVersion(), prefix)
+			version.NetbirdVersion(), route.Network)
 		return false
 	}
 	return true

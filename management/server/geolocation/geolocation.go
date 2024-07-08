@@ -2,6 +2,7 @@ package geolocation
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -52,7 +53,7 @@ type Country struct {
 	CountryName    string
 }
 
-func NewGeolocation(dataDir string) (*Geolocation, error) {
+func NewGeolocation(ctx context.Context, dataDir string) (*Geolocation, error) {
 	if err := loadGeolocationDatabases(dataDir); err != nil {
 		return nil, fmt.Errorf("failed to load MaxMind databases: %v", err)
 	}
@@ -68,7 +69,7 @@ func NewGeolocation(dataDir string) (*Geolocation, error) {
 		return nil, err
 	}
 
-	locationDB, err := NewSqliteStore(dataDir)
+	locationDB, err := NewSqliteStore(ctx, dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +84,7 @@ func NewGeolocation(dataDir string) (*Geolocation, error) {
 		stopCh:              make(chan struct{}),
 	}
 
-	go geo.reloader()
+	go geo.reloader(ctx)
 
 	return geo, nil
 }
@@ -165,19 +166,19 @@ func (gl *Geolocation) Stop() error {
 	return nil
 }
 
-func (gl *Geolocation) reloader() {
+func (gl *Geolocation) reloader(ctx context.Context) {
 	for {
 		select {
 		case <-gl.stopCh:
 			return
 		case <-time.After(gl.reloadCheckInterval):
-			if err := gl.locationDB.reload(); err != nil {
-				log.Errorf("geonames db reload failed: %s", err)
+			if err := gl.locationDB.reload(ctx); err != nil {
+				log.WithContext(ctx).Errorf("geonames db reload failed: %s", err)
 			}
 
 			newSha256sum1, err := calculateFileSHA256(gl.mmdbPath)
 			if err != nil {
-				log.Errorf("failed to calculate sha256 sum for '%s': %s", gl.mmdbPath, err)
+				log.WithContext(ctx).Errorf("failed to calculate sha256 sum for '%s': %s", gl.mmdbPath, err)
 				continue
 			}
 			if !bytes.Equal(gl.sha256sum, newSha256sum1) {
@@ -186,30 +187,30 @@ func (gl *Geolocation) reloader() {
 				time.Sleep(50 * time.Millisecond)
 				newSha256sum2, err := calculateFileSHA256(gl.mmdbPath)
 				if err != nil {
-					log.Errorf("failed to calculate sha256 sum for '%s': %s", gl.mmdbPath, err)
+					log.WithContext(ctx).Errorf("failed to calculate sha256 sum for '%s': %s", gl.mmdbPath, err)
 					continue
 				}
 				if !bytes.Equal(newSha256sum1, newSha256sum2) {
-					log.Errorf("sha256 sum changed during reloading of '%s'", gl.mmdbPath)
+					log.WithContext(ctx).Errorf("sha256 sum changed during reloading of '%s'", gl.mmdbPath)
 					continue
 				}
-				err = gl.reload(newSha256sum2)
+				err = gl.reload(ctx, newSha256sum2)
 				if err != nil {
-					log.Errorf("mmdb reload failed: %s", err)
+					log.WithContext(ctx).Errorf("mmdb reload failed: %s", err)
 				}
 			} else {
-				log.Tracef("No changes in '%s', no need to reload. Next check is in %.0f seconds.",
+				log.WithContext(ctx).Tracef("No changes in '%s', no need to reload. Next check is in %.0f seconds.",
 					gl.mmdbPath, gl.reloadCheckInterval.Seconds())
 			}
 		}
 	}
 }
 
-func (gl *Geolocation) reload(newSha256sum []byte) error {
+func (gl *Geolocation) reload(ctx context.Context, newSha256sum []byte) error {
 	gl.mux.Lock()
 	defer gl.mux.Unlock()
 
-	log.Infof("Reloading '%s'", gl.mmdbPath)
+	log.WithContext(ctx).Infof("Reloading '%s'", gl.mmdbPath)
 
 	err := gl.db.Close()
 	if err != nil {
@@ -224,7 +225,7 @@ func (gl *Geolocation) reload(newSha256sum []byte) error {
 	gl.db = db
 	gl.sha256sum = newSha256sum
 
-	log.Infof("Successfully reloaded '%s'", gl.mmdbPath)
+	log.WithContext(ctx).Infof("Successfully reloaded '%s'", gl.mmdbPath)
 
 	return nil
 }

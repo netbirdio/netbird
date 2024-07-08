@@ -1,6 +1,7 @@
 package idp
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -101,7 +102,7 @@ func TestAzureAuthenticate(t *testing.T) {
 			}
 			creds.jwtToken.expiresInTime = testCase.inputExpireToken
 
-			_, err := creds.Authenticate()
+			_, err := creds.Authenticate(context.Background())
 			if err != nil {
 				if testCase.expectedFuncExitErrDiff != nil {
 					assert.EqualError(t, err, testCase.expectedFuncExitErrDiff.Error(), "errors should be the same")

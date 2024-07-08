@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/netbirdio/netbird/client/internal/routemanager/static"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -340,9 +341,9 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 
 			// create new clientNetwork
 			client := &clientNetwork{
-				network:     netip.MustParsePrefix("192.168.0.0/24"),
-				routes:      tc.existingRoutes,
-				chosenRoute: currentRoute,
+				handler:       static.NewRoute(&route.Route{Network: netip.MustParsePrefix("192.168.0.0/24")}, nil, nil),
+				routes:        tc.existingRoutes,
+				currentChosen: currentRoute,
 			}
 
 			chosenRoute := client.getBestRouteFromStatuses(tc.statuses)

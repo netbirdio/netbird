@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/netip"
 	"testing"
 
@@ -383,6 +384,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 			}
 
 			outNSGroup, err := am.CreateNameServerGroup(
+				context.Background(),
 				account.Id,
 				testCase.inputArgs.name,
 				testCase.inputArgs.description,
@@ -611,7 +613,7 @@ func TestSaveNameServerGroup(t *testing.T) {
 
 			account.NameServerGroups[testCase.existingNSGroup.ID] = testCase.existingNSGroup
 
-			err = am.Store.SaveAccount(account)
+			err = am.Store.SaveAccount(context.Background(), account)
 			if err != nil {
 				t.Error("account should be saved")
 			}
@@ -646,7 +648,7 @@ func TestSaveNameServerGroup(t *testing.T) {
 				}
 			}
 
-			err = am.SaveNameServerGroup(account.Id, userID, nsGroupToSave)
+			err = am.SaveNameServerGroup(context.Background(), account.Id, userID, nsGroupToSave)
 
 			testCase.errFunc(t, err)
 
@@ -654,7 +656,7 @@ func TestSaveNameServerGroup(t *testing.T) {
 				return
 			}
 
-			account, err = am.Store.GetAccount(account.Id)
+			account, err = am.Store.GetAccount(context.Background(), account.Id)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -705,17 +707,17 @@ func TestDeleteNameServerGroup(t *testing.T) {
 
 	account.NameServerGroups[testingNSGroup.ID] = testingNSGroup
 
-	err = am.Store.SaveAccount(account)
+	err = am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		t.Error("failed to save account")
 	}
 
-	err = am.DeleteNameServerGroup(account.Id, testingNSGroup.ID, userID)
+	err = am.DeleteNameServerGroup(context.Background(), account.Id, testingNSGroup.ID, userID)
 	if err != nil {
 		t.Error("deleting nameserver group failed with error: ", err)
 	}
 
-	savedAccount, err := am.Store.GetAccount(account.Id)
+	savedAccount, err := am.Store.GetAccount(context.Background(), account.Id)
 	if err != nil {
 		t.Error("failed to retrieve saved account with error: ", err)
 	}
@@ -738,7 +740,7 @@ func TestGetNameServerGroup(t *testing.T) {
 		t.Error("failed to init testing account")
 	}
 
-	foundGroup, err := am.GetNameServerGroup(account.Id, testUserID, existingNSGroupID)
+	foundGroup, err := am.GetNameServerGroup(context.Background(), account.Id, testUserID, existingNSGroupID)
 	if err != nil {
 		t.Error("getting existing nameserver group failed with error: ", err)
 	}
@@ -747,7 +749,7 @@ func TestGetNameServerGroup(t *testing.T) {
 		t.Error("got a nil group while getting nameserver group with ID")
 	}
 
-	_, err = am.GetNameServerGroup(account.Id, testUserID, "not existing")
+	_, err = am.GetNameServerGroup(context.Background(), account.Id, testUserID, "not existing")
 	if err == nil {
 		t.Error("getting not existing nameserver group should return error, got nil")
 	}
@@ -760,13 +762,13 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{})
+	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{})
 }
 
 func createNSStore(t *testing.T) (Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, cleanUp, err := NewTestStoreFromJson(dataDir)
+	store, cleanUp, err := NewTestStoreFromJson(context.Background(), dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -829,7 +831,7 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error
 	userID := testUserID
 	domain := "example.com"
 
-	account := newAccountWithId(accountID, userID, domain)
+	account := newAccountWithId(context.Background(), accountID, userID, domain)
 
 	account.NameServerGroups[existingNSGroup.ID] = &existingNSGroup
 
@@ -846,16 +848,16 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error
 	account.Groups[newGroup1.ID] = newGroup1
 	account.Groups[newGroup2.ID] = newGroup2
 
-	err := am.Store.SaveAccount(account)
+	err := am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return nil, err
 	}
 
-	_, _, err = am.AddPeer("", userID, peer1)
+	_, _, _, err = am.AddPeer(context.Background(), "", userID, peer1)
 	if err != nil {
 		return nil, err
 	}
-	_, _, err = am.AddPeer("", userID, peer2)
+	_, _, _, err = am.AddPeer(context.Background(), "", userID, peer2)
 	if err != nil {
 		return nil, err
 	}

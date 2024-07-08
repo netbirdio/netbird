@@ -22,7 +22,7 @@ const defaultEndpoint = "/metrics"
 type MockAppMetrics struct {
 	GetMeterFunc             func() metric2.Meter
 	CloseFunc                func() error
-	ExposeFunc               func(port int, endpoint string) error
+	ExposeFunc               func(ctx context.Context, port int, endpoint string) error
 	IDPMetricsFunc           func() *IDPMetrics
 	HTTPMiddlewareFunc       func() *HTTPMiddleware
 	GRPCMetricsFunc          func() *GRPCMetrics
@@ -47,9 +47,9 @@ func (mock *MockAppMetrics) Close() error {
 }
 
 // Expose mocks the Expose function of the AppMetrics interface
-func (mock *MockAppMetrics) Expose(port int, endpoint string) error {
+func (mock *MockAppMetrics) Expose(ctx context.Context, port int, endpoint string) error {
 	if mock.ExposeFunc != nil {
-		return mock.ExposeFunc(port, endpoint)
+		return mock.ExposeFunc(ctx, port, endpoint)
 	}
 	return fmt.Errorf("unimplemented")
 }
@@ -98,7 +98,7 @@ func (mock *MockAppMetrics) UpdateChannelMetrics() *UpdateChannelMetrics {
 type AppMetrics interface {
 	GetMeter() metric2.Meter
 	Close() error
-	Expose(port int, endpoint string) error
+	Expose(ctx context.Context, port int, endpoint string) error
 	IDPMetrics() *IDPMetrics
 	HTTPMiddleware() *HTTPMiddleware
 	GRPCMetrics() *GRPCMetrics
@@ -154,7 +154,7 @@ func (appMetrics *defaultAppMetrics) Close() error {
 
 // Expose metrics on a given port and endpoint. If endpoint is empty a defaultEndpoint one will be used.
 // Exposes metrics in the Prometheus format https://prometheus.io/
-func (appMetrics *defaultAppMetrics) Expose(port int, endpoint string) error {
+func (appMetrics *defaultAppMetrics) Expose(ctx context.Context, port int, endpoint string) error {
 	if endpoint == "" {
 		endpoint = defaultEndpoint
 	}
@@ -174,7 +174,7 @@ func (appMetrics *defaultAppMetrics) Expose(port int, endpoint string) error {
 		}
 	}()
 
-	log.Infof("enabled application metrics and exposing on http://%s", listener.Addr().String())
+	log.WithContext(ctx).Infof("enabled application metrics and exposing on http://%s", listener.Addr().String())
 
 	return nil
 }
