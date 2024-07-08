@@ -58,6 +58,12 @@ var (
 	}
 )
 
+func TestMain(m *testing.M) {
+	_ = util.InitLog("debug", "console")
+	code := m.Run()
+	os.Exit(code)
+}
+
 func TestEngine_SSH(t *testing.T) {
 	// todo resolve test execution on freebsd
 	if runtime.GOOS == "windows" || runtime.GOOS == "freebsd" {
@@ -74,14 +80,22 @@ func TestEngine_SSH(t *testing.T) {
 	defer cancel()
 
 	relayMgr := relayClient.NewManager(ctx, "", key.PublicKey().String())
-	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
-		WgIfaceName:      "utun101",
-		WgAddr:           "100.64.0.1/24",
-		WgPrivateKey:     key,
-		WgPort:           33100,
-		ServerSSHAllowed: true,
-	},
-		MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
+	engine := NewEngine(
+		ctx, cancel,
+		&signal.MockClient{},
+		&mgmt.MockClient{},
+		relayMgr,
+		&EngineConfig{
+			WgIfaceName:      "utun101",
+			WgAddr:           "100.64.0.1/24",
+			WgPrivateKey:     key,
+			WgPort:           33100,
+			ServerSSHAllowed: true,
+		},
+		MobileDependency{},
+		peer.NewRecorder("https://mgm"),
+		nil,
+	)
 
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
@@ -211,20 +225,27 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	defer cancel()
 
 	relayMgr := relayClient.NewManager(ctx, "", key.PublicKey().String())
-	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
-		WgIfaceName:  "utun102",
-		WgAddr:       "100.64.0.1/24",
-		WgPrivateKey: key,
-		WgPort:       33100,
-	}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
-	newNet, err := stdnet.NewNet()
-	if err != nil {
-		t.Fatal(err)
+	engine := NewEngine(
+		ctx, cancel,
+		&signal.MockClient{},
+		&mgmt.MockClient{},
+		relayMgr,
+		&EngineConfig{
+			WgIfaceName:  "utun102",
+			WgAddr:       "100.64.0.1/24",
+			WgPrivateKey: key,
+			WgPort:       33100,
+		},
+		MobileDependency{},
+		peer.NewRecorder("https://mgm"),
+		nil)
+
+	wgIface := &iface.MockWGIface{
+		RemovePeerFunc: func(peerKey string) error {
+			return nil
+		},
 	}
-	engine.wgInterface, err = iface.NewWGIFace("utun102", "100.64.0.1/24", engine.config.WgPort, key.String(), iface.DefaultMTU, newNet, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	engine.wgInterface = wgIface
 	engine.routeManager = routemanager.NewManager(ctx, key.PublicKey().String(), time.Minute, engine.wgInterface, engine.statusRecorder, nil)
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },

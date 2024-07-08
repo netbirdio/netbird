@@ -35,7 +35,7 @@ const (
 type WgConfig struct {
 	WgListenPort int
 	RemoteKey    string
-	WgInterface  *iface.WGIface
+	WgInterface  iface.IWGIface
 	AllowedIps   string
 	PreSharedKey *wgtypes.Key
 }
@@ -91,6 +91,7 @@ type Conn struct {
 	statusRelay     ConnStatus
 	statusICE       ConnStatus
 	currentConnType ConnPriority
+	opened          bool // this flag is used to prevent close in case of not opened connection
 
 	workerICE   *WorkerICE
 	workerRelay *WorkerRelay
@@ -167,6 +168,9 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 // be used.
 func (conn *Conn) Open() {
 	conn.log.Debugf("open connection to peer")
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	conn.opened = true
 
 	peerState := State{
 		PubKey:           conn.config.Key,
@@ -196,6 +200,11 @@ func (conn *Conn) Close() {
 	defer conn.mu.Unlock()
 
 	conn.ctxCancel()
+
+	if !conn.opened {
+		log.Infof("IGNORE close connection to peer")
+		return
+	}
 
 	if conn.wgProxyRelay != nil {
 		err := conn.wgProxyRelay.CloseConn()
@@ -302,7 +311,7 @@ func (conn *Conn) GetKey() string {
 }
 
 func (conn *Conn) reconnectLoop() {
-	ticker := time.NewTicker(conn.config.Timeout) // todo use the interval from config
+	ticker := time.NewTicker(conn.config.Timeout)
 	if !conn.workerRelay.IsController() {
 		ticker.Stop()
 	} else {

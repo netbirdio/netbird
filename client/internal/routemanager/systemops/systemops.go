@@ -17,10 +17,10 @@ type ExclusionCounter = refcounter.Counter[any, Nexthop]
 
 type SysOps struct {
 	refCounter  *ExclusionCounter
-	wgInterface *iface.WGIface
+	wgInterface iface.IWGIface
 }
 
-func NewSysOps(wgInterface *iface.WGIface) *SysOps {
+func NewSysOps(wgInterface iface.IWGIface) *SysOps {
 	return &SysOps{
 		wgInterface: wgInterface,
 	}

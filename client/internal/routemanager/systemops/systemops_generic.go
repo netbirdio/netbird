@@ -122,7 +122,7 @@ func (r *SysOps) addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
 
 // addRouteToNonVPNIntf adds a new route to the routing table for the given prefix and returns the next hop and interface.
 // If the next hop or interface is pointing to the VPN interface, it will return the initial values.
-func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIface, initialNextHop Nexthop) (Nexthop, error) {
+func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf iface.IWGIface, initialNextHop Nexthop) (Nexthop, error) {
 	addr := prefix.Addr()
 	switch {
 	case addr.IsLoopback(),
