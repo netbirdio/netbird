@@ -17,26 +17,6 @@ const (
 	DefaultWgPort = 51820
 )
 
-type IWGIface interface {
-	Create() error
-	CreateOnAndroid(routeRange []string, ip string, domains []string) error
-	IsUserspaceBind() bool
-	Name() string
-	Address() WGAddress
-	ToInterface() *net.Interface
-	Up() (*bind.UniversalUDPMuxDefault, error)
-	UpdateAddr(newAddr string) error
-	UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
-	RemovePeer(peerKey string) error
-	AddAllowedIP(peerKey string, allowedIP string) error
-	RemoveAllowedIP(peerKey string, allowedIP string) error
-	Close() error
-	SetFilter(filter PacketFilter) error
-	GetFilter() PacketFilter
-	GetDevice() *DeviceWrapper
-	GetStats(peerKey string) (WGStats, error)
-}
-
 // WGIface represents a interface instance
 type WGIface struct {
 	tun           wgTunDevice

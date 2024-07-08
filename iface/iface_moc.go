@@ -10,21 +10,22 @@ import (
 )
 
 type MockWGIface struct {
-	IsUserspaceBindFunc func() bool
-	NameFunc            func() string
-	AddressFunc         func() WGAddress
-	ToInterfaceFunc     func() *net.Interface
-	UpFunc              func() (*bind.UniversalUDPMuxDefault, error)
-	UpdateAddrFunc      func(newAddr string) error
-	UpdatePeerFunc      func(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
-	RemovePeerFunc      func(peerKey string) error
-	AddAllowedIPFunc    func(peerKey string, allowedIP string) error
-	RemoveAllowedIPFunc func(peerKey string, allowedIP string) error
-	CloseFunc           func() error
-	SetFilterFunc       func(filter PacketFilter) error
-	GetFilterFunc       func() PacketFilter
-	GetDeviceFunc       func() *DeviceWrapper
-	GetStatsFunc        func(peerKey string) (WGStats, error)
+	IsUserspaceBindFunc        func() bool
+	NameFunc                   func() string
+	AddressFunc                func() WGAddress
+	ToInterfaceFunc            func() *net.Interface
+	UpFunc                     func() (*bind.UniversalUDPMuxDefault, error)
+	UpdateAddrFunc             func(newAddr string) error
+	UpdatePeerFunc             func(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
+	RemovePeerFunc             func(peerKey string) error
+	AddAllowedIPFunc           func(peerKey string, allowedIP string) error
+	RemoveAllowedIPFunc        func(peerKey string, allowedIP string) error
+	CloseFunc                  func() error
+	SetFilterFunc              func(filter PacketFilter) error
+	GetFilterFunc              func() PacketFilter
+	GetDeviceFunc              func() *DeviceWrapper
+	GetStatsFunc               func(peerKey string) (WGStats, error)
+	GetInterfaceGUIDStringFunc func() (string, error)
 }
 
 func (m *MockWGIface) Create() error {
