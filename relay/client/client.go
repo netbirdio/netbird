@@ -96,11 +96,11 @@ func (cc *connContainer) close() {
 // the client can be reused by calling Connect again. When the client is closed, all connections are closed too.
 // While the Connect is in progress, the OpenConn function will block until the connection is established.
 type Client struct {
-	log           *log.Entry
-	parentCtx     context.Context
-	connectionURL string
-	authStore     *auth.Store
-	hashedID      []byte
+	log            *log.Entry
+	parentCtx      context.Context
+	connectionURL  string
+	authTokenStore *auth.TokenStore
+	hashedID       []byte
 
 	bufPool *sync.Pool
 
@@ -117,14 +117,14 @@ type Client struct {
 }
 
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
-func NewClient(ctx context.Context, serverURL string, authStore *auth.Store, peerID string) *Client {
+func NewClient(ctx context.Context, serverURL string, authTokenStore *auth.TokenStore, peerID string) *Client {
 	hashedID, hashedStringId := messages.HashID(peerID)
 	return &Client{
-		log:           log.WithField("client_id", hashedStringId),
-		parentCtx:     ctx,
-		connectionURL: serverURL,
-		authStore:     authStore,
-		hashedID:      hashedID,
+		log:            log.WithField("client_id", hashedStringId),
+		parentCtx:      ctx,
+		connectionURL:  serverURL,
+		authTokenStore: authTokenStore,
+		hashedID:       hashedID,
 		bufPool: &sync.Pool{
 			New: func() any {
 				buf := make([]byte, bufferSize)
@@ -237,7 +237,7 @@ func (c *Client) connect() error {
 }
 
 func (c *Client) handShake() error {
-	t, err := c.authStore.Token()
+	t, err := c.authTokenStore.Token()
 	if err != nil {
 		return err
 	}

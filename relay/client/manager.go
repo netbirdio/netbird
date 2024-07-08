@@ -40,7 +40,7 @@ type Manager struct {
 	ctx        context.Context
 	serverURL  string
 	peerID     string
-	tokenStore *relayAuth.Store
+	tokenStore *relayAuth.TokenStore
 
 	relayClient    *Client
 	reconnectGuard *Guard
@@ -57,7 +57,7 @@ func NewManager(ctx context.Context, serverURL string, peerID string) *Manager {
 		ctx:                     ctx,
 		serverURL:               serverURL,
 		peerID:                  peerID,
-		tokenStore:              &relayAuth.Store{},
+		tokenStore:              &relayAuth.TokenStore{},
 		relayClients:            make(map[string]*RelayTrack),
 		onDisconnectedListeners: make(map[string]map[*func()]struct{}),
 	}

@@ -6,11 +6,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/encryption"
+	auth "github.com/netbirdio/netbird/relay/auth/hmac"
 	"github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/util"
 )
@@ -82,7 +84,9 @@ func execute(cmd *cobra.Command, args []string) {
 	}
 
 	tlsSupport := srvListenerCfg.TLSConfig != nil
-	srv := server.NewServer(exposedAddress, tlsSupport, authSecret)
+
+	authenticator := auth.NewTimedHMACValidator(authSecret, 24*time.Hour)
+	srv := server.NewServer(exposedAddress, tlsSupport, authenticator)
 	log.Infof("server will be available on: %s", srv.InstanceURL())
 	err := srv.Listen(srvListenerCfg)
 	if err != nil {

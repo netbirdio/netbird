@@ -4,20 +4,20 @@ import (
 	"sync"
 )
 
-// Store is a simple in-memory store for token
+// TokenStore is a simple in-memory store for token
 // With this can update the token in thread safe way
-type Store struct {
+type TokenStore struct {
 	mu    sync.Mutex
 	token Token
 }
 
-func (a *Store) UpdateToken(token Token) {
+func (a *TokenStore) UpdateToken(token Token) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.token = token
 }
 
-func (a *Store) Token() ([]byte, error) {
+func (a *TokenStore) Token() ([]byte, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return marshalToken(a.token)

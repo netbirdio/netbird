@@ -16,7 +16,7 @@ func TestForeignConn(t *testing.T) {
 	srvCfg1 := server.ListenerConfig{
 		Address: "localhost:1234",
 	}
-	srv1 := server.NewServer(srvCfg1.Address, false)
+	srv1 := server.NewServer(srvCfg1.Address, false, av)
 	go func() {
 		err := srv1.Listen(srvCfg1)
 		if err != nil {
@@ -34,7 +34,7 @@ func TestForeignConn(t *testing.T) {
 	srvCfg2 := server.ListenerConfig{
 		Address: "localhost:2234",
 	}
-	srv2 := server.NewServer(srvCfg2.Address, false)
+	srv2 := server.NewServer(srvCfg2.Address, false, av)
 	go func() {
 		err := srv2.Listen(srvCfg2)
 		if err != nil {
@@ -107,7 +107,7 @@ func TestForeginConnClose(t *testing.T) {
 	srvCfg1 := server.ListenerConfig{
 		Address: "localhost:1234",
 	}
-	srv1 := server.NewServer(srvCfg1.Address, false)
+	srv1 := server.NewServer(srvCfg1.Address, false, av)
 	go func() {
 		err := srv1.Listen(srvCfg1)
 		if err != nil {
@@ -125,7 +125,7 @@ func TestForeginConnClose(t *testing.T) {
 	srvCfg2 := server.ListenerConfig{
 		Address: "localhost:2234",
 	}
-	srv2 := server.NewServer(srvCfg2.Address, false)
+	srv2 := server.NewServer(srvCfg2.Address, false, av)
 	go func() {
 		err := srv2.Listen(srvCfg2)
 		if err != nil {
@@ -164,7 +164,7 @@ func TestForeginAutoClose(t *testing.T) {
 	srvCfg1 := server.ListenerConfig{
 		Address: "localhost:1234",
 	}
-	srv1 := server.NewServer(srvCfg1.Address, false)
+	srv1 := server.NewServer(srvCfg1.Address, false, av)
 	go func() {
 		t.Log("binding server 1.")
 		err := srv1.Listen(srvCfg1)
@@ -185,7 +185,7 @@ func TestForeginAutoClose(t *testing.T) {
 	srvCfg2 := server.ListenerConfig{
 		Address: "localhost:2234",
 	}
-	srv2 := server.NewServer(srvCfg2.Address, false)
+	srv2 := server.NewServer(srvCfg2.Address, false, av)
 	go func() {
 		t.Log("binding server 2.")
 		err := srv2.Listen(srvCfg2)
@@ -237,7 +237,7 @@ func TestAutoReconnect(t *testing.T) {
 	srvCfg := server.ListenerConfig{
 		Address: "localhost:1234",
 	}
-	srv := server.NewServer(srvCfg.Address, false)
+	srv := server.NewServer(srvCfg.Address, false, av)
 	go func() {
 		err := srv.Listen(srvCfg)
 		if err != nil {
