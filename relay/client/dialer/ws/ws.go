@@ -28,8 +28,9 @@ func Dial(address string) (net.Conn, error) {
 		log.Errorf("failed to dial to Relay server '%s': %s", wsURL, err)
 		return nil, err
 	}
-	_ = resp.Body.Close()
-
+	if resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	conn := NewConn(wsConn)
 	return conn, nil
 }
