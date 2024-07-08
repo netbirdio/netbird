@@ -145,8 +145,10 @@ func TestForeginConnClose(t *testing.T) {
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	mgr := NewManager(mCtx, toURL(srvCfg1), idAlice)
-	mgr.Serve()
-
+	err := mgr.Serve()
+	if err != nil {
+		t.Fatalf("failed to serve manager: %s", err)
+	}
 	conn, err := mgr.OpenConn(toURL(srvCfg2), "anotherpeer", nil)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
@@ -203,13 +205,16 @@ func TestForeginAutoClose(t *testing.T) {
 	}()
 
 	// wait for servers to start
-	time.Sleep(300 * time.Second)
+	time.Sleep(300 * time.Millisecond)
 	idAlice := "alice"
 	t.Log("connect to server 1.")
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	mgr := NewManager(mCtx, toURL(srvCfg1), idAlice)
-	mgr.Serve()
+	err := mgr.Serve()
+	if err != nil {
+		t.Fatalf("failed to serve manager: %s", err)
+	}
 
 	t.Log("open connection to another peer")
 	conn, err := mgr.OpenConn(toURL(srvCfg2), "anotherpeer", nil)
