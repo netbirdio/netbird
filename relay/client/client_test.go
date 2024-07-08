@@ -19,8 +19,8 @@ import (
 var (
 	av               = &auth.AllowAllAuth{}
 	hmacTokenStore   = &hmac.TokenStore{}
-	serverListenAddr = "localhost:1234"
-	serverURL        = "rel://localhost:1234"
+	serverListenAddr = "127.0.0.1:1234"
+	serverURL        = "rel://127.0.0.1:1234"
 )
 
 func TestMain(m *testing.M) {
