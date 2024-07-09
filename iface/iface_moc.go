@@ -10,6 +10,8 @@ import (
 )
 
 type MockWGIface struct {
+	CreateFunc                 func() error
+	CreateOnAndroidFunc        func(routeRange []string, ip string, domains []string) error
 	IsUserspaceBindFunc        func() bool
 	NameFunc                   func() string
 	AddressFunc                func() WGAddress
@@ -33,11 +35,11 @@ func (m *MockWGIface) GetInterfaceGUIDString() (string, error) {
 }
 
 func (m *MockWGIface) Create() error {
-	return m.Create()
+	return m.CreateFunc()
 }
 
 func (m *MockWGIface) CreateOnAndroid(routeRange []string, ip string, domains []string) error {
-	return m.CreateOnAndroid(routeRange, ip, domains)
+	return m.CreateOnAndroidFunc(routeRange, ip, domains)
 }
 
 func (m *MockWGIface) IsUserspaceBind() bool {
