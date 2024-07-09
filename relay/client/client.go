@@ -320,15 +320,7 @@ func (c *Client) readLoop(relayConn net.Conn) {
 func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte, hc *healthcheck.Receiver, internallyStoppedFlag *internalStopFlag) (continueLoop bool) {
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
-		msg := messages.MarshalHealthcheck()
-		_, wErr := c.relayConn.Write(msg)
-		if wErr != nil {
-			if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
-				c.log.Errorf("failed to send heartbeat: %s", wErr)
-			}
-		}
-		hc.Heartbeat()
-		c.bufPool.Put(bufPtr)
+		c.handleHealthCheck(buf, bufPtr, hc, internallyStoppedFlag)
 	case messages.MsgTypeTransport:
 		return c.handleTrasnportMsg(buf, bufPtr, internallyStoppedFlag)
 	case messages.MsgTypeClose:
@@ -338,6 +330,19 @@ func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte,
 	}
 
 	return true
+}
+
+func (c *Client) handleHealthCheck(buf []byte, bufPtr *[]byte, hc *healthcheck.Receiver, internallyStoppedFlag *internalStopFlag) {
+	c.handleHealthCheck(buf, bufPtr, hc, internallyStoppedFlag)
+	msg := messages.MarshalHealthcheck()
+	_, wErr := c.relayConn.Write(msg)
+	if wErr != nil {
+		if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
+			c.log.Errorf("failed to send heartbeat: %s", wErr)
+		}
+	}
+	hc.Heartbeat()
+	c.bufPool.Put(bufPtr)
 }
 
 func (c *Client) handleTrasnportMsg(buf []byte, bufPtr *[]byte, internallyStoppedFlag *internalStopFlag) bool {
