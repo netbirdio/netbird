@@ -205,6 +205,7 @@ func (c *Client) SetOnDisconnectListener(fn func()) {
 	c.onDisconnectListener = fn
 }
 
+// HasConns returns true if there are connections.
 func (c *Client) HasConns() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
