@@ -40,23 +40,23 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 }
 
 func (c *Conn) RemoteAddr() net.Addr {
-	panic("not implemented")
+	panic("RemoteAddr is not implemented")
 }
 
 func (c *Conn) LocalAddr() net.Addr {
-	panic("not implemented")
+	panic("LocalAddr is not implemented")
 }
 
 func (c *Conn) SetReadDeadline(t time.Time) error {
-	return fmt.Errorf("not implemented")
+	return fmt.Errorf("SetReadDeadline is not implemented")
 }
 
 func (c *Conn) SetWriteDeadline(t time.Time) error {
-	return fmt.Errorf("not implemented")
+	return fmt.Errorf("SetWriteDeadline is not implemented")
 }
 
 func (c *Conn) SetDeadline(t time.Time) error {
-	return fmt.Errorf("not implemented")
+	return fmt.Errorf("SetDeadline is not implemented")
 }
 
 func (c *Conn) Close() error {
