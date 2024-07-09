@@ -74,15 +74,15 @@ func (c *Conn) RemoteAddr() net.Addr {
 }
 
 func (c *Conn) SetReadDeadline(t time.Time) error {
-	return fmt.Errorf("not implemented")
+	return fmt.Errorf("SetReadDeadline is not implemented")
 }
 
 func (c *Conn) SetWriteDeadline(t time.Time) error {
-	return fmt.Errorf("not implemented")
+	return fmt.Errorf("SetWriteDeadline is not implemented")
 }
 
 func (c *Conn) SetDeadline(t time.Time) error {
-	return fmt.Errorf("not implemented")
+	return fmt.Errorf("SetDeadline is not implemented")
 }
 
 func (c *Conn) Close() error {
