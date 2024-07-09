@@ -274,9 +274,23 @@ func (s *SqlStore) GetInstallationID() string {
 func (s *SqlStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
 	var peerCopy nbpeer.Peer
 	peerCopy.Status = &peerStatus
+
+	peerStatusJson, err := json.Marshal(peerCopy.Status)
+	if err != nil {
+		log.Errorf("cannot marshal peer %s status", peerID)
+		return err
+	}
+
+	parsedPeerStatus := make(map[string]interface{})
+	err = json.Unmarshal(peerStatusJson, &parsedPeerStatus)
+	if err != nil {
+		log.Errorf("cannot unmarshal peer %s status", peerID)
+		return err
+	}
+
 	result := s.db.Model(&nbpeer.Peer{}).
 		Where("account_id = ? AND id = ?", accountID, peerID).
-		Updates(peerCopy)
+		Updates(parsedPeerStatus)
 
 	if result.Error != nil {
 		return result.Error
