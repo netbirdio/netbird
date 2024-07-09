@@ -28,14 +28,16 @@ type MockWGIface struct {
 	GetInterfaceGUIDStringFunc func() (string, error)
 }
 
+func (m *MockWGIface) GetInterfaceGUIDString() (string, error) {
+	return m.GetInterfaceGUIDStringFunc()
+}
+
 func (m *MockWGIface) Create() error {
-	//TODO implement me
-	panic("implement me")
+	return m.Create()
 }
 
 func (m *MockWGIface) CreateOnAndroid(routeRange []string, ip string, domains []string) error {
-	//TODO implement me
-	panic("implement me")
+	return m.CreateOnAndroid(routeRange, ip, domains)
 }
 
 func (m *MockWGIface) IsUserspaceBind() bool {
