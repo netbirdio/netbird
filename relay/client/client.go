@@ -297,7 +297,7 @@ func (c *Client) readLoop(relayConn net.Conn) {
 				c.log.Debugf("failed to read message from relay server: %s", errExit)
 			}
 			c.mu.Unlock()
-			goto Exit
+			break
 		}
 
 		msgType, err := messages.DetermineServerMsgType(buf[:n])
@@ -306,53 +306,72 @@ func (c *Client) readLoop(relayConn net.Conn) {
 			continue
 		}
 
-		switch msgType {
-		case messages.MsgTypeHealthCheck:
-			msg := messages.MarshalHealthcheck()
-			_, wErr := c.relayConn.Write(msg)
-			if wErr != nil {
-				if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
-					c.log.Errorf("failed to send heartbeat: %s", wErr)
-				}
-			}
-			hc.Heartbeat()
-		case messages.MsgTypeTransport:
-			peerID, payload, err := messages.UnmarshalTransportMsg(buf[:n])
-			if err != nil {
-				if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
-					c.log.Errorf("failed to parse transport message: %v", err)
-				}
-				continue
-			}
-			stringID := messages.HashIDToString(peerID)
-
-			c.mu.Lock()
-			if !c.serviceIsRunning {
-				c.mu.Unlock()
-				goto Exit
-			}
-			container, ok := c.conns[stringID]
-			c.mu.Unlock()
-			if !ok {
-				c.log.Errorf("peer not found: %s", stringID)
-				continue
-			}
-
-			container.writeMsg(Msg{
-				bufPool: c.bufPool,
-				bufPtr:  bufPtr,
-				Payload: payload})
-		case messages.MsgTypeClose:
-			log.Debugf("relay connection close by server")
-			goto Exit
+		if !c.handleMsg(msgType, buf[:n], bufPtr, hc, internallyStoppedFlag) {
+			break
 		}
 	}
 
-Exit:
 	hc.Stop()
 	c.notifyDisconnected()
 	c.wgReadLoop.Done()
 	_ = c.close(false)
+}
+
+func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte, hc *healthcheck.Receiver, internallyStoppedFlag *internalStopFlag) (continueLoop bool) {
+	switch msgType {
+	case messages.MsgTypeHealthCheck:
+		msg := messages.MarshalHealthcheck()
+		_, wErr := c.relayConn.Write(msg)
+		if wErr != nil {
+			if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
+				c.log.Errorf("failed to send heartbeat: %s", wErr)
+			}
+		}
+		hc.Heartbeat()
+		c.bufPool.Put(bufPtr)
+	case messages.MsgTypeTransport:
+		return c.handleTrasnportMsg(buf, bufPtr, internallyStoppedFlag)
+	case messages.MsgTypeClose:
+		log.Debugf("relay connection close by server")
+		c.bufPool.Put(bufPtr)
+		return false
+	}
+
+	return true
+}
+
+func (c *Client) handleTrasnportMsg(buf []byte, bufPtr *[]byte, internallyStoppedFlag *internalStopFlag) bool {
+	peerID, payload, err := messages.UnmarshalTransportMsg(buf)
+	if err != nil {
+		if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
+			c.log.Errorf("failed to parse transport message: %v", err)
+		}
+
+		c.bufPool.Put(bufPtr)
+		return true
+	}
+	stringID := messages.HashIDToString(peerID)
+
+	c.mu.Lock()
+	if !c.serviceIsRunning {
+		c.mu.Unlock()
+		c.bufPool.Put(bufPtr)
+		return false
+	}
+	container, ok := c.conns[stringID]
+	c.mu.Unlock()
+	if !ok {
+		c.log.Errorf("peer not found: %s", stringID)
+		c.bufPool.Put(bufPtr)
+		return true
+	}
+	msg := Msg{
+		bufPool: c.bufPool,
+		bufPtr:  bufPtr,
+		Payload: payload,
+	}
+	container.writeMsg(msg)
+	return true
 }
 
 // todo check by reference too, the id is not enought because the id come from the outer conn
