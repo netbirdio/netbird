@@ -320,9 +320,10 @@ func (c *Client) readLoop(relayConn net.Conn) {
 func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte, hc *healthcheck.Receiver, internallyStoppedFlag *internalStopFlag) (continueLoop bool) {
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
-		c.handleHealthCheck(buf, bufPtr, hc, internallyStoppedFlag)
+		c.handleHealthCheck(hc, internallyStoppedFlag)
+		c.bufPool.Put(bufPtr)
 	case messages.MsgTypeTransport:
-		return c.handleTrasnportMsg(buf, bufPtr, internallyStoppedFlag)
+		return c.handleTransportMsg(buf, bufPtr, internallyStoppedFlag)
 	case messages.MsgTypeClose:
 		log.Debugf("relay connection close by server")
 		c.bufPool.Put(bufPtr)
@@ -332,8 +333,7 @@ func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte,
 	return true
 }
 
-func (c *Client) handleHealthCheck(buf []byte, bufPtr *[]byte, hc *healthcheck.Receiver, internallyStoppedFlag *internalStopFlag) {
-	c.handleHealthCheck(buf, bufPtr, hc, internallyStoppedFlag)
+func (c *Client) handleHealthCheck(hc *healthcheck.Receiver, internallyStoppedFlag *internalStopFlag) {
 	msg := messages.MarshalHealthcheck()
 	_, wErr := c.relayConn.Write(msg)
 	if wErr != nil {
@@ -342,10 +342,9 @@ func (c *Client) handleHealthCheck(buf []byte, bufPtr *[]byte, hc *healthcheck.R
 		}
 	}
 	hc.Heartbeat()
-	c.bufPool.Put(bufPtr)
 }
 
-func (c *Client) handleTrasnportMsg(buf []byte, bufPtr *[]byte, internallyStoppedFlag *internalStopFlag) bool {
+func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppedFlag *internalStopFlag) bool {
 	peerID, payload, err := messages.UnmarshalTransportMsg(buf)
 	if err != nil {
 		if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
