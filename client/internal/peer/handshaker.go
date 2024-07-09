@@ -80,14 +80,14 @@ func (h *Handshaker) AddOnNewOfferListener(offer func(remoteOfferAnswer *OfferAn
 
 func (h *Handshaker) Listen() {
 	for {
-		log.Debugf("wait for remote offer confirmation")
+		h.log.Debugf("wait for remote offer confirmation")
 		remoteOfferAnswer, err := h.waitForRemoteOfferConfirmation()
 		if err != nil {
 			if _, ok := err.(*ConnectionClosedError); ok {
-				log.Tracef("stop handshaker")
+				h.log.Tracef("stop handshaker")
 				return
 			}
-			log.Errorf("failed to received remote offer confirmation: %s", err)
+			h.log.Errorf("failed to received remote offer confirmation: %s", err)
 			continue
 		}
 
