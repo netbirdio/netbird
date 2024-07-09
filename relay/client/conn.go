@@ -53,15 +53,15 @@ func (c *Conn) RemoteAddr() net.Addr {
 
 func (c *Conn) SetDeadline(t time.Time) error {
 	//TODO implement me
-	panic("implement me")
+	panic("SetDeadline is not implemented")
 }
 
 func (c *Conn) SetReadDeadline(t time.Time) error {
 	//TODO implement me
-	panic("implement me")
+	panic("SetReadDeadline is not implemented")
 }
 
 func (c *Conn) SetWriteDeadline(t time.Time) error {
 	//TODO implement me
-	panic("implement me")
+	panic("SetReadDeadline is not implemented")
 }
