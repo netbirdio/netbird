@@ -65,26 +65,7 @@ func (p *Peer) Work() {
 		case messages.MsgTypeHealthCheck:
 			hc.OnHCResponse()
 		case messages.MsgTypeTransport:
-			peerID, err := messages.UnmarshalTransportID(msg)
-			if err != nil {
-				p.log.Errorf("failed to unmarshal transport message: %s", err)
-				continue
-			}
-			stringPeerID := messages.HashIDToString(peerID)
-			dp, ok := p.store.Peer(stringPeerID)
-			if !ok {
-				p.log.Errorf("peer not found: %s", stringPeerID)
-				continue
-			}
-			err = messages.UpdateTransportMsg(msg, p.idB)
-			if err != nil {
-				p.log.Errorf("failed to update transport message: %s", err)
-				continue
-			}
-			_, err = dp.Write(msg)
-			if err != nil {
-				p.log.Errorf("failed to write transport message to: %s", dp.String())
-			}
+			p.handleTransportMsg(msg)
 		case messages.MsgTypeClose:
 			p.log.Infof("peer exited gracefully")
 			_ = p.conn.Close()
@@ -159,5 +140,28 @@ func (p *Peer) healthcheck(ctx context.Context, hc *healthcheck.Sender) {
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+func (p *Peer) handleTransportMsg(msg []byte) {
+	peerID, err := messages.UnmarshalTransportID(msg)
+	if err != nil {
+		p.log.Errorf("failed to unmarshal transport message: %s", err)
+		return
+	}
+	stringPeerID := messages.HashIDToString(peerID)
+	dp, ok := p.store.Peer(stringPeerID)
+	if !ok {
+		p.log.Errorf("peer not found: %s", stringPeerID)
+		return
+	}
+	err = messages.UpdateTransportMsg(msg, p.idB)
+	if err != nil {
+		p.log.Errorf("failed to update transport message: %s", err)
+		return
+	}
+	_, err = dp.Write(msg)
+	if err != nil {
+		p.log.Errorf("failed to write transport message to: %s", dp.String())
 	}
 }
