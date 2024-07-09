@@ -596,7 +596,7 @@ func waitForServerToStart(errChan chan error) error {
 		if err != nil {
 			return err
 		}
-	case <-time.After(300 * time.Second):
+	case <-time.After(300 * time.Millisecond):
 		return nil
 	}
 	return nil
