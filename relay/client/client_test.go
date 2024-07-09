@@ -33,11 +33,12 @@ func TestClient(t *testing.T) {
 	ctx := context.Background()
 
 	srv := server.NewServer(serverURL, false, av)
+	errChan := make(chan error, 1)
 	go func() {
 		listenCfg := server.ListenerConfig{Address: serverListenAddr}
 		err := srv.Listen(listenCfg)
 		if err != nil {
-			t.Fatalf("failed to bind server: %s", err)
+			errChan <- err
 		}
 	}()
 
@@ -49,8 +50,9 @@ func TestClient(t *testing.T) {
 	}()
 
 	// wait for server to start
-	time.Sleep(300 * time.Millisecond)
-
+	if err := waitForServerToStart(errChan); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
 	t.Log("alice connecting to server")
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
 	err := clientAlice.Connect()
@@ -110,15 +112,18 @@ func TestRegistration(t *testing.T) {
 	ctx := context.Background()
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
 	srv := server.NewServer(serverURL, false, av)
+	errChan := make(chan error, 1)
 	go func() {
 		err := srv.Listen(srvCfg)
 		if err != nil {
-			t.Fatalf("failed to bind server: %s", err)
+			errChan <- err
 		}
 	}()
 
 	// wait for server to start
-	time.Sleep(300 * time.Millisecond)
+	if err := waitForServerToStart(errChan); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
 
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
 	err := clientAlice.Connect()
@@ -178,10 +183,11 @@ func TestEcho(t *testing.T) {
 	idBob := "bob"
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
 	srv := server.NewServer(serverURL, false, av)
+	errChan := make(chan error, 1)
 	go func() {
 		err := srv.Listen(srvCfg)
 		if err != nil {
-			t.Fatalf("failed to bind server: %s", err)
+			errChan <- err
 		}
 	}()
 
@@ -192,8 +198,10 @@ func TestEcho(t *testing.T) {
 		}
 	}()
 
-	// wait for server to start
-	time.Sleep(300 * time.Millisecond)
+	// wait for servers to start
+	if err := waitForServerToStart(errChan); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
 
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, idAlice)
 	err := clientAlice.Connect()
@@ -261,10 +269,11 @@ func TestBindToUnavailabePeer(t *testing.T) {
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
 	srv := server.NewServer(serverURL, false, av)
+	errChan := make(chan error, 1)
 	go func() {
 		err := srv.Listen(srvCfg)
 		if err != nil {
-			t.Fatalf("failed to bind server: %s", err)
+			errChan <- err
 		}
 	}()
 
@@ -276,8 +285,10 @@ func TestBindToUnavailabePeer(t *testing.T) {
 		}
 	}()
 
-	// wait for server to start
-	time.Sleep(300 * time.Millisecond)
+	// wait for servers to start
+	if err := waitForServerToStart(errChan); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
 
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
 	err := clientAlice.Connect()
@@ -301,10 +312,11 @@ func TestBindReconnect(t *testing.T) {
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
 	srv := server.NewServer(serverURL, false, av)
+	errChan := make(chan error, 1)
 	go func() {
 		err := srv.Listen(srvCfg)
 		if err != nil {
-			t.Errorf("failed to bind server: %s", err)
+			errChan <- err
 		}
 	}()
 
@@ -316,8 +328,10 @@ func TestBindReconnect(t *testing.T) {
 		}
 	}()
 
-	// wait for server to start
-	time.Sleep(300 * time.Millisecond)
+	// wait for servers to start
+	if err := waitForServerToStart(errChan); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
 
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
 	err := clientAlice.Connect()
@@ -386,10 +400,11 @@ func TestCloseConn(t *testing.T) {
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
 	srv := server.NewServer(serverURL, false, av)
+	errChan := make(chan error, 1)
 	go func() {
 		err := srv.Listen(srvCfg)
 		if err != nil {
-			t.Errorf("failed to bind server: %s", err)
+			errChan <- err
 		}
 	}()
 
@@ -401,8 +416,10 @@ func TestCloseConn(t *testing.T) {
 		}
 	}()
 
-	// wait for server to start
-	time.Sleep(300 * time.Millisecond)
+	// wait for servers to start
+	if err := waitForServerToStart(errChan); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
 
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
 	err := clientAlice.Connect()
@@ -437,10 +454,11 @@ func TestCloseRelayConn(t *testing.T) {
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
 	srv := server.NewServer(serverURL, false, av)
+	errChan := make(chan error, 1)
 	go func() {
 		err := srv.Listen(srvCfg)
 		if err != nil {
-			t.Errorf("failed to bind server: %s", err)
+			errChan <- err
 		}
 	}()
 
@@ -451,8 +469,10 @@ func TestCloseRelayConn(t *testing.T) {
 		}
 	}()
 
-	// wait for server to start
-	time.Sleep(300 * time.Millisecond)
+	// wait for servers to start
+	if err := waitForServerToStart(errChan); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
 
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
 	err := clientAlice.Connect()
@@ -483,15 +503,19 @@ func TestCloseByServer(t *testing.T) {
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
 	srv1 := server.NewServer(serverURL, false, av)
+	errChan := make(chan error, 1)
+
 	go func() {
 		err := srv1.Listen(srvCfg)
 		if err != nil {
-			t.Fatalf("failed to bind server: %s", err)
+			errChan <- err
 		}
 	}()
 
-	// wait for server to start
-	time.Sleep(300 * time.Millisecond)
+	// wait for servers to start
+	if err := waitForServerToStart(errChan); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
 
 	idAlice := "alice"
 	log.Debugf("connect by alice")
@@ -529,15 +553,18 @@ func TestCloseByClient(t *testing.T) {
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
 	srv := server.NewServer(serverURL, false, av)
+	errChan := make(chan error, 1)
 	go func() {
 		err := srv.Listen(srvCfg)
 		if err != nil {
-			t.Fatalf("failed to bind server: %s", err)
+			errChan <- err
 		}
 	}()
 
-	// wait for server to start
-	time.Sleep(300 * time.Millisecond)
+	// wait for servers to start
+	if err := waitForServerToStart(errChan); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
 
 	idAlice := "alice"
 	log.Debugf("connect by alice")
@@ -561,4 +588,16 @@ func TestCloseByClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to close server: %s", err)
 	}
+}
+
+func waitForServerToStart(errChan chan error) error {
+	select {
+	case err := <-errChan:
+		if err != nil {
+			return err
+		}
+	case <-time.After(300 * time.Second):
+		return nil
+	}
+	return nil
 }

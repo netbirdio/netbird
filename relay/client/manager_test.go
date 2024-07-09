@@ -17,10 +17,11 @@ func TestForeignConn(t *testing.T) {
 		Address: "localhost:1234",
 	}
 	srv1 := server.NewServer(srvCfg1.Address, false, av)
+	errChan := make(chan error, 1)
 	go func() {
 		err := srv1.Listen(srvCfg1)
 		if err != nil {
-			t.Fatalf("failed to bind server: %s", err)
+			errChan <- err
 		}
 	}()
 
@@ -31,14 +32,19 @@ func TestForeignConn(t *testing.T) {
 		}
 	}()
 
+	if err := waitForServerToStart(errChan); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
+
 	srvCfg2 := server.ListenerConfig{
 		Address: "localhost:2234",
 	}
 	srv2 := server.NewServer(srvCfg2.Address, false, av)
+	errChan2 := make(chan error, 1)
 	go func() {
 		err := srv2.Listen(srvCfg2)
 		if err != nil {
-			t.Fatalf("failed to bind server: %s", err)
+			errChan2 <- err
 		}
 	}()
 
@@ -49,18 +55,27 @@ func TestForeignConn(t *testing.T) {
 		}
 	}()
 
+	if err := waitForServerToStart(errChan2); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
+
 	idAlice := "alice"
 	log.Debugf("connect by alice")
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	clientAlice := NewManager(mCtx, toURL(srvCfg1), idAlice)
-	clientAlice.Serve()
+	err := clientAlice.Serve()
+	if err != nil {
+		t.Fatalf("failed to serve manager: %s", err)
+	}
 
 	idBob := "bob"
 	log.Debugf("connect by bob")
 	clientBob := NewManager(mCtx, toURL(srvCfg2), idBob)
-	clientBob.Serve()
-
+	err = clientBob.Serve()
+	if err != nil {
+		t.Fatalf("failed to serve manager: %s", err)
+	}
 	bobsSrvAddr, err := clientBob.RelayInstanceAddress()
 	if err != nil {
 		t.Fatalf("failed to get relay address: %s", err)
@@ -108,10 +123,11 @@ func TestForeginConnClose(t *testing.T) {
 		Address: "localhost:1234",
 	}
 	srv1 := server.NewServer(srvCfg1.Address, false, av)
+	errChan := make(chan error, 1)
 	go func() {
 		err := srv1.Listen(srvCfg1)
 		if err != nil {
-			t.Fatalf("failed to bind server: %s", err)
+			errChan <- err
 		}
 	}()
 
@@ -122,14 +138,19 @@ func TestForeginConnClose(t *testing.T) {
 		}
 	}()
 
+	if err := waitForServerToStart(errChan); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
+
 	srvCfg2 := server.ListenerConfig{
 		Address: "localhost:2234",
 	}
 	srv2 := server.NewServer(srvCfg2.Address, false, av)
+	errChan2 := make(chan error, 1)
 	go func() {
 		err := srv2.Listen(srvCfg2)
 		if err != nil {
-			t.Fatalf("failed to bind server: %s", err)
+			errChan2 <- err
 		}
 	}()
 
@@ -139,6 +160,10 @@ func TestForeginConnClose(t *testing.T) {
 			t.Errorf("failed to close server: %s", err)
 		}
 	}()
+
+	if err := waitForServerToStart(errChan2); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
 
 	idAlice := "alice"
 	log.Debugf("connect by alice")
@@ -167,11 +192,12 @@ func TestForeginAutoClose(t *testing.T) {
 		Address: "localhost:1234",
 	}
 	srv1 := server.NewServer(srvCfg1.Address, false, av)
+	errChan := make(chan error, 1)
 	go func() {
 		t.Log("binding server 1.")
 		err := srv1.Listen(srvCfg1)
 		if err != nil {
-			t.Fatalf("failed to bind server: %s", err)
+			errChan <- err
 		}
 	}()
 
@@ -184,15 +210,20 @@ func TestForeginAutoClose(t *testing.T) {
 		t.Logf("server 1. closed")
 	}()
 
+	if err := waitForServerToStart(errChan); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
+
 	srvCfg2 := server.ListenerConfig{
 		Address: "localhost:2234",
 	}
 	srv2 := server.NewServer(srvCfg2.Address, false, av)
+	errChan2 := make(chan error, 1)
 	go func() {
 		t.Log("binding server 2.")
 		err := srv2.Listen(srvCfg2)
 		if err != nil {
-			t.Fatalf("failed to bind server: %s", err)
+			errChan2 <- err
 		}
 	}()
 	defer func() {
@@ -204,8 +235,10 @@ func TestForeginAutoClose(t *testing.T) {
 		t.Logf("server 2 closed.")
 	}()
 
-	// wait for servers to start
-	time.Sleep(300 * time.Millisecond)
+	if err := waitForServerToStart(errChan2); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
+
 	idAlice := "alice"
 	t.Log("connect to server 1.")
 	mCtx, cancel := context.WithCancel(ctx)
@@ -245,10 +278,11 @@ func TestAutoReconnect(t *testing.T) {
 		Address: "localhost:1234",
 	}
 	srv := server.NewServer(srvCfg.Address, false, av)
+	errChan := make(chan error, 1)
 	go func() {
 		err := srv.Listen(srvCfg)
 		if err != nil {
-			t.Errorf("failed to bind server: %s", err)
+			errChan <- err
 		}
 	}()
 
@@ -259,10 +293,17 @@ func TestAutoReconnect(t *testing.T) {
 		}
 	}()
 
+	if err := waitForServerToStart(errChan); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
+
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	clientAlice := NewManager(mCtx, toURL(srvCfg), "alice")
-	clientAlice.Serve()
+	err := clientAlice.Serve()
+	if err != nil {
+		t.Fatalf("failed to serve manager: %s", err)
+	}
 	ra, err := clientAlice.RelayInstanceAddress()
 	if err != nil {
 		t.Errorf("failed to get relay address: %s", err)
