@@ -94,7 +94,7 @@ func (cc *connContainer) close() {
 // Client is a client for the relay server. It is responsible for establishing a connection to the relay server and
 // managing connections to other peers. All exported functions are safe to call concurrently. After close the connection,
 // the client can be reused by calling Connect again. When the client is closed, all connections are closed too.
-// While the Connect is in progress, the OpenConn function will block until the connection is established.
+// While the Connect is in progress, the OpenConn function will block until the connection is established with relay server.
 type Client struct {
 	log            *log.Entry
 	parentCtx      context.Context
