@@ -44,7 +44,6 @@ var (
 	defaultSignalSSLDir     string
 	signalCertFile          string
 	signalCertKey           string
-	tlsEnabled              bool
 
 	signalKaep = grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 		MinTime:             5 * time.Second,
@@ -101,7 +100,6 @@ var (
 			var opts []grpc.ServerOption
 			var certManager *autocert.Manager
 			var tlsConfig *tls.Config
-			tlsEnabled := false
 			if signalLetsencryptDomain != "" {
 				certManager, err = encryption.CreateCertManager(signalSSLDir, signalLetsencryptDomain)
 				if err != nil {
@@ -109,7 +107,6 @@ var (
 				}
 				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
-				tlsEnabled = true
 			} else if signalCertFile != "" && signalCertKey != "" {
 				tlsConfig, err = loadTLSConfig(signalCertFile, signalCertKey)
 				if err != nil {
@@ -118,7 +115,6 @@ var (
 				}
 				transportCredentials := credentials.NewTLS(tlsConfig)
 				opts = append(opts, grpc.Creds(transportCredentials))
-				tlsEnabled = true
 			}
 
 			metricsServer := metrics.NewServer(metricsPort, "")
@@ -162,7 +158,7 @@ var (
 				httpListener := certManager.Listener()
 				if signalPort == 443 {
 					// running gRPC and HTTP cert manager on the same port
-					serveHTTP(httpListener, certManager.HTTPHandler(grpcRootHandler)
+					serveHTTP(httpListener, certManager.HTTPHandler(grpcRootHandler))
 					log.Infof("running HTTP server (LetsEncrypt challenge handler) and gRPC server on the same port: %s", httpListener.Addr().String())
 				} else {
 					serveHTTP(httpListener, certManager.HTTPHandler(nil))
