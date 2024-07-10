@@ -129,8 +129,17 @@ func (m *Manager) RelayInstanceAddress() (string, error) {
 	return m.relayClient.ServerInstanceURL()
 }
 
+// ServerURL returns the address of the permanent relay server.
+func (m *Manager) ServerURL() string {
+	return m.serverURL
+}
+
 func (m *Manager) HasRelayAddress() bool {
 	return m.serverURL != ""
+}
+
+func (m *Manager) UpdateToken(token *relayAuth.Token) {
+	m.tokenStore.UpdateToken(token)
 }
 
 func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
@@ -263,8 +272,4 @@ func (m *Manager) notifyOnDisconnectListeners(serverAddress string) {
 	delete(m.onDisconnectedListeners, serverAddress)
 	m.listenerLock.Unlock()
 
-}
-
-func (m *Manager) UpdateToken(token *relayAuth.Token) {
-	m.tokenStore.UpdateToken(token)
 }

@@ -257,6 +257,7 @@ func (c *ConnectClient) run(
 				log.Error(err)
 				return wrapErr(err)
 			}
+			c.statusRecorder.SetRelayMgr(relayManager)
 		}
 
 		peerConfig := loginResp.GetPeerConfig()
