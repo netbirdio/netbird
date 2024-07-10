@@ -56,6 +56,7 @@ func (s *serviceClient) getWindowsFontFilePath() string {
 		}
 	)
 
+	// getUserDefaultLocaleName.Call() panics if the func is not found
 	defer func() {
 		if r := recover(); r != nil {
 			log.Errorf("Recovered from panic: %v", r)
