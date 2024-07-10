@@ -111,6 +111,7 @@ type Client struct {
 	readLoopMutex    sync.Mutex
 	wgReadLoop       sync.WaitGroup
 	instanceURL      string
+	muInstanceURL    sync.Mutex
 
 	onDisconnectListener func()
 	listenerMutex        sync.Mutex
@@ -190,8 +191,8 @@ func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
 
 // ServerInstanceURL returns the address of the relay server. It could change after the close and reopen the connection.
 func (c *Client) ServerInstanceURL() (string, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.muInstanceURL.Lock()
+	defer c.muInstanceURL.Unlock()
 	if c.instanceURL == "" {
 		return "", fmt.Errorf("relay connection is not established")
 	}
@@ -272,7 +273,9 @@ func (c *Client) handShake() error {
 	if err != nil {
 		return err
 	}
+	c.muInstanceURL.Lock()
 	c.instanceURL = ia
+	c.muInstanceURL.Unlock()
 	return nil
 }
 
@@ -310,6 +313,11 @@ func (c *Client) readLoop(relayConn net.Conn) {
 	}
 
 	hc.Stop()
+
+	c.muInstanceURL.Lock()
+	c.instanceURL = ""
+	c.muInstanceURL.Unlock()
+
 	c.notifyDisconnected()
 	c.wgReadLoop.Done()
 	_ = c.close(false)
