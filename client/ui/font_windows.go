@@ -56,12 +56,20 @@ func (s *serviceClient) getWindowsFontFilePath() string {
 		}
 	)
 
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("Recovered from panic: %v", r)
+		}
+	}()
+
 	kernel32 := windows.NewLazySystemDLL("kernel32.dll")
 	getUserDefaultLocaleName := kernel32.NewProc("GetUserDefaultLocaleName")
 
 	buf := make([]uint16, 85) // LOCALE_NAME_MAX_LENGTH is usually 85
 	r, _, err := getUserDefaultLocaleName.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
-	if r == 0 || err != nil {
+	// returns 0 on failure, err is always non-nil
+	// https://learn.microsoft.com/en-us/windows/win32/api/winnls/nf-winnls-getuserdefaultlocalename
+	if r == 0 {
 		log.Errorf("GetUserDefaultLocaleName call failed: %v", err)
 		return path.Join(fontFolder, fontMapping["default"])
 	}
