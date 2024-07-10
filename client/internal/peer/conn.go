@@ -375,9 +375,13 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 	if iceConnInfo.RelayedOnLocal {
 		conn.log.Debugf("setup ice turn connection")
 		wgProxy = conn.wgProxyFactory.GetProxy(conn.ctx)
-		ep, err := conn.wgProxyICE.AddTurnConn(iceConnInfo.RemoteConn)
+		ep, err := wgProxy.AddTurnConn(iceConnInfo.RemoteConn)
 		if err != nil {
 			conn.log.Errorf("failed to add turn net.Conn to local proxy: %v", err)
+			err = wgProxy.CloseConn()
+			if err != nil {
+				conn.log.Warnf("failed to close turn proxy connection: %v", err)
+			}
 			return
 		}
 		endpoint = ep
