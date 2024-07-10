@@ -252,6 +252,7 @@ func (c *ConnectClient) run(
 			if token != nil {
 				relayManager.UpdateToken(token)
 			}
+			log.Infof("connecting to the Relay service %s", relayURL)
 			if err = relayManager.Serve(); err != nil {
 				log.Error(err)
 				return wrapErr(err)
@@ -315,12 +316,9 @@ func (c *ConnectClient) run(
 
 func parseRelayInfo(resp *mgmProto.LoginResponse) (string, *hmac.Token) {
 	// todo remove this
-	ra := peer.ForcedRelayAddress()
-	/*
-		if ra := peer.ForcedRelayAddress(); ra != "" {
-			return ra, nil
-		}
-	*/
+	if ra := peer.ForcedRelayAddress(); ra != "" {
+		return ra, nil
+	}
 
 	msg := resp.GetWiretrusteeConfig().GetRelay()
 	if msg == nil {
@@ -337,9 +335,7 @@ func parseRelayInfo(resp *mgmProto.LoginResponse) (string, *hmac.Token) {
 		Signature: msg.GetTokenSignature(),
 	}
 
-	log.Tracef("Relay URL: %s", url)
-
-	return ra, token
+	return url, token
 }
 
 func (c *ConnectClient) Engine() *Engine {
