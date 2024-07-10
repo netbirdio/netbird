@@ -937,7 +937,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, u
 
 	userObj := account.Users[userID]
 
-	if account.Domain != lowerDomain && userObj.Role == UserRoleOwner {
+	if lowerDomain != "" && account.Domain != lowerDomain && userObj.Role == UserRoleOwner {
 		account.Domain = lowerDomain
 		err = am.Store.SaveAccount(ctx, account)
 		if err != nil {
