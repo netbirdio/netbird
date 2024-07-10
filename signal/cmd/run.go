@@ -113,7 +113,7 @@ var (
 			} else if signalCertFile != "" && signalCertKey != "" {
 				tlsConfig, err = loadTLSConfig(signalCertFile, signalCertKey)
 				if err != nil {
-					log.WithContext(ctx).Errorf("cannot load TLS credentials: %v", err)
+					log.Errorf("cannot load TLS credentials: %v", err)
 					return err
 				}
 				transportCredentials := credentials.NewTLS(tlsConfig)
@@ -153,21 +153,29 @@ var (
 				log.Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
 			}
 
+            grpcRootHandler := grpcHandlerFunc(grpcServer)
 			var grpcListener net.Listener
 			var httpListener net.Listener
-			if tlsEnabled {
-				httpListener = certManager.Listener()
+
+			if certManager != nil {
+				// a call to certManager.Listener() always creates a new listener so we do it once
+				httpListener := certManager.Listener()
 				if signalPort == 443 {
 					// running gRPC and HTTP cert manager on the same port
-					serveHTTP(httpListener, certManager.HTTPHandler(grpcHandlerFunc(grpcServer)))
+					serveHTTP(httpListener, certManager.HTTPHandler(grpcRootHandler)
 					log.Infof("running HTTP server (LetsEncrypt challenge handler) and gRPC server on the same port: %s", httpListener.Addr().String())
 				} else {
 					serveHTTP(httpListener, certManager.HTTPHandler(nil))
 					log.Infof("running HTTP server (LetsEncrypt challenge handler): %s", httpListener.Addr().String())
 				}
-			}
-
-			if signalPort != 443 || !tlsEnabled {
+			} else if tlsConfig != nil {
+				httpListener, err = tls.Listen("tcp", fmt.Sprintf(":%d", signalPort), tlsConfig)
+				if err != nil {
+					return fmt.Errorf("failed creating TLS listener on port %d: %v", signalPort, err)
+				}
+				serveHTTP(httpListener, grpcRootHandler)
+				log.Infof("running TLS gRPC server: %s", httpListener.Addr().String())
+			} else {
 				grpcListener, err = serveGRPC(grpcServer, signalPort)
 				if err != nil {
 					return err
