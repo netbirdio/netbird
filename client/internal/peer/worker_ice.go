@@ -139,6 +139,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	agent, err := w.reCreateAgent(agentCancel, preferredCandidateTypes)
 	if err != nil {
 		w.log.Errorf("failed to recreate ICE Agent: %s", err)
+		w.muxAgent.Unlock()
 		return
 	}
 	w.agent = agent
