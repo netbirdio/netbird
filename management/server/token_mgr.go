@@ -31,12 +31,17 @@ type TimeBasedAuthSecretsManager struct {
 
 type TURNRelayToken auth.Token
 
-func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *TURNConfig, relayAddress string) *TimeBasedAuthSecretsManager {
+func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *TURNConfig, relayConfig *RelayConfig) *TimeBasedAuthSecretsManager {
+
+	var relayAddr string
+	if relayConfig != nil {
+		relayAddr = relayConfig.Address
+	}
 	return &TimeBasedAuthSecretsManager{
 		mux:           sync.Mutex{},
 		updateManager: updateManager,
 		turnCfg:       turnCfg,
-		relayAddr:     relayAddress,
+		relayAddr:     relayAddr,
 		hmacToken:     auth.NewTimedHMAC(turnCfg.Secret, turnCfg.CredentialsTTL.Duration),
 		cancelMap:     make(map[string]chan struct{}),
 	}
