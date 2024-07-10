@@ -1009,6 +1009,7 @@ func (e *Engine) receiveSignalEvents() {
 					Version:         msg.GetBody().GetNetBirdVersion(),
 					RosenpassPubKey: rosenpassPubKey,
 					RosenpassAddr:   rosenpassAddr,
+					RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
 				})
 			case sProto.Body_ANSWER:
 				remoteCred, err := signal.UnMarshalCredential(msg)
