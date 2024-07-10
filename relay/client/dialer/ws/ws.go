@@ -31,6 +31,7 @@ func Dial(address string) (net.Conn, error) {
 	if resp.Body != nil {
 		_ = resp.Body.Close()
 	}
+
 	conn := NewConn(wsConn)
 	return conn, nil
 }

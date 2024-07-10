@@ -40,11 +40,11 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 }
 
 func (c *Conn) RemoteAddr() net.Addr {
-	panic("RemoteAddr is not implemented")
+	return WebsocketAddr{}
 }
 
 func (c *Conn) LocalAddr() net.Addr {
-	panic("LocalAddr is not implemented")
+	return WebsocketAddr{}
 }
 
 func (c *Conn) SetReadDeadline(t time.Time) error {
