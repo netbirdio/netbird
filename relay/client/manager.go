@@ -265,6 +265,6 @@ func (m *Manager) notifyOnDisconnectListeners(serverAddress string) {
 
 }
 
-func (m *Manager) UpdateToken(token relayAuth.Token) {
+func (m *Manager) UpdateToken(token *relayAuth.Token) {
 	m.tokenStore.UpdateToken(token)
 }

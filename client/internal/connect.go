@@ -249,7 +249,9 @@ func (c *ConnectClient) run(
 		relayURL, token := parseRelayInfo(loginResp)
 		relayManager := relayClient.NewManager(engineCtx, relayURL, myPrivateKey.PublicKey().String())
 		if relayURL != "" {
-			relayManager.UpdateToken(token)
+			if token != nil {
+				relayManager.UpdateToken(token)
+			}
 			if err = relayManager.Serve(); err != nil {
 				log.Error(err)
 				return wrapErr(err)
@@ -311,15 +313,18 @@ func (c *ConnectClient) run(
 	return nil
 }
 
-func parseRelayInfo(resp *mgmProto.LoginResponse) (string, hmac.Token) {
+func parseRelayInfo(resp *mgmProto.LoginResponse) (string, *hmac.Token) {
 	// todo remove this
-	if ra := peer.ForcedRelayAddress(); ra != "" {
-		return ra, hmac.Token{}
-	}
+	ra := peer.ForcedRelayAddress()
+	/*
+		if ra := peer.ForcedRelayAddress(); ra != "" {
+			return ra, nil
+		}
+	*/
 
 	msg := resp.GetWiretrusteeConfig().GetRelay()
 	if msg == nil {
-		return "", hmac.Token{}
+		return "", nil
 	}
 
 	var url string
@@ -327,11 +332,14 @@ func parseRelayInfo(resp *mgmProto.LoginResponse) (string, hmac.Token) {
 		url = msg.GetUrls()[0]
 	}
 
-	token := hmac.Token{
+	token := &hmac.Token{
 		Payload:   msg.GetTokenPayload(),
 		Signature: msg.GetTokenSignature(),
 	}
-	return url, token
+
+	log.Tracef("Relay URL: %s", url)
+
+	return ra, token
 }
 
 func (c *ConnectClient) Engine() *Engine {

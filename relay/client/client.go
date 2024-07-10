@@ -238,12 +238,9 @@ func (c *Client) connect() error {
 }
 
 func (c *Client) handShake() error {
-	t, err := c.authTokenStore.Token()
-	if err != nil {
-		return err
-	}
+	tb := c.authTokenStore.TokenBinary()
 
-	msg, err := messages.MarshalHelloMsg(c.hashedID, t)
+	msg, err := messages.MarshalHelloMsg(c.hashedID, tb)
 	if err != nil {
 		log.Errorf("failed to marshal hello message: %s", err)
 		return err

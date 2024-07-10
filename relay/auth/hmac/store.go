@@ -2,23 +2,33 @@ package hmac
 
 import (
 	"sync"
+
+	log "github.com/sirupsen/logrus"
 )
 
 // TokenStore is a simple in-memory store for token
 // With this can update the token in thread safe way
 type TokenStore struct {
 	mu    sync.Mutex
-	token Token
+	token []byte
 }
 
-func (a *TokenStore) UpdateToken(token Token) {
+func (a *TokenStore) UpdateToken(token *Token) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.token = token
+	if token == nil {
+		return
+	}
+
+	t, err := marshalToken(*token)
+	if err != nil {
+		log.Errorf("failed to marshal token: %s", err)
+	}
+	a.token = t
 }
 
-func (a *TokenStore) Token() ([]byte, error) {
+func (a *TokenStore) TokenBinary() []byte {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return marshalToken(a.token)
+	return a.token
 }

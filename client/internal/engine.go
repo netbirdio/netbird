@@ -502,7 +502,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 
 		relayMsg := wCfg.GetRelay()
 		if relayMsg != nil {
-			c := auth.Token{
+			c := &auth.Token{
 				Payload:   relayMsg.GetTokenPayload(),
 				Signature: relayMsg.GetTokenSignature(),
 			}
