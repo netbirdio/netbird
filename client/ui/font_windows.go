@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"path"
-	"syscall"
 	"unsafe"
 
 	log "github.com/sirupsen/logrus"
@@ -21,7 +20,7 @@ func (s *serviceClient) setDefaultFonts() {
 	os.Setenv("FYNE_FONT", defaultFontPath)
 }
 
-func (s *serviceClient) getWindowsFontFilePath() (fontPath string) {
+func (s *serviceClient) getWindowsFontFilePath() string {
 	var (
 		fontFolder  = "C:/Windows/Fonts"
 		fontMapping = map[string]string{
@@ -61,26 +60,23 @@ func (s *serviceClient) getWindowsFontFilePath() (fontPath string) {
 	getUserDefaultLocaleName := kernel32.NewProc("GetUserDefaultLocaleName")
 
 	buf := make([]uint16, 85) // LOCALE_NAME_MAX_LENGTH is usually 85
-	r, _, _ := getUserDefaultLocaleName.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
-	if r == 0 {
-		log.Error("Failed to get Windows default language setting")
-		fontPath = path.Join(fontFolder, fontMapping["default"])
-		return
+	r, _, err := getUserDefaultLocaleName.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	if r == 0 || err != nil {
+		log.Errorf("GetUserDefaultLocaleName call failed: %v", err)
+		return path.Join(fontFolder, fontMapping["default"])
 	}
 
-	defaultLanguage := syscall.UTF16ToString(buf)
+	defaultLanguage := windows.UTF16ToString(buf)
 
 	for _, lang := range nirMalaLang {
 		if defaultLanguage == lang {
-			fontPath = path.Join(fontFolder, fontMapping["nirmala"])
-			return
+			return path.Join(fontFolder, fontMapping["nirmala"])
 		}
 	}
 
 	if font, ok := fontMapping[defaultLanguage]; ok {
-		fontPath = path.Join(fontFolder, font)
-	} else {
-		fontPath = path.Join(fontFolder, fontMapping["default"])
+		return path.Join(fontFolder, font)
 	}
-	return
+
+	return path.Join(fontFolder, fontMapping["default"])
 }
