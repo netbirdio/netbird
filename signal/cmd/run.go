@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+ 	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -41,6 +42,8 @@ var (
 	signalLetsencryptDomain string
 	signalSSLDir            string
 	defaultSignalSSLDir     string
+	signalCertFile          string
+	signalCertKey           string
 	tlsEnabled              bool
 
 	signalKaep = grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
@@ -59,9 +62,13 @@ var (
 		Use:   "run",
 		Short: "start NetBird Signal Server daemon",
 		PreRun: func(cmd *cobra.Command, args []string) {
+			flag.Parse()
+
 			// detect whether user specified a port
 			userPort := cmd.Flag("port").Changed
-			if signalLetsencryptDomain != "" {
+
+			tlsEnabled := false
+			if signalLetsencryptDomain != "" || (signalCertFile != "" && signalCertKey != "") {
 				tlsEnabled = true
 			}
 
@@ -93,14 +100,25 @@ var (
 
 			var opts []grpc.ServerOption
 			var certManager *autocert.Manager
-			if tlsEnabled {
-				// Let's encrypt enabled -> generate certificate automatically
+			var tlsConfig *tls.Config
+			tlsEnabled := false
+			if signalLetsencryptDomain != "" {
 				certManager, err = encryption.CreateCertManager(signalSSLDir, signalLetsencryptDomain)
 				if err != nil {
 					return err
 				}
 				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
+				tlsEnabled = true
+			} else if signalCertFile != "" && signalCertKey != "" {
+				tlsConfig, err = loadTLSConfig(signalCertFile, signalCertKey)
+				if err != nil {
+					log.WithContext(ctx).Errorf("cannot load TLS credentials: %v", err)
+					return err
+				}
+				transportCredentials := credentials.NewTLS(tlsConfig)
+				opts = append(opts, grpc.Creds(transportCredentials))
+				tlsEnabled = true
 			}
 
 			metricsServer := metrics.NewServer(metricsPort, "")
@@ -232,6 +250,25 @@ func serveGRPC(grpcServer *grpc.Server, port int) (net.Listener, error) {
 	return listener, nil
 }
 
+func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
+	// Load server's certificate and private key
+	serverCert, err := tls.LoadX509KeyPair(certFile, certKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// NewDefaultAppMetrics the credentials and return it
+	config := &tls.Config{
+		Certificates: []tls.Certificate{serverCert},
+		ClientAuth:   tls.NoClientCert,
+		NextProtos: []string{
+			"h2", "http/1.1", // enable HTTP/2
+		},
+	}
+
+	return config, nil
+}
+
 func cpFile(src, dst string) error {
 	var err error
 	var srcfd *os.File
@@ -323,4 +360,6 @@ func init() {
 	runCmd.PersistentFlags().IntVar(&signalPort, "port", 80, "Server port to listen on (defaults to 443 if TLS is enabled, 80 otherwise")
 	runCmd.Flags().StringVar(&signalSSLDir, "ssl-dir", defaultSignalSSLDir, "server ssl directory location. *Required only for Let's Encrypt certificates.")
 	runCmd.Flags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
+	runCmd.Flags().StringVar(&signalCertFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
+	runCmd.Flags().StringVar(&signalCertKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 }
