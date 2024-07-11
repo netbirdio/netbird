@@ -372,6 +372,10 @@ func (conn *Conn) reconnectLoopWithRetry() {
 	}
 }
 
+// reconnectLoopForOnDisconnectedEvent is used when the peer is not a controller and it should reconnect to the peer
+// when the connection is lost. It will try to establish a connection only once time if before the connection was established
+// It track separately the ice and relay connection status. Just because a lover priority connection reestablished it does not
+// mean that to switch to it. We always force to use the higher priority connection.
 func (conn *Conn) reconnectLoopForOnDisconnectedEvent() {
 	for {
 		select {
@@ -679,8 +683,8 @@ func (conn *Conn) doHandshake() error {
 }
 
 func (conn *Conn) waitInitialRandomSleepTime() {
-	minWait := 500
-	maxWait := 2000
+	minWait := 100
+	maxWait := 800
 	duration := time.Duration(rand.Intn(maxWait-minWait)+minWait) * time.Millisecond
 
 	timeout := time.NewTimer(duration)
