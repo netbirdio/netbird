@@ -318,14 +318,17 @@ docker_manifests:
   #     - netbirdio/netbird:{{ .Version }}-amd64
   #
   - name_template: "ghcr.io/hurricanehrndz/netbird_signal:{{ .Version }}"
+    skip_push: false
     image_templates:
       - "ghcr.io/hurricanehrndz/netbird_signal:{{ .Version }}-amd64"
 
   - name_template: "ghcr.io/hurricanehrndz/netbird_mgmt:{{ .Version }}"
+    skip_push: false
     image_templates:
       - "ghcr.io/hurricanehrndz/netbird_mgmt:{{ .Version }}-amd64"
 
   - name_template: "ghcr.io/hurricanehrndz/netbird_mgmt:{{ .Version }}-debug"
+    skip_push: false
     image_templates:
       - "ghcr.io/hurricanehrndz/netbird_mgmt:{{ .Version }}-debug-amd64"
 
