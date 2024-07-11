@@ -162,7 +162,6 @@ dockers:
   #     - "--label=org.opencontainers.image.version={{.Version}}"
   #     - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - netbirdio/signal:{{ .Version }}-amd64
       - "ghcr.io/hurricanehrndz/netbird:signal-{{ .Version }}-amd64"
     ids:
       - netbird-signal
@@ -211,7 +210,6 @@ dockers:
   #     - "--label=org.opencontainers.image.version={{.Version}}"
   #     - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - netbirdio/management:{{ .Version }}-amd64
       - "ghcr.io/hurricanehrndz/netbird:mgmt-{{ .Version }}-amd64"
     ids:
       - netbird-mgmt
@@ -259,7 +257,6 @@ dockers:
   #     - "--label=org.opencontainers.image.version={{.Version}}"
   #     - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - netbirdio/management:{{ .Version }}-debug-amd64
       - "ghcr.io/hurricanehrndz/netbird:mgmt-{{ .Version }}-debug-amd64"
     ids:
       - netbird-mgmt
