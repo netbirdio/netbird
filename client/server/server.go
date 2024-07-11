@@ -44,8 +44,9 @@ const (
 
 // Server for service control.
 type Server struct {
-	rootCtx   context.Context
-	actCancel context.CancelFunc
+	rootCtx       context.Context
+	actCancel     context.CancelFunc
+	engineRunning bool
 
 	latestConfigInput internal.ConfigInput
 
@@ -159,6 +160,10 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 	backOff := getConnectWithBackoff(ctx)
 	retryStarted := false
 
+	if s.engineRunning {
+		return
+	}
+
 	go func() {
 		t := time.NewTicker(24 * time.Hour)
 		for {
@@ -184,6 +189,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 
 	runOperation := func() error {
 		log.Tracef("running client connection")
+		s.engineRunning = true
 		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
 		err := s.connectClient.RunWithProbes(mgmProbe, signalProbe, relayProbe, wgProbe)
 		if err != nil {
@@ -540,6 +546,10 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	if s.engineRunning {
+		return nil, fmt.Errorf("service is already up")
+	}
+
 	state := internal.CtxGetState(s.rootCtx)
 
 	// if current state contains any error, return it
@@ -576,7 +586,10 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
-	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe)
+	go func() {
+		s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe)
+		s.engineRunning = false
+	}()
 
 	return &proto.UpResponse{}, nil
 }
@@ -586,12 +599,16 @@ func (s *Server) Down(_ context.Context, _ *proto.DownRequest) (*proto.DownRespo
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	s.connectClient = nil
+
 	if s.actCancel == nil {
 		return nil, fmt.Errorf("service is not up")
 	}
 	s.actCancel()
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusIdle)
+
+	s.engineRunning = false
 
 	return &proto.DownResponse{}, nil
 }
