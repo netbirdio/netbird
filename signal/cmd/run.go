@@ -151,12 +151,15 @@ var (
 					serveHTTP(httpListener, certManager.HTTPHandler(grpcRootHandler))
 					log.Infof("running HTTP server (LetsEncrypt challenge handler) and gRPC server on the same port: %s", httpListener.Addr().String())
 				} else {
+					// Start the HTTP cert manager server separately
 					serveHTTP(httpListener, certManager.HTTPHandler(nil))
 					log.Infof("running HTTP server (LetsEncrypt challenge handler): %s", httpListener.Addr().String())
 					grpcListener, err = tls.Listen("tcp", fmt.Sprintf(":%d", signalPort), certManager.TLSConfig())
 					if err != nil {
 						return fmt.Errorf("failed creating TLS gRPC listener on port %d: %v", signalPort, err)
 					}
+					// The Signal gRPC server was running on port 10000 previously. Old agents that are already connected to Signal
+					// are using port 10000. For compatibility purposes we keep running a 2nd gRPC server on port 10000.
 					if signalPort != 10000 {
 						compatListener, err = tls.Listen("tcp", fmt.Sprintf(":%d", 10000), tlsConfig)
 						if err != nil {
@@ -188,6 +191,7 @@ var (
 				}
 			}
 
+			// If certManager is configured and signalPort == 443, then the gRPC server has already been started
 			if certManager == nil || signalPort != 443 {
 				serveGRPC(grpcListener, grpcServer)
 				log.Infof("running gRPC server: %s", grpcListener.Addr().String())
