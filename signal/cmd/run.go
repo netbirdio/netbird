@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"context"
- 	"crypto/tls"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -153,7 +153,7 @@ var (
 				} else {
 					serveHTTP(httpListener, certManager.HTTPHandler(nil))
 					log.Infof("running HTTP server (LetsEncrypt challenge handler): %s", httpListener.Addr().String())
-					grpcListener = tls.Listen("tcp", fmt.Sprintf(":%d", signalPort), certManager.TLSConfig())
+					grpcListener, err = tls.Listen("tcp", fmt.Sprintf(":%d", signalPort), certManager.TLSConfig())
 					if err != nil {
 						return fmt.Errorf("failed creating TLS gRPC listener on port %d: %v", signalPort, err)
 					}
@@ -176,7 +176,7 @@ var (
 					}
 				}
 			} else {
-				grpcListener, err := net.Listen("tcp", fmt.Sprintf(":%d", signalPort))
+				grpcListener, err = net.Listen("tcp", fmt.Sprintf(":%d", signalPort))
 				if err != nil {
 					return fmt.Errorf("failed creating gRPC listener on port %d: %v", signalPort, err)
 				}
