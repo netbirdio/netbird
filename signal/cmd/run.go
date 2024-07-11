@@ -138,18 +138,8 @@ var (
 			}
 			proto.RegisterSignalExchangeServer(grpcServer, srv)
 
-			var compatListener net.Listener
-			if signalPort != 10000 {
-				// The Signal gRPC server was running on port 10000 previously. Old agents that are already connected to Signal
-				// are using port 10000. For compatibility purposes we keep running a 2nd gRPC server on port 10000.
-				compatListener, err = serveGRPC(grpcServer, 10000)
-				if err != nil {
-					return err
-				}
-				log.Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
-			}
-
             grpcRootHandler := grpcHandlerFunc(grpcServer)
+			var compatListener net.Listener
 			var grpcListener net.Listener
 			var httpListener net.Listener
 
@@ -163,20 +153,51 @@ var (
 				} else {
 					serveHTTP(httpListener, certManager.HTTPHandler(nil))
 					log.Infof("running HTTP server (LetsEncrypt challenge handler): %s", httpListener.Addr().String())
+					grpcListener = tls.Listen("tcp", fmt.Sprintf(":%d", signalPort), certManager.TLSConfig())
+					if err != nil {
+						return fmt.Errorf("failed creating TLS gRPC listener on port %d: %v", signalPort, err)
+					}
+					if signalPort != 10000 {
+						compatListener, err = tls.Listen("tcp", fmt.Sprintf(":%d", 10000), tlsConfig)
+						if err != nil {
+							return err
+						}
+					}
 				}
 			} else if tlsConfig != nil {
-				httpListener, err = tls.Listen("tcp", fmt.Sprintf(":%d", signalPort), tlsConfig)
+				grpcListener, err = tls.Listen("tcp", fmt.Sprintf(":%d", signalPort), tlsConfig)
 				if err != nil {
-					return fmt.Errorf("failed creating TLS listener on port %d: %v", signalPort, err)
+					return fmt.Errorf("failed creating TLS gRPC listener on port %d: %v", signalPort, err)
 				}
-				serveHTTP(httpListener, grpcRootHandler)
-				log.Infof("running TLS gRPC server: %s", httpListener.Addr().String())
+				if signalPort != 10000 {
+					compatListener, err = tls.Listen("tcp", fmt.Sprintf(":%d", 10000), tlsConfig)
+					if err != nil {
+						return err
+					}
+				}
 			} else {
-				grpcListener, err = serveGRPC(grpcServer, signalPort)
+				grpcListener, err := net.Listen("tcp", fmt.Sprintf(":%d", signalPort))
 				if err != nil {
-					return err
+					return fmt.Errorf("failed creating gRPC listener on port %d: %v", signalPort, err)
 				}
+				if signalPort != 10000 {
+					compatListener, err = net.Listen("tcp", fmt.Sprintf(":%d", 10000))
+					if err != nil {
+						return err
+					}
+				}
+			}
+
+			if certManager == nil || signalPort != 443 {
+				serveGRPC(grpcListener, grpcServer)
 				log.Infof("running gRPC server: %s", grpcListener.Addr().String())
+			}
+
+			if signalPort != 10000 {
+				// The Signal gRPC server was running on port 10000 previously. Old agents that are already connected to Signal
+				// are using port 10000. For compatibility purposes we keep running a 2nd gRPC server on port 10000.
+				serveGRPC(compatListener, grpcServer)
+				log.Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
 			}
 
 			log.Infof("signal server version %s", version.NetbirdVersion())
@@ -240,18 +261,13 @@ func serveHTTP(httpListener net.Listener, handler http.Handler) {
 	}()
 }
 
-func serveGRPC(grpcServer *grpc.Server, port int) (net.Listener, error) {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return nil, err
-	}
+func serveGRPC(grpcListener net.Listener, grpcServer *grpc.Server) {
 	go func() {
-		err := grpcServer.Serve(listener)
+		err := grpcServer.Serve(grpcListener)
 		if err != nil {
-			notifyStop(fmt.Sprintf("failed running gRPC server on port %d: %v", port, err))
+			notifyStop(fmt.Sprintf("failed running gRPC server %v", err))
 		}
 	}()
-	return listener, nil
 }
 
 func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
