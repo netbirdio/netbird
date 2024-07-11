@@ -44,8 +44,18 @@ func TestSqlite_SaveAccount_Large(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
+	t.Run("SQLite", func(t *testing.T) {
+		store := newSqliteStore(t)
+		runLargeTest(t, store)
+	})
+	store := newPostgresqlStore(t)
+	t.Run("PostgreSQL", func(t *testing.T) {
+		runLargeTest(t, store)
+	})
+}
 
-	store := newSqliteStore(t)
+func runLargeTest(t *testing.T, store Store) {
+	t.Helper()
 
 	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
 	groupALL, err := account.GetGroupAll()
@@ -54,7 +64,7 @@ func TestSqlite_SaveAccount_Large(t *testing.T) {
 	}
 	setupKey := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
-	const numPerAccount = 2000
+	const numPerAccount = 6000
 	for n := 0; n < numPerAccount; n++ {
 		netIP := randomIPv4()
 		peerID := fmt.Sprintf("%s-peer-%d", account.Id, n)
