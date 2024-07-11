@@ -315,8 +315,7 @@ func (s *SqlStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.P
 // It updates existing users if a conflict occurs.
 func (s *SqlStore) SaveUsers(accountID string, users map[string]*User) error {
 	usersToSave := make([]User, 0, len(users))
-	for id, user := range users {
-		user.Id = id
+	for _, user := range users {
 		user.AccountID = accountID
 		for id, pat := range user.PATs {
 			pat.ID = id
@@ -333,8 +332,7 @@ func (s *SqlStore) SaveUsers(accountID string, users map[string]*User) error {
 // It updates existing groups if a conflict occurs.
 func (s *SqlStore) SaveGroups(accountID string, groups map[string]*nbgroup.Group) error {
 	groupsToSave := make([]nbgroup.Group, 0, len(groups))
-	for id, group := range groups {
-		group.ID = id
+	for _, group := range groups {
 		group.AccountID = accountID
 		groupsToSave = append(groupsToSave, *group)
 	}
@@ -682,8 +680,6 @@ func (s *SqlStore) Close(_ context.Context) error {
 func (s *SqlStore) GetStoreEngine() StoreEngine {
 	return s.storeEngine
 }
-
-//func (s *SqlStore) SaveGroups()
 
 // NewSqliteStore creates a new SQLite store.
 func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMetrics) (*SqlStore, error) {
