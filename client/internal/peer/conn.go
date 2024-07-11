@@ -326,7 +326,7 @@ func (conn *Conn) reconnectLoopWithRetry() {
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     800 * time.Millisecond,
 		RandomizationFactor: 0,
-		Multiplier:          1.7,
+		Multiplier:          1.99,
 		MaxInterval:         conn.config.Timeout * time.Second,
 		MaxElapsedTime:      0,
 		Stop:                backoff.Stop,
@@ -336,10 +336,16 @@ func (conn *Conn) reconnectLoopWithRetry() {
 	ticker := backoff.NewTicker(bo)
 	defer ticker.Stop()
 
+	<-ticker.C // consume the initial tick what is happening right after the ticker has been created
+
 	no := time.Now()
 	for {
 		select {
-		case <-ticker.C:
+		case t := <-ticker.C:
+			if t.IsZero() {
+				// in case if the ticker has been canceled by context then avoid the temporary loop
+				return
+			}
 			// checks if there is peer connection is established via relay or ice and that it has a wireguard handshake and skip offer
 			// todo check wg handshake
 			conn.log.Tracef("ticker timedout, relay state: %s, ice state: %s, elapsed time: %s", conn.statusRelay, conn.statusICE, time.Since(no))
