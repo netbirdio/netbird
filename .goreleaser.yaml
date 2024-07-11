@@ -167,6 +167,7 @@ dockers:
     ids:
       - netbird-signal
     goarch: amd64
+    skip_push: false
     use: buildx
     dockerfile: signal/Dockerfile
     build_flag_templates:
@@ -215,6 +216,7 @@ dockers:
     ids:
       - netbird-mgmt
     goarch: amd64
+    skip_push: false
     use: buildx
     dockerfile: management/Dockerfile
     build_flag_templates:
@@ -262,6 +264,7 @@ dockers:
     ids:
       - netbird-mgmt
     goarch: amd64
+    skip_push: false
     use: buildx
     dockerfile: management/Dockerfile.debug
     build_flag_templates:
