@@ -317,7 +317,7 @@ func (conn *Conn) GetKey() string {
 }
 
 func (conn *Conn) reconnectLoopWithRetry() {
-	// wait for the initial connection to be established
+	// give chance to the peer to establish the initial connection
 	select {
 	case <-conn.ctx.Done():
 	case <-time.After(3 * time.Second):
