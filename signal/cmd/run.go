@@ -140,7 +140,7 @@ var (
 			}
 			proto.RegisterSignalExchangeServer(grpcServer, srv)
 
-            grpcRootHandler := grpcHandlerFunc(grpcServer)
+			grpcRootHandler := grpcHandlerFunc(grpcServer)
 			var compatListener net.Listener
 			var grpcListener net.Listener
 			var httpListener net.Listener
