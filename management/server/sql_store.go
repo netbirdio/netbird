@@ -681,8 +681,16 @@ func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMe
 }
 
 func getGormConfig() *gorm.Config {
+	sqlLogger := logger.New(
+		log.New(os.Stdout, "\r\n", log.LstdFlags), 
+		logger.Config{
+			SlowThreshold: 1,
+			LogLevel:      logger.Info,
+			Colorful:      false,
+		},
+	)
 	return &gorm.Config{
-		Logger:          logger.Default.LogMode(logger.Info),
+		Logger:          sqlLogger,
 		CreateBatchSize: 400,
 		PrepareStmt:     true,
 	}
