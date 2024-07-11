@@ -156,41 +156,7 @@ var (
 					// Start the HTTP cert manager server separately
 					serveHTTP(httpListener, certManager.HTTPHandler(nil))
 					log.Infof("running HTTP server (LetsEncrypt challenge handler): %s", httpListener.Addr().String())
-					// grpcListener, err = tls.Listen("tcp", fmt.Sprintf(":%d", signalPort), certManager.TLSConfig())
-					// if err != nil {
-					// 	return fmt.Errorf("failed creating TLS gRPC listener on port %d: %v", signalPort, err)
-					// }
-					// // The Signal gRPC server was running on port 10000 previously. Old agents that are already connected to Signal
-					// // are using port 10000. For compatibility purposes we keep running a 2nd gRPC server on port 10000.
-					// if signalPort != 10000 {
-					// 	compatListener, err = tls.Listen("tcp", fmt.Sprintf(":%d", 10000), tlsConfig)
-					// 	if err != nil {
-					// 		return err
-					// 	}
-					// }
 				}
-			// } else if tlsConfig != nil {
-			// 	grpcListener, err = tls.Listen("tcp", fmt.Sprintf(":%d", signalPort), tlsConfig)
-			// 	if err != nil {
-			// 		return fmt.Errorf("failed creating TLS gRPC listener on port %d: %v", signalPort, err)
-			// 	}
-			// 	if signalPort != 10000 {
-			// 		compatListener, err = tls.Listen("tcp", fmt.Sprintf(":%d", 10000), tlsConfig)
-			// 		if err != nil {
-			// 			return err
-			// 		}
-			// 	}
-			// } else {
-			// 	grpcListener, err = net.Listen("tcp", fmt.Sprintf(":%d", signalPort))
-			// 	if err != nil {
-			// 		return fmt.Errorf("failed creating gRPC listener on port %d: %v", signalPort, err)
-			// 	}
-			// 	if signalPort != 10000 {
-			// 		compatListener, err = net.Listen("tcp", fmt.Sprintf(":%d", 10000))
-			// 		if err != nil {
-			// 			return err
-			// 		}
-			// 	}
 			}
 
 			// If certManager is configured and signalPort == 443, then the gRPC server has already been started
@@ -273,14 +239,6 @@ func serveHTTP(httpListener net.Listener, handler http.Handler) {
 	}()
 }
 
-// func serveGRPC(grpcListener net.Listener, grpcServer *grpc.Server) {
-// 	go func() {
-// 		err := grpcServer.Serve(grpcListener)
-// 		if err != nil {
-// 			notifyStop(fmt.Sprintf("failed running gRPC server %v", err))
-// 		}
-// 	}()
-// }
 func serveGRPC(grpcServer *grpc.Server, port int) (net.Listener, error) {
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
