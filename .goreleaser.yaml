@@ -163,7 +163,7 @@ dockers:
   #     - "--label=maintainer=dev@netbird.io"
   - image_templates:
       - netbirdio/signal:{{ .Version }}-amd64
-      - "ghcr.io/hurricanehrndz/netbird_signal:{{ .Version }}-amd64"
+      - "ghcr.io/hurricanehrndz/netbird:signal-{{ .Version }}-amd64"
     ids:
       - netbird-signal
     goarch: amd64
@@ -211,7 +211,7 @@ dockers:
   #     - "--label=maintainer=dev@netbird.io"
   - image_templates:
       - netbirdio/management:{{ .Version }}-amd64
-      - "ghcr.io/hurricanehrndz/netbird_mgmt:{{ .Version }}-amd64"
+      - "ghcr.io/hurricanehrndz/netbird:mgmt-{{ .Version }}-amd64"
     ids:
       - netbird-mgmt
     goarch: amd64
@@ -258,7 +258,7 @@ dockers:
   #     - "--label=maintainer=dev@netbird.io"
   - image_templates:
       - netbirdio/management:{{ .Version }}-debug-amd64
-      - "ghcr.io/hurricanehrndz/netbird_mgmt:{{ .Version }}-debug-amd64"
+      - "ghcr.io/hurricanehrndz/netbird:mgmt-{{ .Version }}-debug-amd64"
     ids:
       - netbird-mgmt
     goarch: amd64
@@ -317,20 +317,20 @@ docker_manifests:
   #     - netbirdio/netbird:{{ .Version }}-arm
   #     - netbirdio/netbird:{{ .Version }}-amd64
   #
-  - name_template: "ghcr.io/hurricanehrndz/netbird_signal:{{ .Version }}"
+  - name_template: "ghcr.io/hurricanehrndz/netbird:signal-{{ .Version }}"
     skip_push: false
     image_templates:
-      - "ghcr.io/hurricanehrndz/netbird_signal:{{ .Version }}-amd64"
+      - "ghcr.io/hurricanehrndz/netbird:signal-{{ .Version }}-amd64"
 
-  - name_template: "ghcr.io/hurricanehrndz/netbird_mgmt:{{ .Version }}"
+  - name_template: "ghcr.io/hurricanehrndz/netbird:mgmt-{{ .Version }}"
     skip_push: false
     image_templates:
-      - "ghcr.io/hurricanehrndz/netbird_mgmt:{{ .Version }}-amd64"
+      - "ghcr.io/hurricanehrndz/netbird:mgmt-{{ .Version }}-amd64"
 
-  - name_template: "ghcr.io/hurricanehrndz/netbird_mgmt:{{ .Version }}-debug"
+  - name_template: "ghcr.io/hurricanehrndz/netbird:mgmt-{{ .Version }}-debug"
     skip_push: false
     image_templates:
-      - "ghcr.io/hurricanehrndz/netbird_mgmt:{{ .Version }}-debug-amd64"
+      - "ghcr.io/hurricanehrndz/netbird:mgmt-{{ .Version }}-debug-amd64"
 
 
 # brews:
