@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/pion/ice/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -102,8 +103,9 @@ type Conn struct {
 
 	endpointRelay *net.UDPAddr
 
-	iCEDisconnected   chan struct{}
-	relayDisconnected chan struct{}
+	// for reconnection operations
+	iCEDisconnected   chan bool
+	relayDisconnected chan bool
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
@@ -130,8 +132,8 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		allowedIPsIP:      allowedIPsIP.String(),
 		statusRelay:       StatusDisconnected,
 		statusICE:         StatusDisconnected,
-		iCEDisconnected:   make(chan struct{}),
-		relayDisconnected: make(chan struct{}),
+		iCEDisconnected:   make(chan bool, 1),
+		relayDisconnected: make(chan bool, 1),
 	}
 
 	rFns := WorkerRelayCallbacks{
@@ -184,14 +186,18 @@ func (conn *Conn) Open() {
 		conn.log.Warnf("error while updating the state err: %v", err)
 	}
 
-	conn.waitRandomSleepTime()
+	conn.waitInitialRandomSleepTime()
 
 	err = conn.doHandshake()
 	if err != nil {
 		conn.log.Errorf("failed to send offer: %v", err)
 	}
 
-	go conn.reconnectLoop()
+	if conn.workerRelay.IsController() {
+		go conn.reconnectLoopWithRetry()
+	} else {
+		go conn.reconnectLoopForOnDisconnectedEvent()
+	}
 }
 
 // Close closes this peer Conn issuing a close event to the Conn closeCh
@@ -310,30 +316,75 @@ func (conn *Conn) GetKey() string {
 	return conn.config.Key
 }
 
-func (conn *Conn) reconnectLoop() {
-	ticker := time.NewTicker(conn.config.Timeout)
-	if !conn.workerRelay.IsController() {
-		ticker.Stop()
-	} else {
-		defer ticker.Stop()
+func (conn *Conn) reconnectLoopWithRetry() {
+	// wait for the initial connection to be established
+	select {
+	case <-conn.ctx.Done():
+	case <-time.After(3 * time.Second):
 	}
 
+	bo := backoff.WithContext(&backoff.ExponentialBackOff{
+		InitialInterval:     800 * time.Millisecond,
+		RandomizationFactor: 0,
+		Multiplier:          1.7,
+		MaxInterval:         conn.config.Timeout * time.Second,
+		MaxElapsedTime:      0,
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}, conn.ctx)
+
+	ticker := backoff.NewTicker(bo)
+	defer ticker.Stop()
+
+	no := time.Now()
 	for {
 		select {
 		case <-ticker.C:
 			// checks if there is peer connection is established via relay or ice and that it has a wireguard handshake and skip offer
 			// todo check wg handshake
+			conn.log.Tracef("ticker timedout, relay state: %s, ice state: %s, elapsed time: %s", conn.statusRelay, conn.statusICE, time.Since(no))
+			no = time.Now()
+
 			if conn.statusRelay == StatusConnected && conn.statusICE == StatusConnected {
 				continue
 			}
-		case <-conn.relayDisconnected:
-			conn.log.Debugf("Relay connection is disconnected, start to send new offer")
-			ticker.Reset(10 * time.Second)
-			conn.waitRandomSleepTime()
-		case <-conn.iCEDisconnected:
-			conn.log.Debugf("ICE connection is disconnected, start to send new offer")
-			ticker.Reset(10 * time.Second)
-			conn.waitRandomSleepTime()
+
+			log.Debugf("ticker timed out, retry to do handshake")
+			err := conn.doHandshake()
+			if err != nil {
+				conn.log.Errorf("failed to do handshake: %v", err)
+			}
+		case changed := <-conn.relayDisconnected:
+			if !changed {
+				continue
+			}
+			conn.log.Debugf("Relay state changed, reset reconnect timer")
+			bo.Reset()
+		case changed := <-conn.iCEDisconnected:
+			if !changed {
+				continue
+			}
+			conn.log.Debugf("ICE state changed, reset reconnect timer")
+			bo.Reset()
+		case <-conn.ctx.Done():
+			return
+		}
+	}
+}
+
+func (conn *Conn) reconnectLoopForOnDisconnectedEvent() {
+	for {
+		select {
+		case changed := <-conn.relayDisconnected:
+			if !changed {
+				continue
+			}
+			conn.log.Debugf("Relay state changed, try to send new offer")
+		case changed := <-conn.iCEDisconnected:
+			if !changed {
+				continue
+			}
+			conn.log.Debugf("ICE state changed, try to send new offer")
 		case <-conn.ctx.Done():
 			return
 		}
@@ -438,10 +489,12 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 
 	conn.log.Tracef("ICE connection state changed to %s", newState)
 	defer func() {
+
+		changed := conn.statusICE != newState && newState != StatusConnecting
 		conn.statusICE = newState
 
 		select {
-		case conn.iCEDisconnected <- struct{}{}:
+		case conn.iCEDisconnected <- changed:
 		default:
 		}
 	}()
@@ -542,10 +595,11 @@ func (conn *Conn) onWorkerRelayStateDisconnected() {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 	defer func() {
+		changed := conn.statusRelay != StatusDisconnected
 		conn.statusRelay = StatusDisconnected
 
 		select {
-		case conn.relayDisconnected <- struct{}{}:
+		case conn.relayDisconnected <- changed:
 		default:
 		}
 	}()
@@ -619,11 +673,12 @@ func (conn *Conn) doHandshake() error {
 	if err == nil {
 		ha.RelayAddr = addr
 	}
-	conn.log.Tracef("send new offer: %#v", ha)
+
+	conn.log.Tracef("do handshake with args: %v", ha)
 	return conn.handshaker.SendOffer(ha)
 }
 
-func (conn *Conn) waitRandomSleepTime() {
+func (conn *Conn) waitInitialRandomSleepTime() {
 	minWait := 500
 	maxWait := 2000
 	duration := time.Duration(rand.Intn(maxWait-minWait)+minWait) * time.Millisecond
