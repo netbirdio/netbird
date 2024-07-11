@@ -1,51 +1,51 @@
 project_name: netbird
 builds:
-  - id: netbird
-    dir: client
-    binary: netbird
-    env: [CGO_ENABLED=0]
-    goos:
-      - linux
-      - darwin
-      - windows
-    goarch:
-      - arm
-      - amd64
-      - arm64
-      - 386
-    ignore:
-      - goos: windows
-        goarch: arm64
-      - goos: windows
-        goarch: arm
-      - goos: windows
-        goarch: 386
-    ldflags:
-      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
-    mod_timestamp: '{{ .CommitTimestamp }}'
-    tags:
-      - load_wgnt_from_rsrc
-
-  - id: netbird-static
-    dir: client
-    binary: netbird
-    env: [CGO_ENABLED=0]
-    goos:
-      - linux
-    goarch:
-      - mips
-      - mipsle
-      - mips64
-      - mips64le
-    gomips:
-      - hardfloat
-      - softfloat
-    ldflags:
-      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
-    mod_timestamp: '{{ .CommitTimestamp }}'
-    tags:
-      - load_wgnt_from_rsrc
-
+  # - id: netbird
+  #   dir: client
+  #   binary: netbird
+  #   env: [CGO_ENABLED=0]
+  #   goos:
+  #     - linux
+  #     - darwin
+  #     - windows
+  #   goarch:
+  #     - arm
+  #     - amd64
+  #     - arm64
+  #     - 386
+  #   ignore:
+  #     - goos: windows
+  #       goarch: arm64
+  #     - goos: windows
+  #       goarch: arm
+  #     - goos: windows
+  #       goarch: 386
+  #   ldflags:
+  #     - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+  #   mod_timestamp: '{{ .CommitTimestamp }}'
+  #   tags:
+  #     - load_wgnt_from_rsrc
+  #
+  # - id: netbird-static
+  #   dir: client
+  #   binary: netbird
+  #   env: [CGO_ENABLED=0]
+  #   goos:
+  #     - linux
+  #   goarch:
+  #     - mips
+  #     - mipsle
+  #     - mips64
+  #     - mips64le
+  #   gomips:
+  #     - hardfloat
+  #     - softfloat
+  #   ldflags:
+  #     - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+  #   mod_timestamp: '{{ .CommitTimestamp }}'
+  #   tags:
+  #     - load_wgnt_from_rsrc
+  #
   - id: netbird-mgmt
     dir: management
     env:
@@ -80,87 +80,87 @@ builds:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: '{{ .CommitTimestamp }}'
 
-archives:
-  - builds:
-      - netbird
-      - netbird-static
-
-nfpms:
-
-  - maintainer: Netbird <dev@netbird.io>
-    description: Netbird client.
-    homepage: https://netbird.io/
-    id: netbird-deb
-    bindir: /usr/bin
-    builds:
-      - netbird
-    formats:
-      - deb
-
-    scripts:
-      postinstall: "release_files/post_install.sh"
-      preremove: "release_files/pre_remove.sh"
-
-  - maintainer: Netbird <dev@netbird.io>
-    description: Netbird client.
-    homepage: https://netbird.io/
-    id: netbird-rpm
-    bindir: /usr/bin
-    builds:
-      - netbird
-    formats:
-      - rpm
-
-    scripts:
-      postinstall: "release_files/post_install.sh"
-      preremove: "release_files/pre_remove.sh"
+# archives:
+#   - builds:
+#       - netbird
+#       - netbird-static
+#
+# nfpms:
+#
+#   - maintainer: Netbird <dev@netbird.io>
+#     description: Netbird client.
+#     homepage: https://netbird.io/
+#     id: netbird-deb
+#     bindir: /usr/bin
+#     builds:
+#       - netbird
+#     formats:
+#       - deb
+#
+#     scripts:
+#       postinstall: "release_files/post_install.sh"
+#       preremove: "release_files/pre_remove.sh"
+#
+#   - maintainer: Netbird <dev@netbird.io>
+#     description: Netbird client.
+#     homepage: https://netbird.io/
+#     id: netbird-rpm
+#     bindir: /usr/bin
+#     builds:
+#       - netbird
+#     formats:
+#       - rpm
+#
+#     scripts:
+#       postinstall: "release_files/post_install.sh"
+#       preremove: "release_files/pre_remove.sh"
 dockers:
-  - image_templates:
-      - netbirdio/netbird:{{ .Version }}-amd64
-    ids:
-      - netbird
-    goarch: amd64
-    use: buildx
-    dockerfile: client/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/netbird:{{ .Version }}-arm64v8
-    ids:
-      - netbird
-    goarch: arm64
-    use: buildx
-    dockerfile: client/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/netbird:{{ .Version }}-arm
-    ids:
-      - netbird
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: client/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
+  # - image_templates:
+  #     - netbirdio/netbird:{{ .Version }}-amd64
+  #   ids:
+  #     - netbird
+  #   goarch: amd64
+  #   use: buildx
+  #   dockerfile: client/Dockerfile
+  #   build_flag_templates:
+  #     - "--platform=linux/amd64"
+  #     - "--label=org.opencontainers.image.created={{.Date}}"
+  #     - "--label=org.opencontainers.image.title={{.ProjectName}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=maintainer=dev@netbird.io"
+  # - image_templates:
+  #     - netbirdio/netbird:{{ .Version }}-arm64v8
+  #   ids:
+  #     - netbird
+  #   goarch: arm64
+  #   use: buildx
+  #   dockerfile: client/Dockerfile
+  #   build_flag_templates:
+  #     - "--platform=linux/arm64"
+  #     - "--label=org.opencontainers.image.created={{.Date}}"
+  #     - "--label=org.opencontainers.image.title={{.ProjectName}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=maintainer=dev@netbird.io"
+  # - image_templates:
+  #     - netbirdio/netbird:{{ .Version }}-arm
+  #   ids:
+  #     - netbird
+  #   goarch: arm
+  #   goarm: 6
+  #   use: buildx
+  #   dockerfile: client/Dockerfile
+  #   build_flag_templates:
+  #     - "--platform=linux/arm"
+  #     - "--label=org.opencontainers.image.created={{.Date}}"
+  #     - "--label=org.opencontainers.image.title={{.ProjectName}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=maintainer=dev@netbird.io"
   - image_templates:
       - netbirdio/signal:{{ .Version }}-amd64
     ids:
@@ -301,18 +301,18 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
 docker_manifests:
-  - name_template: netbirdio/netbird:{{ .Version }}
-    image_templates:
-      - netbirdio/netbird:{{ .Version }}-arm64v8
-      - netbirdio/netbird:{{ .Version }}-arm
-      - netbirdio/netbird:{{ .Version }}-amd64
-
-  - name_template: netbirdio/netbird:latest
-    image_templates:
-      - netbirdio/netbird:{{ .Version }}-arm64v8
-      - netbirdio/netbird:{{ .Version }}-arm
-      - netbirdio/netbird:{{ .Version }}-amd64
-
+  # - name_template: netbirdio/netbird:{{ .Version }}
+  #   image_templates:
+  #     - netbirdio/netbird:{{ .Version }}-arm64v8
+  #     - netbirdio/netbird:{{ .Version }}-arm
+  #     - netbirdio/netbird:{{ .Version }}-amd64
+  #
+  # - name_template: netbirdio/netbird:latest
+  #   image_templates:
+  #     - netbirdio/netbird:{{ .Version }}-arm64v8
+  #     - netbirdio/netbird:{{ .Version }}-arm
+  #     - netbirdio/netbird:{{ .Version }}-amd64
+  #
   - name_template: netbirdio/signal:{{ .Version }}
     image_templates:
       - netbirdio/signal:{{ .Version }}-arm64v8
@@ -343,47 +343,47 @@ docker_manifests:
       - netbirdio/management:{{ .Version }}-debug-arm
       - netbirdio/management:{{ .Version }}-debug-amd64
 
-brews:
-  -
-    ids:
-      - default
-    tap:
-      owner: netbirdio
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    commit_author:
-      name: Netbird
-      email: dev@netbird.io
-    description: Netbird project.
-    download_strategy: CurlDownloadStrategy
-    homepage: https://netbird.io/
-    license: "BSD3"
-    test: |
-      system "#{bin}/{{ .ProjectName	}} version"
-
-uploads:
-  - name: debian
-    ids:
-    - netbird-deb
-    mode: archive
-    target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ if .Arm }}armhf{{ else }}{{ .Arch }}{{ end }};deb.package=
-    username: dev@wiretrustee.com
-    method: PUT
-
-  - name: yum
-    ids:
-      - netbird-rpm
-    mode: archive
-    target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
-    username: dev@wiretrustee.com
-    method: PUT
-
-checksum:
-  extra_files:
-    - glob: ./infrastructure_files/getting-started-with-zitadel.sh
-    - glob: ./release_files/install.sh
-
-release:
-  extra_files:
-    - glob: ./infrastructure_files/getting-started-with-zitadel.sh
-    - glob: ./release_files/install.sh
+# brews:
+#   -
+#     ids:
+#       - default
+#     tap:
+#       owner: netbirdio
+#       name: homebrew-tap
+#       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+#     commit_author:
+#       name: Netbird
+#       email: dev@netbird.io
+#     description: Netbird project.
+#     download_strategy: CurlDownloadStrategy
+#     homepage: https://netbird.io/
+#     license: "BSD3"
+#     test: |
+#       system "#{bin}/{{ .ProjectName	}} version"
+#
+# uploads:
+#   - name: debian
+#     ids:
+#     - netbird-deb
+#     mode: archive
+#     target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ if .Arm }}armhf{{ else }}{{ .Arch }}{{ end }};deb.package=
+#     username: dev@wiretrustee.com
+#     method: PUT
+#
+#   - name: yum
+#     ids:
+#       - netbird-rpm
+#     mode: archive
+#     target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
+#     username: dev@wiretrustee.com
+#     method: PUT
+#
+# checksum:
+#   extra_files:
+#     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
+#     - glob: ./release_files/install.sh
+#
+# release:
+#   extra_files:
+#     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
+#     - glob: ./release_files/install.sh
