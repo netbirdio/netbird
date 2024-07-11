@@ -22,8 +22,10 @@ type SysOps struct {
 	wgInterface *iface.WGIface
 	// prefixes is tracking all the current added prefixes im memory
 	// (this is used in iOS as all route updates require a full table update)
+	//lint:ignore
 	prefixes map[netip.Prefix]struct{}
-	mu       sync.Mutex
+	//lint:ignore
+	mu sync.Mutex
 	// notifier is used to notify the system of route changes (also used on mobile)
 	notifier *notifier.Notifier
 }
