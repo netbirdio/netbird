@@ -859,7 +859,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	}
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveUsers(account); err != nil {
+	if err = am.Store.SaveUsers(account.Id, account.Users); err != nil {
 		return nil, err
 	}
 

@@ -163,7 +163,7 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 	}
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveGroups(account); err != nil {
+	if err = am.Store.SaveGroups(account.Id, account.Groups); err != nil {
 		return err
 	}
 

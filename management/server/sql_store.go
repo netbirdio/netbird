@@ -313,28 +313,32 @@ func (s *SqlStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.P
 
 // SaveUsers saves the given list of users to the database.
 // It updates existing users if a conflict occurs.
-func (s *SqlStore) SaveUsers(account *Account) error {
-	for id, user := range account.Users {
+func (s *SqlStore) SaveUsers(accountID string, users map[string]*User) error {
+	usersToSave := make([]User, 0, len(users))
+	for id, user := range users {
 		user.Id = id
-		user.AccountID = account.Id
+		user.AccountID = accountID
 		for id, pat := range user.PATs {
 			pat.ID = id
 			user.PATsG = append(user.PATsG, *pat)
 		}
-		account.UsersG = append(account.UsersG, *user)
+		usersToSave = append(usersToSave, *user)
 	}
-	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&account.UsersG).Error
+	return s.db.Session(&gorm.Session{FullSaveAssociations: true}).
+		Clauses(clause.OnConflict{UpdateAll: true}).
+		Create(&usersToSave).Error
 }
 
 // SaveGroups saves the given list of groups to the database.
 // It updates existing groups if a conflict occurs.
-func (s *SqlStore) SaveGroups(account *Account) error {
-	for id, group := range account.Groups {
+func (s *SqlStore) SaveGroups(accountID string, groups map[string]*nbgroup.Group) error {
+	groupsToSave := make([]nbgroup.Group, 0, len(groups))
+	for id, group := range groups {
 		group.ID = id
-		group.AccountID = account.Id
-		account.GroupsG = append(account.GroupsG, *group)
+		group.AccountID = accountID
+		groupsToSave = append(groupsToSave, *group)
 	}
-	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&account.GroupsG).Error
+	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&groupsToSave).Error
 }
 
 // DeleteHashedPAT2TokenIDIndex is noop in SqlStore
