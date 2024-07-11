@@ -163,6 +163,7 @@ dockers:
   #     - "--label=maintainer=dev@netbird.io"
   - image_templates:
       - netbirdio/signal:{{ .Version }}-amd64
+      - "ghcr.io/hurricanehrndz/netbird_signal:{{ .Version }}-amd64"
     ids:
       - netbird-signal
     goarch: amd64
@@ -176,39 +177,41 @@ dockers:
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/signal:{{ .Version }}-arm64v8
-    ids:
-      - netbird-signal
-    goarch: arm64
-    use: buildx
-    dockerfile: signal/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/signal:{{ .Version }}-arm
-    ids:
-      - netbird-signal
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: signal/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
+  # - image_templates:
+  #     - netbirdio/signal:{{ .Version }}-arm64v8
+  #     - "gcr.io/hurricanehrndz/netbird_signal:{{ .Version }}-arm64v8"
+  #   ids:
+  #     - netbird-signal
+  #   goarch: arm64
+  #   use: buildx
+  #   dockerfile: signal/Dockerfile
+  #   build_flag_templates:
+  #     - "--platform=linux/arm64"
+  #     - "--label=org.opencontainers.image.created={{.Date}}"
+  #     - "--label=org.opencontainers.image.title={{.ProjectName}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=maintainer=dev@netbird.io"
+  # - image_templates:
+  #     - netbirdio/signal:{{ .Version }}-arm
+  #   ids:
+  #     - netbird-signal
+  #   goarch: arm
+  #   goarm: 6
+  #   use: buildx
+  #   dockerfile: signal/Dockerfile
+  #   build_flag_templates:
+  #     - "--platform=linux/arm"
+  #     - "--label=org.opencontainers.image.created={{.Date}}"
+  #     - "--label=org.opencontainers.image.title={{.ProjectName}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=maintainer=dev@netbird.io"
   - image_templates:
       - netbirdio/management:{{ .Version }}-amd64
+      - "ghcr.io/hurricanehrndz/netbird_mgmt:{{ .Version }}-amd64"
     ids:
       - netbird-mgmt
     goarch: amd64
@@ -222,39 +225,40 @@ dockers:
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/management:{{ .Version }}-arm64v8
-    ids:
-      - netbird-mgmt
-    goarch: arm64
-    use: buildx
-    dockerfile: management/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/management:{{ .Version }}-arm
-    ids:
-      - netbird-mgmt
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: management/Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
+  # - image_templates:
+  #     - netbirdio/management:{{ .Version }}-arm64v8
+  #   ids:
+  #     - netbird-mgmt
+  #   goarch: arm64
+  #   use: buildx
+  #   dockerfile: management/Dockerfile
+  #   build_flag_templates:
+  #     - "--platform=linux/arm64"
+  #     - "--label=org.opencontainers.image.created={{.Date}}"
+  #     - "--label=org.opencontainers.image.title={{.ProjectName}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=maintainer=dev@netbird.io"
+  # - image_templates:
+  #     - netbirdio/management:{{ .Version }}-arm
+  #   ids:
+  #     - netbird-mgmt
+  #   goarch: arm
+  #   goarm: 6
+  #   use: buildx
+  #   dockerfile: management/Dockerfile
+  #   build_flag_templates:
+  #     - "--platform=linux/arm"
+  #     - "--label=org.opencontainers.image.created={{.Date}}"
+  #     - "--label=org.opencontainers.image.title={{.ProjectName}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=maintainer=dev@netbird.io"
   - image_templates:
       - netbirdio/management:{{ .Version }}-debug-amd64
+      - "ghcr.io/hurricanehrndz/netbird_mgmt:{{ .Version }}-debug-amd64"
     ids:
       - netbird-mgmt
     goarch: amd64
@@ -268,38 +272,38 @@ dockers:
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
-  - image_templates:
-      - netbirdio/management:{{ .Version }}-debug-arm64v8
-    ids:
-      - netbird-mgmt
-    goarch: arm64
-    use: buildx
-    dockerfile: management/Dockerfile.debug
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
-
-  - image_templates:
-      - netbirdio/management:{{ .Version }}-debug-arm
-    ids:
-      - netbird-mgmt
-    goarch: arm
-    goarm: 6
-    use: buildx
-    dockerfile: management/Dockerfile.debug
-    build_flag_templates:
-      - "--platform=linux/arm"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=dev@netbird.io"
+  # - image_templates:
+  #     - netbirdio/management:{{ .Version }}-debug-arm64v8
+  #   ids:
+  #     - netbird-mgmt
+  #   goarch: arm64
+  #   use: buildx
+  #   dockerfile: management/Dockerfile.debug
+  #   build_flag_templates:
+  #     - "--platform=linux/arm64"
+  #     - "--label=org.opencontainers.image.created={{.Date}}"
+  #     - "--label=org.opencontainers.image.title={{.ProjectName}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=maintainer=dev@netbird.io"
+  #
+  # - image_templates:
+  #     - netbirdio/management:{{ .Version }}-debug-arm
+  #   ids:
+  #     - netbird-mgmt
+  #   goarch: arm
+  #   goarm: 6
+  #   use: buildx
+  #   dockerfile: management/Dockerfile.debug
+  #   build_flag_templates:
+  #     - "--platform=linux/arm"
+  #     - "--label=org.opencontainers.image.created={{.Date}}"
+  #     - "--label=org.opencontainers.image.title={{.ProjectName}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+  #     - "--label=org.opencontainers.image.version={{.Version}}"
+  #     - "--label=maintainer=dev@netbird.io"
 docker_manifests:
   # - name_template: netbirdio/netbird:{{ .Version }}
   #   image_templates:
@@ -313,35 +317,18 @@ docker_manifests:
   #     - netbirdio/netbird:{{ .Version }}-arm
   #     - netbirdio/netbird:{{ .Version }}-amd64
   #
-  - name_template: netbirdio/signal:{{ .Version }}
+  - name_template: "ghcr.io/hurricanehrndz/netbird_signal:{{ .Version }}"
     image_templates:
-      - netbirdio/signal:{{ .Version }}-arm64v8
-      - netbirdio/signal:{{ .Version }}-arm
-      - netbirdio/signal:{{ .Version }}-amd64
+      - "ghcr.io/hurricanehrndz/netbird_signal:{{ .Version }}-amd64"
 
-  - name_template: netbirdio/signal:latest
+  - name_template: "ghcr.io/hurricanehrndz/netbird_mgmt:{{ .Version }}"
     image_templates:
-      - netbirdio/signal:{{ .Version }}-arm64v8
-      - netbirdio/signal:{{ .Version }}-arm
-      - netbirdio/signal:{{ .Version }}-amd64
+      - "ghcr.io/hurricanehrndz/netbird_mgmt:{{ .Version }}-amd64"
 
-  - name_template: netbirdio/management:{{ .Version }}
+  - name_template: "ghcr.io/hurricanehrndz/netbird_mgmt:{{ .Version }}-debug"
     image_templates:
-      - netbirdio/management:{{ .Version }}-arm64v8
-      - netbirdio/management:{{ .Version }}-arm
-      - netbirdio/management:{{ .Version }}-amd64
+      - "ghcr.io/hurricanehrndz/netbird_mgmt:{{ .Version }}-debug-amd64"
 
-  - name_template: netbirdio/management:latest
-    image_templates:
-      - netbirdio/management:{{ .Version }}-arm64v8
-      - netbirdio/management:{{ .Version }}-arm
-      - netbirdio/management:{{ .Version }}-amd64
-
-  - name_template: netbirdio/management:debug-latest
-    image_templates:
-      - netbirdio/management:{{ .Version }}-debug-arm64v8
-      - netbirdio/management:{{ .Version }}-debug-arm
-      - netbirdio/management:{{ .Version }}-debug-amd64
 
 # brews:
 #   -

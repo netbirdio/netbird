@@ -127,20 +127,20 @@ jobs:
           name: linux-packages
           path: dist/netbird_linux**
           retention-days: 3
-      -
-        name: upload windows packages
-        uses: actions/upload-artifact@v3
-        with:
-          name: windows-packages
-          path: dist/netbird_windows**
-          retention-days: 3
-      -
-        name: upload macos packages
-        uses: actions/upload-artifact@v3
-        with:
-          name: macos-packages
-          path: dist/netbird_darwin**
-          retention-days: 3
+      # -
+      #   name: upload windows packages
+      #   uses: actions/upload-artifact@v3
+      #   with:
+      #     name: windows-packages
+      #     path: dist/netbird_windows**
+      #     retention-days: 3
+      # -
+      #   name: upload macos packages
+      #   uses: actions/upload-artifact@v3
+      #   with:
+      #     name: macos-packages
+      #     path: dist/netbird_darwin**
+      #     retention-days: 3
 
   # release_ui:
   #   runs-on: ubuntu-latest
