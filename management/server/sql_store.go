@@ -75,7 +75,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine StoreEngine, metr
 
 	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
 }
-
+//
 // AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
 func (s *SqlStore) AcquireGlobalLock(ctx context.Context) (unlock func()) {
 	log.WithContext(ctx).Tracef("acquiring global lock")
