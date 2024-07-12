@@ -41,7 +41,7 @@ func TestSqlite_NewStore(t *testing.T) {
 }
 
 func TestSqlite_SaveAccount_Large(t *testing.T) {
-	if runtime.GOOS != "linux" && os.Getenv("CI") == "true" {
+	if runtime.GOOS != "linux" && os.Getenv("CI") == "true" || runtime.GOOS == "windows" {
 		t.Skip("skip large test on non-linux OS due to environment restrictions")
 	}
 	t.Run("SQLite", func(t *testing.T) {
