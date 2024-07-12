@@ -677,8 +677,9 @@ func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMe
 	if err != nil {
 		return nil, err
 	}
+	db.SetLogger(&GormLogger{})
 	db.LogMode(true)
-	
+
 
 	return NewSqlStore(ctx, db, PostgresStoreEngine, metrics)
 }
