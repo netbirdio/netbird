@@ -677,15 +677,22 @@ func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMe
 	if err != nil {
 		return nil, err
 	}
-	db = db.Debug()
-
+	//Enable logmode for debugging
+	
 
 	return NewSqlStore(ctx, db, PostgresStoreEngine, metrics)
 }
 
 func getGormConfig() *gorm.Config {
+	sql_logger := logger.New(log.New(), logger.Config{
+		SlowThreshold: time.Second,
+		LogLevel:      logger.Info,
+		Colorful:      false,
+	})
+
+
 	return &gorm.Config{
-		Logger:          logger.Default.LogMode(logger.Info),
+		Logger:          sql_logger,
 		CreateBatchSize: 400,
 		PrepareStmt:     true,
 	}
