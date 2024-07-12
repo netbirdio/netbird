@@ -673,24 +673,19 @@ func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMe
 // NewPostgresqlStore creates a new Postgres store.
 func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
 	db, err := gorm.Open(postgres.Open(dsn), getGormConfig())
+
 	if err != nil {
 		return nil, err
 	}
+	db.LogMode(true)
+	
 
 	return NewSqlStore(ctx, db, PostgresStoreEngine, metrics)
 }
 
 func getGormConfig() *gorm.Config {
-	sqlLogger := logger.New(
-		log.New(),
-		logger.Config{
-			SlowThreshold: time.Second, // 1 second as time.Duration
-			LogLevel:      logger.Info,
-			Colorful:      false,
-		},
-	)
 	return &gorm.Config{
-		Logger:          sqlLogger,
+		Logger:          logger.Default.LogMode(logger.Info),
 		CreateBatchSize: 400,
 		PrepareStmt:     true,
 	}
