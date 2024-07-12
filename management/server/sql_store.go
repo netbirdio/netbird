@@ -684,8 +684,9 @@ func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMe
 }
 
 func getGormConfig() *gorm.Config {
-	sql_logger := logger.New(log.New(), logger.Config{
-		SlowThreshold: time.Second,
+	log.WithContext(context.Background()).Info("Setting up GORM logger")
+	sql_logger := logger.New(log.WithContext(context.Background()), logger.Config{
+		SlowThreshold: 1*time.Second,
 		LogLevel:      logger.Info,
 		Colorful:      false,
 	})
