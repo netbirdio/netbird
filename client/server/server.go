@@ -745,7 +745,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 
 	for _, relayState := range fullStatus.Relays {
 		pbRelayState := &proto.RelayState{
-			URI:       relayState.URI.String(),
+			URI:       relayState.URI,
 			Available: relayState.Err == nil,
 		}
 		if err := relayState.Err; err != nil {

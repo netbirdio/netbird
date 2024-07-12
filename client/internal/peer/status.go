@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/management/domain"
+	relayClient "github.com/netbirdio/netbird/relay/client"
 )
 
 // State contains the latest state of a peer
@@ -142,6 +143,8 @@ type Status struct {
 	// Some Peer actions mostly used by in a batch when the network map has been synchronized. In these type of events
 	// set to true this variable and at the end of the processing we will reset it by the FinishPeerListModifications()
 	peerListChangedForNotification bool
+
+	relayMgr *relayClient.Manager
 }
 
 // NewRecorder returns a new Status instance
@@ -154,6 +157,12 @@ func NewRecorder(mgmAddress string) *Status {
 		mgmAddress:            mgmAddress,
 		resolvedDomainsStates: make(map[domain.Domain][]netip.Prefix),
 	}
+}
+
+func (d *Status) SetRelayMgr(manager *relayClient.Manager) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.relayMgr = manager
 }
 
 // ReplaceOfflinePeers replaces
@@ -503,7 +512,28 @@ func (d *Status) GetSignalState() SignalState {
 }
 
 func (d *Status) GetRelayStates() []relay.ProbeResult {
-	return d.relayStates
+	if d.relayMgr == nil {
+		return d.relayStates
+	}
+
+	// extend the list of stun, turn servers with relay address
+	relaysState := make([]relay.ProbeResult, len(d.relayStates), len(d.relayStates)+1)
+	copy(relaysState, d.relayStates)
+
+	relayState := relay.ProbeResult{}
+
+	// if the server connection is not established then we will use the general address
+	// in case of connection we will use the instance specific address
+	instanceAddr, err := d.relayMgr.RelayInstanceAddress()
+	if err != nil {
+		relayState.URI = d.relayMgr.ServerURL()
+		relayState.Err = err
+	} else {
+		relayState.URI = instanceAddr
+	}
+
+	relaysState = append(relaysState, relayState)
+	return relaysState
 }
 
 func (d *Status) GetDNSStates() []NSGroupState {
