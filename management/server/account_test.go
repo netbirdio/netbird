@@ -1256,6 +1256,16 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 		},
 	}
 
+	if err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID); err != nil {
+		t.Errorf("delete default rule: %v", err)
+		return
+	}
+
+	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy); err != nil {
+		t.Errorf("save policy: %v", err)
+		return
+	}
+
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
@@ -1269,7 +1279,10 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 	}()
 
 	// clean policy is pre requirement for delete group
-	_ = manager.DeletePolicy(context.Background(), account.Id, policy.ID, userID)
+	if err := manager.DeletePolicy(context.Background(), account.Id, policy.ID, userID); err != nil {
+		t.Errorf("delete default rule: %v", err)
+		return
+	}
 
 	if err := manager.DeleteGroup(context.Background(), account.Id, "", group.ID); err != nil {
 		t.Errorf("delete group: %v", err)
