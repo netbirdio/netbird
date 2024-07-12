@@ -82,12 +82,11 @@ func TestCloseChannel(t *testing.T) {
 
 func TestHandlePeerMessageUpdate(t *testing.T) {
 	tests := []struct {
-		name               string
-		peerID             string
-		existingUpdate     *UpdateMessage
-		newUpdate          *UpdateMessage
-		expectedResult     bool
-		expectedUpdateSave bool
+		name           string
+		peerID         string
+		existingUpdate *UpdateMessage
+		newUpdate      *UpdateMessage
+		expectedResult bool
 	}{
 		{
 			name:   "update message with turn credentials update",
@@ -97,8 +96,7 @@ func TestHandlePeerMessageUpdate(t *testing.T) {
 					WiretrusteeConfig: &proto.WiretrusteeConfig{},
 				},
 			},
-			expectedResult:     true,
-			expectedUpdateSave: false,
+			expectedResult: true,
 		},
 		{
 			name:   "update message for peer without existing update",
@@ -109,8 +107,7 @@ func TestHandlePeerMessageUpdate(t *testing.T) {
 				},
 				NetworkMap: &NetworkMap{Network: &Network{Serial: 1}},
 			},
-			expectedResult:     true,
-			expectedUpdateSave: true,
+			expectedResult: true,
 		},
 		{
 			name:   "update message with no changes in update",
@@ -129,8 +126,7 @@ func TestHandlePeerMessageUpdate(t *testing.T) {
 				NetworkMap: &NetworkMap{Network: &Network{Serial: 1}},
 				Checks:     []*posture.Checks{},
 			},
-			expectedResult:     false,
-			expectedUpdateSave: false,
+			expectedResult: false,
 		},
 		{
 			name:   "update message with changes in checks",
@@ -149,8 +145,7 @@ func TestHandlePeerMessageUpdate(t *testing.T) {
 				NetworkMap: &NetworkMap{Network: &Network{Serial: 1}},
 				Checks:     []*posture.Checks{{ID: "check1"}},
 			},
-			expectedResult:     true,
-			expectedUpdateSave: true,
+			expectedResult: true,
 		},
 		{
 			name:   "update message with lower serial number",
@@ -167,8 +162,7 @@ func TestHandlePeerMessageUpdate(t *testing.T) {
 				},
 				NetworkMap: &NetworkMap{Network: &Network{Serial: 1}},
 			},
-			expectedResult:     false,
-			expectedUpdateSave: false,
+			expectedResult: false,
 		},
 	}
 
@@ -182,14 +176,7 @@ func TestHandlePeerMessageUpdate(t *testing.T) {
 			}
 
 			result := p.handlePeerMessageUpdate(ctx, tt.peerID, tt.newUpdate)
-
 			assert.Equal(t, tt.expectedResult, result)
-
-			if tt.expectedUpdateSave {
-				assert.Equal(t, tt.newUpdate, p.peerUpdateMessage[tt.peerID])
-			} else if tt.existingUpdate != nil {
-				assert.Equal(t, tt.existingUpdate, p.peerUpdateMessage[tt.peerID])
-			}
 		})
 	}
 }

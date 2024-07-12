@@ -58,12 +58,21 @@ func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, upda
 	}
 
 	p.channelsMux.Lock()
+
 	defer func() {
 		p.channelsMux.Unlock()
 		if p.metrics != nil {
 			p.metrics.UpdateChannelMetrics().CountSendUpdateDuration(time.Since(start), found, dropped)
 		}
 	}()
+
+	if update.NetworkMap != nil {
+		if p.peerUpdateMessage[peerID] != nil && p.peerUpdateMessage[peerID].NetworkMap.Network.Serial < update.Update.NetworkMap.GetSerial() {
+			log.WithContext(ctx).Debugf("peer %s network map serial not changed, skip sending update", peerID)
+			return
+		}
+		p.peerUpdateMessage[peerID] = update
+	}
 
 	if channel, ok := p.peerChannels[peerID]; ok {
 		found = true
@@ -192,11 +201,10 @@ func (p *PeersUpdateManager) HasChannel(peerID string) bool {
 
 // handlePeerMessageUpdate checks if the update message for a peer is new and should be sent.
 func (p *PeersUpdateManager) handlePeerMessageUpdate(ctx context.Context, peerID string, update *UpdateMessage) bool {
-	p.channelsMux.Lock()
-	defer p.channelsMux.Unlock()
+	p.channelsMux.RLock()
+	defer p.channelsMux.RUnlock()
 
 	previousUpdateMsg := p.peerUpdateMessage[peerID]
-
 	if previousUpdateMsg != nil {
 		updated, err := isNewPeerUpdateMessage(previousUpdateMsg, update)
 		if err != nil {
@@ -208,12 +216,6 @@ func (p *PeersUpdateManager) handlePeerMessageUpdate(ctx context.Context, peerID
 			return false
 		}
 	}
-
-	if p.peerUpdateMessage[peerID] != nil && p.peerUpdateMessage[peerID].NetworkMap.Network.Serial < update.Update.NetworkMap.GetSerial() {
-		log.WithContext(ctx).Debugf("peer %s network map serial not changed, skip sending update", peerID)
-		return false
-	}
-	p.peerUpdateMessage[peerID] = update
 
 	return true
 }
