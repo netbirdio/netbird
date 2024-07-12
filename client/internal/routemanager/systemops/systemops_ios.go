@@ -56,9 +56,6 @@ func IsAddrRouted(netip.Addr, []netip.Prefix) (bool, netip.Prefix) {
 }
 
 func (r *SysOps) notify() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	prefixes := make([]netip.Prefix, 0, len(r.prefixes))
 	for prefix := range r.prefixes {
 		prefixes = append(prefixes, prefix)
