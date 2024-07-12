@@ -90,17 +90,16 @@ jobs:
       #   run: goversioninfo  -icon client/ui/netbird.ico -manifest client/manifest.xml -product-name ${{ env.PRODUCT_NAME }} -copyright "${{ env.COPYRIGHT }}"  -ver-build ${{ github.run_id }} -ver-major ${{ steps.semver_parser.outputs.major }} -ver-minor ${{ steps.semver_parser.outputs.minor }} -ver-patch ${{ steps.semver_parser.outputs.patch }} -product-version ${{ steps.semver_parser.outputs.fullversion }}.${{ github.run_id }} -o client/resources_windows_arm64.syso
       # - name: Generate windows syso amd64
       #   run: goversioninfo  -icon client/ui/netbird.ico -manifest client/manifest.xml -product-name ${{ env.PRODUCT_NAME }} -copyright "${{ env.COPYRIGHT }}"  -ver-build ${{ github.run_id }} -ver-major ${{ steps.semver_parser.outputs.major }} -ver-minor ${{ steps.semver_parser.outputs.minor }} -ver-patch ${{ steps.semver_parser.outputs.patch }} -product-version ${{ steps.semver_parser.outputs.fullversion }}.${{ github.run_id }} -o client/resources_windows_amd64.syso
-
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
           version: ${{ env.GORELEASER_VER }}
           args: release --rm-dist ${{ env.flags }}
-        env:
-          #GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-          # UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
-          # UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+        # env:
+        #GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        # UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+        # UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
       - name: upload non tags for debug purposes
         uses: actions/upload-artifact@v3
         with:
