@@ -662,11 +662,7 @@ func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMe
 	}
 
 	file := filepath.Join(dataDir, storeStr)
-	db, err := gorm.Open(sqlite.Open(file), &gorm.Config{
-		Logger:          logger.Default.LogMode(logger.Silent),
-		CreateBatchSize: 400,
-		PrepareStmt:     true,
-	})
+	db, err := gorm.Open(sqlite.Open(file), getGormConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -676,15 +672,20 @@ func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMe
 
 // NewPostgresqlStore creates a new Postgres store.
 func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger:      logger.Default.LogMode(logger.Silent),
-		PrepareStmt: true,
-	})
+	db, err := gorm.Open(postgres.Open(dsn), getGormConfig())
 	if err != nil {
 		return nil, err
 	}
 
 	return NewSqlStore(ctx, db, PostgresStoreEngine, metrics)
+}
+
+func getGormConfig() *gorm.Config {
+	return &gorm.Config{
+		Logger:          logger.Default.LogMode(logger.Silent),
+		CreateBatchSize: 400,
+		PrepareStmt:     true,
+	}
 }
 
 // newPostgresStore initializes a new Postgres store.
