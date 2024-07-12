@@ -9,6 +9,7 @@ import (
 	"path"
 	"strconv"
 
+	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -28,10 +29,10 @@ func loadGeolocationDatabases(dataDir string) error {
 		exists, _ := fileExists(path.Join(dataDir, file))
 		if exists {
 			continue
-		}else{
-			log.Infof("geo location file %s not found , file will be downloaded", file)
 		}
-		
+
+		log.Infof("geo location file %s not found , file will be downloaded", file)
+
 		switch file {
 		case MMDBFileName:
 			extractFunc := func(src string, dst string) error {
