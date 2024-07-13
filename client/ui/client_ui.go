@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -25,7 +24,6 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/cenkalti/backoff/v4"
 	"github.com/getlantern/systray"
-	"github.com/shirou/gopsutil/v3/process"
 	log "github.com/sirupsen/logrus"
 	"github.com/skratchdot/open-golang/open"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -883,39 +881,4 @@ func openURL(url string) error {
 		err = fmt.Errorf("unsupported platform")
 	}
 	return err
-}
-
-func isAnotherProcessRunning() (bool, error) {
-	processes, err := process.Processes()
-	if err != nil {
-		return false, err
-	}
-
-	pid := os.Getpid()
-	processName := strings.ToLower(filepath.Base(os.Args[0]))
-
-	log.Debugf("current process pid: %d, process name: %s", pid, processName)
-
-	for _, p := range processes {
-		if int(p.Pid) == pid {
-			log.Debugf("skipping current process pid: %d", p.Pid)
-			continue
-		}
-
-		runningProcessPath, err := p.Exe()
-		// most errors are related to short-lived processes
-		if err != nil {
-			continue
-		} else {
-			log.Debugf("checking process pid: %d", p.Pid)
-		}
-
-		log.Debugf("process path: %s", strings.ToLower(runningProcessPath))
-
-		if strings.Contains(strings.ToLower(runningProcessPath), processName) && isProcessOwnedByCurrentUser(p) {
-			return true, nil
-		}
-	}
-
-	return false, nil
 }
