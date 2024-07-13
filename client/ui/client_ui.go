@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unicode"
 
@@ -25,6 +24,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/cenkalti/backoff/v4"
 	"github.com/getlantern/systray"
+	"github.com/shirou/gopsutil/v3/process"
 	log "github.com/sirupsen/logrus"
 	"github.com/skratchdot/open-golang/open"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -76,8 +76,12 @@ func main() {
 	if showSettings || showRoutes {
 		a.Run()
 	} else {
-		if err := checkPIDFile(); err != nil {
-			log.Errorf("check PID file: %v", err)
+		running, err := isAnotherProcessRunning()
+		if err != nil {
+			log.Errorf("error while checking process: %v", err)
+		}
+		if running {
+			log.Warn("another process is running")
 			return
 		}
 		client.setDefaultFonts()
@@ -862,18 +866,44 @@ func openURL(url string) error {
 	return err
 }
 
-// checkPIDFile exists and return error, or write new.
-func checkPIDFile() error {
-	pidFile := path.Join(os.TempDir(), "wiretrustee-ui.pid")
-	if piddata, err := os.ReadFile(pidFile); err == nil {
-		if pid, err := strconv.Atoi(string(piddata)); err == nil {
-			if process, err := os.FindProcess(pid); err == nil {
-				if err := process.Signal(syscall.Signal(0)); err == nil {
-					return fmt.Errorf("process already exists: %d", pid)
-				}
-			}
+func isAnotherProcessRunning() (bool, error) {
+	processes, err := process.Processes()
+	if err != nil {
+		return false, err
+	}
+
+	uid := getUID()
+	pid := os.Getpid()
+	processName := strings.ToLower(path.Base(os.Args[0]))
+
+	for _, p := range processes {
+		if int(p.Pid) == pid {
+			continue
+		}
+		processPath, err := p.Exe()
+		// most errors are related to short-lived processes
+		if err != nil {
+			continue
+		}
+
+		if strings.Contains(strings.ToLower(processPath), processName) && checkIfUIDMatches(uid, p) {
+			return true, nil
 		}
 	}
 
-	return os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0o664) //nolint:gosec
+	return false, nil
+}
+
+func checkIfUIDMatches(uid int, p *process.Process) bool {
+	uids, err := p.Uids()
+	if err != nil {
+		log.Errorf("get process uids: %v", err)
+		return false
+	}
+	for _, id := range uids {
+		if int(id) == uid {
+			return true
+		}
+	}
+	return false
 }
