@@ -34,6 +34,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -43,6 +44,7 @@ const (
 )
 
 func main() {
+	util.InitLog("trace", path.Join(os.TempDir(), "netbird-ui.log"))
 	var daemonAddr string
 
 	defaultDaemonAddr := "unix:///var/run/netbird.sock"
@@ -876,15 +878,22 @@ func isAnotherProcessRunning() (bool, error) {
 	pid := os.Getpid()
 	processName := strings.ToLower(path.Base(os.Args[0]))
 
+	log.Debugf("current process pid: %d, uid: %d, process name: %s", pid, uid, processName)
+
 	for _, p := range processes {
 		if int(p.Pid) == pid {
+			log.Debugf("skipping current process pid: %d", p.Pid)
 			continue
 		}
+		log.Debugf("checking process pid: %d", p.Pid)
+
 		processPath, err := p.Exe()
 		// most errors are related to short-lived processes
 		if err != nil {
 			continue
 		}
+
+		log.Debugf("process path: %s", strings.ToLower(processPath))
 
 		if strings.Contains(strings.ToLower(processPath), processName) && checkIfUIDMatches(uid, p) {
 			return true, nil
@@ -901,6 +910,7 @@ func checkIfUIDMatches(uid int, p *process.Process) bool {
 		return false
 	}
 	for _, id := range uids {
+		log.Debugf("checking process uid: %d", id)
 		if int(id) == uid {
 			return true
 		}
