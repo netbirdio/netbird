@@ -63,18 +63,24 @@ func main() {
 	flag.BoolVar(&showRoutes, "routes", false, "run routes windows")
 	var errorMSG string
 	flag.StringVar(&errorMSG, "error-msg", "", "displays a error message window")
+
+	tmpDir := "/tmp"
+	if runtime.GOOS == "windows" {
+		tmpDir = os.TempDir()
+	}
+
 	var saveLogsInFile bool
-	flag.BoolVar(&saveLogsInFile, "settings", false, "run settings windows")
+	flag.BoolVar(&saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", tmpDir))
 
 	flag.Parse()
 
 	if saveLogsInFile {
-		tmpDir := "/tmp"
-		if runtime.GOOS == "windows" {
-			tmpDir = os.TempDir()
+		logFile := path.Join(tmpDir, fmt.Sprintf("netbird-ui-%d.log", os.Getpid()))
+		err := util.InitLog("trace", logFile)
+		if err != nil {
+			log.Errorf("error while initializing log: %v", err)
+			return
 		}
-
-		util.InitLog("trace", path.Join(tmpDir, fmt.Sprintf("netbird-ui-%d.log", os.Getpid())))
 	}
 
 	a := app.NewWithID("NetBird")
