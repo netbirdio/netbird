@@ -20,10 +20,22 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 	if err != nil {
 		return fmt.Errorf("failed to open routing socket: %v", err)
 	}
+	fdClosed := false
 	defer func() {
+		if fdClosed {
+			return
+		}
 		if err := unix.Close(fd); err != nil {
 			log.Errorf("Network monitor: failed to close routing socket: %v", err)
 		}
+	}()
+
+	go func() {
+		<-ctx.Done()
+		if err := unix.Close(fd); err == nil {
+			log.Debugf("Network monitor: closed routing socket")
+		}
+		fdClosed = true
 	}()
 
 	for {
@@ -34,7 +46,9 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 			buf := make([]byte, 2048)
 			n, err := unix.Read(fd, buf)
 			if err != nil {
-				log.Errorf("Network monitor: failed to read from routing socket: %v", err)
+				if !fdClosed {
+					log.Errorf("Network monitor: failed to read from routing socket: %v", err)
+				}
 				continue
 			}
 			if n < unix.SizeofRtMsghdr {
