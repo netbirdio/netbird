@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -876,7 +877,7 @@ func isAnotherProcessRunning() (bool, error) {
 
 	uid := getUID()
 	pid := os.Getpid()
-	processName := strings.ToLower(path.Base(os.Args[0]))
+	processName := strings.ToLower(filepath.Base(os.Args[0]))
 
 	log.Debugf("current process pid: %d, uid: %d, process name: %s", pid, uid, processName)
 
@@ -885,17 +886,18 @@ func isAnotherProcessRunning() (bool, error) {
 			log.Debugf("skipping current process pid: %d", p.Pid)
 			continue
 		}
-		log.Debugf("checking process pid: %d", p.Pid)
 
-		processPath, err := p.Exe()
+		runningProcessPath, err := p.Exe()
 		// most errors are related to short-lived processes
 		if err != nil {
 			continue
+		} else {
+			log.Debugf("checking process pid: %d", p.Pid)
 		}
 
-		log.Debugf("process path: %s", strings.ToLower(processPath))
+		log.Debugf("process path: %s", strings.ToLower(runningProcessPath))
 
-		if strings.Contains(strings.ToLower(processPath), processName) && checkIfUIDMatches(uid, p) {
+		if strings.Contains(strings.ToLower(runningProcessPath), processName) && checkIfUIDMatches(uid, p) {
 			return true, nil
 		}
 	}
