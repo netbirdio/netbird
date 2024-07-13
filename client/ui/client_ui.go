@@ -875,11 +875,10 @@ func isAnotherProcessRunning() (bool, error) {
 		return false, err
 	}
 
-	uid := getUID()
 	pid := os.Getpid()
 	processName := strings.ToLower(filepath.Base(os.Args[0]))
 
-	log.Debugf("current process pid: %d, uid: %d, process name: %s", pid, uid, processName)
+	log.Debugf("current process pid: %d, process name: %s", pid, processName)
 
 	for _, p := range processes {
 		if int(p.Pid) == pid {
@@ -897,25 +896,10 @@ func isAnotherProcessRunning() (bool, error) {
 
 		log.Debugf("process path: %s", strings.ToLower(runningProcessPath))
 
-		if strings.Contains(strings.ToLower(runningProcessPath), processName) && checkIfUIDMatches(uid, p) {
+		if strings.Contains(strings.ToLower(runningProcessPath), processName) && isProcessOwnedByCurrentUser(p) {
 			return true, nil
 		}
 	}
 
 	return false, nil
-}
-
-func checkIfUIDMatches(uid int, p *process.Process) bool {
-	uids, err := p.Uids()
-	if err != nil {
-		log.Errorf("get process uids: %v", err)
-		return false
-	}
-	for _, id := range uids {
-		log.Debugf("checking process uid: %d", id)
-		if int(id) == uid {
-			return true
-		}
-	}
-	return false
 }
