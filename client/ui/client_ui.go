@@ -45,7 +45,6 @@ const (
 )
 
 func main() {
-	util.InitLog("trace", path.Join(os.TempDir(), "netbird-ui.log"))
 	var daemonAddr string
 
 	defaultDaemonAddr := "unix:///var/run/netbird.sock"
@@ -64,8 +63,19 @@ func main() {
 	flag.BoolVar(&showRoutes, "routes", false, "run routes windows")
 	var errorMSG string
 	flag.StringVar(&errorMSG, "error-msg", "", "displays a error message window")
+	var saveLogsInFile bool
+	flag.BoolVar(&saveLogsInFile, "settings", false, "run settings windows")
 
 	flag.Parse()
+
+	if saveLogsInFile {
+		tmpDir := "/tmp"
+		if runtime.GOOS == "windows" {
+			tmpDir = os.TempDir()
+		}
+
+		util.InitLog("trace", path.Join(tmpDir, fmt.Sprintf("netbird-ui-%d.log", os.Getpid())))
+	}
 
 	a := app.NewWithID("NetBird")
 	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnectedPNG))
