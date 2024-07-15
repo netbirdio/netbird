@@ -112,61 +112,85 @@ func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, 
 func (am *DefaultAccountManager) SaveGroup(ctx context.Context, accountID, userID string, newGroup *nbgroup.Group) error {
 	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
+	return am.SaveGroups(ctx, accountID, userID, []*nbgroup.Group{newGroup})
+}
 
+// SaveGroups adds new groups to the account.
+// Note: This function does not acquire the global lock.
+// It is the caller's responsibility to ensure proper locking is in place before invoking this method.
+func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, userID string, newGroups []*nbgroup.Group) error {
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}
 
-	if newGroup.ID == "" && newGroup.Issued != nbgroup.GroupIssuedAPI {
-		return status.Errorf(status.InvalidArgument, "%s group without ID set", newGroup.Issued)
-	}
+	var eventsToStore []func()
 
-	if newGroup.ID == "" && newGroup.Issued == nbgroup.GroupIssuedAPI {
+	for _, newGroup := range newGroups {
+		if newGroup.ID == "" && newGroup.Issued != nbgroup.GroupIssuedAPI {
+			return status.Errorf(status.InvalidArgument, "%s group without ID set", newGroup.Issued)
+		}
 
-		existingGroup, err := account.FindGroupByName(newGroup.Name)
-		if err != nil {
-			s, ok := status.FromError(err)
-			if !ok || s.ErrorType != status.NotFound {
-				return err
+		if newGroup.ID == "" && newGroup.Issued == nbgroup.GroupIssuedAPI {
+			existingGroup, err := account.FindGroupByName(newGroup.Name)
+			if err != nil {
+				s, ok := status.FromError(err)
+				if !ok || s.ErrorType != status.NotFound {
+					return err
+				}
+			}
+
+			// Avoid duplicate groups only for the API issued groups.
+			// Integration or JWT groups can be duplicated as they are coming from the IdP that we don't have control of.
+			if existingGroup != nil {
+				return status.Errorf(status.AlreadyExists, "group with name %s already exists", newGroup.Name)
+			}
+
+			newGroup.ID = xid.New().String()
+		}
+
+		for _, peerID := range newGroup.Peers {
+			if account.Peers[peerID] == nil {
+				return status.Errorf(status.InvalidArgument, "peer with ID \"%s\" not found", peerID)
 			}
 		}
 
-		// avoid duplicate groups only for the API issued groups. Integration or JWT groups can be duplicated as they are
-		// coming from the IdP that we don't have control of.
-		if existingGroup != nil {
-			return status.Errorf(status.AlreadyExists, "group with name %s already exists", newGroup.Name)
-		}
+		oldGroup := account.Groups[newGroup.ID]
+		account.Groups[newGroup.ID] = newGroup
 
-		newGroup.ID = xid.New().String()
+		events := am.prepareGroupEvents(ctx, userID, accountID, newGroup, oldGroup, account)
+		eventsToStore = append(eventsToStore, events...)
 	}
-
-	for _, peerID := range newGroup.Peers {
-		if account.Peers[peerID] == nil {
-			return status.Errorf(status.InvalidArgument, "peer with ID \"%s\" not found", peerID)
-		}
-	}
-
-	oldGroup, exists := account.Groups[newGroup.ID]
-	account.Groups[newGroup.ID] = newGroup
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(ctx, account); err != nil {
+	if err = am.Store.SaveGroups(account.Id, account.Groups); err != nil {
 		return err
 	}
 
 	am.updateAccountPeers(ctx, account)
 
-	// the following snippet tracks the activity and stores the group events in the event store.
-	// It has to happen after all the operations have been successfully performed.
+	for _, storeEvent := range eventsToStore {
+		storeEvent()
+	}
+
+	return nil
+}
+
+// prepareGroupEvents prepares a list of event functions to be stored.
+func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, userID string, accountID string, newGroup, oldGroup *nbgroup.Group, account *Account) []func() {
+	var eventsToStore []func()
+
 	addedPeers := make([]string, 0)
 	removedPeers := make([]string, 0)
-	if exists {
+
+	if oldGroup != nil {
 		addedPeers = difference(newGroup.Peers, oldGroup.Peers)
 		removedPeers = difference(oldGroup.Peers, newGroup.Peers)
 	} else {
 		addedPeers = append(addedPeers, newGroup.Peers...)
-		am.StoreEvent(ctx, userID, newGroup.ID, accountID, activity.GroupCreated, newGroup.EventMeta())
+		eventsToStore = append(eventsToStore, func() {
+			am.StoreEvent(ctx, userID, newGroup.ID, accountID, activity.GroupCreated, newGroup.EventMeta())
+		})
 	}
 
 	for _, p := range addedPeers {
@@ -175,11 +199,14 @@ func (am *DefaultAccountManager) SaveGroup(ctx context.Context, accountID, userI
 			log.WithContext(ctx).Errorf("peer %s not found under account %s while saving group", p, accountID)
 			continue
 		}
-		am.StoreEvent(ctx, userID, peer.ID, accountID, activity.GroupAddedToPeer,
-			map[string]any{
-				"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
-				"peer_fqdn": peer.FQDN(am.GetDNSDomain()),
-			})
+		peerCopy := peer // copy to avoid closure issues
+		eventsToStore = append(eventsToStore, func() {
+			am.StoreEvent(ctx, userID, peerCopy.ID, accountID, activity.GroupAddedToPeer,
+				map[string]any{
+					"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peerCopy.IP.String(),
+					"peer_fqdn": peerCopy.FQDN(am.GetDNSDomain()),
+				})
+		})
 	}
 
 	for _, p := range removedPeers {
@@ -188,14 +215,17 @@ func (am *DefaultAccountManager) SaveGroup(ctx context.Context, accountID, userI
 			log.WithContext(ctx).Errorf("peer %s not found under account %s while saving group", p, accountID)
 			continue
 		}
-		am.StoreEvent(ctx, userID, peer.ID, accountID, activity.GroupRemovedFromPeer,
-			map[string]any{
-				"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
-				"peer_fqdn": peer.FQDN(am.GetDNSDomain()),
-			})
+		peerCopy := peer // copy to avoid closure issues
+		eventsToStore = append(eventsToStore, func() {
+			am.StoreEvent(ctx, userID, peerCopy.ID, accountID, activity.GroupRemovedFromPeer,
+				map[string]any{
+					"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peerCopy.IP.String(),
+					"peer_fqdn": peerCopy.FQDN(am.GetDNSDomain()),
+				})
+		})
 	}
 
-	return nil
+	return eventsToStore
 }
 
 // difference returns the elements in `a` that aren't in `b`.
