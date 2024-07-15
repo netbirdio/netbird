@@ -67,7 +67,8 @@ func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, upda
 	}()
 
 	if update.NetworkMap != nil {
-		if p.peerUpdateMessage[peerID] != nil && p.peerUpdateMessage[peerID].NetworkMap.Network.Serial < update.Update.NetworkMap.GetSerial() {
+		lastSentUpdate := p.peerUpdateMessage[peerID]
+		if lastSentUpdate != nil && lastSentUpdate.Update.NetworkMap.GetSerial() >= update.Update.NetworkMap.GetSerial() {
 			log.WithContext(ctx).Debugf("peer %s network map serial not changed, skip sending update", peerID)
 			return
 		}
