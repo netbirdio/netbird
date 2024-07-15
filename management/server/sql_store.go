@@ -311,6 +311,34 @@ func (s *SqlStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.P
 	return nil
 }
 
+// SaveUsers saves the given list of users to the database.
+// It updates existing users if a conflict occurs.
+func (s *SqlStore) SaveUsers(accountID string, users map[string]*User) error {
+	usersToSave := make([]User, 0, len(users))
+	for _, user := range users {
+		user.AccountID = accountID
+		for id, pat := range user.PATs {
+			pat.ID = id
+			user.PATsG = append(user.PATsG, *pat)
+		}
+		usersToSave = append(usersToSave, *user)
+	}
+	return s.db.Session(&gorm.Session{FullSaveAssociations: true}).
+		Clauses(clause.OnConflict{UpdateAll: true}).
+		Create(&usersToSave).Error
+}
+
+// SaveGroups saves the given list of groups to the database.
+// It updates existing groups if a conflict occurs.
+func (s *SqlStore) SaveGroups(accountID string, groups map[string]*nbgroup.Group) error {
+	groupsToSave := make([]nbgroup.Group, 0, len(groups))
+	for _, group := range groups {
+		group.AccountID = accountID
+		groupsToSave = append(groupsToSave, *group)
+	}
+	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&groupsToSave).Error
+}
+
 // DeleteHashedPAT2TokenIDIndex is noop in SqlStore
 func (s *SqlStore) DeleteHashedPAT2TokenIDIndex(hashedToken string) error {
 	return nil

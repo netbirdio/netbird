@@ -40,6 +40,7 @@ type MockAccountManager struct {
 	GetAllGroupsFunc                    func(ctx context.Context, accountID, userID string) ([]*group.Group, error)
 	GetGroupByNameFunc                  func(ctx context.Context, accountID, groupName string) (*group.Group, error)
 	SaveGroupFunc                       func(ctx context.Context, accountID, userID string, group *group.Group) error
+	SaveGroupsFunc                      func(ctx context.Context, accountID, userID string, groups []*group.Group) error
 	DeleteGroupFunc                     func(ctx context.Context, accountID, userId, groupID string) error
 	ListGroupsFunc                      func(ctx context.Context, accountID string) ([]*group.Group, error)
 	GroupAddPeerFunc                    func(ctx context.Context, accountID, groupID, peerID string) error
@@ -64,6 +65,7 @@ type MockAccountManager struct {
 	ListSetupKeysFunc                   func(ctx context.Context, accountID, userID string) ([]*server.SetupKey, error)
 	SaveUserFunc                        func(ctx context.Context, accountID, userID string, user *server.User) (*server.UserInfo, error)
 	SaveOrAddUserFunc                   func(ctx context.Context, accountID, userID string, user *server.User, addIfNotExists bool) (*server.UserInfo, error)
+	SaveOrAddUsersFunc                  func(ctx context.Context, accountID, initiatorUserID string, update []*server.User, addIfNotExists bool) ([]*server.UserInfo, error)
 	DeleteUserFunc                      func(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error
 	CreatePATFunc                       func(ctx context.Context, accountID string, initiatorUserID string, targetUserId string, tokenName string, expiresIn int) (*server.PersonalAccessTokenGenerated, error)
 	DeletePATFunc                       func(ctx context.Context, accountID string, initiatorUserID string, targetUserId string, tokenID string) error
@@ -308,6 +310,14 @@ func (am *MockAccountManager) SaveGroup(ctx context.Context, accountID, userID s
 	return status.Errorf(codes.Unimplemented, "method SaveGroup is not implemented")
 }
 
+// SaveGroups mock implementation of SaveGroups from server.AccountManager interface
+func (am *MockAccountManager) SaveGroups(ctx context.Context, accountID, userID string, groups []*group.Group) error {
+	if am.SaveGroupsFunc != nil {
+		return am.SaveGroupsFunc(ctx, accountID, userID, groups)
+	}
+	return status.Errorf(codes.Unimplemented, "method SaveGroups is not implemented")
+}
+
 // DeleteGroup mock implementation of DeleteGroup from server.AccountManager interface
 func (am *MockAccountManager) DeleteGroup(ctx context.Context, accountId, userId, groupID string) error {
 	if am.DeleteGroupFunc != nil {
@@ -500,6 +510,14 @@ func (am *MockAccountManager) SaveOrAddUser(ctx context.Context, accountID, user
 		return am.SaveOrAddUserFunc(ctx, accountID, userID, user, addIfNotExists)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method SaveOrAddUser is not implemented")
+}
+
+// SaveOrAddUsers mocks SaveOrAddUsers of the AccountManager interface
+func (am *MockAccountManager) SaveOrAddUsers(ctx context.Context, accountID, userID string, users []*server.User, addIfNotExists bool) ([]*server.UserInfo, error) {
+	if am.SaveOrAddUsersFunc != nil {
+		return am.SaveOrAddUsersFunc(ctx, accountID, userID, users, addIfNotExists)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method SaveOrAddUsers is not implemented")
 }
 
 // DeleteUser mocks DeleteUser of the AccountManager interface
