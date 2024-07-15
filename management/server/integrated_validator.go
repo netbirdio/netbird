@@ -49,7 +49,7 @@ func (am *DefaultAccountManager) UpdateIntegratedValidatorGroups(ctx context.Con
 		a.Settings.Extra = extra
 	}
 	extra.IntegratedValidatorGroups = groups
-	log.WithContext(ctx).Info("Saving account!")
+	log.WithContext(ctx).Debugf("Saving account!")
 	return am.Store.SaveAccount(ctx, a)
 }
 

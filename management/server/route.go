@@ -202,7 +202,7 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	account.Routes[newRoute.ID] = &newRoute
 
 	account.Network.IncSerial()
-	log.WithContext(ctx).Info("Saving account!")
+	log.WithContext(ctx).Debugf("Saving account!")
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return nil, err
 	}
@@ -272,7 +272,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 	account.Routes[routeToSave.ID] = routeToSave
 
 	account.Network.IncSerial()
-	log.WithContext(ctx).Info("Saving account!")
+	log.WithContext(ctx).Debugf("Saving account!")
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
@@ -301,7 +301,7 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 	delete(account.Routes, routeID)
 
 	account.Network.IncSerial()
-	log.WithContext(ctx).Info("Saving account!")
+	log.WithContext(ctx).Debugf("Saving account!")
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}

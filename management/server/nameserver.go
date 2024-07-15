@@ -81,7 +81,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 	account.NameServerGroups[newNSGroup.ID] = newNSGroup
 
 	account.Network.IncSerial()
-	log.WithContext(ctx).Info("Saving account!")
+	log.WithContext(ctx).Debugf("Saving account!")
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return nil, err
@@ -117,7 +117,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 	account.NameServerGroups[nsGroupToSave.ID] = nsGroupToSave
 
 	account.Network.IncSerial()
-	log.WithContext(ctx).Info("Saving account!")
+	log.WithContext(ctx).Debugf("Saving account!")
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return err
@@ -148,7 +148,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 	delete(account.NameServerGroups, nsGroupID)
 
 	account.Network.IncSerial()
-	log.WithContext(ctx).Info("Saving account!")
+	log.WithContext(ctx).Debugf("Saving account!")
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return err

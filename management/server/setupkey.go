@@ -231,7 +231,7 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 
 	setupKey := GenerateSetupKey(keyName, keyType, keyDuration, autoGroups, usageLimit, ephemeral)
 	account.SetupKeys[setupKey.Key] = setupKey
-	log.WithContext(ctx).Info("Saving account!")
+	log.WithContext(ctx).Debugf("Saving account!")
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return nil, status.Errorf(status.Internal, "failed adding account key")
@@ -288,7 +288,7 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 	newKey.UpdatedAt = time.Now().UTC()
 
 	account.SetupKeys[newKey.Key] = newKey
-	log.WithContext(ctx).Info("Saving account!")
+	log.WithContext(ctx).Debugf("Saving account!")
 
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return nil, err

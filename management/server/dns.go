@@ -90,6 +90,7 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 	account.DNSSettings = dnsSettingsToSave.Copy()
 
 	account.Network.IncSerial()
+	log.WithContext(ctx).Debugf("Saving account!")
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}

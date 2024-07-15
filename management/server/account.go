@@ -922,7 +922,7 @@ func BuildManager(ctx context.Context, store Store, peersUpdateManager *PeersUpd
 		}
 
 		if shouldSave {
-			log.WithContext(ctx).Info("Saving account!")
+			log.WithContext(ctx).Debugf("Saving account!")
 			err = store.SaveAccount(ctx, account)
 			if err != nil {
 				return nil, err

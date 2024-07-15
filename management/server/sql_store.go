@@ -748,7 +748,7 @@ func NewSqliteStoreFromFileStore(ctx context.Context, fileStore *FileStore, data
 	}
 
 	for _, account := range fileStore.GetAllAccounts(ctx) {
-		log.WithContext(ctx).Info("Saving account!")
+		log.WithContext(ctx).Debugf("Saving account!")
 		err := store.SaveAccount(ctx, account)
 		if err != nil {
 			return nil, err

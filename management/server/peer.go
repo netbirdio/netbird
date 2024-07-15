@@ -211,7 +211,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	}
 
 	account.UpdatePeer(peer)
-	log.WithContext(ctx).Info("Saving account!")
+	log.WithContext(ctx).Debugf("Saving account!")
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return nil, err
@@ -283,7 +283,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	if err != nil {
 		return err
 	}
-	log.WithContext(ctx).Info("Saving account!")
+	log.WithContext(ctx).Debugf("Saving account!")
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return err
@@ -492,7 +492,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	account.Peers[newPeer.ID] = newPeer
 	account.Network.IncSerial()
-	log.WithContext(ctx).Info("Saving account!")
+	log.WithContext(ctx).Debugf("Saving account!")
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return nil, nil, nil, err
@@ -540,7 +540,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 
 	peer, updated := updatePeerMeta(peer, sync.Meta, account)
 	if updated {
-		log.WithContext(ctx).Info("Saving account!")
+		log.WithContext(ctx).Debugf("Saving account!")
 		err = am.Store.SaveAccount(ctx, account)
 		if err != nil {
 			return nil, nil, nil, err
@@ -714,7 +714,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 			log.WithContext(ctx).Errorf("account %s should be stored but is not write locked", accountID)
 			return nil, nil, nil, status.Errorf(status.Internal, "account should be stored but is not write locked")
 		}
-		log.WithContext(ctx).Info("Saving account!")
+		log.WithContext(ctx).Debugf("Saving account!")
 		err = am.Store.SaveAccount(ctx, account)
 		if err != nil {
 			return nil, nil, nil, err
@@ -798,7 +798,7 @@ func (am *DefaultAccountManager) checkAndUpdatePeerSSHKey(ctx context.Context, p
 
 	peer.SSHKey = newSSHKey
 	account.UpdatePeer(peer)
-	log.WithContext(ctx).Info("Saving account!")
+	log.WithContext(ctx).Debugf("Saving account!")
 	err := am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return nil, err
@@ -843,7 +843,7 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(ctx context.Context, peerID st
 
 	peer.SSHKey = sshKey
 	account.UpdatePeer(peer)
-	log.WithContext(ctx).Info("Saving account!")
+	log.WithContext(ctx).Debugf("Saving account!")
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return err
