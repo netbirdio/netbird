@@ -235,7 +235,7 @@ func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountI
 	newUser := NewUser(newUserID, role, true, nonDeletable, serviceUserName, autoGroups, UserIssuedAPI)
 	log.WithContext(ctx).Debugf("New User: %v", newUser)
 	account.Users[newUserID] = newUser
-
+	log.WithContext(ctx).Info("Saving account!")
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return nil, err
@@ -344,6 +344,7 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		CreatedAt:            time.Now().UTC(),
 	}
 	account.Users[idpUser.ID] = newUser
+	log.WithContext(ctx).Info("Saving account!")
 
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
@@ -465,6 +466,7 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 		}
 
 		am.deleteServiceUser(ctx, account, initiatorUserID, targetUser)
+		log.WithContext(ctx).Info("Saving account!")
 		return am.Store.SaveAccount(ctx, account)
 	}
 
@@ -509,6 +511,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account 
 	}
 
 	delete(account.Users, targetUserID)
+	log.WithContext(ctx).Info("Saving account!")
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return err
@@ -614,6 +617,7 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 	}
 
 	targetUser.PATs[pat.ID] = &pat.PersonalAccessToken
+	log.WithContext(ctx).Info("Saving account!")
 
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
@@ -668,7 +672,7 @@ func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string
 	am.StoreEvent(ctx, initiatorUserID, targetUserID, accountID, activity.PersonalAccessTokenDeleted, meta)
 
 	delete(targetUser.PATs, tokenID)
-
+	log.WithContext(ctx).Info("Saving account!")
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return status.Errorf(status.Internal, "Failed to save account: %s", err)
@@ -1001,6 +1005,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, u
 			if err != nil {
 				return nil, err
 			}
+			log.WithContext(ctx).Info("Saving account!")
 			err = am.Store.SaveAccount(ctx, account)
 			if err != nil {
 				return nil, err
@@ -1015,6 +1020,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, u
 
 	if lowerDomain != "" && account.Domain != lowerDomain && userObj.Role == UserRoleOwner {
 		account.Domain = lowerDomain
+		log.WithContext(ctx).Info("Saving account!")
 		err = am.Store.SaveAccount(ctx, account)
 		if err != nil {
 			return nil, status.Errorf(status.Internal, "failed updating account with domain")

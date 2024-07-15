@@ -346,6 +346,7 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountId, use
 	delete(account.Groups, groupID)
 
 	account.Network.IncSerial()
+	log.WithContext(ctx).Info("Saving account!")
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
@@ -402,6 +403,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 	}
 
 	account.Network.IncSerial()
+	log.WithContext(ctx).Info("Saving account!")
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
@@ -430,6 +432,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 	for i, itemID := range group.Peers {
 		if itemID == peerID {
 			group.Peers = append(group.Peers[:i], group.Peers[i+1:]...)
+			log.WithContext(ctx).Info("Saving account!")
 			if err := am.Store.SaveAccount(ctx, account); err != nil {
 				return err
 			}

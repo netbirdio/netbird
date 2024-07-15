@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/proto"
@@ -201,6 +202,7 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	account.Routes[newRoute.ID] = &newRoute
 
 	account.Network.IncSerial()
+	log.WithContext(ctx).Info("Saving account!")
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return nil, err
 	}
@@ -270,6 +272,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 	account.Routes[routeToSave.ID] = routeToSave
 
 	account.Network.IncSerial()
+	log.WithContext(ctx).Info("Saving account!")
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
@@ -298,6 +301,7 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 	delete(account.Routes, routeID)
 
 	account.Network.IncSerial()
+	log.WithContext(ctx).Info("Saving account!")
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}

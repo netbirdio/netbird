@@ -354,6 +354,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	exists := am.savePolicy(account, policy)
 
 	account.Network.IncSerial()
+	log.WithContext(ctx).Info("Saving account!")
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
@@ -385,6 +386,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 	}
 
 	account.Network.IncSerial()
+	log.WithContext(ctx).Info("Saving account!")
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}

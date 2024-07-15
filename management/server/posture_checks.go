@@ -8,6 +8,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -75,7 +76,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		action = activity.PostureCheckUpdated
 		account.Network.IncSerial()
 	}
-
+	log.WithContext(ctx).Info("Saving account!")
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
@@ -111,6 +112,7 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 		return err
 	}
 
+	log.WithContext(ctx).Info("Saving account!")
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
