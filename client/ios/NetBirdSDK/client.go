@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -47,6 +48,7 @@ type CustomLogger interface {
 type selectRoute struct {
 	NetID    string
 	Network  netip.Prefix
+	Domains  domain.List
 	Selected bool
 }
 
@@ -279,6 +281,7 @@ func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
 		route := &selectRoute{
 			NetID:    string(id),
 			Network:  rt[0].Network,
+			Domains:  rt[0].Domains,
 			Selected: routeSelector.IsSelected(id),
 		}
 		routes = append(routes, route)
@@ -299,17 +302,40 @@ func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
 		return iPrefix < jPrefix
 	})
 
+	resolvedDomains := c.recorder.GetResolvedDomainsStates()
+
+	return prepareRouteSelectionDetails(routes, resolvedDomains), nil
+
+}
+
+func prepareRouteSelectionDetails(routes []*selectRoute, resolvedDomains map[domain.Domain][]netip.Prefix) *RoutesSelectionDetails {
 	var routeSelection []RoutesSelectionInfo
 	for _, r := range routes {
+		domainList := make([]DomainInfo, 0)
+		for _, d := range r.Domains {
+			domainResp := DomainInfo{
+				Domain: d.SafeString(),
+			}
+			if prefixes, exists := resolvedDomains[d]; exists {
+				var ipStrings []string
+				for _, prefix := range prefixes {
+					ipStrings = append(ipStrings, prefix.Addr().String())
+				}
+				domainResp.ResolvedIPs = strings.Join(ipStrings, ", ")
+			}
+			domainList = append(domainList, domainResp)
+		}
+		domainDetails := DomainDetails{items: domainList}
 		routeSelection = append(routeSelection, RoutesSelectionInfo{
 			ID:       r.NetID,
 			Network:  r.Network.String(),
+			Domains:  &domainDetails,
 			Selected: r.Selected,
 		})
 	}
 
 	routeSelectionDetails := RoutesSelectionDetails{items: routeSelection}
-	return &routeSelectionDetails, nil
+	return &routeSelectionDetails
 }
 
 func (c *Client) SelectRoute(id string) error {

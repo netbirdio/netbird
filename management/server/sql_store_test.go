@@ -41,13 +41,14 @@ func TestSqlite_NewStore(t *testing.T) {
 }
 
 func TestSqlite_SaveAccount_Large(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The SQLite store is not properly supported by Windows yet")
+	if runtime.GOOS != "linux" && os.Getenv("CI") == "true" || runtime.GOOS == "windows" {
+		t.Skip("skip large test on non-linux OS due to environment restrictions")
 	}
 	t.Run("SQLite", func(t *testing.T) {
 		store := newSqliteStore(t)
 		runLargeTest(t, store)
 	})
+	// create store outside to have a better time counter for the test
 	store := newPostgresqlStore(t)
 	t.Run("PostgreSQL", func(t *testing.T) {
 		runLargeTest(t, store)
