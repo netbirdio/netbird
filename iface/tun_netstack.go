@@ -54,7 +54,7 @@ func (t *tunNetstackDevice) Create() (wgConfigurer, error) {
 	t.device = device.NewDevice(
 		t.wrapper,
 		t.iceBind,
-		device.NewLogger(device.LogLevelSilent, "[netbird] "),
+		device.NewLogger(wgLogLevel(), "[netbird] "),
 	)
 
 	t.configurer = newWGUSPConfigurer(t.device, t.name)

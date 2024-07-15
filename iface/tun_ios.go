@@ -64,7 +64,7 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 
 	t.wrapper = newDeviceWrapper(tunDevice)
 	log.Debug("Attaching to interface")
-	t.device = device.NewDevice(t.wrapper, t.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
+	t.device = device.NewDevice(t.wrapper, t.iceBind, device.NewLogger(wgLogLevel(), "[wiretrustee] "))
 	// without this property mobile devices can discover remote endpoints if the configured one was wrong.
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
