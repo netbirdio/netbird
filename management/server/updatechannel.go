@@ -69,7 +69,8 @@ func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, upda
 	if update.NetworkMap != nil {
 		lastSentUpdate := p.peerUpdateMessage[peerID]
 		if lastSentUpdate != nil && lastSentUpdate.Update.NetworkMap.GetSerial() >= update.Update.NetworkMap.GetSerial() {
-			log.WithContext(ctx).Debugf("peer %s network map serial not changed, skip sending update", peerID)
+			log.WithContext(ctx).Debugf("peer %s new network map serial: %d not greater than last sent: %d, skip sending update",
+				peerID, update.Update.NetworkMap.GetSerial(), lastSentUpdate.Update.NetworkMap.GetSerial())
 			return
 		}
 		p.peerUpdateMessage[peerID] = update
@@ -205,9 +206,9 @@ func (p *PeersUpdateManager) handlePeerMessageUpdate(ctx context.Context, peerID
 	p.channelsMux.RLock()
 	defer p.channelsMux.RUnlock()
 
-	previousUpdateMsg := p.peerUpdateMessage[peerID]
-	if previousUpdateMsg != nil {
-		updated, err := isNewPeerUpdateMessage(previousUpdateMsg, update)
+	lastSentUpdate := p.peerUpdateMessage[peerID]
+	if lastSentUpdate != nil {
+		updated, err := isNewPeerUpdateMessage(lastSentUpdate, update)
 		if err != nil {
 			log.WithContext(ctx).Errorf("error checking for SyncResponse updates: %v", err)
 			return false
@@ -221,9 +222,13 @@ func (p *PeersUpdateManager) handlePeerMessageUpdate(ctx context.Context, peerID
 	return true
 }
 
-// isNewPeerUpdateMessage checks if there are any changes between the previous and current UpdateMessage.
-func isNewPeerUpdateMessage(prevResponse, currResponse *UpdateMessage) (bool, error) {
-	changelog, err := diff.Diff(prevResponse.Checks, currResponse.Checks)
+// isNewPeerUpdateMessage checks if the given current update message is a new update that should be sent.
+func isNewPeerUpdateMessage(lastSentUpdate, currUpdateToSend *UpdateMessage) (bool, error) {
+	if lastSentUpdate.Update.NetworkMap.GetSerial() >= currUpdateToSend.Update.NetworkMap.GetSerial() {
+		return false, nil
+	}
+
+	changelog, err := diff.Diff(lastSentUpdate.Checks, currUpdateToSend.Checks)
 	if err != nil {
 		return false, fmt.Errorf("failed to diff checks: %v", err)
 	}
@@ -231,7 +236,7 @@ func isNewPeerUpdateMessage(prevResponse, currResponse *UpdateMessage) (bool, er
 		return true, nil
 	}
 
-	changelog, err = diff.Diff(prevResponse.NetworkMap, currResponse.NetworkMap)
+	changelog, err = diff.Diff(lastSentUpdate.NetworkMap, currUpdateToSend.NetworkMap)
 	if err != nil {
 		return false, fmt.Errorf("failed to diff network map: %v", err)
 	}

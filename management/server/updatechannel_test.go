@@ -105,7 +105,7 @@ func TestHandlePeerMessageUpdate(t *testing.T) {
 				Update: &proto.SyncResponse{
 					NetworkMap: &proto.NetworkMap{Serial: 1},
 				},
-				NetworkMap: &NetworkMap{Network: &Network{Serial: 1}},
+				NetworkMap: &NetworkMap{Network: &Network{Serial: 2}},
 			},
 			expectedResult: true,
 		},
@@ -140,9 +140,9 @@ func TestHandlePeerMessageUpdate(t *testing.T) {
 			},
 			newUpdate: &UpdateMessage{
 				Update: &proto.SyncResponse{
-					NetworkMap: &proto.NetworkMap{Serial: 1},
+					NetworkMap: &proto.NetworkMap{Serial: 2},
 				},
-				NetworkMap: &NetworkMap{Network: &Network{Serial: 1}},
+				NetworkMap: &NetworkMap{Network: &Network{Serial: 2}},
 				Checks:     []*posture.Checks{{ID: "check1"}},
 			},
 			expectedResult: true,
