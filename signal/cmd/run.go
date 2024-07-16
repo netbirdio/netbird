@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -41,7 +42,8 @@ var (
 	signalLetsencryptDomain string
 	signalSSLDir            string
 	defaultSignalSSLDir     string
-	tlsEnabled              bool
+	signalCertFile          string
+	signalCertKey           string
 
 	signalKaep = grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 		MinTime:             5 * time.Second,
@@ -59,9 +61,13 @@ var (
 		Use:   "run",
 		Short: "start NetBird Signal Server daemon",
 		PreRun: func(cmd *cobra.Command, args []string) {
+			flag.Parse()
+
 			// detect whether user specified a port
 			userPort := cmd.Flag("port").Changed
-			if signalLetsencryptDomain != "" {
+
+			tlsEnabled := false
+			if signalLetsencryptDomain != "" || (signalCertFile != "" && signalCertKey != "") {
 				tlsEnabled = true
 			}
 
@@ -93,14 +99,24 @@ var (
 
 			var opts []grpc.ServerOption
 			var certManager *autocert.Manager
-			if tlsEnabled {
-				// Let's encrypt enabled -> generate certificate automatically
+			var tlsConfig *tls.Config
+			if signalLetsencryptDomain != "" {
 				certManager, err = encryption.CreateCertManager(signalSSLDir, signalLetsencryptDomain)
 				if err != nil {
 					return err
 				}
 				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
+				log.Infof("setting up TLS with LetsEncrypt.")
+			} else if signalCertFile != "" && signalCertKey != "" {
+				tlsConfig, err = loadTLSConfig(signalCertFile, signalCertKey)
+				if err != nil {
+					log.Errorf("cannot load TLS credentials: %v", err)
+					return err
+				}
+				transportCredentials := credentials.NewTLS(tlsConfig)
+				opts = append(opts, grpc.Creds(transportCredentials))
+				log.Infof("setting up TLS with custom certificates.")
 			}
 
 			metricsServer := metrics.NewServer(metricsPort, "")
@@ -124,7 +140,34 @@ var (
 			}
 			proto.RegisterSignalExchangeServer(grpcServer, srv)
 
+			grpcRootHandler := grpcHandlerFunc(grpcServer)
 			var compatListener net.Listener
+			var grpcListener net.Listener
+			var httpListener net.Listener
+
+			if certManager != nil {
+				// a call to certManager.Listener() always creates a new listener so we do it once
+				httpListener := certManager.Listener()
+				if signalPort == 443 {
+					// running gRPC and HTTP cert manager on the same port
+					serveHTTP(httpListener, certManager.HTTPHandler(grpcRootHandler))
+					log.Infof("running HTTP server (LetsEncrypt challenge handler) and gRPC server on the same port: %s", httpListener.Addr().String())
+				} else {
+					// Start the HTTP cert manager server separately
+					serveHTTP(httpListener, certManager.HTTPHandler(nil))
+					log.Infof("running HTTP server (LetsEncrypt challenge handler): %s", httpListener.Addr().String())
+				}
+			}
+
+			// If certManager is configured and signalPort == 443, then the gRPC server has already been started
+			if certManager == nil || signalPort != 443 {
+				grpcListener, err = serveGRPC(grpcServer, signalPort)
+				if err != nil {
+					return err
+				}
+				log.Infof("running gRPC server: %s", grpcListener.Addr().String())
+			}
+
 			if signalPort != 10000 {
 				// The Signal gRPC server was running on port 10000 previously. Old agents that are already connected to Signal
 				// are using port 10000. For compatibility purposes we keep running a 2nd gRPC server on port 10000.
@@ -133,28 +176,6 @@ var (
 					return err
 				}
 				log.Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
-			}
-
-			var grpcListener net.Listener
-			var httpListener net.Listener
-			if tlsEnabled {
-				httpListener = certManager.Listener()
-				if signalPort == 443 {
-					// running gRPC and HTTP cert manager on the same port
-					serveHTTP(httpListener, certManager.HTTPHandler(grpcHandlerFunc(grpcServer)))
-					log.Infof("running HTTP server (LetsEncrypt challenge handler) and gRPC server on the same port: %s", httpListener.Addr().String())
-				} else {
-					serveHTTP(httpListener, certManager.HTTPHandler(nil))
-					log.Infof("running HTTP server (LetsEncrypt challenge handler): %s", httpListener.Addr().String())
-				}
-			}
-
-			if signalPort != 443 || !tlsEnabled {
-				grpcListener, err = serveGRPC(grpcServer, signalPort)
-				if err != nil {
-					return err
-				}
-				log.Infof("running gRPC server: %s", grpcListener.Addr().String())
 			}
 
 			log.Infof("signal server version %s", version.NetbirdVersion())
@@ -230,6 +251,25 @@ func serveGRPC(grpcServer *grpc.Server, port int) (net.Listener, error) {
 		}
 	}()
 	return listener, nil
+}
+
+func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
+	// Load server's certificate and private key
+	serverCert, err := tls.LoadX509KeyPair(certFile, certKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// NewDefaultAppMetrics the credentials and return it
+	config := &tls.Config{
+		Certificates: []tls.Certificate{serverCert},
+		ClientAuth:   tls.NoClientCert,
+		NextProtos: []string{
+			"h2", "http/1.1", // enable HTTP/2
+		},
+	}
+
+	return config, nil
 }
 
 func cpFile(src, dst string) error {
@@ -323,4 +363,6 @@ func init() {
 	runCmd.PersistentFlags().IntVar(&signalPort, "port", 80, "Server port to listen on (defaults to 443 if TLS is enabled, 80 otherwise")
 	runCmd.Flags().StringVar(&signalSSLDir, "ssl-dir", defaultSignalSSLDir, "server ssl directory location. *Required only for Let's Encrypt certificates.")
 	runCmd.Flags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
+	runCmd.Flags().StringVar(&signalCertFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
+	runCmd.Flags().StringVar(&signalCertKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 }
