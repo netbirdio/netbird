@@ -83,7 +83,7 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		return nil
 	}
 
-	err := backoff.Retry(operation, defaultBackoff(ctx))
+	err := backoff.Retry(operation, grpcDialBackoff(ctx))
 	if err != nil {
 		log.Errorf("failed creating connection to Management Service: %v", err)
 		return nil, err
@@ -123,6 +123,14 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
+}
+
+// grpcDialBackoff is the backoff mechanism for the grpc calls
+func grpcDialBackoff(ctx context.Context) backoff.BackOff {
+	b := backoff.NewExponentialBackOff()
+	b.MaxElapsedTime = 10 * time.Second
+	b.Clock = backoff.SystemClock
+	return backoff.WithContext(b, ctx)
 }
 
 // ready indicates whether the client is okay and ready to be used
@@ -366,7 +374,7 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 		return nil
 	}
 
-	err = backoff.Retry(operation, defaultBackoff(c.ctx))
+	err = backoff.Retry(operation, grpcDialBackoff(c.ctx))
 	if err != nil {
 		log.Errorf("failed to login to Management Service: %v", err)
 		return nil, err

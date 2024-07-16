@@ -96,7 +96,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		return nil
 	}
 
-	err := backoff.Retry(operation, defaultBackoff(ctx))
+	err := backoff.Retry(operation, grpcDialBackoff(ctx))
 	if err != nil {
 		log.Errorf("failed to connect to the signalling server: %v", err)
 		return nil, err
@@ -133,6 +133,14 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
+}
+
+// grpcDialBackoff is the backoff mechanism for the grpc calls
+func grpcDialBackoff(ctx context.Context) backoff.BackOff {
+	b := backoff.NewExponentialBackOff()
+	b.MaxElapsedTime = 10 * time.Second
+	b.Clock = backoff.SystemClock
+	return backoff.WithContext(b, ctx)
 }
 
 // Receive Connects to the Signal Exchange message stream and starts receiving messages.
