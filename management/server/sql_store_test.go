@@ -41,11 +41,22 @@ func TestSqlite_NewStore(t *testing.T) {
 }
 
 func TestSqlite_SaveAccount_Large(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The SQLite store is not properly supported by Windows yet")
+	if runtime.GOOS != "linux" && os.Getenv("CI") == "true" || runtime.GOOS == "windows" {
+		t.Skip("skip large test on non-linux OS due to environment restrictions")
 	}
+	t.Run("SQLite", func(t *testing.T) {
+		store := newSqliteStore(t)
+		runLargeTest(t, store)
+	})
+	// create store outside to have a better time counter for the test
+	store := newPostgresqlStore(t)
+	t.Run("PostgreSQL", func(t *testing.T) {
+		runLargeTest(t, store)
+	})
+}
 
-	store := newSqliteStore(t)
+func runLargeTest(t *testing.T, store Store) {
+	t.Helper()
 
 	account := newAccountWithId(context.Background(), "account_id", "testuser", "")
 	groupALL, err := account.GetGroupAll()
@@ -54,7 +65,7 @@ func TestSqlite_SaveAccount_Large(t *testing.T) {
 	}
 	setupKey := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
-	const numPerAccount = 2000
+	const numPerAccount = 6000
 	for n := 0; n < numPerAccount; n++ {
 		netIP := randomIPv4()
 		peerID := fmt.Sprintf("%s-peer-%d", account.Id, n)
@@ -362,7 +373,7 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	// save status of non-existing peer
-	newStatus := nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()}
+	newStatus := nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()}
 	err = store.SavePeerStatus(account.Id, "non-existing-peer", newStatus)
 	assert.Error(t, err)
 	parsedErr, ok := status.FromError(err)
@@ -377,7 +388,7 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 		IP:       net.IP{127, 0, 0, 1},
 		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(context.Background(), account)

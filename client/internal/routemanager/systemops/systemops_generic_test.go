@@ -68,7 +68,7 @@ func TestAddRemoveRoutes(t *testing.T) {
 			err = wgInterface.Create()
 			require.NoError(t, err, "should create testing wireguard interface")
 
-			r := NewSysOps(wgInterface)
+			r := NewSysOps(wgInterface, nil)
 
 			_, _, err = r.SetupRouting(nil)
 			require.NoError(t, err)
@@ -224,7 +224,7 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 			require.NoError(t, err, "InterfaceByName should not return err")
 			intf := &net.Interface{Index: index.Index, Name: wgInterface.Name()}
 
-			r := NewSysOps(wgInterface)
+			r := NewSysOps(wgInterface, nil)
 
 			// Prepare the environment
 			if testCase.preExistingPrefix.IsValid() {
@@ -379,7 +379,7 @@ func setupTestEnv(t *testing.T) {
 		assert.NoError(t, wgInterface.Close())
 	})
 
-	r := NewSysOps(wgInterface)
+	r := NewSysOps(wgInterface, nil)
 	_, _, err := r.SetupRouting(nil)
 	require.NoError(t, err, "setupRouting should not return err")
 	t.Cleanup(func() {

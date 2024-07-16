@@ -90,6 +90,9 @@ The Signal Server exposes the following metrics in Prometheus format:
 - **registration_delay_milliseconds**: A Histogram metric that measures the time
   it took to register a peer in
   milliseconds.
+- **get_registration_delay_milliseconds**: A Histogram metric that measures the time
+  it took to get a peer registration in
+  milliseconds.
 - **messages_forwarded_total**: A Counter metric that counts the total number of
   messages forwarded between peers.
 - **message_forward_failures_total**: A Counter metric that counts the total

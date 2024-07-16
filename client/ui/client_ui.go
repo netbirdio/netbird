@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unicode"
 
@@ -34,6 +33,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -62,7 +62,24 @@ func main() {
 	var errorMSG string
 	flag.StringVar(&errorMSG, "error-msg", "", "displays a error message window")
 
+	tmpDir := "/tmp"
+	if runtime.GOOS == "windows" {
+		tmpDir = os.TempDir()
+	}
+
+	var saveLogsInFile bool
+	flag.BoolVar(&saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", tmpDir))
+
 	flag.Parse()
+
+	if saveLogsInFile {
+		logFile := path.Join(tmpDir, fmt.Sprintf("netbird-ui-%d.log", os.Getpid()))
+		err := util.InitLog("trace", logFile)
+		if err != nil {
+			log.Errorf("error while initializing log: %v", err)
+			return
+		}
+	}
 
 	a := app.NewWithID("NetBird")
 	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnectedPNG))
@@ -76,8 +93,12 @@ func main() {
 	if showSettings || showRoutes {
 		a.Run()
 	} else {
-		if err := checkPIDFile(); err != nil {
-			log.Errorf("check PID file: %v", err)
+		running, err := isAnotherProcessRunning()
+		if err != nil {
+			log.Errorf("error while checking process: %v", err)
+		}
+		if running {
+			log.Warn("another process is running")
 			return
 		}
 		client.setDefaultFonts()
@@ -860,105 +881,4 @@ func openURL(url string) error {
 		err = fmt.Errorf("unsupported platform")
 	}
 	return err
-}
-
-// checkPIDFile exists and return error, or write new.
-func checkPIDFile() error {
-	pidFile := path.Join(os.TempDir(), "wiretrustee-ui.pid")
-	if piddata, err := os.ReadFile(pidFile); err == nil {
-		if pid, err := strconv.Atoi(string(piddata)); err == nil {
-			if process, err := os.FindProcess(pid); err == nil {
-				if err := process.Signal(syscall.Signal(0)); err == nil {
-					return fmt.Errorf("process already exists: %d", pid)
-				}
-			}
-		}
-	}
-
-	return os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0o664) //nolint:gosec
-}
-
-func (s *serviceClient) setDefaultFonts() {
-	var (
-		defaultFontPath string
-	)
-
-	//TODO: Linux Multiple Language Support
-	switch runtime.GOOS {
-	case "darwin":
-		defaultFontPath = "/Library/Fonts/Arial Unicode.ttf"
-	case "windows":
-		fontPath := s.getWindowsFontFilePath()
-		defaultFontPath = fontPath
-	}
-
-	_, err := os.Stat(defaultFontPath)
-
-	if err == nil {
-		os.Setenv("FYNE_FONT", defaultFontPath)
-	}
-}
-
-func (s *serviceClient) getWindowsFontFilePath() (fontPath string) {
-	/*
-		https://learn.microsoft.com/en-us/windows/apps/design/globalizing/loc-international-fonts
-		https://learn.microsoft.com/en-us/typography/fonts/windows_11_font_list
-	*/
-
-	var (
-		fontFolder  string = "C:/Windows/Fonts"
-		fontMapping        = map[string]string{
-			"default":     "Segoeui.ttf",
-			"zh-CN":       "Msyh.ttc",
-			"am-ET":       "Ebrima.ttf",
-			"nirmala":     "Nirmala.ttf",
-			"chr-CHER-US": "Gadugi.ttf",
-			"zh-HK":       "Msjh.ttc",
-			"zh-TW":       "Msjh.ttc",
-			"ja-JP":       "Yugothm.ttc",
-			"km-KH":       "Leelawui.ttf",
-			"ko-KR":       "Malgun.ttf",
-			"th-TH":       "Leelawui.ttf",
-			"ti-ET":       "Ebrima.ttf",
-		}
-		nirMalaLang = []string{
-			"as-IN",
-			"bn-BD",
-			"bn-IN",
-			"gu-IN",
-			"hi-IN",
-			"kn-IN",
-			"kok-IN",
-			"ml-IN",
-			"mr-IN",
-			"ne-NP",
-			"or-IN",
-			"pa-IN",
-			"si-LK",
-			"ta-IN",
-			"te-IN",
-		}
-	)
-	cmd := exec.Command("powershell", "-Command", "(Get-Culture).Name")
-	output, err := cmd.Output()
-	if err != nil {
-		log.Errorf("Failed to get Windows default language setting: %v", err)
-		fontPath = path.Join(fontFolder, fontMapping["default"])
-		return
-	}
-	defaultLanguage := strings.TrimSpace(string(output))
-
-	for _, lang := range nirMalaLang {
-		if defaultLanguage == lang {
-			fontPath = path.Join(fontFolder, fontMapping["nirmala"])
-			return
-		}
-	}
-
-	if font, ok := fontMapping[defaultLanguage]; ok {
-		fontPath = path.Join(fontFolder, font)
-	} else {
-		fontPath = path.Join(fontFolder, fontMapping["default"])
-	}
-	return
 }

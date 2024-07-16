@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
@@ -41,6 +42,8 @@ type Store interface {
 	GetUserByTokenID(ctx context.Context, tokenID string) (*User, error)
 	GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	SaveAccount(ctx context.Context, account *Account) error
+	SaveUsers(accountID string, users map[string]*User) error
+	SaveGroups(accountID string, groups map[string]*nbgroup.Group) error
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
 	DeleteTokenID2UserIDIndex(tokenID string) error
 	GetInstallationID() string

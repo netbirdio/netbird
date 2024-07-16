@@ -41,6 +41,7 @@ func newTunDevice(name string, address WGAddress, port int, key string, mtu int,
 }
 
 func (t *tunDevice) Create() (wgConfigurer, error) {
+	log.Info("create tun interface")
 	tunDevice, err := tun.CreateTUN(t.name, t.mtu)
 	if err != nil {
 		return nil, err
@@ -52,7 +53,7 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 	t.device = device.NewDevice(
 		t.wrapper,
 		t.iceBind,
-		device.NewLogger(device.LogLevelSilent, "[netbird] "),
+		device.NewLogger(wgLogLevel(), "[netbird] "),
 	)
 
 	luid := winipcfg.LUID(t.nativeTunDevice.LUID())
