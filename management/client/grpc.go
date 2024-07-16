@@ -51,26 +51,41 @@ type GrpcClient struct {
 
 // NewClient creates a new client to Management service
 func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*GrpcClient, error) {
-	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
+	var conn *grpc.ClientConn
 
-	if tlsEnabled {
-		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
+	operation := func() error {
+		transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
+
+		if tlsEnabled {
+			transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
+		}
+
+		mgmCtx, cancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer cancel()
+
+		var err error
+		conn, err = grpc.DialContext(
+			mgmCtx,
+			addr,
+			transportOption,
+			nbgrpc.WithCustomDialer(),
+			grpc.WithBlock(),
+			grpc.WithKeepaliveParams(keepalive.ClientParameters{
+				Time:    30 * time.Second,
+				Timeout: 10 * time.Second,
+			}),
+		)
+		if err != nil {
+			log.Printf("DialContext error: %v", err)
+			return err
+		}
+
+		return nil
 	}
 
-	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
-	defer cancel()
-	conn, err := grpc.DialContext(
-		mgmCtx,
-		addr,
-		transportOption,
-		nbgrpc.WithCustomDialer(),
-		grpc.WithBlock(),
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    30 * time.Second,
-			Timeout: 10 * time.Second,
-		}))
+	err := backoff.Retry(operation, defaultBackoff(ctx))
 	if err != nil {
-		log.Errorf("failed creating connection to Management Service %v", err)
+		log.Errorf("failed creating connection to Management Service: %v", err)
 		return nil, err
 	}
 
@@ -326,25 +341,41 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 	if !c.ready() {
 		return nil, fmt.Errorf(errMsgNoMgmtConnection)
 	}
+
 	loginReq, err := encryption.EncryptMessage(serverKey, c.key, req)
 	if err != nil {
 		log.Errorf("failed to encrypt message: %s", err)
 		return nil, err
 	}
-	mgmCtx, cancel := context.WithTimeout(c.ctx, ConnectTimeout)
-	defer cancel()
-	resp, err := c.realClient.Login(mgmCtx, &proto.EncryptedMessage{
-		WgPubKey: c.key.PublicKey().String(),
-		Body:     loginReq,
-	})
+
+	var resp *proto.EncryptedMessage
+	operation := func() error {
+		mgmCtx, cancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		defer cancel()
+
+		var err error
+		resp, err = c.realClient.Login(mgmCtx, &proto.EncryptedMessage{
+			WgPubKey: c.key.PublicKey().String(),
+			Body:     loginReq,
+		})
+		if err != nil {
+			log.Printf("Login error: %v", err)
+			return err
+		}
+
+		return nil
+	}
+
+	err = backoff.Retry(operation, defaultBackoff(c.ctx))
 	if err != nil {
+		log.Errorf("failed to login to Management Service: %v", err)
 		return nil, err
 	}
 
 	loginResp := &proto.LoginResponse{}
 	err = encryption.DecryptMessage(serverKey, c.key, resp.Body, loginResp)
 	if err != nil {
-		log.Errorf("failed to decrypt registration message: %s", err)
+		log.Errorf("failed to decrypt login response: %s", err)
 		return nil, err
 	}
 
