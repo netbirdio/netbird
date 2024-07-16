@@ -275,23 +275,14 @@ func (s *SqlStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.Pe
 	var peerCopy nbpeer.Peer
 	peerCopy.Status = &peerStatus
 
-	peerStatusJson, err := json.Marshal(peerCopy.Status)
-	if err != nil {
-		log.Errorf("cannot marshal peer %s status", peerID)
-		return err
+	fieldsToUpdate := []string{
+		"peer_status_last_seen", "peer_status_connected",
+		"peer_status_login_expired", "peer_status_required_approval",
 	}
-
-	parsedPeerStatus := make(map[string]interface{})
-	err = json.Unmarshal(peerStatusJson, &parsedPeerStatus)
-	if err != nil {
-		log.Errorf("cannot unmarshal peer %s status", peerID)
-		return err
-	}
-
 	result := s.db.Model(&nbpeer.Peer{}).
+		Select(fieldsToUpdate).
 		Where("account_id = ? AND id = ?", accountID, peerID).
-		Updates(parsedPeerStatus)
-
+		Updates(&peerCopy)
 	if result.Error != nil {
 		return result.Error
 	}
