@@ -24,7 +24,7 @@ const (
 	probeTimeout     = 2 * time.Second
 )
 
-const testRecord = "com"
+const testRecord = "com."
 
 type upstreamClient interface {
 	exchange(ctx context.Context, upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
