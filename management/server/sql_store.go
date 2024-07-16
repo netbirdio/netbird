@@ -274,10 +274,15 @@ func (s *SqlStore) GetInstallationID() string {
 func (s *SqlStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
 	var peerCopy nbpeer.Peer
 	peerCopy.Status = &peerStatus
-	result := s.db.Model(&nbpeer.Peer{}).
-		Where("account_id = ? AND id = ?", accountID, peerID).
-		Updates(peerCopy)
 
+	fieldsToUpdate := []string{
+		"peer_status_last_seen", "peer_status_connected",
+		"peer_status_login_expired", "peer_status_required_approval",
+	}
+	result := s.db.Model(&nbpeer.Peer{}).
+		Select(fieldsToUpdate).
+		Where("account_id = ? AND id = ?", accountID, peerID).
+		Updates(&peerCopy)
 	if result.Error != nil {
 		return result.Error
 	}
