@@ -12,12 +12,14 @@ import (
 type Conn struct {
 	ctx context.Context
 	*websocket.Conn
+	remoteAddr WebsocketAddr
 }
 
-func NewConn(wsConn *websocket.Conn) net.Conn {
+func NewConn(wsConn *websocket.Conn, serverAddress string) net.Conn {
 	return &Conn{
-		ctx:  context.Background(),
-		Conn: wsConn,
+		ctx:        context.Background(),
+		Conn:       wsConn,
+		remoteAddr: WebsocketAddr{serverAddress},
 	}
 }
 
@@ -40,11 +42,11 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 }
 
 func (c *Conn) RemoteAddr() net.Addr {
-	return WebsocketAddr{}
+	return c.remoteAddr
 }
 
 func (c *Conn) LocalAddr() net.Addr {
-	return WebsocketAddr{}
+	return WebsocketAddr{addr: "unknown"}
 }
 
 func (c *Conn) SetReadDeadline(t time.Time) error {

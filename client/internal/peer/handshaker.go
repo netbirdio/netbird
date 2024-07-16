@@ -41,34 +41,30 @@ type OfferAnswer struct {
 	RelaySrvAddress string
 }
 
-type HandshakeArgs struct {
-	IceUFrag  string
-	IcePwd    string
-	RelayAddr string
-}
-
 type Handshaker struct {
 	mu                  sync.Mutex
 	ctx                 context.Context
 	log                 *log.Entry
 	config              ConnConfig
 	signaler            *Signaler
+	ice                 *WorkerICE
+	relay               *WorkerRelay
 	onNewOfferListeners []func(*OfferAnswer)
 
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
 	remoteOffersCh chan OfferAnswer
 	// remoteAnswerCh is a channel used to wait for remote credentials answer (confirmation of our offer) to proceed with the connection
 	remoteAnswerCh chan OfferAnswer
-
-	lastOfferArgs HandshakeArgs
 }
 
-func NewHandshaker(ctx context.Context, log *log.Entry, config ConnConfig, signaler *Signaler) *Handshaker {
+func NewHandshaker(ctx context.Context, log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay) *Handshaker {
 	return &Handshaker{
 		ctx:            ctx,
 		log:            log,
 		config:         config,
 		signaler:       signaler,
+		ice:            ice,
+		relay:          relay,
 		remoteOffersCh: make(chan OfferAnswer),
 		remoteAnswerCh: make(chan OfferAnswer),
 	}
@@ -98,17 +94,10 @@ func (h *Handshaker) Listen() {
 	}
 }
 
-func (h *Handshaker) SendOffer(args HandshakeArgs) error {
+func (h *Handshaker) SendOffer() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-
-	err := h.sendOffer(args)
-	if err != nil {
-		return err
-	}
-
-	h.lastOfferArgs = args
-	return nil
+	return h.sendOffer()
 }
 
 // OnRemoteOffer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
@@ -163,14 +152,23 @@ func (h *Handshaker) waitForRemoteOfferConfirmation() (*OfferAnswer, error) {
 }
 
 // sendOffer prepares local user credentials and signals them to the remote peer
-func (h *Handshaker) sendOffer(args HandshakeArgs) error {
+func (h *Handshaker) sendOffer() error {
+	if !h.signaler.Ready() {
+		return ErrSignalIsNotReady
+	}
+
+	iceUFrag, icePwd := h.ice.GetLocalUserCredentials()
 	offer := OfferAnswer{
-		IceCredentials:  IceCredentials{args.IceUFrag, args.IcePwd},
+		IceCredentials:  IceCredentials{iceUFrag, icePwd},
 		WgListenPort:    h.config.LocalWgPort,
 		Version:         version.NetbirdVersion(),
 		RosenpassPubKey: h.config.RosenpassPubKey,
 		RosenpassAddr:   h.config.RosenpassAddr,
-		RelaySrvAddress: args.RelayAddr,
+	}
+
+	addr, err := h.relay.RelayInstanceAddress()
+	if err == nil {
+		offer.RelaySrvAddress = addr
 	}
 
 	return h.signaler.SignalOffer(offer, h.config.Key)
@@ -178,15 +176,21 @@ func (h *Handshaker) sendOffer(args HandshakeArgs) error {
 
 func (h *Handshaker) sendAnswer() error {
 	h.log.Debugf("sending answer")
+	uFrag, pwd := h.ice.GetLocalUserCredentials()
+
 	answer := OfferAnswer{
-		IceCredentials:  IceCredentials{h.lastOfferArgs.IceUFrag, h.lastOfferArgs.IcePwd},
+		IceCredentials:  IceCredentials{uFrag, pwd},
 		WgListenPort:    h.config.LocalWgPort,
 		Version:         version.NetbirdVersion(),
 		RosenpassPubKey: h.config.RosenpassPubKey,
 		RosenpassAddr:   h.config.RosenpassAddr,
-		RelaySrvAddress: h.lastOfferArgs.RelayAddr,
 	}
-	err := h.signaler.SignalAnswer(answer, h.config.Key)
+	addr, err := h.relay.RelayInstanceAddress()
+	if err == nil {
+		answer.RelaySrvAddress = addr
+	}
+
+	err = h.signaler.SignalAnswer(answer, h.config.Key)
 	if err != nil {
 		return err
 	}

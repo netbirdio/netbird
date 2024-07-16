@@ -732,6 +732,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			RemoteIceCandidateType:     peerState.RemoteIceCandidateType,
 			LocalIceCandidateEndpoint:  peerState.LocalIceCandidateEndpoint,
 			RemoteIceCandidateEndpoint: peerState.RemoteIceCandidateEndpoint,
+			RelayAddress:               peerState.RelayServerAddress,
 			Fqdn:                       peerState.FQDN,
 			LastWireguardHandshake:     timestamppb.New(peerState.LastWireguardHandshake),
 			BytesRx:                    peerState.BytesRx,

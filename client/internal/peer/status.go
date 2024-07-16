@@ -23,6 +23,8 @@ type State struct {
 	PubKey                     string
 	FQDN                       string
 	ConnStatus                 ConnStatus
+	connStatusRelay            ConnStatus
+	connStatusICE              ConnStatus
 	ConnStatusUpdate           time.Time
 	Relayed                    bool
 	Direct                     bool
@@ -30,6 +32,7 @@ type State struct {
 	RemoteIceCandidateType     string
 	LocalIceCandidateEndpoint  string
 	RemoteIceCandidateEndpoint string
+	RelayServerAddress         string
 	LastWireguardHandshake     time.Time
 	BytesTx                    int64
 	BytesRx                    int64
@@ -240,7 +243,7 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		peerState.SetRoutes(receivedState.GetRoutes())
 	}
 
-	skipNotification := shouldSkipNotify(receivedState, peerState)
+	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
 
 	if receivedState.ConnStatus != peerState.ConnStatus {
 		peerState.ConnStatus = receivedState.ConnStatus
@@ -251,8 +254,155 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		peerState.RemoteIceCandidateType = receivedState.RemoteIceCandidateType
 		peerState.LocalIceCandidateEndpoint = receivedState.LocalIceCandidateEndpoint
 		peerState.RemoteIceCandidateEndpoint = receivedState.RemoteIceCandidateEndpoint
+		peerState.RelayServerAddress = receivedState.RelayServerAddress
 		peerState.RosenpassEnabled = receivedState.RosenpassEnabled
 	}
+
+	d.peers[receivedState.PubKey] = peerState
+
+	if skipNotification {
+		return nil
+	}
+
+	ch, found := d.changeNotify[receivedState.PubKey]
+	if found && ch != nil {
+		close(ch)
+		d.changeNotify[receivedState.PubKey] = nil
+	}
+
+	d.notifyPeerListChanged()
+	return nil
+}
+
+func (d *Status) UpdatePeerICEState(receivedState State) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[receivedState.PubKey]
+	if !ok {
+		return errors.New("peer doesn't exist")
+	}
+
+	if receivedState.IP != "" {
+		peerState.IP = receivedState.IP
+	}
+
+	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
+
+	peerState.ConnStatus = receivedState.ConnStatus
+	peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
+	peerState.Direct = receivedState.Direct
+	peerState.Relayed = receivedState.Relayed
+	peerState.LocalIceCandidateType = receivedState.LocalIceCandidateType
+	peerState.RemoteIceCandidateType = receivedState.RemoteIceCandidateType
+	peerState.LocalIceCandidateEndpoint = receivedState.LocalIceCandidateEndpoint
+	peerState.RemoteIceCandidateEndpoint = receivedState.RemoteIceCandidateEndpoint
+	peerState.RosenpassEnabled = receivedState.RosenpassEnabled
+
+	d.peers[receivedState.PubKey] = peerState
+
+	if skipNotification {
+		return nil
+	}
+
+	ch, found := d.changeNotify[receivedState.PubKey]
+	if found && ch != nil {
+		close(ch)
+		d.changeNotify[receivedState.PubKey] = nil
+	}
+
+	d.notifyPeerListChanged()
+	return nil
+}
+
+func (d *Status) UpdatePeerRelayedState(receivedState State) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[receivedState.PubKey]
+	if !ok {
+		return errors.New("peer doesn't exist")
+	}
+
+	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
+
+	peerState.ConnStatus = receivedState.ConnStatus
+	peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
+	peerState.Direct = receivedState.Direct
+	peerState.Relayed = receivedState.Relayed
+	peerState.RelayServerAddress = receivedState.RelayServerAddress
+	peerState.RosenpassEnabled = receivedState.RosenpassEnabled
+
+	d.peers[receivedState.PubKey] = peerState
+
+	if skipNotification {
+		return nil
+	}
+
+	ch, found := d.changeNotify[receivedState.PubKey]
+	if found && ch != nil {
+		close(ch)
+		d.changeNotify[receivedState.PubKey] = nil
+	}
+
+	d.notifyPeerListChanged()
+	return nil
+}
+
+func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[receivedState.PubKey]
+	if !ok {
+		return errors.New("peer doesn't exist")
+	}
+
+	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
+
+	peerState.ConnStatus = receivedState.ConnStatus
+	peerState.Direct = receivedState.Direct
+	peerState.Relayed = receivedState.Relayed
+	peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
+	peerState.RelayServerAddress = ""
+	//peerState.RosenpassEnabled = receivedState.RosenpassEnabled // todo: check this variable
+
+	d.peers[receivedState.PubKey] = peerState
+
+	if skipNotification {
+		return nil
+	}
+
+	ch, found := d.changeNotify[receivedState.PubKey]
+	if found && ch != nil {
+		close(ch)
+		d.changeNotify[receivedState.PubKey] = nil
+	}
+
+	d.notifyPeerListChanged()
+	return nil
+}
+
+func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[receivedState.PubKey]
+	if !ok {
+		return errors.New("peer doesn't exist")
+	}
+
+	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
+
+	peerState.ConnStatus = receivedState.ConnStatus
+	peerState.Direct = receivedState.Direct
+	peerState.Relayed = receivedState.Relayed
+	peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
+	peerState.LocalIceCandidateType = receivedState.LocalIceCandidateType
+	peerState.RemoteIceCandidateType = receivedState.RemoteIceCandidateType
+	peerState.LocalIceCandidateEndpoint = receivedState.LocalIceCandidateEndpoint
+	peerState.RemoteIceCandidateEndpoint = receivedState.RemoteIceCandidateEndpoint
+	//peerState.RosenpassEnabled = receivedState.RosenpassEnabled // todo: check this variable
 
 	d.peers[receivedState.PubKey] = peerState
 
@@ -289,13 +439,13 @@ func (d *Status) UpdateWireGuardPeerState(pubKey string, wgStats iface.WGStats) 
 	return nil
 }
 
-func shouldSkipNotify(received, curr State) bool {
+func shouldSkipNotify(receivedConnStatus ConnStatus, curr State) bool {
 	switch {
-	case received.ConnStatus == StatusConnecting:
+	case receivedConnStatus == StatusConnecting:
 		return true
-	case received.ConnStatus == StatusDisconnected && curr.ConnStatus == StatusConnecting:
+	case receivedConnStatus == StatusDisconnected && curr.ConnStatus == StatusConnecting:
 		return true
-	case received.ConnStatus == StatusDisconnected && curr.ConnStatus == StatusDisconnected:
+	case receivedConnStatus == StatusDisconnected && curr.ConnStatus == StatusDisconnected:
 		return curr.IP != ""
 	default:
 		return false

@@ -11,14 +11,16 @@ type Conn struct {
 	dstID       []byte
 	dstStringID string
 	messageChan chan Msg
+	instanceURL *RelayAddr
 }
 
-func NewConn(client *Client, dstID []byte, dstStringID string, messageChan chan Msg) *Conn {
+func NewConn(client *Client, dstID []byte, dstStringID string, messageChan chan Msg, instanceURL *RelayAddr) *Conn {
 	c := &Conn{
 		client:      client,
 		dstID:       dstID,
 		dstStringID: dstStringID,
 		messageChan: messageChan,
+		instanceURL: instanceURL,
 	}
 
 	return c
@@ -48,7 +50,7 @@ func (c *Conn) LocalAddr() net.Addr {
 }
 
 func (c *Conn) RemoteAddr() net.Addr {
-	return c.client.relayConn.RemoteAddr()
+	return c.instanceURL
 }
 
 func (c *Conn) SetDeadline(t time.Time) error {

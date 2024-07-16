@@ -32,7 +32,7 @@ func Dial(address string) (net.Conn, error) {
 		_ = resp.Body.Close()
 	}
 
-	conn := NewConn(wsConn)
+	conn := NewConn(wsConn, address)
 	return conn, nil
 }
 

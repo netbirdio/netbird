@@ -25,6 +25,7 @@ func NewGuard(context context.Context, relayClient *Client) *Guard {
 }
 
 func (g *Guard) OnDisconnected() {
+	// todo prevent multiple reconnect
 	ticker := time.NewTicker(reconnectingTimeout)
 	defer ticker.Stop()
 

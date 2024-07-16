@@ -180,6 +180,7 @@ message PeerState {
   bool rosenpassEnabled = 15;
   repeated string routes = 16;
   google.protobuf.Duration latency = 17;
+  string relayAddress = 18;
 }
 
 // LocalPeerState contains the latest state of the local peer

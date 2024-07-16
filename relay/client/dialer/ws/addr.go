@@ -1,6 +1,7 @@
 package ws
 
 type WebsocketAddr struct {
+	addr string
 }
 
 func (a WebsocketAddr) Network() string {
@@ -8,5 +9,5 @@ func (a WebsocketAddr) Network() string {
 }
 
 func (a WebsocketAddr) String() string {
-	return "websocket/unknown-addr"
+	return a.addr
 }

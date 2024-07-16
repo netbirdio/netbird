@@ -108,13 +108,20 @@ func (m *Manager) OpenConn(serverAddress, peerKey string, onClosedListener func(
 		log.Debugf("open peer connection via foreign server: %s", serverAddress)
 		netConn, err = m.openConnVia(serverAddress, peerKey)
 	}
-
 	if err != nil {
 		return nil, err
 	}
 
 	if onClosedListener != nil {
-		m.addListener(serverAddress, onClosedListener)
+		var listenerAddr string
+		if foreign {
+			m.addListener(serverAddress, onClosedListener)
+			listenerAddr = serverAddress
+		} else {
+			listenerAddr = m.serverURL
+		}
+		m.addListener(listenerAddr, onClosedListener)
+
 	}
 
 	return netConn, err
@@ -196,7 +203,7 @@ func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
 
 func (m *Manager) onServerDisconnected(serverAddress string) {
 	if serverAddress == m.serverURL {
-		m.reconnectGuard.OnDisconnected()
+		go m.reconnectGuard.OnDisconnected()
 	}
 
 	m.notifyOnDisconnectListeners(serverAddress)
@@ -251,17 +258,19 @@ func (m *Manager) cleanUpUnusedRelays() {
 
 func (m *Manager) addListener(serverAddress string, onClosedListener func()) {
 	m.listenerLock.Lock()
+	defer m.listenerLock.Unlock()
 	l, ok := m.onDisconnectedListeners[serverAddress]
 	if !ok {
 		l = make(map[*func()]struct{})
 	}
 	l[&onClosedListener] = struct{}{}
 	m.onDisconnectedListeners[serverAddress] = l
-	m.listenerLock.Unlock()
 }
 
 func (m *Manager) notifyOnDisconnectListeners(serverAddress string) {
 	m.listenerLock.Lock()
+	defer m.listenerLock.Unlock()
+
 	l, ok := m.onDisconnectedListeners[serverAddress]
 	if !ok {
 		return
@@ -270,6 +279,4 @@ func (m *Manager) notifyOnDisconnectListeners(serverAddress string) {
 		go (*f)()
 	}
 	delete(m.onDisconnectedListeners, serverAddress)
-	m.listenerLock.Unlock()
-
 }

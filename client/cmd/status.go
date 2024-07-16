@@ -34,6 +34,7 @@ type peerStateDetailOutput struct {
 	Direct                 bool             `json:"direct" yaml:"direct"`
 	IceCandidateType       iceCandidateType `json:"iceCandidateType" yaml:"iceCandidateType"`
 	IceCandidateEndpoint   iceCandidateType `json:"iceCandidateEndpoint" yaml:"iceCandidateEndpoint"`
+	RelayAddress           string           `json:"relayAddress" yaml:"relayAddress"`
 	LastWireguardHandshake time.Time        `json:"lastWireguardHandshake" yaml:"lastWireguardHandshake"`
 	TransferReceived       int64            `json:"transferReceived" yaml:"transferReceived"`
 	TransferSent           int64            `json:"transferSent" yaml:"transferSent"`
@@ -339,6 +340,7 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 	remoteICE := ""
 	localICEEndpoint := ""
 	remoteICEEndpoint := ""
+	relayServerAddress := ""
 	connType := ""
 	peersConnected := 0
 	lastHandshake := time.Time{}
@@ -360,6 +362,7 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 			if pbPeerState.Relayed {
 				connType = "Relayed"
 			}
+			relayServerAddress = pbPeerState.GetRelayAddress()
 			lastHandshake = pbPeerState.GetLastWireguardHandshake().AsTime().Local()
 			transferReceived = pbPeerState.GetBytesRx()
 			transferSent = pbPeerState.GetBytesTx()
@@ -381,6 +384,7 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 				Local:  localICEEndpoint,
 				Remote: remoteICEEndpoint,
 			},
+			RelayAddress:           relayServerAddress,
 			FQDN:                   pbPeerState.GetFqdn(),
 			LastWireguardHandshake: lastHandshake,
 			TransferReceived:       transferReceived,
@@ -644,6 +648,7 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 				"  Direct: %t\n"+
 				"  ICE candidate (Local/Remote): %s/%s\n"+
 				"  ICE candidate endpoints (Local/Remote): %s/%s\n"+
+				"  Relay server address: %s\n"+
 				"  Last connection update: %s\n"+
 				"  Last WireGuard handshake: %s\n"+
 				"  Transfer status (received/sent) %s/%s\n"+
@@ -660,6 +665,7 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			remoteICE,
 			localICEEndpoint,
 			remoteICEEndpoint,
+			peerState.RelayAddress,
 			timeAgo(peerState.LastStatusUpdate),
 			timeAgo(peerState.LastWireguardHandshake),
 			toIEC(peerState.TransferReceived),

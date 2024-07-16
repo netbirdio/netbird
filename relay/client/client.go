@@ -110,7 +110,7 @@ type Client struct {
 	mu               sync.Mutex // protect serviceIsRunning and conns
 	readLoopMutex    sync.Mutex
 	wgReadLoop       sync.WaitGroup
-	instanceURL      string
+	instanceURL      *RelayAddr
 	muInstanceURL    sync.Mutex
 
 	onDisconnectListener func()
@@ -183,7 +183,7 @@ func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
 
 	log.Infof("open connection to peer: %s", hashedStringID)
 	msgChannel := make(chan Msg, 2)
-	conn := NewConn(c, hashedID, hashedStringID, msgChannel)
+	conn := NewConn(c, hashedID, hashedStringID, msgChannel, c.instanceURL)
 
 	c.conns[hashedStringID] = newConnContainer(conn, msgChannel)
 	return conn, nil
@@ -193,10 +193,10 @@ func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
 func (c *Client) ServerInstanceURL() (string, error) {
 	c.muInstanceURL.Lock()
 	defer c.muInstanceURL.Unlock()
-	if c.instanceURL == "" {
+	if c.instanceURL == nil {
 		return "", fmt.Errorf("relay connection is not established")
 	}
-	return c.instanceURL, nil
+	return c.instanceURL.String(), nil
 }
 
 // SetOnDisconnectListener sets a function that will be called when the connection to the relay server is closed.
@@ -274,7 +274,7 @@ func (c *Client) handShake() error {
 		return err
 	}
 	c.muInstanceURL.Lock()
-	c.instanceURL = ia
+	c.instanceURL = &RelayAddr{addr: ia}
 	c.muInstanceURL.Unlock()
 	return nil
 }
@@ -315,7 +315,7 @@ func (c *Client) readLoop(relayConn net.Conn) {
 	hc.Stop()
 
 	c.muInstanceURL.Lock()
-	c.instanceURL = ""
+	c.instanceURL = nil
 	c.muInstanceURL.Unlock()
 
 	c.notifyDisconnected()

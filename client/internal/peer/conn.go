@@ -146,7 +146,6 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		OnStatusChanged: conn.onWorkerICEStateDisconnected,
 	}
 
-	conn.handshaker = NewHandshaker(ctx, connLog, config, signaler)
 	conn.workerRelay = NewWorkerRelay(ctx, connLog, config, relayManager, rFns)
 
 	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
@@ -154,6 +153,8 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 	if err != nil {
 		return nil, err
 	}
+
+	conn.handshaker = NewHandshaker(ctx, connLog, config, signaler, conn.workerICE, conn.workerRelay)
 
 	conn.handshaker.AddOnNewOfferListener(conn.workerRelay.OnNewOffer)
 	if os.Getenv("NB_FORCE_RELAY") != "true" {
@@ -188,7 +189,7 @@ func (conn *Conn) Open() {
 
 	conn.waitInitialRandomSleepTime()
 
-	err = conn.doHandshake()
+	err = conn.handshaker.sendOffer()
 	if err != nil {
 		conn.log.Errorf("failed to send offer: %v", err)
 	}
@@ -323,57 +324,62 @@ func (conn *Conn) reconnectLoopWithRetry() {
 	case <-time.After(3 * time.Second):
 	}
 
-	bo := backoff.WithContext(&backoff.ExponentialBackOff{
-		InitialInterval:     800 * time.Millisecond,
-		RandomizationFactor: 0,
-		Multiplier:          1.99,
-		MaxInterval:         conn.config.Timeout * time.Second,
-		MaxElapsedTime:      0,
-		Stop:                backoff.Stop,
-		Clock:               backoff.SystemClock,
-	}, conn.ctx)
-
-	ticker := backoff.NewTicker(bo)
-	defer ticker.Stop()
-
-	<-ticker.C // consume the initial tick what is happening right after the ticker has been created
-
-	no := time.Now()
 	for {
-		select {
-		case t := <-ticker.C:
-			if t.IsZero() {
-				// in case if the ticker has been canceled by context then avoid the temporary loop
+		bo := backoff.WithContext(&backoff.ExponentialBackOff{
+			InitialInterval:     800 * time.Millisecond,
+			RandomizationFactor: 0, // todo: add randomisation factor
+			Multiplier:          1.99,
+			MaxInterval:         conn.config.Timeout * time.Second,
+			MaxElapsedTime:      0,
+			Stop:                backoff.Stop,
+			Clock:               backoff.SystemClock,
+		}, conn.ctx)
+
+		ticker := backoff.NewTicker(bo)
+		defer ticker.Stop()
+
+		<-ticker.C // consume the initial tick what is happening right after the ticker has been created
+
+		no := time.Now()
+	L:
+		for {
+			select {
+			case t := <-ticker.C:
+				if t.IsZero() {
+					// in case if the ticker has been canceled by context then avoid the temporary loop
+					return
+				}
+				// checks if there is peer connection is established via relay or ice and that it has a wireguard handshake and skip offer
+				// todo check wg handshake
+				conn.log.Tracef("ticker timedout, relay state: %s, ice state: %s, elapsed time: %s", conn.statusRelay, conn.statusICE, time.Since(no))
+				no = time.Now()
+
+				if conn.statusRelay == StatusConnected && conn.statusICE == StatusConnected {
+					continue
+				}
+
+				conn.log.Debugf("ticker timed out, retry to do handshake")
+				err := conn.handshaker.sendOffer()
+				if err != nil {
+					conn.log.Errorf("failed to do handshake: %v", err)
+				}
+			case changed := <-conn.relayDisconnected:
+				if !changed {
+					continue
+				}
+				conn.log.Debugf("Relay state changed, reset reconnect timer")
+				ticker.Stop()
+				break L
+			case changed := <-conn.iCEDisconnected:
+				if !changed {
+					continue
+				}
+				conn.log.Debugf("ICE state changed, reset reconnect timer")
+				ticker.Stop()
+				break L
+			case <-conn.ctx.Done():
 				return
 			}
-			// checks if there is peer connection is established via relay or ice and that it has a wireguard handshake and skip offer
-			// todo check wg handshake
-			conn.log.Tracef("ticker timedout, relay state: %s, ice state: %s, elapsed time: %s", conn.statusRelay, conn.statusICE, time.Since(no))
-			no = time.Now()
-
-			if conn.statusRelay == StatusConnected && conn.statusICE == StatusConnected {
-				continue
-			}
-
-			log.Debugf("ticker timed out, retry to do handshake")
-			err := conn.doHandshake()
-			if err != nil {
-				conn.log.Errorf("failed to do handshake: %v", err)
-			}
-		case changed := <-conn.relayDisconnected:
-			if !changed {
-				continue
-			}
-			conn.log.Debugf("Relay state changed, reset reconnect timer")
-			bo.Reset()
-		case changed := <-conn.iCEDisconnected:
-			if !changed {
-				continue
-			}
-			conn.log.Debugf("ICE state changed, reset reconnect timer")
-			bo.Reset()
-		case <-conn.ctx.Done():
-			return
 		}
 	}
 }
@@ -399,7 +405,7 @@ func (conn *Conn) reconnectLoopForOnDisconnectedEvent() {
 			return
 		}
 
-		err := conn.doHandshake()
+		err := conn.handshaker.SendOffer()
 		if err != nil {
 			conn.log.Errorf("failed to do handshake: %v", err)
 		}
@@ -418,6 +424,8 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 	conn.log.Debugf("ICE connection is ready")
 
 	conn.statusICE = StatusConnected
+
+	defer conn.updateIceState(iceConnInfo)
 
 	if conn.currentConnType > priority {
 		return
@@ -480,16 +488,7 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 
 	conn.currentConnType = priority
 
-	peerState := State{
-		LocalIceCandidateType:      iceConnInfo.LocalIceCandidateType,
-		RemoteIceCandidateType:     iceConnInfo.RemoteIceCandidateType,
-		LocalIceCandidateEndpoint:  iceConnInfo.LocalIceCandidateEndpoint,
-		RemoteIceCandidateEndpoint: iceConnInfo.RemoteIceCandidateEndpoint,
-		Direct:                     iceConnInfo.Direct,
-		Relayed:                    iceConnInfo.Relayed,
-	}
-
-	conn.updateStatus(peerState, iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr)
+	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr)
 }
 
 // todo review to make sense to handle connection and disconnected status also?
@@ -498,16 +497,6 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 	defer conn.mu.Unlock()
 
 	conn.log.Tracef("ICE connection state changed to %s", newState)
-	defer func() {
-
-		changed := conn.statusICE != newState && newState != StatusConnecting
-		conn.statusICE = newState
-
-		select {
-		case conn.iCEDisconnected <- changed:
-		default:
-		}
-	}()
 
 	// switch back to relay connection
 	if conn.endpointRelay != nil {
@@ -516,26 +505,27 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 		if err != nil {
 			conn.log.Errorf("failed to switch to relay conn: %v", err)
 		}
-		// todo update status to relay related things
-		return
 	}
 
-	if conn.statusRelay == StatusConnected {
-		return
+	changed := conn.statusICE != newState && newState != StatusConnecting
+	conn.statusICE = newState
+
+	select {
+	case conn.iCEDisconnected <- changed:
+	default:
 	}
 
-	if conn.evalStatus() == newState {
-		return
+	peerState := State{
+		PubKey:           conn.config.Key,
+		ConnStatus:       conn.evalStatus(),
+		Direct:           false, // todo fix it
+		Relayed:          true,  // todo fix it
+		ConnStatusUpdate: time.Now(),
 	}
 
-	if newState > conn.statusICE {
-		peerState := State{
-			PubKey:           conn.config.Key,
-			ConnStatus:       newState,
-			ConnStatusUpdate: time.Now(),
-			Mux:              new(sync.RWMutex),
-		}
-		_ = conn.statusRecorder.UpdatePeerState(peerState)
+	err := conn.statusRecorder.UpdatePeerICEStateToDisconnected(peerState)
+	if err != nil {
+		conn.log.Warnf("unable to save peer's state, got error: %v", err)
 	}
 }
 
@@ -560,6 +550,8 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 	endpointUdpAddr, _ := net.ResolveUDPAddr(endpoint.Network(), endpoint.String())
 	conn.endpointRelay = endpointUdpAddr
 	conn.log.Debugf("conn resolved IP for %s: %s", endpoint, endpointUdpAddr.IP)
+
+	defer conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey)
 
 	if conn.currentConnType > connPriorityRelay {
 		if conn.statusICE == StatusConnected {
@@ -592,27 +584,13 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 	conn.wgProxyRelay = wgProxy
 	conn.currentConnType = connPriorityRelay
 
-	peerState := State{
-		Direct:  false,
-		Relayed: true,
-	}
-
 	conn.log.Infof("start to communicate with peer via relay")
-	conn.updateStatus(peerState, rci.rosenpassPubKey, rci.rosenpassAddr)
+	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr)
 }
 
 func (conn *Conn) onWorkerRelayStateDisconnected() {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
-	defer func() {
-		changed := conn.statusRelay != StatusDisconnected
-		conn.statusRelay = StatusDisconnected
-
-		select {
-		case conn.relayDisconnected <- changed:
-		default:
-		}
-	}()
 
 	if conn.wgProxyRelay != nil {
 		conn.endpointRelay = nil
@@ -620,22 +598,25 @@ func (conn *Conn) onWorkerRelayStateDisconnected() {
 		conn.wgProxyRelay = nil
 	}
 
-	if conn.statusICE == StatusConnected {
-		return
+	changed := conn.statusRelay != StatusDisconnected
+	conn.statusRelay = StatusDisconnected
+
+	select {
+	case conn.relayDisconnected <- changed:
+	default:
 	}
 
-	if conn.evalStatus() == StatusDisconnected {
-		return
+	peerState := State{
+		PubKey:           conn.config.Key,
+		ConnStatus:       conn.evalStatus(),
+		Direct:           false, // todo fix it
+		Relayed:          true,  // todo fix it
+		ConnStatusUpdate: time.Now(),
 	}
 
-	if StatusDisconnected > conn.statusRelay {
-		peerState := State{
-			PubKey:           conn.config.Key,
-			ConnStatus:       StatusDisconnected,
-			ConnStatusUpdate: time.Now(),
-			Mux:              new(sync.RWMutex),
-		}
-		_ = conn.statusRecorder.UpdatePeerState(peerState)
+	err := conn.statusRecorder.UpdatePeerRelayedStateToDisconnected(peerState)
+	if err != nil {
+		conn.log.Warnf("unable to save peer's state, got error: %v", err)
 	}
 }
 
@@ -648,18 +629,45 @@ func (conn *Conn) configureWGEndpoint(addr *net.UDPAddr) error {
 		conn.config.WgConfig.PreSharedKey,
 	)
 }
-func (conn *Conn) updateStatus(peerState State, remoteRosenpassPubKey []byte, remoteRosenpassAddr string) {
-	peerState.PubKey = conn.config.Key
-	peerState.ConnStatus = StatusConnected
-	peerState.ConnStatusUpdate = time.Now()
-	peerState.RosenpassEnabled = isRosenpassEnabled(remoteRosenpassPubKey)
-	peerState.Mux = new(sync.RWMutex)
 
-	err := conn.statusRecorder.UpdatePeerState(peerState)
+func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []byte) {
+	peerState := State{
+		PubKey:             conn.config.Key,
+		ConnStatusUpdate:   time.Now(),
+		ConnStatus:         conn.evalStatus(), // todo fix it
+		Direct:             false,             // todo fix it
+		Relayed:            true,              // todo fix it
+		RelayServerAddress: relayServerAddr,
+		RosenpassEnabled:   isRosenpassEnabled(rosenpassPubKey),
+	}
+
+	err := conn.statusRecorder.UpdatePeerRelayedState(peerState)
 	if err != nil {
 		conn.log.Warnf("unable to save peer's state, got error: %v", err)
 	}
+}
 
+func (conn *Conn) updateIceState(iceConnInfo ICEConnInfo) {
+	peerState := State{
+		PubKey:                     conn.config.Key,
+		ConnStatusUpdate:           time.Now(),
+		ConnStatus:                 conn.evalStatus(),
+		Direct:                     iceConnInfo.Direct,  // todo fix it
+		Relayed:                    iceConnInfo.Relayed, // todo fix it
+		LocalIceCandidateType:      iceConnInfo.LocalIceCandidateType,
+		RemoteIceCandidateType:     iceConnInfo.RemoteIceCandidateType,
+		LocalIceCandidateEndpoint:  iceConnInfo.LocalIceCandidateEndpoint,
+		RemoteIceCandidateEndpoint: iceConnInfo.RemoteIceCandidateEndpoint,
+		RosenpassEnabled:           isRosenpassEnabled(iceConnInfo.RosenpassPubKey),
+	}
+
+	err := conn.statusRecorder.UpdatePeerICEState(peerState)
+	if err != nil {
+		conn.log.Warnf("unable to save peer's state, got error: %v", err)
+	}
+}
+
+func (conn *Conn) doOnConnected(remoteRosenpassPubKey []byte, remoteRosenpassAddr string) {
 	if runtime.GOOS == "ios" {
 		runtime.GC()
 	}
@@ -667,25 +675,6 @@ func (conn *Conn) updateStatus(peerState State, remoteRosenpassPubKey []byte, re
 	if conn.onConnected != nil {
 		conn.onConnected(conn.config.Key, remoteRosenpassPubKey, conn.allowedIPsIP, remoteRosenpassAddr)
 	}
-}
-
-func (conn *Conn) doHandshake() error {
-	if !conn.signaler.Ready() {
-		return ErrSignalIsNotReady
-	}
-
-	var (
-		ha  HandshakeArgs
-		err error
-	)
-	ha.IceUFrag, ha.IcePwd = conn.workerICE.GetLocalUserCredentials()
-	addr, err := conn.workerRelay.RelayInstanceAddress()
-	if err == nil {
-		ha.RelayAddr = addr
-	}
-
-	conn.log.Tracef("do handshake with args: %v", ha)
-	return conn.handshaker.SendOffer(ha)
 }
 
 func (conn *Conn) waitInitialRandomSleepTime() {
