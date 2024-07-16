@@ -1543,7 +1543,6 @@ func (e *Engine) IsWGIfaceUp() bool {
 		return false
 	}
 
-	// Check if the interface is up
 	if iface.Flags&net.FlagUp != 0 {
 		return true
 	}

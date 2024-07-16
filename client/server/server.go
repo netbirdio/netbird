@@ -611,7 +611,6 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 				return nil, fmt.Errorf("failed to shut down properly")
 			}
 
-			// Wait a short period before checking again to avoid busy waiting
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
