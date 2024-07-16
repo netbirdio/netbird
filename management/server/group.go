@@ -344,15 +344,10 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountId, use
 	}
 
 	delete(account.Groups, groupID)
-
-	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
-
 	am.StoreEvent(ctx, userId, groupID, accountId, activity.GroupDeleted, g.EventMeta())
-
-	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
