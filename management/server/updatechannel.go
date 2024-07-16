@@ -204,9 +204,9 @@ func (p *PeersUpdateManager) HasChannel(peerID string) bool {
 // handlePeerMessageUpdate checks if the update message for a peer is new and should be sent.
 func (p *PeersUpdateManager) handlePeerMessageUpdate(ctx context.Context, peerID string, update *UpdateMessage) bool {
 	p.channelsMux.RLock()
-	defer p.channelsMux.RUnlock()
-
 	lastSentUpdate := p.peerUpdateMessage[peerID]
+	p.channelsMux.RUnlock()
+
 	if lastSentUpdate != nil {
 		updated, err := isNewPeerUpdateMessage(lastSentUpdate, update)
 		if err != nil {
