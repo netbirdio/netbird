@@ -19,9 +19,9 @@ func InitLog(logLevel string, logPath string) error {
 		log.Errorf("Failed parsing log-level %s: %s", logLevel, err)
 		return err
 	}
-	custom_outputs := []string{"console", "syslog"};
+	customOutputs := []string{"console", "syslog"};
 
-	if logPath != "" && !slices.Contains(custom_outputs, logPath) {
+	if logPath != "" && !slices.Contains(customOutputs, logPath) {
 		lumberjackLogger := &lumberjack.Logger{
 			// Log file absolute path, os agnostic
 			Filename:   filepath.ToSlash(logPath),
