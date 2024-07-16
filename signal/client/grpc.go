@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"sync"
@@ -14,9 +13,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
@@ -67,36 +63,16 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 	var conn *grpc.ClientConn
 
 	operation := func() error {
-		transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
-
-		if tlsEnabled {
-			transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
-		}
-
-		sigCtx, cancel := context.WithTimeout(context.Background(), client.ConnectTimeout)
-		defer cancel()
-
 		var err error
-		conn, err = grpc.DialContext(
-			sigCtx,
-			addr,
-			transportOption,
-			nbgrpc.WithCustomDialer(),
-			grpc.WithBlock(),
-			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				Time:    30 * time.Second,
-				Timeout: 10 * time.Second,
-			}),
-		)
+		conn, err = nbgrpc.CreateConnection(addr, tlsEnabled)
 		if err != nil {
-			log.Printf("DialContext error: %v", err)
+			log.Printf("createConnection error: %v", err)
 			return err
 		}
-
 		return nil
 	}
 
-	err := backoff.Retry(operation, grpcDialBackoff(ctx))
+	err := backoff.Retry(operation, nbgrpc.Backoff(ctx))
 	if err != nil {
 		log.Errorf("failed to connect to the signalling server: %v", err)
 		return nil, err
@@ -133,14 +109,6 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
-}
-
-// grpcDialBackoff is the backoff mechanism for the grpc calls
-func grpcDialBackoff(ctx context.Context) backoff.BackOff {
-	b := backoff.NewExponentialBackOff()
-	b.MaxElapsedTime = 10 * time.Second
-	b.Clock = backoff.SystemClock
-	return backoff.WithContext(b, ctx)
 }
 
 // Receive Connects to the Signal Exchange message stream and starts receiving messages.

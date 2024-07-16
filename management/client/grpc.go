@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"sync"
@@ -11,15 +10,11 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/keepalive"
-
-	"github.com/cenkalti/backoff/v4"
 
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
@@ -54,36 +49,16 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 	var conn *grpc.ClientConn
 
 	operation := func() error {
-		transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
-
-		if tlsEnabled {
-			transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
-		}
-
-		mgmCtx, cancel := context.WithTimeout(context.Background(), ConnectTimeout)
-		defer cancel()
-
 		var err error
-		conn, err = grpc.DialContext(
-			mgmCtx,
-			addr,
-			transportOption,
-			nbgrpc.WithCustomDialer(),
-			grpc.WithBlock(),
-			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				Time:    30 * time.Second,
-				Timeout: 10 * time.Second,
-			}),
-		)
+		conn, err = nbgrpc.CreateConnection(addr, tlsEnabled)
 		if err != nil {
-			log.Printf("DialContext error: %v", err)
+			log.Printf("createConnection error: %v", err)
 			return err
 		}
-
 		return nil
 	}
 
-	err := backoff.Retry(operation, grpcDialBackoff(ctx))
+	err := backoff.Retry(operation, nbgrpc.Backoff(ctx))
 	if err != nil {
 		log.Errorf("failed creating connection to Management Service: %v", err)
 		return nil, err
@@ -123,14 +98,6 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
-}
-
-// grpcDialBackoff is the backoff mechanism for the grpc calls
-func grpcDialBackoff(ctx context.Context) backoff.BackOff {
-	b := backoff.NewExponentialBackOff()
-	b.MaxElapsedTime = 10 * time.Second
-	b.Clock = backoff.SystemClock
-	return backoff.WithContext(b, ctx)
 }
 
 // ready indicates whether the client is okay and ready to be used
@@ -374,7 +341,7 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 		return nil
 	}
 
-	err = backoff.Retry(operation, grpcDialBackoff(c.ctx))
+	err = backoff.Retry(operation, nbgrpc.Backoff(c.ctx))
 	if err != nil {
 		log.Errorf("failed to login to Management Service: %v", err)
 		return nil, err
