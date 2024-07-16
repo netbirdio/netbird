@@ -336,17 +336,18 @@ func mapNSGroups(servers []*proto.NSGroupState) []nsServerGroupStateOutput {
 
 func mapPeers(peers []*proto.PeerState) peersStateOutput {
 	var peersStateDetail []peerStateDetailOutput
-	localICE := ""
-	remoteICE := ""
-	localICEEndpoint := ""
-	remoteICEEndpoint := ""
-	relayServerAddress := ""
-	connType := ""
 	peersConnected := 0
-	lastHandshake := time.Time{}
-	transferReceived := int64(0)
-	transferSent := int64(0)
 	for _, pbPeerState := range peers {
+		localICE := ""
+		remoteICE := ""
+		localICEEndpoint := ""
+		remoteICEEndpoint := ""
+		relayServerAddress := ""
+		connType := ""
+		lastHandshake := time.Time{}
+		transferReceived := int64(0)
+		transferSent := int64(0)
+
 		isPeerConnected := pbPeerState.ConnStatus == peer.StatusConnected.String()
 		if skipDetailByFilters(pbPeerState, isPeerConnected) {
 			continue
