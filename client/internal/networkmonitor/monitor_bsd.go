@@ -4,6 +4,7 @@ package networkmonitor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"syscall"
 	"unsafe"
