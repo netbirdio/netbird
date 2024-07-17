@@ -327,7 +327,7 @@ func (conn *Conn) reconnectLoopWithRetry() {
 	for {
 		bo := backoff.WithContext(&backoff.ExponentialBackOff{
 			InitialInterval:     800 * time.Millisecond,
-			RandomizationFactor: 0, // todo: add randomisation factor
+			RandomizationFactor: 1,
 			Multiplier:          1.99,
 			MaxInterval:         conn.config.Timeout * time.Second,
 			MaxElapsedTime:      0,
@@ -518,8 +518,7 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 	peerState := State{
 		PubKey:           conn.config.Key,
 		ConnStatus:       conn.evalStatus(),
-		Direct:           false, // todo fix it
-		Relayed:          true,  // todo fix it
+		Relayed:          conn.isRelayed(),
 		ConnStatusUpdate: time.Now(),
 	}
 
@@ -609,8 +608,7 @@ func (conn *Conn) onWorkerRelayStateDisconnected() {
 	peerState := State{
 		PubKey:           conn.config.Key,
 		ConnStatus:       conn.evalStatus(),
-		Direct:           false, // todo fix it
-		Relayed:          true,  // todo fix it
+		Relayed:          conn.isRelayed(),
 		ConnStatusUpdate: time.Now(),
 	}
 
@@ -634,9 +632,8 @@ func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []by
 	peerState := State{
 		PubKey:             conn.config.Key,
 		ConnStatusUpdate:   time.Now(),
-		ConnStatus:         conn.evalStatus(), // todo fix it
-		Direct:             false,             // todo fix it
-		Relayed:            true,              // todo fix it
+		ConnStatus:         conn.evalStatus(),
+		Relayed:            conn.isRelayed(),
 		RelayServerAddress: relayServerAddr,
 		RosenpassEnabled:   isRosenpassEnabled(rosenpassPubKey),
 	}
@@ -652,8 +649,7 @@ func (conn *Conn) updateIceState(iceConnInfo ICEConnInfo) {
 		PubKey:                     conn.config.Key,
 		ConnStatusUpdate:           time.Now(),
 		ConnStatus:                 conn.evalStatus(),
-		Direct:                     iceConnInfo.Direct,  // todo fix it
-		Relayed:                    iceConnInfo.Relayed, // todo fix it
+		Relayed:                    iceConnInfo.Relayed,
 		LocalIceCandidateType:      iceConnInfo.LocalIceCandidateType,
 		RemoteIceCandidateType:     iceConnInfo.RemoteIceCandidateType,
 		LocalIceCandidateEndpoint:  iceConnInfo.LocalIceCandidateEndpoint,
@@ -689,6 +685,18 @@ func (conn *Conn) waitInitialRandomSleepTime() {
 	case <-conn.ctx.Done():
 	case <-timeout.C:
 	}
+}
+
+func (conn *Conn) isRelayed() bool {
+	if conn.statusRelay == StatusDisconnected && (conn.statusICE == StatusDisconnected || conn.statusICE == StatusConnecting) {
+		return false
+	}
+
+	if conn.currentConnType == connPriorityICEP2P {
+		return false
+	}
+
+	return true
 }
 
 func (conn *Conn) evalStatus() ConnStatus {

@@ -59,7 +59,6 @@ type ICEConnInfo struct {
 	RemoteIceCandidateType     string
 	RemoteIceCandidateEndpoint string
 	LocalIceCandidateEndpoint  string
-	Direct                     bool
 	Relayed                    bool
 	RelayedOnLocal             bool
 }
@@ -187,7 +186,6 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		RemoteIceCandidateType:     pair.Remote.Type().String(),
 		LocalIceCandidateEndpoint:  fmt.Sprintf("%s:%d", pair.Local.Address(), pair.Local.Port()),
 		RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Remote.Port()),
-		Direct:                     !isRelayCandidate(pair.Local),
 		Relayed:                    isRelayed(pair),
 		RelayedOnLocal:             isRelayCandidate(pair.Local),
 	}

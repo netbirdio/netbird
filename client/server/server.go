@@ -727,7 +727,6 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			ConnStatus:                 peerState.ConnStatus.String(),
 			ConnStatusUpdate:           timestamppb.New(peerState.ConnStatusUpdate),
 			Relayed:                    peerState.Relayed,
-			Direct:                     peerState.Direct,
 			LocalIceCandidateType:      peerState.LocalIceCandidateType,
 			RemoteIceCandidateType:     peerState.RemoteIceCandidateType,
 			LocalIceCandidateEndpoint:  peerState.LocalIceCandidateEndpoint,

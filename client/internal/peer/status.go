@@ -27,7 +27,6 @@ type State struct {
 	connStatusICE              ConnStatus
 	ConnStatusUpdate           time.Time
 	Relayed                    bool
-	Direct                     bool
 	LocalIceCandidateType      string
 	RemoteIceCandidateType     string
 	LocalIceCandidateEndpoint  string
@@ -248,7 +247,6 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 	if receivedState.ConnStatus != peerState.ConnStatus {
 		peerState.ConnStatus = receivedState.ConnStatus
 		peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
-		peerState.Direct = receivedState.Direct
 		peerState.Relayed = receivedState.Relayed
 		peerState.LocalIceCandidateType = receivedState.LocalIceCandidateType
 		peerState.RemoteIceCandidateType = receivedState.RemoteIceCandidateType
@@ -291,7 +289,6 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 
 	peerState.ConnStatus = receivedState.ConnStatus
 	peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
-	peerState.Direct = receivedState.Direct
 	peerState.Relayed = receivedState.Relayed
 	peerState.LocalIceCandidateType = receivedState.LocalIceCandidateType
 	peerState.RemoteIceCandidateType = receivedState.RemoteIceCandidateType
@@ -328,7 +325,6 @@ func (d *Status) UpdatePeerRelayedState(receivedState State) error {
 
 	peerState.ConnStatus = receivedState.ConnStatus
 	peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
-	peerState.Direct = receivedState.Direct
 	peerState.Relayed = receivedState.Relayed
 	peerState.RelayServerAddress = receivedState.RelayServerAddress
 	peerState.RosenpassEnabled = receivedState.RosenpassEnabled
@@ -361,11 +357,9 @@ func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error
 	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
 
 	peerState.ConnStatus = receivedState.ConnStatus
-	peerState.Direct = receivedState.Direct
 	peerState.Relayed = receivedState.Relayed
 	peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
 	peerState.RelayServerAddress = ""
-	//peerState.RosenpassEnabled = receivedState.RosenpassEnabled // todo: check this variable
 
 	d.peers[receivedState.PubKey] = peerState
 
@@ -395,14 +389,12 @@ func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
 	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
 
 	peerState.ConnStatus = receivedState.ConnStatus
-	peerState.Direct = receivedState.Direct
 	peerState.Relayed = receivedState.Relayed
 	peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
 	peerState.LocalIceCandidateType = receivedState.LocalIceCandidateType
 	peerState.RemoteIceCandidateType = receivedState.RemoteIceCandidateType
 	peerState.LocalIceCandidateEndpoint = receivedState.LocalIceCandidateEndpoint
 	peerState.RemoteIceCandidateEndpoint = receivedState.RemoteIceCandidateEndpoint
-	//peerState.RosenpassEnabled = receivedState.RosenpassEnabled // todo: check this variable
 
 	d.peers[receivedState.PubKey] = peerState
 

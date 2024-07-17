@@ -31,7 +31,6 @@ type peerStateDetailOutput struct {
 	Status                 string           `json:"status" yaml:"status"`
 	LastStatusUpdate       time.Time        `json:"lastStatusUpdate" yaml:"lastStatusUpdate"`
 	ConnType               string           `json:"connectionType" yaml:"connectionType"`
-	Direct                 bool             `json:"direct" yaml:"direct"`
 	IceCandidateType       iceCandidateType `json:"iceCandidateType" yaml:"iceCandidateType"`
 	IceCandidateEndpoint   iceCandidateType `json:"iceCandidateEndpoint" yaml:"iceCandidateEndpoint"`
 	RelayAddress           string           `json:"relayAddress" yaml:"relayAddress"`
@@ -376,7 +375,6 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 			Status:           pbPeerState.GetConnStatus(),
 			LastStatusUpdate: timeLocal,
 			ConnType:         connType,
-			Direct:           pbPeerState.GetDirect(),
 			IceCandidateType: iceCandidateType{
 				Local:  localICE,
 				Remote: remoteICE,
@@ -646,7 +644,6 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 				"  Status: %s\n"+
 				"  -- detail --\n"+
 				"  Connection type: %s\n"+
-				"  Direct: %t\n"+
 				"  ICE candidate (Local/Remote): %s/%s\n"+
 				"  ICE candidate endpoints (Local/Remote): %s/%s\n"+
 				"  Relay server address: %s\n"+
@@ -661,7 +658,6 @@ func parsePeers(peers peersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			peerState.PubKey,
 			peerState.Status,
 			peerState.ConnType,
-			peerState.Direct,
 			localICE,
 			remoteICE,
 			localICEEndpoint,
