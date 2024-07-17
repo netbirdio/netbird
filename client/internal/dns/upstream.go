@@ -175,7 +175,7 @@ func (u *upstreamResolverBase) probeAvailability() {
 	}
 
 	// avoid probe if upstreams could resolve at least one query and fails count is less than failsTillDeact
-	if u.successCount.Load() > 0 && u.failsCount.Load() > u.failsTillDeact {
+	if u.successCount.Load() > 0 && u.failsCount.Load() < u.failsTillDeact {
 		return
 	}
 
