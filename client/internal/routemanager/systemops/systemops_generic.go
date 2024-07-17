@@ -137,7 +137,7 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf *iface.WGIfac
 
 	// Check if the prefix is part of any local subnets
 	if isLocal, subnet := r.isPrefixInLocalSubnets(prefix); isLocal {
-		return Nexthop{}, fmt.Errorf("prefix %s is part of local subnet %s: %v", prefix, subnet, vars.ErrRouteNotAllowed)
+		return Nexthop{}, fmt.Errorf("prefix %s is part of local subnet %s: %w", prefix, subnet, vars.ErrRouteNotAllowed)
 	}
 
 	// Determine the exit interface and next hop for the prefix, so we can add a specific route
