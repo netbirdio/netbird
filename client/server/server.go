@@ -594,23 +594,21 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	state.Set(internal.StatusIdle)
 
 	maxWaitTime := 5 * time.Second
-	startTime := time.Now()
+	timeout := time.After(maxWaitTime)
 
 	engine := s.connectClient.Engine()
 
 	for {
+		if !engine.IsWGIfaceUp() {
+			return &proto.DownResponse{}, nil
+		}
+
 		select {
 		case <-ctx.Done():
 			return &proto.DownResponse{}, nil
+		case <-timeout:
+			return nil, fmt.Errorf("failed to shut down properly")
 		default:
-			if !engine.IsWGIfaceUp() {
-				return &proto.DownResponse{}, nil
-			}
-
-			if time.Since(startTime) > maxWaitTime {
-				return nil, fmt.Errorf("failed to shut down properly")
-			}
-
 			time.Sleep(100 * time.Millisecond)
 		}
 	}

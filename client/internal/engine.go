@@ -268,7 +268,7 @@ func (e *Engine) Stop() error {
 	e.wgConnWorker.Wait()
 
 	maxWaitTime := 5 * time.Second
-	startTime := time.Now()
+	timeout := time.After(maxWaitTime)
 
 	for {
 		if !e.IsWGIfaceUp() {
@@ -276,11 +276,12 @@ func (e *Engine) Stop() error {
 			return nil
 		}
 
-		if time.Since(startTime) > maxWaitTime {
+		select {
+		case <-timeout:
 			return fmt.Errorf("timeout when waiting for interface shutdown")
+		default:
+			time.Sleep(100 * time.Millisecond)
 		}
-
-		time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -1554,6 +1555,7 @@ func (e *Engine) IsWGIfaceUp() bool {
 	}
 	iface, err := net.InterfaceByName(e.wgInterface.Name())
 	if err != nil {
+		log.Debugf("failed to get interface by name %s: %v", e.wgInterface.Name(), err)
 		return false
 	}
 
