@@ -582,7 +582,7 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 }
 
 // Down engine work in the daemon.
-func (s *Server) Down(_ context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
+func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -593,7 +593,25 @@ func (s *Server) Down(_ context.Context, _ *proto.DownRequest) (*proto.DownRespo
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusIdle)
 
-	return &proto.DownResponse{}, nil
+	maxWaitTime := 5 * time.Second
+	timeout := time.After(maxWaitTime)
+
+	engine := s.connectClient.Engine()
+
+	for {
+		if !engine.IsWGIfaceUp() {
+			return &proto.DownResponse{}, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return &proto.DownResponse{}, nil
+		case <-timeout:
+			return nil, fmt.Errorf("failed to shut down properly")
+		default:
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
 }
 
 // Status returns the daemon status
