@@ -24,19 +24,21 @@ func initGeolocationTestData(t *testing.T) *GeolocationsHandler {
 	t.Helper()
 
 	var (
-		mmdbPath       = "../testdata/GeoLite2-City-Test.mmdb"
-		geonamesDBPath = "../testdata/geonames-test.db"
+		mmdbPath         = "../testdata/GeoLite2-City-Test.mmdb"
+		geonamesDBPath   = "../testdata/geonames-test.db"
+		mmdbFilename     = "GeoLite2-City.mmdb"
+		geonamesdbFilename = "geonames.db"
 	)
 
 	tempDir := t.TempDir()
 
-	err := util.CopyFileContents(mmdbPath, path.Join(tempDir, geolocation.MMDBFileName))
+	err := util.CopyFileContents(mmdbPath, path.Join(tempDir, mmdbFilename))
 	assert.NoError(t, err)
 
-	err = util.CopyFileContents(geonamesDBPath, path.Join(tempDir, geolocation.GeoSqliteDBFile))
+	err = util.CopyFileContents(geonamesDBPath, path.Join(tempDir, geonamesdbFilename))
 	assert.NoError(t, err)
 
-	geo, err := geolocation.NewGeolocation(context.Background(), tempDir)
+	geo, err := geolocation.NewGeolocation(context.Background(), tempDir, mmdbFilename, geonamesdbFilename)
 	assert.NoError(t, err)
 	t.Cleanup(func() { _ = geo.Stop() })
 

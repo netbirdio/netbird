@@ -178,7 +178,7 @@ var (
 				}
 			}
 
-			geo, err := geolocation.NewGeolocation(ctx, config.Datadir)
+			geo, err := geolocation.NewGeolocation(ctx, config.Datadir, "", "")
 			if err != nil {
 				log.WithContext(ctx).Warnf("could not initialize geo location service: %v, we proceed without geo support", err)
 			} else {
