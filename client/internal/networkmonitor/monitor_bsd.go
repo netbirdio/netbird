@@ -43,8 +43,10 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop, ca
 		default:
 			buf := make([]byte, 2048)
 			n, err := unix.Read(fd, buf)
-			if err != nil && !errors.Is(err, unix.EBADF) && !errors.Is(err, unix.EINVAL) {
-				log.Errorf("Network monitor: failed to read from routing socket: %v", err)
+			if err != nil {
+				if !errors.Is(err, unix.EBADF) && !errors.Is(err, unix.EINVAL) {
+					log.Errorf("Network monitor: failed to read from routing socket: %v", err)
+				}
 				continue
 			}
 			if n < unix.SizeofRtMsghdr {
