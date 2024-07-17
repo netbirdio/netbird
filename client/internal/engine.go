@@ -266,8 +266,22 @@ func (e *Engine) Stop() error {
 
 	e.close()
 	e.wgConnWorker.Wait()
-	log.Infof("stopped Netbird Engine")
-	return nil
+
+	maxWaitTime := 5 * time.Second
+	startTime := time.Now()
+
+	for {
+		if !e.IsWGIfaceUp() {
+			log.Infof("stopped Netbird Engine")
+			return nil
+		}
+
+		if time.Since(startTime) > maxWaitTime {
+			return fmt.Errorf("timeout when waiting for interface shutdown")
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // Start creates a new WireGuard tunnel interface and listens to events from Signal and Management services
