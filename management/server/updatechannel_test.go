@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/stretchr/testify/assert"
 )
 
 // var peersUpdater *PeersUpdateManager
@@ -75,5 +77,106 @@ func TestCloseChannel(t *testing.T) {
 	peersUpdater.CloseChannel(context.Background(), peer)
 	if _, ok := peersUpdater.peerChannels[peer]; ok {
 		t.Error("Error closing the channel")
+	}
+}
+
+func TestHandlePeerMessageUpdate(t *testing.T) {
+	tests := []struct {
+		name           string
+		peerID         string
+		existingUpdate *UpdateMessage
+		newUpdate      *UpdateMessage
+		expectedResult bool
+	}{
+		{
+			name:   "update message with turn credentials update",
+			peerID: "peer",
+			newUpdate: &UpdateMessage{
+				Update: &proto.SyncResponse{
+					WiretrusteeConfig: &proto.WiretrusteeConfig{},
+				},
+			},
+			expectedResult: true,
+		},
+		{
+			name:   "update message for peer without existing update",
+			peerID: "peer1",
+			newUpdate: &UpdateMessage{
+				Update: &proto.SyncResponse{
+					NetworkMap: &proto.NetworkMap{Serial: 1},
+				},
+				NetworkMap: &NetworkMap{Network: &Network{Serial: 2}},
+			},
+			expectedResult: true,
+		},
+		{
+			name:   "update message with no changes in update",
+			peerID: "peer2",
+			existingUpdate: &UpdateMessage{
+				Update: &proto.SyncResponse{
+					NetworkMap: &proto.NetworkMap{Serial: 1},
+				},
+				NetworkMap: &NetworkMap{Network: &Network{Serial: 1}},
+				Checks:     []*posture.Checks{},
+			},
+			newUpdate: &UpdateMessage{
+				Update: &proto.SyncResponse{
+					NetworkMap: &proto.NetworkMap{Serial: 1},
+				},
+				NetworkMap: &NetworkMap{Network: &Network{Serial: 1}},
+				Checks:     []*posture.Checks{},
+			},
+			expectedResult: false,
+		},
+		{
+			name:   "update message with changes in checks",
+			peerID: "peer3",
+			existingUpdate: &UpdateMessage{
+				Update: &proto.SyncResponse{
+					NetworkMap: &proto.NetworkMap{Serial: 1},
+				},
+				NetworkMap: &NetworkMap{Network: &Network{Serial: 1}},
+				Checks:     []*posture.Checks{},
+			},
+			newUpdate: &UpdateMessage{
+				Update: &proto.SyncResponse{
+					NetworkMap: &proto.NetworkMap{Serial: 2},
+				},
+				NetworkMap: &NetworkMap{Network: &Network{Serial: 2}},
+				Checks:     []*posture.Checks{{ID: "check1"}},
+			},
+			expectedResult: true,
+		},
+		{
+			name:   "update message with lower serial number",
+			peerID: "peer4",
+			existingUpdate: &UpdateMessage{
+				Update: &proto.SyncResponse{
+					NetworkMap: &proto.NetworkMap{Serial: 2},
+				},
+				NetworkMap: &NetworkMap{Network: &Network{Serial: 2}},
+			},
+			newUpdate: &UpdateMessage{
+				Update: &proto.SyncResponse{
+					NetworkMap: &proto.NetworkMap{Serial: 1},
+				},
+				NetworkMap: &NetworkMap{Network: &Network{Serial: 1}},
+			},
+			expectedResult: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewPeersUpdateManager(nil)
+			ctx := context.Background()
+
+			if tt.existingUpdate != nil {
+				p.peerUpdateMessage[tt.peerID] = tt.existingUpdate
+			}
+
+			result := p.handlePeerMessageUpdate(ctx, tt.peerID, tt.newUpdate)
+			assert.Equal(t, tt.expectedResult, result)
+		})
 	}
 }
