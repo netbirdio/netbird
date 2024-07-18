@@ -113,7 +113,9 @@ var (
 
 			grpcRootHandler := grpcHandlerFunc(grpcServer)
 
-			startServer(certManager, grpcRootHandler)
+			if certManager != nil {
+				startServerWithCertManager(certManager, grpcRootHandler)
+			}
 
 			var compatListener net.Listener
 			var grpcListener net.Listener
@@ -180,7 +182,7 @@ func getTLSConfigurations() ([]grpc.ServerOption, *autocert.Manager, error) {
 
 	if signalLetsencryptDomain == "" && signalCertFile == "" && signalCertKey == "" {
 		log.Infof("running without TLS")
-		return nil, certManager, nil
+		return nil, nil, nil
 	}
 
 	if signalLetsencryptDomain != "" {
@@ -209,19 +211,17 @@ func getTLSConfigurations() ([]grpc.ServerOption, *autocert.Manager, error) {
 	return []grpc.ServerOption{grpc.Creds(transportCredentials)}, certManager, err
 }
 
-func startServer(certManager *autocert.Manager, grpcRootHandler http.Handler) {
-	if certManager != nil {
-		// a call to certManager.Listener() always creates a new listener so we do it once
-		httpListener := certManager.Listener()
-		if signalPort == 443 {
-			// running gRPC and HTTP cert manager on the same port
-			serveHTTP(httpListener, certManager.HTTPHandler(grpcRootHandler))
-			log.Infof("running HTTP server (LetsEncrypt challenge handler) and gRPC server on the same port: %s", httpListener.Addr().String())
-		} else {
-			// Start the HTTP cert manager server separately
-			serveHTTP(httpListener, certManager.HTTPHandler(nil))
-			log.Infof("running HTTP server (LetsEncrypt challenge handler): %s", httpListener.Addr().String())
-		}
+func startServerWithCertManager(certManager *autocert.Manager, grpcRootHandler http.Handler) {
+	// a call to certManager.Listener() always creates a new listener so we do it once
+	httpListener := certManager.Listener()
+	if signalPort == 443 {
+		// running gRPC and HTTP cert manager on the same port
+		serveHTTP(httpListener, certManager.HTTPHandler(grpcRootHandler))
+		log.Infof("running HTTP server (LetsEncrypt challenge handler) and gRPC server on the same port: %s", httpListener.Addr().String())
+	} else {
+		// Start the HTTP cert manager server separately
+		serveHTTP(httpListener, certManager.HTTPHandler(nil))
+		log.Infof("running HTTP server (LetsEncrypt challenge handler): %s", httpListener.Addr().String())
 	}
 }
 
