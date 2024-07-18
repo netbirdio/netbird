@@ -3,7 +3,10 @@ package server
 import (
 	"context"
 	"fmt"
+	"slices"
 
+	"github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
@@ -269,78 +272,8 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountId, use
 		}
 	}
 
-	// check route links
-	for _, r := range account.Routes {
-		for _, g := range r.Groups {
-			if g == groupID {
-				return &GroupLinkError{"route", string(r.NetID)}
-			}
-		}
-		for _, g := range r.PeerGroups {
-			if g == groupID {
-				return &GroupLinkError{"route", string(r.NetID)}
-			}
-		}
-	}
-
-	// check DNS links
-	for _, dns := range account.NameServerGroups {
-		for _, g := range dns.Groups {
-			if g == groupID {
-				return &GroupLinkError{"name server groups", dns.Name}
-			}
-		}
-	}
-
-	// check ACL links
-	for _, policy := range account.Policies {
-		for _, rule := range policy.Rules {
-			for _, src := range rule.Sources {
-				if src == groupID {
-					return &GroupLinkError{"policy", policy.Name}
-				}
-			}
-
-			for _, dst := range rule.Destinations {
-				if dst == groupID {
-					return &GroupLinkError{"policy", policy.Name}
-				}
-			}
-		}
-	}
-
-	// check setup key links
-	for _, setupKey := range account.SetupKeys {
-		for _, grp := range setupKey.AutoGroups {
-			if grp == groupID {
-				return &GroupLinkError{"setup key", setupKey.Name}
-			}
-		}
-	}
-
-	// check user links
-	for _, user := range account.Users {
-		for _, grp := range user.AutoGroups {
-			if grp == groupID {
-				return &GroupLinkError{"user", user.Id}
-			}
-		}
-	}
-
-	// check DisabledManagementGroups
-	for _, disabledMgmGrp := range account.DNSSettings.DisabledManagementGroups {
-		if disabledMgmGrp == groupID {
-			return &GroupLinkError{"disabled DNS management groups", g.Name}
-		}
-	}
-
-	// check integrated peer validator groups
-	if account.Settings.Extra != nil {
-		for _, integratedPeerValidatorGroups := range account.Settings.Extra.IntegratedValidatorGroups {
-			if groupID == integratedPeerValidatorGroups {
-				return &GroupLinkError{"integrated validator", g.Name}
-			}
-		}
+	if err := checkGroupLinks(account, groupID); err != nil {
+		return err
 	}
 
 	delete(account.Groups, groupID)
@@ -434,4 +367,95 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 	am.updateAccountPeers(ctx, account)
 
 	return nil
+}
+
+// checkGroupLinks checks if a group is linked to any route, DNS, policy, setup key, user, disabled management groups,
+// or integrated validator groups.
+// If the group is linked, it returns a GroupLinkError indicating the type of resource it is linked to and the name of that resource.
+func checkGroupLinks(account *Account, groupID string) error {
+	if isLinked, linkedRoute := isGroupLinkedToRoute(account, groupID); isLinked {
+		return &GroupLinkError{"route", string(linkedRoute.NetID)}
+	}
+
+	if isLinked, linkedDns := isGroupLinkedToDns(account, groupID); isLinked {
+		return &GroupLinkError{"name server groups", linkedDns.Name}
+	}
+
+	if isLinked, linkedPolicy := isGroupLinkedToPolicy(account, groupID); isLinked {
+		return &GroupLinkError{"policy", linkedPolicy.Name}
+	}
+
+	if isLinked, linkedSetupKey := isGroupLinkedToSetupKey(account, groupID); isLinked {
+		return &GroupLinkError{"setup key", linkedSetupKey.Name}
+	}
+
+	if isLinked, linkedUser := isGroupLinkedToUser(account, groupID); isLinked {
+		return &GroupLinkError{"user", linkedUser.Id}
+	}
+
+	if slices.Contains(account.DNSSettings.DisabledManagementGroups, groupID) {
+		return &GroupLinkError{"disabled DNS management groups", account.Groups[groupID].Name}
+	}
+
+	if account.Settings.Extra != nil {
+		if slices.Contains(account.Settings.Extra.IntegratedValidatorGroups, groupID) {
+			return &GroupLinkError{"integrated validator", account.Groups[groupID].Name}
+		}
+	}
+
+	return nil
+}
+
+// isGroupLinkedToRoute checks if a group is linked to any route in the account.
+func isGroupLinkedToRoute(account *Account, groupID string) (bool, *route.Route) {
+	for _, r := range account.Routes {
+		if slices.Contains(r.Groups, groupID) || slices.Contains(r.PeerGroups, groupID) {
+			return true, r
+		}
+	}
+	return false, nil
+}
+
+// isGroupLinkedToPolicy checks if a group is linked to any policy in the account.
+func isGroupLinkedToPolicy(account *Account, groupID string) (bool, *Policy) {
+	for _, policy := range account.Policies {
+		for _, rule := range policy.Rules {
+			if slices.Contains(rule.Sources, groupID) || slices.Contains(rule.Destinations, groupID) {
+				return true, policy
+			}
+		}
+	}
+	return false, nil
+}
+
+// isGroupLinkedToDns checks if a group is linked to any nameserver group in the account.
+func isGroupLinkedToDns(account *Account, groupID string) (bool, *dns.NameServerGroup) {
+	for _, dns := range account.NameServerGroups {
+		for _, g := range dns.Groups {
+			if g == groupID {
+				return true, dns
+			}
+		}
+	}
+	return false, nil
+}
+
+// isGroupLinkedToSetupKey checks if a group is linked to any setup key in the account.
+func isGroupLinkedToSetupKey(account *Account, groupID string) (bool, *SetupKey) {
+	for _, setupKey := range account.SetupKeys {
+		if slices.Contains(setupKey.AutoGroups, groupID) {
+			return true, setupKey
+		}
+	}
+	return false, nil
+}
+
+// isGroupLinkedToUser checks if a group is linked to any user in the account.
+func isGroupLinkedToUser(account *Account, groupID string) (bool, *User) {
+	for _, user := range account.Users {
+		if slices.Contains(user.AutoGroups, groupID) {
+			return false, user
+		}
+	}
+	return false, nil
 }
