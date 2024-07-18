@@ -384,20 +384,18 @@ func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppe
 	return true
 }
 
-// todo check by reference too, the id is not enought because the id come from the outer conn
-func (c *Client) writeTo(id string, dstID []byte, payload []byte) (int, error) {
+func (c *Client) writeTo(connReference *Conn, id string, dstID []byte, payload []byte) (int, error) {
 	c.mu.Lock()
-	//	conn, ok := c.conns[id]
-	_, ok := c.conns[id]
+	conn, ok := c.conns[id]
 	c.mu.Unlock()
 	if !ok {
 		return 0, io.EOF
 	}
-	/*
-		if conn != clientRef {
-			return 0, io.EOF
-		}
-	*/
+
+	if conn.conn != connReference {
+		return 0, io.EOF
+	}
+
 	// todo: use buffer pool instead of create new transport msg.
 	msg, err := messages.MarshalTransportMsg(dstID, payload)
 	if err != nil {
@@ -439,14 +437,17 @@ func (c *Client) closeAllConns() {
 	c.conns = make(map[string]*connContainer)
 }
 
-// todo check by reference too, the id is not enought because the id come from the outer conn
-func (c *Client) closeConn(id string) error {
+func (c *Client) closeConn(connReference *Conn, id string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	container, ok := c.conns[id]
 	if !ok {
 		return fmt.Errorf("connection already closed")
+	}
+
+	if container.conn != connReference {
+		return fmt.Errorf("conn reference mismatch")
 	}
 	container.close()
 	delete(c.conns, id)
