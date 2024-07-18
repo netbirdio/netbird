@@ -490,3 +490,13 @@ func isGroupLinkedToUser(users map[string]*User, groupID string) (bool, *User) {
 	}
 	return false, nil
 }
+
+// anyGroupHasPeers checks if any of the given groups in the account have peers.
+func anyGroupHasPeers(account *Account, groupIDs []string) bool {
+	for _, groupID := range groupIDs {
+		if group, exists := account.Groups[groupID]; exists && group.HasPeers() {
+			return true
+		}
+	}
+	return false
+}
