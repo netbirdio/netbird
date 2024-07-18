@@ -457,23 +457,24 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	registrationTime := time.Now().UTC()
 
 	newPeer := &nbpeer.Peer{
-		ID:                          xid.New().String(),
-		Key:                         peer.Key,
-		SetupKey:                    upperKey,
-		IP:                          nextIp,
-		Meta:                        peer.Meta,
-		Name:                        peer.Meta.Hostname,
-		DNSLabel:                    newLabel,
-		UserID:                      userID,
-		Status:                      &nbpeer.PeerStatus{Connected: false, LastSeen: registrationTime},
-		SSHEnabled:                  false,
-		SSHKey:                      peer.SSHKey,
-		LastLogin:                   registrationTime,
-		CreatedAt:                   registrationTime,
-		LoginExpirationEnabled:      addedByUser,
+		ID:                     xid.New().String(),
+		Key:                    peer.Key,
+		SetupKey:               upperKey,
+		IP:                     nextIp,
+		Meta:                   peer.Meta,
+		Name:                   peer.Meta.Hostname,
+		DNSLabel:               newLabel,
+		UserID:                 userID,
+		Status:                 &nbpeer.PeerStatus{Connected: false, LastSeen: registrationTime},
+		SSHEnabled:             false,
+		SSHKey:                 peer.SSHKey,
+		LastLogin:              registrationTime,
+		CreatedAt:              registrationTime,
+		LoginExpirationEnabled: addedByUser,
+		Ephemeral:              ephemeral,
+		Location:               peer.Location,
+
 		InactivityExpirationEnabled: addedByUser,
-		Ephemeral:                   ephemeral,
-		Location:                    peer.Location,
 	}
 
 	// add peer to 'All' group
