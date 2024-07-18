@@ -165,12 +165,18 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 		eventsToStore = append(eventsToStore, events...)
 	}
 
-	account.Network.IncSerial()
+	updateAccountPeers := areGroupChangesAffectPeers(account, newGroups)
+	if updateAccountPeers {
+		account.Network.IncSerial()
+	}
+
 	if err = am.Store.SaveGroups(account.Id, account.Groups); err != nil {
 		return err
 	}
 
-	am.updateAccountPeers(ctx, account)
+	if updateAccountPeers {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
@@ -318,10 +324,9 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 		group.Peers = append(group.Peers, peerID)
 	}
 
-	updateAccountPeers := false
-	if areGroupChangesAffectPeers(account, []string{groupID}) {
+	updateAccountPeers := areGroupChangesAffectPeers(account, []*nbgroup.Group{group})
+	if updateAccountPeers {
 		account.Network.IncSerial()
-		updateAccountPeers = true
 	}
 
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
@@ -350,10 +355,9 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 		return status.Errorf(status.NotFound, "group with ID %s not found", groupID)
 	}
 
-	updateAccountPeers := false
-	if areGroupChangesAffectPeers(account, []string{groupID}) {
+	updateAccountPeers := areGroupChangesAffectPeers(account, []*nbgroup.Group{group})
+	if updateAccountPeers {
 		account.Network.IncSerial()
-		updateAccountPeers = true
 	}
 
 	for i, itemID := range group.Peers {
@@ -372,19 +376,15 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 	return nil
 }
 
-func areGroupChangesAffectPeers(account *Account, groups []string) bool {
-	for _, groupID := range groups {
-		if _, exists := account.Groups[groupID]; !exists {
-			continue
-		}
-
-		if linked, _ := isGroupLinkedToDns(account.NameServerGroups, groupID); linked {
+func areGroupChangesAffectPeers(account *Account, groups []*nbgroup.Group) bool {
+	for _, group := range groups {
+		if linked, _ := isGroupLinkedToDns(account.NameServerGroups, group.ID); linked {
 			return true
 		}
-		if linked, _ := isGroupLinkedToPolicy(account.Policies, groupID); linked {
+		if linked, _ := isGroupLinkedToPolicy(account.Policies, group.ID); linked {
 			return true
 		}
-		if linked, _ := isGroupLinkedToRoute(account.Routes, groupID); linked {
+		if linked, _ := isGroupLinkedToRoute(account.Routes, group.ID); linked {
 			return true
 		}
 	}
