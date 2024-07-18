@@ -324,7 +324,6 @@ func (conn *Conn) reconnectLoopWithRetry() {
 	case <-time.After(3 * time.Second):
 	}
 
-L:
 	for {
 		bo := backoff.WithContext(&backoff.ExponentialBackOff{
 			InitialInterval:     800 * time.Millisecond,
@@ -341,6 +340,7 @@ L:
 
 		<-ticker.C // consume the initial tick what is happening right after the ticker has been created
 
+	L:
 		for {
 			select {
 			case t := <-ticker.C:
