@@ -67,7 +67,7 @@ func (l *Listener) Close() error {
 func (l *Listener) onAccept(w http.ResponseWriter, r *http.Request) {
 	wsConn, err := websocket.Accept(w, r, nil)
 	if err != nil {
-		log.Errorf("failed to accept ws connection: %s", err)
+		log.Errorf("failed to accept ws connection from %s: %s", r.RemoteAddr, err)
 		return
 	}
 

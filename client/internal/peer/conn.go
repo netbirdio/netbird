@@ -340,7 +340,6 @@ func (conn *Conn) reconnectLoopWithRetry() {
 
 		<-ticker.C // consume the initial tick what is happening right after the ticker has been created
 
-		no := time.Now()
 	L:
 		for {
 			select {
@@ -351,8 +350,7 @@ func (conn *Conn) reconnectLoopWithRetry() {
 				}
 				// checks if there is peer connection is established via relay or ice and that it has a wireguard handshake and skip offer
 				// todo check wg handshake
-				conn.log.Tracef("ticker timedout, relay state: %s, ice state: %s, elapsed time: %s", conn.statusRelay, conn.statusICE, time.Since(no))
-				no = time.Now()
+				conn.log.Tracef("ticker timedout, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
 
 				if conn.statusRelay == StatusConnected && conn.statusICE == StatusConnected {
 					continue
