@@ -110,19 +110,17 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig) error {
 }
 
 func (s *systemConfigurator) restoreHostDNS() error {
-	lines := ""
-	for key := range s.createdKeys {
-		lines += buildRemoveKeyOperation(key)
+	keys := s.getRemovableKeysWithDefaults()
+	for _, key := range keys {
 		keyType := "search"
 		if strings.Contains(key, matchSuffix) {
 			keyType = "match"
 		}
 		log.Infof("removing %s domains from system", keyType)
-	}
-	_, err := runSystemConfigCommand(wrapCommand(lines))
-	if err != nil {
-		log.Errorf("got an error while cleaning the system configuration: %s", err)
-		return fmt.Errorf("clean system: %w", err)
+		err := s.removeKeyFromSystemConfig(key)
+		if err != nil {
+			log.Errorf("failed to remove %s domains from system: %s", keyType, err)
+		}
 	}
 
 	if err := removeUncleanShutdownIndicator(); err != nil {
@@ -130,6 +128,19 @@ func (s *systemConfigurator) restoreHostDNS() error {
 	}
 
 	return nil
+}
+
+func (s *systemConfigurator) getRemovableKeysWithDefaults() []string {
+	if len(s.createdKeys) == 0 {
+		// return defaults for startup calls
+		return []string{getKeyWithInput(netbirdDNSStateKeyFormat, searchSuffix), getKeyWithInput(netbirdDNSStateKeyFormat, matchSuffix)}
+	}
+
+	keys := make([]string, 0, len(s.createdKeys))
+	for key := range s.createdKeys {
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 func (s *systemConfigurator) removeKeyFromSystemConfig(key string) error {
