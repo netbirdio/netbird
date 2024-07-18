@@ -16,13 +16,6 @@ const (
 	envICEForceRelayConn            = "NB_ICE_FORCE_RELAY_CONN"
 )
 
-func ForcedRelayAddress() string {
-	if envRelay := os.Getenv("NB_RELAY_ADDRESS"); envRelay != "" {
-		return envRelay
-	}
-	return ""
-}
-
 func iceKeepAlive() time.Duration {
 	keepAliveEnv := os.Getenv(envICEKeepAliveIntervalSec)
 	if keepAliveEnv == "" {
