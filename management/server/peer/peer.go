@@ -37,7 +37,8 @@ type Peer struct {
 	SSHEnabled bool
 	// LoginExpirationEnabled indicates whether peer's login expiration is enabled and once expired the peer has to re-login.
 	// Works with LastLogin
-	LoginExpirationEnabled      bool
+	LoginExpirationEnabled bool
+
 	InactivityExpirationEnabled bool
 	// LastLogin the time when peer performed last login operation
 	LastLogin time.Time
@@ -171,24 +172,25 @@ func (p *Peer) Copy() *Peer {
 		peerStatus = p.Status.Copy()
 	}
 	return &Peer{
-		ID:                          p.ID,
-		AccountID:                   p.AccountID,
-		Key:                         p.Key,
-		SetupKey:                    p.SetupKey,
-		IP:                          p.IP,
-		Meta:                        p.Meta,
-		Name:                        p.Name,
-		DNSLabel:                    p.DNSLabel,
-		Status:                      peerStatus,
-		UserID:                      p.UserID,
-		SSHKey:                      p.SSHKey,
-		SSHEnabled:                  p.SSHEnabled,
-		LoginExpirationEnabled:      p.LoginExpirationEnabled,
+		ID:                     p.ID,
+		AccountID:              p.AccountID,
+		Key:                    p.Key,
+		SetupKey:               p.SetupKey,
+		IP:                     p.IP,
+		Meta:                   p.Meta,
+		Name:                   p.Name,
+		DNSLabel:               p.DNSLabel,
+		Status:                 peerStatus,
+		UserID:                 p.UserID,
+		SSHKey:                 p.SSHKey,
+		SSHEnabled:             p.SSHEnabled,
+		LoginExpirationEnabled: p.LoginExpirationEnabled,
+		LastLogin:              p.LastLogin,
+		CreatedAt:              p.CreatedAt,
+		Ephemeral:              p.Ephemeral,
+		Location:               p.Location,
+
 		InactivityExpirationEnabled: p.InactivityExpirationEnabled,
-		LastLogin:                   p.LastLogin,
-		CreatedAt:                   p.CreatedAt,
-		Ephemeral:                   p.Ephemeral,
-		Location:                    p.Location,
 	}
 }
 

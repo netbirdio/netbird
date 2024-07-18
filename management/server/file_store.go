@@ -122,9 +122,10 @@ func restore(ctx context.Context, file string) (*FileStore, error) {
 	for accountID, account := range store.Accounts {
 		if account.Settings == nil {
 			account.Settings = &Settings{
-				PeerLoginExpirationEnabled:      false,
+				PeerLoginExpirationEnabled: false,
+				PeerLoginExpiration:        DefaultPeerLoginExpiration,
+
 				PeerInactivityExpirationEnabled: false,
-				PeerLoginExpiration:             DefaultPeerLoginExpiration,
 				PeerInactivityExpiration:        DefaultPeerInactivityExpiration,
 			}
 		}

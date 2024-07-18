@@ -88,6 +88,7 @@ components:
           $ref: '#/components/schemas/AccountExtraSettings'
       required:
         - peer_login_expiration_enabled
+        - peer_inactivity_expiration_enabled
         - peer_login_expiration
         - regular_users_view_blocked
     AccountExtraSettings:

@@ -44,12 +44,13 @@ import (
 )
 
 const (
-	PublicCategory                  = "public"
-	PrivateCategory                 = "private"
-	UnknownCategory                 = "unknown"
-	CacheExpirationMax              = 7 * 24 * 3600 * time.Second // 7 days
-	CacheExpirationMin              = 3 * 24 * 3600 * time.Second // 3 days
-	DefaultPeerLoginExpiration      = 24 * time.Hour
+	PublicCategory             = "public"
+	PrivateCategory            = "private"
+	UnknownCategory            = "unknown"
+	CacheExpirationMax         = 7 * 24 * 3600 * time.Second // 7 days
+	CacheExpirationMin         = 3 * 24 * 3600 * time.Second // 3 days
+	DefaultPeerLoginExpiration = 24 * time.Hour
+
 	DefaultPeerInactivityExpiration = 1 * time.Second
 )
 
@@ -171,8 +172,9 @@ type DefaultAccountManager struct {
 	// singleAccountModeDomain is a domain to use in singleAccountMode setup
 	singleAccountModeDomain string
 	// dnsDomain is used for peer resolution. This is appended to the peer's name
-	dnsDomain            string
-	peerLoginExpiry      Scheduler
+	dnsDomain       string
+	peerLoginExpiry Scheduler
+
 	peerInactivityExpiry Scheduler
 
 	// userDeleteFromIDPEnabled allows to delete user from IDP when user is deleted from account
@@ -222,15 +224,16 @@ type Settings struct {
 // Copy copies the Settings struct
 func (s *Settings) Copy() *Settings {
 	settings := &Settings{
-		PeerLoginExpirationEnabled:      s.PeerLoginExpirationEnabled,
-		PeerLoginExpiration:             s.PeerLoginExpiration,
+		PeerLoginExpirationEnabled: s.PeerLoginExpirationEnabled,
+		PeerLoginExpiration:        s.PeerLoginExpiration,
+		JWTGroupsEnabled:           s.JWTGroupsEnabled,
+		JWTGroupsClaimName:         s.JWTGroupsClaimName,
+		GroupsPropagationEnabled:   s.GroupsPropagationEnabled,
+		JWTAllowGroups:             s.JWTAllowGroups,
+		RegularUsersViewBlocked:    s.RegularUsersViewBlocked,
+
 		PeerInactivityExpirationEnabled: s.PeerInactivityExpirationEnabled,
 		PeerInactivityExpiration:        s.PeerInactivityExpiration,
-		JWTGroupsEnabled:                s.JWTGroupsEnabled,
-		JWTGroupsClaimName:              s.JWTGroupsClaimName,
-		GroupsPropagationEnabled:        s.GroupsPropagationEnabled,
-		JWTAllowGroups:                  s.JWTAllowGroups,
-		RegularUsersViewBlocked:         s.RegularUsersViewBlocked,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()
@@ -2287,12 +2290,13 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *Ac
 		NameServerGroups: nameServersGroups,
 		DNSSettings:      dnsSettings,
 		Settings: &Settings{
-			PeerLoginExpirationEnabled:      true,
-			PeerLoginExpiration:             DefaultPeerLoginExpiration,
+			PeerLoginExpirationEnabled: true,
+			PeerLoginExpiration:        DefaultPeerLoginExpiration,
+			GroupsPropagationEnabled:   true,
+			RegularUsersViewBlocked:    true,
+
 			PeerInactivityExpirationEnabled: true,
 			PeerInactivityExpiration:        DefaultPeerInactivityExpiration,
-			GroupsPropagationEnabled:        true,
-			RegularUsersViewBlocked:         true,
 		},
 	}
 
