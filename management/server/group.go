@@ -165,7 +165,12 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 		eventsToStore = append(eventsToStore, events...)
 	}
 
-	updateAccountPeers := areGroupChangesAffectPeers(account, newGroups)
+	newGroupIDs := make([]string, 0, len(newGroups))
+	for _, newGroup := range newGroups {
+		newGroupIDs = append(newGroupIDs, newGroup.ID)
+	}
+
+	updateAccountPeers := areGroupChangesAffectPeers(account, newGroupIDs)
 	if updateAccountPeers {
 		account.Network.IncSerial()
 	}
@@ -324,7 +329,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 		group.Peers = append(group.Peers, peerID)
 	}
 
-	updateAccountPeers := areGroupChangesAffectPeers(account, []*nbgroup.Group{group})
+	updateAccountPeers := areGroupChangesAffectPeers(account, []string{group.ID})
 	if updateAccountPeers {
 		account.Network.IncSerial()
 	}
@@ -355,7 +360,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 		return status.Errorf(status.NotFound, "group with ID %s not found", groupID)
 	}
 
-	updateAccountPeers := areGroupChangesAffectPeers(account, []*nbgroup.Group{group})
+	updateAccountPeers := areGroupChangesAffectPeers(account, []string{group.ID})
 	if updateAccountPeers {
 		account.Network.IncSerial()
 	}
@@ -376,15 +381,15 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 	return nil
 }
 
-func areGroupChangesAffectPeers(account *Account, groups []*nbgroup.Group) bool {
-	for _, group := range groups {
-		if linked, _ := isGroupLinkedToDns(account.NameServerGroups, group.ID); linked {
+func areGroupChangesAffectPeers(account *Account, groupIDs []string) bool {
+	for _, groupID := range groupIDs {
+		if linked, _ := isGroupLinkedToDns(account.NameServerGroups, groupID); linked {
 			return true
 		}
-		if linked, _ := isGroupLinkedToPolicy(account.Policies, group.ID); linked {
+		if linked, _ := isGroupLinkedToPolicy(account.Policies, groupID); linked {
 			return true
 		}
-		if linked, _ := isGroupLinkedToRoute(account.Routes, group.ID); linked {
+		if linked, _ := isGroupLinkedToRoute(account.Routes, groupID); linked {
 			return true
 		}
 	}
