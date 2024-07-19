@@ -318,8 +318,13 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 		hostUpdate.RouteAll = false
 	}
 
-	if err = s.hostManager.applyDNSConfig(hostUpdate); err != nil {
-		log.Error(err)
+	connectedPeersCount := s.statusRecorder.GetConnectedPeersCount()
+	if connectedPeersCount >= 1 {
+		if err = s.hostManager.applyDNSConfig(hostUpdate); err != nil {
+			log.Error(err)
+		}
+	} else {
+		log.Infof("Skipping changing Host DNS config, connected peers: %d", connectedPeersCount)
 	}
 
 	if s.searchDomainNotifier != nil {
@@ -359,7 +364,6 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 }
 
 func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.NameServerGroup) ([]muxUpdate, error) {
-
 	var muxUpdates []muxUpdate
 	for _, nsGroup := range nameServerGroups {
 		if len(nsGroup.NameServers) == 0 {
@@ -530,7 +534,6 @@ func (s *DefaultServer) upstreamCallbacks(
 		}
 
 		s.updateNSState(nsGroup, err, false)
-
 	}
 	reactivate = func() {
 		s.mux.Lock()
