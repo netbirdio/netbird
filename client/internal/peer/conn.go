@@ -318,68 +318,74 @@ func (conn *Conn) GetKey() string {
 }
 
 func (conn *Conn) reconnectLoopWithRetry() {
-	// give chance to the peer to establish the initial connection
+	// Give chance to the peer to establish the initial connection.
+	// With it, we can decrease to send necessary offer
 	select {
 	case <-conn.ctx.Done():
 	case <-time.After(3 * time.Second):
 	}
 
+	ticker := conn.prepareExponentTicker()
+	defer ticker.Stop()
+	time.Sleep(1 * time.Second)
 	for {
-		bo := backoff.WithContext(&backoff.ExponentialBackOff{
-			InitialInterval:     800 * time.Millisecond,
-			RandomizationFactor: 1,
-			Multiplier:          1.99,
-			MaxInterval:         conn.config.Timeout * time.Second,
-			MaxElapsedTime:      0,
-			Stop:                backoff.Stop,
-			Clock:               backoff.SystemClock,
-		}, conn.ctx)
-
-		ticker := backoff.NewTicker(bo)
-		defer ticker.Stop()
-
-		<-ticker.C // consume the initial tick what is happening right after the ticker has been created
-
-	L:
-		for {
-			select {
-			case t := <-ticker.C:
-				if t.IsZero() {
-					// in case if the ticker has been canceled by context then avoid the temporary loop
-					return
-				}
-				// checks if there is peer connection is established via relay or ice and that it has a wireguard handshake and skip offer
-				// todo check wg handshake
-				conn.log.Tracef("ticker timedout, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
-
-				if conn.statusRelay == StatusConnected && conn.statusICE == StatusConnected {
-					continue
-				}
-
-				conn.log.Debugf("ticker timed out, retry to do handshake")
-				err := conn.handshaker.sendOffer()
-				if err != nil {
-					conn.log.Errorf("failed to do handshake: %v", err)
-				}
-			case changed := <-conn.relayDisconnected:
-				if !changed {
-					continue
-				}
-				conn.log.Debugf("Relay state changed, reset reconnect timer")
-				ticker.Stop()
-				break L
-			case changed := <-conn.iCEDisconnected:
-				if !changed {
-					continue
-				}
-				conn.log.Debugf("ICE state changed, reset reconnect timer")
-				ticker.Stop()
-				break L
-			case <-conn.ctx.Done():
+		select {
+		case t := <-ticker.C:
+			if t.IsZero() {
+				// in case if the ticker has been canceled by context then avoid the temporary loop
 				return
 			}
+
+			// checks if there is peer connection is established via relay or ice and that it has a wireguard handshake and skip offer
+			// todo check wg handshake
+			conn.log.Tracef("ticker timedout, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
+			conn.mu.Lock()
+			if conn.statusRelay == StatusConnected && conn.statusICE == StatusConnected {
+				conn.mu.Unlock()
+				continue
+			}
+			conn.mu.Unlock()
+
+			conn.log.Debugf("ticker timed out, retry to do handshake")
+			err := conn.handshaker.sendOffer()
+			if err != nil {
+				conn.log.Errorf("failed to do handshake: %v", err)
+			}
+		case changed := <-conn.relayDisconnected:
+			if !changed {
+				continue
+			}
+			conn.log.Debugf("Relay state changed, reset reconnect timer")
+			ticker.Stop()
+			ticker = conn.prepareExponentTicker()
+		case changed := <-conn.iCEDisconnected:
+			if !changed {
+				continue
+			}
+			conn.log.Debugf("ICE state changed, reset reconnect timer")
+			ticker.Stop()
+			ticker = conn.prepareExponentTicker()
+		case <-conn.ctx.Done():
+			return
 		}
 	}
+}
+
+func (conn *Conn) prepareExponentTicker() *backoff.Ticker {
+	bo := backoff.WithContext(&backoff.ExponentialBackOff{
+		InitialInterval:     800 * time.Millisecond,
+		RandomizationFactor: 1,
+		Multiplier:          1.99,
+		MaxInterval:         conn.config.Timeout,
+		MaxElapsedTime:      0,
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}, conn.ctx)
+
+	ticker := backoff.NewTicker(bo)
+	<-ticker.C // consume the initial tick what is happening right after the ticker has been created
+
+	return ticker
 }
 
 // reconnectLoopForOnDisconnectedEvent is used when the peer is not a controller and it should reconnect to the peer
