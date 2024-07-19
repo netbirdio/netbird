@@ -225,8 +225,8 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 		}
 
 		if inSearchDomainsArray {
-			searchDomains := strings.Split(line, " : ")
-			dnsSettings.Domains = append(dnsSettings.Domains, searchDomains...)
+			searchDomain := strings.Split(line, " : ")[1]
+			dnsSettings.Domains = append(dnsSettings.Domains, searchDomain)
 		} else if inServerAddressesArray {
 			address := strings.Split(line, " : ")[1]
 			if ip := net.ParseIP(address); ip != nil && ip.To4() != nil {
