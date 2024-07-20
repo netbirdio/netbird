@@ -70,23 +70,20 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		return status.Errorf(status.PreconditionFailed, "Posture check name should be unique")
 	}
 
-	updateAccountPeers := false
 	action := activity.PostureCheckCreated
 	if exists {
 		action = activity.PostureCheckUpdated
-
-		updateAccountPeers, _ = isPostureCheckLinkedToPolicy(account, postureChecks.ID)
-		if updateAccountPeers {
-			account.Network.IncSerial()
-		}
 	}
 
+	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
-	if updateAccountPeers {
+
+	updateAccountPeers, _ := isPostureCheckLinkedToPolicy(account, postureChecks.ID)
+	if exists && updateAccountPeers {
 		am.updateAccountPeers(ctx, account)
 	}
 

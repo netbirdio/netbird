@@ -1724,17 +1724,13 @@ func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims
 							account.UserGroupsAddToPeers(claims.UserId, addNewGroups...)
 							account.UserGroupsRemoveFromPeers(claims.UserId, removeOldGroups...)
 
-							updateAccountPeers := areGroupChangesAffectPeers(account, addNewGroups) || areGroupChangesAffectPeers(account, removeOldGroups)
-							if updateAccountPeers {
-								account.Network.IncSerial()
-							}
-
+							account.Network.IncSerial()
 							if err := am.Store.SaveAccount(ctx, account); err != nil {
 								log.WithContext(ctx).Errorf("failed to save account: %v", err)
 							} else {
 								log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
 
-								if updateAccountPeers {
+								if areGroupChangesAffectPeers(account, addNewGroups) || areGroupChangesAffectPeers(account, removeOldGroups) {
 									am.updateAccountPeers(ctx, account)
 								}
 								unlock()

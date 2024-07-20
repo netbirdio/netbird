@@ -92,11 +92,7 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 	addedGroups := difference(dnsSettingsToSave.DisabledManagementGroups, oldSettings.DisabledManagementGroups)
 	removedGroups := difference(oldSettings.DisabledManagementGroups, dnsSettingsToSave.DisabledManagementGroups)
 
-	updateAccountPeers := (areGroupChangesAffectPeers(account, addedGroups) && anyGroupHasPeers(account, addedGroups)) ||
-		areGroupChangesAffectPeers(account, removedGroups) && anyGroupHasPeers(account, removedGroups)
-	if updateAccountPeers {
-		account.Network.IncSerial()
-	}
+	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
@@ -113,6 +109,8 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.GroupRemovedFromDisabledManagementGroups, meta)
 	}
 
+	updateAccountPeers := (areGroupChangesAffectPeers(account, addedGroups) && anyGroupHasPeers(account, addedGroups)) ||
+		areGroupChangesAffectPeers(account, removedGroups) && anyGroupHasPeers(account, removedGroups)
 	if updateAccountPeers {
 		am.updateAccountPeers(ctx, account)
 	}

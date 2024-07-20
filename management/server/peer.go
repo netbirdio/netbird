@@ -212,16 +212,14 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	}
 
 	account.UpdatePeer(peer)
-	expired, _ := peer.LoginExpired(account.Settings.PeerLoginExpiration)
-	if expired && peer.LoginExpirationEnabled {
-		account.Network.IncSerial()
-	}
+	account.Network.IncSerial()
 
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return nil, err
 	}
 
+	expired, _ := peer.LoginExpired(account.Settings.PeerLoginExpiration)
 	if expired && peer.LoginExpirationEnabled {
 		am.updateAccountPeers(ctx, account)
 	}
@@ -501,11 +499,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	account.Peers[newPeer.ID] = newPeer
 
-	updateAccountPeers := areGroupChangesAffectPeers(account, groupsToAdd)
-	if updateAccountPeers {
-		account.Network.IncSerial()
-	}
-
+	account.Network.IncSerial()
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return nil, nil, nil, err
@@ -523,7 +517,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
-	if updateAccountPeers {
+	if areGroupChangesAffectPeers(account, groupsToAdd) {
 		am.updateAccountPeers(ctx, account)
 	}
 

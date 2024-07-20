@@ -79,16 +79,12 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 
 	account.NameServerGroups[newNSGroup.ID] = newNSGroup
 
-	updateAccountPeers := anyGroupHasPeers(account, newNSGroup.Groups)
-	if updateAccountPeers {
-		account.Network.IncSerial()
-	}
-
+	account.Network.IncSerial()
 	if err := am.Store.SaveAccount(ctx, account); err != nil {
 		return nil, err
 	}
 
-	if updateAccountPeers {
+	if anyGroupHasPeers(account, newNSGroup.Groups) {
 		am.updateAccountPeers(ctx, account)
 	}
 	am.StoreEvent(ctx, userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
@@ -116,17 +112,14 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 	}
 
 	oldNSGroup := account.NameServerGroups[nsGroupToSave.ID]
-	updateAccountPeers := anyGroupHasPeers(account, nsGroupToSave.Groups) || anyGroupHasPeers(account, oldNSGroup.Groups)
-	if updateAccountPeers {
-		account.Network.IncSerial()
-	}
 	account.NameServerGroups[nsGroupToSave.ID] = nsGroupToSave
 
+	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
-	if updateAccountPeers {
+	if anyGroupHasPeers(account, nsGroupToSave.Groups) || anyGroupHasPeers(account, oldNSGroup.Groups) {
 		am.updateAccountPeers(ctx, account)
 	}
 	am.StoreEvent(ctx, userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
@@ -151,16 +144,12 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 	}
 	delete(account.NameServerGroups, nsGroupID)
 
-	updateAccountPeers := anyGroupHasPeers(account, nsGroup.Groups)
-	if updateAccountPeers {
-		account.Network.IncSerial()
-	}
-
+	account.Network.IncSerial()
 	if err := am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
-	if updateAccountPeers {
+	if anyGroupHasPeers(account, nsGroup.Groups) {
 		am.updateAccountPeers(ctx, account)
 	}
 	am.StoreEvent(ctx, userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())

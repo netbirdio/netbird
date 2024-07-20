@@ -170,16 +170,12 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 		newGroupIDs = append(newGroupIDs, newGroup.ID)
 	}
 
-	updateAccountPeers := areGroupChangesAffectPeers(account, newGroupIDs)
-	if updateAccountPeers {
-		account.Network.IncSerial()
-	}
-
+	account.Network.IncSerial()
 	if err = am.Store.SaveGroups(account.Id, account.Groups); err != nil {
 		return err
 	}
 
-	if updateAccountPeers {
+	if areGroupChangesAffectPeers(account, newGroupIDs) {
 		am.updateAccountPeers(ctx, account)
 	}
 
@@ -329,16 +325,12 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 		group.Peers = append(group.Peers, peerID)
 	}
 
-	updateAccountPeers := areGroupChangesAffectPeers(account, []string{group.ID})
-	if updateAccountPeers {
-		account.Network.IncSerial()
-	}
-
+	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
-	if updateAccountPeers {
+	if areGroupChangesAffectPeers(account, []string{group.ID}) {
 		am.updateAccountPeers(ctx, account)
 	}
 
@@ -360,11 +352,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 		return status.Errorf(status.NotFound, "group with ID %s not found", groupID)
 	}
 
-	updateAccountPeers := areGroupChangesAffectPeers(account, []string{group.ID})
-	if updateAccountPeers {
-		account.Network.IncSerial()
-	}
-
+	account.Network.IncSerial()
 	for i, itemID := range group.Peers {
 		if itemID == peerID {
 			group.Peers = append(group.Peers[:i], group.Peers[i+1:]...)
@@ -374,7 +362,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 		}
 	}
 
-	if updateAccountPeers {
+	if areGroupChangesAffectPeers(account, []string{group.ID}) {
 		am.updateAccountPeers(ctx, account)
 	}
 

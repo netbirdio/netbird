@@ -191,6 +191,16 @@ func (p *Policy) UpgradeAndFix() {
 	}
 }
 
+// AreAllRuleGroupsEmpty checks if all rule groups in the policy are effectively empty.
+func (p *Policy) AreAllRuleGroupsEmpty() bool {
+	for _, rule := range p.Rules {
+		if len(rule.Sources) != 0 && len(rule.Destinations) != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // FirewallRule is a rule of the firewall.
 type FirewallRule struct {
 	// PeerIP of the peer
@@ -364,7 +374,9 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	}
 	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
 
-	am.updateAccountPeers(ctx, account)
+	if !policy.AreAllRuleGroupsEmpty() {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	return nil
 }
@@ -391,7 +403,9 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 	am.StoreEvent(ctx, userID, policy.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
-	am.updateAccountPeers(ctx, account)
+	if !policy.AreAllRuleGroupsEmpty() {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	return nil
 }
@@ -560,4 +574,14 @@ func getPostureChecks(account *Account, postureChecksID string) *posture.Checks 
 		}
 	}
 	return nil
+}
+
+// isPolicyRuleGroupsEmpty checks if a given policy has rules with empty sources and destinations.
+func isPolicyRuleGroupsEmpty(policy *Policy) bool {
+	for _, rule := range policy.Rules {
+		if len(rule.Sources) != 0 && len(rule.Destinations) != 0 {
+			return false
+		}
+	}
+	return true
 }
