@@ -53,8 +53,16 @@ type Country struct {
 	CountryName    string
 }
 
+var (
+	mmdbPattern       = "GeoLite2-City_*"
+	geonamesdbPattern = "GeoLite2-City-geonames_*"
+)
+
 func NewGeolocation(ctx context.Context, dataDir string, mmdbFile string, geonamesdbFile string) (*Geolocation, error) {
 	var err error
+
+	mmdbPattern = path.Join(dataDir, mmdbPattern)
+	geonamesdbPattern = path.Join(dataDir, geonamesdbPattern)
 
 	if mmdbFile == "" {
 		mmdbFile, err = getMMDBFilename()
@@ -74,10 +82,10 @@ func NewGeolocation(ctx context.Context, dataDir string, mmdbFile string, geonam
 		return nil, fmt.Errorf("failed to load MaxMind databases: %v", err)
 	}
 
-	if err := cleanupOldDatabases(path.Join(dataDir, "GeoLite2-City_*"), mmdbFile); err != nil {
+	if err := cleanupOldDatabases(mmdbPattern, mmdbFile); err != nil {
 		return nil, fmt.Errorf("failed to remove old mmdb: %v", err)
 	}
-	if err := cleanupOldDatabases(path.Join(dataDir, "GeoLite2-City-geonames_*"), geonamesdbFile); err != nil {
+	if err := cleanupOldDatabases(geonamesdbPattern, geonamesdbFile); err != nil {
 		return nil, fmt.Errorf("failed to remove old geonames db: %v", err)
 	}
 
@@ -267,7 +275,13 @@ func fileExists(filePath string) (bool, error) {
 func getMMDBFilename() (string, error) {
 	filename, err := getFilenameFromURL(geoLiteCityTarGZURL)
 	if err != nil {
-		return "", err
+		files := getExistingDatabases(mmdbPattern)
+		if len(files) < 1 {
+			return "", err
+		}
+		filename = path.Base(files[len(files)-1])
+		log.Infof("Failed to get mmdb filename. Falling back to existing database: %s", filename)
+		return filename, nil
 	}
 
 	basename := strings.TrimSuffix(filename, ".tar.gz")
@@ -278,7 +292,13 @@ func getMMDBFilename() (string, error) {
 func getGeoNamesDBFilename() (string, error) {
 	filename, err := getFilenameFromURL(geoLiteCityZipURL)
 	if err != nil {
-		return "", err
+		files := getExistingDatabases(geonamesdbPattern)
+		if len(files) < 1 {
+			return "", err
+		}
+		filename = path.Base(files[len(files)-1])
+		log.Infof("Failed to get geonames db filename. Falling back to existing database: %s", filename)
+		return filename, nil
 	}
 
 	basename := strings.TrimSuffix(filename, ".zip")
@@ -286,11 +306,13 @@ func getGeoNamesDBFilename() (string, error) {
 	return geonamesdbFilename, nil
 }
 
+func getExistingDatabases(pattern string) []string {
+	files, _ := filepath.Glob(pattern)
+	return files
+}
+
 func cleanupOldDatabases(pattern string, currentFile string) error {
-	files, err := filepath.Glob(pattern)
-	if err != nil {
-		return err
-	}
+	files := getExistingDatabases(pattern)
 
 	for _, f := range files {
 		if path.Base(f) == currentFile {

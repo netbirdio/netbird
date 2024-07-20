@@ -25,7 +25,7 @@ func initGeolocationTestData(t *testing.T) *GeolocationsHandler {
 
 	var (
 		mmdbPath         = "../testdata/GeoLite2-City-Test.mmdb"
-		geonamesDBPath   = "../testdata/geonames-test.db"
+		geonamesdbPath   = "../testdata/geonames-test.db"
 		mmdbFilename     = "GeoLite2-City.mmdb"
 		geonamesdbFilename = "geonames.db"
 	)
@@ -35,7 +35,7 @@ func initGeolocationTestData(t *testing.T) *GeolocationsHandler {
 	err := util.CopyFileContents(mmdbPath, path.Join(tempDir, mmdbFilename))
 	assert.NoError(t, err)
 
-	err = util.CopyFileContents(geonamesDBPath, path.Join(tempDir, geonamesdbFilename))
+	err = util.CopyFileContents(geonamesdbPath, path.Join(tempDir, geonamesdbFilename))
 	assert.NoError(t, err)
 
 	geo, err := geolocation.NewGeolocation(context.Background(), tempDir, mmdbFilename, geonamesdbFilename)

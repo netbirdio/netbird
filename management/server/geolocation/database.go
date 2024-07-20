@@ -22,6 +22,7 @@ const (
 	geoLiteCityCSV          = "GeoLite2-City-Locations-en.csv"
 )
 
+// loadGeolocationDatabases loads the MaxMind databases.
 func loadGeolocationDatabases(dataDir string, mmdbFile string, geonamesdbFile string) error {
 	for _, file := range []string{mmdbFile, geonamesdbFile} {
 		exists, _ := fileExists(path.Join(dataDir, file))
