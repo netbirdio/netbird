@@ -1870,7 +1870,7 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey
 		return nil, nil, nil, err
 	}
 
-	unlock := am.Store.AcquireAccountReadLock(ctx, accountID)
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
