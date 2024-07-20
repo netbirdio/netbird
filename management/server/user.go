@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -493,7 +494,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account 
 		}
 	}
 
-	err = am.deleteUserPeers(ctx, initiatorUserID, targetUserID, account)
+	userHasPeers, err := am.deleteUserPeers(ctx, initiatorUserID, targetUserID, account)
 	if err != nil {
 		return err
 	}
@@ -517,15 +518,23 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account 
 	meta := map[string]any{"name": tuName, "email": tuEmail, "created_at": tuCreatedAt}
 	am.StoreEvent(ctx, initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
 
-	am.updateAccountPeers(ctx, account)
+	if userHasPeers && account.Settings.PeerLoginExpirationEnabled {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	return nil
 }
 
-func (am *DefaultAccountManager) deleteUserPeers(ctx context.Context, initiatorUserID string, targetUserID string, account *Account) error {
+// deleteUserPeers deletes all peers associated with the target user in the specified account.
+func (am *DefaultAccountManager) deleteUserPeers(ctx context.Context, initiatorUserID string, targetUserID string, account *Account) (bool, error) {
 	peers, err := account.FindUserPeers(targetUserID)
 	if err != nil {
-		return status.Errorf(status.Internal, "failed to find user peers")
+		return false, status.Errorf(status.Internal, "failed to find user peers")
+	}
+
+	hadPeers := len(peers) > 0
+	if !hadPeers {
+		return false, nil
 	}
 
 	peerIDs := make([]string, 0, len(peers))
@@ -533,7 +542,7 @@ func (am *DefaultAccountManager) deleteUserPeers(ctx context.Context, initiatorU
 		peerIDs = append(peerIDs, peer.ID)
 	}
 
-	return am.deletePeers(ctx, account, peerIDs, initiatorUserID)
+	return hadPeers, am.deletePeers(ctx, account, peerIDs, initiatorUserID)
 }
 
 // InviteUser resend invitations to users who haven't activated their accounts prior to the expiration period.
@@ -792,6 +801,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	updatedUsers := make([]*UserInfo, 0, len(updates))
 	var (
 		expiredPeers  []*nbpeer.Peer
+		userIDs       []string
 		eventsToStore []func()
 	)
 
@@ -799,6 +809,8 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		if update == nil {
 			return nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 		}
+
+		userIDs = append(userIDs, update.Id)
 
 		oldUser := account.Users[update.Id]
 		if oldUser == nil {
@@ -863,7 +875,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		return nil, err
 	}
 
-	if account.Settings.GroupsPropagationEnabled {
+	if areUsersLinkedToPeers(account, userIDs) && account.Settings.GroupsPropagationEnabled {
 		am.updateAccountPeers(ctx, account)
 	}
 
@@ -1188,6 +1200,16 @@ func (am *DefaultAccountManager) getEmailAndNameOfTargetUser(ctx context.Context
 	}
 
 	return "", "", fmt.Errorf("user info not found for user: %s", targetId)
+}
+
+// areUsersLinkedToPeers checks if any of the given userIDs are linked to any of the peers in the account.
+func areUsersLinkedToPeers(account *Account, userIDs []string) bool {
+	for _, peer := range account.Peers {
+		if slices.Contains(userIDs, peer.UserID) {
+			return true
+		}
+	}
+	return false
 }
 
 func findUserInIDPUserdata(userID string, userData []*idp.UserData) (*idp.UserData, bool) {
