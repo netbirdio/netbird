@@ -12,9 +12,10 @@ import (
 	"strings"
 	"time"
 
-	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+
+	nbgroup "github.com/netbirdio/netbird/management/server/group"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/util"
@@ -54,6 +55,7 @@ type Store interface {
 	AcquireAccountReadLock(ctx context.Context, accountID string) func()
 	// AcquireGlobalLock should attempt to acquire a global lock and return a function that releases the lock
 	AcquireGlobalLock(ctx context.Context) func()
+	SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error
 	SavePeerStatus(accountID, peerID string, status nbpeer.PeerStatus) error
 	SavePeerLocation(accountID string, peer *nbpeer.Peer) error
 	SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error

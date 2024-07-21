@@ -7,9 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server/posture"
 
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -539,7 +540,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 
 	peer, updated := updatePeerMeta(peer, sync.Meta, account)
 	if updated {
-		err = am.Store.SaveAccount(ctx, account)
+		err = am.Store.SavePeer(ctx, account.Id, peer)
 		if err != nil {
 			return nil, nil, nil, err
 		}

@@ -271,6 +271,39 @@ func (s *SqlStore) GetInstallationID() string {
 	return installation.InstallationIDValue
 }
 
+func (s *SqlStore) SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error {
+	// To maintain data integrity, we create a copy of the peer's to prevent unintended updates to other fields.
+	var peerCopy *nbpeer.Peer
+	peerCopy = peer.Copy()
+	peerCopy.AccountID = accountID
+
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// check if peer exists before saving
+		var peerID string
+		result := tx.Model(&nbpeer.Peer{}).Select("id").Find(&peerID, "account_id = ? and id = ?", accountID, peer.ID)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		if peerID == "" {
+			return status.Errorf(status.NotFound, "peer %s not found", peer.ID)
+		}
+
+		result = tx.Model(&nbpeer.Peer{}).Where("account_id = ? AND id = ?", accountID, peer.ID).Save(peerCopy)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *SqlStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
 	var peerCopy nbpeer.Peer
 	peerCopy.Status = &peerStatus
