@@ -275,8 +275,7 @@ func (s *SqlStore) GetInstallationID() string {
 
 func (s *SqlStore) SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error {
 	// To maintain data integrity, we create a copy of the peer's to prevent unintended updates to other fields.
-	var peerCopy *nbpeer.Peer
-	peerCopy = peer.Copy()
+	peerCopy := peer.Copy()
 	peerCopy.AccountID = accountID
 
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
