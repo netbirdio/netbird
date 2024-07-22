@@ -1609,7 +1609,8 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 			},
 			"route3": {
 				ID:                  "route3",
-				Network:             netip.MustParsePrefix("172.16.0.0/16"),
+				Network:             netip.MustParsePrefix("192.0.2.0/32"),
+				Domains:             domain.List{"example.com"},
 				NetID:               "route3",
 				NetworkType:         route.DomainNetwork,
 				Peer:                "peerE",
@@ -1765,7 +1766,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 
 		// peerE is a single routing peer for route 2 and route 3
 		routesFirewallRules = account.getPeerRoutesFirewallRules(context.Background(), "peerE", validatedPeers)
-		assert.Len(t, routesFirewallRules, 3)
+		assert.Len(t, routesFirewallRules, 6)
 
 		expectedRoutesFirewallRules = []*RouteFirewallRule{
 			{
@@ -1790,7 +1791,35 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 				SourceRange: "0.0.0.0/0",
 				Direction:   firewallRuleDirectionIN,
 				Action:      "accept",
-				Destination: "172.16.0.0/16",
+				Destination: "192.0.2.0/32",
+				Protocol:    "all",
+				NetworkType: int(route.DomainNetwork),
+				IsDynamic:   true,
+			},
+			{
+				SourceRange: "0.0.0.0/0",
+				Direction:   firewallRuleDirectionOUT,
+				Action:      "accept",
+				Destination: "192.0.2.0/32",
+				Protocol:    "all",
+				NetworkType: int(route.DomainNetwork),
+				IsDynamic:   true,
+			},
+			{
+				SourceRange: "::/0",
+				Direction:   firewallRuleDirectionIN,
+				Action:      "accept",
+				Destination: "192.0.2.0/32",
+				Protocol:    "all",
+				NetworkType: int(route.DomainNetwork),
+				IsDynamic:   true,
+			},
+			{
+				SourceRange: "::/0",
+				Direction:   firewallRuleDirectionOUT,
+				Action:      "accept",
+				Destination: "192.0.2.0/32",
+				Protocol:    "all",
 				NetworkType: int(route.DomainNetwork),
 				IsDynamic:   true,
 			},
