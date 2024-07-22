@@ -402,11 +402,13 @@ func (c *Client) writeTo(connReference *Conn, id string, dstID []byte, payload [
 		log.Errorf("failed to marshal transport message: %s", err)
 		return 0, err
 	}
-	n, err := c.relayConn.Write(msg)
+
+	// the write always return with 0 length because the underling does not support the size feedback.
+	_, err = c.relayConn.Write(msg)
 	if err != nil {
 		log.Errorf("failed to write transport message: %s", err)
 	}
-	return n, err
+	return len(payload), err
 }
 
 func (c *Client) listenForStopEvents(hc *healthcheck.Receiver, conn net.Conn, internalStopFlag *internalStopFlag) {

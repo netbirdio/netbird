@@ -38,7 +38,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 
 func (c *Conn) Write(b []byte) (n int, err error) {
 	err = c.Conn.Write(c.ctx, websocket.MessageBinary, b)
-	return len(b), err
+	return 0, err
 }
 
 func (c *Conn) RemoteAddr() net.Addr {
