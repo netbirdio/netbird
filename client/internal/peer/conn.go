@@ -337,14 +337,10 @@ func (conn *Conn) reconnectLoopWithRetry() {
 			}
 
 			// checks if there is peer connection is established via relay or ice and that it has a wireguard handshake and skip offer
-			// todo check wg handshake
 			conn.log.Tracef("ticker timedout, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
-			conn.mu.Lock()
-			if conn.statusRelay == StatusConnected && conn.statusICE == StatusConnected {
-				conn.mu.Unlock()
+			if conn.isConnected() {
 				continue
 			}
-			conn.mu.Unlock()
 
 			conn.log.Debugf("ticker timed out, retry to do handshake")
 			err := conn.handshaker.sendOffer()
@@ -495,7 +491,7 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr)
 }
 
-// todo review to make sense to handle connection and disconnected status also?
+// todo review to make sense to handle connecting and disconnected status also?
 func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
@@ -713,6 +709,31 @@ func (conn *Conn) evalStatus() ConnStatus {
 	}
 
 	return StatusDisconnected
+}
+
+func (conn *Conn) isConnected() bool {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	if conn.statusRelay != StatusConnected {
+		return false
+	}
+
+	if conn.statusICE != StatusConnected && conn.statusICE != StatusConnecting {
+		return false
+	}
+
+	wgStats, err := conn.config.WgConfig.WgInterface.GetStats(conn.config.Key)
+	if err != nil {
+		conn.log.Errorf("failed to get wg stats: %v", err)
+		return false
+	}
+
+	if time.Since(wgStats.LastHandshake) > 2*time.Minute {
+		return false
+	}
+	return true
+
 }
 
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {
