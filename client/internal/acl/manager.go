@@ -13,15 +13,10 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/internal/acl/id"
 	"github.com/netbirdio/netbird/client/ssh"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
-
-type RuleID string
-
-func (r RuleID) GetRuleID() string {
-	return string(r)
-}
 
 // Manager is a ACL rules manager
 type Manager interface {
@@ -32,16 +27,16 @@ type Manager interface {
 type DefaultManager struct {
 	firewall       firewall.Manager
 	ipsetCounter   int
-	peerRulesPairs map[RuleID][]firewall.Rule
-	routeRules     map[RuleID]struct{}
+	peerRulesPairs map[id.RuleID][]firewall.Rule
+	routeRules     map[id.RuleID]struct{}
 	mutex          sync.Mutex
 }
 
 func NewDefaultManager(fm firewall.Manager) *DefaultManager {
 	return &DefaultManager{
 		firewall:       fm,
-		peerRulesPairs: make(map[RuleID][]firewall.Rule),
-		routeRules:     make(map[RuleID]struct{}),
+		peerRulesPairs: make(map[id.RuleID][]firewall.Rule),
+		routeRules:     make(map[id.RuleID]struct{}),
 	}
 }
 
@@ -127,7 +122,7 @@ func (d *DefaultManager) applyPeerACLs(networkMap *mgmProto.NetworkMap) {
 		)
 	}
 
-	newRulePairs := make(map[RuleID][]firewall.Rule)
+	newRulePairs := make(map[id.RuleID][]firewall.Rule)
 	ipsetByRuleSelectors := make(map[string]string)
 
 	for _, r := range rules {
@@ -167,7 +162,7 @@ func (d *DefaultManager) applyPeerACLs(networkMap *mgmProto.NetworkMap) {
 }
 
 func (d *DefaultManager) applyRouteACLs(rules []*mgmProto.RouteFirewallRule) error {
-	var newRouteRules = make(map[RuleID]struct{})
+	var newRouteRules = make(map[id.RuleID]struct{})
 	for _, rule := range rules {
 		id, err := d.applyRouteACL(rule)
 		if err != nil {
@@ -189,7 +184,7 @@ func (d *DefaultManager) applyRouteACLs(rules []*mgmProto.RouteFirewallRule) err
 	return nil
 }
 
-func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule) (RuleID, error) {
+func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule) (id.RuleID, error) {
 	source, err := netip.ParsePrefix(rule.SourceRange)
 	if err != nil {
 		return "", fmt.Errorf("parse source: %w", err)
@@ -231,13 +226,13 @@ func (d *DefaultManager) applyRouteACL(rule *mgmProto.RouteFirewallRule) (RuleID
 		return "", fmt.Errorf("add route rule: %w", err)
 	}
 
-	return RuleID(addedRule.GetRuleID()), nil
+	return id.RuleID(addedRule.GetRuleID()), nil
 }
 
 func (d *DefaultManager) protoRuleToFirewallRule(
 	r *mgmProto.FirewallRule,
 	ipsetName string,
-) (RuleID, []firewall.Rule, error) {
+) (id.RuleID, []firewall.Rule, error) {
 	ip := net.ParseIP(r.PeerIP)
 	if ip == nil {
 		return "", nil, fmt.Errorf("invalid IP address, skipping firewall rule")
@@ -352,13 +347,13 @@ func (d *DefaultManager) getPeerRuleID(
 	port *firewall.Port,
 	action firewall.Action,
 	comment string,
-) RuleID {
+) id.RuleID {
 	idStr := ip.String() + string(proto) + strconv.Itoa(direction) + strconv.Itoa(int(action)) + comment
 	if port != nil {
 		idStr += port.String()
 	}
 
-	return RuleID(hex.EncodeToString(md5.New().Sum([]byte(idStr))))
+	return id.RuleID(hex.EncodeToString(md5.New().Sum([]byte(idStr))))
 }
 
 // squashAcceptRules does complex logic to convert many rules which allows connection by traffic type
@@ -497,7 +492,7 @@ func (d *DefaultManager) getRuleGroupingSelector(rule *mgmProto.FirewallRule) st
 	return fmt.Sprintf("%v:%v:%v:%s", strconv.Itoa(int(rule.Direction)), rule.Action, rule.Protocol, rule.Port)
 }
 
-func (d *DefaultManager) rollBack(newRulePairs map[RuleID][]firewall.Rule) {
+func (d *DefaultManager) rollBack(newRulePairs map[id.RuleID][]firewall.Rule) {
 	log.Debugf("rollback ACL to previous state")
 	for _, rules := range newRulePairs {
 		for _, rule := range rules {
@@ -564,16 +559,4 @@ func GetDefault(prefix netip.Prefix) netip.Prefix {
 		return netip.PrefixFrom(netip.IPv6Unspecified(), 0)
 	}
 	return netip.PrefixFrom(netip.IPv4Unspecified(), 0)
-}
-
-func GenerateRouteRuleKey(
-	source netip.Prefix,
-	destination netip.Prefix,
-	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
-	direction firewall.RuleDirection,
-	action firewall.Action,
-) RuleID {
-	return RuleID(fmt.Sprintf("%s-%s-%s-%s-%s-%d-%d", source, destination, proto, sPort, dPort, direction, action))
 }

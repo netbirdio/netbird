@@ -9,10 +9,8 @@ import (
 )
 
 const (
-	NatFormat               = "netbird-nat-%s"
-	ForwardingFormat        = "netbird-fwd-%s"
-	InverseNatFormat        = "netbird-nat-in-%s"
-	InverseForwardingFormat = "netbird-fwd-in-%s"
+	NatFormat        = "netbird-nat-%s"
+	InverseNatFormat = "netbird-nat-in-%s"
 )
 
 // Rule abstraction should be implemented by each firewall manager

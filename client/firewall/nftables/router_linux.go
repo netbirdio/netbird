@@ -14,7 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/internal/acl"
+	"github.com/netbirdio/netbird/client/internal/acl/id"
 )
 
 const (
@@ -236,7 +236,7 @@ func (r *router) AddRouteFiltering(
 	action firewall.Action,
 ) (firewall.Rule, error) {
 
-	ruleKey := acl.GenerateRouteRuleKey(source, destination, proto, sPort, dPort, direction, action)
+	ruleKey := id.GenerateRouteRuleKey(source, destination, proto, sPort, dPort, direction, action)
 	if _, ok := r.rules[string(ruleKey)]; ok {
 		return ruleKey, nil
 	}

@@ -13,12 +13,11 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/internal/acl"
+	"github.com/netbirdio/netbird/client/internal/acl/id"
 )
 
 const (
-	Ipv4Forwarding = "netbird-rt-forwarding"
-	ipv4Nat        = "netbird-rt-nat"
+	ipv4Nat = "netbird-rt-nat"
 )
 
 // constants needed to manage and create iptable rules
@@ -71,7 +70,7 @@ func (r *router) AddRouteFiltering(
 	direction firewall.RuleDirection,
 	action firewall.Action,
 ) (firewall.Rule, error) {
-	ruleKey := acl.GenerateRouteRuleKey(source, destination, proto, sPort, dPort, direction, action)
+	ruleKey := id.GenerateRouteRuleKey(source, destination, proto, sPort, dPort, direction, action)
 	if _, ok := r.rules[string(ruleKey)]; ok {
 		return ruleKey, nil
 	}
