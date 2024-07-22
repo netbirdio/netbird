@@ -19,7 +19,7 @@
                     "Revoked": false,
                     "UsedTimes": 0,
                     "LastUsed": "0001-01-01T00:00:00Z",
-                    "AutoGroups": null,
+                    "AutoGroups": ["cq9bbkjjuspi5gd38epg"],
                     "UsageLimit": 0,
                     "Ephemeral": false
                 }
@@ -69,9 +69,41 @@
                     "LastLogin": "0001-01-01T00:00:00Z"
                 }
             },
-            "Groups": null,
+            "Groups": {
+                "cq9bbkjjuspi5gd38epg": {
+                    "ID": "cq9bbkjjuspi5gd38epg",
+                    "Name": "All",
+                    "Peers": []
+                }
+            },
             "Rules": null,
-            "Policies": [],
+            "Policies": [
+                {
+                    "ID": "cq9bbkjjuspi5gd38eq0",
+                    "Name": "Default",
+                    "Description": "This is a default rule that allows connections between all the resources",
+                    "Enabled": true,
+                    "Rules": [
+                        {
+                            "ID": "cq9bbkjjuspi5gd38eq0",
+                            "Name": "Default",
+                            "Description": "This is a default rule that allows connections between all the resources",
+                            "Enabled": true,
+                            "Action": "accept",
+                            "Destinations": [
+                                "cq9bbkjjuspi5gd38epg"
+                            ],
+                            "Sources": [
+                                "cq9bbkjjuspi5gd38epg"
+                            ],
+                            "Bidirectional": true,
+                            "Protocol": "all",
+                            "Ports": null
+                        }
+                    ],
+                    "SourcePostureChecks": null
+                }
+            ],
             "Routes": null,
             "NameServerGroups": null,
             "DNSSettings": null,

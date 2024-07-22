@@ -1108,60 +1108,131 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
 }
 
-func TestAccountManager_NetworkUpdates(t *testing.T) {
-	manager, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
+func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
+	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+
+	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+
+	group := group.Group{
+		ID:    "group-id",
+		Name:  "GroupA",
+		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
 	}
 
-	userID := "account_creator"
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
 
-	account, err := createAccount(manager, "test_account", userID, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
-	if err != nil {
-		t.Fatal("error creating setup key")
-		return
-	}
-
-	if account.Network.Serial != 0 {
-		t.Errorf("expecting account network to have an initial Serial=0")
-		return
-	}
-
-	getPeer := func() *nbpeer.Peer {
-		key, err := wgtypes.GeneratePrivateKey()
-		if err != nil {
-			t.Fatal(err)
-			return nil
+		message := <-updMsg
+		networkMap := message.Update.GetNetworkMap()
+		if len(networkMap.RemotePeers) != 2 {
+			t.Errorf("mismatch peers count: 2 expected, got %v", len(networkMap.RemotePeers))
 		}
-		expectedPeerKey := key.PublicKey().String()
+	}()
 
-		peer, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
-			Key:  expectedPeerKey,
-			Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-		})
-		if err != nil {
-			t.Fatalf("expecting peer1 to be added, got failure %v", err)
-			return nil
-		}
-
-		return peer
-	}
-
-	peer1 := getPeer()
-	peer2 := getPeer()
-	peer3 := getPeer()
-
-	account, err = manager.Store.GetAccount(context.Background(), account.Id)
-	if err != nil {
-		t.Fatal(err)
+	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
+		t.Errorf("save group: %v", err)
 		return
 	}
+
+	wg.Wait()
+}
+
+func TestAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
+	manager, account, peer1, _, _ := setupNetworkMapTest(t)
+
+	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		message := <-updMsg
+		networkMap := message.Update.GetNetworkMap()
+		if len(networkMap.RemotePeers) != 0 {
+			t.Errorf("mismatch peers count: 0 expected, got %v", len(networkMap.RemotePeers))
+		}
+	}()
+
+	if err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID); err != nil {
+		t.Errorf("delete default rule: %v", err)
+		return
+	}
+
+	wg.Wait()
+}
+
+func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
+	manager, account, peer1, _, _ := setupNetworkMapTest(t)
+
+	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+
+	policy := Policy{
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				Enabled:       true,
+				Sources:       []string{"group-id"},
+				Destinations:  []string{"group-id"},
+				Bidirectional: true,
+				Action:        PolicyTrafficActionAccept,
+			},
+		},
+	}
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		message := <-updMsg
+		networkMap := message.Update.GetNetworkMap()
+		if len(networkMap.RemotePeers) != 2 {
+			t.Errorf("mismatch peers count: 2 expected, got %v", len(networkMap.RemotePeers))
+		}
+	}()
+
+	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy); err != nil {
+		t.Errorf("save policy: %v", err)
+		return
+	}
+
+	wg.Wait()
+}
+
+func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
+	manager, account, peer1, _, peer3 := setupNetworkMapTest(t)
+
+	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		message := <-updMsg
+		networkMap := message.Update.GetNetworkMap()
+		if len(networkMap.RemotePeers) != 1 {
+			t.Errorf("mismatch peers count: 1 expected, got %v", len(networkMap.RemotePeers))
+		}
+	}()
+
+	if err := manager.DeletePeer(context.Background(), account.Id, peer3.ID, userID); err != nil {
+		t.Errorf("delete peer: %v", err)
+		return
+	}
+
+	wg.Wait()
+}
+
+func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
+	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
@@ -1185,108 +1256,40 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		},
 	}
 
+	if err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID); err != nil {
+		t.Errorf("delete default rule: %v", err)
+		return
+	}
+
+	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy); err != nil {
+		t.Errorf("save policy: %v", err)
+		return
+	}
+
 	wg := sync.WaitGroup{}
-	t.Run("save group update", func(t *testing.T) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
 
-			message := <-updMsg
-			networkMap := message.Update.GetNetworkMap()
-			if len(networkMap.RemotePeers) != 2 {
-				t.Errorf("mismatch peers count: 2 expected, got %v", len(networkMap.RemotePeers))
-			}
-		}()
-
-		if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
-			t.Errorf("save group: %v", err)
-			return
+		message := <-updMsg
+		networkMap := message.Update.GetNetworkMap()
+		if len(networkMap.RemotePeers) != 0 {
+			t.Errorf("mismatch peers count: 0 expected, got %v", len(networkMap.RemotePeers))
 		}
+	}()
 
-		wg.Wait()
-	})
+	// clean policy is pre requirement for delete group
+	if err := manager.DeletePolicy(context.Background(), account.Id, policy.ID, userID); err != nil {
+		t.Errorf("delete default rule: %v", err)
+		return
+	}
 
-	t.Run("delete policy update", func(t *testing.T) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	if err := manager.DeleteGroup(context.Background(), account.Id, "", group.ID); err != nil {
+		t.Errorf("delete group: %v", err)
+		return
+	}
 
-			message := <-updMsg
-			networkMap := message.Update.GetNetworkMap()
-			if len(networkMap.RemotePeers) != 0 {
-				t.Errorf("mismatch peers count: 0 expected, got %v", len(networkMap.RemotePeers))
-			}
-		}()
-
-		if err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID); err != nil {
-			t.Errorf("delete default rule: %v", err)
-			return
-		}
-
-		wg.Wait()
-	})
-
-	t.Run("save policy update", func(t *testing.T) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			message := <-updMsg
-			networkMap := message.Update.GetNetworkMap()
-			if len(networkMap.RemotePeers) != 2 {
-				t.Errorf("mismatch peers count: 2 expected, got %v", len(networkMap.RemotePeers))
-			}
-		}()
-
-		if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy); err != nil {
-			t.Errorf("delete default rule: %v", err)
-			return
-		}
-
-		wg.Wait()
-	})
-	t.Run("delete peer update", func(t *testing.T) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			message := <-updMsg
-			networkMap := message.Update.GetNetworkMap()
-			if len(networkMap.RemotePeers) != 1 {
-				t.Errorf("mismatch peers count: 1 expected, got %v", len(networkMap.RemotePeers))
-			}
-		}()
-
-		if err := manager.DeletePeer(context.Background(), account.Id, peer3.ID, userID); err != nil {
-			t.Errorf("delete peer: %v", err)
-			return
-		}
-
-		wg.Wait()
-	})
-
-	t.Run("delete group update", func(t *testing.T) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			message := <-updMsg
-			networkMap := message.Update.GetNetworkMap()
-			if len(networkMap.RemotePeers) != 0 {
-				t.Errorf("mismatch peers count: 0 expected, got %v", len(networkMap.RemotePeers))
-			}
-		}()
-
-		// clean policy is pre requirement for delete group
-		_ = manager.DeletePolicy(context.Background(), account.Id, policy.ID, userID)
-
-		if err := manager.DeleteGroup(context.Background(), account.Id, "", group.ID); err != nil {
-			t.Errorf("delete group: %v", err)
-			return
-		}
-
-		wg.Wait()
-	})
+	wg.Wait()
 }
 
 func TestAccountManager_DeletePeer(t *testing.T) {
@@ -2327,4 +2330,47 @@ func waitTimeout(wg *sync.WaitGroup, timeout time.Duration) bool {
 	case <-time.After(timeout):
 		return true
 	}
+}
+
+func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *Account, *nbpeer.Peer, *nbpeer.Peer, *nbpeer.Peer) {
+	t.Helper()
+
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	account, err := createAccount(manager, "test_account", userID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
+	if err != nil {
+		t.Fatal("error creating setup key")
+	}
+
+	getPeer := func(manager *DefaultAccountManager, setupKey *SetupKey) *nbpeer.Peer {
+		key, err := wgtypes.GeneratePrivateKey()
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedPeerKey := key.PublicKey().String()
+
+		peer, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
+			Key:  expectedPeerKey,
+			Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
+		})
+		if err != nil {
+			t.Fatalf("expecting peer to be added, got failure %v", err)
+		}
+
+		return peer
+	}
+
+	peer1 := getPeer(manager, setupKey)
+	peer2 := getPeer(manager, setupKey)
+	peer3 := getPeer(manager, setupKey)
+
+	return manager, account, peer1, peer2, peer3
 }
