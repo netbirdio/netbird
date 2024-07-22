@@ -177,39 +177,47 @@ func (r *router) cleanUpDefaultForwardRules() error {
 
 func (r *router) createContainers() error {
 	for _, chain := range []string{chainRTFWD, chainRTNAT} {
-		table := tableFilter
-		if chain == chainRTNAT {
-			table = tableNat
-		}
-
-		err := r.iptablesClient.NewChain(table, chain)
-		if err != nil {
-			return fmt.Errorf("failed creating chain %s, error: %v", chain, err)
-		}
-
-		if chain == chainRTNAT {
-			// Add the loopback return rule to the NAT chain
-			loopbackRule := []string{"-o", "lo", "-j", "RETURN"}
-			err = r.iptablesClient.Insert(table, chain, 1, loopbackRule...)
-			if err != nil {
-				return fmt.Errorf("failed to add loopback return rule to %s: %v", chainRTNAT, err)
-			}
-		}
-
-		if chain == chainRTFWD {
-			// Insert the established rule at the beginning of the chain
-			err = r.insertEstablishedRule(chain)
-			if err != nil {
-				return fmt.Errorf("failed to insert established rule: %v", err)
-			}
+		if err := r.createAndSetupChain(chain); err != nil {
+			return err
 		}
 	}
 
-	err := r.addJumpRules()
+	return r.addJumpRules()
+}
+
+func (r *router) createAndSetupChain(chain string) error {
+	table := r.getTableForChain(chain)
+
+	if err := r.iptablesClient.NewChain(table, chain); err != nil {
+		return fmt.Errorf("failed creating chain %s, error: %v", chain, err)
+	}
+
+	return r.setupChainRules(chain, table)
+}
+
+func (r *router) getTableForChain(chain string) string {
+	if chain == chainRTNAT {
+		return tableNat
+	}
+	return tableFilter
+}
+
+func (r *router) setupChainRules(chain, table string) error {
+	switch chain {
+	case chainRTNAT:
+		return r.addLoopbackReturnRule(table, chain)
+	case chainRTFWD:
+		return r.insertEstablishedRule(chain)
+	}
+	return nil
+}
+
+func (r *router) addLoopbackReturnRule(table, chain string) error {
+	loopbackRule := []string{"-o", "lo", "-j", "RETURN"}
+	err := r.iptablesClient.Insert(table, chain, 1, loopbackRule...)
 	if err != nil {
-		return fmt.Errorf("error while creating jump rules: %v", err)
+		return fmt.Errorf("failed to add loopback return rule to %s: %v", chainRTNAT, err)
 	}
-
 	return nil
 }
 
