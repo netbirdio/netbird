@@ -15,6 +15,7 @@ type AppMetrics struct {
 	Deregistrations      metric.Int64Counter
 	RegistrationFailures metric.Int64Counter
 	RegistrationDelay    metric.Float64Histogram
+	GetRegistrationDelay metric.Float64Histogram
 
 	MessagesForwarded      metric.Int64Counter
 	MessageForwardFailures metric.Int64Counter
@@ -54,6 +55,12 @@ func NewAppMetrics(meter metric.Meter) (*AppMetrics, error) {
 		return nil, err
 	}
 
+	getRegistrationDelay, err := meter.Float64Histogram("get_registration_delay_milliseconds",
+		metric.WithExplicitBucketBoundaries(getStandardBucketBoundaries()...))
+	if err != nil {
+		return nil, err
+	}
+
 	messagesForwarded, err := meter.Int64Counter("messages_forwarded_total")
 	if err != nil {
 		return nil, err
@@ -80,6 +87,7 @@ func NewAppMetrics(meter metric.Meter) (*AppMetrics, error) {
 		Deregistrations:      deregistrations,
 		RegistrationFailures: registrationFailures,
 		RegistrationDelay:    registrationDelay,
+		GetRegistrationDelay: getRegistrationDelay,
 
 		MessagesForwarded:      messagesForwarded,
 		MessageForwardFailures: messageForwardFailures,

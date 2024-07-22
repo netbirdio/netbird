@@ -373,7 +373,7 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	// save status of non-existing peer
-	newStatus := nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()}
+	newStatus := nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()}
 	err = store.SavePeerStatus(account.Id, "non-existing-peer", newStatus)
 	assert.Error(t, err)
 	parsedErr, ok := status.FromError(err)
@@ -388,7 +388,7 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 		IP:       net.IP{127, 0, 0, 1},
 		Meta:     nbpeer.PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
+		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(context.Background(), account)

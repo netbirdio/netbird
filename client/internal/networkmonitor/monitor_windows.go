@@ -232,14 +232,20 @@ func stateFromInt(state uint8) string {
 }
 
 func compareIntf(a, b *net.Interface) int {
-	if a == nil && b == nil {
+	switch {
+	case a == nil && b == nil:
 		return 0
-	}
-	if a == nil {
+	case a == nil:
 		return -1
-	}
-	if b == nil {
+	case b == nil:
 		return 1
+	case isIsatapInterface(a.Name) && isIsatapInterface(b.Name):
+		return 0
+	default:
+		return a.Index - b.Index
 	}
-	return a.Index - b.Index
+}
+
+func isIsatapInterface(name string) bool {
+	return strings.HasPrefix(strings.ToLower(name), "isatap")
 }
