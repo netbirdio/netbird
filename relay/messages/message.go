@@ -43,6 +43,8 @@ func (m MsgType) String() string {
 		return "transport"
 	case MsgTypeClose:
 		return "close"
+	case MsgTypeHealthCheck:
+		return "health check"
 	default:
 		return "unknown"
 	}
@@ -150,7 +152,7 @@ func UnmarshalHelloResponse(msg []byte) (string, error) {
 func MarshalCloseMsg() []byte {
 	msg := make([]byte, 1)
 	msg[0] = byte(MsgTypeClose)
-	return healthCheckMsg
+	return msg
 }
 
 // Transport message
