@@ -334,8 +334,11 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 			Body:     loginReq,
 		})
 		if err != nil {
-			log.Printf("Login error: %v", err)
-			return err
+			// retry only on context canceled
+			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.Canceled {
+				return err
+			}
+			return backoff.Permanent(err)
 		}
 
 		return nil
