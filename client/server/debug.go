@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -141,8 +142,22 @@ func (s *Server) SetLogLevel(_ context.Context, req *proto.SetLogLevelRequest) (
 
 func addFileToZip(archive *zip.Writer, reader io.Reader, filename string) error {
 	header := &zip.FileHeader{
-		Name:   filename,
-		Method: zip.Deflate,
+		Name:     filename,
+		Method:   zip.Deflate,
+		Modified: time.Now(),
+
+		CreatorVersion: 20,    // Version 2.0
+		ReaderVersion:  20,    // Version 2.0
+		Flags:          0x800, // UTF-8 filename
+	}
+
+	// If the reader is a file, we can get more accurate information
+	if f, ok := reader.(*os.File); ok {
+		if stat, err := f.Stat(); err != nil {
+			log.Tracef("Failed to get file stat for %s: %v", filename, err)
+		} else {
+			header.Modified = stat.ModTime()
+		}
 	}
 
 	writer, err := archive.CreateHeader(header)
