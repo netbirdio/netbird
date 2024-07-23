@@ -37,7 +37,7 @@ IP Addresses
 IPv4 addresses are replaced with addresses starting from 192.51.100.0
 IPv6 addresses are replaced with addresses starting from 100::
 
-IP addresses from non public ranges are not anonymized (e.g. 100.64.0.0/10, addresses starting with 192.168., 172.16., 10., etc.).
+IP addresses from non public ranges and well known addresses are not anonymized (e.g. 8.8.8.8, 100.64.0.0/10, addresses starting with 192.168., 172.16., 10., etc.).
 Reoccuring IP addresses are replaced with the same anonymized address.
 
 Note: The anonymized IP addresses in the status file do not match those in the log and routes files. However, the anonymized IP addresses are consistent within the status file and across the routes and log files.
@@ -64,39 +64,56 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 		return nil, fmt.Errorf("create zip file: %w", err)
 	}
 	defer func() {
-		if err := bundlePath.Close(); err != nil {
-			log.Errorf("failed to close zip file: %v", err)
+		if closeErr := bundlePath.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close zip file: %w", closeErr)
 		}
 
 		if err != nil {
-			if err2 := os.Remove(bundlePath.Name()); err2 != nil {
-				log.Errorf("Failed to remove zip file: %v", err2)
+			if removeErr := os.Remove(bundlePath.Name()); removeErr != nil {
+				log.Errorf("Failed to remove zip file: %v", removeErr)
 			}
 		}
 	}()
 
 	archive := zip.NewWriter(bundlePath)
-	defer func() {
-		if err := archive.Close(); err != nil {
-			log.Errorf("failed to close archive writer: %v", err)
-		}
-	}()
+	if err := s.addReadme(req, archive); err != nil {
+		return nil, err
+	}
 
-	// Create anonymizer
+	if err := s.addStatus(req, archive); err != nil {
+		return nil, err
+	}
+
 	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
 	status := s.statusRecorder.GetFullStatus()
 	seedFromStatus(anonymizer, &status)
 
-	// Add README.txt file
+	if err := s.addRoutes(req, anonymizer, archive); err != nil {
+		return nil, err
+	}
 
+	if err := s.addLogfile(req, anonymizer, archive); err != nil {
+		return nil, err
+	}
+
+	if err := archive.Close(); err != nil {
+		return nil, fmt.Errorf("close archive writer: %w", err)
+	}
+
+	return &proto.DebugBundleResponse{Path: bundlePath.Name()}, nil
+}
+
+func (s *Server) addReadme(req *proto.DebugBundleRequest, archive *zip.Writer) error {
 	if req.GetAnonymize() {
 		readmeReader := strings.NewReader(readmeContent)
 		if err := addFileToZip(archive, readmeReader, "README.txt"); err != nil {
-			return nil, fmt.Errorf("add README file to zip: %w", err)
+			return fmt.Errorf("add README file to zip: %w", err)
 		}
 	}
+	return nil
+}
 
-	// Add status file
+func (s *Server) addStatus(req *proto.DebugBundleRequest, archive *zip.Writer) error {
 	if status := req.GetStatus(); status != "" {
 		filename := "status.txt"
 		if req.GetAnonymize() {
@@ -104,78 +121,72 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 		}
 		statusReader := strings.NewReader(status)
 		if err := addFileToZip(archive, statusReader, filename); err != nil {
-			return nil, fmt.Errorf("add status file to zip: %w", err)
+			return fmt.Errorf("add status file to zip: %w", err)
 		}
 	}
+	return nil
+}
 
-	// Add log file
-	logFile, err := os.Open(s.logFile)
-	if err != nil {
-		return nil, fmt.Errorf("open log file: %w", err)
-	}
-	defer func() {
-		if err := logFile.Close(); err != nil {
-			log.Errorf("failed to close original log file: %v", err)
-		}
-	}()
-
-	filename := "client.log.txt"
-	var logReader io.Reader
-	errChan := make(chan error, 1)
-	if req.GetAnonymize() {
-		filename = "client.anon.log.txt"
-		var writer io.WriteCloser
-		logReader, writer = io.Pipe()
-
-		go s.anonymize(logFile, writer, errChan, anonymizer)
-	} else {
-		logReader = logFile
-	}
-	if err := addFileToZip(archive, logReader, filename); err != nil {
-		return nil, fmt.Errorf("add log file to zip: %w", err)
-	}
-
-	// Add routes output
-	routes, err := systemops.GetRoutesFromTable()
-	if err != nil {
+func (s *Server) addRoutes(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
+	if routes, err := systemops.GetRoutesFromTable(); err != nil {
 		log.Errorf("Failed to get routes: %v", err)
 	} else {
 		// TODO: get routes including nexthop
 		routesContent := formatRoutes(routes, req.GetAnonymize(), anonymizer)
 		routesReader := strings.NewReader(routesContent)
 		if err := addFileToZip(archive, routesReader, "routes.txt"); err != nil {
-			return nil, fmt.Errorf("add routes file to zip: %w", err)
+			return fmt.Errorf("add routes file to zip: %w", err)
 		}
 	}
-
-	select {
-	case err := <-errChan:
-		if err != nil {
-			return nil, err
-		}
-	default:
-	}
-
-	return &proto.DebugBundleResponse{Path: bundlePath.Name()}, nil
+	return nil
 }
 
-func (s *Server) anonymize(reader io.Reader, writer io.WriteCloser, errChan chan<- error, anonymizer *anonymize.Anonymizer) {
-	scanner := bufio.NewScanner(reader)
-
+func (s *Server) addLogfile(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) (err error) {
+	logFile, err := os.Open(s.logFile)
+	if err != nil {
+		return fmt.Errorf("open log file: %w", err)
+	}
 	defer func() {
-		if err := writer.Close(); err != nil {
-			log.Errorf("Failed to close writer: %v", err)
+		if err := logFile.Close(); err != nil {
+			log.Errorf("Failed to close original log file: %v", err)
 		}
 	}()
+
+	filename := "client.log.txt"
+	var logReader io.Reader
+	if req.GetAnonymize() {
+		filename = "client.anon.log.txt"
+
+		var writer *io.PipeWriter
+		logReader, writer = io.Pipe()
+
+		go s.anonymize(logFile, writer, anonymizer)
+	} else {
+		logReader = logFile
+	}
+	if err := addFileToZip(archive, logReader, filename); err != nil {
+		return fmt.Errorf("add log file to zip: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Server) anonymize(reader io.Reader, writer *io.PipeWriter, anonymizer *anonymize.Anonymizer) {
+	defer func() {
+		// always nil
+		_ = writer.Close()
+	}()
+
+	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		line := anonymizer.AnonymizeString(scanner.Text())
 		if _, err := writer.Write([]byte(line + "\n")); err != nil {
-			errChan <- fmt.Errorf("write line to writer: %w", err)
+			writer.CloseWithError(fmt.Errorf("anonymize write: %w", err))
 			return
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		errChan <- fmt.Errorf("read line from scanner: %w", err)
+		writer.CloseWithError(fmt.Errorf("anonymize scan: %w", err))
 		return
 	}
 }
@@ -283,7 +294,7 @@ func formatRoutes(routes []netip.Prefix, anonymize bool, anonymizer *anonymize.A
 	var builder strings.Builder
 
 	// Format IPv4 routes
-	builder.WriteString("\nIPv4 Routes:\n")
+	builder.WriteString("IPv4 Routes:\n")
 	for _, route := range ipv4Routes {
 		formatRoute(&builder, route, anonymize, anonymizer)
 	}
