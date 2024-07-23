@@ -30,6 +30,15 @@ func NewRelayTrack() *RelayTrack {
 	return &RelayTrack{}
 }
 
+type ManagerService interface {
+	Serve() error
+	OpenConn(serverAddress, peerKey string, onClosedListener func()) (net.Conn, error)
+	RelayInstanceAddress() (string, error)
+	ServerURL() string
+	HasRelayAddress() bool
+	UpdateToken(token *relayAuth.Token)
+}
+
 // Manager is a manager for the relay client. It establish one persistent connection to the given relay server. In case
 // of network error the manager will try to reconnect to the server.
 // The manager also manage temproary relay connection. If a client wants to communicate with an another client on a

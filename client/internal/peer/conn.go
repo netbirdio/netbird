@@ -336,13 +336,12 @@ func (conn *Conn) reconnectLoopWithRetry() {
 				return
 			}
 
-			// checks if there is peer connection is established via relay or ice and that it has a wireguard handshake and skip offer
-			conn.log.Tracef("ticker timedout, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
+			// checks if there is peer connection is established via relay or ice
+			conn.log.Infof("ticker timedout, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
 			if conn.isConnected() {
 				continue
 			}
 
-			conn.log.Debugf("ticker timed out, retry to do handshake")
 			err := conn.handshaker.sendOffer()
 			if err != nil {
 				conn.log.Errorf("failed to do handshake: %v", err)
@@ -722,18 +721,7 @@ func (conn *Conn) isConnected() bool {
 	if conn.statusICE != StatusConnected && conn.statusICE != StatusConnecting {
 		return false
 	}
-
-	wgStats, err := conn.config.WgConfig.WgInterface.GetStats(conn.config.Key)
-	if err != nil {
-		conn.log.Errorf("failed to get wg stats: %v", err)
-		return false
-	}
-
-	if time.Since(wgStats.LastHandshake) > 2*time.Minute {
-		return false
-	}
 	return true
-
 }
 
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {

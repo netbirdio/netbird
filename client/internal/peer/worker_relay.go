@@ -4,10 +4,17 @@ import (
 	"context"
 	"errors"
 	"net"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/iface"
 	relayClient "github.com/netbirdio/netbird/relay/client"
+)
+
+var (
+	wgHandshakePeriod   = 2 * time.Minute
+	wgHandshakeOvertime = 30000 * time.Millisecond
 )
 
 type RelayConnInfo struct {
@@ -25,11 +32,12 @@ type WorkerRelay struct {
 	ctx          context.Context
 	log          *log.Entry
 	config       ConnConfig
-	relayManager *relayClient.Manager
+	wgInterface  iface.IWGIface
+	relayManager relayClient.ManagerService
 	conn         WorkerRelayCallbacks
 }
 
-func NewWorkerRelay(ctx context.Context, log *log.Entry, config ConnConfig, relayManager *relayClient.Manager, callbacks WorkerRelayCallbacks) *WorkerRelay {
+func NewWorkerRelay(ctx context.Context, log *log.Entry, config ConnConfig, relayManager relayClient.ManagerService, callbacks WorkerRelayCallbacks) *WorkerRelay {
 	return &WorkerRelay{
 		ctx:          ctx,
 		log:          log,
@@ -48,7 +56,7 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	// the relayManager will return with error in case if the connection has lost with relay server
 	currentRelayAddress, err := w.relayManager.RelayInstanceAddress()
 	if err != nil {
-		w.log.Infof("local Relay connection is lost, skipping connection attempt")
+		w.log.Errorf("failed to handle new offer: %s", err)
 		return
 	}
 
@@ -61,9 +69,11 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 			w.log.Infof("do not need to reopen relay connection")
 			return
 		}
-		w.log.Infof("do not need to reopen relay connection: %s", err)
+		w.log.Errorf("failed to open connection via Relay: %s", err)
 		return
 	}
+
+	go w.wgStateCheck(relayedConn)
 
 	w.log.Debugf("Relay connection established with %s", srv)
 	go w.conn.OnConnReady(RelayConnInfo{
@@ -85,6 +95,35 @@ func (w *WorkerRelay) RelayIsSupportedLocally() bool {
 	return w.relayManager.HasRelayAddress()
 }
 
+// wgStateCheck help to check the state of the wireguard handshake and relay connection
+func (w *WorkerRelay) wgStateCheck(conn net.Conn) {
+	timer := time.NewTimer(wgHandshakeOvertime)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-timer.C:
+			lastHandshake, err := w.wgState()
+			if err != nil {
+				w.log.Errorf("failed to read wg stats: %v", err)
+				continue
+			}
+			log.Infof("last handshake: %v", lastHandshake)
+
+			if time.Since(lastHandshake) > wgHandshakePeriod {
+				w.log.Infof("Wireguard handshake timed out, closing relay connection")
+				_ = conn.Close()
+				w.conn.OnDisconnected()
+				return
+			}
+			resetTime := (lastHandshake.Add(wgHandshakeOvertime + wgHandshakePeriod)).Sub(time.Now())
+			timer.Reset(resetTime)
+		case <-w.ctx.Done():
+			return
+		}
+	}
+}
+
 func (w *WorkerRelay) isRelaySupported(answer *OfferAnswer) bool {
 	if !w.relayManager.HasRelayAddress() {
 		return false
@@ -97,4 +136,12 @@ func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress st
 		return myRelayAddress
 	}
 	return remoteRelayAddress
+}
+
+func (w *WorkerRelay) wgState() (time.Time, error) {
+	wgState, err := w.config.WgConfig.WgInterface.GetStats(w.config.Key)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return wgState.LastHandshake, nil
 }
