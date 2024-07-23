@@ -90,7 +90,6 @@ type AccountManager interface {
 	DeletePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error
 	GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error)
 	GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error)
-	UpdatePeerSSHKey(ctx context.Context, peerID string, sshKey string) error
 	GetUsersFromAccount(ctx context.Context, accountID, userID string) ([]*UserInfo, error)
 	GetGroup(ctx context.Context, accountId, groupID, userID string) (*nbgroup.Group, error)
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*nbgroup.Group, error)

@@ -54,7 +54,6 @@ type MockAccountManager struct {
 	GetAccountFromPATFunc               func(ctx context.Context, pat string) (*server.Account, *server.User, *server.PersonalAccessToken, error)
 	MarkPATUsedFunc                     func(ctx context.Context, pat string) error
 	UpdatePeerMetaFunc                  func(ctx context.Context, peerID string, meta nbpeer.PeerSystemMeta) error
-	UpdatePeerSSHKeyFunc                func(ctx context.Context, peerID string, sshKey string) error
 	UpdatePeerFunc                      func(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
 	CreateRouteFunc                     func(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peer string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, userID string, keepRoute bool) (*route.Route, error)
 	GetRouteFunc                        func(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error)
@@ -411,14 +410,6 @@ func (am *MockAccountManager) ListUsers(ctx context.Context, accountID string) (
 		return am.ListUsersFunc(ctx, accountID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method ListUsers is not implemented")
-}
-
-// UpdatePeerSSHKey mocks UpdatePeerSSHKey function of the account manager
-func (am *MockAccountManager) UpdatePeerSSHKey(ctx context.Context, peerID string, sshKey string) error {
-	if am.UpdatePeerSSHKeyFunc != nil {
-		return am.UpdatePeerSSHKeyFunc(ctx, peerID, sshKey)
-	}
-	return status.Errorf(codes.Unimplemented, "method UpdatePeerSSHKey is not implemented")
 }
 
 // UpdatePeer mocks UpdatePeerFunc function of the account manager
