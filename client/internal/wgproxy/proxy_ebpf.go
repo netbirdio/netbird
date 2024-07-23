@@ -206,7 +206,7 @@ func (p *WGEBPFProxy) storeTurnConn(turnConn net.Conn) (uint16, error) {
 }
 
 func (p *WGEBPFProxy) removeTurnConn(turnConnID uint16) {
-	log.Tracef("remove turn conn from store by port: %d", turnConnID)
+	log.Debugf("remove turn conn from store by port: %d", turnConnID)
 	p.turnConnMutex.Lock()
 	defer p.turnConnMutex.Unlock()
 	delete(p.turnConnStore, turnConnID)

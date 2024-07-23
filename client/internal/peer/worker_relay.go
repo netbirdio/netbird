@@ -29,17 +29,20 @@ type WorkerRelayCallbacks struct {
 }
 
 type WorkerRelay struct {
-	ctx          context.Context
+	parentCtx    context.Context
 	log          *log.Entry
 	config       ConnConfig
 	wgInterface  iface.IWGIface
 	relayManager relayClient.ManagerService
 	conn         WorkerRelayCallbacks
+
+	ctx       context.Context
+	ctxCancel context.CancelFunc
 }
 
 func NewWorkerRelay(ctx context.Context, log *log.Entry, config ConnConfig, relayManager relayClient.ManagerService, callbacks WorkerRelayCallbacks) *WorkerRelay {
 	return &WorkerRelay{
-		ctx:          ctx,
+		parentCtx:    ctx,
 		log:          log,
 		config:       config,
 		relayManager: relayManager,
@@ -62,8 +65,10 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 
 	srv := w.preferredRelayServer(currentRelayAddress, remoteOfferAnswer.RelaySrvAddress)
 
-	relayedConn, err := w.relayManager.OpenConn(srv, w.config.Key, w.conn.OnDisconnected)
+	w.ctx, w.ctxCancel = context.WithCancel(w.parentCtx)
+	relayedConn, err := w.relayManager.OpenConn(srv, w.config.Key, w.disconnected)
 	if err != nil {
+		w.ctxCancel()
 		// todo handle all type errors
 		if errors.Is(err, relayClient.ErrConnAlreadyExists) {
 			w.log.Infof("do not need to reopen relay connection")
@@ -99,7 +104,6 @@ func (w *WorkerRelay) RelayIsSupportedLocally() bool {
 func (w *WorkerRelay) wgStateCheck(conn net.Conn) {
 	timer := time.NewTimer(wgHandshakeOvertime)
 	defer timer.Stop()
-
 	for {
 		select {
 		case <-timer.C:
@@ -108,7 +112,7 @@ func (w *WorkerRelay) wgStateCheck(conn net.Conn) {
 				w.log.Errorf("failed to read wg stats: %v", err)
 				continue
 			}
-			log.Infof("last handshake: %v", lastHandshake)
+			w.log.Tracef("last handshake: %v", lastHandshake)
 
 			if time.Since(lastHandshake) > wgHandshakePeriod {
 				w.log.Infof("Wireguard handshake timed out, closing relay connection")
@@ -144,4 +148,9 @@ func (w *WorkerRelay) wgState() (time.Time, error) {
 		return time.Time{}, err
 	}
 	return wgState.LastHandshake, nil
+}
+
+func (w *WorkerRelay) disconnected() {
+	w.ctxCancel()
+	w.conn.OnDisconnected()
 }
