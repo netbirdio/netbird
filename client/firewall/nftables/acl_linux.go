@@ -744,19 +744,6 @@ func generatePeerRuleId(
 	return "set:" + ipset.Name + rulesetID
 }
 
-func generateRuleIdForMangle(ipset *nftables.Set, ip net.IP, proto firewall.Protocol, port *firewall.Port) string {
-	// case of icmp port is empty
-	var p string
-	if port != nil {
-		p = port.String()
-	}
-	if ipset != nil {
-		return fmt.Sprintf("p:set:%s:%s:%v", ipset.Name, proto, p)
-	} else {
-		return fmt.Sprintf("p:ip:%s:%s:%v", ip.String(), proto, p)
-	}
-}
-
 func encodePort(port firewall.Port) []byte {
 	bs := make([]byte, 2)
 	binary.BigEndian.PutUint16(bs, uint16(port.Values[0]))

@@ -27,15 +27,13 @@ const (
 	NFTABLES
 )
 
-func TestNftablesManager_InsertRoutingRules(t *testing.T) {
+func TestNftablesManager_AddNatRule(t *testing.T) {
 	if check() != NFTABLES {
 		t.Skip("nftables not supported on this OS")
 	}
 
 	table, err := createWorkTable()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err, "Failed to create work table")
 
 	defer deleteWorkTable()
 
@@ -46,13 +44,18 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 
 			nftablesTestingClient := &nftables.Conn{}
 
-			defer manager.ResetForwardRules()
+			defer func(manager *router) {
+				require.NoError(t, manager.ResetForwardRules(), "failed to reset rules")
+			}(manager)
 
 			require.NoError(t, err, "shouldn't return error")
 
 			err = manager.AddNatRule(testCase.InputPair)
-			defer manager.RemoveNatRule(testCase.InputPair)
 			require.NoError(t, err, "pair should be inserted")
+
+			defer func(manager *router, pair firewall.RouterPair) {
+				require.NoError(t, manager.RemoveNatRule(pair), "failed to remove rule")
+			}(manager, testCase.InputPair)
 
 			sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
 			destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
@@ -93,15 +96,13 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 	}
 }
 
-func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
+func TestNftablesManager_RemoveNatRule(t *testing.T) {
 	if check() != NFTABLES {
 		t.Skip("nftables not supported on this OS")
 	}
 
 	table, err := createWorkTable()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err, "Failed to create work table")
 
 	defer deleteWorkTable()
 
@@ -112,7 +113,9 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 
 			nftablesTestingClient := &nftables.Conn{}
 
-			defer manager.ResetForwardRules()
+			defer func(manager *router) {
+				require.NoError(t, manager.ResetForwardRules(), "failed to reset rules")
+			}(manager)
 
 			sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
 			destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
@@ -176,7 +179,9 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 	r, err := newRouter(context.Background(), workTable, ifaceMock)
 	require.NoError(t, err, "Failed to create router")
 
-	defer r.ResetForwardRules()
+	defer func(r *router) {
+		require.NoError(t, r.ResetForwardRules(), "Failed to reset rules")
+	}(r)
 
 	tests := []struct {
 		name        string
@@ -312,6 +317,8 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 }
 
 func verifyRule(t *testing.T, rule *nftables.Rule, source, destination netip.Prefix, proto firewall.Protocol, sPort, dPort *firewall.Port, direction firewall.RuleDirection, action firewall.Action) {
+	t.Helper()
+
 	assert.NotNil(t, rule, "Rule should not be nil")
 
 	// Verify source and destination

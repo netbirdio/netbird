@@ -30,13 +30,6 @@ const (
 
 // some presets for building nftable rules
 var (
-	exprCounterAccept = []expr.Any{
-		&expr.Counter{},
-		&expr.Verdict{
-			Kind: expr.VerdictAccept,
-		},
-	}
-
 	errFilterTableNotFound = fmt.Errorf("nftables: 'filter' table not found")
 )
 
