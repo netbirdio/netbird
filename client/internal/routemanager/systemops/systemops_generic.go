@@ -427,7 +427,7 @@ func ipToAddr(ip net.IP, intf *net.Interface) (netip.Addr, error) {
 }
 
 func existsInRouteTable(prefix netip.Prefix) (bool, error) {
-	routes, err := getRoutesFromTable()
+	routes, err := GetRoutesFromTable()
 	if err != nil {
 		return false, fmt.Errorf("get routes from table: %w", err)
 	}
@@ -440,7 +440,7 @@ func existsInRouteTable(prefix netip.Prefix) (bool, error) {
 }
 
 func isSubRange(prefix netip.Prefix) (bool, error) {
-	routes, err := getRoutesFromTable()
+	routes, err := GetRoutesFromTable()
 	if err != nil {
 		return false, fmt.Errorf("get routes from table: %w", err)
 	}

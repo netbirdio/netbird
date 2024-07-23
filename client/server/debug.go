@@ -1,3 +1,5 @@
+//go:build !android && !ios
+
 package server
 
 import (
@@ -6,7 +8,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,6 +18,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -49,6 +54,12 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 		}
 	}()
 
+	// Create anonymizer
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+	status := s.statusRecorder.GetFullStatus()
+	seedFromStatus(anonymizer, &status)
+
+	// Add status file
 	if status := req.GetStatus(); status != "" {
 		filename := "status.txt"
 		if req.GetAnonymize() {
@@ -60,6 +71,7 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 		}
 	}
 
+	// Add log file
 	logFile, err := os.Open(s.logFile)
 	if err != nil {
 		return nil, fmt.Errorf("open log file: %w", err)
@@ -78,12 +90,25 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 		var writer io.WriteCloser
 		logReader, writer = io.Pipe()
 
-		go s.anonymize(logFile, writer, errChan)
+		go s.anonymize(logFile, writer, errChan, anonymizer)
 	} else {
 		logReader = logFile
 	}
 	if err := addFileToZip(archive, logReader, filename); err != nil {
 		return nil, fmt.Errorf("add log file to zip: %w", err)
+	}
+
+	// Add routes output
+	routes, err := systemops.GetRoutesFromTable()
+	if err != nil {
+		log.Errorf("Failed to get routes: %v", err)
+	} else {
+		// TODO: get routes including nexthop
+		routesContent := formatRoutes(routes, req.GetAnonymize(), anonymizer)
+		routesReader := strings.NewReader(routesContent)
+		if err := addFileToZip(archive, routesReader, "routes.txt"); err != nil {
+			return nil, fmt.Errorf("add routes file to zip: %w", err)
+		}
 	}
 
 	select {
@@ -97,12 +122,8 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	return &proto.DebugBundleResponse{Path: bundlePath.Name()}, nil
 }
 
-func (s *Server) anonymize(reader io.Reader, writer io.WriteCloser, errChan chan<- error) {
+func (s *Server) anonymize(reader io.Reader, writer io.WriteCloser, errChan chan<- error, anonymizer *anonymize.Anonymizer) {
 	scanner := bufio.NewScanner(reader)
-	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
-
-	status := s.statusRecorder.GetFullStatus()
-	seedFromStatus(anonymizer, &status)
 
 	defer func() {
 		if err := writer.Close(); err != nil {
@@ -199,5 +220,51 @@ func seedFromStatus(a *anonymize.Anonymizer, status *peer.FullStatus) {
 		if relay.URI != nil {
 			a.AnonymizeURI(relay.URI.String())
 		}
+	}
+}
+
+func formatRoutes(routes []netip.Prefix, anonymize bool, anonymizer *anonymize.Anonymizer) string {
+	var ipv4Routes, ipv6Routes []netip.Prefix
+
+	// Separate IPv4 and IPv6 routes
+	for _, route := range routes {
+		if route.Addr().Is4() {
+			ipv4Routes = append(ipv4Routes, route)
+		} else {
+			ipv6Routes = append(ipv6Routes, route)
+		}
+	}
+
+	// Sort IPv4 and IPv6 routes separately
+	sort.Slice(ipv4Routes, func(i, j int) bool {
+		return ipv4Routes[i].Bits() > ipv4Routes[j].Bits()
+	})
+	sort.Slice(ipv6Routes, func(i, j int) bool {
+		return ipv6Routes[i].Bits() > ipv6Routes[j].Bits()
+	})
+
+	var builder strings.Builder
+
+	// Format IPv4 routes
+	builder.WriteString("\nIPv4 Routes:\n")
+	for _, route := range ipv4Routes {
+		formatRoute(&builder, route, anonymize, anonymizer)
+	}
+
+	// Format IPv6 routes
+	builder.WriteString("\nIPv6 Routes:\n")
+	for _, route := range ipv6Routes {
+		formatRoute(&builder, route, anonymize, anonymizer)
+	}
+
+	return builder.String()
+}
+
+func formatRoute(builder *strings.Builder, route netip.Prefix, anonymize bool, anonymizer *anonymize.Anonymizer) {
+	if anonymize {
+		anonymizedIP := anonymizer.AnonymizeIP(route.Addr())
+		builder.WriteString(fmt.Sprintf("%s/%d\n", anonymizedIP, route.Bits()))
+	} else {
+		builder.WriteString(fmt.Sprintf("%s\n", route))
 	}
 }
