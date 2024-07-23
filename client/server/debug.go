@@ -22,6 +22,34 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
+const readmeContent = `Netbird debug bundle
+This debug bundle contains the following files:
+
+status.anon.txt: Anonymized status information of the NetBird client.
+client.anon.log.txt: Most recent, anonymized log file of the NetBird client.
+routes.txt: Anonymized system routes.
+
+Anonymization Process
+The files in this bundle have been anonymized to protect sensitive information. Here's how the anonymization was applied:
+
+IP Addresses
+
+IPv4 addresses are replaced with addresses starting from 192.51.100.0
+IPv6 addresses are replaced with addresses starting from 100::
+
+IP addresses from non public ranges are not anonymized (e.g. 100.64.0.0/10, addresses starting with 192.168., 172.16., 10., etc.).
+Reoccuring IP addresses are replaced with the same anonymized address.
+
+Note: The anonymized IP addresses in the status file do not match those in the log and routes files. However, the anonymized IP addresses are consistent within the status file and across the routes and log files.
+
+Domains
+All domain names (except for the netbird domains) are replaced with randomly generated strings ending in ".domain". Anonymized domains are consistent across all files in the bundle.
+Reoccuring domain names are replaced with the same anonymized domain.
+
+Routes
+For anonymized routes, the IP addresses are replaced as described above. The prefix length remains unchanged. Note that for prefixes, the anonymized IP might not be a network address, but the prefix length is still correct.
+`
+
 // DebugBundle creates a debug bundle and returns the location.
 func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (resp *proto.DebugBundleResponse, err error) {
 	s.mutex.Lock()
@@ -58,6 +86,15 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
 	status := s.statusRecorder.GetFullStatus()
 	seedFromStatus(anonymizer, &status)
+
+	// Add README.txt file
+
+	if req.GetAnonymize() {
+		readmeReader := strings.NewReader(readmeContent)
+		if err := addFileToZip(archive, readmeReader, "README.txt"); err != nil {
+			return nil, fmt.Errorf("add README file to zip: %w", err)
+		}
+	}
 
 	// Add status file
 	if status := req.GetStatus(); status != "" {
