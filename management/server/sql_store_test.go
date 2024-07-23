@@ -55,6 +55,37 @@ func TestSqlite_SaveAccount_Large(t *testing.T) {
 	})
 }
 
+// generatePeerMeta generates nbpeer.PeerSystemMeta with all fields and multiple  NetworkAddresses
+func generatePeerMeta() nbpeer.PeerSystemMeta {
+	return nbpeer.PeerSystemMeta{
+		OS:        "Linux",
+		OSVersion: "5.4.0-1043-aws",
+		NetworkAddresses: []nbpeer.NetworkAddress{
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+			{NetIP: netip.MustParsePrefix("192.168.0.0/24"), Mac: "00:00:00:00:00:00"},
+		},
+	}
+}
+
 func runLargeTest(t *testing.T, store Store) {
 	t.Helper()
 
@@ -80,6 +111,7 @@ func runLargeTest(t *testing.T, store Store) {
 			UserID:     userID,
 			Status:     &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
 			SSHEnabled: false,
+			Meta:       generatePeerMeta(),
 		}
 		account.Peers[peerID] = peer
 		group, _ := account.GetGroupAll()
@@ -129,17 +161,24 @@ func runLargeTest(t *testing.T, store Store) {
 		account.SetupKeys[setupKey.Key] = setupKey
 	}
 
+	// display number of objects in the Account
+	t.Logf("Account has %d Peers, %d Users, %d Routes, %d NameServerGroups, %d SetupKeys", len(account.Peers), len(account.Users), len(account.Routes), len(account.NameServerGroups), len(account.SetupKeys))
+
+	start := time.Now()
 	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
+	t.Logf("SaveAccount took %s", time.Since(start))
 
 	if len(store.GetAllAccounts(context.Background())) != 1 {
 		t.Errorf("expecting 1 Accounts to be stored after SaveAccount()")
 	}
 
+	start = time.Now()
 	a, err := store.GetAccount(context.Background(), account.Id)
 	if a == nil {
 		t.Errorf("expecting Account to be stored after SaveAccount(): %v", err)
 	}
+	t.Logf("GetAccount took %s", time.Since(start))
 
 	if a != nil && len(a.Policies) != 1 {
 		t.Errorf("expecting Account to have one policy stored after SaveAccount(), got %d", len(a.Policies))
