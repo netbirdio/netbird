@@ -7,5 +7,5 @@ import (
 )
 
 func (w *WorkerICE) newStdNet() (*stdnet.Net, error) {
-	return stdnet.NewNet(w.configICE.InterfaceBlackList)
+	return stdnet.NewNet(w.config.ICEConfig.InterfaceBlackList)
 }
