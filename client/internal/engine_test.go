@@ -1101,7 +1101,10 @@ func startManagement(t *testing.T, dataDir string) (*grpc.Server, string, error)
 	if err != nil {
 		return nil, "", err
 	}
-	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, "")
+	rc := &server.RelayConfig{
+		Address: "127.0.0.1:1234",
+	}
+	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, rc)
 	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, peersUpdateManager, turnManager, nil, nil)
 	if err != nil {
 		return nil, "", err
