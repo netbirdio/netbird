@@ -18,8 +18,8 @@ type Relay struct {
 	metrics   *metrics.Metrics
 	validator auth.Validator
 
-	store      *Store
-	instaceURL string
+	store       *Store
+	instanceURL string
 
 	closed  bool
 	closeMu sync.RWMutex
@@ -38,9 +38,9 @@ func NewRelay(meter metric.Meter, exposedAddress string, tlsSupport bool, valida
 	}
 
 	if tlsSupport {
-		r.instaceURL = fmt.Sprintf("rels://%s", exposedAddress)
+		r.instanceURL = fmt.Sprintf("rels://%s", exposedAddress)
 	} else {
-		r.instaceURL = fmt.Sprintf("rel://%s", exposedAddress)
+		r.instanceURL = fmt.Sprintf("rel://%s", exposedAddress)
 	}
 
 	return r, nil
@@ -120,7 +120,7 @@ func (r *Relay) handShake(conn net.Conn) ([]byte, error) {
 		return nil, err
 	}
 
-	msg, _ := messages.MarshalHelloResponse(r.instaceURL)
+	msg, _ := messages.MarshalHelloResponse(r.instanceURL)
 	_, err = conn.Write(msg)
 	if err != nil {
 		return nil, err
@@ -129,5 +129,5 @@ func (r *Relay) handShake(conn net.Conn) ([]byte, error) {
 }
 
 func (r *Relay) InstanceURL() string {
-	return r.instaceURL
+	return r.instanceURL
 }

@@ -91,5 +91,5 @@ func (r *Server) Close() error {
 }
 
 func (r *Server) InstanceURL() string {
-	return r.relay.instaceURL
+	return r.relay.instanceURL
 }
