@@ -72,7 +72,6 @@ type WorkerICE struct {
 	ctx               context.Context
 	log               *log.Entry
 	config            ConnConfig
-	configICE         ICEConfig
 	signaler          *Signaler
 	iFaceDiscover     stdnet.ExternalIFaceDiscover
 	statusRecorder    *Status
@@ -92,12 +91,11 @@ type WorkerICE struct {
 	localPwd   string
 }
 
-func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, configICE ICEConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, hasRelayOnLocally bool, callBacks WorkerICECallbacks) (*WorkerICE, error) {
+func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, hasRelayOnLocally bool, callBacks WorkerICECallbacks) (*WorkerICE, error) {
 	w := &WorkerICE{
 		ctx:               ctx,
 		log:               log,
 		config:            config,
-		configICE:         configICE,
 		signaler:          signaler,
 		iFaceDiscover:     ifaceDiscover,
 		statusRecorder:    statusRecorder,
@@ -233,12 +231,12 @@ func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, relaySupport [
 	agentConfig := &ice.AgentConfig{
 		MulticastDNSMode:       ice.MulticastDNSModeDisabled,
 		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
-		Urls:                   w.configICE.StunTurn.Load().([]*stun.URI),
+		Urls:                   w.config.ICEConfig.StunTurn.Load().([]*stun.URI),
 		CandidateTypes:         relaySupport,
-		InterfaceFilter:        stdnet.InterfaceFilter(w.configICE.InterfaceBlackList),
-		UDPMux:                 w.configICE.UDPMux,
-		UDPMuxSrflx:            w.configICE.UDPMuxSrflx,
-		NAT1To1IPs:             w.configICE.NATExternalIPs,
+		InterfaceFilter:        stdnet.InterfaceFilter(w.config.ICEConfig.InterfaceBlackList),
+		UDPMux:                 w.config.ICEConfig.UDPMux,
+		UDPMuxSrflx:            w.config.ICEConfig.UDPMuxSrflx,
+		NAT1To1IPs:             w.config.ICEConfig.NATExternalIPs,
 		Net:                    transportNet,
 		FailedTimeout:          &failedTimeout,
 		DisconnectedTimeout:    &iceDisconnectedTimeout,
@@ -248,7 +246,7 @@ func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, relaySupport [
 		LocalPwd:               w.localPwd,
 	}
 
-	if w.configICE.DisableIPv6Discovery {
+	if w.config.ICEConfig.DisableIPv6Discovery {
 		agentConfig.NetworkTypes = []ice.NetworkType{ice.NetworkTypeUDP4}
 	}
 
@@ -308,7 +306,7 @@ func (w *WorkerICE) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int)
 		return
 	}
 
-	mux, ok := w.configICE.UDPMuxSrflx.(*bind.UniversalUDPMuxDefault)
+	mux, ok := w.config.ICEConfig.UDPMuxSrflx.(*bind.UniversalUDPMuxDefault)
 	if !ok {
 		w.log.Warn("invalid udp mux conversion")
 		return
