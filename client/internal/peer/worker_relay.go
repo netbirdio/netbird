@@ -8,7 +8,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/iface"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 )
 
@@ -32,7 +31,6 @@ type WorkerRelay struct {
 	parentCtx    context.Context
 	log          *log.Entry
 	config       ConnConfig
-	wgInterface  iface.IWGIface
 	relayManager relayClient.ManagerService
 	conn         WorkerRelayCallbacks
 
@@ -120,7 +118,7 @@ func (w *WorkerRelay) wgStateCheck(conn net.Conn) {
 				w.conn.OnDisconnected()
 				return
 			}
-			resetTime := (lastHandshake.Add(wgHandshakeOvertime + wgHandshakePeriod)).Sub(time.Now())
+			resetTime := time.Until(lastHandshake.Add(wgHandshakeOvertime + wgHandshakePeriod))
 			timer.Reset(resetTime)
 		case <-w.ctx.Done():
 			return

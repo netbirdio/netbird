@@ -200,10 +200,13 @@ func transfer(t *testing.T, testData []byte, peerPairs int) {
 
 	var transferDuration []time.Duration
 	wg := sync.WaitGroup{}
+	var writeErr error
+	var readErr error
 	for i := 0; i < len(connsSender); i++ {
 		wg.Add(2)
 		start := time.Now()
 		go func(i int) {
+			defer wg.Done()
 			pieceSize := 1024
 			testDataLen := len(testData)
 
@@ -212,33 +215,42 @@ func transfer(t *testing.T, testData []byte, peerPairs int) {
 				if end > testDataLen {
 					end = testDataLen
 				}
-				_, err := connsSender[i].Write(testData[j:end])
-				if err != nil {
-					t.Fatalf("failed to write to channel: %s", err)
+				_, writeErr = connsSender[i].Write(testData[j:end])
+				if writeErr != nil {
+					return
 				}
 			}
-			wg.Done()
+
 		}(i)
 
 		go func(i int, start time.Time) {
+			defer wg.Done()
 			buf := make([]byte, 8192)
 			rcv := 0
+			var n int
 			for receivedSize := 0; receivedSize < len(testData); {
 
-				n, err := connsReceiver[i].Read(buf)
-				if err != nil {
-					t.Fatalf("failed to read from channel: %s", err)
+				n, readErr = connsReceiver[i].Read(buf)
+				if readErr != nil {
+					return
 				}
 
 				receivedSize += n
 				rcv += n
 			}
 			transferDuration = append(transferDuration, time.Since(start))
-			wg.Done()
 		}(i, start)
 	}
 
 	wg.Wait()
+
+	if writeErr != nil {
+		t.Fatalf("failed to write to channel: %s", err)
+	}
+
+	if readErr != nil {
+		t.Fatalf("failed to read from channel: %s", err)
+	}
 
 	// calculate the megabytes per second from the average transferDuration against the dataSize
 	var totalDuration time.Duration

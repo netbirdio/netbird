@@ -23,8 +23,6 @@ type State struct {
 	PubKey                     string
 	FQDN                       string
 	ConnStatus                 ConnStatus
-	connStatusRelay            ConnStatus
-	connStatusICE              ConnStatus
 	ConnStatusUpdate           time.Time
 	Relayed                    bool
 	LocalIceCandidateType      string
