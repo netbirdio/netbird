@@ -413,25 +413,9 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 		conn.log.Infof("set ICE to active connection")
 	}
 
-	var (
-		endpoint net.Addr
-		wgProxy  wgproxy.Proxy
-	)
-	if iceConnInfo.RelayedOnLocal {
-		conn.log.Debugf("setup ice turn connection")
-		wgProxy = conn.wgProxyFactory.GetProxy(conn.ctx)
-		ep, err := wgProxy.AddTurnConn(iceConnInfo.RemoteConn)
-		if err != nil {
-			conn.log.Errorf("failed to add turn net.Conn to local proxy: %v", err)
-			err = wgProxy.CloseConn()
-			if err != nil {
-				conn.log.Warnf("failed to close turn proxy connection: %v", err)
-			}
-			return
-		}
-		endpoint = ep
-	} else {
-		endpoint = iceConnInfo.RemoteConn.RemoteAddr()
+	endpoint, wgProxy, err := conn.getEndpointForICEConnInfo(iceConnInfo)
+	if err != nil {
+		return
 	}
 
 	endpointUdpAddr, _ := net.ResolveUDPAddr(endpoint.Network(), endpoint.String())
@@ -444,7 +428,7 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 		}
 	}
 
-	err := conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, endpointUdpAddr, conn.config.WgConfig.PreSharedKey)
+	err = conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, endpointUdpAddr, conn.config.WgConfig.PreSharedKey)
 	if err != nil {
 		if wgProxy != nil {
 			if err := wgProxy.CloseConn(); err != nil {
@@ -740,6 +724,24 @@ func (conn *Conn) freeUpConnID() {
 		}
 		conn.connIDICE = ""
 	}
+}
+
+func (conn *Conn) getEndpointForICEConnInfo(iceConnInfo ICEConnInfo) (net.Addr, wgproxy.Proxy, error) {
+	if !iceConnInfo.RelayedOnLocal {
+		return iceConnInfo.RemoteConn.RemoteAddr(), nil, nil
+	}
+	conn.log.Debugf("setup ice turn connection")
+	wgProxy := conn.wgProxyFactory.GetProxy(conn.ctx)
+	ep, err := wgProxy.AddTurnConn(iceConnInfo.RemoteConn)
+	if err != nil {
+		conn.log.Errorf("failed to add turn net.Conn to local proxy: %v", err)
+		err = wgProxy.CloseConn()
+		if err != nil {
+			conn.log.Warnf("failed to close turn proxy connection: %v", err)
+		}
+		return nil, nil, err
+	}
+	return ep, wgProxy, nil
 }
 
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {
