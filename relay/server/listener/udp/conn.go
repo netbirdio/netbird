@@ -50,17 +50,17 @@ func (u *Conn) RemoteAddr() net.Addr {
 
 func (u *Conn) SetDeadline(t time.Time) error {
 	//TODO implement me
-	panic("implement me")
+	panic("implement SetDeadline")
 }
 
 func (u *Conn) SetReadDeadline(t time.Time) error {
 	//TODO implement me
-	panic("implement me")
+	panic("implement SetReadDeadline")
 }
 
 func (u *Conn) SetWriteDeadline(t time.Time) error {
 	//TODO implement me
-	panic("implement me")
+	panic("implement SetWriteDeadline")
 }
 
 func (u *Conn) onNewMsg(b []byte) {
