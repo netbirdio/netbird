@@ -209,7 +209,7 @@ func (conn *Conn) Close() {
 	conn.ctxCancel()
 
 	if !conn.opened {
-		log.Infof("IGNORE close connection to peer")
+		log.Debugf("ignore close connection to peer")
 		return
 	}
 
@@ -247,24 +247,7 @@ func (conn *Conn) Close() {
 		conn.onDisconnected(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps)
 	}
 
-	conn.statusRelay = StatusDisconnected
-	conn.statusICE = StatusDisconnected
-
-	peerState := State{
-		PubKey:           conn.config.Key,
-		ConnStatus:       StatusDisconnected,
-		ConnStatusUpdate: time.Now(),
-		Mux:              new(sync.RWMutex),
-	}
-	err = conn.statusRecorder.UpdatePeerState(peerState)
-	if err != nil {
-		// pretty common error because by that time Engine can already remove the peer and status won't be available.
-		// todo rethink status updates
-		conn.log.Debugf("error while updating peer's state, err: %v", err)
-	}
-	if err := conn.statusRecorder.UpdateWireGuardPeerState(conn.config.Key, iface.WGStats{}); err != nil {
-		conn.log.Debugf("failed to reset wireguard stats for peer: %s", err)
-	}
+	conn.setStatusToDisconnected()
 }
 
 // OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
@@ -659,6 +642,27 @@ func (conn *Conn) updateIceState(iceConnInfo ICEConnInfo) {
 	err := conn.statusRecorder.UpdatePeerICEState(peerState)
 	if err != nil {
 		conn.log.Warnf("unable to save peer's ICE state, got error: %v", err)
+	}
+}
+
+func (conn *Conn) setStatusToDisconnected() {
+	conn.statusRelay = StatusDisconnected
+	conn.statusICE = StatusDisconnected
+
+	peerState := State{
+		PubKey:           conn.config.Key,
+		ConnStatus:       StatusDisconnected,
+		ConnStatusUpdate: time.Now(),
+		Mux:              new(sync.RWMutex),
+	}
+	err := conn.statusRecorder.UpdatePeerState(peerState)
+	if err != nil {
+		// pretty common error because by that time Engine can already remove the peer and status won't be available.
+		// todo rethink status updates
+		conn.log.Debugf("error while updating peer's state, err: %v", err)
+	}
+	if err := conn.statusRecorder.UpdateWireGuardPeerState(conn.config.Key, iface.WGStats{}); err != nil {
+		conn.log.Debugf("failed to reset wireguard stats for peer: %s", err)
 	}
 }
 
