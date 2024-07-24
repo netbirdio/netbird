@@ -523,7 +523,7 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 
 	err := conn.statusRecorder.UpdatePeerICEStateToDisconnected(peerState)
 	if err != nil {
-		conn.log.Warnf("unable to save peer's state, got error: %v", err)
+		conn.log.Warnf("unable to set peer's state to disconnected ice, got error: %v", err)
 	}
 }
 
@@ -613,7 +613,7 @@ func (conn *Conn) onWorkerRelayStateDisconnected() {
 
 	err := conn.statusRecorder.UpdatePeerRelayedStateToDisconnected(peerState)
 	if err != nil {
-		conn.log.Warnf("unable to save peer's state, got error: %v", err)
+		conn.log.Warnf("unable to save peer's state to Relay disconnected, got error: %v", err)
 	}
 }
 
@@ -639,7 +639,7 @@ func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []by
 
 	err := conn.statusRecorder.UpdatePeerRelayedState(peerState)
 	if err != nil {
-		conn.log.Warnf("unable to save peer's state, got error: %v", err)
+		conn.log.Warnf("unable to save peer's Relay state, got error: %v", err)
 	}
 }
 
@@ -658,7 +658,7 @@ func (conn *Conn) updateIceState(iceConnInfo ICEConnInfo) {
 
 	err := conn.statusRecorder.UpdatePeerICEState(peerState)
 	if err != nil {
-		conn.log.Warnf("unable to save peer's state, got error: %v", err)
+		conn.log.Warnf("unable to save peer's ICE state, got error: %v", err)
 	}
 }
 
