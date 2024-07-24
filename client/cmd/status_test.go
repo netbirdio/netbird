@@ -37,7 +37,6 @@ var resp = &proto.StatusResponse{
 				ConnStatus:                 "Connected",
 				ConnStatusUpdate:           timestamppb.New(time.Date(2001, time.Month(1), 1, 1, 1, 1, 0, time.UTC)),
 				Relayed:                    false,
-				Direct:                     true,
 				LocalIceCandidateType:      "",
 				RemoteIceCandidateType:     "",
 				LocalIceCandidateEndpoint:  "",
@@ -57,7 +56,6 @@ var resp = &proto.StatusResponse{
 				ConnStatus:                 "Connected",
 				ConnStatusUpdate:           timestamppb.New(time.Date(2002, time.Month(2), 2, 2, 2, 2, 0, time.UTC)),
 				Relayed:                    true,
-				Direct:                     false,
 				LocalIceCandidateType:      "relay",
 				RemoteIceCandidateType:     "prflx",
 				LocalIceCandidateEndpoint:  "10.0.0.1:10001",
@@ -137,7 +135,6 @@ var overview = statusOutputOverview{
 				Status:           "Connected",
 				LastStatusUpdate: time.Date(2001, 1, 1, 1, 1, 1, 0, time.UTC),
 				ConnType:         "P2P",
-				Direct:           true,
 				IceCandidateType: iceCandidateType{
 					Local:  "",
 					Remote: "",
@@ -161,7 +158,6 @@ var overview = statusOutputOverview{
 				Status:           "Connected",
 				LastStatusUpdate: time.Date(2002, 2, 2, 2, 2, 2, 0, time.UTC),
 				ConnType:         "Relayed",
-				Direct:           false,
 				IceCandidateType: iceCandidateType{
 					Local:  "relay",
 					Remote: "prflx",
