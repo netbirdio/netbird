@@ -69,6 +69,7 @@ type AccountManager interface {
 	ListSetupKeys(ctx context.Context, accountID, userID string) ([]*SetupKey, error)
 	SaveUser(ctx context.Context, accountID, initiatorUserID string, update *User) (*UserInfo, error)
 	SaveOrAddUser(ctx context.Context, accountID, initiatorUserID string, update *User, addIfNotExists bool) (*UserInfo, error)
+	SaveOrAddUsers(ctx context.Context, accountID, initiatorUserID string, updates []*User, addIfNotExists bool) ([]*UserInfo, error)
 	GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(ctx context.Context, userID, accountID, domain string) (*Account, error)
 	GetAccountFromToken(ctx context.Context, claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
@@ -95,6 +96,7 @@ type AccountManager interface {
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*nbgroup.Group, error)
 	GetGroupByName(ctx context.Context, groupName, accountID string) (*nbgroup.Group, error)
 	SaveGroup(ctx context.Context, accountID, userID string, group *nbgroup.Group) error
+	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*nbgroup.Group) error
 	DeleteGroup(ctx context.Context, accountId, userId, groupID string) error
 	ListGroups(ctx context.Context, accountId string) ([]*nbgroup.Group, error)
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error

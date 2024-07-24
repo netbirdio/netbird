@@ -16,6 +16,7 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
@@ -50,7 +51,7 @@ type DefaultManager struct {
 	statusRecorder       *peer.Status
 	wgInterface          iface.IWGIface
 	pubKey               string
-	notifier             *notifier
+	notifier             *notifier.Notifier
 	routeRefCounter      *refcounter.RouteRefCounter
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter
 	dnsRouteInterval     time.Duration
@@ -65,7 +66,8 @@ func NewManager(
 	initialRoutes []*route.Route,
 ) *DefaultManager {
 	mCTX, cancel := context.WithCancel(ctx)
-	sysOps := systemops.NewSysOps(wgInterface)
+	notifier := notifier.NewNotifier()
+	sysOps := systemops.NewSysOps(wgInterface, notifier)
 
 	dm := &DefaultManager{
 		ctx:              mCTX,
@@ -77,7 +79,7 @@ func NewManager(
 		statusRecorder:   statusRecorder,
 		wgInterface:      wgInterface,
 		pubKey:           pubKey,
-		notifier:         newNotifier(),
+		notifier:         notifier,
 	}
 
 	dm.routeRefCounter = refcounter.New(
@@ -107,7 +109,7 @@ func NewManager(
 
 	if runtime.GOOS == "android" {
 		cr := dm.clientRoutes(initialRoutes)
-		dm.notifier.setInitialClientRoutes(cr)
+		dm.notifier.SetInitialClientRoutes(cr)
 	}
 	return dm
 }
@@ -186,7 +188,7 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 
 		filteredClientRoutes := m.routeSelector.FilterSelected(newClientRoutesIDMap)
 		m.updateClientNetworks(updateSerial, filteredClientRoutes)
-		m.notifier.onNewRoutes(filteredClientRoutes)
+		m.notifier.OnNewRoutes(filteredClientRoutes)
 
 		if m.serverRouter != nil {
 			err := m.serverRouter.updateRoutes(newServerRoutesMap)
@@ -199,14 +201,14 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 	}
 }
 
-// SetRouteChangeListener set RouteListener for route change notifier
+// SetRouteChangeListener set RouteListener for route change Notifier
 func (m *DefaultManager) SetRouteChangeListener(listener listener.NetworkChangeListener) {
-	m.notifier.setListener(listener)
+	m.notifier.SetListener(listener)
 }
 
 // InitialRouteRange return the list of initial routes. It used by mobile systems
 func (m *DefaultManager) InitialRouteRange() []string {
-	return m.notifier.getInitialRouteRanges()
+	return m.notifier.GetInitialRouteRanges()
 }
 
 // GetRouteSelector returns the route selector
@@ -226,7 +228,7 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 
 	networks = m.routeSelector.FilterSelected(networks)
 
-	m.notifier.onNewRoutes(networks)
+	m.notifier.OnNewRoutes(networks)
 
 	m.stopObsoleteClients(networks)
 

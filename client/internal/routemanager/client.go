@@ -3,6 +3,7 @@ package routemanager
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -303,11 +304,16 @@ func (c *clientNetwork) sendUpdateToClientNetworkWatcher(update routesUpdate) {
 	}()
 }
 
-func (c *clientNetwork) handleUpdate(update routesUpdate) {
+func (c *clientNetwork) handleUpdate(update routesUpdate) bool {
+	isUpdateMapDifferent := false
 	updateMap := make(map[route.ID]*route.Route)
 
 	for _, r := range update.routes {
 		updateMap[r.ID] = r
+	}
+
+	if len(c.routes) != len(updateMap) {
+		isUpdateMapDifferent = true
 	}
 
 	for id, r := range c.routes {
@@ -315,10 +321,16 @@ func (c *clientNetwork) handleUpdate(update routesUpdate) {
 		if !found {
 			close(c.routePeersNotifiers[r.Peer])
 			delete(c.routePeersNotifiers, r.Peer)
+			isUpdateMapDifferent = true
+			continue
+		}
+		if !reflect.DeepEqual(c.routes[id], updateMap[id]) {
+			isUpdateMapDifferent = true
 		}
 	}
 
 	c.routes = updateMap
+	return isUpdateMapDifferent
 }
 
 // peersStateAndUpdateWatcher is the main point of reacting on client network routing events.
@@ -345,13 +357,19 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 
 			log.Debugf("Received a new client network route update for [%v]", c.handler)
 
-			c.handleUpdate(update)
+			// hash update somehow
+			isTrueRouteUpdate := c.handleUpdate(update)
 
 			c.updateSerial = update.updateSerial
 
-			err := c.recalculateRouteAndUpdatePeerAndSystem()
-			if err != nil {
-				log.Errorf("Failed to recalculate routes for network [%v]: %v", c.handler, err)
+			if isTrueRouteUpdate {
+				log.Debug("Client network update contains different routes, recalculating routes")
+				err := c.recalculateRouteAndUpdatePeerAndSystem()
+				if err != nil {
+					log.Errorf("Failed to recalculate routes for network [%v]: %v", c.handler, err)
+				}
+			} else {
+				log.Debug("Route update is not different, skipping route recalculation")
 			}
 
 			c.startPeersStatusChangeWatcher()

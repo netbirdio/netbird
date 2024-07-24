@@ -1,6 +1,7 @@
-package routemanager
+package notifier
 
 import (
+	"net/netip"
 	"runtime"
 	"sort"
 	"strings"
@@ -10,7 +11,7 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-type notifier struct {
+type Notifier struct {
 	initialRouteRanges []string
 	routeRanges        []string
 
@@ -18,17 +19,17 @@ type notifier struct {
 	listenerMux sync.Mutex
 }
 
-func newNotifier() *notifier {
-	return &notifier{}
+func NewNotifier() *Notifier {
+	return &Notifier{}
 }
 
-func (n *notifier) setListener(listener listener.NetworkChangeListener) {
+func (n *Notifier) SetListener(listener listener.NetworkChangeListener) {
 	n.listenerMux.Lock()
 	defer n.listenerMux.Unlock()
 	n.listener = listener
 }
 
-func (n *notifier) setInitialClientRoutes(clientRoutes []*route.Route) {
+func (n *Notifier) SetInitialClientRoutes(clientRoutes []*route.Route) {
 	nets := make([]string, 0)
 	for _, r := range clientRoutes {
 		nets = append(nets, r.Network.String())
@@ -37,7 +38,10 @@ func (n *notifier) setInitialClientRoutes(clientRoutes []*route.Route) {
 	n.initialRouteRanges = nets
 }
 
-func (n *notifier) onNewRoutes(idMap route.HAMap) {
+func (n *Notifier) OnNewRoutes(idMap route.HAMap) {
+	if runtime.GOOS != "android" {
+		return
+	}
 	newNets := make([]string, 0)
 	for _, routes := range idMap {
 		for _, r := range routes {
@@ -62,7 +66,30 @@ func (n *notifier) onNewRoutes(idMap route.HAMap) {
 	n.notify()
 }
 
-func (n *notifier) notify() {
+func (n *Notifier) OnNewPrefixes(prefixes []netip.Prefix) {
+	newNets := make([]string, 0)
+	for _, prefix := range prefixes {
+		newNets = append(newNets, prefix.String())
+	}
+
+	sort.Strings(newNets)
+	switch runtime.GOOS {
+	case "android":
+		if !n.hasDiff(n.initialRouteRanges, newNets) {
+			return
+		}
+	default:
+		if !n.hasDiff(n.routeRanges, newNets) {
+			return
+		}
+	}
+
+	n.routeRanges = newNets
+
+	n.notify()
+}
+
+func (n *Notifier) notify() {
 	n.listenerMux.Lock()
 	defer n.listenerMux.Unlock()
 	if n.listener == nil {
@@ -74,7 +101,7 @@ func (n *notifier) notify() {
 	}(n.listener)
 }
 
-func (n *notifier) hasDiff(a []string, b []string) bool {
+func (n *Notifier) hasDiff(a []string, b []string) bool {
 	if len(a) != len(b) {
 		return true
 	}
@@ -86,7 +113,7 @@ func (n *notifier) hasDiff(a []string, b []string) bool {
 	return false
 }
 
-func (n *notifier) getInitialRouteRanges() []string {
+func (n *Notifier) GetInitialRouteRanges() []string {
 	return addIPv6RangeIfNeeded(n.initialRouteRanges)
 }
 

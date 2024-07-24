@@ -274,10 +274,15 @@ func (s *SqlStore) GetInstallationID() string {
 func (s *SqlStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
 	var peerCopy nbpeer.Peer
 	peerCopy.Status = &peerStatus
-	result := s.db.Model(&nbpeer.Peer{}).
-		Where("account_id = ? AND id = ?", accountID, peerID).
-		Updates(peerCopy)
 
+	fieldsToUpdate := []string{
+		"peer_status_last_seen", "peer_status_connected",
+		"peer_status_login_expired", "peer_status_required_approval",
+	}
+	result := s.db.Model(&nbpeer.Peer{}).
+		Select(fieldsToUpdate).
+		Where("account_id = ? AND id = ?", accountID, peerID).
+		Updates(&peerCopy)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -309,6 +314,34 @@ func (s *SqlStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.P
 	}
 
 	return nil
+}
+
+// SaveUsers saves the given list of users to the database.
+// It updates existing users if a conflict occurs.
+func (s *SqlStore) SaveUsers(accountID string, users map[string]*User) error {
+	usersToSave := make([]User, 0, len(users))
+	for _, user := range users {
+		user.AccountID = accountID
+		for id, pat := range user.PATs {
+			pat.ID = id
+			user.PATsG = append(user.PATsG, *pat)
+		}
+		usersToSave = append(usersToSave, *user)
+	}
+	return s.db.Session(&gorm.Session{FullSaveAssociations: true}).
+		Clauses(clause.OnConflict{UpdateAll: true}).
+		Create(&usersToSave).Error
+}
+
+// SaveGroups saves the given list of groups to the database.
+// It updates existing groups if a conflict occurs.
+func (s *SqlStore) SaveGroups(accountID string, groups map[string]*nbgroup.Group) error {
+	groupsToSave := make([]nbgroup.Group, 0, len(groups))
+	for _, group := range groups {
+		group.AccountID = accountID
+		groupsToSave = append(groupsToSave, *group)
+	}
+	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&groupsToSave).Error
 }
 
 // DeleteHashedPAT2TokenIDIndex is noop in SqlStore
@@ -662,11 +695,7 @@ func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMe
 	}
 
 	file := filepath.Join(dataDir, storeStr)
-	db, err := gorm.Open(sqlite.Open(file), &gorm.Config{
-		Logger:          logger.Default.LogMode(logger.Silent),
-		CreateBatchSize: 400,
-		PrepareStmt:     true,
-	})
+	db, err := gorm.Open(sqlite.Open(file), getGormConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -676,15 +705,20 @@ func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMe
 
 // NewPostgresqlStore creates a new Postgres store.
 func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger:      logger.Default.LogMode(logger.Silent),
-		PrepareStmt: true,
-	})
+	db, err := gorm.Open(postgres.Open(dsn), getGormConfig())
 	if err != nil {
 		return nil, err
 	}
 
 	return NewSqlStore(ctx, db, PostgresStoreEngine, metrics)
+}
+
+func getGormConfig() *gorm.Config {
+	return &gorm.Config{
+		Logger:          logger.Default.LogMode(logger.Silent),
+		CreateBatchSize: 400,
+		PrepareStmt:     true,
+	}
 }
 
 // newPostgresStore initializes a new Postgres store.

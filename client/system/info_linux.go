@@ -8,6 +8,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -89,9 +90,17 @@ func _getInfo() string {
 func sysInfo() (serialNumber string, productName string, manufacturer string) {
 	var si sysinfo.SysInfo
 	si.GetSysInfo()
+	isascii := regexp.MustCompile("^[[:ascii:]]+$")
 	serial := si.Chassis.Serial
 	if (serial == "Default string" || serial == "") && si.Product.Serial != "" {
 		serial = si.Product.Serial
 	}
-	return serial, si.Product.Name, si.Product.Vendor
+	if (!isascii.MatchString(serial)) && si.Board.Serial != "" {
+		serial = si.Board.Serial
+	}
+	name := si.Product.Name
+	if (!isascii.MatchString(name)) && si.Board.Name != "" {
+		name = si.Board.Name
+	}
+	return serial, name, si.Product.Vendor
 }

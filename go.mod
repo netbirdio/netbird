@@ -19,12 +19,12 @@ require (
 	github.com/spf13/cobra v1.7.0
 	github.com/spf13/pflag v1.0.5
 	github.com/vishvananda/netlink v1.2.1-beta.2
-	golang.org/x/crypto v0.23.0
-	golang.org/x/sys v0.20.0
+	golang.org/x/crypto v0.24.0
+	golang.org/x/sys v0.21.0
 	golang.zx2c4.com/wireguard v0.0.0-20230704135630-469159ecf7d1
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20230429144221-925a1e7659e6
 	golang.zx2c4.com/wireguard/windows v0.5.3
-	google.golang.org/grpc v1.64.0
+	google.golang.org/grpc v1.64.1
 	google.golang.org/protobuf v1.34.1
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )
@@ -85,10 +85,10 @@ require (
 	goauthentik.io/api/v3 v3.2023051.3
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842
 	golang.org/x/mobile v0.0.0-20190719004257-d2bd2a29d028
-	golang.org/x/net v0.25.0
+	golang.org/x/net v0.26.0
 	golang.org/x/oauth2 v0.19.0
 	golang.org/x/sync v0.7.0
-	golang.org/x/term v0.20.0
+	golang.org/x/term v0.21.0
 	google.golang.org/api v0.177.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/postgres v1.5.7
