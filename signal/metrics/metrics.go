@@ -26,10 +26,10 @@ type Metrics struct {
 }
 
 // NewServer initializes and returns a new Metrics instance
-func NewServer(port int, endpoint string) *Metrics {
+func NewServer(port int, endpoint string) (*Metrics, error) {
 	exporter, err := prometheus.New()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	provider := metric.NewMeterProvider(metric.WithReader(exporter))
@@ -57,7 +57,7 @@ func NewServer(port int, endpoint string) *Metrics {
 		provider: provider,
 		Endpoint: endpoint,
 		Server:   server,
-	}
+	}, nil
 }
 
 // Shutdown stops the metrics server
