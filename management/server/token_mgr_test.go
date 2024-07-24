@@ -23,11 +23,14 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 	secret := "some_secret"
 	peersManager := NewPeersUpdateManager(nil)
 
+	rc := &RelayConfig{
+		Address: "localhost:0",
+	}
 	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
 		CredentialsTTL: ttl,
 		Secret:         secret,
 		Turns:          []*Host{TurnTestHost},
-	}, "")
+	}, rc)
 
 	credentials, _ := tested.Generate()
 
@@ -49,11 +52,14 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	peer := "some_peer"
 	updateChannel := peersManager.CreateChannel(context.Background(), peer)
 
+	rc := &RelayConfig{
+		Address: "localhost:0",
+	}
 	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
 		CredentialsTTL: ttl,
 		Secret:         secret,
 		Turns:          []*Host{TurnTestHost},
-	}, "")
+	}, rc)
 
 	tested.SetupRefresh(context.Background(), peer)
 
@@ -97,11 +103,14 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	peersManager := NewPeersUpdateManager(nil)
 	peer := "some_peer"
 
+	rc := &RelayConfig{
+		Address: "localhost:0",
+	}
 	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
 		CredentialsTTL: ttl,
 		Secret:         secret,
 		Turns:          []*Host{TurnTestHost},
-	}, "")
+	}, rc)
 
 	tested.SetupRefresh(context.Background(), peer)
 	if _, ok := tested.cancelMap[peer]; !ok {
