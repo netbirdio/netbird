@@ -1428,3 +1428,20 @@ func isChecksEqual(checks []*mgmProto.Checks, oChecks []*mgmProto.Checks) bool {
 		return slices.Equal(checks.Files, oChecks.Files)
 	})
 }
+
+func (e *Engine) IsWGIfaceUp() bool {
+	if e == nil || e.wgInterface == nil {
+		return false
+	}
+	iface, err := net.InterfaceByName(e.wgInterface.Name())
+	if err != nil {
+		log.Debugf("failed to get interface by name %s: %v", e.wgInterface.Name(), err)
+		return false
+	}
+
+	if iface.Flags&net.FlagUp != 0 {
+		return true
+	}
+
+	return false
+}
