@@ -164,10 +164,8 @@ func (c *ConnectClient) run(
 	defer c.statusRecorder.ClientStop()
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
-		select {
-		case <-c.ctx.Done():
+		if c.isContextCancelled() {
 			return nil
-		default:
 		}
 
 		state.Set(StatusConnecting)
@@ -189,8 +187,7 @@ func (c *ConnectClient) run(
 
 		log.Debugf("connected to the Management service %s", c.config.ManagementURL.Host)
 		defer func() {
-			err = mgmClient.Close()
-			if err != nil {
+			if err = mgmClient.Close(); err != nil {
 				log.Warnf("failed to close the Management service client %v", err)
 			}
 		}()
@@ -213,7 +210,6 @@ func (c *ConnectClient) run(
 			KernelInterface: iface.WireGuardModuleIsLoaded(),
 			FQDN:            loginResp.GetPeerConfig().GetFqdn(),
 		}
-
 		c.statusRecorder.UpdateLocalPeerState(localPeerState)
 
 		signalURL := fmt.Sprintf("%s://%s",
@@ -274,8 +270,7 @@ func (c *ConnectClient) run(
 		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe, checks)
 		c.engineMutex.Unlock()
 
-		err = c.engine.Start()
-		if err != nil {
+		if err := c.engine.Start(); err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
 		}
@@ -340,6 +335,15 @@ func (c *ConnectClient) Engine() *Engine {
 	e = c.engine
 	c.engineMutex.Unlock()
 	return e
+}
+
+func (c *ConnectClient) isContextCancelled() bool {
+	select {
+	case <-c.ctx.Done():
+		return true
+	default:
+		return false
+	}
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
