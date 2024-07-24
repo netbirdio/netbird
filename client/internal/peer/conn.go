@@ -150,7 +150,7 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 	conn.workerRelay = NewWorkerRelay(ctx, connLog, config, relayManager, rFns)
 
 	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
-	conn.workerICE, err = NewWorkerICE(ctx, connLog, config, config.ICEConfig, signaler, iFaceDiscover, statusRecorder, relayIsSupportedLocally, wFns)
+	conn.workerICE, err = NewWorkerICE(ctx, connLog, config, signaler, iFaceDiscover, statusRecorder, relayIsSupportedLocally, wFns)
 	if err != nil {
 		return nil, err
 	}
