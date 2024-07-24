@@ -116,6 +116,7 @@ func TestClient(t *testing.T) {
 }
 
 func TestDataTransfer(t *testing.T) {
+	t.SkipNow() // skip this test on CI because it is a benchmark test
 	dataSize := 1024 * 1024 * 10
 
 	testData, err := seedRandomData(dataSize)
