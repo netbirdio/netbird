@@ -24,7 +24,6 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 				"route1": {
 					connected: true,
 					relayed:   false,
-					direct:    true,
 				},
 			},
 			existingRoutes: map[route.ID]*route.Route{
@@ -43,7 +42,6 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 				"route1": {
 					connected: true,
 					relayed:   true,
-					direct:    true,
 				},
 			},
 			existingRoutes: map[route.ID]*route.Route{
@@ -62,7 +60,6 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 				"route1": {
 					connected: true,
 					relayed:   true,
-					direct:    false,
 				},
 			},
 			existingRoutes: map[route.ID]*route.Route{
@@ -81,7 +78,6 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 				"route1": {
 					connected: false,
 					relayed:   false,
-					direct:    false,
 				},
 			},
 			existingRoutes: map[route.ID]*route.Route{
@@ -100,12 +96,10 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 				"route1": {
 					connected: true,
 					relayed:   false,
-					direct:    true,
 				},
 				"route2": {
 					connected: true,
 					relayed:   false,
-					direct:    true,
 				},
 			},
 			existingRoutes: map[route.ID]*route.Route{
@@ -129,12 +123,10 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 				"route1": {
 					connected: true,
 					relayed:   false,
-					direct:    true,
 				},
 				"route2": {
 					connected: true,
 					relayed:   true,
-					direct:    true,
 				},
 			},
 			existingRoutes: map[route.ID]*route.Route{
@@ -158,12 +150,10 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 				"route1": {
 					connected: true,
 					relayed:   false,
-					direct:    true,
 				},
 				"route2": {
 					connected: true,
 					relayed:   false,
-					direct:    false,
 				},
 			},
 			existingRoutes: map[route.ID]*route.Route{
@@ -241,13 +231,11 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 				"route1": {
 					connected: true,
 					relayed:   false,
-					direct:    true,
 					latency:   15 * time.Millisecond,
 				},
 				"route2": {
 					connected: true,
 					relayed:   false,
-					direct:    true,
 					latency:   10 * time.Millisecond,
 				},
 			},
@@ -272,13 +260,11 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 				"route1": {
 					connected: true,
 					relayed:   false,
-					direct:    true,
 					latency:   200 * time.Millisecond,
 				},
 				"route2": {
 					connected: true,
 					relayed:   false,
-					direct:    true,
 					latency:   10 * time.Millisecond,
 				},
 			},
@@ -303,13 +289,11 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 				"route1": {
 					connected: true,
 					relayed:   false,
-					direct:    true,
 					latency:   20 * time.Millisecond,
 				},
 				"route2": {
 					connected: true,
 					relayed:   false,
-					direct:    true,
 					latency:   10 * time.Millisecond,
 				},
 			},
