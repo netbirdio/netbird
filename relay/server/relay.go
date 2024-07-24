@@ -7,12 +7,15 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/netbirdio/netbird/relay/auth"
 	"github.com/netbirdio/netbird/relay/messages"
+	"github.com/netbirdio/netbird/relay/metrics"
 )
 
 type Relay struct {
+	metrics   *metrics.Metrics
 	validator auth.Validator
 
 	store      *Store
@@ -22,8 +25,14 @@ type Relay struct {
 	closeMu sync.RWMutex
 }
 
-func NewRelay(exposedAddress string, tlsSupport bool, validator auth.Validator) *Relay {
+func NewRelay(meter metric.Meter, exposedAddress string, tlsSupport bool, validator auth.Validator) (*Relay, error) {
+	m, err := metrics.NewMetrics(meter)
+	if err != nil {
+		return nil, fmt.Errorf("creating app metrics: %v", err)
+	}
+
 	r := &Relay{
+		metrics:   m,
 		validator: validator,
 		store:     NewStore(),
 	}
@@ -34,7 +43,7 @@ func NewRelay(exposedAddress string, tlsSupport bool, validator auth.Validator) 
 		r.instaceURL = fmt.Sprintf("rel://%s", exposedAddress)
 	}
 
-	return r
+	return r, nil
 }
 
 func (r *Relay) Accept(conn net.Conn) {
@@ -57,11 +66,12 @@ func (r *Relay) Accept(conn net.Conn) {
 	peer := NewPeer(peerID, conn, r.store)
 	peer.log.Infof("peer connected from: %s", conn.RemoteAddr())
 	r.store.AddPeer(peer)
-
+	r.metrics.Peers.Add(context.Background(), 1)
 	go func() {
 		peer.Work()
 		r.store.DeletePeer(peer)
 		peer.log.Debugf("relay connection closed")
+		r.metrics.Peers.Add(context.Background(), -1)
 	}()
 }
 

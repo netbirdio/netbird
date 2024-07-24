@@ -8,6 +8,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/netbirdio/netbird/relay/auth"
 	"github.com/netbirdio/netbird/relay/server/listener"
@@ -26,14 +27,14 @@ type Server struct {
 	wSListener  listener.Listener
 }
 
-func NewServer(exposedAddress string, tlsSupport bool, authValidator auth.Validator) *Server {
-	return &Server{
-		relay: NewRelay(
-			exposedAddress,
-			tlsSupport,
-			authValidator,
-		),
+func NewServer(meter metric.Meter, exposedAddress string, tlsSupport bool, authValidator auth.Validator) (*Server, error) {
+	relay, err := NewRelay(meter, exposedAddress, tlsSupport, authValidator)
+	if err != nil {
+		return nil, err
 	}
+	return &Server{
+		relay: relay,
+	}, nil
 }
 
 func (r *Server) Listen(cfg ListenerConfig) error {

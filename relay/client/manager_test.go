@@ -6,6 +6,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
 
 	"github.com/netbirdio/netbird/relay/server"
 )
@@ -16,7 +17,10 @@ func TestForeignConn(t *testing.T) {
 	srvCfg1 := server.ListenerConfig{
 		Address: "localhost:1234",
 	}
-	srv1 := server.NewServer(srvCfg1.Address, false, av)
+	srv1, err := server.NewServer(otel.Meter(""), srvCfg1.Address, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
 	errChan := make(chan error, 1)
 	go func() {
 		err := srv1.Listen(srvCfg1)
@@ -39,7 +43,10 @@ func TestForeignConn(t *testing.T) {
 	srvCfg2 := server.ListenerConfig{
 		Address: "localhost:2234",
 	}
-	srv2 := server.NewServer(srvCfg2.Address, false, av)
+	srv2, err := server.NewServer(otel.Meter(""), srvCfg2.Address, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
 	errChan2 := make(chan error, 1)
 	go func() {
 		err := srv2.Listen(srvCfg2)
@@ -64,7 +71,7 @@ func TestForeignConn(t *testing.T) {
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	clientAlice := NewManager(mCtx, toURL(srvCfg1), idAlice)
-	err := clientAlice.Serve()
+	err = clientAlice.Serve()
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
@@ -122,7 +129,10 @@ func TestForeginConnClose(t *testing.T) {
 	srvCfg1 := server.ListenerConfig{
 		Address: "localhost:1234",
 	}
-	srv1 := server.NewServer(srvCfg1.Address, false, av)
+	srv1, err := server.NewServer(otel.Meter(""), srvCfg1.Address, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
 	errChan := make(chan error, 1)
 	go func() {
 		err := srv1.Listen(srvCfg1)
@@ -145,7 +155,10 @@ func TestForeginConnClose(t *testing.T) {
 	srvCfg2 := server.ListenerConfig{
 		Address: "localhost:2234",
 	}
-	srv2 := server.NewServer(srvCfg2.Address, false, av)
+	srv2, err := server.NewServer(otel.Meter(""), srvCfg2.Address, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
 	errChan2 := make(chan error, 1)
 	go func() {
 		err := srv2.Listen(srvCfg2)
@@ -170,7 +183,7 @@ func TestForeginConnClose(t *testing.T) {
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	mgr := NewManager(mCtx, toURL(srvCfg1), idAlice)
-	err := mgr.Serve()
+	err = mgr.Serve()
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
@@ -191,7 +204,10 @@ func TestForeginAutoClose(t *testing.T) {
 	srvCfg1 := server.ListenerConfig{
 		Address: "localhost:1234",
 	}
-	srv1 := server.NewServer(srvCfg1.Address, false, av)
+	srv1, err := server.NewServer(otel.Meter(""), srvCfg1.Address, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
 	errChan := make(chan error, 1)
 	go func() {
 		t.Log("binding server 1.")
@@ -217,7 +233,10 @@ func TestForeginAutoClose(t *testing.T) {
 	srvCfg2 := server.ListenerConfig{
 		Address: "localhost:2234",
 	}
-	srv2 := server.NewServer(srvCfg2.Address, false, av)
+	srv2, err := server.NewServer(otel.Meter(""), srvCfg2.Address, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
 	errChan2 := make(chan error, 1)
 	go func() {
 		t.Log("binding server 2.")
@@ -244,7 +263,7 @@ func TestForeginAutoClose(t *testing.T) {
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	mgr := NewManager(mCtx, toURL(srvCfg1), idAlice)
-	err := mgr.Serve()
+	err = mgr.Serve()
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
@@ -277,7 +296,10 @@ func TestAutoReconnect(t *testing.T) {
 	srvCfg := server.ListenerConfig{
 		Address: "localhost:1234",
 	}
-	srv := server.NewServer(srvCfg.Address, false, av)
+	srv, err := server.NewServer(otel.Meter(""), srvCfg.Address, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
 	errChan := make(chan error, 1)
 	go func() {
 		err := srv.Listen(srvCfg)
@@ -300,7 +322,7 @@ func TestAutoReconnect(t *testing.T) {
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	clientAlice := NewManager(mCtx, toURL(srvCfg), "alice")
-	err := clientAlice.Serve()
+	err = clientAlice.Serve()
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}

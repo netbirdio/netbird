@@ -2,7 +2,9 @@ package main
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,7 +16,12 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
 	"github.com/netbirdio/netbird/relay/server"
+	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/util"
+)
+
+const (
+	metricsPort = 9090
 )
 
 type Config struct {
@@ -54,7 +61,7 @@ var (
 		Use:   "relay",
 		Short: "Relay service",
 		Long:  "Relay service for Netbird agents",
-		Run:   execute,
+		RunE:  execute,
 	}
 )
 
@@ -110,11 +117,10 @@ func loadConfig(configFile string) (*Config, error) {
 	return loadedConfig, err
 }
 
-func execute(cmd *cobra.Command, args []string) {
+func execute(cmd *cobra.Command, args []string) error {
 	cfg, err := loadConfig(cfgFile)
 	if err != nil {
-		log.Errorf("failed to load config: %s", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to load config: %s", err)
 	}
 
 	err = cfg.Validate()
@@ -123,21 +129,31 @@ func execute(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
+	metricsServer, err := metrics.NewServer(metricsPort, "")
+	if err != nil {
+		return fmt.Errorf("setup metrics: %v", err)
+	}
+
+	go func() {
+		log.Infof("running metrics server: %s%s", metricsServer.Addr, metricsServer.Endpoint)
+		if err := metricsServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Failed to start metrics server: %v", err)
+		}
+	}()
+
 	srvListenerCfg := server.ListenerConfig{
 		Address: cfg.ListenAddress,
 	}
 	if cfg.HasLetsEncrypt() {
 		tlsCfg, err := setupTLSCertManager(cfg.LetsencryptDataDir, cfg.LetsencryptDomains...)
 		if err != nil {
-			log.Errorf("%s", err)
-			os.Exit(1)
+			return fmt.Errorf("%s", err)
 		}
 		srvListenerCfg.TLSConfig = tlsCfg
 	} else if cfg.HasCertConfig() {
 		tlsCfg, err := encryption.LoadTLSConfig(cfg.TlsCertFile, cfg.TlsKeyFile)
 		if err != nil {
-			log.Errorf("%s", err)
-			os.Exit(1)
+			return fmt.Errorf("%s", err)
 		}
 		srvListenerCfg.TLSConfig = tlsCfg
 	}
@@ -145,21 +161,23 @@ func execute(cmd *cobra.Command, args []string) {
 	tlsSupport := srvListenerCfg.TLSConfig != nil
 
 	authenticator := auth.NewTimedHMACValidator(cfg.AuthSecret, 24*time.Hour)
-	srv := server.NewServer(cfg.ExposedAddress, tlsSupport, authenticator)
+	srv, err := server.NewServer(metricsServer.Meter, cfg.ExposedAddress, tlsSupport, authenticator)
+	if err != nil {
+		return fmt.Errorf("failed to create relay server: %v", err)
+	}
 	log.Infof("server will be available on: %s", srv.InstanceURL())
 	err = srv.Listen(srvListenerCfg)
 	if err != nil {
-		log.Errorf("failed to bind server: %s", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to bind server: %s", err)
 	}
 
 	waitForExitSignal()
 
 	err = srv.Close()
 	if err != nil {
-		log.Errorf("failed to close server: %s", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to close server: %s", err)
 	}
+	return nil
 }
 
 func setupTLSCertManager(letsencryptDataDir string, letsencryptDomains ...string) (*tls.Config, error) {

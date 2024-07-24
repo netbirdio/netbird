@@ -11,6 +11,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
 
 	"github.com/netbirdio/netbird/relay/auth"
 	"github.com/netbirdio/netbird/relay/auth/hmac"
@@ -35,7 +36,10 @@ func TestMain(m *testing.M) {
 func TestClient(t *testing.T) {
 	ctx := context.Background()
 
-	srv := server.NewServer(serverURL, false, av)
+	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
 	errChan := make(chan error, 1)
 	go func() {
 		listenCfg := server.ListenerConfig{Address: serverListenAddr}
@@ -58,7 +62,7 @@ func TestClient(t *testing.T) {
 	}
 	t.Log("alice connecting to server")
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
-	err := clientAlice.Connect()
+	err = clientAlice.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
@@ -133,7 +137,10 @@ func transfer(t *testing.T, testData []byte, peerPairs int) {
 	serverAddress := fmt.Sprintf("127.0.0.1:%d", port)
 	serverConnURL := fmt.Sprintf("rel://%s", serverAddress)
 
-	srv := server.NewServer(serverConnURL, false, av)
+	srv, err := server.NewServer(otel.Meter(""), serverConnURL, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
 	errChan := make(chan error, 1)
 	go func() {
 		listenCfg := server.ListenerConfig{Address: serverAddress}
@@ -259,7 +266,10 @@ func transfer(t *testing.T, testData []byte, peerPairs int) {
 func TestRegistration(t *testing.T) {
 	ctx := context.Background()
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv := server.NewServer(serverURL, false, av)
+	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
 	errChan := make(chan error, 1)
 	go func() {
 		err := srv.Listen(srvCfg)
@@ -274,7 +284,7 @@ func TestRegistration(t *testing.T) {
 	}
 
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
-	err := clientAlice.Connect()
+	err = clientAlice.Connect()
 	if err != nil {
 		_ = srv.Close()
 		t.Fatalf("failed to connect to server: %s", err)
@@ -330,7 +340,10 @@ func TestEcho(t *testing.T) {
 	idAlice := "alice"
 	idBob := "bob"
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv := server.NewServer(serverURL, false, av)
+	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
 	errChan := make(chan error, 1)
 	go func() {
 		err := srv.Listen(srvCfg)
@@ -352,7 +365,7 @@ func TestEcho(t *testing.T) {
 	}
 
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, idAlice)
-	err := clientAlice.Connect()
+	err = clientAlice.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
@@ -416,7 +429,10 @@ func TestBindToUnavailabePeer(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv := server.NewServer(serverURL, false, av)
+	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
 	errChan := make(chan error, 1)
 	go func() {
 		err := srv.Listen(srvCfg)
@@ -439,7 +455,7 @@ func TestBindToUnavailabePeer(t *testing.T) {
 	}
 
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
-	err := clientAlice.Connect()
+	err = clientAlice.Connect()
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
 	}
@@ -459,7 +475,10 @@ func TestBindReconnect(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv := server.NewServer(serverURL, false, av)
+	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
 	errChan := make(chan error, 1)
 	go func() {
 		err := srv.Listen(srvCfg)
@@ -482,7 +501,7 @@ func TestBindReconnect(t *testing.T) {
 	}
 
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
-	err := clientAlice.Connect()
+	err = clientAlice.Connect()
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
 	}
@@ -547,7 +566,10 @@ func TestCloseConn(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv := server.NewServer(serverURL, false, av)
+	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
 	errChan := make(chan error, 1)
 	go func() {
 		err := srv.Listen(srvCfg)
@@ -570,7 +592,7 @@ func TestCloseConn(t *testing.T) {
 	}
 
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
-	err := clientAlice.Connect()
+	err = clientAlice.Connect()
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
 	}
@@ -601,7 +623,10 @@ func TestCloseRelayConn(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv := server.NewServer(serverURL, false, av)
+	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
 	errChan := make(chan error, 1)
 	go func() {
 		err := srv.Listen(srvCfg)
@@ -623,7 +648,7 @@ func TestCloseRelayConn(t *testing.T) {
 	}
 
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
-	err := clientAlice.Connect()
+	err = clientAlice.Connect()
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
@@ -650,7 +675,10 @@ func TestCloseByServer(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv1 := server.NewServer(serverURL, false, av)
+	srv1, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
 	errChan := make(chan error, 1)
 
 	go func() {
@@ -668,7 +696,7 @@ func TestCloseByServer(t *testing.T) {
 	idAlice := "alice"
 	log.Debugf("connect by alice")
 	relayClient := NewClient(ctx, serverURL, hmacTokenStore, idAlice)
-	err := relayClient.Connect()
+	err = relayClient.Connect()
 	if err != nil {
 		log.Fatalf("failed to connect to server: %s", err)
 	}
@@ -700,7 +728,10 @@ func TestCloseByClient(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv := server.NewServer(serverURL, false, av)
+	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
 	errChan := make(chan error, 1)
 	go func() {
 		err := srv.Listen(srvCfg)
@@ -717,7 +748,7 @@ func TestCloseByClient(t *testing.T) {
 	idAlice := "alice"
 	log.Debugf("connect by alice")
 	relayClient := NewClient(ctx, serverURL, hmacTokenStore, idAlice)
-	err := relayClient.Connect()
+	err = relayClient.Connect()
 	if err != nil {
 		log.Fatalf("failed to connect to server: %s", err)
 	}
