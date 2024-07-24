@@ -168,7 +168,6 @@ func (c *Client) GetStatusDetails() *StatusDetails {
 			BytesTx:                    p.BytesTx,
 			ConnStatus:                 p.ConnStatus.String(),
 			ConnStatusUpdate:           p.ConnStatusUpdate.Format("2006-01-02 15:04:05"),
-			Direct:                     p.Direct,
 			LastWireguardHandshake:     p.LastWireguardHandshake.String(),
 			Relayed:                    p.Relayed,
 			RosenpassEnabled:           p.RosenpassEnabled,
