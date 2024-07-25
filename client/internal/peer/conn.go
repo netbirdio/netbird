@@ -407,11 +407,7 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 		return
 	}
 
-	if conn.currentConnType != 0 {
-		conn.log.Infof("update connection to ICE type")
-	} else {
-		conn.log.Infof("set ICE to active connection")
-	}
+	conn.log.Infof("set ICE to active connection")
 
 	endpoint, wgProxy, err := conn.getEndpointForICEConnInfo(iceConnInfo)
 	if err != nil {
