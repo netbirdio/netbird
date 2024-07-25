@@ -87,11 +87,11 @@ func TestForeignConn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get relay address: %s", err)
 	}
-	connAliceToBob, err := clientAlice.OpenConn(bobsSrvAddr, idBob, nil)
+	connAliceToBob, err := clientAlice.OpenConn(bobsSrvAddr, idBob)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
-	connBobToAlice, err := clientBob.OpenConn(bobsSrvAddr, idAlice, nil)
+	connBobToAlice, err := clientBob.OpenConn(bobsSrvAddr, idAlice)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -187,7 +187,7 @@ func TestForeginConnClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
-	conn, err := mgr.OpenConn(toURL(srvCfg2), "anotherpeer", nil)
+	conn, err := mgr.OpenConn(toURL(srvCfg2), "anotherpeer")
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -269,7 +269,7 @@ func TestForeginAutoClose(t *testing.T) {
 	}
 
 	t.Log("open connection to another peer")
-	conn, err := mgr.OpenConn(toURL(srvCfg2), "anotherpeer", nil)
+	conn, err := mgr.OpenConn(toURL(srvCfg2), "anotherpeer")
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -330,7 +330,7 @@ func TestAutoReconnect(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to get relay address: %s", err)
 	}
-	conn, err := clientAlice.OpenConn(ra, "bob", nil)
+	conn, err := clientAlice.OpenConn(ra, "bob")
 	if err != nil {
 		t.Errorf("failed to bind channel: %s", err)
 	}
@@ -348,10 +348,75 @@ func TestAutoReconnect(t *testing.T) {
 	time.Sleep(reconnectingTimeout + 1*time.Second)
 
 	log.Infof("reopent the connection")
-	_, err = clientAlice.OpenConn(ra, "bob", nil)
+	_, err = clientAlice.OpenConn(ra, "bob")
 	if err != nil {
 		t.Errorf("failed to open channel: %s", err)
 	}
+}
+
+func TestNotifierDoubleAdd(t *testing.T) {
+	ctx := context.Background()
+
+	srvCfg1 := server.ListenerConfig{
+		Address: "localhost:1234",
+	}
+	srv1, err := server.NewServer(otel.Meter(""), srvCfg1.Address, false, av)
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
+	errChan := make(chan error, 1)
+	go func() {
+		err := srv1.Listen(srvCfg1)
+		if err != nil {
+			errChan <- err
+		}
+	}()
+
+	defer func() {
+		err := srv1.Close()
+		if err != nil {
+			t.Errorf("failed to close server: %s", err)
+		}
+	}()
+
+	if err := waitForServerToStart(errChan); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
+
+	idAlice := "alice"
+	log.Debugf("connect by alice")
+	mCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	clientAlice := NewManager(mCtx, toURL(srvCfg1), idAlice)
+	err = clientAlice.Serve()
+	if err != nil {
+		t.Fatalf("failed to serve manager: %s", err)
+	}
+
+	conn1, err := clientAlice.OpenConn(clientAlice.ServerURL(), "idBob")
+	if err != nil {
+		t.Fatalf("failed to bind channel: %s", err)
+	}
+
+	fnCloseListener := OnServerCloseListener(func() {
+		log.Infof("close listener")
+	})
+
+	err = clientAlice.AddCloseListener(clientAlice.ServerURL(), fnCloseListener)
+	if err != nil {
+		t.Fatalf("failed to add close listener: %s", err)
+	}
+
+	err = clientAlice.AddCloseListener(clientAlice.ServerURL(), fnCloseListener)
+	if err != nil {
+		t.Fatalf("failed to add close listener: %s", err)
+	}
+
+	err = conn1.Close()
+	if err != nil {
+		t.Errorf("failed to close connection: %s", err)
+	}
+
 }
 
 func toURL(address server.ListenerConfig) string {

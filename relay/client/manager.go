@@ -1,9 +1,11 @@
 package client
 
 import (
+	"container/list"
 	"context"
 	"fmt"
 	"net"
+	"reflect"
 	"sync"
 	"time"
 
@@ -30,9 +32,12 @@ func NewRelayTrack() *RelayTrack {
 	return &RelayTrack{}
 }
 
+type OnServerCloseListener func()
+
 type ManagerService interface {
 	Serve() error
-	OpenConn(serverAddress, peerKey string, onClosedListener func()) (net.Conn, error)
+	OpenConn(serverAddress, peerKey string) (net.Conn, error)
+	AddCloseListener(serverAddress string, onClosedListener OnServerCloseListener) error
 	RelayInstanceAddress() (string, error)
 	ServerURL() string
 	HasRelayAddress() bool
@@ -57,7 +62,7 @@ type Manager struct {
 	relayClients      map[string]*RelayTrack
 	relayClientsMutex sync.RWMutex
 
-	onDisconnectedListeners map[string]map[*func()]struct{}
+	onDisconnectedListeners map[string]*list.List
 	listenerLock            sync.Mutex
 }
 
@@ -68,7 +73,7 @@ func NewManager(ctx context.Context, serverURL string, peerID string) *Manager {
 		peerID:                  peerID,
 		tokenStore:              &relayAuth.TokenStore{},
 		relayClients:            make(map[string]*RelayTrack),
-		onDisconnectedListeners: make(map[string]map[*func()]struct{}),
+		onDisconnectedListeners: make(map[string]*list.List),
 	}
 }
 
@@ -97,7 +102,7 @@ func (m *Manager) Serve() error {
 // OpenConn opens a connection to the given peer key. If the peer is on the same relay server, the connection will be
 // established via the relay server. If the peer is on a different relay server, the manager will establish a new
 // connection to the relay server.
-func (m *Manager) OpenConn(serverAddress, peerKey string, onClosedListener func()) (net.Conn, error) {
+func (m *Manager) OpenConn(serverAddress, peerKey string) (net.Conn, error) {
 	if m.relayClient == nil {
 		return nil, errRelayClientNotConnected
 	}
@@ -121,19 +126,23 @@ func (m *Manager) OpenConn(serverAddress, peerKey string, onClosedListener func(
 		return nil, err
 	}
 
-	if onClosedListener != nil {
-		var listenerAddr string
-		if foreign {
-			m.addListener(serverAddress, onClosedListener)
-			listenerAddr = serverAddress
-		} else {
-			listenerAddr = m.serverURL
-		}
-		m.addListener(listenerAddr, onClosedListener)
+	return netConn, err
+}
 
+func (m *Manager) AddCloseListener(serverAddress string, onClosedListener OnServerCloseListener) error {
+	foreign, err := m.isForeignServer(serverAddress)
+	if err != nil {
+		return err
 	}
 
-	return netConn, err
+	var listenerAddr string
+	if foreign {
+		listenerAddr = serverAddress
+	} else {
+		listenerAddr = m.serverURL
+	}
+	m.addListener(listenerAddr, onClosedListener)
+	return nil
 }
 
 // RelayInstanceAddress returns the address of the permanent relay server. It could change if the network connection is lost.
@@ -265,14 +274,19 @@ func (m *Manager) cleanUpUnusedRelays() {
 	}
 }
 
-func (m *Manager) addListener(serverAddress string, onClosedListener func()) {
+func (m *Manager) addListener(serverAddress string, onClosedListener OnServerCloseListener) {
 	m.listenerLock.Lock()
 	defer m.listenerLock.Unlock()
 	l, ok := m.onDisconnectedListeners[serverAddress]
 	if !ok {
-		l = make(map[*func()]struct{})
+		l = list.New()
 	}
-	l[&onClosedListener] = struct{}{}
+	for e := l.Front(); e != nil; e = e.Next() {
+		if reflect.ValueOf(e.Value).Pointer() == reflect.ValueOf(onClosedListener).Pointer() {
+			return
+		}
+	}
+	l.PushBack(onClosedListener)
 	m.onDisconnectedListeners[serverAddress] = l
 }
 
@@ -284,8 +298,8 @@ func (m *Manager) notifyOnDisconnectListeners(serverAddress string) {
 	if !ok {
 		return
 	}
-	for f := range l {
-		go (*f)()
+	for e := l.Front(); e != nil; e = e.Next() {
+		go e.Value.(OnServerCloseListener)()
 	}
 	delete(m.onDisconnectedListeners, serverAddress)
 }

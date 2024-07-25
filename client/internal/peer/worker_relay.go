@@ -34,18 +34,18 @@ type WorkerRelay struct {
 	relayManager relayClient.ManagerService
 	conn         WorkerRelayCallbacks
 
-	ctx       context.Context
 	ctxCancel context.CancelFunc
 }
 
 func NewWorkerRelay(ctx context.Context, log *log.Entry, config ConnConfig, relayManager relayClient.ManagerService, callbacks WorkerRelayCallbacks) *WorkerRelay {
-	return &WorkerRelay{
+	r := &WorkerRelay{
 		parentCtx:    ctx,
 		log:          log,
 		config:       config,
 		relayManager: relayManager,
 		conn:         callbacks,
 	}
+	return r
 }
 
 func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
@@ -63,7 +63,7 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 
 	srv := w.preferredRelayServer(currentRelayAddress, remoteOfferAnswer.RelaySrvAddress)
 
-	relayedConn, err := w.relayManager.OpenConn(srv, w.config.Key, w.disconnected)
+	relayedConn, err := w.relayManager.OpenConn(srv, w.config.Key)
 	if err != nil {
 		// todo handle all type errors
 		if errors.Is(err, relayClient.ErrConnAlreadyExists) {
@@ -74,11 +74,20 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		return
 	}
 
-	w.ctx, w.ctxCancel = context.WithCancel(w.parentCtx)
+	ctx, ctxCancel := context.WithCancel(w.parentCtx)
+	w.ctxCancel = ctxCancel
 
-	go w.wgStateCheck(relayedConn)
+	err = w.relayManager.AddCloseListener(srv, w.disconnected)
+	if err != nil {
+		log.Errorf("failed to add close listener: %s", err)
+		_ = relayedConn.Close()
+		ctxCancel()
+		return
+	}
 
-	w.log.Debugf("Relay connection established with %s", srv)
+	go w.wgStateCheck(ctx, relayedConn)
+
+	w.log.Debugf("peer conn opened via Relay: %s", srv)
 	go w.conn.OnConnReady(RelayConnInfo{
 		relayedConn:     relayedConn,
 		rosenpassPubKey: remoteOfferAnswer.RosenpassPubKey,
@@ -99,7 +108,7 @@ func (w *WorkerRelay) RelayIsSupportedLocally() bool {
 }
 
 // wgStateCheck help to check the state of the wireguard handshake and relay connection
-func (w *WorkerRelay) wgStateCheck(conn net.Conn) {
+func (w *WorkerRelay) wgStateCheck(ctx context.Context, conn net.Conn) {
 	timer := time.NewTimer(wgHandshakeOvertime)
 	defer timer.Stop()
 	for {
@@ -120,7 +129,7 @@ func (w *WorkerRelay) wgStateCheck(conn net.Conn) {
 			}
 			resetTime := time.Until(lastHandshake.Add(wgHandshakeOvertime + wgHandshakePeriod))
 			timer.Reset(resetTime)
-		case <-w.ctx.Done():
+		case <-ctx.Done():
 			return
 		}
 	}
@@ -149,6 +158,8 @@ func (w *WorkerRelay) wgState() (time.Time, error) {
 }
 
 func (w *WorkerRelay) disconnected() {
-	w.ctxCancel()
+	if w.ctxCancel != nil {
+		w.ctxCancel()
+	}
 	w.conn.OnDisconnected()
 }
