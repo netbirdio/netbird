@@ -63,10 +63,8 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 
 	srv := w.preferredRelayServer(currentRelayAddress, remoteOfferAnswer.RelaySrvAddress)
 
-	w.ctx, w.ctxCancel = context.WithCancel(w.parentCtx)
 	relayedConn, err := w.relayManager.OpenConn(srv, w.config.Key, w.disconnected)
 	if err != nil {
-		w.ctxCancel()
 		// todo handle all type errors
 		if errors.Is(err, relayClient.ErrConnAlreadyExists) {
 			w.log.Infof("do not need to reopen relay connection")
@@ -75,6 +73,8 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		w.log.Errorf("failed to open connection via Relay: %s", err)
 		return
 	}
+
+	w.ctx, w.ctxCancel = context.WithCancel(w.parentCtx)
 
 	go w.wgStateCheck(relayedConn)
 
