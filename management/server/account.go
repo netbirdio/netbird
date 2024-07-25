@@ -770,10 +770,6 @@ func (a *Account) GetPeer(peerID string) *nbpeer.Peer {
 // SetJWTGroups updates the user's auto groups by synchronizing JWT groups.
 // Returns true if there are changes in the JWT group membership.
 func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
-	if len(groupsNames) == 0 {
-		return false
-	}
-
 	user, ok := a.Users[userID]
 	if !ok {
 		return false
