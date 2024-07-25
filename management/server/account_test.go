@@ -2219,6 +2219,13 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		assert.Len(t, account.Users["user2"].AutoGroups, 1, "new group should be added")
 		assert.Contains(t, account.Groups, account.Users["user2"].AutoGroups[0], "groups must contain group3 from user groups")
 	})
+
+	t.Run("remove all JWT groups", func(t *testing.T) {
+		updated := account.SetJWTGroups("user1", []string{})
+		assert.True(t, updated, "account should be updated")
+		assert.Len(t, account.Users["user1"].AutoGroups, 1, "only non-JWT groups should remain")
+		assert.Contains(t, account.Users["user1"].AutoGroups, "group1", " group1 should still be present")
+	})
 }
 
 func TestAccount_UserGroupsAddToPeers(t *testing.T) {
