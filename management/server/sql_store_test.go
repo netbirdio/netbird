@@ -402,6 +402,17 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 
 	actual := account.Peers["testpeer"].Status
 	assert.Equal(t, newStatus, *actual)
+
+	newStatus.Connected = true
+
+	err = store.SavePeerStatus(account.Id, "testpeer", newStatus)
+	require.NoError(t, err)
+
+	account, err = store.GetAccount(context.Background(), account.Id)
+	require.NoError(t, err)
+
+	actual = account.Peers["testpeer"].Status
+	assert.Equal(t, newStatus, *actual)
 }
 func TestSqlite_SavePeerLocation(t *testing.T) {
 	if runtime.GOOS == "windows" {
