@@ -597,7 +597,7 @@ func (a *Account) GetPeersWithExpiration() []*nbpeer.Peer {
 	return peers
 }
 
-// GetExpiredPeers returns peers that have been expired by inactivity
+// GetInactivePeers returns peers that have been expired by inactivity
 func (a *Account) GetInactivePeers() []*nbpeer.Peer {
 	var peers []*nbpeer.Peer
 	for _, inactivePeer := range a.GetPeersWithInactivity() {
@@ -641,8 +641,7 @@ func (a *Account) GetNextInactivePeerExpiration() (time.Duration, bool) {
 	return *nextExpiry, true
 }
 
-// GetPeersWithInactivity
-// returns a list of peers that have Peer.InactivityExpirationEnabled set to true and that were added by a user
+// GetPeersWithInactivity eturns a list of peers that have Peer.InactivityExpirationEnabled set to true and that were added by a user
 func (a *Account) GetPeersWithInactivity() []*nbpeer.Peer {
 	peers := make([]*nbpeer.Peer, 0)
 	for _, peer := range a.Peers {
