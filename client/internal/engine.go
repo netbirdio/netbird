@@ -131,6 +131,9 @@ type Engine struct {
 	clientCtx    context.Context
 	clientCancel context.CancelFunc
 
+	mgmClientCtx    context.Context
+	mgmClientCancel context.CancelFunc
+
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -296,6 +299,7 @@ func (e *Engine) Start() error {
 		e.cancel()
 	}
 	e.ctx, e.cancel = context.WithCancel(e.clientCtx)
+	e.mgmClientCtx, e.mgmClientCancel = context.WithCancel(e.clientCtx)
 
 	wgIface, err := e.newWgIface()
 	if err != nil {
@@ -685,7 +689,7 @@ func (e *Engine) receiveManagementEvents() {
 		}
 
 		// err = e.mgmClient.Sync(info, e.handleSync)
-		err = e.mgmClient.Sync(e.ctx, info, e.handleSync)
+		err = e.mgmClient.Sync(e.mgmClientCtx, info, e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
@@ -747,8 +751,11 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 
 	serial := networkMap.GetSerial()
+	log.Tracef("received NetworkMap with serial %d", serial)
 	if e.networkSerial > serial {
-		log.Debugf("received outdated NetworkMap with serial %d, ignoring", serial)
+		log.Debugf("received outdated NetworkMap with serial %d, ignoring, current latest serial is %d", serial, e.networkSerial)
+		e.networkSerial = 0
+		e.mgmClientCancel()
 		return nil
 	}
 
@@ -823,6 +830,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 
 	e.networkSerial = serial
+	log.Tracef("updated NetworkMap with serial %d", serial)
 
 	// Test received (upstream) servers for availability right away instead of upon usage.
 	// If no server of a server group responds this will disable the respective handler and retry later.
