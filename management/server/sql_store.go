@@ -275,11 +275,9 @@ func (s *SqlStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.Pe
 	var peerCopy nbpeer.Peer
 	peerCopy.Status = &peerStatus
 
-	if !peerCopy.Status.Connected {
-		log.WithContext(context.Background()).Tracef("saving an peer: %s with false status. PeerCopy %v, Arg: %v, Trace: %v",
-			peerID, peerCopy.Status.Connected, peerStatus.Connected,
-			debug.Stack())
-	}
+	log.WithContext(context.Background()).Tracef("saving an peer: %s with false status. PeerCopy %v, Arg: %v, Trace: %v",
+		peerID, peerCopy.Status.Connected, peerStatus.Connected,
+		debug.Stack())
 
 	fieldsToUpdate := []string{
 		"peer_status_last_seen", "peer_status_connected",
