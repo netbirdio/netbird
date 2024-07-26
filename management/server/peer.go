@@ -610,7 +610,12 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 		return nil, nil, nil, status.Errorf(status.Internal, "failed while logging in peer")
 	}
 
-	unlock := am.Store.AcquireAccountReadLock(ctx, accountID)
+	err = am.checkIFPeerNeedsLoginWithoutLock(ctx, accountID, login)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 
 	defer func() {
 		if unlock != nil {
@@ -678,6 +683,38 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	return am.getValidatedPeerWithMap(ctx, isRequiresApproval, account, peer)
 }
 
+func (am *DefaultAccountManager) checkIFPeerNeedsLoginWithoutLock(ctx context.Context, accountID string, login PeerLogin) error {
+	// client doesn't send a request with a user ID when checking for authentication status
+	if login.UserID != "" {
+		return nil
+	}
+	peer, err := am.Store.GetPeerByPeerPubKey(ctx, login.WireGuardPubKey)
+	if err != nil {
+		return err
+	}
+
+	if peer.SetupKey != "" {
+		return nil
+	}
+
+	// todo: replace this with a call to get the user by id
+	account, err := am.Store.GetAccount(ctx, accountID)
+	if err != nil {
+		return err
+	}
+
+	err = checkIfPeerOwnerIsBlocked(peer, account)
+	if err != nil {
+		return err
+	}
+
+	if peerLoginExpired(ctx, peer, account.Settings) {
+		return status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
+	}
+
+	return nil
+}
+
 func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, account *Account, peer *nbpeer.Peer) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
 	var postureChecks []*posture.Checks
 
@@ -741,7 +778,7 @@ func checkAuth(ctx context.Context, loginUserID string, peer *nbpeer.Peer) error
 	}
 	if peer.UserID != loginUserID {
 		log.WithContext(ctx).Warnf("user mismatch when logging in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, loginUserID)
-		return status.Errorf(status.Unauthenticated, "can't login")
+		return status.Errorf(status.Unauthenticated, "can't login with this credentials")
 	}
 	return nil
 }
