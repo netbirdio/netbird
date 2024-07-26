@@ -313,8 +313,11 @@ func (conn *Conn) reconnectLoopWithRetry() {
 				return
 			}
 
+			if conn.statusRelay == StatusDisconnected || conn.statusICE == StatusDisconnected {
+				conn.log.Tracef("ticker timedout, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
+			}
+
 			// checks if there is peer connection is established via relay or ice
-			conn.log.Tracef("ticker timedout, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
 			if conn.isConnected() {
 				continue
 			}
