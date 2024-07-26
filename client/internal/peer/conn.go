@@ -458,7 +458,7 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 	conn.log.Tracef("ICE connection state changed to %s", newState)
 
 	// switch back to relay connection
-	if conn.endpointRelay != nil {
+	if conn.endpointRelay != nil && conn.currentConnPriority != connPriorityRelay {
 		conn.log.Debugf("ICE disconnected, set Relay to active connection")
 		err := conn.configureWGEndpoint(conn.endpointRelay)
 		if err != nil {
