@@ -349,8 +349,8 @@ func (conn *Conn) reconnectLoopWithRetry() {
 func (conn *Conn) prepareExponentTicker() *backoff.Ticker {
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     800 * time.Millisecond,
-		RandomizationFactor: 1,
-		Multiplier:          1.99,
+		RandomizationFactor: 0.01,
+		Multiplier:          2,
 		MaxInterval:         conn.config.Timeout,
 		MaxElapsedTime:      0,
 		Stop:                backoff.Stop,
