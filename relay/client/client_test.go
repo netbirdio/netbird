@@ -2,11 +2,8 @@ package client
 
 import (
 	"context"
-	"crypto/rand"
-	"fmt"
 	"net"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
@@ -112,167 +109,6 @@ func TestClient(t *testing.T) {
 
 	if payload != string(buf[:n]) {
 		t.Fatalf("expected %s, got %s", payload, string(buf[:n]))
-	}
-}
-
-func TestDataTransfer(t *testing.T) {
-	t.SkipNow() // skip this test on CI because it is a benchmark test
-	dataSize := 1024 * 1024 * 10
-
-	testData, err := seedRandomData(dataSize)
-	if err != nil {
-		t.Fatalf("failed to seed random data: %s", err)
-	}
-
-	for _, peerPairs := range []int{1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100} {
-		t.Run(fmt.Sprintf("peerPairs-%d", peerPairs), func(t *testing.T) {
-			transfer(t, testData, peerPairs)
-		})
-	}
-}
-
-func transfer(t *testing.T, testData []byte, peerPairs int) {
-	t.Helper()
-	ctx := context.Background()
-	port := 35000 + peerPairs
-	serverAddress := fmt.Sprintf("127.0.0.1:%d", port)
-	serverConnURL := fmt.Sprintf("rel://%s", serverAddress)
-
-	srv, err := server.NewServer(otel.Meter(""), serverConnURL, false, av)
-	if err != nil {
-		t.Fatalf("failed to create server: %s", err)
-	}
-	errChan := make(chan error, 1)
-	go func() {
-		listenCfg := server.ListenerConfig{Address: serverAddress}
-		err := srv.Listen(listenCfg)
-		if err != nil {
-			errChan <- err
-		}
-	}()
-
-	defer func() {
-		err := srv.Close()
-		if err != nil {
-			t.Errorf("failed to close server: %s", err)
-		}
-	}()
-
-	// wait for server to start
-	if err := waitForServerToStart(errChan); err != nil {
-		t.Fatalf("failed to start server: %s", err)
-	}
-
-	clientsSender := make([]*Client, peerPairs)
-	for i := 0; i < cap(clientsSender); i++ {
-		c := NewClient(ctx, serverConnURL, hmacTokenStore, "sender-"+fmt.Sprint(i))
-		err := c.Connect()
-		if err != nil {
-			t.Fatalf("failed to connect to server: %s", err)
-		}
-		clientsSender[i] = c
-	}
-
-	clientsReceiver := make([]*Client, peerPairs)
-	for i := 0; i < cap(clientsReceiver); i++ {
-		c := NewClient(ctx, serverConnURL, hmacTokenStore, "receiver-"+fmt.Sprint(i))
-		err := c.Connect()
-		if err != nil {
-			t.Fatalf("failed to connect to server: %s", err)
-		}
-		clientsReceiver[i] = c
-	}
-
-	connsSender := make([]net.Conn, 0, peerPairs)
-	connsReceiver := make([]net.Conn, 0, peerPairs)
-	for i := 0; i < len(clientsSender); i++ {
-		conn, err := clientsSender[i].OpenConn("receiver-" + fmt.Sprint(i))
-		if err != nil {
-			t.Fatalf("failed to bind channel: %s", err)
-		}
-		connsSender = append(connsSender, conn)
-
-		conn, err = clientsReceiver[i].OpenConn("sender-" + fmt.Sprint(i))
-		if err != nil {
-			t.Fatalf("failed to bind channel: %s", err)
-		}
-		connsReceiver = append(connsReceiver, conn)
-	}
-
-	var transferDuration []time.Duration
-	wg := sync.WaitGroup{}
-	var writeErr error
-	var readErr error
-	for i := 0; i < len(connsSender); i++ {
-		wg.Add(2)
-		start := time.Now()
-		go func(i int) {
-			defer wg.Done()
-			pieceSize := 1024
-			testDataLen := len(testData)
-
-			for j := 0; j < testDataLen; j += pieceSize {
-				end := j + pieceSize
-				if end > testDataLen {
-					end = testDataLen
-				}
-				_, writeErr = connsSender[i].Write(testData[j:end])
-				if writeErr != nil {
-					return
-				}
-			}
-
-		}(i)
-
-		go func(i int, start time.Time) {
-			defer wg.Done()
-			buf := make([]byte, 8192)
-			rcv := 0
-			var n int
-			for receivedSize := 0; receivedSize < len(testData); {
-
-				n, readErr = connsReceiver[i].Read(buf)
-				if readErr != nil {
-					return
-				}
-
-				receivedSize += n
-				rcv += n
-			}
-			transferDuration = append(transferDuration, time.Since(start))
-		}(i, start)
-	}
-
-	wg.Wait()
-
-	if writeErr != nil {
-		t.Fatalf("failed to write to channel: %s", err)
-	}
-
-	if readErr != nil {
-		t.Fatalf("failed to read from channel: %s", err)
-	}
-
-	// calculate the megabytes per second from the average transferDuration against the dataSize
-	var totalDuration time.Duration
-	for _, d := range transferDuration {
-		totalDuration += d
-	}
-	avgDuration := totalDuration / time.Duration(len(transferDuration))
-	mbps := float64(len(testData)) / avgDuration.Seconds() / 1024 / 1024
-	t.Logf("average transfer duration: %s", avgDuration)
-	t.Logf("average transfer speed: %.2f MB/s", mbps)
-
-	for i := 0; i < len(connsSender); i++ {
-		err := connsSender[i].Close()
-		if err != nil {
-			t.Errorf("failed to close connection: %s", err)
-		}
-
-		err = connsReceiver[i].Close()
-		if err != nil {
-			t.Errorf("failed to close connection: %s", err)
-		}
 	}
 }
 
@@ -792,13 +628,4 @@ func waitForServerToStart(errChan chan error) error {
 		return nil
 	}
 	return nil
-}
-
-func seedRandomData(size int) ([]byte, error) {
-	token := make([]byte, size)
-	_, err := rand.Read(token)
-	if err != nil {
-		return nil, err
-	}
-	return token, nil
 }
