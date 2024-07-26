@@ -188,7 +188,7 @@ func (m *AclManager) DeletePeerRule(rule firewall.Rule) error {
 	return nil
 }
 
-// creeateDefaultAllowRules creates default allow rules for the input and output chains
+// createDefaultAllowRules creates default allow rules for the input and output chains
 func (m *AclManager) createDefaultAllowRules() error {
 	expIn := []expr.Any{
 		&expr.Payload{
