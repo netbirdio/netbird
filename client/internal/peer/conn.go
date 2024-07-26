@@ -89,10 +89,10 @@ type Conn struct {
 	onConnected    func(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string)
 	onDisconnected func(remotePeer string, wgIP string)
 
-	statusRelay     ConnStatus
-	statusICE       ConnStatus
-	currentConnType ConnPriority
-	opened          bool // this flag is used to prevent close in case of not opened connection
+	statusRelay         ConnStatus
+	statusICE           ConnStatus
+	currentConnPriority ConnPriority
+	opened              bool // this flag is used to prevent close in case of not opened connection
 
 	workerICE   *WorkerICE
 	workerRelay *WorkerRelay
@@ -406,7 +406,7 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 
 	defer conn.updateIceState(iceConnInfo)
 
-	if conn.currentConnType > priority {
+	if conn.currentConnPriority > priority {
 		return
 	}
 
@@ -445,7 +445,7 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 	}
 	conn.wgProxyICE = wgProxy
 
-	conn.currentConnType = priority
+	conn.currentConnPriority = priority
 
 	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr)
 }
@@ -511,9 +511,9 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 
 	defer conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey)
 
-	if conn.currentConnType > connPriorityRelay {
+	if conn.currentConnPriority > connPriorityRelay {
 		if conn.statusICE == StatusConnected {
-			log.Debugf("do not switch to relay because current priority is: %v", conn.currentConnType)
+			log.Debugf("do not switch to relay because current priority is: %v", conn.currentConnPriority)
 			return
 		}
 	}
@@ -540,7 +540,7 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 		}
 	}
 	conn.wgProxyRelay = wgProxy
-	conn.currentConnType = connPriorityRelay
+	conn.currentConnPriority = connPriorityRelay
 
 	conn.log.Infof("start to communicate with peer via relay")
 	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr)
@@ -672,7 +672,7 @@ func (conn *Conn) isRelayed() bool {
 		return false
 	}
 
-	if conn.currentConnType == connPriorityICEP2P {
+	if conn.currentConnPriority == connPriorityICEP2P {
 		return false
 	}
 
