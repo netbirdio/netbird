@@ -31,8 +31,10 @@ import (
 )
 
 const (
-	storeSqliteFileName = "store.db"
-	idQueryCondition    = "id = ?"
+	storeSqliteFileName        = "store.db"
+	idQueryCondition           = "id = ?"
+	accountAndIDQueryCondition = "account_id = ? and id = ?"
+	peerNotFoundFMT            = "peer %s not found"
 )
 
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
@@ -271,6 +273,38 @@ func (s *SqlStore) GetInstallationID() string {
 	return installation.InstallationIDValue
 }
 
+func (s *SqlStore) SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error {
+	// To maintain data integrity, we create a copy of the peer's to prevent unintended updates to other fields.
+	peerCopy := peer.Copy()
+	peerCopy.AccountID = accountID
+
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// check if peer exists before saving
+		var peerID string
+		result := tx.Model(&nbpeer.Peer{}).Select("id").Find(&peerID, accountAndIDQueryCondition, accountID, peer.ID)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		if peerID == "" {
+			return status.Errorf(status.NotFound, peerNotFoundFMT, peer.ID)
+		}
+
+		result = tx.Model(&nbpeer.Peer{}).Where(accountAndIDQueryCondition, accountID, peer.ID).Save(peerCopy)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *SqlStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
 	var peerCopy nbpeer.Peer
 	peerCopy.Status = &peerStatus
@@ -285,14 +319,14 @@ func (s *SqlStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.Pe
 	}
 	result := s.db.Model(&nbpeer.Peer{}).
 		Select(fieldsToUpdate).
-		Where("account_id = ? AND id = ?", accountID, peerID).
+		Where(accountAndIDQueryCondition, accountID, peerID).
 		Updates(&peerCopy)
 	if result.Error != nil {
 		return result.Error
 	}
 
 	if result.RowsAffected == 0 {
-		return status.Errorf(status.NotFound, "peer %s not found", peerID)
+		return status.Errorf(status.NotFound, peerNotFoundFMT, peerID)
 	}
 
 	return nil
@@ -306,7 +340,7 @@ func (s *SqlStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.P
 	peerCopy.Location = peerWithLocation.Location
 
 	result := s.db.Model(&nbpeer.Peer{}).
-		Where("account_id = ? and id = ?", accountID, peerWithLocation.ID).
+		Where(accountAndIDQueryCondition, accountID, peerWithLocation.ID).
 		Updates(peerCopy)
 
 	if result.Error != nil {
@@ -314,7 +348,7 @@ func (s *SqlStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.P
 	}
 
 	if result.RowsAffected == 0 {
-		return status.Errorf(status.NotFound, "peer %s not found", peerWithLocation.ID)
+		return status.Errorf(status.NotFound, peerNotFoundFMT, peerWithLocation.ID)
 	}
 
 	return nil
@@ -648,7 +682,7 @@ func (s *SqlStore) GetAccountSettings(ctx context.Context, accountID string) (*S
 func (s *SqlStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error {
 	var user User
 
-	result := s.db.First(&user, "account_id = ? and id = ?", accountID, userID)
+	result := s.db.First(&user, accountAndIDQueryCondition, accountID, userID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return status.Errorf(status.NotFound, "user %s not found", userID)

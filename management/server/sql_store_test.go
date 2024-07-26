@@ -362,6 +362,54 @@ func TestSqlite_GetAccount(t *testing.T) {
 	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 }
 
+func TestSqlite_SavePeer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	store := newSqliteStoreFromFile(t, "testdata/store.json")
+
+	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
+	require.NoError(t, err)
+
+	// save status of non-existing peer
+	peer := &nbpeer.Peer{
+		Key:      "peerkey",
+		ID:       "testpeer",
+		SetupKey: "peerkeysetupkey",
+		IP:       net.IP{127, 0, 0, 1},
+		Meta:     nbpeer.PeerSystemMeta{Hostname: "testingpeer"},
+		Name:     "peer name",
+		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+	}
+	ctx := context.Background()
+	err = store.SavePeer(ctx, account.Id, peer)
+	assert.Error(t, err)
+	parsedErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+
+	// save new status of existing peer
+	account.Peers[peer.ID] = peer
+
+	err = store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	updatedPeer := peer.Copy()
+	updatedPeer.Status.Connected = false
+	updatedPeer.Meta.Hostname = "updatedpeer"
+
+	err = store.SavePeer(ctx, account.Id, updatedPeer)
+	require.NoError(t, err)
+
+	account, err = store.GetAccount(context.Background(), account.Id)
+	require.NoError(t, err)
+
+	actual := account.Peers[peer.ID]
+	assert.Equal(t, updatedPeer.Status, actual.Status)
+	assert.Equal(t, updatedPeer.Meta, actual.Meta)
+}
+
 func TestSqlite_SavePeerStatus(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
@@ -414,6 +462,7 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 	actual = account.Peers["testpeer"].Status
 	assert.Equal(t, newStatus, *actual)
 }
+
 func TestSqlite_SavePeerLocation(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
