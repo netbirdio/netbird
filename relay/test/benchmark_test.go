@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -17,18 +18,24 @@ import (
 	"github.com/netbirdio/netbird/relay/auth/hmac"
 	"github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/relay/server"
+	"github.com/netbirdio/netbird/util"
 )
 
 var (
 	av             = &auth.AllowAllAuth{}
 	hmacTokenStore = &hmac.TokenStore{}
 	pairs          = []int{1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100}
+	dataSize       = 1024 * 1024 * 10
 )
 
-func TestRelayDataTransfer(t *testing.T) {
-	//t.SkipNow() // skip this test on CI because it is a benchmark test
-	dataSize := 1024 * 1024 * 10
+func TestMain(m *testing.M) {
+	_ = util.InitLog("error", "console")
+	code := m.Run()
+	os.Exit(code)
+}
 
+func TestRelayDataTransfer(t *testing.T) {
+	t.SkipNow() // skip this test on CI because it is a benchmark test
 	testData, err := seedRandomData(dataSize)
 	if err != nil {
 		t.Fatalf("failed to seed random data: %s", err)
@@ -37,6 +44,22 @@ func TestRelayDataTransfer(t *testing.T) {
 	for _, peerPairs := range pairs {
 		t.Run(fmt.Sprintf("peerPairs-%d", peerPairs), func(t *testing.T) {
 			transfer(t, testData, peerPairs)
+		})
+	}
+}
+
+// TestTurnDataTransfer run turn server:
+// docker run --rm --name coturn -d --network=host coturn/coturn --user test:test
+func TestTurnDataTransfer(t *testing.T) {
+	t.SkipNow() // skip this test on CI because it is a benchmark test
+	testData, err := seedRandomData(dataSize)
+	if err != nil {
+		t.Fatalf("failed to seed random data: %s", err)
+	}
+
+	for _, peerPairs := range pairs {
+		t.Run(fmt.Sprintf("peerPairs-%d", peerPairs), func(t *testing.T) {
+			tunTurnTest(t, testData, peerPairs)
 		})
 	}
 }
@@ -183,23 +206,6 @@ func transfer(t *testing.T, testData []byte, peerPairs int) {
 		if err != nil {
 			t.Errorf("failed to close connection: %s", err)
 		}
-	}
-}
-
-// TestTurnDataTransfer run turn server:
-// docker run --rm --name coturn -d --network=host coturn/coturn --user test:test
-func TestTurnDataTransfer(t *testing.T) {
-	dataSize := 1024 * 1024 * 10
-
-	testData, err := seedRandomData(dataSize)
-	if err != nil {
-		t.Fatalf("failed to seed random data: %s", err)
-	}
-
-	for _, peerPairs := range pairs {
-		t.Run(fmt.Sprintf("peerPairs-%d", peerPairs), func(t *testing.T) {
-			tunTurnTest(t, testData, peerPairs)
-		})
 	}
 }
 
