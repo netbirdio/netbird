@@ -31,6 +31,8 @@ var installCmd = &cobra.Command{
 			configPath,
 			"--log-level",
 			logLevel,
+			"--daemon-addr",
+			daemonAddr,
 		}
 
 		if managementURL != "" {
