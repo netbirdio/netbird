@@ -575,13 +575,3 @@ func getPostureChecks(account *Account, postureChecksID string) *posture.Checks 
 	}
 	return nil
 }
-
-// isPolicyRuleGroupsEmpty checks if a given policy has rules with empty sources and destinations.
-func isPolicyRuleGroupsEmpty(policy *Policy) bool {
-	for _, rule := range policy.Rules {
-		if len(rule.Sources) != 0 && len(rule.Destinations) != 0 {
-			return false
-		}
-	}
-	return true
-}
