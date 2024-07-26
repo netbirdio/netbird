@@ -39,13 +39,10 @@ func (r *Server) Listen(cfg ListenerConfig) error {
 		TLSConfig: cfg.TLSConfig,
 	}
 
-	var wslErr error
-	go func() {
-		wslErr = r.wSListener.Listen(r.relay.Accept)
-		if wslErr != nil {
-			log.Errorf("failed to bind ws server: %s", wslErr)
-		}
-	}()
+	wslErr := r.wSListener.Listen(r.relay.Accept)
+	if wslErr != nil {
+		log.Errorf("failed to bind ws server: %s", wslErr)
+	}
 
 	return wslErr
 }
