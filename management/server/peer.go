@@ -546,7 +546,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	}
 
 	if peerLoginExpired(ctx, peer, account.Settings) {
-		return nil, nil, nil, status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
+		return nil, nil, nil, status.NewPeerLoginExpiredError()
 	}
 
 	peer, updated := updatePeerMeta(peer, sync.Meta, account)
@@ -693,6 +693,8 @@ func (am *DefaultAccountManager) checkIFPeerNeedsLoginWithoutLock(ctx context.Co
 		return err
 	}
 
+	status.NewPeerNotRegisteredError()
+
 	if peer.SetupKey != "" {
 		return nil
 	}
@@ -709,7 +711,7 @@ func (am *DefaultAccountManager) checkIFPeerNeedsLoginWithoutLock(ctx context.Co
 	}
 
 	if peerLoginExpired(ctx, peer, account.Settings) {
-		return status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
+		return status.NewPeerLoginExpiredError()
 	}
 
 	return nil
@@ -774,7 +776,7 @@ func checkIfPeerOwnerIsBlocked(peer *nbpeer.Peer, account *Account) error {
 func checkAuth(ctx context.Context, loginUserID string, peer *nbpeer.Peer) error {
 	if loginUserID == "" {
 		// absence of a user ID indicates that JWT wasn't provided.
-		return status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
+		return status.NewPeerLoginExpiredError()
 	}
 	if peer.UserID != loginUserID {
 		log.WithContext(ctx).Warnf("user mismatch when logging in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, loginUserID)
