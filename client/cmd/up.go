@@ -73,6 +73,13 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
 	}
 
+	if setupKeyPath != "" && setupKey == "" {
+		setupKey, err = getSetupKeyFromFile(setupKeyPath)
+		if err != nil {
+			return err
+		}
+	}
+
 	if foregroundMode {
 		return runInForegroundMode(ctx, cmd)
 	}
