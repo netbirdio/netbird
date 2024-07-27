@@ -666,6 +666,26 @@ func (s *FileStore) SaveInstallationID(ctx context.Context, ID string) error {
 	return s.persist(ctx, s.storeFile)
 }
 
+// SavePeer saves the peer in the account
+func (s *FileStore) SavePeer(_ context.Context, accountID string, peer *nbpeer.Peer) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	newPeer := peer.Copy()
+
+	account.Peers[peer.ID] = newPeer
+
+	s.PeerKeyID2AccountID[peer.Key] = accountID
+	s.PeerID2AccountID[peer.ID] = accountID
+
+	return nil
+}
+
 // SavePeerStatus stores the PeerStatus in memory. It doesn't attempt to persist data to speed up things.
 // PeerStatus will be saved eventually when some other changes occur.
 func (s *FileStore) SavePeerStatus(accountID, peerID string, peerStatus nbpeer.PeerStatus) error {
