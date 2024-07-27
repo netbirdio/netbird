@@ -610,13 +610,17 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 		return nil, nil, nil, status.Errorf(status.Internal, "failed while logging in peer")
 	}
 
-	err = am.checkIFPeerNeedsLoginWithoutLock(ctx, accountID, login)
-	if err != nil {
-		return nil, nil, nil, err
+	// when the client sends a login request with a JWT which is used to get the user ID,
+	// it means that the client has already checked if it needs login and had been through the SSO flow
+	// so, we can skip this check and directly proceed with the login
+	if login.UserID == "" {
+		err = am.checkIFPeerNeedsLoginWithoutLock(ctx, accountID, login)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 	}
 
 	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
-
 	defer func() {
 		if unlock != nil {
 			unlock()
@@ -683,17 +687,20 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	return am.getValidatedPeerWithMap(ctx, isRequiresApproval, account, peer)
 }
 
+// checkIFPeerNeedsLoginWithoutLock checks if the peer needs login without acquiring the account lock. The check validate if the peer was not added via SSO,
+// if the peer user is blocked, and if the peer login is expired.
+// The NetBird client doesn't have a way to check if the peer needs login besides sending a login request
+// with no JWT token and usually no setup-key. As the client can send up to two login request to check if it is expired
+// and before starting the engine, we do the checks without an account lock to avoid piling up requests.
 func (am *DefaultAccountManager) checkIFPeerNeedsLoginWithoutLock(ctx context.Context, accountID string, login PeerLogin) error {
-	// client doesn't send a request with a user ID when checking for authentication status
-	if login.UserID != "" {
-		return nil
-	}
 	peer, err := am.Store.GetPeerByPeerPubKey(ctx, login.WireGuardPubKey)
 	if err != nil {
 		return err
 	}
 
-	if peer.SetupKey != "" {
+	// if the peer was not added with SSO login we can exit early because peers activated with setup-key
+	// doesn't expire, and we avoid extra databases calls.
+	if !peer.AddedWithSSOLogin() {
 		return nil
 	}
 
