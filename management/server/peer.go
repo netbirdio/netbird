@@ -693,8 +693,6 @@ func (am *DefaultAccountManager) checkIFPeerNeedsLoginWithoutLock(ctx context.Co
 		return err
 	}
 
-	status.NewPeerNotRegisteredError()
-
 	if peer.SetupKey != "" {
 		return nil
 	}
