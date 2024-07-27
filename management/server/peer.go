@@ -342,17 +342,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		return nil, nil, nil, status.Errorf(status.Unauthenticated, "no peer auth method provided, please use a setup key or interactive SSO login")
 	}
 
-	if am.geo != nil && peer.Location.ConnectionIP != nil {
-		location, err := am.geo.Lookup(peer.Location.ConnectionIP)
-		if err != nil {
-			log.WithContext(ctx).Warnf("failed to get location for new peer realip: [%s]: %v", peer.Location.ConnectionIP.String(), err)
-		} else {
-			peer.Location.CountryCode = location.Country.ISOCode
-			peer.Location.CityName = location.City.Names.En
-			peer.Location.GeoNameID = location.City.GeonameID
-		}
-	}
-
 	upperKey := strings.ToUpper(setupKey)
 	var accountID string
 	var err error
@@ -462,6 +451,17 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		LoginExpirationEnabled: addedByUser,
 		Ephemeral:              ephemeral,
 		Location:               peer.Location,
+	}
+
+	if am.geo != nil && newPeer.Location.ConnectionIP != nil {
+		location, err := am.geo.Lookup(newPeer.Location.ConnectionIP)
+		if err != nil {
+			log.WithContext(ctx).Warnf("failed to get location for new peer realip: [%s]: %v", newPeer.Location.ConnectionIP.String(), err)
+		} else {
+			newPeer.Location.CountryCode = location.Country.ISOCode
+			newPeer.Location.CityName = location.City.Names.En
+			newPeer.Location.GeoNameID = location.City.GeonameID
+		}
 	}
 
 	// add peer to 'All' group
