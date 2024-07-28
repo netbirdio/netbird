@@ -687,8 +687,8 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	return am.getValidatedPeerWithMap(ctx, isRequiresApproval, account, peer)
 }
 
-// checkIFPeerNeedsLoginWithoutLock checks if the peer needs login without acquiring the account lock. The check validate if the peer was not added via SSO,
-// if the peer user is blocked, and if the peer login is expired.
+// checkIFPeerNeedsLoginWithoutLock checks if the peer needs login without acquiring the account lock. The check validate if the peer was not added via SSO
+// and if the peer login is expired.
 // The NetBird client doesn't have a way to check if the peer needs login besides sending a login request
 // with no JWT token and usually no setup-key. As the client can send up to two login request to check if it is expired
 // and before starting the engine, we do the checks without an account lock to avoid piling up requests.
@@ -704,18 +704,12 @@ func (am *DefaultAccountManager) checkIFPeerNeedsLoginWithoutLock(ctx context.Co
 		return nil
 	}
 
-	// todo: replace this with a call to get the user by id
-	account, err := am.Store.GetAccount(ctx, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, accountID)
 	if err != nil {
 		return err
 	}
 
-	err = checkIfPeerOwnerIsBlocked(peer, account)
-	if err != nil {
-		return err
-	}
-
-	if peerLoginExpired(ctx, peer, account.Settings) {
+	if peerLoginExpired(ctx, peer, settings) {
 		return status.NewPeerLoginExpiredError()
 	}
 
