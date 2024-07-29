@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Test in FreeBSD
@@ -22,18 +22,10 @@ jobs:
         with:
           usesh: true
           prepare: |
-            pkg install -y curl
-            pkg install -y git
+            pkg install -y curl git go
 
           run: |
             set -x
-            curl -o go.tar.gz https://go.dev/dl/go1.21.11.freebsd-amd64.tar.gz -L
-            tar zxf go.tar.gz
-            mv go /usr/local/go
-            ln -s /usr/local/go/bin/go /usr/local/bin/go
-            go mod tidy
-            go test -timeout 5m -p 1 ./iface/...
-            go test -timeout 5m -p 1 ./client/... 
-            cd client
-            go build .
-            cd ..
+            go build -o netbird client/main.go
+            whoami
+            go test -timeout 5m ./...
