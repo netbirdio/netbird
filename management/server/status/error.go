@@ -95,3 +95,8 @@ func NewUserNotFoundError(userKey string) error {
 func NewPeerNotRegisteredError() error {
 	return Errorf(Unauthenticated, "peer is not registered")
 }
+
+// NewPeerLoginExpiredError creates a new Error with PermissionDenied type for an expired peer
+func NewPeerLoginExpiredError() error {
+	return Errorf(PermissionDenied, "peer login has expired, please log in once more")
+}
