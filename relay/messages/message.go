@@ -54,6 +54,7 @@ type HelloResponse struct {
 	InstanceAddress string
 }
 
+// DetermineClientMsgType determines the message type from the first byte of the message
 func DetermineClientMsgType(msg []byte) (MsgType, error) {
 	msgType := MsgType(msg[0])
 	switch msgType {
@@ -70,6 +71,7 @@ func DetermineClientMsgType(msg []byte) (MsgType, error) {
 	}
 }
 
+// DetermineServerMsgType determines the message type from the first byte of the message
 func DetermineServerMsgType(msg []byte) (MsgType, error) {
 	msgType := MsgType(msg[0])
 	switch msgType {
@@ -87,6 +89,10 @@ func DetermineServerMsgType(msg []byte) (MsgType, error) {
 }
 
 // MarshalHelloMsg initial hello message
+// The Hello message is the first message sent by a client after establishing a connection with the Relay server. This
+// message is used to authenticate the client with the server. The authentication is done using an HMAC method.
+// The protocol does not limit to use HMAC, it can be any other method. If the authentication failed the server will
+// close the network connection without any response.
 func MarshalHelloMsg(peerID []byte, additions []byte) ([]byte, error) {
 	if len(peerID) != IDSize {
 		return nil, fmt.Errorf("invalid peerID length: %d", len(peerID))
@@ -101,6 +107,8 @@ func MarshalHelloMsg(peerID []byte, additions []byte) ([]byte, error) {
 	return msg, nil
 }
 
+// UnmarshalHelloMsg extracts the peerID and the additional data from the hello message. The Additional data is used to
+// authenticate the client with the server.
 func UnmarshalHelloMsg(msg []byte) ([]byte, []byte, error) {
 	if len(msg) < headerSizeHello {
 		return nil, nil, fmt.Errorf("invalid 'hello' messge")
@@ -111,6 +119,10 @@ func UnmarshalHelloMsg(msg []byte) ([]byte, []byte, error) {
 	return msg[5 : 5+IDSize], msg[headerSizeHello:], nil
 }
 
+// MarshalHelloResponse creates a response message to the hello message.
+// In case of success connection the server response with a Hello Response message. This message contains the server's
+// instance URL. This URL will be used by choose the common Relay server in case if the peers are in different Relay
+// servers.
 func MarshalHelloResponse(DomainAddress string) ([]byte, error) {
 	payload := HelloResponse{
 		InstanceAddress: DomainAddress,
@@ -131,6 +143,7 @@ func MarshalHelloResponse(DomainAddress string) ([]byte, error) {
 	return msg, nil
 }
 
+// UnmarshalHelloResponse extracts the instance address from the hello response message
 func UnmarshalHelloResponse(msg []byte) (string, error) {
 	if len(msg) < 2 {
 		return "", fmt.Errorf("invalid 'hello response' message")
@@ -147,16 +160,18 @@ func UnmarshalHelloResponse(msg []byte) (string, error) {
 	return payload.InstanceAddress, nil
 }
 
-// Close message
-
+// MarshalCloseMsg creates a close message.
+// The close message is used to close the connection gracefully between the client and the server. The server and the
+// client can send this message. After receiving this message, the server or client will close the connection.
 func MarshalCloseMsg() []byte {
 	msg := make([]byte, 1)
 	msg[0] = byte(MsgTypeClose)
 	return msg
 }
 
-// Transport message
-
+// MarshalTransportMsg creates a transport message.
+// The transport message is used to exchange data between peers. The message contains the data to be exchanged and the
+// destination peer hashed ID.
 func MarshalTransportMsg(peerID []byte, payload []byte) ([]byte, error) {
 	if len(peerID) != IDSize {
 		return nil, fmt.Errorf("invalid peerID length: %d", len(peerID))
@@ -169,6 +184,7 @@ func MarshalTransportMsg(peerID []byte, payload []byte) ([]byte, error) {
 	return msg, nil
 }
 
+// UnmarshalTransportMsg extracts the peerID and the payload from the transport message.
 func UnmarshalTransportMsg(buf []byte) ([]byte, []byte, error) {
 	if len(buf) < headerSizeTransport {
 		return nil, nil, ErrInvalidMessageLength
@@ -177,6 +193,7 @@ func UnmarshalTransportMsg(buf []byte) ([]byte, []byte, error) {
 	return buf[1:headerSizeTransport], buf[headerSizeTransport:], nil
 }
 
+// UnmarshalTransportID extracts the peerID from the transport message.
 func UnmarshalTransportID(buf []byte) ([]byte, error) {
 	if len(buf) < headerSizeTransport {
 		log.Debugf("invalid message length: %d, expected: %d, %x", len(buf), headerSizeTransport, buf)
@@ -185,6 +202,9 @@ func UnmarshalTransportID(buf []byte) ([]byte, error) {
 	return buf[1:headerSizeTransport], nil
 }
 
+// UpdateTransportMsg updates the peerID in the transport message.
+// With this function the server can reuse the given byte slice to update the peerID in the transport message. So do
+// need to allocate a new byte slice.
 func UpdateTransportMsg(msg []byte, peerID []byte) error {
 	if len(msg) < 1+len(peerID) {
 		return ErrInvalidMessageLength
@@ -193,8 +213,9 @@ func UpdateTransportMsg(msg []byte, peerID []byte) error {
 	return nil
 }
 
-// health check message
-
+// MarshalHealthcheck creates a health check message.
+// Health check message is sent by the server periodically. The client will respond with a health check response
+// message. If the client does not respond to the health check message, the server will close the connection.
 func MarshalHealthcheck() []byte {
 	return healthCheckMsg
 }

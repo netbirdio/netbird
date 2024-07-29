@@ -18,6 +18,7 @@ const (
 	bufferSize = 8820
 )
 
+// Peer represents a peer connection
 type Peer struct {
 	log    *log.Entry
 	idS    string
@@ -27,6 +28,7 @@ type Peer struct {
 	store  *Store
 }
 
+// NewPeer creates a new Peer instance and prepare custom logging
 func NewPeer(id []byte, conn net.Conn, store *Store) *Peer {
 	stringID := messages.HashIDToString(id)
 	return &Peer{
@@ -38,6 +40,9 @@ func NewPeer(id []byte, conn net.Conn, store *Store) *Peer {
 	}
 }
 
+// Work reads data from the connection
+// It manages the protocol (healthcheck, transport, close). Read the message and determine the message type and handle
+// the message accordingly.
 func (p *Peer) Work() {
 	ctx, cancel := context.WithCancel(context.Background())
 	hc := healthcheck.NewSender(ctx)
@@ -75,13 +80,14 @@ func (p *Peer) Work() {
 }
 
 // Write writes data to the connection
-// it has been called by the remote peer
 func (p *Peer) Write(b []byte) (int, error) {
 	p.connMu.RLock()
 	defer p.connMu.RUnlock()
 	return p.conn.Write(b)
 }
 
+// CloseGracefully closes the connection with the peer gracefully. Send a close message to the client and close the
+// connection.
 func (p *Peer) CloseGracefully(ctx context.Context) {
 	p.connMu.Lock()
 	_, err := p.writeWithTimeout(ctx, messages.MarshalCloseMsg())
@@ -97,6 +103,7 @@ func (p *Peer) CloseGracefully(ctx context.Context) {
 	defer p.connMu.Unlock()
 }
 
+// String returns the peer ID
 func (p *Peer) String() string {
 	return p.idS
 }

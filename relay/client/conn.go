@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// Conn represent a connection to a relayed remote peer.
 type Conn struct {
 	client      *Client
 	dstID       []byte
@@ -14,6 +15,12 @@ type Conn struct {
 	instanceURL *RelayAddr
 }
 
+// NewConn creates a new connection to a relayed remote peer.
+// client: the client instance, it used to send messages to the destination peer
+// dstID: the destination peer ID
+// dstStringID: the destination peer ID in string format
+// messageChan: the channel where the messages will be received
+// instanceURL: the relay instance URL, it used to get the proper server instance address for the remote peer
 func NewConn(client *Client, dstID []byte, dstStringID string, messageChan chan Msg, instanceURL *RelayAddr) *Conn {
 	c := &Conn{
 		client:      client,

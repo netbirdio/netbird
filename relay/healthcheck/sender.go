@@ -15,8 +15,10 @@ var (
 // If the receiver does not receive the signal in a certain time, it will send a timeout signal and stop to work
 // It will also stop if the context is canceled
 type Sender struct {
+	// HealthCheck is a channel to send health check signal to the peer
 	HealthCheck chan struct{}
-	Timeout     chan struct{}
+	// Timeout is a channel to the health check signal is not received in a certain time
+	Timeout chan struct{}
 
 	ctx context.Context
 	ack chan struct{}
@@ -35,6 +37,7 @@ func NewSender(ctx context.Context) *Sender {
 	return hc
 }
 
+// OnHCResponse sends an acknowledgment signal to the sender
 func (hc *Sender) OnHCResponse() {
 	select {
 	case hc.ack <- struct{}{}:

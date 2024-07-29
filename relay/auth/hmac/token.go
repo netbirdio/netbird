@@ -43,6 +43,7 @@ type TimedHMAC struct {
 	timeToLive time.Duration
 }
 
+// NewTimedHMAC creates a new TimedHMAC instance
 func NewTimedHMAC(secret string, timeToLive time.Duration) *TimedHMAC {
 	return &TimedHMAC{
 		secret:     secret,
@@ -50,7 +51,8 @@ func NewTimedHMAC(secret string, timeToLive time.Duration) *TimedHMAC {
 	}
 }
 
-// GenerateToken generates new time-based secret token - basically Payload is a unix timestamp and Signature is a HMAC hash of a timestamp with a preshared TURN secret
+// GenerateToken generates new time-based secret token - basically Payload is a unix timestamp and Signature is a HMAC
+// hash of a timestamp with a preshared TURN secret
 func (m *TimedHMAC) GenerateToken() (*Token, error) {
 	timeAuth := time.Now().Add(m.timeToLive).Unix()
 	timeStamp := fmt.Sprint(timeAuth)
@@ -66,6 +68,7 @@ func (m *TimedHMAC) GenerateToken() (*Token, error) {
 	}, nil
 }
 
+// Validate checks if the token is valid
 func (m *TimedHMAC) Validate(token Token) error {
 	expectedMAC, err := m.generate(token.Payload)
 	if err != nil {

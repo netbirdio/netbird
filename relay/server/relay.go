@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/url"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -14,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/relay/metrics"
 )
 
+// Relay represents the relay server
 type Relay struct {
 	metrics   *metrics.Metrics
 	validator auth.Validator
@@ -25,6 +27,21 @@ type Relay struct {
 	closeMu sync.RWMutex
 }
 
+// NewRelay creates a new Relay instance
+//
+// Parameters:
+// meter: An instance of metric.Meter from the go.opentelemetry.io/otel/metric package. It is used to create and manage
+// metrics for the relay server.
+// exposedAddress: A string representing the address that the relay server is exposed on. The client will use this
+// address as the relay server's instance URL.
+// tlsSupport: A boolean indicating whether the relay server supports TLS (Transport Layer Security) or not. The
+// instance URL depends on this value.
+// validator: An instance of auth.Validator from the auth package. It is used to validate the authentication of the
+// peers.
+//
+// Returns:
+// A pointer to a Relay instance and an error. If the Relay instance is successfully created, the error is nil.
+// Otherwise, the error contains the details of what went wrong.
 func NewRelay(meter metric.Meter, exposedAddress string, tlsSupport bool, validator auth.Validator) (*Relay, error) {
 	m, err := metrics.NewMetrics(meter)
 	if err != nil {
@@ -42,10 +59,15 @@ func NewRelay(meter metric.Meter, exposedAddress string, tlsSupport bool, valida
 	} else {
 		r.instanceURL = fmt.Sprintf("rel://%s", exposedAddress)
 	}
+	_, err = url.ParseRequestURI(r.instanceURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid exposed address: %v", err)
+	}
 
 	return r, nil
 }
 
+// Accept start to handle a new peer connection
 func (r *Relay) Accept(conn net.Conn) {
 	r.closeMu.RLock()
 	defer r.closeMu.RUnlock()
@@ -53,7 +75,7 @@ func (r *Relay) Accept(conn net.Conn) {
 		return
 	}
 
-	peerID, err := r.handShake(conn)
+	peerID, err := r.handshake(conn)
 	if err != nil {
 		log.Errorf("failed to handshake with %s: %s", conn.RemoteAddr(), err)
 		cErr := conn.Close()
@@ -75,6 +97,8 @@ func (r *Relay) Accept(conn net.Conn) {
 	}()
 }
 
+// Close closes the relay server
+// It closes the connection with all peers in gracefully and stops accepting new connections.
 func (r *Relay) Close(ctx context.Context) {
 	log.Infof("close connection with all peers")
 	r.closeMu.Lock()
@@ -91,7 +115,12 @@ func (r *Relay) Close(ctx context.Context) {
 	r.closeMu.Unlock()
 }
 
-func (r *Relay) handShake(conn net.Conn) ([]byte, error) {
+// InstanceURL returns the instance URL of the relay server
+func (r *Relay) InstanceURL() string {
+	return r.instanceURL
+}
+
+func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 	buf := make([]byte, messages.MaxHandshakeSize)
 	n, err := conn.Read(buf)
 	if err != nil {
@@ -126,8 +155,4 @@ func (r *Relay) handShake(conn net.Conn) ([]byte, error) {
 		return nil, err
 	}
 	return peerID, nil
-}
-
-func (r *Relay) InstanceURL() string {
-	return r.instanceURL
 }

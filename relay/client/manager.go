@@ -34,6 +34,7 @@ func NewRelayTrack() *RelayTrack {
 
 type OnServerCloseListener func()
 
+// ManagerService is the interface for the relay manager.
 type ManagerService interface {
 	Serve() error
 	OpenConn(serverAddress, peerKey string) (net.Conn, error)
@@ -44,9 +45,9 @@ type ManagerService interface {
 	UpdateToken(token *relayAuth.Token)
 }
 
-// Manager is a manager for the relay client. It establish one persistent connection to the given relay server. In case
-// of network error the manager will try to reconnect to the server.
-// The manager also manage temproary relay connection. If a client wants to communicate with an another client on a
+// Manager is a manager for the relay client instances. It establishes one persistent connection to the given relay URL
+// and automatically reconnect to them in case disconnection.
+// The manager also manage temporary relay connection. If a client wants to communicate with a client on a
 // different relay server, the manager will establish a new connection to the relay server. The connection with these
 // relay servers will be closed if there is no active connection. Periodically the manager will check if there is any
 // unused relay connection and close it.
@@ -66,6 +67,8 @@ type Manager struct {
 	listenerLock            sync.Mutex
 }
 
+// NewManager creates a new manager instance.
+// The serverURL address can be empty. In this case, the manager will not serve.
 func NewManager(ctx context.Context, serverURL string, peerID string) *Manager {
 	return &Manager{
 		ctx:                     ctx,
@@ -77,7 +80,8 @@ func NewManager(ctx context.Context, serverURL string, peerID string) *Manager {
 	}
 }
 
-// Serve starts the manager. It will establish a connection to the relay server and start the relay cleanup loop.
+// Serve starts the manager. It will establish a connection to the relay server and start the relay cleanup loop for
+// the unused relay connections. The manager will automatically reconnect to the relay server in case of disconnection.
 func (m *Manager) Serve() error {
 	if m.relayClient != nil {
 		return fmt.Errorf("manager already serving")
@@ -101,7 +105,7 @@ func (m *Manager) Serve() error {
 
 // OpenConn opens a connection to the given peer key. If the peer is on the same relay server, the connection will be
 // established via the relay server. If the peer is on a different relay server, the manager will establish a new
-// connection to the relay server.
+// connection to the relay server. It returns back with a net.Conn what represent the remote peer connection.
 func (m *Manager) OpenConn(serverAddress, peerKey string) (net.Conn, error) {
 	if m.relayClient == nil {
 		return nil, errRelayClientNotConnected
@@ -129,6 +133,8 @@ func (m *Manager) OpenConn(serverAddress, peerKey string) (net.Conn, error) {
 	return netConn, err
 }
 
+// AddCloseListener adds a listener to the given server instance address. The listener will be called if the connection
+// closed.
 func (m *Manager) AddCloseListener(serverAddress string, onClosedListener OnServerCloseListener) error {
 	foreign, err := m.isForeignServer(serverAddress)
 	if err != nil {
@@ -145,8 +151,8 @@ func (m *Manager) AddCloseListener(serverAddress string, onClosedListener OnServ
 	return nil
 }
 
-// RelayInstanceAddress returns the address of the permanent relay server. It could change if the network connection is lost.
-// This address will be sent to the target peer to choose the common relay server for the communication.
+// RelayInstanceAddress returns the address of the permanent relay server. It could change if the network connection is
+// lost. This address will be sent to the target peer to choose the common relay server for the communication.
 func (m *Manager) RelayInstanceAddress() (string, error) {
 	if m.relayClient == nil {
 		return "", errRelayClientNotConnected
@@ -159,10 +165,13 @@ func (m *Manager) ServerURL() string {
 	return m.serverURL
 }
 
+// HasRelayAddress returns true if the manager is serving. With this method can check if the peer can communicate with
+// Relay service.
 func (m *Manager) HasRelayAddress() bool {
 	return m.serverURL != ""
 }
 
+// UpdateToken updates the token in the token store.
 func (m *Manager) UpdateToken(token *relayAuth.Token) {
 	m.tokenStore.UpdateToken(token)
 }
