@@ -213,8 +213,9 @@ type FirewallRule struct {
 //
 // This function returns the list of peers and firewall rules that are applicable to a given peer.
 func (a *Account) getPeerConnectionResources(ctx context.Context, peerID string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, []*FirewallRule) {
+	peerMap := make(map[string]*nbpeer.Peer)
+	ruleMap := make(map[string]*FirewallRule)
 
-	generateResources, getAccumulatedResources := a.connResourcesGenerator(ctx)
 	for _, policy := range a.Policies {
 		if !policy.Enabled {
 			continue
@@ -225,29 +226,105 @@ func (a *Account) getPeerConnectionResources(ctx context.Context, peerID string,
 				continue
 			}
 
-			sourcePeers, peerInSources := getAllPeersFromGroups(ctx, a, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
-			destinationPeers, peerInDestinations := getAllPeersFromGroups(ctx, a, rule.Destinations, peerID, nil, validatedPeersMap)
+			sourcePeers, peerInSources := a.getPeersFromGroups(rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
+			destPeers, peerInDest := a.getPeersFromGroups(rule.Destinations, peerID, nil, validatedPeersMap)
 
 			if rule.Bidirectional {
+				a.processRule(rule, sourcePeers, destPeers, peerInSources, peerInDest, peerMap, ruleMap)
+			} else {
 				if peerInSources {
-					generateResources(rule, destinationPeers, firewallRuleDirectionIN)
+					a.processRuleOneWay(rule, destPeers, firewallRuleDirectionOUT, peerMap, ruleMap)
 				}
-				if peerInDestinations {
-					generateResources(rule, sourcePeers, firewallRuleDirectionOUT)
+				if peerInDest {
+					a.processRuleOneWay(rule, sourcePeers, firewallRuleDirectionIN, peerMap, ruleMap)
 				}
-			}
-
-			if peerInSources {
-				generateResources(rule, destinationPeers, firewallRuleDirectionOUT)
-			}
-
-			if peerInDestinations {
-				generateResources(rule, sourcePeers, firewallRuleDirectionIN)
 			}
 		}
 	}
 
-	return getAccumulatedResources()
+	peers := make([]*nbpeer.Peer, 0, len(peerMap))
+	rules := make([]*FirewallRule, 0, len(ruleMap))
+
+	for _, peer := range peerMap {
+		peers = append(peers, peer)
+	}
+	for _, rule := range ruleMap {
+		rules = append(rules, rule)
+	}
+
+	return peers, rules
+}
+
+func (a *Account) getPeersFromGroups(groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) (map[string]*nbpeer.Peer, bool) {
+	peerInGroups := false
+	filteredPeers := make(map[string]*nbpeer.Peer)
+
+	for _, g := range groups {
+		group, ok := a.Groups[g]
+		if !ok {
+			continue
+		}
+
+		for _, p := range group.Peers {
+			peer, ok := a.Peers[p]
+			if !ok || peer == nil {
+				continue
+			}
+
+			if _, ok := validatedPeersMap[peer.ID]; !ok {
+				continue
+			}
+
+			if peer.ID == peerID {
+				peerInGroups = true
+				continue
+			}
+
+			if a.validatePostureChecksOnPeer(sourcePostureChecksIDs, peer.ID) {
+				filteredPeers[peer.ID] = peer
+			}
+		}
+	}
+
+	return filteredPeers, peerInGroups
+}
+
+func (a *Account) processRule(rule *PolicyRule, sourcePeers, destPeers map[string]*nbpeer.Peer, peerInSources, peerInDest bool, peerMap map[string]*nbpeer.Peer, ruleMap map[string]*FirewallRule) {
+	if peerInSources {
+		a.processRuleOneWay(rule, destPeers, firewallRuleDirectionIN, peerMap, ruleMap)
+	}
+	if peerInDest {
+		a.processRuleOneWay(rule, sourcePeers, firewallRuleDirectionOUT, peerMap, ruleMap)
+	}
+}
+
+func (a *Account) processRuleOneWay(rule *PolicyRule, peers map[string]*nbpeer.Peer, direction int, peerMap map[string]*nbpeer.Peer, ruleMap map[string]*FirewallRule) {
+	for _, peer := range peers {
+		peerMap[peer.ID] = peer
+
+		fr := FirewallRule{
+			PeerIP:    peer.IP.String(),
+			Direction: direction,
+			Action:    string(rule.Action),
+			Protocol:  string(rule.Protocol),
+		}
+
+		ruleID := rule.ID + fr.PeerIP + strconv.Itoa(direction) + fr.Protocol + fr.Action + strings.Join(rule.Ports, ",")
+		if _, ok := ruleMap[ruleID]; ok {
+			continue
+		}
+
+		if len(rule.Ports) == 0 {
+			ruleMap[ruleID] = &fr
+		} else {
+			for _, port := range rule.Ports {
+				pr := fr
+				pr.Port = port
+				portRuleID := ruleID + port
+				ruleMap[portRuleID] = &pr
+			}
+		}
+	}
 }
 
 // connResourcesGenerator returns generator and accumulator function which returns the result of generator calls
@@ -484,68 +561,22 @@ func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
 	return result
 }
 
-// getAllPeersFromGroups for given peer ID and list of groups
-//
-// Returns a list of peers from specified groups that pass specified posture checks
-// and a boolean indicating if the supplied peer ID exists within these groups.
-//
-// Important: Posture checks are applicable only to source group peers,
-// for destination group peers, call this method with an empty list of sourcePostureChecksIDs
-func getAllPeersFromGroups(ctx context.Context, account *Account, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
-	peerInGroups := false
-	filteredPeers := make([]*nbpeer.Peer, 0, len(groups))
-	for _, g := range groups {
-		group, ok := account.Groups[g]
-		if !ok {
-			continue
-		}
-
-		for _, p := range group.Peers {
-			peer, ok := account.Peers[p]
-			if !ok || peer == nil {
-				continue
-			}
-
-			// validate the peer based on policy posture checks applied
-			isValid := account.validatePostureChecksOnPeer(ctx, sourcePostureChecksIDs, peer.ID)
-			if !isValid {
-				continue
-			}
-
-			if _, ok := validatedPeersMap[peer.ID]; !ok {
-				continue
-			}
-
-			if peer.ID == peerID {
-				peerInGroups = true
-				continue
-			}
-
-			filteredPeers = append(filteredPeers, peer)
-		}
-	}
-	return filteredPeers, peerInGroups
-}
-
 // validatePostureChecksOnPeer validates the posture checks on a peer
-func (a *Account) validatePostureChecksOnPeer(ctx context.Context, sourcePostureChecksID []string, peerID string) bool {
+func (a *Account) validatePostureChecksOnPeer(sourcePostureChecksID []string, peerID string) bool {
 	peer, ok := a.Peers[peerID]
-	if !ok && peer == nil {
+	if !ok || peer == nil {
 		return false
 	}
 
 	for _, postureChecksID := range sourcePostureChecksID {
-		postureChecks := getPostureChecks(a, postureChecksID)
+		postureChecks := a.getPostureChecks(postureChecksID)
 		if postureChecks == nil {
 			continue
 		}
 
 		for _, check := range postureChecks.GetChecks() {
-			isValid, err := check.Check(ctx, *peer)
-			if err != nil {
-				log.WithContext(ctx).Debugf("an error occurred check %s: on peer: %s :%s", check.Name(), peer.ID, err.Error())
-			}
-			if !isValid {
+			isValid, err := check.Check(context.Background(), *peer)
+			if err != nil || !isValid {
 				return false
 			}
 		}
@@ -553,8 +584,8 @@ func (a *Account) validatePostureChecksOnPeer(ctx context.Context, sourcePosture
 	return true
 }
 
-func getPostureChecks(account *Account, postureChecksID string) *posture.Checks {
-	for _, postureChecks := range account.PostureChecks {
+func (a *Account) getPostureChecks(postureChecksID string) *posture.Checks {
+	for _, postureChecks := range a.PostureChecks {
 		if postureChecks.ID == postureChecksID {
 			return postureChecks
 		}
