@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/netbirdio/netbird/management/server/group"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -117,4 +119,151 @@ func initTestPostureChecksAccount(am *DefaultAccountManager) (*Account, error) {
 	}
 
 	return am.Store.GetAccount(context.Background(), account.Id)
+}
+
+func TestPostureCheckAccountPeerUpdate(t *testing.T) {
+	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+
+	err := manager.SaveGroup(context.Background(), account.Id, userID, &group.Group{
+		ID:    "group-id",
+		Name:  "GroupA",
+		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+	})
+	assert.NoError(t, err)
+
+	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	t.Cleanup(func() {
+		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+	})
+
+	postureCheck := posture.Checks{
+		ID:          "versionCheck",
+		Name:        "Version Check",
+		Description: "NetBird Version Check",
+		AccountID:   account.Id,
+		Checks: posture.ChecksDefinition{
+			NBVersionCheck: &posture.NBVersionCheck{
+				MinVersion: "0.28.0",
+			},
+		},
+	}
+
+	// Saving unused posture check should not update account peers and not send peer update
+	t.Run("saving unused posture check", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.SavePostureChecks(context.Background(), account.Id, userID, &postureCheck)
+		assert.NoError(t, err)
+
+		// wait for goroutine
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
+	policy := Policy{
+		ID:      "policy",
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				Enabled:       true,
+				Sources:       []string{"group-id"},
+				Destinations:  []string{"group-id"},
+				Bidirectional: true,
+				Action:        PolicyTrafficActionAccept,
+			},
+		},
+		SourcePostureChecks: []string{postureCheck.ID},
+	}
+
+	// Adding posture check to policy should trigger update account peers and send peer update
+	t.Run("adding posture check to policy", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.SavePolicy(context.Background(), account.Id, userID, &policy)
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+
+	})
+
+	// Updating used posture checks should update account peers and send peer update
+	t.Run("updating used posture check", func(t *testing.T) {
+		postureCheck.Checks = posture.ChecksDefinition{
+			NBVersionCheck: &posture.NBVersionCheck{
+				MinVersion: "0.28.6",
+			},
+		}
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.SavePostureChecks(context.Background(), account.Id, userID, &postureCheck)
+		assert.NoError(t, err)
+
+		// wait for goroutine
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
+
+	// Re-saving unchanged posture check should trigger account peers update and not send peer update
+	//	// since there is no change in the network map
+	t.Run("re-saving unchanged posture check", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.SavePostureChecks(context.Background(), account.Id, userID, &postureCheck)
+		assert.NoError(t, err)
+
+		// wait for goroutine
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
+	// Removing posture check from policy should trigger account peers update and send peer update
+	t.Run("removing posture check from policy", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		policy.SourcePostureChecks = []string{}
+
+		err := manager.SavePolicy(context.Background(), account.Id, userID, &policy)
+		assert.NoError(t, err)
+
+		// wait for goroutine
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
 }
