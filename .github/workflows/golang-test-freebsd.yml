@@ -26,11 +26,9 @@ jobs:
           prepare: |
             pkg install -y curl git go
 
+          # -x - to print all executed commands
+          # -e - to faile on first error
           run: |
-            set -x
-            pwd
+            set -e -x
             go build -o netbird client/main.go
-            echo $?
-            ls -la
             go test -timeout 5m ./...
-            echo $?
