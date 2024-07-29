@@ -21,13 +21,16 @@ jobs:
         uses: vmactions/freebsd-vm@v1
         with:
           usesh: true
-          sync: no
+          copyback: false
           release: "14.1"
           prepare: |
             pkg install -y curl git go
 
           run: |
             set -x
+            pwd
             go build -o netbird client/main.go
-            whoami
+            echo $?
+            ls -la
             go test -timeout 5m ./...
+            echo $?
