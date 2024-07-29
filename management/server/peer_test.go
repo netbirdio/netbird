@@ -2,15 +2,21 @@ package server
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"net"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 )
 
 func TestPeer_LoginExpired(t *testing.T) {
@@ -632,4 +638,178 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 		})
 	}
 
+}
+
+func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccountManager, string, string, error) {
+	b.Helper()
+
+	manager, err := createManager(b)
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	accountID := "test_account"
+	adminUser := "account_creator"
+	regularUser := "regular_user"
+
+	account := newAccountWithId(context.Background(), accountID, adminUser, "")
+	account.Users[regularUser] = &User{
+		Id:   regularUser,
+		Role: UserRoleUser,
+	}
+
+	// Create peers
+	for i := 0; i < peers; i++ {
+		peerKey, _ := wgtypes.GeneratePrivateKey()
+		peer := &nbpeer.Peer{
+			ID:       fmt.Sprintf("peer-%d", i),
+			DNSLabel: fmt.Sprintf("peer-%d", i),
+			Key:      peerKey.PublicKey().String(),
+			IP:       net.ParseIP(fmt.Sprintf("100.64.%d.%d", i/256, i%256)),
+			Status:   &nbpeer.PeerStatus{},
+			UserID:   regularUser,
+		}
+		account.Peers[peer.ID] = peer
+	}
+
+	// Create groups and policies
+	account.Policies = make([]*Policy, 0, groups)
+	for i := 0; i < groups; i++ {
+		groupID := fmt.Sprintf("group-%d", i)
+		group := &nbgroup.Group{
+			ID:   groupID,
+			Name: fmt.Sprintf("Group %d", i),
+		}
+		for j := 0; j < peers/groups; j++ {
+			peerIndex := i*(peers/groups) + j
+			group.Peers = append(group.Peers, fmt.Sprintf("peer-%d", peerIndex))
+		}
+		account.Groups[groupID] = group
+
+		// Create a policy for this group
+		policy := &Policy{
+			ID:      fmt.Sprintf("policy-%d", i),
+			Name:    fmt.Sprintf("Policy for Group %d", i),
+			Enabled: true,
+			Rules: []*PolicyRule{
+				{
+					ID:            fmt.Sprintf("rule-%d", i),
+					Name:          fmt.Sprintf("Rule for Group %d", i),
+					Enabled:       true,
+					Sources:       []string{groupID},
+					Destinations:  []string{groupID},
+					Bidirectional: true,
+					Protocol:      PolicyRuleProtocolALL,
+					Action:        PolicyTrafficActionAccept,
+				},
+			},
+		}
+		account.Policies = append(account.Policies, policy)
+	}
+
+	account.PostureChecks = []*posture.Checks{
+		{
+			ID:   "PostureChecksAll",
+			Name: "All",
+			Checks: posture.ChecksDefinition{
+				NBVersionCheck: &posture.NBVersionCheck{
+					MinVersion: "0.0.1",
+				},
+			},
+		},
+	}
+
+	err = manager.Store.SaveAccount(context.Background(), account)
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	return manager, accountID, regularUser, nil
+}
+
+func BenchmarkGetPeers(b *testing.B) {
+	benchCases := []struct {
+		name   string
+		peers  int
+		groups int
+	}{
+		{"Small", 50, 5},
+		{"Medium", 500, 10},
+		{"Large", 5000, 20},
+		{"Small single", 50, 1},
+		{"Medium single", 500, 1},
+		{"Large 5", 5000, 5},
+	}
+
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(os.Stderr)
+	for _, bc := range benchCases {
+		b.Run(bc.name, func(b *testing.B) {
+			manager, accountID, userID, err := setupTestAccountManager(b, bc.peers, bc.groups)
+			if err != nil {
+				b.Fatalf("Failed to setup test account manager: %v", err)
+			}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_, err := manager.GetPeers(context.Background(), accountID, userID)
+				if err != nil {
+					b.Fatalf("GetPeers failed: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkUpdateAccountPeers(b *testing.B) {
+	benchCases := []struct {
+		name   string
+		peers  int
+		groups int
+	}{
+		{"Small", 50, 5},
+		{"Medium", 500, 10},
+		{"Large", 5000, 20},
+		{"Small single", 50, 1},
+		{"Medium single", 500, 1},
+		{"Large 5", 5000, 5},
+	}
+
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(os.Stderr)
+
+	for _, bc := range benchCases {
+		b.Run(bc.name, func(b *testing.B) {
+			manager, accountID, _, err := setupTestAccountManager(b, bc.peers, bc.groups)
+			if err != nil {
+				b.Fatalf("Failed to setup test account manager: %v", err)
+			}
+
+			ctx := context.Background()
+
+			account, err := manager.Store.GetAccount(ctx, accountID)
+			if err != nil {
+				b.Fatalf("Failed to get account: %v", err)
+			}
+
+			peerChannels := make(map[string]chan *UpdateMessage)
+
+			for peerID := range account.Peers {
+				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+			}
+
+			manager.peersUpdateManager.peerChannels = peerChannels
+
+			b.ResetTimer()
+			start := time.Now()
+
+			for i := 0; i < b.N; i++ {
+				manager.updateAccountPeers(ctx, account)
+			}
+
+			duration := time.Since(start)
+			b.ReportMetric(float64(duration.Nanoseconds())/float64(b.N)/1e6, "ms/op")
+			b.ReportMetric(0, "ns/op")
+		})
+	}
 }
