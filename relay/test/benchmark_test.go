@@ -59,7 +59,7 @@ func TestTurnDataTransfer(t *testing.T) {
 
 	for _, peerPairs := range pairs {
 		t.Run(fmt.Sprintf("peerPairs-%d", peerPairs), func(t *testing.T) {
-			tunTurnTest(t, testData, peerPairs)
+			runTurnTest(t, testData, peerPairs)
 		})
 	}
 }
@@ -209,7 +209,8 @@ func transfer(t *testing.T, testData []byte, peerPairs int) {
 	}
 }
 
-func tunTurnTest(t *testing.T, testData []byte, maxPairs int) {
+func runTurnTest(t *testing.T, testData []byte, maxPairs int) {
+	t.Helper()
 	var transferDuration []time.Duration
 	var wg sync.WaitGroup
 
