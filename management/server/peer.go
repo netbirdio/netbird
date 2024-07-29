@@ -453,6 +453,17 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		Location:               peer.Location,
 	}
 
+	if am.geo != nil && newPeer.Location.ConnectionIP != nil {
+		location, err := am.geo.Lookup(newPeer.Location.ConnectionIP)
+		if err != nil {
+			log.WithContext(ctx).Warnf("failed to get location for new peer realip: [%s]: %v", newPeer.Location.ConnectionIP.String(), err)
+		} else {
+			newPeer.Location.CountryCode = location.Country.ISOCode
+			newPeer.Location.CityName = location.City.Names.En
+			newPeer.Location.GeoNameID = location.City.GeonameID
+		}
+	}
+
 	// add peer to 'All' group
 	group, err := account.GetGroupAll()
 	if err != nil {
@@ -535,7 +546,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	}
 
 	if peerLoginExpired(ctx, peer, account.Settings) {
-		return nil, nil, nil, status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
+		return nil, nil, nil, status.NewPeerLoginExpiredError()
 	}
 
 	peer, updated := updatePeerMeta(peer, sync.Meta, account)
@@ -586,21 +597,10 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 			// we couldn't find this peer by its public key which can mean that peer hasn't been registered yet.
 			// Try registering it.
 			newPeer := &nbpeer.Peer{
-				Key:    login.WireGuardPubKey,
-				Meta:   login.Meta,
-				SSHKey: login.SSHKey,
-			}
-			if am.geo != nil && login.ConnectionIP != nil {
-				location, err := am.geo.Lookup(login.ConnectionIP)
-				if err != nil {
-					log.WithContext(ctx).Warnf("failed to get location for new peer realip: [%s]: %v", login.ConnectionIP.String(), err)
-				} else {
-					newPeer.Location.ConnectionIP = login.ConnectionIP
-					newPeer.Location.CountryCode = location.Country.ISOCode
-					newPeer.Location.CityName = location.City.Names.En
-					newPeer.Location.GeoNameID = location.City.GeonameID
-
-				}
+				Key:      login.WireGuardPubKey,
+				Meta:     login.Meta,
+				SSHKey:   login.SSHKey,
+				Location: nbpeer.Location{ConnectionIP: login.ConnectionIP},
 			}
 
 			return am.AddPeer(ctx, login.SetupKey, login.UserID, newPeer)
@@ -610,44 +610,17 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 		return nil, nil, nil, status.Errorf(status.Internal, "failed while logging in peer")
 	}
 
-	peer, err := am.Store.GetPeerByPeerPubKey(ctx, login.WireGuardPubKey)
-	if err != nil {
-		return nil, nil, nil, status.NewPeerNotRegisteredError()
-	}
-
-	accSettings, err := am.Store.GetAccountSettings(ctx, accountID)
-	if err != nil {
-		return nil, nil, nil, status.Errorf(status.Internal, "failed to get account settings: %s", err)
-	}
-
-	var isWriteLock bool
-
-	// duplicated logic from after the lock to have an early exit
-	expired := peerLoginExpired(ctx, peer, accSettings)
-	switch {
-	case expired:
-		if err := checkAuth(ctx, login.UserID, peer); err != nil {
+	// when the client sends a login request with a JWT which is used to get the user ID,
+	// it means that the client has already checked if it needs login and had been through the SSO flow
+	// so, we can skip this check and directly proceed with the login
+	if login.UserID == "" {
+		err = am.checkIFPeerNeedsLoginWithoutLock(ctx, accountID, login)
+		if err != nil {
 			return nil, nil, nil, err
 		}
-		isWriteLock = true
-		log.WithContext(ctx).Debugf("peer login expired, acquiring write lock")
-
-	case peer.UpdateMetaIfNew(login.Meta):
-		isWriteLock = true
-		log.WithContext(ctx).Debugf("peer changed meta, acquiring write lock")
-
-	default:
-		isWriteLock = false
-		log.WithContext(ctx).Debugf("peer meta is the same, acquiring read lock")
 	}
 
-	var unlock func()
-
-	if isWriteLock {
-		unlock = am.Store.AcquireAccountWriteLock(ctx, accountID)
-	} else {
-		unlock = am.Store.AcquireAccountReadLock(ctx, accountID)
-	}
+	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
 	defer func() {
 		if unlock != nil {
 			unlock()
@@ -660,7 +633,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 		return nil, nil, nil, err
 	}
 
-	peer, err = account.FindPeerByPubKey(login.WireGuardPubKey)
+	peer, err := account.FindPeerByPubKey(login.WireGuardPubKey)
 	if err != nil {
 		return nil, nil, nil, status.NewPeerNotRegisteredError()
 	}
@@ -671,53 +644,39 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	}
 
 	// this flag prevents unnecessary calls to the persistent store.
-	shouldStoreAccount := false
+	shouldStorePeer := false
 	updateRemotePeers := false
 	if peerLoginExpired(ctx, peer, account.Settings) {
-		err = checkAuth(ctx, login.UserID, peer)
+		err = am.handleExpiredPeer(ctx, login, account, peer)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		// If peer was expired before and if it reached this point, it is re-authenticated.
-		// UserID is present, meaning that JWT validation passed successfully in the API layer.
-		updatePeerLastLogin(peer, account)
 		updateRemotePeers = true
-		shouldStoreAccount = true
-
-		// sync user last login with peer last login
-		user, err := account.FindUser(login.UserID)
-		if err != nil {
-			return nil, nil, nil, status.Errorf(status.Internal, "couldn't find user")
-		}
-		user.updateLastLogin(peer.LastLogin)
-
-		am.StoreEvent(ctx, login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
+		shouldStorePeer = true
 	}
 
 	isRequiresApproval, isStatusChanged, err := am.integratedPeerValidator.IsNotValidPeer(ctx, account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+
 	peer, updated := updatePeerMeta(peer, login.Meta, account)
 	if updated {
-		shouldStoreAccount = true
+		shouldStorePeer = true
 	}
 
-	peer, err = am.checkAndUpdatePeerSSHKey(ctx, peer, account, login.SSHKey)
-	if err != nil {
-		return nil, nil, nil, err
+	if peer.SSHKey != login.SSHKey {
+		peer.SSHKey = login.SSHKey
+		shouldStorePeer = true
 	}
 
-	if shouldStoreAccount {
-		if !isWriteLock {
-			log.WithContext(ctx).Errorf("account %s should be stored but is not write locked", accountID)
-			return nil, nil, nil, status.Errorf(status.Internal, "account should be stored but is not write locked")
-		}
-		err = am.Store.SaveAccount(ctx, account)
+	if shouldStorePeer {
+		err = am.Store.SavePeer(ctx, accountID, peer)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 	}
+
 	unlock()
 	unlock = nil
 
@@ -725,13 +684,46 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 		am.updateAccountPeers(ctx, account)
 	}
 
+	return am.getValidatedPeerWithMap(ctx, isRequiresApproval, account, peer)
+}
+
+// checkIFPeerNeedsLoginWithoutLock checks if the peer needs login without acquiring the account lock. The check validate if the peer was not added via SSO
+// and if the peer login is expired.
+// The NetBird client doesn't have a way to check if the peer needs login besides sending a login request
+// with no JWT token and usually no setup-key. As the client can send up to two login request to check if it is expired
+// and before starting the engine, we do the checks without an account lock to avoid piling up requests.
+func (am *DefaultAccountManager) checkIFPeerNeedsLoginWithoutLock(ctx context.Context, accountID string, login PeerLogin) error {
+	peer, err := am.Store.GetPeerByPeerPubKey(ctx, login.WireGuardPubKey)
+	if err != nil {
+		return err
+	}
+
+	// if the peer was not added with SSO login we can exit early because peers activated with setup-key
+	// doesn't expire, and we avoid extra databases calls.
+	if !peer.AddedWithSSOLogin() {
+		return nil
+	}
+
+	settings, err := am.Store.GetAccountSettings(ctx, accountID)
+	if err != nil {
+		return err
+	}
+
+	if peerLoginExpired(ctx, peer, settings) {
+		return status.NewPeerLoginExpiredError()
+	}
+
+	return nil
+}
+
+func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, account *Account, peer *nbpeer.Peer) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
 	var postureChecks []*posture.Checks
 
 	if isRequiresApproval {
 		emptyMap := &NetworkMap{
 			Network: account.Network.Copy(),
 		}
-		return peer, emptyMap, postureChecks, nil
+		return peer, emptyMap, nil, nil
 	}
 
 	approvedPeersMap, err := am.GetValidatedPeers(account)
@@ -741,6 +733,30 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	postureChecks = am.getPeerPostureChecks(account, peer)
 
 	return peer, account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, approvedPeersMap), postureChecks, nil
+}
+
+func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, login PeerLogin, account *Account, peer *nbpeer.Peer) error {
+	err := checkAuth(ctx, login.UserID, peer)
+	if err != nil {
+		return err
+	}
+	// If peer was expired before and if it reached this point, it is re-authenticated.
+	// UserID is present, meaning that JWT validation passed successfully in the API layer.
+	updatePeerLastLogin(peer, account)
+
+	// sync user last login with peer last login
+	user, err := account.FindUser(login.UserID)
+	if err != nil {
+		return status.Errorf(status.Internal, "couldn't find user")
+	}
+
+	err = am.Store.SaveUserLastLogin(account.Id, user.Id, peer.LastLogin)
+	if err != nil {
+		return err
+	}
+
+	am.StoreEvent(ctx, login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
+	return nil
 }
 
 func checkIfPeerOwnerIsBlocked(peer *nbpeer.Peer, account *Account) error {
@@ -759,11 +775,11 @@ func checkIfPeerOwnerIsBlocked(peer *nbpeer.Peer, account *Account) error {
 func checkAuth(ctx context.Context, loginUserID string, peer *nbpeer.Peer) error {
 	if loginUserID == "" {
 		// absence of a user ID indicates that JWT wasn't provided.
-		return status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
+		return status.NewPeerLoginExpiredError()
 	}
 	if peer.UserID != loginUserID {
 		log.WithContext(ctx).Warnf("user mismatch when logging in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, loginUserID)
-		return status.Errorf(status.Unauthenticated, "can't login")
+		return status.Errorf(status.Unauthenticated, "can't login with this credentials")
 	}
 	return nil
 }
@@ -781,31 +797,6 @@ func peerLoginExpired(ctx context.Context, peer *nbpeer.Peer, settings *Settings
 func updatePeerLastLogin(peer *nbpeer.Peer, account *Account) {
 	peer.UpdateLastLogin()
 	account.UpdatePeer(peer)
-}
-
-func (am *DefaultAccountManager) checkAndUpdatePeerSSHKey(ctx context.Context, peer *nbpeer.Peer, account *Account, newSSHKey string) (*nbpeer.Peer, error) {
-	if len(newSSHKey) == 0 {
-		log.WithContext(ctx).Debugf("no new SSH key provided for peer %s, skipping update", peer.ID)
-		return peer, nil
-	}
-
-	if peer.SSHKey == newSSHKey {
-		log.WithContext(ctx).Debugf("same SSH key provided for peer %s, skipping update", peer.ID)
-		return peer, nil
-	}
-
-	peer.SSHKey = newSSHKey
-	account.UpdatePeer(peer)
-
-	err := am.Store.SaveAccount(ctx, account)
-	if err != nil {
-		return nil, err
-	}
-
-	// trigger network map update
-	am.updateAccountPeers(ctx, account)
-
-	return peer, nil
 }
 
 // UpdatePeerSSHKey updates peer's public SSH key
