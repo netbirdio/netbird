@@ -105,7 +105,7 @@ func initRoutesTestData() *RoutesHandler {
 				}
 				return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 			},
-			CreateRouteFunc: func(_ context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups []string, enabled bool, _ string, keepRoute bool) (*route.Route, error) {
+			CreateRouteFunc: func(_ context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroups []string, enabled bool, _ string, keepRoute bool) (*route.Route, error) {
 				if peerID == notFoundPeerID {
 					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
 				}
@@ -113,18 +113,19 @@ func initRoutesTestData() *RoutesHandler {
 					return nil, status.Errorf(status.InvalidArgument, "peer groups with ID %s not found", peerGroups[0])
 				}
 				return &route.Route{
-					ID:          existingRouteID,
-					NetID:       netID,
-					Peer:        peerID,
-					PeerGroups:  peerGroups,
-					Network:     prefix,
-					Domains:     domains,
-					NetworkType: networkType,
-					Description: description,
-					Masquerade:  masquerade,
-					Enabled:     enabled,
-					Groups:      groups,
-					KeepRoute:   keepRoute,
+					ID:                  existingRouteID,
+					NetID:               netID,
+					Peer:                peerID,
+					PeerGroups:          peerGroups,
+					Network:             prefix,
+					Domains:             domains,
+					NetworkType:         networkType,
+					Description:         description,
+					Masquerade:          masquerade,
+					Enabled:             enabled,
+					Groups:              groups,
+					KeepRoute:           keepRoute,
+					AccessControlGroups: accessControlGroups,
 				}, nil
 			},
 			SaveRouteFunc: func(_ context.Context, _, _ string, r *route.Route) error {
@@ -254,6 +255,27 @@ func TestRoutesHandlers(t *testing.T) {
 				Masquerade:  false,
 				Enabled:     false,
 				Groups:      []string{existingGroupID},
+			},
+		},
+		{
+			name:        "POST OK With Access Control Groups",
+			requestType: http.MethodPost,
+			requestPath: "/api/routes",
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\",\"groups\":[\"%s\"],\"access_control_groups\":[\"%s\"]}", existingPeerID, existingGroupID, existingGroupID))),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedRoute: &api.Route{
+				Id:                  existingRouteID,
+				Description:         "Post",
+				NetworkId:           "awesomeNet",
+				Network:             toPtr("192.168.0.0/16"),
+				Peer:                &existingPeerID,
+				NetworkType:         route.IPv4NetworkString,
+				Masquerade:          false,
+				Enabled:             false,
+				Groups:              []string{existingGroupID},
+				AccessControlGroups: &[]string{existingGroupID},
 			},
 		},
 		{

@@ -1577,9 +1577,10 @@ func TestAccount_Copy(t *testing.T) {
 		},
 		Routes: map[route.ID]*route.Route{
 			"route1": {
-				ID:         "route1",
-				PeerGroups: []string{},
-				Groups:     []string{"group1"},
+				ID:                  "route1",
+				PeerGroups:          []string{},
+				Groups:              []string{"group1"},
+				AccessControlGroups: []string{},
 			},
 		},
 		NameServerGroups: map[string]*nbdns.NameServerGroup{

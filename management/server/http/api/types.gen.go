@@ -816,7 +816,10 @@ type PolicyRule struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// Ports Policy rule affected ports or it ranges list
+	// PortRanges Policy rule affected ports ranges list
+	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
+
+	// Ports Policy rule affected ports
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -852,7 +855,10 @@ type PolicyRuleMinimum struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// Ports Policy rule affected ports or it ranges list
+	// PortRanges Policy rule affected ports ranges list
+	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
+
+	// Ports Policy rule affected ports
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -888,7 +894,10 @@ type PolicyRuleUpdate struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// Ports Policy rule affected ports or it ranges list
+	// PortRanges Policy rule affected ports ranges list
+	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
+
+	// Ports Policy rule affected ports
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -971,6 +980,9 @@ type ProcessCheck struct {
 
 // Route defines model for Route.
 type Route struct {
+	// AccessControlGroups Access control group identifier associated with route.
+	AccessControlGroups *[]string `json:"access_control_groups,omitempty"`
+
 	// Description Route description
 	Description string `json:"description"`
 
@@ -1013,6 +1025,9 @@ type Route struct {
 
 // RouteRequest defines model for RouteRequest.
 type RouteRequest struct {
+	// AccessControlGroups Access control group identifier associated with route.
+	AccessControlGroups *[]string `json:"access_control_groups,omitempty"`
+
 	// Description Route description
 	Description string `json:"description"`
 
@@ -1045,6 +1060,15 @@ type RouteRequest struct {
 
 	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
 	PeerGroups *[]string `json:"peer_groups,omitempty"`
+}
+
+// RulePortRange Policy rule affected ports range
+type RulePortRange struct {
+	// End The ending port of the range
+	End int `json:"end"`
+
+	// Start The starting port of the range
+	Start int `json:"start"`
 }
 
 // SetupKey defines model for SetupKey.
