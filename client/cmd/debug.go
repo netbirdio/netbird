@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
 
@@ -63,12 +64,17 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Errorf("Failed to close connection: %v", err)
+		}
+	}()
 
 	client := proto.NewDaemonServiceClient(conn)
 	resp, err := client.DebugBundle(cmd.Context(), &proto.DebugBundleRequest{
-		Anonymize: anonymizeFlag,
-		Status:    getStatusOutput(cmd),
+		Anonymize:  anonymizeFlag,
+		Status:     getStatusOutput(cmd),
+		SystemInfo: debugSystemInfoFlag,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
@@ -84,7 +90,11 @@ func setLogLevel(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Errorf("Failed to close connection: %v", err)
+		}
+	}()
 
 	client := proto.NewDaemonServiceClient(conn)
 	level := server.ParseLogLevel(args[0])
@@ -113,7 +123,11 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Errorf("Failed to close connection: %v", err)
+		}
+	}()
 
 	client := proto.NewDaemonServiceClient(conn)
 
@@ -189,8 +203,9 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	cmd.Println("Creating debug bundle...")
 
 	resp, err := client.DebugBundle(cmd.Context(), &proto.DebugBundleRequest{
-		Anonymize: anonymizeFlag,
-		Status:    statusOutput,
+		Anonymize:  anonymizeFlag,
+		Status:     statusOutput,
+		SystemInfo: debugSystemInfoFlag,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())

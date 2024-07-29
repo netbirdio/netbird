@@ -27,7 +27,7 @@ This debug bundle contains the following files:
 
 status.anon.txt: Anonymized status information of the NetBird client.
 client.anon.log.txt: Most recent, anonymized log file of the NetBird client.
-routes.txt: Anonymized system routes.
+routes.txt: Anonymized system routes, if --system-info flag was provided.
 
 Anonymization Process
 The files in this bundle have been anonymized to protect sensitive information. Here's how the anonymization was applied:
@@ -88,8 +88,10 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	status := s.statusRecorder.GetFullStatus()
 	seedFromStatus(anonymizer, &status)
 
-	if err := s.addRoutes(req, anonymizer, archive); err != nil {
-		return nil, err
+	if req.GetSystemInfo() {
+		if err := s.addRoutes(req, anonymizer, archive); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := s.addLogfile(req, anonymizer, archive); err != nil {
