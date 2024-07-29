@@ -11,6 +11,14 @@ import (
 	"github.com/netbirdio/netbird/relay/server"
 )
 
+func TestEmptyURL(t *testing.T) {
+	mgr := NewManager(context.Background(), "", "alice")
+	err := mgr.Serve()
+	if err == nil {
+		t.Errorf("expected error, got nil")
+	}
+}
+
 func TestForeignConn(t *testing.T) {
 	ctx := context.Background()
 
