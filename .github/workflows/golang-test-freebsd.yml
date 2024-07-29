@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - name: Test in FreeBSD
@@ -21,6 +21,8 @@ jobs:
         uses: vmactions/freebsd-vm@v1
         with:
           usesh: true
+          sync: no
+          release: "14.1"
           prepare: |
             pkg install -y curl git go
 
