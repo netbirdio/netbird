@@ -705,7 +705,6 @@ func (d *Status) GetFullStatus() FullStatus {
 	}
 
 	fullStatus.Peers = append(fullStatus.Peers, d.offlinePeers...)
-
 	return fullStatus
 }
 

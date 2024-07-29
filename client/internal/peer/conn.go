@@ -188,18 +188,23 @@ func (conn *Conn) Open() {
 		conn.log.Warnf("error while updating the state err: %v", err)
 	}
 
+	go conn.startHandshakeAndReconnect()
+}
+
+func (conn *Conn) startHandshakeAndReconnect() {
 	conn.waitInitialRandomSleepTime()
 
-	err = conn.handshaker.sendOffer()
+	err := conn.handshaker.sendOffer()
 	if err != nil {
-		conn.log.Errorf("failed to send offer: %v", err)
+		conn.log.Errorf("failed to send initial offer: %v", err)
 	}
 
 	if conn.workerRelay.IsController() {
-		go conn.reconnectLoopWithRetry()
+		conn.reconnectLoopWithRetry()
 	} else {
-		go conn.reconnectLoopForOnDisconnectedEvent()
+		conn.reconnectLoopForOnDisconnectedEvent()
 	}
+
 }
 
 // Close closes this peer Conn issuing a close event to the Conn closeCh
