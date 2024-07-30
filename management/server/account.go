@@ -1858,6 +1858,8 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(ctx context.C
 }
 
 func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
+	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
+	defer peerUnlock()
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, peerPubKey)
 	if err != nil {
 		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
@@ -1866,8 +1868,8 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey
 		return nil, nil, nil, err
 	}
 
-	unlock := am.Store.AcquireReadLockByUID(ctx, accountID)
-	defer unlock()
+	accountUnlock := am.Store.AcquireReadLockByUID(ctx, accountID)
+	defer accountUnlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
@@ -1888,6 +1890,8 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey
 }
 
 func (am *DefaultAccountManager) CancelPeerRoutines(ctx context.Context, peer *nbpeer.Peer) error {
+	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peer.Key)
+	defer peerUnlock()
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, peer.Key)
 	if err != nil {
 		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
@@ -1896,8 +1900,8 @@ func (am *DefaultAccountManager) CancelPeerRoutines(ctx context.Context, peer *n
 		return err
 	}
 
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
+	accountUnlock := am.Store.AcquireReadLockByUID(ctx, accountID)
+	defer accountUnlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
