@@ -4,7 +4,9 @@ import (
 	"context"
 	"net/netip"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/dns"
@@ -319,4 +321,93 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 	}
 
 	return am.Store.GetAccount(context.Background(), account.Id)
+}
+
+func TestDNSAccountPeerUpdate(t *testing.T) {
+	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+
+	err := manager.SaveGroup(context.Background(), account.Id, userID, &group.Group{
+		ID:    "group-id",
+		Name:  "GroupA",
+		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+	})
+	assert.NoError(t, err)
+
+	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	t.Cleanup(func() {
+		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+	})
+
+	// Saving DNS settings with unused groups should not update account peers and not send peer update
+	t.Run("saving dns setting with unused groups", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &DNSSettings{
+			DisabledManagementGroups: []string{"group-id"},
+		})
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
+	_, err = manager.CreateNameServerGroup(
+		context.Background(), account.Id, "ns-group-1", "ns-group-1", []dns.NameServer{{
+			IP:     netip.MustParseAddr(peer1.IP.String()),
+			NSType: dns.UDPNameServerType,
+			Port:   dns.DefaultDNSPort,
+		}},
+		[]string{"group-id"},
+		true, []string{}, true, userID, false,
+	)
+	assert.NoError(t, err)
+
+	// Saving DNS settings with used groups should update account peers and send peer update
+	t.Run("saving dns setting with used groups", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &DNSSettings{
+			DisabledManagementGroups: []string{"group-id"},
+		})
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
+
+	// Re-saving unchanged DNS settings with used groups should update account peers and not send peer update
+	// since there is no change in the network map
+	t.Run("re-saving unchanged dns setting with used groups", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &DNSSettings{
+			DisabledManagementGroups: []string{"group-id"},
+		})
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
 }
