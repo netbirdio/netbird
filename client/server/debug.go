@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/netip"
 	"os"
 	"sort"
@@ -28,6 +29,7 @@ This debug bundle contains the following files:
 status.anon.txt: Anonymized status information of the NetBird client.
 client.anon.log.txt: Most recent, anonymized log file of the NetBird client.
 routes.txt: Anonymized system routes, if --system-info flag was provided.
+interfaces.txt: Anonymized network interface information, if --system-info flag was provided.
 
 Anonymization Process
 The files in this bundle have been anonymized to protect sensitive information. Here's how the anonymization was applied:
@@ -48,6 +50,15 @@ Reoccuring domain names are replaced with the same anonymized domain.
 
 Routes
 For anonymized routes, the IP addresses are replaced as described above. The prefix length remains unchanged. Note that for prefixes, the anonymized IP might not be a network address, but the prefix length is still correct.
+Network Interfaces
+The interfaces.txt file contains information about network interfaces, including:
+- Interface name
+- Interface index
+- MTU (Maximum Transmission Unit)
+- Flags
+- IP addresses associated with each interface
+
+The IP addresses in the interfaces file are anonymized using the same process as described above. Interface names, indexes, MTUs, and flags are not anonymized.
 `
 
 // DebugBundle creates a debug bundle and returns the location.
@@ -90,6 +101,10 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 
 	if req.GetSystemInfo() {
 		if err := s.addRoutes(req, anonymizer, archive); err != nil {
+			return nil, err
+		}
+
+		if err := s.addInterfaces(req, anonymizer, archive); err != nil {
 			return nil, err
 		}
 	}
@@ -143,6 +158,21 @@ func (s *Server) addRoutes(req *proto.DebugBundleRequest, anonymizer *anonymize.
 	return nil
 }
 
+func (s *Server) addInterfaces(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		log.Errorf("Failed to get interfaces: %v", err)
+		return fmt.Errorf("get interfaces: %w", err)
+	}
+
+	interfacesContent := formatInterfaces(interfaces, req.GetAnonymize(), anonymizer)
+	interfacesReader := strings.NewReader(interfacesContent)
+	if err := addFileToZip(archive, interfacesReader, "interfaces.txt"); err != nil {
+		return fmt.Errorf("add interfaces file to zip: %w", err)
+	}
+
+	return nil
+}
 func (s *Server) addLogfile(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) (err error) {
 	logFile, err := os.Open(s.logFile)
 	if err != nil {
@@ -317,4 +347,41 @@ func formatRoute(builder *strings.Builder, route netip.Prefix, anonymize bool, a
 	} else {
 		builder.WriteString(fmt.Sprintf("%s\n", route))
 	}
+}
+
+func formatInterfaces(interfaces []net.Interface, anonymize bool, anonymizer *anonymize.Anonymizer) string {
+	sort.Slice(interfaces, func(i, j int) bool {
+		return interfaces[i].Name < interfaces[j].Name
+	})
+
+	var builder strings.Builder
+	builder.WriteString("Network Interfaces:\n")
+
+	for _, iface := range interfaces {
+		builder.WriteString(fmt.Sprintf("\nInterface: %s\n", iface.Name))
+		builder.WriteString(fmt.Sprintf("  Index: %d\n", iface.Index))
+		builder.WriteString(fmt.Sprintf("  MTU: %d\n", iface.MTU))
+		builder.WriteString(fmt.Sprintf("  Flags: %v\n", iface.Flags))
+
+		addrs, err := iface.Addrs()
+		if err != nil {
+			builder.WriteString(fmt.Sprintf("  Addresses: Error retrieving addresses: %v\n", err))
+		} else {
+			builder.WriteString("  Addresses:\n")
+			for _, addr := range addrs {
+				prefix, err := netip.ParsePrefix(addr.String())
+				if err != nil {
+					builder.WriteString(fmt.Sprintf("    Error parsing address: %v\n", err))
+					continue
+				}
+				ip := prefix.Addr()
+				if anonymize {
+					ip = anonymizer.AnonymizeIP(ip)
+				}
+				builder.WriteString(fmt.Sprintf("    %s/%d\n", ip, prefix.Bits()))
+			}
+		}
+	}
+
+	return builder.String()
 }
