@@ -226,9 +226,9 @@ func TestPostureCheckAccountPeerUpdate(t *testing.T) {
 		}
 	})
 
-	// Re-saving unchanged posture check should trigger account peers update and not send peer update
-	//	// since there is no change in the network map
-	t.Run("re-saving unchanged posture check", func(t *testing.T) {
+	// Saving unchanged posture check should trigger account peers update and not send peer update
+	// since there is no change in the network map
+	t.Run("saving unchanged posture check", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)

@@ -381,9 +381,9 @@ func TestGroupAccountPeerUpdate(t *testing.T) {
 		}
 	})
 
-	// Re-saving unchanged group should trigger account peers update and not send peer update
+	// Saving an unchanged group should trigger account peers update and not send peer update
 	// since there is no change in the network map
-	t.Run("re-saving unchanged group", func(t *testing.T) {
+	t.Run("saving unchanged group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)

@@ -389,9 +389,9 @@ func TestDNSAccountPeerUpdate(t *testing.T) {
 		}
 	})
 
-	// Re-saving unchanged DNS settings with used groups should update account peers and not send peer update
+	// Saving unchanged DNS settings with used groups should update account peers and not send peer update
 	// since there is no change in the network map
-	t.Run("re-saving unchanged dns setting with used groups", func(t *testing.T) {
+	t.Run("saving unchanged dns setting with used groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)

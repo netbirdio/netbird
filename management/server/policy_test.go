@@ -901,9 +901,9 @@ func TestPolicyAccountPeerUpdate(t *testing.T) {
 		}
 	})
 
-	// Re-saving unchanged policy should trigger account peers update and not send peer update
+	// Saving unchanged policy should trigger account peers update and not send peer update
 	// since there is no change in the network map
-	t.Run("re-saving unchanged policy", func(t *testing.T) {
+	t.Run("saving unchanged policy", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
