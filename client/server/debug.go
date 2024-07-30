@@ -26,10 +26,12 @@ import (
 const readmeContent = `Netbird debug bundle
 This debug bundle contains the following files:
 
-status.anon.txt: Anonymized status information of the NetBird client.
-client.anon.log.txt: Most recent, anonymized log file of the NetBird client.
+status.txt: Anonymized status information of the NetBird client.
+client.log: Most recent, anonymized log file of the NetBird client.
 routes.txt: Anonymized system routes, if --system-info flag was provided.
 interfaces.txt: Anonymized network interface information, if --system-info flag was provided.
+config.txt: Anonymized configuration information of the NetBird client.
+
 
 Anonymization Process
 The files in this bundle have been anonymized to protect sensitive information. Here's how the anonymization was applied:
@@ -59,6 +61,15 @@ The interfaces.txt file contains information about network interfaces, including
 - IP addresses associated with each interface
 
 The IP addresses in the interfaces file are anonymized using the same process as described above. Interface names, indexes, MTUs, and flags are not anonymized.
+
+Configuration
+The config.txt file contains anonymized configuration information of the NetBird client. Sensitive information such as private keys and SSH keys are excluded. The following fields are anonymized:
+- ManagementURL
+- AdminURL
+- NATExternalIPs
+- CustomDNSAddress
+
+Other non-sensitive configuration options are included without anonymization.
 `
 
 // DebugBundle creates a debug bundle and returns the location.
@@ -99,6 +110,10 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	status := s.statusRecorder.GetFullStatus()
 	seedFromStatus(anonymizer, &status)
 
+	if err := s.addConfig(req, anonymizer, archive); err != nil {
+		return nil, err
+	}
+
 	if req.GetSystemInfo() {
 		if err := s.addRoutes(req, anonymizer, archive); err != nil {
 			return nil, err
@@ -132,15 +147,54 @@ func (s *Server) addReadme(req *proto.DebugBundleRequest, archive *zip.Writer) e
 
 func (s *Server) addStatus(req *proto.DebugBundleRequest, archive *zip.Writer) error {
 	if status := req.GetStatus(); status != "" {
-		filename := "status.txt"
-		if req.GetAnonymize() {
-			filename = "status.anon.txt"
-		}
 		statusReader := strings.NewReader(status)
-		if err := addFileToZip(archive, statusReader, filename); err != nil {
+		if err := addFileToZip(archive, statusReader, "status.txt"); err != nil {
 			return fmt.Errorf("add status file to zip: %w", err)
 		}
 	}
+	return nil
+}
+
+func (s *Server) addConfig(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
+	var configContent strings.Builder
+	configContent.WriteString("NetBird Client Configuration:\n\n")
+
+	// Add non-sensitive fields
+	configContent.WriteString(fmt.Sprintf("WgIface: %s\n", s.config.WgIface))
+	configContent.WriteString(fmt.Sprintf("WgPort: %d\n", s.config.WgPort))
+	if s.config.NetworkMonitor != nil {
+		configContent.WriteString(fmt.Sprintf("NetworkMonitor: %v\n", *s.config.NetworkMonitor))
+	}
+	configContent.WriteString(fmt.Sprintf("IFaceBlackList: %v\n", s.config.IFaceBlackList))
+	configContent.WriteString(fmt.Sprintf("DisableIPv6Discovery: %v\n", s.config.DisableIPv6Discovery))
+	configContent.WriteString(fmt.Sprintf("RosenpassEnabled: %v\n", s.config.RosenpassEnabled))
+	configContent.WriteString(fmt.Sprintf("RosenpassPermissive: %v\n", s.config.RosenpassPermissive))
+	if s.config.ServerSSHAllowed != nil {
+		configContent.WriteString(fmt.Sprintf("ServerSSHAllowed: %v\n", *s.config.ServerSSHAllowed))
+	}
+	configContent.WriteString(fmt.Sprintf("DisableAutoConnect: %v\n", s.config.DisableAutoConnect))
+	configContent.WriteString(fmt.Sprintf("DNSRouteInterval: %s\n", s.config.DNSRouteInterval))
+
+	// Anonymize and add potentially sensitive fields
+	if req.GetAnonymize() {
+		if s.config.ManagementURL != nil {
+			configContent.WriteString(fmt.Sprintf("ManagementURL: %s\n", anonymizer.AnonymizeURI(s.config.ManagementURL.String())))
+		}
+		if s.config.AdminURL != nil {
+			configContent.WriteString(fmt.Sprintf("AdminURL: %s\n", anonymizer.AnonymizeURI(s.config.AdminURL.String())))
+		}
+		configContent.WriteString(fmt.Sprintf("NATExternalIPs: %v\n", anonymizeNATExternalIPs(s.config.NATExternalIPs, anonymizer)))
+		if s.config.CustomDNSAddress != "" {
+			configContent.WriteString(fmt.Sprintf("CustomDNSAddress: %s\n", anonymizer.AnonymizeString(s.config.CustomDNSAddress)))
+		}
+	}
+
+	// Add config content to zip file
+	configReader := strings.NewReader(configContent.String())
+	if err := addFileToZip(archive, configReader, "config.txt"); err != nil {
+		return fmt.Errorf("add config file to zip: %w", err)
+	}
+
 	return nil
 }
 
@@ -184,11 +238,8 @@ func (s *Server) addLogfile(req *proto.DebugBundleRequest, anonymizer *anonymize
 		}
 	}()
 
-	filename := "client.log.txt"
 	var logReader io.Reader
 	if req.GetAnonymize() {
-		filename = "client.anon.log.txt"
-
 		var writer *io.PipeWriter
 		logReader, writer = io.Pipe()
 
@@ -196,7 +247,7 @@ func (s *Server) addLogfile(req *proto.DebugBundleRequest, anonymizer *anonymize
 	} else {
 		logReader = logFile
 	}
-	if err := addFileToZip(archive, logReader, filename); err != nil {
+	if err := addFileToZip(archive, logReader, "client.log"); err != nil {
 		return fmt.Errorf("add log file to zip: %w", err)
 	}
 
@@ -384,4 +435,31 @@ func formatInterfaces(interfaces []net.Interface, anonymize bool, anonymizer *an
 	}
 
 	return builder.String()
+}
+
+func anonymizeNATExternalIPs(ips []string, anonymizer *anonymize.Anonymizer) []string {
+	anonymizedIPs := make([]string, len(ips))
+	for i, ip := range ips {
+		parts := strings.SplitN(ip, "/", 2)
+
+		ip1, err := netip.ParseAddr(parts[0])
+		if err != nil {
+			anonymizedIPs[i] = ip
+			continue
+		}
+		ip1anon := anonymizer.AnonymizeIP(ip1)
+
+		if len(parts) == 2 {
+			ip2, err := netip.ParseAddr(parts[1])
+			if err != nil {
+				anonymizedIPs[i] = fmt.Sprintf("%s/%s", ip1anon, parts[1])
+			} else {
+				ip2anon := anonymizer.AnonymizeIP(ip2)
+				anonymizedIPs[i] = fmt.Sprintf("%s/%s", ip1anon, ip2anon)
+			}
+		} else {
+			anonymizedIPs[i] = ip1anon.String()
+		}
+	}
+	return anonymizedIPs
 }
