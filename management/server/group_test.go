@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
+	"github.com/stretchr/testify/assert"
 )
 
 const (
@@ -248,4 +250,193 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForIntegration)
 
 	return am.Store.GetAccount(context.Background(), account.Id)
+}
+
+func TestGroupAccountPeerUpdate(t *testing.T) {
+	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+
+	err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+		ID:    "groupA",
+		Name:  "GroupA",
+		Peers: []string{peer1.ID, peer2.ID},
+	})
+	assert.NoError(t, err)
+
+	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	t.Cleanup(func() {
+		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+	})
+
+	// Saving an unused group should not update account peers and not send peer update
+	t.Run("saving unused group", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+			ID:    "groupB",
+			Name:  "GroupB",
+			Peers: []string{peer1.ID, peer2.ID},
+		})
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
+	// adding peer to an unused group should not update account peers and not send peer update
+	t.Run("adding peer to unused group", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.GroupAddPeer(context.Background(), account.Id, "groupB", peer3.ID)
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
+	// removing peer to an unused group should not update account peers and not send peer update
+	t.Run("removing peer to unused group", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.GroupDeletePeer(context.Background(), account.Id, "groupB", peer3.ID)
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
+	// Deleting group should not update account peers and not send peer update
+	t.Run("deleting group", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.DeleteGroup(context.Background(), account.Id, userID, "groupB")
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
+	// adding a group to policy
+	err = manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
+		ID:      "policy",
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				Enabled:       true,
+				Sources:       []string{"groupA"},
+				Destinations:  []string{"groupA"},
+				Bidirectional: true,
+				Action:        PolicyTrafficActionAccept,
+			},
+		},
+	})
+	assert.NoError(t, err)
+
+	// Saving a used group in policy should update account peers and send peer update
+	t.Run("saving used group in policy", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+			ID:    "groupA",
+			Name:  "GroupA",
+			Peers: []string{peer1.ID, peer2.ID},
+		})
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
+
+	// Re-saving unchanged group should trigger account peers update and not send peer update
+	// since there is no change in the network map
+	t.Run("re-saving unchanged group", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+			ID:    "groupA",
+			Name:  "GroupA",
+			Peers: []string{peer1.ID, peer2.ID},
+		})
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
+	// adding peer to a used group should update account peers and send peer update
+	t.Run("adding peer to used group", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.GroupAddPeer(context.Background(), account.Id, "groupA", peer3.ID)
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
+
+	// removing peer to a used group should update account peers and send peer update
+	t.Run("removing peer to unused group", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.GroupDeletePeer(context.Background(), account.Id, "groupA", peer3.ID)
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
 }
