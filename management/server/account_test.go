@@ -2374,3 +2374,24 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *Account, *nbpee
 
 	return manager, account, peer1, peer2, peer3
 }
+
+func peerShouldNotReceiveUpdate(t *testing.T, updateMessage <-chan *UpdateMessage) {
+	t.Helper()
+	select {
+	case msg := <-updateMessage:
+		t.Errorf("Unexpected message received: %+v", msg)
+	case <-time.After(100 * time.Millisecond):
+		return
+	}
+}
+
+func peerShouldReceiveUpdate(t *testing.T, updateMessage <-chan *UpdateMessage) {
+	t.Helper()
+
+	select {
+	case <-updateMessage:
+		return
+	case <-time.After(100 * time.Millisecond):
+		t.Errorf("timed out waiting for update message")
+	}
+}
