@@ -321,8 +321,6 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 		}
 	}()
 
-	am.updateAccountPeers(ctx, account)
-
 	return newKey, nil
 }
 

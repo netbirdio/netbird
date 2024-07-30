@@ -90,7 +90,6 @@ type AccountManager interface {
 	DeletePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error
 	GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error)
 	GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error)
-	UpdatePeerSSHKey(ctx context.Context, peerID string, sshKey string) error
 	GetUsersFromAccount(ctx context.Context, accountID, userID string) ([]*UserInfo, error)
 	GetGroup(ctx context.Context, accountId, groupID, userID string) (*nbgroup.Group, error)
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*nbgroup.Group, error)
@@ -1723,13 +1722,18 @@ func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims
 							removeOldGroups := difference(oldGroups, user.AutoGroups)
 							account.UserGroupsAddToPeers(claims.UserId, addNewGroups...)
 							account.UserGroupsRemoveFromPeers(claims.UserId, removeOldGroups...)
+
 							account.Network.IncSerial()
 							if err := am.Store.SaveAccount(ctx, account); err != nil {
 								log.WithContext(ctx).Errorf("failed to save account: %v", err)
 							} else {
 								log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", claims.UserId)
-								am.updateAccountPeers(ctx, account)
+
+								if areGroupChangesAffectPeers(account, addNewGroups) || areGroupChangesAffectPeers(account, removeOldGroups) {
+									am.updateAccountPeers(ctx, account)
+								}
 								unlock()
+
 								alreadyUnlocked = true
 								for _, g := range addNewGroups {
 									if group := account.GetGroup(g); group != nil {

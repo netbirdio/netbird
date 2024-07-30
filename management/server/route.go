@@ -205,7 +205,9 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 		return nil, err
 	}
 
-	am.updateAccountPeers(ctx, account)
+	if isRouteChangeAffectPeers(&newRoute) {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	am.StoreEvent(ctx, userID, string(newRoute.ID), accountID, activity.RouteCreated, newRoute.EventMeta())
 
@@ -267,6 +269,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		return err
 	}
 
+	oldRoute := account.Routes[routeToSave.ID]
 	account.Routes[routeToSave.ID] = routeToSave
 
 	account.Network.IncSerial()
@@ -274,7 +277,9 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		return err
 	}
 
-	am.updateAccountPeers(ctx, account)
+	if isRouteChangeAffectPeers(oldRoute) || isRouteChangeAffectPeers(routeToSave) {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	am.StoreEvent(ctx, userID, string(routeToSave.ID), accountID, activity.RouteUpdated, routeToSave.EventMeta())
 
@@ -302,9 +307,11 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 		return err
 	}
 
-	am.StoreEvent(ctx, userID, string(routy.ID), accountID, activity.RouteRemoved, routy.EventMeta())
+	if isRouteChangeAffectPeers(routy) {
+		am.updateAccountPeers(ctx, account)
+	}
 
-	am.updateAccountPeers(ctx, account)
+	am.StoreEvent(ctx, userID, string(routy.ID), accountID, activity.RouteRemoved, routy.EventMeta())
 
 	return nil
 }
@@ -362,4 +369,10 @@ func toProtocolRoutes(routes []*route.Route) []*proto.Route {
 func getPlaceholderIP() netip.Prefix {
 	// Using an IP from the documentation range to minimize impact in case older clients try to set a route
 	return netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 0, 2, 0}), 32)
+}
+
+// isRouteChangeAffectPeers checks if the given route affects any peers.
+// A route affects peers if it has distribution groups, peer groups, or a routing peer.
+func isRouteChangeAffectPeers(route *route.Route) bool {
+	return len(route.Groups) != 0 || len(route.PeerGroups) != 0 || route.Peer != ""
 }

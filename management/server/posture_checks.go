@@ -73,15 +73,17 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	action := activity.PostureCheckCreated
 	if exists {
 		action = activity.PostureCheckUpdated
-		account.Network.IncSerial()
 	}
 
+	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
-	if exists {
+
+	updateAccountPeers, _ := isPostureCheckLinkedToPolicy(account, postureChecks.ID)
+	if exists && updateAccountPeers {
 		am.updateAccountPeers(ctx, account)
 	}
 
@@ -170,13 +172,9 @@ func (am *DefaultAccountManager) deletePostureChecks(account *Account, postureCh
 		return nil, status.Errorf(status.NotFound, "posture checks with ID %s doesn't exist", postureChecksID)
 	}
 
-	// check policy links
-	for _, policy := range account.Policies {
-		for _, id := range policy.SourcePostureChecks {
-			if id == postureChecksID {
-				return nil, status.Errorf(status.PreconditionFailed, "posture checks have been linked to policy: %s", policy.Name)
-			}
-		}
+	// Check if posture check is linked to any policy
+	if isLinked, linkedPolicy := isPostureCheckLinkedToPolicy(account, postureChecksID); isLinked {
+		return nil, status.Errorf(status.PreconditionFailed, "posture checks have been linked to policy: %s", linkedPolicy.Name)
 	}
 
 	postureChecks := account.PostureChecks[postureChecksIdx]
@@ -238,4 +236,13 @@ func addPolicyPostureChecks(account *Account, policy *Policy, peerPostureChecks 
 			}
 		}
 	}
+}
+
+func isPostureCheckLinkedToPolicy(account *Account, postureChecksID string) (bool, *Policy) {
+	for _, policy := range account.Policies {
+		if slices.Contains(policy.SourcePostureChecks, postureChecksID) {
+			return true, policy
+		}
+	}
+	return false, nil
 }
