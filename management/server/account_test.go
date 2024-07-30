@@ -1111,14 +1111,30 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
-
 	group := group.Group{
 		ID:    "group-id",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
 	}
+
+	policy := Policy{
+		ID:      "policy",
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				Enabled:       true,
+				Sources:       []string{"group-id"},
+				Destinations:  []string{"group-id"},
+				Bidirectional: true,
+				Action:        PolicyTrafficActionAccept,
+			},
+		},
+	}
+	err := manager.SavePolicy(context.Background(), account.Id, userID, &policy)
+	require.NoError(t, err)
+
+	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
