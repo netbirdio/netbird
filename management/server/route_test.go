@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
@@ -1456,4 +1457,92 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	}
 
 	return am.Store.GetAccount(context.Background(), account.Id)
+}
+
+func TestRouteAccountPeerUpdate(t *testing.T) {
+	manager, err := createRouterManager(t)
+	require.NoError(t, err, "failed to create account manager")
+
+	account, err := initTestRouteAccount(t, manager)
+	require.NoError(t, err, "failed to init testing account")
+
+	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1ID)
+	t.Cleanup(func() {
+		manager.peersUpdateManager.CloseChannel(context.Background(), peer1ID)
+	})
+
+	baseRoute := route.Route{
+		ID:          "testingRoute",
+		Network:     netip.MustParsePrefix("192.168.0.0/16"),
+		NetID:       "superNet",
+		NetworkType: route.IPv4Network,
+		Peer:        peer1ID,
+		Description: "super",
+		Masquerade:  false,
+		Metric:      9999,
+		Enabled:     true,
+		Groups:      []string{routeGroup1},
+	}
+
+	// Creating route should not update account peers and send peer update
+	t.Run("creating route", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		newRoute, err := manager.CreateRoute(
+			context.Background(), account.Id, baseRoute.Network, baseRoute.NetworkType, baseRoute.Domains, baseRoute.Peer,
+			baseRoute.PeerGroups, baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric,
+			baseRoute.Groups, true, userID, baseRoute.KeepRoute,
+		)
+		require.NoError(t, err)
+		baseRoute = *newRoute
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
+
+	// Updating the route should update account peers and send peer update
+	//t.Run("updating route", func(t *testing.T) {
+	//	baseRoute.Enabled = false
+	//
+	//	done := make(chan struct{})
+	//	go func() {
+	//		peerShouldReceiveUpdate(t, updMsg)
+	//		close(done)
+	//	}()
+	//
+	//	err := manager.SaveRoute(context.Background(), account.Id, userID, &baseRoute)
+	//	require.NoError(t, err)
+	//
+	//	select {
+	//	case <-done:
+	//	case <-time.After(200 * time.Millisecond):
+	//		t.Error("timeout waiting for peerShouldReceiveUpdate")
+	//	}
+	//})
+
+	// Deleting the route should update account peers and send peer update
+	t.Run("deleting route", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.DeleteRoute(context.Background(), account.Id, baseRoute.ID, userID)
+		require.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
+
 }
