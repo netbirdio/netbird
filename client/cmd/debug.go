@@ -14,6 +14,8 @@ import (
 	"github.com/netbirdio/netbird/client/server"
 )
 
+const errCloseConnection = "Failed to close connection: %v"
+
 var debugCmd = &cobra.Command{
 	Use:   "debug",
 	Short: "Debugging commands",
@@ -66,7 +68,7 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() {
 		if err := conn.Close(); err != nil {
-			log.Errorf("Failed to close connection: %v", err)
+			log.Errorf(errCloseConnection, err)
 		}
 	}()
 
@@ -92,7 +94,7 @@ func setLogLevel(cmd *cobra.Command, args []string) error {
 	}
 	defer func() {
 		if err := conn.Close(); err != nil {
-			log.Errorf("Failed to close connection: %v", err)
+			log.Errorf(errCloseConnection, err)
 		}
 	}()
 
@@ -125,7 +127,7 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	}
 	defer func() {
 		if err := conn.Close(); err != nil {
-			log.Errorf("Failed to close connection: %v", err)
+			log.Errorf(errCloseConnection, err)
 		}
 	}()
 
