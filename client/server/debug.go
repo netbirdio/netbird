@@ -97,13 +97,21 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 		}
 	}()
 
-	archive := zip.NewWriter(bundlePath)
-	if err := s.addReadme(req, archive); err != nil {
+	if err := s.createArchive(bundlePath, req); err != nil {
 		return nil, err
 	}
 
+	return &proto.DebugBundleResponse{Path: bundlePath.Name()}, nil
+}
+
+func (s *Server) createArchive(bundlePath *os.File, req *proto.DebugBundleRequest) error {
+	archive := zip.NewWriter(bundlePath)
+	if err := s.addReadme(req, archive); err != nil {
+		return fmt.Errorf("add readme: %w", err)
+	}
+
 	if err := s.addStatus(req, archive); err != nil {
-		return nil, err
+		return fmt.Errorf("add status: %w", err)
 	}
 
 	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
@@ -111,28 +119,27 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	seedFromStatus(anonymizer, &status)
 
 	if err := s.addConfig(req, anonymizer, archive); err != nil {
-		return nil, err
+		return fmt.Errorf("add config: %w", err)
 	}
 
 	if req.GetSystemInfo() {
 		if err := s.addRoutes(req, anonymizer, archive); err != nil {
-			return nil, err
+			return fmt.Errorf("add routes: %w", err)
 		}
 
 		if err := s.addInterfaces(req, anonymizer, archive); err != nil {
-			return nil, err
+			return fmt.Errorf("add interfaces: %w", err)
 		}
 	}
 
 	if err := s.addLogfile(req, anonymizer, archive); err != nil {
-		return nil, err
+		return fmt.Errorf("add log file: %w", err)
 	}
 
 	if err := archive.Close(); err != nil {
-		return nil, fmt.Errorf("close archive writer: %w", err)
+		return fmt.Errorf("close archive writer: %w", err)
 	}
-
-	return &proto.DebugBundleResponse{Path: bundlePath.Name()}, nil
+	return nil
 }
 
 func (s *Server) addReadme(req *proto.DebugBundleRequest, archive *zip.Writer) error {
@@ -215,7 +222,6 @@ func (s *Server) addRoutes(req *proto.DebugBundleRequest, anonymizer *anonymize.
 func (s *Server) addInterfaces(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
 	interfaces, err := net.Interfaces()
 	if err != nil {
-		log.Errorf("Failed to get interfaces: %v", err)
 		return fmt.Errorf("get interfaces: %w", err)
 	}
 
@@ -227,6 +233,7 @@ func (s *Server) addInterfaces(req *proto.DebugBundleRequest, anonymizer *anonym
 
 	return nil
 }
+
 func (s *Server) addLogfile(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) (err error) {
 	logFile, err := os.Open(s.logFile)
 	if err != nil {
