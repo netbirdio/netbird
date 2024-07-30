@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
@@ -322,4 +323,74 @@ func TestSetupKey_Copy(t *testing.T) {
 	assertKey(t, keyCopy, key.Name, key.Revoked, string(key.Type), key.UsedTimes, key.CreatedAt, key.ExpiresAt, key.Id,
 		key.UpdatedAt, key.AutoGroups)
 
+}
+
+func TestSetupKeyAccountPeerUpdate(t *testing.T) {
+	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+
+	err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+		ID:    "group-id",
+		Name:  "GroupA",
+		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+	})
+	assert.NoError(t, err)
+
+	policy := Policy{
+		ID:      "policy",
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				Enabled:       true,
+				Sources:       []string{"group-id"},
+				Destinations:  []string{"group-id"},
+				Bidirectional: true,
+				Action:        PolicyTrafficActionAccept,
+			},
+		},
+	}
+	err = manager.SavePolicy(context.Background(), account.Id, userID, &policy)
+	require.NoError(t, err)
+
+	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	t.Cleanup(func() {
+		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+	})
+
+	var setupKey *SetupKey
+	t.Run("creating setup key", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		setupKey, err = manager.CreateSetupKey(context.Background(), account.Id, "key1", SetupKeyReusable, time.Hour, nil, 999, userID, false)
+		if err != nil {
+			t.Fatal("error creating setup key")
+		}
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
+	// Saving setup key should not update account peers and not send peer update
+	t.Run("saving setup key", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		_, err = manager.SaveSetupKey(context.Background(), account.Id, setupKey, userID)
+		require.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
 }
