@@ -4,7 +4,9 @@ import (
 	"context"
 	"net/netip"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -928,5 +930,72 @@ func TestValidateDomain(t *testing.T) {
 			testCase.errFunc(t, validateDomain(testCase.domain))
 		})
 	}
+
+}
+
+func TestNameServerAccountPeerUpdate(t *testing.T) {
+	manager, account, peer1, _, _ := setupNetworkMapTest(t)
+
+	var newNameServerGroup *nbdns.NameServerGroup
+
+	err := manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
+		ID:    "group-id",
+		Name:  "GroupA",
+		Peers: []string{},
+	})
+	assert.NoError(t, err)
+
+	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	t.Cleanup(func() {
+		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+	})
+
+	// Creating a nameserver group with a distribution group no peers should not update account peers
+	// and not send peer update
+	t.Run("creating nameserver group with distribution group no peers", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldNotReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		newNameServerGroup, err = manager.CreateNameServerGroup(
+			context.Background(), account.Id, "ns-group-1", "ns-group-1", []nbdns.NameServer{{
+				IP:     netip.MustParseAddr(peer1.IP.String()),
+				NSType: nbdns.UDPNameServerType,
+				Port:   nbdns.DefaultDNSPort,
+			}},
+			[]string{"group-id"},
+			true, []string{}, true, userID, false,
+		)
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		}
+	})
+
+	err = manager.GroupAddPeer(context.Background(), account.Id, "group-id", peer1.ID)
+	assert.NoError(t, err)
+
+	// saving a nameserver group with a distribution group with peers should update account peers and send peer update
+	t.Run("saving nameserver group with distribution group has peers", func(t *testing.T) {
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err = manager.SaveNameServerGroup(context.Background(), account.Id, userID, newNameServerGroup)
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
 
 }
