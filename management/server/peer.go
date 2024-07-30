@@ -286,6 +286,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		return err
 	}
 
+	updateAccountPeers := isPeerInActiveGroup(account, peerID)
 	err = am.deletePeers(ctx, account, []string{peerID}, userID)
 	if err != nil {
 		return err
@@ -296,7 +297,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		return err
 	}
 
-	if isPeerInActiveGroup(account, peerID) {
+	if updateAccountPeers {
 		am.updateAccountPeers(ctx, account)
 	}
 
