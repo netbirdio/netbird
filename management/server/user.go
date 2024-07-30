@@ -518,7 +518,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account 
 	meta := map[string]any{"name": tuName, "email": tuEmail, "created_at": tuCreatedAt}
 	am.StoreEvent(ctx, initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
 
-	if userHasPeers && account.Settings.PeerLoginExpirationEnabled {
+	if userHasPeers && account.Settings.GroupsPropagationEnabled {
 		am.updateAccountPeers(ctx, account)
 	}
 
