@@ -921,18 +921,31 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 
 	approvedPeersMap, err := am.GetValidatedPeers(account)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed send out updates to peers, failed to validate peer: %v", err)
+		log.WithContext(ctx).Errorf("failed to send out updates to peers, failed to validate peer: %v", err)
 		return
 	}
+
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, 10)
+
 	for _, peer := range peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
 			continue
 		}
 
-		postureChecks := am.getPeerPostureChecks(account, peer)
-		remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, approvedPeersMap)
-		update := toSyncResponse(ctx, nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks)
-		am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update})
+		wg.Add(1)
+		semaphore <- struct{}{}
+		go func(p *nbpeer.Peer) {
+			defer wg.Done()
+			defer func() { <-semaphore }()
+
+			postureChecks := am.getPeerPostureChecks(account, p)
+			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, am.dnsDomain, approvedPeersMap)
+			update := toSyncResponse(ctx, nil, p, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks)
+			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update})
+		}(peer)
 	}
+
+	wg.Wait()
 }
