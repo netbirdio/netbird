@@ -40,7 +40,7 @@ const (
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
 type SqlStore struct {
 	db                *gorm.DB
-	accountLocks      sync.Map
+	resourceLocks     sync.Map
 	globalAccountLock sync.Mutex
 	metrics           telemetry.AppMetrics
 	installationPK    int
@@ -98,33 +98,35 @@ func (s *SqlStore) AcquireGlobalLock(ctx context.Context) (unlock func()) {
 	return unlock
 }
 
-func (s *SqlStore) AcquireAccountWriteLock(ctx context.Context, accountID string) (unlock func()) {
-	log.WithContext(ctx).Tracef("acquiring write lock for account %s", accountID)
+// AcquireWriteLockByUID acquires an ID lock for writing to a resource and returns a function that releases the lock
+func (s *SqlStore) AcquireWriteLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
+	log.WithContext(ctx).Tracef("acquiring write lock for ID %s", uniqueID)
 
 	start := time.Now()
-	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.RWMutex{})
+	value, _ := s.resourceLocks.LoadOrStore(uniqueID, &sync.RWMutex{})
 	mtx := value.(*sync.RWMutex)
 	mtx.Lock()
 
 	unlock = func() {
 		mtx.Unlock()
-		log.WithContext(ctx).Tracef("released write lock for account %s in %v", accountID, time.Since(start))
+		log.WithContext(ctx).Tracef("released write lock for ID %s in %v", uniqueID, time.Since(start))
 	}
 
 	return unlock
 }
 
-func (s *SqlStore) AcquireAccountReadLock(ctx context.Context, accountID string) (unlock func()) {
-	log.WithContext(ctx).Tracef("acquiring read lock for account %s", accountID)
+// AcquireReadLockByUID acquires an ID lock for writing to a resource and returns a function that releases the lock
+func (s *SqlStore) AcquireReadLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
+	log.WithContext(ctx).Tracef("acquiring read lock for ID %s", uniqueID)
 
 	start := time.Now()
-	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.RWMutex{})
+	value, _ := s.resourceLocks.LoadOrStore(uniqueID, &sync.RWMutex{})
 	mtx := value.(*sync.RWMutex)
 	mtx.RLock()
 
 	unlock = func() {
 		mtx.RUnlock()
-		log.WithContext(ctx).Tracef("released read lock for account %s in %v", accountID, time.Since(start))
+		log.WithContext(ctx).Tracef("released read lock for ID %s in %v", uniqueID, time.Since(start))
 	}
 
 	return unlock
