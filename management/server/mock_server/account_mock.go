@@ -112,7 +112,7 @@ func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey st
 	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
 }
 
-func (am *MockAccountManager) CancelPeerRoutines(_ context.Context, peer *nbpeer.Peer) error {
+func (am *MockAccountManager) CancelPeerRoutines(_ context.Context, peerPubKey string) error {
 	// TODO implement me
 	panic("implement me")
 }
