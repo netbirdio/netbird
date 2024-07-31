@@ -39,8 +39,8 @@ type FileStore struct {
 	mux       sync.Mutex `json:"-"`
 	storeFile string     `json:"-"`
 
-	// sync.Mutex indexed by accountID
-	accountLocks      sync.Map   `json:"-"`
+	// sync.Mutex indexed by resource ID
+	resourceLocks     sync.Map   `json:"-"`
 	globalAccountLock sync.Mutex `json:"-"`
 
 	metrics telemetry.AppMetrics `json:"-"`
@@ -285,7 +285,7 @@ func (s *FileStore) AcquireGlobalLock(ctx context.Context) (unlock func()) {
 func (s *FileStore) AcquireWriteLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
 	log.WithContext(ctx).Debugf("acquiring lock for ID %s", uniqueID)
 	start := time.Now()
-	value, _ := s.accountLocks.LoadOrStore(uniqueID, &sync.Mutex{})
+	value, _ := s.resourceLocks.LoadOrStore(uniqueID, &sync.Mutex{})
 	mtx := value.(*sync.Mutex)
 	mtx.Lock()
 

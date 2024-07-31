@@ -40,7 +40,7 @@ const (
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
 type SqlStore struct {
 	db                *gorm.DB
-	accountLocks      sync.Map
+	resourceLocks     sync.Map
 	globalAccountLock sync.Mutex
 	metrics           telemetry.AppMetrics
 	installationPK    int
@@ -103,7 +103,7 @@ func (s *SqlStore) AcquireWriteLockByUID(ctx context.Context, uniqueID string) (
 	log.WithContext(ctx).Tracef("acquiring write lock for ID %s", uniqueID)
 
 	start := time.Now()
-	value, _ := s.accountLocks.LoadOrStore(uniqueID, &sync.RWMutex{})
+	value, _ := s.resourceLocks.LoadOrStore(uniqueID, &sync.RWMutex{})
 	mtx := value.(*sync.RWMutex)
 	mtx.Lock()
 
@@ -120,7 +120,7 @@ func (s *SqlStore) AcquireReadLockByUID(ctx context.Context, uniqueID string) (u
 	log.WithContext(ctx).Tracef("acquiring read lock for ID %s", uniqueID)
 
 	start := time.Now()
-	value, _ := s.accountLocks.LoadOrStore(uniqueID, &sync.RWMutex{})
+	value, _ := s.resourceLocks.LoadOrStore(uniqueID, &sync.RWMutex{})
 	mtx := value.(*sync.RWMutex)
 	mtx.RLock()
 
