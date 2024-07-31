@@ -21,16 +21,6 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
-type SysInfo struct {
-	ChassisSerial string
-	ProductSerial string
-	BoardSerial   string
-
-	ProductName   string
-	BoardName     string
-	ProductVendor string
-}
-
 type SysInfoGetter interface {
 	GetSysInfo() SysInfo
 }
