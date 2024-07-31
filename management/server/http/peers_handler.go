@@ -194,9 +194,7 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		}
 		groupMinimumInfo := toGroupsInfo(account.Groups, peer.ID)
 
-		accessiblePeerNumbers, _ := h.accessiblePeersNumber(r.Context(), account, peer.ID)
-
-		respBody = append(respBody, toPeerListItemResponse(peerToReturn, groupMinimumInfo, dnsDomain, accessiblePeerNumbers))
+		respBody = append(respBody, toPeerListItemResponse(peerToReturn, groupMinimumInfo, dnsDomain, 0))
 	}
 
 	validPeersMap, err := h.accountManager.GetValidatedPeers(account)
@@ -208,16 +206,6 @@ func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	h.setApprovalRequiredFlag(respBody, validPeersMap)
 
 	util.WriteJSONObject(r.Context(), w, respBody)
-}
-
-func (h *PeersHandler) accessiblePeersNumber(ctx context.Context, account *server.Account, peerID string) (int, error) {
-	validatedPeersMap, err := h.accountManager.GetValidatedPeers(account)
-	if err != nil {
-		return 0, err
-	}
-
-	netMap := account.GetPeerNetworkMap(ctx, peerID, h.accountManager.GetDNSDomain(), validatedPeersMap, nil, nil)
-	return len(netMap.Peers) + len(netMap.OfflinePeers), nil
 }
 
 func (h *PeersHandler) setApprovalRequiredFlag(respBody []*api.PeerBatch, approvedPeersMap map[string]struct{}) {
