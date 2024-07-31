@@ -2,8 +2,11 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/netip"
 	"testing"
+
+	nbdns "github.com/netbirdio/netbird/dns"
 
 	"github.com/stretchr/testify/require"
 
@@ -319,4 +322,68 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 	}
 
 	return am.Store.GetAccount(context.Background(), account.Id)
+}
+
+func generateTestData(size int) nbdns.Config {
+	config := nbdns.Config{
+		ServiceEnable:    true,
+		CustomZones:      make([]nbdns.CustomZone, size),
+		NameServerGroups: make([]*nbdns.NameServerGroup, size),
+	}
+
+	for i := 0; i < size; i++ {
+		config.CustomZones[i] = nbdns.CustomZone{
+			Domain: fmt.Sprintf("domain%d.com", i),
+			Records: []nbdns.SimpleRecord{
+				{
+					Name:  fmt.Sprintf("record%d", i),
+					Type:  1,
+					Class: "IN",
+					TTL:   3600,
+					RData: "192.168.1.1",
+				},
+			},
+		}
+
+		config.NameServerGroups[i] = &nbdns.NameServerGroup{
+			ID:                   fmt.Sprintf("group%d", i),
+			Primary:              i == 0,
+			Domains:              []string{fmt.Sprintf("domain%d.com", i)},
+			SearchDomainsEnabled: true,
+			NameServers: []nbdns.NameServer{
+				{
+					IP:     netip.MustParseAddr("8.8.8.8"),
+					Port:   53,
+					NSType: 1,
+				},
+			},
+		}
+	}
+
+	return config
+}
+
+func BenchmarkToProtocolDNSConfig(b *testing.B) {
+	sizes := []int{10, 100, 1000}
+
+	for _, size := range sizes {
+		testData := generateTestData(size)
+
+		b.Run(fmt.Sprintf("WithCache-Size%d", size), func(b *testing.B) {
+			cache := &DNSConfigCache{}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				toProtocolDNSConfig(testData, cache)
+			}
+		})
+
+		b.Run(fmt.Sprintf("WithoutCache-Size%d", size), func(b *testing.B) {
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				cache := &DNSConfigCache{}
+				toProtocolDNSConfig(testData, cache)
+			}
+		})
+	}
 }

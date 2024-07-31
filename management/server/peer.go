@@ -929,6 +929,8 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 	semaphore := make(chan struct{}, 10)
 
 	zoneCache := &CustomZoneCache{}
+	dnsCache := &DNSConfigCache{}
+
 	for _, peer := range peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
@@ -943,7 +945,7 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 
 			postureChecks := am.getPeerPostureChecks(account, p)
 			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, am.dnsDomain, approvedPeersMap, zoneCache)
-			update := toSyncResponse(ctx, nil, p, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks)
+			update := toSyncResponse(ctx, nil, p, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache)
 			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update})
 		}(peer)
 	}

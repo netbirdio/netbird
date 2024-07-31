@@ -44,6 +44,50 @@ func (c *CustomZoneCache) Set(key string, value nbdns.CustomZone) {
 	c.cache.Store(key, value)
 }
 
+// DNSConfigCache is a thread-safe cache for DNS configuration components
+type DNSConfigCache struct {
+	CustomZones      sync.Map
+	NameServerGroups sync.Map
+}
+
+// GetCustomZone retrieves a cached custom zone
+func (c *DNSConfigCache) GetCustomZone(key string) (*proto.CustomZone, bool) {
+	if c == nil {
+		return nil, false
+	}
+	if value, ok := c.CustomZones.Load(key); ok {
+		return value.(*proto.CustomZone), true
+	}
+	return nil, false
+}
+
+// SetCustomZone stores a custom zone in the cache
+func (c *DNSConfigCache) SetCustomZone(key string, value *proto.CustomZone) {
+	if c == nil {
+		return
+	}
+	c.CustomZones.Store(key, value)
+}
+
+// GetNameServerGroup retrieves a cached name server group
+func (c *DNSConfigCache) GetNameServerGroup(key string) (*proto.NameServerGroup, bool) {
+	if c == nil {
+		return nil, false
+	}
+	if value, ok := c.NameServerGroups.Load(key); ok {
+		return value.(*proto.NameServerGroup), true
+	}
+	return nil, false
+}
+
+// SetNameServerGroup stores a name server group in the cache
+func (c *DNSConfigCache) SetNameServerGroup(key string, value *proto.NameServerGroup) {
+	if c == nil {
+		return
+	}
+	c.NameServerGroups.Store(key, value)
+}
+
 type lookupMap map[string]struct{}
 
 // DNSSettings defines dns settings at the account level
@@ -140,41 +184,73 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 	return nil
 }
 
-func toProtocolDNSConfig(update nbdns.Config) *proto.DNSConfig {
-	protoUpdate := &proto.DNSConfig{ServiceEnable: update.ServiceEnable}
+// toProtocolDNSConfig converts nbdns.Config to proto.DNSConfig using the cache
+func toProtocolDNSConfig(update nbdns.Config, cache *DNSConfigCache) *proto.DNSConfig {
+	protoUpdate := &proto.DNSConfig{
+		ServiceEnable:    update.ServiceEnable,
+		CustomZones:      make([]*proto.CustomZone, 0, len(update.CustomZones)),
+		NameServerGroups: make([]*proto.NameServerGroup, 0, len(update.NameServerGroups)),
+	}
 
 	for _, zone := range update.CustomZones {
-		protoZone := &proto.CustomZone{Domain: zone.Domain}
-		for _, record := range zone.Records {
-			protoZone.Records = append(protoZone.Records, &proto.SimpleRecord{
-				Name:  record.Name,
-				Type:  int64(record.Type),
-				Class: record.Class,
-				TTL:   int64(record.TTL),
-				RData: record.RData,
-			})
+		cacheKey := zone.Domain
+		if cachedZone, exists := cache.GetCustomZone(cacheKey); exists {
+			protoUpdate.CustomZones = append(protoUpdate.CustomZones, cachedZone)
+		} else {
+			protoZone := convertToProtoCustomZone(zone)
+			cache.SetCustomZone(cacheKey, protoZone)
+			protoUpdate.CustomZones = append(protoUpdate.CustomZones, protoZone)
 		}
-		protoUpdate.CustomZones = append(protoUpdate.CustomZones, protoZone)
 	}
 
 	for _, nsGroup := range update.NameServerGroups {
-		protoGroup := &proto.NameServerGroup{
-			Primary:              nsGroup.Primary,
-			Domains:              nsGroup.Domains,
-			SearchDomainsEnabled: nsGroup.SearchDomainsEnabled,
+		cacheKey := nsGroup.ID
+		if cachedGroup, exists := cache.GetNameServerGroup(cacheKey); exists {
+			protoUpdate.NameServerGroups = append(protoUpdate.NameServerGroups, cachedGroup)
+		} else {
+			protoGroup := convertToProtoNameServerGroup(nsGroup)
+			cache.SetNameServerGroup(cacheKey, protoGroup)
+			protoUpdate.NameServerGroups = append(protoUpdate.NameServerGroups, protoGroup)
 		}
-		for _, ns := range nsGroup.NameServers {
-			protoNS := &proto.NameServer{
-				IP:     ns.IP.String(),
-				Port:   int64(ns.Port),
-				NSType: int64(ns.NSType),
-			}
-			protoGroup.NameServers = append(protoGroup.NameServers, protoNS)
-		}
-		protoUpdate.NameServerGroups = append(protoUpdate.NameServerGroups, protoGroup)
 	}
 
 	return protoUpdate
+}
+
+// Helper function to convert nbdns.CustomZone to proto.CustomZone
+func convertToProtoCustomZone(zone nbdns.CustomZone) *proto.CustomZone {
+	protoZone := &proto.CustomZone{
+		Domain:  zone.Domain,
+		Records: make([]*proto.SimpleRecord, 0, len(zone.Records)),
+	}
+	for _, record := range zone.Records {
+		protoZone.Records = append(protoZone.Records, &proto.SimpleRecord{
+			Name:  record.Name,
+			Type:  int64(record.Type),
+			Class: record.Class,
+			TTL:   int64(record.TTL),
+			RData: record.RData,
+		})
+	}
+	return protoZone
+}
+
+// Helper function to convert nbdns.NameServerGroup to proto.NameServerGroup
+func convertToProtoNameServerGroup(nsGroup *nbdns.NameServerGroup) *proto.NameServerGroup {
+	protoGroup := &proto.NameServerGroup{
+		Primary:              nsGroup.Primary,
+		Domains:              nsGroup.Domains,
+		SearchDomainsEnabled: nsGroup.SearchDomainsEnabled,
+		NameServers:          make([]*proto.NameServer, 0, len(nsGroup.NameServers)),
+	}
+	for _, ns := range nsGroup.NameServers {
+		protoGroup.NameServers = append(protoGroup.NameServers, &proto.NameServer{
+			IP:     ns.IP.String(),
+			Port:   int64(ns.Port),
+			NSType: int64(ns.NSType),
+		})
+	}
+	return protoGroup
 }
 
 func getPeersCustomZone(ctx context.Context, account *Account, dnsDomain string) nbdns.CustomZone {
