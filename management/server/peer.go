@@ -316,7 +316,7 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 	if err != nil {
 		return nil, err
 	}
-	return account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, validatedPeers), nil
+	return account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, validatedPeers, nil), nil
 }
 
 // GetPeerNetwork returns the Network for a given peer
@@ -518,7 +518,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	postureChecks := am.getPeerPostureChecks(account, peer)
-	networkMap := account.GetPeerNetworkMap(ctx, newPeer.ID, am.dnsDomain, approvedPeersMap)
+	networkMap := account.GetPeerNetworkMap(ctx, newPeer.ID, am.dnsDomain, approvedPeersMap, nil)
 	return newPeer, networkMap, postureChecks, nil
 }
 
@@ -574,7 +574,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	}
 	postureChecks = am.getPeerPostureChecks(account, peer)
 
-	return peer, account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, validPeersMap), postureChecks, nil
+	return peer, account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, validPeersMap, nil), postureChecks, nil
 }
 
 // LoginPeer logs in or registers a peer.
@@ -740,7 +740,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	}
 	postureChecks = am.getPeerPostureChecks(account, peer)
 
-	return peer, account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, approvedPeersMap), postureChecks, nil
+	return peer, account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, approvedPeersMap, nil), postureChecks, nil
 }
 
 func checkIfPeerOwnerIsBlocked(peer *nbpeer.Peer, account *Account) error {
@@ -928,6 +928,7 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, 10)
 
+	zoneCache := &CustomZoneCache{}
 	for _, peer := range peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
@@ -941,7 +942,7 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 			defer func() { <-semaphore }()
 
 			postureChecks := am.getPeerPostureChecks(account, p)
-			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, am.dnsDomain, approvedPeersMap)
+			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, am.dnsDomain, approvedPeersMap, zoneCache)
 			update := toSyncResponse(ctx, nil, p, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks)
 			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update})
 		}(peer)

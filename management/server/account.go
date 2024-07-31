@@ -401,8 +401,8 @@ func (a *Account) GetGroup(groupID string) *nbgroup.Group {
 	return a.Groups[groupID]
 }
 
-// GetPeerNetworkMap returns a group by ID if exists, nil otherwise
-func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain string, validatedPeersMap map[string]struct{}) *NetworkMap {
+// GetPeerNetworkMap returns the networkmap for the given peer ID. Pass the zone cache if this is run multiple times
+func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain string, validatedPeersMap map[string]struct{}, zoneCache *CustomZoneCache) *NetworkMap {
 	peer := a.Peers[peerID]
 	if peer == nil {
 		return &NetworkMap{
@@ -438,7 +438,15 @@ func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain strin
 
 	if dnsManagementStatus {
 		var zones []nbdns.CustomZone
-		peersCustomZone := getPeersCustomZone(ctx, a, dnsDomain)
+
+		var peersCustomZone nbdns.CustomZone
+		if zone, ok := zoneCache.Get(a.Id); ok {
+			peersCustomZone = zone
+		} else {
+			peersCustomZone = getPeersCustomZone(ctx, a, dnsDomain)
+			zoneCache.Set(a.Id, peersCustomZone)
+		}
+
 		if peersCustomZone.Domain != "" {
 			zones = append(zones, peersCustomZone)
 		}

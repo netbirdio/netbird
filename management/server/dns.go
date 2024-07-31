@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
+	"sync"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 
@@ -16,6 +19,30 @@ import (
 )
 
 const defaultTTL = 300
+
+// CustomZoneCache is a thread-safe cache for custom DNS zones
+type CustomZoneCache struct {
+	cache sync.Map
+}
+
+// Get retrieves a cached custom zone
+func (c *CustomZoneCache) Get(key string) (nbdns.CustomZone, bool) {
+	if c == nil {
+		return nbdns.CustomZone{}, false
+	}
+	if value, ok := c.cache.Load(key); ok {
+		return value.(nbdns.CustomZone), true
+	}
+	return nbdns.CustomZone{}, false
+}
+
+// Set stores a custom zone in the cache
+func (c *CustomZoneCache) Set(key string, value nbdns.CustomZone) {
+	if c == nil {
+		return
+	}
+	c.cache.Store(key, value)
+}
 
 type lookupMap map[string]struct{}
 
@@ -151,29 +178,47 @@ func toProtocolDNSConfig(update nbdns.Config) *proto.DNSConfig {
 }
 
 func getPeersCustomZone(ctx context.Context, account *Account, dnsDomain string) nbdns.CustomZone {
+	var merr *multierror.Error
+
 	if dnsDomain == "" {
-		log.WithContext(ctx).Errorf("no dns domain is set, returning empty zone")
+		log.WithContext(ctx).Error("no dns domain is set, returning empty zone")
 		return nbdns.CustomZone{}
 	}
 
 	customZone := nbdns.CustomZone{
-		Domain: dns.Fqdn(dnsDomain),
+		Domain:  dns.Fqdn(dnsDomain),
+		Records: make([]nbdns.SimpleRecord, 0, len(account.Peers)),
 	}
 
+	domainSuffix := "." + dnsDomain
+
+	var sb strings.Builder
 	for _, peer := range account.Peers {
 		if peer.DNSLabel == "" {
-			log.WithContext(ctx).Errorf("found a peer with empty dns label. It was probably caused by a invalid character in its name. Peer Name: %s", peer.Name)
+			merr = multierror.Append(merr, fmt.Errorf("peer %s has an empty DNS label", peer.Name))
 			continue
 		}
 
+		sb.Grow(len(peer.DNSLabel) + len(domainSuffix))
+		sb.WriteString(peer.DNSLabel)
+		sb.WriteString(domainSuffix)
+
 		customZone.Records = append(customZone.Records, nbdns.SimpleRecord{
-			Name:  dns.Fqdn(peer.DNSLabel + "." + dnsDomain),
+			Name:  sb.String(),
 			Type:  int(dns.TypeA),
 			Class: nbdns.DefaultClass,
 			TTL:   defaultTTL,
 			RData: peer.IP.String(),
 		})
+
+		sb.Reset()
 	}
+
+	go func() {
+		if merr != nil {
+			log.WithContext(ctx).Errorf("error generating custom zone for account %s: %v", account.Id, merr)
+		}
+	}()
 
 	return customZone
 }
