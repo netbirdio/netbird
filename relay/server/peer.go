@@ -12,6 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	"github.com/netbirdio/netbird/relay/messages"
+	"github.com/netbirdio/netbird/relay/metrics"
 )
 
 const (
@@ -20,23 +21,25 @@ const (
 
 // Peer represents a peer connection
 type Peer struct {
-	log    *log.Entry
-	idS    string
-	idB    []byte
-	conn   net.Conn
-	connMu sync.RWMutex
-	store  *Store
+	metrics *metrics.Metrics
+	log     *log.Entry
+	idS     string
+	idB     []byte
+	conn    net.Conn
+	connMu  sync.RWMutex
+	store   *Store
 }
 
 // NewPeer creates a new Peer instance and prepare custom logging
-func NewPeer(id []byte, conn net.Conn, store *Store) *Peer {
+func NewPeer(metrics *metrics.Metrics, id []byte, conn net.Conn, store *Store) *Peer {
 	stringID := messages.HashIDToString(id)
 	return &Peer{
-		log:   log.WithField("peer_id", stringID),
-		idS:   stringID,
-		idB:   id,
-		conn:  conn,
-		store: store,
+		metrics: metrics,
+		log:     log.WithField("peer_id", stringID),
+		idS:     stringID,
+		idB:     id,
+		conn:    conn,
+		store:   store,
 	}
 }
 
@@ -70,6 +73,7 @@ func (p *Peer) Work() {
 		case messages.MsgTypeHealthCheck:
 			hc.OnHCResponse()
 		case messages.MsgTypeTransport:
+			p.metrics.TransferBytesRecv.Add(ctx, int64(n))
 			p.handleTransportMsg(msg)
 		case messages.MsgTypeClose:
 			p.log.Infof("peer exited gracefully")
@@ -167,8 +171,10 @@ func (p *Peer) handleTransportMsg(msg []byte) {
 		p.log.Errorf("failed to update transport message: %s", err)
 		return
 	}
-	_, err = dp.Write(msg)
+	n, err := dp.Write(msg)
 	if err != nil {
 		p.log.Errorf("failed to write transport message to: %s", dp.String())
+		return
 	}
+	p.metrics.TransferBytesSent.Add(context.Background(), int64(n))
 }

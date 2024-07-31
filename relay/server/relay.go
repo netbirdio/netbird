@@ -85,7 +85,7 @@ func (r *Relay) Accept(conn net.Conn) {
 		return
 	}
 
-	peer := NewPeer(peerID, conn, r.store)
+	peer := NewPeer(r.metrics, peerID, conn, r.store)
 	peer.log.Infof("peer connected from: %s", conn.RemoteAddr())
 	r.store.AddPeer(peer)
 	r.metrics.Peers.Add(context.Background(), 1)
