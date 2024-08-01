@@ -74,6 +74,7 @@ func (p *Peer) Work() {
 			hc.OnHCResponse()
 		case messages.MsgTypeTransport:
 			p.metrics.TransferBytesRecv.Add(ctx, int64(n))
+			p.metrics.PeerActivity(p.String())
 			p.handleTransportMsg(msg)
 		case messages.MsgTypeClose:
 			p.log.Infof("peer exited gracefully")
