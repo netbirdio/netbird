@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/xid"
@@ -81,7 +82,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 
 	// fetch all the peers that have access to the user's peers
 	for _, peer := range peers {
-		aclPeers, _ := account.getPeerConnectionResources(ctx, peer.ID, approvedPeersMap)
+		aclPeers, _ := account.getPeerConnectionResources(ctx, peer.ID, approvedPeersMap, nil)
 		for _, p := range aclPeers {
 			peersMap[p.ID] = p
 		}
@@ -316,7 +317,7 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 	if err != nil {
 		return nil, err
 	}
-	return account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, validatedPeers, nil), nil
+	return account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, validatedPeers, nil, nil), nil
 }
 
 // GetPeerNetwork returns the Network for a given peer
@@ -518,7 +519,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	postureChecks := am.getPeerPostureChecks(account, peer)
-	networkMap := account.GetPeerNetworkMap(ctx, newPeer.ID, am.dnsDomain, approvedPeersMap, nil)
+	networkMap := account.GetPeerNetworkMap(ctx, newPeer.ID, am.dnsDomain, approvedPeersMap, nil, nil)
 	return newPeer, networkMap, postureChecks, nil
 }
 
@@ -574,7 +575,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	}
 	postureChecks = am.getPeerPostureChecks(account, peer)
 
-	return peer, account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, validPeersMap, nil), postureChecks, nil
+	return peer, account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, validPeersMap, nil, nil), postureChecks, nil
 }
 
 // LoginPeer logs in or registers a peer.
@@ -740,7 +741,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	}
 	postureChecks = am.getPeerPostureChecks(account, peer)
 
-	return peer, account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, approvedPeersMap, nil), postureChecks, nil
+	return peer, account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, approvedPeersMap, nil, nil), postureChecks, nil
 }
 
 func checkIfPeerOwnerIsBlocked(peer *nbpeer.Peer, account *Account) error {
@@ -895,7 +896,7 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 	}
 
 	for _, p := range userPeers {
-		aclPeers, _ := account.getPeerConnectionResources(ctx, p.ID, approvedPeersMap)
+		aclPeers, _ := account.getPeerConnectionResources(ctx, p.ID, approvedPeersMap, nil)
 		for _, aclPeer := range aclPeers {
 			if aclPeer.ID == peerID {
 				return peer, nil
@@ -930,6 +931,7 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 
 	zoneCache := &CustomZoneCache{}
 	dnsCache := &DNSConfigCache{}
+	peerGroupCache := &PeerGroupCache{}
 
 	for _, peer := range peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
@@ -944,7 +946,7 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 			defer func() { <-semaphore }()
 
 			postureChecks := am.getPeerPostureChecks(account, p)
-			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, am.dnsDomain, approvedPeersMap, zoneCache)
+			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, am.dnsDomain, approvedPeersMap, zoneCache, peerGroupCache)
 			update := toSyncResponse(ctx, nil, p, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache)
 			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update})
 		}(peer)

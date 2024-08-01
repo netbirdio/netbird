@@ -402,7 +402,7 @@ func (a *Account) GetGroup(groupID string) *nbgroup.Group {
 }
 
 // GetPeerNetworkMap returns the networkmap for the given peer ID. Pass the zone cache if this is run multiple times
-func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain string, validatedPeersMap map[string]struct{}, zoneCache *CustomZoneCache) *NetworkMap {
+func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain string, validatedPeersMap map[string]struct{}, zoneCache *CustomZoneCache, peerGroupCache *PeerGroupCache) *NetworkMap {
 	peer := a.Peers[peerID]
 	if peer == nil {
 		return &NetworkMap{
@@ -416,7 +416,7 @@ func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain strin
 		}
 	}
 
-	aclPeers, firewallRules := a.getPeerConnectionResources(ctx, peerID, validatedPeersMap)
+	aclPeers, firewallRules := a.getPeerConnectionResources(ctx, peerID, validatedPeersMap, peerGroupCache)
 	// exclude expired peers
 	var peersToConnect []*nbpeer.Peer
 	var expiredPeers []*nbpeer.Peer

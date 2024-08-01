@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"strconv"
 	"strings"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 
@@ -15,6 +16,30 @@ import (
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 )
+
+// PeerGroupCache is a thread-safe cache for storing mappings of groups to peers
+type PeerGroupCache struct {
+	cache sync.Map
+}
+
+// Get retrieves a cached peer group
+func (pgc *PeerGroupCache) Get(groupID string) (map[string]*nbpeer.Peer, bool) {
+	if pgc == nil {
+		return nil, false
+	}
+	if value, ok := pgc.cache.Load(groupID); ok {
+		return value.(map[string]*nbpeer.Peer), true
+	}
+	return nil, false
+}
+
+// Set stores a peer group in the cache
+func (pgc *PeerGroupCache) Set(groupID string, peers map[string]*nbpeer.Peer) {
+	if pgc == nil {
+		return
+	}
+	pgc.cache.Store(groupID, peers)
+}
 
 // PolicyUpdateOperationType operation type
 type PolicyUpdateOperationType int
@@ -212,7 +237,7 @@ type FirewallRule struct {
 // getPeerConnectionResources for a given peer
 //
 // This function returns the list of peers and firewall rules that are applicable to a given peer.
-func (a *Account) getPeerConnectionResources(ctx context.Context, peerID string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, []*FirewallRule) {
+func (a *Account) getPeerConnectionResources(ctx context.Context, peerID string, validatedPeersMap map[string]struct{}, cache *PeerGroupCache) ([]*nbpeer.Peer, []*FirewallRule) {
 	peerMap := make(map[string]*nbpeer.Peer)
 	ruleMap := make(map[string]*FirewallRule)
 
@@ -226,8 +251,8 @@ func (a *Account) getPeerConnectionResources(ctx context.Context, peerID string,
 				continue
 			}
 
-			sourcePeers, peerInSources := a.getPeersFromGroups(rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
-			destPeers, peerInDest := a.getPeersFromGroups(rule.Destinations, peerID, nil, validatedPeersMap)
+			sourcePeers, peerInSources := a.getPeersFromGroups(rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap, cache)
+			destPeers, peerInDest := a.getPeersFromGroups(rule.Destinations, peerID, nil, validatedPeersMap, cache)
 
 			if rule.Bidirectional {
 				a.processRule(rule, sourcePeers, destPeers, peerInSources, peerInDest, peerMap, ruleMap)
@@ -255,33 +280,40 @@ func (a *Account) getPeerConnectionResources(ctx context.Context, peerID string,
 	return peers, rules
 }
 
-func (a *Account) getPeersFromGroups(groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) (map[string]*nbpeer.Peer, bool) {
+func (a *Account) getPeersFromGroups(groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}, cache *PeerGroupCache) (map[string]*nbpeer.Peer, bool) {
 	peerInGroups := false
 	filteredPeers := make(map[string]*nbpeer.Peer)
 
 	for _, g := range groups {
-		group, ok := a.Groups[g]
+		groupPeers, ok := cache.Get(g)
 		if !ok {
-			continue
+			group, exists := a.Groups[g]
+			if !exists {
+				continue
+			}
+			groupPeers = make(map[string]*nbpeer.Peer)
+			for _, p := range group.Peers {
+				peer, exists := a.Peers[p]
+				if !exists || peer == nil {
+					continue
+				}
+				groupPeers[peer.ID] = peer
+			}
+			cache.Set(g, groupPeers)
 		}
 
-		for _, p := range group.Peers {
-			peer, ok := a.Peers[p]
-			if !ok || peer == nil {
+		for pID, peer := range groupPeers {
+			if _, ok := validatedPeersMap[pID]; !ok {
 				continue
 			}
 
-			if _, ok := validatedPeersMap[peer.ID]; !ok {
-				continue
-			}
-
-			if peer.ID == peerID {
+			if pID == peerID {
 				peerInGroups = true
 				continue
 			}
 
-			if a.validatePostureChecksOnPeer(sourcePostureChecksIDs, peer.ID) {
-				filteredPeers[peer.ID] = peer
+			if a.validatePostureChecksOnPeer(sourcePostureChecksIDs, pID) {
+				filteredPeers[pID] = peer
 			}
 		}
 	}

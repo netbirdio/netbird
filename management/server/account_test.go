@@ -410,7 +410,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 			validatedPeers[p] = struct{}{}
 		}
 
-		networkMap := account.GetPeerNetworkMap(context.Background(), testCase.peerID, "netbird.io", validatedPeers, nil)
+		networkMap := account.GetPeerNetworkMap(context.Background(), testCase.peerID, "netbird.io", validatedPeers, nil, nil)
 		assert.Len(t, networkMap.Peers, len(testCase.expectedPeers))
 		assert.Len(t, networkMap.OfflinePeers, len(testCase.expectedOfflinePeers))
 	}
