@@ -164,23 +164,7 @@ func (s *Server) addStatus(req *proto.DebugBundleRequest, archive *zip.Writer) e
 
 func (s *Server) addConfig(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
 	var configContent strings.Builder
-	configContent.WriteString("NetBird Client Configuration:\n\n")
-
-	// Add non-sensitive fields
-	configContent.WriteString(fmt.Sprintf("WgIface: %s\n", s.config.WgIface))
-	configContent.WriteString(fmt.Sprintf("WgPort: %d\n", s.config.WgPort))
-	if s.config.NetworkMonitor != nil {
-		configContent.WriteString(fmt.Sprintf("NetworkMonitor: %v\n", *s.config.NetworkMonitor))
-	}
-	configContent.WriteString(fmt.Sprintf("IFaceBlackList: %v\n", s.config.IFaceBlackList))
-	configContent.WriteString(fmt.Sprintf("DisableIPv6Discovery: %v\n", s.config.DisableIPv6Discovery))
-	configContent.WriteString(fmt.Sprintf("RosenpassEnabled: %v\n", s.config.RosenpassEnabled))
-	configContent.WriteString(fmt.Sprintf("RosenpassPermissive: %v\n", s.config.RosenpassPermissive))
-	if s.config.ServerSSHAllowed != nil {
-		configContent.WriteString(fmt.Sprintf("ServerSSHAllowed: %v\n", *s.config.ServerSSHAllowed))
-	}
-	configContent.WriteString(fmt.Sprintf("DisableAutoConnect: %v\n", s.config.DisableAutoConnect))
-	configContent.WriteString(fmt.Sprintf("DNSRouteInterval: %s\n", s.config.DNSRouteInterval))
+	s.addCommonConfigFields(&configContent)
 
 	if req.GetAnonymize() {
 		if s.config.ManagementURL != nil {
@@ -213,6 +197,26 @@ func (s *Server) addConfig(req *proto.DebugBundleRequest, anonymizer *anonymize.
 	}
 
 	return nil
+}
+
+func (s *Server) addCommonConfigFields(configContent *strings.Builder) {
+	configContent.WriteString("NetBird Client Configuration:\n\n")
+
+	// Add non-sensitive fields
+	configContent.WriteString(fmt.Sprintf("WgIface: %s\n", s.config.WgIface))
+	configContent.WriteString(fmt.Sprintf("WgPort: %d\n", s.config.WgPort))
+	if s.config.NetworkMonitor != nil {
+		configContent.WriteString(fmt.Sprintf("NetworkMonitor: %v\n", *s.config.NetworkMonitor))
+	}
+	configContent.WriteString(fmt.Sprintf("IFaceBlackList: %v\n", s.config.IFaceBlackList))
+	configContent.WriteString(fmt.Sprintf("DisableIPv6Discovery: %v\n", s.config.DisableIPv6Discovery))
+	configContent.WriteString(fmt.Sprintf("RosenpassEnabled: %v\n", s.config.RosenpassEnabled))
+	configContent.WriteString(fmt.Sprintf("RosenpassPermissive: %v\n", s.config.RosenpassPermissive))
+	if s.config.ServerSSHAllowed != nil {
+		configContent.WriteString(fmt.Sprintf("ServerSSHAllowed: %v\n", *s.config.ServerSSHAllowed))
+	}
+	configContent.WriteString(fmt.Sprintf("DisableAutoConnect: %v\n", s.config.DisableAutoConnect))
+	configContent.WriteString(fmt.Sprintf("DNSRouteInterval: %s\n", s.config.DNSRouteInterval))
 }
 
 func (s *Server) addRoutes(req *proto.DebugBundleRequest, anonymizer *anonymize.Anonymizer, archive *zip.Writer) error {
