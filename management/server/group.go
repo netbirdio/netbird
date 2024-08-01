@@ -278,6 +278,119 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountId, use
 	return nil
 }
 
+func (am *DefaultAccountManager) DeleteGrouph(ctx context.Context, accountId, userId, groupID string) error {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountId)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(ctx, accountId)
+	if err != nil {
+		return err
+	}
+
+	g, ok := account.Groups[groupID]
+	if !ok {
+		return nil
+	}
+
+	// disable a deleting integration group if the initiator is not an admin service user
+	if g.Issued == nbgroup.GroupIssuedIntegration {
+		executingUser := account.Users[userId]
+		if executingUser == nil {
+			return status.Errorf(status.NotFound, "user not found")
+		}
+		if executingUser.Role != UserRoleAdmin || !executingUser.IsServiceUser {
+			return status.Errorf(status.PermissionDenied, "only service users with admin power can delete integration group")
+		}
+	}
+
+	// check route links
+	for _, r := range account.Routes {
+		for _, g := range r.Groups {
+			if g == groupID {
+				return &GroupLinkError{"route", string(r.NetID)}
+			}
+		}
+		for _, g := range r.PeerGroups {
+			if g == groupID {
+				return &GroupLinkError{"route", string(r.NetID)}
+			}
+		}
+	}
+
+	// check DNS links
+	for _, dns := range account.NameServerGroups {
+		for _, g := range dns.Groups {
+			if g == groupID {
+				return &GroupLinkError{"name server groups", dns.Name}
+			}
+		}
+	}
+
+	// check ACL links
+	for _, policy := range account.Policies {
+		for _, rule := range policy.Rules {
+			for _, src := range rule.Sources {
+				if src == groupID {
+					return &GroupLinkError{"policy", policy.Name}
+				}
+			}
+
+			for _, dst := range rule.Destinations {
+				if dst == groupID {
+					return &GroupLinkError{"policy", policy.Name}
+				}
+			}
+		}
+	}
+
+	// check setup key links
+	for _, setupKey := range account.SetupKeys {
+		for _, grp := range setupKey.AutoGroups {
+			if grp == groupID {
+				return &GroupLinkError{"setup key", setupKey.Name}
+			}
+		}
+	}
+
+	// check user links
+	for _, user := range account.Users {
+		for _, grp := range user.AutoGroups {
+			if grp == groupID {
+				return &GroupLinkError{"user", user.Id}
+			}
+		}
+	}
+
+	// check DisabledManagementGroups
+	for _, disabledMgmGrp := range account.DNSSettings.DisabledManagementGroups {
+		if disabledMgmGrp == groupID {
+			return &GroupLinkError{"disabled DNS management groups", g.Name}
+		}
+	}
+
+	// check integrated peer validator groups
+	if account.Settings.Extra != nil {
+		for _, integratedPeerValidatorGroups := range account.Settings.Extra.IntegratedValidatorGroups {
+			if groupID == integratedPeerValidatorGroups {
+				return &GroupLinkError{"integrated validator", g.Name}
+			}
+		}
+	}
+
+	delete(account.Groups, groupID)
+
+	account.Network.IncSerial()
+	if err = am.Store.SaveAccount(ctx, account); err != nil {
+		return err
+	}
+
+	am.StoreEvent(ctx, userId, groupID, accountId, activity.GroupDeleted, g.EventMeta())
+
+	am.updateAccountPeers(ctx, account)
+
+	return nil
+}
+
 // DeleteGroups deletes groups from an account.
 // Note: This function does not acquire the global lock.
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
@@ -494,7 +607,7 @@ func isGroupLinkedToSetupKey(setupKeys map[string]*SetupKey, groupID string) (bo
 func isGroupLinkedToUser(users map[string]*User, groupID string) (bool, *User) {
 	for _, user := range users {
 		if slices.Contains(user.AutoGroups, groupID) {
-			return false, user
+			return true, user
 		}
 	}
 	return false, nil
