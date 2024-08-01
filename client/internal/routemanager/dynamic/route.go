@@ -189,9 +189,14 @@ func (r *Route) startResolver(ctx context.Context) {
 }
 
 func (r *Route) update(ctx context.Context) error {
-	if resolved, err := r.resolveDomains(); err != nil {
-		return fmt.Errorf("resolve domains: %w", err)
-	} else if err := r.updateDynamicRoutes(ctx, resolved); err != nil {
+	resolved, err := r.resolveDomains()
+	if err != nil {
+		if len(resolved) == 0 {
+			return fmt.Errorf("resolve domains: %w", err)
+		}
+		log.Warnf("Failed to resolve domains: %v", err)
+	}
+	if err := r.updateDynamicRoutes(ctx, resolved); err != nil {
 		return fmt.Errorf("update dynamic routes: %w", err)
 	}
 
