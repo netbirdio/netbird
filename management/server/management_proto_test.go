@@ -590,10 +590,8 @@ func testSyncStatusRace(t *testing.T) {
 	cancelFunc()
 	time.Sleep(10 * time.Millisecond)
 
-	//_ = sync.RecvMsg(resp)
-
 	ctx, cancelFunc = context.WithCancel(context.Background())
-	//defer cancelFunc()
+	defer cancelFunc()
 	sync, err = client.Sync(ctx, &mgmtProto.EncryptedMessage{
 		WgPubKey: peerWithInvalidStatus.PublicKey().String(),
 		Body:     message,
