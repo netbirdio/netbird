@@ -416,7 +416,10 @@ func startManagement(t *testing.T, config *Config) (*grpc.Server, *DefaultAccoun
 
 	peersUpdateManager := NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
-	accountManager, err := BuildManager(context.WithValue(context.Background(), formatter.ExecutionContextKey, formatter.SystemSource), store, peersUpdateManager, nil, "", "netbird.selfhosted",
+
+	ctx := context.WithValue(context.Background(), formatter.ExecutionContextKey, formatter.SystemSource) //nolint:staticcheck
+
+	accountManager, err := BuildManager(ctx, store, peersUpdateManager, nil, "", "netbird.selfhosted",
 		eventStore, nil, false, MocIntegratedValidator{})
 	if err != nil {
 		return nil, nil, "", err
@@ -465,8 +468,6 @@ func Test_SyncStatusRace(t *testing.T) {
 }
 func testSyncStatusRace(t *testing.T) {
 	t.Helper()
-	//t.Setenv("NETBIRD_STORE_ENGINE", "sqlite")
-	util.InitLog("debug", "console")
 	dir := t.TempDir()
 	err := util.CopyFileContents("testdata/store_with_expired_peers.json", filepath.Join(dir, "store.json"))
 	if err != nil {
