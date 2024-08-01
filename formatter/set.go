@@ -10,6 +10,12 @@ func SetTextFormatter(logger *logrus.Logger) {
 	logger.ReportCaller = true
 	logger.AddHook(NewContextHook())
 }
+// SetSyslogFormatter set the text formatter for given logger.
+func SetSyslogFormatter(logger *logrus.Logger) {
+	logger.Formatter = NewSyslogFormatter()
+	logger.ReportCaller = true
+	logger.AddHook(NewContextHook())
+}
 
 // SetJSONFormatter set the JSON formatter for given logger.
 func SetJSONFormatter(logger *logrus.Logger) {
