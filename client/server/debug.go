@@ -182,7 +182,6 @@ func (s *Server) addConfig(req *proto.DebugBundleRequest, anonymizer *anonymize.
 	configContent.WriteString(fmt.Sprintf("DisableAutoConnect: %v\n", s.config.DisableAutoConnect))
 	configContent.WriteString(fmt.Sprintf("DNSRouteInterval: %s\n", s.config.DNSRouteInterval))
 
-	// Anonymize and add potentially sensitive fields
 	if req.GetAnonymize() {
 		if s.config.ManagementURL != nil {
 			configContent.WriteString(fmt.Sprintf("ManagementURL: %s\n", anonymizer.AnonymizeURI(s.config.ManagementURL.String())))
@@ -193,6 +192,17 @@ func (s *Server) addConfig(req *proto.DebugBundleRequest, anonymizer *anonymize.
 		configContent.WriteString(fmt.Sprintf("NATExternalIPs: %v\n", anonymizeNATExternalIPs(s.config.NATExternalIPs, anonymizer)))
 		if s.config.CustomDNSAddress != "" {
 			configContent.WriteString(fmt.Sprintf("CustomDNSAddress: %s\n", anonymizer.AnonymizeString(s.config.CustomDNSAddress)))
+		}
+	} else {
+		if s.config.ManagementURL != nil {
+			configContent.WriteString(fmt.Sprintf("ManagementURL: %s\n", s.config.ManagementURL.String()))
+		}
+		if s.config.AdminURL != nil {
+			configContent.WriteString(fmt.Sprintf("AdminURL: %s\n", s.config.AdminURL.String()))
+		}
+		configContent.WriteString(fmt.Sprintf("NATExternalIPs: %v\n", s.config.NATExternalIPs))
+		if s.config.CustomDNSAddress != "" {
+			configContent.WriteString(fmt.Sprintf("CustomDNSAddress: %s\n", s.config.CustomDNSAddress))
 		}
 	}
 
