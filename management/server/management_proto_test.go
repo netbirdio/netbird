@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/formatter"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/util"
@@ -83,7 +85,7 @@ func Test_SyncProtocol(t *testing.T) {
 	defer func() {
 		os.Remove(filepath.Join(dir, "store.json")) //nolint
 	}()
-	mgmtServer, mgmtAddr, err := startManagement(t, &Config{
+	mgmtServer, _, mgmtAddr, err := startManagement(t, &Config{
 		Stuns: []*Host{{
 			Proto: "udp",
 			URI:   "stun:stun.wiretrustee.com:3468",
@@ -399,32 +401,32 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 	}
 }
 
-func startManagement(t *testing.T, config *Config) (*grpc.Server, string, error) {
+func startManagement(t *testing.T, config *Config) (*grpc.Server, *DefaultAccountManager, string, error) {
 	t.Helper()
 	lis, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 	store, cleanUp, err := NewTestStoreFromJson(context.Background(), config.Datadir)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	t.Cleanup(cleanUp)
 
 	peersUpdateManager := NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
-	accountManager, err := BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted",
+	accountManager, err := BuildManager(context.WithValue(context.Background(), formatter.ExecutionContextKey, formatter.SystemSource), store, peersUpdateManager, nil, "", "netbird.selfhosted",
 		eventStore, nil, false, MocIntegratedValidator{})
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	turnManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 
 	ephemeralMgr := NewEphemeralManager(store, accountManager)
 	mgmtServer, err := NewServer(context.Background(), config, accountManager, peersUpdateManager, turnManager, nil, ephemeralMgr)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 
@@ -434,7 +436,7 @@ func startManagement(t *testing.T, config *Config) (*grpc.Server, string, error)
 		}
 	}()
 
-	return s, lis.Addr().String(), nil
+	return s, accountManager, lis.Addr().String(), nil
 }
 
 func createRawClient(addr string) (mgmtProto.ManagementServiceClient, *grpc.ClientConn, error) {
@@ -453,4 +455,167 @@ func createRawClient(addr string) (mgmtProto.ManagementServiceClient, *grpc.Clie
 	}
 
 	return mgmtProto.NewManagementServiceClient(conn), conn, nil
+}
+func Test_SyncStatusRace(t *testing.T) {
+	for i := 0; i < 500; i++ {
+		t.Run(fmt.Sprintf("TestRun-%d", i), func(t *testing.T) {
+			testSyncStatusRace(t)
+		})
+	}
+}
+func testSyncStatusRace(t *testing.T) {
+	t.Helper()
+	//t.Setenv("NETBIRD_STORE_ENGINE", "sqlite")
+	util.InitLog("debug", "console")
+	dir := t.TempDir()
+	err := util.CopyFileContents("testdata/store_with_expired_peers.json", filepath.Join(dir, "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		os.Remove(filepath.Join(dir, "store.json")) //nolint
+	}()
+
+	mgmtServer, am, mgmtAddr, err := startManagement(t, &Config{
+		Stuns: []*Host{{
+			Proto: "udp",
+			URI:   "stun:stun.wiretrustee.com:3468",
+		}},
+		TURNConfig: &TURNConfig{
+			TimeBasedCredentials: false,
+			CredentialsTTL:       util.Duration{},
+			Secret:               "whatever",
+			Turns: []*Host{{
+				Proto: "udp",
+				URI:   "turn:stun.wiretrustee.com:3468",
+			}},
+		},
+		Signal: &Host{
+			Proto: "http",
+			URI:   "signal.wiretrustee.com:10000",
+		},
+		Datadir:    dir,
+		HttpConfig: nil,
+	})
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	defer mgmtServer.GracefulStop()
+
+	client, clientConn, err := createRawClient(mgmtAddr)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	defer clientConn.Close()
+
+	// there are two peers already in the store, add two more
+	peers, err := registerPeers(2, client)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	serverKey, err := getServerKey(client)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	concurrentPeerKey2 := peers[1]
+	t.Log("Public key of concurrent peer: ", concurrentPeerKey2.PublicKey().String())
+
+	syncReq2 := &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}}
+	message2, err := encryption.EncryptMessage(*serverKey, *concurrentPeerKey2, syncReq2)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	ctx2, cancelFunc2 := context.WithCancel(context.Background())
+
+	//client.
+	sync2, err := client.Sync(ctx2, &mgmtProto.EncryptedMessage{
+		WgPubKey: concurrentPeerKey2.PublicKey().String(),
+		Body:     message2,
+	})
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	resp2 := &mgmtProto.EncryptedMessage{}
+	err = sync2.RecvMsg(resp2)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	peerWithInvalidStatus := peers[0]
+	t.Log("Public key of peer with invalid status: ", peerWithInvalidStatus.PublicKey().String())
+
+	syncReq := &mgmtProto.SyncRequest{Meta: &mgmtProto.PeerSystemMeta{}}
+	message, err := encryption.EncryptMessage(*serverKey, *peerWithInvalidStatus, syncReq)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	ctx, cancelFunc := context.WithCancel(context.Background())
+
+	//client.
+	sync, err := client.Sync(ctx, &mgmtProto.EncryptedMessage{
+		WgPubKey: peerWithInvalidStatus.PublicKey().String(),
+		Body:     message,
+	})
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	// take the first registered peer as a base for the test. Total four.
+
+	resp := &mgmtProto.EncryptedMessage{}
+	err = sync.RecvMsg(resp)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	cancelFunc2()
+	time.Sleep(1 * time.Millisecond)
+	cancelFunc()
+	time.Sleep(10 * time.Millisecond)
+
+	//_ = sync.RecvMsg(resp)
+
+	ctx, cancelFunc = context.WithCancel(context.Background())
+	//defer cancelFunc()
+	sync, err = client.Sync(ctx, &mgmtProto.EncryptedMessage{
+		WgPubKey: peerWithInvalidStatus.PublicKey().String(),
+		Body:     message,
+	})
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	resp = &mgmtProto.EncryptedMessage{}
+	err = sync.RecvMsg(resp)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), peerWithInvalidStatus.PublicKey().String())
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	if !peer.Status.Connected {
+		t.Fatal("Peer should be connected")
+	}
 }
