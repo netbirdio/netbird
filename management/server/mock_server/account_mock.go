@@ -31,7 +31,7 @@ type MockAccountManager struct {
 	ListUsersFunc                       func(ctx context.Context, accountID string) ([]*server.User, error)
 	GetPeersFunc                        func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
 	MarkPeerConnectedFunc               func(ctx context.Context, peerKey string, connected bool, realIP net.IP) error
-	SyncAndMarkPeerFunc                 func(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error)
+	SyncAndMarkPeerFunc                 func(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error)
 	DeletePeerFunc                      func(ctx context.Context, accountID, peerKey, userID string) error
 	GetNetworkMapFunc                   func(ctx context.Context, peerKey string) (*server.NetworkMap, error)
 	GetPeerNetworkFunc                  func(ctx context.Context, peerKey string) (*server.Network, error)
@@ -105,14 +105,14 @@ type MockAccountManager struct {
 	GetAccountIDForPeerKeyFunc          func(ctx context.Context, peerKey string) (string, error)
 }
 
-func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error) {
+func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error) {
 	if am.SyncAndMarkPeerFunc != nil {
-		return am.SyncAndMarkPeerFunc(ctx, peerPubKey, meta, realIP)
+		return am.SyncAndMarkPeerFunc(ctx, accountID, peerPubKey, meta, realIP)
 	}
 	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
 }
 
-func (am *MockAccountManager) CancelPeerRoutines(_ context.Context, peerPubKey string) error {
+func (am *MockAccountManager) OnPeerDisconnected(_ context.Context, accountID string, peerPubKey string) error {
 	// TODO implement me
 	panic("implement me")
 }
