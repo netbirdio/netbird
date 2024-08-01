@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"strconv"
 	"strings"
-	"sync"
 
 	log "github.com/sirupsen/logrus"
 
@@ -16,30 +15,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
 )
-
-// PeerGroupCache is a thread-safe cache for storing mappings of groups to peers
-type PeerGroupCache struct {
-	cache sync.Map
-}
-
-// Get retrieves a cached peer group
-func (pgc *PeerGroupCache) Get(groupID string) (map[string]*nbpeer.Peer, bool) {
-	if pgc == nil {
-		return nil, false
-	}
-	if value, ok := pgc.cache.Load(groupID); ok {
-		return value.(map[string]*nbpeer.Peer), true
-	}
-	return nil, false
-}
-
-// Set stores a peer group in the cache
-func (pgc *PeerGroupCache) Set(groupID string, peers map[string]*nbpeer.Peer) {
-	if pgc == nil {
-		return
-	}
-	pgc.cache.Store(groupID, peers)
-}
 
 // PolicyUpdateOperationType operation type
 type PolicyUpdateOperationType int
@@ -237,10 +212,8 @@ type FirewallRule struct {
 // getPeerConnectionResources for a given peer
 //
 // This function returns the list of peers and firewall rules that are applicable to a given peer.
-func (a *Account) getPeerConnectionResources(ctx context.Context, peerID string, validatedPeersMap map[string]struct{}, cache *PeerGroupCache) ([]*nbpeer.Peer, []*FirewallRule) {
-	peerMap := make(map[string]*nbpeer.Peer)
-	ruleMap := make(map[string]*FirewallRule)
-
+func (a *Account) getPeerConnectionResources(ctx context.Context, peerID string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, []*FirewallRule) {
+	generateResources, getAccumulatedResources := a.connResourcesGenerator(ctx)
 	for _, policy := range a.Policies {
 		if !policy.Enabled {
 			continue
@@ -251,113 +224,29 @@ func (a *Account) getPeerConnectionResources(ctx context.Context, peerID string,
 				continue
 			}
 
-			sourcePeers, peerInSources := a.getPeersFromGroups(ctx, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap, cache)
-			destPeers, peerInDest := a.getPeersFromGroups(ctx, rule.Destinations, peerID, nil, validatedPeersMap, cache)
+			sourcePeers, peerInSources := a.getAllPeersFromGroups(ctx, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
+			destinationPeers, peerInDestinations := a.getAllPeersFromGroups(ctx, rule.Destinations, peerID, nil, validatedPeersMap)
 
 			if rule.Bidirectional {
-				a.processRule(rule, sourcePeers, destPeers, peerInSources, peerInDest, peerMap, ruleMap)
-			} else {
 				if peerInSources {
-					a.processRuleOneWay(rule, destPeers, firewallRuleDirectionOUT, peerMap, ruleMap)
+					generateResources(rule, destinationPeers, firewallRuleDirectionIN)
 				}
-				if peerInDest {
-					a.processRuleOneWay(rule, sourcePeers, firewallRuleDirectionIN, peerMap, ruleMap)
+				if peerInDestinations {
+					generateResources(rule, sourcePeers, firewallRuleDirectionOUT)
 				}
 			}
-		}
-	}
 
-	peers := make([]*nbpeer.Peer, 0, len(peerMap))
-	rules := make([]*FirewallRule, 0, len(ruleMap))
-
-	for _, peer := range peerMap {
-		peers = append(peers, peer)
-	}
-	for _, rule := range ruleMap {
-		rules = append(rules, rule)
-	}
-
-	return peers, rules
-}
-
-func (a *Account) getPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}, cache *PeerGroupCache) (map[string]*nbpeer.Peer, bool) {
-	peerInGroups := false
-	filteredPeers := make(map[string]*nbpeer.Peer)
-
-	for _, g := range groups {
-		groupPeers, ok := cache.Get(g)
-		if !ok {
-			group, exists := a.Groups[g]
-			if !exists {
-				continue
-			}
-			groupPeers = make(map[string]*nbpeer.Peer)
-			for _, p := range group.Peers {
-				peer, exists := a.Peers[p]
-				if !exists || peer == nil {
-					continue
-				}
-				groupPeers[peer.ID] = peer
-			}
-			cache.Set(g, groupPeers)
-		}
-
-		for pID, peer := range groupPeers {
-			if _, ok := validatedPeersMap[pID]; !ok {
-				continue
+			if peerInSources {
+				generateResources(rule, destinationPeers, firewallRuleDirectionOUT)
 			}
 
-			if pID == peerID {
-				peerInGroups = true
-				continue
-			}
-
-			// validate the peer based on policy posture checks applied
-			if a.validatePostureChecksOnPeer(ctx, sourcePostureChecksIDs, pID) {
-				filteredPeers[pID] = peer
+			if peerInDestinations {
+				generateResources(rule, sourcePeers, firewallRuleDirectionIN)
 			}
 		}
 	}
 
-	return filteredPeers, peerInGroups
-}
-
-func (a *Account) processRule(rule *PolicyRule, sourcePeers, destPeers map[string]*nbpeer.Peer, peerInSources, peerInDest bool, peerMap map[string]*nbpeer.Peer, ruleMap map[string]*FirewallRule) {
-	if peerInSources {
-		a.processRuleOneWay(rule, destPeers, firewallRuleDirectionIN, peerMap, ruleMap)
-	}
-	if peerInDest {
-		a.processRuleOneWay(rule, sourcePeers, firewallRuleDirectionOUT, peerMap, ruleMap)
-	}
-}
-
-func (a *Account) processRuleOneWay(rule *PolicyRule, peers map[string]*nbpeer.Peer, direction int, peerMap map[string]*nbpeer.Peer, ruleMap map[string]*FirewallRule) {
-	for _, peer := range peers {
-		peerMap[peer.ID] = peer
-
-		fr := FirewallRule{
-			PeerIP:    peer.IP.String(),
-			Direction: direction,
-			Action:    string(rule.Action),
-			Protocol:  string(rule.Protocol),
-		}
-
-		ruleID := rule.ID + fr.PeerIP + strconv.Itoa(direction) + fr.Protocol + fr.Action + strings.Join(rule.Ports, ",")
-		if _, ok := ruleMap[ruleID]; ok {
-			continue
-		}
-
-		if len(rule.Ports) == 0 {
-			ruleMap[ruleID] = &fr
-		} else {
-			for _, port := range rule.Ports {
-				pr := fr
-				pr.Port = port
-				portRuleID := ruleID + port
-				ruleMap[portRuleID] = &pr
-			}
-		}
-	}
+	return getAccumulatedResources()
 }
 
 // connResourcesGenerator returns generator and accumulator function which returns the result of generator calls
@@ -594,10 +483,53 @@ func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
 	return result
 }
 
+// getAllPeersFromGroups for given peer ID and list of groups
+//
+// Returns a list of peers from specified groups that pass specified posture checks
+// and a boolean indicating if the supplied peer ID exists within these groups.
+//
+// Important: Posture checks are applicable only to source group peers,
+// for destination group peers, call this method with an empty list of sourcePostureChecksIDs
+func (a *Account) getAllPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
+	peerInGroups := false
+	filteredPeers := make([]*nbpeer.Peer, 0, len(groups))
+	for _, g := range groups {
+		group, ok := a.Groups[g]
+		if !ok {
+			continue
+		}
+
+		for _, p := range group.Peers {
+			peer, ok := a.Peers[p]
+			if !ok || peer == nil {
+				continue
+			}
+
+			// validate the peer based on policy posture checks applied
+			isValid := a.validatePostureChecksOnPeer(ctx, sourcePostureChecksIDs, peer.ID)
+			if !isValid {
+				continue
+			}
+
+			if _, ok := validatedPeersMap[peer.ID]; !ok {
+				continue
+			}
+
+			if peer.ID == peerID {
+				peerInGroups = true
+				continue
+			}
+
+			filteredPeers = append(filteredPeers, peer)
+		}
+	}
+	return filteredPeers, peerInGroups
+}
+
 // validatePostureChecksOnPeer validates the posture checks on a peer
 func (a *Account) validatePostureChecksOnPeer(ctx context.Context, sourcePostureChecksID []string, peerID string) bool {
 	peer, ok := a.Peers[peerID]
-	if !ok || peer == nil {
+	if !ok && peer == nil {
 		return false
 	}
 
@@ -608,14 +540,12 @@ func (a *Account) validatePostureChecksOnPeer(ctx context.Context, sourcePosture
 		}
 
 		for _, check := range postureChecks.GetChecks() {
-			isValid, err := check.Check(context.Background(), *peer)
+			isValid, err := check.Check(ctx, *peer)
 			if err != nil {
-				if err != nil || !isValid {
-					log.WithContext(ctx).Debugf("an error occurred check %s: on peer: %s :%s", check.Name(), peer.ID, err.Error())
-				}
-				if !isValid {
-					return false
-				}
+				log.WithContext(ctx).Debugf("an error occurred check %s: on peer: %s :%s", check.Name(), peer.ID, err.Error())
+			}
+			if !isValid {
+				return false
 			}
 		}
 	}

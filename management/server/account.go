@@ -18,6 +18,8 @@ import (
 
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
+	"github.com/hashicorp/go-multierror"
+	"github.com/miekg/dns"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -401,8 +403,8 @@ func (a *Account) GetGroup(groupID string) *nbgroup.Group {
 	return a.Groups[groupID]
 }
 
-// GetPeerNetworkMap returns the networkmap for the given peer ID. Pass the zone cache if this is run multiple times
-func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain string, validatedPeersMap map[string]struct{}, zoneCache *CustomZoneCache, peerGroupCache *PeerGroupCache) *NetworkMap {
+// GetPeerNetworkMap returns the networkmap for the given peer ID.
+func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID string, peersCustomZone nbdns.CustomZone, validatedPeersMap map[string]struct{}) *NetworkMap {
 	peer := a.Peers[peerID]
 	if peer == nil {
 		return &NetworkMap{
@@ -416,7 +418,7 @@ func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain strin
 		}
 	}
 
-	aclPeers, firewallRules := a.getPeerConnectionResources(ctx, peerID, validatedPeersMap, peerGroupCache)
+	aclPeers, firewallRules := a.getPeerConnectionResources(ctx, peerID, validatedPeersMap)
 	// exclude expired peers
 	var peersToConnect []*nbpeer.Peer
 	var expiredPeers []*nbpeer.Peer
@@ -439,14 +441,6 @@ func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain strin
 	if dnsManagementStatus {
 		var zones []nbdns.CustomZone
 
-		var peersCustomZone nbdns.CustomZone
-		if zone, ok := zoneCache.Get(a.Id); ok {
-			peersCustomZone = zone
-		} else {
-			peersCustomZone = getPeersCustomZone(ctx, a, dnsDomain)
-			zoneCache.Set(a.Id, peersCustomZone)
-		}
-
 		if peersCustomZone.Domain != "" {
 			zones = append(zones, peersCustomZone)
 		}
@@ -462,6 +456,52 @@ func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain strin
 		OfflinePeers:  expiredPeers,
 		FirewallRules: firewallRules,
 	}
+}
+
+func (a *Account) GetPeersCustomZone(ctx context.Context, dnsDomain string) nbdns.CustomZone {
+	var merr *multierror.Error
+
+	if dnsDomain == "" {
+		log.WithContext(ctx).Error("no dns domain is set, returning empty zone")
+		return nbdns.CustomZone{}
+	}
+
+	customZone := nbdns.CustomZone{
+		Domain:  dns.Fqdn(dnsDomain),
+		Records: make([]nbdns.SimpleRecord, 0, len(a.Peers)),
+	}
+
+	domainSuffix := "." + dnsDomain
+
+	var sb strings.Builder
+	for _, peer := range a.Peers {
+		if peer.DNSLabel == "" {
+			merr = multierror.Append(merr, fmt.Errorf("peer %s has an empty DNS label", peer.Name))
+			continue
+		}
+
+		sb.Grow(len(peer.DNSLabel) + len(domainSuffix))
+		sb.WriteString(peer.DNSLabel)
+		sb.WriteString(domainSuffix)
+
+		customZone.Records = append(customZone.Records, nbdns.SimpleRecord{
+			Name:  sb.String(),
+			Type:  int(dns.TypeA),
+			Class: nbdns.DefaultClass,
+			TTL:   defaultTTL,
+			RData: peer.IP.String(),
+		})
+
+		sb.Reset()
+	}
+
+	go func() {
+		if merr != nil {
+			log.WithContext(ctx).Errorf("error generating custom zone for account %s: %v", a.Id, merr)
+		}
+	}()
+
+	return customZone
 }
 
 // GetExpiredPeers returns peers that have been expired
