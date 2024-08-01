@@ -1176,6 +1176,11 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 
 	deletedUsersMeta := make(map[string]map[string]any)
 	for _, targetUserID := range targetUserIDs {
+		if initiatorUserID == targetUserID {
+			log.WithContext(ctx).Debug("self deletion is not allowed")
+			continue
+		}
+
 		targetUser := account.Users[targetUserID]
 		if targetUser == nil {
 			log.WithContext(ctx).Debugf("target user: %s not found", targetUserID)
