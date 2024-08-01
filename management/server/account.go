@@ -135,8 +135,8 @@ type AccountManager interface {
 	UpdateIntegratedValidatorGroups(ctx context.Context, accountID string, userID string, groups []string) error
 	GroupValidation(ctx context.Context, accountId string, groups []string) (bool, error)
 	GetValidatedPeers(account *Account) (map[string]struct{}, error)
-	SyncAndMarkPeer(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)
-	CancelPeerRoutines(ctx context.Context, peerPubKey string) error
+	SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)
+	OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string) error
 	SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error
 	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error)
@@ -1857,22 +1857,11 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(ctx context.C
 	}
 }
 
-func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
-	// acquiring peer write lock here is ok since we only modify peer information that is supplied by the
-	// peer itself which can't be modified by API, and it only happens after an account read lock is acquired
-	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
-	defer peerUnlock()
-
-	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, peerPubKey)
-	if err != nil {
-		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
-			return nil, nil, nil, status.Errorf(status.Unauthenticated, "peer not registered")
-		}
-		return nil, nil, nil, err
-	}
-
+func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
 	accountUnlock := am.Store.AcquireReadLockByUID(ctx, accountID)
 	defer accountUnlock()
+	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
+	defer peerUnlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
@@ -1892,22 +1881,11 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey
 	return peer, netMap, postureChecks, nil
 }
 
-func (am *DefaultAccountManager) CancelPeerRoutines(ctx context.Context, peerPubKey string) error {
-	// acquiring peer write lock here is ok since we only modify peer information that is supplied by the
-	// peer itself which can't be modified by API, and it only happens after an account read lock is acquired
-	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
-	defer peerUnlock()
-
-	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, peerPubKey)
-	if err != nil {
-		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
-			return status.Errorf(status.Unauthenticated, "peer not registered")
-		}
-		return err
-	}
-
+func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string) error {
 	accountUnlock := am.Store.AcquireReadLockByUID(ctx, accountID)
 	defer accountUnlock()
+	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
+	defer peerUnlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
