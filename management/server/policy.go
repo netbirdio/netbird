@@ -251,8 +251,8 @@ func (a *Account) getPeerConnectionResources(ctx context.Context, peerID string,
 				continue
 			}
 
-			sourcePeers, peerInSources := a.getPeersFromGroups(rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap, cache)
-			destPeers, peerInDest := a.getPeersFromGroups(rule.Destinations, peerID, nil, validatedPeersMap, cache)
+			sourcePeers, peerInSources := a.getPeersFromGroups(ctx, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap, cache)
+			destPeers, peerInDest := a.getPeersFromGroups(ctx, rule.Destinations, peerID, nil, validatedPeersMap, cache)
 
 			if rule.Bidirectional {
 				a.processRule(rule, sourcePeers, destPeers, peerInSources, peerInDest, peerMap, ruleMap)
@@ -280,7 +280,7 @@ func (a *Account) getPeerConnectionResources(ctx context.Context, peerID string,
 	return peers, rules
 }
 
-func (a *Account) getPeersFromGroups(groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}, cache *PeerGroupCache) (map[string]*nbpeer.Peer, bool) {
+func (a *Account) getPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}, cache *PeerGroupCache) (map[string]*nbpeer.Peer, bool) {
 	peerInGroups := false
 	filteredPeers := make(map[string]*nbpeer.Peer)
 
@@ -312,7 +312,8 @@ func (a *Account) getPeersFromGroups(groups []string, peerID string, sourcePostu
 				continue
 			}
 
-			if a.validatePostureChecksOnPeer(sourcePostureChecksIDs, pID) {
+			// validate the peer based on policy posture checks applied
+			if a.validatePostureChecksOnPeer(ctx, sourcePostureChecksIDs, pID) {
 				filteredPeers[pID] = peer
 			}
 		}
@@ -399,8 +400,8 @@ func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule,
 					fr.PeerIP = "0.0.0.0"
 				}
 
-				ruleID := (rule.ID + fr.PeerIP + strconv.Itoa(direction) +
-					fr.Protocol + fr.Action + strings.Join(rule.Ports, ","))
+				ruleID := rule.ID + fr.PeerIP + strconv.Itoa(direction) +
+					fr.Protocol + fr.Action + strings.Join(rule.Ports, ",")
 				if _, ok := rulesExists[ruleID]; ok {
 					continue
 				}
@@ -594,7 +595,7 @@ func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
 }
 
 // validatePostureChecksOnPeer validates the posture checks on a peer
-func (a *Account) validatePostureChecksOnPeer(sourcePostureChecksID []string, peerID string) bool {
+func (a *Account) validatePostureChecksOnPeer(ctx context.Context, sourcePostureChecksID []string, peerID string) bool {
 	peer, ok := a.Peers[peerID]
 	if !ok || peer == nil {
 		return false
@@ -608,8 +609,13 @@ func (a *Account) validatePostureChecksOnPeer(sourcePostureChecksID []string, pe
 
 		for _, check := range postureChecks.GetChecks() {
 			isValid, err := check.Check(context.Background(), *peer)
-			if err != nil || !isValid {
-				return false
+			if err != nil {
+				if err != nil || !isValid {
+					log.WithContext(ctx).Debugf("an error occurred check %s: on peer: %s :%s", check.Name(), peer.ID, err.Error())
+				}
+				if !isValid {
+					return false
+				}
 			}
 		}
 	}
