@@ -38,11 +38,11 @@ func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
 
 	ips := make([]net.IP, 0)
 
-	for _, ans := range response.Answer {
-		if aRecord, ok := ans.(*dns.A); ok {
+	for _, answ := range response.Answer {
+		if aRecord, ok := answ.(*dns.A); ok {
 			ips = append(ips, aRecord.A)
 		}
-		if aaaaRecord, ok := ans.(*dns.AAAA); ok {
+		if aaaaRecord, ok := answ.(*dns.AAAA); ok {
 			ips = append(ips, aaaaRecord.AAAA)
 		}
 	}
