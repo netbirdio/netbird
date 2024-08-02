@@ -9,6 +9,7 @@
 <p align="center">
   <img width="234" src="docs/media/logo-full.png"/>
 </p>
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=netbirdio_netbird&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=netbirdio_netbird)
   <p>
      <a href="https://github.com/netbirdio/netbird/blob/main/LICENSE">
        <img src="https://img.shields.io/badge/license-BSD--3-blue" />
