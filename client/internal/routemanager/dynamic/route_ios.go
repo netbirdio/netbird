@@ -29,7 +29,7 @@ func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
 
 	startTime := time.Now()
 
-	response, _, err := privateClient.Exchange(msg, fmt.Sprintf("%s:%d", r.serviceViaMemory.RuntimeIP(), r.serviceViaMemory.RuntimePort()))
+	response, _, err := privateClient.Exchange(msg, r.resolverAddr)
 	if err != nil {
 		log.Debugf("DNS query for %s failed after %s: %s ", domain.SafeString(), time.Since(startTime), err)
 		return nil, err

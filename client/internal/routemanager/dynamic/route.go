@@ -13,7 +13,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/util"
@@ -50,7 +49,7 @@ type Route struct {
 	cancel               context.CancelFunc
 	statusRecorder       *peer.Status
 	wgInterface          *iface.WGIface
-	serviceViaMemory     *nbdns.ServiceViaMemory
+	resolverAddr         string
 }
 
 func NewRoute(
@@ -60,6 +59,7 @@ func NewRoute(
 	interval time.Duration,
 	statusRecorder *peer.Status,
 	wgInterface *iface.WGIface,
+	resolverAddr string,
 ) *Route {
 	return &Route{
 		route:                rt,
@@ -69,7 +69,7 @@ func NewRoute(
 		dynamicDomains:       domainMap{},
 		statusRecorder:       statusRecorder,
 		wgInterface:          wgInterface,
-		serviceViaMemory:     nbdns.NewServiceViaMemory(wgInterface),
+		resolverAddr:         resolverAddr,
 	}
 }
 
