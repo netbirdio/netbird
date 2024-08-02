@@ -442,6 +442,7 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 		conn.log.Warnf("Failed to update wg peer configuration: %v", err)
 		return
 	}
+	wgConfigWorkaround()
 
 	if conn.wgProxyICE != nil {
 		if err := conn.wgProxyICE.CloseConn(); err != nil {
@@ -538,6 +539,7 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 		conn.log.Errorf("Failed to update wg peer configuration: %v", err)
 		return
 	}
+	wgConfigWorkaround()
 
 	if conn.wgProxyRelay != nil {
 		if err := conn.wgProxyRelay.CloseConn(); err != nil {
@@ -756,4 +758,10 @@ func (conn *Conn) getEndpointForICEConnInfo(iceConnInfo ICEConnInfo) (net.Addr, 
 
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {
 	return remoteRosenpassPubKey != nil
+}
+
+// wgConfigWorkaround is a workaround for the issue with WireGuard configuration update
+// When update a peer configuration in near to each other time, the second update can be ignored by WireGuard
+func wgConfigWorkaround() {
+	time.Sleep(100 * time.Millisecond)
 }
