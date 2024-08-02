@@ -14,7 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/domain"
 )
 
-const dialTimeout = 1 * time.Second
+const dialTimeout = 10 * time.Second
 
 func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
 	privateClient, err := nbdns.GetClientPrivate(r.wgInterface.Address().IP, r.wgInterface.Name(), dialTimeout)
