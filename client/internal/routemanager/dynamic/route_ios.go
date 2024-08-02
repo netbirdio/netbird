@@ -47,5 +47,9 @@ func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
 		}
 	}
 
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("no A or AAAA records found for %s", domain.SafeString())
+	}
+
 	return ips, nil
 }
