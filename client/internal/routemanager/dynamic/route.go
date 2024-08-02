@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/util"
+	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/route"
 )
@@ -47,6 +48,8 @@ type Route struct {
 	currentPeerKey       string
 	cancel               context.CancelFunc
 	statusRecorder       *peer.Status
+	wgInterface          *iface.WGIface
+	resolverAddr         string
 }
 
 func NewRoute(
@@ -55,6 +58,8 @@ func NewRoute(
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
 	interval time.Duration,
 	statusRecorder *peer.Status,
+	wgInterface *iface.WGIface,
+	resolverAddr string,
 ) *Route {
 	return &Route{
 		route:                rt,
@@ -63,6 +68,8 @@ func NewRoute(
 		interval:             interval,
 		dynamicDomains:       domainMap{},
 		statusRecorder:       statusRecorder,
+		wgInterface:          wgInterface,
+		resolverAddr:         resolverAddr,
 	}
 }
 
@@ -228,11 +235,17 @@ func (r *Route) resolve(results chan resolveResult) {
 		wg.Add(1)
 		go func(domain domain.Domain) {
 			defer wg.Done()
-			ips, err := net.LookupIP(string(domain))
+
+			ips, err := r.getIPsFromResolver(domain)
 			if err != nil {
-				results <- resolveResult{domain: domain, err: fmt.Errorf("resolve d %s: %w", domain.SafeString(), err)}
-				return
+				log.Tracef("Failed to resolve domain %s with private resolver: %v", domain.SafeString(), err)
+				ips, err = net.LookupIP(string(domain))
+				if err != nil {
+					results <- resolveResult{domain: domain, err: fmt.Errorf("resolve d %s: %w", domain.SafeString(), err)}
+					return
+				}
 			}
+
 			for _, ip := range ips {
 				prefix, err := util.GetPrefixFromIP(ip)
 				if err != nil {
