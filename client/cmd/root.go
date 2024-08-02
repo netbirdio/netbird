@@ -37,6 +37,7 @@ const (
 	serverSSHAllowedFlag    = "allow-server-ssh"
 	extraIFaceBlackListFlag = "extra-iface-blacklist"
 	dnsRouteIntervalFlag    = "dns-router-interval"
+	systemInfoFlag          = "system-info"
 )
 
 var (
@@ -69,6 +70,7 @@ var (
 	autoConnectDisabled     bool
 	extraIFaceBlackList     []string
 	anonymizeFlag           bool
+	debugSystemInfoFlag     bool
 	dnsRouteInterval        time.Duration
 
 	rootCmd = &cobra.Command{
@@ -165,6 +167,8 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&rosenpassPermissive, rosenpassPermissiveFlag, false, "[Experimental] Enable Rosenpass in permissive mode to allow this peer to accept WireGuard connections without requiring Rosenpass functionality from peers that do not have Rosenpass enabled.")
 	upCmd.PersistentFlags().BoolVar(&serverSSHAllowed, serverSSHAllowedFlag, false, "Allow SSH server on peer. If enabled, the SSH server will be permitted")
 	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
+
+	debugCmd.PersistentFlags().BoolVarP(&debugSystemInfoFlag, systemInfoFlag, "S", false, "Adds system information to the debug bundle")
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
