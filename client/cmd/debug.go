@@ -138,17 +138,20 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get status: %v", status.Convert(err).Message())
 	}
 
-	restoreUp := stat.Status == string(internal.StatusConnected) || stat.Status == string(internal.StatusConnecting)
+	stateWasDown := stat.Status != string(internal.StatusConnected) && stat.Status != string(internal.StatusConnecting)
 
 	initialLogLevel, err := client.GetLogLevel(cmd.Context(), &proto.GetLogLevelRequest{})
 	if err != nil {
 		return fmt.Errorf("failed to get log level: %v", status.Convert(err).Message())
 	}
 
-	if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
-		return fmt.Errorf("failed to down: %v", status.Convert(err).Message())
+	if stateWasDown {
+		if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
+			return fmt.Errorf("failed to up: %v", status.Convert(err).Message())
+		}
+		cmd.Println("Netbird up")
+		time.Sleep(time.Second * 10)
 	}
-	cmd.Println("Netbird down")
 
 	initialLevelTrace := initialLogLevel.GetLevel() >= proto.LogLevel_TRACE
 	if !initialLevelTrace {
@@ -160,6 +163,11 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		}
 		cmd.Println("Log level set to trace.")
 	}
+
+	if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
+		return fmt.Errorf("failed to down: %v", status.Convert(err).Message())
+	}
+	cmd.Println("Netbird down")
 
 	time.Sleep(1 * time.Second)
 
@@ -192,18 +200,12 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	headerPreDown := fmt.Sprintf("----- Netbird pre-down - Timestamp: %s - Duration: %s", time.Now().Format(time.RFC3339), duration)
 	statusOutput = fmt.Sprintf("%s\n%s\n%s", statusOutput, headerPreDown, getStatusOutput(cmd))
 
-	if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
-		return fmt.Errorf("failed to down: %v", status.Convert(err).Message())
-	}
-	cmd.Println("Netbird down")
-
-	time.Sleep(1 * time.Second)
-
-	if restoreUp {
-		if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
-			return fmt.Errorf("failed to up: %v", status.Convert(err).Message())
+	if stateWasDown {
+		if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
+			return fmt.Errorf("failed to down: %v", status.Convert(err).Message())
 		}
-		cmd.Println("Netbird up")
+		cmd.Println("Netbird down")
+		time.Sleep(1 * time.Second)
 	}
 
 	if !initialLevelTrace {
