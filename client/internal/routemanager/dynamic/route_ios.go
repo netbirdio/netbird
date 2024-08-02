@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
-	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 
@@ -20,8 +19,7 @@ const dialTimeout = 1 * time.Second
 func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
 	privateClient, err := nbdns.GetClientPrivate(r.wgInterface.Address().IP, r.wgInterface.Name(), dialTimeout)
 	if err != nil {
-		log.Debugf("DNS query for %s failed: %s", domain.SafeString(), err)
-		return nil, err
+		return nil, fmt.Errorf("error while creating private client: %s", err)
 	}
 
 	msg := new(dns.Msg)
@@ -31,19 +29,21 @@ func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
 
 	response, _, err := privateClient.Exchange(msg, r.resolverAddr)
 	if err != nil {
-		log.Debugf("DNS query for %s failed after %s: %s ", domain.SafeString(), time.Since(startTime), err)
-		return nil, err
+		return nil, fmt.Errorf("DNS query for %s failed after %s: %s ", domain.SafeString(), time.Since(startTime), err)
 	}
-
-	log.Debugf("DNS query for %s took %s", domain.SafeString(), time.Since(startTime))
 
 	if response.Rcode != dns.RcodeSuccess {
 		return nil, fmt.Errorf("dns response code: %s", dns.RcodeToString[response.Rcode])
 	}
 
+	ips := make([]net.IP, 0)
+
 	for _, ans := range response.Answer {
 		if aRecord, ok := ans.(*dns.A); ok {
-			return []net.IP{aRecord.A}, nil
+			ips = append(ips, aRecord.A)
+		}
+		if aaaaRecord, ok := ans.(*dns.AAAA); ok {
+			ips = append(ips, aaaaRecord.AAAA)
 		}
 	}
 

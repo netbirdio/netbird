@@ -79,8 +79,6 @@ func GetClientPrivate(ip net.IP, interfaceName string, dialTimeout time.Duration
 		return nil, err
 	}
 
-	log.Debugf("using interface index %d for %s and IP: %s", index, interfaceName, ip)
-
 	dialer := &net.Dialer{
 		LocalAddr: &net.UDPAddr{
 			IP:   ip,
