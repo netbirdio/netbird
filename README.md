@@ -10,6 +10,9 @@
   <img width="234" src="docs/media/logo-full.png"/>
 </p>
   <p>
+   <a href="https://img.shields.io/badge/license-BSD--3-blue)">
+       <img src="https://sonarcloud.io/api/project_badges/measure?project=netbirdio_netbird&metric=alert_status" />
+     </a> 
      <a href="https://github.com/netbirdio/netbird/blob/main/LICENSE">
        <img src="https://img.shields.io/badge/license-BSD--3-blue" />
      </a> 
