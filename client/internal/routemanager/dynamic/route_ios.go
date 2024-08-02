@@ -47,5 +47,5 @@ func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("no A record found")
+	return ips, nil
 }
