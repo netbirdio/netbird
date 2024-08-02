@@ -13,9 +13,11 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/util"
+	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/route"
 )
@@ -47,6 +49,8 @@ type Route struct {
 	currentPeerKey       string
 	cancel               context.CancelFunc
 	statusRecorder       *peer.Status
+	wgInterface          *iface.WGIface
+	serviceViaMemory     *nbdns.ServiceViaMemory
 }
 
 func NewRoute(
@@ -55,6 +59,7 @@ func NewRoute(
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
 	interval time.Duration,
 	statusRecorder *peer.Status,
+	wgInterface *iface.WGIface,
 ) *Route {
 	return &Route{
 		route:                rt,
@@ -63,6 +68,8 @@ func NewRoute(
 		interval:             interval,
 		dynamicDomains:       domainMap{},
 		statusRecorder:       statusRecorder,
+		wgInterface:          wgInterface,
+		serviceViaMemory:     nbdns.NewServiceViaMemory(wgInterface),
 	}
 }
 
@@ -228,11 +235,16 @@ func (r *Route) resolve(results chan resolveResult) {
 		wg.Add(1)
 		go func(domain domain.Domain) {
 			defer wg.Done()
-			ips, err := net.LookupIP(string(domain))
+
+			ips, err := r.getIPsFromResolver(domain)
 			if err != nil {
-				results <- resolveResult{domain: domain, err: fmt.Errorf("resolve d %s: %w", domain.SafeString(), err)}
-				return
+				ips, err = net.LookupIP(string(domain))
+				if err != nil {
+					results <- resolveResult{domain: domain, err: fmt.Errorf("resolve d %s: %w", domain.SafeString(), err)}
+					return
+				}
 			}
+
 			for _, ip := range ips {
 				prefix, err := util.GetPrefixFromIP(ip)
 				if err != nil {
