@@ -69,6 +69,11 @@ func NewOAuthFlow(ctx context.Context, config *internal.Config, isLinuxDesktopCl
 		return authenticateWithDeviceCodeFlow(ctx, config)
 	}
 
+	// On FreeBSD we currently do not support desktop environments and offer only Device Code Flow (#2384)
+	if runtime.GOOS == "freebsd" {
+		return authenticateWithDeviceCodeFlow(ctx, config)
+	}
+
 	pkceFlow, err := authenticateWithPKCEFlow(ctx, config)
 	if err != nil {
 		// fallback to device code flow
