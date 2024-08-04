@@ -93,12 +93,15 @@ func init() {
 	oldDefaultConfigPathDir = "/etc/wiretrustee/"
 	oldDefaultLogFileDir = "/var/log/wiretrustee/"
 
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		defaultConfigPathDir = os.Getenv("PROGRAMDATA") + "\\Netbird\\"
 		defaultLogFileDir = os.Getenv("PROGRAMDATA") + "\\Netbird\\"
 
 		oldDefaultConfigPathDir = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\"
 		oldDefaultLogFileDir = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\"
+	case "freebsd":
+		defaultConfigPathDir = "/var/db/netbird/"
 	}
 
 	defaultConfigPath = defaultConfigPathDir + "config.json"
