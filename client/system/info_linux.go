@@ -21,6 +21,26 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+type SysInfoGetter interface {
+	GetSysInfo() SysInfo
+}
+
+type SysInfoWrapper struct {
+	si sysinfo.SysInfo
+}
+
+func (s SysInfoWrapper) GetSysInfo() SysInfo {
+	s.si.GetSysInfo()
+	return SysInfo{
+		ChassisSerial: s.si.Chassis.Serial,
+		ProductSerial: s.si.Product.Serial,
+		BoardSerial:   s.si.Board.Serial,
+		ProductName:   s.si.Product.Name,
+		BoardName:     s.si.Board.Name,
+		ProductVendor: s.si.Product.Vendor,
+	}
+}
+
 // GetInfo retrieves and parses the system information
 func GetInfo(ctx context.Context) *Info {
 	info := _getInfo()
@@ -45,7 +65,8 @@ func GetInfo(ctx context.Context) *Info {
 		log.Warnf("failed to discover network addresses: %s", err)
 	}
 
-	serialNum, prodName, manufacturer := sysInfo()
+	si := SysInfoWrapper{}
+	serialNum, prodName, manufacturer := sysInfo(si.GetSysInfo())
 
 	env := Environment{
 		Cloud:    detect_cloud.Detect(ctx),
@@ -87,20 +108,36 @@ func _getInfo() string {
 	return out.String()
 }
 
-func sysInfo() (serialNumber string, productName string, manufacturer string) {
-	var si sysinfo.SysInfo
-	si.GetSysInfo()
+func sysInfo(si SysInfo) (string, string, string) {
 	isascii := regexp.MustCompile("^[[:ascii:]]+$")
-	serial := si.Chassis.Serial
-	if (serial == "Default string" || serial == "") && si.Product.Serial != "" {
-		serial = si.Product.Serial
+
+	serials := []string{si.ChassisSerial, si.ProductSerial}
+	serial := ""
+
+	for _, s := range serials {
+		if isascii.MatchString(s) {
+			serial = s
+			if s != "Default string" {
+				break
+			}
+		}
 	}
-	if (!isascii.MatchString(serial)) && si.Board.Serial != "" {
-		serial = si.Board.Serial
+
+	if serial == "" && isascii.MatchString(si.BoardSerial) {
+		serial = si.BoardSerial
 	}
-	name := si.Product.Name
-	if (!isascii.MatchString(name)) && si.Board.Name != "" {
-		name = si.Board.Name
+
+	var name string
+	for _, n := range []string{si.ProductName, si.BoardName} {
+		if isascii.MatchString(n) {
+			name = n
+			break
+		}
 	}
-	return serial, name, si.Product.Vendor
+
+	var manufacturer string
+	if isascii.MatchString(si.ProductVendor) {
+		manufacturer = si.ProductVendor
+	}
+	return serial, name, manufacturer
 }

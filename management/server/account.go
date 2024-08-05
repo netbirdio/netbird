@@ -137,8 +137,8 @@ type AccountManager interface {
 	UpdateIntegratedValidatorGroups(ctx context.Context, accountID string, userID string, groups []string) error
 	GroupValidation(ctx context.Context, accountId string, groups []string) (bool, error)
 	GetValidatedPeers(account *Account) (map[string]struct{}, error)
-	SyncAndMarkPeer(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)
-	CancelPeerRoutines(ctx context.Context, peer *nbpeer.Peer) error
+	SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error)
+	OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string) error
 	SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error
 	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error)
@@ -1022,7 +1022,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 	}
 
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -1073,7 +1073,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 
 func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
 	return func() (time.Duration, bool) {
-		unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+		unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 		defer unlock()
 
 		account, err := am.Store.GetAccount(ctx, accountID)
@@ -1172,7 +1172,7 @@ func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context) error {
 
 // DeleteAccount deletes an account and all its users from local store and from the remote IDP if the requester is an admin and account owner
 func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, userID string) error {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
@@ -1632,7 +1632,7 @@ func (am *DefaultAccountManager) MarkPATUsed(ctx context.Context, tokenID string
 		return err
 	}
 
-	unlock := am.Store.AcquireAccountWriteLock(ctx, account.Id)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, account.Id)
 	defer unlock()
 
 	account, err = am.Store.GetAccountByUser(ctx, user.Id)
@@ -1715,7 +1715,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(ctx context.Context, claims
 	if err != nil {
 		return nil, nil, err
 	}
-	unlock := am.Store.AcquireAccountWriteLock(ctx, newAcc.Id)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, newAcc.Id)
 	alreadyUnlocked := false
 	defer func() {
 		if !alreadyUnlocked {
@@ -1871,7 +1871,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(ctx context.C
 
 	account, err := am.Store.GetAccountByUser(ctx, claims.UserId)
 	if err == nil {
-		unlockAccount := am.Store.AcquireAccountWriteLock(ctx, account.Id)
+		unlockAccount := am.Store.AcquireWriteLockByUID(ctx, account.Id)
 		defer unlockAccount()
 		account, err = am.Store.GetAccountByUser(ctx, claims.UserId)
 		if err != nil {
@@ -1891,7 +1891,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(ctx context.C
 		return account, nil
 	} else if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
 		if domainAccount != nil {
-			unlockAccount := am.Store.AcquireAccountWriteLock(ctx, domainAccount.Id)
+			unlockAccount := am.Store.AcquireWriteLockByUID(ctx, domainAccount.Id)
 			defer unlockAccount()
 			domainAccount, err = am.Store.GetAccountByPrivateDomain(ctx, claims.Domain)
 			if err != nil {
@@ -1905,17 +1905,11 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(ctx context.C
 	}
 }
 
-func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
-	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, peerPubKey)
-	if err != nil {
-		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
-			return nil, nil, nil, status.Errorf(status.Unauthenticated, "peer not registered")
-		}
-		return nil, nil, nil, err
-	}
-
-	unlock := am.Store.AcquireAccountReadLock(ctx, accountID)
-	defer unlock()
+func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *NetworkMap, []*posture.Checks, error) {
+	accountUnlock := am.Store.AcquireReadLockByUID(ctx, accountID)
+	defer accountUnlock()
+	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
+	defer peerUnlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
@@ -1935,26 +1929,20 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey
 	return peer, netMap, postureChecks, nil
 }
 
-func (am *DefaultAccountManager) CancelPeerRoutines(ctx context.Context, peer *nbpeer.Peer) error {
-	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, peer.Key)
-	if err != nil {
-		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
-			return status.Errorf(status.Unauthenticated, "peer not registered")
-		}
-		return err
-	}
-
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
-	defer unlock()
+func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string) error {
+	accountUnlock := am.Store.AcquireReadLockByUID(ctx, accountID)
+	defer accountUnlock()
+	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
+	defer peerUnlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return err
 	}
 
-	err = am.MarkPeerConnected(ctx, peer.Key, false, nil, account)
+	err = am.MarkPeerConnected(ctx, peerPubKey, false, nil, account)
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peer.Key, err)
+		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
 
 	return nil
@@ -1967,7 +1955,7 @@ func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey st
 		return err
 	}
 
-	unlock := am.Store.AcquireAccountReadLock(ctx, accountID)
+	unlock := am.Store.AcquireReadLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)

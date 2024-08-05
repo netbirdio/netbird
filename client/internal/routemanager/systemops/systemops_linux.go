@@ -206,7 +206,7 @@ func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error 
 	return nil
 }
 
-func getRoutesFromTable() ([]netip.Prefix, error) {
+func GetRoutesFromTable() ([]netip.Prefix, error) {
 	v4Routes, err := getRoutes(syscall.RT_TABLE_MAIN, netlink.FAMILY_V4)
 	if err != nil {
 		return nil, fmt.Errorf("get v4 routes: %w", err)
@@ -504,7 +504,7 @@ func getAddressFamily(prefix netip.Prefix) int {
 
 func hasSeparateRouting() ([]netip.Prefix, error) {
 	if isLegacy() {
-		return getRoutesFromTable()
+		return GetRoutesFromTable()
 	}
 	return nil, ErrRoutingIsSeparate
 }
