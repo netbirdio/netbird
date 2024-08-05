@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"reflect"
 	"testing"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -385,5 +386,88 @@ func BenchmarkToProtocolDNSConfig(b *testing.B) {
 				toProtocolDNSConfig(testData, cache)
 			}
 		})
+	}
+}
+
+func TestToProtocolDNSConfigWithCache(t *testing.T) {
+	var cache DNSConfigCache
+
+	// Create two different configs
+	config1 := nbdns.Config{
+		ServiceEnable: true,
+		CustomZones: []nbdns.CustomZone{
+			{
+				Domain: "example.com",
+				Records: []nbdns.SimpleRecord{
+					{Name: "www", Type: 1, Class: "IN", TTL: 300, RData: "192.168.1.1"},
+				},
+			},
+		},
+		NameServerGroups: []*nbdns.NameServerGroup{
+			{
+				ID:   "group1",
+				Name: "Group 1",
+				NameServers: []nbdns.NameServer{
+					{IP: netip.MustParseAddr("8.8.8.8"), Port: 53},
+				},
+			},
+		},
+	}
+
+	config2 := nbdns.Config{
+		ServiceEnable: true,
+		CustomZones: []nbdns.CustomZone{
+			{
+				Domain: "example.org",
+				Records: []nbdns.SimpleRecord{
+					{Name: "mail", Type: 1, Class: "IN", TTL: 300, RData: "192.168.1.2"},
+				},
+			},
+		},
+		NameServerGroups: []*nbdns.NameServerGroup{
+			{
+				ID:   "group2",
+				Name: "Group 2",
+				NameServers: []nbdns.NameServer{
+					{IP: netip.MustParseAddr("8.8.4.4"), Port: 53},
+				},
+			},
+		},
+	}
+
+	// First run with config1
+	result1 := toProtocolDNSConfig(config1, &cache)
+
+	// Second run with config2
+	result2 := toProtocolDNSConfig(config2, &cache)
+
+	// Third run with config1 again
+	result3 := toProtocolDNSConfig(config1, &cache)
+
+	// Verify that result1 and result3 are identical
+	if !reflect.DeepEqual(result1, result3) {
+		t.Errorf("Results are not identical when run with the same input. Expected %v, got %v", result1, result3)
+	}
+
+	// Verify that result2 is different from result1 and result3
+	if reflect.DeepEqual(result1, result2) || reflect.DeepEqual(result2, result3) {
+		t.Errorf("Results should be different for different inputs")
+	}
+
+	// Verify that the cache contains elements from both configs
+	if _, exists := cache.GetCustomZone("example.com"); !exists {
+		t.Errorf("Cache should contain custom zone for example.com")
+	}
+
+	if _, exists := cache.GetCustomZone("example.org"); !exists {
+		t.Errorf("Cache should contain custom zone for example.org")
+	}
+
+	if _, exists := cache.GetNameServerGroup("group1"); !exists {
+		t.Errorf("Cache should contain name server group 'group1'")
+	}
+
+	if _, exists := cache.GetNameServerGroup("group2"); !exists {
+		t.Errorf("Cache should contain name server group 'group2'")
 	}
 }
