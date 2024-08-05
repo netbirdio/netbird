@@ -94,7 +94,7 @@ func NewDefaultServer(
 
 	var dnsService service
 	if wgInterface.IsUserspaceBind() {
-		dnsService = newServiceViaMemory(wgInterface)
+		dnsService = NewServiceViaMemory(wgInterface)
 	} else {
 		dnsService = newServiceViaListener(wgInterface, addrPort)
 	}
@@ -112,7 +112,7 @@ func NewDefaultServerPermanentUpstream(
 	statusRecorder *peer.Status,
 ) *DefaultServer {
 	log.Debugf("host dns address list is: %v", hostsDnsList)
-	ds := newDefaultServer(ctx, wgInterface, newServiceViaMemory(wgInterface), statusRecorder)
+	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder)
 	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
 	ds.addHostRootZone()
@@ -130,7 +130,7 @@ func NewDefaultServerIos(
 	iosDnsManager IosDnsManager,
 	statusRecorder *peer.Status,
 ) *DefaultServer {
-	ds := newDefaultServer(ctx, wgInterface, newServiceViaMemory(wgInterface), statusRecorder)
+	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder)
 	ds.iosDnsManager = iosDnsManager
 	return ds
 }

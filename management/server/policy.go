@@ -314,7 +314,7 @@ func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule,
 
 // GetPolicy from the store
 func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, policyID, userID string) (*Policy, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -342,7 +342,7 @@ func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, polic
 
 // SavePolicy in the store
 func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *Policy) error {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -370,7 +370,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 
 // DeletePolicy from the store
 func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, policyID, userID string) error {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -397,7 +397,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 // ListPolicies from the store
 func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, userID string) ([]*Policy, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)

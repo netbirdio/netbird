@@ -94,7 +94,7 @@ func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) erro
 	return nil
 }
 
-func getRoutesFromTable() ([]netip.Prefix, error) {
+func GetRoutesFromTable() ([]netip.Prefix, error) {
 	mux.Lock()
 	defer mux.Unlock()
 

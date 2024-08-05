@@ -254,6 +254,27 @@ type Country struct {
 // CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
 type CountryCode = string
 
+// CreateSetupKeyRequest defines model for CreateSetupKeyRequest.
+type CreateSetupKeyRequest struct {
+	// AutoGroups List of group IDs to auto-assign to peers registered with this key
+	AutoGroups []string `json:"auto_groups"`
+
+	// Ephemeral Indicate that the peer will be ephemeral or not
+	Ephemeral *bool `json:"ephemeral,omitempty"`
+
+	// ExpiresIn Expiration time in seconds
+	ExpiresIn int `json:"expires_in"`
+
+	// Name Setup Key name
+	Name string `json:"name"`
+
+	// Type Setup key type, one-off for single time usage and reusable
+	Type string `json:"type"`
+
+	// UsageLimit A number of times this key can be used. The value of 0 indicates the unlimited usage.
+	UsageLimit int `json:"usage_limit"`
+}
+
 // DNSSettings defines model for DNSSettings.
 type DNSSettings struct {
 	// DisabledManagementGroups Groups whose DNS management is disabled
@@ -1241,7 +1262,7 @@ type PostApiRoutesJSONRequestBody = RouteRequest
 type PutApiRoutesRouteIdJSONRequestBody = RouteRequest
 
 // PostApiSetupKeysJSONRequestBody defines body for PostApiSetupKeys for application/json ContentType.
-type PostApiSetupKeysJSONRequestBody = SetupKeyRequest
+type PostApiSetupKeysJSONRequestBody = CreateSetupKeyRequest
 
 // PutApiSetupKeysKeyIdJSONRequestBody defines body for PutApiSetupKeysKeyId for application/json ContentType.
 type PutApiSetupKeysKeyIdJSONRequestBody = SetupKeyRequest

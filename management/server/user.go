@@ -211,7 +211,7 @@ func NewOwnerUser(id string) *User {
 
 // createServiceUser creates a new service user under the given account.
 func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountID string, initiatorUserID string, role UserRole, serviceUserName string, nonDeletable bool, autoGroups []string) (*UserInfo, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -267,7 +267,7 @@ func (am *DefaultAccountManager) CreateUser(ctx context.Context, accountID, user
 
 // inviteNewUser Invites a USer to a given account and creates reference in datastore
 func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, userID string, invite *UserInfo) (*UserInfo, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	if am.idpManager == nil {
@@ -368,7 +368,7 @@ func (am *DefaultAccountManager) GetUser(ctx context.Context, claims jwtclaims.A
 		return nil, fmt.Errorf("failed to get account with token claims %v", err)
 	}
 
-	unlock := am.Store.AcquireAccountWriteLock(ctx, account.Id)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, account.Id)
 	defer unlock()
 
 	account, err = am.Store.GetAccount(ctx, account.Id)
@@ -401,7 +401,7 @@ func (am *DefaultAccountManager) GetUser(ctx context.Context, claims jwtclaims.A
 // ListUsers returns lists of all users under the account.
 // It doesn't populate user information such as email or name.
 func (am *DefaultAccountManager) ListUsers(ctx context.Context, accountID string) ([]*User, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -428,7 +428,7 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 	if initiatorUserID == targetUserID {
 		return status.Errorf(status.InvalidArgument, "self deletion is not allowed")
 	}
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -538,7 +538,7 @@ func (am *DefaultAccountManager) deleteUserPeers(ctx context.Context, initiatorU
 
 // InviteUser resend invitations to users who haven't activated their accounts prior to the expiration period.
 func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	if am.idpManager == nil {
@@ -578,7 +578,7 @@ func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID strin
 
 // CreatePAT creates a new PAT for the given user
 func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	if tokenName == "" {
@@ -628,7 +628,7 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 
 // DeletePAT deletes a specific PAT from a user
 func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -678,7 +678,7 @@ func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string
 
 // GetPAT returns a specific PAT from a user
 func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -710,7 +710,7 @@ func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, i
 
 // GetAllPATs returns all PATs for a user
 func (am *DefaultAccountManager) GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -752,7 +752,7 @@ func (am *DefaultAccountManager) SaveOrAddUser(ctx context.Context, accountID, i
 		return nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 	}
 
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	updatedUsers, err := am.SaveOrAddUsers(ctx, accountID, initiatorUserID, []*User{update}, addIfNotExists)
@@ -859,7 +859,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	}
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveUsers(account.Id, account.Users); err != nil {
+	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return nil, err
 	}
 

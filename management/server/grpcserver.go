@@ -156,7 +156,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		log.WithContext(ctx).Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
 	}
 
-	peer, netMap, postureChecks, err := s.accountManager.SyncAndMarkPeer(ctx, peerKey.String(), extractPeerMeta(ctx, syncReq.GetMeta()), realIP)
+	peer, netMap, postureChecks, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), extractPeerMeta(ctx, syncReq.GetMeta()), realIP)
 	if err != nil {
 		return mapError(ctx, err)
 	}
@@ -179,11 +179,11 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart))
 	}
 
-	return s.handleUpdates(ctx, peerKey, peer, updates, srv)
+	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv)
 }
 
 // handleUpdates sends updates to the connected peer until the updates channel is closed.
-func (s *GRPCServer) handleUpdates(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *UpdateMessage, srv proto.ManagementService_SyncServer) error {
+func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *UpdateMessage, srv proto.ManagementService_SyncServer) error {
 	for {
 		select {
 		// condition when there are some updates
@@ -194,12 +194,12 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, peerKey wgtypes.Key, pee
 
 			if !open {
 				log.WithContext(ctx).Debugf("updates channel for peer %s was closed", peerKey.String())
-				s.cancelPeerRoutines(ctx, peer)
+				s.cancelPeerRoutines(ctx, accountID, peer)
 				return nil
 			}
 			log.WithContext(ctx).Debugf("received an update for peer %s", peerKey.String())
 
-			if err := s.sendUpdate(ctx, peerKey, peer, update, srv); err != nil {
+			if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv); err != nil {
 				return err
 			}
 
@@ -207,7 +207,7 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, peerKey wgtypes.Key, pee
 		case <-srv.Context().Done():
 			// happens when connection drops, e.g. client disconnects
 			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
-			s.cancelPeerRoutines(ctx, peer)
+			s.cancelPeerRoutines(ctx, accountID, peer)
 			return srv.Context().Err()
 		}
 	}
@@ -215,10 +215,10 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, peerKey wgtypes.Key, pee
 
 // sendUpdate encrypts the update message using the peer key and the server's wireguard key,
 // then sends the encrypted message to the connected peer via the sync server.
-func (s *GRPCServer) sendUpdate(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, update *UpdateMessage, srv proto.ManagementService_SyncServer) error {
+func (s *GRPCServer) sendUpdate(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, update *UpdateMessage, srv proto.ManagementService_SyncServer) error {
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, update.Update)
 	if err != nil {
-		s.cancelPeerRoutines(ctx, peer)
+		s.cancelPeerRoutines(ctx, accountID, peer)
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
 	err = srv.SendMsg(&proto.EncryptedMessage{
@@ -226,17 +226,17 @@ func (s *GRPCServer) sendUpdate(ctx context.Context, peerKey wgtypes.Key, peer *
 		Body:     encryptedResp,
 	})
 	if err != nil {
-		s.cancelPeerRoutines(ctx, peer)
+		s.cancelPeerRoutines(ctx, accountID, peer)
 		return status.Errorf(codes.Internal, "failed sending update message")
 	}
 	log.WithContext(ctx).Debugf("sent an update to peer %s", peerKey.String())
 	return nil
 }
 
-func (s *GRPCServer) cancelPeerRoutines(ctx context.Context, peer *nbpeer.Peer) {
+func (s *GRPCServer) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer) {
 	s.peersUpdateManager.CloseChannel(ctx, peer.ID)
 	s.turnCredentialsManager.CancelRefresh(peer.ID)
-	_ = s.accountManager.CancelPeerRoutines(ctx, peer)
+	_ = s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key)
 	s.ephemeralManager.OnPeerDisconnected(ctx, peer)
 }
 

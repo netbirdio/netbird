@@ -35,8 +35,11 @@ func InitLog(logLevel string, logPath string) error {
 		AddSyslogHook()
 	}
 
+	//nolint:gocritic
 	if os.Getenv("NB_LOG_FORMAT") == "json" {
 		formatter.SetJSONFormatter(log.StandardLogger())
+	} else if logPath == "syslog" {
+		formatter.SetSyslogFormatter(log.StandardLogger())
 	} else {
 		formatter.SetTextFormatter(log.StandardLogger())
 	}

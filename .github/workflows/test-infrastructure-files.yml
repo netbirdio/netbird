@@ -151,10 +151,10 @@ jobs:
       - name: run docker compose up
         working-directory: infrastructure_files/artifacts
         run: |
-          docker-compose up -d
+          docker compose up -d
           sleep 5
-          docker-compose ps
-          docker-compose logs --tail=20
+          docker compose ps
+          docker compose logs --tail=20
 
       - name: test running containers
         run: |
@@ -207,7 +207,7 @@ jobs:
 
       - name: Postgres run cleanup
         run: |
-          docker-compose down --volumes --rmi all
+          docker compose down --volumes --rmi all
           rm -rf docker-compose.yml Caddyfile zitadel.env dashboard.env machinekey/zitadel-admin-sa.token turnserver.conf management.json zdb.env
 
       - name: run script with Zitadel CockroachDB
