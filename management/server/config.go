@@ -57,6 +57,10 @@ type Config struct {
 func (c Config) GetAuthAudiences() []string {
 	audiences := []string{c.HttpConfig.AuthAudience}
 
+	if c.HttpConfig.ExtraAuthAudience != "" {
+		audiences = append(audiences, c.HttpConfig.ExtraAuthAudience)
+	}
+
 	if c.DeviceAuthorizationFlow != nil && c.DeviceAuthorizationFlow.ProviderConfig.Audience != "" {
 		audiences = append(audiences, c.DeviceAuthorizationFlow.ProviderConfig.Audience)
 	}
@@ -95,6 +99,8 @@ type HttpServerConfig struct {
 	OIDCConfigEndpoint string
 	// IdpSignKeyRefreshEnabled identifies the signing key is currently being rotated or not
 	IdpSignKeyRefreshEnabled bool
+	// Extra audience
+	ExtraAuthAudience string
 }
 
 // Host represents a Wiretrustee host (e.g. STUN, TURN, Signal)

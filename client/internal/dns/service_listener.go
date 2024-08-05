@@ -128,6 +128,9 @@ func (s *serviceViaListener) RuntimeIP() string {
 }
 
 func (s *serviceViaListener) setListenerStatus(running bool) {
+	s.listenerFlagLock.Lock()
+	defer s.listenerFlagLock.Unlock()
+
 	s.listenerIsRunning = running
 }
 

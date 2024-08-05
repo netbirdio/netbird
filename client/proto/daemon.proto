@@ -263,6 +263,7 @@ message Route {
 message DebugBundleRequest {
   bool anonymize = 1;
   string status = 2;
+  bool systemInfo = 3;
 }
 
 message DebugBundleResponse {

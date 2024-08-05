@@ -526,6 +526,43 @@ components:
         - revoked
         - auto_groups
         - usage_limit
+    CreateSetupKeyRequest:
+      type: object
+      properties:
+        name:
+          description: Setup Key name
+          type: string
+          example: Default key
+        type:
+          description: Setup key type, one-off for single time usage and reusable
+          type: string
+          example: reusable
+        expires_in:
+          description: Expiration time in seconds
+          type: integer
+          minimum: 86400
+          maximum: 31536000
+          example: 86400
+        auto_groups:
+          description: List of group IDs to auto-assign to peers registered with this key
+          type: array
+          items:
+            type: string
+            example: "ch8i4ug6lnn4g9hqv7m0"
+        usage_limit:
+          description: A number of times this key can be used. The value of 0 indicates the unlimited usage.
+          type: integer
+          example: 0
+        ephemeral:
+          description: Indicate that the peer will be ephemeral or not
+          type: boolean
+          example: true
+      required:
+        - name
+        - type
+        - expires_in
+        - auto_groups
+        - usage_limit
     PersonalAccessToken:
       type: object
       properties:
@@ -1806,7 +1843,7 @@ paths:
         content:
           'application/json':
             schema:
-              $ref: '#/components/schemas/SetupKeyRequest'
+              $ref: '#/components/schemas/CreateSetupKeyRequest'
       responses:
         '200':
           description: A Setup Keys Object
