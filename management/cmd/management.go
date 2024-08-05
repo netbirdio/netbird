@@ -190,7 +190,7 @@ var (
 				return fmt.Errorf("failed to initialize integrated peer validator: %v", err)
 			}
 			accountManager, err := server.BuildManager(ctx, store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
-				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator)
+				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}
