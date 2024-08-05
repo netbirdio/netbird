@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -281,11 +282,16 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountId, use
 // DeleteGroups deletes groups from an account.
 // Note: This function does not acquire the global lock.
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
+//
+// If an error occurs while deleting a group, the function skips it and continues deleting other groups.
+// Errors are collected and returned at the end.
 func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error {
 	account, err := am.Store.GetAccount(ctx, accountId)
 	if err != nil {
 		return err
 	}
+
+	var allErrors error
 
 	deletedGroups := make([]*nbgroup.Group, 0, len(groupIDs))
 	for _, groupID := range groupIDs {
@@ -295,7 +301,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountId, us
 		}
 
 		if err := validateDeleteGroup(account, group, userId); err != nil {
-			log.WithContext(ctx).Debugf("failed to delete group %s: %v", groupID, err)
+			allErrors = errors.Join(allErrors, fmt.Errorf("failed to delete group %s: %w", groupID, err))
 			continue
 		}
 
@@ -314,7 +320,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountId, us
 
 	am.updateAccountPeers(ctx, account)
 
-	return nil
+	return allErrors
 }
 
 // ListGroups objects of the peers
