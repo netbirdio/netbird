@@ -272,6 +272,9 @@ func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
 
 	routesMap := engine.GetClientRoutesWithNetID()
 	routeSelector := engine.GetRouteManager().GetRouteSelector()
+	if routeSelector == nil {
+		return nil, fmt.Errorf("could not get route selector")
+	}
 
 	var routes []*selectRoute
 	for id, rt := range routesMap {
