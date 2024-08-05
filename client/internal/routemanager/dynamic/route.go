@@ -48,7 +48,7 @@ type Route struct {
 	currentPeerKey       string
 	cancel               context.CancelFunc
 	statusRecorder       *peer.Status
-	wgInterface          *iface.WGIface
+	wgInterface          iface.IWGIface
 	resolverAddr         string
 }
 
@@ -58,7 +58,7 @@ func NewRoute(
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
 	interval time.Duration,
 	statusRecorder *peer.Status,
-	wgInterface *iface.WGIface,
+	wgInterface iface.IWGIface,
 	resolverAddr string,
 ) *Route {
 	return &Route{
