@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -1160,6 +1161,9 @@ func (am *DefaultAccountManager) getEmailAndNameOfTargetUser(ctx context.Context
 // DeleteRegularUsers deletes regular users from an account.
 // Note: This function does not acquire the global lock.
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
+//
+// If an error occurs while deleting the user, the function skips it and continues deleting other users.
+// Errors are collected and returned at the end.
 func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string) error {
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
@@ -1174,33 +1178,35 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 		return status.Errorf(status.PermissionDenied, "only users with admin power can delete users")
 	}
 
+	var allErrors error
+
 	deletedUsersMeta := make(map[string]map[string]any)
 	for _, targetUserID := range targetUserIDs {
 		if initiatorUserID == targetUserID {
-			log.WithContext(ctx).Debug("self deletion is not allowed")
+			allErrors = errors.Join(allErrors, errors.New("self deletion is not allowed"))
 			continue
 		}
 
 		targetUser := account.Users[targetUserID]
 		if targetUser == nil {
-			log.WithContext(ctx).Debugf("target user: %s not found", targetUserID)
+			allErrors = errors.Join(allErrors, fmt.Errorf("target user: %s not found", targetUserID))
 			continue
 		}
 
 		if targetUser.Role == UserRoleOwner {
-			log.WithContext(ctx).Debugf("unable to delete a user: %s with owner role", targetUserID)
+			allErrors = errors.Join(allErrors, fmt.Errorf("unable to delete a user: %s with owner role", targetUserID))
 			continue
 		}
 
 		// disable deleting integration user if the initiator is not admin service user
 		if targetUser.Issued == UserIssuedIntegration && !executingUser.IsServiceUser {
-			log.WithContext(ctx).Debug("only integration service user can delete this user")
+			allErrors = errors.Join(allErrors, errors.New("only integration service user can delete this user"))
 			continue
 		}
 
 		meta, err := am.prepareUserDeletion(ctx, account, initiatorUserID, targetUserID)
 		if err != nil {
-			log.WithContext(ctx).Debugf("failed to delete user %s: %s", targetUserID, err)
+			allErrors = errors.Join(allErrors, fmt.Errorf("failed to delete user %s: %s", targetUserID, err))
 			continue
 		}
 
@@ -1219,7 +1225,7 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 		am.StoreEvent(ctx, initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
 	}
 
-	return nil
+	return allErrors
 }
 
 func (am *DefaultAccountManager) prepareUserDeletion(ctx context.Context, account *Account, initiatorUserID, targetUserID string) (map[string]any, error) {
