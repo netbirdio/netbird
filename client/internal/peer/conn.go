@@ -318,8 +318,14 @@ func (conn *Conn) reconnectLoopWithRetry() {
 				return
 			}
 
-			if conn.statusRelay == StatusDisconnected || conn.statusICE == StatusDisconnected {
-				conn.log.Tracef("ticker timedout, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
+			if conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
+				if conn.statusRelay == StatusDisconnected || conn.statusICE == StatusDisconnected {
+					conn.log.Tracef("ticker timedout, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
+				}
+			} else {
+				if conn.statusICE == StatusDisconnected {
+					conn.log.Tracef("ticker timedout, ice state: %s", conn.statusICE)
+				}
 			}
 
 			// checks if there is peer connection is established via relay or ice
@@ -708,13 +714,16 @@ func (conn *Conn) isConnected() bool {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	if conn.statusRelay != StatusConnected {
-		return false
-	}
-
 	if conn.statusICE != StatusConnected && conn.statusICE != StatusConnecting {
 		return false
 	}
+
+	if conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
+		if conn.statusRelay != StatusConnected {
+			return false
+		}
+	}
+
 	return true
 }
 

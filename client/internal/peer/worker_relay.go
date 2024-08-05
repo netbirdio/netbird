@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -34,7 +35,8 @@ type WorkerRelay struct {
 	relayManager relayClient.ManagerService
 	conn         WorkerRelayCallbacks
 
-	ctxCancel context.CancelFunc
+	ctxCancel                  context.CancelFunc
+	relaySupportedOnRemotePeer atomic.Bool
 }
 
 func NewWorkerRelay(ctx context.Context, log *log.Entry, config ConnConfig, relayManager relayClient.ManagerService, callbacks WorkerRelayCallbacks) *WorkerRelay {
@@ -51,8 +53,10 @@ func NewWorkerRelay(ctx context.Context, log *log.Entry, config ConnConfig, rela
 func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	if !w.isRelaySupported(remoteOfferAnswer) {
 		w.log.Infof("Relay is not supported by remote peer")
+		w.relaySupportedOnRemotePeer.Store(false)
 		return
 	}
+	w.relaySupportedOnRemotePeer.Store(true)
 
 	// the relayManager will return with error in case if the connection has lost with relay server
 	currentRelayAddress, err := w.relayManager.RelayInstanceAddress()
@@ -97,6 +101,10 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 
 func (w *WorkerRelay) RelayInstanceAddress() (string, error) {
 	return w.relayManager.RelayInstanceAddress()
+}
+
+func (w *WorkerRelay) IsRelayConnectionSupportedWithPeer() bool {
+	return w.relaySupportedOnRemotePeer.Load() && w.RelayIsSupportedLocally()
 }
 
 func (w *WorkerRelay) IsController() bool {
