@@ -415,7 +415,7 @@ message NetworkAddress {
 }
 
 message Checks {
-  repeated string Files= 1;
+  repeated string Files = 1;
 }
 
 
@@ -455,7 +455,7 @@ message RouteFirewallRule {
   PortInfo portInfo = 7;
 
   // IsDynamic indicate if the route is DNS route.
-  bool isDynamic =8;
+  bool isDynamic = 8;
 
   enum NetworkType {
     UNKNOWN = 0;

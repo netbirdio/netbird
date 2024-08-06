@@ -17,6 +17,21 @@ import (
 	"github.com/netbirdio/netbird/iface"
 )
 
+var ifaceMock = &iFaceMock{
+	NameFunc: func() string {
+		return "lo"
+	},
+	AddressFunc: func() iface.WGAddress {
+		return iface.WGAddress{
+			IP: net.ParseIP("100.96.0.1"),
+			Network: &net.IPNet{
+				IP:   net.ParseIP("100.96.0.0"),
+				Mask: net.IPv4Mask(255, 255, 255, 0),
+			},
+		}
+	},
+}
+
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMock struct {
 	NameFunc    func() string
@@ -40,23 +55,9 @@ func (i *iFaceMock) Address() iface.WGAddress {
 func (i *iFaceMock) IsUserspaceBind() bool { return false }
 
 func TestNftablesManager(t *testing.T) {
-	mock := &iFaceMock{
-		NameFunc: func() string {
-			return "lo"
-		},
-		AddressFunc: func() iface.WGAddress {
-			return iface.WGAddress{
-				IP: net.ParseIP("100.96.0.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("100.96.0.0"),
-					Mask: net.IPv4Mask(255, 255, 255, 0),
-				},
-			}
-		},
-	}
 
 	// just check on the local interface
-	manager, err := Create(context.Background(), mock)
+	manager, err := Create(context.Background(), ifaceMock)
 	require.NoError(t, err)
 	time.Sleep(time.Second * 3)
 
@@ -70,7 +71,7 @@ func TestNftablesManager(t *testing.T) {
 
 	testClient := &nftables.Conn{}
 
-	rule, err := manager.AddFiltering(
+	rule, err := manager.AddPeerFiltering(
 		ip,
 		fw.ProtocolTCP,
 		nil,
@@ -137,7 +138,7 @@ func TestNftablesManager(t *testing.T) {
 	require.ElementsMatch(t, rules[0].Exprs, expectedExprs, "expected the same expressions")
 
 	for _, r := range rule {
-		err = manager.DeleteRule(r)
+		err = manager.DeletePeerRule(r)
 		require.NoError(t, err, "failed to delete rule")
 	}
 
@@ -187,9 +188,9 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 			for i := 0; i < testMax; i++ {
 				port := &fw.Port{Values: []int{1000 + i}}
 				if i%2 == 0 {
-					_, err = manager.AddFiltering(ip, "tcp", nil, port, fw.RuleDirectionOUT, fw.ActionAccept, "", "accept HTTP traffic")
+					_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.RuleDirectionOUT, fw.ActionAccept, "", "accept HTTP traffic")
 				} else {
-					_, err = manager.AddFiltering(ip, "tcp", nil, port, fw.RuleDirectionIN, fw.ActionAccept, "", "accept HTTP traffic")
+					_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.RuleDirectionIN, fw.ActionAccept, "", "accept HTTP traffic")
 				}
 				require.NoError(t, err, "failed to add rule")
 

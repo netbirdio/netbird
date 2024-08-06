@@ -3,13 +3,14 @@ package manager
 import (
 	"fmt"
 	"net"
+	"net/netip"
+
+	"github.com/netbirdio/netbird/route"
 )
 
 const (
-	NatFormat          = "netbird-nat-%s"
-	ForwardingFormat   = "netbird-fwd-%s"
-	InNatFormat        = "netbird-nat-in-%s"
-	InForwardingFormat = "netbird-fwd-in-%s"
+	NatFormat        = "netbird-nat-%s"
+	InverseNatFormat = "netbird-nat-in-%s"
 )
 
 // Rule abstraction should be implemented by each firewall manager
@@ -49,11 +50,11 @@ type Manager interface {
 	// AllowNetbird allows netbird interface traffic
 	AllowNetbird() error
 
-	// AddFiltering rule to the firewall
+	// AddPeerFiltering adds a rule to the firewall
 	//
 	// If comment argument is empty firewall manager should set
 	// rule ID as comment for the rule
-	AddFiltering(
+	AddPeerFiltering(
 		ip net.IP,
 		proto Protocol,
 		sPort *Port,
@@ -64,17 +65,30 @@ type Manager interface {
 		comment string,
 	) ([]Rule, error)
 
-	// DeleteRule from the firewall by rule definition
-	DeleteRule(rule Rule) error
+	// DeletePeerRule from the firewall by rule definition
+	DeletePeerRule(rule Rule) error
 
 	// IsServerRouteSupported returns true if the firewall supports server side routing operations
 	IsServerRouteSupported() bool
 
-	// InsertRoutingRules inserts a routing firewall rule
-	InsertRoutingRules(pair RouterPair) error
+	AddRouteFiltering(
+		source netip.Prefix,
+		destination netip.Prefix,
+		proto Protocol,
+		sPort *Port,
+		dPort *Port,
+		direction RuleDirection,
+		action Action,
+	) (Rule, error)
 
-	// RemoveRoutingRules removes a routing firewall rule
-	RemoveRoutingRules(pair RouterPair) error
+	// DeleteRouteRule deletes a routing rule
+	DeleteRouteRule(rule Rule) error
+
+	// AddNatRule inserts a routing NAT rule
+	AddNatRule(pair RouterPair) error
+
+	// RemoveNatRule removes a routing NAT rule
+	RemoveNatRule(pair RouterPair) error
 
 	// Reset firewall to the default state
 	Reset() error
@@ -83,6 +97,6 @@ type Manager interface {
 	Flush() error
 }
 
-func GenKey(format string, input string) string {
+func GenKey(format string, input route.ID) string {
 	return fmt.Sprintf(format, input)
 }

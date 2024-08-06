@@ -8,9 +8,10 @@ import (
 	"strconv"
 	"unicode/utf8"
 
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/proto"
@@ -419,17 +420,10 @@ func (a *Account) getPeerRoutesFirewallRules(ctx context.Context, peerID string,
 
 	enabledRoutes, _ := a.getRoutingPeerRoutes(ctx, peerID)
 	for _, route := range enabledRoutes {
-		// If no access control groups are specified, accept all incoming traffic.
+		// If no access control groups are specified, accept all traffic.
 		if len(route.AccessControlGroups) == 0 {
-			allowAll := RouteFirewallRule{
-				SourceRange: "0.0.0.0/0",
-				Direction:   firewallRuleDirectionIN,
-				Action:      string(PolicyTrafficActionAccept),
-				Destination: route.Network.String(),
-				NetworkType: int(route.NetworkType),
-				IsDynamic:   route.IsDynamic(),
-			}
-			routesFirewallRules = append(routesFirewallRules, &allowAll)
+			defaultPermit := getDefaultPermit(route)
+			routesFirewallRules = append(routesFirewallRules, defaultPermit...)
 			continue
 		}
 
@@ -452,6 +446,42 @@ func (a *Account) getPeerRoutesFirewallRules(ctx context.Context, peerID string,
 	}
 
 	return routesFirewallRules
+}
+
+func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
+	var rules []*RouteFirewallRule
+
+	source := "0.0.0.0/0"
+	if route.Network.Addr().Is6() {
+		source = "::/0"
+	}
+	ruleIn := RouteFirewallRule{
+		SourceRange: source,
+		Direction:   firewallRuleDirectionIN,
+		Action:      string(PolicyTrafficActionAccept),
+		Destination: route.Network.String(),
+		Protocol:    string(PolicyRuleProtocolALL),
+		NetworkType: int(route.NetworkType),
+		IsDynamic:   route.IsDynamic(),
+	}
+
+	ruleOut := ruleIn
+	ruleOut.Direction = firewallRuleDirectionOUT
+
+	rules = append(rules, &ruleIn, &ruleOut)
+
+	// dynamic routes always contain an IPv4 placeholder as destination, hence we must add IPv6 rules additionally
+	if route.IsDynamic() {
+		ruleIn6 := ruleIn
+		ruleIn6.SourceRange = "::/0"
+
+		ruleOut6 := ruleOut
+		ruleOut6.SourceRange = "::/0"
+
+		rules = append(rules, &ruleIn6, &ruleOut6)
+	}
+
+	return rules
 }
 
 // getAllRoutePoliciesFromGroups retrieves route policies associated with the specified access control groups
@@ -507,6 +537,8 @@ func generateRouteFirewallRules(ctx context.Context, route *route.Route, rule *P
 		}
 		rules = append(rules, generateRulesWithPorts(ctx, baseRule, rule, rulesExists)...)
 	}
+
+	// TODO: generate IPv6 rules for dynamic routes
 
 	return rules
 }
