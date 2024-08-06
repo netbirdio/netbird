@@ -433,8 +433,8 @@ message PortInfo {
 
 // RouteFirewallRule signifies a firewall rule applicable for a routed network.
 message RouteFirewallRule {
-  // sourceRange IP range of the routing peer.
-  string sourceRange = 1;
+  // sourceRanges IP ranges of the routing peers.
+  repeated  string sourceRanges = 1;
 
   // Direction of the firewall.
   RuleDirection direction = 2;
