@@ -21,7 +21,8 @@ import (
 )
 
 const (
-	metricsPort = 9090
+	metricsPort    = 9090
+	defaultLogPath = "console"
 )
 
 type Config struct {
@@ -38,6 +39,7 @@ type Config struct {
 	TlsKeyFile                    string
 	AuthSecret                    string
 	LogLevel                      string
+	LogFile                       string
 }
 
 func (c Config) Validate() error {
@@ -108,7 +110,6 @@ func waitForExitSignal() {
 }
 
 func loadConfig(configFile string) (*Config, error) {
-	log.Infof("loading config from: %s", configFile)
 	loadedConfig := &Config{}
 	_, err := util.ReadJson(configFile, loadedConfig)
 	if err != nil {
@@ -146,6 +147,10 @@ func loadConfig(configFile string) (*Config, error) {
 		loadedConfig.LetsencryptAWSSecretAccessKey = cobraConfig.LetsencryptAWSSecretAccessKey
 	}
 
+	if loadedConfig.LogFile == "" {
+		loadedConfig.LogFile = defaultLogPath
+	}
+
 	return loadedConfig, err
 }
 
@@ -157,8 +162,12 @@ func execute(cmd *cobra.Command, args []string) error {
 
 	err = cfg.Validate()
 	if err != nil {
-		log.Errorf("invalid config: %s", err)
-		os.Exit(1)
+		return fmt.Errorf("invalid config: %s", err)
+	}
+
+	err = util.InitLog(cfg.LogLevel, cfg.LogFile)
+	if err != nil {
+		return fmt.Errorf("failed to initialize log: %s", err)
 	}
 
 	metricsServer, err := metrics.NewServer(metricsPort, "")
