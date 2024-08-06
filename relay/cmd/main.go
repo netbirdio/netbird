@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	metricsPort    = 9090
-	defaultLogPath = "console"
+	metricsPort     = 9090
+	defaultLogLevel = "info"
+	defaultLogPath  = "console"
 )
 
 type Config struct {
@@ -145,6 +146,10 @@ func loadConfig(configFile string) (*Config, error) {
 	}
 	if cobraConfig.LetsencryptAWSSecretAccessKey != "" {
 		loadedConfig.LetsencryptAWSSecretAccessKey = cobraConfig.LetsencryptAWSSecretAccessKey
+	}
+
+	if loadedConfig.LogLevel == "" {
+		loadedConfig.LogLevel = defaultLogLevel
 	}
 
 	if loadedConfig.LogFile == "" {
