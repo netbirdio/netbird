@@ -65,18 +65,24 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 	peers := make([]*nbpeer.Peer, 0)
 	peersMap := make(map[string]*nbpeer.Peer)
 
-	if !user.HasAdminPower() && !user.IsServiceUser && account.Settings.RegularUsersViewBlocked {
+	regularUser := !user.HasAdminPower() && !user.IsServiceUser
+
+	if regularUser && account.Settings.RegularUsersViewBlocked {
 		return peers, nil
 	}
 
 	for _, peer := range account.Peers {
-		if !(user.HasAdminPower() || user.IsServiceUser) && user.Id != peer.UserID {
+		if regularUser && user.Id != peer.UserID {
 			// only display peers that belong to the current user if the current user is not an admin
 			continue
 		}
 		p := peer.Copy()
 		peers = append(peers, p)
 		peersMap[peer.ID] = p
+	}
+
+	if !regularUser {
+		return peers, nil
 	}
 
 	// fetch all the peers that have access to the user's peers
