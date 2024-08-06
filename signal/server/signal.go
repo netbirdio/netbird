@@ -56,6 +56,7 @@ func NewServer(meter metric.Meter) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating dispatcher: %v", err)
 	}
+
 	s := &Server{
 		dispatcher: dispatcher,
 		registry:   peer.NewRegistry(appMetrics),
