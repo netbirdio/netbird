@@ -38,7 +38,7 @@ func NewAccountManagerMetrics(ctx context.Context, meter metric.Meter) (*Account
 	networkMapObjectCount, err := meter.Int64Histogram("management.account.network.map.object.count",
 		metric.WithUnit("objects"),
 		metric.WithExplicitBucketBoundaries(
-			10, 20, 50, 100, 200, 500, 1000, 10_000,
+			50, 100, 200, 500, 1000, 2500, 5000, 10000,
 		))
 	if err != nil {
 		return nil, err
