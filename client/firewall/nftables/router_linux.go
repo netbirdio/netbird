@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
 )
@@ -28,7 +31,6 @@ const (
 	loopbackInterface = "lo\x00"
 )
 
-// some presets for building nftable rules
 var (
 	errFilterTableNotFound = fmt.Errorf("nftables: 'filter' table not found")
 )
@@ -41,8 +43,9 @@ type router struct {
 	filterTable *nftables.Table
 	chains      map[string]*nftables.Chain
 	// rules is useful to avoid duplicates and to get missing attributes that we don't have when adding new rules
-	rules   map[string]*nftables.Rule
-	wgIface iFaceMapper
+	rules            map[string]*nftables.Rule
+	wgIface          iFaceMapper
+	legacyManagement bool
 }
 
 func newRouter(parentCtx context.Context, workTable *nftables.Table, wgIface iFaceMapper) (*router, error) {
@@ -78,10 +81,6 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table, wgIface iFa
 		log.Errorf("failed to create containers for route: %s", err)
 	}
 	return r, err
-}
-
-func (r *router) RoutingFwChainName() string {
-	return chainNameRoutingFw
 }
 
 // ResetForwardRules cleans existing nftables default forward rules from the system
@@ -313,49 +312,118 @@ func (r *router) removeRouteRule(id string) error {
 
 // AddNatRule appends a nftables rule pair to the nat chain
 func (r *router) AddNatRule(pair firewall.RouterPair) error {
-	if !pair.Masquerade {
-		return nil
-	}
-
-	err := r.refreshRulesMap()
-	if err != nil {
+	if err := r.refreshRulesMap(); err != nil {
 		return fmt.Errorf("refresh rules map: %w", err)
 	}
 
-	err = r.addNatRule(firewall.NatFormat, chainNameRoutingNat, pair)
-	if err != nil {
-		return fmt.Errorf("add/ nat rule: %w", err)
+	if r.legacyManagement {
+		log.Warnf("This peer is connected to a NetBird Management service with an older version. Allowing all traffic for %s", pair.Destination)
+		if err := r.addLegacyRouteRule(pair); err != nil {
+			return fmt.Errorf("add legacy routing rule: %w", err)
+		}
 	}
 
-	err = r.conn.Flush()
-	if err != nil {
+	if pair.Masquerade {
+		if err := r.addNatRule(pair); err != nil {
+			return fmt.Errorf("add nat rule: %w", err)
+		}
+	}
+
+	if err := r.conn.Flush(); err != nil {
 		return fmt.Errorf("nftables: insert rules for %s: %v", pair.Destination, err)
 	}
+
 	return nil
 }
 
 // addNatRule inserts a nftable rule to the conn client flush queue
-func (r *router) addNatRule(format, chainName string, pair firewall.RouterPair) error {
+func (r *router) addNatRule(pair firewall.RouterPair) error {
 	sourceExp := generateCIDRMatcherExpressions(true, pair.Source)
 	destExp := generateCIDRMatcherExpressions(false, pair.Destination)
 
 	expression := append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) // nolint:gocritic
 
-	ruleKey := firewall.GenKey(format, pair.ID)
+	ruleKey := firewall.GenKey(firewall.NatFormat, pair.ID)
 
 	if _, exists := r.rules[ruleKey]; exists {
-		if err := r.removeNatRule(format, pair); err != nil {
+		if err := r.removeNatRule(pair); err != nil {
 			return fmt.Errorf("remove routing rule: %w", err)
 		}
 	}
 
 	r.rules[ruleKey] = r.conn.AddRule(&nftables.Rule{
 		Table:    r.workTable,
-		Chain:    r.chains[chainName],
+		Chain:    r.chains[chainNameRoutingNat],
 		Exprs:    expression,
 		UserData: []byte(ruleKey),
 	})
 	return nil
+}
+
+// addLegacyRouteRule adds a legacy routing rule for mgmt servers pre route acls
+func (r *router) addLegacyRouteRule(pair firewall.RouterPair) error {
+	sourceExp := generateCIDRMatcherExpressions(true, pair.Source)
+	destExp := generateCIDRMatcherExpressions(false, pair.Destination)
+
+	exprs := []expr.Any{
+		&expr.Counter{},
+		&expr.Verdict{
+			Kind: expr.VerdictAccept,
+		},
+	}
+
+	expression := append(sourceExp, append(destExp, exprs...)...) // nolint:gocritic
+
+	ruleKey := firewall.GenKey(firewall.ForwardingFormat, pair.ID)
+
+	if _, exists := r.rules[ruleKey]; exists {
+		if err := r.removeLegacyRouteRule(pair); err != nil {
+			return err
+		}
+	}
+
+	r.rules[ruleKey] = r.conn.AddRule(&nftables.Rule{
+		Table:    r.workTable,
+		Chain:    r.chains[chainNameRoutingFw],
+		Exprs:    expression,
+		UserData: []byte(ruleKey),
+	})
+	return nil
+}
+
+// removeLegacyRouteRule removes a legacy routing rule for mgmt servers pre route acls
+func (r *router) removeLegacyRouteRule(pair firewall.RouterPair) error {
+	ruleKey := firewall.GenKey(firewall.ForwardingFormat, pair.ID)
+
+	rule, found := r.rules[ruleKey]
+	if found {
+		if err := r.conn.DelRule(rule); err != nil {
+			return fmt.Errorf("remove legacy forwarding rule %s -> %s: %v", pair.Source, pair.Destination, err)
+		}
+
+		log.Debugf("nftables: removed legacy forwarding rule %s -> %s", pair.Source, pair.Destination)
+
+		delete(r.rules, ruleKey)
+	}
+	return nil
+}
+
+// removeAllLegacyRouteRules removes all legacy routing rules for mgmt servers pre route acls
+func (r *router) removeAllLegacyRouteRules() error {
+	if err := r.refreshRulesMap(); err != nil {
+		return fmt.Errorf("refresh rules map: %w", err)
+	}
+
+	var merr *multierror.Error
+	for k, rule := range r.rules {
+		if !strings.HasPrefix(k, firewall.ForwardingFormatPrefix) {
+			continue
+		}
+		if err := r.conn.DelRule(rule); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove legacy forwarding rule: %v", err))
+		}
+	}
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 // acceptForwardRules adds iif/ooif rules in the filter table/forward chain to make sure
@@ -436,16 +504,21 @@ func (r *router) acceptForwardRules() {
 	r.conn.InsertRule(oifRule)
 }
 
-// RemoveNatRule removes a nftable rule pair from forwarding and nat chains
+// RemoveNatRule removes a nftables rule pair from nat chains
 func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 	err := r.refreshRulesMap()
 	if err != nil {
 		return fmt.Errorf("refresh rules map: %w", err)
 	}
 
-	err = r.removeNatRule(firewall.NatFormat, pair)
+	err = r.removeNatRule(pair)
 	if err != nil {
 		return fmt.Errorf("remove nat rule: %w", err)
+	}
+
+	err = r.removeLegacyRouteRule(pair)
+	if err != nil {
+		return fmt.Errorf("remove legacy routing rule: %w", err)
 	}
 
 	err = r.conn.Flush()
@@ -457,8 +530,8 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 }
 
 // removeNatRule adds a nftables rule to the removal queue and deletes it from the rules map
-func (r *router) removeNatRule(format string, pair firewall.RouterPair) error {
-	ruleKey := firewall.GenKey(format, pair.ID)
+func (r *router) removeNatRule(pair firewall.RouterPair) error {
+	ruleKey := firewall.GenKey(firewall.NatFormat, pair.ID)
 
 	rule, found := r.rules[ruleKey]
 	if found {

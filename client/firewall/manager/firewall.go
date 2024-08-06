@@ -9,7 +9,9 @@ import (
 )
 
 const (
-	NatFormat = "netbird-nat-%s"
+	ForwardingFormatPrefix = "netbird-fwd-"
+	ForwardingFormat       = "netbird-fwd-%s"
+	NatFormat              = "netbird-nat-%s"
 )
 
 // Rule abstraction should be implemented by each firewall manager
@@ -88,6 +90,9 @@ type Manager interface {
 
 	// RemoveNatRule removes a routing NAT rule
 	RemoveNatRule(pair RouterPair) error
+
+	// SetLegacyManagement sets the legacy management mode
+	SetLegacyManagement(legacy bool) error
 
 	// Reset firewall to the default state
 	Reset() error

@@ -238,6 +238,11 @@ func (m *Manager) DeletePeerRule(rule firewall.Rule) error {
 	return nil
 }
 
+// SetLegacyManagement doesn't need to be implemented for this manager
+func (m *Manager) SetLegacyManagement(_ bool) error {
+	return nil
+}
+
 // Flush doesn't need to be implemented for this manager
 func (m *Manager) Flush() error { return nil }
 

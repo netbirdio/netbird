@@ -50,7 +50,7 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 		return nil, err
 	}
 
-	m.aclManager, err = newAclManager(workTable, wgIface, m.router.RoutingFwChainName())
+	m.aclManager, err = newAclManager(workTable, wgIface, chainNameRoutingFw)
 	if err != nil {
 		return nil, err
 	}
@@ -188,6 +188,27 @@ func (m *Manager) AllowNetbird() error {
 	return nil
 }
 
+// SetLegacyManagement sets the route manager to use legacy management
+func (m *Manager) SetLegacyManagement(isLegacy bool) error {
+	oldLegacy := m.router.legacyManagement
+
+	if oldLegacy != isLegacy {
+		m.router.legacyManagement = isLegacy
+		log.Debugf("Set legacy management to %v", isLegacy)
+	}
+
+	// client reconnected to a newer mgmt, we need to cleanup the legacy rules
+	if !isLegacy && oldLegacy {
+		if err := m.router.removeAllLegacyRouteRules(); err != nil {
+			return fmt.Errorf("remove legacy routing rules: %v", err)
+		}
+
+		log.Debugf("Legacy routing rules removed")
+	}
+
+	return nil
+}
+
 // Reset firewall to the default state
 func (m *Manager) Reset() error {
 	m.mutex.Lock()
@@ -272,9 +293,7 @@ func (m *Manager) applyAllowNetbirdRules(chain *nftables.Chain) {
 				Register: 1,
 				Data:     ifname(m.wgIface.Name()),
 			},
-			&expr.Verdict{
-				Kind: expr.VerdictAccept,
-			},
+			&expr.Verdict{},
 		},
 		UserData: []byte(allowNetbirdInputRuleID),
 	}
