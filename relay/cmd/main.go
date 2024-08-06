@@ -185,37 +185,12 @@ func execute(cmd *cobra.Command, args []string) error {
 	srvListenerCfg := server.ListenerConfig{
 		Address: cfg.ListenAddress,
 	}
-	if cfg.HasRoute54Credentials() {
-		log.Debugf("using Let's Encrypt DNS resolver with Route 53 support")
-		r53 := encryption.Route53TLS{
-			DataDir:            cfg.LetsencryptDataDir,
-			Email:              cfg.LetsencryptEmail,
-			AwsAccessKeyID:     cfg.LetsencryptAWSAccessKeyID,
-			AwsSecretAccessKey: cfg.LetsencryptAWSSecretAccessKey,
-			Domains:            cfg.LetsencryptDomains,
-		}
-		tlsCfg, err := r53.GetCertificate()
-		if err != nil {
-			return fmt.Errorf("%s", err)
-		}
-		srvListenerCfg.TLSConfig = tlsCfg
-	} else if cfg.HasLetsEncrypt() {
-		log.Infof("setting up TLS with Let's Encrypt.")
-		tlsCfg, err := setupTLSCertManager(cfg.LetsencryptDataDir, cfg.LetsencryptDomains...)
-		if err != nil {
-			return fmt.Errorf("%s", err)
-		}
-		srvListenerCfg.TLSConfig = tlsCfg
-	} else if cfg.HasCertConfig() {
-		log.Debugf("using file based TLS config")
-		tlsCfg, err := encryption.LoadTLSConfig(cfg.TlsCertFile, cfg.TlsKeyFile)
-		if err != nil {
-			return fmt.Errorf("%s", err)
-		}
-		srvListenerCfg.TLSConfig = tlsCfg
-	}
 
-	tlsSupport := srvListenerCfg.TLSConfig != nil
+	tlsConfig, tlsSupport, err := handleTLSConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to setup TLS config: %s", err)
+	}
+	srvListenerCfg.TLSConfig = tlsConfig
 
 	authenticator := auth.NewTimedHMACValidator(cfg.AuthSecret, 24*time.Hour)
 	srv, err := server.NewServer(metricsServer.Meter, cfg.ExposedAddress, tlsSupport, authenticator)
@@ -235,6 +210,43 @@ func execute(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to close server: %s", err)
 	}
 	return nil
+}
+
+func handleTLSConfig(cfg *Config) (*tls.Config, bool, error) {
+	if cfg.HasRoute54Credentials() {
+		log.Debugf("using Let's Encrypt DNS resolver with Route 53 support")
+		r53 := encryption.Route53TLS{
+			DataDir:            cfg.LetsencryptDataDir,
+			Email:              cfg.LetsencryptEmail,
+			AwsAccessKeyID:     cfg.LetsencryptAWSAccessKeyID,
+			AwsSecretAccessKey: cfg.LetsencryptAWSSecretAccessKey,
+			Domains:            cfg.LetsencryptDomains,
+		}
+		tlsCfg, err := r53.GetCertificate()
+		if err != nil {
+			return nil, false, fmt.Errorf("%s", err)
+		}
+		return tlsCfg, true, nil
+	}
+
+	if cfg.HasLetsEncrypt() {
+		log.Infof("setting up TLS with Let's Encrypt.")
+		tlsCfg, err := setupTLSCertManager(cfg.LetsencryptDataDir, cfg.LetsencryptDomains...)
+		if err != nil {
+			return nil, false, fmt.Errorf("%s", err)
+		}
+		return tlsCfg, true, nil
+	}
+
+	if cfg.HasCertConfig() {
+		log.Debugf("using file based TLS config")
+		tlsCfg, err := encryption.LoadTLSConfig(cfg.TlsCertFile, cfg.TlsKeyFile)
+		if err != nil {
+			return nil, false, fmt.Errorf("%s", err)
+		}
+		return tlsCfg, true, nil
+	}
+	return nil, false, nil
 }
 
 func setupTLSCertManager(letsencryptDataDir string, letsencryptDomains ...string) (*tls.Config, error) {
