@@ -64,7 +64,7 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 
 	_, err = meter.RegisterCallback(
 		func(ctx context.Context, o metric.Observer) error {
-			active, idle := m.calculateAcitveIdleConnections()
+			active, idle := m.calculateActiveIdleConnections()
 			o.ObserveInt64(peersActive, active)
 			o.ObserveInt64(peersIdle, idle)
 			return nil
