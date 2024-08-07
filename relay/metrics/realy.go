@@ -97,7 +97,7 @@ func (m *Metrics) PeerDisconnected(id string) {
 	delete(m.peerLastActive, id)
 }
 
-// PeerActivity increase the active connections
+// PeerActivity increases the active connections
 func (m *Metrics) PeerActivity(peerID string) {
 	m.peerActivityChan <- peerID
 }
