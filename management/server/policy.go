@@ -558,7 +558,7 @@ type peerMap map[string]*nbpeer.Peer
 
 type policyRuleExpandedPeers map[string]map[int]expandedRuleGroups
 
-func (a *Account) getPolicyExpandedPeers() policyRuleExpandedPeers {
+func (a *Account) GetPolicyExpandedPeers() policyRuleExpandedPeers {
 	policyMap := make(policyRuleExpandedPeers)
 	for _, policy := range a.Policies {
 		if !policy.Enabled {

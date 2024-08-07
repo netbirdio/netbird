@@ -143,7 +143,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 	}
 
 	t.Run("check that all peers get map", func(t *testing.T) {
-		policyExpandedPeers := account.getPolicyExpandedPeers()
+		policyExpandedPeers := account.GetPolicyExpandedPeers()
 		for _, p := range account.Peers {
 			peers, firewallRules := account.getPeerConnectionResources(context.Background(), p.ID, validatedPeers, policyExpandedPeers)
 			assert.GreaterOrEqual(t, len(peers), 2, "minimum number peers should present")
@@ -152,7 +152,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 	})
 
 	t.Run("check first peer map details", func(t *testing.T) {
-		policyExpandedPeers := account.getPolicyExpandedPeers()
+		policyExpandedPeers := account.GetPolicyExpandedPeers()
 		peers, firewallRules := account.getPeerConnectionResources(context.Background(), "peerB", validatedPeers, policyExpandedPeers)
 		assert.Len(t, peers, 7)
 		assert.Contains(t, peers, account.Peers["peerA"])
@@ -389,7 +389,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 	}
 
 	t.Run("check first peer map", func(t *testing.T) {
-		policyExpandedPeers := account.getPolicyExpandedPeers()
+		policyExpandedPeers := account.GetPolicyExpandedPeers()
 		peers, firewallRules := account.getPeerConnectionResources(context.Background(), "peerB", approvedPeers, policyExpandedPeers)
 		assert.Contains(t, peers, account.Peers["peerC"])
 
@@ -418,7 +418,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 	})
 
 	t.Run("check second peer map", func(t *testing.T) {
-		policyExpandedPeers := account.getPolicyExpandedPeers()
+		policyExpandedPeers := account.GetPolicyExpandedPeers()
 		peers, firewallRules := account.getPeerConnectionResources(context.Background(), "peerC", approvedPeers, policyExpandedPeers)
 		assert.Contains(t, peers, account.Peers["peerB"])
 
@@ -449,7 +449,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 	account.Policies[1].Rules[0].Bidirectional = false
 
 	t.Run("check first peer map directional only", func(t *testing.T) {
-		policyExpandedPeers := account.getPolicyExpandedPeers()
+		policyExpandedPeers := account.GetPolicyExpandedPeers()
 		peers, firewallRules := account.getPeerConnectionResources(context.Background(), "peerB", approvedPeers, policyExpandedPeers)
 		assert.Contains(t, peers, account.Peers["peerC"])
 
@@ -471,7 +471,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 	})
 
 	t.Run("check second peer map directional only", func(t *testing.T) {
-		policyExpandedPeers := account.getPolicyExpandedPeers()
+		policyExpandedPeers := account.GetPolicyExpandedPeers()
 		peers, firewallRules := account.getPeerConnectionResources(context.Background(), "peerC", approvedPeers, policyExpandedPeers)
 		assert.Contains(t, peers, account.Peers["peerB"])
 
@@ -667,7 +667,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 		approvedPeers[p] = struct{}{}
 	}
 	t.Run("verify peer's network map with default group peer list", func(t *testing.T) {
-		policyExpandedPeers := account.getPolicyExpandedPeers()
+		policyExpandedPeers := account.GetPolicyExpandedPeers()
 		// peerB doesn't fulfill the NB posture check but is included in the destination group Swarm,
 		// will establish a connection with all source peers satisfying the NB posture check.
 		peers, firewallRules := account.getPeerConnectionResources(context.Background(), "peerB", approvedPeers, policyExpandedPeers)
@@ -718,7 +718,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 	t.Run("verify peer's network map with modified group peer list", func(t *testing.T) {
 		//  Removing peerB as the part of destination group Swarm
 		account.Groups["GroupSwarm"].Peers = []string{"peerA", "peerD", "peerE", "peerG", "peerH"}
-		policyExpandedPeers := account.getPolicyExpandedPeers()
+		policyExpandedPeers := account.GetPolicyExpandedPeers()
 
 		// peerB doesn't satisfy the NB posture check, and doesn't exist in destination group peer's
 		// no connection should be established to any peer of destination group
@@ -746,7 +746,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 
 		// Removing peerF as the part of source group All
 		account.Groups["GroupAll"].Peers = []string{"peerB", "peerA", "peerD", "peerC", "peerG", "peerH"}
-		policyExpandedPeers = account.getPolicyExpandedPeers()
+		policyExpandedPeers = account.GetPolicyExpandedPeers()
 
 		// peerE doesn't fulfill the NB posture check and exists in only destination group Swarm,
 		// all source group peers satisfying the NB posture check should establish connection

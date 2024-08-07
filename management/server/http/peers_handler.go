@@ -72,7 +72,8 @@ func (h *PeersHandler) getPeer(ctx context.Context, account *server.Account, pee
 	}
 
 	customZone := account.GetPeersCustomZone(ctx, h.accountManager.GetDNSDomain())
-	netMap := account.GetPeerNetworkMap(ctx, peerID, customZone, validPeers, nil)
+	policyExpandedPeers := account.GetPolicyExpandedPeers()
+	netMap := account.GetPeerNetworkMap(ctx, peerID, customZone, validPeers, nil, policyExpandedPeers)
 	accessiblePeers := toAccessiblePeers(netMap, dnsDomain)
 
 	_, valid := validPeers[peer.ID]
@@ -118,7 +119,8 @@ func (h *PeersHandler) updatePeer(ctx context.Context, account *server.Account, 
 	}
 
 	customZone := account.GetPeersCustomZone(ctx, h.accountManager.GetDNSDomain())
-	netMap := account.GetPeerNetworkMap(ctx, peerID, customZone, validPeers, nil)
+	policyExpandedPeers := account.GetPolicyExpandedPeers()
+	netMap := account.GetPeerNetworkMap(ctx, peerID, customZone, validPeers, nil, policyExpandedPeers)
 	accessiblePeers := toAccessiblePeers(netMap, dnsDomain)
 
 	_, valid := validPeers[peer.ID]

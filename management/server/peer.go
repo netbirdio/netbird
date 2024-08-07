@@ -87,7 +87,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 	}
 
 	// fetch all the peers that have access to the user's peers
-	policyExpandedPeers := account.getPolicyExpandedPeers()
+	policyExpandedPeers := account.GetPolicyExpandedPeers()
 	for _, peer := range peers {
 		aclPeers, _ := account.getPeerConnectionResources(ctx, peer.ID, approvedPeersMap, policyExpandedPeers)
 		for _, p := range aclPeers {
@@ -325,7 +325,7 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 		return nil, err
 	}
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-	policyExpandedPeers := account.getPolicyExpandedPeers()
+	policyExpandedPeers := account.GetPolicyExpandedPeers()
 	return account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, nil, policyExpandedPeers), nil
 }
 
@@ -540,7 +540,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	postureChecks := am.getPeerPostureChecks(account, peer)
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-	policyExpandedPeers := account.getPolicyExpandedPeers()
+	policyExpandedPeers := account.GetPolicyExpandedPeers()
 	networkMap := account.GetPeerNetworkMap(ctx, newPeer.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics(), policyExpandedPeers)
 	return newPeer, networkMap, postureChecks, nil
 }
@@ -598,7 +598,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	postureChecks = am.getPeerPostureChecks(account, peer)
 
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-	policyExpandedPeers := account.getPolicyExpandedPeers()
+	policyExpandedPeers := account.GetPolicyExpandedPeers()
 	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, validPeersMap, am.metrics.AccountManagerMetrics(), policyExpandedPeers), postureChecks, nil
 }
 
@@ -747,7 +747,7 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 	postureChecks = am.getPeerPostureChecks(account, peer)
 
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-	policyExpandedPeers := account.getPolicyExpandedPeers()
+	policyExpandedPeers := account.GetPolicyExpandedPeers()
 	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics(), policyExpandedPeers), postureChecks, nil
 }
 
@@ -901,7 +901,7 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 		return nil, err
 	}
 
-	policyExpandedPeers := account.getPolicyExpandedPeers()
+	policyExpandedPeers := account.GetPolicyExpandedPeers()
 	for _, p := range userPeers {
 		aclPeers, _ := account.getPeerConnectionResources(ctx, p.ID, approvedPeersMap, policyExpandedPeers)
 		for _, aclPeer := range aclPeers {
@@ -945,7 +945,7 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 
 	dnsCache := &DNSConfigCache{}
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-	expandedPolicies := account.getPolicyExpandedPeers()
+	expandedPolicies := account.GetPolicyExpandedPeers()
 	for _, peer := range peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
