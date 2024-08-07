@@ -81,7 +81,7 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 
 // PeerConnected increments the number of connected peers and increments number of idle connections
 func (m *Metrics) PeerConnected(id string) {
-	m.peers.Add(context.Background(), 1)
+	m.peers.Add(m.ctx, 1)
 	m.mutexActivity.Lock()
 	defer m.mutexActivity.Unlock()
 
@@ -90,7 +90,7 @@ func (m *Metrics) PeerConnected(id string) {
 
 // PeerDisconnected decrements the number of connected peers and decrements number of idle or active connections
 func (m *Metrics) PeerDisconnected(id string) {
-	m.peers.Add(context.Background(), -1)
+	m.peers.Add(m.ctx, -1)
 	m.mutexActivity.Lock()
 	defer m.mutexActivity.Unlock()
 
