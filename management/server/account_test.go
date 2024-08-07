@@ -412,7 +412,8 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 		}
 
 		customZone := account.GetPeersCustomZone(context.Background(), "netbird.io")
-		networkMap := account.GetPeerNetworkMap(context.Background(), testCase.peerID, customZone, validatedPeers, nil)
+		policyExpandedPeers := account.getPolicyExpandedPeers()
+		networkMap := account.GetPeerNetworkMap(context.Background(), testCase.peerID, customZone, validatedPeers, nil, policyExpandedPeers)
 		assert.Len(t, networkMap.Peers, len(testCase.expectedPeers))
 		assert.Len(t, networkMap.OfflinePeers, len(testCase.expectedOfflinePeers))
 	}

@@ -413,6 +413,7 @@ func (a *Account) GetPeerNetworkMap(
 	peersCustomZone nbdns.CustomZone,
 	validatedPeersMap map[string]struct{},
 	metrics *telemetry.AccountManagerMetrics,
+	expandedPolicies policyRuleExpandedPeers,
 ) *NetworkMap {
 	start := time.Now()
 
@@ -429,7 +430,7 @@ func (a *Account) GetPeerNetworkMap(
 		}
 	}
 
-	aclPeers, firewallRules := a.getPeerConnectionResources(ctx, peerID, validatedPeersMap)
+	aclPeers, firewallRules := a.getPeerConnectionResources(ctx, peerID, validatedPeersMap, expandedPolicies)
 	// exclude expired peers
 	var peersToConnect []*nbpeer.Peer
 	var expiredPeers []*nbpeer.Peer

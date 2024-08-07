@@ -212,20 +212,20 @@ type FirewallRule struct {
 // getPeerConnectionResources for a given peer
 //
 // This function returns the list of peers and firewall rules that are applicable to a given peer.
-func (a *Account) getPeerConnectionResources(ctx context.Context, peerID string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, []*FirewallRule) {
+func (a *Account) getPeerConnectionResources(ctx context.Context, peerID string, validatedPeersMap map[string]struct{}, expandedPolicies policyRuleExpandedPeers) ([]*nbpeer.Peer, []*FirewallRule) {
 	generateResources, getAccumulatedResources := a.connResourcesGenerator(ctx)
 	for _, policy := range a.Policies {
 		if !policy.Enabled {
 			continue
 		}
 
-		for _, rule := range policy.Rules {
+		for n, rule := range policy.Rules {
 			if !rule.Enabled {
 				continue
 			}
 
-			sourcePeers, peerInSources := a.getAllPeersFromGroups(ctx, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
-			destinationPeers, peerInDestinations := a.getAllPeersFromGroups(ctx, rule.Destinations, peerID, nil, validatedPeersMap)
+			sourcePeers, peerInSources := a.getAllPeersFromGroups(ctx, expandedPolicies[policy.ID][n].sourcePeers, peerID, policy.SourcePostureChecks, validatedPeersMap)
+			destinationPeers, peerInDestinations := a.getAllPeersFromGroups(ctx, expandedPolicies[policy.ID][n].destinationPeers, peerID, nil, validatedPeersMap)
 
 			if rule.Bidirectional {
 				if peerInSources {
@@ -490,38 +490,26 @@ func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
 //
 // Important: Posture checks are applicable only to source group peers,
 // for destination group peers, call this method with an empty list of sourcePostureChecksIDs
-func (a *Account) getAllPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
+func (a *Account) getAllPeersFromGroups(ctx context.Context, peerMap peerMap, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
 	peerInGroups := false
-	filteredPeers := make([]*nbpeer.Peer, 0, len(groups))
-	for _, g := range groups {
-		group, ok := a.Groups[g]
-		if !ok {
+	filteredPeers := make([]*nbpeer.Peer, 0, len(peerMap))
+	for _, peer := range peerMap {
+
+		if _, ok := validatedPeersMap[peer.ID]; !ok {
 			continue
 		}
 
-		for _, p := range group.Peers {
-			peer, ok := a.Peers[p]
-			if !ok || peer == nil {
-				continue
-			}
-
-			// validate the peer based on policy posture checks applied
-			isValid := a.validatePostureChecksOnPeer(ctx, sourcePostureChecksIDs, peer.ID)
-			if !isValid {
-				continue
-			}
-
-			if _, ok := validatedPeersMap[peer.ID]; !ok {
-				continue
-			}
-
-			if peer.ID == peerID {
-				peerInGroups = true
-				continue
-			}
-
-			filteredPeers = append(filteredPeers, peer)
+		isValid := a.validatePostureChecksOnPeer(ctx, sourcePostureChecksIDs, peer.ID)
+		if !isValid {
+			continue
 		}
+
+		if peer.ID == peerID {
+			peerInGroups = true
+			continue
+		}
+
+		filteredPeers = append(filteredPeers, peer)
 	}
 	return filteredPeers, peerInGroups
 }
@@ -559,4 +547,42 @@ func (a *Account) getPostureChecks(postureChecksID string) *posture.Checks {
 		}
 	}
 	return nil
+}
+
+type expandedRuleGroups struct {
+	sourcePeers      peerMap
+	destinationPeers peerMap
+}
+
+type peerMap map[string]*nbpeer.Peer
+
+type policyRuleExpandedPeers map[string]map[int]expandedRuleGroups
+
+func (a *Account) getPolicyExpandedPeers() policyRuleExpandedPeers {
+	policyMap := make(policyRuleExpandedPeers)
+	for _, policy := range a.Policies {
+		if !policy.Enabled {
+			continue
+		}
+		ruleMap := make(map[int]expandedRuleGroups)
+		policyMap[policy.ID] = ruleMap
+		for ruleID, rule := range policy.Rules {
+			policyMap[policy.ID][ruleID] = expandedRuleGroups{
+				sourcePeers:      make(peerMap),
+				destinationPeers: make(peerMap),
+			}
+			a.processGroups(rule.Sources, policyMap[policy.ID][ruleID].sourcePeers)
+			a.processGroups(rule.Destinations, policyMap[policy.ID][ruleID].destinationPeers)
+		}
+	}
+	return policyMap
+}
+
+func (a *Account) processGroups(groupIDs []string, peerMap peerMap) {
+	for _, pid := range groupIDs {
+		p, ok := a.Peers[pid]
+		if ok {
+			peerMap[pid] = p
+		}
+	}
 }

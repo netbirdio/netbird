@@ -87,8 +87,9 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 	}
 
 	// fetch all the peers that have access to the user's peers
+	policyExpandedPeers := account.getPolicyExpandedPeers()
 	for _, peer := range peers {
-		aclPeers, _ := account.getPeerConnectionResources(ctx, peer.ID, approvedPeersMap)
+		aclPeers, _ := account.getPeerConnectionResources(ctx, peer.ID, approvedPeersMap, policyExpandedPeers)
 		for _, p := range aclPeers {
 			peersMap[p.ID] = p
 		}
@@ -324,7 +325,8 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 		return nil, err
 	}
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-	return account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, nil), nil
+	policyExpandedPeers := account.getPolicyExpandedPeers()
+	return account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, nil, policyExpandedPeers), nil
 }
 
 // GetPeerNetwork returns the Network for a given peer
@@ -538,7 +540,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	postureChecks := am.getPeerPostureChecks(account, peer)
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-	networkMap := account.GetPeerNetworkMap(ctx, newPeer.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics())
+	policyExpandedPeers := account.getPolicyExpandedPeers()
+	networkMap := account.GetPeerNetworkMap(ctx, newPeer.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics(), policyExpandedPeers)
 	return newPeer, networkMap, postureChecks, nil
 }
 
@@ -595,7 +598,8 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	postureChecks = am.getPeerPostureChecks(account, peer)
 
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, validPeersMap, am.metrics.AccountManagerMetrics()), postureChecks, nil
+	policyExpandedPeers := account.getPolicyExpandedPeers()
+	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, validPeersMap, am.metrics.AccountManagerMetrics(), policyExpandedPeers), postureChecks, nil
 }
 
 // LoginPeer logs in or registers a peer.
@@ -743,7 +747,8 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 	postureChecks = am.getPeerPostureChecks(account, peer)
 
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics()), postureChecks, nil
+	policyExpandedPeers := account.getPolicyExpandedPeers()
+	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics(), policyExpandedPeers), postureChecks, nil
 }
 
 func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, login PeerLogin, account *Account, peer *nbpeer.Peer) error {
@@ -896,8 +901,9 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 		return nil, err
 	}
 
+	policyExpandedPeers := account.getPolicyExpandedPeers()
 	for _, p := range userPeers {
-		aclPeers, _ := account.getPeerConnectionResources(ctx, p.ID, approvedPeersMap)
+		aclPeers, _ := account.getPeerConnectionResources(ctx, p.ID, approvedPeersMap, policyExpandedPeers)
 		for _, aclPeer := range aclPeers {
 			if aclPeer.ID == peerID {
 				return peer, nil
@@ -939,7 +945,7 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 
 	dnsCache := &DNSConfigCache{}
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
-
+	expandedPolicies := account.getPolicyExpandedPeers()
 	for _, peer := range peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
@@ -953,7 +959,7 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 			defer func() { <-semaphore }()
 
 			postureChecks := am.getPeerPostureChecks(account, p)
-			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics())
+			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics(), expandedPolicies)
 			update := toSyncResponse(ctx, nil, p, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache)
 			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update})
 		}(peer)
