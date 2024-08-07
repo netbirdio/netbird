@@ -503,25 +503,6 @@ func (m *AclManager) addJumpRulesToRtForward() {
 		Chain: m.chainFwFilter,
 		Exprs: expressions,
 	})
-
-	expressions = []expr.Any{
-		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     ifname(m.wgIface.Name()),
-		},
-		&expr.Verdict{
-			Kind:  expr.VerdictJump,
-			Chain: m.routeingFwChainName,
-		},
-	}
-
-	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: m.workTable,
-		Chain: m.chainFwFilter,
-		Exprs: expressions,
-	})
 }
 
 func (m *AclManager) createChain(name string) *nftables.Chain {

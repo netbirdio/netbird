@@ -77,21 +77,6 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 				require.Equal(t, 1, found, "should find at least 1 rule to test")
 			}
 
-			if testCase.InputPair.Masquerade {
-				inNatRuleKey := firewall.GenKey(firewall.InverseNatFormat, testCase.InputPair.ID)
-				found := 0
-				for _, chain := range manager.chains {
-					rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
-					require.NoError(t, err, "should list rules for %s table and %s chain", chain.Table.Name, chain.Name)
-					for _, rule := range rules {
-						if len(rule.UserData) > 0 && string(rule.UserData) == inNatRuleKey {
-							require.ElementsMatchf(t, rule.Exprs[:len(testingExpression)], testingExpression, "income nat rule elements should match")
-							found = 1
-						}
-					}
-				}
-				require.Equal(t, 1, found, "should find at least 1 rule to test")
-			}
 		})
 	}
 }
@@ -130,19 +115,6 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 				UserData: []byte(natRuleKey),
 			})
 
-			sourceExp = generateCIDRMatcherExpressions(true, firewall.GetInversePair(testCase.InputPair).Source)
-			destExp = generateCIDRMatcherExpressions(false, firewall.GetInversePair(testCase.InputPair).Destination)
-
-			natExp = append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) //nolint:gocritic
-			inNatRuleKey := firewall.GenKey(firewall.InverseNatFormat, testCase.InputPair.ID)
-
-			insertedInNat := nftablesTestingClient.InsertRule(&nftables.Rule{
-				Table:    manager.workTable,
-				Chain:    manager.chains[chainNameRoutingNat],
-				Exprs:    natExp,
-				UserData: []byte(inNatRuleKey),
-			})
-
 			err = nftablesTestingClient.Flush()
 			require.NoError(t, err, "shouldn't return error")
 
@@ -158,7 +130,6 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 				for _, rule := range rules {
 					if len(rule.UserData) > 0 {
 						require.NotEqual(t, insertedNat.UserData, rule.UserData, "nat rule should not exist")
-						require.NotEqual(t, insertedInNat.UserData, rule.UserData, "income nat rule should not exist")
 					}
 				}
 			}

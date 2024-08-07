@@ -271,7 +271,9 @@ func (m *aclManager) createDefaultChains() error {
 }
 
 // seedInitialEntries adds default rules to the entries map, rules are inserted on pos 1, hence the order is reversed.
-// We want to make sure our traffic is not dropped by existing rules
+// We want to make sure our traffic is not dropped by existing rules.
+// The existing FORWARD rules/policies decide outbound traffic towards our interface.
+// In case the FORWARD policy is set to "drop", we add an established/related rule to allow return traffic for the inbound rule.
 func (m *aclManager) seedInitialEntries() {
 	m.appendToEntries("INPUT", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
 	m.appendToEntries("INPUT", []string{"-i", m.wgIface.Name(), "-j", chainNameInputRules})
@@ -282,7 +284,7 @@ func (m *aclManager) seedInitialEntries() {
 
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", m.routingFwChainName})
-	m.appendToEntries("FORWARD", []string{"-o", m.wgIface.Name(), "-j", m.routingFwChainName})
+	m.appendToEntries("FORWARD", []string{"-o", m.wgIface.Name(), "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"})
 }
 
 func (m *aclManager) appendToEntries(chainName string, spec []string) {

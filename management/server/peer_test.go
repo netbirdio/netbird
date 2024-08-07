@@ -631,5 +631,4 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 
 		})
 	}
-
 }

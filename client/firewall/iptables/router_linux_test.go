@@ -102,22 +102,6 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 				_, foundNat := manager.rules[natRuleKey]
 				require.False(t, foundNat, "nat rule should not exist in the map")
 			}
-
-			inNatRuleKey := firewall.GenKey(firewall.InverseNatFormat, testCase.InputPair.ID)
-			inNatRule := genRuleSpec(routingFinalNatJump, firewall.GetInversePair(testCase.InputPair).Source, firewall.GetInversePair(testCase.InputPair).Destination)
-
-			exists, err = iptablesClient.Exists(tableNat, chainRTNAT, inNatRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainRTNAT)
-			if testCase.InputPair.Masquerade {
-				require.True(t, exists, "income nat rule should be created")
-				foundNatRule, foundNat := manager.rules[inNatRuleKey]
-				require.True(t, foundNat, "income nat rule should exist in the map")
-				require.Equal(t, inNatRule[:4], foundNatRule[:4], "stored income nat rule should match")
-			} else {
-				require.False(t, exists, "nat rule should not be created")
-				_, foundNat := manager.rules[inNatRuleKey]
-				require.False(t, foundNat, "income nat rule should not exist in the map")
-			}
 		})
 	}
 }
@@ -146,12 +130,6 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 			err = iptablesClient.Insert(tableNat, chainRTNAT, 1, natRule...)
 			require.NoError(t, err, "inserting rule should not return error")
 
-			inNatRuleKey := firewall.GenKey(firewall.InverseNatFormat, testCase.InputPair.ID)
-			inNatRule := genRuleSpec(routingFinalNatJump, firewall.GetInversePair(testCase.InputPair).Source, firewall.GetInversePair(testCase.InputPair).Destination)
-
-			err = iptablesClient.Insert(tableNat, chainRTNAT, 1, inNatRule...)
-			require.NoError(t, err, "inserting rule should not return error")
-
 			err = manager.Reset()
 			require.NoError(t, err, "shouldn't return error")
 
@@ -164,13 +142,6 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 
 			_, found := manager.rules[natRuleKey]
 			require.False(t, found, "nat rule should exist in the manager map")
-
-			exists, err = iptablesClient.Exists(tableNat, chainRTNAT, inNatRule...)
-			require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainRTNAT)
-			require.False(t, exists, "income nat rule should not exist")
-
-			_, found = manager.rules[inNatRuleKey]
-			require.False(t, found, "income nat rule should exist in the manager map")
 		})
 	}
 }

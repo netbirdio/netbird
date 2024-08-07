@@ -326,10 +326,6 @@ func (r *router) AddNatRule(pair firewall.RouterPair) error {
 	if err != nil {
 		return fmt.Errorf("add/ nat rule: %w", err)
 	}
-	err = r.addNatRule(firewall.InverseNatFormat, chainNameRoutingNat, firewall.GetInversePair(pair))
-	if err != nil {
-		return fmt.Errorf("insert inverse nat rule: %w", err)
-	}
 
 	err = r.conn.Flush()
 	if err != nil {
@@ -364,6 +360,8 @@ func (r *router) addNatRule(format, chainName string, pair firewall.RouterPair) 
 
 // acceptForwardRules adds iif/ooif rules in the filter table/forward chain to make sure
 // that our traffic is not dropped by existing rules there.
+// The existing FORWARD rules/policies decide outbound traffic towards our interface.
+// In case the FORWARD policy is set to "drop", we add an established/related rule to allow return traffic for the inbound rule.
 func (r *router) acceptForwardRules() {
 	if r.filterTable == nil {
 		log.Debugf("table 'filter' not found for forward rules, skipping accept rules")
@@ -413,11 +411,28 @@ func (r *router) acceptForwardRules() {
 				Register: 1,
 				Data:     intf,
 			},
+			&expr.Ct{
+				Key:      expr.CtKeySTATE,
+				Register: 2,
+			},
+			&expr.Bitwise{
+				SourceRegister: 2,
+				DestRegister:   2,
+				Len:            4,
+				Mask:           binaryutil.NativeEndian.PutUint32(expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED),
+				Xor:            binaryutil.NativeEndian.PutUint32(0),
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpNeq,
+				Register: 2,
+				Data:     []byte{0, 0, 0, 0},
+			},
 			&expr.Counter{},
 			&expr.Verdict{Kind: expr.VerdictAccept},
 		},
 		UserData: []byte(userDataAcceptForwardRuleOif),
 	}
+
 	r.conn.InsertRule(oifRule)
 }
 
@@ -431,11 +446,6 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 	err = r.removeNatRule(firewall.NatFormat, pair)
 	if err != nil {
 		return fmt.Errorf("remove nat rule: %w", err)
-	}
-
-	err = r.removeNatRule(firewall.InverseNatFormat, firewall.GetInversePair(pair))
-	if err != nil {
-		return fmt.Errorf("remove inverse nat rule: %w", err)
 	}
 
 	err = r.conn.Flush()

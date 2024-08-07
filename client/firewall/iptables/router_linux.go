@@ -109,11 +109,6 @@ func (r *router) AddNatRule(pair firewall.RouterPair) error {
 		return err
 	}
 
-	err = r.addNatRule(firewall.InverseNatFormat, tableNat, chainRTNAT, routingFinalNatJump, firewall.GetInversePair(pair))
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -126,11 +121,6 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 	err := r.removeNatRule(firewall.NatFormat, tableNat, chainRTNAT, pair)
 	if err != nil {
 		return fmt.Errorf("remove nat rule: %w", err)
-	}
-
-	err = r.removeNatRule(firewall.InverseNatFormat, tableNat, chainRTNAT, firewall.GetInversePair(pair))
-	if err != nil {
-		return fmt.Errorf("remove inverse nat rule: %w", err)
 	}
 
 	return nil
