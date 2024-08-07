@@ -64,11 +64,19 @@ func (h *PeersHandler) getPeer(ctx context.Context, account *server.Account, pee
 
 	groupsInfo := toGroupsInfo(account.Groups, peer.ID)
 
-	validPeers, err := h.accountManager.GetValidatedPeers(account)
+	accessiblePeers, valid, err := h.getAccessibleAndValidStatus(ctx, account, peerID, err, w, dnsDomain, peer)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to list appreoved peers: %v", err)
+		log.WithContext(ctx).Errorf("failed to list approved peers: %v", err)
 		util.WriteError(ctx, fmt.Errorf("internal error"), w)
 		return
+	}
+	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, accessiblePeers, valid))
+}
+
+func (h *PeersHandler) getAccessibleAndValidStatus(ctx context.Context, account *server.Account, peerID string, err error, w http.ResponseWriter, dnsDomain string, peer *nbpeer.Peer) ([]api.AccessiblePeer, bool, error) {
+	validPeers, err := h.accountManager.GetValidatedPeers(account)
+	if err != nil {
+		return nil, false, err
 	}
 
 	customZone := account.GetPeersCustomZone(ctx, h.accountManager.GetDNSDomain())
@@ -77,7 +85,7 @@ func (h *PeersHandler) getPeer(ctx context.Context, account *server.Account, pee
 	accessiblePeers := toAccessiblePeers(netMap, dnsDomain)
 
 	_, valid := validPeers[peer.ID]
-	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, accessiblePeers, valid))
+	return accessiblePeers, valid, nil
 }
 
 func (h *PeersHandler) updatePeer(ctx context.Context, account *server.Account, user *server.User, peerID string, w http.ResponseWriter, r *http.Request) {
@@ -111,19 +119,12 @@ func (h *PeersHandler) updatePeer(ctx context.Context, account *server.Account, 
 
 	groupMinimumInfo := toGroupsInfo(account.Groups, peer.ID)
 
-	validPeers, err := h.accountManager.GetValidatedPeers(account)
+	accessiblePeers, valid, err := h.getAccessibleAndValidStatus(ctx, account, peerID, err, w, dnsDomain, peer)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to list appreoved peers: %v", err)
+		log.WithContext(ctx).Errorf("failed to list approved peers: %v", err)
 		util.WriteError(ctx, fmt.Errorf("internal error"), w)
 		return
 	}
-
-	customZone := account.GetPeersCustomZone(ctx, h.accountManager.GetDNSDomain())
-	policyExpandedPeers := account.GetPolicyExpandedPeers()
-	netMap := account.GetPeerNetworkMap(ctx, peerID, customZone, validPeers, nil, policyExpandedPeers)
-	accessiblePeers := toAccessiblePeers(netMap, dnsDomain)
-
-	_, valid := validPeers[peer.ID]
 
 	util.WriteJSONObject(r.Context(), w, toSinglePeerResponse(peer, groupMinimumInfo, dnsDomain, accessiblePeers, valid))
 }
