@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -58,7 +59,7 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 		peers:             peers,
 
 		ctx:              ctx,
-		peerActivityChan: make(chan string, 1),
+		peerActivityChan: make(chan string, 10),
 		peerLastActive:   make(map[string]time.Time),
 	}
 
@@ -99,7 +100,11 @@ func (m *Metrics) PeerDisconnected(id string) {
 
 // PeerActivity increases the active connections
 func (m *Metrics) PeerActivity(peerID string) {
-	m.peerActivityChan <- peerID
+	select {
+	case m.peerActivityChan <- peerID:
+	default:
+		log.Errorf("peer activity channel is full, dropping activity metrics for peer %s", peerID)
+	}
 }
 
 func (m *Metrics) calculateActiveIdleConnections() (int64, int64) {
