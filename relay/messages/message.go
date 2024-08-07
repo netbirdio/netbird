@@ -111,7 +111,7 @@ func MarshalHelloMsg(peerID []byte, additions []byte) ([]byte, error) {
 // authenticate the client with the server.
 func UnmarshalHelloMsg(msg []byte) ([]byte, []byte, error) {
 	if len(msg) < headerSizeHello {
-		return nil, nil, fmt.Errorf("invalid 'hello' messge")
+		return nil, nil, fmt.Errorf("invalid 'hello' message")
 	}
 	if !bytes.Equal(msg[1:5], magicHeader) {
 		return nil, nil, fmt.Errorf("invalid magic header")

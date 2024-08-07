@@ -19,7 +19,7 @@ func NewStore() *Store {
 }
 
 // AddPeer adds a peer to the store
-// It distinguishes the peers by their ID
+// todo: consider to close peer conn if the peer already exists
 func (s *Store) AddPeer(peer *Peer) {
 	s.peersLock.Lock()
 	defer s.peersLock.Unlock()
@@ -30,6 +30,16 @@ func (s *Store) AddPeer(peer *Peer) {
 func (s *Store) DeletePeer(peer *Peer) {
 	s.peersLock.Lock()
 	defer s.peersLock.Unlock()
+
+	dp, ok := s.peers[peer.String()]
+	if !ok {
+
+		return
+	}
+	if dp != peer {
+		return
+	}
+
 	delete(s.peers, peer.String())
 }
 
