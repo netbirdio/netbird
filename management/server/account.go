@@ -413,7 +413,7 @@ func (a *Account) GetPeerNetworkMap(
 	peersCustomZone nbdns.CustomZone,
 	validatedPeersMap map[string]struct{},
 	metrics *telemetry.AccountManagerMetrics,
-	expandedPolicies policyRuleExpandedPeers,
+	expandedPolicies PolicyRuleExpandedPeers,
 ) *NetworkMap {
 	start := time.Now()
 

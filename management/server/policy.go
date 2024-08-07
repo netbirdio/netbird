@@ -212,7 +212,7 @@ type FirewallRule struct {
 // getPeerConnectionResources for a given peer
 //
 // This function returns the list of peers and firewall rules that are applicable to a given peer.
-func (a *Account) getPeerConnectionResources(ctx context.Context, peerID string, validatedPeersMap map[string]struct{}, expandedPolicies policyRuleExpandedPeers) ([]*nbpeer.Peer, []*FirewallRule) {
+func (a *Account) getPeerConnectionResources(ctx context.Context, peerID string, validatedPeersMap map[string]struct{}, expandedPolicies PolicyRuleExpandedPeers) ([]*nbpeer.Peer, []*FirewallRule) {
 	generateResources, getAccumulatedResources := a.connResourcesGenerator(ctx)
 	for _, policy := range a.Policies {
 		if !policy.Enabled {
@@ -556,10 +556,12 @@ type expandedRuleGroups struct {
 
 type peerMap map[string]*nbpeer.Peer
 
-type policyRuleExpandedPeers map[string]map[int]expandedRuleGroups
+// PolicyRuleExpandedPeers is a map with the peers of each policy rule source and destination groups
+type PolicyRuleExpandedPeers map[string]map[int]expandedRuleGroups
 
-func (a *Account) GetPolicyExpandedPeers() policyRuleExpandedPeers {
-	policyMap := make(policyRuleExpandedPeers)
+// GetPolicyExpandedPeers returns a map with the peers of each policy rule source and destination groups
+func (a *Account) GetPolicyExpandedPeers() PolicyRuleExpandedPeers {
+	policyMap := make(PolicyRuleExpandedPeers)
 	for _, policy := range a.Policies {
 		if !policy.Enabled {
 			continue
