@@ -581,10 +581,12 @@ func (a *Account) GetPolicyExpandedPeers() PolicyRuleExpandedPeers {
 }
 
 func (a *Account) processGroups(groupIDs []string, peerMap peerMap) {
-	for _, pid := range groupIDs {
-		p, ok := a.Peers[pid]
-		if ok {
-			peerMap[pid] = p
+	for _, gid := range groupIDs {
+		for _, pid := range a.Groups[gid].Peers {
+			p, ok := a.Peers[pid]
+			if ok {
+				peerMap[pid] = p
+			}
 		}
 	}
 }
