@@ -17,8 +17,9 @@ import (
 
 // Relay represents the relay server
 type Relay struct {
-	metrics   *metrics.Metrics
-	validator auth.Validator
+	metrics       *metrics.Metrics
+	metricsCancel context.CancelFunc
+	validator     auth.Validator
 
 	store       *Store
 	instanceURL string
@@ -43,15 +44,18 @@ type Relay struct {
 // A pointer to a Relay instance and an error. If the Relay instance is successfully created, the error is nil.
 // Otherwise, the error contains the details of what went wrong.
 func NewRelay(meter metric.Meter, exposedAddress string, tlsSupport bool, validator auth.Validator) (*Relay, error) {
-	m, err := metrics.NewMetrics(meter)
+	ctx, metricsCancel := context.WithCancel(context.Background())
+	m, err := metrics.NewMetrics(ctx, meter)
 	if err != nil {
+		metricsCancel()
 		return nil, fmt.Errorf("creating app metrics: %v", err)
 	}
 
 	r := &Relay{
-		metrics:   m,
-		validator: validator,
-		store:     NewStore(),
+		metrics:       m,
+		metricsCancel: metricsCancel,
+		validator:     validator,
+		store:         NewStore(),
 	}
 
 	if tlsSupport {
@@ -85,15 +89,15 @@ func (r *Relay) Accept(conn net.Conn) {
 		return
 	}
 
-	peer := NewPeer(peerID, conn, r.store)
+	peer := NewPeer(r.metrics, peerID, conn, r.store)
 	peer.log.Infof("peer connected from: %s", conn.RemoteAddr())
 	r.store.AddPeer(peer)
-	r.metrics.Peers.Add(context.Background(), 1)
+	r.metrics.PeerConnected(peer.String())
 	go func() {
 		peer.Work()
 		r.store.DeletePeer(peer)
 		peer.log.Debugf("relay connection closed")
-		r.metrics.Peers.Add(context.Background(), -1)
+		r.metrics.PeerDisconnected(peer.String())
 	}()
 }
 
@@ -112,6 +116,7 @@ func (r *Relay) Close(ctx context.Context) {
 		}(peer)
 	}
 	wg.Wait()
+	r.metricsCancel()
 	r.closeMu.Unlock()
 }
 
