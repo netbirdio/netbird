@@ -26,12 +26,12 @@ type Metrics struct {
 }
 
 func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
-	bytesSent, err := meter.Int64Counter("relay_transfer_bytes_sent")
+	bytesSent, err := meter.Int64Counter("relay_transfer_sent_bytes_total")
 	if err != nil {
 		return nil, err
 	}
 
-	bytesRecv, err := meter.Int64Counter("relay_transfer_bytes_received")
+	bytesRecv, err := meter.Int64Counter("relay_transfer_received_bytes_total")
 	if err != nil {
 		return nil, err
 	}
