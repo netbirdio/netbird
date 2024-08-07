@@ -18,16 +18,20 @@ type Peer struct {
 
 	StreamID int64
 
-	//a gRpc connection stream to the Peer
+	// a gRpc connection stream to the Peer
 	Stream proto.SignalExchange_ConnectStreamServer
+
+	// registration time
+	RegisteredAt time.Time
 }
 
 // NewPeer creates a new instance of a connected Peer
 func NewPeer(id string, stream proto.SignalExchange_ConnectStreamServer) *Peer {
 	return &Peer{
-		Id:       id,
-		Stream:   stream,
-		StreamID: time.Now().UnixNano(),
+		Id:           id,
+		Stream:       stream,
+		StreamID:     time.Now().UnixNano(),
+		RegisteredAt: time.Now(),
 	}
 }
 
