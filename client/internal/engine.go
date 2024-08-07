@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/ice/v3"
@@ -1497,28 +1498,24 @@ func (e *Engine) startNetworkMonitor() {
 
 	e.networkMonitor = networkmonitor.New()
 	go func() {
-		var mu sync.Mutex
-		var debounceTimer *time.Timer
+		var isEngineAlreadyRestarting atomic.Bool
 
 		// Start the network monitor with a callback, Start will block until the monitor is stopped,
 		// a network change is detected, or an error occurs on start up
 		err := e.networkMonitor.Start(e.ctx, func() {
 			// This function is called when a network change is detected
-			mu.Lock()
-			defer mu.Unlock()
-
-			if debounceTimer != nil {
-				debounceTimer.Stop()
+			if isEngineAlreadyRestarting.Load() {
+				return
 			}
+			isEngineAlreadyRestarting.Store(true)
+
+			log.Infof("Network monitor detected network change, restarting engine")
+			e.restartEngine()
 
 			// Set a new timer to debounce rapid network changes
-			debounceTimer = time.AfterFunc(1*time.Second, func() {
+			time.AfterFunc(3*time.Second, func() {
 				// This function is called after the debounce period
-				mu.Lock()
-				defer mu.Unlock()
-
-				log.Infof("Network monitor detected network change, restarting engine")
-				e.restartEngine()
+				isEngineAlreadyRestarting.Store(false)
 			})
 		})
 		if err != nil && !errors.Is(err, networkmonitor.ErrStopped) {
