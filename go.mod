@@ -12,7 +12,7 @@ require (
 	github.com/gorilla/mux v1.8.0
 	github.com/kardianos/service v1.2.1-0.20210728001519-a323c3813bc7
 	github.com/onsi/ginkgo v1.16.5
-	github.com/onsi/gomega v1.23.0
+	github.com/onsi/gomega v1.27.6
 	github.com/pion/ice/v3 v3.0.2
 	github.com/rs/cors v1.8.0
 	github.com/sirupsen/logrus v1.9.3
@@ -62,6 +62,7 @@ require (
 	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pion/logging v0.2.2
+	github.com/pion/randutil v0.1.0
 	github.com/pion/stun/v2 v2.0.0
 	github.com/pion/transport/v3 v3.0.1
 	github.com/pion/turn/v3 v3.0.1
@@ -92,6 +93,7 @@ require (
 	gorm.io/driver/postgres v1.5.7
 	gorm.io/driver/sqlite v1.5.3
 	gorm.io/gorm v1.25.7-0.20240204074919-46816ad31dde
+	nhooyr.io/websocket v1.8.11
 )
 
 require (
@@ -162,13 +164,13 @@ require (
 	github.com/moby/term v0.5.0 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
+	github.com/onsi/ginkgo/v2 v2.9.5 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0 // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
 	github.com/pegasus-kv/thrift v0.13.0 // indirect
 	github.com/pion/dtls/v2 v2.2.10 // indirect
 	github.com/pion/mdns v0.0.12 // indirect
-	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/transport/v2 v2.2.4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

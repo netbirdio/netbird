@@ -923,7 +923,7 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 
 		postureChecks := am.getPeerPostureChecks(account, peer)
 		remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, approvedPeersMap)
-		update := toSyncResponse(ctx, nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks)
+		update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks)
 		am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update})
 	}
 }

@@ -168,7 +168,6 @@ message PeerState {
   string connStatus = 3;
   google.protobuf.Timestamp connStatusUpdate = 4;
   bool relayed = 5;
-  bool direct = 6;
   string localIceCandidateType = 7;
   string remoteIceCandidateType = 8;
   string fqdn = 9;
@@ -180,6 +179,7 @@ message PeerState {
   bool rosenpassEnabled = 15;
   repeated string routes = 16;
   google.protobuf.Duration latency = 17;
+  string relayAddress = 18;
 }
 
 // LocalPeerState contains the latest state of the local peer

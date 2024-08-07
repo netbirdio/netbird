@@ -26,6 +26,8 @@ import (
 	"github.com/netbirdio/netbird/iface"
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/relay/auth/hmac"
+	relayClient "github.com/netbirdio/netbird/relay/client"
 	signal "github.com/netbirdio/netbird/signal/client"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
@@ -162,10 +164,8 @@ func (c *ConnectClient) run(
 	defer c.statusRecorder.ClientStop()
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
-		select {
-		case <-c.ctx.Done():
+		if c.isContextCancelled() {
 			return nil
-		default:
 		}
 
 		state.Set(StatusConnecting)
@@ -187,8 +187,7 @@ func (c *ConnectClient) run(
 
 		log.Debugf("connected to the Management service %s", c.config.ManagementURL.Host)
 		defer func() {
-			err = mgmClient.Close()
-			if err != nil {
+			if err = mgmClient.Close(); err != nil {
 				log.Warnf("failed to close the Management service client %v", err)
 			}
 		}()
@@ -211,7 +210,6 @@ func (c *ConnectClient) run(
 			KernelInterface: iface.WireGuardModuleIsLoaded(),
 			FQDN:            loginResp.GetPeerConfig().GetFqdn(),
 		}
-
 		c.statusRecorder.UpdateLocalPeerState(localPeerState)
 
 		signalURL := fmt.Sprintf("%s://%s",
@@ -244,6 +242,20 @@ func (c *ConnectClient) run(
 
 		c.statusRecorder.MarkSignalConnected()
 
+		relayURL, token := parseRelayInfo(loginResp)
+		relayManager := relayClient.NewManager(engineCtx, relayURL, myPrivateKey.PublicKey().String())
+		if relayURL != "" {
+			if token != nil {
+				relayManager.UpdateToken(token)
+			}
+			log.Infof("connecting to the Relay service %s", relayURL)
+			if err = relayManager.Serve(); err != nil {
+				log.Error(err)
+				return wrapErr(err)
+			}
+			c.statusRecorder.SetRelayMgr(relayManager)
+		}
+
 		peerConfig := loginResp.GetPeerConfig()
 
 		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig)
@@ -255,11 +267,10 @@ func (c *ConnectClient) run(
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, c.statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe, checks)
+		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe, checks)
 		c.engineMutex.Unlock()
 
-		err = c.engine.Start()
-		if err != nil {
+		if err := c.engine.Start(); err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
 		}
@@ -299,12 +310,40 @@ func (c *ConnectClient) run(
 	return nil
 }
 
+func parseRelayInfo(resp *mgmProto.LoginResponse) (string, *hmac.Token) {
+	msg := resp.GetWiretrusteeConfig().GetRelay()
+	if msg == nil {
+		return "", nil
+	}
+
+	var url string
+	if msg.GetUrls() != nil && len(msg.GetUrls()) > 0 {
+		url = msg.GetUrls()[0]
+	}
+
+	token := &hmac.Token{
+		Payload:   msg.GetTokenPayload(),
+		Signature: msg.GetTokenSignature(),
+	}
+
+	return url, token
+}
+
 func (c *ConnectClient) Engine() *Engine {
 	var e *Engine
 	c.engineMutex.Lock()
 	e = c.engine
 	c.engineMutex.Unlock()
 	return e
+}
+
+func (c *ConnectClient) isContextCancelled() bool {
+	select {
+	case <-c.ctx.Done():
+		return true
+	default:
+		return false
+	}
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig

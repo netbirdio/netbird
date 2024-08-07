@@ -37,7 +37,6 @@ var resp = &proto.StatusResponse{
 				ConnStatus:                 "Connected",
 				ConnStatusUpdate:           timestamppb.New(time.Date(2001, time.Month(1), 1, 1, 1, 1, 0, time.UTC)),
 				Relayed:                    false,
-				Direct:                     true,
 				LocalIceCandidateType:      "",
 				RemoteIceCandidateType:     "",
 				LocalIceCandidateEndpoint:  "",
@@ -57,7 +56,6 @@ var resp = &proto.StatusResponse{
 				ConnStatus:                 "Connected",
 				ConnStatusUpdate:           timestamppb.New(time.Date(2002, time.Month(2), 2, 2, 2, 2, 0, time.UTC)),
 				Relayed:                    true,
-				Direct:                     false,
 				LocalIceCandidateType:      "relay",
 				RemoteIceCandidateType:     "prflx",
 				LocalIceCandidateEndpoint:  "10.0.0.1:10001",
@@ -137,7 +135,6 @@ var overview = statusOutputOverview{
 				Status:           "Connected",
 				LastStatusUpdate: time.Date(2001, 1, 1, 1, 1, 1, 0, time.UTC),
 				ConnType:         "P2P",
-				Direct:           true,
 				IceCandidateType: iceCandidateType{
 					Local:  "",
 					Remote: "",
@@ -161,7 +158,6 @@ var overview = statusOutputOverview{
 				Status:           "Connected",
 				LastStatusUpdate: time.Date(2002, 2, 2, 2, 2, 2, 0, time.UTC),
 				ConnType:         "Relayed",
-				Direct:           false,
 				IceCandidateType: iceCandidateType{
 					Local:  "relay",
 					Remote: "prflx",
@@ -283,7 +279,6 @@ func TestParsingToJSON(t *testing.T) {
                 "status": "Connected",
                 "lastStatusUpdate": "2001-01-01T01:01:01Z",
                 "connectionType": "P2P",
-                "direct": true,
                 "iceCandidateType": {
                   "local": "",
                   "remote": ""
@@ -292,6 +287,7 @@ func TestParsingToJSON(t *testing.T) {
                   "local": "",
                   "remote": ""
                 },
+				"relayAddress": "",
                 "lastWireguardHandshake": "2001-01-01T01:01:02Z",
                 "transferReceived": 200,
                 "transferSent": 100,
@@ -308,7 +304,6 @@ func TestParsingToJSON(t *testing.T) {
                 "status": "Connected",
                 "lastStatusUpdate": "2002-02-02T02:02:02Z",
                 "connectionType": "Relayed",
-                "direct": false,
                 "iceCandidateType": {
                   "local": "relay",
                   "remote": "prflx"
@@ -317,6 +312,7 @@ func TestParsingToJSON(t *testing.T) {
                   "local": "10.0.0.1:10001",
                   "remote": "10.0.10.1:10002"
                 },
+				"relayAddress": "",
                 "lastWireguardHandshake": "2002-02-02T02:02:03Z",
                 "transferReceived": 2000,
                 "transferSent": 1000,
@@ -408,13 +404,13 @@ func TestParsingToYAML(t *testing.T) {
           status: Connected
           lastStatusUpdate: 2001-01-01T01:01:01Z
           connectionType: P2P
-          direct: true
           iceCandidateType:
             local: ""
             remote: ""
           iceCandidateEndpoint:
             local: ""
             remote: ""
+          relayAddress: ""
           lastWireguardHandshake: 2001-01-01T01:01:02Z
           transferReceived: 200
           transferSent: 100
@@ -428,13 +424,13 @@ func TestParsingToYAML(t *testing.T) {
           status: Connected
           lastStatusUpdate: 2002-02-02T02:02:02Z
           connectionType: Relayed
-          direct: false
           iceCandidateType:
             local: relay
             remote: prflx
           iceCandidateEndpoint:
             local: 10.0.0.1:10001
             remote: 10.0.10.1:10002
+          relayAddress: ""
           lastWireguardHandshake: 2002-02-02T02:02:03Z
           transferReceived: 2000
           transferSent: 1000
@@ -505,9 +501,9 @@ func TestParsingToDetail(t *testing.T) {
   Status: Connected
   -- detail --
   Connection type: P2P
-  Direct: true
   ICE candidate (Local/Remote): -/-
   ICE candidate endpoints (Local/Remote): -/-
+  Relay server address: 
   Last connection update: %s
   Last WireGuard handshake: %s
   Transfer status (received/sent) 200 B/100 B
@@ -521,9 +517,9 @@ func TestParsingToDetail(t *testing.T) {
   Status: Connected
   -- detail --
   Connection type: Relayed
-  Direct: false
   ICE candidate (Local/Remote): relay/prflx
   ICE candidate endpoints (Local/Remote): 10.0.0.1:10001/10.0.10.1:10002
+  Relay server address: 
   Last connection update: %s
   Last WireGuard handshake: %s
   Transfer status (received/sent) 2.0 KiB/1000 B

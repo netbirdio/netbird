@@ -11,6 +11,6 @@ import (
 	"github.com/netbirdio/netbird/iface"
 )
 
-func newServerRouter(context.Context, *iface.WGIface, firewall.Manager, *peer.Status) (serverRouter, error) {
+func newServerRouter(context.Context, iface.IWGIface, firewall.Manager, *peer.Status) (serverRouter, error) {
 	return nil, fmt.Errorf("server route not supported on this os")
 }

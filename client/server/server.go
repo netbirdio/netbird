@@ -745,11 +745,11 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			ConnStatus:                 peerState.ConnStatus.String(),
 			ConnStatusUpdate:           timestamppb.New(peerState.ConnStatusUpdate),
 			Relayed:                    peerState.Relayed,
-			Direct:                     peerState.Direct,
 			LocalIceCandidateType:      peerState.LocalIceCandidateType,
 			RemoteIceCandidateType:     peerState.RemoteIceCandidateType,
 			LocalIceCandidateEndpoint:  peerState.LocalIceCandidateEndpoint,
 			RemoteIceCandidateEndpoint: peerState.RemoteIceCandidateEndpoint,
+			RelayAddress:               peerState.RelayServerAddress,
 			Fqdn:                       peerState.FQDN,
 			LastWireguardHandshake:     timestamppb.New(peerState.LastWireguardHandshake),
 			BytesRx:                    peerState.BytesRx,
@@ -763,7 +763,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 
 	for _, relayState := range fullStatus.Relays {
 		pbRelayState := &proto.RelayState{
-			URI:       relayState.URI.String(),
+			URI:       relayState.URI,
 			Available: relayState.Err == nil,
 		}
 		if err := relayState.Err; err != nil {

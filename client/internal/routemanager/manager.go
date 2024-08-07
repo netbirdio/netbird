@@ -49,7 +49,7 @@ type DefaultManager struct {
 	serverRouter         serverRouter
 	sysOps               *systemops.SysOps
 	statusRecorder       *peer.Status
-	wgInterface          *iface.WGIface
+	wgInterface          iface.IWGIface
 	pubKey               string
 	notifier             *notifier.Notifier
 	routeRefCounter      *refcounter.RouteRefCounter
@@ -61,7 +61,7 @@ func NewManager(
 	ctx context.Context,
 	pubKey string,
 	dnsRouteInterval time.Duration,
-	wgInterface *iface.WGIface,
+	wgInterface iface.IWGIface,
 	statusRecorder *peer.Status,
 	initialRoutes []*route.Route,
 ) *DefaultManager {
