@@ -102,7 +102,7 @@ func (m *Metrics) PeerActivity(peerID string) {
 	m.peerActivityChan <- peerID
 }
 
-func (m *Metrics) calculateAcitveIdleConnections() (int64, int64) {
+func (m *Metrics) calculateActiveIdleConnections() (int64, int64) {
 	active, idle := int64(0), int64(0)
 	m.mutexActivity.Lock()
 	defer m.mutexActivity.Unlock()
