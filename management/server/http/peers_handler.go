@@ -64,7 +64,7 @@ func (h *PeersHandler) getPeer(ctx context.Context, account *server.Account, pee
 
 	groupsInfo := toGroupsInfo(account.Groups, peer.ID)
 
-	accessiblePeers, valid, err := h.getAccessibleAndValidStatus(ctx, account, peerID, err, w, dnsDomain, peer)
+	accessiblePeers, valid, err := h.getAccessibleAndValidStatus(ctx, account, peerID, dnsDomain, peer)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to list approved peers: %v", err)
 		util.WriteError(ctx, fmt.Errorf("internal error"), w)
@@ -73,7 +73,7 @@ func (h *PeersHandler) getPeer(ctx context.Context, account *server.Account, pee
 	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peerToReturn, groupsInfo, dnsDomain, accessiblePeers, valid))
 }
 
-func (h *PeersHandler) getAccessibleAndValidStatus(ctx context.Context, account *server.Account, peerID string, err error, w http.ResponseWriter, dnsDomain string, peer *nbpeer.Peer) ([]api.AccessiblePeer, bool, error) {
+func (h *PeersHandler) getAccessibleAndValidStatus(ctx context.Context, account *server.Account, peerID string, dnsDomain string, peer *nbpeer.Peer) ([]api.AccessiblePeer, bool, error) {
 	validPeers, err := h.accountManager.GetValidatedPeers(account)
 	if err != nil {
 		return nil, false, err
@@ -119,7 +119,7 @@ func (h *PeersHandler) updatePeer(ctx context.Context, account *server.Account, 
 
 	groupMinimumInfo := toGroupsInfo(account.Groups, peer.ID)
 
-	accessiblePeers, valid, err := h.getAccessibleAndValidStatus(ctx, account, peerID, err, w, dnsDomain, peer)
+	accessiblePeers, valid, err := h.getAccessibleAndValidStatus(ctx, account, peerID, dnsDomain, peer)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to list approved peers: %v", err)
 		util.WriteError(ctx, fmt.Errorf("internal error"), w)
