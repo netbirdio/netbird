@@ -30,17 +30,18 @@ type Config struct {
 	ListenAddress string
 	// in HA every peer connect to a common domain, the instance domain has been distributed during the p2p connection
 	// it is a domain:port or ip:port
-	ExposedAddress                string
-	LetsencryptEmail              string
-	LetsencryptDataDir            string
-	LetsencryptDomains            []string
-	LetsencryptAWSAccessKeyID     string
-	LetsencryptAWSSecretAccessKey string
-	TlsCertFile                   string
-	TlsKeyFile                    string
-	AuthSecret                    string
-	LogLevel                      string
-	LogFile                       string
+	ExposedAddress     string
+	LetsencryptEmail   string
+	LetsencryptDataDir string
+	LetsencryptDomains []string
+	// in case of using Route 53 for DNS challenge the credentials should be provided in the environment variables or
+	// in the AWS credentials file
+	LetsencryptAWSRoute53 bool
+	TlsCertFile           string
+	TlsKeyFile            string
+	AuthSecret            string
+	LogLevel              string
+	LogFile               string
 }
 
 func (c Config) Validate() error {
@@ -59,22 +60,6 @@ func (c Config) HasCertConfig() bool {
 
 func (c Config) HasLetsEncrypt() bool {
 	return c.LetsencryptDataDir != "" && c.LetsencryptDomains != nil && len(c.LetsencryptDomains) > 0
-}
-
-func (c Config) HasRoute54Credentials() bool {
-	if c.LetsencryptDataDir == "" {
-		return false
-	}
-
-	if c.LetsencryptEmail == "" {
-		return false
-	}
-
-	if c.LetsencryptDomains == nil || len(c.LetsencryptDomains) == 0 {
-		return false
-	}
-
-	return true
 }
 
 var (
@@ -97,8 +82,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.LetsencryptDataDir, "letsencrypt-data-dir", "d", "", "a directory to store Let's Encrypt data. Required if Let's Encrypt is enabled.")
 	rootCmd.PersistentFlags().StringArrayVarP(&cobraConfig.LetsencryptDomains, "letsencrypt-domains", "a", nil, "list of domains to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LetsencryptEmail, "letsencrypt-email", "", "email address to use for Let's Encrypt certificate registration")
-	rootCmd.PersistentFlags().StringVar(&cobraConfig.LetsencryptAWSAccessKeyID, "letsencrypt-aws-accesskeyid", "", "AWS Access Key ID for Route 53 DNS provider")
-	rootCmd.PersistentFlags().StringVar(&cobraConfig.LetsencryptAWSSecretAccessKey, "letsencypt-aws-secretaccesskey", "", "AWS Secret Access Key for Route 53 DNS provider")
+	rootCmd.PersistentFlags().BoolVar(&cobraConfig.LetsencryptAWSRoute53, "letsencrypt-aws-route53", false, "use AWS Route 53 for Let's Encrypt DNS challenge")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.TlsCertFile, "tls-cert-file", "c", "", "")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.TlsKeyFile, "tls-key-file", "k", "", "")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.AuthSecret, "auth-secret", "s", "", "log level")
@@ -141,11 +125,8 @@ func loadConfig(configFile string) (*Config, error) {
 	if cobraConfig.LetsencryptEmail != "" {
 		loadedConfig.LetsencryptEmail = cobraConfig.LetsencryptEmail
 	}
-	if cobraConfig.LetsencryptAWSAccessKeyID != "" {
-		loadedConfig.LetsencryptAWSAccessKeyID = cobraConfig.LetsencryptAWSAccessKeyID
-	}
-	if cobraConfig.LetsencryptAWSSecretAccessKey != "" {
-		loadedConfig.LetsencryptAWSSecretAccessKey = cobraConfig.LetsencryptAWSSecretAccessKey
+	if cobraConfig.LetsencryptAWSRoute53 {
+		loadedConfig.LetsencryptAWSRoute53 = true
 	}
 
 	if loadedConfig.LogLevel == "" {
@@ -218,14 +199,12 @@ func execute(cmd *cobra.Command, args []string) error {
 }
 
 func handleTLSConfig(cfg *Config) (*tls.Config, bool, error) {
-	if cfg.HasRoute54Credentials() {
+	if cfg.LetsencryptAWSRoute53 {
 		log.Debugf("using Let's Encrypt DNS resolver with Route 53 support")
 		r53 := encryption.Route53TLS{
-			DataDir:            cfg.LetsencryptDataDir,
-			Email:              cfg.LetsencryptEmail,
-			AwsAccessKeyID:     cfg.LetsencryptAWSAccessKeyID,
-			AwsSecretAccessKey: cfg.LetsencryptAWSSecretAccessKey,
-			Domains:            cfg.LetsencryptDomains,
+			DataDir: cfg.LetsencryptDataDir,
+			Email:   cfg.LetsencryptEmail,
+			Domains: cfg.LetsencryptDomains,
 		}
 		tlsCfg, err := r53.GetCertificate()
 		if err != nil {
