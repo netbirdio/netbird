@@ -13,11 +13,9 @@ func TestRoute53TLSConfig(t *testing.T) {
 	t.SkipNow() // This test requires AWS credentials
 	exampleString := "Hello, world!"
 	rtls := &Route53TLS{
-		DataDir:            t.TempDir(),
-		Email:              os.Getenv("AWS_EMAIL"),
-		AwsAccessKeyID:     os.Getenv("AWS_KEY"),
-		AwsSecretAccessKey: os.Getenv("AWS_SECRET"),
-		Domains:            []string{os.Getenv("DOMAIN")},
+		DataDir: t.TempDir(),
+		Email:   os.Getenv("LE_EMAIL_ROUTE53"),
+		Domains: []string{os.Getenv("DOMAIN")},
 	}
 	tlsConfig, err := rtls.GetCertificate()
 	if err != nil {

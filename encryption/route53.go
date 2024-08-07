@@ -16,12 +16,10 @@ import (
 // Route53TLS by default, loads the AWS configuration from the environment.
 // env variables: AWS_REGION, AWS_PROFILE, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN
 type Route53TLS struct {
-	DataDir            string
-	Email              string
-	AwsAccessKeyID     string
-	AwsSecretAccessKey string
-	Domains            []string
-	CA                 string
+	DataDir string
+	Email   string
+	Domains []string
+	CA      string
 }
 
 func (r *Route53TLS) GetCertificate() (*tls.Config, error) {
