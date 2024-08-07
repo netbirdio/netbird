@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/xid"
@@ -322,7 +323,8 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 	if err != nil {
 		return nil, err
 	}
-	return account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, validatedPeers), nil
+	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
+	return account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, nil), nil
 }
 
 // GetPeerNetwork returns the Network for a given peer
@@ -535,7 +537,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	postureChecks := am.getPeerPostureChecks(account, peer)
-	networkMap := account.GetPeerNetworkMap(ctx, newPeer.ID, am.dnsDomain, approvedPeersMap)
+	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
+	networkMap := account.GetPeerNetworkMap(ctx, newPeer.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics())
 	return newPeer, networkMap, postureChecks, nil
 }
 
@@ -591,7 +594,8 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	}
 	postureChecks = am.getPeerPostureChecks(account, peer)
 
-	return peer, account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, validPeersMap), postureChecks, nil
+	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
+	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, validPeersMap, am.metrics.AccountManagerMetrics()), postureChecks, nil
 }
 
 // LoginPeer logs in or registers a peer.
@@ -738,7 +742,8 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 	}
 	postureChecks = am.getPeerPostureChecks(account, peer)
 
-	return peer, account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, approvedPeersMap), postureChecks, nil
+	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
+	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics()), postureChecks, nil
 }
 
 func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, login PeerLogin, account *Account, peer *nbpeer.Peer) error {
@@ -914,22 +919,45 @@ func updatePeerMeta(peer *nbpeer.Peer, meta nbpeer.PeerSystemMeta, account *Acco
 // updateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account *Account) {
+	start := time.Now()
+	defer func() {
+		if am.metrics != nil {
+			am.metrics.AccountManagerMetrics().CountUpdateAccountPeersDuration(time.Since(start))
+		}
+	}()
+
 	peers := account.GetPeers()
 
 	approvedPeersMap, err := am.GetValidatedPeers(account)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed send out updates to peers, failed to validate peer: %v", err)
+		log.WithContext(ctx).Errorf("failed to send out updates to peers, failed to validate peer: %v", err)
 		return
 	}
+
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, 10)
+
+	dnsCache := &DNSConfigCache{}
+	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
+
 	for _, peer := range peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
 			continue
 		}
 
-		postureChecks := am.getPeerPostureChecks(account, peer)
-		remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, approvedPeersMap)
-		update := toSyncResponse(ctx, nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks)
-		am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update})
+		wg.Add(1)
+		semaphore <- struct{}{}
+		go func(p *nbpeer.Peer) {
+			defer wg.Done()
+			defer func() { <-semaphore }()
+
+			postureChecks := am.getPeerPostureChecks(account, p)
+			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics())
+			update := toSyncResponse(ctx, nil, p, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache)
+			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update})
+		}(peer)
 	}
+
+	wg.Wait()
 }

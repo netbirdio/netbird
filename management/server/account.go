@@ -18,6 +18,8 @@ import (
 
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
+	"github.com/hashicorp/go-multierror"
+	"github.com/miekg/dns"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -37,6 +39,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -170,6 +173,8 @@ type DefaultAccountManager struct {
 	userDeleteFromIDPEnabled bool
 
 	integratedPeerValidator integrated_validator.IntegratedValidator
+
+	metrics telemetry.AppMetrics
 }
 
 // Settings represents Account settings structure that can be modified via API and Dashboard
@@ -401,8 +406,16 @@ func (a *Account) GetGroup(groupID string) *nbgroup.Group {
 	return a.Groups[groupID]
 }
 
-// GetPeerNetworkMap returns a group by ID if exists, nil otherwise
-func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain string, validatedPeersMap map[string]struct{}) *NetworkMap {
+// GetPeerNetworkMap returns the networkmap for the given peer ID.
+func (a *Account) GetPeerNetworkMap(
+	ctx context.Context,
+	peerID string,
+	peersCustomZone nbdns.CustomZone,
+	validatedPeersMap map[string]struct{},
+	metrics *telemetry.AccountManagerMetrics,
+) *NetworkMap {
+	start := time.Now()
+
 	peer := a.Peers[peerID]
 	if peer == nil {
 		return &NetworkMap{
@@ -438,7 +451,7 @@ func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain strin
 
 	if dnsManagementStatus {
 		var zones []nbdns.CustomZone
-		peersCustomZone := getPeersCustomZone(ctx, a, dnsDomain)
+
 		if peersCustomZone.Domain != "" {
 			zones = append(zones, peersCustomZone)
 		}
@@ -446,7 +459,7 @@ func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain strin
 		dnsUpdate.NameServerGroups = getPeerNSGroups(a, peerID)
 	}
 
-	return &NetworkMap{
+	nm := &NetworkMap{
 		Peers:         peersToConnect,
 		Network:       a.Network.Copy(),
 		Routes:        routesUpdate,
@@ -454,6 +467,60 @@ func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain strin
 		OfflinePeers:  expiredPeers,
 		FirewallRules: firewallRules,
 	}
+
+	if metrics != nil {
+		objectCount := int64(len(peersToConnect) + len(expiredPeers) + len(routesUpdate) + len(firewallRules))
+		metrics.CountNetworkMapObjects(objectCount)
+		metrics.CountGetPeerNetworkMapDuration(time.Since(start))
+	}
+
+	return nm
+}
+
+func (a *Account) GetPeersCustomZone(ctx context.Context, dnsDomain string) nbdns.CustomZone {
+	var merr *multierror.Error
+
+	if dnsDomain == "" {
+		log.WithContext(ctx).Error("no dns domain is set, returning empty zone")
+		return nbdns.CustomZone{}
+	}
+
+	customZone := nbdns.CustomZone{
+		Domain:  dns.Fqdn(dnsDomain),
+		Records: make([]nbdns.SimpleRecord, 0, len(a.Peers)),
+	}
+
+	domainSuffix := "." + dnsDomain
+
+	var sb strings.Builder
+	for _, peer := range a.Peers {
+		if peer.DNSLabel == "" {
+			merr = multierror.Append(merr, fmt.Errorf("peer %s has an empty DNS label", peer.Name))
+			continue
+		}
+
+		sb.Grow(len(peer.DNSLabel) + len(domainSuffix))
+		sb.WriteString(peer.DNSLabel)
+		sb.WriteString(domainSuffix)
+
+		customZone.Records = append(customZone.Records, nbdns.SimpleRecord{
+			Name:  sb.String(),
+			Type:  int(dns.TypeA),
+			Class: nbdns.DefaultClass,
+			TTL:   defaultTTL,
+			RData: peer.IP.String(),
+		})
+
+		sb.Reset()
+	}
+
+	go func() {
+		if merr != nil {
+			log.WithContext(ctx).Errorf("error generating custom zone for account %s: %v", a.Id, merr)
+		}
+	}()
+
+	return customZone
 }
 
 // GetExpiredPeers returns peers that have been expired
@@ -871,10 +938,18 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
 }
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
-func BuildManager(ctx context.Context, store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
-	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store, geo *geolocation.Geolocation,
+func BuildManager(
+	ctx context.Context,
+	store Store,
+	peersUpdateManager *PeersUpdateManager,
+	idpManager idp.Manager,
+	singleAccountModeDomain string,
+	dnsDomain string,
+	eventStore activity.Store,
+	geo *geolocation.Geolocation,
 	userDeleteFromIDPEnabled bool,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
+	metrics telemetry.AppMetrics,
 ) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
 		Store:                    store,
@@ -889,6 +964,7 @@ func BuildManager(ctx context.Context, store Store, peersUpdateManager *PeersUpd
 		peerLoginExpiry:          NewDefaultScheduler(),
 		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
 		integratedPeerValidator:  integratedPeerValidator,
+		metrics:                  metrics,
 	}
 	allAccounts := store.GetAllAccounts(ctx)
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
