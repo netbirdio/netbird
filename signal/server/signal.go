@@ -6,13 +6,14 @@ import (
 	"io"
 	"time"
 
-	"github.com/netbirdio/signal-dispatcher/dispatcher"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+
+	"github.com/netbirdio/signal-dispatcher/dispatcher"
 
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/signal/peer"
@@ -75,7 +76,12 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 		return &proto.EncryptedMessage{}, nil
 	}
 
-	return s.dispatcher.SendMessage(ctx, msg)
+	// if _, found := s.registry.Get(msg.RemoteKey); found {
+	// 	s.forwardMessageToPeer(ctx, msg)
+	// 	return &proto.EncryptedMessage{}, nil
+	// }
+
+	return s.dispatcher.SendMessage(context.Background(), msg)
 }
 
 // ConnectStream connects to the exchange stream
