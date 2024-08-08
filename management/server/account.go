@@ -68,6 +68,7 @@ type AccountManager interface {
 	SaveSetupKey(ctx context.Context, accountID string, key *SetupKey, userID string) (*SetupKey, error)
 	CreateUser(ctx context.Context, accountID, initiatorUserID string, key *UserInfo) (*UserInfo, error)
 	DeleteUser(ctx context.Context, accountID, initiatorUserID string, targetUserID string) error
+	DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string) error
 	InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error
 	ListSetupKeys(ctx context.Context, accountID, userID string) ([]*SetupKey, error)
 	SaveUser(ctx context.Context, accountID, initiatorUserID string, update *User) (*UserInfo, error)
@@ -101,6 +102,7 @@ type AccountManager interface {
 	SaveGroup(ctx context.Context, accountID, userID string, group *nbgroup.Group) error
 	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*nbgroup.Group) error
 	DeleteGroup(ctx context.Context, accountId, userId, groupID string) error
+	DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error
 	ListGroups(ctx context.Context, accountId string) ([]*nbgroup.Group, error)
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
 	GroupDeletePeer(ctx context.Context, accountId, groupID, peerID string) error

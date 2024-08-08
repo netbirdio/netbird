@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -472,40 +473,9 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 }
 
 func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account *Account, initiatorUserID, targetUserID string) error {
-	tuEmail, tuName, err := am.getEmailAndNameOfTargetUser(ctx, account.Id, initiatorUserID, targetUserID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to resolve email address: %s", err)
-		return err
-	}
-
-	if !isNil(am.idpManager) {
-		// Delete if the user already exists in the IdP.Necessary in cases where a user account
-		// was created where a user account was provisioned but the user did not sign in
-		_, err = am.idpManager.GetUserDataByID(ctx, targetUserID, idp.AppMetadata{WTAccountID: account.Id})
-		if err == nil {
-			err = am.deleteUserFromIDP(ctx, targetUserID, account.Id)
-			if err != nil {
-				log.WithContext(ctx).Debugf("failed to delete user from IDP: %s", targetUserID)
-				return err
-			}
-		} else {
-			log.WithContext(ctx).Debugf("skipped deleting user %s from IDP, error: %v", targetUserID, err)
-		}
-	}
-
-	err = am.deleteUserPeers(ctx, initiatorUserID, targetUserID, account)
+	meta, err := am.prepareUserDeletion(ctx, account, initiatorUserID, targetUserID)
 	if err != nil {
 		return err
-	}
-
-	u, err := account.FindUser(targetUserID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to find user %s for deletion, this should never happen: %s", targetUserID, err)
-	}
-
-	var tuCreatedAt time.Time
-	if u != nil {
-		tuCreatedAt = u.CreatedAt
 	}
 
 	delete(account.Users, targetUserID)
@@ -514,9 +484,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account 
 		return err
 	}
 
-	meta := map[string]any{"name": tuName, "email": tuEmail, "created_at": tuCreatedAt}
 	am.StoreEvent(ctx, initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
-
 	am.updateAccountPeers(ctx, account)
 
 	return nil
@@ -1188,6 +1156,116 @@ func (am *DefaultAccountManager) getEmailAndNameOfTargetUser(ctx context.Context
 	}
 
 	return "", "", fmt.Errorf("user info not found for user: %s", targetId)
+}
+
+// DeleteRegularUsers deletes regular users from an account.
+// Note: This function does not acquire the global lock.
+// It is the caller's responsibility to ensure proper locking is in place before invoking this method.
+//
+// If an error occurs while deleting the user, the function skips it and continues deleting other users.
+// Errors are collected and returned at the end.
+func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string) error {
+	account, err := am.Store.GetAccount(ctx, accountID)
+	if err != nil {
+		return err
+	}
+
+	executingUser := account.Users[initiatorUserID]
+	if executingUser == nil {
+		return status.Errorf(status.NotFound, "user not found")
+	}
+	if !executingUser.HasAdminPower() {
+		return status.Errorf(status.PermissionDenied, "only users with admin power can delete users")
+	}
+
+	var allErrors error
+
+	deletedUsersMeta := make(map[string]map[string]any)
+	for _, targetUserID := range targetUserIDs {
+		if initiatorUserID == targetUserID {
+			allErrors = errors.Join(allErrors, errors.New("self deletion is not allowed"))
+			continue
+		}
+
+		targetUser := account.Users[targetUserID]
+		if targetUser == nil {
+			allErrors = errors.Join(allErrors, fmt.Errorf("target user: %s not found", targetUserID))
+			continue
+		}
+
+		if targetUser.Role == UserRoleOwner {
+			allErrors = errors.Join(allErrors, fmt.Errorf("unable to delete a user: %s with owner role", targetUserID))
+			continue
+		}
+
+		// disable deleting integration user if the initiator is not admin service user
+		if targetUser.Issued == UserIssuedIntegration && !executingUser.IsServiceUser {
+			allErrors = errors.Join(allErrors, errors.New("only integration service user can delete this user"))
+			continue
+		}
+
+		meta, err := am.prepareUserDeletion(ctx, account, initiatorUserID, targetUserID)
+		if err != nil {
+			allErrors = errors.Join(allErrors, fmt.Errorf("failed to delete user %s: %s", targetUserID, err))
+			continue
+		}
+
+		delete(account.Users, targetUserID)
+		deletedUsersMeta[targetUserID] = meta
+	}
+
+	err = am.Store.SaveAccount(ctx, account)
+	if err != nil {
+		return fmt.Errorf("failed to delete users: %w", err)
+	}
+
+	am.updateAccountPeers(ctx, account)
+
+	for targetUserID, meta := range deletedUsersMeta {
+		am.StoreEvent(ctx, initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
+	}
+
+	return allErrors
+}
+
+func (am *DefaultAccountManager) prepareUserDeletion(ctx context.Context, account *Account, initiatorUserID, targetUserID string) (map[string]any, error) {
+	tuEmail, tuName, err := am.getEmailAndNameOfTargetUser(ctx, account.Id, initiatorUserID, targetUserID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to resolve email address: %s", err)
+		return nil, err
+	}
+
+	if !isNil(am.idpManager) {
+		// Delete if the user already exists in the IdP. Necessary in cases where a user account
+		// was created where a user account was provisioned but the user did not sign in
+		_, err = am.idpManager.GetUserDataByID(ctx, targetUserID, idp.AppMetadata{WTAccountID: account.Id})
+		if err == nil {
+			err = am.deleteUserFromIDP(ctx, targetUserID, account.Id)
+			if err != nil {
+				log.WithContext(ctx).Debugf("failed to delete user from IDP: %s", targetUserID)
+				return nil, err
+			}
+		} else {
+			log.WithContext(ctx).Debugf("skipped deleting user %s from IDP, error: %v", targetUserID, err)
+		}
+	}
+
+	err = am.deleteUserPeers(ctx, initiatorUserID, targetUserID, account)
+	if err != nil {
+		return nil, err
+	}
+
+	u, err := account.FindUser(targetUserID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to find user %s for deletion, this should never happen: %s", targetUserID, err)
+	}
+
+	var tuCreatedAt time.Time
+	if u != nil {
+		tuCreatedAt = u.CreatedAt
+	}
+
+	return map[string]any{"name": tuName, "email": tuEmail, "created_at": tuCreatedAt}, nil
 }
 
 func findUserInIDPUserdata(userID string, userData []*idp.UserData) (*idp.UserData, bool) {
