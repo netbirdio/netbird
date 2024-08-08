@@ -4,14 +4,12 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-
-	"github.com/netbirdio/netbird/route"
 )
 
 const (
 	ForwardingFormatPrefix = "netbird-fwd-"
-	ForwardingFormat       = "netbird-fwd-%s"
-	NatFormat              = "netbird-nat-%s"
+	ForwardingFormat       = "netbird-fwd-%s-%b"
+	NatFormat              = "netbird-nat-%s-%b"
 )
 
 // Rule abstraction should be implemented by each firewall manager
@@ -101,6 +99,6 @@ type Manager interface {
 	Flush() error
 }
 
-func GenKey(format string, input route.ID) string {
-	return fmt.Sprintf(format, input)
+func GenKey(format string, pair RouterPair) string {
+	return fmt.Sprintf(format, pair.ID, pair.Inverse)
 }

@@ -27,8 +27,6 @@ const (
 
 	userDataAcceptForwardRuleIif = "frwacceptiif"
 	userDataAcceptForwardRuleOif = "frwacceptoif"
-
-	loopbackInterface = "lo\x00"
 )
 
 var (
@@ -152,22 +150,6 @@ func (r *router) createContainers() error {
 		Priority: nftables.ChainPriorityNATSource - 1,
 		Type:     nftables.ChainTypeNAT,
 	})
-
-	// Add RETURN rule for loopback interface
-	loRule := &nftables.Rule{
-		Table: r.workTable,
-		Chain: r.chains[chainNameRoutingNat],
-		Exprs: []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     []byte(loopbackInterface),
-			},
-			&expr.Verdict{Kind: expr.VerdictReturn},
-		},
-	}
-	r.conn.InsertRule(loRule)
 
 	r.acceptForwardRules()
 
@@ -294,6 +276,10 @@ func (r *router) AddNatRule(pair firewall.RouterPair) error {
 		if err := r.addNatRule(pair); err != nil {
 			return fmt.Errorf("add nat rule: %w", err)
 		}
+
+		if err := r.addNatRule(firewall.GetInversePair(pair)); err != nil {
+			return fmt.Errorf("add inverse nat rule: %w", err)
+		}
 	}
 
 	if err := r.conn.Flush(); err != nil {
@@ -303,14 +289,36 @@ func (r *router) AddNatRule(pair firewall.RouterPair) error {
 	return nil
 }
 
-// addNatRule inserts a nftable rule to the conn client flush queue
+// addNatRule inserts a nftables rule to the conn client flush queue
 func (r *router) addNatRule(pair firewall.RouterPair) error {
 	sourceExp := generateCIDRMatcherExpressions(true, pair.Source)
 	destExp := generateCIDRMatcherExpressions(false, pair.Destination)
 
-	expression := append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) // nolint:gocritic
+	dir := expr.MetaKeyIIFNAME
+	if pair.Inverse {
+		dir = expr.MetaKeyOIFNAME
+	}
 
-	ruleKey := firewall.GenKey(firewall.NatFormat, pair.ID)
+	intf := ifname(r.wgIface.Name())
+	exprs := []expr.Any{
+		&expr.Meta{
+			Key:      dir,
+			Register: 1,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     intf,
+		},
+	}
+
+	exprs = append(exprs, sourceExp...)
+	exprs = append(exprs, destExp...)
+	exprs = append(exprs,
+		&expr.Counter{}, &expr.Masq{},
+	)
+
+	ruleKey := firewall.GenKey(firewall.NatFormat, pair)
 
 	if _, exists := r.rules[ruleKey]; exists {
 		if err := r.removeNatRule(pair); err != nil {
@@ -321,7 +329,7 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 	r.rules[ruleKey] = r.conn.AddRule(&nftables.Rule{
 		Table:    r.workTable,
 		Chain:    r.chains[chainNameRoutingNat],
-		Exprs:    expression,
+		Exprs:    exprs,
 		UserData: []byte(ruleKey),
 	})
 	return nil
@@ -341,7 +349,7 @@ func (r *router) addLegacyRouteRule(pair firewall.RouterPair) error {
 
 	expression := append(sourceExp, append(destExp, exprs...)...) // nolint:gocritic
 
-	ruleKey := firewall.GenKey(firewall.ForwardingFormat, pair.ID)
+	ruleKey := firewall.GenKey(firewall.ForwardingFormat, pair)
 
 	if _, exists := r.rules[ruleKey]; exists {
 		if err := r.removeLegacyRouteRule(pair); err != nil {
@@ -360,7 +368,7 @@ func (r *router) addLegacyRouteRule(pair firewall.RouterPair) error {
 
 // removeLegacyRouteRule removes a legacy routing rule for mgmt servers pre route acls
 func (r *router) removeLegacyRouteRule(pair firewall.RouterPair) error {
-	ruleKey := firewall.GenKey(firewall.ForwardingFormat, pair.ID)
+	ruleKey := firewall.GenKey(firewall.ForwardingFormat, pair)
 
 	rule, found := r.rules[ruleKey]
 	if found {
@@ -473,32 +481,33 @@ func (r *router) acceptForwardRules() {
 
 // RemoveNatRule removes a nftables rule pair from nat chains
 func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
-	err := r.refreshRulesMap()
-	if err != nil {
+	if err := r.refreshRulesMap(); err != nil {
 		return fmt.Errorf("refresh rules map: %w", err)
 	}
 
-	err = r.removeNatRule(pair)
-	if err != nil {
+	if err := r.removeNatRule(pair); err != nil {
 		return fmt.Errorf("remove nat rule: %w", err)
 	}
 
-	err = r.removeLegacyRouteRule(pair)
-	if err != nil {
+	if err := r.removeNatRule(firewall.GetInversePair(pair)); err != nil {
+		return fmt.Errorf("remove inverse nat rule: %w", err)
+	}
+
+	if err := r.removeLegacyRouteRule(pair); err != nil {
 		return fmt.Errorf("remove legacy routing rule: %w", err)
 	}
 
-	err = r.conn.Flush()
-	if err != nil {
+	if err := r.conn.Flush(); err != nil {
 		return fmt.Errorf("nftables: received error while applying rule removal for %s: %v", pair.Destination, err)
 	}
+
 	log.Debugf("nftables: removed rules for %s", pair.Destination)
 	return nil
 }
 
 // removeNatRule adds a nftables rule to the removal queue and deletes it from the rules map
 func (r *router) removeNatRule(pair firewall.RouterPair) error {
-	ruleKey := firewall.GenKey(firewall.NatFormat, pair.ID)
+	ruleKey := firewall.GenKey(firewall.NatFormat, pair)
 
 	rule, found := r.rules[ruleKey]
 	if found {

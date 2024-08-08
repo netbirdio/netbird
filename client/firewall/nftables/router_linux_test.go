@@ -57,12 +57,20 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 				require.NoError(t, manager.RemoveNatRule(pair), "failed to remove rule")
 			}(manager, testCase.InputPair)
 
-			sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
-			destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
-			testingExpression := append(sourceExp, destExp...) //nolint:gocritic
-
 			if testCase.InputPair.Masquerade {
-				natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair.ID)
+				sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
+				destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
+				testingExpression := append(sourceExp, destExp...) //nolint:gocritic
+				testingExpression = append(testingExpression,
+					&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+					&expr.Cmp{
+						Op:       expr.CmpOpEq,
+						Register: 1,
+						Data:     ifname(ifaceMock.Name()),
+					},
+				)
+
+				natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair)
 				found := 0
 				for _, chain := range manager.chains {
 					rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
@@ -70,6 +78,34 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 					for _, rule := range rules {
 						if len(rule.UserData) > 0 && string(rule.UserData) == natRuleKey {
 							require.ElementsMatchf(t, rule.Exprs[:len(testingExpression)], testingExpression, "nat rule elements should match")
+							found = 1
+						}
+					}
+				}
+				require.Equal(t, 1, found, "should find at least 1 rule to test")
+			}
+
+			if testCase.InputPair.Masquerade {
+				sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
+				destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
+				testingExpression := append(sourceExp, destExp...) //nolint:gocritic
+				testingExpression = append(testingExpression,
+					&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+					&expr.Cmp{
+						Op:       expr.CmpOpEq,
+						Register: 1,
+						Data:     ifname(ifaceMock.Name()),
+					},
+				)
+
+				inNatRuleKey := firewall.GenKey(firewall.NatFormat, firewall.GetInversePair(testCase.InputPair))
+				found := 0
+				for _, chain := range manager.chains {
+					rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
+					require.NoError(t, err, "should list rules for %s table and %s chain", chain.Table.Name, chain.Name)
+					for _, rule := range rules {
+						if len(rule.UserData) > 0 && string(rule.UserData) == inNatRuleKey {
+							require.ElementsMatchf(t, rule.Exprs[:len(testingExpression)], testingExpression, "income nat rule elements should match")
 							found = 1
 						}
 					}
@@ -106,13 +142,26 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 			destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
 
 			natExp := append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) //nolint:gocritic
-			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair.ID)
+			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair)
 
 			insertedNat := nftablesTestingClient.InsertRule(&nftables.Rule{
 				Table:    manager.workTable,
 				Chain:    manager.chains[chainNameRoutingNat],
 				Exprs:    natExp,
 				UserData: []byte(natRuleKey),
+			})
+
+			sourceExp = generateCIDRMatcherExpressions(true, firewall.GetInversePair(testCase.InputPair).Source)
+			destExp = generateCIDRMatcherExpressions(false, firewall.GetInversePair(testCase.InputPair).Destination)
+
+			natExp = append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) //nolint:gocritic
+			inNatRuleKey := firewall.GenKey(firewall.NatFormat, firewall.GetInversePair(testCase.InputPair))
+
+			insertedInNat := nftablesTestingClient.InsertRule(&nftables.Rule{
+				Table:    manager.workTable,
+				Chain:    manager.chains[chainNameRoutingNat],
+				Exprs:    natExp,
+				UserData: []byte(inNatRuleKey),
 			})
 
 			err = nftablesTestingClient.Flush()
@@ -130,6 +179,7 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 				for _, rule := range rules {
 					if len(rule.UserData) > 0 {
 						require.NotEqual(t, insertedNat.UserData, rule.UserData, "nat rule should not exist")
+						require.NotEqual(t, insertedInNat.UserData, rule.UserData, "income nat rule should not exist")
 					}
 				}
 			}
