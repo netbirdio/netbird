@@ -8,8 +8,8 @@ import (
 
 const (
 	ForwardingFormatPrefix = "netbird-fwd-"
-	ForwardingFormat       = "netbird-fwd-%s-%b"
-	NatFormat              = "netbird-nat-%s-%b"
+	ForwardingFormat       = "netbird-fwd-%s-%t"
+	NatFormat              = "netbird-nat-%s-%t"
 )
 
 // Rule abstraction should be implemented by each firewall manager

@@ -247,13 +247,16 @@ func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 }
 
 func (r *router) removeRouteRule(id string) error {
-	if rule, exists := r.rules[id]; !exists {
+	if rule, exists := r.rules[id]; exists {
+		log.Debugf("nftables: inside")
 		if err := r.conn.DelRule(rule); err != nil {
 			return fmt.Errorf("remove route rule %s: %w", id, err)
 		}
 
 		delete(r.rules, id)
 		log.Debugf("nftables: removed route rule %s", id)
+	} else {
+		log.Debugf("nftables: route rule %s not found", id)
 	}
 
 	return nil
@@ -353,7 +356,7 @@ func (r *router) addLegacyRouteRule(pair firewall.RouterPair) error {
 
 	if _, exists := r.rules[ruleKey]; exists {
 		if err := r.removeLegacyRouteRule(pair); err != nil {
-			return err
+			return fmt.Errorf("remove legacy routing rule: %w", err)
 		}
 	}
 
@@ -370,8 +373,7 @@ func (r *router) addLegacyRouteRule(pair firewall.RouterPair) error {
 func (r *router) removeLegacyRouteRule(pair firewall.RouterPair) error {
 	ruleKey := firewall.GenKey(firewall.ForwardingFormat, pair)
 
-	rule, found := r.rules[ruleKey]
-	if found {
+	if rule, exists := r.rules[ruleKey]; exists {
 		if err := r.conn.DelRule(rule); err != nil {
 			return fmt.Errorf("remove legacy forwarding rule %s -> %s: %v", pair.Source, pair.Destination, err)
 		}
@@ -379,7 +381,10 @@ func (r *router) removeLegacyRouteRule(pair firewall.RouterPair) error {
 		log.Debugf("nftables: removed legacy forwarding rule %s -> %s", pair.Source, pair.Destination)
 
 		delete(r.rules, ruleKey)
+	} else {
+		log.Debugf("nftables: legacy forwarding rule %s not found", ruleKey)
 	}
+
 	return nil
 }
 
@@ -509,8 +514,7 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 func (r *router) removeNatRule(pair firewall.RouterPair) error {
 	ruleKey := firewall.GenKey(firewall.NatFormat, pair)
 
-	rule, found := r.rules[ruleKey]
-	if found {
+	if rule, exists := r.rules[ruleKey]; exists {
 		err := r.conn.DelRule(rule)
 		if err != nil {
 			return fmt.Errorf("remove nat rule %s -> %s: %v", pair.Source, pair.Destination, err)
@@ -519,7 +523,10 @@ func (r *router) removeNatRule(pair firewall.RouterPair) error {
 		log.Debugf("nftables: removed nat rule %s -> %s", pair.Source, pair.Destination)
 
 		delete(r.rules, ruleKey)
+	} else {
+		log.Debugf("nftables: nat rule %s not found", ruleKey)
 	}
+
 	return nil
 }
 
