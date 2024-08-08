@@ -143,9 +143,7 @@ func (r *router) createContainers() error {
 		Table: r.workTable,
 	})
 
-	if err := r.insertReturnTrafficRule(r.chains[chainNameRoutingFw]); err != nil {
-		return fmt.Errorf("add return traffic rule: %w", err)
-	}
+	insertReturnTrafficRule(r.conn, r.workTable, r.chains[chainNameRoutingFw])
 
 	r.chains[chainNameRoutingNat] = r.conn.AddChain(&nftables.Chain{
 		Name:     chainNameRoutingNat,
@@ -182,38 +180,6 @@ func (r *router) createContainers() error {
 	if err != nil {
 		return fmt.Errorf("nftables: unable to initialize table: %v", err)
 	}
-	return nil
-}
-
-func (r *router) insertReturnTrafficRule(chain *nftables.Chain) error {
-	rule := &nftables.Rule{
-		Table: r.workTable,
-		Chain: chain,
-		Exprs: []expr.Any{
-			&expr.Ct{
-				Key:      expr.CtKeySTATE,
-				Register: 1,
-			},
-			&expr.Bitwise{
-				SourceRegister: 1,
-				DestRegister:   1,
-				Len:            4,
-				Mask:           binaryutil.NativeEndian.PutUint32(expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED),
-				Xor:            binaryutil.NativeEndian.PutUint32(0),
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpNeq,
-				Register: 1,
-				Data:     []byte{0, 0, 0, 0},
-			},
-			&expr.Verdict{
-				Kind: expr.VerdictAccept,
-			},
-		},
-	}
-
-	r.conn.InsertRule(rule)
-
 	return nil
 }
 
@@ -260,6 +226,7 @@ func (r *router) AddRouteFiltering(
 		exprs = append(exprs, applyPort(sPort, true)...)
 		exprs = append(exprs, applyPort(dPort, false)...)
 	}
+	exprs = append(exprs, &expr.Counter{})
 
 	var verdict expr.VerdictKind
 	if action == firewall.ActionAccept {

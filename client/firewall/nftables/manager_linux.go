@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/google/nftables"
+	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
 	log "github.com/sirupsen/logrus"
 
@@ -316,4 +317,34 @@ func (m *Manager) detectAllowNetbirdRule(existedRules []*nftables.Rule) *nftable
 		}
 	}
 	return nil
+}
+
+func insertReturnTrafficRule(conn *nftables.Conn, table *nftables.Table, chain *nftables.Chain) {
+	rule := &nftables.Rule{
+		Table: table,
+		Chain: chain,
+		Exprs: []expr.Any{
+			&expr.Ct{
+				Key:      expr.CtKeySTATE,
+				Register: 1,
+			},
+			&expr.Bitwise{
+				SourceRegister: 1,
+				DestRegister:   1,
+				Len:            4,
+				Mask:           binaryutil.NativeEndian.PutUint32(expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED),
+				Xor:            binaryutil.NativeEndian.PutUint32(0),
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpNeq,
+				Register: 1,
+				Data:     []byte{0, 0, 0, 0},
+			},
+			&expr.Verdict{
+				Kind: expr.VerdictAccept,
+			},
+		},
+	}
+
+	conn.InsertRule(rule)
 }
