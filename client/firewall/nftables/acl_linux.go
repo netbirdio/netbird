@@ -290,18 +290,7 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 		}, nil
 	}
 
-	ifaceKey := expr.MetaKeyIIFNAME
-	if direction == firewall.RuleDirectionOUT {
-		ifaceKey = expr.MetaKeyOIFNAME
-	}
-	expressions := []expr.Any{
-		&expr.Meta{Key: ifaceKey, Register: 1},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     ifname(m.wgIface.Name()),
-		},
-	}
+	var expressions []expr.Any
 
 	if proto != firewall.ProtocolALL {
 		expressions = append(expressions, &expr.Payload{

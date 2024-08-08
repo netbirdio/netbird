@@ -118,12 +118,6 @@ func TestNftablesManager(t *testing.T) {
 	ipToAdd, _ := netip.AddrFromSlice(ip)
 	add := ipToAdd.Unmap()
 	expectedExprs2 := []expr.Any{
-		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     ifname("lo"),
-		},
 		&expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
