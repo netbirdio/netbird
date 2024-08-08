@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -70,7 +71,7 @@ func exists(path string) bool {
 	return !os.IsNotExist(err)
 }
 
-func ensureDefaultProfile(profilesPath string, cmd *cobra.Command) (bool, error) {
+func ensureDefaultProfile(profilesPath string) (bool, error) {
 	defaultPath := path.Join(profilesPath, "default.json")
 
 	if !exists(defaultPath) {
@@ -99,14 +100,96 @@ func getProfilesPath() (string, error) {
 	return profilesPath, nil
 }
 
-var (
-	profileCmd = &cobra.Command{
-		Use:   "profile",
-		Short: "manages different profiles",
+func switchProfile(cmd *cobra.Command, args []string) error {
+	profilesPath, err := getProfilesPath()
+	if err != nil {
+		return err
 	}
 
-	profileListCmd = &cobra.Command{
-		Use:   "list",
+	if err := disconnectClientIfConnected(cmd); err != nil {
+		return err
+	}
+
+	start, err := stopServiceIfRunning(cmd)
+	if err != nil {
+		return err
+	}
+
+	if _, err := ensureDefaultProfile(profilesPath); err != nil {
+		return err
+	}
+
+	profilePath := path.Join(profilesPath, args[0]+".json")
+	if !exists(profilePath) {
+		return fmt.Errorf("profile %v (%v) does not exist", args[0], profilePath)
+	}
+
+	if err := os.Remove(configPath); err != nil {
+		return fmt.Errorf("failed to remove old profile: %v", err)
+	}
+
+	if err := os.Symlink(profilePath, configPath); err != nil {
+		return fmt.Errorf("failed to copy new profile %v: %v", args[0], err)
+	}
+
+	if err := start(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var (
+	profileCmd = &cobra.Command{
+		Use:   "profile [newProfile]",
+		Short: "switch to profile newProfile or get the current one",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if (len(args)) == 1 {
+				return switchProfile(cmd, args)
+			}
+
+			realPath, err := filepath.EvalSymlinks(configPath)
+			if err != nil {
+				return fmt.Errorf("Couldn't read config at %v", configPath)
+			}
+
+			// The config is not symlinked, ensure the default profile exists
+			if realPath == configPath {
+				cmd.Println("default")
+
+				profilesPath, err := getProfilesPath()
+				if err != nil {
+					return err
+				}
+
+				if err := disconnectClientIfConnected(cmd); err != nil {
+					return err
+				}
+
+				start, err := stopServiceIfRunning(cmd)
+				if err != nil {
+					return err
+				}
+
+				if _, err := ensureDefaultProfile(profilesPath); err != nil {
+					return err
+				}
+
+				if err := start(); err != nil {
+					return err
+				}
+			}
+
+			profile := strings.TrimSuffix(path.Base(realPath), ".json")
+			cmd.Println(profile)
+
+			return nil
+		},
+	}
+
+	profilesCmd = &cobra.Command{
+		Use:   "profiles",
 		Short: "list all profiles",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ensureProfileErr := make(chan error)
@@ -119,7 +202,7 @@ var (
 			// Defer this so the profiles are displayed without the service stopping
 			// blocking the thread
 			go func() {
-				shouldRestart, err := ensureDefaultProfile(profilesPath, cmd)
+				shouldRestart, err := ensureDefaultProfile(profilesPath)
 
 				if err != nil {
 					ensureProfileErr <- err
@@ -127,13 +210,13 @@ var (
 				}
 
 				if shouldRestart {
-					start, err := stopServiceIfRunning(cmd)
-					if err != nil {
+					if err := disconnectClientIfConnected(cmd); err != nil {
 						ensureProfileErr <- err
 						return
 					}
 
-					if err := disconnectClientIfConnected(cmd); err != nil {
+					start, err := stopServiceIfRunning(cmd)
+					if err != nil {
 						ensureProfileErr <- err
 						return
 					}
@@ -159,54 +242,10 @@ var (
 					continue
 				}
 
-				fmt.Println(strings.TrimSuffix(entry.Name(), ".json"))
+				cmd.Println(strings.TrimSuffix(entry.Name(), ".json"))
 			}
 
 			if err := <-ensureProfileErr; err != nil {
-				return err
-			}
-
-			return nil
-		},
-	}
-
-	profileSwitchCmd = &cobra.Command{
-		Use:   "switch",
-		Short: "switch to a different profile",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			profilesPath, err := getProfilesPath()
-			if err != nil {
-				return err
-			}
-
-			start, err := stopServiceIfRunning(cmd)
-			if err != nil {
-				return err
-			}
-
-			if err := disconnectClientIfConnected(cmd); err != nil {
-				return err
-			}
-
-			if _, err := ensureDefaultProfile(profilesPath, cmd); err != nil {
-				return err
-			}
-
-			profilePath := path.Join(profilesPath, args[0]+".json")
-			if !exists(profilePath) {
-				return fmt.Errorf("profile %v (%v) does not exist", args[0], profilePath)
-			}
-
-			if err := os.Remove(configPath); err != nil {
-				return fmt.Errorf("failed to remove old profile: %v", err)
-			}
-
-			if err := os.Symlink(profilePath, configPath); err != nil {
-				return fmt.Errorf("failed to copy new profile %v: %v", args[0], err)
-			}
-
-			if err := start(); err != nil {
 				return err
 			}
 
