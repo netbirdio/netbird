@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/nftables"
+	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
@@ -89,11 +90,34 @@ func TestNftablesManager(t *testing.T) {
 	rules, err := testClient.GetRules(manager.aclManager.workTable, manager.aclManager.chainInputRules)
 	require.NoError(t, err, "failed to get rules")
 
-	require.Len(t, rules, 1, "expected 1 rules")
+	require.Len(t, rules, 2, "expected 2 rules")
+
+	expectedExprs1 := []expr.Any{
+		&expr.Ct{
+			Key:      expr.CtKeySTATE,
+			Register: 1,
+		},
+		&expr.Bitwise{
+			SourceRegister: 1,
+			DestRegister:   1,
+			Len:            4,
+			Mask:           binaryutil.NativeEndian.PutUint32(expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED),
+			Xor:            binaryutil.NativeEndian.PutUint32(0),
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpNeq,
+			Register: 1,
+			Data:     []byte{0, 0, 0, 0},
+		},
+		&expr.Verdict{
+			Kind: expr.VerdictAccept,
+		},
+	}
+	require.ElementsMatch(t, rules[0].Exprs, expectedExprs1, "expected the same expressions")
 
 	ipToAdd, _ := netip.AddrFromSlice(ip)
 	add := ipToAdd.Unmap()
-	expectedExprs := []expr.Any{
+	expectedExprs2 := []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
@@ -135,7 +159,7 @@ func TestNftablesManager(t *testing.T) {
 		},
 		&expr.Verdict{Kind: expr.VerdictDrop},
 	}
-	require.ElementsMatch(t, rules[0].Exprs, expectedExprs, "expected the same expressions")
+	require.ElementsMatch(t, rules[1].Exprs, expectedExprs2, "expected the same expressions")
 
 	for _, r := range rule {
 		err = manager.DeletePeerRule(r)
@@ -147,7 +171,8 @@ func TestNftablesManager(t *testing.T) {
 
 	rules, err = testClient.GetRules(manager.aclManager.workTable, manager.aclManager.chainInputRules)
 	require.NoError(t, err, "failed to get rules")
-	require.Len(t, rules, 0, "expected 0 rules after deletion")
+	// established rule remains
+	require.Len(t, rules, 1, "expected 1 rules after deletion")
 
 	err = manager.Reset()
 	require.NoError(t, err, "failed to reset")
