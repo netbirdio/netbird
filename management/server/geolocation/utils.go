@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path"
@@ -173,4 +174,22 @@ func downloadFile(url, filepath string) error {
 
 	_, err = io.Copy(out, bytes.NewBuffer(bodyBytes))
 	return err
+}
+
+func getFilenameFromURL(url string) (string, error) {
+	resp, err := http.Head(url)
+	if err != nil {
+		return "", err
+	}
+
+	defer resp.Body.Close()
+
+	_, params, err := mime.ParseMediaType(resp.Header["Content-Disposition"][0])
+	if err != nil {
+		return "", err
+	}
+
+	filename := params["filename"]
+
+	return filename, nil
 }

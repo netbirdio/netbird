@@ -166,8 +166,8 @@ jobs:
         working-directory: infrastructure_files/artifacts
         run: |
           sleep 30
-          docker compose exec management ls -l /var/lib/netbird/ | grep -i GeoLite2-City.mmdb
-          docker compose exec management ls -l /var/lib/netbird/ | grep -i geonames.db
+          docker compose exec management ls -l /var/lib/netbird/ | grep -i GeoLite2-City_[0-9]*.mmdb
+          docker compose exec management ls -l /var/lib/netbird/ | grep -i GeoLite2-City-geonames_[0-9]*.db
 
   test-getting-started-script:
     runs-on: ubuntu-latest
@@ -191,7 +191,7 @@ jobs:
         run: test -f management.json
 
       - name: test turnserver.conf file gen postgres
-        run: | 
+        run: |
           set -x
           test -f turnserver.conf
           grep external-ip turnserver.conf
@@ -226,7 +226,7 @@ jobs:
         run: test -f management.json
 
       - name: test turnserver.conf file gen CockroachDB
-        run: | 
+        run: |
           set -x
           test -f turnserver.conf
           grep external-ip turnserver.conf

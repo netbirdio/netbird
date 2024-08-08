@@ -7,14 +7,14 @@ import (
 	"net"
 	"os"
 	"path"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/oschwald/maxminddb-golang"
 	log "github.com/sirupsen/logrus"
 )
-
-const MMDBFileName = "GeoLite2-City.mmdb"
 
 type Geolocation struct {
 	mmdbPath            string
@@ -53,12 +53,43 @@ type Country struct {
 	CountryName    string
 }
 
-func NewGeolocation(ctx context.Context, dataDir string) (*Geolocation, error) {
-	if err := loadGeolocationDatabases(dataDir); err != nil {
+var (
+	mmdbPattern       = "GeoLite2-City_*"
+	geonamesdbPattern = "GeoLite2-City-geonames_*"
+)
+
+func NewGeolocation(ctx context.Context, dataDir string, mmdbFile string, geonamesdbFile string) (*Geolocation, error) {
+	var err error
+
+	mmdbPattern = path.Join(dataDir, mmdbPattern)
+	geonamesdbPattern = path.Join(dataDir, geonamesdbPattern)
+
+	if mmdbFile == "" {
+		mmdbFile, err = getMMDBFilename()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get mmdb filename: %v", err)
+		}
+	}
+
+	if geonamesdbFile == "" {
+		geonamesdbFile, err = getGeoNamesDBFilename()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get geonames db filename: %v", err)
+		}
+	}
+
+	if err := loadGeolocationDatabases(dataDir, mmdbFile, geonamesdbFile); err != nil {
 		return nil, fmt.Errorf("failed to load MaxMind databases: %v", err)
 	}
 
-	mmdbPath := path.Join(dataDir, MMDBFileName)
+	if err := cleanupOldDatabases(mmdbPattern, mmdbFile); err != nil {
+		return nil, fmt.Errorf("failed to remove old mmdb: %v", err)
+	}
+	if err := cleanupOldDatabases(geonamesdbPattern, geonamesdbFile); err != nil {
+		return nil, fmt.Errorf("failed to remove old geonames db: %v", err)
+	}
+
+	mmdbPath := path.Join(dataDir, mmdbFile)
 	db, err := openDB(mmdbPath)
 	if err != nil {
 		return nil, err
@@ -69,7 +100,7 @@ func NewGeolocation(ctx context.Context, dataDir string) (*Geolocation, error) {
 		return nil, err
 	}
 
-	locationDB, err := NewSqliteStore(ctx, dataDir)
+	locationDB, err := NewSqliteStore(ctx, dataDir, geonamesdbFile)
 	if err != nil {
 		return nil, err
 	}
@@ -239,4 +270,59 @@ func fileExists(filePath string) (bool, error) {
 		return false, fmt.Errorf("%v does not exist", filePath)
 	}
 	return false, err
+}
+
+func getMMDBFilename() (string, error) {
+	filename, err := getFilenameFromURL(geoLiteCityTarGZURL)
+	if err != nil {
+		files := getExistingDatabases(mmdbPattern)
+		if len(files) < 1 {
+			return "", err
+		}
+		filename = path.Base(files[len(files)-1])
+		log.Infof("Failed to get mmdb filename. Falling back to existing database: %s", filename)
+		return filename, nil
+	}
+
+	basename := strings.TrimSuffix(filename, ".tar.gz")
+	mmdbFilename := path.Base(basename) + ".mmdb"
+	return mmdbFilename, nil
+}
+
+func getGeoNamesDBFilename() (string, error) {
+	filename, err := getFilenameFromURL(geoLiteCityZipURL)
+	if err != nil {
+		files := getExistingDatabases(geonamesdbPattern)
+		if len(files) < 1 {
+			return "", err
+		}
+		filename = path.Base(files[len(files)-1])
+		log.Infof("Failed to get geonames db filename. Falling back to existing database: %s", filename)
+		return filename, nil
+	}
+
+	basename := strings.TrimSuffix(filename, ".zip")
+	geonamesdbFilename := strings.Replace(path.Base(basename), "CSV", "geonames", 1) + ".db"
+	return geonamesdbFilename, nil
+}
+
+func getExistingDatabases(pattern string) []string {
+	files, _ := filepath.Glob(pattern)
+	return files
+}
+
+func cleanupOldDatabases(pattern string, currentFile string) error {
+	files := getExistingDatabases(pattern)
+
+	for _, f := range files {
+		if path.Base(f) == currentFile {
+			continue
+		}
+		log.Infof("Removing old database: %s", f)
+		err := os.Remove(f)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

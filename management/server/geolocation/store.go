@@ -17,10 +17,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
-const (
-	GeoSqliteDBFile = "geonames.db"
-)
-
 type GeoNames struct {
 	GeoNameID           int    `gorm:"column:geoname_id"`
 	LocaleCode          string `gorm:"column:locale_code"`
@@ -51,8 +47,8 @@ type SqliteStore struct {
 	sha256sum []byte
 }
 
-func NewSqliteStore(ctx context.Context, dataDir string) (*SqliteStore, error) {
-	file := filepath.Join(dataDir, GeoSqliteDBFile)
+func NewSqliteStore(ctx context.Context, dataDir string, dbPath string) (*SqliteStore, error) {
+	file := filepath.Join(dataDir, dbPath)
 
 	db, err := connectDB(ctx, file)
 	if err != nil {
