@@ -91,7 +91,8 @@ func ensureDefaultProfile(profilesPath string) (bool, error) {
 }
 
 func getProfilesPath() (string, error) {
-	profilesPath := path.Join(defaultConfigPathDir, "profiles")
+	configPathDir := path.Dir(configPath)
+	profilesPath := path.Join(configPathDir, "profiles")
 
 	if err := os.MkdirAll(profilesPath, os.ModePerm); err != nil {
 		return "", fmt.Errorf("failed to create profiles directory: %v", err)
