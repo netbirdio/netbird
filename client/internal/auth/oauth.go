@@ -86,7 +86,7 @@ func NewOAuthFlow(ctx context.Context, config *internal.Config, isLinuxDesktopCl
 
 // authenticateWithPKCEFlow initializes the Proof Key for Code Exchange flow auth flow
 func authenticateWithPKCEFlow(ctx context.Context, config *internal.Config) (OAuthFlow, error) {
-	pkceFlowInfo, err := internal.GetPKCEAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL)
+	pkceFlowInfo, err := internal.GetPKCEAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL, config.ClientCertKeyPair)
 	if err != nil {
 		return nil, fmt.Errorf("getting pkce authorization flow info failed with error: %v", err)
 	}
