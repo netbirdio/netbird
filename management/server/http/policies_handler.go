@@ -203,6 +203,24 @@ func (h *Policies) savePolicy(
 			}
 		}
 
+		// validate policy object
+		switch pr.Protocol {
+		case server.PolicyRuleProtocolALL, server.PolicyRuleProtocolICMP:
+			if len(pr.Ports) == 0 || len(pr.PortRanges) != 0 {
+				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol ports is not allowed"), w)
+				return
+			}
+			if !pr.Bidirectional {
+				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol type flow can be only bi-directional"), w)
+				return
+			}
+		case server.PolicyRuleProtocolTCP, server.PolicyRuleProtocolUDP:
+			if !pr.Bidirectional && (len(pr.Ports) == 0 || len(pr.PortRanges) != 0) {
+				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol type flow can be only bi-directional"), w)
+				return
+			}
+		}
+
 		policy.Rules = append(policy.Rules, &pr)
 	}
 
