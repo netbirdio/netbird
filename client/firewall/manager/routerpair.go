@@ -11,6 +11,7 @@ type RouterPair struct {
 	Source      netip.Prefix
 	Destination netip.Prefix
 	Masquerade  bool
+	Inverse     bool
 }
 
 func GetInversePair(pair RouterPair) RouterPair {
@@ -20,5 +21,6 @@ func GetInversePair(pair RouterPair) RouterPair {
 		Source:      pair.Destination,
 		Destination: pair.Source,
 		Masquerade:  pair.Masquerade,
+		Inverse:     true,
 	}
 }
