@@ -54,6 +54,14 @@ components:
           description: Period of time after which peer login expires (seconds).
           type: integer
           example: 43200
+        peer_inactivity_expiration_enabled:
+          description: Enables or disables peer inactivity expiration globally. After peer's session has expired the user has to log in (authenticate). Applies only to peers that were added by a user (interactive SSO login).
+          type: boolean
+          example: true
+        peer_inactivity_expiration:
+          description: Period of time of inactivity after which peer session expires (seconds).
+          type: integer
+          example: 43200
         regular_users_view_blocked:
           description: Allows blocking regular users from viewing parts of the system.
           type: boolean
@@ -80,6 +88,7 @@ components:
           $ref: '#/components/schemas/AccountExtraSettings'
       required:
         - peer_login_expiration_enabled
+        - peer_inactivity_expiration_enabled
         - peer_login_expiration
         - regular_users_view_blocked
     AccountExtraSettings:
@@ -241,6 +250,9 @@ components:
           type: boolean
           example: true
         login_expiration_enabled:
+          type: boolean
+          example: false
+        inactivity_expiration_enabled:
           type: boolean
           example: false
         approval_required:

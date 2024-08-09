@@ -92,6 +92,8 @@ func (h *PeersHandler) updatePeer(ctx context.Context, account *server.Account, 
 		SSHEnabled:             req.SshEnabled,
 		Name:                   req.Name,
 		LoginExpirationEnabled: req.LoginExpirationEnabled,
+
+		InactivityExpirationEnabled: req.InactivityExpirationEnabled,
 	}
 
 	if req.ApprovalRequired != nil {
@@ -301,6 +303,8 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		CountryCode:            peer.Location.CountryCode,
 		CityName:               peer.Location.CityName,
 		SerialNumber:           peer.Meta.SystemSerialNumber,
+
+		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
 	}
 }
 
@@ -334,6 +338,8 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		CountryCode:            peer.Location.CountryCode,
 		CityName:               peer.Location.CityName,
 		SerialNumber:           peer.Meta.SystemSerialNumber,
+
+		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
 	}
 }
 

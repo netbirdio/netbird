@@ -38,6 +38,8 @@ type Peer struct {
 	// LoginExpirationEnabled indicates whether peer's login expiration is enabled and once expired the peer has to re-login.
 	// Works with LastLogin
 	LoginExpirationEnabled bool
+
+	InactivityExpirationEnabled bool
 	// LastLogin the time when peer performed last login operation
 	LastLogin time.Time
 	// CreatedAt records the time the peer was created
@@ -187,6 +189,8 @@ func (p *Peer) Copy() *Peer {
 		CreatedAt:              p.CreatedAt,
 		Ephemeral:              p.Ephemeral,
 		Location:               p.Location,
+
+		InactivityExpirationEnabled: p.InactivityExpirationEnabled,
 	}
 }
 
@@ -217,6 +221,22 @@ func (p *Peer) MarkLoginExpired(expired bool) {
 		newStatus.Connected = false
 	}
 	p.Status = newStatus
+}
+
+// SessionExpired indicates whether the peer's session has expired or not.
+// If Peer.LastLogin plus the expiresIn duration has happened already; then session has expired.
+// Return true if a session has expired, false otherwise, and time left to expiration (negative when expired).
+// Session expiration can be disabled/enabled on a Peer level via Peer.LoginExpirationEnabled property.
+// Session expiration can also be disabled/enabled globally on the Account level via Settings.PeerLoginExpirationEnabled.
+// Only peers added by interactive SSO login can be expired.
+func (p *Peer) SessionExpired(expiresIn time.Duration) (bool, time.Duration) {
+	if !p.AddedWithSSOLogin() || !p.InactivityExpirationEnabled || p.Status.Connected {
+		return false, 0
+	}
+	expiresAt := p.Status.LastSeen.Add(expiresIn)
+	now := time.Now()
+	timeLeft := expiresAt.Sub(now)
+	return timeLeft <= 0, timeLeft
 }
 
 // LoginExpired indicates whether the peer's login has expired or not.

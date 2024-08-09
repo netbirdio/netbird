@@ -50,6 +50,8 @@ const (
 	CacheExpirationMax         = 7 * 24 * 3600 * time.Second // 7 days
 	CacheExpirationMin         = 3 * 24 * 3600 * time.Second // 3 days
 	DefaultPeerLoginExpiration = 24 * time.Hour
+
+	DefaultPeerInactivityExpiration = 1 * time.Second
 )
 
 type userLoggedInOnce bool
@@ -171,6 +173,8 @@ type DefaultAccountManager struct {
 	dnsDomain       string
 	peerLoginExpiry Scheduler
 
+	peerInactivityExpiry Scheduler
+
 	// userDeleteFromIDPEnabled allows to delete user from IDP when user is deleted from account
 	userDeleteFromIDPEnabled bool
 
@@ -187,6 +191,13 @@ type Settings struct {
 	// PeerLoginExpiration is a setting that indicates when peer login expires.
 	// Applies to all peers that have Peer.LoginExpirationEnabled set to true.
 	PeerLoginExpiration time.Duration
+
+	// PeerInactivityExpirationEnabled globally enables or disables peer inactivity expiration
+	PeerInactivityExpirationEnabled bool
+
+	// PeerInactivityExpiration is a setting that indicates when peer inactivity expires.
+	// Applies to all peers that have Peer.PeerInactivityExpirationEnabled set to true.
+	PeerInactivityExpiration time.Duration
 
 	// RegularUsersViewBlocked allows to block regular users from viewing even their own peers and some UI elements
 	RegularUsersViewBlocked bool
@@ -218,6 +229,9 @@ func (s *Settings) Copy() *Settings {
 		GroupsPropagationEnabled:   s.GroupsPropagationEnabled,
 		JWTAllowGroups:             s.JWTAllowGroups,
 		RegularUsersViewBlocked:    s.RegularUsersViewBlocked,
+
+		PeerInactivityExpirationEnabled: s.PeerInactivityExpirationEnabled,
+		PeerInactivityExpiration:        s.PeerInactivityExpiration,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()
@@ -575,6 +589,61 @@ func (a *Account) GetPeersWithExpiration() []*nbpeer.Peer {
 	peers := make([]*nbpeer.Peer, 0)
 	for _, peer := range a.Peers {
 		if peer.LoginExpirationEnabled && peer.AddedWithSSOLogin() {
+			peers = append(peers, peer)
+		}
+	}
+	return peers
+}
+
+// GetInactivePeers returns peers that have been expired by inactivity
+func (a *Account) GetInactivePeers() []*nbpeer.Peer {
+	var peers []*nbpeer.Peer
+	for _, inactivePeer := range a.GetPeersWithInactivity() {
+		inactive, _ := inactivePeer.SessionExpired(a.Settings.PeerInactivityExpiration)
+		if inactive {
+			peers = append(peers, inactivePeer)
+		}
+	}
+	return peers
+}
+
+// GetNextInactivePeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.
+// If there is no peer that expires this function returns false and a duration of 0.
+// This function only considers peers that haven't been expired yet and that are connected.
+func (a *Account) GetNextInactivePeerExpiration() (time.Duration, bool) {
+	peersWithExpiry := a.GetPeersWithInactivity()
+	if len(peersWithExpiry) == 0 {
+		return 0, false
+	}
+	var nextExpiry *time.Duration
+	for _, peer := range peersWithExpiry {
+		// consider only connected peers because others will require login on connecting to the management server
+		if peer.Status.LoginExpired || peer.Status.Connected {
+			continue
+		}
+		_, duration := peer.SessionExpired(a.Settings.PeerInactivityExpiration)
+		if nextExpiry == nil || duration < *nextExpiry {
+			// if expiration is below 1s return 1s duration
+			// this avoids issues with ticker that can't be set to < 0
+			if duration < time.Second {
+				return time.Second, true
+			}
+			nextExpiry = &duration
+		}
+	}
+
+	if nextExpiry == nil {
+		return 0, false
+	}
+
+	return *nextExpiry, true
+}
+
+// GetPeersWithInactivity eturns a list of peers that have Peer.InactivityExpirationEnabled set to true and that were added by a user
+func (a *Account) GetPeersWithInactivity() []*nbpeer.Peer {
+	peers := make([]*nbpeer.Peer, 0)
+	for _, peer := range a.Peers {
+		if peer.InactivityExpirationEnabled && peer.AddedWithSSOLogin() {
 			peers = append(peers, peer)
 		}
 	}
@@ -964,6 +1033,7 @@ func BuildManager(
 		dnsDomain:                dnsDomain,
 		eventStore:               eventStore,
 		peerLoginExpiry:          NewDefaultScheduler(),
+		peerInactivityExpiry:     NewDefaultScheduler(),
 		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
 		integratedPeerValidator:  integratedPeerValidator,
 		metrics:                  metrics,
@@ -1091,6 +1161,22 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		am.checkAndSchedulePeerLoginExpiration(ctx, account)
 	}
 
+	if oldSettings.PeerInactivityExpirationEnabled != newSettings.PeerInactivityExpirationEnabled {
+		event := activity.AccountPeerInactivityExpirationEnabled
+		if !newSettings.PeerInactivityExpirationEnabled {
+			event = activity.AccountPeerInactivityExpirationDisabled
+			am.peerInactivityExpiry.Cancel(ctx, []string{accountID})
+		} else {
+			am.checkAndSchedulePeerInactivityExpiration(ctx, account)
+		}
+		am.StoreEvent(ctx, userID, accountID, accountID, event, nil)
+	}
+
+	if oldSettings.PeerInactivityExpiration != newSettings.PeerInactivityExpiration {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerInactivityExpirationDurationUpdated, nil)
+		am.checkAndSchedulePeerInactivityExpiration(ctx, account)
+	}
+
 	updatedAccount := account.UpdateSettings(newSettings)
 
 	err = am.Store.SaveAccount(ctx, account)
@@ -1133,6 +1219,43 @@ func (am *DefaultAccountManager) checkAndSchedulePeerLoginExpiration(ctx context
 	am.peerLoginExpiry.Cancel(ctx, []string{account.Id})
 	if nextRun, ok := account.GetNextPeerExpiration(); ok {
 		go am.peerLoginExpiry.Schedule(ctx, nextRun, account.Id, am.peerLoginExpirationJob(ctx, account.Id))
+	}
+}
+
+// peerInactivityExpirationJob marks login expired for all inactive peers and returns the minimum duration in which the next peer of the account will expire by inactivity if found
+func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
+	return func() (time.Duration, bool) {
+		unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+		defer unlock()
+
+		account, err := am.Store.GetAccount(ctx, accountID)
+		if err != nil {
+			log.Errorf("failed getting account %s expiring peers", account.Id)
+			return account.GetNextInactivePeerExpiration()
+		}
+
+		expiredPeers := account.GetInactivePeers()
+		var peerIDs []string
+		for _, peer := range expiredPeers {
+			peerIDs = append(peerIDs, peer.ID)
+		}
+
+		log.Debugf("discovered %d peers to expire for account %s", len(peerIDs), account.Id)
+
+		if err := am.expireAndUpdatePeers(ctx, account, expiredPeers); err != nil {
+			log.Errorf("failed updating account peers while expiring peers for account %s", account.Id)
+			return account.GetNextInactivePeerExpiration()
+		}
+
+		return account.GetNextInactivePeerExpiration()
+	}
+}
+
+// checkAndSchedulePeerInactivityExpiration periodically checks for inactive peers to end their sessions
+func (am *DefaultAccountManager) checkAndSchedulePeerInactivityExpiration(ctx context.Context, account *Account) {
+	am.peerInactivityExpiry.Cancel(ctx, []string{account.Id})
+	if nextRun, ok := account.GetNextInactivePeerExpiration(); ok {
+		go am.peerInactivityExpiry.Schedule(ctx, nextRun, account.Id, am.peerInactivityExpirationJob(ctx, account.Id))
 	}
 }
 
@@ -2145,6 +2268,9 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *Ac
 			PeerLoginExpiration:        DefaultPeerLoginExpiration,
 			GroupsPropagationEnabled:   true,
 			RegularUsersViewBlocked:    true,
+
+			PeerInactivityExpirationEnabled: true,
+			PeerInactivityExpiration:        DefaultPeerInactivityExpiration,
 		},
 	}
 

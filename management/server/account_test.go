@@ -1928,6 +1928,90 @@ func TestAccount_GetExpiredPeers(t *testing.T) {
 	}
 }
 
+func TestAccount_GetInactivePeers(t *testing.T) {
+	type test struct {
+		name          string
+		peers         map[string]*nbpeer.Peer
+		expectedPeers map[string]struct{}
+	}
+	testCases := []test{
+		{
+			name: "Peers with inactivity expiration disabled, no expired peers",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					InactivityExpirationEnabled: false,
+				},
+				"peer-2": {
+					InactivityExpirationEnabled: false,
+				},
+			},
+			expectedPeers: map[string]struct{}{},
+		},
+		{
+			name: "Two peers expired",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					ID:                          "peer-1",
+					InactivityExpirationEnabled: true,
+					Status: &nbpeer.PeerStatus{
+						LastSeen:     time.Now().UTC().Add(-45 * time.Second),
+						Connected:    false,
+						LoginExpired: false,
+					},
+					LastLogin: time.Now().UTC().Add(-30 * time.Minute),
+					UserID:    userID,
+				},
+				"peer-2": {
+					ID:                          "peer-2",
+					InactivityExpirationEnabled: true,
+					Status: &nbpeer.PeerStatus{
+						LastSeen:     time.Now().UTC().Add(-45 * time.Second),
+						Connected:    false,
+						LoginExpired: false,
+					},
+					LastLogin: time.Now().UTC().Add(-2 * time.Hour),
+					UserID:    userID,
+				},
+				"peer-3": {
+					ID:                          "peer-3",
+					InactivityExpirationEnabled: true,
+					Status: &nbpeer.PeerStatus{
+						LastSeen:     time.Now().UTC(),
+						Connected:    true,
+						LoginExpired: false,
+					},
+					LastLogin: time.Now().UTC().Add(-1 * time.Hour),
+					UserID:    userID,
+				},
+			},
+			expectedPeers: map[string]struct{}{
+				"peer-1": {},
+				"peer-2": {},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			account := &Account{
+				Peers: testCase.peers,
+				Settings: &Settings{
+					PeerInactivityExpirationEnabled: true,
+					PeerInactivityExpiration:        time.Second,
+				},
+			}
+
+			expiredPeers := account.GetInactivePeers()
+			assert.Len(t, expiredPeers, len(testCase.expectedPeers))
+			for _, peer := range expiredPeers {
+				if _, ok := testCase.expectedPeers[peer.ID]; !ok {
+					t.Fatalf("expected to have peer %s expired", peer.ID)
+				}
+			}
+		})
+	}
+}
+
 func TestAccount_GetPeersWithExpiration(t *testing.T) {
 	type test struct {
 		name          string
@@ -1981,6 +2065,75 @@ func TestAccount_GetPeersWithExpiration(t *testing.T) {
 			}
 
 			actual := account.GetPeersWithExpiration()
+			assert.Len(t, actual, len(testCase.expectedPeers))
+			if len(testCase.expectedPeers) > 0 {
+				for k := range testCase.expectedPeers {
+					contains := false
+					for _, peer := range actual {
+						if k == peer.ID {
+							contains = true
+						}
+					}
+					assert.True(t, contains)
+				}
+			}
+		})
+	}
+}
+
+func TestAccount_GetPeersWithInactivity(t *testing.T) {
+	type test struct {
+		name          string
+		peers         map[string]*nbpeer.Peer
+		expectedPeers map[string]struct{}
+	}
+
+	testCases := []test{
+		{
+			name:          "No account peers, no peers with expiration",
+			peers:         map[string]*nbpeer.Peer{},
+			expectedPeers: map[string]struct{}{},
+		},
+		{
+			name: "Peers with login expiration disabled, no peers with expiration",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					InactivityExpirationEnabled: false,
+					UserID:                      userID,
+				},
+				"peer-2": {
+					InactivityExpirationEnabled: false,
+					UserID:                      userID,
+				},
+			},
+			expectedPeers: map[string]struct{}{},
+		},
+		{
+			name: "Peers with login expiration enabled, return peers with expiration",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					ID:                          "peer-1",
+					InactivityExpirationEnabled: true,
+					UserID:                      userID,
+				},
+				"peer-2": {
+					InactivityExpirationEnabled: false,
+					UserID:                      userID,
+				},
+			},
+			expectedPeers: map[string]struct{}{
+				"peer-1": {},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			account := &Account{
+				Peers: testCase.peers,
+			}
+
+			actual := account.GetPeersWithInactivity()
 			assert.Len(t, actual, len(testCase.expectedPeers))
 			if len(testCase.expectedPeers) > 0 {
 				for k := range testCase.expectedPeers {
@@ -2149,6 +2302,168 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 
 			expiration, ok := account.GetNextPeerExpiration()
 			assert.Equal(t, ok, testCase.expectedNextRun)
+			if testCase.expectedNextRun {
+				assert.True(t, expiration >= 0 && expiration <= testCase.expectedNextExpiration)
+			} else {
+				assert.Equal(t, expiration, testCase.expectedNextExpiration)
+			}
+		})
+	}
+}
+
+func TestAccount_GetNextInactivePeerExpiration(t *testing.T) {
+	type test struct {
+		name                   string
+		peers                  map[string]*nbpeer.Peer
+		expiration             time.Duration
+		expirationEnabled      bool
+		expectedNextRun        bool
+		expectedNextExpiration time.Duration
+	}
+
+	expectedNextExpiration := time.Minute
+	testCases := []test{
+		{
+			name:                   "No peers, no expiration",
+			peers:                  map[string]*nbpeer.Peer{},
+			expiration:             time.Second,
+			expirationEnabled:      false,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
+		},
+		{
+			name: "No connected peers, no expiration",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					Status: &nbpeer.PeerStatus{
+						Connected: false,
+					},
+					InactivityExpirationEnabled: false,
+					UserID:                      userID,
+				},
+				"peer-2": {
+					Status: &nbpeer.PeerStatus{
+						Connected: false,
+					},
+					InactivityExpirationEnabled: false,
+					UserID:                      userID,
+				},
+			},
+			expiration:             time.Second,
+			expirationEnabled:      false,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
+		},
+		{
+			name: "Connected peers with disabled expiration, no expiration",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					Status: &nbpeer.PeerStatus{
+						Connected: true,
+					},
+					InactivityExpirationEnabled: false,
+					UserID:                      userID,
+				},
+				"peer-2": {
+					Status: &nbpeer.PeerStatus{
+						Connected: true,
+					},
+					InactivityExpirationEnabled: false,
+					UserID:                      userID,
+				},
+			},
+			expiration:             time.Second,
+			expirationEnabled:      false,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
+		},
+		{
+			name: "Expired peers, no expiration",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					Status: &nbpeer.PeerStatus{
+						Connected:    true,
+						LoginExpired: true,
+					},
+					InactivityExpirationEnabled: true,
+					UserID:                      userID,
+				},
+				"peer-2": {
+					Status: &nbpeer.PeerStatus{
+						Connected:    true,
+						LoginExpired: true,
+					},
+					InactivityExpirationEnabled: true,
+					UserID:                      userID,
+				},
+			},
+			expiration:             time.Second,
+			expirationEnabled:      false,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
+		},
+		{
+			name: "To be expired peer, return expiration",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					Status: &nbpeer.PeerStatus{
+						Connected:    false,
+						LoginExpired: false,
+						LastSeen:     time.Now().Add(-1 * time.Second),
+					},
+					InactivityExpirationEnabled: true,
+					LastLogin:                   time.Now().UTC(),
+					UserID:                      userID,
+				},
+				"peer-2": {
+					Status: &nbpeer.PeerStatus{
+						Connected:    true,
+						LoginExpired: true,
+					},
+					InactivityExpirationEnabled: true,
+					UserID:                      userID,
+				},
+			},
+			expiration:             time.Minute,
+			expirationEnabled:      false,
+			expectedNextRun:        true,
+			expectedNextExpiration: expectedNextExpiration,
+		},
+		{
+			name: "Peers added with setup keys, no expiration",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					Status: &nbpeer.PeerStatus{
+						Connected:    true,
+						LoginExpired: false,
+					},
+					InactivityExpirationEnabled: true,
+					SetupKey:                    "key",
+				},
+				"peer-2": {
+					Status: &nbpeer.PeerStatus{
+						Connected:    true,
+						LoginExpired: false,
+					},
+					InactivityExpirationEnabled: true,
+					SetupKey:                    "key",
+				},
+			},
+			expiration:             time.Second,
+			expirationEnabled:      false,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			account := &Account{
+				Peers:    testCase.peers,
+				Settings: &Settings{PeerInactivityExpiration: testCase.expiration, PeerInactivityExpirationEnabled: testCase.expirationEnabled},
+			}
+
+			expiration, ok := account.GetNextInactivePeerExpiration()
+			assert.Equal(t, testCase.expectedNextRun, ok)
 			if testCase.expectedNextRun {
 				assert.True(t, expiration >= 0 && expiration <= testCase.expectedNextExpiration)
 			} else {
