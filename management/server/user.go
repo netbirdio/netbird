@@ -944,9 +944,13 @@ func validateUserUpdate(account *Account, initiatorUser, oldUser, update *User) 
 	}
 
 	for _, newGroupID := range update.AutoGroups {
-		if _, ok := account.Groups[newGroupID]; !ok {
+		group, ok := account.Groups[newGroupID]
+		if !ok {
 			return status.Errorf(status.InvalidArgument, "provided group ID %s in the user %s update doesn't exist",
 				newGroupID, update.Id)
+		}
+		if group.Name == "All" {
+			return status.Errorf(status.InvalidArgument, "can't add All group to the user")
 		}
 	}
 
