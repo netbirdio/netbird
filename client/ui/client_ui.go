@@ -163,6 +163,7 @@ type serviceClient struct {
 	mAutoConnect      *systray.MenuItem
 	mEnableRosenpass  *systray.MenuItem
 	mAdvancedSettings *systray.MenuItem
+	mProfile          *systray.MenuItem
 
 	// application with main windows.
 	app                  fyne.App
@@ -541,6 +542,8 @@ func (s *serviceClient) onTrayReady() {
 	s.mDown.Disable()
 	s.mAdminPanel = systray.AddMenuItem("Admin Panel", "Netbird Admin Panel")
 	systray.AddSeparator()
+
+	s.mProfile = systray.AddMenuItem("Profile", "Profile to connect to")
 
 	s.mSettings = systray.AddMenuItem("Settings", "Settings of the application")
 	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", "Allow SSH connections", false)
