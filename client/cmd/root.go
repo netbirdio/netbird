@@ -256,9 +256,19 @@ var CLIBackOffSettings = &backoff.ExponentialBackOff{
 	Clock:               backoff.SystemClock,
 }
 
+func getSetupKey() (string, error) {
+	if setupKeyPath != "" && setupKey == "" {
+		return getSetupKeyFromFile(setupKeyPath)
+	}
+	return setupKey, nil
+}
+
 func getSetupKeyFromFile(setupKeyPath string) (string, error) {
 	data, err := os.ReadFile(setupKeyPath)
-	return string(data), err
+	if err != nil {
+		return "", fmt.Errorf("failed to read setup key file: %v", err)
+	}
+	return strings.TrimSpace(string(data)), nil
 }
 
 func handleRebrand(cmd *cobra.Command) error {
