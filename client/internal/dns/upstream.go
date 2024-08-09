@@ -56,14 +56,19 @@ type upstreamResolverBase struct {
 func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status) *upstreamResolverBase {
 	ctx, cancel := context.WithCancel(ctx)
 
-	return &upstreamResolverBase{
+	resolverBase := &upstreamResolverBase{
 		ctx:              ctx,
 		cancel:           cancel,
 		upstreamTimeout:  upstreamTimeout,
 		reactivatePeriod: reactivatePeriod,
 		failsTillDeact:   failsTillDeact,
 		statusRecorder:   statusRecorder,
+		disabled:         true,
 	}
+
+	go resolverBase.watchPeerListStateChanges()
+
+	return resolverBase
 }
 
 func (u *upstreamResolverBase) stop() {
@@ -140,6 +145,19 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	log.Error("all queries to the upstream nameservers failed with timeout")
 }
 
+func (u *upstreamResolverBase) watchPeerListStateChanges() {
+	log.Debug("watching peerList changes")
+	for {
+		select {
+		case <-u.ctx.Done():
+			return
+		case <-u.statusRecorder.GetPeerListStateChangeNotifier():
+			log.Debug("routing peer list update, probing DNS availability")
+			u.probeAvailability()
+		}
+	}
+}
+
 // checkUpstreamFails counts fails and disables or enables upstream resolving
 //
 // If fails count is greater that failsTillDeact, upstream resolving
@@ -163,7 +181,7 @@ func (u *upstreamResolverBase) checkUpstreamFails(err error) {
 }
 
 // probeAvailability tests all upstream servers simultaneously and
-// disables the resolver if none work
+// disables/enable the resolver based on probe's outcome
 func (u *upstreamResolverBase) probeAvailability() {
 	u.mutex.Lock()
 	defer u.mutex.Unlock()
@@ -174,41 +192,65 @@ func (u *upstreamResolverBase) probeAvailability() {
 	default:
 	}
 
-	// avoid probe if upstreams could resolve at least one query and fails count is less than failsTillDeact
-	if u.successCount.Load() > 0 && u.failsCount.Load() < u.failsTillDeact {
+	exponentialBackOff := &backoff.ExponentialBackOff{
+		InitialInterval:     200 * time.Millisecond,
+		RandomizationFactor: 0.5,
+		Multiplier:          1.1,
+		MaxInterval:         2 * time.Second,
+		MaxElapsedTime:      20 * time.Second,
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}
+
+	operation := func() error {
+		select {
+		case <-u.ctx.Done():
+			return backoff.Permanent(fmt.Errorf("exiting upstream retry loop for upstreams %s: parent context has been canceled", u.upstreamServers))
+		default:
+		}
+
+		var success bool
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+
+		var errors *multierror.Error
+		for _, upstream := range u.upstreamServers {
+			upstream := upstream
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				err := u.testNameserver(upstream, 500*time.Millisecond)
+				if err != nil {
+					errors = multierror.Append(errors, err)
+					log.Warnf("probing upstream nameserver %s: %s", upstream, err)
+					return
+				}
+				mu.Lock()
+				defer mu.Unlock()
+				success = true
+			}()
+		}
+
+		wg.Wait()
+
+		if !success {
+			return errors.ErrorOrNil()
+		}
+		return nil
+	}
+
+	err := backoff.Retry(operation, exponentialBackOff)
+	if err != nil {
+		log.Warnf("Upstream resolving is Disabled for %e", err)
+		u.deactivate(err)
+		u.disabled = true
 		return
 	}
 
-	var success bool
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	var errors *multierror.Error
-	for _, upstream := range u.upstreamServers {
-		upstream := upstream
-
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			err := u.testNameserver(upstream, 500*time.Millisecond)
-			if err != nil {
-				errors = multierror.Append(errors, err)
-				log.Warnf("probing upstream nameserver %s: %s", upstream, err)
-				return
-			}
-
-			mu.Lock()
-			defer mu.Unlock()
-			success = true
-		}()
-	}
-
-	wg.Wait()
-
-	// didn't find a working upstream server, let's disable and try later
-	if !success {
-		u.disable(errors.ErrorOrNil())
-	}
+	u.failsCount.Store(0)
+	u.reactivate()
+	u.disabled = false
 }
 
 // waitUntilResponse retries, in an exponential interval, querying the upstream servers until it gets a positive response
