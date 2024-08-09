@@ -39,6 +39,13 @@ var loginCmd = &cobra.Command{
 			ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
 		}
 
+		if setupKeyPath != "" && setupKey == "" {
+			setupKey, err = getSetupKeyFromFile(setupKeyPath)
+			if err != nil {
+				return err
+			}
+		}
+
 		// workaround to run without service
 		if logFile == "console" {
 			err = handleRebrand(cmd)
