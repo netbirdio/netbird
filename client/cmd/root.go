@@ -144,6 +144,8 @@ func init() {
 	rootCmd.AddCommand(sshCmd)
 	rootCmd.AddCommand(routesCmd)
 	rootCmd.AddCommand(debugCmd)
+	rootCmd.AddCommand(profileCmd)
+	rootCmd.AddCommand(profilesCmd)
 
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
 	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
