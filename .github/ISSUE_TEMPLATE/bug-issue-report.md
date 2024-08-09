@@ -35,6 +35,11 @@ Please specify whether you use NetBird Cloud or self-host NetBird's control plan
 
 If applicable, add the `netbird status -d' command output.
 
+**Do you face any client issues on desktop?**
+
+Please provide the file created by `netbird debug for 1m -AS`.
+We advise reviewing the anonymized files for any remaining PII.
+
 **Screenshots**
 
 If applicable, add screenshots to help explain your problem.
