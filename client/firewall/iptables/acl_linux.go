@@ -283,7 +283,7 @@ func (m *aclManager) seedInitialEntries() {
 	m.appendToEntries("INPUT", []string{"-i", m.wgIface.Name(), "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"})
 
 	m.appendToEntries("OUTPUT", []string{"-o", m.wgIface.Name(), "-j", "DROP"})
-	m.appendToEntries("OUTPUT", []string{"-o", m.wgIface.Name(), "-d", m.wgIface.Address().String(), "-j", chainNameOutputRules})
+	m.appendToEntries("OUTPUT", []string{"-o", m.wgIface.Name(), "-j", chainNameOutputRules})
 	m.appendToEntries("OUTPUT", []string{"-o", m.wgIface.Name(), "!", "-d", m.wgIface.Address().String(), "-j", "ACCEPT"})
 	m.appendToEntries("OUTPUT", []string{"-o", m.wgIface.Name(), "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"})
 
