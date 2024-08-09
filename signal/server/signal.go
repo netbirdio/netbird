@@ -76,10 +76,10 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 		return &proto.EncryptedMessage{}, nil
 	}
 
-	// if _, found := s.registry.Get(msg.RemoteKey); found {
-	// 	s.forwardMessageToPeer(ctx, msg)
-	// 	return &proto.EncryptedMessage{}, nil
-	// }
+	if _, found := s.registry.Get(msg.RemoteKey); found {
+		s.forwardMessageToPeer(ctx, msg)
+		return &proto.EncryptedMessage{}, nil
+	}
 
 	return s.dispatcher.SendMessage(context.Background(), msg)
 }
