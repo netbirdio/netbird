@@ -14,11 +14,26 @@ type TextFormatter struct {
 	levelDesc       []string
 }
 
+// SyslogFormatter formats logs into text
+type SyslogFormatter struct {
+	levelDesc []string
+}
+
+var validLevelDesc = []string{"PANC", "FATL", "ERRO", "WARN", "INFO", "DEBG", "TRAC"}
+
+
 // NewTextFormatter create new MyTextFormatter instance
 func NewTextFormatter() *TextFormatter {
 	return &TextFormatter{
-		levelDesc:       []string{"PANC", "FATL", "ERRO", "WARN", "INFO", "DEBG", "TRAC"},
+		levelDesc:       validLevelDesc,
 		timestampFormat: time.RFC3339, // or RFC3339
+	}
+}
+
+// NewSyslogFormatter create new MySyslogFormatter instance
+func NewSyslogFormatter() *SyslogFormatter {
+	return &SyslogFormatter{
+		levelDesc: validLevelDesc,
 	}
 }
 
@@ -48,4 +63,21 @@ func (f *TextFormatter) parseLevel(level logrus.Level) string {
 	}
 
 	return f.levelDesc[level]
+}
+
+// Format renders a single log entry
+func (f *SyslogFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+	var fields string
+	keys := make([]string, 0, len(entry.Data))
+	for k, v := range entry.Data {
+		if k == "source" {
+			continue
+		}
+		keys = append(keys, fmt.Sprintf("%s: %v", k, v))
+	}
+
+	if len(keys) > 0 {
+		fields = fmt.Sprintf("[%s] ", strings.Join(keys, ", "))
+	}
+	return []byte(fmt.Sprintf("%s%s\n", fields, entry.Message)), nil
 }

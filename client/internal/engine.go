@@ -266,8 +266,23 @@ func (e *Engine) Stop() error {
 
 	e.close()
 	e.wgConnWorker.Wait()
-	log.Infof("stopped Netbird Engine")
-	return nil
+
+	maxWaitTime := 5 * time.Second
+	timeout := time.After(maxWaitTime)
+
+	for {
+		if !e.IsWGIfaceUp() {
+			log.Infof("stopped Netbird Engine")
+			return nil
+		}
+
+		select {
+		case <-timeout:
+			return fmt.Errorf("timeout when waiting for interface shutdown")
+		default:
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
 }
 
 // Start creates a new WireGuard tunnel interface and listens to events from Signal and Management services
@@ -1532,4 +1547,21 @@ func isChecksEqual(checks []*mgmProto.Checks, oChecks []*mgmProto.Checks) bool {
 	return slices.EqualFunc(checks, oChecks, func(checks, oChecks *mgmProto.Checks) bool {
 		return slices.Equal(checks.Files, oChecks.Files)
 	})
+}
+
+func (e *Engine) IsWGIfaceUp() bool {
+	if e == nil || e.wgInterface == nil {
+		return false
+	}
+	iface, err := net.InterfaceByName(e.wgInterface.Name())
+	if err != nil {
+		log.Debugf("failed to get interface by name %s: %v", e.wgInterface.Name(), err)
+		return false
+	}
+
+	if iface.Flags&net.FlagUp != 0 {
+		return true
+	}
+
+	return false
 }

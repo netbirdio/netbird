@@ -12,7 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type serviceViaMemory struct {
+type ServiceViaMemory struct {
 	wgInterface       WGIface
 	dnsMux            *dns.ServeMux
 	runtimeIP         string
@@ -22,8 +22,8 @@ type serviceViaMemory struct {
 	listenerFlagLock  sync.Mutex
 }
 
-func newServiceViaMemory(wgIface WGIface) *serviceViaMemory {
-	s := &serviceViaMemory{
+func NewServiceViaMemory(wgIface WGIface) *ServiceViaMemory {
+	s := &ServiceViaMemory{
 		wgInterface: wgIface,
 		dnsMux:      dns.NewServeMux(),
 
@@ -33,7 +33,7 @@ func newServiceViaMemory(wgIface WGIface) *serviceViaMemory {
 	return s
 }
 
-func (s *serviceViaMemory) Listen() error {
+func (s *ServiceViaMemory) Listen() error {
 	s.listenerFlagLock.Lock()
 	defer s.listenerFlagLock.Unlock()
 
@@ -52,7 +52,7 @@ func (s *serviceViaMemory) Listen() error {
 	return nil
 }
 
-func (s *serviceViaMemory) Stop() {
+func (s *ServiceViaMemory) Stop() {
 	s.listenerFlagLock.Lock()
 	defer s.listenerFlagLock.Unlock()
 
@@ -67,23 +67,23 @@ func (s *serviceViaMemory) Stop() {
 	s.listenerIsRunning = false
 }
 
-func (s *serviceViaMemory) RegisterMux(pattern string, handler dns.Handler) {
+func (s *ServiceViaMemory) RegisterMux(pattern string, handler dns.Handler) {
 	s.dnsMux.Handle(pattern, handler)
 }
 
-func (s *serviceViaMemory) DeregisterMux(pattern string) {
+func (s *ServiceViaMemory) DeregisterMux(pattern string) {
 	s.dnsMux.HandleRemove(pattern)
 }
 
-func (s *serviceViaMemory) RuntimePort() int {
+func (s *ServiceViaMemory) RuntimePort() int {
 	return s.runtimePort
 }
 
-func (s *serviceViaMemory) RuntimeIP() string {
+func (s *ServiceViaMemory) RuntimeIP() string {
 	return s.runtimeIP
 }
 
-func (s *serviceViaMemory) filterDNSTraffic() (string, error) {
+func (s *ServiceViaMemory) filterDNSTraffic() (string, error) {
 	filter := s.wgInterface.GetFilter()
 	if filter == nil {
 		return "", fmt.Errorf("can't set DNS filter, filter not initialized")

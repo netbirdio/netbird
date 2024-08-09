@@ -39,8 +39,8 @@ type FileStore struct {
 	mux       sync.Mutex `json:"-"`
 	storeFile string     `json:"-"`
 
-	// sync.Mutex indexed by accountID
-	accountLocks      sync.Map   `json:"-"`
+	// sync.Mutex indexed by resource ID
+	resourceLocks     sync.Map   `json:"-"`
 	globalAccountLock sync.Mutex `json:"-"`
 
 	metrics telemetry.AppMetrics `json:"-"`
@@ -281,26 +281,26 @@ func (s *FileStore) AcquireGlobalLock(ctx context.Context) (unlock func()) {
 	return unlock
 }
 
-// AcquireAccountWriteLock acquires account lock for writing to a resource and returns a function that releases the lock
-func (s *FileStore) AcquireAccountWriteLock(ctx context.Context, accountID string) (unlock func()) {
-	log.WithContext(ctx).Debugf("acquiring lock for account %s", accountID)
+// AcquireWriteLockByUID acquires an ID lock for writing to a resource and returns a function that releases the lock
+func (s *FileStore) AcquireWriteLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
+	log.WithContext(ctx).Debugf("acquiring lock for ID %s", uniqueID)
 	start := time.Now()
-	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.Mutex{})
+	value, _ := s.resourceLocks.LoadOrStore(uniqueID, &sync.Mutex{})
 	mtx := value.(*sync.Mutex)
 	mtx.Lock()
 
 	unlock = func() {
 		mtx.Unlock()
-		log.WithContext(ctx).Debugf("released lock for account %s in %v", accountID, time.Since(start))
+		log.WithContext(ctx).Debugf("released lock for ID %s in %v", uniqueID, time.Since(start))
 	}
 
 	return unlock
 }
 
-// AcquireAccountReadLock AcquireAccountWriteLock acquires account lock for reading a resource and returns a function that releases the lock
+// AcquireReadLockByUID acquires an ID lock for reading a resource and returns a function that releases the lock
 // This method is still returns a write lock as file store can't handle read locks
-func (s *FileStore) AcquireAccountReadLock(ctx context.Context, accountID string) (unlock func()) {
-	return s.AcquireAccountWriteLock(ctx, accountID)
+func (s *FileStore) AcquireReadLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
+	return s.AcquireWriteLockByUID(ctx, uniqueID)
 }
 
 func (s *FileStore) SaveAccount(ctx context.Context, account *Account) error {
@@ -664,6 +664,26 @@ func (s *FileStore) SaveInstallationID(ctx context.Context, ID string) error {
 	s.InstallationID = ID
 
 	return s.persist(ctx, s.storeFile)
+}
+
+// SavePeer saves the peer in the account
+func (s *FileStore) SavePeer(_ context.Context, accountID string, peer *nbpeer.Peer) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	newPeer := peer.Copy()
+
+	account.Peers[peer.ID] = newPeer
+
+	s.PeerKeyID2AccountID[peer.Key] = accountID
+	s.PeerID2AccountID[peer.ID] = accountID
+
+	return nil
 }
 
 // SavePeerStatus stores the PeerStatus in memory. It doesn't attempt to persist data to speed up things.

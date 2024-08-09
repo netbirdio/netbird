@@ -15,6 +15,12 @@ type hostManager interface {
 	restoreUncleanShutdownDNS(storedDNSAddress *netip.Addr) error
 }
 
+type SystemDNSSettings struct {
+	Domains    []string
+	ServerIP   string
+	ServerPort int
+}
+
 type HostDNSConfig struct {
 	Domains    []DomainConfig `json:"domains"`
 	RouteAll   bool           `json:"routeAll"`
