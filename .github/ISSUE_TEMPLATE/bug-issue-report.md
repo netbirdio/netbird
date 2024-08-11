@@ -31,9 +31,9 @@ Please specify whether you use NetBird Cloud or self-host NetBird's control plan
 
 `netbird version`
 
-**NetBird status -d output:**
+**NetBird status -dA output:**
 
-If applicable, add the `netbird status -d' command output.
+If applicable, add the `netbird status -dA' command output.
 
 **Do you face any client issues on desktop?**
 
