@@ -223,14 +223,8 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 		return nil, err
 	}
 
-	for _, group := range autoGroups {
-		g, ok := account.Groups[group]
-		if !ok {
-			return nil, status.Errorf(status.NotFound, "group %s doesn't exist", group)
-		}
-		if g.Name == "All" {
-			return nil, status.Errorf(status.InvalidArgument, "can't add All group to the setup key")
-		}
+	if err := validateSetupKeyAutoGroups(account, autoGroups); err != nil {
+		return nil, err
 	}
 
 	setupKey := GenerateSetupKey(keyName, keyType, keyDuration, autoGroups, usageLimit, ephemeral)
@@ -283,14 +277,8 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 		return nil, status.Errorf(status.NotFound, "setup key not found")
 	}
 
-	for _, group := range keyToSave.AutoGroups {
-		g, ok := account.Groups[group]
-		if !ok {
-			return nil, status.Errorf(status.NotFound, "group %s doesn't exist", group)
-		}
-		if g.Name == "All" {
-			return nil, status.Errorf(status.InvalidArgument, "can't add All group to the setup key")
-		}
+	if err := validateSetupKeyAutoGroups(account, keyToSave.AutoGroups); err != nil {
+		return nil, err
 	}
 
 	// only auto groups, revoked status, and name can be updated for now
@@ -412,4 +400,17 @@ func (am *DefaultAccountManager) GetSetupKey(ctx context.Context, accountID, use
 	}
 
 	return foundKey, nil
+}
+
+func validateSetupKeyAutoGroups(account *Account, autoGroups []string) error {
+	for _, group := range autoGroups {
+		g, ok := account.Groups[group]
+		if !ok {
+			return status.Errorf(status.NotFound, "group %s doesn't exist", group)
+		}
+		if g.Name == "All" {
+			return status.Errorf(status.InvalidArgument, "can't add All group to the setup key")
+		}
+	}
+	return nil
 }
