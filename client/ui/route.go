@@ -151,32 +151,6 @@ func (s *serviceClient) updateRoutes(grid *fyne.Container, f filter) {
 	grid.Refresh()
 }
 
-func makeFakeRoutes(max int) ([]*proto.Route, error) {
-	var routes []*proto.Route
-	for i := 0; i < max; i++ {
-		routes = append(routes, &proto.Route{
-			ID:       fmt.Sprintf("ID-%d", i),
-			Network:  fmt.Sprintf("192.168.0.%d", i),
-			Selected: i%2 == 0,
-		})
-	}
-	for i := 0; i < max/2; i++ {
-		routes = append(routes, &proto.Route{
-			ID:       fmt.Sprintf("DUP-%d", i),
-			Network:  fmt.Sprintf("192.168.0.%d", i),
-			Selected: i%2 == 0,
-		})
-	}
-	for i := 100; i < 105; i++ {
-		routes = append(routes, &proto.Route{
-			ID:       fmt.Sprintf("EXIT-%d", i),
-			Network:  fmt.Sprintf("0.0.0.0/0"),
-			Selected: i%2 == 0,
-		})
-	}
-	return routes, nil
-}
-
 func (s *serviceClient) getFilteredRoutes(f filter) ([]*proto.Route, error) {
 	routes, err := s.fetchRoutes()
 	if err != nil {
