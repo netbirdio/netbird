@@ -922,7 +922,7 @@ func (a *Account) UserGroupsAddToPeers(userID string, groups ...string) {
 func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
 	for _, gid := range groups {
 		group, ok := a.Groups[gid]
-		if !ok {
+		if !ok || group.Name == "All" {
 			continue
 		}
 		update := make([]string, 0, len(group.Peers))
