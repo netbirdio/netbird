@@ -151,8 +151,8 @@ func (p *PKCEAuthorizationFlow) startServer(server *http.Server, tokenChan chan<
 					Certificates: []tls.Certificate{*cert},
 				},
 			}
-			ssl_client := &http.Client{Transport: tr}
-			ctx := context.WithValue(req.Context(), oauth2.HTTPClient, ssl_client)
+			sslClient := &http.Client{Transport: tr}
+			ctx := context.WithValue(req.Context(), oauth2.HTTPClient, sslClient)
 			req = req.WithContext(ctx)
 		}
 
