@@ -214,7 +214,7 @@ func newServiceClient(addr string, a fyne.App, showSettings bool, showRoutes boo
 		update:               version.NewUpdate(),
 	}
 
-	if runtime.GOOS == "windows" || runtime.GOOS == "linux" {
+	if runtime.GOOS == "windows" {
 		s.icConnected = iconConnectedICO
 		s.icDisconnected = iconDisconnectedICO
 		s.icUpdateConnected = iconUpdateConnectedICO
