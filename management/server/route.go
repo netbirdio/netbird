@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"slices"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/rs/xid"
@@ -22,8 +23,8 @@ import (
 
 // RouteFirewallRule a firewall rule applicable for a routed network.
 type RouteFirewallRule struct {
-	// SourceRange IP range of the routing peer.
-	SourceRange string
+	// SourceRanges IP ranges of the routing peers.
+	SourceRanges []string
 
 	// Direction of the traffic
 	Direction int
@@ -451,35 +452,29 @@ func (a *Account) getPeerRoutesFirewallRules(ctx context.Context, peerID string,
 func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
 	var rules []*RouteFirewallRule
 
-	source := "0.0.0.0/0"
+	sources := []string{"0.0.0.0/0"}
 	if route.Network.Addr().Is6() {
-		source = "::/0"
+		sources = []string{"::/0"}
 	}
 	ruleIn := RouteFirewallRule{
-		SourceRange: source,
-		Direction:   firewallRuleDirectionIN,
-		Action:      string(PolicyTrafficActionAccept),
-		Destination: route.Network.String(),
-		Protocol:    string(PolicyRuleProtocolALL),
-		NetworkType: int(route.NetworkType),
-		IsDynamic:   route.IsDynamic(),
+		SourceRanges: sources,
+		Direction:    firewallRuleDirectionIN,
+		Action:       string(PolicyTrafficActionAccept),
+		Destination:  route.Network.String(),
+		Protocol:     string(PolicyRuleProtocolALL),
+		NetworkType:  int(route.NetworkType),
+		IsDynamic:    route.IsDynamic(),
 	}
 
 	ruleOut := ruleIn
 	ruleOut.Direction = firewallRuleDirectionOUT
 
-	rules = append(rules, &ruleIn, &ruleOut)
-
 	// dynamic routes always contain an IPv4 placeholder as destination, hence we must add IPv6 rules additionally
 	if route.IsDynamic() {
-		ruleIn6 := ruleIn
-		ruleIn6.SourceRange = "::/0"
-
-		ruleOut6 := ruleOut
-		ruleOut6.SourceRange = "::/0"
-
-		rules = append(rules, &ruleIn6, &ruleOut6)
+		ruleIn.SourceRanges = append(ruleIn.SourceRanges, "::/0")
+		ruleOut.SourceRanges = append(ruleOut.SourceRanges, "::/0")
 	}
+	rules = append(rules, &ruleIn, &ruleOut)
 
 	return rules
 }
@@ -515,27 +510,30 @@ func generateRouteFirewallRules(ctx context.Context, route *route.Route, rule *P
 	rulesExists := make(map[string]struct{})
 	rules := make([]*RouteFirewallRule, 0)
 
+	sourceRanges := make([]string, 0, len(groupPeers))
 	for _, peer := range groupPeers {
 		if peer == nil {
 			continue
 		}
+		sourceRanges = append(sourceRanges, fmt.Sprintf(AllowedIPsFormat, peer.IP))
+	}
 
-		baseRule := RouteFirewallRule{
-			SourceRange: fmt.Sprintf(AllowedIPsFormat, peer.IP),
-			Direction:   direction,
-			Action:      string(rule.Action),
-			Destination: route.Network.String(),
-			Protocol:    string(rule.Protocol),
-			NetworkType: int(route.NetworkType),
-			IsDynamic:   route.IsDynamic(),
-		}
+	baseRule := RouteFirewallRule{
+		SourceRanges: sourceRanges,
+		Direction:    direction,
+		Action:       string(rule.Action),
+		Destination:  route.Network.String(),
+		Protocol:     string(rule.Protocol),
+		NetworkType:  int(route.NetworkType),
+		IsDynamic:    route.IsDynamic(),
+	}
 
-		// generate rule for port range
-		if len(rule.Ports) == 0 {
-			rules = append(rules, generateRulesWithPortRanges(baseRule, rule, rulesExists)...)
-			continue
-		}
+	// generate rule for port range
+	if len(rule.Ports) == 0 {
+		rules = append(rules, generateRulesWithPortRanges(baseRule, rule, rulesExists)...)
+	} else {
 		rules = append(rules, generateRulesWithPorts(ctx, baseRule, rule, rulesExists)...)
+
 	}
 
 	// TODO: generate IPv6 rules for dynamic routes
@@ -545,7 +543,7 @@ func generateRouteFirewallRules(ctx context.Context, route *route.Route, rule *P
 
 // generateRuleIDBase generates the base rule ID for checking duplicates.
 func generateRuleIDBase(rule *PolicyRule, baseRule RouteFirewallRule) string {
-	return rule.ID + baseRule.SourceRange + strconv.Itoa(firewallRuleDirectionIN) + baseRule.Protocol + baseRule.Action
+	return rule.ID + strings.Join(baseRule.SourceRanges, ",") + strconv.Itoa(firewallRuleDirectionIN) + baseRule.Protocol + baseRule.Action
 }
 
 // generateRulesForPeer generates rules for a given peer based on ports and port ranges.
@@ -607,14 +605,14 @@ func toProtocolRoutesFirewallRules(rules []*RouteFirewallRule) []*proto.RouteFir
 	for i := range rules {
 		rule := rules[i]
 		result[i] = &proto.RouteFirewallRule{
-			SourceRange: rule.SourceRange,
-			Direction:   getProtoDirection(rule.Direction),
-			Action:      getProtoAction(rule.Action),
-			NetworkType: getProtoNetworkType(rule.NetworkType),
-			Destination: rule.Destination,
-			Protocol:    getProtoProtocol(rule.Protocol),
-			PortInfo:    getProtoPortInfo(rule),
-			IsDynamic:   rule.IsDynamic,
+			SourceRanges: rule.SourceRanges,
+			Direction:    getProtoDirection(rule.Direction),
+			Action:       getProtoAction(rule.Action),
+			NetworkType:  getProtoNetworkType(rule.NetworkType),
+			Destination:  rule.Destination,
+			Protocol:     getProtoProtocol(rule.Protocol),
+			PortInfo:     getProtoPortInfo(rule),
+			IsDynamic:    rule.IsDynamic,
 		}
 	}
 
