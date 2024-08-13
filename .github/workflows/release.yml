@@ -6,6 +6,7 @@ on:
       - 'v*'
     branches:
       - main
+      - validate-icon
   pull_request:
 
 
