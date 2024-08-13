@@ -24,5 +24,5 @@ func EnableIPForwarding() error {
 }
 
 func hasSeparateRouting() ([]netip.Prefix, error) {
-	return getRoutesFromTable()
+	return GetRoutesFromTable()
 }

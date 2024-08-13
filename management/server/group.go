@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -26,7 +27,7 @@ func (e *GroupLinkError) Error() string {
 
 // GetGroup object of the peers
 func (am *DefaultAccountManager) GetGroup(ctx context.Context, accountID, groupID, userID string) (*nbgroup.Group, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -53,7 +54,7 @@ func (am *DefaultAccountManager) GetGroup(ctx context.Context, accountID, groupI
 
 // GetAllGroups returns all groups in an account
 func (am *DefaultAccountManager) GetAllGroups(ctx context.Context, accountID string, userID string) ([]*nbgroup.Group, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -80,7 +81,7 @@ func (am *DefaultAccountManager) GetAllGroups(ctx context.Context, accountID str
 
 // GetGroupByName filters all groups in an account by name and returns the one with the most peers
 func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, accountID string) (*nbgroup.Group, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -113,7 +114,7 @@ func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, 
 
 // SaveGroup object of the peers
 func (am *DefaultAccountManager) SaveGroup(ctx context.Context, accountID, userID string, newGroup *nbgroup.Group) error {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 	return am.SaveGroups(ctx, accountID, userID, []*nbgroup.Group{newGroup})
 }
@@ -165,19 +166,12 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 		eventsToStore = append(eventsToStore, events...)
 	}
 
-	newGroupIDs := make([]string, 0, len(newGroups))
-	for _, newGroup := range newGroups {
-		newGroupIDs = append(newGroupIDs, newGroup.ID)
-	}
-
 	account.Network.IncSerial()
-	if err = am.Store.SaveGroups(account.Id, account.Groups); err != nil {
+	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
-	if areGroupChangesAffectPeers(account, newGroupIDs) {
-		am.updateAccountPeers(ctx, account)
-	}
+	am.updateAccountPeers(ctx, account)
 
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
@@ -253,12 +247,12 @@ func difference(a, b []string) []string {
 	return diff
 }
 
-// DeleteGroup object of the peers
-func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, userID, groupID string) error {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+// DeleteGroup object of the peers.
+func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountId, userId, groupID string) error {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountId)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(ctx, accountID)
+	account, err := am.Store.GetAccount(ctx, accountId)
 	if err != nil {
 		return err
 	}
@@ -268,22 +262,70 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, use
 		return nil
 	}
 
-	if err := validateDeleteGroup(account, group, userID); err != nil {
+	if err = validateDeleteGroup(account, group, userId); err != nil {
 		return err
 	}
-
 	delete(account.Groups, groupID)
+
+	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
-	am.StoreEvent(ctx, userID, groupID, accountID, activity.GroupDeleted, group.EventMeta())
+
+	am.StoreEvent(ctx, userId, groupID, accountId, activity.GroupDeleted, group.EventMeta())
+
+	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
 
+// DeleteGroups deletes groups from an account.
+// Note: This function does not acquire the global lock.
+// It is the caller's responsibility to ensure proper locking is in place before invoking this method.
+//
+// If an error occurs while deleting a group, the function skips it and continues deleting other groups.
+// Errors are collected and returned at the end.
+func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error {
+	account, err := am.Store.GetAccount(ctx, accountId)
+	if err != nil {
+		return err
+	}
+
+	var allErrors error
+
+	deletedGroups := make([]*nbgroup.Group, 0, len(groupIDs))
+	for _, groupID := range groupIDs {
+		group, ok := account.Groups[groupID]
+		if !ok {
+			continue
+		}
+
+		if err := validateDeleteGroup(account, group, userId); err != nil {
+			allErrors = errors.Join(allErrors, fmt.Errorf("failed to delete group %s: %w", groupID, err))
+			continue
+		}
+
+		delete(account.Groups, groupID)
+		deletedGroups = append(deletedGroups, group)
+	}
+
+	account.Network.IncSerial()
+	if err = am.Store.SaveAccount(ctx, account); err != nil {
+		return err
+	}
+
+	for _, g := range deletedGroups {
+		am.StoreEvent(ctx, userId, g.ID, accountId, activity.GroupDeleted, g.EventMeta())
+	}
+
+	am.updateAccountPeers(ctx, account)
+
+	return allErrors
+}
+
 // ListGroups objects of the peers
 func (am *DefaultAccountManager) ListGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -301,7 +343,7 @@ func (am *DefaultAccountManager) ListGroups(ctx context.Context, accountID strin
 
 // GroupAddPeer appends peer to the group
 func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, groupID, peerID string) error {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -330,16 +372,14 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 		return err
 	}
 
-	if areGroupChangesAffectPeers(account, []string{group.ID}) {
-		am.updateAccountPeers(ctx, account)
-	}
+	am.updateAccountPeers(ctx, account)
 
 	return nil
 }
 
 // GroupDeletePeer removes peer from the group
 func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID, groupID, peerID string) error {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -362,27 +402,9 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 		}
 	}
 
-	if areGroupChangesAffectPeers(account, []string{group.ID}) {
-		am.updateAccountPeers(ctx, account)
-	}
+	am.updateAccountPeers(ctx, account)
 
 	return nil
-}
-
-func areGroupChangesAffectPeers(account *Account, groupIDs []string) bool {
-	for _, groupID := range groupIDs {
-		if linked, _ := isGroupLinkedToDns(account.NameServerGroups, groupID); linked {
-			return true
-		}
-		if linked, _ := isGroupLinkedToPolicy(account.Policies, groupID); linked {
-			return true
-		}
-		if linked, _ := isGroupLinkedToRoute(account.Routes, groupID); linked {
-			return true
-		}
-	}
-
-	return false
 }
 
 func validateDeleteGroup(account *Account, group *nbgroup.Group, userID string) error {
@@ -478,18 +500,8 @@ func isGroupLinkedToSetupKey(setupKeys map[string]*SetupKey, groupID string) (bo
 func isGroupLinkedToUser(users map[string]*User, groupID string) (bool, *User) {
 	for _, user := range users {
 		if slices.Contains(user.AutoGroups, groupID) {
-			return false, user
+			return true, user
 		}
 	}
 	return false, nil
-}
-
-// anyGroupHasPeers checks if any of the given groups in the account have peers.
-func anyGroupHasPeers(account *Account, groupIDs []string) bool {
-	for _, groupID := range groupIDs {
-		if group, exists := account.Groups[groupID]; exists && group.HasPeers() {
-			return true
-		}
-	}
-	return false
 }

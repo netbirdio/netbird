@@ -1,7 +1,6 @@
 package peer
 
 import (
-	"fmt"
 	"net"
 	"net/netip"
 	"slices"
@@ -241,7 +240,7 @@ func (p *Peer) FQDN(dnsDomain string) string {
 	if dnsDomain == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s.%s", p.DNSLabel, dnsDomain)
+	return p.DNSLabel + "." + dnsDomain
 }
 
 // EventMeta returns activity event meta related to the peer

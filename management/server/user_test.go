@@ -665,6 +665,157 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 
 }
 
+func TestUser_DeleteUser_RegularUsers(t *testing.T) {
+	store := newStore(t)
+	defer store.Close(context.Background())
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
+
+	targetId := "user2"
+	account.Users[targetId] = &User{
+		Id:              targetId,
+		IsServiceUser:   true,
+		ServiceUserName: "user2username",
+	}
+	targetId = "user3"
+	account.Users[targetId] = &User{
+		Id:            targetId,
+		IsServiceUser: false,
+		Issued:        UserIssuedAPI,
+	}
+	targetId = "user4"
+	account.Users[targetId] = &User{
+		Id:            targetId,
+		IsServiceUser: false,
+		Issued:        UserIssuedIntegration,
+	}
+
+	targetId = "user5"
+	account.Users[targetId] = &User{
+		Id:            targetId,
+		IsServiceUser: false,
+		Issued:        UserIssuedAPI,
+		Role:          UserRoleOwner,
+	}
+	account.Users["user6"] = &User{
+		Id:            "user6",
+		IsServiceUser: false,
+		Issued:        UserIssuedAPI,
+	}
+	account.Users["user7"] = &User{
+		Id:            "user7",
+		IsServiceUser: false,
+		Issued:        UserIssuedAPI,
+	}
+	account.Users["user8"] = &User{
+		Id:            "user8",
+		IsServiceUser: false,
+		Issued:        UserIssuedAPI,
+		Role:          UserRoleAdmin,
+	}
+	account.Users["user9"] = &User{
+		Id:            "user9",
+		IsServiceUser: false,
+		Issued:        UserIssuedAPI,
+		Role:          UserRoleAdmin,
+	}
+
+	err := store.SaveAccount(context.Background(), account)
+	if err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
+
+	am := DefaultAccountManager{
+		Store:                   store,
+		eventStore:              &activity.InMemoryEventStore{},
+		integratedPeerValidator: MocIntegratedValidator{},
+	}
+
+	testCases := []struct {
+		name               string
+		userIDs            []string
+		expectedReasons    []string
+		expectedDeleted    []string
+		expectedNotDeleted []string
+	}{
+		{
+			name:            "Delete service user successfully ",
+			userIDs:         []string{"user2"},
+			expectedDeleted: []string{"user2"},
+		},
+		{
+			name:            "Delete regular user successfully",
+			userIDs:         []string{"user3"},
+			expectedDeleted: []string{"user3"},
+		},
+		{
+			name:               "Delete integration regular user permission denied",
+			userIDs:            []string{"user4"},
+			expectedReasons:    []string{"only integration service user can delete this user"},
+			expectedNotDeleted: []string{"user4"},
+		},
+		{
+			name:               "Delete user with owner role should return permission denied",
+			userIDs:            []string{"user5"},
+			expectedReasons:    []string{"unable to delete a user: user5 with owner role"},
+			expectedNotDeleted: []string{"user5"},
+		},
+		{
+			name:               "Delete multiple users with mixed results",
+			userIDs:            []string{"user5", "user5", "user6", "user7"},
+			expectedReasons:    []string{"only integration service user can delete this user", "unable to delete a user: user5 with owner role"},
+			expectedDeleted:    []string{"user6", "user7"},
+			expectedNotDeleted: []string{"user4", "user5"},
+		},
+		{
+			name:               "Delete non-existent user",
+			userIDs:            []string{"non-existent-user"},
+			expectedReasons:    []string{"target user: non-existent-user not found"},
+			expectedNotDeleted: []string{},
+		},
+		{
+			name:            "Delete multiple regular users successfully",
+			userIDs:         []string{"user8", "user9"},
+			expectedDeleted: []string{"user8", "user9"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err = am.DeleteRegularUsers(context.Background(), mockAccountID, mockUserID, tc.userIDs)
+			if len(tc.expectedReasons) > 0 {
+				assert.Error(t, err)
+				var foundExpectedErrors int
+
+				wrappedErr, ok := err.(interface{ Unwrap() []error })
+				assert.Equal(t, ok, true)
+
+				for _, e := range wrappedErr.Unwrap() {
+					assert.Contains(t, tc.expectedReasons, e.Error(), "unexpected error message")
+					foundExpectedErrors++
+				}
+
+				assert.Equal(t, len(tc.expectedReasons), foundExpectedErrors, "not all expected errors were found")
+			} else {
+				assert.NoError(t, err)
+			}
+
+			acc, err := am.GetAccountByUserOrAccountID(context.Background(), "", account.Id, "")
+			assert.NoError(t, err)
+
+			for _, id := range tc.expectedDeleted {
+				_, exists := acc.Users[id]
+				assert.False(t, exists, "user should have been deleted: %s", id)
+			}
+
+			for _, id := range tc.expectedNotDeleted {
+				user, exists := acc.Users[id]
+				assert.True(t, exists, "user should not have been deleted: %s", id)
+				assert.NotNil(t, user, "user should exist: %s", id)
+			}
+		})
+	}
+}
+
 func TestDefaultAccountManager_GetUser(t *testing.T) {
 	store := newStore(t)
 	defer store.Close(context.Background())

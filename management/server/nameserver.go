@@ -20,7 +20,7 @@ const domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}$`
 // GetNameServerGroup gets a nameserver group object from account and nameserver group IDs
 func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error) {
 
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -48,7 +48,7 @@ func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, account
 // CreateNameServerGroup creates and saves a new nameserver group
 func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainEnabled bool) (*nbdns.NameServerGroup, error) {
 
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -80,13 +80,13 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 	account.NameServerGroups[newNSGroup.ID] = newNSGroup
 
 	account.Network.IncSerial()
-	if err := am.Store.SaveAccount(ctx, account); err != nil {
+	err = am.Store.SaveAccount(ctx, account)
+	if err != nil {
 		return nil, err
 	}
 
-	if anyGroupHasPeers(account, newNSGroup.Groups) {
-		am.updateAccountPeers(ctx, account)
-	}
+	am.updateAccountPeers(ctx, account)
+
 	am.StoreEvent(ctx, userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
 
 	return newNSGroup.Copy(), nil
@@ -94,7 +94,8 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 
 // SaveNameServerGroup saves nameserver group
 func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	if nsGroupToSave == nil {
@@ -111,17 +112,16 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 		return err
 	}
 
-	oldNSGroup := account.NameServerGroups[nsGroupToSave.ID]
 	account.NameServerGroups[nsGroupToSave.ID] = nsGroupToSave
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(ctx, account); err != nil {
+	err = am.Store.SaveAccount(ctx, account)
+	if err != nil {
 		return err
 	}
 
-	if anyGroupHasPeers(account, nsGroupToSave.Groups) || anyGroupHasPeers(account, oldNSGroup.Groups) {
-		am.updateAccountPeers(ctx, account)
-	}
+	am.updateAccountPeers(ctx, account)
+
 	am.StoreEvent(ctx, userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
 
 	return nil
@@ -130,7 +130,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 // DeleteNameServerGroup deletes nameserver group with nsGroupID
 func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, accountID, nsGroupID, userID string) error {
 
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -145,13 +145,13 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 	delete(account.NameServerGroups, nsGroupID)
 
 	account.Network.IncSerial()
-	if err := am.Store.SaveAccount(ctx, account); err != nil {
+	err = am.Store.SaveAccount(ctx, account)
+	if err != nil {
 		return err
 	}
 
-	if anyGroupHasPeers(account, nsGroup.Groups) {
-		am.updateAccountPeers(ctx, account)
-	}
+	am.updateAccountPeers(ctx, account)
+
 	am.StoreEvent(ctx, userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
 
 	return nil
@@ -160,7 +160,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 // ListNameServerGroups returns a list of nameserver groups from account
 func (am *DefaultAccountManager) ListNameServerGroups(ctx context.Context, accountID string, userID string) ([]*nbdns.NameServerGroup, error) {
 
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)

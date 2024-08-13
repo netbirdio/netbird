@@ -27,10 +27,17 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
-		ID:    "group_1",
-		Name:  "group_name_1",
-		Peers: []string{},
+	err = manager.SaveGroups(context.Background(), account.Id, userID, []*nbgroup.Group{
+		{
+			ID:    "group_1",
+			Name:  "group_name_1",
+			Peers: []string{},
+		},
+		{
+			ID:    "group_2",
+			Name:  "group_name_2",
+			Peers: []string{},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -71,6 +78,19 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 	assert.NotEmpty(t, ev.Meta["key"])
 	assert.Equal(t, userID, ev.InitiatorID)
 	assert.Equal(t, key.Id, ev.TargetID)
+
+	groupAll, err := account.GetGroupAll()
+	assert.NoError(t, err)
+
+	// saving setup key with All group assigned to auto groups should return error
+	autoGroups = append(autoGroups, groupAll.ID)
+	_, err = manager.SaveSetupKey(context.Background(), account.Id, &SetupKey{
+		Id:         key.Id,
+		Name:       newKeyName,
+		Revoked:    revoked,
+		AutoGroups: autoGroups,
+	}, userID)
+	assert.Error(t, err, "should not save setup key with All group assigned in auto groups")
 }
 
 func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
@@ -102,6 +122,9 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	groupAll, err := account.GetGroupAll()
+	assert.NoError(t, err)
 
 	type testCase struct {
 		name string
@@ -135,8 +158,14 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		expectedGroups:  []string{"FAKE"},
 		expectedFailure: true,
 	}
+	testCase3 := testCase{
+		name:            "Create Setup Key should fail because of All group",
+		expectedKeyName: "my-test-key",
+		expectedGroups:  []string{groupAll.ID},
+		expectedFailure: true,
+	}
 
-	for _, tCase := range []testCase{testCase1, testCase2} {
+	for _, tCase := range []testCase{testCase1, testCase2, testCase3} {
 		t.Run(tCase.name, func(t *testing.T) {
 			key, err := manager.CreateSetupKey(context.Background(), account.Id, tCase.expectedKeyName, SetupKeyReusable, expiresIn,
 				tCase.expectedGroups, SetupKeyUnlimitedUsage, userID, false)

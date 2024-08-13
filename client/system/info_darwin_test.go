@@ -1,11 +1,12 @@
 package system
 
 import (
-	log "github.com/sirupsen/logrus"
 	"testing"
+
+	log "github.com/sirupsen/logrus"
 )
 
-func Test_sysInfo(t *testing.T) {
+func Test_sysInfoMac(t *testing.T) {
 	t.Skip("skipping darwin test")
 	serialNum, prodName, manufacturer := sysInfo()
 	if serialNum == "" {

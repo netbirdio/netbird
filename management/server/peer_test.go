@@ -2,16 +2,26 @@ package server
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"net"
+	"net/netip"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/management/proto"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
+	nbroute "github.com/netbirdio/netbird/route"
 )
 
 func TestPeer_LoginExpired(t *testing.T) {
@@ -635,155 +645,353 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 
 }
 
-func TestPeerAccountPeerUpdate(t *testing.T) {
-	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+func setupTestAccountManager(b *testing.B, peers int, groups int) (*DefaultAccountManager, string, string, error) {
+	b.Helper()
 
-	err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID)
-	require.NoError(t, err)
+	manager, err := createManager(b)
+	if err != nil {
+		return nil, "", "", err
+	}
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &nbgroup.Group{
-		ID:    "group-id",
-		Name:  "GroupA",
-		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-	})
-	require.NoError(t, err)
+	accountID := "test_account"
+	adminUser := "account_creator"
+	regularUser := "regular_user"
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
-	})
+	account := newAccountWithId(context.Background(), accountID, adminUser, "")
+	account.Users[regularUser] = &User{
+		Id:   regularUser,
+		Role: UserRoleUser,
+	}
 
-	// create a user with auto groups
-	_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &User{
-		Id:         "regularUser1",
-		AccountID:  account.Id,
-		Role:       UserRoleAdmin,
-		Issued:     UserIssuedAPI,
-		AutoGroups: []string{"group-id"},
-	}, true)
-	require.NoError(t, err)
-
-	var peer4 *nbpeer.Peer
-
-	// Updating not expired peer and peer expiration is enabled should not update account peers and not send peer update
-	t.Run("updating not expired peer and peer expiration is enabled", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		_, err := manager.UpdatePeer(context.Background(), account.Id, userID, peer2)
-		require.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(200 * time.Millisecond):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+	// Create peers
+	for i := 0; i < peers; i++ {
+		peerKey, _ := wgtypes.GeneratePrivateKey()
+		peer := &nbpeer.Peer{
+			ID:       fmt.Sprintf("peer-%d", i),
+			DNSLabel: fmt.Sprintf("peer-%d", i),
+			Key:      peerKey.PublicKey().String(),
+			IP:       net.ParseIP(fmt.Sprintf("100.64.%d.%d", i/256, i%256)),
+			Status:   &nbpeer.PeerStatus{},
+			UserID:   regularUser,
 		}
-	})
+		account.Peers[peer.ID] = peer
+	}
 
-	// Adding peer with an unused group in active dns, route, acl should not update account peers and not send peer update
-	t.Run("adding peer with unused group", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		key, err := wgtypes.GeneratePrivateKey()
-		require.NoError(t, err)
-
-		expectedPeerKey := key.PublicKey().String()
-		peer4, _, _, err = manager.AddPeer(context.Background(), "", "regularUser1", &nbpeer.Peer{
-			Key:  expectedPeerKey,
-			Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-		})
-		require.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(200 * time.Millisecond):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+	// Create groups and policies
+	account.Policies = make([]*Policy, 0, groups)
+	for i := 0; i < groups; i++ {
+		groupID := fmt.Sprintf("group-%d", i)
+		group := &nbgroup.Group{
+			ID:   groupID,
+			Name: fmt.Sprintf("Group %d", i),
 		}
-	})
-
-	// Deleting peer with an unused group in active dns, route, acl should not update account peers and not send peer update
-	t.Run("deleting peer with unused group", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		err = manager.DeletePeer(context.Background(), account.Id, peer4.ID, userID)
-		require.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(200 * time.Millisecond):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		for j := 0; j < peers/groups; j++ {
+			peerIndex := i*(peers/groups) + j
+			group.Peers = append(group.Peers, fmt.Sprintf("peer-%d", peerIndex))
 		}
-	})
+		account.Groups[groupID] = group
 
-	// use the group-id in policy
-	err = manager.SavePolicy(context.Background(), account.Id, userID, &Policy{
-		ID:      "policy",
-		Enabled: true,
-		Rules: []*PolicyRule{
-			{
-				Enabled:       true,
-				Sources:       []string{"group-id"},
-				Destinations:  []string{"group-id"},
-				Bidirectional: true,
-				Action:        PolicyTrafficActionAccept,
+		// Create a policy for this group
+		policy := &Policy{
+			ID:      fmt.Sprintf("policy-%d", i),
+			Name:    fmt.Sprintf("Policy for Group %d", i),
+			Enabled: true,
+			Rules: []*PolicyRule{
+				{
+					ID:            fmt.Sprintf("rule-%d", i),
+					Name:          fmt.Sprintf("Rule for Group %d", i),
+					Enabled:       true,
+					Sources:       []string{groupID},
+					Destinations:  []string{groupID},
+					Bidirectional: true,
+					Protocol:      PolicyRuleProtocolALL,
+					Action:        PolicyTrafficActionAccept,
+				},
+			},
+		}
+		account.Policies = append(account.Policies, policy)
+	}
+
+	account.PostureChecks = []*posture.Checks{
+		{
+			ID:   "PostureChecksAll",
+			Name: "All",
+			Checks: posture.ChecksDefinition{
+				NBVersionCheck: &posture.NBVersionCheck{
+					MinVersion: "0.0.1",
+				},
 			},
 		},
-	})
-	require.NoError(t, err)
+	}
 
-	// Adding peer with a used group in active dns, route or policy should update account peers and send peer update
-	t.Run("adding peer with used group", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+	err = manager.Store.SaveAccount(context.Background(), account)
+	if err != nil {
+		return nil, "", "", err
+	}
 
-		key, err := wgtypes.GeneratePrivateKey()
-		require.NoError(t, err)
+	return manager, accountID, regularUser, nil
+}
 
-		expectedPeerKey := key.PublicKey().String()
-		peer4, _, _, err = manager.AddPeer(context.Background(), "", "regularUser1", &nbpeer.Peer{
-			Key:                    expectedPeerKey,
-			LoginExpirationEnabled: true,
-			Meta:                   nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
+func BenchmarkGetPeers(b *testing.B) {
+	benchCases := []struct {
+		name   string
+		peers  int
+		groups int
+	}{
+		{"Small", 50, 5},
+		{"Medium", 500, 10},
+		{"Large", 5000, 20},
+		{"Small single", 50, 1},
+		{"Medium single", 500, 1},
+		{"Large 5", 5000, 5},
+	}
+
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(os.Stderr)
+	for _, bc := range benchCases {
+		b.Run(bc.name, func(b *testing.B) {
+			manager, accountID, userID, err := setupTestAccountManager(b, bc.peers, bc.groups)
+			if err != nil {
+				b.Fatalf("Failed to setup test account manager: %v", err)
+			}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_, err := manager.GetPeers(context.Background(), accountID, userID)
+				if err != nil {
+					b.Fatalf("GetPeers failed: %v", err)
+				}
+			}
 		})
-		require.NoError(t, err)
+	}
+}
 
-		select {
-		case <-done:
-		case <-time.After(200 * time.Millisecond):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
+func BenchmarkUpdateAccountPeers(b *testing.B) {
+	benchCases := []struct {
+		name   string
+		peers  int
+		groups int
+	}{
+		{"Small", 50, 5},
+		{"Medium", 500, 10},
+		{"Large", 5000, 20},
+		{"Small single", 50, 1},
+		{"Medium single", 500, 1},
+		{"Large 5", 5000, 5},
+	}
 
-	//Deleting peer with a used group in active dns, route or acl should update account peers and send peer update
-	t.Run("deleting peer with used group", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
-			close(done)
-		}()
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(os.Stderr)
 
-		err = manager.DeletePeer(context.Background(), account.Id, peer4.ID, userID)
-		require.NoError(t, err)
+	for _, bc := range benchCases {
+		b.Run(bc.name, func(b *testing.B) {
+			manager, accountID, _, err := setupTestAccountManager(b, bc.peers, bc.groups)
+			if err != nil {
+				b.Fatalf("Failed to setup test account manager: %v", err)
+			}
 
-		select {
-		case <-done:
-		case <-time.After(200 * time.Millisecond):
-			t.Error("timeout waiting for peerShouldReceiveUpdate")
-		}
-	})
+			ctx := context.Background()
 
+			account, err := manager.Store.GetAccount(ctx, accountID)
+			if err != nil {
+				b.Fatalf("Failed to get account: %v", err)
+			}
+
+			peerChannels := make(map[string]chan *UpdateMessage)
+
+			for peerID := range account.Peers {
+				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+			}
+
+			manager.peersUpdateManager.peerChannels = peerChannels
+
+			b.ResetTimer()
+			start := time.Now()
+
+			for i := 0; i < b.N; i++ {
+				manager.updateAccountPeers(ctx, account)
+			}
+
+			duration := time.Since(start)
+			b.ReportMetric(float64(duration.Nanoseconds())/float64(b.N)/1e6, "ms/op")
+			b.ReportMetric(0, "ns/op")
+		})
+	}
+}
+
+func TestToSyncResponse(t *testing.T) {
+	_, ipnet, err := net.ParseCIDR("192.168.1.0/24")
+	if err != nil {
+		t.Fatal(err)
+	}
+	domainList, err := domain.FromStringList([]string{"example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := &Config{
+		Signal: &Host{
+			Proto:    "https",
+			URI:      "signal.uri",
+			Username: "",
+			Password: "",
+		},
+		Stuns: []*Host{{URI: "stun.uri", Proto: UDP}},
+		TURNConfig: &TURNConfig{
+			Turns: []*Host{{URI: "turn.uri", Proto: UDP, Username: "turn-user", Password: "turn-pass"}},
+		},
+	}
+	peer := &nbpeer.Peer{
+		IP:         net.ParseIP("192.168.1.1"),
+		SSHEnabled: true,
+		Key:        "peer-key",
+		DNSLabel:   "peer1",
+		SSHKey:     "peer1-ssh-key",
+	}
+	turnCredentials := &TURNCredentials{
+		Username: "turn-user",
+		Password: "turn-pass",
+	}
+	networkMap := &NetworkMap{
+		Network:      &Network{Net: *ipnet, Serial: 1000},
+		Peers:        []*nbpeer.Peer{{IP: net.ParseIP("192.168.1.2"), Key: "peer2-key", DNSLabel: "peer2", SSHEnabled: true, SSHKey: "peer2-ssh-key"}},
+		OfflinePeers: []*nbpeer.Peer{{IP: net.ParseIP("192.168.1.3"), Key: "peer3-key", DNSLabel: "peer3", SSHEnabled: true, SSHKey: "peer3-ssh-key"}},
+		Routes: []*nbroute.Route{
+			{
+				ID:          "route1",
+				Network:     netip.MustParsePrefix("10.0.0.0/24"),
+				Domains:     domainList,
+				KeepRoute:   true,
+				NetID:       "route1",
+				Peer:        "peer1",
+				NetworkType: 1,
+				Masquerade:  true,
+				Metric:      9999,
+				Enabled:     true,
+			},
+		},
+		DNSConfig: nbdns.Config{
+			ServiceEnable: true,
+			NameServerGroups: []*nbdns.NameServerGroup{
+				{
+					NameServers: []nbdns.NameServer{{
+						IP:     netip.MustParseAddr("8.8.8.8"),
+						NSType: nbdns.UDPNameServerType,
+						Port:   nbdns.DefaultDNSPort,
+					}},
+					Primary:              true,
+					Domains:              []string{"example.com"},
+					Enabled:              true,
+					SearchDomainsEnabled: true,
+				},
+				{
+					ID: "ns1",
+					NameServers: []nbdns.NameServer{{
+						IP:     netip.MustParseAddr("1.1.1.1"),
+						NSType: nbdns.UDPNameServerType,
+						Port:   nbdns.DefaultDNSPort,
+					}},
+					Groups:               []string{"group1"},
+					Primary:              true,
+					Domains:              []string{"example.com"},
+					Enabled:              true,
+					SearchDomainsEnabled: true,
+				},
+			},
+			CustomZones: []nbdns.CustomZone{{Domain: "example.com", Records: []nbdns.SimpleRecord{{Name: "example.com", Type: 1, Class: "IN", TTL: 60, RData: "100.64.0.1"}}}},
+		},
+		FirewallRules: []*FirewallRule{
+			{PeerIP: "192.168.1.2", Direction: firewallRuleDirectionIN, Action: string(PolicyTrafficActionAccept), Protocol: string(PolicyRuleProtocolTCP), Port: "80"},
+		},
+	}
+	dnsName := "example.com"
+	checks := []*posture.Checks{
+		{
+			Checks: posture.ChecksDefinition{
+				ProcessCheck: &posture.ProcessCheck{
+					Processes: []posture.Process{{LinuxPath: "/usr/bin/netbird"}},
+				},
+			},
+		},
+	}
+	dnsCache := &DNSConfigCache{}
+
+	response := toSyncResponse(context.Background(), config, peer, turnCredentials, networkMap, dnsName, checks, dnsCache)
+
+	assert.NotNil(t, response)
+	// assert peer config
+	assert.Equal(t, "192.168.1.1/24", response.PeerConfig.Address)
+	assert.Equal(t, "peer1.example.com", response.PeerConfig.Fqdn)
+	assert.Equal(t, true, response.PeerConfig.SshConfig.SshEnabled)
+	// assert wiretrustee config
+	assert.Equal(t, "signal.uri", response.WiretrusteeConfig.Signal.Uri)
+	assert.Equal(t, proto.HostConfig_HTTPS, response.WiretrusteeConfig.Signal.GetProtocol())
+	assert.Equal(t, "stun.uri", response.WiretrusteeConfig.Stuns[0].Uri)
+	assert.Equal(t, "turn.uri", response.WiretrusteeConfig.Turns[0].HostConfig.GetUri())
+	assert.Equal(t, "turn-user", response.WiretrusteeConfig.Turns[0].User)
+	assert.Equal(t, "turn-pass", response.WiretrusteeConfig.Turns[0].Password)
+	// assert RemotePeers
+	assert.Equal(t, 1, len(response.RemotePeers))
+	assert.Equal(t, "192.168.1.2/32", response.RemotePeers[0].AllowedIps[0])
+	assert.Equal(t, "peer2-key", response.RemotePeers[0].WgPubKey)
+	assert.Equal(t, "peer2.example.com", response.RemotePeers[0].GetFqdn())
+	assert.Equal(t, false, response.RemotePeers[0].GetSshConfig().GetSshEnabled())
+	assert.Equal(t, []byte("peer2-ssh-key"), response.RemotePeers[0].GetSshConfig().GetSshPubKey())
+	// assert network map
+	assert.Equal(t, uint64(1000), response.NetworkMap.Serial)
+	assert.Equal(t, "192.168.1.1/24", response.NetworkMap.PeerConfig.Address)
+	assert.Equal(t, "peer1.example.com", response.NetworkMap.PeerConfig.Fqdn)
+	assert.Equal(t, true, response.NetworkMap.PeerConfig.SshConfig.SshEnabled)
+	// assert network map RemotePeers
+	assert.Equal(t, 1, len(response.NetworkMap.RemotePeers))
+	assert.Equal(t, "192.168.1.2/32", response.NetworkMap.RemotePeers[0].AllowedIps[0])
+	assert.Equal(t, "peer2-key", response.NetworkMap.RemotePeers[0].WgPubKey)
+	assert.Equal(t, "peer2.example.com", response.NetworkMap.RemotePeers[0].GetFqdn())
+	assert.Equal(t, []byte("peer2-ssh-key"), response.NetworkMap.RemotePeers[0].GetSshConfig().GetSshPubKey())
+	// assert network map OfflinePeers
+	assert.Equal(t, 1, len(response.NetworkMap.OfflinePeers))
+	assert.Equal(t, "192.168.1.3/32", response.NetworkMap.OfflinePeers[0].AllowedIps[0])
+	assert.Equal(t, "peer3-key", response.NetworkMap.OfflinePeers[0].WgPubKey)
+	assert.Equal(t, "peer3.example.com", response.NetworkMap.OfflinePeers[0].GetFqdn())
+	assert.Equal(t, []byte("peer3-ssh-key"), response.NetworkMap.OfflinePeers[0].GetSshConfig().GetSshPubKey())
+	// assert network map Routes
+	assert.Equal(t, 1, len(response.NetworkMap.Routes))
+	assert.Equal(t, "10.0.0.0/24", response.NetworkMap.Routes[0].Network)
+	assert.Equal(t, "route1", response.NetworkMap.Routes[0].ID)
+	assert.Equal(t, "peer1", response.NetworkMap.Routes[0].Peer)
+	assert.Equal(t, "example.com", response.NetworkMap.Routes[0].Domains[0])
+	assert.Equal(t, true, response.NetworkMap.Routes[0].KeepRoute)
+	assert.Equal(t, true, response.NetworkMap.Routes[0].Masquerade)
+	assert.Equal(t, int64(9999), response.NetworkMap.Routes[0].Metric)
+	assert.Equal(t, int64(1), response.NetworkMap.Routes[0].NetworkType)
+	assert.Equal(t, "route1", response.NetworkMap.Routes[0].NetID)
+	// assert network map DNSConfig
+	assert.Equal(t, true, response.NetworkMap.DNSConfig.ServiceEnable)
+	assert.Equal(t, 1, len(response.NetworkMap.DNSConfig.CustomZones))
+	assert.Equal(t, 2, len(response.NetworkMap.DNSConfig.NameServerGroups))
+	// assert network map DNSConfig.CustomZones
+	assert.Equal(t, "example.com", response.NetworkMap.DNSConfig.CustomZones[0].Domain)
+	assert.Equal(t, 1, len(response.NetworkMap.DNSConfig.CustomZones[0].Records))
+	assert.Equal(t, "example.com", response.NetworkMap.DNSConfig.CustomZones[0].Records[0].Name)
+	assert.Equal(t, int64(1), response.NetworkMap.DNSConfig.CustomZones[0].Records[0].Type)
+	assert.Equal(t, "IN", response.NetworkMap.DNSConfig.CustomZones[0].Records[0].Class)
+	assert.Equal(t, int64(60), response.NetworkMap.DNSConfig.CustomZones[0].Records[0].TTL)
+	assert.Equal(t, "100.64.0.1", response.NetworkMap.DNSConfig.CustomZones[0].Records[0].RData)
+	// assert network map DNSConfig.NameServerGroups
+	assert.Equal(t, true, response.NetworkMap.DNSConfig.NameServerGroups[0].Primary)
+	assert.Equal(t, true, response.NetworkMap.DNSConfig.NameServerGroups[0].SearchDomainsEnabled)
+	assert.Equal(t, "example.com", response.NetworkMap.DNSConfig.NameServerGroups[0].Domains[0])
+	assert.Equal(t, "8.8.8.8", response.NetworkMap.DNSConfig.NameServerGroups[0].NameServers[0].GetIP())
+	assert.Equal(t, int64(1), response.NetworkMap.DNSConfig.NameServerGroups[0].NameServers[0].GetNSType())
+	assert.Equal(t, int64(53), response.NetworkMap.DNSConfig.NameServerGroups[0].NameServers[0].GetPort())
+	// assert network map Firewall
+	assert.Equal(t, 1, len(response.NetworkMap.FirewallRules))
+	assert.Equal(t, "192.168.1.2", response.NetworkMap.FirewallRules[0].PeerIP)
+	assert.Equal(t, proto.FirewallRule_IN, response.NetworkMap.FirewallRules[0].Direction)
+	assert.Equal(t, proto.FirewallRule_ACCEPT, response.NetworkMap.FirewallRules[0].Action)
+	assert.Equal(t, proto.FirewallRule_TCP, response.NetworkMap.FirewallRules[0].Protocol)
+	assert.Equal(t, "80", response.NetworkMap.FirewallRules[0].Port)
+	// assert posture checks
+	assert.Equal(t, 1, len(response.Checks))
+	assert.Equal(t, "/usr/bin/netbird", response.Checks[0].Files[0])
 }
