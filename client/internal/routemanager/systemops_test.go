@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/google/gopacket/routing"
+	"github.com/netbirdio/netbird/client/firewall"
 	"net"
 	"net/netip"
 	"os"
@@ -46,18 +48,39 @@ func TestAddRemoveRoutes(t *testing.T) {
 			shouldRouteToWireguard: false,
 			shouldBeRemoved:        false,
 		},
+		{
+			name:                   "Should Add And Remove Route 2001:db8:1234:5678::/64",
+			prefix:                 netip.MustParsePrefix("2001:db8:1234:5678::/64"),
+			shouldRouteToWireguard: true,
+			shouldBeRemoved:        true,
+		},
+		{
+			name:                   "Should Not Add Or Remove Route ::1/128",
+			prefix:                 netip.MustParsePrefix("::1/128"),
+			shouldRouteToWireguard: false,
+			shouldBeRemoved:        false,
+		},
 	}
 
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Setenv("NB_DISABLE_ROUTE_CACHE", "true")
 
+			v6Addr := ""
+			hasV6DefaultRoute, err := EnvironmentHasIPv6DefaultRoute()
+			//goland:noinspection GoBoolExpressions
+			if (!iface.SupportsIPv6() || !firewall.SupportsIPv6() || !hasV6DefaultRoute || err != nil) && testCase.prefix.Addr().Is6() {
+				t.Skip("Platform does not support IPv6, skipping IPv6 test...")
+			} else if testCase.prefix.Addr().Is6() {
+				v6Addr = "2001:db8::4242:4711/128"
+			}
+
 			peerPrivateKey, _ := wgtypes.GeneratePrivateKey()
 			newNet, err := stdnet.NewNet()
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun53%d", n), "100.65.75.2/24", 33100, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil)
+			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun53%d", n), "100.65.75.2/24", v6Addr, 33100, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil)
 			require.NoError(t, err, "should create testing WGIface interface")
 			defer wgInterface.Close()
 
@@ -91,6 +114,10 @@ func TestAddRemoveRoutes(t *testing.T) {
 				require.NoError(t, err, "GetNextHop should not return err")
 
 				internetGateway, _, err := GetNextHop(netip.MustParseAddr("0.0.0.0"))
+				require.NoError(t, err)
+				if testCase.prefix.Addr().Is6() {
+					internetGateway, _, err = GetNextHop(netip.MustParseAddr("::/0"))
+				}
 				require.NoError(t, err)
 
 				if testCase.shouldBeRemoved {
@@ -151,6 +178,18 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal("shouldn't return error when fetching the gateway: ", err)
 	}
+	var defaultGateway6 *netip.Addr
+	hasV6DefaultRoute, err := EnvironmentHasIPv6DefaultRoute()
+	//goland:noinspection GoBoolExpressions
+	if iface.SupportsIPv6() && firewall.SupportsIPv6() && hasV6DefaultRoute && err == nil {
+		gw6, _, err := GetNextHop(netip.MustParseAddr("::"))
+		gw6 = gw6.WithZone("")
+		defaultGateway6 = &gw6
+		t.Log("defaultGateway6: ", defaultGateway6)
+		if err != nil {
+			t.Fatal("shouldn't return error when fetching the IPv6 gateway: ", err)
+		}
+	}
 	testCases := []struct {
 		name              string
 		prefix            netip.Prefix
@@ -185,6 +224,43 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 			preExistingPrefix: netip.MustParsePrefix("100.100.0.0/16"),
 			shouldAddRoute:    false,
 		},
+		{
+			name:           "Should Add And Remove random Route (IPv6)",
+			prefix:         netip.MustParsePrefix("2001:db8::abcd/128"),
+			shouldAddRoute: true,
+		},
+		{
+			name:              "Should Add Route if bigger network exists (IPv6)",
+			prefix:            netip.MustParsePrefix("2001:db8:b14d:abcd:1234::/96"),
+			preExistingPrefix: netip.MustParsePrefix("2001:db8:b14d:abcd::/64"),
+			shouldAddRoute:    true,
+		},
+		{
+			name:              "Should Add Route if smaller network exists (IPv6)",
+			prefix:            netip.MustParsePrefix("2001:db8:b14d::/48"),
+			preExistingPrefix: netip.MustParsePrefix("2001:db8:b14d:abcd::/64"),
+			shouldAddRoute:    true,
+		},
+		{
+			name:              "Should Not Add Route if same network exists (IPv6)",
+			prefix:            netip.MustParsePrefix("2001:db8:b14d:abcd::/64"),
+			preExistingPrefix: netip.MustParsePrefix("2001:db8:b14d:abcd::/64"),
+			shouldAddRoute:    false,
+		},
+	}
+	if defaultGateway6 != nil {
+		testCases = append(testCases, []struct {
+			name              string
+			prefix            netip.Prefix
+			preExistingPrefix netip.Prefix
+			shouldAddRoute    bool
+		}{
+			{
+				name:           "Should Not Add Route if overlaps with default gateway (IPv6)",
+				prefix:         netip.MustParsePrefix(defaultGateway6.String() + "/127"),
+				shouldAddRoute: false,
+			},
+		}...)
 	}
 
 	for n, testCase := range testCases {
@@ -198,12 +274,19 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 			t.Setenv("NB_USE_LEGACY_ROUTING", "true")
 			t.Setenv("NB_DISABLE_ROUTE_CACHE", "true")
 
+			v6Addr := ""
+			if testCase.prefix.Addr().Is6() && defaultGateway6 == nil {
+				t.Skip("Platform does not support IPv6, skipping IPv6 test...")
+			} else if testCase.prefix.Addr().Is6() {
+				v6Addr = "2001:db8::4242:4711/128"
+			}
+
 			peerPrivateKey, _ := wgtypes.GeneratePrivateKey()
 			newNet, err := stdnet.NewNet()
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun53%d", n), "100.65.75.2/24", 33100, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil)
+			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun53%d", n), "100.65.75.2/24", v6Addr, 33100, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil)
 			require.NoError(t, err, "should create testing WGIface interface")
 			defer wgInterface.Close()
 
@@ -249,6 +332,11 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 }
 
 func TestIsSubRange(t *testing.T) {
+	// Note: This test may fail for IPv6 in some environments, where there actually exists another route that the
+	// determined prefix is a sub-range of.
+	hasV6DefaultRoute, err := EnvironmentHasIPv6DefaultRoute()
+	shouldIncludeV6Routes := iface.SupportsIPv6() && firewall.SupportsIPv6() && hasV6DefaultRoute && err == nil
+
 	addresses, err := net.InterfaceAddrs()
 	if err != nil {
 		t.Fatal("shouldn't return error when fetching interface addresses: ", err)
@@ -258,7 +346,7 @@ func TestIsSubRange(t *testing.T) {
 	var nonSubRangeAddressPrefixes []netip.Prefix
 	for _, address := range addresses {
 		p := netip.MustParsePrefix(address.String())
-		if !p.Addr().IsLoopback() && p.Addr().Is4() && p.Bits() < 32 {
+		if !p.Addr().IsLoopback() && (p.Addr().Is4() && p.Bits() < 32) || (p.Addr().Is6() && shouldIncludeV6Routes && p.Bits() < 128) {
 			p2 := netip.PrefixFrom(p.Masked().Addr(), p.Bits()+1)
 			subRangeAddressPrefixes = append(subRangeAddressPrefixes, p2)
 			nonSubRangeAddressPrefixes = append(nonSubRangeAddressPrefixes, p.Masked())
@@ -286,16 +374,37 @@ func TestIsSubRange(t *testing.T) {
 	}
 }
 
+func EnvironmentHasIPv6DefaultRoute() (bool, error) {
+	//goland:noinspection GoBoolExpressions
+	if runtime.GOOS != "linux" {
+		// TODO when implementing IPv6 for other operating systems, this should be replaced with code that determines
+		// 		whether a default route for IPv6 exists (routing.Router panics on non-linux).
+		return false, nil
+	}
+	router, err := routing.New()
+	if err != nil {
+		return false, err
+	}
+	routeIface, _, _, err := router.Route(netip.MustParsePrefix("::/0").Addr().AsSlice())
+	if err != nil {
+		return false, err
+	}
+	return routeIface != nil, nil
+}
+
 func TestExistsInRouteTable(t *testing.T) {
 	addresses, err := net.InterfaceAddrs()
 	if err != nil {
 		t.Fatal("shouldn't return error when fetching interface addresses: ", err)
 	}
 
+	hasV6DefaultRoute, err := EnvironmentHasIPv6DefaultRoute()
+	shouldIncludeV6Routes := iface.SupportsIPv6() && firewall.SupportsIPv6() && hasV6DefaultRoute && err == nil
+
 	var addressPrefixes []netip.Prefix
 	for _, address := range addresses {
 		p := netip.MustParsePrefix(address.String())
-		if p.Addr().Is6() {
+		if p.Addr().Is6() && !shouldIncludeV6Routes {
 			continue
 		}
 		// Windows sometimes has hidden interface link local addrs that don't turn up on any interface
@@ -321,7 +430,7 @@ func TestExistsInRouteTable(t *testing.T) {
 	}
 }
 
-func createWGInterface(t *testing.T, interfaceName, ipAddressCIDR string, listenPort int) *iface.WGIface {
+func createWGInterface(t *testing.T, interfaceName, ipAddressCIDR string, ipAddress6CIDR string, listenPort int) *iface.WGIface {
 	t.Helper()
 
 	peerPrivateKey, err := wgtypes.GeneratePrivateKey()
@@ -330,7 +439,7 @@ func createWGInterface(t *testing.T, interfaceName, ipAddressCIDR string, listen
 	newNet, err := stdnet.NewNet()
 	require.NoError(t, err)
 
-	wgInterface, err := iface.NewWGIFace(interfaceName, ipAddressCIDR, listenPort, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil)
+	wgInterface, err := iface.NewWGIFace(interfaceName, ipAddressCIDR, ipAddress6CIDR, listenPort, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil)
 	require.NoError(t, err, "should create testing WireGuard interface")
 
 	err = wgInterface.Create()
@@ -348,12 +457,21 @@ func setupTestEnv(t *testing.T) {
 
 	setupDummyInterfacesAndRoutes(t)
 
-	wgIface := createWGInterface(t, expectedVPNint, "100.64.0.1/24", 51820)
+	v6Addr := ""
+	hasV6DefaultRoute, err := EnvironmentHasIPv6DefaultRoute()
+	//goland:noinspection GoBoolExpressions
+	if !iface.SupportsIPv6() || !firewall.SupportsIPv6() || !hasV6DefaultRoute || err != nil {
+		t.Skip("Platform does not support IPv6, skipping IPv6 test...")
+	} else {
+		v6Addr = "2001:db8::4242:4711/128"
+	}
+
+	wgIface := createWGInterface(t, expectedVPNint, "100.64.0.1/24", v6Addr, 51820)
 	t.Cleanup(func() {
 		assert.NoError(t, wgIface.Close())
 	})
 
-	_, _, err := setupRouting(nil, wgIface)
+	_, _, err = setupRouting(nil, wgIface)
 	require.NoError(t, err, "setupRouting should not return err")
 	t.Cleanup(func() {
 		assert.NoError(t, cleanupRouting())
@@ -412,9 +530,15 @@ func assertWGOutInterface(t *testing.T, prefix netip.Prefix, wgIface *iface.WGIf
 
 	prefixGateway, _, err := GetNextHop(prefix.Addr())
 	require.NoError(t, err, "GetNextHop should not return err")
+
+	nexthop := wgIface.Address().IP.String()
+	if prefix.Addr().Is6() {
+		nexthop = wgIface.Address6().IP.String()
+	}
+
 	if invert {
-		assert.NotEqual(t, wgIface.Address().IP.String(), prefixGateway.String(), "route should not point to wireguard interface IP")
+		assert.NotEqual(t, nexthop, prefixGateway.String(), "route should not point to wireguard interface IP")
 	} else {
-		assert.Equal(t, wgIface.Address().IP.String(), prefixGateway.String(), "route should point to wireguard interface IP")
+		assert.Equal(t, nexthop, prefixGateway.String(), "route should point to wireguard interface IP")
 	}
 }

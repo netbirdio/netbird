@@ -484,7 +484,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 		log.Warnf("unable to save peer's state, got error: %v", err)
 	}
 
-	_, ipNet, err := net.ParseCIDR(conn.config.WgConfig.AllowedIps)
+	_, ipNet, err := net.ParseCIDR(strings.Split(conn.config.WgConfig.AllowedIps, ",")[0])
 	if err != nil {
 		return nil, err
 	}

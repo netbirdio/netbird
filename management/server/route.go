@@ -1,6 +1,7 @@
 package server
 
 import (
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"net/netip"
 	"unicode/utf8"
 
@@ -180,6 +181,25 @@ func (am *DefaultAccountManager) CreateRoute(accountID, network, peerID string, 
 
 	account.Routes[newRoute.ID] = &newRoute
 
+	// IPv6 route must only be created with IPv6 enabled peers, creating an IPv6 enabled route may enable IPv6 for
+	// peers with V6Setting = Auto.
+	if peerID != "" && prefixType == route.IPv6Network && newRoute.Enabled {
+		peer := account.GetPeer(peerID)
+		if peer.V6Setting == nbpeer.V6Disabled || !peer.Meta.Ipv6Supported {
+			return nil, status.Errorf(
+				status.InvalidArgument,
+				"IPv6 must be enabled for peer %s to be used in route %s",
+				peer.Name, newPrefix.String())
+		} else if peer.IP6 == nil {
+			_, err = am.DeterminePeerV6(account, peer)
+			if err != nil {
+				return nil, err
+			}
+			account.UpdatePeer(peer)
+		}
+
+	}
+
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {
 		return nil, err
@@ -222,6 +242,16 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 		return status.Errorf(status.InvalidArgument, "peer with ID and peer groups should not be provided at the same time")
 	}
 
+	if routeToSave.Peer != "" {
+		peer := account.GetPeer(routeToSave.Peer)
+		if peer == nil {
+			return status.Errorf(status.InvalidArgument, "provided peer does not exist")
+		}
+		if routeToSave.NetworkType == route.IPv6Network && routeToSave.Enabled && (!peer.Meta.Ipv6Supported || peer.V6Setting == nbpeer.V6Disabled) {
+			return status.Errorf(status.InvalidArgument, "peer with IPv6 disabled can't be used for IPv6 route")
+		}
+	}
+
 	if len(routeToSave.PeerGroups) > 0 {
 		err = validateGroups(routeToSave.PeerGroups, account.Groups)
 		if err != nil {
@@ -239,7 +269,48 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 		return err
 	}
 
+	oldRoute := account.Routes[routeToSave.ID]
+
 	account.Routes[routeToSave.ID] = routeToSave
+
+	// Check if old peer's IPv6 status needs to be recalculated.
+	// Must happen if route is an IPv6 route, and either:
+	// - The routing peer has changed
+	// - The route has been disabled
+	// - (the route has been enabled) => caught in the next if-block
+	if oldRoute.Peer != "" && routeToSave.NetworkType == route.IPv6Network && ((oldRoute.Enabled && !routeToSave.Enabled) || oldRoute.Peer != routeToSave.Peer) {
+		oldPeer := account.GetPeer(oldRoute.Peer)
+		if oldPeer.V6Setting == nbpeer.V6Auto {
+			changed, err := am.DeterminePeerV6(account, oldPeer)
+			if err != nil {
+				return err
+			}
+			if changed {
+				account.UpdatePeer(oldPeer)
+			}
+		}
+	}
+	// Check if new peer's IPv6 status needs to be recalculated.
+	// Must happen if route is an IPv6 route, and either:
+	// - The routing peer has changed
+	// - The route has been enabled
+	// - (The route has been disabled) => caught in previous if-block
+	if oldRoute.Peer != "" && routeToSave.NetworkType == route.IPv6Network && routeToSave.Enabled && (!oldRoute.Enabled || oldRoute.Peer != routeToSave.Peer) {
+		newPeer := account.GetPeer(routeToSave.Peer)
+		if newPeer.V6Setting == nbpeer.V6Disabled || !newPeer.Meta.Ipv6Supported {
+			return status.Errorf(
+				status.InvalidArgument,
+				"IPv6 must be enabled for peer %s to be used in route %s",
+				newPeer.Name, routeToSave.Network.String())
+		} else if newPeer.IP6 == nil {
+			_, err = am.DeterminePeerV6(account, newPeer)
+			if err != nil {
+				return err
+			}
+			account.UpdatePeer(newPeer)
+		}
+
+	}
 
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {
@@ -268,6 +339,21 @@ func (am *DefaultAccountManager) DeleteRoute(accountID string, routeID route.ID,
 		return status.Errorf(status.NotFound, "route with ID %s doesn't exist", routeID)
 	}
 	delete(account.Routes, routeID)
+
+	// If the route was an IPv6 route, deleting it may update the automatic IPv6 enablement status of its routing peers,
+	// check if this is the case and update accordingly.
+	if routy.Peer != "" && routy.Enabled && routy.NetworkType == route.IPv6Network {
+		oldPeer := account.GetPeer(routy.Peer)
+		if oldPeer.V6Setting == nbpeer.V6Auto {
+			changed, err := am.DeterminePeerV6(account, oldPeer)
+			if err != nil {
+				return err
+			}
+			if changed {
+				account.UpdatePeer(oldPeer)
+			}
+		}
+	}
 
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {

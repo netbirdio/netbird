@@ -10,7 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func enableIPForwarding() error {
+func enableIPForwarding(includeV6 bool) error {
 	log.Infof("Enable IP forwarding is not implemented on %s", runtime.GOOS)
 	return nil
 }

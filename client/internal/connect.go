@@ -310,6 +310,7 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 	engineConf := &EngineConfig{
 		WgIfaceName:          config.WgIface,
 		WgAddr:               peerConfig.Address,
+		WgAddr6:              peerConfig.Address6,
 		IFaceBlackList:       config.IFaceBlackList,
 		DisableIPv6Discovery: config.DisableIPv6Discovery,
 		WgPrivateKey:         key,

@@ -287,6 +287,7 @@ func extractPeerMeta(loginReq *proto.LoginRequest) nbpeer.PeerSystemMeta {
 			Cloud:    loginReq.GetMeta().GetEnvironment().GetCloud(),
 			Platform: loginReq.GetMeta().GetEnvironment().GetPlatform(),
 		},
+		Ipv6Supported:      loginReq.GetMeta().GetIpv6Supported(),
 	}
 }
 
@@ -455,21 +456,31 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *prot
 
 func toPeerConfig(peer *nbpeer.Peer, network *Network, dnsName string) *proto.PeerConfig {
 	netmask, _ := network.Net.Mask.Size()
+	address6 := ""
+	if network.Net6 != nil && peer.IP6 != nil {
+		netmask6, _ := network.Net6.Mask.Size()
+		address6 = fmt.Sprintf("%s/%d", peer.IP6.String(), netmask6)
+	}
 	fqdn := peer.FQDN(dnsName)
 	return &proto.PeerConfig{
 		Address:   fmt.Sprintf("%s/%d", peer.IP.String(), netmask), // take it from the network
+		Address6:  address6,
 		SshConfig: &proto.SSHConfig{SshEnabled: peer.SSHEnabled},
 		Fqdn:      fqdn,
 	}
 }
 
-func toRemotePeerConfig(peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
+func toRemotePeerConfig(peers []*nbpeer.Peer, dnsName string, v6Enabled bool) []*proto.RemotePeerConfig {
 	remotePeers := []*proto.RemotePeerConfig{}
 	for _, rPeer := range peers {
 		fqdn := rPeer.FQDN(dnsName)
+		allowedIps := []string{fmt.Sprintf(AllowedIPsFormat, rPeer.IP)}
+		if rPeer.IP6 != nil && v6Enabled {
+			allowedIps = append(allowedIps, fmt.Sprintf(AllowedIP6sFormat, *rPeer.IP6))
+		}
 		remotePeers = append(remotePeers, &proto.RemotePeerConfig{
 			WgPubKey:   rPeer.Key,
-			AllowedIps: []string{fmt.Sprintf(AllowedIPsFormat, rPeer.IP)},
+			AllowedIps: allowedIps,
 			SshConfig:  &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
 			Fqdn:       fqdn,
 		})
@@ -482,13 +493,13 @@ func toSyncResponse(config *Config, peer *nbpeer.Peer, turnCredentials *TURNCred
 
 	pConfig := toPeerConfig(peer, networkMap.Network, dnsName)
 
-	remotePeers := toRemotePeerConfig(networkMap.Peers, dnsName)
+	remotePeers := toRemotePeerConfig(networkMap.Peers, dnsName, peer.IP6 != nil)
 
 	routesUpdate := toProtocolRoutes(networkMap.Routes)
 
 	dnsUpdate := toProtocolDNSConfig(networkMap.DNSConfig)
 
-	offlinePeers := toRemotePeerConfig(networkMap.OfflinePeers, dnsName)
+	offlinePeers := toRemotePeerConfig(networkMap.OfflinePeers, dnsName, peer.IP6 != nil)
 
 	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules)
 

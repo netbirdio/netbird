@@ -85,11 +85,17 @@ func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, pe
 		return
 	}
 
+	v6Status := nbpeer.V6Auto
+	if req.Ipv6Enabled != api.PeerRequestIpv6EnabledAuto {
+		v6Status = nbpeer.V6Status(req.Ipv6Enabled)
+	}
+
 	update := &nbpeer.Peer{
 		ID:                     peerID,
 		SSHEnabled:             req.SshEnabled,
 		Name:                   req.Name,
 		LoginExpirationEnabled: req.LoginExpirationEnabled,
+		V6Setting: v6Status,
 	}
 
 	if req.ApprovalRequired != nil {
@@ -284,11 +290,22 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		osVersion = peer.Meta.Core
 	}
 
+	var ip6 *string
+	if peer.IP6 != nil {
+		ip6string := peer.IP6.String()
+		ip6 = &ip6string
+	}
+	v6Status := api.PeerIpv6EnabledAuto
+	if peer.V6Setting != nbpeer.V6Auto {
+		v6Status = api.PeerIpv6Enabled(peer.V6Setting)
+	}
+
 	return &api.Peer{
 		Id:                     peer.ID,
 		Name:                   peer.Name,
 		Ip:                     peer.IP.String(),
 		ConnectionIp:           peer.Location.ConnectionIP.String(),
+		Ip6:                    ip6,
 		Connected:              peer.Status.Connected,
 		LastSeen:               peer.Status.LastSeen,
 		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
@@ -300,6 +317,8 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		Hostname:               peer.Meta.Hostname,
 		UserId:                 peer.UserID,
 		UiVersion:              peer.Meta.UIVersion,
+		Ipv6Supported:          peer.Meta.Ipv6Supported,
+		Ipv6Enabled:            v6Status,
 		DnsLabel:               fqdn(peer, dnsDomain),
 		LoginExpirationEnabled: peer.LoginExpirationEnabled,
 		LastLogin:              peer.LastLogin,
@@ -317,12 +336,22 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 	if osVersion == "" {
 		osVersion = peer.Meta.Core
 	}
+	var ip6 *string
+	if peer.IP6 != nil {
+		ip6string := peer.IP6.String()
+		ip6 = &ip6string
+	}
+	v6Status := api.PeerBatchIpv6EnabledAuto
+	if peer.V6Setting != nbpeer.V6Auto {
+		v6Status = api.PeerBatchIpv6Enabled(peer.V6Setting)
+	}
 
 	return &api.PeerBatch{
 		Id:                     peer.ID,
 		Name:                   peer.Name,
 		Ip:                     peer.IP.String(),
 		ConnectionIp:           peer.Location.ConnectionIP.String(),
+		Ip6:                    ip6,
 		Connected:              peer.Status.Connected,
 		LastSeen:               peer.Status.LastSeen,
 		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
@@ -334,6 +363,8 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		Hostname:               peer.Meta.Hostname,
 		UserId:                 peer.UserID,
 		UiVersion:              peer.Meta.UIVersion,
+		Ipv6Supported:          peer.Meta.Ipv6Supported,
+		Ipv6Enabled:            v6Status,
 		DnsLabel:               fqdn(peer, dnsDomain),
 		LoginExpirationEnabled: peer.LoginExpirationEnabled,
 		LastLogin:              peer.LastLogin,

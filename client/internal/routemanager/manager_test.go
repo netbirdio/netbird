@@ -36,6 +36,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 		serverRoutesExpected                 int
 		clientNetworkWatchersExpected        int
 		clientNetworkWatchersExpectedAllowed int
+		isV6                                 bool
 	}{
 		{
 			name:            "Should create 2 client networks",
@@ -66,6 +67,35 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			clientNetworkWatchersExpected: 2,
 		},
 		{
+			name:            "Should create 2 client networks (IPv6)",
+			inputInitRoutes: []*route.Route{},
+			inputRoutes: []*route.Route{
+				{
+					ID:          "a",
+					NetID:       "routeA",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8:1234:5678::/64"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "b",
+					NetID:       "routeB",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8::7890:abcd/128"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+			},
+			inputSerial:                   1,
+			clientNetworkWatchersExpected: 2,
+			isV6:                          true,
+		},
+		{
 			name: "Should Create 2 Server Routes",
 			inputRoutes: []*route.Route{
 				{
@@ -84,6 +114,34 @@ func TestManagerUpdateRoutes(t *testing.T) {
 					Peer:        localPeerKey,
 					Network:     netip.MustParsePrefix("8.8.8.9/32"),
 					NetworkType: route.IPv4Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+			},
+			inputSerial:                   1,
+			serverRoutesExpected:          2,
+			clientNetworkWatchersExpected: 0,
+		},
+		{
+			name: "Should Create 2 Server Routes (IPv6)",
+			inputRoutes: []*route.Route{
+				{
+					ID:          "a",
+					NetID:       "routeA",
+					Peer:        localPeerKey,
+					Network:     netip.MustParsePrefix("2001:db8:1234:5678::/64"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "b",
+					NetID:       "routeB",
+					Peer:        localPeerKey,
+					Network:     netip.MustParsePrefix("2001:db8::7890:abcd/128"),
+					NetworkType: route.IPv6Network,
 					Metric:      9999,
 					Masquerade:  false,
 					Enabled:     true,
@@ -122,6 +180,84 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			clientNetworkWatchersExpected: 1,
 		},
 		{
+			name: "Should Create 1 Route For Client And Server (IPv6)",
+			inputRoutes: []*route.Route{
+				{
+					ID:          "a",
+					NetID:       "routeA",
+					Peer:        localPeerKey,
+					Network:     netip.MustParsePrefix("2001:db8:1234:5678::/64"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "b",
+					NetID:       "routeB",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8::7890:abcd/128"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+			},
+			inputSerial:                   1,
+			serverRoutesExpected:          1,
+			clientNetworkWatchersExpected: 1,
+			isV6:                          true,
+		},
+		{
+			name: "Should Create 1 Route For Client And Server for each IP version",
+			inputRoutes: []*route.Route{
+				{
+					ID:          "a",
+					NetID:       "routeA",
+					Peer:        localPeerKey,
+					Network:     netip.MustParsePrefix("100.64.30.250/30"),
+					NetworkType: route.IPv4Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "b",
+					NetID:       "routeB",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("8.8.9.9/32"),
+					NetworkType: route.IPv4Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "a",
+					NetID:       "routeA",
+					Peer:        localPeerKey,
+					Network:     netip.MustParsePrefix("2001:db8:1234:5678::/64"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "b",
+					NetID:       "routeB",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8::7890:abcd/128"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+			},
+			inputSerial:                   1,
+			serverRoutesExpected:          2,
+			clientNetworkWatchersExpected: 2,
+			isV6:                          true,
+		},
+		{
 			name: "Should Create 1 Route For Client and Skip Server Route On Empty Server Router",
 			inputRoutes: []*route.Route{
 				{
@@ -149,6 +285,36 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			removeSrvRouter:               true,
 			serverRoutesExpected:          0,
 			clientNetworkWatchersExpected: 1,
+		},
+		{
+			name: "Should Create 1 Route For Client and Skip Server Route On Empty Server Router (IPv6)",
+			inputRoutes: []*route.Route{
+				{
+					ID:          "a",
+					NetID:       "routeA",
+					Peer:        localPeerKey,
+					Network:     netip.MustParsePrefix("2001:db8:1234:5678::/64"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "b",
+					NetID:       "routeB",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8::7890:abcd/128"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+			},
+			inputSerial:                   1,
+			removeSrvRouter:               true,
+			serverRoutesExpected:          0,
+			clientNetworkWatchersExpected: 1,
+			isV6:                          true,
 		},
 		{
 			name: "Should Create 1 HA Route and 1 Standalone",
@@ -188,6 +354,44 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			clientNetworkWatchersExpected: 2,
 		},
 		{
+			name: "Should Create 1 HA Route and 1 Standalone (IPv6)",
+			inputRoutes: []*route.Route{
+				{
+					ID:          "a",
+					NetID:       "routeA",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8:1234:5678::/64"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "b",
+					NetID:       "routeA",
+					Peer:        remotePeerKey2,
+					Network:     netip.MustParsePrefix("2001:db8:1234:5678::/64"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "c",
+					NetID:       "routeB",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8::7890:abcd/128"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+			},
+			inputSerial:                   1,
+			clientNetworkWatchersExpected: 2,
+			isV6:                          true,
+		},
+		{
 			name: "No Small Client Route Should Be Added",
 			inputRoutes: []*route.Route{
 				{
@@ -204,6 +408,25 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			inputSerial:                          1,
 			clientNetworkWatchersExpected:        0,
 			clientNetworkWatchersExpectedAllowed: 1,
+		},
+		{
+			name: "No Small Client Route Should Be Added (IPv6)",
+			inputRoutes: []*route.Route{
+				{
+					ID:          "a",
+					NetID:       "routeA",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("::/0"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+			},
+			inputSerial:                          1,
+			clientNetworkWatchersExpected:        0,
+			clientNetworkWatchersExpectedAllowed: 1,
+			isV6:                                 true,
 		},
 		{
 			name: "Remove 1 Client Route",
@@ -243,6 +466,46 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			},
 			inputSerial:                   1,
 			clientNetworkWatchersExpected: 1,
+		},
+		{
+			name: "Remove 1 Client Route (IPv6)",
+			inputInitRoutes: []*route.Route{
+				{
+					ID:          "a",
+					NetID:       "routeA",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8:1234:5678::/64"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "b",
+					NetID:       "routeB",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8::abcd:7890/128"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+			},
+			inputRoutes: []*route.Route{
+				{
+					ID:          "a",
+					NetID:       "routeA",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8:1234:5678::/64"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+			},
+			inputSerial:                   1,
+			clientNetworkWatchersExpected: 1,
+			isV6:                          true,
 		},
 		{
 			name: "Update Route to HA",
@@ -294,6 +557,56 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			clientNetworkWatchersExpected: 1,
 		},
 		{
+			name: "Update Route to HA (IPv6)",
+			inputInitRoutes: []*route.Route{
+				{
+					ID:          "a",
+					NetID:       "routeA",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8:1234:5678::/64"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "b",
+					NetID:       "routeB",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8::abcd:7890/128"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+			},
+			inputRoutes: []*route.Route{
+				{
+					ID:          "a",
+					NetID:       "routeA",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8:1234:5678::/64"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "b",
+					NetID:       "routeA",
+					Peer:        remotePeerKey2,
+					Network:     netip.MustParsePrefix("2001:db8:1234:5678::/64"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+			},
+			inputSerial:                   1,
+			clientNetworkWatchersExpected: 1,
+			isV6:                          true,
+		},
+		{
 			name: "Remove Client Routes",
 			inputInitRoutes: []*route.Route{
 				{
@@ -320,6 +633,35 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			inputRoutes:                   []*route.Route{},
 			inputSerial:                   1,
 			clientNetworkWatchersExpected: 0,
+		},
+		{
+			name: "Remove Client Routes (IPv6)",
+			inputInitRoutes: []*route.Route{
+				{
+					ID:          "a",
+					NetID:       "routeA",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8:1234:5678::/64"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "b",
+					NetID:       "routeB",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8::abcd:7890/128"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+			},
+			inputRoutes:                   []*route.Route{},
+			inputSerial:                   1,
+			clientNetworkWatchersExpected: 0,
+			isV6:                          true,
 		},
 		{
 			name: "Remove All Routes",
@@ -349,6 +691,36 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			inputSerial:                   1,
 			serverRoutesExpected:          0,
 			clientNetworkWatchersExpected: 0,
+		},
+		{
+			name: "Remove All Routes (IPv6)",
+			inputInitRoutes: []*route.Route{
+				{
+					ID:          "a",
+					NetID:       "routeA",
+					Peer:        localPeerKey,
+					Network:     netip.MustParsePrefix("2001:db8:1234:5678::/64"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "b",
+					NetID:       "routeB",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8::abcd:7890/128"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+			},
+			inputRoutes:                   []*route.Route{},
+			inputSerial:                   1,
+			serverRoutesExpected:          0,
+			clientNetworkWatchersExpected: 0,
+			isV6:                          true,
 		},
 		{
 			name: "HA server should not register routes from the same HA group",
@@ -398,16 +770,74 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			serverRoutesExpected:          2,
 			clientNetworkWatchersExpected: 1,
 		},
+		{
+			name: "HA server should not register routes from the same HA group (IPv6)",
+			inputRoutes: []*route.Route{
+				{
+					ID:          "l1",
+					NetID:       "routeA",
+					Peer:        localPeerKey,
+					Network:     netip.MustParsePrefix("2001:db8:1234:5678::/64"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "l2",
+					NetID:       "routeA",
+					Peer:        localPeerKey,
+					Network:     netip.MustParsePrefix("2001:db8::abcd:7890/128"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "r1",
+					NetID:       "routeA",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8:1234:5678::/64"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "r2",
+					NetID:       "routeC",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("2001:db8::abcd:789f/128"),
+					NetworkType: route.IPv6Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+			},
+			inputSerial:                   1,
+			serverRoutesExpected:          2,
+			clientNetworkWatchersExpected: 1,
+			isV6:                          true,
+		},
 	}
 
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+
+			v6Addr := ""
+			//goland:noinspection GoBoolExpressions
+			if !iface.SupportsIPv6() && testCase.isV6 {
+				t.Skip("Platform does not support IPv6, skipping IPv6 test...")
+			} else if testCase.isV6 {
+				v6Addr = "2001:db8::4242:4711/128"
+			}
+
 			peerPrivateKey, _ := wgtypes.GeneratePrivateKey()
 			newNet, err := stdnet.NewNet()
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun43%d", n), "100.65.65.2/24", 33100, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil)
+			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun43%d", n), "100.65.65.2/24", v6Addr, 33100, peerPrivateKey.String(), iface.DefaultMTU, newNet, nil)
 			require.NoError(t, err, "should create testing WGIface interface")
 			defer wgInterface.Close()
 

@@ -58,7 +58,8 @@ type EngineConfig struct {
 	WgIfaceName string
 
 	// WgAddr is a Wireguard local address (Netbird Network IP)
-	WgAddr string
+	WgAddr  string
+	WgAddr6 string
 
 	// WgPrivateKey is a Wireguard private key of our peer (it MUST never leave the machine)
 	WgPrivateKey wgtypes.Key
@@ -603,6 +604,32 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		log.Infof("updated peer address from %s to %s", oldAddr, conf.Address)
 	}
 
+	if e.wgInterface.Address6() == nil && conf.Address6 != "" ||
+		e.wgInterface.Address6() != nil && e.wgInterface.Address6().String() != conf.Address6 {
+		oldAddr := "none"
+		if e.wgInterface.Address6() != nil {
+			oldAddr = e.wgInterface.Address6().String()
+		}
+		newAddr := "none"
+		if conf.Address6 != "" {
+			newAddr = conf.Address6
+		}
+		log.Debugf("updating peer IPv6 address from %s to %s", oldAddr, newAddr)
+		err := e.wgInterface.UpdateAddr6(conf.Address6)
+		if err != nil {
+			return err
+		}
+		e.config.WgAddr6 = conf.Address6
+
+		err = e.acl.ResetV6Acl()
+		if err != nil {
+			return err
+		}
+
+		e.routeManager.ResetV6Routes()
+		log.Infof("updated peer IPv6 address from %s to %s", oldAddr, conf.Address6)
+	}
+
 	if conf.GetSshConfig() != nil {
 		err := e.updateSSH(conf.GetSshConfig())
 		if err != nil {
@@ -612,6 +639,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 
 	e.statusRecorder.UpdateLocalPeerState(peer.LocalPeerState{
 		IP:              e.config.WgAddr,
+		IP6:             e.config.WgAddr6,
 		PubKey:          e.config.WgPrivateKey.PublicKey().String(),
 		KernelInterface: iface.WireGuardModuleIsLoaded(),
 		FQDN:            conf.GetFqdn(),
@@ -1238,7 +1266,7 @@ func (e *Engine) newWgIface() (*iface.WGIface, error) {
 	default:
 	}
 
-	return iface.NewWGIFace(e.config.WgIfaceName, e.config.WgAddr, e.config.WgPort, e.config.WgPrivateKey.String(), iface.DefaultMTU, transportNet, mArgs)
+	return iface.NewWGIFace(e.config.WgIfaceName, e.config.WgAddr, e.config.WgAddr6, e.config.WgPort, e.config.WgPrivateKey.String(), iface.DefaultMTU, transportNet, mArgs)
 }
 
 func (e *Engine) wgInterfaceCreate() (err error) {

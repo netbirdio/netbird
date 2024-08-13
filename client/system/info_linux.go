@@ -6,6 +6,8 @@ package system
 import (
 	"bytes"
 	"context"
+	"github.com/netbirdio/netbird/client/firewall"
+	"github.com/netbirdio/netbird/iface"
 	"os"
 	"os/exec"
 	"runtime"
@@ -84,6 +86,7 @@ func GetInfo(ctx context.Context) *Info {
 		SystemProductName:  prodName,
 		SystemManufacturer: manufacturer,
 		Environment:        env,
+		Ipv6Supported:      _checkIPv6Support(),
 	}
 
 	return gio
@@ -121,4 +124,9 @@ func sysInfo() (serialNumber string, productName string, manufacturer string) {
 	var si sysinfo.SysInfo
 	si.GetSysInfo()
 	return si.Chassis.Serial, si.Product.Name, si.Product.Vendor
+}
+
+func _checkIPv6Support() bool {
+	return firewall.SupportsIPv6() &&
+		iface.SupportsIPv6()
 }

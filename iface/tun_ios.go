@@ -4,6 +4,7 @@
 package iface
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/pion/transport/v3"
@@ -123,9 +124,20 @@ func (t *tunDevice) WgAddress() WGAddress {
 	return t.address
 }
 
+func (t *tunDevice) WgAddress6() *WGAddress {
+	return nil
+}
+
 func (t *tunDevice) UpdateAddr(addr WGAddress) error {
 	// todo implement
 	return nil
+}
+
+func (t *tunDevice) UpdateAddr6(address6 *WGAddress) error {
+	if address6 == nil {
+		return nil
+	}
+	return fmt.Errorf("IPv6 is not supported on this operating system")
 }
 
 func (t *tunDevice) Wrapper() *DeviceWrapper {

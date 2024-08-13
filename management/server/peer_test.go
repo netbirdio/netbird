@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
 
@@ -134,6 +135,112 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 			networkMap.Peers[0].Key,
 		)
 	}
+}
+
+func TestDefaultAccountManager_DeterminePeerV6(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	expectedId := "test_account"
+	userId := "account_creator"
+	account, err := createAccount(manager, expectedId, userId, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userId, false)
+	if err != nil {
+		t.Fatal("error creating setup key")
+		return
+	}
+
+	peerKey1, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	peer1, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+		Key: peerKey1.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname:      "test-peer-1",
+			Ipv6Supported: true,
+		},
+	})
+	if err != nil {
+		t.Errorf("expecting peer to be added, got failure %v", err)
+		return
+	}
+
+	peerKey2, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	peer2, _, err := manager.AddPeer(setupKey.Key, "", &nbpeer.Peer{
+		Key: peerKey2.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname:      "test-peer-2",
+			Ipv6Supported: false,
+		},
+	})
+
+	if err != nil {
+		t.Errorf("expecting peer to be added, got failure %v", err)
+		return
+	}
+
+	account, err = manager.Store.GetAccount(account.Id)
+	require.NoError(t, err, "unable to fetch updated account")
+
+	// Check if automatic setting defaults to "false".
+	// (Other tests for interactions between the automatic setting and group/route memberships are already covered in
+	// group_test.go and route_test.go)
+	_, err = manager.DeterminePeerV6(account, peer1)
+	require.NoError(t, err, "unable to determine effective peer IPv6 status")
+	_, err = manager.DeterminePeerV6(account, peer2)
+	require.NoError(t, err, "unable to determine effective peer IPv6 status")
+	require.Nil(t, peer1.IP6, "peer1 IPv6 address did not default to nil.")
+	require.Nil(t, peer1.IP6, "peer2 IPv6 address did not default to nil.")
+
+	peer1.V6Setting = nbpeer.V6Disabled
+	peer2.V6Setting = nbpeer.V6Disabled
+	_, err = manager.DeterminePeerV6(account, peer1)
+	require.NoError(t, err, "unable to determine effective peer IPv6 status")
+	_, err = manager.DeterminePeerV6(account, peer2)
+	require.NoError(t, err, "unable to determine effective peer IPv6 status")
+	require.Nil(t, peer1.IP6, "peer1 IPv6 address is not nil even though it is force disabled.")
+	require.Nil(t, peer2.IP6, "peer2 IPv6 address is not nil even though it is force disabled and unsupported.")
+
+	peer1.V6Setting = nbpeer.V6Enabled
+	peer2.V6Setting = nbpeer.V6Enabled
+	_, err = manager.DeterminePeerV6(account, peer1)
+	require.NoError(t, err, "unable to determine effective peer IPv6 status")
+	_, err = manager.DeterminePeerV6(account, peer2)
+	require.Error(t, err, "determining peer2 IPv6 address should fail as it is force enabled, but unsupported.")
+	require.NotNil(t, peer1.IP6, "peer1 IPv6 address is nil even though it is force enabled.")
+	require.Nil(t, peer2.IP6, "peer2 IPv6 address is not nil even though it is unsupported.")
+
+	// Test whether disabling IPv6 will disable IPv6 routes.
+	allGroup, err := account.GetGroupAll()
+	require.NoError(t, err, "unable to retrieve all group")
+	route, err := manager.CreateRoute(account.Id, "2001:db8:2345:6789::/64", peer1.ID, make([]string, 0), "testroute", "testnet", false, 9999, []string{allGroup.ID}, true, userID)
+	require.NoError(t, err, "unable to create test IPv6 route")
+	require.True(t, route.Enabled, "created IPv6 test route should be enabled")
+
+	peer1.V6Setting = nbpeer.V6Disabled
+	_, err = manager.UpdatePeer(account.Id, userID, peer1)
+	require.NoError(t, err, "unable to update peer")
+
+	account, err = manager.Store.GetAccount(account.Id)
+	require.NoError(t, err, "unable to fetch updated account")
+
+	route = account.Routes[route.ID]
+	require.False(t, route.Enabled, "disabling IPv6 for a peer should disable all of its IPv6 routes.")
 }
 
 func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {

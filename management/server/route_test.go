@@ -319,6 +319,88 @@ func TestCreateRoute(t *testing.T) {
 			errFunc:      require.Error,
 			shouldCreate: false,
 		},
+		{
+			name: "IPv6 route on peer with disabled IPv6 should fail",
+			inputArgs: input{
+				network:     "2001:db8:7654:3210::/64",
+				netID:       "NewId",
+				peerKey:     peer4ID,
+				description: "",
+				masquerade:  false,
+				metric:      9999,
+				enabled:     true,
+				groups:      []string{routeGroup1},
+			},
+			errFunc:      require.Error,
+			shouldCreate: false,
+		},
+		{
+			name: "IPv6 route on peer with unsupported IPv6 should fail",
+			inputArgs: input{
+				network:     "2001:db8:7654:3210::/64",
+				netID:       "NewId",
+				peerKey:     peer5ID,
+				description: "",
+				masquerade:  false,
+				metric:      9999,
+				enabled:     true,
+				groups:      []string{routeGroup1},
+			},
+			errFunc:      require.Error,
+			shouldCreate: false,
+		},
+		{
+			name: "IPv6 route on peer with automatic IPv6 setting should succeed",
+			inputArgs: input{
+				network:     "2001:db8:7654:3210::/64",
+				netID:       "NewId",
+				peerKey:     peer1ID,
+				description: "",
+				masquerade:  false,
+				metric:      9999,
+				enabled:     true,
+				groups:      []string{routeGroup1},
+			},
+			errFunc:      require.NoError,
+			shouldCreate: true,
+			expectedRoute: &route.Route{
+				Network:     netip.MustParsePrefix("2001:db8:7654:3210::/64"),
+				NetworkType: route.IPv6Network,
+				NetID:       "NewId",
+				Peer:        peer1ID,
+				Description: "",
+				Masquerade:  false,
+				Metric:      9999,
+				Enabled:     true,
+				Groups:      []string{routeGroup1},
+			},
+		},
+		{
+			name: "IPv6 route on peer with force enabled IPv6 setting should succeed",
+			inputArgs: input{
+				network:     "2001:db8:7654:3211::/64",
+				netID:       "NewId",
+				peerKey:     peer2ID,
+				description: "",
+				masquerade:  false,
+				metric:      9999,
+				enabled:     true,
+				groups:      []string{routeGroup1},
+			},
+			errFunc:      require.NoError,
+			shouldCreate: true,
+			expectedRoute: &route.Route{
+				Network:     netip.MustParsePrefix("2001:db8:7654:3211::/64"),
+				NetworkType: route.IPv6Network,
+				NetID:       "NewId",
+				Peer:        peer2ID,
+				Description: "",
+				Masquerade:  false,
+				Metric:      9999,
+				Enabled:     true,
+				Groups:      []string{routeGroup1},
+			},
+		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -377,6 +459,8 @@ func TestCreateRoute(t *testing.T) {
 func TestSaveRoute(t *testing.T) {
 	validPeer := peer2ID
 	validUsedPeer := peer5ID
+	ipv6DisabledPeer := peer4ID
+	ipv6UnsupportedPeer := peer5ID
 	invalidPeer := "nonExisting"
 	validPrefix := netip.MustParsePrefix("192.168.0.0/24")
 	invalidPrefix, _ := netip.ParsePrefix("192.168.0.0/34")
@@ -467,7 +551,7 @@ func TestSaveRoute(t *testing.T) {
 			},
 		},
 		{
-			name: "Both peer and peers_roup Provided Should Fail",
+			name: "Both peer and peers_group Provided Should Fail",
 			existingRoute: &route.Route{
 				ID:          "testingRoute",
 				Network:     netip.MustParsePrefix("192.168.0.0/16"),
@@ -515,6 +599,38 @@ func TestSaveRoute(t *testing.T) {
 				Groups:      []string{routeGroup1},
 			},
 			newPeer: &invalidPeer,
+			errFunc: require.Error,
+		},
+		{
+			name: "IPv6 disabled host should not be allowed as peer for IPv6 route",
+			existingRoute: &route.Route{
+				ID:          "testingRoute",
+				Network:     netip.MustParsePrefix("2001:db8:4321:5678::/64"),
+				NetID:       validNetID,
+				NetworkType: route.IPv6Network,
+				Description: "super",
+				Masquerade:  false,
+				Metric:      9999,
+				Enabled:     true,
+				Groups:      []string{routeGroup1},
+			},
+			newPeer: &ipv6DisabledPeer,
+			errFunc: require.Error,
+		},
+		{
+			name: "IPv6 unsupported host should not be allowed as peer for IPv6 route",
+			existingRoute: &route.Route{
+				ID:          "testingRoute",
+				Network:     netip.MustParsePrefix("2001:db8:4321:5678::/64"),
+				NetID:       validNetID,
+				NetworkType: route.IPv6Network,
+				Description: "super",
+				Masquerade:  false,
+				Metric:      9999,
+				Enabled:     true,
+				Groups:      []string{routeGroup1},
+			},
+			newPeer: &ipv6UnsupportedPeer,
 			errFunc: require.Error,
 		},
 		{
@@ -772,7 +888,7 @@ func TestDeleteRoute(t *testing.T) {
 		ID:          "testingRoute",
 		Network:     netip.MustParsePrefix("192.168.0.0/16"),
 		NetworkType: route.IPv4Network,
-		Peer:        peer1Key,
+		Peer:        peer1ID,
 		Description: "super",
 		Masquerade:  false,
 		Metric:      9999,
@@ -810,6 +926,77 @@ func TestDeleteRoute(t *testing.T) {
 	if found {
 		t.Error("route shouldn't be found after delete")
 	}
+}
+
+func TestRouteIPv6Consistency(t *testing.T) {
+	testingRoute := &route.Route{
+		ID:          "testingRoute",
+		Network:     netip.MustParsePrefix("2001:db8:0987:6543::/64"),
+		NetworkType: route.IPv6Network,
+		NetID:       existingRouteID,
+		Peer:        peer1ID,
+		Description: "super",
+		Masquerade:  false,
+		Metric:      9999,
+		Enabled:     false,
+		Groups:      []string{routeGroup1},
+	}
+
+	am, err := createRouterManager(t)
+	if err != nil {
+		t.Error("failed to create account manager")
+	}
+
+	account, err := initTestRouteAccount(t, am)
+	if err != nil {
+		t.Error("failed to init testing account")
+	}
+
+	account.Routes[testingRoute.ID] = testingRoute
+
+	err = am.Store.SaveAccount(account)
+	if err != nil {
+		t.Error("failed to save account")
+	}
+
+	savedAccount, err := am.Store.GetAccount(account.Id)
+	if err != nil {
+		t.Error("failed to retrieve saved account with error: ", err)
+	}
+
+	testingRoute = savedAccount.Routes[testingRoute.ID]
+	testingRoute.Enabled = true
+
+	err = am.SaveRoute(account.Id, userID, testingRoute)
+	if err != nil {
+		t.Error("failed to save route")
+	}
+
+	savedAccount, err = am.Store.GetAccount(account.Id)
+	if err != nil {
+		t.Error("failed to retrieve saved account with error: ", err)
+	}
+
+	peer := savedAccount.GetPeer(peer1ID)
+	require.NotNil(t, peer.IP6, "peer with enabled IPv6 route in automatic setting must have IPv6 active.")
+
+	err = am.DeleteRoute(account.Id, testingRoute.ID, userID)
+	if err != nil {
+		t.Error("deleting route failed with error: ", err)
+	}
+
+	savedAccount, err = am.Store.GetAccount(account.Id)
+	if err != nil {
+		t.Error("failed to retrieve saved account with error: ", err)
+	}
+
+	_, found := savedAccount.Routes[testingRoute.ID]
+	if found {
+		t.Error("route shouldn't be found after delete")
+	}
+
+	peer = savedAccount.GetPeer(peer1ID)
+	require.Nil(t, peer.IP6, "disabling the only IPv6 route for a peer with automatic IPv6 setting should disable IPv6")
 }
 
 func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
@@ -1055,14 +1242,15 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		Name:   "test-host1@netbird.io",
 		UserID: userID,
 		Meta: nbpeer.PeerSystemMeta{
-			Hostname:  "test-host1@netbird.io",
-			GoOS:      "linux",
-			Kernel:    "Linux",
-			Core:      "21.04",
-			Platform:  "x86_64",
-			OS:        "Ubuntu",
-			WtVersion: "development",
-			UIVersion: "development",
+			Hostname:      "test-host1@netbird.io",
+			GoOS:          "linux",
+			Kernel:        "Linux",
+			Core:          "21.04",
+			Platform:      "x86_64",
+			OS:            "Ubuntu",
+			WtVersion:     "development",
+			UIVersion:     "development",
+			Ipv6Supported: true,
 		},
 		Status: &nbpeer.PeerStatus{},
 	}
@@ -1073,24 +1261,32 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	if err != nil {
 		return nil, err
 	}
+	ips = account.getTakenIP6s()
+	peer2IP6, err := AllocatePeerIP6(account.Network.Net, ips)
+	if err != nil {
+		return nil, err
+	}
 
 	peer2 := &nbpeer.Peer{
 		IP:     peer2IP,
+		IP6:    &peer2IP6,
 		ID:     peer2ID,
 		Key:    peer2Key,
 		Name:   "test-host2@netbird.io",
 		UserID: userID,
 		Meta: nbpeer.PeerSystemMeta{
-			Hostname:  "test-host2@netbird.io",
-			GoOS:      "linux",
-			Kernel:    "Linux",
-			Core:      "21.04",
-			Platform:  "x86_64",
-			OS:        "Ubuntu",
-			WtVersion: "development",
-			UIVersion: "development",
+			Hostname:      "test-host2@netbird.io",
+			GoOS:          "linux",
+			Kernel:        "Linux",
+			Core:          "21.04",
+			Platform:      "x86_64",
+			OS:            "Ubuntu",
+			WtVersion:     "development",
+			UIVersion:     "development",
+			Ipv6Supported: true,
 		},
-		Status: &nbpeer.PeerStatus{},
+		V6Setting: nbpeer.V6Enabled,
+		Status:    &nbpeer.PeerStatus{},
 	}
 	account.Peers[peer2.ID] = peer2
 
@@ -1099,24 +1295,32 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	if err != nil {
 		return nil, err
 	}
+	ips = account.getTakenIP6s()
+	peer3IP6, err := AllocatePeerIP6(account.Network.Net, ips)
+	if err != nil {
+		return nil, err
+	}
 
 	peer3 := &nbpeer.Peer{
 		IP:     peer3IP,
+		IP6:    &peer3IP6,
 		ID:     peer3ID,
 		Key:    peer3Key,
 		Name:   "test-host3@netbird.io",
 		UserID: userID,
 		Meta: nbpeer.PeerSystemMeta{
-			Hostname:  "test-host3@netbird.io",
-			GoOS:      "darwin",
-			Kernel:    "Darwin",
-			Core:      "13.4.1",
-			Platform:  "arm64",
-			OS:        "darwin",
-			WtVersion: "development",
-			UIVersion: "development",
+			Hostname:      "test-host3@netbird.io",
+			GoOS:          "darwin",
+			Kernel:        "Darwin",
+			Core:          "13.4.1",
+			Platform:      "arm64",
+			OS:            "darwin",
+			WtVersion:     "development",
+			UIVersion:     "development",
+			Ipv6Supported: true,
 		},
-		Status: &nbpeer.PeerStatus{},
+		V6Setting: nbpeer.V6Enabled,
+		Status:    &nbpeer.PeerStatus{},
 	}
 	account.Peers[peer3.ID] = peer3
 
@@ -1133,14 +1337,15 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		Name:   "test-host4@netbird.io",
 		UserID: userID,
 		Meta: nbpeer.PeerSystemMeta{
-			Hostname:  "test-host4@netbird.io",
-			GoOS:      "linux",
-			Kernel:    "Linux",
-			Core:      "21.04",
-			Platform:  "x86_64",
-			OS:        "Ubuntu",
-			WtVersion: "development",
-			UIVersion: "development",
+			Hostname:      "test-host4@netbird.io",
+			GoOS:          "linux",
+			Kernel:        "Linux",
+			Core:          "21.04",
+			Platform:      "x86_64",
+			OS:            "Ubuntu",
+			WtVersion:     "development",
+			UIVersion:     "development",
+			Ipv6Supported: false,
 		},
 		Status: &nbpeer.PeerStatus{},
 	}
@@ -1159,16 +1364,18 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		Name:   "test-host4@netbird.io",
 		UserID: userID,
 		Meta: nbpeer.PeerSystemMeta{
-			Hostname:  "test-host4@netbird.io",
-			GoOS:      "linux",
-			Kernel:    "Linux",
-			Core:      "21.04",
-			Platform:  "x86_64",
-			OS:        "Ubuntu",
-			WtVersion: "development",
-			UIVersion: "development",
+			Hostname:      "test-host4@netbird.io",
+			GoOS:          "linux",
+			Kernel:        "Linux",
+			Core:          "21.04",
+			Platform:      "x86_64",
+			OS:            "Ubuntu",
+			WtVersion:     "development",
+			UIVersion:     "development",
+			Ipv6Supported: true,
 		},
-		Status: &nbpeer.PeerStatus{},
+		Status:    &nbpeer.PeerStatus{},
+		V6Setting: nbpeer.V6Disabled,
 	}
 	account.Peers[peer5.ID] = peer5
 

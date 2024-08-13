@@ -98,6 +98,13 @@ func (t *tunUSPDevice) UpdateAddr(address WGAddress) error {
 	return t.assignAddr()
 }
 
+func (t *tunUSPDevice) UpdateAddr6(address6 *WGAddress) error {
+	if address6 == nil {
+		return nil
+	}
+	return fmt.Errorf("IPv6 is not supported on this operating system")
+}
+
 func (t *tunUSPDevice) Close() error {
 	if t.configurer != nil {
 		t.configurer.close()
@@ -115,6 +122,10 @@ func (t *tunUSPDevice) Close() error {
 
 func (t *tunUSPDevice) WgAddress() WGAddress {
 	return t.address
+}
+
+func (t *tunUSPDevice) WgAddress6() *WGAddress {
+	return nil
 }
 
 func (t *tunUSPDevice) DeviceName() string {

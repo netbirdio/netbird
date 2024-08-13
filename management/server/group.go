@@ -149,6 +149,35 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *n
 	oldGroup, exists := account.Groups[newGroup.ID]
 	account.Groups[newGroup.ID] = newGroup
 
+	// Determine peer difference for group.
+	addedPeers := make([]string, 0)
+	removedPeers := make([]string, 0)
+	if exists {
+		addedPeers = difference(newGroup.Peers, oldGroup.Peers)
+		removedPeers = difference(oldGroup.Peers, newGroup.Peers)
+	} else {
+		addedPeers = append(addedPeers, newGroup.Peers...)
+	}
+
+	// Need to check whether IPv6 status has changed for all potentially affected peers.
+	peersToUpdate := make([]string, 0)
+	// If group previously had IPv6 enabled, need to check all old peers for changes in IPv6 status.
+	if exists && oldGroup.IPv6Enabled {
+		peersToUpdate = removedPeers
+	}
+	// If group IPv6 status changed, need to check all current peers, if it did not, but IPv6 is enabled, only check
+	// added peers, otherwise check no peers (as group can not affect IPv6 state).
+	if exists && oldGroup.IPv6Enabled != newGroup.IPv6Enabled {
+		peersToUpdate = append(peersToUpdate, newGroup.Peers...)
+	} else if newGroup.IPv6Enabled {
+		peersToUpdate = append(peersToUpdate, addedPeers...)
+	}
+
+	_, err = am.updatePeerIPv6Status(account, userID, newGroup, peersToUpdate)
+	if err != nil {
+		return err
+	}
+
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {
 		return err
@@ -158,13 +187,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *n
 
 	// the following snippet tracks the activity and stores the group events in the event store.
 	// It has to happen after all the operations have been successfully performed.
-	addedPeers := make([]string, 0)
-	removedPeers := make([]string, 0)
-	if exists {
-		addedPeers = difference(newGroup.Peers, oldGroup.Peers)
-		removedPeers = difference(oldGroup.Peers, newGroup.Peers)
-	} else {
-		addedPeers = append(addedPeers, newGroup.Peers...)
+	if !exists {
 		am.StoreEvent(userID, newGroup.ID, accountID, activity.GroupCreated, newGroup.EventMeta())
 	}
 
@@ -314,6 +337,14 @@ func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) 
 
 	delete(account.Groups, groupID)
 
+	// Update IPv6 status of all group members if necessary.
+	if g.IPv6Enabled {
+		_, err = am.updatePeerIPv6Status(account, userId, g, g.Peers)
+		if err != nil {
+			return err
+		}
+	}
+
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {
 		return err
@@ -345,6 +376,7 @@ func (am *DefaultAccountManager) ListGroups(accountID string) ([]*nbgroup.Group,
 }
 
 // GroupAddPeer appends peer to the group
+// TODO Question for devs: Is this method dead code? I can't seem to find any usages outside of tests...
 func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerID string) error {
 	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
@@ -368,6 +400,14 @@ func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerID string)
 	}
 	if add {
 		group.Peers = append(group.Peers, peerID)
+
+		if group.IPv6Enabled {
+			// Update IPv6 status of added group member.
+			_, err = am.updatePeerIPv6Status(account, "", group, []string{peerID})
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	account.Network.IncSerial()
@@ -381,6 +421,7 @@ func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerID string)
 }
 
 // GroupDeletePeer removes peer from the group
+// TODO Question for devs: Same as above, this seems like dead code
 func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerID string) error {
 	unlock := am.Store.AcquireAccountWriteLock(accountID)
 	defer unlock()
@@ -399,6 +440,15 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerID stri
 	for i, itemID := range group.Peers {
 		if itemID == peerID {
 			group.Peers = append(group.Peers[:i], group.Peers[i+1:]...)
+
+			if group.IPv6Enabled {
+				// Update IPv6 status of deleted group member.
+				_, err = am.updatePeerIPv6Status(account, "", group, []string{peerID})
+				if err != nil {
+					return err
+				}
+			}
+
 			if err := am.Store.SaveAccount(account); err != nil {
 				return err
 			}
@@ -408,4 +458,25 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerID stri
 	am.updateAccountPeers(account)
 
 	return nil
+}
+
+func (am *DefaultAccountManager) updatePeerIPv6Status(account *Account, userID string, group *nbgroup.Group, peersToUpdate []string) (bool, error) {
+	updated := false
+	for _, peer := range peersToUpdate {
+		peerObj := account.GetPeer(peer)
+		update, err := am.DeterminePeerV6(account, peerObj)
+		if err != nil {
+			return false, err
+		}
+		if update {
+			updated = true
+			account.UpdatePeer(peerObj)
+			if peerObj.IP6 != nil {
+				am.StoreEvent(userID, group.ID, account.Id, activity.PeerIPv6InheritEnabled, group.EventMeta())
+			} else {
+				am.StoreEvent(userID, group.ID, account.Id, activity.PeerIPv6InheritDisabled, group.EventMeta())
+			}
+		}
+	}
+	return updated, nil
 }

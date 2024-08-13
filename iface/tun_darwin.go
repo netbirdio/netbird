@@ -3,6 +3,7 @@
 package iface
 
 import (
+	"fmt"
 	"os/exec"
 
 	"github.com/pion/transport/v3"
@@ -88,6 +89,13 @@ func (t *tunDevice) UpdateAddr(address WGAddress) error {
 	return t.assignAddr()
 }
 
+func (t *tunDevice) UpdateAddr6(address6 *WGAddress) error {
+	if address6 == nil {
+		return nil
+	}
+	return fmt.Errorf("IPv6 is not supported on this operating system")
+}
+
 func (t *tunDevice) Close() error {
 	if t.configurer != nil {
 		t.configurer.close()
@@ -106,6 +114,10 @@ func (t *tunDevice) Close() error {
 
 func (t *tunDevice) WgAddress() WGAddress {
 	return t.address
+}
+
+func (t *tunDevice) WgAddress6() *WGAddress {
+	return nil
 }
 
 func (t *tunDevice) DeviceName() string {

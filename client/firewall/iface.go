@@ -6,6 +6,7 @@ import "github.com/netbirdio/netbird/iface"
 type IFaceMapper interface {
 	Name() string
 	Address() iface.WGAddress
+	Address6() *iface.WGAddress
 	IsUserspaceBind() bool
 	SetFilter(iface.PacketFilter) error
 }

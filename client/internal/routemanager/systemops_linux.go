@@ -184,12 +184,6 @@ func addVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 
 	// No need to check if routes exist as main table takes precedence over the VPN table via Rule 1
 
-	// TODO remove this once we have ipv6 support
-	if prefix == defaultv4 {
-		if err := addUnreachableRoute(defaultv6, NetbirdVPNTableID); err != nil {
-			return fmt.Errorf("add blackhole: %w", err)
-		}
-	}
 	if err := addRoute(prefix, netip.Addr{}, intf, NetbirdVPNTableID); err != nil {
 		return fmt.Errorf("add route: %w", err)
 	}
@@ -201,12 +195,6 @@ func removeVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 		return genericRemoveVPNRoute(prefix, intf)
 	}
 
-	// TODO remove this once we have ipv6 support
-	if prefix == defaultv4 {
-		if err := removeUnreachableRoute(defaultv6, NetbirdVPNTableID); err != nil {
-			return fmt.Errorf("remove unreachable route: %w", err)
-		}
-	}
 	if err := removeRoute(prefix, netip.Addr{}, intf, NetbirdVPNTableID); err != nil {
 		return fmt.Errorf("remove route: %w", err)
 	}
@@ -282,6 +270,9 @@ func addRoute(prefix netip.Prefix, addr netip.Addr, intf *net.Interface, tableID
 // addUnreachableRoute adds an unreachable route for the specified IP family and routing table.
 // ipFamily should be netlink.FAMILY_V4 for IPv4 or netlink.FAMILY_V6 for IPv6.
 // tableID specifies the routing table to which the unreachable route will be added.
+// TODO should this be kept in for future use? If so, the linter needs to be told that this unreachable function should
+//
+//	be kept
 func addUnreachableRoute(prefix netip.Prefix, tableID int) error {
 	_, ipNet, err := net.ParseCIDR(prefix.String())
 	if err != nil {
@@ -302,6 +293,9 @@ func addUnreachableRoute(prefix netip.Prefix, tableID int) error {
 	return nil
 }
 
+// TODO should this be kept in for future use? If so, the linter needs to be told that this unreachable function should
+//
+//	be kept
 func removeUnreachableRoute(prefix netip.Prefix, tableID int) error {
 	_, ipNet, err := net.ParseCIDR(prefix.String())
 	if err != nil {
@@ -376,8 +370,14 @@ func flushRoutes(tableID, family int) error {
 	return result.ErrorOrNil()
 }
 
-func enableIPForwarding() error {
+func enableIPForwarding(includeV6 bool) error {
 	_, err := setSysctl(ipv4ForwardingPath, 1, false)
+	if err != nil {
+		return err
+	}
+	if includeV6 {
+		_, err = setSysctl(ipv4ForwardingPath, 1, false)
+	}
 	return err
 }
 

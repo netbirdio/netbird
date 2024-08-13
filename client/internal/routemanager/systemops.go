@@ -122,6 +122,16 @@ func ipToAddr(ip net.IP, intf *net.Interface) (netip.Addr, error) {
 }
 
 func existsInRouteTable(prefix netip.Prefix) (bool, error) {
+
+	linkLocalPrefix, err := netip.ParsePrefix("fe80::/10")
+	if err != nil {
+		return false, err
+	}
+	if prefix.Addr().Is6() && linkLocalPrefix.Contains(prefix.Addr()) {
+		// The link local prefix is not explicitly part of the routing table, but should be considered as such.
+		return true, nil
+	}
+
 	routes, err := getRoutesFromTable()
 	if err != nil {
 		return false, fmt.Errorf("get routes from table: %w", err)

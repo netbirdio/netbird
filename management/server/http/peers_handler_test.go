@@ -37,6 +37,12 @@ func initTestMetaData(peers ...*nbpeer.Peer) *PeersHandler {
 						break
 					}
 				}
+				if p.V6Setting == nbpeer.V6Enabled && p.IP6 == nil {
+					ip6 := net.ParseIP("2001:db8::dead:beef")
+					p.IP6 = &ip6
+				} else {
+					p.IP6 = nil
+				}
 				p.SSHEnabled = update.SSHEnabled
 				p.LoginExpirationEnabled = update.LoginExpirationEnabled
 				p.Name = update.Name

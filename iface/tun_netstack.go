@@ -91,6 +91,13 @@ func (t *tunNetstackDevice) UpdateAddr(WGAddress) error {
 	return nil
 }
 
+func (t *tunNetstackDevice) UpdateAddr6(address6 *WGAddress) error {
+	if address6 == nil {
+		return nil
+	}
+	return fmt.Errorf("IPv6 is not supported on this operating system")
+}
+
 func (t *tunNetstackDevice) Close() error {
 	if t.configurer != nil {
 		t.configurer.close()
@@ -108,6 +115,10 @@ func (t *tunNetstackDevice) Close() error {
 
 func (t *tunNetstackDevice) WgAddress() WGAddress {
 	return t.address
+}
+
+func (t *tunNetstackDevice) WgAddress6() *WGAddress {
+	return nil
 }
 
 func (t *tunNetstackDevice) DeviceName() string {

@@ -33,6 +33,10 @@ func (i *IFaceMock) Address() iface.WGAddress {
 	return i.AddressFunc()
 }
 
+func (i *IFaceMock) Address6() *iface.WGAddress {
+	return nil
+}
+
 func TestManagerCreate(t *testing.T) {
 	ifaceMock := &IFaceMock{
 		SetFilterFunc: func(iface.PacketFilter) error { return nil },

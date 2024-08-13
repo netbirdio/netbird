@@ -19,6 +19,7 @@ func TestDefaultManager(t *testing.T) {
 		FirewallRules: []*mgmProto.FirewallRule{
 			{
 				PeerIP:    "10.93.0.1",
+				PeerIP6:   "2001:db8::fedc:ba09:8765:0001",
 				Direction: mgmProto.FirewallRule_OUT,
 				Action:    mgmProto.FirewallRule_ACCEPT,
 				Protocol:  mgmProto.FirewallRule_TCP,
@@ -26,6 +27,7 @@ func TestDefaultManager(t *testing.T) {
 			},
 			{
 				PeerIP:    "10.93.0.2",
+				PeerIP6:   "2001:db8::fedc:ba09:8765:0002",
 				Direction: mgmProto.FirewallRule_OUT,
 				Action:    mgmProto.FirewallRule_DROP,
 				Protocol:  mgmProto.FirewallRule_UDP,
@@ -49,6 +51,14 @@ func TestDefaultManager(t *testing.T) {
 	ifaceMock.EXPECT().Address().Return(iface.WGAddress{
 		IP:      ip,
 		Network: network,
+	}).AnyTimes()
+	ip6, network6, err := net.ParseCIDR("2001:db8::fedc:ba09:8765:4321/64")
+	if err != nil {
+		t.Fatalf("failed to parse IP address: %v", err)
+	}
+	ifaceMock.EXPECT().Address6().Return(&iface.WGAddress{
+		IP:      ip6,
+		Network: network6,
 	}).AnyTimes()
 
 	// we receive one rule from the management so for testing purposes ignore it
@@ -83,6 +93,7 @@ func TestDefaultManager(t *testing.T) {
 			networkMap.FirewallRules,
 			&mgmProto.FirewallRule{
 				PeerIP:    "10.93.0.3",
+				PeerIP6:   "2001:db8::fedc:ba09:8765:0003",
 				Direction: mgmProto.FirewallRule_IN,
 				Action:    mgmProto.FirewallRule_DROP,
 				Protocol:  mgmProto.FirewallRule_ICMP,
@@ -343,6 +354,7 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 		IP:      ip,
 		Network: network,
 	}).AnyTimes()
+	ifaceMock.EXPECT().Address6().Return(nil).AnyTimes()
 
 	// we receive one rule from the management so for testing purposes ignore it
 	fw, err := firewall.NewFirewall(context.Background(), ifaceMock)
