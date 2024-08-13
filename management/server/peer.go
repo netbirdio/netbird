@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -219,13 +220,16 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	}
 
 	account.UpdatePeer(peer)
-
+	account.Network.IncSerial()
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return nil, err
 	}
 
-	am.updateAccountPeers(ctx, account)
+	expired, _ := peer.LoginExpired(account.Settings.PeerLoginExpiration)
+	if expired && peer.LoginExpirationEnabled {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	return peer, nil
 }
@@ -299,7 +303,10 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		return err
 	}
 
-	am.updateAccountPeers(ctx, account)
+	updateAccountPeers := isPeerInActiveGroup(account, peerID)
+	if updateAccountPeers {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	return nil
 }
@@ -531,7 +538,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
-	am.updateAccountPeers(ctx, account)
+	if areGroupChangesAffectPeers(account, groupsToAdd) {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	approvedPeersMap, err := am.GetValidatedPeers(account)
 	if err != nil {
@@ -577,16 +586,22 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 		return nil, nil, nil, err
 	}
 
-	var postureChecks []*posture.Checks
-
 	if peerNotValid {
 		emptyMap := &NetworkMap{
 			Network: account.Network.Copy(),
 		}
-		return peer, emptyMap, postureChecks, nil
+		return peer, emptyMap, nil, nil
 	}
 
-	if isStatusChanged {
+	peer, peerMetaUpdated := updatePeerMeta(peer, sync.Meta, account)
+	if peerMetaUpdated {
+		err = am.Store.SaveAccount(ctx, account)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+
+	if isStatusChanged || (peerMetaUpdated && sync.UpdateAccountPeers) {
 		am.updateAccountPeers(ctx, account)
 	}
 
@@ -594,7 +609,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	postureChecks = am.getPeerPostureChecks(account, peer)
+	postureChecks := am.getPeerPostureChecks(account, peer)
 
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
 	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, validPeersMap, am.metrics.AccountManagerMetrics()), postureChecks, nil
@@ -812,51 +827,6 @@ func updatePeerLastLogin(peer *nbpeer.Peer, account *Account) {
 	account.UpdatePeer(peer)
 }
 
-// UpdatePeerSSHKey updates peer's public SSH key
-func (am *DefaultAccountManager) UpdatePeerSSHKey(ctx context.Context, peerID string, sshKey string) error {
-	if sshKey == "" {
-		log.WithContext(ctx).Debugf("empty SSH key provided for peer %s, skipping update", peerID)
-		return nil
-	}
-
-	account, err := am.Store.GetAccountByPeerID(ctx, peerID)
-	if err != nil {
-		return err
-	}
-
-	unlock := am.Store.AcquireWriteLockByUID(ctx, account.Id)
-	defer unlock()
-
-	// ensure that we consider modification happened meanwhile (because we were outside the account lock when we fetched the account)
-	account, err = am.Store.GetAccount(ctx, account.Id)
-	if err != nil {
-		return err
-	}
-
-	peer := account.GetPeer(peerID)
-	if peer == nil {
-		return status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
-	}
-
-	if peer.SSHKey == sshKey {
-		log.WithContext(ctx).Debugf("same SSH key provided for peer %s, skipping update", peerID)
-		return nil
-	}
-
-	peer.SSHKey = sshKey
-	account.UpdatePeer(peer)
-
-	err = am.Store.SaveAccount(ctx, account)
-	if err != nil {
-		return err
-	}
-
-	// trigger network map update
-	am.updateAccountPeers(ctx, account)
-
-	return nil
-}
-
 // GetPeer for a given accountID, peerID and userID error if not found.
 func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error) {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
@@ -962,4 +932,16 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 	}
 
 	wg.Wait()
+}
+
+// IsPeerInActiveGroup checks if the given peer is part of a group that is used
+// in an active DNS, route, or ACL configuration.
+func isPeerInActiveGroup(account *Account, peerID string) bool {
+	peerGroupIDs := make([]string, 0)
+	for _, group := range account.Groups {
+		if slices.Contains(group.Peers, peerID) {
+			peerGroupIDs = append(peerGroupIDs, group.ID)
+		}
+	}
+	return areGroupChangesAffectPeers(account, peerGroupIDs)
 }

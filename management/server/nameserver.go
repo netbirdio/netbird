@@ -80,13 +80,13 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 	account.NameServerGroups[newNSGroup.ID] = newNSGroup
 
 	account.Network.IncSerial()
-	err = am.Store.SaveAccount(ctx, account)
-	if err != nil {
+	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return nil, err
 	}
 
-	am.updateAccountPeers(ctx, account)
-
+	if anyGroupHasPeers(account, newNSGroup.Groups) {
+		am.updateAccountPeers(ctx, account)
+	}
 	am.StoreEvent(ctx, userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
 
 	return newNSGroup.Copy(), nil
@@ -94,7 +94,6 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 
 // SaveNameServerGroup saves nameserver group
 func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error {
-
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
@@ -112,16 +111,17 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 		return err
 	}
 
+	oldNSGroup := account.NameServerGroups[nsGroupToSave.ID]
 	account.NameServerGroups[nsGroupToSave.ID] = nsGroupToSave
 
 	account.Network.IncSerial()
-	err = am.Store.SaveAccount(ctx, account)
-	if err != nil {
+	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
-	am.updateAccountPeers(ctx, account)
-
+	if anyGroupHasPeers(account, nsGroupToSave.Groups) || anyGroupHasPeers(account, oldNSGroup.Groups) {
+		am.updateAccountPeers(ctx, account)
+	}
 	am.StoreEvent(ctx, userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
 
 	return nil
@@ -145,13 +145,13 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 	delete(account.NameServerGroups, nsGroupID)
 
 	account.Network.IncSerial()
-	err = am.Store.SaveAccount(ctx, account)
-	if err != nil {
+	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
-	am.updateAccountPeers(ctx, account)
-
+	if anyGroupHasPeers(account, nsGroup.Groups) {
+		am.updateAccountPeers(ctx, account)
+	}
 	am.StoreEvent(ctx, userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
 
 	return nil

@@ -166,12 +166,19 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 		eventsToStore = append(eventsToStore, events...)
 	}
 
+	newGroupIDs := make([]string, 0, len(newGroups))
+	for _, newGroup := range newGroups {
+		newGroupIDs = append(newGroupIDs, newGroup.ID)
+	}
+
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
-	am.updateAccountPeers(ctx, account)
+	if areGroupChangesAffectPeers(account, newGroupIDs) {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
@@ -274,8 +281,6 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountId, use
 
 	am.StoreEvent(ctx, userId, groupID, accountId, activity.GroupDeleted, group.EventMeta())
 
-	am.updateAccountPeers(ctx, account)
-
 	return nil
 }
 
@@ -317,8 +322,6 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountId, us
 	for _, g := range deletedGroups {
 		am.StoreEvent(ctx, userId, g.ID, accountId, activity.GroupDeleted, g.EventMeta())
 	}
-
-	am.updateAccountPeers(ctx, account)
 
 	return allErrors
 }
@@ -372,7 +375,9 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 		return err
 	}
 
-	am.updateAccountPeers(ctx, account)
+	if areGroupChangesAffectPeers(account, []string{group.ID}) {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	return nil
 }
@@ -402,7 +407,9 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 		}
 	}
 
-	am.updateAccountPeers(ctx, account)
+	if areGroupChangesAffectPeers(account, []string{group.ID}) {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	return nil
 }
@@ -504,4 +511,30 @@ func isGroupLinkedToUser(users map[string]*User, groupID string) (bool, *User) {
 		}
 	}
 	return false, nil
+}
+
+// anyGroupHasPeers checks if any of the given groups in the account have peers.
+func anyGroupHasPeers(account *Account, groupIDs []string) bool {
+	for _, groupID := range groupIDs {
+		if group, exists := account.Groups[groupID]; exists && group.HasPeers() {
+			return true
+		}
+	}
+	return false
+}
+
+func areGroupChangesAffectPeers(account *Account, groupIDs []string) bool {
+	for _, groupID := range groupIDs {
+		if linked, _ := isGroupLinkedToDns(account.NameServerGroups, groupID); linked {
+			return true
+		}
+		if linked, _ := isGroupLinkedToPolicy(account.Policies, groupID); linked {
+			return true
+		}
+		if linked, _ := isGroupLinkedToRoute(account.Routes, groupID); linked {
+			return true
+		}
+	}
+
+	return false
 }

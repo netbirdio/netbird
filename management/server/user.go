@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -473,7 +474,7 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 }
 
 func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account *Account, initiatorUserID, targetUserID string) error {
-	meta, err := am.prepareUserDeletion(ctx, account, initiatorUserID, targetUserID)
+	meta, updateAccountPeers, err := am.prepareUserDeletion(ctx, account, initiatorUserID, targetUserID)
 	if err != nil {
 		return err
 	}
@@ -485,15 +486,22 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, account 
 	}
 
 	am.StoreEvent(ctx, initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
-	am.updateAccountPeers(ctx, account)
+	if updateAccountPeers {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	return nil
 }
 
-func (am *DefaultAccountManager) deleteUserPeers(ctx context.Context, initiatorUserID string, targetUserID string, account *Account) error {
+func (am *DefaultAccountManager) deleteUserPeers(ctx context.Context, initiatorUserID string, targetUserID string, account *Account) (bool, error) {
 	peers, err := account.FindUserPeers(targetUserID)
 	if err != nil {
-		return status.Errorf(status.Internal, "failed to find user peers")
+		return false, status.Errorf(status.Internal, "failed to find user peers")
+	}
+
+	hadPeers := len(peers) > 0
+	if !hadPeers {
+		return false, nil
 	}
 
 	peerIDs := make([]string, 0, len(peers))
@@ -501,7 +509,7 @@ func (am *DefaultAccountManager) deleteUserPeers(ctx context.Context, initiatorU
 		peerIDs = append(peerIDs, peer.ID)
 	}
 
-	return am.deletePeers(ctx, account, peerIDs, initiatorUserID)
+	return hadPeers, am.deletePeers(ctx, account, peerIDs, initiatorUserID)
 }
 
 // InviteUser resend invitations to users who haven't activated their accounts prior to the expiration period.
@@ -760,6 +768,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	updatedUsers := make([]*UserInfo, 0, len(updates))
 	var (
 		expiredPeers  []*nbpeer.Peer
+		userIDs       []string
 		eventsToStore []func()
 	)
 
@@ -767,6 +776,8 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		if update == nil {
 			return nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 		}
+
+		userIDs = append(userIDs, update.Id)
 
 		oldUser := account.Users[update.Id]
 		if oldUser == nil {
@@ -831,7 +842,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		return nil, err
 	}
 
-	if account.Settings.GroupsPropagationEnabled {
+	if areUsersLinkedToPeers(account, userIDs) && account.Settings.GroupsPropagationEnabled {
 		am.updateAccountPeers(ctx, account)
 	}
 
@@ -1182,7 +1193,10 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 		return status.Errorf(status.PermissionDenied, "only users with admin power can delete users")
 	}
 
-	var allErrors error
+	var (
+		allErrors          error
+		updateAccountPeers bool
+	)
 
 	deletedUsersMeta := make(map[string]map[string]any)
 	for _, targetUserID := range targetUserIDs {
@@ -1208,10 +1222,14 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 			continue
 		}
 
-		meta, err := am.prepareUserDeletion(ctx, account, initiatorUserID, targetUserID)
+		meta, hadPeers, err := am.prepareUserDeletion(ctx, account, initiatorUserID, targetUserID)
 		if err != nil {
 			allErrors = errors.Join(allErrors, fmt.Errorf("failed to delete user %s: %s", targetUserID, err))
 			continue
+		}
+
+		if hadPeers && !updateAccountPeers {
+			updateAccountPeers = true
 		}
 
 		delete(account.Users, targetUserID)
@@ -1223,7 +1241,9 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 		return fmt.Errorf("failed to delete users: %w", err)
 	}
 
-	am.updateAccountPeers(ctx, account)
+	if updateAccountPeers {
+		am.updateAccountPeers(ctx, account)
+	}
 
 	for targetUserID, meta := range deletedUsersMeta {
 		am.StoreEvent(ctx, initiatorUserID, targetUserID, account.Id, activity.UserDeleted, meta)
@@ -1232,11 +1252,11 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 	return allErrors
 }
 
-func (am *DefaultAccountManager) prepareUserDeletion(ctx context.Context, account *Account, initiatorUserID, targetUserID string) (map[string]any, error) {
+func (am *DefaultAccountManager) prepareUserDeletion(ctx context.Context, account *Account, initiatorUserID, targetUserID string) (map[string]any, bool, error) {
 	tuEmail, tuName, err := am.getEmailAndNameOfTargetUser(ctx, account.Id, initiatorUserID, targetUserID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to resolve email address: %s", err)
-		return nil, err
+		return nil, false, err
 	}
 
 	if !isNil(am.idpManager) {
@@ -1247,16 +1267,16 @@ func (am *DefaultAccountManager) prepareUserDeletion(ctx context.Context, accoun
 			err = am.deleteUserFromIDP(ctx, targetUserID, account.Id)
 			if err != nil {
 				log.WithContext(ctx).Debugf("failed to delete user from IDP: %s", targetUserID)
-				return nil, err
+				return nil, false, err
 			}
 		} else {
 			log.WithContext(ctx).Debugf("skipped deleting user %s from IDP, error: %v", targetUserID, err)
 		}
 	}
 
-	err = am.deleteUserPeers(ctx, initiatorUserID, targetUserID, account)
+	hadPeers, err := am.deleteUserPeers(ctx, initiatorUserID, targetUserID, account)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	u, err := account.FindUser(targetUserID)
@@ -1269,7 +1289,7 @@ func (am *DefaultAccountManager) prepareUserDeletion(ctx context.Context, accoun
 		tuCreatedAt = u.CreatedAt
 	}
 
-	return map[string]any{"name": tuName, "email": tuEmail, "created_at": tuCreatedAt}, nil
+	return map[string]any{"name": tuName, "email": tuEmail, "created_at": tuCreatedAt}, hadPeers, nil
 }
 
 func findUserInIDPUserdata(userID string, userData []*idp.UserData) (*idp.UserData, bool) {
@@ -1279,4 +1299,14 @@ func findUserInIDPUserdata(userID string, userData []*idp.UserData) (*idp.UserDa
 		}
 	}
 	return nil, false
+}
+
+// areUsersLinkedToPeers checks if any of the given userIDs are linked to any of the peers in the account.
+func areUsersLinkedToPeers(account *Account, userIDs []string) bool {
+	for _, peer := range account.Peers {
+		if slices.Contains(userIDs, peer.UserID) {
+			return true
+		}
+	}
+	return false
 }
