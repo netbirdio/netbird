@@ -257,7 +257,7 @@ func (s *GRPCServer) validateToken(ctx context.Context, jwtToken string) (string
 	}
 
 	if err := s.accountManager.CheckUserAccessByJWTGroups(ctx, claims); err != nil {
-		return "", status.Errorf(codes.PermissionDenied, err.Error())
+		return "", status.Error(codes.PermissionDenied, err.Error())
 	}
 
 	return claims.UserId, nil
@@ -268,15 +268,15 @@ func mapError(ctx context.Context, err error) error {
 	if e, ok := internalStatus.FromError(err); ok {
 		switch e.Type() {
 		case internalStatus.PermissionDenied:
-			return status.Errorf(codes.PermissionDenied, e.Message)
+			return status.Error(codes.PermissionDenied, e.Message)
 		case internalStatus.Unauthorized:
-			return status.Errorf(codes.PermissionDenied, e.Message)
+			return status.Error(codes.PermissionDenied, e.Message)
 		case internalStatus.Unauthenticated:
-			return status.Errorf(codes.PermissionDenied, e.Message)
+			return status.Error(codes.PermissionDenied, e.Message)
 		case internalStatus.PreconditionFailed:
-			return status.Errorf(codes.FailedPrecondition, e.Message)
+			return status.Error(codes.FailedPrecondition, e.Message)
 		case internalStatus.NotFound:
-			return status.Errorf(codes.NotFound, e.Message)
+			return status.Error(codes.NotFound, e.Message)
 		default:
 		}
 	}

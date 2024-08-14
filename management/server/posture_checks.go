@@ -60,7 +60,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	}
 
 	if err := postureChecks.Validate(); err != nil {
-		return status.Errorf(status.InvalidArgument, err.Error())
+		return status.Errorf(status.InvalidArgument, err.Error()) //nolint
 	}
 
 	exists, uniqName := am.savePostureChecks(account, postureChecks)

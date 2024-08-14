@@ -150,7 +150,7 @@ func (m *JWTValidator) ValidateAndParse(ctx context.Context, token string) (*jwt
 		// If we get here, the required token is missing
 		errorMsg := "required authorization token not found"
 		log.WithContext(ctx).Debugf("  Error: No credentials found (CredentialsOptional=false)")
-		return nil, fmt.Errorf(errorMsg)
+		return nil, errors.New(errorMsg)
 	}
 
 	// Now parse the token
@@ -173,7 +173,7 @@ func (m *JWTValidator) ValidateAndParse(ctx context.Context, token string) (*jwt
 	// Check if the parsed token is valid...
 	if !parsedToken.Valid {
 		errorMsg := "token is invalid"
-		log.WithContext(ctx).Debugf(errorMsg)
+		log.WithContext(ctx).Debug(errorMsg)
 		return nil, errors.New(errorMsg)
 	}
 

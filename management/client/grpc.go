@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -267,7 +268,7 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 // GetServerPublicKey returns server's WireGuard public key (used later for encrypting messages sent to the server)
 func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
 	if !c.ready() {
-		return nil, fmt.Errorf(errMsgNoMgmtConnection)
+		return nil, errors.New(errMsgNoMgmtConnection)
 	}
 
 	mgmCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
@@ -314,7 +315,7 @@ func (c *GrpcClient) IsHealthy() bool {
 
 func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*proto.LoginResponse, error) {
 	if !c.ready() {
-		return nil, fmt.Errorf(errMsgNoMgmtConnection)
+		return nil, errors.New(errMsgNoMgmtConnection)
 	}
 
 	loginReq, err := encryption.EncryptMessage(serverKey, c.key, req)
@@ -452,7 +453,7 @@ func (c *GrpcClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKC
 // It should be used if there is changes on peer posture check after initial sync.
 func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
 	if !c.ready() {
-		return fmt.Errorf(errMsgNoMgmtConnection)
+		return errors.New(errMsgNoMgmtConnection)
 	}
 
 	serverPubKey, err := c.GetServerPublicKey()
