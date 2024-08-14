@@ -72,15 +72,7 @@ type Manager interface {
 	// IsServerRouteSupported returns true if the firewall supports server side routing operations
 	IsServerRouteSupported() bool
 
-	AddRouteFiltering(
-		source netip.Prefix,
-		destination netip.Prefix,
-		proto Protocol,
-		sPort *Port,
-		dPort *Port,
-		direction RuleDirection,
-		action Action,
-	) (Rule, error)
+	AddRouteFiltering(source []netip.Prefix, destination netip.Prefix, proto Protocol, sPort *Port, dPort *Port, direction RuleDirection, action Action) (Rule, error)
 
 	// DeleteRouteRule deletes a routing rule
 	DeleteRouteRule(rule Rule) error

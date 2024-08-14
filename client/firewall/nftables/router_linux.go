@@ -168,17 +168,9 @@ func (r *router) createContainers() error {
 }
 
 // AddRouteFiltering appends a nftables rule to the routing chain
-func (r *router) AddRouteFiltering(
-	source netip.Prefix,
-	destination netip.Prefix,
-	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
-	direction firewall.RuleDirection,
-	action firewall.Action,
-) (firewall.Rule, error) {
+func (r *router) AddRouteFiltering(sources []netip.Prefix, destination netip.Prefix, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, direction firewall.RuleDirection, action firewall.Action) (firewall.Rule, error) {
 
-	ruleKey := id.GenerateRouteRuleKey(source, destination, proto, sPort, dPort, direction, action)
+	ruleKey := id.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, direction, action)
 	if _, ok := r.rules[string(ruleKey)]; ok {
 		return ruleKey, nil
 	}
@@ -186,6 +178,8 @@ func (r *router) AddRouteFiltering(
 	chain := r.chains[chainNameRoutingFw]
 
 	var exprs []expr.Any
+
+	source := sources[0]
 
 	if direction == firewall.RuleDirectionIN {
 		exprs = append(exprs, generateCIDRMatcherExpressions(true, source)...)

@@ -189,19 +189,11 @@ func (m *Manager) AddPeerFiltering(
 	return []firewall.Rule{&r}, nil
 }
 
-func (m *Manager) AddRouteFiltering(
-	source netip.Prefix,
-	destination netip.Prefix,
-	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
-	direction firewall.RuleDirection,
-	action firewall.Action,
-) (firewall.Rule, error) {
+func (m *Manager) AddRouteFiltering(sources []netip.Prefix, destination netip.Prefix, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, direction firewall.RuleDirection, action firewall.Action) (firewall.Rule, error) {
 	if m.nativeFirewall == nil {
 		return nil, errRouteNotSupported
 	}
-	return m.nativeFirewall.AddRouteFiltering(source, destination, proto, sPort, dPort, direction, action)
+	return m.nativeFirewall.AddRouteFiltering(sources, destination, proto, sPort, dPort, direction, action)
 }
 
 func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {

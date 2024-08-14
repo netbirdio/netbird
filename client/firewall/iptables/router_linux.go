@@ -64,21 +64,13 @@ func newRouterManager(parentCtx context.Context, iptablesClient *iptables.IPTabl
 	return m, err
 }
 
-func (r *router) AddRouteFiltering(
-	source netip.Prefix,
-	destination netip.Prefix,
-	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
-	direction firewall.RuleDirection,
-	action firewall.Action,
-) (firewall.Rule, error) {
-	ruleKey := id.GenerateRouteRuleKey(source, destination, proto, sPort, dPort, direction, action)
+func (r *router) AddRouteFiltering(sources []netip.Prefix, destination netip.Prefix, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, direction firewall.RuleDirection, action firewall.Action) (firewall.Rule, error) {
+	ruleKey := id.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, direction, action)
 	if _, ok := r.rules[string(ruleKey)]; ok {
 		return ruleKey, nil
 	}
 
-	rule := genRouteFilteringRuleSpec(source, destination, proto, sPort, dPort, direction, action)
+	rule := genRouteFilteringRuleSpec(sources, destination, proto, sPort, dPort, direction, action)
 	if err := r.iptablesClient.Append(tableFilter, chainRTFWD, rule...); err != nil {
 		return nil, fmt.Errorf("add route rule: %v", err)
 	}
@@ -351,16 +343,10 @@ func genRuleSpec(jump string, source, destination netip.Prefix, intf string, inv
 	return []string{intdir, intf, "-s", source.String(), "-d", destination.String(), "-j", jump}
 }
 
-func genRouteFilteringRuleSpec(
-	source netip.Prefix,
-	destination netip.Prefix,
-	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
-	direction firewall.RuleDirection,
-	action firewall.Action,
-) []string {
+func genRouteFilteringRuleSpec(sources []netip.Prefix, destination netip.Prefix, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, direction firewall.RuleDirection, action firewall.Action) []string {
 	var rule []string
+
+	source := sources[0]
 
 	if direction == firewall.RuleDirectionIN {
 		rule = append(rule, "-s", source.String(), "-d", destination.String())
