@@ -15,6 +15,10 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
+const (
+	errMsgFailedReadTCP = "failed to read from tcp: %s"
+)
+
 var (
 	dataSize            = 1024 * 1024 * 50 // 50MB
 	pairs               = []int{1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100}
@@ -303,7 +307,7 @@ func TURNReaderMain() []testResult {
 				buf := make([]byte, 103)
 				n, err := tcpConn.Read(buf)
 				if err != nil {
-					log.Fatalf("failed to read from tcp: %s", err)
+					log.Fatalf(errMsgFailedReadTCP, err)
 				}
 
 				si := DecodeStartIndication(buf[:n])
@@ -312,14 +316,14 @@ func TURNReaderMain() []testResult {
 				buf = make([]byte, 8192)
 				i, err := tcpConn.Read(buf)
 				if err != nil {
-					log.Fatalf("failed to read from tcp: %s", err)
+					log.Fatalf(errMsgFailedReadTCP, err)
 				}
 				now := time.Now()
 
 				for i < si.TransferSize {
 					n, err := tcpConn.Read(buf)
 					if err != nil {
-						log.Fatalf("failed to read from tcp: %s", err)
+						log.Fatalf(errMsgFailedReadTCP, err)
 					}
 					i += n
 				}
