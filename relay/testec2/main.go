@@ -243,7 +243,6 @@ func TURNReaderMain() []testResult {
 
 	testResults := make([]testResult, 0, len(pairs))
 	for range pairs {
-		log.Infof("waiting for addresses")
 		addresses := <-si.AddressesChan
 		log.Infof("received addresses: %d", len(addresses))
 
@@ -276,14 +275,12 @@ func TURNReaderMain() []testResult {
 				DstAddr: dstAddr,
 			}
 
-			err = device.Up()
-			if err != nil {
+			if err = device.Up(); err != nil {
 				log.Fatalf("failed to bring up device: %s, %s", device.Name, err)
 			}
 			devices = append(devices, device)
 		}
 
-		// send back local addresses
 		log.Infof("response addresses back: %d", len(clientAddresses))
 		si.ClientAddressChan <- clientAddresses
 
@@ -326,7 +323,6 @@ func TURNReaderMain() []testResult {
 					}
 					i += n
 				}
-				log.Infof("finished reading")
 				durations <- time.Since(now)
 			}(d)
 		}
@@ -338,7 +334,6 @@ func TURNReaderMain() []testResult {
 				close(durations)
 			}
 		}
-
 		avgDuration, avgSpeed := avg(durationsList)
 		ts := testResult{
 			numOfPairs: len(conns),
@@ -346,12 +341,10 @@ func TURNReaderMain() []testResult {
 			speed:      avgSpeed,
 		}
 		testResults = append(testResults, ts)
-
 		for _, d := range devices {
 			_ = d.Close()
 		}
 	}
-
 	return testResults
 }
 
