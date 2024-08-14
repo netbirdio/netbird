@@ -1226,6 +1226,34 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 	manager, account, peer1, _, peer3 := setupNetworkMapTest(t)
 
+	group := group.Group{
+		ID:    "group-id",
+		Name:  "GroupA",
+		Peers: []string{peer1.ID, peer3.ID},
+	}
+	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group); err != nil {
+		t.Errorf("save group: %v", err)
+		return
+	}
+
+	policy := Policy{
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				Enabled:       true,
+				Sources:       []string{"group-id"},
+				Destinations:  []string{"group-id"},
+				Bidirectional: true,
+				Action:        PolicyTrafficActionAccept,
+			},
+		},
+	}
+
+	if err := manager.SavePolicy(context.Background(), account.Id, userID, &policy); err != nil {
+		t.Errorf("save policy: %v", err)
+		return
+	}
+
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 
