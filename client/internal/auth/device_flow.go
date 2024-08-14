@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -180,7 +181,7 @@ func (d *DeviceAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowIn
 					continue
 				}
 
-				return TokenInfo{}, fmt.Errorf(tokenResponse.ErrorDescription)
+				return TokenInfo{}, errors.New(tokenResponse.ErrorDescription)
 			}
 
 			tokenInfo := TokenInfo{
