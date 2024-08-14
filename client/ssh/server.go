@@ -118,9 +118,9 @@ func (srv *DefaultServer) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) b
 
 func prepareUserEnv(user *user.User, shell string) []string {
 	return []string{
-		fmt.Sprintf("SHELL=" + shell),
-		fmt.Sprintf("USER=" + user.Username),
-		fmt.Sprintf("HOME=" + user.HomeDir),
+		fmt.Sprint("SHELL=" + shell),
+		fmt.Sprint("USER=" + user.Username),
+		fmt.Sprint("HOME=" + user.HomeDir),
 	}
 }
 
