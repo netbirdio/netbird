@@ -960,9 +960,9 @@ func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
 	for {
 
 		// randomize starting time a bit
-		min := 500
-		max := 2000
-		duration := time.Duration(rand.Intn(max-min)+min) * time.Millisecond
+		minValue := 500
+		maxValue := 2000
+		duration := time.Duration(rand.Intn(maxValue-minValue)+minValue) * time.Millisecond
 		select {
 		case <-e.ctx.Done():
 			return
