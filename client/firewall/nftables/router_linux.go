@@ -3,10 +3,13 @@ package nftables
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"strings"
 
 	"github.com/google/nftables"
@@ -43,7 +46,9 @@ type router struct {
 	filterTable *nftables.Table
 	chains      map[string]*nftables.Chain
 	// rules is useful to avoid duplicates and to get missing attributes that we don't have when adding new rules
-	rules            map[string]*nftables.Rule
+	rules      map[string]*nftables.Rule
+	ipsetStore *ipsetStore
+
 	wgIface          iFaceMapper
 	legacyManagement bool
 }
@@ -52,13 +57,14 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table, wgIface iFa
 	ctx, cancel := context.WithCancel(parentCtx)
 
 	r := &router{
-		ctx:       ctx,
-		stop:      cancel,
-		conn:      &nftables.Conn{},
-		workTable: workTable,
-		chains:    make(map[string]*nftables.Chain),
-		rules:     make(map[string]*nftables.Rule),
-		wgIface:   wgIface,
+		ctx:        ctx,
+		stop:       cancel,
+		conn:       &nftables.Conn{},
+		workTable:  workTable,
+		chains:     make(map[string]*nftables.Chain),
+		rules:      make(map[string]*nftables.Rule),
+		ipsetStore: newIpsetStore(),
+		wgIface:    wgIface,
 	}
 
 	var err error
@@ -168,29 +174,56 @@ func (r *router) createContainers() error {
 }
 
 // AddRouteFiltering appends a nftables rule to the routing chain
-func (r *router) AddRouteFiltering(sources []netip.Prefix, destination netip.Prefix, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, direction firewall.RuleDirection, action firewall.Action) (firewall.Rule, error) {
-
+func (r *router) AddRouteFiltering(
+	sources []netip.Prefix,
+	destination netip.Prefix,
+	proto firewall.Protocol,
+	sPort *firewall.Port,
+	dPort *firewall.Port,
+	direction firewall.RuleDirection,
+	action firewall.Action,
+) (firewall.Rule, error) {
 	ruleKey := id.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, direction, action)
 	if _, ok := r.rules[string(ruleKey)]; ok {
 		return ruleKey, nil
 	}
 
 	chain := r.chains[chainNameRoutingFw]
-
 	var exprs []expr.Any
 
-	source := sources[0]
-
-	if direction == firewall.RuleDirectionIN {
-		exprs = append(exprs, generateCIDRMatcherExpressions(true, source)...)
-		exprs = append(exprs, generateCIDRMatcherExpressions(false, destination)...)
+	if len(sources) == 1 && sources[0].Bits() == 0 {
+		// If it's 0.0.0.0/0, we don't need to add any source matching
+	} else if len(sources) == 1 {
+		// If there's only one source, we can use it directly
+		exprs = append(exprs, generateCIDRMatcherExpressions(direction == firewall.RuleDirectionIN, sources[0])...)
 	} else {
-		exprs = append(exprs, generateCIDRMatcherExpressions(true, destination)...)
-		exprs = append(exprs, generateCIDRMatcherExpressions(false, source)...)
+		// If there are multiple sources, create an ipset
+		set, err := r.createOrGetIpSet(sources)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create ipset for sources: %w", err)
+		}
+
+		exprs = append(exprs,
+			&expr.Payload{
+				DestRegister: 1,
+				Base:         expr.PayloadBaseNetworkHeader,
+				Offset:       12,
+				Len:          4,
+			},
+			&expr.Lookup{
+				SourceRegister: 1,
+				SetName:        set.Name,
+				SetID:          set.ID,
+			},
+		)
 	}
 
+	// Handle destination
+	exprs = append(exprs, generateCIDRMatcherExpressions(direction == firewall.RuleDirectionOUT, destination)...)
+
+	// Handle protocol
 	if proto != firewall.ProtocolALL {
-		proto, err := protoToInt(proto)
+		protoNum, err := protoToInt(proto)
 		if err != nil {
 			return nil, fmt.Errorf("convert protocol to number: %w", err)
 		}
@@ -198,12 +231,13 @@ func (r *router) AddRouteFiltering(sources []netip.Prefix, destination netip.Pre
 		exprs = append(exprs, &expr.Cmp{
 			Op:       expr.CmpOpEq,
 			Register: 1,
-			Data:     []byte{proto},
+			Data:     []byte{protoNum},
 		})
 
 		exprs = append(exprs, applyPort(sPort, true)...)
 		exprs = append(exprs, applyPort(dPort, false)...)
 	}
+
 	exprs = append(exprs, &expr.Counter{})
 
 	var verdict expr.VerdictKind
@@ -226,34 +260,137 @@ func (r *router) AddRouteFiltering(sources []netip.Prefix, destination netip.Pre
 	return ruleKey, r.conn.Flush()
 }
 
+func (r *router) createOrGetIpSet(sources []netip.Prefix) (*nftables.Set, error) {
+	setName := r.generateSetName(sources)
+
+	set, err := r.conn.GetSetByName(r.workTable, setName)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("check for existing set %s: %w", setName, err)
+		}
+
+		// Set doesn't exist, create it
+		set = &nftables.Set{
+			Name:     setName,
+			Table:    r.workTable,
+			KeyType:  nftables.TypeIPAddr,
+			Dynamic:  false,
+			Interval: false,
+		}
+		if err = r.conn.AddSet(set, nil); err != nil {
+			return nil, fmt.Errorf("create set %s: %w", setName, err)
+		}
+		r.ipsetStore.newIpset(setName)
+		log.Debugf("Created new ipset: %s", setName)
+	} else {
+		log.Debugf("Using existing ipset: %s", setName)
+	}
+
+	// Add elements to the set
+	var elements []nftables.SetElement
+	for _, prefix := range sources {
+		ip := prefix.Addr().AsSlice()
+		elements = append(elements, nftables.SetElement{Key: ip})
+	}
+
+	if err = r.conn.SetAddElements(set, elements); err != nil {
+		return nil, fmt.Errorf("add elements to set %s: %w", setName, err)
+	}
+
+	for _, prefix := range sources {
+		r.ipsetStore.AddIpToSet(setName, net.IP(prefix.Addr().AsSlice()))
+	}
+
+	r.ipsetStore.AddReferenceToIpset(setName)
+	log.Debugf("Added %d elements to ipset %s", len(elements), setName)
+
+	return set, nil
+}
+
+func (r *router) generateSetName(sources []netip.Prefix) string {
+	var sourcesStr strings.Builder
+	for _, src := range sources {
+		sourcesStr.WriteString(src.String())
+	}
+
+	hash := sha256.Sum256([]byte(sourcesStr.String()))
+	shortHash := hex.EncodeToString(hash[:])[:8]
+
+	return fmt.Sprintf("nb-%s", shortHash)
+}
+
 func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 	if err := r.refreshRulesMap(); err != nil {
 		return fmt.Errorf(refreshRulesMapError, err)
 	}
 
-	if err := r.removeRouteRule(rule.GetRuleID()); err != nil {
-		return fmt.Errorf("remove route rule: %w", err)
+	ruleKey := rule.GetRuleID()
+	nftRule, exists := r.rules[ruleKey]
+	if !exists {
+		log.Debugf("route rule %s not found", ruleKey)
+		return nil
+	}
+
+	setName := r.findSetNameInRule(nftRule)
+
+	if err := r.deleteNftRule(nftRule, ruleKey); err != nil {
+		return fmt.Errorf("delete: %w", err)
+	}
+
+	if setName != "" {
+		if err := r.cleanupIpsetIfUnused(setName); err != nil {
+			return fmt.Errorf("cleanup: %w", err)
+		}
 	}
 
 	if err := r.conn.Flush(); err != nil {
-		return fmt.Errorf("flush rules: %v", err)
+		return fmt.Errorf("flush: %w", err)
 	}
 
 	return nil
 }
 
-func (r *router) removeRouteRule(id string) error {
-	if rule, exists := r.rules[id]; exists {
-		log.Debugf("nftables: inside")
-		if err := r.conn.DelRule(rule); err != nil {
-			return fmt.Errorf("remove route rule %s: %w", id, err)
+func (r *router) findSetNameInRule(rule *nftables.Rule) string {
+	for _, e := range rule.Exprs {
+		if lookup, ok := e.(*expr.Lookup); ok {
+			return lookup.SetName
 		}
-
-		delete(r.rules, id)
-		log.Debugf("nftables: removed route rule %s", id)
-	} else {
-		log.Debugf("nftables: route rule %s not found", id)
 	}
+	return ""
+}
+
+func (r *router) deleteNftRule(rule *nftables.Rule, ruleKey string) error {
+	if err := r.conn.DelRule(rule); err != nil {
+		return fmt.Errorf("delete rule %s: %w", ruleKey, err)
+	}
+	delete(r.rules, ruleKey)
+
+	log.Debugf("removed route rule %s", ruleKey)
+
+	return nil
+}
+
+func (r *router) cleanupIpsetIfUnused(setName string) error {
+	r.ipsetStore.DeleteReferenceFromIpSet(setName)
+	if !r.ipsetStore.HasReferenceToSet(setName) {
+		return r.deleteUnusedIpset(setName)
+	}
+	return nil
+}
+
+func (r *router) deleteUnusedIpset(setName string) error {
+	set, err := r.conn.GetSetByName(r.workTable, setName)
+	if err != nil {
+		return fmt.Errorf("get set %s: %w", setName, err)
+	}
+
+	r.conn.DelSet(set)
+	if err := r.conn.Flush(); err != nil {
+		return fmt.Errorf("flush: %w", err)
+	}
+
+	r.ipsetStore.deleteIpset(setName)
+	log.Debugf("Deleted unused ipset %s", setName)
 
 	return nil
 }
