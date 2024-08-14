@@ -114,7 +114,10 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 
 		log.Debugf("Received a response from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
 
-		s.dispatcher.SendMessage(stream.Context(), msg)
+		_, err = s.dispatcher.SendMessage(stream.Context(), msg)
+		if err != nil {
+			log.Debugf("error while sending message from peer [%s] to peer [%s] %v", msg.Key, msg.RemoteKey, err)
+		}
 	}
 
 	<-stream.Context().Done()
