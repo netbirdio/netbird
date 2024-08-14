@@ -466,15 +466,11 @@ func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
 		IsDynamic:    route.IsDynamic(),
 	}
 
-	ruleOut := ruleIn
-	ruleOut.Direction = firewallRuleDirectionOUT
-
 	// dynamic routes always contain an IPv4 placeholder as destination, hence we must add IPv6 rules additionally
 	if route.IsDynamic() {
 		ruleIn.SourceRanges = append(ruleIn.SourceRanges, "::/0")
-		ruleOut.SourceRanges = append(ruleOut.SourceRanges, "::/0")
 	}
-	rules = append(rules, &ruleIn, &ruleOut)
+	rules = append(rules, &ruleIn)
 
 	return rules
 }

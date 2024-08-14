@@ -125,7 +125,7 @@ func (m *aclManager) AddPeerFiltering(
 		return nil, fmt.Errorf("rule already exists")
 	}
 
-	if err := m.iptablesClient.Insert("filter", chain, 1, specs...); err != nil {
+	if err := m.iptablesClient.Append("filter", chain, specs...); err != nil {
 		return nil, err
 	}
 
@@ -271,18 +271,28 @@ func (m *aclManager) createDefaultChains() error {
 }
 
 // seedInitialEntries adds default rules to the entries map, rules are inserted on pos 1, hence the order is reversed.
-// We want to make sure our traffic is not dropped by existing rules
+// We want to make sure our traffic is not dropped by existing rules.
+
+// The existing FORWARD rules/policies decide outbound traffic towards our interface.
+// In case the FORWARD policy is set to "drop", we add an established/related rule to allow return traffic for the inbound rule.
+
+// The OUTPUT chain gets an extra rule to allow traffic to any set up routes, the return traffic is handled by the INPUT related/established rule.
 func (m *aclManager) seedInitialEntries() {
+
+	established := getConntrackEstablished()
+
 	m.appendToEntries("INPUT", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
 	m.appendToEntries("INPUT", []string{"-i", m.wgIface.Name(), "-j", chainNameInputRules})
+	m.appendToEntries("INPUT", append([]string{"-i", m.wgIface.Name()}, established...))
 
 	m.appendToEntries("OUTPUT", []string{"-o", m.wgIface.Name(), "-j", "DROP"})
-	m.appendToEntries("OUTPUT", []string{"-o", m.wgIface.Name(), "-d", m.wgIface.Address().String(), "-j", chainNameOutputRules})
+	m.appendToEntries("OUTPUT", []string{"-o", m.wgIface.Name(), "-j", chainNameOutputRules})
 	m.appendToEntries("OUTPUT", []string{"-o", m.wgIface.Name(), "!", "-d", m.wgIface.Address().String(), "-j", "ACCEPT"})
+	m.appendToEntries("OUTPUT", append([]string{"-o", m.wgIface.Name()}, established...))
 
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", m.routingFwChainName})
-	m.appendToEntries("FORWARD", []string{"-o", m.wgIface.Name(), "-j", m.routingFwChainName})
+	m.appendToEntries("FORWARD", append([]string{"-o", m.wgIface.Name()}, established...))
 }
 
 func (m *aclManager) appendToEntries(chainName string, spec []string) {

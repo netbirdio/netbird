@@ -1738,7 +1738,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 
 		// peerE is a single routing peer for route 2 and route 3
 		routesFirewallRules = account.getPeerRoutesFirewallRules(context.Background(), "peerE", validatedPeers)
-		assert.Len(t, routesFirewallRules, 3)
+		assert.Len(t, routesFirewallRules, 2)
 
 		expectedRoutesFirewallRules = []*RouteFirewallRule{
 			{
@@ -1753,15 +1753,6 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 			{
 				SourceRanges: []string{"0.0.0.0/0", "::/0"},
 				Direction:    firewallRuleDirectionIN,
-				Action:       "accept",
-				Destination:  "192.0.2.0/32",
-				Protocol:     "all",
-				NetworkType:  int(route.DomainNetwork),
-				IsDynamic:    true,
-			},
-			{
-				SourceRanges: []string{"0.0.0.0/0", "::/0"},
-				Direction:    firewallRuleDirectionOUT,
 				Action:       "accept",
 				Destination:  "192.0.2.0/32",
 				Protocol:     "all",

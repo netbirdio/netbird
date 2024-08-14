@@ -33,6 +33,8 @@ const (
 	allowNetbirdInputRuleID = "allow Netbird incoming traffic"
 )
 
+const flushError = "flush: %w"
+
 var (
 	anyIP = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 )
@@ -255,7 +257,7 @@ func (m *AclManager) createDefaultAllowRules() error {
 	})
 
 	if err := m.rConn.Flush(); err != nil {
-		return fmt.Errorf("flush: %w", err)
+		return fmt.Errorf(flushError, err)
 	}
 	return nil
 }
@@ -290,18 +292,7 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 		}, nil
 	}
 
-	ifaceKey := expr.MetaKeyIIFNAME
-	if direction == firewall.RuleDirectionOUT {
-		ifaceKey = expr.MetaKeyOIFNAME
-	}
-	expressions := []expr.Any{
-		&expr.Meta{Key: ifaceKey, Register: 1},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     ifname(m.wgIface.Name()),
-		},
-	}
+	var expressions []expr.Any
 
 	if proto != firewall.ProtocolALL {
 		expressions = append(expressions, &expr.Payload{
@@ -408,10 +399,9 @@ func (m *AclManager) addIOFiltering(ip net.IP, proto firewall.Protocol, sPort *f
 	} else {
 		chain = m.chainOutputRules
 	}
-	nftRule := m.rConn.InsertRule(&nftables.Rule{
+	nftRule := m.rConn.AddRule(&nftables.Rule{
 		Table:    m.workTable,
 		Chain:    chain,
-		Position: 0,
 		Exprs:    expressions,
 		UserData: userData,
 	})
@@ -435,7 +425,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", chain.Name, err)
-		return err
+		return fmt.Errorf(flushError, err)
 	}
 	m.chainInputRules = chain
 
@@ -473,12 +463,13 @@ func (m *AclManager) createDefaultChains() (err error) {
 
 	// netbird-acl-forward-filter
 	m.chainFwFilter = m.createFilterChainWithHook(chainNameForwardFilter, nftables.ChainHookForward)
-	m.addJumpRulesToRtForward() // to
+	m.addJumpRulesToRtForward() // to netbird-rt-fwd
 	m.addDropExpressions(m.chainFwFilter, expr.MetaKeyIIFNAME)
+
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", chainNameForwardFilter, err)
-		return fmt.Errorf("flush: %w", err)
+		return fmt.Errorf(flushError, err)
 	}
 
 	return nil
@@ -487,25 +478,6 @@ func (m *AclManager) createDefaultChains() (err error) {
 func (m *AclManager) addJumpRulesToRtForward() {
 	expressions := []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     ifname(m.wgIface.Name()),
-		},
-		&expr.Verdict{
-			Kind:  expr.VerdictJump,
-			Chain: m.routeingFwChainName,
-		},
-	}
-
-	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: m.workTable,
-		Chain: m.chainFwFilter,
-		Exprs: expressions,
-	})
-
-	expressions = []expr.Any{
-		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
 			Register: 1,
@@ -531,6 +503,9 @@ func (m *AclManager) createChain(name string) *nftables.Chain {
 	}
 
 	chain = m.rConn.AddChain(chain)
+
+	insertReturnTrafficRule(m.rConn, m.workTable, chain)
+
 	return chain
 }
 

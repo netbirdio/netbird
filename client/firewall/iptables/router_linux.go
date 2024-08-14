@@ -10,8 +10,10 @@ import (
 	"strings"
 
 	"github.com/coreos/go-iptables/iptables"
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
 )
@@ -32,11 +34,12 @@ const (
 )
 
 type router struct {
-	ctx            context.Context
-	stop           context.CancelFunc
-	iptablesClient *iptables.IPTables
-	rules          map[string][]string
-	wgIface        iFaceMapper
+	ctx              context.Context
+	stop             context.CancelFunc
+	iptablesClient   *iptables.IPTables
+	rules            map[string][]string
+	wgIface          iFaceMapper
+	legacyManagement bool
 }
 
 func newRouterManager(parentCtx context.Context, iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*router, error) {
@@ -93,6 +96,8 @@ func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 			return fmt.Errorf("delete route rule: %v", err)
 		}
 		delete(r.rules, ruleKey)
+	} else {
+		log.Debugf("route rule %s not found", ruleKey)
 	}
 
 	return nil
@@ -100,18 +105,23 @@ func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 
 // AddNatRule inserts an iptables rule pair into the nat chain
 func (r *router) AddNatRule(pair firewall.RouterPair) error {
+	if r.legacyManagement {
+		log.Warnf("This peer is connected to a NetBird Management service with an older version. Allowing all traffic for %s", pair.Destination)
+		if err := r.addLegacyRouteRule(pair); err != nil {
+			return fmt.Errorf("add legacy routing rule: %w", err)
+		}
+	}
+
 	if !pair.Masquerade {
 		return nil
 	}
 
-	err := r.addNatRule(firewall.NatFormat, tableNat, chainRTNAT, routingFinalNatJump, pair)
-	if err != nil {
-		return err
+	if err := r.addNatRule(pair); err != nil {
+		return fmt.Errorf("add nat rule: %w", err)
 	}
 
-	err = r.addNatRule(firewall.InverseNatFormat, tableNat, chainRTNAT, routingFinalNatJump, firewall.GetInversePair(pair))
-	if err != nil {
-		return err
+	if err := r.addNatRule(firewall.GetInversePair(pair)); err != nil {
+		return fmt.Errorf("add inverse nat rule: %w", err)
 	}
 
 	return nil
@@ -119,21 +129,76 @@ func (r *router) AddNatRule(pair firewall.RouterPair) error {
 
 // RemoveNatRule removes an iptables rule pair from forwarding and nat chains
 func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
-	if !pair.Masquerade {
-		return nil
-	}
-
-	err := r.removeNatRule(firewall.NatFormat, tableNat, chainRTNAT, pair)
-	if err != nil {
+	if err := r.removeNatRule(pair); err != nil {
 		return fmt.Errorf("remove nat rule: %w", err)
 	}
 
-	err = r.removeNatRule(firewall.InverseNatFormat, tableNat, chainRTNAT, firewall.GetInversePair(pair))
-	if err != nil {
+	if err := r.removeNatRule(firewall.GetInversePair(pair)); err != nil {
 		return fmt.Errorf("remove inverse nat rule: %w", err)
 	}
 
+	if err := r.removeLegacyRouteRule(pair); err != nil {
+		return fmt.Errorf("remove legacy routing rule: %w", err)
+	}
+
 	return nil
+}
+
+// addLegacyRouteRule adds a legacy routing rule for mgmt servers pre route acls
+func (r *router) addLegacyRouteRule(pair firewall.RouterPair) error {
+	ruleKey := firewall.GenKey(firewall.ForwardingFormat, pair)
+
+	if err := r.removeLegacyRouteRule(pair); err != nil {
+		return err
+	}
+
+	rule := []string{"-s", pair.Source.String(), "-d", pair.Destination.String(), "-j", routingFinalForwardJump}
+	if err := r.iptablesClient.Append(tableFilter, chainRTFWD, rule...); err != nil {
+		return fmt.Errorf("add legacy forwarding rule %s -> %s: %v", pair.Source, pair.Destination, err)
+	}
+
+	r.rules[ruleKey] = rule
+
+	return nil
+}
+
+func (r *router) removeLegacyRouteRule(pair firewall.RouterPair) error {
+	ruleKey := firewall.GenKey(firewall.ForwardingFormat, pair)
+
+	if rule, exists := r.rules[ruleKey]; exists {
+		if err := r.iptablesClient.DeleteIfExists(tableFilter, chainRTFWD, rule...); err != nil {
+			return fmt.Errorf("remove legacy forwarding rule %s -> %s: %v", pair.Source, pair.Destination, err)
+		}
+		delete(r.rules, ruleKey)
+	} else {
+		log.Debugf("legacy forwarding rule %s not found", ruleKey)
+	}
+
+	return nil
+}
+
+// GetLegacyManagement returns the current legacy management mode
+func (r *router) GetLegacyManagement() bool {
+	return r.legacyManagement
+}
+
+// SetLegacyManagement sets the route manager to use legacy management mode
+func (r *router) SetLegacyManagement(isLegacy bool) {
+	r.legacyManagement = isLegacy
+}
+
+// RemoveAllLegacyRouteRules removes all legacy routing rules for mgmt servers pre route acls
+func (r *router) RemoveAllLegacyRouteRules() error {
+	var merr *multierror.Error
+	for k, rule := range r.rules {
+		if !strings.HasPrefix(k, firewall.ForwardingFormatPrefix) {
+			continue
+		}
+		if err := r.iptablesClient.DeleteIfExists(tableFilter, chainRTFWD, rule...); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove legacy forwarding rule: %v", err))
+		}
+	}
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func (r *router) Reset() error {
@@ -177,8 +242,12 @@ func (r *router) cleanUpDefaultForwardRules() error {
 func (r *router) createContainers() error {
 	for _, chain := range []string{chainRTFWD, chainRTNAT} {
 		if err := r.createAndSetupChain(chain); err != nil {
-			return err
+			return fmt.Errorf("create chain %s: %v", chain, err)
 		}
+	}
+
+	if err := r.insertEstablishedRule(chainRTFWD); err != nil {
+		return fmt.Errorf("insert established rule: %v", err)
 	}
 
 	return r.addJumpRules()
@@ -191,7 +260,7 @@ func (r *router) createAndSetupChain(chain string) error {
 		return fmt.Errorf("failed creating chain %s, error: %v", chain, err)
 	}
 
-	return r.setupChainRules(chain, table)
+	return nil
 }
 
 func (r *router) getTableForChain(chain string) string {
@@ -201,27 +270,8 @@ func (r *router) getTableForChain(chain string) string {
 	return tableFilter
 }
 
-func (r *router) setupChainRules(chain, table string) error {
-	switch chain {
-	case chainRTNAT:
-		return r.addLoopbackReturnRule(table, chain)
-	case chainRTFWD:
-		return r.insertEstablishedRule(chain)
-	}
-	return nil
-}
-
-func (r *router) addLoopbackReturnRule(table, chain string) error {
-	loopbackRule := []string{"-o", "lo", "-j", "RETURN"}
-	err := r.iptablesClient.Insert(table, chain, 1, loopbackRule...)
-	if err != nil {
-		return fmt.Errorf("failed to add loopback return rule to %s: %v", chainRTNAT, err)
-	}
-	return nil
-}
-
 func (r *router) insertEstablishedRule(chain string) error {
-	establishedRule := []string{"-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"}
+	establishedRule := getConntrackEstablished()
 
 	err := r.iptablesClient.Insert(tableFilter, chain, 1, establishedRule...)
 	if err != nil {
@@ -257,21 +307,18 @@ func (r *router) cleanJumpRules() error {
 	return nil
 }
 
-func (r *router) addNatRule(keyFormat, table, chain, jump string, pair firewall.RouterPair) error {
-	ruleKey := firewall.GenKey(keyFormat, pair.ID)
-	rule := genRuleSpec(jump, pair.Source, pair.Destination)
-	existingRule, found := r.rules[ruleKey]
-	if found {
-		err := r.iptablesClient.DeleteIfExists(table, chain, existingRule...)
-		if err != nil {
+func (r *router) addNatRule(pair firewall.RouterPair) error {
+	ruleKey := firewall.GenKey(firewall.NatFormat, pair)
+
+	if rule, exists := r.rules[ruleKey]; exists {
+		if err := r.iptablesClient.DeleteIfExists(tableNat, chainRTNAT, rule...); err != nil {
 			return fmt.Errorf("error while removing existing NAT rule for %s: %v", pair.Destination, err)
 		}
 		delete(r.rules, ruleKey)
 	}
 
-	// inserting after loopback ignore rule
-	err := r.iptablesClient.Insert(table, chain, 2, rule...)
-	if err != nil {
+	rule := genRuleSpec(routingFinalNatJump, pair.Source, pair.Destination, r.wgIface.Name(), pair.Inverse)
+	if err := r.iptablesClient.Append(tableNat, chainRTNAT, rule...); err != nil {
 		return fmt.Errorf("error while appending new NAT rule for %s: %v", pair.Destination, err)
 	}
 
@@ -280,22 +327,28 @@ func (r *router) addNatRule(keyFormat, table, chain, jump string, pair firewall.
 	return nil
 }
 
-func (r *router) removeNatRule(keyFormat, table, chain string, pair firewall.RouterPair) error {
-	ruleKey := firewall.GenKey(keyFormat, pair.ID)
-	existingRule, found := r.rules[ruleKey]
-	if found {
-		err := r.iptablesClient.DeleteIfExists(table, chain, existingRule...)
-		if err != nil {
+func (r *router) removeNatRule(pair firewall.RouterPair) error {
+	ruleKey := firewall.GenKey(firewall.NatFormat, pair)
+
+	if rule, exists := r.rules[ruleKey]; exists {
+		if err := r.iptablesClient.DeleteIfExists(tableNat, chainRTNAT, rule...); err != nil {
 			return fmt.Errorf("error while removing existing nat rule for %s: %v", pair.Destination, err)
 		}
+
+		delete(r.rules, ruleKey)
+	} else {
+		log.Debugf("nat rule %s not found", ruleKey)
 	}
-	delete(r.rules, ruleKey)
 
 	return nil
 }
 
-func genRuleSpec(jump string, source, destination netip.Prefix) []string {
-	return []string{"-s", source.String(), "-d", destination.String(), "-j", jump}
+func genRuleSpec(jump string, source, destination netip.Prefix, intf string, inverse bool) []string {
+	intdir := "-i"
+	if inverse {
+		intdir = "-o"
+	}
+	return []string{intdir, intf, "-s", source.String(), "-d", destination.String(), "-j", jump}
 }
 
 func genRouteFilteringRuleSpec(

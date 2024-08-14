@@ -121,6 +121,10 @@ func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 	return m.router.RemoveNatRule(pair)
 }
 
+func (m *Manager) SetLegacyManagement(isLegacy bool) error {
+	return firewall.SetLegacyManagement(m.router, isLegacy)
+}
+
 // Reset firewall to the default state
 func (m *Manager) Reset() error {
 	m.mutex.Lock()
@@ -172,3 +176,7 @@ func (m *Manager) AllowNetbird() error {
 
 // Flush doesn't need to be implemented for this manager
 func (m *Manager) Flush() error { return nil }
+
+func getConntrackEstablished() []string {
+	return []string{"-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"}
+}

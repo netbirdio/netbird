@@ -57,12 +57,20 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 				require.NoError(t, manager.RemoveNatRule(pair), "failed to remove rule")
 			}(manager, testCase.InputPair)
 
-			sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
-			destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
-			testingExpression := append(sourceExp, destExp...) //nolint:gocritic
-
 			if testCase.InputPair.Masquerade {
-				natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair.ID)
+				sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
+				destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
+				testingExpression := append(sourceExp, destExp...) //nolint:gocritic
+				testingExpression = append(testingExpression,
+					&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+					&expr.Cmp{
+						Op:       expr.CmpOpEq,
+						Register: 1,
+						Data:     ifname(ifaceMock.Name()),
+					},
+				)
+
+				natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair)
 				found := 0
 				for _, chain := range manager.chains {
 					rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
@@ -78,7 +86,19 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 			}
 
 			if testCase.InputPair.Masquerade {
-				inNatRuleKey := firewall.GenKey(firewall.InverseNatFormat, testCase.InputPair.ID)
+				sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
+				destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
+				testingExpression := append(sourceExp, destExp...) //nolint:gocritic
+				testingExpression = append(testingExpression,
+					&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+					&expr.Cmp{
+						Op:       expr.CmpOpEq,
+						Register: 1,
+						Data:     ifname(ifaceMock.Name()),
+					},
+				)
+
+				inNatRuleKey := firewall.GenKey(firewall.NatFormat, firewall.GetInversePair(testCase.InputPair))
 				found := 0
 				for _, chain := range manager.chains {
 					rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
@@ -92,6 +112,7 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 				}
 				require.Equal(t, 1, found, "should find at least 1 rule to test")
 			}
+
 		})
 	}
 }
@@ -121,7 +142,7 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 			destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
 
 			natExp := append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) //nolint:gocritic
-			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair.ID)
+			natRuleKey := firewall.GenKey(firewall.NatFormat, testCase.InputPair)
 
 			insertedNat := nftablesTestingClient.InsertRule(&nftables.Rule{
 				Table:    manager.workTable,
@@ -134,7 +155,7 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 			destExp = generateCIDRMatcherExpressions(false, firewall.GetInversePair(testCase.InputPair).Destination)
 
 			natExp = append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...) //nolint:gocritic
-			inNatRuleKey := firewall.GenKey(firewall.InverseNatFormat, testCase.InputPair.ID)
+			inNatRuleKey := firewall.GenKey(firewall.NatFormat, firewall.GetInversePair(testCase.InputPair))
 
 			insertedInNat := nftablesTestingClient.InsertRule(&nftables.Rule{
 				Table:    manager.workTable,
