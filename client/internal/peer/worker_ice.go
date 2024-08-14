@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -416,18 +417,14 @@ func candidateViaRoutes(candidate ice.Candidate, clientRoutes route.HAMap) bool 
 }
 
 func candidateTypes() []ice.CandidateType {
-	return []ice.CandidateType{ice.CandidateTypeRelay}
-	/*
-		if hasICEForceRelayConn() {
-			return []ice.CandidateType{ice.CandidateTypeRelay}
-		}
-		// TODO: remove this once we have refactored userspace proxy into the bind package
-		if runtime.GOOS == "ios" {
-			return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive}
-		}
-		return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay}
-
-	*/
+	if hasICEForceRelayConn() {
+		return []ice.CandidateType{ice.CandidateTypeRelay}
+	}
+	// TODO: remove this once we have refactored userspace proxy into the bind package
+	if runtime.GOOS == "ios" {
+		return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive}
+	}
+	return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay}
 }
 
 func candidateTypesP2P() []ice.CandidateType {
