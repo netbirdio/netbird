@@ -121,25 +121,8 @@ func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 	return m.router.RemoveNatRule(pair)
 }
 
-// SetLegacyManagement sets the route manager to use legacy management
 func (m *Manager) SetLegacyManagement(isLegacy bool) error {
-	oldLegacy := m.router.legacyManagement
-
-	if oldLegacy != isLegacy {
-		m.router.legacyManagement = isLegacy
-		log.Debugf("Set legacy management to %v", isLegacy)
-	}
-
-	// client reconnected to a newer mgmt, we need to cleanup the legacy rules
-	if !isLegacy && oldLegacy {
-		if err := m.router.removeAllLegacyRouteRules(); err != nil {
-			return fmt.Errorf("remove legacy routing rules: %v", err)
-		}
-
-		log.Debugf("Legacy routing rules removed")
-	}
-
-	return nil
+	return firewall.SetLegacyManagement(m.router, isLegacy)
 }
 
 // Reset firewall to the default state
@@ -193,3 +176,7 @@ func (m *Manager) AllowNetbird() error {
 
 // Flush doesn't need to be implemented for this manager
 func (m *Manager) Flush() error { return nil }
+
+func getConntrackEstablished() []string {
+	return []string{"-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"}
+}

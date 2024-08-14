@@ -177,8 +177,18 @@ func (r *router) removeLegacyRouteRule(pair firewall.RouterPair) error {
 	return nil
 }
 
-// removeAllLegacyRouteRules removes all legacy routing rules for mgmt servers pre route acls
-func (r *router) removeAllLegacyRouteRules() error {
+// GetLegacyManagement returns the current legacy management mode
+func (r *router) GetLegacyManagement() bool {
+	return r.legacyManagement
+}
+
+// SetLegacyManagement sets the route manager to use legacy management mode
+func (r *router) SetLegacyManagement(isLegacy bool) {
+	r.legacyManagement = isLegacy
+}
+
+// RemoveAllLegacyRouteRules removes all legacy routing rules for mgmt servers pre route acls
+func (r *router) RemoveAllLegacyRouteRules() error {
 	var merr *multierror.Error
 	for k, rule := range r.rules {
 		if !strings.HasPrefix(k, firewall.ForwardingFormatPrefix) {
@@ -261,7 +271,7 @@ func (r *router) getTableForChain(chain string) string {
 }
 
 func (r *router) insertEstablishedRule(chain string) error {
-	establishedRule := []string{"-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"}
+	establishedRule := getConntrackEstablished()
 
 	err := r.iptablesClient.Insert(tableFilter, chain, 1, establishedRule...)
 	if err != nil {

@@ -388,8 +388,18 @@ func (r *router) removeLegacyRouteRule(pair firewall.RouterPair) error {
 	return nil
 }
 
-// removeAllLegacyRouteRules removes all legacy routing rules for mgmt servers pre route acls
-func (r *router) removeAllLegacyRouteRules() error {
+// GetLegacyManagement returns the route manager's legacy management mode
+func (r *router) GetLegacyManagement() bool {
+	return r.legacyManagement
+}
+
+// SetLegacyManagement sets the route manager to use legacy management mode
+func (r *router) SetLegacyManagement(isLegacy bool) {
+	r.legacyManagement = isLegacy
+}
+
+// RemoveAllLegacyRouteRules removes all legacy routing rules for mgmt servers pre route acls
+func (r *router) RemoveAllLegacyRouteRules() error {
 	if err := r.refreshRulesMap(); err != nil {
 		return fmt.Errorf("refresh rules map: %w", err)
 	}

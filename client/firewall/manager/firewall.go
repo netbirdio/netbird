@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -101,4 +103,32 @@ type Manager interface {
 
 func GenKey(format string, pair RouterPair) string {
 	return fmt.Sprintf(format, pair.ID, pair.Inverse)
+}
+
+// LegacyManager defines the interface for legacy management operations
+type LegacyManager interface {
+	RemoveAllLegacyRouteRules() error
+	GetLegacyManagement() bool
+	SetLegacyManagement(bool)
+}
+
+// SetLegacyManagement sets the route manager to use legacy management
+func SetLegacyManagement(router LegacyManager, isLegacy bool) error {
+	oldLegacy := router.GetLegacyManagement()
+
+	if oldLegacy != isLegacy {
+		router.SetLegacyManagement(isLegacy)
+		log.Debugf("Set legacy management to %v", isLegacy)
+	}
+
+	// client reconnected to a newer mgmt, we need to clean up the legacy rules
+	if !isLegacy && oldLegacy {
+		if err := router.RemoveAllLegacyRouteRules(); err != nil {
+			return fmt.Errorf("remove legacy routing rules: %v", err)
+		}
+
+		log.Debugf("Legacy routing rules removed")
+	}
+
+	return nil
 }

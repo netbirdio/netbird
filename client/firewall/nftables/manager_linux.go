@@ -200,7 +200,7 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 
 	// client reconnected to a newer mgmt, we need to cleanup the legacy rules
 	if !isLegacy && oldLegacy {
-		if err := m.router.removeAllLegacyRouteRules(); err != nil {
+		if err := m.router.RemoveAllLegacyRouteRules(); err != nil {
 			return fmt.Errorf("remove legacy routing rules: %v", err)
 		}
 
