@@ -206,7 +206,7 @@ func (h *Policies) savePolicy(
 		// validate policy object
 		switch pr.Protocol {
 		case server.PolicyRuleProtocolALL, server.PolicyRuleProtocolICMP:
-			if len(pr.Ports) == 0 || len(pr.PortRanges) != 0 {
+			if len(pr.Ports) != 0 || len(pr.PortRanges) != 0 {
 				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol ports is not allowed"), w)
 				return
 			}
