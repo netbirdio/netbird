@@ -33,6 +33,8 @@ const (
 	allowNetbirdInputRuleID = "allow Netbird incoming traffic"
 )
 
+const flushError = "flush: %w"
+
 var (
 	anyIP = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 )
@@ -255,7 +257,7 @@ func (m *AclManager) createDefaultAllowRules() error {
 	})
 
 	if err := m.rConn.Flush(); err != nil {
-		return fmt.Errorf("flush: %w", err)
+		return fmt.Errorf(flushError, err)
 	}
 	return nil
 }
@@ -423,7 +425,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", chain.Name, err)
-		return fmt.Errorf("flush: %w", err)
+		return fmt.Errorf(flushError, err)
 	}
 	m.chainInputRules = chain
 
@@ -467,7 +469,7 @@ func (m *AclManager) createDefaultChains() (err error) {
 	err = m.rConn.Flush()
 	if err != nil {
 		log.Debugf("failed to create chain (%s): %s", chainNameForwardFilter, err)
-		return fmt.Errorf("flush: %w", err)
+		return fmt.Errorf(flushError, err)
 	}
 
 	return nil

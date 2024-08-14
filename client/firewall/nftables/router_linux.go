@@ -29,6 +29,8 @@ const (
 	userDataAcceptForwardRuleOif = "frwacceptoif"
 )
 
+const refreshRulesMapError = "refresh rules map: %w"
+
 var (
 	errFilterTableNotFound = fmt.Errorf("nftables: 'filter' table not found")
 )
@@ -232,7 +234,7 @@ func (r *router) AddRouteFiltering(
 
 func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 	if err := r.refreshRulesMap(); err != nil {
-		return fmt.Errorf("refresh rules map: %w", err)
+		return fmt.Errorf(refreshRulesMapError, err)
 	}
 
 	if err := r.removeRouteRule(rule.GetRuleID()); err != nil {
@@ -265,7 +267,7 @@ func (r *router) removeRouteRule(id string) error {
 // AddNatRule appends a nftables rule pair to the nat chain
 func (r *router) AddNatRule(pair firewall.RouterPair) error {
 	if err := r.refreshRulesMap(); err != nil {
-		return fmt.Errorf("refresh rules map: %w", err)
+		return fmt.Errorf(refreshRulesMapError, err)
 	}
 
 	if r.legacyManagement {
@@ -401,7 +403,7 @@ func (r *router) SetLegacyManagement(isLegacy bool) {
 // RemoveAllLegacyRouteRules removes all legacy routing rules for mgmt servers pre route acls
 func (r *router) RemoveAllLegacyRouteRules() error {
 	if err := r.refreshRulesMap(); err != nil {
-		return fmt.Errorf("refresh rules map: %w", err)
+		return fmt.Errorf(refreshRulesMapError, err)
 	}
 
 	var merr *multierror.Error
@@ -497,7 +499,7 @@ func (r *router) acceptForwardRules() {
 // RemoveNatRule removes a nftables rule pair from nat chains
 func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 	if err := r.refreshRulesMap(); err != nil {
-		return fmt.Errorf("refresh rules map: %w", err)
+		return fmt.Errorf(refreshRulesMapError, err)
 	}
 
 	if err := r.removeNatRule(pair); err != nil {
