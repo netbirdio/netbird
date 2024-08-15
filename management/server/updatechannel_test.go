@@ -369,6 +369,8 @@ func TestIsNewPeerUpdateMessage(t *testing.T) {
 }
 
 func createMockUpdateMessage(t *testing.T) *UpdateMessage {
+	t.Helper()
+
 	_, ipNet, err := net.ParseCIDR("192.168.1.0/24")
 	if err != nil {
 		t.Fatal(err)
