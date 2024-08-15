@@ -81,10 +81,10 @@ func NewManager(
 	}
 
 	dm.routeRefCounter = refcounter.New(
-		func(prefix netip.Prefix, _ any) (any, error) {
-			return nil, sysOps.AddVPNRoute(prefix, wgInterface.ToInterface())
+		func(prefix netip.Prefix, _ struct{}) (struct{}, error) {
+			return struct{}{}, sysOps.AddVPNRoute(prefix, wgInterface.ToInterface())
 		},
-		func(prefix netip.Prefix, _ any) error {
+		func(prefix netip.Prefix, _ struct{}) error {
 			return sysOps.RemoveVPNRoute(prefix, wgInterface.ToInterface())
 		},
 	)
