@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 
@@ -297,6 +298,11 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 		s.service.Stop()
 	}
 
+	// update each NameServerGroup config in nbdns.Config base on peerCount and IP.IsPrivate()
+	if runtime.GOOS != "android" && runtime.GOOS != "ios" {
+		s.toggleNameServerGroupsOnStatus(update.NameServerGroups)
+	}
+
 	localMuxUpdates, localRecords, err := s.buildLocalHandlerUpdate(update.CustomZones)
 	if err != nil {
 		return fmt.Errorf("not applying dns update, error: %v", err)
@@ -403,7 +409,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 		// contains this upstream settings (temporal deactivation not removed it)
 		handler.deactivate, handler.reactivate = s.upstreamCallbacks(nsGroup, handler)
 
-		if nsGroup.Primary {
+		if nsGroup.Primary && nsGroup.Enabled {
 			muxUpdates = append(muxUpdates, muxUpdate{
 				domain:  nbdns.RootZone,
 				handler: handler,
@@ -420,6 +426,9 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			if domain == "" {
 				handler.stop()
 				return nil, fmt.Errorf("received a nameserver group with an empty domain element")
+			}
+			if !nsGroup.Enabled {
+				continue
 			}
 			muxUpdates = append(muxUpdates, muxUpdate{
 				domain:  domain,
@@ -484,6 +493,19 @@ func (s *DefaultServer) updateLocalResolver(update map[string]nbdns.SimpleRecord
 	s.localResolver.registeredMap = updatedMap
 }
 
+func (s *DefaultServer) toggleNameServerGroupsOnStatus(nameServerGroups []*nbdns.NameServerGroup) {
+	peerCount := s.statusRecorder.GetConnectedPeersCount()
+	for _, nsGroup := range nameServerGroups {
+		var hasPublicNameServer bool
+		for _, s := range nsGroup.NameServers {
+			if !s.IP.IsPrivate() {
+				hasPublicNameServer = true
+			}
+		}
+		nsGroup.Enabled = hasPublicNameServer || (peerCount >= 1)
+	}
+}
+
 func getNSHostPort(ns nbdns.NameServer) string {
 	return fmt.Sprintf("%s:%d", ns.IP.String(), ns.Port)
 }
@@ -495,7 +517,6 @@ func (s *DefaultServer) upstreamCallbacks(
 	nsGroup *nbdns.NameServerGroup,
 	handler dns.Handler,
 ) (deactivate func(error), reactivate func()) {
-	var removeIndex map[string]int
 	deactivate = func(err error) {
 		s.mux.Lock()
 		defer s.mux.Unlock()
@@ -503,21 +524,15 @@ func (s *DefaultServer) upstreamCallbacks(
 		l := log.WithField("nameservers", nsGroup.NameServers)
 		l.Info("Temporarily deactivating nameservers group due to timeout")
 
-		removeIndex = make(map[string]int)
-		for _, domain := range nsGroup.Domains {
-			removeIndex[domain] = -1
-		}
 		if nsGroup.Primary {
-			removeIndex[nbdns.RootZone] = -1
 			s.currentConfig.RouteAll = false
 			s.service.DeregisterMux(nbdns.RootZone)
 		}
 
 		for i, item := range s.currentConfig.Domains {
-			if _, found := removeIndex[item.Domain]; found {
+			if slices.Contains(nsGroup.Domains, item.Domain) {
 				s.currentConfig.Domains[i].Disabled = true
 				s.service.DeregisterMux(item.Domain)
-				removeIndex[item.Domain] = i
 			}
 		}
 
@@ -530,18 +545,16 @@ func (s *DefaultServer) upstreamCallbacks(
 		}
 
 		s.updateNSState(nsGroup, err, false)
-
 	}
 	reactivate = func() {
 		s.mux.Lock()
 		defer s.mux.Unlock()
 
-		for domain, i := range removeIndex {
-			if i == -1 || i >= len(s.currentConfig.Domains) || s.currentConfig.Domains[i].Domain != domain {
-				continue
+		for i, item := range s.currentConfig.Domains {
+			if slices.Contains(nsGroup.Domains, item.Domain) {
+				s.currentConfig.Domains[i].Disabled = false
+				s.service.RegisterMux(item.Domain, handler)
 			}
-			s.currentConfig.Domains[i].Disabled = false
-			s.service.RegisterMux(domain, handler)
 		}
 
 		l := log.WithField("nameservers", nsGroup.NameServers)
@@ -588,17 +601,22 @@ func (s *DefaultServer) updateNSGroupStates(groups []*nbdns.NameServerGroup) {
 
 	for _, group := range groups {
 		var servers []string
+		var nsError error
+		if !group.Enabled {
+			nsError = fmt.Errorf("no peers connected")
+		}
 		for _, ns := range group.NameServers {
 			servers = append(servers, fmt.Sprintf("%s:%d", ns.IP, ns.Port))
 		}
 
+		// Automatically disbled if peer == 0 and IP is private
 		state := peer.NSGroupState{
 			ID:      generateGroupKey(group),
 			Servers: servers,
 			Domains: group.Domains,
 			// The probe will determine the state, default enabled
-			Enabled: true,
-			Error:   nil,
+			Enabled: group.Enabled,
+			Error:   nsError,
 		}
 		states = append(states, state)
 	}

@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
 func TestUpstreamResolver_ServeDNS(t *testing.T) {
-
 	testCases := []struct {
 		name                string
 		inputMSG            *dns.Msg
@@ -58,7 +58,12 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.TODO())
-			resolver, _ := newUpstreamResolver(ctx, "", net.IP{}, &net.IPNet{}, nil, nil)
+			statusRecorder := peer.NewRecorder("https://mgm")
+			key := "abc"
+			// Public resolvers being used so peer not required
+			statusRecorder.AddPeer(key, "abc.netbird")
+			// 	PubKey:           key,
+			resolver, _ := newUpstreamResolver(ctx, "", net.IP{}, &net.IPNet{}, statusRecorder, nil)
 			resolver.upstreamServers = testCase.InputServers
 			resolver.upstreamTimeout = testCase.timeout
 			if testCase.cancelCTX {

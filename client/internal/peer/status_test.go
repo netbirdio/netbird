@@ -77,6 +77,12 @@ func TestStatus_UpdatePeerFQDN(t *testing.T) {
 	assert.Equal(t, fqdn, state.FQDN, "fqdn should be equal")
 }
 
+func TestGetPeersConnStatusChangeNotifierLogic(t *testing.T) {
+	status := NewRecorder("https://mgm")
+	ch := status.GetPeersConnStatusChangeNotifier()
+	assert.NotNil(t, ch, "channel shouldn't be nil")
+}
+
 func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
 	key := "abc"
 	ip := "10.10.10.10"
