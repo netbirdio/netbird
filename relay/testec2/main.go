@@ -30,6 +30,11 @@ var (
 	udpListener     string
 )
 
+type TurnReceiver struct {
+	conns           []*net.UDPConn
+	clientAddresses map[string]string
+	devices         []*tun.Device
+}
 type testResult struct {
 	numOfPairs int
 	duration   time.Duration
@@ -248,108 +253,121 @@ func TURNReaderMain() []testResult {
 	testResults := make([]testResult, 0, len(pairs))
 	for range pairs {
 		addresses := <-si.AddressesChan
-		log.Infof("received addresses: %d", len(addresses))
+		instanceNumber := len(addresses)
+		log.Infof("received addresses: %d", instanceNumber)
 
-		conns := make([]*net.UDPConn, 0, len(addresses))
-		clientAddresses := make(map[string]string, len(addresses))
-		devices := make([]*tun.Device, 0, len(conns))
-		for i, addr := range addresses {
-			localAddr, err := net.ResolveUDPAddr("udp", udpListener)
-			if err != nil {
-				log.Fatalf("failed to resolve UDP address: %s", err)
-			}
-
-			conn, err := net.ListenUDP("udp", localAddr)
-			if err != nil {
-				log.Fatalf("failed to create UDP connection: %s", err)
-			}
-
-			conns = append(conns, conn)
-			clientAddresses[addr] = conn.LocalAddr().String()
-
-			dstAddr, err := net.ResolveUDPAddr("udp", addr)
-			if err != nil {
-				log.Fatalf("failed to resolve address: %s", err)
-			}
-
-			device := &tun.Device{
-				Name:    fmt.Sprintf("mtun-%d", i),
-				IP:      fmt.Sprintf("10.0.%d.2", i),
-				PConn:   conn,
-				DstAddr: dstAddr,
-			}
-
-			if err = device.Up(); err != nil {
-				log.Fatalf("failed to bring up device: %s, %s", device.Name, err)
-			}
-			devices = append(devices, device)
+		turnReceiver := &TurnReceiver{}
+		err := createDevices(addresses, turnReceiver)
+		if err != nil {
+			log.Fatalf("%s", err)
 		}
 
-		log.Infof("response addresses back: %d", len(clientAddresses))
-		si.ClientAddressChan <- clientAddresses
+		// send client addresses back via signal server
+		si.ClientAddressChan <- turnReceiver.clientAddresses
 
-		durations := make(chan time.Duration, len(conns))
-		for _, d := range devices {
-			go func(d *tun.Device) {
-				tcpListener, err := net.Listen("tcp", d.IP+":9999")
-				if err != nil {
-					log.Fatalf("failed to listen on tcp: %s", err)
-				}
-				defer tcpListener.Close()
-				log := log.WithField("device", tcpListener.Addr())
-
-				tcpConn, err := tcpListener.Accept()
-				if err != nil {
-					log.Fatalf("failed to accept connection: %s", err)
-				}
-				log.Infof("remote peer connected")
-
-				buf := make([]byte, 103)
-				n, err := tcpConn.Read(buf)
-				if err != nil {
-					log.Fatalf(errMsgFailedReadTCP, err)
-				}
-
-				si := DecodeStartIndication(buf[:n])
-				log.Infof("received start indication: %v, %d", si, n)
-
-				buf = make([]byte, 8192)
-				i, err := tcpConn.Read(buf)
-				if err != nil {
-					log.Fatalf(errMsgFailedReadTCP, err)
-				}
-				now := time.Now()
-
-				for i < si.TransferSize {
-					n, err := tcpConn.Read(buf)
-					if err != nil {
-						log.Fatalf(errMsgFailedReadTCP, err)
-					}
-					i += n
-				}
-				durations <- time.Since(now)
-			}(d)
+		durations := make(chan time.Duration, instanceNumber)
+		for _, device := range turnReceiver.devices {
+			go runTurnReading(device, durations)
 		}
 
-		durationsList := make([]time.Duration, 0, len(conns))
+		durationsList := make([]time.Duration, 0, instanceNumber)
 		for d := range durations {
 			durationsList = append(durationsList, d)
-			if len(durationsList) == len(conns) {
+			if len(durationsList) == instanceNumber {
 				close(durations)
 			}
 		}
+
 		avgDuration, avgSpeed := avg(durationsList)
 		ts := testResult{
-			numOfPairs: len(conns),
+			numOfPairs: len(durationsList),
 			duration:   avgDuration,
 			speed:      avgSpeed,
 		}
 		testResults = append(testResults, ts)
-		for _, d := range devices {
+
+		for _, d := range turnReceiver.devices {
 			_ = d.Close()
 		}
 	}
 	return testResults
+}
+
+func runTurnReading(d *tun.Device, durations chan time.Duration) {
+	tcpListener, err := net.Listen("tcp", d.IP+":9999")
+	if err != nil {
+		log.Fatalf("failed to listen on tcp: %s", err)
+	}
+	defer tcpListener.Close()
+	log := log.WithField("device", tcpListener.Addr())
+
+	tcpConn, err := tcpListener.Accept()
+	if err != nil {
+		log.Fatalf("failed to accept connection: %s", err)
+	}
+	log.Infof("remote peer connected")
+
+	buf := make([]byte, 103)
+	n, err := tcpConn.Read(buf)
+	if err != nil {
+		log.Fatalf(errMsgFailedReadTCP, err)
+	}
+
+	si := DecodeStartIndication(buf[:n])
+	log.Infof("received start indication: %v, %d", si, n)
+
+	buf = make([]byte, 8192)
+	i, err := tcpConn.Read(buf)
+	if err != nil {
+		log.Fatalf(errMsgFailedReadTCP, err)
+	}
+	now := time.Now()
+	for i < si.TransferSize {
+		n, err := tcpConn.Read(buf)
+		if err != nil {
+			log.Fatalf(errMsgFailedReadTCP, err)
+		}
+		i += n
+	}
+	durations <- time.Since(now)
+}
+
+func createDevices(addresses []string, receiver *TurnReceiver) error {
+	receiver.conns = make([]*net.UDPConn, 0, len(addresses))
+	receiver.clientAddresses = make(map[string]string, len(addresses))
+	receiver.devices = make([]*tun.Device, 0, len(addresses))
+	for i, addr := range addresses {
+		localAddr, err := net.ResolveUDPAddr("udp", udpListener)
+		if err != nil {
+			return fmt.Errorf("failed to resolve UDP address: %s", err)
+		}
+
+		conn, err := net.ListenUDP("udp", localAddr)
+		if err != nil {
+			return fmt.Errorf("failed to create UDP connection: %s", err)
+		}
+
+		receiver.conns = append(receiver.conns, conn)
+		receiver.clientAddresses[addr] = conn.LocalAddr().String()
+
+		dstAddr, err := net.ResolveUDPAddr("udp", addr)
+		if err != nil {
+			return fmt.Errorf("failed to resolve address: %s", err)
+		}
+
+		device := &tun.Device{
+			Name:    fmt.Sprintf("mtun-%d", i),
+			IP:      fmt.Sprintf("10.0.%d.2", i),
+			PConn:   conn,
+			DstAddr: dstAddr,
+		}
+
+		if err = device.Up(); err != nil {
+			return fmt.Errorf("failed to bring up device: %s, %s", device.Name, err)
+		}
+		receiver.devices = append(receiver.devices, device)
+	}
+	return nil
 }
 
 func main() {
