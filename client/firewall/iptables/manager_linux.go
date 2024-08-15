@@ -44,7 +44,7 @@ func Create(context context.Context, wgIface iFaceMapper) (*Manager, error) {
 		ipv4Client: iptablesClient,
 	}
 
-	m.router, err = newRouterManager(context, iptablesClient, wgIface)
+	m.router, err = newRouter(context, iptablesClient, wgIface)
 	if err != nil {
 		log.Debugf("failed to initialize route related chains: %s", err)
 		return nil, err

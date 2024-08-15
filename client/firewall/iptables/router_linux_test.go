@@ -30,7 +30,7 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	require.NoError(t, err, "failed to init iptables client")
 
-	manager, err := newRouterManager(context.TODO(), iptablesClient, ifaceMock)
+	manager, err := newRouter(context.TODO(), iptablesClient, ifaceMock)
 	require.NoError(t, err, "should return a valid iptables manager")
 
 	defer func() {
@@ -74,7 +74,7 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 			iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 			require.NoError(t, err, "failed to init iptables client")
 
-			manager, err := newRouterManager(context.TODO(), iptablesClient, ifaceMock)
+			manager, err := newRouter(context.TODO(), iptablesClient, ifaceMock)
 			require.NoError(t, err, "shouldn't return error")
 
 			defer func() {
@@ -132,7 +132,7 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 		t.Run(testCase.Name, func(t *testing.T) {
 			iptablesClient, _ := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 
-			manager, err := newRouterManager(context.TODO(), iptablesClient, ifaceMock)
+			manager, err := newRouter(context.TODO(), iptablesClient, ifaceMock)
 			require.NoError(t, err, "shouldn't return error")
 			defer func() {
 				_ = manager.Reset()
@@ -183,7 +183,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 	iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	require.NoError(t, err, "Failed to create iptables client")
 
-	r, err := newRouterManager(context.Background(), iptablesClient, ifaceMock)
+	r, err := newRouter(context.Background(), iptablesClient, ifaceMock)
 	require.NoError(t, err, "Failed to create router manager")
 
 	defer func() {

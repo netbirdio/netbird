@@ -1,9 +1,12 @@
 package manager
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -123,4 +126,16 @@ func SetLegacyManagement(router LegacyManager, isLegacy bool) error {
 	}
 
 	return nil
+}
+
+func GenerateSetName(sources []netip.Prefix) string {
+	var sourcesStr strings.Builder
+	for _, src := range sources {
+		sourcesStr.WriteString(src.String())
+	}
+
+	hash := sha256.Sum256([]byte(sourcesStr.String()))
+	shortHash := hex.EncodeToString(hash[:])[:8]
+
+	return fmt.Sprintf("nb-%s", shortHash)
 }

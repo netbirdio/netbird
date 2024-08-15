@@ -3,8 +3,6 @@ package nftables
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -261,7 +259,7 @@ func (r *router) AddRouteFiltering(
 }
 
 func (r *router) createOrGetIpSet(sources []netip.Prefix) (*nftables.Set, error) {
-	setName := r.generateSetName(sources)
+	setName := firewall.GenerateSetName(sources)
 
 	set, err := r.conn.GetSetByName(r.workTable, setName)
 	if err != nil {
@@ -298,25 +296,13 @@ func (r *router) createOrGetIpSet(sources []netip.Prefix) (*nftables.Set, error)
 	}
 
 	for _, prefix := range sources {
-		r.ipsetStore.AddIpToSet(setName, net.IP(prefix.Addr().AsSlice()))
+		r.ipsetStore.AddIpToSet(setName, prefix.Addr().AsSlice())
 	}
 
 	r.ipsetStore.AddReferenceToIpset(setName)
 	log.Debugf("Added %d elements to ipset %s", len(elements), setName)
 
 	return set, nil
-}
-
-func (r *router) generateSetName(sources []netip.Prefix) string {
-	var sourcesStr strings.Builder
-	for _, src := range sources {
-		sourcesStr.WriteString(src.String())
-	}
-
-	hash := sha256.Sum256([]byte(sourcesStr.String()))
-	shortHash := hex.EncodeToString(hash[:])[:8]
-
-	return fmt.Sprintf("nb-%s", shortHash)
 }
 
 func (r *router) DeleteRouteRule(rule firewall.Rule) error {
