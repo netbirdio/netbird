@@ -594,24 +594,15 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	state.Set(internal.StatusIdle)
 
 	maxWaitTime := 5 * time.Second
-	timeout := time.After(maxWaitTime)
-
 	engine := s.connectClient.Engine()
 
-	for {
-		if !engine.IsWGIfaceUp() {
-			return &proto.DownResponse{}, nil
-		}
-
-		select {
-		case <-ctx.Done():
-			return &proto.DownResponse{}, nil
-		case <-timeout:
-			return nil, fmt.Errorf("failed to shut down properly")
-		default:
-			time.Sleep(100 * time.Millisecond)
-		}
+	err := engine.WaitForWGInterfaceToBeRemoved(s.config.WgIface, maxWaitTime)
+	if err != nil {
+		log.Errorf("error waiting for wg interface to disappear: %v", err)
+		return nil, err
 	}
+
+	return &proto.DownResponse{}, nil
 }
 
 // Status returns the daemon status

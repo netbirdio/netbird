@@ -268,21 +268,17 @@ func (e *Engine) Stop() error {
 	e.wgConnWorker.Wait()
 
 	maxWaitTime := 5 * time.Second
-	timeout := time.After(maxWaitTime)
-
-	for {
-		if !e.IsWGIfaceUp() {
-			log.Infof("stopped Netbird Engine")
-			return nil
+	err = e.WaitForWGInterfaceToBeRemoved(e.config.WgIfaceName, maxWaitTime)
+	if err != nil {
+		log.Warnf("failed to remove WireGuard interface %s: %v", e.config.WgIfaceName, err)
+		err = iface.DestroyInterface(e.config.WgIfaceName)
+		if err != nil {
+			return fmt.Errorf("failed to remove WireGuard interface %s: %w", e.config.WgIfaceName, err)
 		}
-
-		select {
-		case <-timeout:
-			return fmt.Errorf("timeout when waiting for interface shutdown")
-		default:
-			time.Sleep(100 * time.Millisecond)
-		}
+		log.Infof("interface %s successfully removed", e.config.WgIfaceName)
 	}
+
+	return nil
 }
 
 // Start creates a new WireGuard tunnel interface and listens to events from Signal and Management services
@@ -1549,19 +1545,27 @@ func isChecksEqual(checks []*mgmProto.Checks, oChecks []*mgmProto.Checks) bool {
 	})
 }
 
-func (e *Engine) IsWGIfaceUp() bool {
-	if e == nil || e.wgInterface == nil {
-		return false
-	}
-	iface, err := net.InterfaceByName(e.wgInterface.Name())
-	if err != nil {
-		log.Debugf("failed to get interface by name %s: %v", e.wgInterface.Name(), err)
-		return false
-	}
+func (e *Engine) WaitForWGInterfaceToBeRemoved(name string, maxWaitTime time.Duration) error {
+	timeout := time.After(maxWaitTime)
 
-	if iface.Flags&net.FlagUp != 0 {
-		return true
-	}
+	for {
+		iface, err := net.InterfaceByName(name)
+		if err != nil {
+			if _, ok := err.(*net.OpError); ok {
+				log.Infof("interface %s has been removed", name)
+				return nil
+			}
+			log.Debugf("failed to get interface by name %s: %v", name, err)
+		} else if iface == nil {
+			log.Infof("interface %s has been removed", name)
+			return nil
+		}
 
-	return false
+		select {
+		case <-timeout:
+			return fmt.Errorf("timeout when waiting for interface %s to be removed", name)
+		default:
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
 }
