@@ -103,11 +103,11 @@ func runTurnReading(d *tun.Device, durations chan time.Duration) {
 	if err != nil {
 		log.Fatalf("failed to listen on tcp: %s", err)
 	}
-	defer tcpListener.Close()
 	log := log.WithField("device", tcpListener.Addr())
 
 	tcpConn, err := tcpListener.Accept()
 	if err != nil {
+		_ = tcpListener.Close()
 		log.Fatalf("failed to accept connection: %s", err)
 	}
 	log.Infof("remote peer connected")
@@ -115,6 +115,7 @@ func runTurnReading(d *tun.Device, durations chan time.Duration) {
 	buf := make([]byte, 103)
 	n, err := tcpConn.Read(buf)
 	if err != nil {
+		_ = tcpListener.Close()
 		log.Fatalf(errMsgFailedReadTCP, err)
 	}
 
@@ -124,12 +125,14 @@ func runTurnReading(d *tun.Device, durations chan time.Duration) {
 	buf = make([]byte, 8192)
 	i, err := tcpConn.Read(buf)
 	if err != nil {
+		_ = tcpListener.Close()
 		log.Fatalf(errMsgFailedReadTCP, err)
 	}
 	now := time.Now()
 	for i < si.TransferSize {
 		n, err := tcpConn.Read(buf)
 		if err != nil {
+			_ = tcpListener.Close()
 			log.Fatalf(errMsgFailedReadTCP, err)
 		}
 		i += n
