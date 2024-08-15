@@ -136,11 +136,13 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]
 		}
 
 		if tempScore > chosenScore || (tempScore == chosenScore && chosen == "") {
+			log.Infof("tempScore > chosenScore, chosen: %s", r.ID)
 			chosen = r.ID
 			chosenScore = tempScore
 		}
 
 		if chosen == "" && currID == "" {
+			log.Infof("chosen == \"\" && currID == \"\" , chosen: %s", r.ID)
 			chosen = r.ID
 			chosenScore = tempScore
 		}
@@ -159,6 +161,7 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]
 
 		log.Warnf("The network [%v] has not been assigned a routing peer as no peers from the list %s are currently connected", c.handler, peers)
 	case chosen != currID:
+		log.Infof("chosen != currID, chosen: %s", chosen)
 		// we compare the current score + 10ms to the chosen score to avoid flapping between routes
 		if currScore != 0 && currScore+0.01 > chosenScore {
 			log.Debugf("Keeping current routing peer because the score difference with latency is less than 0.01(10ms), current: %f, new: %f", currScore, chosenScore)
