@@ -7,11 +7,14 @@ import (
 	"os/exec"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/firewall/uspfilter"
 )
 
 func DestroyInterface(name string) error {
-	cmd := exec.Command("netsh", "interface", "set", "interface", name, "admin=disable")
-	if err := cmd.Run(); err != nil {
+	netshCmd := uspfilter.GetSystem32Command("netsh")
+	_, err := exec.Command(netshCmd, "interface", "set", "interface", name, "admin=disable").CombinedOutput()
+	if err != nil {
 		log.Errorf("failed to disable interface %s: %v", name, err)
 		return err
 	}
