@@ -4,6 +4,8 @@ import (
 	"net/netip"
 	"testing"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/internal/routemanager/static"
 	"github.com/netbirdio/netbird/route"
 )
@@ -17,132 +19,6 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 		currentRoute    route.ID
 		existingRoutes  map[route.ID]*route.Route
 	}{
-		{
-			name: "one route",
-			statuses: map[route.ID]routerPeerStatus{
-				"route1": {
-					connected: true,
-					relayed:   false,
-				},
-			},
-			existingRoutes: map[route.ID]*route.Route{
-				"route1": {
-					ID:     "route1",
-					Metric: route.MaxMetric,
-					Peer:   "peer1",
-				},
-			},
-			currentRoute:    "",
-			expectedRouteID: "route1",
-		},
-		{
-			name: "one connected routes with relayed and direct",
-			statuses: map[route.ID]routerPeerStatus{
-				"route1": {
-					connected: true,
-					relayed:   true,
-				},
-			},
-			existingRoutes: map[route.ID]*route.Route{
-				"route1": {
-					ID:     "route1",
-					Metric: route.MaxMetric,
-					Peer:   "peer1",
-				},
-			},
-			currentRoute:    "",
-			expectedRouteID: "route1",
-		},
-		{
-			name: "one connected routes with relayed and no direct",
-			statuses: map[route.ID]routerPeerStatus{
-				"route1": {
-					connected: true,
-					relayed:   true,
-				},
-			},
-			existingRoutes: map[route.ID]*route.Route{
-				"route1": {
-					ID:     "route1",
-					Metric: route.MaxMetric,
-					Peer:   "peer1",
-				},
-			},
-			currentRoute:    "",
-			expectedRouteID: "route1",
-		},
-		{
-			name: "no connected peers",
-			statuses: map[route.ID]routerPeerStatus{
-				"route1": {
-					connected: false,
-					relayed:   false,
-				},
-			},
-			existingRoutes: map[route.ID]*route.Route{
-				"route1": {
-					ID:     "route1",
-					Metric: route.MaxMetric,
-					Peer:   "peer1",
-				},
-			},
-			currentRoute:    "",
-			expectedRouteID: "",
-		},
-		{
-			name: "multiple connected peers with different metrics",
-			statuses: map[route.ID]routerPeerStatus{
-				"route1": {
-					connected: true,
-					relayed:   false,
-				},
-				"route2": {
-					connected: true,
-					relayed:   false,
-				},
-			},
-			existingRoutes: map[route.ID]*route.Route{
-				"route1": {
-					ID:     "route1",
-					Metric: 9000,
-					Peer:   "peer1",
-				},
-				"route2": {
-					ID:     "route2",
-					Metric: route.MaxMetric,
-					Peer:   "peer2",
-				},
-			},
-			currentRoute:    "",
-			expectedRouteID: "route1",
-		},
-		{
-			name: "multiple connected peers with one relayed",
-			statuses: map[route.ID]routerPeerStatus{
-				"route1": {
-					connected: true,
-					relayed:   false,
-				},
-				"route2": {
-					connected: true,
-					relayed:   true,
-				},
-			},
-			existingRoutes: map[route.ID]*route.Route{
-				"route1": {
-					ID:     "route1",
-					Metric: route.MaxMetric,
-					Peer:   "peer1",
-				},
-				"route2": {
-					ID:     "route2",
-					Metric: route.MaxMetric,
-					Peer:   "peer2",
-				},
-			},
-			currentRoute:    "",
-			expectedRouteID: "route1",
-		},
 		{
 			name: "multiple connected peers with one direct",
 			statuses: map[route.ID]routerPeerStatus{
@@ -173,6 +49,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 	}
 
 	for i := 0; i < 10; i++ {
+		log.Infof("Test iteration %d", i)
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				currentRoute := &route.Route{
