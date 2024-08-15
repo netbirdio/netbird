@@ -172,26 +172,28 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			currentRoute := &route.Route{
-				ID: "routeDoesntExistAnymore",
-			}
-			if tc.currentRoute != "" {
-				currentRoute = tc.existingRoutes[tc.currentRoute]
-			}
+	for i := 0; i < 10; i++ {
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				currentRoute := &route.Route{
+					ID: "routeDoesntExistAnymore",
+				}
+				if tc.currentRoute != "" {
+					currentRoute = tc.existingRoutes[tc.currentRoute]
+				}
 
-			// create new clientNetwork
-			client := &clientNetwork{
-				handler:       static.NewRoute(&route.Route{Network: netip.MustParsePrefix("192.168.0.0/24")}, nil, nil),
-				routes:        tc.existingRoutes,
-				currentChosen: currentRoute,
-			}
+				// create new clientNetwork
+				client := &clientNetwork{
+					handler:       static.NewRoute(&route.Route{Network: netip.MustParsePrefix("192.168.0.0/24")}, nil, nil),
+					routes:        tc.existingRoutes,
+					currentChosen: currentRoute,
+				}
 
-			chosenRoute := client.getBestRouteFromStatuses(tc.statuses)
-			if chosenRoute != tc.expectedRouteID {
-				t.Errorf("expected routeID %s, got %s", tc.expectedRouteID, chosenRoute)
-			}
-		})
+				chosenRoute := client.getBestRouteFromStatuses(tc.statuses)
+				if chosenRoute != tc.expectedRouteID {
+					t.Errorf("expected routeID %s, got %s", tc.expectedRouteID, chosenRoute)
+				}
+			})
+		}
 	}
 }
