@@ -136,7 +136,7 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]
 		}
 
 		if tempScore > chosenScore || (tempScore == chosenScore && chosen == "") {
-			log.Infof("tempScore > chosenScore, chosen: %s", r.ID)
+			log.Infof("tempScore(%f) > chosenScore(%f) || (tempScore(%f) == chosenScore(%f) && chosen == \"\"(%s): chosen: %s", tempScore, chosenScore, tempScore, chosenScore, chosen, r.ID)
 			chosen = r.ID
 			chosenScore = tempScore
 		}
