@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -410,7 +411,8 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 			validatedPeers[p] = struct{}{}
 		}
 
-		networkMap := account.GetPeerNetworkMap(context.Background(), testCase.peerID, "netbird.io", validatedPeers)
+		customZone := account.GetPeersCustomZone(context.Background(), "netbird.io")
+		networkMap := account.GetPeerNetworkMap(context.Background(), testCase.peerID, customZone, validatedPeers, nil)
 		assert.Len(t, networkMap.Peers, len(testCase.expectedPeers))
 		assert.Len(t, networkMap.OfflinePeers, len(testCase.expectedOfflinePeers))
 	}
@@ -2219,6 +2221,13 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		assert.Len(t, account.Users["user2"].AutoGroups, 1, "new group should be added")
 		assert.Contains(t, account.Groups, account.Users["user2"].AutoGroups[0], "groups must contain group3 from user groups")
 	})
+
+	t.Run("remove all JWT groups", func(t *testing.T) {
+		updated := account.SetJWTGroups("user1", []string{})
+		assert.True(t, updated, "account should be updated")
+		assert.Len(t, account.Users["user1"].AutoGroups, 1, "only non-JWT groups should remain")
+		assert.Contains(t, account.Users["user1"].AutoGroups, "group1", " group1 should still be present")
+	})
 }
 
 func TestAccount_UserGroupsAddToPeers(t *testing.T) {
@@ -2286,7 +2295,13 @@ func TestAccount_UserGroupsRemoveFromPeers(t *testing.T) {
 	})
 }
 
-func createManager(t *testing.T) (*DefaultAccountManager, error) {
+type TB interface {
+	Cleanup(func())
+	Helper()
+	TempDir() string
+}
+
+func createManager(t TB) (*DefaultAccountManager, error) {
 	t.Helper()
 
 	store, err := createStore(t)
@@ -2295,7 +2310,12 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 	}
 	eventStore := &activity.InMemoryEventStore{}
 
-	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{})
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics)
 	if err != nil {
 		return nil, err
 	}
@@ -2303,7 +2323,7 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 	return manager, nil
 }
 
-func createStore(t *testing.T) (Store, error) {
+func createStore(t TB) (Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
 	store, cleanUp, err := NewTestStoreFromJson(context.Background(), dataDir)

@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -55,6 +56,7 @@ import (
 const ManagementLegacyPort = 33073
 
 var (
+	pprofPort               int // New variable for pprof port
 	mgmtPort                int
 	mgmtMetricsPort         int
 	mgmtLetsencryptDomain   string
@@ -133,6 +135,9 @@ var (
 				return fmt.Errorf("failed to migrate files %v", err)
 			}
 
+			runPprofServer(cmd.Context())
+			runtime.SetCPUProfileRate(200)
+
 			if _, err = os.Stat(config.Datadir); os.IsNotExist(err) {
 				err = os.MkdirAll(config.Datadir, 0755)
 				if err != nil {
@@ -190,7 +195,7 @@ var (
 				return fmt.Errorf("failed to initialize integrated peer validator: %v", err)
 			}
 			accountManager, err := server.BuildManager(ctx, store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
-				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator)
+				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}
@@ -396,6 +401,21 @@ func notifyStop(ctx context.Context, msg string) {
 		// stop has been already called, nothing to report
 	}
 }
+
+func init() {
+	mgmtCmd.Flags().IntVar(&pprofPort, "pprof-port", 6060, "Port for pprof HTTP server")
+}
+
+func runPprofServer(ctx context.Context) {
+	pprofAddr := fmt.Sprintf("localhost:%d", pprofPort)
+	log.WithContext(ctx).Infof("Starting pprof server on %s", pprofAddr)
+	go func() {
+		if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+			log.WithContext(ctx).Errorf("pprof server failed: %v", err)
+		}
+	}()
+}
+
 
 func getInstallationID(ctx context.Context, store server.Store) (string, error) {
 	installationID := store.GetInstallationID()

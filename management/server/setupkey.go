@@ -210,7 +210,7 @@ func Hash(s string) uint32 {
 // and adds it to the specified account. A list of autoGroups IDs can be empty.
 func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType SetupKeyType,
 	expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool) (*SetupKey, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	keyDuration := DefaultSetupKeyDuration
@@ -223,15 +223,12 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 		return nil, err
 	}
 
-	for _, group := range autoGroups {
-		if _, ok := account.Groups[group]; !ok {
-			return nil, status.Errorf(status.NotFound, "group %s doesn't exist", group)
-		}
+	if err := validateSetupKeyAutoGroups(account, autoGroups); err != nil {
+		return nil, err
 	}
 
 	setupKey := GenerateSetupKey(keyName, keyType, keyDuration, autoGroups, usageLimit, ephemeral)
 	account.SetupKeys[setupKey.Key] = setupKey
-	log.WithContext(ctx).Debugf("Saving account!")
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return nil, status.Errorf(status.Internal, "failed adding account key")
@@ -257,7 +254,7 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 // (e.g. the key itself, creation date, ID, etc).
 // These properties are overwritten: Name, AutoGroups, Revoked. The rest is copied from the existing key.
 func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID string, keyToSave *SetupKey, userID string) (*SetupKey, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	if keyToSave == nil {
@@ -280,6 +277,10 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 		return nil, status.Errorf(status.NotFound, "setup key not found")
 	}
 
+	if err := validateSetupKeyAutoGroups(account, keyToSave.AutoGroups); err != nil {
+		return nil, err
+	}
+
 	// only auto groups, revoked status, and name can be updated for now
 	newKey := oldKey.Copy()
 	newKey.Name = keyToSave.Name
@@ -288,7 +289,6 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 	newKey.UpdatedAt = time.Now().UTC()
 
 	account.SetupKeys[newKey.Key] = newKey
-	log.WithContext(ctx).Debugf("Saving account!")
 
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return nil, err
@@ -330,7 +330,7 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 
 // ListSetupKeys returns a list of all setup keys of the account
 func (am *DefaultAccountManager) ListSetupKeys(ctx context.Context, accountID, userID string) ([]*SetupKey, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
@@ -362,7 +362,7 @@ func (am *DefaultAccountManager) ListSetupKeys(ctx context.Context, accountID, u
 
 // GetSetupKey looks up a SetupKey by KeyID, returns NotFound error if not found.
 func (am *DefaultAccountManager) GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*SetupKey, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -400,4 +400,17 @@ func (am *DefaultAccountManager) GetSetupKey(ctx context.Context, accountID, use
 	}
 
 	return foundKey, nil
+}
+
+func validateSetupKeyAutoGroups(account *Account, autoGroups []string) error {
+	for _, group := range autoGroups {
+		g, ok := account.Groups[group]
+		if !ok {
+			return status.Errorf(status.NotFound, "group %s doesn't exist", group)
+		}
+		if g.Name == "All" {
+			return status.Errorf(status.InvalidArgument, "can't add All group to the setup key")
+		}
+	}
+	return nil
 }

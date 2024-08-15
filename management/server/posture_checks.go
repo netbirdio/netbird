@@ -8,7 +8,6 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -16,7 +15,7 @@ const (
 )
 
 func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -43,7 +42,7 @@ func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID
 }
 
 func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks) error {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -61,7 +60,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	}
 
 	if err := postureChecks.Validate(); err != nil {
-		return status.Errorf(status.InvalidArgument, err.Error())
+		return status.Errorf(status.InvalidArgument, err.Error()) //nolint
 	}
 
 	exists, uniqName := am.savePostureChecks(account, postureChecks)
@@ -76,7 +75,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		action = activity.PostureCheckUpdated
 		account.Network.IncSerial()
 	}
-	log.WithContext(ctx).Debugf("Saving account!")
+
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
@@ -90,7 +89,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 }
 
 func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accountID, postureChecksID, userID string) error {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -112,7 +111,6 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 		return err
 	}
 
-	log.WithContext(ctx).Debugf("Saving account!")
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
@@ -123,7 +121,7 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 }
 
 func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountID, userID string) ([]*posture.Checks, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)

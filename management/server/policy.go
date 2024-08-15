@@ -213,7 +213,6 @@ type FirewallRule struct {
 //
 // This function returns the list of peers and firewall rules that are applicable to a given peer.
 func (a *Account) getPeerConnectionResources(ctx context.Context, peerID string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, []*FirewallRule) {
-
 	generateResources, getAccumulatedResources := a.connResourcesGenerator(ctx)
 	for _, policy := range a.Policies {
 		if !policy.Enabled {
@@ -225,8 +224,8 @@ func (a *Account) getPeerConnectionResources(ctx context.Context, peerID string,
 				continue
 			}
 
-			sourcePeers, peerInSources := getAllPeersFromGroups(ctx, a, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
-			destinationPeers, peerInDestinations := getAllPeersFromGroups(ctx, a, rule.Destinations, peerID, nil, validatedPeersMap)
+			sourcePeers, peerInSources := a.getAllPeersFromGroups(ctx, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
+			destinationPeers, peerInDestinations := a.getAllPeersFromGroups(ctx, rule.Destinations, peerID, nil, validatedPeersMap)
 
 			if rule.Bidirectional {
 				if peerInSources {
@@ -290,8 +289,8 @@ func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule,
 					fr.PeerIP = "0.0.0.0"
 				}
 
-				ruleID := (rule.ID + fr.PeerIP + strconv.Itoa(direction) +
-					fr.Protocol + fr.Action + strings.Join(rule.Ports, ","))
+				ruleID := rule.ID + fr.PeerIP + strconv.Itoa(direction) +
+					fr.Protocol + fr.Action + strings.Join(rule.Ports, ",")
 				if _, ok := rulesExists[ruleID]; ok {
 					continue
 				}
@@ -315,7 +314,7 @@ func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule,
 
 // GetPolicy from the store
 func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, policyID, userID string) (*Policy, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -343,7 +342,7 @@ func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, polic
 
 // SavePolicy in the store
 func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *Policy) error {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -354,7 +353,6 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	exists := am.savePolicy(account, policy)
 
 	account.Network.IncSerial()
-	log.WithContext(ctx).Debugf("Saving account!")
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
@@ -372,7 +370,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 
 // DeletePolicy from the store
 func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, policyID, userID string) error {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -386,7 +384,6 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 	}
 
 	account.Network.IncSerial()
-	log.WithContext(ctx).Debugf("Saving account!")
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}
@@ -400,7 +397,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 // ListPolicies from the store
 func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, userID string) ([]*Policy, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -493,23 +490,23 @@ func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
 //
 // Important: Posture checks are applicable only to source group peers,
 // for destination group peers, call this method with an empty list of sourcePostureChecksIDs
-func getAllPeersFromGroups(ctx context.Context, account *Account, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
+func (a *Account) getAllPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
 	peerInGroups := false
 	filteredPeers := make([]*nbpeer.Peer, 0, len(groups))
 	for _, g := range groups {
-		group, ok := account.Groups[g]
+		group, ok := a.Groups[g]
 		if !ok {
 			continue
 		}
 
 		for _, p := range group.Peers {
-			peer, ok := account.Peers[p]
+			peer, ok := a.Peers[p]
 			if !ok || peer == nil {
 				continue
 			}
 
 			// validate the peer based on policy posture checks applied
-			isValid := account.validatePostureChecksOnPeer(ctx, sourcePostureChecksIDs, peer.ID)
+			isValid := a.validatePostureChecksOnPeer(ctx, sourcePostureChecksIDs, peer.ID)
 			if !isValid {
 				continue
 			}
@@ -537,7 +534,7 @@ func (a *Account) validatePostureChecksOnPeer(ctx context.Context, sourcePosture
 	}
 
 	for _, postureChecksID := range sourcePostureChecksID {
-		postureChecks := getPostureChecks(a, postureChecksID)
+		postureChecks := a.getPostureChecks(postureChecksID)
 		if postureChecks == nil {
 			continue
 		}
@@ -555,8 +552,8 @@ func (a *Account) validatePostureChecksOnPeer(ctx context.Context, sourcePosture
 	return true
 }
 
-func getPostureChecks(account *Account, postureChecksID string) *posture.Checks {
-	for _, postureChecks := range account.PostureChecks {
+func (a *Account) getPostureChecks(postureChecksID string) *posture.Checks {
+	for _, postureChecks := range a.PostureChecks {
 		if postureChecks.ID == postureChecksID {
 			return postureChecks
 		}
