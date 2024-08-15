@@ -1513,24 +1513,24 @@ func TestRouteAccountPeerUpdate(t *testing.T) {
 	})
 
 	// Updating the route should update account peers and send peer update
-	//t.Run("updating route", func(t *testing.T) {
-	//	baseRoute.Enabled = false
-	//
-	//	done := make(chan struct{})
-	//	go func() {
-	//		peerShouldReceiveUpdate(t, updMsg)
-	//		close(done)
-	//	}()
-	//
-	//	err := manager.SaveRoute(context.Background(), account.Id, userID, &baseRoute)
-	//	require.NoError(t, err)
-	//
-	//	select {
-	//	case <-done:
-	//	case <-time.After(200 * time.Millisecond):
-	//		t.Error("timeout waiting for peerShouldReceiveUpdate")
-	//	}
-	//})
+	t.Run("updating route", func(t *testing.T) {
+		baseRoute.Groups = []string{routeGroup1, routeGroup2}
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err := manager.SaveRoute(context.Background(), account.Id, userID, &baseRoute)
+		require.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
 
 	// Deleting the route should update account peers and send peer update
 	t.Run("deleting route", func(t *testing.T) {
