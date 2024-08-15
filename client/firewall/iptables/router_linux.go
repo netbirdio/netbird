@@ -96,7 +96,7 @@ func (r *router) AddRouteFiltering(
 	if len(sources) > 1 {
 		setName = firewall.GenerateSetName(sources)
 		if _, err := r.ipsetCounter.Increment(setName, sources); err != nil {
-			return nil, fmt.Errorf("failed to create or get ipset: %w", err)
+			return nil, fmt.Errorf("create or get ipset: %w", err)
 		}
 	}
 

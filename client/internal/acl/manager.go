@@ -171,7 +171,7 @@ func (d *DefaultManager) applyRouteACLs(rules []*mgmProto.RouteFirewallRule) err
 	for _, rule := range rules {
 		id, err := d.applyRouteACL(rule)
 		if err != nil {
-			return fmt.Errorf("failed to apply route ACL: %w", err)
+			return fmt.Errorf("apply route ACL: %w", err)
 		}
 		newRouteRules[id] = struct{}{}
 	}

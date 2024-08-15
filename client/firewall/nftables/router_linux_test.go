@@ -45,7 +45,7 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 			nftablesTestingClient := &nftables.Conn{}
 
 			defer func(manager *router) {
-				require.NoError(t, manager.ResetForwardRules(), "failed to reset rules")
+				require.NoError(t, manager.Reset(), "failed to reset rules")
 			}(manager)
 
 			require.NoError(t, err, "shouldn't return error")
@@ -135,7 +135,7 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 			nftablesTestingClient := &nftables.Conn{}
 
 			defer func(manager *router) {
-				require.NoError(t, manager.ResetForwardRules(), "failed to reset rules")
+				require.NoError(t, manager.Reset(), "failed to reset rules")
 			}(manager)
 
 			sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
@@ -167,7 +167,7 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 			err = nftablesTestingClient.Flush()
 			require.NoError(t, err, "shouldn't return error")
 
-			err = manager.ResetForwardRules()
+			err = manager.Reset()
 			require.NoError(t, err, "shouldn't return error")
 
 			err = manager.RemoveNatRule(testCase.InputPair)
@@ -201,7 +201,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 	require.NoError(t, err, "Failed to create router")
 
 	defer func(r *router) {
-		require.NoError(t, r.ResetForwardRules(), "Failed to reset rules")
+		require.NoError(t, r.Reset(), "Failed to reset rules")
 	}(r)
 
 	tests := []struct {

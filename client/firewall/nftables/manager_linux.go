@@ -230,7 +230,7 @@ func (m *Manager) Reset() error {
 		}
 	}
 
-	if err := m.router.ResetForwardRules(); err != nil {
+	if err := m.router.Reset(); err != nil {
 		return fmt.Errorf("reset forward rules: %v", err)
 	}
 

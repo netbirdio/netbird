@@ -3,11 +3,11 @@ package nftables
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
 	"net/netip"
-	"os"
 	"strings"
 
 	"github.com/google/nftables"
@@ -19,6 +19,7 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
+	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 )
 
 const (
@@ -44,8 +45,8 @@ type router struct {
 	filterTable *nftables.Table
 	chains      map[string]*nftables.Chain
 	// rules is useful to avoid duplicates and to get missing attributes that we don't have when adding new rules
-	rules      map[string]*nftables.Rule
-	ipsetStore *ipsetStore
+	rules        map[string]*nftables.Rule
+	ipsetCounter *refcounter.Counter[string, []netip.Prefix, *nftables.Set]
 
 	wgIface          iFaceMapper
 	legacyManagement bool
@@ -55,15 +56,19 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table, wgIface iFa
 	ctx, cancel := context.WithCancel(parentCtx)
 
 	r := &router{
-		ctx:        ctx,
-		stop:       cancel,
-		conn:       &nftables.Conn{},
-		workTable:  workTable,
-		chains:     make(map[string]*nftables.Chain),
-		rules:      make(map[string]*nftables.Rule),
-		ipsetStore: newIpsetStore(),
-		wgIface:    wgIface,
+		ctx:       ctx,
+		stop:      cancel,
+		conn:      &nftables.Conn{},
+		workTable: workTable,
+		chains:    make(map[string]*nftables.Chain),
+		rules:     make(map[string]*nftables.Rule),
+		wgIface:   wgIface,
 	}
+
+	r.ipsetCounter = refcounter.New(
+		r.createIpSet,
+		r.deleteIpSet,
+	)
 
 	var err error
 	r.filterTable, err = r.loadFilterTable()
@@ -87,8 +92,11 @@ func newRouter(parentCtx context.Context, workTable *nftables.Table, wgIface iFa
 	return r, err
 }
 
-// ResetForwardRules cleans existing nftables default forward rules from the system
-func (r *router) ResetForwardRules() error {
+// Reset cleans existing nftables default forward rules from the system
+func (r *router) Reset() error {
+	// clear without deleting the ipsets, the nf table will be deleted by the caller
+	r.ipsetCounter.Clear()
+
 	return r.cleanUpDefaultForwardRules()
 }
 
@@ -195,10 +203,11 @@ func (r *router) AddRouteFiltering(
 		// If there's only one source, we can use it directly
 		exprs = append(exprs, generateCIDRMatcherExpressions(direction == firewall.RuleDirectionIN, sources[0])...)
 	} else {
-		// If there are multiple sources, create an ipset
-		set, err := r.createOrGetIpSet(sources)
+		// If there are multiple sources, create or get an ipset
+		setName := firewall.GenerateSetName(sources)
+		ref, err := r.ipsetCounter.Increment(setName, sources)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create ipset for sources: %w", err)
+			return nil, fmt.Errorf("create or get ipset for sources: %w", err)
 		}
 
 		exprs = append(exprs,
@@ -210,8 +219,8 @@ func (r *router) AddRouteFiltering(
 			},
 			&expr.Lookup{
 				SourceRegister: 1,
-				SetName:        set.Name,
-				SetID:          set.ID,
+				SetName:        ref.Out.Name,
+				SetID:          ref.Out.ID,
 			},
 		)
 	}
@@ -258,53 +267,6 @@ func (r *router) AddRouteFiltering(
 	return ruleKey, r.conn.Flush()
 }
 
-func (r *router) createOrGetIpSet(sources []netip.Prefix) (*nftables.Set, error) {
-	setName := firewall.GenerateSetName(sources)
-
-	set, err := r.conn.GetSetByName(r.workTable, setName)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("check for existing set %s: %w", setName, err)
-		}
-
-		// Set doesn't exist, create it
-		set = &nftables.Set{
-			Name:     setName,
-			Table:    r.workTable,
-			KeyType:  nftables.TypeIPAddr,
-			Dynamic:  false,
-			Interval: false,
-		}
-		if err = r.conn.AddSet(set, nil); err != nil {
-			return nil, fmt.Errorf("create set %s: %w", setName, err)
-		}
-		r.ipsetStore.newIpset(setName)
-		log.Debugf("Created new ipset: %s", setName)
-	} else {
-		log.Debugf("Using existing ipset: %s", setName)
-	}
-
-	// Add elements to the set
-	var elements []nftables.SetElement
-	for _, prefix := range sources {
-		ip := prefix.Addr().AsSlice()
-		elements = append(elements, nftables.SetElement{Key: ip})
-	}
-
-	if err = r.conn.SetAddElements(set, elements); err != nil {
-		return nil, fmt.Errorf("add elements to set %s: %w", setName, err)
-	}
-
-	for _, prefix := range sources {
-		r.ipsetStore.AddIpToSet(setName, prefix.Addr().AsSlice())
-	}
-
-	r.ipsetStore.AddReferenceToIpset(setName)
-	log.Debugf("Added %d elements to ipset %s", len(elements), setName)
-
-	return set, nil
-}
-
 func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 	if err := r.refreshRulesMap(); err != nil {
 		return fmt.Errorf(refreshRulesMapError, err)
@@ -324,15 +286,89 @@ func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 	}
 
 	if setName != "" {
-		if err := r.cleanupIpsetIfUnused(setName); err != nil {
-			return fmt.Errorf("cleanup: %w", err)
+		if _, err := r.ipsetCounter.Decrement(setName); err != nil {
+			return fmt.Errorf("decrement ipset reference: %w", err)
 		}
 	}
 
 	if err := r.conn.Flush(); err != nil {
-		return fmt.Errorf("flush: %w", err)
+		return fmt.Errorf(flushError, err)
 	}
 
+	return nil
+}
+
+func (r *router) createIpSet(setName string, sources []netip.Prefix) (*nftables.Set, error) {
+	set := &nftables.Set{
+		Name:  setName,
+		Table: r.workTable,
+		// required for prefixes
+		Interval: true,
+		KeyType:  nftables.TypeIPAddr,
+	}
+
+	var elements []nftables.SetElement
+	for _, prefix := range sources {
+		// TODO: Implement IPv6 support
+		if prefix.Addr().Is6() {
+			log.Printf("Skipping IPv6 prefix %s: IPv6 support not yet implemented", prefix)
+			continue
+		}
+
+		// nftables needs half-open intervals [firstIP, lastIP) for prefixes
+		// e.g. 10.0.0.0/24 becomes [10.0.0.0, 10.0.1.0), 10.1.1.1/32 becomes [10.1.1.1, 10.1.1.2) etc
+		firstIP := prefix.Addr()
+		lastIP := calculateLastIP(prefix).Next()
+
+		elements = append(elements,
+			// the nft tool also adds a line like this, see https://github.com/google/nftables/issues/247
+			// nftables.SetElement{Key: []byte{0, 0, 0, 0}, IntervalEnd: true},
+			nftables.SetElement{Key: firstIP.AsSlice()},
+			nftables.SetElement{Key: lastIP.AsSlice(), IntervalEnd: true},
+		)
+	}
+
+	if err := r.conn.AddSet(set, elements); err != nil {
+		return nil, fmt.Errorf("error adding elements to set %s: %w", setName, err)
+	}
+
+	if err := r.conn.Flush(); err != nil {
+		return nil, fmt.Errorf("flush error: %w", err)
+	}
+
+	log.Printf("Created new ipset: %s with %d elements", setName, len(elements)/2)
+
+	return set, nil
+}
+
+// calculateLastIP determines the last IP in a given prefix.
+func calculateLastIP(prefix netip.Prefix) netip.Addr {
+	hostMask := ^uint32(0) >> prefix.Masked().Bits()
+	lastIP := uint32FromNetipAddr(prefix.Addr()) | hostMask
+
+	return netip.AddrFrom4(uint32ToBytes(lastIP))
+}
+
+// Utility function to convert netip.Addr to uint32.
+func uint32FromNetipAddr(addr netip.Addr) uint32 {
+	b := addr.As4()
+	return binary.BigEndian.Uint32(b[:])
+}
+
+// Utility function to convert uint32 to a netip-compatible byte slice.
+func uint32ToBytes(ip uint32) [4]byte {
+	var b [4]byte
+	binary.BigEndian.PutUint32(b[:], ip)
+	return b
+}
+
+func (r *router) deleteIpSet(setName string, set *nftables.Set) error {
+	r.conn.DelSet(set)
+	if err := r.conn.Flush(); err != nil {
+		return fmt.Errorf(flushError, err)
+	}
+
+	log.Debugf("Deleted unused ipset %s", setName)
 	return nil
 }
 
@@ -352,31 +388,6 @@ func (r *router) deleteNftRule(rule *nftables.Rule, ruleKey string) error {
 	delete(r.rules, ruleKey)
 
 	log.Debugf("removed route rule %s", ruleKey)
-
-	return nil
-}
-
-func (r *router) cleanupIpsetIfUnused(setName string) error {
-	r.ipsetStore.DeleteReferenceFromIpSet(setName)
-	if !r.ipsetStore.HasReferenceToSet(setName) {
-		return r.deleteUnusedIpset(setName)
-	}
-	return nil
-}
-
-func (r *router) deleteUnusedIpset(setName string) error {
-	set, err := r.conn.GetSetByName(r.workTable, setName)
-	if err != nil {
-		return fmt.Errorf("get set %s: %w", setName, err)
-	}
-
-	r.conn.DelSet(set)
-	if err := r.conn.Flush(); err != nil {
-		return fmt.Errorf("flush: %w", err)
-	}
-
-	r.ipsetStore.deleteIpset(setName)
-	log.Debugf("Deleted unused ipset %s", setName)
 
 	return nil
 }
