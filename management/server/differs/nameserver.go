@@ -20,28 +20,12 @@ func (d *NameServerComparator) Match(a, b reflect.Value) bool {
 }
 
 func (d *NameServerComparator) Diff(cl *diff.Changelog, path []string, a, b reflect.Value) error {
-	if a.Kind() == reflect.Invalid {
-		cl.Add(diff.CREATE, path, nil, b.Interface())
-		return nil
-	}
-	if b.Kind() == reflect.Invalid {
-		cl.Add(diff.DELETE, path, a.Interface(), nil)
-		return nil
+	if err := handleInvalidKind(cl, path, a, b); err != nil {
+		return err
 	}
 
 	if a.Kind() == reflect.Slice && b.Kind() == reflect.Slice {
-		if a.Len() != b.Len() {
-			cl.Add(diff.UPDATE, append(path, "length"), a.Len(), b.Len())
-			return nil
-		}
-
-		for i := 0; i < min(a.Len(), b.Len()); i++ {
-			err := d.Diff(cl, append(path, fmt.Sprintf("[%d]", i)), a.Index(i), b.Index(i))
-			if err != nil {
-				return err
-			}
-		}
-		return nil
+		return handleSliceKind(d, cl, path, a, b)
 	}
 
 	ns1, ok1 := a.Interface().(nbdns.NameServer)
@@ -60,5 +44,31 @@ func (d *NameServerComparator) Diff(cl *diff.Changelog, path []string, a, b refl
 		cl.Add(diff.UPDATE, append(path, "Port"), ns1.Port, ns2.Port)
 	}
 
+	return nil
+}
+
+func handleInvalidKind(cl *diff.Changelog, path []string, a, b reflect.Value) error {
+	if a.Kind() == reflect.Invalid {
+		cl.Add(diff.CREATE, path, nil, b.Interface())
+		return fmt.Errorf("invalid kind")
+	}
+	if b.Kind() == reflect.Invalid {
+		cl.Add(diff.DELETE, path, a.Interface(), nil)
+		return fmt.Errorf("invalid kind")
+	}
+	return nil
+}
+
+func handleSliceKind(comparator diff.ValueDiffer, cl *diff.Changelog, path []string, a, b reflect.Value) error {
+	if a.Len() != b.Len() {
+		cl.Add(diff.UPDATE, append(path, "length"), a.Len(), b.Len())
+		return nil
+	}
+
+	for i := 0; i < min(a.Len(), b.Len()); i++ {
+		if err := comparator.Diff(cl, append(path, fmt.Sprintf("[%d]", i)), a.Index(i), b.Index(i)); err != nil {
+			return err
+		}
+	}
 	return nil
 }
