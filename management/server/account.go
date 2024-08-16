@@ -2072,6 +2072,28 @@ func (am *DefaultAccountManager) GetAccountIDForPeerKey(ctx context.Context, pee
 	return am.Store.GetAccountIDByPeerPubKey(ctx, peerKey)
 }
 
+func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, peer *nbpeer.Peer, settings *Settings) (bool, error) {
+	user, err := am.Store.GetUserByUserID(ctx, peer.UserID)
+	if err != nil {
+		return false, err
+	}
+
+	err = checkIfPeerOwnerIsBlocked(peer, user)
+	if err != nil {
+		return false, err
+	}
+
+	if peerLoginExpired(ctx, peer, settings) {
+		err = am.handleExpiredPeer(ctx, user, peer)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
+	return false, nil
+}
+
 // addAllGroup to account object if it doesn't exist
 func addAllGroup(account *Account) error {
 	if len(account.Groups) == 0 {

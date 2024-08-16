@@ -68,6 +68,7 @@ type Store interface {
 	GetStoreEngine() StoreEngine
 	GetPeerByPeerPubKey(ctx context.Context, peerKey string) (*nbpeer.Peer, error)
 	GetAccountSettings(ctx context.Context, accountID string) (*Settings, error)
+	UpdatePeerLastLogin(ctx context.Context, peerID string, lastLogin time.Time) error
 }
 
 type StoreEngine string

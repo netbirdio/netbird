@@ -651,18 +651,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 		return nil, nil, nil, err
 	}
 
-	if login.UserID != "" {
-		user, err := am.Store.GetUserByUserID(ctx, login.UserID)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-
-		err = checkIfPeerOwnerIsBlocked(peer, user)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-	}
-
 	settings, err := am.Store.GetAccountSettings(ctx, accountID)
 	if err != nil {
 		return nil, nil, nil, err
@@ -671,13 +659,16 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	// this flag prevents unnecessary calls to the persistent store.
 	shouldStorePeer := false
 	updateRemotePeers := false
-	if peerLoginExpired(ctx, peer, settings) {
-		// err = am.handleExpiredPeer(ctx, login, account, peer)
+
+	if login.UserID != "" {
+		changed, err := am.handleUserPeer(ctx, peer, settings)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		updateRemotePeers = true
-		shouldStorePeer = true
+		if changed {
+			shouldStorePeer = true
+			updateRemotePeers = true
+		}
 	}
 
 	groups, err := am.Store.GetAccountGroups(ctx, accountID)
@@ -781,27 +772,25 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics()), postureChecks, nil
 }
 
-func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, login PeerLogin, account *Account, peer *nbpeer.Peer) error {
-	err := checkAuth(ctx, login.UserID, peer)
+func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, user *User, peer *nbpeer.Peer) error {
+	err := checkAuth(ctx, user.Id, peer)
 	if err != nil {
 		return err
 	}
 	// If peer was expired before and if it reached this point, it is re-authenticated.
 	// UserID is present, meaning that JWT validation passed successfully in the API layer.
-	updatePeerLastLogin(peer, account)
-
-	// sync user last login with peer last login
-	user, err := account.FindUser(login.UserID)
-	if err != nil {
-		return status.Errorf(status.Internal, "couldn't find user")
-	}
-
-	err = am.Store.SaveUserLastLogin(account.Id, user.Id, peer.LastLogin)
+	peer = peer.UpdateLastLogin()
+	err = am.Store.SavePeer(ctx, peer.AccountID, peer)
 	if err != nil {
 		return err
 	}
 
-	am.StoreEvent(ctx, login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
+	err = am.Store.SaveUserLastLogin(user.AccountID, user.Id, peer.LastLogin)
+	if err != nil {
+		return err
+	}
+
+	am.StoreEvent(ctx, user.Id, peer.ID, user.AccountID, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
 	return nil
 }
 
@@ -834,11 +823,6 @@ func peerLoginExpired(ctx context.Context, peer *nbpeer.Peer, settings *Settings
 		return true
 	}
 	return false
-}
-
-func updatePeerLastLogin(peer *nbpeer.Peer, account *Account) {
-	peer.UpdateLastLogin()
-	account.UpdatePeer(peer)
 }
 
 // UpdatePeerSSHKey updates peer's public SSH key
