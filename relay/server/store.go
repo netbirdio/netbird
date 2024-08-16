@@ -33,7 +33,6 @@ func (s *Store) DeletePeer(peer *Peer) {
 
 	dp, ok := s.peers[peer.String()]
 	if !ok {
-
 		return
 	}
 	if dp != peer {
