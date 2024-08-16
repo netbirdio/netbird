@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"net/netip"
+	"os/exec"
 	"testing"
 
 	"github.com/coreos/go-iptables/iptables"
@@ -349,6 +350,137 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 			// Clean up
 			err = r.DeleteRouteRule(ruleKey)
 			require.NoError(t, err, "Failed to delete rule")
+		})
+	}
+}
+
+func TestNftablesCreateIpSet(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	workTable, err := createWorkTable()
+	require.NoError(t, err, "Failed to create work table")
+
+	defer deleteWorkTable()
+
+	r, err := newRouter(context.Background(), workTable, ifaceMock)
+	require.NoError(t, err, "Failed to create router")
+
+	defer func() {
+		require.NoError(t, r.Reset(), "Failed to reset router")
+	}()
+
+	tests := []struct {
+		name    string
+		sources []netip.Prefix
+	}{
+		{
+			name:    "Single IP",
+			sources: []netip.Prefix{netip.MustParsePrefix("192.168.1.1/32")},
+		},
+		{
+			name: "Multiple IPs",
+			sources: []netip.Prefix{
+				netip.MustParsePrefix("192.168.1.1/32"),
+				netip.MustParsePrefix("10.0.0.1/32"),
+				netip.MustParsePrefix("172.16.0.1/32"),
+			},
+		},
+		{
+			name:    "Single Subnet",
+			sources: []netip.Prefix{netip.MustParsePrefix("192.168.0.0/24")},
+		},
+		{
+			name: "Multiple Subnets with Various Prefix Lengths",
+			sources: []netip.Prefix{
+				netip.MustParsePrefix("10.0.0.0/8"),
+				netip.MustParsePrefix("172.16.0.0/16"),
+				netip.MustParsePrefix("192.168.1.0/24"),
+				netip.MustParsePrefix("203.0.113.0/26"),
+			},
+		},
+		{
+			name: "Mix of Single IPs and Subnets in Different Positions",
+			sources: []netip.Prefix{
+				netip.MustParsePrefix("192.168.1.1/32"),
+				netip.MustParsePrefix("10.0.0.0/16"),
+				netip.MustParsePrefix("172.16.0.1/32"),
+				netip.MustParsePrefix("203.0.113.0/24"),
+			},
+		},
+	}
+
+	// Add this helper function inside TestNftablesCreateIpSet
+	printNftSets := func() {
+		cmd := exec.Command("nft", "list", "sets")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Logf("Failed to run 'nft list sets': %v", err)
+		} else {
+			t.Logf("Current nft sets:\n%s", output)
+		}
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setName := firewall.GenerateSetName(tt.sources)
+			set, err := r.createIpSet(setName, tt.sources)
+			if err != nil {
+				t.Logf("Failed to create IP set: %v", err)
+				printNftSets()
+				require.NoError(t, err, "Failed to create IP set")
+			}
+			require.NotNil(t, set, "Created set is nil")
+
+			// Verify set properties
+			assert.Equal(t, setName, set.Name, "Set name mismatch")
+			assert.Equal(t, r.workTable, set.Table, "Set table mismatch")
+			assert.True(t, set.Interval, "Set interval property should be true")
+			assert.Equal(t, nftables.TypeIPAddr, set.KeyType, "Set key type mismatch")
+
+			// Fetch the created set from nftables
+			fetchedSet, err := r.conn.GetSetByName(r.workTable, setName)
+			require.NoError(t, err, "Failed to fetch created set")
+			require.NotNil(t, fetchedSet, "Fetched set is nil")
+
+			// Verify set elements
+			elements, err := r.conn.GetSetElements(fetchedSet)
+			require.NoError(t, err, "Failed to get set elements")
+
+			// Count the number of unique prefixes (excluding interval end markers)
+			uniquePrefixes := make(map[string]bool)
+			for _, elem := range elements {
+				if !elem.IntervalEnd {
+					ip := netip.AddrFrom4(*(*[4]byte)(elem.Key))
+					uniquePrefixes[ip.String()] = true
+				}
+			}
+
+			assert.Equal(t, len(tt.sources), len(uniquePrefixes), "Number of unique prefixes in set doesn't match input")
+
+			// Verify each source is in the set
+			for _, source := range tt.sources {
+				found := false
+				for _, elem := range elements {
+					if !elem.IntervalEnd {
+						ip := netip.AddrFrom4(*(*[4]byte)(elem.Key))
+						if source.Contains(ip) {
+							found = true
+							break
+						}
+					}
+				}
+				assert.True(t, found, "Source %s not found in set", source)
+			}
+
+			r.conn.DelSet(set)
+			err = r.conn.Flush()
+			if err != nil {
+				t.Logf("Failed to delete set: %v", err)
+				printNftSets()
+			}
+			require.NoError(t, err, "Failed to delete set")
 		})
 	}
 }
