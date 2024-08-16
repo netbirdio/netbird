@@ -372,8 +372,9 @@ func TestNftablesCreateIpSet(t *testing.T) {
 	}()
 
 	tests := []struct {
-		name    string
-		sources []netip.Prefix
+		name     string
+		sources  []netip.Prefix
+		expected []netip.Prefix
 	}{
 		{
 			name:    "Single IP",
@@ -407,6 +408,21 @@ func TestNftablesCreateIpSet(t *testing.T) {
 				netip.MustParsePrefix("10.0.0.0/16"),
 				netip.MustParsePrefix("172.16.0.1/32"),
 				netip.MustParsePrefix("203.0.113.0/24"),
+			},
+		},
+		{
+			name: "Overlapping IPs/Subnets",
+			sources: []netip.Prefix{
+				netip.MustParsePrefix("10.0.0.0/8"),
+				netip.MustParsePrefix("10.0.0.0/16"),
+				netip.MustParsePrefix("10.0.0.1/32"),
+				netip.MustParsePrefix("192.168.0.0/16"),
+				netip.MustParsePrefix("192.168.1.0/24"),
+				netip.MustParsePrefix("192.168.1.1/32"),
+			},
+			expected: []netip.Prefix{
+				netip.MustParsePrefix("10.0.0.0/8"),
+				netip.MustParsePrefix("192.168.0.0/16"),
 			},
 		},
 	}
@@ -457,26 +473,30 @@ func TestNftablesCreateIpSet(t *testing.T) {
 				}
 			}
 
-			assert.Equal(t, len(tt.sources), len(uniquePrefixes), "Number of unique prefixes in set doesn't match input")
+			// Check against expected merged prefixes
+			expectedCount := len(tt.expected)
+			if expectedCount == 0 {
+				expectedCount = len(tt.sources)
+			}
+			assert.Equal(t, expectedCount, len(uniquePrefixes), "Number of unique prefixes in set doesn't match expected")
 
-			// Verify each source is in the set
-			for _, source := range tt.sources {
+			// Verify each expected prefix is in the set
+			for _, expected := range tt.expected {
 				found := false
 				for _, elem := range elements {
 					if !elem.IntervalEnd {
 						ip := netip.AddrFrom4(*(*[4]byte)(elem.Key))
-						if source.Contains(ip) {
+						if expected.Contains(ip) {
 							found = true
 							break
 						}
 					}
 				}
-				assert.True(t, found, "Source %s not found in set", source)
+				assert.True(t, found, "Expected prefix %s not found in set", expected)
 			}
 
 			r.conn.DelSet(set)
-			err = r.conn.Flush()
-			if err != nil {
+			if err := r.conn.Flush(); err != nil {
 				t.Logf("Failed to delete set: %v", err)
 				printNftSets()
 			}

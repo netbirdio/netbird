@@ -299,6 +299,9 @@ func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 }
 
 func (r *router) createIpSet(setName string, sources []netip.Prefix) (*nftables.Set, error) {
+	// overlapping prefixes will result in an error, so we need to merge them
+	sources = firewall.MergeIPRanges(sources)
+
 	set := &nftables.Set{
 		Name:  setName,
 		Table: r.workTable,
@@ -783,4 +786,28 @@ func applyPort(port *firewall.Port, isSource bool) []expr.Any {
 	}
 
 	return exprs
+}
+
+func mergeIPRanges(prefixes []netip.Prefix) []netip.Prefix {
+	if len(prefixes) == 0 {
+		return prefixes
+	}
+
+	merged := []netip.Prefix{prefixes[0]}
+	for _, prefix := range prefixes[1:] {
+		last := merged[len(merged)-1]
+		if last.Contains(prefix.Addr()) {
+			// If the current prefix is contained within the last merged prefix, skip it
+			continue
+		}
+		if prefix.Contains(last.Addr()) {
+			// If the current prefix contains the last merged prefix, replace it
+			merged[len(merged)-1] = prefix
+		} else {
+			// Otherwise, add the current prefix to the merged list
+			merged = append(merged, prefix)
+		}
+	}
+
+	return merged
 }
