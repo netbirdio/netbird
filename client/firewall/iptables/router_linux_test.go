@@ -193,99 +193,111 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		source      netip.Prefix
+		sources     []netip.Prefix
 		destination netip.Prefix
 		proto       firewall.Protocol
 		sPort       *firewall.Port
 		dPort       *firewall.Port
 		direction   firewall.RuleDirection
 		action      firewall.Action
+		expectSet   bool
 	}{
 		{
-			name:        "Basic TCP rule",
-			source:      netip.MustParsePrefix("192.168.1.0/24"),
+			name:        "Basic TCP rule with single source",
+			sources:     []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")},
 			destination: netip.MustParsePrefix("10.0.0.0/24"),
 			proto:       firewall.ProtocolTCP,
 			sPort:       nil,
 			dPort:       &firewall.Port{Values: []int{80}},
 			direction:   firewall.RuleDirectionIN,
 			action:      firewall.ActionAccept,
+			expectSet:   false,
 		},
 		{
-			name:        "UDP rule with port range",
-			source:      netip.MustParsePrefix("172.16.0.0/16"),
-			destination: netip.MustParsePrefix("192.168.0.0/16"),
+			name: "UDP rule with multiple sources",
+			sources: []netip.Prefix{
+				netip.MustParsePrefix("172.16.0.0/16"),
+				netip.MustParsePrefix("192.168.0.0/16"),
+			},
+			destination: netip.MustParsePrefix("10.0.0.0/8"),
 			proto:       firewall.ProtocolUDP,
 			sPort:       &firewall.Port{Values: []int{1024, 2048}, IsRange: true},
 			dPort:       nil,
 			direction:   firewall.RuleDirectionOUT,
 			action:      firewall.ActionDrop,
+			expectSet:   true,
 		},
 		{
 			name:        "All protocols rule",
-			source:      netip.MustParsePrefix("10.0.0.0/8"),
+			sources:     []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
 			destination: netip.MustParsePrefix("0.0.0.0/0"),
 			proto:       firewall.ProtocolALL,
 			sPort:       nil,
 			dPort:       nil,
 			direction:   firewall.RuleDirectionIN,
 			action:      firewall.ActionAccept,
+			expectSet:   false,
 		},
 		{
 			name:        "ICMP rule",
-			source:      netip.MustParsePrefix("192.168.0.0/16"),
+			sources:     []netip.Prefix{netip.MustParsePrefix("192.168.0.0/16")},
 			destination: netip.MustParsePrefix("10.0.0.0/8"),
 			proto:       firewall.ProtocolICMP,
 			sPort:       nil,
 			dPort:       nil,
 			direction:   firewall.RuleDirectionIN,
 			action:      firewall.ActionAccept,
+			expectSet:   false,
 		},
 		{
 			name:        "TCP rule with multiple source ports",
-			source:      netip.MustParsePrefix("172.16.0.0/12"),
+			sources:     []netip.Prefix{netip.MustParsePrefix("172.16.0.0/12")},
 			destination: netip.MustParsePrefix("192.168.0.0/16"),
 			proto:       firewall.ProtocolTCP,
 			sPort:       &firewall.Port{Values: []int{80, 443, 8080}},
 			dPort:       nil,
 			direction:   firewall.RuleDirectionOUT,
 			action:      firewall.ActionAccept,
+			expectSet:   false,
 		},
 		{
 			name:        "UDP rule with single IP and port range",
-			source:      netip.MustParsePrefix("192.168.1.1/32"),
+			sources:     []netip.Prefix{netip.MustParsePrefix("192.168.1.1/32")},
 			destination: netip.MustParsePrefix("10.0.0.0/24"),
 			proto:       firewall.ProtocolUDP,
 			sPort:       nil,
 			dPort:       &firewall.Port{Values: []int{5000, 5100}, IsRange: true},
 			direction:   firewall.RuleDirectionIN,
 			action:      firewall.ActionDrop,
+			expectSet:   false,
 		},
 		{
 			name:        "TCP rule with source and destination ports",
-			source:      netip.MustParsePrefix("10.0.0.0/24"),
+			sources:     []netip.Prefix{netip.MustParsePrefix("10.0.0.0/24")},
 			destination: netip.MustParsePrefix("172.16.0.0/16"),
 			proto:       firewall.ProtocolTCP,
 			sPort:       &firewall.Port{Values: []int{1024, 65535}, IsRange: true},
 			dPort:       &firewall.Port{Values: []int{22}},
 			direction:   firewall.RuleDirectionOUT,
 			action:      firewall.ActionAccept,
+			expectSet:   false,
 		},
 		{
 			name:        "Drop all incoming traffic",
-			source:      netip.MustParsePrefix("0.0.0.0/0"),
+			sources:     []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
 			destination: netip.MustParsePrefix("192.168.0.0/24"),
 			proto:       firewall.ProtocolALL,
 			sPort:       nil,
 			dPort:       nil,
 			direction:   firewall.RuleDirectionIN,
 			action:      firewall.ActionDrop,
+			expectSet:   false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ruleKey, err := r.AddRouteFiltering(tt.source, tt.destination, tt.proto, tt.sPort, tt.dPort, tt.direction, tt.action)
+			ruleKey, err := r.AddRouteFiltering(tt.sources, tt.destination, tt.proto, tt.sPort, tt.dPort, tt.direction, tt.action)
 			require.NoError(t, err, "AddRouteFiltering failed")
 
 			// Check if the rule is in the internal map
@@ -301,8 +313,20 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 			assert.True(t, exists, "Rule not found in iptables")
 
 			// Verify rule content
-			expectedRule := genRouteFilteringRuleSpec(tt.source, tt.destination, tt.proto, tt.sPort, tt.dPort, tt.direction, tt.action)
+			expectedRule := genRouteFilteringRuleSpec(tt.sources, tt.destination, tt.proto, tt.sPort, tt.dPort, tt.direction, tt.action, "")
+			if tt.expectSet {
+				setName := firewall.GenerateSetName(tt.sources)
+				expectedRule = genRouteFilteringRuleSpec(tt.sources, tt.destination, tt.proto, tt.sPort, tt.dPort, tt.direction, tt.action, setName)
+
+				// Check if the set was created
+				_, exists := r.ipsetCounter.Get(setName)
+				assert.True(t, exists, "IPSet not created")
+			}
 			assert.Equal(t, expectedRule, rule, "Rule content mismatch")
+
+			// Clean up
+			err = r.DeleteRouteRule(ruleKey)
+			require.NoError(t, err, "Failed to delete rule")
 		})
 	}
 }

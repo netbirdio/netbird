@@ -70,6 +70,16 @@ func New[Key comparable, I, O any](add AddFunc[Key, I, O], remove RemoveFunc[Key
 	}
 }
 
+// Get retrieves the current reference count and associated data for a key.
+// If the key doesn't exist, it returns a zero value Ref and false.
+func (rm *Counter[Key, I, O]) Get(key Key) (Ref[O], bool) {
+	rm.refCountMu.Lock()
+	defer rm.refCountMu.Unlock()
+
+	ref, ok := rm.refCountMap[key]
+	return ref, ok
+}
+
 // Increment increments the reference count for the given key.
 // If this is the first reference to the key, the AddFunc is called.
 func (rm *Counter[Key, I, O]) Increment(key Key, in I) (Ref[O], error) {
