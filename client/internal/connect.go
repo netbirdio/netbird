@@ -307,6 +307,12 @@ func (c *ConnectClient) Engine() *Engine {
 	return e
 }
 
+func (c *ConnectClient) Stop() error {
+	c.engineMutex.Lock()
+	defer c.engineMutex.Unlock()
+	return c.engine.Stop()
+}
+
 // createEngineConfig converts configuration received from Management Service to EngineConfig
 func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig) (*EngineConfig, error) {
 	nm := false

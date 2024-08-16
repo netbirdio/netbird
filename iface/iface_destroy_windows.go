@@ -1,22 +1,19 @@
 //go:build windows
-// +build windows
 
 package iface
 
 import (
+	"fmt"
 	"os/exec"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
 )
 
-func DestroyInterface(name string) error {
+func (w *WGIface) Destroy() error {
 	netshCmd := uspfilter.GetSystem32Command("netsh")
-	_, err := exec.Command(netshCmd, "interface", "set", "interface", name, "admin=disable").CombinedOutput()
+	out, err := exec.Command(netshCmd, "interface", "set", "interface", w.Name(), "admin=disable").CombinedOutput()
 	if err != nil {
-		log.Errorf("failed to disable interface %s: %v", name, err)
-		return err
+		return fmt.Errorf("failed to remove interface %s: %w - %s", w.Name(), err, out)
 	}
 	return nil
 }

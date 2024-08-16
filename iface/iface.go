@@ -124,7 +124,23 @@ func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
 func (w *WGIface) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.tun.Close()
+
+	err := w.tun.Close()
+	if err != nil {
+		return fmt.Errorf("failed to close wireguard interface %s: %w", w.Name(), err)
+	}
+
+	err = w.waitUntilRemoved()
+	if err != nil {
+		log.Warnf("failed to remove WireGuard interface %s: %v", w.Name(), err)
+		err = w.Destroy()
+		if err != nil {
+			return fmt.Errorf("failed to remove WireGuard interface %s: %w", w.Name(), err)
+		}
+		log.Infof("interface %s successfully removed", w.Name())
+	}
+
+	return nil
 }
 
 // SetFilter sets packet filters for the userspace implementation
@@ -162,4 +178,30 @@ func (w *WGIface) GetDevice() *DeviceWrapper {
 // GetStats returns the last handshake time, rx and tx bytes for the given peer
 func (w *WGIface) GetStats(peerKey string) (WGStats, error) {
 	return w.configurer.getStats(peerKey)
+}
+
+func (w *WGIface) waitUntilRemoved() error {
+	maxWaitTime := 5 * time.Second
+	timeout := time.After(maxWaitTime)
+
+	for {
+		iface, err := net.InterfaceByName(w.Name())
+		if err != nil {
+			if _, ok := err.(*net.OpError); ok {
+				log.Infof("interface %s has been removed", w.Name())
+				return nil
+			}
+			log.Debugf("failed to get interface by name %s: %v", w.Name(), err)
+		} else if iface == nil {
+			log.Infof("interface %s has been removed", w.Name())
+			return nil
+		}
+
+		select {
+		case <-timeout:
+			return fmt.Errorf("timeout when waiting for interface %s to be removed", w.Name())
+		default:
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
 }

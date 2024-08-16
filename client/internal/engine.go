@@ -267,17 +267,6 @@ func (e *Engine) Stop() error {
 	e.close()
 	e.wgConnWorker.Wait()
 
-	maxWaitTime := 5 * time.Second
-	err = e.WaitForWGInterfaceToBeRemoved(e.config.WgIfaceName, maxWaitTime)
-	if err != nil {
-		log.Warnf("failed to remove WireGuard interface %s: %v", e.config.WgIfaceName, err)
-		err = iface.DestroyInterface(e.config.WgIfaceName)
-		if err != nil {
-			return fmt.Errorf("failed to remove WireGuard interface %s: %w", e.config.WgIfaceName, err)
-		}
-		log.Infof("interface %s successfully removed", e.config.WgIfaceName)
-	}
-
 	return nil
 }
 
@@ -1268,6 +1257,8 @@ func (e *Engine) close() {
 	if e.rpManager != nil {
 		_ = e.rpManager.Close()
 	}
+
+	e.cancel()
 }
 
 func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
@@ -1543,29 +1534,4 @@ func isChecksEqual(checks []*mgmProto.Checks, oChecks []*mgmProto.Checks) bool {
 	return slices.EqualFunc(checks, oChecks, func(checks, oChecks *mgmProto.Checks) bool {
 		return slices.Equal(checks.Files, oChecks.Files)
 	})
-}
-
-func (e *Engine) WaitForWGInterfaceToBeRemoved(name string, maxWaitTime time.Duration) error {
-	timeout := time.After(maxWaitTime)
-
-	for {
-		iface, err := net.InterfaceByName(name)
-		if err != nil {
-			if _, ok := err.(*net.OpError); ok {
-				log.Infof("interface %s has been removed", name)
-				return nil
-			}
-			log.Debugf("failed to get interface by name %s: %v", name, err)
-		} else if iface == nil {
-			log.Infof("interface %s has been removed", name)
-			return nil
-		}
-
-		select {
-		case <-timeout:
-			return fmt.Errorf("timeout when waiting for interface %s to be removed", name)
-		default:
-			time.Sleep(100 * time.Millisecond)
-		}
-	}
 }

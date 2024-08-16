@@ -1,5 +1,4 @@
 //go:build darwin || dragonfly || freebsd || netbsd || openbsd
-// +build darwin dragonfly freebsd netbsd openbsd
 
 package iface
 
@@ -8,13 +7,10 @@ import (
 	"os/exec"
 )
 
-func DestroyInterface(name string) error {
-	_, err := exec.Command("ifconfig", name, "destroy").CombinedOutput()
+func (w *WGIface) Destroy() error {
+	out, err := exec.Command("ifconfig", w.Name(), "destroy").CombinedOutput()
 	if err != nil {
-		_, err := exec.Command("ip", "link", "delete", name).CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("failed to destroy interface %s: %w", name, err)
-		}
+		return fmt.Errorf("failed to remove interface %s: %w - %s", w.Name(), err, out)
 	}
 
 	return nil

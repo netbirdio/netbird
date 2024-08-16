@@ -1,25 +1,22 @@
 //go:build linux
-// +build linux
 
 package iface
 
 import (
-	log "github.com/sirupsen/logrus"
+	"fmt"
+
 	"github.com/vishvananda/netlink"
 )
 
-func DestroyInterface(name string) error {
-	link, err := netlink.LinkByName(name)
+func (w *WGIface) Destroy() error {
+	link, err := netlink.LinkByName(w.Name())
 	if err != nil {
-		log.Errorf("failed to get link by name %s: %v", name, err)
-		return err
+		return fmt.Errorf("failed to get link by name %s: %w", w.Name(), err)
 	}
 
 	if err := netlink.LinkDel(link); err != nil {
-		log.Errorf("failed to delete link %s: %v", name, err)
-		return err
+		return fmt.Errorf("failed to delete link %s: %w", w.Name(), err)
 	}
 
-	log.Infof("interface %s successfully deleted", name)
 	return nil
 }

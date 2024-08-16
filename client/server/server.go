@@ -12,7 +12,6 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"golang.org/x/exp/maps"
-
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	log "github.com/sirupsen/logrus"
@@ -589,18 +588,17 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	if s.actCancel == nil {
 		return nil, fmt.Errorf("service is not up")
 	}
+	log.Debugf("Should continue doing stuff")
 	s.actCancel()
-	state := internal.CtxGetState(s.rootCtx)
-	state.Set(internal.StatusIdle)
 
-	maxWaitTime := 5 * time.Second
-	engine := s.connectClient.Engine()
-
-	err := engine.WaitForWGInterfaceToBeRemoved(s.config.WgIface, maxWaitTime)
+	err := s.connectClient.Stop()
 	if err != nil {
-		log.Errorf("error waiting for wg interface to disappear: %v", err)
+		log.Errorf("failed to shut down properly: %v", err)
 		return nil, err
 	}
+
+	state := internal.CtxGetState(s.rootCtx)
+	state.Set(internal.StatusIdle)
 
 	return &proto.DownResponse{}, nil
 }
