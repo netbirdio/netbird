@@ -37,6 +37,17 @@ const (
 	matchSet = "--match-set"
 )
 
+type routeFilteringRuleParams struct {
+	Sources     []netip.Prefix
+	Destination netip.Prefix
+	Proto       firewall.Protocol
+	SPort       *firewall.Port
+	DPort       *firewall.Port
+	Direction   firewall.RuleDirection
+	Action      firewall.Action
+	SetName     string
+}
+
 type router struct {
 	ctx              context.Context
 	stop             context.CancelFunc
@@ -102,7 +113,18 @@ func (r *router) AddRouteFiltering(
 		}
 	}
 
-	rule := genRouteFilteringRuleSpec(sources, destination, proto, sPort, dPort, direction, action, setName)
+	params := routeFilteringRuleParams{
+		Sources:     sources,
+		Destination: destination,
+		Proto:       proto,
+		SPort:       sPort,
+		DPort:       dPort,
+		Direction:   direction,
+		Action:      action,
+		SetName:     setName,
+	}
+
+	rule := genRouteFilteringRuleSpec(params)
 	if err := r.iptablesClient.Append(tableFilter, chainRTFWD, rule...); err != nil {
 		return nil, fmt.Errorf("add route rule: %v", err)
 	}
@@ -418,46 +440,37 @@ func genRuleSpec(jump string, source, destination netip.Prefix, intf string, inv
 	return []string{intdir, intf, "-s", source.String(), "-d", destination.String(), "-j", jump}
 }
 
-func genRouteFilteringRuleSpec(
-	sources []netip.Prefix,
-	destination netip.Prefix,
-	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
-	direction firewall.RuleDirection,
-	action firewall.Action,
-	setName string,
-) []string {
+func genRouteFilteringRuleSpec(params routeFilteringRuleParams) []string {
 	var rule []string
 
-	if setName != "" {
-		if direction == firewall.RuleDirectionIN {
-			rule = append(rule, "-m", "set", matchSet, setName, "src")
+	if params.SetName != "" {
+		if params.Direction == firewall.RuleDirectionIN {
+			rule = append(rule, "-m", "set", matchSet, params.SetName, "src")
 		} else {
-			rule = append(rule, "-m", "set", matchSet, setName, "dst")
+			rule = append(rule, "-m", "set", matchSet, params.SetName, "dst")
 		}
-	} else if len(sources) > 0 {
-		source := sources[0]
-		if direction == firewall.RuleDirectionIN {
+	} else if len(params.Sources) > 0 {
+		source := params.Sources[0]
+		if params.Direction == firewall.RuleDirectionIN {
 			rule = append(rule, "-s", source.String())
 		} else {
 			rule = append(rule, "-d", source.String())
 		}
 	}
 
-	if direction == firewall.RuleDirectionIN {
-		rule = append(rule, "-d", destination.String())
+	if params.Direction == firewall.RuleDirectionIN {
+		rule = append(rule, "-d", params.Destination.String())
 	} else {
-		rule = append(rule, "-s", destination.String())
+		rule = append(rule, "-s", params.Destination.String())
 	}
 
-	if proto != firewall.ProtocolALL {
-		rule = append(rule, "-p", strings.ToLower(string(proto)))
-		rule = append(rule, applyPort("--sport", sPort)...)
-		rule = append(rule, applyPort("--dport", dPort)...)
+	if params.Proto != firewall.ProtocolALL {
+		rule = append(rule, "-p", strings.ToLower(string(params.Proto)))
+		rule = append(rule, applyPort("--sport", params.SPort)...)
+		rule = append(rule, applyPort("--dport", params.DPort)...)
 	}
 
-	rule = append(rule, "-j", actionToStr(action))
+	rule = append(rule, "-j", actionToStr(params.Action))
 
 	return rule
 }

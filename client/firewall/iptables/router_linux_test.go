@@ -313,15 +313,29 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 			assert.True(t, exists, "Rule not found in iptables")
 
 			// Verify rule content
-			expectedRule := genRouteFilteringRuleSpec(tt.sources, tt.destination, tt.proto, tt.sPort, tt.dPort, tt.direction, tt.action, "")
+			params := routeFilteringRuleParams{
+				Sources:     tt.sources,
+				Destination: tt.destination,
+				Proto:       tt.proto,
+				SPort:       tt.sPort,
+				DPort:       tt.dPort,
+				Direction:   tt.direction,
+				Action:      tt.action,
+				SetName:     "",
+			}
+
+			expectedRule := genRouteFilteringRuleSpec(params)
+
 			if tt.expectSet {
 				setName := firewall.GenerateSetName(tt.sources)
-				expectedRule = genRouteFilteringRuleSpec(tt.sources, tt.destination, tt.proto, tt.sPort, tt.dPort, tt.direction, tt.action, setName)
+				params.SetName = setName
+				expectedRule = genRouteFilteringRuleSpec(params)
 
 				// Check if the set was created
 				_, exists := r.ipsetCounter.Get(setName)
 				assert.True(t, exists, "IPSet not created")
 			}
+
 			assert.Equal(t, expectedRule, rule, "Rule content mismatch")
 
 			// Clean up
