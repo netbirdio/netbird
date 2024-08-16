@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -467,6 +468,14 @@ func (s *FileStore) GetUserByTokenID(_ context.Context, tokenID string) (*User, 
 	}
 
 	return account.Users[userID].Copy(), nil
+}
+
+func (s *FileStore) GetUserByUserID(_ context.Context, userID string) (*User, error) {
+	return nil, errors.New("store not supported")
+}
+
+func (s *FileStore) GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error) {
+	return nil, errors.New("store not supported")
 }
 
 // GetAllAccounts returns all accounts

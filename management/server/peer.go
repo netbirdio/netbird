@@ -549,16 +549,23 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 		return nil, nil, nil, status.NewPeerNotRegisteredError()
 	}
 
-	err = checkIfPeerOwnerIsBlocked(peer, account)
-	if err != nil {
-		return nil, nil, nil, err
+	if peer.UserID == "" {
+		user, err := account.FindUser(peer.UserID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		err = checkIfPeerOwnerIsBlocked(peer, user)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 	}
 
 	if peerLoginExpired(ctx, peer, account.Settings) {
 		return nil, nil, nil, status.NewPeerLoginExpiredError()
 	}
 
-	peer, updated := updatePeerMeta(peer, sync.Meta, account)
+	updated := peer.UpdateMetaIfNew(sync.Meta)
 	if updated {
 		err = am.Store.SavePeer(ctx, account.Id, peer)
 		if err != nil {
@@ -630,25 +637,33 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 		}
 	}
 
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	unlockAccount := am.Store.AcquireReadLockByUID(ctx, accountID)
+	defer unlockAccount()
+	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, login.WireGuardPubKey)
 	defer func() {
-		if unlock != nil {
-			unlock()
+		if unlockPeer != nil {
+			unlockPeer()
 		}
 	}()
 
-	// fetch the account from the store once more after acquiring lock to avoid concurrent updates inconsistencies
-	account, err := am.Store.GetAccount(ctx, accountID)
+	peer, err := am.Store.GetPeerByPeerPubKey(ctx, login.WireGuardPubKey)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	peer, err := account.FindPeerByPubKey(login.WireGuardPubKey)
-	if err != nil {
-		return nil, nil, nil, status.NewPeerNotRegisteredError()
+	if login.UserID != "" {
+		user, err := am.Store.GetUserByUserID(ctx, login.UserID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		err = checkIfPeerOwnerIsBlocked(peer, user)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 	}
 
-	err = checkIfPeerOwnerIsBlocked(peer, account)
+	settings, err := am.Store.GetAccountSettings(ctx, accountID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -656,8 +671,8 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	// this flag prevents unnecessary calls to the persistent store.
 	shouldStorePeer := false
 	updateRemotePeers := false
-	if peerLoginExpired(ctx, peer, account.Settings) {
-		err = am.handleExpiredPeer(ctx, login, account, peer)
+	if peerLoginExpired(ctx, peer, settings) {
+		// err = am.handleExpiredPeer(ctx, login, account, peer)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -665,12 +680,27 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 		shouldStorePeer = true
 	}
 
-	isRequiresApproval, isStatusChanged, err := am.integratedPeerValidator.IsNotValidPeer(ctx, account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
+	groups, err := am.Store.GetAccountGroups(ctx, accountID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	peer, updated := updatePeerMeta(peer, login.Meta, account)
+	var grps []string
+	for _, group := range groups {
+		for _, id := range group.Peers {
+			if id == peer.ID {
+				grps = append(grps, group.ID)
+				break
+			}
+		}
+	}
+
+	isRequiresApproval, isStatusChanged, err := am.integratedPeerValidator.IsNotValidPeer(ctx, accountID, peer, grps, settings.Extra)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	updated := peer.UpdateMetaIfNew(login.Meta)
 	if updated {
 		shouldStorePeer = true
 	}
@@ -687,8 +717,13 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 		}
 	}
 
-	unlock()
-	unlock = nil
+	unlockPeer()
+	unlockPeer = nil
+
+	account, err := am.Store.GetAccount(ctx, accountID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 
 	if updateRemotePeers || isStatusChanged {
 		am.updateAccountPeers(ctx, account)
@@ -770,12 +805,8 @@ func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, login Pe
 	return nil
 }
 
-func checkIfPeerOwnerIsBlocked(peer *nbpeer.Peer, account *Account) error {
+func checkIfPeerOwnerIsBlocked(peer *nbpeer.Peer, user *User) error {
 	if peer.AddedWithSSOLogin() {
-		user, err := account.FindUser(peer.UserID)
-		if err != nil {
-			return status.Errorf(status.PermissionDenied, "user doesn't exist")
-		}
 		if user.IsBlocked() {
 			return status.Errorf(status.PermissionDenied, "user is blocked")
 		}
@@ -906,14 +937,6 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 	}
 
 	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peerID, accountID)
-}
-
-func updatePeerMeta(peer *nbpeer.Peer, meta nbpeer.PeerSystemMeta, account *Account) (*nbpeer.Peer, bool) {
-	if peer.UpdateMetaIfNew(meta) {
-		account.UpdatePeer(peer)
-		return peer, true
-	}
-	return peer, false
 }
 
 // updateAccountPeers updates all peers that belong to an account.

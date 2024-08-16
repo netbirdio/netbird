@@ -41,6 +41,8 @@ type Store interface {
 	GetAccountByPrivateDomain(ctx context.Context, domain string) (*Account, error)
 	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
 	GetUserByTokenID(ctx context.Context, tokenID string) (*User, error)
+	GetUserByUserID(ctx context.Context, userID string) (*User, error)
+	GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error)
 	GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	SaveAccount(ctx context.Context, account *Account) error
 	SaveUsers(accountID string, users map[string]*User) error
