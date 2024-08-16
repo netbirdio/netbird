@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -471,11 +470,32 @@ func (s *FileStore) GetUserByTokenID(_ context.Context, tokenID string) (*User, 
 }
 
 func (s *FileStore) GetUserByUserID(_ context.Context, userID string) (*User, error) {
-	return nil, errors.New("store not supported")
+	accountID, ok := s.UserID2AccountID[userID]
+	if !ok {
+		return nil, status.Errorf(status.NotFound, "accountID not found: provided userID doesn't exists")
+	}
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return account.Users[userID].Copy(), nil
 }
 
 func (s *FileStore) GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error) {
-	return nil, errors.New("store not supported")
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	groupsSlice := make([]*nbgroup.Group, 0, len(account.Groups))
+
+	for _, group := range account.Groups {
+		groupsSlice = append(groupsSlice, group)
+	}
+
+	return groupsSlice, nil
 }
 
 // GetAllAccounts returns all accounts
