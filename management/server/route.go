@@ -472,6 +472,7 @@ func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
 	if route.IsDynamic() {
 		ruleV6 := rule
 		ruleV6.SourceRanges = []string{"::/0"}
+		rules = append(rules, &ruleV6)
 	}
 
 	return rules
