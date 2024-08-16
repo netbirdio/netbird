@@ -33,6 +33,8 @@ const (
 	chainRTFWD              = "NETBIRD-RT-FWD"
 	routingFinalForwardJump = "ACCEPT"
 	routingFinalNatJump     = "MASQUERADE"
+
+	matchSet = "--match-set"
 )
 
 type router struct {
@@ -135,7 +137,7 @@ func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 
 func (r *router) findSetNameInRule(rule []string) string {
 	for i, arg := range rule {
-		if arg == "-m" && i+3 < len(rule) && rule[i+1] == "set" && rule[i+2] == "--match-set" {
+		if arg == "-m" && i+3 < len(rule) && rule[i+1] == "set" && rule[i+2] == matchSet {
 			return rule[i+3]
 		}
 	}
@@ -430,9 +432,9 @@ func genRouteFilteringRuleSpec(
 
 	if setName != "" {
 		if direction == firewall.RuleDirectionIN {
-			rule = append(rule, "-m", "set", "--match-set", setName, "src")
+			rule = append(rule, "-m", "set", matchSet, setName, "src")
 		} else {
-			rule = append(rule, "-m", "set", "--match-set", setName, "dst")
+			rule = append(rule, "-m", "set", matchSet, setName, "dst")
 		}
 	} else if len(sources) > 0 {
 		source := sources[0]
