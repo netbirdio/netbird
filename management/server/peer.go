@@ -660,7 +660,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	shouldStorePeer := false
 	updateRemotePeers := false
 
-	if login.UserID != "" {
+	if login.UserID == "" {
 		changed, err := am.handleUserPeer(ctx, peer, settings)
 		if err != nil {
 			return nil, nil, nil, err
