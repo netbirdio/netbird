@@ -549,7 +549,9 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 		return nil, nil, nil, status.NewPeerNotRegisteredError()
 	}
 
-	if peer.UserID == "" {
+	if peer.UserID != "" {
+		log.Infof("Peer has no userID")
+
 		user, err := account.FindUser(peer.UserID)
 		if err != nil {
 			return nil, nil, nil, err
@@ -631,6 +633,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	// it means that the client has already checked if it needs login and had been through the SSO flow
 	// so, we can skip this check and directly proceed with the login
 	if login.UserID == "" {
+		log.Info("Peer needs login")
 		err = am.checkIFPeerNeedsLoginWithoutLock(ctx, accountID, login)
 		if err != nil {
 			return nil, nil, nil, err
@@ -660,7 +663,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	shouldStorePeer := false
 	updateRemotePeers := false
 
-	if login.UserID == "" {
+	if login.UserID != "" {
 		changed, err := am.handleUserPeer(ctx, peer, settings)
 		if err != nil {
 			return nil, nil, nil, err
