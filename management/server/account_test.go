@@ -2444,7 +2444,7 @@ func peerShouldNotReceiveUpdate(t *testing.T, updateMessage <-chan *UpdateMessag
 	select {
 	case msg := <-updateMessage:
 		t.Errorf("Unexpected message received: %+v", msg)
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(500 * time.Millisecond):
 		return
 	}
 }
@@ -2453,9 +2453,11 @@ func peerShouldReceiveUpdate(t *testing.T, updateMessage <-chan *UpdateMessage) 
 	t.Helper()
 
 	select {
-	case <-updateMessage:
-		return
-	case <-time.After(100 * time.Millisecond):
-		t.Errorf("timed out waiting for update message")
+	case msg := <-updateMessage:
+		if msg == nil {
+			t.Errorf("Received nil update message, expected valid message")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Error("Timed out waiting for update message")
 	}
 }

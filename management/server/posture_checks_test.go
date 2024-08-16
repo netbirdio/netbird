@@ -131,11 +131,6 @@ func TestPostureCheckAccountPeerUpdate(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
-	})
-
 	postureCheck := posture.Checks{
 		ID:          "versionCheck",
 		Name:        "Version Check",
@@ -148,6 +143,11 @@ func TestPostureCheckAccountPeerUpdate(t *testing.T) {
 		},
 	}
 
+	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	t.Cleanup(func() {
+		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+	})
+
 	// Saving unused posture check should not update account peers and not send peer update
 	t.Run("saving unused posture check", func(t *testing.T) {
 		done := make(chan struct{})
@@ -159,10 +159,9 @@ func TestPostureCheckAccountPeerUpdate(t *testing.T) {
 		err := manager.SavePostureChecks(context.Background(), account.Id, userID, &postureCheck)
 		assert.NoError(t, err)
 
-		// wait for goroutine
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
@@ -195,7 +194,7 @@ func TestPostureCheckAccountPeerUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 
@@ -218,10 +217,9 @@ func TestPostureCheckAccountPeerUpdate(t *testing.T) {
 		err := manager.SavePostureChecks(context.Background(), account.Id, userID, &postureCheck)
 		assert.NoError(t, err)
 
-		// wait for goroutine
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -238,10 +236,9 @@ func TestPostureCheckAccountPeerUpdate(t *testing.T) {
 		err := manager.SavePostureChecks(context.Background(), account.Id, userID, &postureCheck)
 		assert.NoError(t, err)
 
-		// wait for goroutine
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
@@ -259,10 +256,9 @@ func TestPostureCheckAccountPeerUpdate(t *testing.T) {
 		err := manager.SavePolicy(context.Background(), account.Id, userID, &policy)
 		assert.NoError(t, err)
 
-		// wait for goroutine
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})

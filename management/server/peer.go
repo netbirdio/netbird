@@ -220,7 +220,6 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	}
 
 	account.UpdatePeer(peer)
-	account.Network.IncSerial()
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
 		return nil, err

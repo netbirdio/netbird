@@ -73,9 +73,9 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	action := activity.PostureCheckCreated
 	if exists {
 		action = activity.PostureCheckUpdated
+		account.Network.IncSerial()
 	}
 
-	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(ctx, account); err != nil {
 		return err
 	}

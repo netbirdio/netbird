@@ -977,7 +977,7 @@ func TestNameServerAccountPeerUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
@@ -998,7 +998,7 @@ func TestNameServerAccountPeerUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})

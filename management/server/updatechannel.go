@@ -238,7 +238,6 @@ func isNewPeerUpdateMessage(lastSentUpdate, currUpdateToSend *UpdateMessage) (bo
 	}
 
 	differ, err := diff.NewDiffer(
-		diff.SliceOrdering(true),
 		diff.CustomValueDiffers(differs.NewNameServerComparator(), differs.NewRouteComparator()),
 	)
 	if err != nil {

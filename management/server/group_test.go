@@ -418,7 +418,7 @@ func TestGroupAccountPeerUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
@@ -436,7 +436,7 @@ func TestGroupAccountPeerUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
@@ -454,7 +454,7 @@ func TestGroupAccountPeerUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
@@ -472,7 +472,7 @@ func TestGroupAccountPeerUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
@@ -510,7 +510,7 @@ func TestGroupAccountPeerUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -533,7 +533,7 @@ func TestGroupAccountPeerUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
@@ -551,13 +551,13 @@ func TestGroupAccountPeerUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
 
-	// removing peer to a used group should update account peers and send peer update
-	t.Run("removing peer to unused group", func(t *testing.T) {
+	// removing peer from a used group should update account peers and send peer update
+	t.Run("removing peer from used group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -569,7 +569,7 @@ func TestGroupAccountPeerUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})

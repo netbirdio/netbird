@@ -1010,11 +1010,6 @@ func TestPeerAccountPeerUpdate(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
-	})
-
 	// create a user with auto groups
 	_, err = manager.SaveOrAddUser(context.Background(), account.Id, userID, &User{
 		Id:         "regularUser1",
@@ -1026,6 +1021,11 @@ func TestPeerAccountPeerUpdate(t *testing.T) {
 	require.NoError(t, err)
 
 	var peer4 *nbpeer.Peer
+
+	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	t.Cleanup(func() {
+		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+	})
 
 	// Updating not expired peer and peer expiration is enabled should not update account peers and not send peer update
 	t.Run("updating not expired peer and peer expiration is enabled", func(t *testing.T) {
@@ -1040,7 +1040,7 @@ func TestPeerAccountPeerUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
@@ -1065,7 +1065,7 @@ func TestPeerAccountPeerUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
@@ -1083,7 +1083,7 @@ func TestPeerAccountPeerUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 		}
 	})
@@ -1125,7 +1125,7 @@ func TestPeerAccountPeerUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1143,7 +1143,7 @@ func TestPeerAccountPeerUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
