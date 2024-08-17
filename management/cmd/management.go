@@ -180,7 +180,7 @@ var (
 				}
 			}
 
-			mmdbFilename, geonamesdbFilename := geolocation.GetMaxMindFilenames(config.Datadir, disableGeoliteUpdate)
+			mmdbFilename, geonamesdbFilename := geolocation.GetMaxMindFilenames(config.Datadir, !disableGeoliteUpdate)
 
 			geo, err := geolocation.NewGeolocation(ctx, config.Datadir, mmdbFilename, geonamesdbFilename)
 			if err != nil {
