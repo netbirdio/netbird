@@ -31,7 +31,7 @@ func loadGeolocationDatabases(dataDir string, mmdbFile string, geonamesdbFile st
 			continue
 		}
 
-		log.Infof("geo location file %s not found , file will be downloaded", file)
+		log.Infof("Geolocation database file %s not found, file will be downloaded", file)
 
 		switch file {
 		case mmdbFile:
