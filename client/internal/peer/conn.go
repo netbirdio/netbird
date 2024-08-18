@@ -320,11 +320,11 @@ func (conn *Conn) reconnectLoopWithRetry() {
 
 			if conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
 				if conn.statusRelay == StatusDisconnected || conn.statusICE == StatusDisconnected {
-					conn.log.Tracef("ticker timedout, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
+					conn.log.Tracef("connectivity guard timedout, relay state: %s, ice state: %s", conn.statusRelay, conn.statusICE)
 				}
 			} else {
 				if conn.statusICE == StatusDisconnected {
-					conn.log.Tracef("ticker timedout, ice state: %s", conn.statusICE)
+					conn.log.Tracef("connectivity guard timedout, ice state: %s", conn.statusICE)
 				}
 			}
 
@@ -438,7 +438,9 @@ func (conn *Conn) iCEConnectionIsReady(priority ConnPriority, iceConnInfo ICECon
 		}
 	}
 
-	err = conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, endpointUdpAddr, conn.config.WgConfig.PreSharedKey)
+	conn.workerRelay.DisableWgWatcher()
+
+	err = conn.configureWGEndpoint(endpointUdpAddr)
 	if err != nil {
 		if wgProxy != nil {
 			if err := wgProxy.CloseConn(); err != nil {
@@ -476,6 +478,7 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 		if err != nil {
 			conn.log.Errorf("failed to switch to relay conn: %v", err)
 		}
+		conn.workerRelay.EnableWgWatcher()
 	}
 
 	changed := conn.statusICE != newState && newState != StatusConnecting
@@ -546,6 +549,7 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 		return
 	}
 	wgConfigWorkaround()
+	conn.workerRelay.EnableWgWatcher()
 
 	if conn.wgProxyRelay != nil {
 		if err := conn.wgProxyRelay.CloseConn(); err != nil {
