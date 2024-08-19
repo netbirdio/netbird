@@ -161,10 +161,9 @@ type DefaultAccountManager struct {
 	eventStore           activity.Store
 	geo                  *geolocation.Geolocation
 
-	requests     map[string][]*Request
-	mu           sync.Mutex
-	requestCh    chan *Request
-	requestCount *int32
+	getAccountRequests  map[string][]*AccountRequest
+	mu                  sync.Mutex
+	getAccountRequestCh chan *AccountRequest
 
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
@@ -286,8 +285,8 @@ type UserInfo struct {
 	Permissions          UserPermissions                            `json:"permissions"`
 }
 
-// Request holds the result channel to return the result to the calling goroutine.
-type Request struct {
+// AccountRequest holds the result channel to return the requested account.
+type AccountRequest struct {
 	AccountID  string
 	ResultChan chan *AccountResult
 }
@@ -981,8 +980,8 @@ func BuildManager(
 		dnsDomain:                dnsDomain,
 		eventStore:               eventStore,
 		peerLoginExpiry:          NewDefaultScheduler(),
-		requests:                 make(map[string][]*Request),
-		requestCh:                make(chan *Request),
+		getAccountRequests:       make(map[string][]*AccountRequest),
+		getAccountRequestCh:      make(chan *AccountRequest),
 		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
 		integratedPeerValidator:  integratedPeerValidator,
 		metrics:                  metrics,
@@ -1046,7 +1045,7 @@ func BuildManager(
 		am.onPeersInvalidated(ctx, accountID)
 	})
 
-	go am.processRequests(ctx)
+	go am.processGetAccountRequests(ctx)
 
 	return am, nil
 }
@@ -2229,24 +2228,24 @@ func separateGroups(autoGroups []string, allGroups map[string]*nbgroup.Group) ([
 }
 
 func (am *DefaultAccountManager) GetAccountWithBackpressure(ctx context.Context, accountID string) (*Account, error) {
-	req := &Request{
+	req := &AccountRequest{
 		AccountID:  accountID,
 		ResultChan: make(chan *AccountResult, 1),
 	}
 
 	log.WithContext(ctx).Debugf("requesting account with backpressure: %s", accountID)
 	startTime := time.Now()
-	am.requestCh <- req
+	am.getAccountRequestCh <- req
 
 	result := <-req.ResultChan
 	log.WithContext(ctx).Debugf("got account with backpressure after %s", time.Since(startTime))
 	return result.Account, result.Err
 }
 
-func (am *DefaultAccountManager) processBatch(ctx context.Context, accountID string) {
+func (am *DefaultAccountManager) processGetAccountBatch(ctx context.Context, accountID string) {
 	am.mu.Lock()
-	requests := am.requests[accountID]
-	delete(am.requests, accountID)
+	requests := am.getAccountRequests[accountID]
+	delete(am.getAccountRequests, accountID)
 	am.mu.Unlock()
 
 	if len(requests) == 0 {

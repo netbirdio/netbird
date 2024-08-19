@@ -972,16 +972,16 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 	wg.Wait()
 }
 
-func (am *DefaultAccountManager) processRequests(ctx context.Context) {
+func (am *DefaultAccountManager) processGetAccountRequests(ctx context.Context) {
 	for {
 		select {
-		case req := <-am.requestCh:
+		case req := <-am.getAccountRequestCh:
 			am.mu.Lock()
-			am.requests[req.AccountID] = append(am.requests[req.AccountID], req)
-			if len(am.requests[req.AccountID]) == 1 {
+			am.getAccountRequests[req.AccountID] = append(am.getAccountRequests[req.AccountID], req)
+			if len(am.getAccountRequests[req.AccountID]) == 1 {
 				go func(ctx context.Context, accountID string) {
 					time.Sleep(300 * time.Millisecond)
-					am.processBatch(ctx, accountID)
+					am.processGetAccountBatch(ctx, accountID)
 				}(ctx, req.AccountID)
 			}
 			am.mu.Unlock()
