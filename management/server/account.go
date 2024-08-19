@@ -161,8 +161,9 @@ type DefaultAccountManager struct {
 	eventStore           activity.Store
 	geo                  *geolocation.Geolocation
 
-	mu          sync.Mutex
-	requestChan chan AccountRequest
+	requests  map[string][]*Request
+	mu        sync.Mutex
+	requestCh chan *Request
 
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
@@ -284,14 +285,16 @@ type UserInfo struct {
 	Permissions          UserPermissions                            `json:"permissions"`
 }
 
-type AccountRequest struct {
+// Request holds the result channel to return the result to the calling goroutine.
+type Request struct {
 	AccountID  string
-	ResultChan chan *AccountResponse
+	ResultChan chan *AccountResult
 }
 
-type AccountResponse struct {
-	Account *Account
-	Error   error
+// AccountResult holds the account data or an error.
+type AccountResult struct {
+	Account *Account // Replace with your actual Account type
+	Err     error
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
@@ -977,7 +980,8 @@ func BuildManager(
 		dnsDomain:                dnsDomain,
 		eventStore:               eventStore,
 		peerLoginExpiry:          NewDefaultScheduler(),
-		requestChan:              make(chan AccountRequest),
+		requests:                 make(map[string][]*Request),
+		requestCh:                make(chan *Request),
 		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
 		integratedPeerValidator:  integratedPeerValidator,
 		metrics:                  metrics,
@@ -1041,7 +1045,7 @@ func BuildManager(
 		am.onPeersInvalidated(ctx, accountID)
 	})
 
-	go am.processRequests(ctx)
+	go am.processRequests()
 
 	return am, nil
 }
@@ -2224,12 +2228,39 @@ func separateGroups(autoGroups []string, allGroups map[string]*nbgroup.Group) ([
 }
 
 func (am *DefaultAccountManager) GetAccountWithBackpressure(ctx context.Context, accountID string) (*Account, error) {
-	resultChan := make(chan *AccountResponse)
-	request := AccountRequest{
+	req := &Request{
 		AccountID:  accountID,
-		ResultChan: resultChan,
+		ResultChan: make(chan *AccountResult, 1),
 	}
-	am.requestChan <- request
-	resp := <-resultChan
-	return resp.Account, resp.Error
+
+	// Send the request to the processing channel
+	am.requestCh <- req
+
+	// Wait for the result
+	result := <-req.ResultChan
+	return result.Account, result.Err
+}
+
+func (am *DefaultAccountManager) processBatch(accountID string) {
+	am.mu.Lock()
+	requests := am.requests[accountID]
+	delete(am.requests, accountID)
+	am.mu.Unlock()
+
+	if len(requests) == 0 {
+		return
+	}
+
+	// Perform the database query
+	ctx := context.Background()
+	fmt.Printf("Processing batch for account %s\n", accountID)
+	account, err := am.Store.GetAccount(ctx, accountID)
+	result := &AccountResult{Account: account, Err: err}
+
+	fmt.Printf("Sending to %d requests\n", len(requests))
+	// Send the result to all waiting requests
+	for _, req := range requests {
+		req.ResultChan <- result
+		close(req.ResultChan)
+	}
 }

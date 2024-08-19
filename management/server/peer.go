@@ -972,38 +972,31 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 	wg.Wait()
 }
 
-func (am *DefaultAccountManager) processRequests(ctx context.Context) {
+func (am *DefaultAccountManager) processRequests() {
+	// Map to track active goroutines for each AccountID
+	activeGoroutines := make(map[string]bool)
+
 	for {
-		requestBatch := make(map[string][]chan *AccountResponse)
-
-		// Collect all requests for 0.5 second
-		timeout := time.After(500 * time.Millisecond)
-		collecting := true
-
-		for collecting {
-			select {
-			case request := <-am.requestChan:
-				if _, exists := requestBatch[request.AccountID]; !exists {
-					requestBatch[request.AccountID] = []chan *AccountResponse{}
-				}
-				requestBatch[request.AccountID] = append(requestBatch[request.AccountID], request.ResultChan)
-			case <-timeout:
-				collecting = false
-			case <-ctx.Done():
-				return
+		select {
+		case req := <-am.requestCh:
+			am.mu.Lock()
+			am.requests[req.AccountID] = append(am.requests[req.AccountID], req)
+			if !activeGoroutines[req.AccountID] {
+				// Mark the goroutine as active
+				activeGoroutines[req.AccountID] = true
+				timeout := time.NewTimer(500 * time.Millisecond)
+				go func(accountID string) {
+					defer func() {
+						am.mu.Lock()
+						// Mark the goroutine as inactive
+						activeGoroutines[accountID] = false
+						am.mu.Unlock()
+					}()
+					<-timeout.C
+					am.processBatch(accountID)
+				}(req.AccountID)
 			}
-		}
-
-		for accountID, chans := range requestBatch {
-			account, err := am.Store.GetAccount(context.Background(), accountID)
-			resp := AccountResponse{
-				Account: account,
-				Error:   err,
-			}
-
-			for _, resultChan := range chans {
-				resultChan <- &resp
-			}
+			am.mu.Unlock()
 		}
 	}
 }
