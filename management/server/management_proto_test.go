@@ -708,7 +708,7 @@ func Test_LoginPerformance(t *testing.T) {
 
 					account, err := createAccount(am, fmt.Sprintf("account-%d", j), fmt.Sprintf("user-%d", j), fmt.Sprintf("domain-%d", j))
 					if err != nil {
-						t.Logf("acocunt creation failed: %v", err)
+						t.Logf("account creation failed: %v", err)
 						return
 					}
 
