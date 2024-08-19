@@ -31,7 +31,7 @@ type MockAccountManager struct {
 	ListUsersFunc                       func(ctx context.Context, accountID string) ([]*server.User, error)
 	GetPeersFunc                        func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error)
 	MarkPeerConnectedFunc               func(ctx context.Context, peerKey string, connected bool, realIP net.IP) error
-	SyncAndMarkPeerFunc                 func(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error)
+	SyncAndMarkPeerFunc                 func(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error)
 	DeletePeerFunc                      func(ctx context.Context, accountID, peerKey, userID string) error
 	GetNetworkMapFunc                   func(ctx context.Context, peerKey string) (*server.NetworkMap, error)
 	GetPeerNetworkFunc                  func(ctx context.Context, peerKey string) (*server.Network, error)
@@ -40,7 +40,9 @@ type MockAccountManager struct {
 	GetAllGroupsFunc                    func(ctx context.Context, accountID, userID string) ([]*group.Group, error)
 	GetGroupByNameFunc                  func(ctx context.Context, accountID, groupName string) (*group.Group, error)
 	SaveGroupFunc                       func(ctx context.Context, accountID, userID string, group *group.Group) error
+	SaveGroupsFunc                      func(ctx context.Context, accountID, userID string, groups []*group.Group) error
 	DeleteGroupFunc                     func(ctx context.Context, accountID, userId, groupID string) error
+	DeleteGroupsFunc                    func(ctx context.Context, accountId, userId string, groupIDs []string) error
 	ListGroupsFunc                      func(ctx context.Context, accountID string) ([]*group.Group, error)
 	GroupAddPeerFunc                    func(ctx context.Context, accountID, groupID, peerID string) error
 	GroupDeletePeerFunc                 func(ctx context.Context, accountID, groupID, peerID string) error
@@ -64,7 +66,9 @@ type MockAccountManager struct {
 	ListSetupKeysFunc                   func(ctx context.Context, accountID, userID string) ([]*server.SetupKey, error)
 	SaveUserFunc                        func(ctx context.Context, accountID, userID string, user *server.User) (*server.UserInfo, error)
 	SaveOrAddUserFunc                   func(ctx context.Context, accountID, userID string, user *server.User, addIfNotExists bool) (*server.UserInfo, error)
+	SaveOrAddUsersFunc                  func(ctx context.Context, accountID, initiatorUserID string, update []*server.User, addIfNotExists bool) ([]*server.UserInfo, error)
 	DeleteUserFunc                      func(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error
+	DeleteRegularUsersFunc              func(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string) error
 	CreatePATFunc                       func(ctx context.Context, accountID string, initiatorUserID string, targetUserId string, tokenName string, expiresIn int) (*server.PersonalAccessTokenGenerated, error)
 	DeletePATFunc                       func(ctx context.Context, accountID string, initiatorUserID string, targetUserId string, tokenID string) error
 	GetPATFunc                          func(ctx context.Context, accountID string, initiatorUserID string, targetUserId string, tokenID string) (*server.PersonalAccessToken, error)
@@ -103,14 +107,14 @@ type MockAccountManager struct {
 	GetAccountIDForPeerKeyFunc          func(ctx context.Context, peerKey string) (string, error)
 }
 
-func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error) {
+func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *server.NetworkMap, []*posture.Checks, error) {
 	if am.SyncAndMarkPeerFunc != nil {
-		return am.SyncAndMarkPeerFunc(ctx, peerPubKey, meta, realIP)
+		return am.SyncAndMarkPeerFunc(ctx, accountID, peerPubKey, meta, realIP)
 	}
 	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
 }
 
-func (am *MockAccountManager) CancelPeerRoutines(_ context.Context, peer *nbpeer.Peer) error {
+func (am *MockAccountManager) OnPeerDisconnected(_ context.Context, accountID string, peerPubKey string) error {
 	// TODO implement me
 	panic("implement me")
 }
@@ -308,12 +312,28 @@ func (am *MockAccountManager) SaveGroup(ctx context.Context, accountID, userID s
 	return status.Errorf(codes.Unimplemented, "method SaveGroup is not implemented")
 }
 
+// SaveGroups mock implementation of SaveGroups from server.AccountManager interface
+func (am *MockAccountManager) SaveGroups(ctx context.Context, accountID, userID string, groups []*group.Group) error {
+	if am.SaveGroupsFunc != nil {
+		return am.SaveGroupsFunc(ctx, accountID, userID, groups)
+	}
+	return status.Errorf(codes.Unimplemented, "method SaveGroups is not implemented")
+}
+
 // DeleteGroup mock implementation of DeleteGroup from server.AccountManager interface
 func (am *MockAccountManager) DeleteGroup(ctx context.Context, accountId, userId, groupID string) error {
 	if am.DeleteGroupFunc != nil {
 		return am.DeleteGroupFunc(ctx, accountId, userId, groupID)
 	}
 	return status.Errorf(codes.Unimplemented, "method DeleteGroup is not implemented")
+}
+
+// DeleteGroups mock implementation of DeleteGroups from server.AccountManager interface
+func (am *MockAccountManager) DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error {
+	if am.DeleteGroupsFunc != nil {
+		return am.DeleteGroupsFunc(ctx, accountId, userId, groupIDs)
+	}
+	return status.Errorf(codes.Unimplemented, "method DeleteGroups is not implemented")
 }
 
 // ListGroups mock implementation of ListGroups from server.AccountManager interface
@@ -502,12 +522,28 @@ func (am *MockAccountManager) SaveOrAddUser(ctx context.Context, accountID, user
 	return nil, status.Errorf(codes.Unimplemented, "method SaveOrAddUser is not implemented")
 }
 
+// SaveOrAddUsers mocks SaveOrAddUsers of the AccountManager interface
+func (am *MockAccountManager) SaveOrAddUsers(ctx context.Context, accountID, userID string, users []*server.User, addIfNotExists bool) ([]*server.UserInfo, error) {
+	if am.SaveOrAddUsersFunc != nil {
+		return am.SaveOrAddUsersFunc(ctx, accountID, userID, users, addIfNotExists)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method SaveOrAddUsers is not implemented")
+}
+
 // DeleteUser mocks DeleteUser of the AccountManager interface
 func (am *MockAccountManager) DeleteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error {
 	if am.DeleteUserFunc != nil {
 		return am.DeleteUserFunc(ctx, accountID, initiatorUserID, targetUserID)
 	}
 	return status.Errorf(codes.Unimplemented, "method DeleteUser is not implemented")
+}
+
+// DeleteRegularUsers mocks DeleteRegularUsers of the AccountManager interface
+func (am *MockAccountManager) DeleteRegularUsers(ctx context.Context, accountID string, initiatorUserID string, targetUserIDs []string) error {
+	if am.DeleteRegularUsersFunc != nil {
+		return am.DeleteRegularUsersFunc(ctx, accountID, initiatorUserID, targetUserIDs)
+	}
+	return status.Errorf(codes.Unimplemented, "method DeleteRegularUsers is not implemented")
 }
 
 func (am *MockAccountManager) InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error {

@@ -156,7 +156,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		log.WithContext(ctx).Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
 	}
 
-	peer, netMap, postureChecks, err := s.accountManager.SyncAndMarkPeer(ctx, peerKey.String(), extractPeerMeta(ctx, syncReq.GetMeta()), realIP)
+	peer, netMap, postureChecks, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), extractPeerMeta(ctx, syncReq.GetMeta()), realIP)
 	if err != nil {
 		return mapError(ctx, err)
 	}
@@ -179,11 +179,11 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart))
 	}
 
-	return s.handleUpdates(ctx, peerKey, peer, updates, srv)
+	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv)
 }
 
 // handleUpdates sends updates to the connected peer until the updates channel is closed.
-func (s *GRPCServer) handleUpdates(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *UpdateMessage, srv proto.ManagementService_SyncServer) error {
+func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *UpdateMessage, srv proto.ManagementService_SyncServer) error {
 	for {
 		select {
 		// condition when there are some updates
@@ -194,12 +194,12 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, peerKey wgtypes.Key, pee
 
 			if !open {
 				log.WithContext(ctx).Debugf("updates channel for peer %s was closed", peerKey.String())
-				s.cancelPeerRoutines(ctx, peer)
+				s.cancelPeerRoutines(ctx, accountID, peer)
 				return nil
 			}
 			log.WithContext(ctx).Debugf("received an update for peer %s", peerKey.String())
 
-			if err := s.sendUpdate(ctx, peerKey, peer, update, srv); err != nil {
+			if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv); err != nil {
 				return err
 			}
 
@@ -207,7 +207,7 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, peerKey wgtypes.Key, pee
 		case <-srv.Context().Done():
 			// happens when connection drops, e.g. client disconnects
 			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
-			s.cancelPeerRoutines(ctx, peer)
+			s.cancelPeerRoutines(ctx, accountID, peer)
 			return srv.Context().Err()
 		}
 	}
@@ -215,10 +215,10 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, peerKey wgtypes.Key, pee
 
 // sendUpdate encrypts the update message using the peer key and the server's wireguard key,
 // then sends the encrypted message to the connected peer via the sync server.
-func (s *GRPCServer) sendUpdate(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, update *UpdateMessage, srv proto.ManagementService_SyncServer) error {
+func (s *GRPCServer) sendUpdate(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, update *UpdateMessage, srv proto.ManagementService_SyncServer) error {
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, update.Update)
 	if err != nil {
-		s.cancelPeerRoutines(ctx, peer)
+		s.cancelPeerRoutines(ctx, accountID, peer)
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
 	err = srv.SendMsg(&proto.EncryptedMessage{
@@ -226,17 +226,17 @@ func (s *GRPCServer) sendUpdate(ctx context.Context, peerKey wgtypes.Key, peer *
 		Body:     encryptedResp,
 	})
 	if err != nil {
-		s.cancelPeerRoutines(ctx, peer)
+		s.cancelPeerRoutines(ctx, accountID, peer)
 		return status.Errorf(codes.Internal, "failed sending update message")
 	}
 	log.WithContext(ctx).Debugf("sent an update to peer %s", peerKey.String())
 	return nil
 }
 
-func (s *GRPCServer) cancelPeerRoutines(ctx context.Context, peer *nbpeer.Peer) {
+func (s *GRPCServer) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer) {
 	s.peersUpdateManager.CloseChannel(ctx, peer.ID)
 	s.turnCredentialsManager.CancelRefresh(peer.ID)
-	_ = s.accountManager.CancelPeerRoutines(ctx, peer)
+	_ = s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key)
 	s.ephemeralManager.OnPeerDisconnected(ctx, peer)
 }
 
@@ -257,7 +257,7 @@ func (s *GRPCServer) validateToken(ctx context.Context, jwtToken string) (string
 	}
 
 	if err := s.accountManager.CheckUserAccessByJWTGroups(ctx, claims); err != nil {
-		return "", status.Errorf(codes.PermissionDenied, err.Error())
+		return "", status.Error(codes.PermissionDenied, err.Error())
 	}
 
 	return claims.UserId, nil
@@ -268,15 +268,15 @@ func mapError(ctx context.Context, err error) error {
 	if e, ok := internalStatus.FromError(err); ok {
 		switch e.Type() {
 		case internalStatus.PermissionDenied:
-			return status.Errorf(codes.PermissionDenied, e.Message)
+			return status.Error(codes.PermissionDenied, e.Message)
 		case internalStatus.Unauthorized:
-			return status.Errorf(codes.PermissionDenied, e.Message)
+			return status.Error(codes.PermissionDenied, e.Message)
 		case internalStatus.Unauthenticated:
-			return status.Errorf(codes.PermissionDenied, e.Message)
+			return status.Error(codes.PermissionDenied, e.Message)
 		case internalStatus.PreconditionFailed:
-			return status.Errorf(codes.FailedPrecondition, e.Message)
+			return status.Error(codes.FailedPrecondition, e.Message)
 		case internalStatus.NotFound:
-			return status.Errorf(codes.NotFound, e.Message)
+			return status.Error(codes.NotFound, e.Message)
 		default:
 		}
 	}
@@ -533,57 +533,50 @@ func toPeerConfig(peer *nbpeer.Peer, network *Network, dnsName string) *proto.Pe
 	}
 }
 
-func toRemotePeerConfig(peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
-	remotePeers := []*proto.RemotePeerConfig{}
-	for _, rPeer := range peers {
-		fqdn := rPeer.FQDN(dnsName)
-		remotePeers = append(remotePeers, &proto.RemotePeerConfig{
-			WgPubKey:   rPeer.Key,
-			AllowedIps: []string{fmt.Sprintf(AllowedIPsFormat, rPeer.IP)},
-			SshConfig:  &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
-			Fqdn:       fqdn,
-		})
-	}
-	return remotePeers
-}
-
-func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turnCredentials *TURNCredentials, networkMap *NetworkMap, dnsName string, checks []*posture.Checks) *proto.SyncResponse {
-	wtConfig := toWiretrusteeConfig(config, turnCredentials)
-
-	pConfig := toPeerConfig(peer, networkMap.Network, dnsName)
-
-	remotePeers := toRemotePeerConfig(networkMap.Peers, dnsName)
-
-	routesUpdate := toProtocolRoutes(networkMap.Routes)
-
-	dnsUpdate := toProtocolDNSConfig(networkMap.DNSConfig)
-
-	offlinePeers := toRemotePeerConfig(networkMap.OfflinePeers, dnsName)
-
-	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules)
-
-	routesFirewallRules := toProtocolRoutesFirewallRules(networkMap.RoutesFirewallRules)
-
-	return &proto.SyncResponse{
-		WiretrusteeConfig:  wtConfig,
-		PeerConfig:         pConfig,
-		RemotePeers:        remotePeers,
-		RemotePeersIsEmpty: len(remotePeers) == 0,
+func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turnCredentials *TURNCredentials, networkMap *NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache) *proto.SyncResponse {
+	response := &proto.SyncResponse{
+		WiretrusteeConfig: toWiretrusteeConfig(config, turnCredentials),
+		PeerConfig:        toPeerConfig(peer, networkMap.Network, dnsName),
 		NetworkMap: &proto.NetworkMap{
-			Serial:                     networkMap.Network.CurrentSerial(),
-			PeerConfig:                 pConfig,
-			RemotePeers:                remotePeers,
-			OfflinePeers:               offlinePeers,
-			RemotePeersIsEmpty:         len(remotePeers) == 0,
-			Routes:                     routesUpdate,
-			DNSConfig:                  dnsUpdate,
-			FirewallRules:              firewallRules,
-			FirewallRulesIsEmpty:       len(firewallRules) == 0,
-			RoutesFirewallRules:        routesFirewallRules,
-			RoutesFirewallRulesIsEmpty: len(routesFirewallRules) == 0,
+			Serial:    networkMap.Network.CurrentSerial(),
+			Routes:    toProtocolRoutes(networkMap.Routes),
+			DNSConfig: toProtocolDNSConfig(networkMap.DNSConfig, dnsCache),
 		},
 		Checks: toProtocolChecks(ctx, checks),
 	}
+
+	response.NetworkMap.PeerConfig = response.PeerConfig
+
+	allPeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
+	allPeers = appendRemotePeerConfig(allPeers, networkMap.Peers, dnsName)
+	response.RemotePeers = allPeers
+	response.NetworkMap.RemotePeers = allPeers
+	response.RemotePeersIsEmpty = len(allPeers) == 0
+	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
+
+	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName)
+
+	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules)
+	response.NetworkMap.FirewallRules = firewallRules
+	response.NetworkMap.FirewallRulesIsEmpty = len(firewallRules) == 0
+
+	routesFirewallRules := toProtocolRoutesFirewallRules(networkMap.RoutesFirewallRules)
+	response.NetworkMap.RoutesFirewallRules = routesFirewallRules
+	response.NetworkMap.RoutesFirewallRulesIsEmpty = len(routesFirewallRules) == 0
+
+	return response
+}
+
+func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
+	for _, rPeer := range peers {
+		dst = append(dst, &proto.RemotePeerConfig{
+			WgPubKey:   rPeer.Key,
+			AllowedIps: []string{rPeer.IP.String() + "/32"},
+			SshConfig:  &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
+			Fqdn:       rPeer.FQDN(dnsName),
+		})
+	}
+	return dst
 }
 
 // IsHealthy indicates whether the service is healthy
@@ -601,7 +594,7 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 	} else {
 		turnCredentials = nil
 	}
-	plainResp := toSyncResponse(ctx, s.config, peer, turnCredentials, networkMap, s.accountManager.GetDNSDomain(), postureChecks)
+	plainResp := toSyncResponse(ctx, s.config, peer, turnCredentials, networkMap, s.accountManager.GetDNSDomain(), postureChecks, nil)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {

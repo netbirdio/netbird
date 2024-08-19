@@ -37,6 +37,7 @@ const (
 	serverSSHAllowedFlag    = "allow-server-ssh"
 	extraIFaceBlackListFlag = "extra-iface-blacklist"
 	dnsRouteIntervalFlag    = "dns-router-interval"
+	systemInfoFlag          = "system-info"
 )
 
 var (
@@ -55,6 +56,7 @@ var (
 	managementURL           string
 	adminURL                string
 	setupKey                string
+	setupKeyPath            string
 	hostName                string
 	preSharedKey            string
 	natExternalIPs          []string
@@ -69,6 +71,7 @@ var (
 	autoConnectDisabled     bool
 	extraIFaceBlackList     []string
 	anonymizeFlag           bool
+	debugSystemInfoFlag     bool
 	dnsRouteInterval        time.Duration
 
 	rootCmd = &cobra.Command{
@@ -91,12 +94,15 @@ func init() {
 	oldDefaultConfigPathDir = "/etc/wiretrustee/"
 	oldDefaultLogFileDir = "/var/log/wiretrustee/"
 
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		defaultConfigPathDir = os.Getenv("PROGRAMDATA") + "\\Netbird\\"
 		defaultLogFileDir = os.Getenv("PROGRAMDATA") + "\\Netbird\\"
 
 		oldDefaultConfigPathDir = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\"
 		oldDefaultLogFileDir = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\"
+	case "freebsd":
+		defaultConfigPathDir = "/var/db/netbird/"
 	}
 
 	defaultConfigPath = defaultConfigPathDir + "config.json"
@@ -121,8 +127,10 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "Netbird config file location")
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets Netbird log level")
-	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the log will be output to stdout")
+	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the log will be output to stdout. If syslog is specified the log will be sent to syslog daemon.")
 	rootCmd.PersistentFlags().StringVarP(&setupKey, "setup-key", "k", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
+	rootCmd.PersistentFlags().StringVar(&setupKeyPath, "setup-key-file", "", "The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.")
+	rootCmd.MarkFlagsMutuallyExclusive("setup-key", "setup-key-file")
 	rootCmd.PersistentFlags().StringVar(&preSharedKey, preSharedKeyFlag, "", "Sets Wireguard PreSharedKey property. If set, then only peers that have the same key can communicate.")
 	rootCmd.PersistentFlags().StringVarP(&hostName, "hostname", "n", "", "Sets a custom hostname for the device")
 	rootCmd.PersistentFlags().BoolVarP(&anonymizeFlag, "anonymize", "A", false, "anonymize IP addresses and non-netbird.io domains in logs and status output")
@@ -165,6 +173,8 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&rosenpassPermissive, rosenpassPermissiveFlag, false, "[Experimental] Enable Rosenpass in permissive mode to allow this peer to accept WireGuard connections without requiring Rosenpass functionality from peers that do not have Rosenpass enabled.")
 	upCmd.PersistentFlags().BoolVar(&serverSSHAllowed, serverSSHAllowedFlag, false, "Allow SSH server on peer. If enabled, the SSH server will be permitted")
 	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
+
+	debugCmd.PersistentFlags().BoolVarP(&debugSystemInfoFlag, systemInfoFlag, "S", false, "Adds system information to the debug bundle")
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
@@ -244,6 +254,21 @@ var CLIBackOffSettings = &backoff.ExponentialBackOff{
 	MaxElapsedTime:      30 * time.Second,
 	Stop:                backoff.Stop,
 	Clock:               backoff.SystemClock,
+}
+
+func getSetupKey() (string, error) {
+	if setupKeyPath != "" && setupKey == "" {
+		return getSetupKeyFromFile(setupKeyPath)
+	}
+	return setupKey, nil
+}
+
+func getSetupKeyFromFile(setupKeyPath string) (string, error) {
+	data, err := os.ReadFile(setupKeyPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read setup key file: %v", err)
+	}
+	return strings.TrimSpace(string(data)), nil
 }
 
 func handleRebrand(cmd *cobra.Command) error {

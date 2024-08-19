@@ -99,6 +99,11 @@ func routeChanged(nexthop systemops.Nexthop, intf *net.Interface, routes []syste
 		return false
 	}
 
+	if isSoftInterface(nexthop.Intf.Name) {
+		log.Tracef("network monitor: ignoring default route change for soft interface %s", nexthop.Intf.Name)
+		return false
+	}
+
 	unspec := getUnspecifiedPrefix(nexthop.IP)
 	defaultRoutes, foundMatchingRoute := processRoutes(nexthop, intf, routes, unspec)
 
@@ -119,7 +124,7 @@ func getUnspecifiedPrefix(ip netip.Addr) netip.Prefix {
 	return netip.PrefixFrom(netip.IPv4Unspecified(), 0)
 }
 
-func processRoutes(nexthop systemops.Nexthop, intf *net.Interface, routes []systemops.Route, unspec netip.Prefix) ([]string, bool) {
+func processRoutes(nexthop systemops.Nexthop, nexthopIntf *net.Interface, routes []systemops.Route, unspec netip.Prefix) ([]string, bool) {
 	var defaultRoutes []string
 	foundMatchingRoute := false
 
@@ -128,7 +133,7 @@ func processRoutes(nexthop systemops.Nexthop, intf *net.Interface, routes []syst
 			routeInfo := formatRouteInfo(r)
 			defaultRoutes = append(defaultRoutes, routeInfo)
 
-			if r.Nexthop == nexthop.IP && compareIntf(r.Interface, intf) == 0 {
+			if r.Nexthop == nexthop.IP && compareIntf(r.Interface, nexthopIntf) == 0 {
 				foundMatchingRoute = true
 				log.Debugf("network monitor: found matching default route: %s", routeInfo)
 			}
@@ -232,14 +237,18 @@ func stateFromInt(state uint8) string {
 }
 
 func compareIntf(a, b *net.Interface) int {
-	if a == nil && b == nil {
+	switch {
+	case a == nil && b == nil:
 		return 0
-	}
-	if a == nil {
+	case a == nil:
 		return -1
-	}
-	if b == nil {
+	case b == nil:
 		return 1
+	default:
+		return a.Index - b.Index
 	}
-	return a.Index - b.Index
+}
+
+func isSoftInterface(name string) bool {
+	return strings.Contains(strings.ToLower(name), "isatap") || strings.Contains(strings.ToLower(name), "teredo")
 }

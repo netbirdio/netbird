@@ -73,7 +73,7 @@ var testCases = []testCase{
 	{
 		name:               "To duplicate internal route without custom dialer via physical interface", // local route takes precedence
 		destination:        "10.0.0.2:53",
-		expectedSourceIP:   "10.0.0.1",
+		expectedSourceIP:   "127.0.0.1",
 		expectedDestPrefix: "10.0.0.0/8",
 		expectedNextHop:    "0.0.0.0",
 		expectedInterface:  "Loopback Pseudo-Interface 1",
@@ -110,7 +110,7 @@ var testCases = []testCase{
 	{
 		name:               "To more specific route (local) without custom dialer via physical interface",
 		destination:        "127.0.10.2:53",
-		expectedSourceIP:   "10.0.0.1",
+		expectedSourceIP:   "127.0.0.1",
 		expectedDestPrefix: "127.0.0.0/8",
 		expectedNextHop:    "0.0.0.0",
 		expectedInterface:  "Loopback Pseudo-Interface 1",
@@ -181,31 +181,6 @@ func testRoute(t *testing.T, destination string, dialer dialer) *FindNetRouteOut
 	return combinedOutput
 }
 
-func createAndSetupDummyInterface(t *testing.T, interfaceName, ipAddressCIDR string) string {
-	t.Helper()
-
-	ip, ipNet, err := net.ParseCIDR(ipAddressCIDR)
-	require.NoError(t, err)
-	subnetMaskSize, _ := ipNet.Mask.Size()
-	script := fmt.Sprintf(`New-NetIPAddress -InterfaceAlias "%s" -IPAddress "%s" -PrefixLength %d -PolicyStore ActiveStore -Confirm:$False`, interfaceName, ip.String(), subnetMaskSize)
-	_, err = exec.Command("powershell", "-Command", script).CombinedOutput()
-	require.NoError(t, err, "Failed to assign IP address to loopback adapter")
-
-	// Wait for the IP address to be applied
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	err = waitForIPAddress(ctx, interfaceName, ip.String())
-	require.NoError(t, err, "IP address not applied within timeout")
-
-	t.Cleanup(func() {
-		script = fmt.Sprintf(`Remove-NetIPAddress -InterfaceAlias "%s" -IPAddress "%s" -Confirm:$False`, interfaceName, ip.String())
-		_, err = exec.Command("powershell", "-Command", script).CombinedOutput()
-		require.NoError(t, err, "Failed to remove IP address from loopback adapter")
-	})
-
-	return interfaceName
-}
-
 func fetchOriginalGateway() (*RouteInfo, error) {
 	cmd := exec.Command("powershell", "-Command", "Get-NetRoute -DestinationPrefix 0.0.0.0/0 | Select-Object Nexthop, RouteMetric, InterfaceAlias | ConvertTo-Json")
 	output, err := cmd.CombinedOutput()
@@ -229,30 +204,6 @@ func verifyOutput(t *testing.T, output *FindNetRouteOutput, sourceIP, destPrefix
 	assert.Equal(t, destPrefix, output.DestinationPrefix, "Destination prefix mismatch")
 	assert.Equal(t, nextHop, output.NextHop, "Next hop mismatch")
 	assert.Equal(t, intf, output.InterfaceAlias, "Interface mismatch")
-}
-
-func waitForIPAddress(ctx context.Context, interfaceAlias, expectedIPAddress string) error {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			out, err := exec.Command("powershell", "-Command", fmt.Sprintf(`Get-NetIPAddress -InterfaceAlias "%s" | Select-Object -ExpandProperty IPAddress`, interfaceAlias)).CombinedOutput()
-			if err != nil {
-				return err
-			}
-
-			ipAddresses := strings.Split(strings.TrimSpace(string(out)), "\n")
-			for _, ip := range ipAddresses {
-				if strings.TrimSpace(ip) == expectedIPAddress {
-					return nil
-				}
-			}
-		}
-	}
 }
 
 func combineOutputs(outputs []FindNetRouteOutput) *FindNetRouteOutput {
@@ -285,5 +236,25 @@ func combineOutputs(outputs []FindNetRouteOutput) *FindNetRouteOutput {
 func setupDummyInterfacesAndRoutes(t *testing.T) {
 	t.Helper()
 
-	createAndSetupDummyInterface(t, "Loopback Pseudo-Interface 1", "10.0.0.1/8")
+	addDummyRoute(t, "10.0.0.0/8")
+}
+
+func addDummyRoute(t *testing.T, dstCIDR string) {
+	t.Helper()
+
+	script := fmt.Sprintf(`New-NetRoute -DestinationPrefix "%s" -InterfaceIndex 1 -PolicyStore ActiveStore`, dstCIDR)
+
+	output, err := exec.Command("powershell", "-Command", script).CombinedOutput()
+	if err != nil {
+		t.Logf("Failed to add dummy route: %v\nOutput: %s", err, output)
+		t.FailNow()
+	}
+
+	t.Cleanup(func() {
+		script = fmt.Sprintf(`Remove-NetRoute -DestinationPrefix  "%s" -InterfaceIndex 1 -Confirm:$false`, dstCIDR)
+		output, err := exec.Command("powershell", "-Command", script).CombinedOutput()
+		if err != nil {
+			t.Logf("Failed to remove dummy route: %v\nOutput: %s", err, output)
+		}
+	})
 }

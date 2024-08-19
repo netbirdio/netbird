@@ -178,6 +178,21 @@ func (a *Anonymizer) AnonymizeDNSLogLine(logEntry string) string {
 	})
 }
 
+// AnonymizeRoute anonymizes a route string by replacing IP addresses with anonymized versions and
+// domain names with random strings.
+func (a *Anonymizer) AnonymizeRoute(route string) string {
+	prefix, err := netip.ParsePrefix(route)
+	if err == nil {
+		ip := a.AnonymizeIPString(prefix.Addr().String())
+		return fmt.Sprintf("%s/%d", ip, prefix.Bits())
+	}
+	domains := strings.Split(route, ", ")
+	for i, domain := range domains {
+		domains[i] = a.AnonymizeDomain(domain)
+	}
+	return strings.Join(domains, ", ")
+}
+
 func isWellKnown(addr netip.Addr) bool {
 	wellKnown := []string{
 		"8.8.8.8", "8.8.4.4", // Google DNS IPv4

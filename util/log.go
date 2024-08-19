@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -18,8 +19,9 @@ func InitLog(logLevel string, logPath string) error {
 		log.Errorf("Failed parsing log-level %s: %s", logLevel, err)
 		return err
 	}
+	customOutputs := []string{"console", "syslog"};
 
-	if logPath != "" && logPath != "console" {
+	if logPath != "" && !slices.Contains(customOutputs, logPath) {
 		lumberjackLogger := &lumberjack.Logger{
 			// Log file absolute path, os agnostic
 			Filename:   filepath.ToSlash(logPath),
@@ -29,10 +31,15 @@ func InitLog(logLevel string, logPath string) error {
 			Compress:   true,
 		}
 		log.SetOutput(io.Writer(lumberjackLogger))
+	} else if logPath == "syslog" {
+		AddSyslogHook()
 	}
 
+	//nolint:gocritic
 	if os.Getenv("NB_LOG_FORMAT") == "json" {
 		formatter.SetJSONFormatter(log.StandardLogger())
+	} else if logPath == "syslog" {
+		formatter.SetSyslogFormatter(log.StandardLogger())
 	} else {
 		formatter.SetTextFormatter(log.StandardLogger())
 	}

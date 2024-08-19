@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 
-	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -16,6 +16,50 @@ import (
 )
 
 const defaultTTL = 300
+
+// DNSConfigCache is a thread-safe cache for DNS configuration components
+type DNSConfigCache struct {
+	CustomZones      sync.Map
+	NameServerGroups sync.Map
+}
+
+// GetCustomZone retrieves a cached custom zone
+func (c *DNSConfigCache) GetCustomZone(key string) (*proto.CustomZone, bool) {
+	if c == nil {
+		return nil, false
+	}
+	if value, ok := c.CustomZones.Load(key); ok {
+		return value.(*proto.CustomZone), true
+	}
+	return nil, false
+}
+
+// SetCustomZone stores a custom zone in the cache
+func (c *DNSConfigCache) SetCustomZone(key string, value *proto.CustomZone) {
+	if c == nil {
+		return
+	}
+	c.CustomZones.Store(key, value)
+}
+
+// GetNameServerGroup retrieves a cached name server group
+func (c *DNSConfigCache) GetNameServerGroup(key string) (*proto.NameServerGroup, bool) {
+	if c == nil {
+		return nil, false
+	}
+	if value, ok := c.NameServerGroups.Load(key); ok {
+		return value.(*proto.NameServerGroup), true
+	}
+	return nil, false
+}
+
+// SetNameServerGroup stores a name server group in the cache
+func (c *DNSConfigCache) SetNameServerGroup(key string, value *proto.NameServerGroup) {
+	if c == nil {
+		return
+	}
+	c.NameServerGroups.Store(key, value)
+}
 
 type lookupMap map[string]struct{}
 
@@ -36,7 +80,7 @@ func (d DNSSettings) Copy() DNSSettings {
 
 // GetDNSSettings validates a user role and returns the DNS settings for the provided account ID
 func (am *DefaultAccountManager) GetDNSSettings(ctx context.Context, accountID string, userID string) (*DNSSettings, error) {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -58,7 +102,7 @@ func (am *DefaultAccountManager) GetDNSSettings(ctx context.Context, accountID s
 
 // SaveDNSSettings validates a user role and updates the account's DNS settings
 func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID string, userID string, dnsSettingsToSave *DNSSettings) error {
-	unlock := am.Store.AcquireAccountWriteLock(ctx, accountID)
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(ctx, accountID)
@@ -113,69 +157,73 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 	return nil
 }
 
-func toProtocolDNSConfig(update nbdns.Config) *proto.DNSConfig {
-	protoUpdate := &proto.DNSConfig{ServiceEnable: update.ServiceEnable}
+// toProtocolDNSConfig converts nbdns.Config to proto.DNSConfig using the cache
+func toProtocolDNSConfig(update nbdns.Config, cache *DNSConfigCache) *proto.DNSConfig {
+	protoUpdate := &proto.DNSConfig{
+		ServiceEnable:    update.ServiceEnable,
+		CustomZones:      make([]*proto.CustomZone, 0, len(update.CustomZones)),
+		NameServerGroups: make([]*proto.NameServerGroup, 0, len(update.NameServerGroups)),
+	}
 
 	for _, zone := range update.CustomZones {
-		protoZone := &proto.CustomZone{Domain: zone.Domain}
-		for _, record := range zone.Records {
-			protoZone.Records = append(protoZone.Records, &proto.SimpleRecord{
-				Name:  record.Name,
-				Type:  int64(record.Type),
-				Class: record.Class,
-				TTL:   int64(record.TTL),
-				RData: record.RData,
-			})
+		cacheKey := zone.Domain
+		if cachedZone, exists := cache.GetCustomZone(cacheKey); exists {
+			protoUpdate.CustomZones = append(protoUpdate.CustomZones, cachedZone)
+		} else {
+			protoZone := convertToProtoCustomZone(zone)
+			cache.SetCustomZone(cacheKey, protoZone)
+			protoUpdate.CustomZones = append(protoUpdate.CustomZones, protoZone)
 		}
-		protoUpdate.CustomZones = append(protoUpdate.CustomZones, protoZone)
 	}
 
 	for _, nsGroup := range update.NameServerGroups {
-		protoGroup := &proto.NameServerGroup{
-			Primary:              nsGroup.Primary,
-			Domains:              nsGroup.Domains,
-			SearchDomainsEnabled: nsGroup.SearchDomainsEnabled,
+		cacheKey := nsGroup.ID
+		if cachedGroup, exists := cache.GetNameServerGroup(cacheKey); exists {
+			protoUpdate.NameServerGroups = append(protoUpdate.NameServerGroups, cachedGroup)
+		} else {
+			protoGroup := convertToProtoNameServerGroup(nsGroup)
+			cache.SetNameServerGroup(cacheKey, protoGroup)
+			protoUpdate.NameServerGroups = append(protoUpdate.NameServerGroups, protoGroup)
 		}
-		for _, ns := range nsGroup.NameServers {
-			protoNS := &proto.NameServer{
-				IP:     ns.IP.String(),
-				Port:   int64(ns.Port),
-				NSType: int64(ns.NSType),
-			}
-			protoGroup.NameServers = append(protoGroup.NameServers, protoNS)
-		}
-		protoUpdate.NameServerGroups = append(protoUpdate.NameServerGroups, protoGroup)
 	}
 
 	return protoUpdate
 }
 
-func getPeersCustomZone(ctx context.Context, account *Account, dnsDomain string) nbdns.CustomZone {
-	if dnsDomain == "" {
-		log.WithContext(ctx).Errorf("no dns domain is set, returning empty zone")
-		return nbdns.CustomZone{}
+// Helper function to convert nbdns.CustomZone to proto.CustomZone
+func convertToProtoCustomZone(zone nbdns.CustomZone) *proto.CustomZone {
+	protoZone := &proto.CustomZone{
+		Domain:  zone.Domain,
+		Records: make([]*proto.SimpleRecord, 0, len(zone.Records)),
 	}
-
-	customZone := nbdns.CustomZone{
-		Domain: dns.Fqdn(dnsDomain),
-	}
-
-	for _, peer := range account.Peers {
-		if peer.DNSLabel == "" {
-			log.WithContext(ctx).Errorf("found a peer with empty dns label. It was probably caused by a invalid character in its name. Peer Name: %s", peer.Name)
-			continue
-		}
-
-		customZone.Records = append(customZone.Records, nbdns.SimpleRecord{
-			Name:  dns.Fqdn(peer.DNSLabel + "." + dnsDomain),
-			Type:  int(dns.TypeA),
-			Class: nbdns.DefaultClass,
-			TTL:   defaultTTL,
-			RData: peer.IP.String(),
+	for _, record := range zone.Records {
+		protoZone.Records = append(protoZone.Records, &proto.SimpleRecord{
+			Name:  record.Name,
+			Type:  int64(record.Type),
+			Class: record.Class,
+			TTL:   int64(record.TTL),
+			RData: record.RData,
 		})
 	}
+	return protoZone
+}
 
-	return customZone
+// Helper function to convert nbdns.NameServerGroup to proto.NameServerGroup
+func convertToProtoNameServerGroup(nsGroup *nbdns.NameServerGroup) *proto.NameServerGroup {
+	protoGroup := &proto.NameServerGroup{
+		Primary:              nsGroup.Primary,
+		Domains:              nsGroup.Domains,
+		SearchDomainsEnabled: nsGroup.SearchDomainsEnabled,
+		NameServers:          make([]*proto.NameServer, 0, len(nsGroup.NameServers)),
+	}
+	for _, ns := range nsGroup.NameServers {
+		protoGroup.NameServers = append(protoGroup.NameServers, &proto.NameServer{
+			IP:     ns.IP.String(),
+			Port:   int64(ns.Port),
+			NSType: int64(ns.NSType),
+		})
+	}
+	return protoGroup
 }
 
 func getPeerNSGroups(account *Account, peerID string) []*nbdns.NameServerGroup {

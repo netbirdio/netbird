@@ -24,7 +24,7 @@ const (
 	probeTimeout     = 2 * time.Second
 )
 
-const testRecord = "."
+const testRecord = "com."
 
 type upstreamClient interface {
 	exchange(ctx context.Context, upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
@@ -42,6 +42,7 @@ type upstreamResolverBase struct {
 	upstreamServers  []string
 	disabled         bool
 	failsCount       atomic.Int32
+	successCount     atomic.Int32
 	failsTillDeact   int32
 	mutex            sync.Mutex
 	reactivatePeriod time.Duration
@@ -124,6 +125,7 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			return
 		}
 
+		u.successCount.Add(1)
 		log.Tracef("took %s to query the upstream %s", t, upstream)
 
 		err = w.WriteMsg(rm)
@@ -172,6 +174,11 @@ func (u *upstreamResolverBase) probeAvailability() {
 	default:
 	}
 
+	// avoid probe if upstreams could resolve at least one query and fails count is less than failsTillDeact
+	if u.successCount.Load() > 0 && u.failsCount.Load() < u.failsTillDeact {
+		return
+	}
+
 	var success bool
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -183,7 +190,7 @@ func (u *upstreamResolverBase) probeAvailability() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := u.testNameserver(upstream)
+			err := u.testNameserver(upstream, 500*time.Millisecond)
 			if err != nil {
 				errors = multierror.Append(errors, err)
 				log.Warnf("probing upstream nameserver %s: %s", upstream, err)
@@ -224,7 +231,7 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 		}
 
 		for _, upstream := range u.upstreamServers {
-			if err := u.testNameserver(upstream); err != nil {
+			if err := u.testNameserver(upstream, probeTimeout); err != nil {
 				log.Tracef("upstream check for %s: %s", upstream, err)
 			} else {
 				// at least one upstream server is available, stop probing
@@ -244,6 +251,7 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 
 	log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServers)
 	u.failsCount.Store(0)
+	u.successCount.Add(1)
 	u.reactivate()
 	u.disabled = false
 }
@@ -265,13 +273,14 @@ func (u *upstreamResolverBase) disable(err error) {
 	}
 
 	log.Warnf("Upstream resolving is Disabled for %v", reactivatePeriod)
+	u.successCount.Store(0)
 	u.deactivate(err)
 	u.disabled = true
 	go u.waitUntilResponse()
 }
 
-func (u *upstreamResolverBase) testNameserver(server string) error {
-	ctx, cancel := context.WithTimeout(u.ctx, probeTimeout)
+func (u *upstreamResolverBase) testNameserver(server string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(u.ctx, timeout)
 	defer cancel()
 
 	r := new(dns.Msg).SetQuestion(testRecord, dns.TypeSOA)

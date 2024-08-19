@@ -22,7 +22,7 @@ type Route struct {
 	Interface *net.Interface
 }
 
-func getRoutesFromTable() ([]netip.Prefix, error) {
+func GetRoutesFromTable() ([]netip.Prefix, error) {
 	tab, err := retryFetchRIB()
 	if err != nil {
 		return nil, fmt.Errorf("fetch RIB: %v", err)

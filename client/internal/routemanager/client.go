@@ -3,12 +3,14 @@ package routemanager
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
@@ -64,7 +66,7 @@ func newClientNetworkWatcher(ctx context.Context, dnsRouteInterval time.Duration
 		routePeersNotifiers: make(map[string]chan struct{}),
 		routeUpdate:         make(chan routesUpdate),
 		peerStateUpdate:     make(chan struct{}),
-		handler:             handlerFromRoute(rt, routeRefCounter, allowedIPsRefCounter, dnsRouteInterval, statusRecorder),
+		handler:             handlerFromRoute(rt, routeRefCounter, allowedIPsRefCounter, dnsRouteInterval, statusRecorder, wgInterface),
 	}
 	return client
 }
@@ -309,11 +311,16 @@ func (c *clientNetwork) sendUpdateToClientNetworkWatcher(update routesUpdate) {
 	}()
 }
 
-func (c *clientNetwork) handleUpdate(update routesUpdate) {
+func (c *clientNetwork) handleUpdate(update routesUpdate) bool {
+	isUpdateMapDifferent := false
 	updateMap := make(map[route.ID]*route.Route)
 
 	for _, r := range update.routes {
 		updateMap[r.ID] = r
+	}
+
+	if len(c.routes) != len(updateMap) {
+		isUpdateMapDifferent = true
 	}
 
 	for id, r := range c.routes {
@@ -321,10 +328,16 @@ func (c *clientNetwork) handleUpdate(update routesUpdate) {
 		if !found {
 			close(c.routePeersNotifiers[r.Peer])
 			delete(c.routePeersNotifiers, r.Peer)
+			isUpdateMapDifferent = true
+			continue
+		}
+		if !reflect.DeepEqual(c.routes[id], updateMap[id]) {
+			isUpdateMapDifferent = true
 		}
 	}
 
 	c.routes = updateMap
+	return isUpdateMapDifferent
 }
 
 // peersStateAndUpdateWatcher is the main point of reacting on client network routing events.
@@ -351,13 +364,19 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 
 			log.Debugf("Received a new client network route update for [%v]", c.handler)
 
-			c.handleUpdate(update)
+			// hash update somehow
+			isTrueRouteUpdate := c.handleUpdate(update)
 
 			c.updateSerial = update.updateSerial
 
-			err := c.recalculateRouteAndUpdatePeerAndSystem()
-			if err != nil {
-				log.Errorf("Failed to recalculate routes for network [%v]: %v", c.handler, err)
+			if isTrueRouteUpdate {
+				log.Debug("Client network update contains different routes, recalculating routes")
+				err := c.recalculateRouteAndUpdatePeerAndSystem()
+				if err != nil {
+					log.Errorf("Failed to recalculate routes for network [%v]: %v", c.handler, err)
+				}
+			} else {
+				log.Debug("Route update is not different, skipping route recalculation")
 			}
 
 			c.startPeersStatusChangeWatcher()
@@ -365,9 +384,10 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 	}
 }
 
-func handlerFromRoute(rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter, dnsRouterInteval time.Duration, statusRecorder *peer.Status) RouteHandler {
+func handlerFromRoute(rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter, dnsRouterInteval time.Duration, statusRecorder *peer.Status, wgInterface *iface.WGIface) RouteHandler {
 	if rt.IsDynamic() {
-		return dynamic.NewRoute(rt, routeRefCounter, allowedIPsRefCounter, dnsRouterInteval, statusRecorder)
+		dns := nbdns.NewServiceViaMemory(wgInterface)
+		return dynamic.NewRoute(rt, routeRefCounter, allowedIPsRefCounter, dnsRouterInteval, statusRecorder, wgInterface, fmt.Sprintf("%s:%d", dns.RuntimeIP(), dns.RuntimePort()))
 	}
 	return static.NewRoute(rt, routeRefCounter, allowedIPsRefCounter)
 }

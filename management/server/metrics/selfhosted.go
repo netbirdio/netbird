@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -24,7 +25,7 @@ const (
 	// payloadEndpoint metrics defaultEndpoint to send anonymous data
 	payloadEndpoint = "https://metrics.netbird.io"
 	// defaultPushInterval default interval to push metrics
-	defaultPushInterval = 24 * time.Hour
+	defaultPushInterval = 12 * time.Hour
 	// requestTimeout http request timeout
 	requestTimeout = 45 * time.Second
 )
@@ -82,7 +83,9 @@ func NewWorker(ctx context.Context, id string, dataSource DataSource, connManage
 
 // Run runs the metrics worker
 func (w *Worker) Run(ctx context.Context) {
-	pushTicker := time.NewTicker(defaultPushInterval)
+	interval := getMetricsInterval(ctx)
+
+	pushTicker := time.NewTicker(interval)
 	for {
 		select {
 		case <-w.ctx.Done():
@@ -95,6 +98,20 @@ func (w *Worker) Run(ctx context.Context) {
 			w.lastRun = time.Now()
 		}
 	}
+}
+
+func getMetricsInterval(ctx context.Context) time.Duration {
+	interval := defaultPushInterval
+	if os.Getenv("NETBIRD_METRICS_INTERVAL_IN_SECONDS") != "" {
+		newInterval, err := time.ParseDuration(os.Getenv("NETBIRD_METRICS_INTERVAL_IN_SECONDS") + "s")
+		if err != nil {
+			log.WithContext(ctx).Errorf("unable to parse NETBIRD_METRICS_INTERVAL_IN_SECONDS, using default interval %v. Error: %v", defaultPushInterval, err)
+		} else {
+			log.WithContext(ctx).Infof("using NETBIRD_METRICS_INTERVAL_IN_SECONDS %s", newInterval)
+			interval = newInterval
+		}
+	}
+	return interval
 }
 
 func (w *Worker) sendMetrics(ctx context.Context) error {
@@ -112,10 +129,11 @@ func (w *Worker) sendMetrics(ctx context.Context) error {
 
 	httpClient := http.Client{}
 
-	exportJobReq, err := createPostRequest(w.ctx, payloadEndpoint+"/capture/", payloadString)
+	exportJobReq, cancelCTX, err := createPostRequest(w.ctx, payloadEndpoint+"/capture/", payloadString)
 	if err != nil {
 		return fmt.Errorf("unable to create metrics post request %v", err)
 	}
+	defer cancelCTX()
 
 	jobResp, err := httpClient.Do(exportJobReq)
 	if err != nil {
@@ -135,7 +153,7 @@ func (w *Worker) sendMetrics(ctx context.Context) error {
 
 	log.WithContext(ctx).Infof("sent anonymous metrics, next push will happen in %s. "+
 		"You can disable these metrics by running with flag --disable-anonymous-metrics,"+
-		" see more information at https://netbird.io/docs/FAQ/metrics-collection", defaultPushInterval)
+		" see more information at https://docs.netbird.io/about-netbird/faq#why-and-what-are-the-anonymous-usage-metrics", getMetricsInterval(ctx))
 
 	return nil
 }
@@ -373,20 +391,20 @@ func buildMetricsPayload(payload pushPayload) (string, error) {
 	return string(str), nil
 }
 
-func createPostRequest(ctx context.Context, endpoint string, payloadStr string) (*http.Request, error) {
+func createPostRequest(ctx context.Context, endpoint string, payloadStr string) (*http.Request, context.CancelFunc, error) {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
-	defer cancel()
 	reqURL := endpoint
 
 	payload := strings.NewReader(payloadStr)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, payload)
 	if err != nil {
-		return nil, err
+		cancel()
+		return nil, nil, err
 	}
 	req.Header.Add("content-type", "application/json")
 
-	return req, nil
+	return req, cancel, nil
 }
 
 func getMinMaxVersion(inputList []string) (string, string) {
