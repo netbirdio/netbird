@@ -783,6 +783,7 @@ func Test_LoginPerformance(t *testing.T) {
 }
 
 func testLoginPerformance(t *testing.T, loginCalls []func() error) {
+	t.Helper()
 	wgSetup := sync.WaitGroup{}
 	startChan := make(chan struct{})
 
