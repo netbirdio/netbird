@@ -161,6 +161,9 @@ type DefaultAccountManager struct {
 	eventStore           activity.Store
 	geo                  *geolocation.Geolocation
 
+	mu          sync.Mutex
+	requestChan chan AccountRequest
+
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
 	// This value will be set to false if management service has more than one account.
@@ -279,6 +282,16 @@ type UserInfo struct {
 	Issued               string                                     `json:"issued"`
 	IntegrationReference integration_reference.IntegrationReference `json:"-"`
 	Permissions          UserPermissions                            `json:"permissions"`
+}
+
+type AccountRequest struct {
+	AccountID  string
+	ResultChan chan *AccountResponse
+}
+
+type AccountResponse struct {
+	Account *Account
+	Error   error
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
@@ -964,6 +977,7 @@ func BuildManager(
 		dnsDomain:                dnsDomain,
 		eventStore:               eventStore,
 		peerLoginExpiry:          NewDefaultScheduler(),
+		requestChan:              make(chan AccountRequest),
 		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
 		integratedPeerValidator:  integratedPeerValidator,
 		metrics:                  metrics,
@@ -1026,6 +1040,8 @@ func BuildManager(
 	am.integratedPeerValidator.SetPeerInvalidationListener(func(accountID string) {
 		am.onPeersInvalidated(ctx, accountID)
 	})
+
+	go am.processRequests(ctx)
 
 	return am, nil
 }
@@ -2205,4 +2221,15 @@ func separateGroups(autoGroups []string, allGroups map[string]*nbgroup.Group) ([
 		}
 	}
 	return newAutoGroups, jwtAutoGroups
+}
+
+func (am *DefaultAccountManager) GetAccountWithBackpressure(ctx context.Context, accountID string) (*Account, error) {
+	resultChan := make(chan *AccountResponse)
+	request := AccountRequest{
+		AccountID:  accountID,
+		ResultChan: resultChan,
+	}
+	am.requestChan <- request
+	resp := <-resultChan
+	return resp.Account, resp.Error
 }

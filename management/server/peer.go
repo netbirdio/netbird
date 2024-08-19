@@ -714,7 +714,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	unlockPeer()
 	unlockPeer = nil
 
-	account, err := am.Store.GetAccount(ctx, accountID)
+	account, err := am.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -970,4 +970,40 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 	}
 
 	wg.Wait()
+}
+
+func (am *DefaultAccountManager) processRequests(ctx context.Context) {
+	for {
+		requestBatch := make(map[string][]chan *AccountResponse)
+
+		// Collect all requests for 0.5 second
+		timeout := time.After(500 * time.Millisecond)
+		collecting := true
+
+		for collecting {
+			select {
+			case request := <-am.requestChan:
+				if _, exists := requestBatch[request.AccountID]; !exists {
+					requestBatch[request.AccountID] = []chan *AccountResponse{}
+				}
+				requestBatch[request.AccountID] = append(requestBatch[request.AccountID], request.ResultChan)
+			case <-timeout:
+				collecting = false
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		for accountID, chans := range requestBatch {
+			account, err := am.Store.GetAccount(context.Background(), accountID)
+			resp := AccountResponse{
+				Account: account,
+				Error:   err,
+			}
+
+			for _, resultChan := range chans {
+				resultChan <- &resp
+			}
+		}
+	}
 }
