@@ -161,9 +161,10 @@ type DefaultAccountManager struct {
 	eventStore           activity.Store
 	geo                  *geolocation.Geolocation
 
-	requests  map[string][]*Request
-	mu        sync.Mutex
-	requestCh chan *Request
+	requests     map[string][]*Request
+	mu           sync.Mutex
+	requestCh    chan *Request
+	requestCount *int32
 
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
@@ -293,7 +294,7 @@ type Request struct {
 
 // AccountResult holds the account data or an error.
 type AccountResult struct {
-	Account *Account // Replace with your actual Account type
+	Account *Account
 	Err     error
 }
 
@@ -1045,7 +1046,7 @@ func BuildManager(
 		am.onPeersInvalidated(ctx, accountID)
 	})
 
-	go am.processRequests()
+	go am.processRequests(ctx)
 
 	return am, nil
 }
@@ -2233,14 +2234,16 @@ func (am *DefaultAccountManager) GetAccountWithBackpressure(ctx context.Context,
 		ResultChan: make(chan *AccountResult, 1),
 	}
 
+	log.WithContext(ctx).Debugf("requesting account with backpressure: %s", accountID)
+	startTime := time.Now()
 	am.requestCh <- req
 
 	result := <-req.ResultChan
-	close(req.ResultChan)
+	log.WithContext(ctx).Debugf("got account with backpressure after %s", time.Since(startTime))
 	return result.Account, result.Err
 }
 
-func (am *DefaultAccountManager) processBatch(accountID string) {
+func (am *DefaultAccountManager) processBatch(ctx context.Context, accountID string) {
 	am.mu.Lock()
 	requests := am.requests[accountID]
 	delete(am.requests, accountID)
@@ -2250,11 +2253,13 @@ func (am *DefaultAccountManager) processBatch(accountID string) {
 		return
 	}
 
-	ctx := context.Background()
+	startTime := time.Now()
 	account, err := am.Store.GetAccount(ctx, accountID)
+	log.WithContext(ctx).Debugf("getting account in batch for %s took %s", accountID, time.Since(startTime))
 	result := &AccountResult{Account: account, Err: err}
 
 	for _, req := range requests {
 		req.ResultChan <- result
+		close(req.ResultChan)
 	}
 }

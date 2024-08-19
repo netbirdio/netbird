@@ -972,28 +972,21 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 	wg.Wait()
 }
 
-func (am *DefaultAccountManager) processRequests() {
-	activeGoroutines := make(map[string]bool)
-
+func (am *DefaultAccountManager) processRequests(ctx context.Context) {
 	for {
 		select {
 		case req := <-am.requestCh:
 			am.mu.Lock()
 			am.requests[req.AccountID] = append(am.requests[req.AccountID], req)
-			if !activeGoroutines[req.AccountID] {
-				activeGoroutines[req.AccountID] = true
-				timeout := time.NewTimer(100 * time.Millisecond)
-				go func(accountID string) {
-					defer func() {
-						am.mu.Lock()
-						activeGoroutines[accountID] = false
-						am.mu.Unlock()
-					}()
-					<-timeout.C
-					am.processBatch(accountID)
-				}(req.AccountID)
+			if len(am.requests[req.AccountID]) == 1 {
+				go func(ctx context.Context, accountID string) {
+					time.Sleep(300 * time.Millisecond)
+					am.processBatch(ctx, accountID)
+				}(ctx, req.AccountID)
 			}
 			am.mu.Unlock()
+		case <-ctx.Done():
+			return
 		}
 	}
 }
