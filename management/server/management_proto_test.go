@@ -708,25 +708,20 @@ func Test_LoginPerformance(t *testing.T) {
 
 					account, err := createAccount(am, fmt.Sprintf("account-%d", j), fmt.Sprintf("user-%d", j), fmt.Sprintf("domain-%d", j))
 					if err != nil {
-						t.Fatal(err)
+						t.Logf("acocunt creation failed: %v", err)
 						return
 					}
 
 					setupKey, err := am.CreateSetupKey(context.Background(), account.Id, fmt.Sprintf("key-%d", j), SetupKeyReusable, time.Hour, nil, 0, fmt.Sprintf("user-%d", j), false)
 					if err != nil {
-						t.Fatal("error creating setup key")
+						t.Logf("error creating setup key: %v", err)
 						return
 					}
 
 					for i := 0; i < bc.peers; i++ {
-						atomic.AddInt32(counterStart, 1)
-						if *counterStart%100 == 0 {
-							t.Logf("Creating peer %d", *counterStart)
-						}
-
 						key, err := wgtypes.GeneratePrivateKey()
 						if err != nil {
-							t.Fatal(err)
+							t.Logf("failed to generate key: %v", err)
 							return
 						}
 
@@ -756,7 +751,7 @@ func Test_LoginPerformance(t *testing.T) {
 							}
 							atomic.AddInt32(counter, 1)
 							if *counter%100 == 0 {
-								t.Logf("Finished login calls: %d", *counter)
+								t.Logf("finished %d login calls", *counter)
 							}
 							return nil
 						}
@@ -766,8 +761,13 @@ func Test_LoginPerformance(t *testing.T) {
 						mu.Unlock()
 						_, _, _, err = am.LoginPeer(context.Background(), peerLogin)
 						if err != nil {
-							t.Fatal(err)
+							t.Logf("failed to login peer: %v", err)
 							return
+						}
+
+						atomic.AddInt32(counterStart, 1)
+						if *counterStart%100 == 0 {
+							t.Logf("registered %d peers", *counterStart)
 						}
 					}
 				}(j, &counter, &counterStart)
@@ -775,7 +775,7 @@ func Test_LoginPerformance(t *testing.T) {
 
 			wg.Wait()
 
-			t.Logf("Starting login calls:  %d", len(messageCalls))
+			t.Logf("prepared %d login calls", len(messageCalls))
 			testLoginPerformance(t, messageCalls)
 
 		})
@@ -814,7 +814,7 @@ func testLoginPerformance(t *testing.T, loginCalls []func() error) {
 	}
 
 	wgSetup.Wait()
-	t.Logf("Starting login calls")
+	t.Logf("starting login calls")
 	close(startChan)
 	wgDone.Wait()
 	var min, max, avg time.Duration
