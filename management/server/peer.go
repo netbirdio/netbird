@@ -973,7 +973,6 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 }
 
 func (am *DefaultAccountManager) processRequests() {
-	// Map to track active goroutines for each AccountID
 	activeGoroutines := make(map[string]bool)
 
 	for {
@@ -982,13 +981,11 @@ func (am *DefaultAccountManager) processRequests() {
 			am.mu.Lock()
 			am.requests[req.AccountID] = append(am.requests[req.AccountID], req)
 			if !activeGoroutines[req.AccountID] {
-				// Mark the goroutine as active
 				activeGoroutines[req.AccountID] = true
-				timeout := time.NewTimer(500 * time.Millisecond)
+				timeout := time.NewTimer(100 * time.Millisecond)
 				go func(accountID string) {
 					defer func() {
 						am.mu.Lock()
-						// Mark the goroutine as inactive
 						activeGoroutines[accountID] = false
 						am.mu.Unlock()
 					}()

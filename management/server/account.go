@@ -2233,11 +2233,10 @@ func (am *DefaultAccountManager) GetAccountWithBackpressure(ctx context.Context,
 		ResultChan: make(chan *AccountResult, 1),
 	}
 
-	// Send the request to the processing channel
 	am.requestCh <- req
 
-	// Wait for the result
 	result := <-req.ResultChan
+	close(req.ResultChan)
 	return result.Account, result.Err
 }
 
@@ -2251,16 +2250,11 @@ func (am *DefaultAccountManager) processBatch(accountID string) {
 		return
 	}
 
-	// Perform the database query
 	ctx := context.Background()
-	fmt.Printf("Processing batch for account %s\n", accountID)
 	account, err := am.Store.GetAccount(ctx, accountID)
 	result := &AccountResult{Account: account, Err: err}
 
-	fmt.Printf("Sending to %d requests\n", len(requests))
-	// Send the result to all waiting requests
 	for _, req := range requests {
 		req.ResultChan <- result
-		close(req.ResultChan)
 	}
 }
