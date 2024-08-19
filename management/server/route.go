@@ -439,7 +439,7 @@ func (a *Account) getPeerRoutesFirewallRules(ctx context.Context, peerID string,
 					continue
 				}
 
-				distributionGroupPeers, _ := getAllPeersFromGroups(ctx, a, route.Groups, peerID, nil, validatedPeersMap)
+				distributionGroupPeers, _ := a.getAllPeersFromGroups(ctx, route.Groups, peerID, nil, validatedPeersMap)
 				rules := generateRouteFirewallRules(ctx, route, rule, distributionGroupPeers, firewallRuleDirectionIN)
 				routesFirewallRules = append(routesFirewallRules, rules...)
 			}
