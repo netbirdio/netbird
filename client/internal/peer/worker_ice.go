@@ -453,5 +453,4 @@ func generateICECredentials() (string, string, error) {
 		return "", "", err
 	}
 	return ufrag, pwd, nil
-
 }
