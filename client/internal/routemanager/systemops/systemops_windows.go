@@ -36,15 +36,11 @@ type RouteUpdate struct {
 	Interface   *net.Interface
 }
 
-type routeChangeCallback func(callerContext uintptr, row *MIB_IPFORWARD_ROW2, notificationType MIB_NOTIFICATION_TYPE)
-
 // RouteMonitor provides a way to monitor changes in the routing table.
 type RouteMonitor struct {
-	updates       chan RouteUpdate
-	callback      routeChangeCallback
-	callerContext uintptr
-	handle        windows.Handle
-	done          chan struct{}
+	updates chan RouteUpdate
+	handle  windows.Handle
+	done    chan struct{}
 }
 
 // Route represents a single routing table entry.
@@ -91,16 +87,19 @@ type IP_ADDRESS_PREFIX struct {
 // It represents the union of IPv4 and IPv6 socket addresses
 type SOCKADDR_INET struct {
 	sin6_family int16
-	sin6_port   uint16
+	// nolint:unused
+	sin6_port uint16
 	// 4 bytes ipv4 or 4 bytes flowinfo + 16 bytes ipv6 + 4 bytes scope_id
 	data [24]byte
 }
 
 // SOCKADDR_INET_NEXTHOP is the same as SOCKADDR_INET but offset by 2 bytes
 type SOCKADDR_INET_NEXTHOP struct {
+	// nolint:unused
 	pad         [2]byte
 	sin6_family int16
-	sin6_port   uint16
+	// nolint:unused
+	sin6_port uint16
 	// 4 bytes ipv4 or 4 bytes flowinfo + 16 bytes ipv6 + 4 bytes scope_id
 	data [24]byte
 }
@@ -112,7 +111,6 @@ var (
 	modiphlpapi                = windows.NewLazyDLL("iphlpapi.dll")
 	procNotifyRouteChange2     = modiphlpapi.NewProc("NotifyRouteChange2")
 	procCancelMibChangeNotify2 = modiphlpapi.NewProc("CancelMibChangeNotify2")
-	procGetIpForwardEntry2     = modiphlpapi.NewProc("GetIpForwardEntry2")
 
 	prefixList []netip.Prefix
 	lastUpdate time.Time
@@ -225,12 +223,25 @@ func (rm *RouteMonitor) parseUpdate(row *MIB_IPFORWARD_ROW2, notificationType MI
 	// destination prefix, next hop, interface index, interface luid are guaranteed to be there
 	// GetIpForwardEntry2 is not needed
 
-	dest := parseIPPrefix(row.DestinationPrefix)
+	var update RouteUpdate
+
+	idx := int(row.InterfaceIndex)
+	if idx != 0 {
+		intf, err := net.InterfaceByIndex(idx)
+		if err != nil {
+			return update, fmt.Errorf("get interface name: %w", err)
+		}
+
+		update.Interface = intf
+	}
+
+	log.Tracef("Received route update with destination %v, next hop %v, interface %v", row.DestinationPrefix, row.NextHop, update.Interface)
+	dest := parseIPPrefix(row.DestinationPrefix, idx)
 	if !dest.Addr().IsValid() {
 		return RouteUpdate{}, fmt.Errorf("invalid destination: %v", row)
 	}
 
-	nexthop := parseIPNexthop(row.NextHop)
+	nexthop := parseIPNexthop(row.NextHop, idx)
 	if !nexthop.IsValid() {
 		return RouteUpdate{}, fmt.Errorf("invalid next hop %v", row)
 	}
@@ -245,21 +256,9 @@ func (rm *RouteMonitor) parseUpdate(row *MIB_IPFORWARD_ROW2, notificationType MI
 		updateType = RouteDeleted
 	}
 
-	update := RouteUpdate{
-		Type:        updateType,
-		Destination: dest,
-		NextHop:     nexthop,
-	}
-
-	idx := int(row.InterfaceIndex)
-	if idx != 0 {
-		intf, err := net.InterfaceByIndex(idx)
-		if err != nil {
-			return update, fmt.Errorf("get interface name: %w", err)
-		}
-
-		update.Interface = intf
-	}
+	update.Type = updateType
+	update.Destination = dest
+	update.NextHop = nexthop
 
 	return update, nil
 }
@@ -371,8 +370,8 @@ func GetRoutes() ([]Route, error) {
 				Name:  entry.InterfaceAlias,
 			}
 
-			if nexthop.Is6() && (nexthop.IsLinkLocalUnicast() || nexthop.IsLinkLocalMulticast()) {
-				nexthop = nexthop.WithZone(strconv.Itoa(int(entry.InterfaceIndex)))
+			if nexthop.Is6() {
+				nexthop = addZone(nexthop, int(entry.InterfaceIndex))
 			}
 		}
 
@@ -419,20 +418,20 @@ func isCacheDisabled() bool {
 	return os.Getenv("NB_DISABLE_ROUTE_CACHE") == "true"
 }
 
-func parseIPPrefix(prefix IP_ADDRESS_PREFIX) netip.Prefix {
-	ip := parseIP(prefix.Prefix)
+func parseIPPrefix(prefix IP_ADDRESS_PREFIX, idx int) netip.Prefix {
+	ip := parseIP(prefix.Prefix, idx)
 	return netip.PrefixFrom(ip, int(prefix.PrefixLength))
 }
 
-func parseIP(addr SOCKADDR_INET) netip.Addr {
-	return parseIPGeneric(addr.sin6_family, addr.data)
+func parseIP(addr SOCKADDR_INET, idx int) netip.Addr {
+	return parseIPGeneric(addr.sin6_family, addr.data, idx)
 }
 
-func parseIPNexthop(addr SOCKADDR_INET_NEXTHOP) netip.Addr {
-	return parseIPGeneric(addr.sin6_family, addr.data)
+func parseIPNexthop(addr SOCKADDR_INET_NEXTHOP, idx int) netip.Addr {
+	return parseIPGeneric(addr.sin6_family, addr.data, idx)
 }
 
-func parseIPGeneric(family int16, data [24]byte) netip.Addr {
+func parseIPGeneric(family int16, data [24]byte, interfaceIndex int) netip.Addr {
 	switch family {
 	case windows.AF_INET:
 		ipv4 := binary.BigEndian.Uint32(data[:4])
@@ -453,10 +452,19 @@ func parseIPGeneric(family int16, data [24]byte) netip.Addr {
 		scopeID := binary.BigEndian.Uint32(data[20:24])
 		if scopeID != 0 {
 			ip = ip.WithZone(strconv.FormatUint(uint64(scopeID), 10))
+		} else if interfaceIndex != 0 {
+			ip = addZone(ip, interfaceIndex)
 		}
 
 		return ip
 	}
 
 	return netip.IPv4Unspecified()
+}
+
+func addZone(ip netip.Addr, interfaceIndex int) netip.Addr {
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		ip = ip.WithZone(strconv.Itoa(interfaceIndex))
+	}
+	return ip
 }
