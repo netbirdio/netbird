@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -980,7 +982,13 @@ func (am *DefaultAccountManager) processGetAccountRequests(ctx context.Context) 
 			am.getAccountRequests[req.AccountID] = append(am.getAccountRequests[req.AccountID], req)
 			if len(am.getAccountRequests[req.AccountID]) == 1 {
 				go func(ctx context.Context, accountID string) {
-					time.Sleep(300 * time.Millisecond)
+					bufferIntervalStr := os.Getenv("NB_GET_ACCOUNT_BUFFER_INTERVAL")
+					bufferInterval, err := strconv.Atoi(bufferIntervalStr)
+					if err != nil {
+						bufferInterval = 300
+					}
+					fmt.Printf("Buffer interval: %d\n", bufferInterval)
+					time.Sleep(time.Duration(bufferInterval) * time.Millisecond)
 					am.processGetAccountBatch(ctx, accountID)
 				}(ctx, req.AccountID)
 			}
