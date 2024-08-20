@@ -3,6 +3,7 @@ package idp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -44,14 +45,14 @@ type mockJsonParser struct {
 
 func (m *mockJsonParser) Marshal(v interface{}) ([]byte, error) {
 	if m.marshalErrorString != "" {
-		return nil, fmt.Errorf(m.marshalErrorString)
+		return nil, errors.New(m.marshalErrorString)
 	}
 	return m.jsonParser.Marshal(v)
 }
 
 func (m *mockJsonParser) Unmarshal(data []byte, v interface{}) error {
 	if m.unmarshalErrorString != "" {
-		return fmt.Errorf(m.unmarshalErrorString)
+		return errors.New(m.unmarshalErrorString)
 	}
 	return m.jsonParser.Unmarshal(data, v)
 }

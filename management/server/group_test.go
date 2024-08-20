@@ -3,12 +3,14 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
+	"github.com/stretchr/testify/assert"
 )
 
 const (
@@ -21,7 +23,7 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 		t.Error("failed to create account manager")
 	}
 
-	account, err := initTestGroupAccount(am)
+	_, account, err := initTestGroupAccount(am)
 	if err != nil {
 		t.Error("failed to init testing account")
 	}
@@ -56,7 +58,7 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 		t.Error("failed to create account manager")
 	}
 
-	account, err := initTestGroupAccount(am)
+	_, account, err := initTestGroupAccount(am)
 	if err != nil {
 		t.Error("failed to init testing account")
 	}
@@ -132,7 +134,136 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 	}
 }
 
-func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
+func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
+	am, err := createManager(t)
+	assert.NoError(t, err, "Failed to create account manager")
+
+	manager, account, err := initTestGroupAccount(am)
+	assert.NoError(t, err, "Failed to init testing account")
+
+	groups := make([]*nbgroup.Group, 10)
+	for i := 0; i < 10; i++ {
+		groups[i] = &nbgroup.Group{
+			ID:        fmt.Sprintf("group-%d", i+1),
+			AccountID: account.Id,
+			Name:      fmt.Sprintf("group-%d", i+1),
+			Issued:    nbgroup.GroupIssuedAPI,
+		}
+	}
+
+	err = manager.SaveGroups(context.Background(), account.Id, groupAdminUserID, groups)
+	assert.NoError(t, err, "Failed to save test groups")
+
+	testCases := []struct {
+		name               string
+		groupIDs           []string
+		expectedReasons    []string
+		expectedDeleted    []string
+		expectedNotDeleted []string
+	}{
+		{
+			name:            "route",
+			groupIDs:        []string{"grp-for-route"},
+			expectedReasons: []string{"route"},
+		},
+		{
+			name:            "route with peer groups",
+			groupIDs:        []string{"grp-for-route2"},
+			expectedReasons: []string{"route"},
+		},
+		{
+			name:            "name server groups",
+			groupIDs:        []string{"grp-for-name-server-grp"},
+			expectedReasons: []string{"name server groups"},
+		},
+		{
+			name:            "policy",
+			groupIDs:        []string{"grp-for-policies"},
+			expectedReasons: []string{"policy"},
+		},
+		{
+			name:            "setup keys",
+			groupIDs:        []string{"grp-for-keys"},
+			expectedReasons: []string{"setup key"},
+		},
+		{
+			name:            "users",
+			groupIDs:        []string{"grp-for-users"},
+			expectedReasons: []string{"user"},
+		},
+		{
+			name:            "integration",
+			groupIDs:        []string{"grp-for-integration"},
+			expectedReasons: []string{"only service users with admin power can delete integration group"},
+		},
+		{
+			name:            "successfully delete multiple groups",
+			groupIDs:        []string{"group-1", "group-2"},
+			expectedDeleted: []string{"group-1", "group-2"},
+		},
+		{
+			name:            "delete non-existent group",
+			groupIDs:        []string{"non-existent-group"},
+			expectedDeleted: []string{"non-existent-group"},
+		},
+		{
+			name:               "delete multiple groups with mixed results",
+			groupIDs:           []string{"group-3", "grp-for-policies", "group-4", "grp-for-users"},
+			expectedReasons:    []string{"policy", "user"},
+			expectedDeleted:    []string{"group-3", "group-4"},
+			expectedNotDeleted: []string{"grp-for-policies", "grp-for-users"},
+		},
+		{
+			name:               "delete groups with multiple errors",
+			groupIDs:           []string{"grp-for-policies", "grp-for-users"},
+			expectedReasons:    []string{"policy", "user"},
+			expectedNotDeleted: []string{"grp-for-policies", "grp-for-users"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err = am.DeleteGroups(context.Background(), account.Id, groupAdminUserID, tc.groupIDs)
+			if len(tc.expectedReasons) > 0 {
+				assert.Error(t, err)
+				var foundExpectedErrors int
+
+				wrappedErr, ok := err.(interface{ Unwrap() []error })
+				assert.Equal(t, ok, true)
+
+				for _, e := range wrappedErr.Unwrap() {
+					var sErr *status.Error
+					if errors.As(e, &sErr) {
+						assert.Contains(t, tc.expectedReasons, sErr.Message, "unexpected error message")
+						foundExpectedErrors++
+					}
+
+					var gErr *GroupLinkError
+					if errors.As(e, &gErr) {
+						assert.Contains(t, tc.expectedReasons, gErr.Resource, "unexpected error resource")
+						foundExpectedErrors++
+					}
+				}
+				assert.Equal(t, len(tc.expectedReasons), foundExpectedErrors, "not all expected errors were found")
+			} else {
+				assert.NoError(t, err)
+			}
+
+			for _, groupID := range tc.expectedDeleted {
+				_, err := am.GetGroup(context.Background(), account.Id, groupID, groupAdminUserID)
+				assert.Error(t, err, "group should have been deleted: %s", groupID)
+			}
+
+			for _, groupID := range tc.expectedNotDeleted {
+				group, err := am.GetGroup(context.Background(), account.Id, groupID, groupAdminUserID)
+				assert.NoError(t, err, "group should not have been deleted: %s", groupID)
+				assert.NotNil(t, group, "group should exist: %s", groupID)
+			}
+		})
+	}
+}
+
+func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *Account, error) {
 	accountID := "testingAcc"
 	domain := "example.com"
 
@@ -236,7 +367,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 
 	err := am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForRoute)
@@ -247,5 +378,9 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForUsers)
 	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForIntegration)
 
-	return am.Store.GetAccount(context.Background(), account.Id)
+	acc, err := am.Store.GetAccount(context.Background(), account.Id)
+	if err != nil {
+		return nil, nil, err
+	}
+	return am, acc, nil
 }
