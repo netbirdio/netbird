@@ -397,19 +397,39 @@ func statusRecorderToSignalConnStateNotifier(statusRecorder *peer.Status) signal
 	return notifier
 }
 
-func freePort(start int) (int, error) {
+// freePort attempts to determine if the provided port is available, if not it will as the system for a free port.
+func freePort(initPort int) (int, error) {
 	addr := net.UDPAddr{}
-	if start == 0 {
-		start = iface.DefaultWgPort
+	if initPort == 0 {
+		initPort = iface.DefaultWgPort
 	}
-	for x := start; x <= 65535; x++ {
-		addr.Port = x
-		conn, err := net.ListenUDP("udp", &addr)
-		if err != nil {
-			continue
-		}
-		conn.Close()
-		return x, nil
+
+	addr.Port = initPort
+
+	conn, err := net.ListenUDP("udp", &addr)
+	if err == nil {
+		closeConnWithLog(conn)
+		return initPort, nil
 	}
-	return 0, errors.New("no free ports")
+
+	// if the port is already in use, ask the system for a free port
+	addr.Port = 0
+	conn, err = net.ListenUDP("udp", &addr)
+	if err != nil {
+		return 0, fmt.Errorf("unable to get a free port: %v", err)
+	}
+	availablePort := conn.LocalAddr().(*net.UDPAddr).Port
+	closeConnWithLog(conn)
+	return availablePort, nil
+}
+
+func closeConnWithLog(conn *net.UDPConn) {
+	startClosing := time.Now()
+	err := conn.Close()
+	if err != nil {
+		log.Warnf("closing probe port %d failed: %v. NetBird still will attempt to use this port for connection.", conn.LocalAddr().(*net.UDPAddr).Port, err)
+	}
+	if time.Since(startClosing) > time.Second {
+		log.Warnf("closing the testing port %d took %s. Usually is safe to ignore, but continuous warnings may indicate a problem.", conn.LocalAddr().(*net.UDPAddr).Port, time.Since(startClosing))
+	}
 }
