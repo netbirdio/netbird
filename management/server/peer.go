@@ -142,12 +142,14 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 		return err
 	}
 
-	if peer.AddedWithSSOLogin() && peer.LoginExpirationEnabled && account.Settings.PeerLoginExpirationEnabled {
-		am.checkAndSchedulePeerLoginExpiration(ctx, account)
-	}
+	if peer.AddedWithSSOLogin() {
+		if peer.LoginExpirationEnabled && account.Settings.PeerLoginExpirationEnabled {
+			am.checkAndSchedulePeerLoginExpiration(ctx, account)
+		}
 
-	if peer.AddedWithSSOLogin() && peer.InactivityExpirationEnabled && account.Settings.PeerInactivityExpirationEnabled {
-		am.checkAndSchedulePeerInactivityExpiration(ctx, account)
+		if peer.InactivityExpirationEnabled && account.Settings.PeerInactivityExpirationEnabled {
+			am.checkAndSchedulePeerInactivityExpiration(ctx, account)
+		}
 	}
 
 	if oldStatus.LoginExpired {

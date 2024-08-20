@@ -1164,6 +1164,22 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		am.checkAndSchedulePeerLoginExpiration(ctx, account)
 	}
 
+	err = am.handleInactivityExpirationSettings(ctx, account, oldSettings, newSettings, userID, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	updatedAccount := account.UpdateSettings(newSettings)
+
+	err = am.Store.SaveAccount(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedAccount, nil
+}
+
+func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, account *Account, oldSettings, newSettings *Settings, userID, accountID string) error {
 	if oldSettings.PeerInactivityExpirationEnabled != newSettings.PeerInactivityExpirationEnabled {
 		event := activity.AccountPeerInactivityExpirationEnabled
 		if !newSettings.PeerInactivityExpirationEnabled {
@@ -1180,14 +1196,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		am.checkAndSchedulePeerInactivityExpiration(ctx, account)
 	}
 
-	updatedAccount := account.UpdateSettings(newSettings)
-
-	err = am.Store.SaveAccount(ctx, account)
-	if err != nil {
-		return nil, err
-	}
-
-	return updatedAccount, nil
+	return nil
 }
 
 func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
