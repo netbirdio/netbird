@@ -54,9 +54,11 @@ func routeChanged(route systemops.RouteUpdate, nexthopv4, nexthopv6 systemops.Ne
 		go callback()
 		return true
 	case systemops.RouteAdded:
-		log.Infof("Network monitor: default route added: via %s, interface %s", route.NextHop, intf)
-		go callback()
-		return true
+		if route.NextHop.Is4() && route.NextHop != nexthopv4.IP || route.NextHop.Is6() && route.NextHop != nexthopv6.IP {
+			log.Infof("Network monitor: default route added: via %s, interface %s", route.NextHop, intf)
+			go callback()
+			return true
+		}
 	case systemops.RouteDeleted:
 		if nexthopv4.Intf != nil && route.NextHop == nexthopv4.IP || nexthopv6.Intf != nil && route.NextHop == nexthopv6.IP {
 			log.Infof("Network monitor: default route removed: via %s, interface %s", route.NextHop, intf)
