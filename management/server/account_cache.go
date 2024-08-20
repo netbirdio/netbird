@@ -32,7 +32,8 @@ type AccountCache struct {
 func NewAccountCache(ctx context.Context, store Store) *AccountCache {
 	bufferIntervalStr := os.Getenv("NB_GET_ACCOUNT_BUFFER_INTERVAL")
 	bufferInterval, err := time.ParseDuration(bufferIntervalStr)
-	if err != nil {
+	if err != nil && bufferIntervalStr != "" {
+		log.WithContext(ctx).Warnf("failed to parse account cache buffer interval: %s", err)
 		bufferInterval = 300 * time.Millisecond
 	}
 
