@@ -637,7 +637,10 @@ func testSyncStatusRace(t *testing.T) {
 }
 
 func Test_LoginPerformance(t *testing.T) {
-	t.Skip("Skipping performance test in automated tests")
+	if os.Getenv("CI") == "true" {
+		t.Skip("Skipping on CI")
+	}
+
 	t.Setenv("NETBIRD_STORE_ENGINE", "sqlite")
 
 	benchCases := []struct {

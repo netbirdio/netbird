@@ -714,7 +714,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	unlockPeer()
 	unlockPeer = nil
 
-	account, err := am.GetAccountWithBackpressure(ctx, accountID)
+	account, err := am.cache.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -970,23 +970,4 @@ func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account
 	}
 
 	wg.Wait()
-}
-
-func (am *DefaultAccountManager) processGetAccountRequests(ctx context.Context, bufferInterval time.Duration) {
-	for {
-		select {
-		case req := <-am.getAccountRequestCh:
-			am.mu.Lock()
-			am.getAccountRequests[req.AccountID] = append(am.getAccountRequests[req.AccountID], req)
-			if len(am.getAccountRequests[req.AccountID]) == 1 {
-				go func(ctx context.Context, accountID string, bufferInterval time.Duration) {
-					time.Sleep(bufferInterval)
-					am.processGetAccountBatch(ctx, accountID)
-				}(ctx, req.AccountID, bufferInterval)
-			}
-			am.mu.Unlock()
-		case <-ctx.Done():
-			return
-		}
-	}
 }

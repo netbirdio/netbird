@@ -9,11 +9,9 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
-	"os"
 	"reflect"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -163,9 +161,7 @@ type DefaultAccountManager struct {
 	eventStore           activity.Store
 	geo                  *geolocation.Geolocation
 
-	getAccountRequests  map[string][]*AccountRequest
-	mu                  sync.Mutex
-	getAccountRequestCh chan *AccountRequest
+	cache *AccountCache
 
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
@@ -285,18 +281,6 @@ type UserInfo struct {
 	Issued               string                                     `json:"issued"`
 	IntegrationReference integration_reference.IntegrationReference `json:"-"`
 	Permissions          UserPermissions                            `json:"permissions"`
-}
-
-// AccountRequest holds the result channel to return the requested account.
-type AccountRequest struct {
-	AccountID  string
-	ResultChan chan *AccountResult
-}
-
-// AccountResult holds the account data or an error.
-type AccountResult struct {
-	Account *Account
-	Err     error
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
@@ -982,11 +966,10 @@ func BuildManager(
 		dnsDomain:                dnsDomain,
 		eventStore:               eventStore,
 		peerLoginExpiry:          NewDefaultScheduler(),
-		getAccountRequests:       make(map[string][]*AccountRequest),
-		getAccountRequestCh:      make(chan *AccountRequest),
 		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
 		integratedPeerValidator:  integratedPeerValidator,
 		metrics:                  metrics,
+		cache:                    NewAccountCache(ctx, store),
 	}
 	allAccounts := store.GetAllAccounts(ctx)
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
@@ -1046,17 +1029,6 @@ func BuildManager(
 	am.integratedPeerValidator.SetPeerInvalidationListener(func(accountID string) {
 		am.onPeersInvalidated(ctx, accountID)
 	})
-
-	bufferIntervalStr := os.Getenv("NB_GET_ACCOUNT_BUFFER_INTERVAL")
-	bufferInterval, err := strconv.Atoi(bufferIntervalStr)
-	if err != nil {
-		bufferInterval = 300
-	}
-	bufferDuration := time.Duration(bufferInterval)
-
-	log.WithContext(ctx).Infof("set GetAccount buffer to %s", bufferDuration)
-
-	go am.processGetAccountRequests(ctx, bufferDuration)
 
 	return am, nil
 }
@@ -2236,40 +2208,4 @@ func separateGroups(autoGroups []string, allGroups map[string]*nbgroup.Group) ([
 		}
 	}
 	return newAutoGroups, jwtAutoGroups
-}
-
-func (am *DefaultAccountManager) GetAccountWithBackpressure(ctx context.Context, accountID string) (*Account, error) {
-	req := &AccountRequest{
-		AccountID:  accountID,
-		ResultChan: make(chan *AccountResult, 1),
-	}
-
-	log.WithContext(ctx).Debugf("requesting account with backpressure: %s", accountID)
-	startTime := time.Now()
-	am.getAccountRequestCh <- req
-
-	result := <-req.ResultChan
-	log.WithContext(ctx).Debugf("got account with backpressure after %s", time.Since(startTime))
-	return result.Account, result.Err
-}
-
-func (am *DefaultAccountManager) processGetAccountBatch(ctx context.Context, accountID string) {
-	am.mu.Lock()
-	requests := am.getAccountRequests[accountID]
-	delete(am.getAccountRequests, accountID)
-	am.mu.Unlock()
-
-	if len(requests) == 0 {
-		return
-	}
-
-	startTime := time.Now()
-	account, err := am.Store.GetAccount(ctx, accountID)
-	log.WithContext(ctx).Debugf("getting account in batch for %s took %s", accountID, time.Since(startTime))
-	result := &AccountResult{Account: account, Err: err}
-
-	for _, req := range requests {
-		req.ResultChan <- result
-		close(req.ResultChan)
-	}
 }
