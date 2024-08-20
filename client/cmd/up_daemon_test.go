@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -28,6 +29,36 @@ func TestUpDaemon(t *testing.T) {
 		"login",
 		"--daemon-addr", "tcp://" + cliAddr,
 		"--setup-key", "A2C8E62B-38F5-4553-B31E-DD66C696CEBB",
+		"--log-file", "",
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Errorf("expected no error while running up command, got %v", err)
+		return
+	}
+	time.Sleep(time.Second * 3)
+	if status, err := state.Status(); err != nil && status != internal.StatusIdle {
+		t.Errorf("wrong status after login: %s, %v", internal.StatusIdle, err)
+		return
+	}
+
+	// Test the setup-key-file flag.
+	tempFile, err := os.CreateTemp("", "setup-key")
+	if err != nil {
+		t.Errorf("could not create temp file, got error %v", err)
+		return
+	}
+	defer os.Remove(tempFile.Name())
+	if _, err := tempFile.Write([]byte("A2C8E62B-38F5-4553-B31E-DD66C696CEBB")); err != nil {
+		t.Errorf("could not write to temp file, got error %v", err)
+		return
+	}
+	if err := tempFile.Close(); err != nil {
+		t.Errorf("unable to close file, got error %v", err)
+	}
+	rootCmd.SetArgs([]string{
+		"login",
+		"--daemon-addr", "tcp://" + cliAddr,
+		"--setup-key-file", tempFile.Name(),
 		"--log-file", "",
 	})
 	if err := rootCmd.Execute(); err != nil {

@@ -1,4 +1,5 @@
-// go:build !android
+//go:build !android
+
 package sysctl
 
 import (
