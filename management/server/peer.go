@@ -714,7 +714,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	unlockPeer()
 	unlockPeer = nil
 
-	account, err := am.Store.GetAccount(ctx, accountID)
+	account, err := am.cache.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
