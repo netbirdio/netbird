@@ -2,6 +2,7 @@ package healthcheck
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 )
@@ -10,7 +11,8 @@ func TestMain(m *testing.M) {
 	// override the health check interval to speed up the test
 	healthCheckInterval = 1 * time.Second
 	healthCheckTimeout = 100 * time.Millisecond
-	m.Run()
+	code := m.Run()
+	os.Exit(code)
 }
 
 func TestNewHealthPeriod(t *testing.T) {
