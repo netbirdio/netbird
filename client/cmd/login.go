@@ -39,6 +39,11 @@ var loginCmd = &cobra.Command{
 			ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
 		}
 
+		providedSetupKey, err := getSetupKey()
+		if err != nil {
+			return err
+		}
+
 		// workaround to run without service
 		if logFile == "console" {
 			err = handleRebrand(cmd)
@@ -62,7 +67,7 @@ var loginCmd = &cobra.Command{
 
 			config, _ = internal.UpdateOldManagementURL(ctx, config, configPath)
 
-			err = foregroundLogin(ctx, cmd, config, setupKey)
+			err = foregroundLogin(ctx, cmd, config, providedSetupKey)
 			if err != nil {
 				return fmt.Errorf("foreground login failed: %v", err)
 			}
@@ -81,7 +86,7 @@ var loginCmd = &cobra.Command{
 		client := proto.NewDaemonServiceClient(conn)
 
 		loginRequest := proto.LoginRequest{
-			SetupKey:             setupKey,
+			SetupKey:             providedSetupKey,
 			ManagementUrl:        managementURL,
 			IsLinuxDesktopClient: isLinuxRunningDesktop(),
 			Hostname:             hostName,

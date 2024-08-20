@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/url"
 	"os"
@@ -57,6 +58,8 @@ type ConfigInput struct {
 	DisableAutoConnect  *bool
 	ExtraIFaceBlackList []string
 	DNSRouteInterval    *time.Duration
+	ClientCertPath      string
+	ClientCertKeyPath   string
 }
 
 // Config Configuration type
@@ -102,6 +105,13 @@ type Config struct {
 
 	// DNSRouteInterval is the interval in which the DNS routes are updated
 	DNSRouteInterval time.Duration
+	//Path to a certificate used for mTLS authentication
+	ClientCertPath string
+
+	//Path to corresponding private key of ClientCertPath
+	ClientCertKeyPath string
+
+	ClientCertKeyPair *tls.Certificate `json:"-"`
 }
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
@@ -383,6 +393,26 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		log.Infof("using default DNS route interval %s", config.DNSRouteInterval)
 		updated = true
 
+	}
+
+	if input.ClientCertKeyPath != "" {
+		config.ClientCertKeyPath = input.ClientCertKeyPath
+		updated = true
+	}
+
+	if input.ClientCertPath != "" {
+		config.ClientCertPath = input.ClientCertPath
+		updated = true
+	}
+
+	if config.ClientCertPath != "" && config.ClientCertKeyPath != "" {
+		cert, err := tls.LoadX509KeyPair(config.ClientCertPath, config.ClientCertKeyPath)
+		if err != nil {
+			log.Error("Failed to load mTLS cert/key pair: ", err)
+		} else {
+			config.ClientCertKeyPair = &cert
+			log.Info("Loaded client mTLS cert/key pair")
+		}
 	}
 
 	return updated, nil

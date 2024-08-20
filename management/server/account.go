@@ -18,6 +18,8 @@ import (
 
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
+	"github.com/hashicorp/go-multierror"
+	"github.com/miekg/dns"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -37,6 +39,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -65,6 +68,7 @@ type AccountManager interface {
 	SaveSetupKey(ctx context.Context, accountID string, key *SetupKey, userID string) (*SetupKey, error)
 	CreateUser(ctx context.Context, accountID, initiatorUserID string, key *UserInfo) (*UserInfo, error)
 	DeleteUser(ctx context.Context, accountID, initiatorUserID string, targetUserID string) error
+	DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string) error
 	InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error
 	ListSetupKeys(ctx context.Context, accountID, userID string) ([]*SetupKey, error)
 	SaveUser(ctx context.Context, accountID, initiatorUserID string, update *User) (*UserInfo, error)
@@ -98,6 +102,7 @@ type AccountManager interface {
 	SaveGroup(ctx context.Context, accountID, userID string, group *nbgroup.Group) error
 	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*nbgroup.Group) error
 	DeleteGroup(ctx context.Context, accountId, userId, groupID string) error
+	DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error
 	ListGroups(ctx context.Context, accountId string) ([]*nbgroup.Group, error)
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
 	GroupDeletePeer(ctx context.Context, accountId, groupID, peerID string) error
@@ -170,6 +175,8 @@ type DefaultAccountManager struct {
 	userDeleteFromIDPEnabled bool
 
 	integratedPeerValidator integrated_validator.IntegratedValidator
+
+	metrics telemetry.AppMetrics
 }
 
 // Settings represents Account settings structure that can be modified via API and Dashboard
@@ -401,8 +408,16 @@ func (a *Account) GetGroup(groupID string) *nbgroup.Group {
 	return a.Groups[groupID]
 }
 
-// GetPeerNetworkMap returns a group by ID if exists, nil otherwise
-func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain string, validatedPeersMap map[string]struct{}) *NetworkMap {
+// GetPeerNetworkMap returns the networkmap for the given peer ID.
+func (a *Account) GetPeerNetworkMap(
+	ctx context.Context,
+	peerID string,
+	peersCustomZone nbdns.CustomZone,
+	validatedPeersMap map[string]struct{},
+	metrics *telemetry.AccountManagerMetrics,
+) *NetworkMap {
+	start := time.Now()
+
 	peer := a.Peers[peerID]
 	if peer == nil {
 		return &NetworkMap{
@@ -438,7 +453,7 @@ func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain strin
 
 	if dnsManagementStatus {
 		var zones []nbdns.CustomZone
-		peersCustomZone := getPeersCustomZone(ctx, a, dnsDomain)
+
 		if peersCustomZone.Domain != "" {
 			zones = append(zones, peersCustomZone)
 		}
@@ -446,7 +461,7 @@ func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain strin
 		dnsUpdate.NameServerGroups = getPeerNSGroups(a, peerID)
 	}
 
-	return &NetworkMap{
+	nm := &NetworkMap{
 		Peers:         peersToConnect,
 		Network:       a.Network.Copy(),
 		Routes:        routesUpdate,
@@ -454,6 +469,60 @@ func (a *Account) GetPeerNetworkMap(ctx context.Context, peerID, dnsDomain strin
 		OfflinePeers:  expiredPeers,
 		FirewallRules: firewallRules,
 	}
+
+	if metrics != nil {
+		objectCount := int64(len(peersToConnect) + len(expiredPeers) + len(routesUpdate) + len(firewallRules))
+		metrics.CountNetworkMapObjects(objectCount)
+		metrics.CountGetPeerNetworkMapDuration(time.Since(start))
+	}
+
+	return nm
+}
+
+func (a *Account) GetPeersCustomZone(ctx context.Context, dnsDomain string) nbdns.CustomZone {
+	var merr *multierror.Error
+
+	if dnsDomain == "" {
+		log.WithContext(ctx).Error("no dns domain is set, returning empty zone")
+		return nbdns.CustomZone{}
+	}
+
+	customZone := nbdns.CustomZone{
+		Domain:  dns.Fqdn(dnsDomain),
+		Records: make([]nbdns.SimpleRecord, 0, len(a.Peers)),
+	}
+
+	domainSuffix := "." + dnsDomain
+
+	var sb strings.Builder
+	for _, peer := range a.Peers {
+		if peer.DNSLabel == "" {
+			merr = multierror.Append(merr, fmt.Errorf("peer %s has an empty DNS label", peer.Name))
+			continue
+		}
+
+		sb.Grow(len(peer.DNSLabel) + len(domainSuffix))
+		sb.WriteString(peer.DNSLabel)
+		sb.WriteString(domainSuffix)
+
+		customZone.Records = append(customZone.Records, nbdns.SimpleRecord{
+			Name:  sb.String(),
+			Type:  int(dns.TypeA),
+			Class: nbdns.DefaultClass,
+			TTL:   defaultTTL,
+			RData: peer.IP.String(),
+		})
+
+		sb.Reset()
+	}
+
+	go func() {
+		if merr != nil {
+			log.WithContext(ctx).Errorf("error generating custom zone for account %s: %v", a.Id, merr)
+		}
+	}()
+
+	return customZone
 }
 
 // GetExpiredPeers returns peers that have been expired
@@ -853,7 +922,7 @@ func (a *Account) UserGroupsAddToPeers(userID string, groups ...string) {
 func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
 	for _, gid := range groups {
 		group, ok := a.Groups[gid]
-		if !ok {
+		if !ok || group.Name == "All" {
 			continue
 		}
 		update := make([]string, 0, len(group.Peers))
@@ -871,10 +940,18 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
 }
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
-func BuildManager(ctx context.Context, store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
-	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store, geo *geolocation.Geolocation,
+func BuildManager(
+	ctx context.Context,
+	store Store,
+	peersUpdateManager *PeersUpdateManager,
+	idpManager idp.Manager,
+	singleAccountModeDomain string,
+	dnsDomain string,
+	eventStore activity.Store,
+	geo *geolocation.Geolocation,
 	userDeleteFromIDPEnabled bool,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
+	metrics telemetry.AppMetrics,
 ) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
 		Store:                    store,
@@ -889,6 +966,7 @@ func BuildManager(ctx context.Context, store Store, peersUpdateManager *PeersUpd
 		peerLoginExpiry:          NewDefaultScheduler(),
 		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
 		integratedPeerValidator:  integratedPeerValidator,
+		metrics:                  metrics,
 	}
 	allAccounts := store.GetAllAccounts(ctx)
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
@@ -1992,6 +2070,28 @@ func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, chec
 
 func (am *DefaultAccountManager) GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error) {
 	return am.Store.GetAccountIDByPeerPubKey(ctx, peerKey)
+}
+
+func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, peer *nbpeer.Peer, settings *Settings) (bool, error) {
+	user, err := am.Store.GetUserByUserID(ctx, peer.UserID)
+	if err != nil {
+		return false, err
+	}
+
+	err = checkIfPeerOwnerIsBlocked(peer, user)
+	if err != nil {
+		return false, err
+	}
+
+	if peerLoginExpired(ctx, peer, settings) {
+		err = am.handleExpiredPeer(ctx, user, peer)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
+	return false, nil
 }
 
 // addAllGroup to account object if it doesn't exist
