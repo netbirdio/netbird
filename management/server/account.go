@@ -9,9 +9,11 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"os"
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1045,7 +1047,16 @@ func BuildManager(
 		am.onPeersInvalidated(ctx, accountID)
 	})
 
-	go am.processGetAccountRequests(ctx)
+	bufferIntervalStr := os.Getenv("NB_GET_ACCOUNT_BUFFER_INTERVAL")
+	bufferInterval, err := strconv.Atoi(bufferIntervalStr)
+	if err != nil {
+		bufferInterval = 300
+	}
+	bufferDuration := time.Duration(bufferInterval)
+
+	log.WithContext(ctx).Infof("set GetAccount buffer to %s", bufferDuration)
+
+	go am.processGetAccountRequests(ctx, bufferDuration)
 
 	return am, nil
 }

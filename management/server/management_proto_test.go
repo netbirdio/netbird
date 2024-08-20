@@ -818,22 +818,22 @@ func testLoginPerformance(t *testing.T, loginCalls []func() error) {
 	t.Logf("starting login calls")
 	close(startChan)
 	wgDone.Wait()
-	var min, max, avg time.Duration
+	var tMin, tMax, tSum time.Duration
 	for i, d := range durations {
 		if i == 0 {
-			min = d
-			max = d
-			avg = d
+			tMin = d
+			tMax = d
+			tSum = d
 			continue
 		}
-		if d < min {
-			min = d
+		if d < tMin {
+			tMin = d
 		}
-		if d > max {
-			max = d
+		if d > tMax {
+			tMax = d
 		}
-		avg += d
+		tSum += d
 	}
-	avg = avg / time.Duration(len(durations))
-	t.Logf("Min: %v, Max: %v, Avg: %v", min, max, avg)
+	tAvg := tSum / time.Duration(len(durations))
+	t.Logf("Min: %v, Max: %v, Avg: %v", tMin, tMax, tAvg)
 }
