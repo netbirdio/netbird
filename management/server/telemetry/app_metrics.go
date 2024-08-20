@@ -20,14 +20,15 @@ const defaultEndpoint = "/metrics"
 
 // MockAppMetrics mocks the AppMetrics interface
 type MockAppMetrics struct {
-	GetMeterFunc             func() metric2.Meter
-	CloseFunc                func() error
-	ExposeFunc               func(ctx context.Context, port int, endpoint string) error
-	IDPMetricsFunc           func() *IDPMetrics
-	HTTPMiddlewareFunc       func() *HTTPMiddleware
-	GRPCMetricsFunc          func() *GRPCMetrics
-	StoreMetricsFunc         func() *StoreMetrics
-	UpdateChannelMetricsFunc func() *UpdateChannelMetrics
+	GetMeterFunc                 func() metric2.Meter
+	CloseFunc                    func() error
+	ExposeFunc                   func(ctx context.Context, port int, endpoint string) error
+	IDPMetricsFunc               func() *IDPMetrics
+	HTTPMiddlewareFunc           func() *HTTPMiddleware
+	GRPCMetricsFunc              func() *GRPCMetrics
+	StoreMetricsFunc             func() *StoreMetrics
+	UpdateChannelMetricsFunc     func() *UpdateChannelMetrics
+	AddAccountManagerMetricsFunc func() *AccountManagerMetrics
 }
 
 // GetMeter mocks the GetMeter function of the AppMetrics interface
@@ -94,6 +95,14 @@ func (mock *MockAppMetrics) UpdateChannelMetrics() *UpdateChannelMetrics {
 	return nil
 }
 
+// AccountManagerMetrics mocks the MockAppMetrics function of the AccountManagerMetrics interface
+func (mock *MockAppMetrics) AccountManagerMetrics() *AccountManagerMetrics {
+	if mock.AddAccountManagerMetricsFunc != nil {
+		return mock.AddAccountManagerMetricsFunc()
+	}
+	return nil
+}
+
 // AppMetrics is metrics interface
 type AppMetrics interface {
 	GetMeter() metric2.Meter
@@ -104,19 +113,21 @@ type AppMetrics interface {
 	GRPCMetrics() *GRPCMetrics
 	StoreMetrics() *StoreMetrics
 	UpdateChannelMetrics() *UpdateChannelMetrics
+	AccountManagerMetrics() *AccountManagerMetrics
 }
 
 // defaultAppMetrics are core application metrics based on OpenTelemetry https://opentelemetry.io/
 type defaultAppMetrics struct {
 	// Meter can be used by different application parts to create counters and measure things
-	Meter                metric2.Meter
-	listener             net.Listener
-	ctx                  context.Context
-	idpMetrics           *IDPMetrics
-	httpMiddleware       *HTTPMiddleware
-	grpcMetrics          *GRPCMetrics
-	storeMetrics         *StoreMetrics
-	updateChannelMetrics *UpdateChannelMetrics
+	Meter                 metric2.Meter
+	listener              net.Listener
+	ctx                   context.Context
+	idpMetrics            *IDPMetrics
+	httpMiddleware        *HTTPMiddleware
+	grpcMetrics           *GRPCMetrics
+	storeMetrics          *StoreMetrics
+	updateChannelMetrics  *UpdateChannelMetrics
+	accountManagerMetrics *AccountManagerMetrics
 }
 
 // IDPMetrics returns metrics for the idp package
@@ -142,6 +153,11 @@ func (appMetrics *defaultAppMetrics) StoreMetrics() *StoreMetrics {
 // UpdateChannelMetrics returns metrics for the updatechannel
 func (appMetrics *defaultAppMetrics) UpdateChannelMetrics() *UpdateChannelMetrics {
 	return appMetrics.updateChannelMetrics
+}
+
+// AccountManagerMetrics returns metrics for the account manager
+func (appMetrics *defaultAppMetrics) AccountManagerMetrics() *AccountManagerMetrics {
+	return appMetrics.accountManagerMetrics
 }
 
 // Close stop application metrics HTTP handler and closes listener.
@@ -220,13 +236,19 @@ func NewDefaultAppMetrics(ctx context.Context) (AppMetrics, error) {
 		return nil, err
 	}
 
+	accountManagerMetrics, err := NewAccountManagerMetrics(ctx, meter)
+	if err != nil {
+		return nil, err
+	}
+
 	return &defaultAppMetrics{
-		Meter:                meter,
-		ctx:                  ctx,
-		idpMetrics:           idpMetrics,
-		httpMiddleware:       middleware,
-		grpcMetrics:          grpcMetrics,
-		storeMetrics:         storeMetrics,
-		updateChannelMetrics: updateChannelMetrics,
+		Meter:                 meter,
+		ctx:                   ctx,
+		idpMetrics:            idpMetrics,
+		httpMiddleware:        middleware,
+		grpcMetrics:           grpcMetrics,
+		storeMetrics:          storeMetrics,
+		updateChannelMetrics:  updateChannelMetrics,
+		accountManagerMetrics: accountManagerMetrics,
 	}, nil
 }

@@ -468,6 +468,34 @@ func (s *SqlStore) GetUserByTokenID(ctx context.Context, tokenID string) (*User,
 	return &user, nil
 }
 
+func (s *SqlStore) GetUserByUserID(ctx context.Context, userID string) (*User, error) {
+	var user User
+	result := s.db.First(&user, idQueryCondition, userID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "user not found: index lookup failed")
+		}
+		log.WithContext(ctx).Errorf("error when getting user from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "issue getting user from store")
+	}
+
+	return &user, nil
+}
+
+func (s *SqlStore) GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error) {
+	var groups []*nbgroup.Group
+	result := s.db.Find(&groups, idQueryCondition, accountID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "accountID not found: index lookup failed")
+		}
+		log.WithContext(ctx).Errorf("error when getting groups from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "issue getting groups from store")
+	}
+
+	return groups, nil
+}
+
 func (s *SqlStore) GetAllAccounts(ctx context.Context) (all []*Account) {
 	var accounts []Account
 	result := s.db.Find(&accounts)

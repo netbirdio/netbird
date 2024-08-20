@@ -11,8 +11,6 @@ builds:
       - amd64
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
-    tags:
-      - legacy_appindicator
     mod_timestamp: '{{ .CommitTimestamp }}'
 
   - id: netbird-ui-windows
