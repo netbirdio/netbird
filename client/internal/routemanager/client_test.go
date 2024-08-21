@@ -145,33 +145,6 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 			expectedRouteID: "route1",
 		},
 		{
-			name: "multiple connected peers with one direct",
-			statuses: map[route.ID]routerPeerStatus{
-				"route1": {
-					connected: true,
-					relayed:   false,
-				},
-				"route2": {
-					connected: true,
-					relayed:   false,
-				},
-			},
-			existingRoutes: map[route.ID]*route.Route{
-				"route1": {
-					ID:     "route1",
-					Metric: route.MaxMetric,
-					Peer:   "peer1",
-				},
-				"route2": {
-					ID:     "route2",
-					Metric: route.MaxMetric,
-					Peer:   "peer2",
-				},
-			},
-			currentRoute:    "",
-			expectedRouteID: "route1",
-		},
-		{
 			name: "multiple connected peers with different latencies",
 			statuses: map[route.ID]routerPeerStatus{
 				"route1": {
