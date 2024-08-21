@@ -427,7 +427,7 @@ func closeConnWithLog(conn *net.UDPConn) {
 	startClosing := time.Now()
 	err := conn.Close()
 	if err != nil {
-		log.Warnf("closing probe port %d failed: %v. NetBird still will attempt to use this port for connection.", conn.LocalAddr().(*net.UDPAddr).Port, err)
+		log.Warnf("closing probe port %d failed: %v. NetBird will still attempt to use this port for connection.", conn.LocalAddr().(*net.UDPAddr).Port, err)
 	}
 	if time.Since(startClosing) > time.Second {
 		log.Warnf("closing the testing port %d took %s. Usually is safe to ignore, but continuous warnings may indicate a problem.", conn.LocalAddr().(*net.UDPAddr).Port, time.Since(startClosing))
