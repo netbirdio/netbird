@@ -11,8 +11,8 @@ func TestMain(m *testing.M) {
 	// override the health check interval to speed up the test
 	healthCheckInterval = 1 * time.Second
 	healthCheckTimeout = 100 * time.Millisecond
-	m.Run()
-	os.Exit(0)
+	code := m.Run()
+	os.Exit(code)
 }
 
 func TestNewHealthPeriod(t *testing.T) {
