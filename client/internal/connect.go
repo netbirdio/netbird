@@ -397,7 +397,7 @@ func statusRecorderToSignalConnStateNotifier(statusRecorder *peer.Status) signal
 	return notifier
 }
 
-// freePort attempts to determine if the provided port is available, if not it will as the system for a free port.
+// freePort attempts to determine if the provided port is available, if not it will ask the system for a free port.
 func freePort(initPort int) (int, error) {
 	addr := net.UDPAddr{}
 	if initPort == 0 {
