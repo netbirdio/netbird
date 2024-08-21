@@ -28,7 +28,7 @@ func (r *Route53TLS) GetCertificate() (*tls.Config, error) {
 	certmagic.DefaultACME.Agreed = true
 	certmagic.DefaultACME.Email = r.Email
 	if r.CA == "" {
-		certmagic.DefaultACME.CA = certmagic.LetsEncryptStagingCA
+		certmagic.DefaultACME.CA =certmagic.LetsEncryptProductionCA
 	} else {
 		certmagic.DefaultACME.CA = r.CA
 	}
