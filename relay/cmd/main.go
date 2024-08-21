@@ -60,10 +60,12 @@ var (
 	cobraConfig *Config
 	cfgFile     string
 	rootCmd     = &cobra.Command{
-		Use:   "relay",
-		Short: "Relay service",
-		Long:  "Relay service for Netbird agents",
-		RunE:  execute,
+		Use:           "relay",
+		Short:         "Relay service",
+		Long:          "Relay service for Netbird agents",
+		RunE:          execute,
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 )
 
@@ -128,7 +130,7 @@ func execute(cmd *cobra.Command, args []string) error {
 	err = cfg.Validate()
 	if err != nil {
 		log.Errorf("invalid config: %s", err)
-		os.Exit(1)
+		return err
 	}
 
 	metricsServer, err := metrics.NewServer(metricsPort, "")
@@ -170,7 +172,7 @@ func execute(cmd *cobra.Command, args []string) error {
 	log.Infof("server will be available on: %s", srv.InstanceURL())
 	go func() {
 		if err := srv.Listen(srvListenerCfg); err != nil {
-			log.Errorf("failed to bind server: %s", err)
+			log.Fatalf("failed to bind server: %s", err)
 		}
 	}()
 
@@ -185,6 +187,7 @@ func execute(cmd *cobra.Command, args []string) error {
 		shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close server: %s", err))
 	}
 
+	log.Infof("shutting down metrics server")
 	if err := metricsServer.Close(); err != nil {
 		shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close metrics server: %v", err))
 	}
@@ -200,8 +203,7 @@ func setupTLSCertManager(letsencryptDataDir string, letsencryptDomains ...string
 }
 
 func main() {
-	err := rootCmd.Execute()
-	if err != nil {
-		os.Exit(1)
+	if err := rootCmd.Execute(); err != nil {
+		log.Fatalf("%v", err)
 	}
 }
