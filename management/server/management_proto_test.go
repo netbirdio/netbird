@@ -654,7 +654,7 @@ func Test_LoginPerformance(t *testing.T) {
 		// {"M", 250, 1},
 		// {"L", 500, 1},
 		// {"XL", 750, 1},
-		{"XXL", 1000, 5},
+		{"XXL", 2000, 1},
 	}
 
 	log.SetOutput(io.Discard)

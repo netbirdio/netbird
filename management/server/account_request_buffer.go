@@ -21,7 +21,7 @@ type AccountResult struct {
 	Err     error
 }
 
-type AccountCache struct {
+type AccountRequestBuffer struct {
 	store               Store
 	getAccountRequests  map[string][]*AccountRequest
 	mu                  sync.Mutex
@@ -29,17 +29,19 @@ type AccountCache struct {
 	bufferInterval      time.Duration
 }
 
-func NewAccountCache(ctx context.Context, store Store) *AccountCache {
+func NewAccountRequestBuffer(ctx context.Context, store Store) *AccountRequestBuffer {
 	bufferIntervalStr := os.Getenv("NB_GET_ACCOUNT_BUFFER_INTERVAL")
 	bufferInterval, err := time.ParseDuration(bufferIntervalStr)
-	if err != nil && bufferIntervalStr != "" {
-		log.WithContext(ctx).Warnf("failed to parse account cache buffer interval: %s", err)
-		bufferInterval = 300 * time.Millisecond
+	if err != nil {
+		if bufferIntervalStr != "" {
+			log.WithContext(ctx).Warnf("failed to parse account request buffer interval: %s", err)
+		}
+		bufferInterval = 100 * time.Millisecond
 	}
 
-	log.WithContext(ctx).Infof("set account cache buffer interval to %s", bufferInterval)
+	log.WithContext(ctx).Infof("set account request buffer interval to %s", bufferInterval)
 
-	ac := AccountCache{
+	ac := AccountRequestBuffer{
 		store:               store,
 		getAccountRequests:  make(map[string][]*AccountRequest),
 		getAccountRequestCh: make(chan *AccountRequest),
@@ -50,7 +52,7 @@ func NewAccountCache(ctx context.Context, store Store) *AccountCache {
 
 	return &ac
 }
-func (ac *AccountCache) GetAccountWithBackpressure(ctx context.Context, accountID string) (*Account, error) {
+func (ac *AccountRequestBuffer) GetAccountWithBackpressure(ctx context.Context, accountID string) (*Account, error) {
 	req := &AccountRequest{
 		AccountID:  accountID,
 		ResultChan: make(chan *AccountResult, 1),
@@ -65,7 +67,7 @@ func (ac *AccountCache) GetAccountWithBackpressure(ctx context.Context, accountI
 	return result.Account, result.Err
 }
 
-func (ac *AccountCache) processGetAccountBatch(ctx context.Context, accountID string) {
+func (ac *AccountRequestBuffer) processGetAccountBatch(ctx context.Context, accountID string) {
 	ac.mu.Lock()
 	requests := ac.getAccountRequests[accountID]
 	delete(ac.getAccountRequests, accountID)
@@ -86,7 +88,7 @@ func (ac *AccountCache) processGetAccountBatch(ctx context.Context, accountID st
 	}
 }
 
-func (ac *AccountCache) processGetAccountRequests(ctx context.Context) {
+func (ac *AccountRequestBuffer) processGetAccountRequests(ctx context.Context) {
 	for {
 		select {
 		case req := <-ac.getAccountRequestCh:

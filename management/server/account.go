@@ -161,7 +161,7 @@ type DefaultAccountManager struct {
 	eventStore           activity.Store
 	geo                  *geolocation.Geolocation
 
-	cache *AccountCache
+	requestBuffer *AccountRequestBuffer
 
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
@@ -969,7 +969,7 @@ func BuildManager(
 		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
 		integratedPeerValidator:  integratedPeerValidator,
 		metrics:                  metrics,
-		cache:                    NewAccountCache(ctx, store),
+		requestBuffer:            NewAccountRequestBuffer(ctx, store),
 	}
 	allAccounts := store.GetAllAccounts(ctx)
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
