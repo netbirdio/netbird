@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -87,56 +85,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogLevel, "log-level", "info", "log level")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogFile, "log-path", "console", "log path")
 
-	if envValue := os.Getenv("NB_LISTEN_ADDRESS"); envValue != "" {
-		cobraConfig.ListenAddress = envValue
-	}
-	if envValue := os.Getenv("NB_EXPOSED_ADDRESS"); envValue != "" {
-		cobraConfig.ExposedAddress = envValue
-	}
-	if envValue := os.Getenv("NB_LETSENCRYPT_DATA_DIR"); envValue != "" {
-		cobraConfig.LetsencryptDataDir = envValue
-	}
-	if envValue := os.Getenv("NB_LETSENCRYPT_DOMAINS"); envValue != "" {
-		cobraConfig.LetsencryptDomains = splitAndTrim(envValue, ",")
-	}
-	if envValue := os.Getenv("NB_LETSENCRYPT_EMAIL"); envValue != "" {
-		cobraConfig.LetsencryptEmail = envValue
-	}
-	if envValue := os.Getenv("NB_LETSENCRYPT_AWS_ROUTE53"); envValue != "" {
-		cobraConfig.LetsencryptAWSRoute53 = parseBool(envValue)
-	}
-	if envValue := os.Getenv("NB_TLS_CERT_FILE"); envValue != "" {
-		cobraConfig.TlsCertFile = envValue
-	}
-	if envValue := os.Getenv("NB_TLS_KEY_FILE"); envValue != "" {
-		cobraConfig.TlsKeyFile = envValue
-	}
-	if envValue := os.Getenv("NB_AUTH_SECRET"); envValue != "" {
-		cobraConfig.AuthSecret = envValue
-	}
-	if envValue := os.Getenv("NB_LOG_LEVEL"); envValue != "" {
-		cobraConfig.LogLevel = envValue
-	}
-	if envValue := os.Getenv("NB_LOG_PATH"); envValue != "" {
-		cobraConfig.LogFile = envValue
-	}
-}
-
-func splitAndTrim(input string, delimiter string) []string {
-	parts := strings.Split(input, delimiter)
-	for i := range parts {
-		parts[i] = strings.TrimSpace(parts[i])
-	}
-	return parts
-}
-
-func parseBool(input string) bool {
-	result, err := strconv.ParseBool(input)
-	if err != nil {
-		log.Warnf("Invalid boolean value '%s': %v", input, err)
-		return false
-	}
-	return result
+	setFlagsFromEnvVars(rootCmd)
 }
 
 func waitForExitSignal() {
@@ -146,6 +95,7 @@ func waitForExitSignal() {
 }
 
 func execute(cmd *cobra.Command, args []string) error {
+	log.Infof("starting relay service: %#v", cobraConfig)
 	err := cobraConfig.Validate()
 	if err != nil {
 		return fmt.Errorf("invalid config: %s", err)
