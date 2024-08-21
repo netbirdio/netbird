@@ -46,7 +46,7 @@ func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 	return err
 }
 
-func (l *Listener) Close(ctx context.Context) error {
+func (l *Listener) Shutdown(ctx context.Context) error {
 	if l.server == nil {
 		return nil
 	}

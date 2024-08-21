@@ -85,7 +85,7 @@ func transfer(t *testing.T, testData []byte, peerPairs int) {
 	}()
 
 	defer func() {
-		err := srv.Close(ctx)
+		err := srv.Shutdown(ctx)
 		if err != nil {
 			t.Errorf("failed to close server: %s", err)
 		}

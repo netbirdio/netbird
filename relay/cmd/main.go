@@ -179,7 +179,7 @@ func execute(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err = srv.Close(ctx)
+	err = srv.Shutdown(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to close server: %s", err)
 	}

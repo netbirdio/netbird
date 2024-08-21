@@ -7,5 +7,5 @@ import (
 
 type Listener interface {
 	Listen(func(conn net.Conn)) error
-	Close(ctx context.Context) error
+	Shutdown(ctx context.Context) error
 }

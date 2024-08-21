@@ -58,15 +58,15 @@ func (r *Server) Listen(cfg ListenerConfig) error {
 	return wslErr
 }
 
-// Close stops the relay server. If there are active connections, they will be closed gracefully. In case of a timeout,
+// Shutdown stops the relay server. If there are active connections, they will be closed gracefully. In case of a context,
 // the connections will be forcefully closed.
-func (r *Server) Close(ctx context.Context) (err error) {
+func (r *Server) Shutdown(ctx context.Context) (err error) {
 	// stop service new connections
 	if r.wSListener != nil {
-		err = r.wSListener.Close(ctx)
+		err = r.wSListener.Shutdown(ctx)
 	}
 
-	r.relay.Close(ctx)
+	r.relay.Shutdown(ctx)
 	return
 }
 

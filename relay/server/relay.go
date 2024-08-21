@@ -101,9 +101,9 @@ func (r *Relay) Accept(conn net.Conn) {
 	}()
 }
 
-// Close closes the relay server
+// Shutdown closes the relay server
 // It closes the connection with all peers in gracefully and stops accepting new connections.
-func (r *Relay) Close(ctx context.Context) {
+func (r *Relay) Shutdown(ctx context.Context) {
 	log.Infof("close connection with all peers")
 	r.closeMu.Lock()
 	wg := sync.WaitGroup{}

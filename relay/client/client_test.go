@@ -47,7 +47,7 @@ func TestClient(t *testing.T) {
 	}()
 
 	defer func() {
-		err := srv.Close(ctx)
+		err := srv.Shutdown(ctx)
 		if err != nil {
 			t.Errorf("failed to close server: %s", err)
 		}
@@ -135,14 +135,14 @@ func TestRegistration(t *testing.T) {
 	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
 	err = clientAlice.Connect()
 	if err != nil {
-		_ = srv.Close(ctx)
+		_ = srv.Shutdown(ctx)
 		t.Fatalf("failed to connect to server: %s", err)
 	}
 	err = clientAlice.Close()
 	if err != nil {
 		t.Errorf("failed to close conn: %s", err)
 	}
-	err = srv.Close(ctx)
+	err = srv.Shutdown(ctx)
 	if err != nil {
 		t.Errorf("failed to close server: %s", err)
 	}
@@ -202,7 +202,7 @@ func TestEcho(t *testing.T) {
 	}()
 
 	defer func() {
-		err := srv.Close(ctx)
+		err := srv.Shutdown(ctx)
 		if err != nil {
 			t.Errorf("failed to close server: %s", err)
 		}
@@ -292,7 +292,7 @@ func TestBindToUnavailabePeer(t *testing.T) {
 
 	defer func() {
 		log.Infof("closing server")
-		err := srv.Close(ctx)
+		err := srv.Shutdown(ctx)
 		if err != nil {
 			t.Errorf("failed to close server: %s", err)
 		}
@@ -338,7 +338,7 @@ func TestBindReconnect(t *testing.T) {
 
 	defer func() {
 		log.Infof("closing server")
-		err := srv.Close(ctx)
+		err := srv.Shutdown(ctx)
 		if err != nil {
 			t.Errorf("failed to close server: %s", err)
 		}
@@ -429,7 +429,7 @@ func TestCloseConn(t *testing.T) {
 
 	defer func() {
 		log.Infof("closing server")
-		err := srv.Close(ctx)
+		err := srv.Shutdown(ctx)
 		if err != nil {
 			t.Errorf("failed to close server: %s", err)
 		}
@@ -485,7 +485,7 @@ func TestCloseRelayConn(t *testing.T) {
 	}()
 
 	defer func() {
-		err := srv.Close(ctx)
+		err := srv.Shutdown(ctx)
 		if err != nil {
 			log.Errorf("failed to close server: %s", err)
 		}
@@ -556,7 +556,7 @@ func TestCloseByServer(t *testing.T) {
 		close(disconnected)
 	})
 
-	err = srv1.Close(ctx)
+	err = srv1.Shutdown(ctx)
 	if err != nil {
 		t.Fatalf("failed to close server: %s", err)
 	}
@@ -612,7 +612,7 @@ func TestCloseByClient(t *testing.T) {
 		t.Errorf("unexpected opening connection to closed server")
 	}
 
-	err = srv.Close(ctx)
+	err = srv.Shutdown(ctx)
 	if err != nil {
 		t.Fatalf("failed to close server: %s", err)
 	}
