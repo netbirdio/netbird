@@ -1,8 +1,11 @@
 package listener
 
-import "net"
+import (
+	"context"
+	"net"
+)
 
 type Listener interface {
 	Listen(func(conn net.Conn)) error
-	Close() error
+	Close(ctx context.Context) error
 }

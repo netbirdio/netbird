@@ -38,7 +38,7 @@ func TestForeignConn(t *testing.T) {
 	}()
 
 	defer func() {
-		err := srv1.Close()
+		err := srv1.Close(ctx)
 		if err != nil {
 			t.Errorf("failed to close server: %s", err)
 		}
@@ -64,7 +64,7 @@ func TestForeignConn(t *testing.T) {
 	}()
 
 	defer func() {
-		err := srv2.Close()
+		err := srv2.Close(ctx)
 		if err != nil {
 			t.Errorf("failed to close server: %s", err)
 		}
@@ -150,7 +150,7 @@ func TestForeginConnClose(t *testing.T) {
 	}()
 
 	defer func() {
-		err := srv1.Close()
+		err := srv1.Close(ctx)
 		if err != nil {
 			t.Errorf("failed to close server: %s", err)
 		}
@@ -176,7 +176,7 @@ func TestForeginConnClose(t *testing.T) {
 	}()
 
 	defer func() {
-		err := srv2.Close()
+		err := srv2.Close(ctx)
 		if err != nil {
 			t.Errorf("failed to close server: %s", err)
 		}
@@ -227,7 +227,7 @@ func TestForeginAutoClose(t *testing.T) {
 
 	defer func() {
 		t.Logf("closing server 1.")
-		err := srv1.Close()
+		err := srv1.Close(ctx)
 		if err != nil {
 			t.Errorf("failed to close server: %s", err)
 		}
@@ -255,7 +255,7 @@ func TestForeginAutoClose(t *testing.T) {
 	}()
 	defer func() {
 		t.Logf("closing server 2.")
-		err := srv2.Close()
+		err := srv2.Close(ctx)
 		if err != nil {
 			t.Errorf("failed to close server: %s", err)
 		}
@@ -317,7 +317,7 @@ func TestAutoReconnect(t *testing.T) {
 	}()
 
 	defer func() {
-		err := srv.Close()
+		err := srv.Close(ctx)
 		if err != nil {
 			log.Errorf("failed to close server: %s", err)
 		}
@@ -381,7 +381,7 @@ func TestNotifierDoubleAdd(t *testing.T) {
 	}()
 
 	defer func() {
-		err := srv1.Close()
+		err := srv1.Close(ctx)
 		if err != nil {
 			t.Errorf("failed to close server: %s", err)
 		}

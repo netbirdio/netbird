@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -175,7 +176,10 @@ func execute(cmd *cobra.Command, args []string) error {
 	// it will block until exit signal
 	waitForExitSignal()
 
-	err = srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	err = srv.Close(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to close server: %s", err)
 	}
