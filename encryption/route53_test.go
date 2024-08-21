@@ -69,6 +69,7 @@ func Test_emailFromDomain(t *testing.T) {
 		{"example.com", "admin@example.com"},
 		{"x.example.com", "admin@example.com"},
 		{"x.x.example.com", "admin@example.com"},
+		{"*.example.com", "admin@example.com"},
 		{"example", ""},
 		{"", ""},
 		{".com", ""},
