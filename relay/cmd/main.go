@@ -83,7 +83,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.TlsKeyFile, "tls-key-file", "k", "", "")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.AuthSecret, "auth-secret", "s", "", "auth secret")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogLevel, "log-level", "info", "log level")
-	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogFile, "log-path", "console", "log path")
+	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogFile, "log-file", "console", "log file")
 
 	setFlagsFromEnvVars(rootCmd)
 }
