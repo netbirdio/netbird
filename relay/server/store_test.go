@@ -11,7 +11,9 @@ import (
 
 func TestStore_DeletePeer(t *testing.T) {
 	s := NewStore()
+
 	m, _ := metrics.NewMetrics(context.Background(), otel.Meter(""))
+
 	p := NewPeer(m, []byte("peer_one"), nil, nil)
 	s.AddPeer(p)
 	s.DeletePeer(p)
@@ -22,6 +24,7 @@ func TestStore_DeletePeer(t *testing.T) {
 
 func TestStore_DeleteDeprecatedPeer(t *testing.T) {
 	s := NewStore()
+
 	m, _ := metrics.NewMetrics(context.Background(), otel.Meter(""))
 
 	p1 := NewPeer(m, []byte("peer_id"), nil, nil)

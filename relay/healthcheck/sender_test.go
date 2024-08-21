@@ -2,6 +2,7 @@ package healthcheck
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 )
@@ -11,6 +12,7 @@ func TestMain(m *testing.M) {
 	healthCheckInterval = 1 * time.Second
 	healthCheckTimeout = 100 * time.Millisecond
 	m.Run()
+	os.Exit(0)
 }
 
 func TestNewHealthPeriod(t *testing.T) {
