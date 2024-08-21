@@ -418,9 +418,13 @@ func freePort(initPort int) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("unable to get a free port: %v", err)
 	}
-	availablePort := conn.LocalAddr().(*net.UDPAddr).Port
+
+	udpAddr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		return 0, errors.New("wrong address type when getting a free port")
+	}
 	closeConnWithLog(conn)
-	return availablePort, nil
+	return udpAddr.Port, nil
 }
 
 func closeConnWithLog(conn *net.UDPConn) {
