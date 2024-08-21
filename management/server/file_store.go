@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,6 +45,36 @@ type FileStore struct {
 	globalAccountLock sync.Mutex `json:"-"`
 
 	metrics telemetry.AppMetrics `json:"-"`
+}
+
+func (s *FileStore) GetSetupKeyBySecret(ctx context.Context, key string) (*SetupKey, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *FileStore) RegisterPeer(ctx context.Context, accountID string, userID string, setupKeyID string, newPeer *nbpeer.Peer, groupsToAdd []string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *FileStore) GetTakenIPs(ctx context.Context, accountId string) ([]net.IP, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *FileStore) GetPeerLabelsInAccount(ctx context.Context, accountId string) ([]string, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *FileStore) GetAccountNetwork(ctx context.Context, accountId string) (*Network, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *FileStore) GetUserGroups(ctx context.Context, userId string) ([]string, error) {
+	// TODO implement me
+	panic("implement me")
 }
 
 type StoredAccount struct{}

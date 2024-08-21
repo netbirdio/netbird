@@ -263,6 +263,11 @@ type AccountSettings struct {
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
 }
 
+// Subclass used in gorm to only load settings and not whole account
+type AccountNetwork struct {
+	Network *Network `gorm:"embedded;embeddedPrefix:network_"`
+}
+
 type UserPermissions struct {
 	DashboardView string `json:"dashboard_view"`
 }

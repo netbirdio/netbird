@@ -654,7 +654,7 @@ func Test_LoginPerformance(t *testing.T) {
 		// {"M", 250, 1},
 		// {"L", 500, 1},
 		// {"XL", 750, 1},
-		{"XXL", 2000, 1},
+		{"XXL", 5000, 1},
 	}
 
 	log.SetOutput(io.Discard)
@@ -699,15 +699,18 @@ func Test_LoginPerformance(t *testing.T) {
 			}
 			defer mgmtServer.GracefulStop()
 
+			t.Logf("management setup complete, start registering peers")
+
 			var counter int32
 			var counterStart int32
-			var wg sync.WaitGroup
+			var wgAccount sync.WaitGroup
 			var mu sync.Mutex
 			messageCalls := []func() error{}
 			for j := 0; j < bc.accounts; j++ {
-				wg.Add(1)
+				wgAccount.Add(1)
+				var wgPeer sync.WaitGroup
 				go func(j int, counter *int32, counterStart *int32) {
-					defer wg.Done()
+					defer wgAccount.Done()
 
 					account, err := createAccount(am, fmt.Sprintf("account-%d", j), fmt.Sprintf("user-%d", j), fmt.Sprintf("domain-%d", j))
 					if err != nil {
@@ -721,7 +724,9 @@ func Test_LoginPerformance(t *testing.T) {
 						return
 					}
 
+					startTime := time.Now()
 					for i := 0; i < bc.peers; i++ {
+						wgPeer.Add(1)
 						key, err := wgtypes.GeneratePrivateKey()
 						if err != nil {
 							t.Logf("failed to generate key: %v", err)
@@ -762,21 +767,29 @@ func Test_LoginPerformance(t *testing.T) {
 						mu.Lock()
 						messageCalls = append(messageCalls, login)
 						mu.Unlock()
-						_, _, _, err = am.LoginPeer(context.Background(), peerLogin)
-						if err != nil {
-							t.Logf("failed to login peer: %v", err)
-							return
-						}
 
-						atomic.AddInt32(counterStart, 1)
-						if *counterStart%100 == 0 {
-							t.Logf("registered %d peers", *counterStart)
-						}
+						go func(peerLogin PeerLogin, counterStart *int32) {
+							defer wgPeer.Done()
+							_, _, _, err = am.LoginPeer(context.Background(), peerLogin)
+							if err != nil {
+								t.Logf("failed to login peer: %v", err)
+								return
+							}
+
+							atomic.AddInt32(counterStart, 1)
+							if *counterStart%100 == 0 {
+								t.Logf("registered %d peers", *counterStart)
+							}
+						}(peerLogin, counterStart)
+
 					}
+					wgPeer.Wait()
+
+					t.Logf("Time for registration: %s", time.Since(startTime))
 				}(j, &counter, &counterStart)
 			}
 
-			wg.Wait()
+			wgAccount.Wait()
 
 			t.Logf("prepared %d login calls", len(messageCalls))
 			testLoginPerformance(t, messageCalls)
