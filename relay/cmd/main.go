@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
@@ -179,11 +180,15 @@ func execute(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err = srv.Shutdown(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to close server: %s", err)
+	var shutDownErrors error
+	if err := srv.Shutdown(ctx); err != nil {
+		shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close server: %s", err))
 	}
-	return nil
+
+	if err := metricsServer.Close(); err != nil {
+		shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close metrics server: %v", err))
+	}
+	return shutDownErrors
 }
 
 func setupTLSCertManager(letsencryptDataDir string, letsencryptDomains ...string) (*tls.Config, error) {
