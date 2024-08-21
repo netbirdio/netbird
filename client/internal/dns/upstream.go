@@ -318,7 +318,7 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 			u.probeAvailability()
 		}
 
-		// check if still disbaled
+		// check if still disabled
 		if u.disabled {
 			log.Tracef("checking connectivity with upstreams %s failed. Retrying in %s", u.upstreamServers, exponentialBackOff.NextBackOff())
 			return fmt.Errorf("upstream check call error")

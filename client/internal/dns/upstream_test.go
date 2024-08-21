@@ -61,7 +61,10 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 			statusRecorder := peer.NewRecorder("https://mgm")
 			key := "abc"
 			// Public resolvers being used so peer not required
-			statusRecorder.AddPeer(key, "abc.netbird")
+			err := statusRecorder.AddPeer(key, "abc.netbird")
+			if err != nil {
+				t.Fatal(err)
+			}
 			// 	PubKey:           key,
 			resolver, _ := newUpstreamResolver(ctx, "", net.IP{}, &net.IPNet{}, statusRecorder, nil)
 			resolver.upstreamServers = testCase.InputServers

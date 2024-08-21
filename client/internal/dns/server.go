@@ -609,7 +609,6 @@ func (s *DefaultServer) updateNSGroupStates(groups []*nbdns.NameServerGroup) {
 			servers = append(servers, fmt.Sprintf("%s:%d", ns.IP, ns.Port))
 		}
 
-		// Automatically disbled if peer == 0 and IP is private
 		state := peer.NSGroupState{
 			ID:      generateGroupKey(group),
 			Servers: servers,

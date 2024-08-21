@@ -285,13 +285,19 @@ func TestUpdateDNSServer(t *testing.T) {
 			}()
 			statusRecorder := peer.NewRecorder("https://mgm")
 			key := "abc"
-			statusRecorder.AddPeer(key, "abc.netbird")
-			statusRecorder.UpdatePeerState(peer.State{
+			err = statusRecorder.AddPeer(key, "abc.netbird")
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = statusRecorder.UpdatePeerState(peer.State{
 				PubKey:           key,
 				Mux:              new(sync.RWMutex),
 				ConnStatus:       peer.StatusConnected,
 				ConnStatusUpdate: time.Now(),
 			})
+			if err != nil {
+				t.Fatal(err)
+			}
 			dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", statusRecorder)
 			if err != nil {
 				t.Fatal(err)
