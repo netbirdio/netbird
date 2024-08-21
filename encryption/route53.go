@@ -25,7 +25,7 @@ type Route53TLS struct {
 }
 
 func (r *Route53TLS) GetCertificate() (*tls.Config, error) {
-	if r.Domains == nil || len(r.Domains) == 0 {
+	if len(r.Domains) == 0 {
 		return nil, fmt.Errorf("no domains provided")
 	}
 
