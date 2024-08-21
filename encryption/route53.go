@@ -26,9 +26,15 @@ func (r *Route53TLS) GetCertificate() (*tls.Config, error) {
 	certmagic.Default.Logger = logger()
 	certmagic.Default.Storage = &certmagic.FileStorage{Path: r.DataDir}
 	certmagic.DefaultACME.Agreed = true
-	certmagic.DefaultACME.Email = r.Email
+
+	if r.Email == "" {
+		certmagic.DefaultACME.Email = "myemail@example.com"
+	} else {
+		certmagic.DefaultACME.Email = r.Email
+	}
+
 	if r.CA == "" {
-		certmagic.DefaultACME.CA =certmagic.LetsEncryptProductionCA
+		certmagic.DefaultACME.CA = certmagic.LetsEncryptProductionCA
 	} else {
 		certmagic.DefaultACME.CA = r.CA
 	}
