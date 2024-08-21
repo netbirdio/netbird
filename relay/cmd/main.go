@@ -95,7 +95,6 @@ func waitForExitSignal() {
 }
 
 func execute(cmd *cobra.Command, args []string) error {
-	log.Infof("starting relay service: %#v", cobraConfig)
 	err := cobraConfig.Validate()
 	if err != nil {
 		return fmt.Errorf("invalid config: %s", err)
