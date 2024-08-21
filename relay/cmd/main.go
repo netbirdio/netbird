@@ -188,7 +188,7 @@ func execute(cmd *cobra.Command, args []string) error {
 	}
 
 	log.Infof("shutting down metrics server")
-	if err := metricsServer.Close(); err != nil {
+	if err := metricsServer.Shutdown(ctx); err != nil {
 		shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close metrics server: %v", err))
 	}
 	return shutDownErrors
