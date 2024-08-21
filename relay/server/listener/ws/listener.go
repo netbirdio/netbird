@@ -38,7 +38,6 @@ func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 	var err error
 	if l.TLSConfig != nil {
 		err = l.server.ListenAndServeTLS("", "")
-
 	} else {
 		err = l.server.ListenAndServe()
 	}

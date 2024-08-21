@@ -166,11 +166,13 @@ func execute(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create relay server: %v", err)
 	}
 	log.Infof("server will be available on: %s", srv.InstanceURL())
-	err = srv.Listen(srvListenerCfg)
-	if err != nil {
-		return fmt.Errorf("failed to bind server: %s", err)
-	}
+	go func() {
+		if err := srv.Listen(srvListenerCfg); err != nil {
+			log.Errorf("failed to bind server: %s", err)
+		}
+	}()
 
+	// it will block until exit signal
 	waitForExitSignal()
 
 	err = srv.Close()
