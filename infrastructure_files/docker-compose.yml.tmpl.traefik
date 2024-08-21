@@ -83,7 +83,7 @@ services:
     - traefik.http.services.netbird-management.loadbalancer.server.scheme=h2c
     environment:
       - NETBIRD_STORE_ENGINE_POSTGRES_DSN=$NETBIRD_STORE_ENGINE_POSTGRES_DSN
-q      
+      
   # Coturn
   coturn:
     image: coturn/coturn:$COTURN_TAG
