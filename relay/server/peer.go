@@ -97,12 +97,12 @@ func (p *Peer) CloseGracefully(ctx context.Context) {
 	p.connMu.Lock()
 	_, err := p.writeWithTimeout(ctx, messages.MarshalCloseMsg())
 	if err != nil {
-		log.Errorf("failed to send close message to peer: %s", p.String())
+		p.log.Errorf("failed to send close message to peer: %s", p.String())
 	}
 
 	err = p.conn.Close()
 	if err != nil {
-		log.Errorf("failed to close connection to peer: %s", err)
+		p.log.Errorf("failed to close connection to peer: %s", err)
 	}
 
 	defer p.connMu.Unlock()
