@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/ice/v3"
@@ -122,7 +123,8 @@ type Engine struct {
 	// STUNs is a list of STUN servers used by ICE
 	STUNs []*stun.URI
 	// TURNs is a list of STUN servers used by ICE
-	TURNs []*stun.URI
+	TURNs    []*stun.URI
+	stunTurn atomic.Value
 
 	// clientRoutes is the most recent list of clientRoutes received from the Management Service
 	clientRoutes   route.HAMap
@@ -554,6 +556,11 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 			return err
 		}
 
+		var stunTurn []*stun.URI
+		stunTurn = append(stunTurn, e.STUNs...)
+		stunTurn = append(stunTurn, e.TURNs...)
+		e.stunTurn.Store(stunTurn)
+
 		// todo update signal
 	}
 
@@ -980,11 +987,6 @@ func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
 			continue
 		}
 
-		// we might have received new STUN and TURN servers meanwhile, so update them
-		e.syncMsgMux.Lock()
-		conn.UpdateStunTurn(append(e.STUNs, e.TURNs...))
-		e.syncMsgMux.Unlock()
-
 		err := conn.Open(e.ctx)
 		if err != nil {
 			log.Debugf("connection to peer %s failed: %v", peerKey, err)
@@ -1008,9 +1010,6 @@ func (e *Engine) peerExists(peerKey string) bool {
 
 func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error) {
 	log.Debugf("creating peer connection %s", pubKey)
-	var stunTurn []*stun.URI
-	stunTurn = append(stunTurn, e.STUNs...)
-	stunTurn = append(stunTurn, e.TURNs...)
 
 	wgConfig := peer.WgConfig{
 		RemoteKey:    pubKey,
@@ -1045,7 +1044,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 	config := peer.ConnConfig{
 		Key:                  pubKey,
 		LocalKey:             e.config.WgPrivateKey.PublicKey().String(),
-		StunTurn:             stunTurn,
+		StunTurn:             &e.stunTurn,
 		InterfaceBlackList:   e.config.IFaceBlackList,
 		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
 		Timeout:              timeout,

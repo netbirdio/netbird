@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/ice/v3"
@@ -50,7 +51,7 @@ type ConnConfig struct {
 	LocalKey string
 
 	// StunTurn is a list of STUN and TURN URLs
-	StunTurn []*stun.URI
+	StunTurn *atomic.Value
 
 	// InterfaceBlackList is a list of machine interfaces that should be filtered out by ICE Candidate gathering
 	// (e.g. if eth0 is in the list, host candidate of this interface won't be used)
@@ -146,11 +147,6 @@ func (conn *Conn) WgConfig() WgConfig {
 	return conn.config.WgConfig
 }
 
-// UpdateStunTurn update the turn and stun addresses
-func (conn *Conn) UpdateStunTurn(turnStun []*stun.URI) {
-	conn.config.StunTurn = turnStun
-}
-
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
 func NewConn(config ConnConfig, statusRecorder *Status, wgProxyFactory *wgproxy.Factory, adapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) (*Conn, error) {
@@ -187,7 +183,7 @@ func (conn *Conn) reCreateAgent() error {
 	agentConfig := &ice.AgentConfig{
 		MulticastDNSMode:       ice.MulticastDNSModeDisabled,
 		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
-		Urls:                   conn.config.StunTurn,
+		Urls:                   conn.config.StunTurn.Load().([]*stun.URI),
 		CandidateTypes:         conn.candidateTypes(),
 		FailedTimeout:          &failedTimeout,
 		InterfaceFilter:        stdnet.InterfaceFilter(conn.config.InterfaceBlackList),
