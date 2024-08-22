@@ -34,6 +34,7 @@ import (
 const (
 	storeSqliteFileName        = "store.db"
 	idQueryCondition           = "id = ?"
+	keyQueryCondition          = "key = ?"
 	accountAndIDQueryCondition = "account_id = ? and id = ?"
 	peerNotFoundFMT            = "peer %s not found"
 )
@@ -414,7 +415,7 @@ func (s *SqlStore) GetAccountByPrivateDomain(ctx context.Context, domain string)
 
 func (s *SqlStore) GetAccountBySetupKey(ctx context.Context, setupKey string) (*Account, error) {
 	var key SetupKey
-	result := s.db.WithContext(ctx).Select("account_id").First(&key, "key = ?", strings.ToUpper(setupKey))
+	result := s.db.WithContext(ctx).Select("account_id").First(&key, keyQueryCondition, strings.ToUpper(setupKey))
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -620,7 +621,7 @@ func (s *SqlStore) GetAccountByPeerID(ctx context.Context, peerID string) (*Acco
 func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*Account, error) {
 	var peer nbpeer.Peer
 
-	result := s.db.WithContext(ctx).Select("account_id").First(&peer, "key = ?", peerKey)
+	result := s.db.WithContext(ctx).Select("account_id").First(&peer, keyQueryCondition, peerKey)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -638,7 +639,7 @@ func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (
 func (s *SqlStore) GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error) {
 	var peer nbpeer.Peer
 	var accountID string
-	result := s.db.WithContext(ctx).Model(&peer).Select("account_id").Where("key = ?", peerKey).First(&accountID)
+	result := s.db.WithContext(ctx).Model(&peer).Select("account_id").Where(keyQueryCondition, peerKey).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -665,7 +666,7 @@ func (s *SqlStore) GetAccountIDByUserID(userID string) (string, error) {
 
 func (s *SqlStore) GetAccountIDBySetupKey(ctx context.Context, setupKey string) (string, error) {
 	var accountID string
-	result := s.db.WithContext(ctx).Model(&SetupKey{}).Select("account_id").Where("key = ?", strings.ToUpper(setupKey)).First(&accountID)
+	result := s.db.WithContext(ctx).Model(&SetupKey{}).Select("account_id").Where(keyQueryCondition, strings.ToUpper(setupKey)).First(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
@@ -738,7 +739,7 @@ func (s *SqlStore) GetAccountNetwork(ctx context.Context, accountID string) (*Ne
 
 func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, peerKey string) (*nbpeer.Peer, error) {
 	var peer nbpeer.Peer
-	result := s.db.WithContext(ctx).First(&peer, "key = ?", peerKey)
+	result := s.db.WithContext(ctx).First(&peer, keyQueryCondition, peerKey)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "peer not found")
@@ -896,7 +897,7 @@ func NewPostgresqlStoreFromFileStore(ctx context.Context, fileStore *FileStore, 
 
 func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, key string) (*SetupKey, error) {
 	var setupKey SetupKey
-	result := s.db.WithContext(ctx).First(&setupKey, "key = ?", strings.ToUpper(key))
+	result := s.db.WithContext(ctx).First(&setupKey, keyQueryCondition, strings.ToUpper(key))
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "setup key not found")
