@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
@@ -63,11 +65,12 @@ func (c Config) HasLetsEncrypt() bool {
 var (
 	cobraConfig *Config
 	rootCmd     = &cobra.Command{
-		Use:          "relay",
-		Short:        "Relay service",
-		Long:         "Relay service for Netbird agents",
-		RunE:         execute,
-		SilenceUsage: true,
+		Use:           "relay",
+		Short:         "Relay service",
+		Long:          "Relay service for Netbird agents",
+		RunE:          execute,
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 )
 
@@ -134,18 +137,28 @@ func execute(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create relay server: %v", err)
 	}
 	log.Infof("server will be available on: %s", srv.InstanceURL())
-	err = srv.Listen(srvListenerCfg)
-	if err != nil {
-		return fmt.Errorf("failed to bind server: %s", err)
-	}
+	go func() {
+		if err := srv.Listen(srvListenerCfg); err != nil {
+			log.Fatalf("failed to bind server: %s", err)
+		}
+	}()
 
+	// it will block until exit signal
 	waitForExitSignal()
 
-	err = srv.Close()
-	if err != nil {
-		return fmt.Errorf("failed to close server: %s", err)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var shutDownErrors error
+	if err := srv.Shutdown(ctx); err != nil {
+		shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close server: %s", err))
 	}
-	return nil
+
+	log.Infof("shutting down metrics server")
+	if err := metricsServer.Shutdown(ctx); err != nil {
+		shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close metrics server: %v", err))
+	}
+	return shutDownErrors
 }
 
 func handleTLSConfig(cfg *Config) (*tls.Config, bool, error) {
@@ -192,8 +205,7 @@ func setupTLSCertManager(letsencryptDataDir string, letsencryptDomains ...string
 }
 
 func main() {
-	err := rootCmd.Execute()
-	if err != nil {
-		os.Exit(1)
+	if err := rootCmd.Execute(); err != nil {
+		log.Fatalf("%v", err)
 	}
 }

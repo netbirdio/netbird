@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"nhooyr.io/websocket"
@@ -38,7 +37,6 @@ func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 	var err error
 	if l.TLSConfig != nil {
 		err = l.server.ListenAndServeTLS("", "")
-
 	} else {
 		err = l.server.ListenAndServe()
 	}
@@ -48,13 +46,10 @@ func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 	return err
 }
 
-func (l *Listener) Close() error {
+func (l *Listener) Shutdown(ctx context.Context) error {
 	if l.server == nil {
 		return nil
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
 	log.Infof("stop WS listener")
 	if err := l.server.Shutdown(ctx); err != nil {
