@@ -1042,19 +1042,21 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 	// randomize connection timeout
 	timeout := time.Duration(rand.Intn(PeerConnectionTimeoutMax-PeerConnectionTimeoutMin)+PeerConnectionTimeoutMin) * time.Millisecond
 	config := peer.ConnConfig{
-		Key:                  pubKey,
-		LocalKey:             e.config.WgPrivateKey.PublicKey().String(),
-		StunTurn:             &e.stunTurn,
-		InterfaceBlackList:   e.config.IFaceBlackList,
-		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
-		Timeout:              timeout,
-		UDPMux:               e.udpMux.UDPMuxDefault,
-		UDPMuxSrflx:          e.udpMux,
-		WgConfig:             wgConfig,
-		LocalWgPort:          e.config.WgPort,
-		NATExternalIPs:       e.parseNATExternalIPMappings(),
-		RosenpassPubKey:      e.getRosenpassPubKey(),
-		RosenpassAddr:        e.getRosenpassAddr(),
+		Key:             pubKey,
+		LocalKey:        e.config.WgPrivateKey.PublicKey().String(),
+		Timeout:         timeout,
+		WgConfig:        wgConfig,
+		LocalWgPort:     e.config.WgPort,
+		RosenpassPubKey: e.getRosenpassPubKey(),
+		RosenpassAddr:   e.getRosenpassAddr(),
+		ICEConfig: peer.ICEConfig{
+			StunTurn:             &e.stunTurn,
+			InterfaceBlackList:   e.config.IFaceBlackList,
+			DisableIPv6Discovery: e.config.DisableIPv6Discovery,
+			UDPMux:               e.udpMux.UDPMuxDefault,
+			UDPMuxSrflx:          e.udpMux,
+			NATExternalIPs:       e.parseNATExternalIPMappings(),
+		},
 	}
 
 	peerConn, err := peer.NewConn(config, e.statusRecorder, e.wgProxyFactory, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover)
