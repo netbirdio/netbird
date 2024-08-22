@@ -952,7 +952,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		RosenpassPubKey: e.getRosenpassPubKey(),
 		RosenpassAddr:   e.getRosenpassAddr(),
 		ICEConfig: peer.ICEConfig{
-			StunTurn:             e.StunTurn,
+			StunTurn:             &e.StunTurn,
 			InterfaceBlackList:   e.config.IFaceBlackList,
 			DisableIPv6Discovery: e.config.DisableIPv6Discovery,
 			UDPMux:               e.udpMux.UDPMuxDefault,
