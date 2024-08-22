@@ -46,7 +46,7 @@ func (isf *internalStopFlag) isSet() bool {
 	return isf.stop
 }
 
-// Msg carry the payload from the server to the client. With this sturct, the net.Conn can free the buffer.
+// Msg carry the payload from the server to the client. With this struct, the net.Conn can free the buffer.
 type Msg struct {
 	Payload []byte
 
