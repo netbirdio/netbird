@@ -503,6 +503,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		return nil, nil, nil, fmt.Errorf("failed to add peer to database: %w", err)
 	}
 
+	log.WithContext(ctx).Debugf("Peer %s added to account %s", newPeer.ID, accountID)
+
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
 	unlock()

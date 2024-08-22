@@ -48,28 +48,23 @@ type FileStore struct {
 }
 
 func (s *FileStore) GetSetupKeyBySecret(ctx context.Context, key string) (*SetupKey, error) {
-	// TODO implement me
-	panic("implement me")
+	return nil, status.Errorf(status.Internal, "GetSetupKeyBySecret is not implemented")
 }
 
 func (s *FileStore) RegisterPeer(ctx context.Context, accountID string, userID string, setupKeyID string, newPeer *nbpeer.Peer, groupsToAdd []string) error {
-	// TODO implement me
-	panic("implement me")
+	return status.Errorf(status.Internal, "RegisterPeer is not implemented")
 }
 
 func (s *FileStore) GetTakenIPs(ctx context.Context, accountId string) ([]net.IP, error) {
-	// TODO implement me
-	panic("implement me")
+	return nil, status.Errorf(status.Internal, "GetTakenIPs is not implemented")
 }
 
 func (s *FileStore) GetPeerLabelsInAccount(ctx context.Context, accountId string) ([]string, error) {
-	// TODO implement me
-	panic("implement me")
+	return nil, status.Errorf(status.Internal, "SaveUsers is not implemented")
 }
 
 func (s *FileStore) GetAccountNetwork(ctx context.Context, accountId string) (*Network, error) {
-	// TODO implement me
-	panic("implement me")
+	return nil, status.Errorf(status.Internal, "GetPeerLabelsInAccount is not implemented")
 }
 
 type StoredAccount struct{}
