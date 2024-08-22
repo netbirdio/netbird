@@ -129,7 +129,7 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 	buf := make([]byte, messages.MaxHandshakeSize)
 	n, err := conn.Read(buf)
 	if err != nil {
-		log.Errorf("failed to read message: %s", err)
+		log.Debugf("failed to read message from: %s, %s", conn.RemoteAddr(), err)
 		return nil, err
 	}
 	msgType, err := messages.DetermineClientMsgType(buf[:n])
@@ -139,18 +139,18 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 
 	if msgType != messages.MsgTypeHello {
 		tErr := fmt.Errorf("invalid message type")
-		log.Errorf("failed to handshake: %s", tErr)
+		log.Debugf("failed to handshake with: %s, %s", conn.RemoteAddr(), tErr)
 		return nil, tErr
 	}
 
 	peerID, authPayload, err := messages.UnmarshalHelloMsg(buf[:n])
 	if err != nil {
-		log.Errorf("failed to handshake: %s", err)
+		log.Debugf("failed to handshake with: %s, %s", conn.RemoteAddr(), err)
 		return nil, err
 	}
 
 	if err := r.validator.Validate(authPayload); err != nil {
-		log.Errorf("failed to authenticate connection: %s", err)
+		log.Debugf("failed to authenticate connection with: %s, %s", conn.RemoteAddr(), err)
 		return nil, err
 	}
 
