@@ -699,14 +699,6 @@ func (a *Account) GetPeerGroupsList(peerID string) []string {
 	return grps
 }
 
-func (a *Account) getUserGroups(userID string) ([]string, error) {
-	user, err := a.FindUser(userID)
-	if err != nil {
-		return nil, err
-	}
-	return user.AutoGroups, nil
-}
-
 func (a *Account) getPeerDNSManagementStatus(peerID string) bool {
 	peerGroups := a.getPeerGroups(peerID)
 	enabled := true
