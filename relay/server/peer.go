@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -130,7 +129,7 @@ func (p *Peer) writeWithTimeout(ctx context.Context, buf []byte) (int, error) {
 
 	select {
 	case <-ctx.Done():
-		return 0, fmt.Errorf("write operation timed out")
+		return 0, ctx.Err()
 	case <-writeDone:
 		return n, err
 	}
