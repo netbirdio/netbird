@@ -553,7 +553,7 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 
 	if conn.wgProxyRelay != nil {
 		if err := conn.wgProxyRelay.CloseConn(); err != nil {
-			conn.log.Warnf("failed to close depracated wg proxy conn: %v", err)
+			conn.log.Warnf("failed to close deprecated wg proxy conn: %v", err)
 		}
 	}
 	conn.wgProxyRelay = wgProxy
