@@ -72,7 +72,6 @@ type Store interface {
 	GetTakenIPs(ctx context.Context, accountId string) ([]net.IP, error)
 	GetPeerLabelsInAccount(ctx context.Context, accountId string) ([]string, error)
 	GetAccountNetwork(ctx context.Context, accountId string) (*Network, error)
-	GetUserGroups(ctx context.Context, userId string) ([]string, error)
 	RegisterPeer(ctx context.Context, accountID string, userID string, setupKeyID string, newPeer *nbpeer.Peer, groupsToAdd []string) error
 }
 

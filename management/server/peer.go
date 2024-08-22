@@ -392,10 +392,11 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	var setupKeyName string
 	var ephemeral bool
 	if addedByUser {
-		groupsToAdd, err = am.Store.GetUserGroups(ctx, userID)
+		user, err := am.Store.GetUserByUserID(ctx, userID)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to get user grous: %w", err)
 		}
+		groupsToAdd = user.AutoGroups
 		opEvent.InitiatorID = userID
 		opEvent.Activity = activity.PeerAddedByUser
 	} else {
@@ -497,9 +498,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	newPeer = am.integratedPeerValidator.PreparePeer(ctx, accountID, newPeer, groupsToAdd, settings.Extra)
 
-	// todo
-	am.Store.RegisterPeer(ctx, accountID, userID, setupKeyID, newPeer, groupsToAdd)
-
+	err = am.Store.RegisterPeer(ctx, accountID, userID, setupKeyID, newPeer, groupsToAdd)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to add peer to database: %w", err)
 	}

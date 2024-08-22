@@ -8,7 +8,7 @@
             "IsDomainPrimaryAccount": true,
             "SetupKeys": {
                 "A2C8E62B-38F5-4553-B31E-DD66C696CEBB": {
-                    "Id": "",
+                    "Id": "A2C8E62B-38F5-4553-B31E-DD66C696CEBB",
                     "AccountID": "",
                     "Key": "A2C8E62B-38F5-4553-B31E-DD66C696CEBB",
                     "Name": "Default key",
@@ -69,7 +69,18 @@
                     "LastLogin": "0001-01-01T00:00:00Z"
                 }
             },
-            "Groups": null,
+            "Groups": {
+              "cfefqs706sqkneg59g4g": {
+                "ID": "cfefqs706sqkneg59g4g",
+                "Name": "All",
+                "Peers": []
+              },
+              "cfefqs706sqkneg59g3g": {
+                "ID": "cfefqs706sqkneg59g3g",
+                "Name": "AwesomeGroup",
+                "Peers": []
+              }
+            },
             "Rules": null,
             "Policies": [],
             "Routes": null,

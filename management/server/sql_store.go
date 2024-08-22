@@ -745,25 +745,6 @@ func (s *SqlStore) GetAccountNetwork(ctx context.Context, accountID string) (*Ne
 	return accountNetwork.Network, nil
 }
 
-func (s *SqlStore) GetUserGroups(ctx context.Context, userID string) ([]string, error) {
-	var autoGroups []string
-
-	err := s.db.Model(&User{}).
-		Select("auto_groups").
-		Where("id = ?", userID).
-		Scan(&autoGroups).Error
-
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "user not found")
-		}
-		log.WithContext(ctx).Errorf("error when retrieving groups: %s", err)
-		return nil, status.Errorf(status.Internal, "issue retrieving groups")
-	}
-
-	return autoGroups, nil
-}
-
 func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, peerKey string) (*nbpeer.Peer, error) {
 	var peer nbpeer.Peer
 	result := s.db.First(&peer, "key = ?", peerKey)

@@ -72,11 +72,6 @@ func (s *FileStore) GetAccountNetwork(ctx context.Context, accountId string) (*N
 	panic("implement me")
 }
 
-func (s *FileStore) GetUserGroups(ctx context.Context, userId string) ([]string, error) {
-	// TODO implement me
-	panic("implement me")
-}
-
 type StoredAccount struct{}
 
 // NewFileStore restores a store from the file located in the datadir

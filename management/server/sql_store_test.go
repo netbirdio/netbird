@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/xid"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	"github.com/netbirdio/netbird/management/server/testutil"
@@ -1002,4 +1004,285 @@ func TestPostgresql_GetUserByTokenID(t *testing.T) {
 	user, err := store.GetUserByTokenID(context.Background(), id)
 	require.NoError(t, err)
 	require.Equal(t, id, user.PATs[id].ID)
+}
+
+func Test_GetTakenIPs(t *testing.T) {
+	store := newSqliteStoreFromFile(t, "testdata/store.json")
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	_, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+
+	takenIPs, err := store.GetTakenIPs(context.Background(), existingAccountID)
+	require.NoError(t, err)
+	assert.Equal(t, []net.IP{}, takenIPs)
+
+	peer1 := &nbpeer.Peer{
+		ID:        "peer1",
+		AccountID: existingAccountID,
+		IP:        net.IP{1, 1, 1, 1},
+	}
+	err = store.addPeerToAccountWithTx(context.Background(), store.db, peer1)
+	require.NoError(t, err)
+
+	takenIPs, err = store.GetTakenIPs(context.Background(), existingAccountID)
+	require.NoError(t, err)
+	ip1 := net.IP{1, 1, 1, 1}.To16()
+	assert.Equal(t, []net.IP{ip1}, takenIPs)
+
+	peer2 := &nbpeer.Peer{
+		ID:        "peer2",
+		AccountID: existingAccountID,
+		IP:        net.IP{2, 2, 2, 2},
+	}
+	err = store.addPeerToAccountWithTx(context.Background(), store.db, peer2)
+	require.NoError(t, err)
+
+	takenIPs, err = store.GetTakenIPs(context.Background(), existingAccountID)
+	require.NoError(t, err)
+	ip2 := net.IP{2, 2, 2, 2}.To16()
+	assert.Equal(t, []net.IP{ip1, ip2}, takenIPs)
+
+}
+
+func Test_GetPeerLabelsInAccount(t *testing.T) {
+	store := newSqliteStoreFromFile(t, "testdata/store.json")
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	_, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+
+	labels, err := store.GetPeerLabelsInAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{}, labels)
+
+	peer1 := &nbpeer.Peer{
+		ID:        "peer1",
+		AccountID: existingAccountID,
+		DNSLabel:  "peer1.domain.test",
+	}
+	err = store.addPeerToAccountWithTx(context.Background(), store.db, peer1)
+	require.NoError(t, err)
+
+	labels, err = store.GetPeerLabelsInAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"peer1.domain.test"}, labels)
+
+	peer2 := &nbpeer.Peer{
+		ID:        "peer2",
+		AccountID: existingAccountID,
+		DNSLabel:  "peer2.domain.test",
+	}
+	err = store.addPeerToAccountWithTx(context.Background(), store.db, peer2)
+	require.NoError(t, err)
+
+	labels, err = store.GetPeerLabelsInAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"peer1.domain.test", "peer2.domain.test"}, labels)
+}
+
+func Test_GetAccountNetwork(t *testing.T) {
+	store := newSqliteStoreFromFile(t, "testdata/store.json")
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	_, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+
+	network, err := store.GetAccountNetwork(context.Background(), existingAccountID)
+	require.NoError(t, err)
+	ip := net.IP{100, 64, 0, 0}.To16()
+	assert.Equal(t, ip, network.Net.IP)
+	assert.Equal(t, net.IPMask{255, 255, 0, 0}, network.Net.Mask)
+	assert.Equal(t, "", network.Dns)
+	assert.Equal(t, "af1c8024-ha40-4ce2-9418-34653101fc3c", network.Identifier)
+	assert.Equal(t, uint64(0), network.Serial)
+}
+
+func Test_GetSetupKeyBySecret(t *testing.T) {
+	store := newSqliteStoreFromFile(t, "testdata/store.json")
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	_, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+
+	setupKey, err := store.GetSetupKeyBySecret(context.Background(), "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	require.NoError(t, err)
+	assert.Equal(t, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB", setupKey.Key)
+	assert.Equal(t, "bf1c8084-ba50-4ce7-9439-34653001fc3b", setupKey.AccountID)
+	assert.Equal(t, "Default key", setupKey.Name)
+}
+
+func Test_incrementSetupKeyUsage(t *testing.T) {
+	store := newSqliteStoreFromFile(t, "testdata/store.json")
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	_, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+
+	setupKey, err := store.GetSetupKeyBySecret(context.Background(), "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	require.NoError(t, err)
+	assert.Equal(t, 0, setupKey.UsedTimes)
+
+	err = store.incrementSetupKeyUsageWithTx(context.Background(), store.db, setupKey.Id)
+	require.NoError(t, err)
+
+	setupKey, err = store.GetSetupKeyBySecret(context.Background(), "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	require.NoError(t, err)
+	assert.Equal(t, 1, setupKey.UsedTimes)
+
+	err = store.incrementSetupKeyUsageWithTx(context.Background(), store.db, setupKey.Id)
+	require.NoError(t, err)
+
+	setupKey, err = store.GetSetupKeyBySecret(context.Background(), "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	require.NoError(t, err)
+	assert.Equal(t, 2, setupKey.UsedTimes)
+}
+
+func Test_RegisterPeerByUser(t *testing.T) {
+	store := newSqliteStoreFromFile(t, "testdata/store.json")
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	existingUserID := "edafee4e-63fb-11ec-90d6-0242ac120003"
+
+	_, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+
+	newPeer := &nbpeer.Peer{
+		ID:        xid.New().String(),
+		AccountID: existingAccountID,
+		Key:       "newPeerKey",
+		SetupKey:  "",
+		IP:        net.IP{123, 123, 123, 123},
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname: "newPeer",
+			GoOS:     "linux",
+		},
+		Name:       "newPeerName",
+		DNSLabel:   "newPeer.test",
+		UserID:     existingUserID,
+		Status:     &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
+		SSHEnabled: false,
+		LastLogin:  time.Now(),
+	}
+
+	err = store.RegisterPeer(context.Background(), existingAccountID, existingUserID, "", newPeer, []string{"cfefqs706sqkneg59g3g"})
+	require.NoError(t, err)
+
+	peer, err := store.GetPeerByPeerPubKey(context.Background(), newPeer.Key)
+	require.NoError(t, err)
+	assert.Equal(t, newPeer.ID, peer.ID)
+	assert.Equal(t, newPeer.AccountID, existingAccountID)
+
+	account, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+	assert.Contains(t, account.Peers, newPeer.ID)
+	assert.Equal(t, peer.Meta.Hostname, newPeer.Meta.Hostname)
+	assert.Contains(t, account.Groups["cfefqs706sqkneg59g3g"].Peers, newPeer.ID)
+	assert.Contains(t, account.Groups["cfefqs706sqkneg59g4g"].Peers, newPeer.ID)
+
+	assert.Equal(t, uint64(1), account.Network.Serial)
+
+	lastLogin, err := time.Parse("2006-01-02T15:04:05Z", "0001-01-01T00:00:00Z")
+	assert.NoError(t, err)
+	assert.NotEqual(t, lastLogin, account.Users[existingUserID].LastLogin)
+}
+
+func Test_RegisterPeerBySetupKey(t *testing.T) {
+	store := newSqliteStoreFromFile(t, "testdata/store.json")
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	existingSetupKeyID := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
+
+	_, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+
+	newPeer := &nbpeer.Peer{
+		ID:        xid.New().String(),
+		AccountID: existingAccountID,
+		Key:       "newPeerKey",
+		SetupKey:  "existingSetupKey",
+		UserID:    "",
+		IP:        net.IP{123, 123, 123, 123},
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname: "newPeer",
+			GoOS:     "linux",
+		},
+		Name:       "newPeerName",
+		DNSLabel:   "newPeer.test",
+		Status:     &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
+		SSHEnabled: false,
+	}
+
+	err = store.RegisterPeer(context.Background(), existingAccountID, "", existingSetupKeyID, newPeer, []string{"cfefqs706sqkneg59g3g"})
+	require.NoError(t, err)
+
+	peer, err := store.GetPeerByPeerPubKey(context.Background(), newPeer.Key)
+	require.NoError(t, err)
+	assert.Equal(t, newPeer.ID, peer.ID)
+	assert.Equal(t, newPeer.AccountID, existingAccountID)
+
+	account, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+	assert.Contains(t, account.Peers, newPeer.ID)
+	assert.Contains(t, account.Groups["cfefqs706sqkneg59g3g"].Peers, newPeer.ID)
+	assert.Contains(t, account.Groups["cfefqs706sqkneg59g4g"].Peers, newPeer.ID)
+
+	assert.Equal(t, uint64(1), account.Network.Serial)
+
+	lastUsed, err := time.Parse("2006-01-02T15:04:05Z", "0001-01-01T00:00:00Z")
+	assert.NoError(t, err)
+	assert.NotEqual(t, lastUsed, account.SetupKeys[existingSetupKeyID].LastUsed)
+	assert.Equal(t, 1, account.SetupKeys[existingSetupKeyID].UsedTimes)
+
+}
+
+func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
+	store := newSqliteStoreFromFile(t, "testdata/store.json")
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	existingSetupKeyID := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
+
+	_, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+
+	newPeer := &nbpeer.Peer{
+		ID:        xid.New().String(),
+		AccountID: existingAccountID,
+		Key:       "newPeerKey",
+		SetupKey:  "existingSetupKey",
+		UserID:    "",
+		IP:        net.IP{123, 123, 123, 123},
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname: "newPeer",
+			GoOS:     "linux",
+		},
+		Name:       "newPeerName",
+		DNSLabel:   "newPeer.test",
+		Status:     &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
+		SSHEnabled: false,
+	}
+
+	err = store.RegisterPeer(context.Background(), existingAccountID, "", existingSetupKeyID, newPeer, []string{"cfefqs706sqkneg59g3g", "nonExistingGroup"})
+	require.Error(t, err)
+
+	_, err = store.GetPeerByPeerPubKey(context.Background(), newPeer.Key)
+	require.Error(t, err)
+
+	account, err := store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+	assert.NotContains(t, account.Peers, newPeer.ID)
+	assert.NotContains(t, account.Groups["cfefqs706sqkneg59g3g"].Peers, newPeer.ID)
+	assert.NotContains(t, account.Groups["cfefqs706sqkneg59g4g"].Peers, newPeer.ID)
+
+	assert.Equal(t, uint64(0), account.Network.Serial)
+
+	lastUsed, err := time.Parse("2006-01-02T15:04:05Z", "0001-01-01T00:00:00Z")
+	assert.NoError(t, err)
+	assert.Equal(t, lastUsed, account.SetupKeys[existingSetupKeyID].LastUsed)
+	assert.Equal(t, 0, account.SetupKeys[existingSetupKeyID].UsedTimes)
 }
