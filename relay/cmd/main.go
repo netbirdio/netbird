@@ -21,9 +21,7 @@ import (
 )
 
 const (
-	metricsPort     = 9090
-	defaultLogLevel = "info"
-	defaultLogPath  = "console"
+	metricsPort = 9090
 )
 
 type Config struct {
@@ -64,19 +62,18 @@ func (c Config) HasLetsEncrypt() bool {
 
 var (
 	cobraConfig *Config
-	cfgFile     string
 	rootCmd     = &cobra.Command{
-		Use:   "relay",
-		Short: "Relay service",
-		Long:  "Relay service for Netbird agents",
-		RunE:  execute,
+		Use:          "relay",
+		Short:        "Relay service",
+		Long:         "Relay service for Netbird agents",
+		RunE:         execute,
+		SilenceUsage: true,
 	}
 )
 
 func init() {
 	_ = util.InitLog("trace", "console")
 	cobraConfig = &Config{}
-	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config-file", "f", "/etc/netbird/relay.json", "Relay server config file location")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.ListenAddress, "listen-address", "l", ":443", "listen address")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.ExposedAddress, "exposed-address", "e", "", "instance domain address (or ip) and port, it will be distributes between peers")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.LetsencryptDataDir, "letsencrypt-data-dir", "d", "", "a directory to store Let's Encrypt data. Required if Let's Encrypt is enabled.")
@@ -85,7 +82,11 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&cobraConfig.LetsencryptAWSRoute53, "letsencrypt-aws-route53", false, "use AWS Route 53 for Let's Encrypt DNS challenge")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.TlsCertFile, "tls-cert-file", "c", "", "")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.TlsKeyFile, "tls-key-file", "k", "", "")
-	rootCmd.PersistentFlags().StringVarP(&cobraConfig.AuthSecret, "auth-secret", "s", "", "log level")
+	rootCmd.PersistentFlags().StringVarP(&cobraConfig.AuthSecret, "auth-secret", "s", "", "auth secret")
+	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogLevel, "log-level", "info", "log level")
+	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogFile, "log-file", "console", "log file")
+
+	setFlagsFromEnvVars(rootCmd)
 }
 
 func waitForExitSignal() {
@@ -94,64 +95,13 @@ func waitForExitSignal() {
 	<-osSigs
 }
 
-func loadConfig(configFile string) (*Config, error) {
-	loadedConfig := &Config{}
-	_, err := util.ReadJson(configFile, loadedConfig)
-	if err != nil {
-		return nil, err
-	}
-	if cobraConfig.ListenAddress != "" {
-		loadedConfig.ListenAddress = cobraConfig.ListenAddress
-	}
-
-	if cobraConfig.ExposedAddress != "" {
-		loadedConfig.ExposedAddress = cobraConfig.ExposedAddress
-	}
-	if cobraConfig.LetsencryptDataDir != "" {
-		loadedConfig.LetsencryptDataDir = cobraConfig.LetsencryptDataDir
-	}
-	if len(cobraConfig.LetsencryptDomains) > 0 {
-		loadedConfig.LetsencryptDomains = cobraConfig.LetsencryptDomains
-	}
-	if cobraConfig.TlsCertFile != "" {
-		loadedConfig.TlsCertFile = cobraConfig.TlsCertFile
-	}
-	if cobraConfig.TlsKeyFile != "" {
-		loadedConfig.TlsKeyFile = cobraConfig.TlsKeyFile
-	}
-	if cobraConfig.AuthSecret != "" {
-		loadedConfig.AuthSecret = cobraConfig.AuthSecret
-	}
-	if cobraConfig.LetsencryptEmail != "" {
-		loadedConfig.LetsencryptEmail = cobraConfig.LetsencryptEmail
-	}
-	if cobraConfig.LetsencryptAWSRoute53 {
-		loadedConfig.LetsencryptAWSRoute53 = true
-	}
-
-	if loadedConfig.LogLevel == "" {
-		loadedConfig.LogLevel = defaultLogLevel
-	}
-
-	if loadedConfig.LogFile == "" {
-		loadedConfig.LogFile = defaultLogPath
-	}
-
-	return loadedConfig, err
-}
-
 func execute(cmd *cobra.Command, args []string) error {
-	cfg, err := loadConfig(cfgFile)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %s", err)
-	}
-
-	err = cfg.Validate()
+	err := cobraConfig.Validate()
 	if err != nil {
 		return fmt.Errorf("invalid config: %s", err)
 	}
 
-	err = util.InitLog(cfg.LogLevel, cfg.LogFile)
+	err = util.InitLog(cobraConfig.LogLevel, cobraConfig.LogFile)
 	if err != nil {
 		return fmt.Errorf("failed to initialize log: %s", err)
 	}
@@ -169,17 +119,17 @@ func execute(cmd *cobra.Command, args []string) error {
 	}()
 
 	srvListenerCfg := server.ListenerConfig{
-		Address: cfg.ListenAddress,
+		Address: cobraConfig.ListenAddress,
 	}
 
-	tlsConfig, tlsSupport, err := handleTLSConfig(cfg)
+	tlsConfig, tlsSupport, err := handleTLSConfig(cobraConfig)
 	if err != nil {
 		return fmt.Errorf("failed to setup TLS config: %s", err)
 	}
 	srvListenerCfg.TLSConfig = tlsConfig
 
-	authenticator := auth.NewTimedHMACValidator(cfg.AuthSecret, 24*time.Hour)
-	srv, err := server.NewServer(metricsServer.Meter, cfg.ExposedAddress, tlsSupport, authenticator)
+	authenticator := auth.NewTimedHMACValidator(cobraConfig.AuthSecret, 24*time.Hour)
+	srv, err := server.NewServer(metricsServer.Meter, cobraConfig.ExposedAddress, tlsSupport, authenticator)
 	if err != nil {
 		return fmt.Errorf("failed to create relay server: %v", err)
 	}

@@ -60,3 +60,25 @@ func TestRoute53TLSConfig(t *testing.T) {
 		t.Errorf("Unexpected response: %s", body)
 	}
 }
+
+func Test_emailFromDomain(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"example.com", "admin@example.com"},
+		{"x.example.com", "admin@example.com"},
+		{"x.x.example.com", "admin@example.com"},
+		{"*.example.com", "admin@example.com"},
+		{"example", ""},
+		{"", ""},
+		{".com", ""},
+	}
+	for _, tt := range tests {
+		t.Run("domain test", func(t *testing.T) {
+			if got := emailFromDomain(tt.input); got != tt.want {
+				t.Errorf("emailFromDomain() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

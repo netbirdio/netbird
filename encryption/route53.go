@@ -3,7 +3,9 @@ package encryption
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"os"
+	"strings"
 
 	"github.com/caddyserver/certmagic"
 	"github.com/libdns/route53"
@@ -23,14 +25,17 @@ type Route53TLS struct {
 }
 
 func (r *Route53TLS) GetCertificate() (*tls.Config, error) {
+	if len(r.Domains) == 0 {
+		return nil, fmt.Errorf("no domains provided")
+	}
+
 	certmagic.Default.Logger = logger()
 	certmagic.Default.Storage = &certmagic.FileStorage{Path: r.DataDir}
 	certmagic.DefaultACME.Agreed = true
-
-	if r.Email == "" {
-		certmagic.DefaultACME.Email = "myemail@example.com"
-	} else {
+	if r.Email != "" {
 		certmagic.DefaultACME.Email = r.Email
+	} else {
+		certmagic.DefaultACME.Email = emailFromDomain(r.Domains[0])
 	}
 
 	if r.CA == "" {
@@ -56,6 +61,21 @@ func (r *Route53TLS) GetCertificate() (*tls.Config, error) {
 	}
 
 	return tlsConfig, nil
+}
+
+func emailFromDomain(domain string) string {
+	if domain == "" {
+		return ""
+	}
+
+	parts := strings.Split(domain, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	if parts[0] == "" {
+		return ""
+	}
+	return fmt.Sprintf("admin@%s.%s", parts[len(parts)-2], parts[len(parts)-1])
 }
 
 func logger() *zap.Logger {
