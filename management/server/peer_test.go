@@ -1000,7 +1000,7 @@ func TestToSyncResponse(t *testing.T) {
 }
 
 func Test_RegisterPeerByUser(t *testing.T) {
-	store := newSqliteStoreFromFile(t, "testdata/store.json")
+	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
 
 	eventStore := &activity.InMemoryEventStore{}
 
@@ -1057,7 +1057,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 }
 
 func Test_RegisterPeerBySetupKey(t *testing.T) {
-	store := newSqliteStoreFromFile(t, "testdata/store.json")
+	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
 
 	eventStore := &activity.InMemoryEventStore{}
 
@@ -1115,7 +1115,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 }
 
 func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
-	store := newSqliteStoreFromFile(t, "testdata/store.json")
+	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
 
 	eventStore := &activity.InMemoryEventStore{}
 
