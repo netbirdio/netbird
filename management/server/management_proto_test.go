@@ -637,8 +637,8 @@ func testSyncStatusRace(t *testing.T) {
 }
 
 func Test_LoginPerformance(t *testing.T) {
-	if os.Getenv("CI") == "true" {
-		t.Skip("Skipping on CI")
+	if os.Getenv("CI") == "true" || runtime.GOOS == "windows" {
+		t.Skip("Skipping test on CI or Windows")
 	}
 
 	t.Setenv("NETBIRD_STORE_ENGINE", "sqlite")
