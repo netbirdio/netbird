@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -1000,6 +1001,9 @@ func TestToSyncResponse(t *testing.T) {
 }
 
 func Test_RegisterPeerByUser(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
 	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
 
 	eventStore := &activity.InMemoryEventStore{}
@@ -1057,6 +1061,9 @@ func Test_RegisterPeerByUser(t *testing.T) {
 }
 
 func Test_RegisterPeerBySetupKey(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
 	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
 
 	eventStore := &activity.InMemoryEventStore{}
@@ -1115,6 +1122,9 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 }
 
 func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
 	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
 
 	eventStore := &activity.InMemoryEventStore{}
