@@ -36,6 +36,7 @@ import (
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
 	signal "github.com/netbirdio/netbird/signal/client"
@@ -58,6 +59,12 @@ var (
 	}
 )
 
+func TestMain(m *testing.M) {
+	_ = util.InitLog("debug", "console")
+	code := m.Run()
+	os.Exit(code)
+}
+
 func TestEngine_SSH(t *testing.T) {
 	// todo resolve test execution on freebsd
 	if runtime.GOOS == "windows" || runtime.GOOS == "freebsd" {
@@ -73,13 +80,23 @@ func TestEngine_SSH(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, &EngineConfig{
-		WgIfaceName:      "utun101",
-		WgAddr:           "100.64.0.1/24",
-		WgPrivateKey:     key,
-		WgPort:           33100,
-		ServerSSHAllowed: true,
-	}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
+	relayMgr := relayClient.NewManager(ctx, "", key.PublicKey().String())
+	engine := NewEngine(
+		ctx, cancel,
+		&signal.MockClient{},
+		&mgmt.MockClient{},
+		relayMgr,
+		&EngineConfig{
+			WgIfaceName:      "utun101",
+			WgAddr:           "100.64.0.1/24",
+			WgPrivateKey:     key,
+			WgPort:           33100,
+			ServerSSHAllowed: true,
+		},
+		MobileDependency{},
+		peer.NewRecorder("https://mgm"),
+		nil,
+	)
 
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
@@ -208,20 +225,28 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, &EngineConfig{
-		WgIfaceName:  "utun102",
-		WgAddr:       "100.64.0.1/24",
-		WgPrivateKey: key,
-		WgPort:       33100,
-	}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
-	newNet, err := stdnet.NewNet()
-	if err != nil {
-		t.Fatal(err)
+	relayMgr := relayClient.NewManager(ctx, "", key.PublicKey().String())
+	engine := NewEngine(
+		ctx, cancel,
+		&signal.MockClient{},
+		&mgmt.MockClient{},
+		relayMgr,
+		&EngineConfig{
+			WgIfaceName:  "utun102",
+			WgAddr:       "100.64.0.1/24",
+			WgPrivateKey: key,
+			WgPort:       33100,
+		},
+		MobileDependency{},
+		peer.NewRecorder("https://mgm"),
+		nil)
+
+	wgIface := &iface.MockWGIface{
+		RemovePeerFunc: func(peerKey string) error {
+			return nil
+		},
 	}
-	engine.wgInterface, err = iface.NewWGIFace("utun102", "100.64.0.1/24", engine.config.WgPort, key.String(), iface.DefaultMTU, newNet, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	engine.wgInterface = wgIface
 	engine.routeManager = routemanager.NewManager(ctx, key.PublicKey().String(), time.Minute, engine.wgInterface, engine.statusRecorder, nil)
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
@@ -404,8 +429,8 @@ func TestEngine_Sync(t *testing.T) {
 		}
 		return nil
 	}
-
-	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{SyncFunc: syncFunc}, &EngineConfig{
+	relayMgr := relayClient.NewManager(ctx, "", key.PublicKey().String())
+	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{SyncFunc: syncFunc}, relayMgr, &EngineConfig{
 		WgIfaceName:  "utun103",
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
@@ -564,7 +589,8 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			wgIfaceName := fmt.Sprintf("utun%d", 104+n)
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
-			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, &EngineConfig{
+			relayMgr := relayClient.NewManager(ctx, "", key.PublicKey().String())
+			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
 				WgPrivateKey: key,
@@ -734,7 +760,8 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			wgIfaceName := fmt.Sprintf("utun%d", 104+n)
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
-			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, &EngineConfig{
+			relayMgr := relayClient.NewManager(ctx, "", key.PublicKey().String())
+			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
 				WgPrivateKey: key,
@@ -1010,7 +1037,8 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		WgPort:       wgPort,
 	}
 
-	e, err := NewEngine(ctx, cancel, signalClient, mgmtClient, conf, MobileDependency{}, peer.NewRecorder("https://mgm"), nil), nil
+	relayMgr := relayClient.NewManager(ctx, "", key.PublicKey().String())
+	e, err := NewEngine(ctx, cancel, signalClient, mgmtClient, relayMgr, conf, MobileDependency{}, peer.NewRecorder("https://mgm"), nil), nil
 	e.ctx = ctx
 	return e, err
 }
@@ -1078,7 +1106,10 @@ func startManagement(t *testing.T, dataDir string) (*grpc.Server, string, error)
 	if err != nil {
 		return nil, "", err
 	}
-	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
+	rc := &server.RelayConfig{
+		Address: "127.0.0.1:1234",
+	}
+	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, rc)
 	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, peersUpdateManager, turnManager, nil, nil)
 	if err != nil {
 		return nil, "", err

@@ -17,7 +17,7 @@ import (
 
 // ProbeResult holds the info about the result of a relay probe request
 type ProbeResult struct {
-	URI  *stun.URI
+	URI  string
 	Err  error
 	Addr string
 }
@@ -176,7 +176,7 @@ func ProbeAll(
 		wg.Add(1)
 		go func(res *ProbeResult, stunURI *stun.URI) {
 			defer wg.Done()
-			res.URI = stunURI
+			res.URI = stunURI.String()
 			res.Addr, res.Err = fn(ctx, stunURI)
 		}(&results[i], uri)
 	}

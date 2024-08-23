@@ -16,13 +16,12 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	nbContext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/posture"
-
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
+	nbContext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	internalStatus "github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
@@ -32,17 +31,17 @@ type GRPCServer struct {
 	accountManager AccountManager
 	wgKey          wgtypes.Key
 	proto.UnimplementedManagementServiceServer
-	peersUpdateManager     *PeersUpdateManager
-	config                 *Config
-	turnCredentialsManager TURNCredentialsManager
-	jwtValidator           *jwtclaims.JWTValidator
-	jwtClaimsExtractor     *jwtclaims.ClaimsExtractor
-	appMetrics             telemetry.AppMetrics
-	ephemeralManager       *EphemeralManager
+	peersUpdateManager    *PeersUpdateManager
+	config                *Config
+	turnRelayTokenManager TURNRelayTokenManager
+	jwtValidator          *jwtclaims.JWTValidator
+	jwtClaimsExtractor    *jwtclaims.ClaimsExtractor
+	appMetrics            telemetry.AppMetrics
+	ephemeralManager      *EphemeralManager
 }
 
 // NewServer creates a new Management server
-func NewServer(ctx context.Context, config *Config, accountManager AccountManager, peersUpdateManager *PeersUpdateManager, turnCredentialsManager TURNCredentialsManager, appMetrics telemetry.AppMetrics, ephemeralManager *EphemeralManager) (*GRPCServer, error) {
+func NewServer(ctx context.Context, config *Config, accountManager AccountManager, peersUpdateManager *PeersUpdateManager, turnRelayTokenManager TURNRelayTokenManager, appMetrics telemetry.AppMetrics, ephemeralManager *EphemeralManager) (*GRPCServer, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
@@ -88,14 +87,14 @@ func NewServer(ctx context.Context, config *Config, accountManager AccountManage
 	return &GRPCServer{
 		wgKey: key,
 		// peerKey -> event channel
-		peersUpdateManager:     peersUpdateManager,
-		accountManager:         accountManager,
-		config:                 config,
-		turnCredentialsManager: turnCredentialsManager,
-		jwtValidator:           jwtValidator,
-		jwtClaimsExtractor:     jwtClaimsExtractor,
-		appMetrics:             appMetrics,
-		ephemeralManager:       ephemeralManager,
+		peersUpdateManager:    peersUpdateManager,
+		accountManager:        accountManager,
+		config:                config,
+		turnRelayTokenManager: turnRelayTokenManager,
+		jwtValidator:          jwtValidator,
+		jwtClaimsExtractor:    jwtClaimsExtractor,
+		appMetrics:            appMetrics,
+		ephemeralManager:      ephemeralManager,
 	}, nil
 }
 
@@ -172,7 +171,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	s.ephemeralManager.OnPeerConnected(ctx, peer)
 
 	if s.config.TURNConfig.TimeBasedCredentials {
-		s.turnCredentialsManager.SetupRefresh(ctx, peer.ID)
+		s.turnRelayTokenManager.SetupRefresh(ctx, peer.ID)
 	}
 
 	if s.appMetrics != nil {
@@ -235,7 +234,7 @@ func (s *GRPCServer) sendUpdate(ctx context.Context, accountID string, peerKey w
 
 func (s *GRPCServer) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer) {
 	s.peersUpdateManager.CloseChannel(ctx, peer.ID)
-	s.turnCredentialsManager.CancelRefresh(peer.ID)
+	s.turnRelayTokenManager.CancelRefresh(peer.ID)
 	_ = s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key)
 	s.ephemeralManager.OnPeerDisconnected(ctx, peer)
 }
@@ -421,9 +420,14 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		s.ephemeralManager.OnPeerDisconnected(ctx, peer)
 	}
 
+	trt, err := s.turnRelayTokenManager.Generate()
+	if err != nil {
+		log.Errorf("failed generating TURN and Relay token: %v", err)
+	}
+
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
-		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil),
+		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil, trt),
 		PeerConfig:        toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain()),
 		Checks:            toProtocolChecks(ctx, postureChecks),
 	}
@@ -481,7 +485,7 @@ func ToResponseProto(configProto Protocol) proto.HostConfig_Protocol {
 	}
 }
 
-func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *proto.WiretrusteeConfig {
+func toWiretrusteeConfig(config *Config, turnCredentials *TURNRelayToken, relayToken *TURNRelayToken) *proto.WiretrusteeConfig {
 	if config == nil {
 		return nil
 	}
@@ -497,8 +501,8 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *prot
 		var username string
 		var password string
 		if turnCredentials != nil {
-			username = turnCredentials.Username
-			password = turnCredentials.Password
+			username = turnCredentials.Payload
+			password = turnCredentials.Signature
 		} else {
 			username = turn.Username
 			password = turn.Password
@@ -513,6 +517,18 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *prot
 		})
 	}
 
+	var relayCfg *proto.RelayConfig
+	if config.RelayConfig != nil && config.RelayConfig.Address != "" {
+		relayCfg = &proto.RelayConfig{
+			Urls: []string{config.RelayConfig.Address},
+		}
+
+		if relayToken != nil {
+			relayCfg.TokenPayload = relayToken.Payload
+			relayCfg.TokenSignature = relayToken.Signature
+		}
+	}
+
 	return &proto.WiretrusteeConfig{
 		Stuns: stuns,
 		Turns: turns,
@@ -520,6 +536,7 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *prot
 			Uri:      config.Signal.URI,
 			Protocol: ToResponseProto(config.Signal.Proto),
 		},
+		Relay: relayCfg,
 	}
 }
 
@@ -533,9 +550,9 @@ func toPeerConfig(peer *nbpeer.Peer, network *Network, dnsName string) *proto.Pe
 	}
 }
 
-func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turnCredentials *TURNCredentials, networkMap *NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache) *proto.SyncResponse {
+func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turnCredentials *TURNRelayToken, relayCredentials *TURNRelayToken, networkMap *NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache) *proto.SyncResponse {
 	response := &proto.SyncResponse{
-		WiretrusteeConfig: toWiretrusteeConfig(config, turnCredentials),
+		WiretrusteeConfig: toWiretrusteeConfig(config, turnCredentials, relayCredentials),
 		PeerConfig:        toPeerConfig(peer, networkMap.Network, dnsName),
 		NetworkMap: &proto.NetworkMap{
 			Serial:    networkMap.Network.CurrentSerial(),
@@ -583,14 +600,15 @@ func (s *GRPCServer) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Em
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
 func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *NetworkMap, postureChecks []*posture.Checks, srv proto.ManagementService_SyncServer) error {
 	// make secret time based TURN credentials optional
-	var turnCredentials *TURNCredentials
-	if s.config.TURNConfig.TimeBasedCredentials {
-		creds := s.turnCredentialsManager.GenerateCredentials()
-		turnCredentials = &creds
-	} else {
-		turnCredentials = nil
+	var turnCredentials *TURNRelayToken
+	trt, err := s.turnRelayTokenManager.Generate()
+	if err != nil {
+		log.Errorf("failed generating TURN and Relay token: %v", err)
 	}
-	plainResp := toSyncResponse(ctx, s.config, peer, turnCredentials, networkMap, s.accountManager.GetDNSDomain(), postureChecks, nil)
+	if s.config.TURNConfig.TimeBasedCredentials {
+		turnCredentials = trt
+	}
+	plainResp := toSyncResponse(ctx, s.config, peer, turnCredentials, trt, networkMap, s.accountManager.GetDNSDomain(), postureChecks, nil)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {

@@ -32,9 +32,10 @@ const (
 
 // Config of the Management service
 type Config struct {
-	Stuns      []*Host
-	TURNConfig *TURNConfig
-	Signal     *Host
+	Stuns       []*Host
+	TURNConfig  *TURNConfig
+	RelayConfig *RelayConfig
+	Signal      *Host
 
 	Datadir                string
 	DataStoreEncryptionKey string
@@ -73,6 +74,10 @@ type TURNConfig struct {
 	CredentialsTTL       util.Duration
 	Secret               string
 	Turns                []*Host
+}
+
+type RelayConfig struct {
+	Address string
 }
 
 // HttpServerConfig is a config of the HTTP Management service server

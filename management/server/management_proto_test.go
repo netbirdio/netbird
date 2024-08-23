@@ -429,7 +429,11 @@ func startManagement(t *testing.T, config *Config) (*grpc.Server, *DefaultAccoun
 	if err != nil {
 		return nil, nil, "", err
 	}
-	turnManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
+
+	rc := &RelayConfig{
+		Address: "localhost:0",
+	}
+	turnManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, rc)
 
 	ephemeralMgr := NewEphemeralManager(store, accountManager)
 	mgmtServer, err := NewServer(context.Background(), config, accountManager, peersUpdateManager, turnManager, nil, ephemeralMgr)
