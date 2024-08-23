@@ -130,7 +130,7 @@ func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, 
 
 			publicKey, err := getPublicKey(token, keys)
 			if err != nil {
-				log.Errorf("getPublicKey error: %s", err)
+				log.WithContext(ctx).Errorf("getPublicKey error: %s", err)
 				return nil, err
 			}
 
@@ -233,15 +233,15 @@ func getPublicKey(token *jwt.Token, jwks *Jwks) (interface{}, error) {
 		}
 
 		if jwks.Keys[k].Kty == "RSA" {
-			log.Debugf("generating PublicKey from RSA JWK")
+			log.WithContext(ctx)log.Debugf("generating PublicKey from RSA JWK")
 			return getPublicKeyFromRSA(jwks.Keys[k])
 		}
 		if jwks.Keys[k].Kty == "EC" {
-			log.Debugf("generating PublicKey from ECDSA JWK")
+			log.WithContext(ctx).Debugf("generating PublicKey from ECDSA JWK")
 			return getPublicKeyFromECDSA(jwks.Keys[k])
 		}
 
-		log.Debugf("Key Type: %s not yet supported, please raise ticket !", jwks.Keys[k].Kty)
+		log.WithContext(ctx).Debugf("Key Type: %s not yet supported, please raise ticket !", jwks.Keys[k].Kty)
 	}
 
 	return nil, errors.New("unable to find appropriate key")
