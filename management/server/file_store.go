@@ -107,7 +107,7 @@ func (s *FileStore) AddPeerToAccount(ctx context.Context, tx *gorm.DB, peer *nbp
 
 	account, ok := s.Accounts[peer.AccountID]
 	if !ok {
-		return errors.New("account not found")
+		return status.NewAccountNotFoundError(peer.AccountID)
 	}
 
 	account.Peers[peer.ID] = peer
@@ -120,7 +120,7 @@ func (s *FileStore) IncrementNetworkSerial(ctx context.Context, tx *gorm.DB, acc
 
 	account, ok := s.Accounts[accountId]
 	if !ok {
-		return errors.New("account not found")
+		return status.NewAccountNotFoundError(accountId)
 	}
 
 	account.Network.Serial++
@@ -673,7 +673,7 @@ func (s *FileStore) GetAllAccounts(_ context.Context) (all []*Account) {
 func (s *FileStore) getAccount(accountID string) (*Account, error) {
 	account, ok := s.Accounts[accountID]
 	if !ok {
-		return nil, status.Errorf(status.NotFound, "account not found")
+		return nil, status.NewAccountNotFoundError(accountID)
 	}
 
 	return account, nil
