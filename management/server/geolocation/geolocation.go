@@ -95,13 +95,13 @@ func NewGeolocation(ctx context.Context, dataDir string, mmdbFile string, geonam
 }
 
 func GetMaxMindFilenames(dataDir string, autoUpdate bool) (string, string) {
-	mmdbGlobPattern := path.Join(dataDir, mmdbPattern)
+	mmdbGlobPattern := filepath.Join(dataDir, mmdbPattern)
 	mmdbFilename, err := getDatabaseFilename(geoLiteCityTarGZURL, mmdbGlobPattern, autoUpdate)
 	if err != nil {
 		log.Warnf("Failed to get MaxMind database filename. Using old version, %s: %v", oldMMDBFilename, err)
 		mmdbFilename = oldMMDBFilename
 	}
-	geonamesdbGlobPattern := path.Join(dataDir, geonamesdbPattern)
+	geonamesdbGlobPattern := filepath.Join(dataDir, geonamesdbPattern)
 	geonamesdbFilename, err := getDatabaseFilename(geoLiteCityZipURL, geonamesdbGlobPattern, autoUpdate)
 	if err != nil {
 		log.Warnf("Failed to get GeoNames database filename. Using old version, %s: %v", oldGeoNamesDBFilename, err)
@@ -222,7 +222,7 @@ func getDatabaseFilename(databaseURL string, filenamePattern string, autoUpdate 
 		}
 		// select the last file in the list which should be
 		// the most recent version ending in a YYYYMMDD string.
-		filename = path.Base(files[len(files)-1])
+		filename = filepath.Base(files[len(files)-1])
 		log.Infof("Using existing database, %s", filename)
 		return filename, nil
 	}
@@ -231,7 +231,7 @@ func getDatabaseFilename(databaseURL string, filenamePattern string, autoUpdate 
 	// get date version from basename
 	date := strings.SplitN(basename, "_", 2)[1]
 	// format db as "GeoLite2-Cities-{maxmind|geonames}_{DATE}.{mmdb|db}"
-	databaseFilename := path.Base(strings.Replace(filenamePattern, "*", date, 1))
+	databaseFilename := filepath.Base(strings.Replace(filenamePattern, "*", date, 1))
 
 	return databaseFilename, nil
 }
@@ -240,7 +240,7 @@ func cleanupOldDatabases(pattern string, currentFile string) error {
 	files := getExistingDatabases(pattern)
 
 	for _, db := range files {
-		if path.Base(db) == currentFile {
+		if filepath.Base(db) == currentFile {
 			continue
 		}
 		log.Infof("Removing old database: %s", db)
@@ -256,12 +256,12 @@ func cleanupMaxMindDatabases(dataDir string, mmdbFile string, geonamesdbFile str
 	for _, file := range []string{mmdbFile, geonamesdbFile} {
 		switch file {
 		case mmdbFile:
-			pattern := path.Join(dataDir, mmdbPattern)
+			pattern := filepath.Join(dataDir, mmdbPattern)
 			if err := cleanupOldDatabases(pattern, file); err != nil {
 				return err
 			}
 		case geonamesdbFile:
-			pattern := path.Join(dataDir, geonamesdbPattern)
+			pattern := filepath.Join(dataDir, geonamesdbPattern)
 			if err := cleanupOldDatabases(pattern, file); err != nil {
 				return err
 			}
