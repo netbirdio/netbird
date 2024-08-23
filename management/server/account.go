@@ -725,14 +725,6 @@ func (a *Account) getPeerGroups(peerID string) lookupMap {
 	return groupList
 }
 
-func (a *Account) getSetupKeyGroups(setupKey string) ([]string, error) {
-	key, err := a.FindSetupKey(setupKey)
-	if err != nil {
-		return nil, err
-	}
-	return key.AutoGroups, nil
-}
-
 func (a *Account) getTakenIPs() []net.IP {
 	var takenIps []net.IP
 	for _, existingPeer := range a.Peers {
