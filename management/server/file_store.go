@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -49,27 +50,86 @@ type FileStore struct {
 }
 
 func (s *FileStore) IncrementSetupKeyUsage(ctx context.Context, tx *gorm.DB, setupKeyID string) error {
-	return status.Errorf(status.Internal, "GetSetupKeyBySecret is not implemented")
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, ok := s.SetupKeyID2AccountID[strings.ToUpper(setupKeyID)]
+	if !ok {
+		return status.Errorf(status.NotFound, "account not found: provided setup key doesn't exists")
+	}
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	account.SetupKeys[setupKeyID].UsedTimes++
+
+	return s.SaveAccount(ctx, account)
 }
 
 func (s *FileStore) AddPeerToAllGroup(ctx context.Context, tx *gorm.DB, accountID string, peerID string) error {
-	return status.Errorf(status.Internal, "GetSetupKeyBySecret is not implemented")
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	allGroup, err := account.GetGroupAll()
+	if err != nil || allGroup == nil {
+		return errors.New("all group not found")
+	}
+
+	allGroup.Peers = append(allGroup.Peers, peerID)
+
+	return nil
 }
 
 func (s *FileStore) AddPeerToGroup(ctx context.Context, tx *gorm.DB, accountId string, peerId string, groupID string) error {
-	return status.Errorf(status.Internal, "GetSetupKeyBySecret is not implemented")
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountId)
+	if err != nil {
+		return err
+	}
+
+	account.Groups[groupID].Peers = append(account.Groups[groupID].Peers, peerId)
+
+	return nil
 }
 
 func (s *FileStore) AddPeerToAccount(ctx context.Context, tx *gorm.DB, peer *nbpeer.Peer) error {
-	return status.Errorf(status.Internal, "GetSetupKeyBySecret is not implemented")
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, ok := s.Accounts[peer.AccountID]
+	if !ok {
+		return errors.New("account not found")
+	}
+
+	account.Peers[peer.ID] = peer
+	return s.SaveAccount(ctx, account)
 }
 
 func (s *FileStore) IncrementNetworkSerial(ctx context.Context, tx *gorm.DB, accountId string) error {
-	return status.Errorf(status.Internal, "GetSetupKeyBySecret is not implemented")
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, ok := s.Accounts[accountId]
+	if !ok {
+		return errors.New("account not found")
+	}
+
+	account.Network.Serial++
+
+	return s.SaveAccount(ctx, account)
 }
 
 func (s *FileStore) ExecuteTransaction(ctx context.Context, f func(tx *gorm.DB) error) error {
-	return status.Errorf(status.Internal, "GetSetupKeyBySecret is not implemented")
+	return f(s.GetDB())
 }
 
 func (s *FileStore) GetDB() *gorm.DB {
@@ -78,23 +138,72 @@ func (s *FileStore) GetDB() *gorm.DB {
 }
 
 func (s *FileStore) GetSetupKeyBySecret(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, key string) (*SetupKey, error) {
-	return nil, status.Errorf(status.Internal, "GetSetupKeyBySecret is not implemented")
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, ok := s.SetupKeyID2AccountID[strings.ToUpper(key)]
+	if !ok {
+		return nil, status.Errorf(status.NotFound, "account not found: provided setup key doesn't exists")
+	}
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	setupKey, ok := account.SetupKeys[key]
+	if !ok {
+		return nil, status.Errorf(status.NotFound, "setup key not found")
+	}
+
+	return setupKey, nil
 }
 
-func (s *FileStore) RegisterPeer(ctx context.Context, accountID string, userID string, setupKeyID string, newPeer *nbpeer.Peer, groupsToAdd []string) error {
-	return status.Errorf(status.Internal, "RegisterPeer is not implemented")
+func (s *FileStore) GetTakenIPs(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, accountID string) ([]net.IP, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	var takenIps []net.IP
+	for _, existingPeer := range account.Peers {
+		takenIps = append(takenIps, existingPeer.IP)
+	}
+
+	return takenIps, nil
 }
 
-func (s *FileStore) GetTakenIPs(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, accountId string) ([]net.IP, error) {
-	return nil, status.Errorf(status.Internal, "GetTakenIPs is not implemented")
+func (s *FileStore) GetPeerLabelsInAccount(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, accountID string) ([]string, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	existingLabels := []string{}
+	for _, peer := range account.Peers {
+		if peer.DNSLabel != "" {
+			existingLabels = append(existingLabels, peer.DNSLabel)
+		}
+	}
+	return existingLabels, nil
 }
 
-func (s *FileStore) GetPeerLabelsInAccount(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, accountId string) ([]string, error) {
-	return nil, status.Errorf(status.Internal, "SaveUsers is not implemented")
-}
+func (s *FileStore) GetAccountNetwork(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, accountID string) (*Network, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
 
-func (s *FileStore) GetAccountNetwork(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, accountId string) (*Network, error) {
-	return nil, status.Errorf(status.Internal, "GetPeerLabelsInAccount is not implemented")
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return account.Network, nil
 }
 
 type StoredAccount struct{}

@@ -19,7 +19,23 @@
                     "Revoked": false,
                     "UsedTimes": 0,
                     "LastUsed": "0001-01-01T00:00:00Z",
-                    "AutoGroups": null,
+                    "AutoGroups": ["cfefqs706sqkneg59g2g"],
+                    "UsageLimit": 0,
+                    "Ephemeral": false
+                },
+                "A2C8E62B-38F5-4553-B31E-DD66C696CEBC": {
+                    "Id": "A2C8E62B-38F5-4553-B31E-DD66C696CEBC",
+                    "AccountID": "",
+                    "Key": "A2C8E62B-38F5-4553-B31E-DD66C696CEBC",
+                    "Name": "Faulty key with non existing group",
+                    "Type": "reusable",
+                    "CreatedAt": "2021-08-19T20:46:20.005936822+02:00",
+                    "ExpiresAt": "2321-09-18T20:46:20.005936822+02:00",
+                    "UpdatedAt": "0001-01-01T00:00:00Z",
+                    "Revoked": false,
+                    "UsedTimes": 0,
+                    "LastUsed": "0001-01-01T00:00:00Z",
+                    "AutoGroups": ["abcd"],
                     "UsageLimit": 0,
                     "Ephemeral": false
                 }
@@ -41,7 +57,7 @@
                     "Role": "admin",
                     "IsServiceUser": false,
                     "ServiceUserName": "",
-                    "AutoGroups": null,
+                    "AutoGroups": ["cfefqs706sqkneg59g3g"],
                     "PATs": {},
                     "Blocked": false,
                     "LastLogin": "0001-01-01T00:00:00Z"
@@ -77,7 +93,12 @@
               },
               "cfefqs706sqkneg59g3g": {
                 "ID": "cfefqs706sqkneg59g3g",
-                "Name": "AwesomeGroup",
+                "Name": "AwesomeGroup1",
+                "Peers": []
+              },
+              "cfefqs706sqkneg59g2g": {
+                "ID": "cfefqs706sqkneg59g2g",
+                "Name": "AwesomeGroup2",
                 "Peers": []
               }
             },
