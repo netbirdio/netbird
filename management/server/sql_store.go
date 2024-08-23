@@ -590,6 +590,16 @@ func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*Account, 
 	}
 	account.NameServerGroupsG = nil
 
+	totalObjects := len(account.Policies) +
+		len(account.RoutesG) +
+		len(account.SetupKeysG) +
+		len(account.PeersG) +
+		len(account.NameServerGroupsG) +
+		len(account.Policies)
+	if totalObjects > 5000 {
+		log.WithContext(ctx).Debugf("account: %s has a total resource count of %d objects, exceeding 5,000", accountID, totalObjects)
+	}
+
 	return &account, nil
 }
 
