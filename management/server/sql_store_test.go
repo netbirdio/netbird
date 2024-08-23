@@ -1005,7 +1005,7 @@ func TestPostgresql_GetUserByTokenID(t *testing.T) {
 }
 
 func Test_GetTakenIPs(t *testing.T) {
-	store := newSqliteStoreFromFile(t, "testdata/store.json")
+	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
@@ -1045,7 +1045,7 @@ func Test_GetTakenIPs(t *testing.T) {
 }
 
 func Test_GetPeerLabelsInAccount(t *testing.T) {
-	store := newSqliteStoreFromFile(t, "testdata/store.json")
+	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
@@ -1082,7 +1082,7 @@ func Test_GetPeerLabelsInAccount(t *testing.T) {
 }
 
 func Test_GetAccountNetwork(t *testing.T) {
-	store := newSqliteStoreFromFile(t, "testdata/store.json")
+	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
@@ -1100,7 +1100,7 @@ func Test_GetAccountNetwork(t *testing.T) {
 }
 
 func Test_GetSetupKeyBySecret(t *testing.T) {
-	store := newSqliteStoreFromFile(t, "testdata/store.json")
+	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
@@ -1115,7 +1115,7 @@ func Test_GetSetupKeyBySecret(t *testing.T) {
 }
 
 func Test_incrementSetupKeyUsage(t *testing.T) {
-	store := newSqliteStoreFromFile(t, "testdata/store.json")
+	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
