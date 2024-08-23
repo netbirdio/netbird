@@ -86,7 +86,7 @@ type Store interface {
 	AddPeerToAccount(ctx context.Context, tx *gorm.DB, peer *nbpeer.Peer) error
 	IncrementNetworkSerial(ctx context.Context, tx *gorm.DB, accountId string) error
 	GetAccountNetwork(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, accountId string) (*Network, error)
-	ExecuteTransaction(ctx context.Context, f func(tx *gorm.DB) error) error
+	ExecuteWriteTransaction(ctx context.Context, f func(tx *gorm.DB) error) error
 	GetDB() *gorm.DB
 }
 

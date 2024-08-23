@@ -55,7 +55,7 @@ func (s *FileStore) IncrementSetupKeyUsage(ctx context.Context, tx *gorm.DB, set
 
 	accountID, ok := s.SetupKeyID2AccountID[strings.ToUpper(setupKeyID)]
 	if !ok {
-		return status.Errorf(status.NotFound, "account not found: provided setup key doesn't exists")
+		return status.NewSetupKeyNotFoundError()
 	}
 
 	account, err := s.getAccount(accountID)
@@ -128,7 +128,7 @@ func (s *FileStore) IncrementNetworkSerial(ctx context.Context, tx *gorm.DB, acc
 	return s.SaveAccount(ctx, account)
 }
 
-func (s *FileStore) ExecuteTransaction(ctx context.Context, f func(tx *gorm.DB) error) error {
+func (s *FileStore) ExecuteWriteTransaction(ctx context.Context, f func(tx *gorm.DB) error) error {
 	return f(s.GetDB())
 }
 
@@ -143,7 +143,7 @@ func (s *FileStore) GetSetupKeyBySecret(ctx context.Context, tx *gorm.DB, lockSt
 
 	accountID, ok := s.SetupKeyID2AccountID[strings.ToUpper(key)]
 	if !ok {
-		return nil, status.Errorf(status.NotFound, "account not found: provided setup key doesn't exists")
+		return nil, status.NewSetupKeyNotFoundError()
 	}
 
 	account, err := s.getAccount(accountID)
@@ -582,7 +582,7 @@ func (s *FileStore) GetAccountBySetupKey(_ context.Context, setupKey string) (*A
 
 	accountID, ok := s.SetupKeyID2AccountID[strings.ToUpper(setupKey)]
 	if !ok {
-		return nil, status.Errorf(status.NotFound, "account not found: provided setup key doesn't exists")
+		return nil, status.NewSetupKeyNotFoundError()
 	}
 
 	account, err := s.getAccount(accountID)
@@ -799,7 +799,7 @@ func (s *FileStore) GetAccountIDBySetupKey(_ context.Context, setupKey string) (
 
 	accountID, ok := s.SetupKeyID2AccountID[strings.ToUpper(setupKey)]
 	if !ok {
-		return "", status.Errorf(status.NotFound, "account not found: provided setup key doesn't exists")
+		return "", status.NewSetupKeyNotFoundError()
 	}
 
 	return accountID, nil

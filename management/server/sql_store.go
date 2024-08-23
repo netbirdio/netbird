@@ -530,7 +530,7 @@ func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*Account, 
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "account not found")
+			return nil, status.NewAccountNotFoundError(accountID)
 		}
 		return nil, status.Errorf(status.Internal, "issue getting account from store")
 	}
@@ -734,7 +734,7 @@ func (s *SqlStore) GetAccountNetwork(ctx context.Context, tx *gorm.DB, lockStren
 
 	if err := s.db.WithContext(ctx).Model(&Account{}).Where(idQueryCondition, accountID).First(&accountNetwork).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "account not found")
+			return nil, status.NewAccountNotFoundError(accountID)
 		}
 		return nil, status.Errorf(status.Internal, "issue getting network from store")
 	}
@@ -1035,6 +1035,6 @@ func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, tx *gorm.DB, acco
 	return nil
 }
 
-func (s *SqlStore) ExecuteTransaction(ctx context.Context, operation func(tx *gorm.DB) error) error {
+func (s *SqlStore) ExecuteWriteTransaction(ctx context.Context, operation func(tx *gorm.DB) error) error {
 	return s.db.WithContext(ctx).Transaction(operation)
 }

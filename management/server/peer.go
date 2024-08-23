@@ -390,7 +390,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	var newPeer *nbpeer.Peer
 
-	err = am.Store.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+	err = am.Store.ExecuteWriteTransaction(ctx, func(tx *gorm.DB) error {
 		var groupsToAdd []string
 		var setupKeyID string
 		var setupKeyName string
@@ -431,36 +431,14 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			}
 		}
 
-		takenIps, err := am.Store.GetTakenIPs(ctx, tx, LockingStrengthShare, accountID)
+		freeLabel, err := am.getFreeDNSLabel(ctx, tx, accountID, peer.Meta.Hostname)
 		if err != nil {
-			return fmt.Errorf("failed to get taken IPs: %w", err)
+			return fmt.Errorf("failed to get free DNS label: %w", err)
 		}
 
-		existingLabels, err := am.Store.GetPeerLabelsInAccount(ctx, tx, LockingStrengthShare, accountID)
+		freeIP, err := am.getFreeIP(ctx, tx, accountID)
 		if err != nil {
-			return fmt.Errorf("failed to get peer dns labels: %w", err)
-		}
-
-		labelMap := ConvertSliceToMap(existingLabels)
-		newLabel, err := getPeerHostLabel(peer.Meta.Hostname, labelMap)
-		if err != nil {
-			return fmt.Errorf("failed to get new host label: %w", err)
-		}
-		peer.DNSLabel = newLabel
-
-		network, err := am.Store.GetAccountNetwork(ctx, tx, LockingStrengthUpdate, accountID)
-		if err != nil {
-			return fmt.Errorf("failed getting network: %w", err)
-		}
-
-		nextIp, err := AllocatePeerIP(network.Net, takenIps)
-		if err != nil {
-			return fmt.Errorf("failed to allocate new peer ip: %w", err)
-		}
-
-		settings, err := am.Store.GetAccountSettings(ctx, tx, LockingStrengthShare, accountID)
-		if err != nil {
-			return fmt.Errorf("failed to get account settings: %w", err)
+			return fmt.Errorf("failed to get free IP: %w", err)
 		}
 
 		registrationTime := time.Now().UTC()
@@ -469,10 +447,10 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			AccountID:              accountID,
 			Key:                    peer.Key,
 			SetupKey:               upperKey,
-			IP:                     nextIp,
+			IP:                     freeIP,
 			Meta:                   peer.Meta,
 			Name:                   peer.Meta.Hostname,
-			DNSLabel:               newLabel,
+			DNSLabel:               freeLabel,
 			UserID:                 userID,
 			Status:                 &nbpeer.PeerStatus{Connected: false, LastSeen: registrationTime},
 			SSHEnabled:             false,
@@ -500,6 +478,10 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			}
 		}
 
+		settings, err := am.Store.GetAccountSettings(ctx, tx, LockingStrengthShare, accountID)
+		if err != nil {
+			return fmt.Errorf("failed to get account settings: %w", err)
+		}
 		newPeer = am.integratedPeerValidator.PreparePeer(ctx, accountID, newPeer, groupsToAdd, settings.Extra)
 
 		err = am.Store.AddPeerToAllGroup(ctx, tx, accountID, newPeer.ID)
@@ -571,6 +553,25 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
 	networkMap := account.GetPeerNetworkMap(ctx, newPeer.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics())
 	return newPeer, networkMap, postureChecks, nil
+}
+
+func (am *DefaultAccountManager) getFreeIP(ctx context.Context, tx *gorm.DB, accountID string) (net.IP, error) {
+	takenIps, err := am.Store.GetTakenIPs(ctx, tx, LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get taken IPs: %w", err)
+	}
+
+	network, err := am.Store.GetAccountNetwork(ctx, tx, LockingStrengthUpdate, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed getting network: %w", err)
+	}
+
+	nextIp, err := AllocatePeerIP(network.Net, takenIps)
+	if err != nil {
+		return nil, fmt.Errorf("failed to allocate new peer ip: %w", err)
+	}
+
+	return nextIp, nil
 }
 
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible

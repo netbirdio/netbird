@@ -24,6 +24,7 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
+	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -2084,6 +2085,25 @@ func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, peer *nbpee
 	}
 
 	return false, nil
+}
+
+func (am *DefaultAccountManager) getFreeDNSLabel(ctx context.Context, tx *gorm.DB, accountID string, peerHostName string) (string, error) {
+	existingLabels, err := am.Store.GetPeerLabelsInAccount(ctx, tx, LockingStrengthShare, accountID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get peer dns labels: %w", err)
+	}
+
+	labelMap := ConvertSliceToMap(existingLabels)
+	newLabel, err := getPeerHostLabel(peerHostName, labelMap)
+	if err != nil {
+		return "", fmt.Errorf("failed to get new host label: %w", err)
+	}
+
+	if newLabel == "" {
+		return "", fmt.Errorf("failed to get new host label: %w", err)
+	}
+
+	return newLabel, nil
 }
 
 // addAllGroup to account object if it doesn't exist
