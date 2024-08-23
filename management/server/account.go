@@ -476,6 +476,12 @@ func (a *Account) GetPeerNetworkMap(
 		objectCount := int64(len(peersToConnect) + len(expiredPeers) + len(routesUpdate) + len(firewallRules))
 		metrics.CountNetworkMapObjects(objectCount)
 		metrics.CountGetPeerNetworkMapDuration(time.Since(start))
+
+		if objectCount > 5000 {
+			log.WithContext(ctx).Tracef("account: %s has a total resource count of %d objects, "+
+				"peers to connect: %d, expired peers: %d, routes: %d, firewall rules: %d",
+				a.Id, objectCount, len(peersToConnect), len(expiredPeers), len(routesUpdate), len(firewallRules))
+		}
 	}
 
 	return nm
