@@ -137,7 +137,7 @@ func (s *SqlStore) SaveAccount(ctx context.Context, account *Account) error {
 	defer func() {
 		elapsed := time.Since(start)
 		if elapsed > 1*time.Second {
-			log.WithContext(ctx).Warnf("SaveAccount for account %s exceeded 1s, took: %v", account.Id, elapsed)
+			log.WithContext(ctx).Tracef("SaveAccount for account %s exceeded 1s, took: %v", account.Id, elapsed)
 		}
 	}()
 
@@ -523,7 +523,7 @@ func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*Account, 
 	defer func() {
 		elapsed := time.Since(start)
 		if elapsed > 1*time.Second {
-			log.WithContext(ctx).Warnf("GetAccount for account %s exceeded 1s, took: %v", accountID, elapsed)
+			log.WithContext(ctx).Tracef("GetAccount for account %s exceeded 1s, took: %v", accountID, elapsed)
 		}
 	}()
 
@@ -589,16 +589,6 @@ func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*Account, 
 		account.NameServerGroups[ns.ID] = ns.Copy()
 	}
 	account.NameServerGroupsG = nil
-
-	totalObjects := len(account.Policies) +
-		len(account.RoutesG) +
-		len(account.SetupKeysG) +
-		len(account.PeersG) +
-		len(account.NameServerGroupsG) +
-		len(account.Policies)
-	if totalObjects > 5000 {
-		log.WithContext(ctx).Debugf("account: %s has a total resource count of %d objects, exceeding 5,000", accountID, totalObjects)
-	}
 
 	return &account, nil
 }
