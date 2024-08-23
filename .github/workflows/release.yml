@@ -10,7 +10,7 @@ on:
 
 
 env:
-  SIGN_PIPE_VER: "v0.0.12"
+  SIGN_PIPE_VER: "v0.0.13"
   GORELEASER_VER: "v1.14.1"
   PRODUCT_NAME: "NetBird"
   COPYRIGHT: "Wiretrustee UG (haftungsbeschreankt)"
