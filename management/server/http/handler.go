@@ -100,27 +100,6 @@ func APIHandler(ctx context.Context, accountManager s.AccountManager, LocationMa
 	api.addPostureCheckEndpoint()
 	api.addLocationsEndpoint()
 
-	err := api.Router.Walk(func(route *mux.Route, _ *mux.Router, _ []*mux.Route) error {
-		methods, err := route.GetMethods()
-		if err != nil { // we may have wildcard routes from integrations without methods, skip them for now
-			methods = []string{}
-		}
-		for _, method := range methods {
-			template, err := route.GetPathTemplate()
-			if err != nil {
-				return err
-			}
-			err = metricsMiddleware.AddHTTPRequestResponseCounter(template, method)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
 	return rootRouter, nil
 }
 
