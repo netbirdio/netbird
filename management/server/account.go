@@ -2065,7 +2065,7 @@ func (am *DefaultAccountManager) GetAccountIDForPeerKey(ctx context.Context, pee
 }
 
 func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, peer *nbpeer.Peer, settings *Settings) (bool, error) {
-	user, err := am.Store.GetUserByUserID(ctx, peer.UserID)
+	user, err := am.Store.GetUserByUserID(ctx, am.Store.GetDB(), LockingStrengthShare, peer.UserID)
 	if err != nil {
 		return false, err
 	}

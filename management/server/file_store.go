@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -47,7 +48,36 @@ type FileStore struct {
 	metrics telemetry.AppMetrics `json:"-"`
 }
 
-func (s *FileStore) GetSetupKeyBySecret(ctx context.Context, key string) (*SetupKey, error) {
+func (s *FileStore) IncrementSetupKeyUsage(ctx context.Context, tx *gorm.DB, setupKeyID string) error {
+	return status.Errorf(status.Internal, "GetSetupKeyBySecret is not implemented")
+}
+
+func (s *FileStore) AddPeerToAllGroup(ctx context.Context, tx *gorm.DB, accountID string, peerID string) error {
+	return status.Errorf(status.Internal, "GetSetupKeyBySecret is not implemented")
+}
+
+func (s *FileStore) AddPeerToGroup(ctx context.Context, tx *gorm.DB, accountId string, peerId string, groupID string) error {
+	return status.Errorf(status.Internal, "GetSetupKeyBySecret is not implemented")
+}
+
+func (s *FileStore) AddPeerToAccount(ctx context.Context, tx *gorm.DB, peer *nbpeer.Peer) error {
+	return status.Errorf(status.Internal, "GetSetupKeyBySecret is not implemented")
+}
+
+func (s *FileStore) IncrementNetworkSerial(ctx context.Context, tx *gorm.DB, accountId string) error {
+	return status.Errorf(status.Internal, "GetSetupKeyBySecret is not implemented")
+}
+
+func (s *FileStore) ExecuteTransaction(ctx context.Context, f func(tx *gorm.DB) error) error {
+	return status.Errorf(status.Internal, "GetSetupKeyBySecret is not implemented")
+}
+
+func (s *FileStore) GetDB() *gorm.DB {
+	// Not supported
+	return nil
+}
+
+func (s *FileStore) GetSetupKeyBySecret(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, key string) (*SetupKey, error) {
 	return nil, status.Errorf(status.Internal, "GetSetupKeyBySecret is not implemented")
 }
 
@@ -55,15 +85,15 @@ func (s *FileStore) RegisterPeer(ctx context.Context, accountID string, userID s
 	return status.Errorf(status.Internal, "RegisterPeer is not implemented")
 }
 
-func (s *FileStore) GetTakenIPs(ctx context.Context, accountId string) ([]net.IP, error) {
+func (s *FileStore) GetTakenIPs(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, accountId string) ([]net.IP, error) {
 	return nil, status.Errorf(status.Internal, "GetTakenIPs is not implemented")
 }
 
-func (s *FileStore) GetPeerLabelsInAccount(ctx context.Context, accountId string) ([]string, error) {
+func (s *FileStore) GetPeerLabelsInAccount(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, accountId string) ([]string, error) {
 	return nil, status.Errorf(status.Internal, "SaveUsers is not implemented")
 }
 
-func (s *FileStore) GetAccountNetwork(ctx context.Context, accountId string) (*Network, error) {
+func (s *FileStore) GetAccountNetwork(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, accountId string) (*Network, error) {
 	return nil, status.Errorf(status.Internal, "GetPeerLabelsInAccount is not implemented")
 }
 
@@ -490,7 +520,7 @@ func (s *FileStore) GetUserByTokenID(_ context.Context, tokenID string) (*User, 
 	return account.Users[userID].Copy(), nil
 }
 
-func (s *FileStore) GetUserByUserID(_ context.Context, userID string) (*User, error) {
+func (s *FileStore) GetUserByUserID(_ context.Context, _ *gorm.DB, _ LockingStrength, userID string) (*User, error) {
 	accountID, ok := s.UserID2AccountID[userID]
 	if !ok {
 		return nil, status.Errorf(status.NotFound, "accountID not found: provided userID doesn't exists")
@@ -666,7 +696,7 @@ func (s *FileStore) GetAccountIDBySetupKey(_ context.Context, setupKey string) (
 	return accountID, nil
 }
 
-func (s *FileStore) GetPeerByPeerPubKey(_ context.Context, peerKey string) (*nbpeer.Peer, error) {
+func (s *FileStore) GetPeerByPeerPubKey(_ context.Context, _ *gorm.DB, _ LockingStrength, peerKey string) (*nbpeer.Peer, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -689,7 +719,7 @@ func (s *FileStore) GetPeerByPeerPubKey(_ context.Context, peerKey string) (*nbp
 	return nil, status.NewPeerNotFoundError(peerKey)
 }
 
-func (s *FileStore) GetAccountSettings(_ context.Context, accountID string) (*Settings, error) {
+func (s *FileStore) GetAccountSettings(_ context.Context, _ *gorm.DB, _ LockingStrength, accountID string) (*Settings, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -779,7 +809,7 @@ func (s *FileStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.
 }
 
 // SaveUserLastLogin stores the last login time for a user in memory. It doesn't attempt to persist data to speed up things.
-func (s *FileStore) SaveUserLastLogin(accountID, userID string, lastLogin time.Time) error {
+func (s *FileStore) SaveUserLastLogin(_ context.Context, _ *gorm.DB, accountID, userID string, lastLogin time.Time) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
