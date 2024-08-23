@@ -250,7 +250,7 @@ func getPublicKey(token *jwt.Token, jwks *Jwks) (interface{}, error) {
 func getPublicKeyFromECDSA(jwk JSONWebKey) (publicKey *ecdsa.PublicKey, err error) {
 
 	if jwk.X == "" || jwk.Y == "" || jwk.Crv == "" {
-		return nil, fmt.Errorf("ecdsa key incompleet")
+		return nil, fmt.Errorf("ecdsa key incomplete")
 	}
 
 	var xCoordinate []byte
