@@ -1004,8 +1004,9 @@ func TestPostgresql_GetUserByTokenID(t *testing.T) {
 	require.Equal(t, id, user.PATs[id].ID)
 }
 
-func Test_GetTakenIPs(t *testing.T) {
+func TestSqlite_GetTakenIPs(t *testing.T) {
 	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
+	defer store.Close(context.Background())
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
@@ -1044,8 +1045,9 @@ func Test_GetTakenIPs(t *testing.T) {
 
 }
 
-func Test_GetPeerLabelsInAccount(t *testing.T) {
+func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
+	defer store.Close(context.Background())
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
@@ -1081,8 +1083,9 @@ func Test_GetPeerLabelsInAccount(t *testing.T) {
 	assert.Equal(t, []string{"peer1.domain.test", "peer2.domain.test"}, labels)
 }
 
-func Test_GetAccountNetwork(t *testing.T) {
+func TestSqlite_GetAccountNetwork(t *testing.T) {
 	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
+	defer store.Close(context.Background())
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
@@ -1099,8 +1102,9 @@ func Test_GetAccountNetwork(t *testing.T) {
 	assert.Equal(t, uint64(0), network.Serial)
 }
 
-func Test_GetSetupKeyBySecret(t *testing.T) {
+func TestSqlite_GetSetupKeyBySecret(t *testing.T) {
 	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
+	defer store.Close(context.Background())
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
@@ -1114,8 +1118,9 @@ func Test_GetSetupKeyBySecret(t *testing.T) {
 	assert.Equal(t, "Default key", setupKey.Name)
 }
 
-func Test_incrementSetupKeyUsage(t *testing.T) {
+func TestSqlite_incrementSetupKeyUsage(t *testing.T) {
 	store := newSqliteStoreFromFile(t, "testdata/extended-store.json")
+	defer store.Close(context.Background())
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 

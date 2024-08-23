@@ -641,7 +641,7 @@ func Test_LoginPerformance(t *testing.T) {
 		t.Skip("Skipping on CI")
 	}
 
-	t.Setenv("NETBIRD_STORE_ENGINE", "sqlite")
+	t.Setenv("NETBIRD_STORE_ENGINE", "postgres")
 
 	benchCases := []struct {
 		name     string
@@ -654,7 +654,7 @@ func Test_LoginPerformance(t *testing.T) {
 		// {"M", 250, 1},
 		// {"L", 500, 1},
 		// {"XL", 750, 1},
-		{"XXL", 1000, 1},
+		{"XXL", 5000, 1},
 	}
 
 	log.SetOutput(io.Discard)
