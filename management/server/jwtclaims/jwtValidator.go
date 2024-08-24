@@ -241,7 +241,7 @@ func getPublicKey(token *jwt.Token, jwks *Jwks) (interface{}, error) {
 			return getPublicKeyFromECDSA(jwks.Keys[k])
 		}
 
-		log.Debugf("Key Type: %s not yet supported, please raise ticket !", jwks.Keys[k].Kty)
+		log.WithContext(ctx).Debugf("Key Type: %s not yet supported, please raise ticket!", jwks.Keys[k].Kty)
 	}
 
 	return nil, errors.New("unable to find appropriate key")
