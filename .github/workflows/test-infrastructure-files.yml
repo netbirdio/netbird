@@ -25,6 +25,7 @@ jobs:
       postgres:
         image: ${{ (matrix.store == 'postgres') && 'postgres' || '' }}
         env:
+          POSTGRES_USER: netbird
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: netbird
         options: >-
@@ -37,9 +38,9 @@ jobs:
       - name: Set Database Connection String
         run: |
           if [ "${{ matrix.store }}" == "postgres" ]; then
-            echo "NETBIRD_STORE_ENGINE_POSTGRES_DSN=host=$(hostname -I | awk '{print $1}') user=root password=postgres dbname=netbird port=5432" >> $GITHUB_ENV
+            echo "NETBIRD_STORE_ENGINE_POSTGRES_DSN=host=$(hostname -I | awk '{print $1}') user=netbird password=postgres dbname=netbird port=5432" >> $GITHUB_ENV
           else
-            echo "NETBIRD_STORE_ENGINE_POSTGRES_DSN=" >> $GITHUB_ENV
+            echo "NETBIRD_STORE_ENGINE_POSTGRES_DSN==" >> $GITHUB_ENV
           fi
 
       - name: Install jq
