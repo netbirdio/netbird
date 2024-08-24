@@ -837,8 +837,6 @@ func TestEngine_MultiplePeers(t *testing.T) {
 	for i := 0; i < numPeers; i++ {
 		j := i
 		go func() {
-			guid := fmt.Sprintf("{%s}", uuid.New().String())
-			iface.CustomWindowsGUIDString = strings.ToLower(guid)
 			engine, err := createEngine(ctx, cancel, setupKey, j, mgmtAddr, signalAddr)
 			if err != nil {
 				wg.Done()
@@ -848,6 +846,8 @@ func TestEngine_MultiplePeers(t *testing.T) {
 			engine.dnsServer = &dns.MockServer{}
 			mu.Lock()
 			defer mu.Unlock()
+			guid := fmt.Sprintf("{%s}", uuid.New().String())
+			iface.CustomWindowsGUIDString = strings.ToLower(guid)
 			err = engine.Start()
 			if err != nil {
 				t.Errorf("unable to start engine for peer %d with error %v", j, err)
