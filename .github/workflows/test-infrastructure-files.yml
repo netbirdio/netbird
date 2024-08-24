@@ -140,7 +140,7 @@ jobs:
           grep -A 10 PKCEAuthorizationFlow management.json | grep -A 10 ProviderConfig | grep Scope | grep "$CI_NETBIRD_AUTH_SUPPORTED_SCOPES"
           grep -A 10 PKCEAuthorizationFlow management.json | grep -A 10 ProviderConfig | grep -A 3 RedirectURLs | grep "http://localhost:53000"
           grep "external-ip" turnserver.conf | grep $CI_NETBIRD_TURN_EXTERNAL_IP
-          grep NETBIRD_STORE_ENGINE_POSTGRES_DSN docker-compose.yml | egrep $NETBIRD_STORE_ENGINE_POSTGRES_DSN
+          grep NETBIRD_STORE_ENGINE_POSTGRES_DSN docker-compose.yml | egrep "$NETBIRD_STORE_ENGINE_POSTGRES_DSN"
 
       - name: Install modules
         run: go mod tidy
