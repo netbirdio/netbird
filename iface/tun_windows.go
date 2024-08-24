@@ -14,6 +14,8 @@ import (
 	"github.com/netbirdio/netbird/iface/bind"
 )
 
+const defaultWindowsGUIDSTring = "{f2f29e61-d91f-4d76-8151-119b20c4bdeb}"
+
 type tunDevice struct {
 	name    string
 	address WGAddress
