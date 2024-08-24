@@ -40,9 +40,18 @@ func newTunDevice(name string, address WGAddress, port int, key string, mtu int,
 	}
 }
 
+func getGUID() (windows.GUID, error) {
+	return windows.GUIDFromString("{f2f29e61-d91f-4d76-8151-119b20c4bdeb}")
+}
+
 func (t *tunDevice) Create() (wgConfigurer, error) {
+	guid, err := getGUID()
+	if err != nil {
+		log.Errorf("failed to get GUID: %s", err)
+		return nil, err
+	}
 	log.Info("create tun interface")
-	tunDevice, err := tun.CreateTUN(t.name, t.mtu)
+	tunDevice, err := tun.CreateTUNWithRequestedGUID(t.name, &guid, t.mtu)
 	if err != nil {
 		return nil, err
 	}
