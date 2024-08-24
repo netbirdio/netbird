@@ -7,6 +7,11 @@ import (
 	"github.com/netbirdio/netbird/iface/bind"
 )
 
+const defaultWindowsGUIDSTring = "{f2f29e61-d91f-4d76-8151-119b20c4bdeb}"
+
+// CustomWindowsGUIDString is a custom GUID string for the interface
+var CustomWindowsGUIDString string
+
 type wgTunDevice interface {
 	Create() (wgConfigurer, error)
 	Up() (*bind.UniversalUDPMuxDefault, error)

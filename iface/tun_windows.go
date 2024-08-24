@@ -41,7 +41,11 @@ func newTunDevice(name string, address WGAddress, port int, key string, mtu int,
 }
 
 func getGUID() (windows.GUID, error) {
-	return windows.GUIDFromString("{f2f29e61-d91f-4d76-8151-119b20c4bdeb}")
+	guidString := defaultWindowsGUIDSTring
+	if CustomWindowsGUIDString != "" {
+		guidString = CustomWindowsGUIDString
+	}
+	return windows.GUIDFromString(guidString)
 }
 
 func (t *tunDevice) Create() (wgConfigurer, error) {

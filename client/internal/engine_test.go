@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pion/transport/v3/stdnet"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -836,6 +837,8 @@ func TestEngine_MultiplePeers(t *testing.T) {
 	for i := 0; i < numPeers; i++ {
 		j := i
 		go func() {
+			guid := fmt.Sprintf("{%s}", uuid.New().String())
+			iface.CustomWindowsGUIDString = strings.ToLower(guid)
 			engine, err := createEngine(ctx, cancel, setupKey, j, mgmtAddr, signalAddr)
 			if err != nil {
 				wg.Done()
