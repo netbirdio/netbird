@@ -1,6 +1,7 @@
 package geolocation
 
 import (
+	"context"
 	"encoding/csv"
 	"io"
 	"os"
@@ -23,15 +24,14 @@ const (
 )
 
 // loadGeolocationDatabases loads the MaxMind databases.
-func loadGeolocationDatabases(dataDir string, mmdbFile string, geonamesdbFile string) error {
+func loadGeolocationDatabases(ctx context.Context, dataDir string, mmdbFile string, geonamesdbFile string) error {
 	for _, file := range []string{mmdbFile, geonamesdbFile} {
 		exists, _ := fileExists(path.Join(dataDir, file))
 		if exists {
-			log.Debugf("Database exists: %s", file)
 			continue
 		}
 
-		log.Infof("Geolocation database file %s not found, file will be downloaded", file)
+		log.WithContext(ctx).Infof("Geolocation database file %s not found, file will be downloaded", file)
 
 		switch file {
 		case mmdbFile:

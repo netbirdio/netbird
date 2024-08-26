@@ -180,9 +180,7 @@ var (
 				}
 			}
 
-			mmdbFilename, geonamesdbFilename := geolocation.GetMaxMindFilenames(config.Datadir, !disableGeoliteUpdate)
-
-			geo, err := geolocation.NewGeolocation(ctx, config.Datadir, mmdbFilename, geonamesdbFilename)
+			geo, err := geolocation.NewGeolocation(ctx, config.Datadir, !disableGeoliteUpdate)
 			if err != nil {
 				log.WithContext(ctx).Warnf("could not initialize geolocation service. proceeding without geolocation support: %v", err)
 			} else {

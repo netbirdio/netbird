@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path"
+	"path/filepath"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -24,21 +25,19 @@ func initGeolocationTestData(t *testing.T) *GeolocationsHandler {
 	t.Helper()
 
 	var (
-		mmdbPath         = "../testdata/GeoLite2-City-Test.mmdb"
-		geonamesdbPath   = "../testdata/geonames-test.db"
-		mmdbFilename     = "GeoLite2-City.mmdb"
-		geonamesdbFilename = "geonames.db"
+		mmdbPath       = "../testdata/GeoLite2-City_20240305.mmdb"
+		geonamesdbPath = "../testdata/geonames_20240305.db"
 	)
 
 	tempDir := t.TempDir()
 
-	err := util.CopyFileContents(mmdbPath, path.Join(tempDir, mmdbFilename))
+	err := util.CopyFileContents(mmdbPath, path.Join(tempDir, filepath.Base(mmdbPath)))
 	assert.NoError(t, err)
 
-	err = util.CopyFileContents(geonamesdbPath, path.Join(tempDir, geonamesdbFilename))
+	err = util.CopyFileContents(geonamesdbPath, path.Join(tempDir, filepath.Base(geonamesdbPath)))
 	assert.NoError(t, err)
 
-	geo, err := geolocation.NewGeolocation(context.Background(), tempDir, mmdbFilename, geonamesdbFilename)
+	geo, err := geolocation.NewGeolocation(context.Background(), tempDir, false)
 	assert.NoError(t, err)
 	t.Cleanup(func() { _ = geo.Stop() })
 

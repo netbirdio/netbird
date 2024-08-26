@@ -39,11 +39,10 @@ func (*GeoNames) TableName() string {
 
 // SqliteStore represents a location storage backed by a Sqlite DB.
 type SqliteStore struct {
-	db        *gorm.DB
-	filePath  string
-	mux       sync.RWMutex
-	closed    bool
-	sha256sum []byte
+	db       *gorm.DB
+	filePath string
+	mux      sync.RWMutex
+	closed   bool
 }
 
 func NewSqliteStore(ctx context.Context, dataDir string, dbPath string) (*SqliteStore, error) {
@@ -54,16 +53,10 @@ func NewSqliteStore(ctx context.Context, dataDir string, dbPath string) (*Sqlite
 		return nil, err
 	}
 
-	sha256sum, err := calculateFileSHA256(file)
-	if err != nil {
-		return nil, err
-	}
-
 	return &SqliteStore{
-		db:        db,
-		filePath:  file,
-		mux:       sync.RWMutex{},
-		sha256sum: sha256sum,
+		db:       db,
+		filePath: file,
+		mux:      sync.RWMutex{},
 	}, nil
 }
 

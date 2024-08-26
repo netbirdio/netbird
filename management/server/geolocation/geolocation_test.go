@@ -2,10 +2,8 @@ package geolocation
 
 import (
 	"net"
-	"os"
 	"path"
-	"regexp"
-	"strings"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -16,23 +14,17 @@ import (
 
 // from https://github.com/maxmind/MaxMind-DB/blob/main/test-data/GeoLite2-City-Test.mmdb
 var (
-	mmdbPath     = "../testdata/GeoLite2-City-Test.mmdb"
-	mmdbFilename = "GeoLite2-City.mmdb"
+	mmdbPath     = "../testdata/GeoLite2-City_20240305.mmdb"
+	mmdbFilename = "../testdata/geonames_20240305.db"
 )
 
 func TestGeoLite_Lookup(t *testing.T) {
 	tempDir := t.TempDir()
-	filename := path.Join(tempDir, mmdbFilename)
+	filename := path.Join(tempDir, filepath.Base(mmdbFilename))
 	err := util.CopyFileContents(mmdbPath, filename)
 	assert.NoError(t, err)
-	defer func() {
-		err := os.Remove(filename)
-		if err != nil {
-			t.Errorf("os.Remove: %s", err)
-		}
-	}()
 
-	db, err := openDB(mmdbPath)
+	db, err := openDB(filename)
 	assert.NoError(t, err)
 
 	geo := &Geolocation{
@@ -57,42 +49,4 @@ func TestGeoLite_Lookup(t *testing.T) {
 	assert.Equal(t, uint(2694762), record.City.GeonameID)
 	assert.Equal(t, "EU", record.Continent.Code)
 	assert.Equal(t, uint(6255148), record.Continent.GeonameID)
-}
-
-func TestGeolite_Name_Lookup(t *testing.T) {
-	var mmdbFile string
-	var geonamesFile string
-
-	var mmdbRegexp *regexp.Regexp = regexp.MustCompile(strings.Replace(mmdbPattern, "*", "\\d{8}", 1))
-	var geonamesdbRegexp *regexp.Regexp = regexp.MustCompile(strings.Replace(geonamesdbPattern, "*", "\\d{8}", 1))
-
-	tempDir := t.TempDir()
-
-	// if auto-update is disabled and there is no existing database,
-	// defaults to the old database names
-	mmdbFile, geonamesFile = GetMaxMindFilenames(tempDir, false)
-	assert.Equal(t, oldMMDBFilename, mmdbFile)
-	assert.Equal(t, oldGeoNamesDBFilename, geonamesFile)
-
-	mmdbFile, geonamesFile = GetMaxMindFilenames(tempDir, true)
-	assert.Regexp(t, mmdbRegexp, mmdbFile)
-	assert.Regexp(t, geonamesdbRegexp, geonamesFile)
-
-	// copy the file to two locations to ensure that
-	// the returned filename is the one with the most recent date
-	mmdbFilenameNew := strings.Replace(mmdbPattern, "*", "20240101", 1)
-	mmdbPathNew := path.Join(tempDir, mmdbFilenameNew)
-	assert.NoError(t, util.CopyFileContents(mmdbPath, mmdbPathNew))
-
-	mmdbFilenameOld := strings.Replace(mmdbPattern, "*", "20201231", 1)
-	mmdbPathOld := path.Join(tempDir, mmdbFilenameOld)
-	assert.NoError(t, util.CopyFileContents(mmdbPath, mmdbPathOld))
-
-	// if auto-update is disabled and an existing database is found,
-	// returns the name of the existing database
-	mmdbFile, _ = GetMaxMindFilenames(tempDir, false)
-	assert.Equal(t, mmdbFilenameNew, mmdbFile)
-
-	mmdbFile, _ = GetMaxMindFilenames(tempDir, true)
-	assert.Regexp(t, mmdbRegexp, mmdbFile)
 }

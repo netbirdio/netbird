@@ -166,8 +166,8 @@ jobs:
         working-directory: infrastructure_files/artifacts
         run: |
           sleep 30
-          docker compose exec management ls -l /var/lib/netbird/ | grep -i GeoLite2-City-maxmind_[0-9]*.mmdb
-          docker compose exec management ls -l /var/lib/netbird/ | grep -i GeoLite2-City-geonames_[0-9]*.db
+          docker compose exec management ls -l /var/lib/netbird/ | grep -i GeoLite2-City_[0-9]*.mmdb
+          docker compose exec management ls -l /var/lib/netbird/ | grep -i geonames_[0-9]*.db
 
   test-getting-started-script:
     runs-on: ubuntu-latest
