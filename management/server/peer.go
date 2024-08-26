@@ -398,7 +398,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		if addedByUser {
 			user, err := am.Store.GetUserByUserID(ctx, tx, LockingStrengthUpdate, userID)
 			if err != nil {
-				return fmt.Errorf("failed to get user grous: %w", err)
+				return fmt.Errorf("failed to get user groups: %w", err)
 			}
 			groupsToAdd = user.AutoGroups
 			opEvent.InitiatorID = userID
