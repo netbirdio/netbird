@@ -991,11 +991,6 @@ func (s *SqlStore) AddPeerToGroup(ctx context.Context, tx *gorm.DB, accountId st
 		return status.Errorf(status.Internal, "issue finding group")
 	}
 
-	// Exclude adding peers manually to the all group, use the AddPeerToAllGroup method for that
-	if group.Name == "All" {
-		return nil
-	}
-
 	for _, existingPeerID := range group.Peers {
 		if existingPeerID == peerId {
 			return nil

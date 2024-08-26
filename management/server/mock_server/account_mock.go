@@ -494,7 +494,7 @@ func (am *MockAccountManager) GetSetupKey(ctx context.Context, accountID, userID
 		return am.GetSetupKeyFunc(ctx, accountID, userID, keyID)
 	}
 
-	return nil, status.Errorf(codes.Unimplemented, "method GetSetupKeyBySecret is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method GetSetupKey is not implemented")
 }
 
 // ListSetupKeys mocks ListSetupKeys of the AccountManager interface
