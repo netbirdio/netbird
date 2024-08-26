@@ -66,7 +66,7 @@ func init() {
 	mgmtCmd.Flags().StringVar(&dnsDomain, "dns-domain", defaultSingleAccModeDomain, fmt.Sprintf("Domain used for peer resolution. This is appended to the peer's name, e.g. pi-server. %s. Max length is 192 characters to allow appending to a peer name with up to 63 characters.", defaultSingleAccModeDomain))
 	mgmtCmd.Flags().BoolVar(&idpSignKeyRefreshEnabled, idpSignKeyRefreshEnabledFlagName, false, "Enable cache headers evaluation to determine signing key rotation period. This will refresh the signing key upon expiry.")
 	mgmtCmd.Flags().BoolVar(&userDeleteFromIDPEnabled, "user-delete-from-idp", false, "Allows to delete user from IDP when user is deleted from account")
-	mgmtCmd.Flags().BoolVar(&disableGeoliteUpdate, "disable-geolite-update", false, "disables automatic updates to the Geolite2 geolocation databases")
+	mgmtCmd.Flags().BoolVar(&disableGeoliteUpdate, "disable-geolite-update", true, "disables automatic updates to the Geolite2 geolocation databases")
 	rootCmd.MarkFlagRequired("config") //nolint
 
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")

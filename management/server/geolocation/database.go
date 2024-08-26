@@ -27,7 +27,7 @@ func loadGeolocationDatabases(dataDir string, mmdbFile string, geonamesdbFile st
 	for _, file := range []string{mmdbFile, geonamesdbFile} {
 		exists, _ := fileExists(path.Join(dataDir, file))
 		if exists {
-			log.Infof("Database exists: %s", file)
+			log.Debugf("Database exists: %s", file)
 			continue
 		}
 
