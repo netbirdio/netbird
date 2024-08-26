@@ -1017,7 +1017,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 	_, err := store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
-	takenIPs, err := store.GetTakenIPs(context.Background(), store.GetDB(), LockingStrengthShare, existingAccountID)
+	takenIPs, err := store.GetTakenIPs(context.Background(), LockingStrengthShare, existingAccountID)
 	require.NoError(t, err)
 	assert.Equal(t, []net.IP{}, takenIPs)
 
@@ -1026,10 +1026,10 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 		AccountID: existingAccountID,
 		IP:        net.IP{1, 1, 1, 1},
 	}
-	err = store.AddPeerToAccount(context.Background(), store.GetDB(), peer1)
+	err = store.AddPeerToAccount(context.Background(), peer1)
 	require.NoError(t, err)
 
-	takenIPs, err = store.GetTakenIPs(context.Background(), store.GetDB(), LockingStrengthShare, existingAccountID)
+	takenIPs, err = store.GetTakenIPs(context.Background(), LockingStrengthShare, existingAccountID)
 	require.NoError(t, err)
 	ip1 := net.IP{1, 1, 1, 1}.To16()
 	assert.Equal(t, []net.IP{ip1}, takenIPs)
@@ -1039,10 +1039,10 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 		AccountID: existingAccountID,
 		IP:        net.IP{2, 2, 2, 2},
 	}
-	err = store.AddPeerToAccount(context.Background(), store.GetDB(), peer2)
+	err = store.AddPeerToAccount(context.Background(), peer2)
 	require.NoError(t, err)
 
-	takenIPs, err = store.GetTakenIPs(context.Background(), store.GetDB(), LockingStrengthShare, existingAccountID)
+	takenIPs, err = store.GetTakenIPs(context.Background(), LockingStrengthShare, existingAccountID)
 	require.NoError(t, err)
 	ip2 := net.IP{2, 2, 2, 2}.To16()
 	assert.Equal(t, []net.IP{ip1, ip2}, takenIPs)
@@ -1062,7 +1062,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 	_, err := store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
-	labels, err := store.GetPeerLabelsInAccount(context.Background(), store.GetDB(), LockingStrengthShare, existingAccountID)
+	labels, err := store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{}, labels)
 
@@ -1071,10 +1071,10 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 		AccountID: existingAccountID,
 		DNSLabel:  "peer1.domain.test",
 	}
-	err = store.AddPeerToAccount(context.Background(), store.db, peer1)
+	err = store.AddPeerToAccount(context.Background(), peer1)
 	require.NoError(t, err)
 
-	labels, err = store.GetPeerLabelsInAccount(context.Background(), store.GetDB(), LockingStrengthShare, existingAccountID)
+	labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"peer1.domain.test"}, labels)
 
@@ -1083,10 +1083,10 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 		AccountID: existingAccountID,
 		DNSLabel:  "peer2.domain.test",
 	}
-	err = store.AddPeerToAccount(context.Background(), store.db, peer2)
+	err = store.AddPeerToAccount(context.Background(), peer2)
 	require.NoError(t, err)
 
-	labels, err = store.GetPeerLabelsInAccount(context.Background(), store.GetDB(), LockingStrengthShare, existingAccountID)
+	labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"peer1.domain.test", "peer2.domain.test"}, labels)
 }
@@ -1104,7 +1104,7 @@ func TestSqlite_GetAccountNetwork(t *testing.T) {
 	_, err := store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
-	network, err := store.GetAccountNetwork(context.Background(), store.GetDB(), LockingStrengthShare, existingAccountID)
+	network, err := store.GetAccountNetwork(context.Background(), LockingStrengthShare, existingAccountID)
 	require.NoError(t, err)
 	ip := net.IP{100, 64, 0, 0}.To16()
 	assert.Equal(t, ip, network.Net.IP)
@@ -1126,7 +1126,7 @@ func TestSqlite_GetSetupKeyBySecret(t *testing.T) {
 	_, err := store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
-	setupKey, err := store.GetSetupKeyBySecret(context.Background(), store.GetDB(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
 	require.NoError(t, err)
 	assert.Equal(t, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB", setupKey.Key)
 	assert.Equal(t, "bf1c8084-ba50-4ce7-9439-34653001fc3b", setupKey.AccountID)
@@ -1145,21 +1145,21 @@ func TestSqlite_incrementSetupKeyUsage(t *testing.T) {
 	_, err := store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
-	setupKey, err := store.GetSetupKeyBySecret(context.Background(), store.GetDB(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
 	require.NoError(t, err)
 	assert.Equal(t, 0, setupKey.UsedTimes)
 
-	err = store.IncrementSetupKeyUsage(context.Background(), store.GetDB(), setupKey.Id)
+	err = store.IncrementSetupKeyUsage(context.Background(), setupKey.Id)
 	require.NoError(t, err)
 
-	setupKey, err = store.GetSetupKeyBySecret(context.Background(), store.GetDB(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	setupKey, err = store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
 	require.NoError(t, err)
 	assert.Equal(t, 1, setupKey.UsedTimes)
 
-	err = store.IncrementSetupKeyUsage(context.Background(), store.GetDB(), setupKey.Id)
+	err = store.IncrementSetupKeyUsage(context.Background(), setupKey.Id)
 	require.NoError(t, err)
 
-	setupKey, err = store.GetSetupKeyBySecret(context.Background(), store.GetDB(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+	setupKey, err = store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, "A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
 	require.NoError(t, err)
 	assert.Equal(t, 2, setupKey.UsedTimes)
 }

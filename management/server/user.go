@@ -382,7 +382,7 @@ func (am *DefaultAccountManager) GetUser(ctx context.Context, claims jwtclaims.A
 	// server when user authenticates a device. And we need to separate the Dashboard login event from the Device login event.
 	newLogin := user.LastDashboardLoginChanged(claims.LastLogin)
 
-	err = am.Store.SaveUserLastLogin(ctx, am.Store.GetDB(), account.Id, claims.UserId, claims.LastLogin)
+	err = am.Store.SaveUserLastLogin(ctx, account.Id, claims.UserId, claims.LastLogin)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed saving user last login: %v", err)
 	}

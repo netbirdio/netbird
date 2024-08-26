@@ -1042,7 +1042,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	addedPeer, _, _, err := am.AddPeer(context.Background(), "", existingUserID, newPeer)
 	require.NoError(t, err)
 
-	peer, err := store.GetPeerByPeerPubKey(context.Background(), store.GetDB(), LockingStrengthShare, addedPeer.Key)
+	peer, err := store.GetPeerByPeerPubKey(context.Background(), LockingStrengthShare, addedPeer.Key)
 	require.NoError(t, err)
 	assert.Equal(t, peer.AccountID, existingAccountID)
 	assert.Equal(t, peer.UserID, existingUserID)
@@ -1103,7 +1103,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 
 	require.NoError(t, err)
 
-	peer, err := store.GetPeerByPeerPubKey(context.Background(), store.GetDB(), LockingStrengthShare, newPeer.Key)
+	peer, err := store.GetPeerByPeerPubKey(context.Background(), LockingStrengthShare, newPeer.Key)
 	require.NoError(t, err)
 	assert.Equal(t, peer.AccountID, existingAccountID)
 	assert.Equal(t, peer.SetupKey, existingSetupKeyID)
@@ -1164,7 +1164,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	_, _, _, err = am.AddPeer(context.Background(), faultyKey, "", newPeer)
 	require.Error(t, err)
 
-	_, err = store.GetPeerByPeerPubKey(context.Background(), store.GetDB(), LockingStrengthShare, newPeer.Key)
+	_, err = store.GetPeerByPeerPubKey(context.Background(), LockingStrengthShare, newPeer.Key)
 	require.Error(t, err)
 
 	account, err := store.GetAccount(context.Background(), existingAccountID)

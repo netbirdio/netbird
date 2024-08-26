@@ -10,7 +10,6 @@ import (
 
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -378,7 +377,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	// and the peer disconnects with a timeout and tries to register again.
 	// We just check if this machine has been registered before and reject the second registration.
 	// The connecting peer should be able to recover with a retry.
-	_, err = am.Store.GetPeerByPeerPubKey(ctx, am.Store.GetDB(), LockingStrengthShare, peer.Key)
+	_, err = am.Store.GetPeerByPeerPubKey(ctx, LockingStrengthShare, peer.Key)
 	if err == nil {
 		return nil, nil, nil, status.Errorf(status.PreconditionFailed, "peer has been already registered")
 	}
@@ -390,13 +389,13 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	var newPeer *nbpeer.Peer
 
-	err = am.Store.ExecuteWriteTransaction(ctx, func(tx *gorm.DB) error {
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction Store) error {
 		var groupsToAdd []string
 		var setupKeyID string
 		var setupKeyName string
 		var ephemeral bool
 		if addedByUser {
-			user, err := am.Store.GetUserByUserID(ctx, tx, LockingStrengthUpdate, userID)
+			user, err := transaction.GetUserByUserID(ctx, LockingStrengthUpdate, userID)
 			if err != nil {
 				return fmt.Errorf("failed to get user groups: %w", err)
 			}
@@ -405,7 +404,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			opEvent.Activity = activity.PeerAddedByUser
 		} else {
 			// Validate the setup key
-			sk, err := am.Store.GetSetupKeyBySecret(ctx, tx, LockingStrengthUpdate, upperKey)
+			sk, err := transaction.GetSetupKeyBySecret(ctx, LockingStrengthUpdate, upperKey)
 			if err != nil {
 				return fmt.Errorf("failed to get setup key: %w", err)
 			}
@@ -431,12 +430,12 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			}
 		}
 
-		freeLabel, err := am.getFreeDNSLabel(ctx, tx, accountID, peer.Meta.Hostname)
+		freeLabel, err := am.getFreeDNSLabel(ctx, transaction, accountID, peer.Meta.Hostname)
 		if err != nil {
 			return fmt.Errorf("failed to get free DNS label: %w", err)
 		}
 
-		freeIP, err := am.getFreeIP(ctx, tx, accountID)
+		freeIP, err := am.getFreeIP(ctx, transaction, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to get free IP: %w", err)
 		}
@@ -478,43 +477,43 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			}
 		}
 
-		settings, err := am.Store.GetAccountSettings(ctx, tx, LockingStrengthShare, accountID)
+		settings, err := transaction.GetAccountSettings(ctx, LockingStrengthShare, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to get account settings: %w", err)
 		}
 		newPeer = am.integratedPeerValidator.PreparePeer(ctx, accountID, newPeer, groupsToAdd, settings.Extra)
 
-		err = am.Store.AddPeerToAllGroup(ctx, tx, accountID, newPeer.ID)
+		err = transaction.AddPeerToAllGroup(ctx, accountID, newPeer.ID)
 		if err != nil {
 			return fmt.Errorf("failed adding peer to All group: %w", err)
 		}
 
 		if len(groupsToAdd) > 0 {
 			for _, g := range groupsToAdd {
-				err = am.Store.AddPeerToGroup(ctx, tx, accountID, newPeer.ID, g)
+				err = transaction.AddPeerToGroup(ctx, accountID, newPeer.ID, g)
 				if err != nil {
 					return err
 				}
 			}
 		}
 
-		err = am.Store.AddPeerToAccount(ctx, tx, newPeer)
+		err = transaction.AddPeerToAccount(ctx, newPeer)
 		if err != nil {
 			return fmt.Errorf("failed to add peer to account: %w", err)
 		}
 
-		err = am.Store.IncrementNetworkSerial(ctx, tx, accountID)
+		err = transaction.IncrementNetworkSerial(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
 
 		if addedByUser {
-			err := am.Store.SaveUserLastLogin(ctx, tx, accountID, userID, newPeer.LastLogin)
+			err := transaction.SaveUserLastLogin(ctx, accountID, userID, newPeer.LastLogin)
 			if err != nil {
 				return fmt.Errorf("failed to update user last login: %w", err)
 			}
 		} else {
-			err = am.Store.IncrementSetupKeyUsage(ctx, tx, setupKeyID)
+			err = transaction.IncrementSetupKeyUsage(ctx, setupKeyID)
 			if err != nil {
 				return fmt.Errorf("failed to increment setup key usage: %w", err)
 			}
@@ -555,13 +554,13 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	return newPeer, networkMap, postureChecks, nil
 }
 
-func (am *DefaultAccountManager) getFreeIP(ctx context.Context, tx *gorm.DB, accountID string) (net.IP, error) {
-	takenIps, err := am.Store.GetTakenIPs(ctx, tx, LockingStrengthShare, accountID)
+func (am *DefaultAccountManager) getFreeIP(ctx context.Context, store Store, accountID string) (net.IP, error) {
+	takenIps, err := store.GetTakenIPs(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get taken IPs: %w", err)
 	}
 
-	network, err := am.Store.GetAccountNetwork(ctx, tx, LockingStrengthUpdate, accountID)
+	network, err := store.GetAccountNetwork(ctx, LockingStrengthUpdate, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed getting network: %w", err)
 	}
@@ -681,12 +680,12 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 		}
 	}()
 
-	peer, err := am.Store.GetPeerByPeerPubKey(ctx, am.Store.GetDB(), LockingStrengthUpdate, login.WireGuardPubKey)
+	peer, err := am.Store.GetPeerByPeerPubKey(ctx, LockingStrengthUpdate, login.WireGuardPubKey)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, am.Store.GetDB(), LockingStrengthShare, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -764,7 +763,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 // with no JWT token and usually no setup-key. As the client can send up to two login request to check if it is expired
 // and before starting the engine, we do the checks without an account lock to avoid piling up requests.
 func (am *DefaultAccountManager) checkIFPeerNeedsLoginWithoutLock(ctx context.Context, accountID string, login PeerLogin) error {
-	peer, err := am.Store.GetPeerByPeerPubKey(ctx, am.Store.GetDB(), LockingStrengthShare, login.WireGuardPubKey)
+	peer, err := am.Store.GetPeerByPeerPubKey(ctx, LockingStrengthShare, login.WireGuardPubKey)
 	if err != nil {
 		return err
 	}
@@ -775,7 +774,7 @@ func (am *DefaultAccountManager) checkIFPeerNeedsLoginWithoutLock(ctx context.Co
 		return nil
 	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, am.Store.GetDB(), LockingStrengthShare, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return err
 	}
@@ -820,7 +819,7 @@ func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, user *Us
 		return err
 	}
 
-	err = am.Store.SaveUserLastLogin(ctx, am.Store.GetDB(), user.AccountID, user.Id, peer.LastLogin)
+	err = am.Store.SaveUserLastLogin(ctx, user.AccountID, user.Id, peer.LastLogin)
 	if err != nil {
 		return err
 	}

@@ -50,7 +50,7 @@ type Store interface {
 	GetAccountByPrivateDomain(ctx context.Context, domain string) (*Account, error)
 	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
 	GetUserByTokenID(ctx context.Context, tokenID string) (*User, error)
-	GetUserByUserID(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, userID string) (*User, error)
+	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*User, error)
 	GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error)
 	GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	SaveAccount(ctx context.Context, account *Account) error
@@ -69,25 +69,24 @@ type Store interface {
 	SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error
 	SavePeerStatus(accountID, peerID string, status nbpeer.PeerStatus) error
 	SavePeerLocation(accountID string, peer *nbpeer.Peer) error
-	SaveUserLastLogin(ctx context.Context, tx *gorm.DB, accountID, userID string, lastLogin time.Time) error
+	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
 	// Close should close the store persisting all unsaved data.
 	Close(ctx context.Context) error
 	// GetStoreEngine should return StoreEngine of the current store implementation.
 	// This is also a method of metrics.DataSource interface.
 	GetStoreEngine() StoreEngine
-	GetPeerByPeerPubKey(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error)
-	GetAccountSettings(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, accountID string) (*Settings, error)
-	GetSetupKeyBySecret(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, key string) (*SetupKey, error)
-	GetTakenIPs(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, accountId string) ([]net.IP, error)
-	IncrementSetupKeyUsage(ctx context.Context, tx *gorm.DB, setupKeyID string) error
-	AddPeerToAllGroup(ctx context.Context, tx *gorm.DB, accountID string, peerID string) error
-	GetPeerLabelsInAccount(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, accountId string) ([]string, error)
-	AddPeerToGroup(ctx context.Context, tx *gorm.DB, accountId string, peerId string, groupID string) error
-	AddPeerToAccount(ctx context.Context, tx *gorm.DB, peer *nbpeer.Peer) error
-	IncrementNetworkSerial(ctx context.Context, tx *gorm.DB, accountId string) error
-	GetAccountNetwork(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, accountId string) (*Network, error)
-	ExecuteWriteTransaction(ctx context.Context, f func(tx *gorm.DB) error) error
-	GetDB() *gorm.DB
+	GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error)
+	GetAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*Settings, error)
+	GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*SetupKey, error)
+	GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]net.IP, error)
+	IncrementSetupKeyUsage(ctx context.Context, setupKeyID string) error
+	AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error
+	GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountId string) ([]string, error)
+	AddPeerToGroup(ctx context.Context, accountId string, peerId string, groupID string) error
+	AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error
+	IncrementNetworkSerial(ctx context.Context, accountId string) error
+	GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountId string) (*Network, error)
+	ExecuteInTransaction(ctx context.Context, f func(store Store) error) error
 }
 
 type StoreEngine string

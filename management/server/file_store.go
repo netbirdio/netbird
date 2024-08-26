@@ -12,7 +12,6 @@ import (
 
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 
 	nbgroup "github.com/netbirdio/netbird/management/server/group"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -49,7 +48,11 @@ type FileStore struct {
 	metrics telemetry.AppMetrics `json:"-"`
 }
 
-func (s *FileStore) IncrementSetupKeyUsage(ctx context.Context, tx *gorm.DB, setupKeyID string) error {
+func (s *FileStore) ExecuteInTransaction(ctx context.Context, f func(store Store) error) error {
+	return f(s)
+}
+
+func (s *FileStore) IncrementSetupKeyUsage(ctx context.Context, setupKeyID string) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -68,7 +71,7 @@ func (s *FileStore) IncrementSetupKeyUsage(ctx context.Context, tx *gorm.DB, set
 	return s.SaveAccount(ctx, account)
 }
 
-func (s *FileStore) AddPeerToAllGroup(ctx context.Context, tx *gorm.DB, accountID string, peerID string) error {
+func (s *FileStore) AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -87,7 +90,7 @@ func (s *FileStore) AddPeerToAllGroup(ctx context.Context, tx *gorm.DB, accountI
 	return nil
 }
 
-func (s *FileStore) AddPeerToGroup(ctx context.Context, tx *gorm.DB, accountId string, peerId string, groupID string) error {
+func (s *FileStore) AddPeerToGroup(ctx context.Context, accountId string, peerId string, groupID string) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -101,7 +104,7 @@ func (s *FileStore) AddPeerToGroup(ctx context.Context, tx *gorm.DB, accountId s
 	return nil
 }
 
-func (s *FileStore) AddPeerToAccount(ctx context.Context, tx *gorm.DB, peer *nbpeer.Peer) error {
+func (s *FileStore) AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -114,7 +117,7 @@ func (s *FileStore) AddPeerToAccount(ctx context.Context, tx *gorm.DB, peer *nbp
 	return s.SaveAccount(ctx, account)
 }
 
-func (s *FileStore) IncrementNetworkSerial(ctx context.Context, tx *gorm.DB, accountId string) error {
+func (s *FileStore) IncrementNetworkSerial(ctx context.Context, accountId string) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -128,16 +131,7 @@ func (s *FileStore) IncrementNetworkSerial(ctx context.Context, tx *gorm.DB, acc
 	return s.SaveAccount(ctx, account)
 }
 
-func (s *FileStore) ExecuteWriteTransaction(ctx context.Context, f func(tx *gorm.DB) error) error {
-	return f(s.GetDB())
-}
-
-func (s *FileStore) GetDB() *gorm.DB {
-	// Not supported
-	return nil
-}
-
-func (s *FileStore) GetSetupKeyBySecret(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, key string) (*SetupKey, error) {
+func (s *FileStore) GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*SetupKey, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -159,7 +153,7 @@ func (s *FileStore) GetSetupKeyBySecret(ctx context.Context, tx *gorm.DB, lockSt
 	return setupKey, nil
 }
 
-func (s *FileStore) GetTakenIPs(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, accountID string) ([]net.IP, error) {
+func (s *FileStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountID string) ([]net.IP, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -176,7 +170,7 @@ func (s *FileStore) GetTakenIPs(ctx context.Context, tx *gorm.DB, lockStrength L
 	return takenIps, nil
 }
 
-func (s *FileStore) GetPeerLabelsInAccount(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, accountID string) ([]string, error) {
+func (s *FileStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountID string) ([]string, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -194,7 +188,7 @@ func (s *FileStore) GetPeerLabelsInAccount(ctx context.Context, tx *gorm.DB, loc
 	return existingLabels, nil
 }
 
-func (s *FileStore) GetAccountNetwork(ctx context.Context, tx *gorm.DB, lockStrength LockingStrength, accountID string) (*Network, error) {
+func (s *FileStore) GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountID string) (*Network, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -629,7 +623,7 @@ func (s *FileStore) GetUserByTokenID(_ context.Context, tokenID string) (*User, 
 	return account.Users[userID].Copy(), nil
 }
 
-func (s *FileStore) GetUserByUserID(_ context.Context, _ *gorm.DB, _ LockingStrength, userID string) (*User, error) {
+func (s *FileStore) GetUserByUserID(_ context.Context, _ LockingStrength, userID string) (*User, error) {
 	accountID, ok := s.UserID2AccountID[userID]
 	if !ok {
 		return nil, status.Errorf(status.NotFound, "accountID not found: provided userID doesn't exists")
@@ -805,7 +799,7 @@ func (s *FileStore) GetAccountIDBySetupKey(_ context.Context, setupKey string) (
 	return accountID, nil
 }
 
-func (s *FileStore) GetPeerByPeerPubKey(_ context.Context, _ *gorm.DB, _ LockingStrength, peerKey string) (*nbpeer.Peer, error) {
+func (s *FileStore) GetPeerByPeerPubKey(_ context.Context, _ LockingStrength, peerKey string) (*nbpeer.Peer, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -828,7 +822,7 @@ func (s *FileStore) GetPeerByPeerPubKey(_ context.Context, _ *gorm.DB, _ Locking
 	return nil, status.NewPeerNotFoundError(peerKey)
 }
 
-func (s *FileStore) GetAccountSettings(_ context.Context, _ *gorm.DB, _ LockingStrength, accountID string) (*Settings, error) {
+func (s *FileStore) GetAccountSettings(_ context.Context, _ LockingStrength, accountID string) (*Settings, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -918,7 +912,7 @@ func (s *FileStore) SavePeerLocation(accountID string, peerWithLocation *nbpeer.
 }
 
 // SaveUserLastLogin stores the last login time for a user in memory. It doesn't attempt to persist data to speed up things.
-func (s *FileStore) SaveUserLastLogin(_ context.Context, _ *gorm.DB, accountID, userID string, lastLogin time.Time) error {
+func (s *FileStore) SaveUserLastLogin(_ context.Context, accountID, userID string, lastLogin time.Time) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 

@@ -24,7 +24,6 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
-	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -2066,7 +2065,7 @@ func (am *DefaultAccountManager) GetAccountIDForPeerKey(ctx context.Context, pee
 }
 
 func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, peer *nbpeer.Peer, settings *Settings) (bool, error) {
-	user, err := am.Store.GetUserByUserID(ctx, am.Store.GetDB(), LockingStrengthShare, peer.UserID)
+	user, err := am.Store.GetUserByUserID(ctx, LockingStrengthShare, peer.UserID)
 	if err != nil {
 		return false, err
 	}
@@ -2087,8 +2086,8 @@ func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, peer *nbpee
 	return false, nil
 }
 
-func (am *DefaultAccountManager) getFreeDNSLabel(ctx context.Context, tx *gorm.DB, accountID string, peerHostName string) (string, error) {
-	existingLabels, err := am.Store.GetPeerLabelsInAccount(ctx, tx, LockingStrengthShare, accountID)
+func (am *DefaultAccountManager) getFreeDNSLabel(ctx context.Context, store Store, accountID string, peerHostName string) (string, error) {
+	existingLabels, err := store.GetPeerLabelsInAccount(ctx, LockingStrengthShare, accountID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get peer dns labels: %w", err)
 	}
