@@ -13,14 +13,11 @@ import (
 )
 
 // from https://github.com/maxmind/MaxMind-DB/blob/main/test-data/GeoLite2-City-Test.mmdb
-var (
-	mmdbPath     = "../testdata/GeoLite2-City_20240305.mmdb"
-	mmdbFilename = "../testdata/geonames_20240305.db"
-)
+var mmdbPath = "../testdata/GeoLite2-City_20240305.mmdb"
 
 func TestGeoLite_Lookup(t *testing.T) {
 	tempDir := t.TempDir()
-	filename := path.Join(tempDir, filepath.Base(mmdbFilename))
+	filename := path.Join(tempDir, filepath.Base(mmdbPath))
 	err := util.CopyFileContents(mmdbPath, filename)
 	assert.NoError(t, err)
 
