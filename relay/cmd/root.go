@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"context"
@@ -68,9 +68,9 @@ var (
 		Use:           "relay",
 		Short:         "Relay service",
 		Long:          "Relay service for Netbird agents",
-		RunE:          execute,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		RunE:          execute,
 	}
 )
 
@@ -92,6 +92,10 @@ func init() {
 	setFlagsFromEnvVars(rootCmd)
 }
 
+func Execute() error {
+	return rootCmd.Execute()
+}
+
 func waitForExitSignal() {
 	osSigs := make(chan os.Signal, 1)
 	signal.Notify(osSigs, syscall.SIGINT, syscall.SIGTERM)
@@ -101,16 +105,19 @@ func waitForExitSignal() {
 func execute(cmd *cobra.Command, args []string) error {
 	err := cobraConfig.Validate()
 	if err != nil {
+		log.Debugf("invalid config: %s", err)
 		return fmt.Errorf("invalid config: %s", err)
 	}
 
 	err = util.InitLog(cobraConfig.LogLevel, cobraConfig.LogFile)
 	if err != nil {
+		log.Debugf("failed to initialize log: %s", err)
 		return fmt.Errorf("failed to initialize log: %s", err)
 	}
 
 	metricsServer, err := metrics.NewServer(metricsPort, "")
 	if err != nil {
+		log.Debugf("setup metrics: %v", err)
 		return fmt.Errorf("setup metrics: %v", err)
 	}
 
@@ -127,6 +134,7 @@ func execute(cmd *cobra.Command, args []string) error {
 
 	tlsConfig, tlsSupport, err := handleTLSConfig(cobraConfig)
 	if err != nil {
+		log.Debugf("failed to setup TLS config: %s", err)
 		return fmt.Errorf("failed to setup TLS config: %s", err)
 	}
 	srvListenerCfg.TLSConfig = tlsConfig
@@ -134,6 +142,7 @@ func execute(cmd *cobra.Command, args []string) error {
 	authenticator := auth.NewTimedHMACValidator(cobraConfig.AuthSecret, 24*time.Hour)
 	srv, err := server.NewServer(metricsServer.Meter, cobraConfig.ExposedAddress, tlsSupport, authenticator)
 	if err != nil {
+		log.Debugf("failed to create relay server: %v", err)
 		return fmt.Errorf("failed to create relay server: %v", err)
 	}
 	log.Infof("server will be available on: %s", srv.InstanceURL())
@@ -202,10 +211,4 @@ func setupTLSCertManager(letsencryptDataDir string, letsencryptDomains ...string
 		return nil, fmt.Errorf("failed creating LetsEncrypt cert manager: %v", err)
 	}
 	return certManager.TLSConfig(), nil
-}
-
-func main() {
-	if err := rootCmd.Execute(); err != nil {
-		log.Fatalf("%v", err)
-	}
 }
