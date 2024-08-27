@@ -15,7 +15,7 @@ import (
 
 var (
 	wgHandshakePeriod   = 2 * time.Minute
-	wgHandshakeOvertime = 30 * time.Second //
+	wgHandshakeOvertime = 30 * time.Second
 )
 
 type RelayConnInfo struct {
