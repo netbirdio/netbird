@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pion/transport/v3/stdnet"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -345,6 +347,9 @@ func Test_ConnectPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	guid := fmt.Sprintf("{%s}", uuid.New().String())
+	CustomWindowsGUIDString = strings.ToLower(guid)
+
 	iface1, err := NewWGIFace(peer1ifaceName, peer1wgIP, peer1wgPort, peer1Key.String(), DefaultMTU, newNet, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -363,6 +368,9 @@ func Test_ConnectPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	guid = fmt.Sprintf("{%s}", uuid.New().String())
+	CustomWindowsGUIDString = strings.ToLower(guid)
 
 	newNet, err = stdnet.NewNet()
 	if err != nil {
