@@ -128,7 +128,7 @@ func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, 
 				}
 			}
 
-			publicKey, err := getPublicKey(token, keys)
+			publicKey, err := getPublicKey(ctx, token, keys)
 			if err != nil {
 				log.WithContext(ctx).Errorf("getPublicKey error: %s", err)
 				return nil, err
@@ -219,7 +219,7 @@ func getPemKeys(ctx context.Context, keysLocation string) (*Jwks, error) {
 	return jwks, err
 }
 
-func getPublicKey(token *jwt.Token, jwks *Jwks) (interface{}, error) {
+func getPublicKey(ctx context.Context, token *jwt.Token, jwks *Jwks) (interface{}, error) {
 	// todo as we load the jkws when the server is starting, we should build a JKS map with the pem cert at the boot time
 
 	for k := range jwks.Keys {
@@ -233,7 +233,7 @@ func getPublicKey(token *jwt.Token, jwks *Jwks) (interface{}, error) {
 		}
 
 		if jwks.Keys[k].Kty == "RSA" {
-			log.WithContext(ctx)log.Debugf("generating PublicKey from RSA JWK")
+			log.WithContext(ctx).Debugf("generating PublicKey from RSA JWK")
 			return getPublicKeyFromRSA(jwks.Keys[k])
 		}
 		if jwks.Keys[k].Kty == "EC" {
@@ -284,7 +284,7 @@ func getPublicKeyFromECDSA(jwk JSONWebKey) (publicKey *ecdsa.PublicKey, err erro
 
 func getPublicKeyFromRSA(jwk JSONWebKey) (*rsa.PublicKey, error) {
 
-        decodedE, err := base64.RawURLEncoding.DecodeString(jwk.E)
+  decodedE, err := base64.RawURLEncoding.DecodeString(jwk.E)
 	if err != nil {
 		return nil, err
 	}
