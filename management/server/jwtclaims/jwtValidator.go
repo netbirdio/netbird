@@ -39,11 +39,6 @@ type Options struct {
 	// When set, all requests with the OPTIONS method will use authentication
 	// Default: false
 	EnableAuthOnOptions bool
-	// When set, the middelware verifies that tokens are signed with the specific signing algorithm
-	// If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
-	// Important to avoid security issues described here: https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/
-	// Default: nil
-	SigningMethod jwt.SigningMethod
 }
 
 // Jwks is a collection of JSONWebKey obtained from Config.HttpServerConfig.AuthKeysLocation
@@ -136,8 +131,6 @@ func NewJWTValidator(ctx context.Context, issuer string, audienceList []string, 
 
 			return publicKey, nil
 		},
-		// Canged SigningMethod to 'nil', since we can't tell yet...
-		SigningMethod:       nil, // jwt.SigningMethodRS256,
 		EnableAuthOnOptions: false,
 	}
 
@@ -174,14 +167,6 @@ func (m *JWTValidator) ValidateAndParse(ctx context.Context, token string) (*jwt
 	if err != nil {
 		log.WithContext(ctx).Errorf("error parsing token: %v", err)
 		return nil, fmt.Errorf("error parsing token: %w", err)
-	}
-
-	if m.options.SigningMethod != nil && m.options.SigningMethod.Alg() != parsedToken.Header["alg"] {
-		errorMsg := fmt.Sprintf("Expected %s signing method but token specified %s",
-			m.options.SigningMethod.Alg(),
-			parsedToken.Header["alg"])
-		log.WithContext(ctx).Debugf("error validating token algorithm: %s", errorMsg)
-		return nil, fmt.Errorf("error validating token algorithm: %s", errorMsg)
 	}
 
 	// Check if the parsed token is valid...
@@ -284,7 +269,7 @@ func getPublicKeyFromECDSA(jwk JSONWebKey) (publicKey *ecdsa.PublicKey, err erro
 
 func getPublicKeyFromRSA(jwk JSONWebKey) (*rsa.PublicKey, error) {
 
-  decodedE, err := base64.RawURLEncoding.DecodeString(jwk.E)
+	decodedE, err := base64.RawURLEncoding.DecodeString(jwk.E)
 	if err != nil {
 		return nil, err
 	}
