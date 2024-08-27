@@ -1,4 +1,4 @@
-//Package relay
+//Package main
 /*
 The `relay` package contains the implementation of the Relay server and client. The Relay server can be used to relay
 messages between peers on a single network channel. In this implementation the transport layer is the WebSocket
@@ -11,4 +11,4 @@ The service can support multiple Relay server instances. For this purpose the pe
 This URL will be sent to the target peer to choose the common Relay server for the communication via Signal service.
 
 */
-package relay
+package main
