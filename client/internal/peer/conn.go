@@ -147,7 +147,7 @@ func NewConn(engineCtx context.Context, config ConnConfig, statusRecorder *Statu
 		OnStatusChanged: conn.onWorkerICEStateDisconnected,
 	}
 
-	conn.workerRelay = NewWorkerRelay(ctx, connLog, config, relayManager, rFns)
+	conn.workerRelay = NewWorkerRelay(connLog, config, relayManager, rFns)
 
 	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
 	conn.workerICE, err = NewWorkerICE(ctx, connLog, config, signaler, iFaceDiscover, statusRecorder, relayIsSupportedLocally, wFns)
@@ -204,7 +204,6 @@ func (conn *Conn) startHandshakeAndReconnect() {
 	} else {
 		conn.reconnectLoopForOnDisconnectedEvent()
 	}
-
 }
 
 // Close closes this peer Conn issuing a close event to the Conn closeCh
@@ -212,12 +211,15 @@ func (conn *Conn) Close() {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
+	conn.log.Infof("close peer connection")
 	conn.ctxCancel()
 
 	if !conn.opened {
-		log.Debugf("ignore close connection to peer")
+		conn.log.Debugf("ignore close connection to peer")
 		return
 	}
+
+	conn.workerRelay.DisableWgWatcher()
 
 	if conn.wgProxyRelay != nil {
 		err := conn.wgProxyRelay.CloseConn()
@@ -352,6 +354,7 @@ func (conn *Conn) reconnectLoopWithRetry() {
 			ticker.Stop()
 			ticker = conn.prepareExponentTicker()
 		case <-conn.ctx.Done():
+			conn.log.Debugf("context is done, stop reconnect loop")
 			return
 		}
 	}
@@ -392,6 +395,7 @@ func (conn *Conn) reconnectLoopForOnDisconnectedEvent() {
 			}
 			conn.log.Debugf("ICE state changed, try to send new offer")
 		case <-conn.ctx.Done():
+			conn.log.Debugf("context is done, stop reconnect loop")
 			return
 		}
 
@@ -469,6 +473,10 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
+	if conn.ctx.Err() != nil {
+		return
+	}
+
 	conn.log.Tracef("ICE connection state changed to %s", newState)
 
 	// switch back to relay connection
@@ -478,7 +486,7 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 		if err != nil {
 			conn.log.Errorf("failed to switch to relay conn: %v", err)
 		}
-		conn.workerRelay.EnableWgWatcher()
+		conn.workerRelay.EnableWgWatcher(conn.ctx)
 	}
 
 	changed := conn.statusICE != newState && newState != StatusConnecting
@@ -549,7 +557,7 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 		return
 	}
 	wgConfigWorkaround()
-	conn.workerRelay.EnableWgWatcher()
+	conn.workerRelay.EnableWgWatcher(conn.ctx)
 
 	if conn.wgProxyRelay != nil {
 		if err := conn.wgProxyRelay.CloseConn(); err != nil {
@@ -566,6 +574,10 @@ func (conn *Conn) relayConnectionIsReady(rci RelayConnInfo) {
 func (conn *Conn) onWorkerRelayStateDisconnected() {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
+
+	if conn.ctx.Err() != nil {
+		return
+	}
 
 	if conn.wgProxyRelay != nil {
 		log.Debugf("relayed connection is closed, clean up WireGuard config")

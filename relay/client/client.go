@@ -472,8 +472,8 @@ func (c *Client) close(gracefullyExit bool) error {
 	c.closeAllConns()
 	if gracefullyExit {
 		c.writeCloseMsg()
-		err = c.relayConn.Close()
 	}
+	err = c.relayConn.Close()
 	c.mu.Unlock()
 
 	c.wgReadLoop.Wait()

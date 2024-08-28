@@ -30,7 +30,6 @@ type WorkerRelayCallbacks struct {
 }
 
 type WorkerRelay struct {
-	parentCtx    context.Context
 	log          *log.Entry
 	config       ConnConfig
 	relayManager relayClient.ManagerService
@@ -44,9 +43,8 @@ type WorkerRelay struct {
 	relaySupportedOnRemotePeer atomic.Bool
 }
 
-func NewWorkerRelay(ctx context.Context, log *log.Entry, config ConnConfig, relayManager relayClient.ManagerService, callbacks WorkerRelayCallbacks) *WorkerRelay {
+func NewWorkerRelay(log *log.Entry, config ConnConfig, relayManager relayClient.ManagerService, callbacks WorkerRelayCallbacks) *WorkerRelay {
 	r := &WorkerRelay{
-		parentCtx:    ctx,
 		log:          log,
 		config:       config,
 		relayManager: relayManager,
@@ -98,7 +96,7 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	})
 }
 
-func (w *WorkerRelay) EnableWgWatcher() {
+func (w *WorkerRelay) EnableWgWatcher(ctx context.Context) {
 	w.log.Debugf("enable WireGuard watcher")
 	w.ctxLock.Lock()
 	defer w.ctxLock.Unlock()
@@ -107,7 +105,7 @@ func (w *WorkerRelay) EnableWgWatcher() {
 		return
 	}
 
-	ctx, ctxCancel := context.WithCancel(w.parentCtx)
+	ctx, ctxCancel := context.WithCancel(ctx)
 	go w.wgStateCheck(ctx)
 	w.ctxWgWatch = ctx
 	w.ctxCancelWgWatch = ctxCancel
@@ -115,13 +113,14 @@ func (w *WorkerRelay) EnableWgWatcher() {
 }
 
 func (w *WorkerRelay) DisableWgWatcher() {
-	w.log.Debugf("disable WireGuard watcher")
 	w.ctxLock.Lock()
 	defer w.ctxLock.Unlock()
 
 	if w.ctxCancelWgWatch == nil {
 		return
 	}
+
+	w.log.Debugf("disable WireGuard watcher")
 
 	w.ctxCancelWgWatch()
 }
@@ -167,7 +166,7 @@ func (w *WorkerRelay) wgStateCheck(ctx context.Context) {
 			timer.Reset(resetTime)
 			expected = wgHandshakePeriod
 		case <-ctx.Done():
-			w.log.Debugf("stop wg state check")
+			w.log.Debugf("WireGuard watcher stopped")
 			return
 		}
 	}
