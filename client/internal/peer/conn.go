@@ -487,6 +487,7 @@ func (conn *Conn) onWorkerICEStateDisconnected(newState ConnStatus) {
 			conn.log.Errorf("failed to switch to relay conn: %v", err)
 		}
 		conn.workerRelay.EnableWgWatcher(conn.ctx)
+		conn.currentConnPriority = connPriorityRelay
 	}
 
 	changed := conn.statusICE != newState && newState != StatusConnecting
