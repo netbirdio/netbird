@@ -29,10 +29,10 @@ func Test_loadMgmtConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to load management config: %s", err)
 	}
-	if cfg.RelayConfig == nil {
+	if cfg.Relay == nil {
 		t.Fatalf("config is nil")
 	}
-	if cfg.RelayConfig.Address == "" {
+	if cfg.Relay.Address == "" {
 		t.Fatalf("relay address is empty")
 	}
 }

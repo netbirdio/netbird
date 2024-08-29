@@ -195,7 +195,7 @@ var (
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}
 
-			turnRelayTokenManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.RelayConfig)
+			turnRelayTokenManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
 
 			trustedPeers := config.ReverseProxy.TrustedPeers
 			defaultTrustedPeers := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
@@ -538,8 +538,8 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config,
 		}
 	}
 
-	if loadedConfig.RelayConfig != nil {
-		log.Infof("Relay address: %v", loadedConfig.RelayConfig.Address)
+	if loadedConfig.Relay != nil {
+		log.Infof("Relay address: %v", loadedConfig.Relay.Address)
 	}
 
 	return loadedConfig, err
