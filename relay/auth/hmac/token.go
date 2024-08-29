@@ -3,7 +3,7 @@ package hmac
 import (
 	"bytes"
 	"crypto/hmac"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/gob"
 	"fmt"
@@ -94,7 +94,7 @@ func (m *TimedHMAC) Validate(token Token) error {
 }
 
 func (m *TimedHMAC) generate(payload string) ([]byte, error) {
-	mac := hmac.New(sha1.New, []byte(m.secret))
+	mac := hmac.New(sha256.New, []byte(m.secret))
 	_, err := mac.Write([]byte(payload))
 	if err != nil {
 		log.Errorf("failed to generate token: %s", err)
