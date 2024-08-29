@@ -34,7 +34,7 @@ const (
 type Config struct {
 	Stuns       []*Host
 	TURNConfig  *TURNConfig
-	RelayConfig *RelayConfig
+	RelayConfig *RelayConfig `json:"relay"`
 	Signal      *Host
 
 	Datadir                string
