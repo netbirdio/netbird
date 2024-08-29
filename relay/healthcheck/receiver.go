@@ -12,7 +12,6 @@ var (
 // Receiver is a healthcheck receiver
 // It will listen for heartbeat and check if the heartbeat is not received in a certain time
 // If the heartbeat is not received in a certain time, it will send a timeout signal and stop to work
-// It will also stop if the context is canceled
 // The heartbeat timeout is a bit longer than the sender's healthcheck interval
 type Receiver struct {
 	OnTimeout chan struct{}
