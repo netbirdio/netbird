@@ -14,11 +14,13 @@ import (
 )
 
 var connConf = ConnConfig{
-	Key:                "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
-	LocalKey:           "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
-	InterfaceBlackList: nil,
-	Timeout:            time.Second,
-	LocalWgPort:        51820,
+	Key:         "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+	LocalKey:    "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+	Timeout:     time.Second,
+	LocalWgPort: 51820,
+	ICEConfig: ICEConfig{
+		InterfaceBlackList: nil,
+	},
 }
 
 func TestNewConn_interfaceFilter(t *testing.T) {
