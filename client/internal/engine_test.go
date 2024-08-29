@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pion/transport/v3/stdnet"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -872,6 +873,8 @@ func TestEngine_MultiplePeers(t *testing.T) {
 			engine.dnsServer = &dns.MockServer{}
 			mu.Lock()
 			defer mu.Unlock()
+			guid := fmt.Sprintf("{%s}", uuid.New().String())
+			iface.CustomWindowsGUIDString = strings.ToLower(guid)
 			err = engine.Start()
 			if err != nil {
 				t.Errorf("unable to start engine for peer %d with error %v", j, err)
