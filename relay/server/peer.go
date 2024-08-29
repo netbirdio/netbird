@@ -147,7 +147,10 @@ func (p *Peer) healthcheck(ctx context.Context, hc *healthcheck.Sender) {
 			}
 		case <-hc.Timeout:
 			p.log.Errorf("peer healthcheck timeout")
-			_ = p.conn.Close()
+			err := p.conn.Close()
+			if err != nil {
+				p.log.Errorf("failed to close connection to peer: %s", err)
+			}
 			return
 		case <-ctx.Done():
 			return
