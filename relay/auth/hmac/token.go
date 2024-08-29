@@ -55,7 +55,7 @@ func NewTimedHMAC(secret string, timeToLive time.Duration) *TimedHMAC {
 // hash of a timestamp with a preshared TURN secret
 func (m *TimedHMAC) GenerateToken() (*Token, error) {
 	timeAuth := time.Now().Add(m.timeToLive).Unix()
-	timeStamp := fmt.Sprint(timeAuth)
+	timeStamp := strconv.FormatInt(timeAuth, 10)
 
 	checksum, err := m.generate(timeStamp)
 	if err != nil {
