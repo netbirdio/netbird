@@ -83,7 +83,7 @@ func (m *TimedHMAC) Validate(token Token) error {
 
 	timeAuthInt, err := strconv.ParseInt(token.Payload, 10, 64)
 	if err != nil {
-		return fmt.Errorf("invalid payload: %s", err)
+		return fmt.Errorf("invalid payload: %w", err)
 	}
 
 	if time.Now().Unix() > timeAuthInt {
