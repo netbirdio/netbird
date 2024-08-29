@@ -61,6 +61,11 @@ func (p *Peer) Work() {
 			return
 		}
 
+		if n == 0 {
+			p.log.Errorf("received empty message")
+			return
+		}
+
 		msg := buf[:n]
 
 		msgType, err := messages.DetermineClientMsgType(msg)
