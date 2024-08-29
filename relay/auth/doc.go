@@ -14,7 +14,7 @@ Usage:
 
 To create a new AllowAllAuth validator, simply instantiate it:
 
-	validator := &auth.AllowAllAuth{}
+	validator := &allow.Auth{}
 
 To validate the authentication, use the Validate method:
 
