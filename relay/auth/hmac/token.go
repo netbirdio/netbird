@@ -19,8 +19,8 @@ type Token struct {
 }
 
 func marshalToken(token Token) ([]byte, error) {
-	buffer := bytes.NewBuffer([]byte{})
-	encoder := gob.NewEncoder(buffer)
+	var buffer bytes.Buffer
+	encoder := gob.NewEncoder(&buffer)
 	err := encoder.Encode(token)
 	if err != nil {
 		log.Debugf("failed to marshal token: %s", err)
