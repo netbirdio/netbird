@@ -246,7 +246,11 @@ func (c *ConnectClient) run(
 		relayManager := relayClient.NewManager(engineCtx, relayURL, myPrivateKey.PublicKey().String())
 		if relayURL != "" {
 			if token != nil {
-				relayManager.UpdateToken(token)
+				if err := relayManager.UpdateToken(token); err != nil {
+					log.Errorf("failed to update token: %s", err)
+					return wrapErr(err)
+				}
+
 			}
 			log.Infof("connecting to the Relay service %s", relayURL)
 			if err = relayManager.Serve(); err != nil {

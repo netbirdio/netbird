@@ -13,18 +13,20 @@ type TokenStore struct {
 	token []byte
 }
 
-func (a *TokenStore) UpdateToken(token *Token) {
+func (a *TokenStore) UpdateToken(token *Token) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if token == nil {
-		return
+		return nil
 	}
 
 	t, err := marshalToken(*token)
 	if err != nil {
-		log.Errorf("failed to marshal token: %s", err)
+		log.Debugf("failed to marshal token: %s", err)
+		return err
 	}
 	a.token = t
+	return nil
 }
 
 func (a *TokenStore) TokenBinary() []byte {

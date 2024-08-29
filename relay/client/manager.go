@@ -42,7 +42,7 @@ type ManagerService interface {
 	RelayInstanceAddress() (string, error)
 	ServerURL() string
 	HasRelayAddress() bool
-	UpdateToken(token *relayAuth.Token)
+	UpdateToken(token *relayAuth.Token) error
 }
 
 // Manager is a manager for the relay client instances. It establishes one persistent connection to the given relay URL
@@ -172,8 +172,8 @@ func (m *Manager) HasRelayAddress() bool {
 }
 
 // UpdateToken updates the token in the token store.
-func (m *Manager) UpdateToken(token *relayAuth.Token) {
-	m.tokenStore.UpdateToken(token)
+func (m *Manager) UpdateToken(token *relayAuth.Token) error {
+	return m.tokenStore.UpdateToken(token)
 }
 
 func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {

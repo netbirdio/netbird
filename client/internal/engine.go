@@ -506,7 +506,10 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 				Payload:   relayMsg.GetTokenPayload(),
 				Signature: relayMsg.GetTokenSignature(),
 			}
-			e.relayManager.UpdateToken(c)
+			if err := e.relayManager.UpdateToken(c); err != nil {
+				log.Errorf("failed to update relay token: %v", err)
+				return err
+			}
 		}
 
 		// todo update relay address in the relay manager
