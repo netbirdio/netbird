@@ -57,6 +57,7 @@ var (
 	managementURL           string
 	adminURL                string
 	setupKey                string
+	setupKeyPath            string
 	hostName                string
 	preSharedKey            string
 	natExternalIPs          []string
@@ -130,6 +131,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets Netbird log level")
 	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the log will be output to stdout. If syslog is specified the log will be sent to syslog daemon.")
 	rootCmd.PersistentFlags().StringVarP(&setupKey, "setup-key", "k", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
+	rootCmd.PersistentFlags().StringVar(&setupKeyPath, "setup-key-file", "", "The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.")
+	rootCmd.MarkFlagsMutuallyExclusive("setup-key", "setup-key-file")
 	rootCmd.PersistentFlags().StringVar(&preSharedKey, preSharedKeyFlag, "", "Sets Wireguard PreSharedKey property. If set, then only peers that have the same key can communicate.")
 	rootCmd.PersistentFlags().StringVarP(&hostName, "hostname", "n", "", "Sets a custom hostname for the device")
 	rootCmd.PersistentFlags().BoolVarP(&anonymizeFlag, "anonymize", "A", false, "anonymize IP addresses and non-netbird.io domains in logs and status output")
@@ -255,6 +258,21 @@ var CLIBackOffSettings = &backoff.ExponentialBackOff{
 	MaxElapsedTime:      30 * time.Second,
 	Stop:                backoff.Stop,
 	Clock:               backoff.SystemClock,
+}
+
+func getSetupKey() (string, error) {
+	if setupKeyPath != "" && setupKey == "" {
+		return getSetupKeyFromFile(setupKeyPath)
+	}
+	return setupKey, nil
+}
+
+func getSetupKeyFromFile(setupKeyPath string) (string, error) {
+	data, err := os.ReadFile(setupKeyPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read setup key file: %v", err)
+	}
+	return strings.TrimSpace(string(data)), nil
 }
 
 func handleRebrand(cmd *cobra.Command) error {

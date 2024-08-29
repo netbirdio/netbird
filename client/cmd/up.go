@@ -148,6 +148,11 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		ic.DNSRouteInterval = &dnsRouteInterval
 	}
 
+	providedSetupKey, err := getSetupKey()
+	if err != nil {
+		return err
+	}
+
 	config, err := internal.UpdateOrCreateConfig(ic)
 	if err != nil {
 		return fmt.Errorf("get config file: %v", err)
@@ -155,7 +160,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 
 	config, _ = internal.UpdateOldManagementURL(ctx, config, configPath)
 
-	err = foregroundLogin(ctx, cmd, config, setupKey)
+	err = foregroundLogin(ctx, cmd, config, providedSetupKey)
 	if err != nil {
 		return fmt.Errorf("foreground login failed: %v", err)
 	}
@@ -219,8 +224,13 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		return nil
 	}
 
+	providedSetupKey, err := getSetupKey()
+	if err != nil {
+		return err
+	}
+
 	loginRequest := proto.LoginRequest{
-		SetupKey:             setupKey,
+		SetupKey:             providedSetupKey,
 		ManagementUrl:        managementURL,
 		AdminURL:             adminURL,
 		NatExternalIPs:       natExternalIPs,

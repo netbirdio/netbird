@@ -134,6 +134,12 @@ func (s *SqlStore) AcquireReadLockByUID(ctx context.Context, uniqueID string) (u
 
 func (s *SqlStore) SaveAccount(ctx context.Context, account *Account) error {
 	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		if elapsed > 1*time.Second {
+			log.WithContext(ctx).Tracef("SaveAccount for account %s exceeded 1s, took: %v", account.Id, elapsed)
+		}
+	}()
 
 	// todo: remove this check after the issue is resolved
 	s.checkAccountDomainBeforeSave(ctx, account.Id, account.Domain)
@@ -468,6 +474,34 @@ func (s *SqlStore) GetUserByTokenID(ctx context.Context, tokenID string) (*User,
 	return &user, nil
 }
 
+func (s *SqlStore) GetUserByUserID(ctx context.Context, userID string) (*User, error) {
+	var user User
+	result := s.db.First(&user, idQueryCondition, userID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "user not found: index lookup failed")
+		}
+		log.WithContext(ctx).Errorf("error when getting user from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "issue getting user from store")
+	}
+
+	return &user, nil
+}
+
+func (s *SqlStore) GetAccountGroups(ctx context.Context, accountID string) ([]*nbgroup.Group, error) {
+	var groups []*nbgroup.Group
+	result := s.db.Find(&groups, idQueryCondition, accountID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "accountID not found: index lookup failed")
+		}
+		log.WithContext(ctx).Errorf("error when getting groups from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "issue getting groups from store")
+	}
+
+	return groups, nil
+}
+
 func (s *SqlStore) GetAllAccounts(ctx context.Context) (all []*Account) {
 	var accounts []Account
 	result := s.db.Find(&accounts)
@@ -485,6 +519,13 @@ func (s *SqlStore) GetAllAccounts(ctx context.Context) (all []*Account) {
 }
 
 func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*Account, error) {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		if elapsed > 1*time.Second {
+			log.WithContext(ctx).Tracef("GetAccount for account %s exceeded 1s, took: %v", accountID, elapsed)
+		}
+	}()
 
 	var account Account
 	result := s.db.Model(&account).

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/xid"
@@ -65,18 +66,24 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 	peers := make([]*nbpeer.Peer, 0)
 	peersMap := make(map[string]*nbpeer.Peer)
 
-	if !user.HasAdminPower() && !user.IsServiceUser && account.Settings.RegularUsersViewBlocked {
+	regularUser := !user.HasAdminPower() && !user.IsServiceUser
+
+	if regularUser && account.Settings.RegularUsersViewBlocked {
 		return peers, nil
 	}
 
 	for _, peer := range account.Peers {
-		if !(user.HasAdminPower() || user.IsServiceUser) && user.Id != peer.UserID {
+		if regularUser && user.Id != peer.UserID {
 			// only display peers that belong to the current user if the current user is not an admin
 			continue
 		}
 		p := peer.Copy()
 		peers = append(peers, p)
 		peersMap[peer.ID] = p
+	}
+
+	if !regularUser {
+		return peers, nil
 	}
 
 	// fetch all the peers that have access to the user's peers
@@ -316,7 +323,8 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 	if err != nil {
 		return nil, err
 	}
-	return account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, validatedPeers), nil
+	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
+	return account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, nil), nil
 }
 
 // GetPeerNetwork returns the Network for a given peer
@@ -529,7 +537,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	postureChecks := am.getPeerPostureChecks(account, peer)
-	networkMap := account.GetPeerNetworkMap(ctx, newPeer.ID, am.dnsDomain, approvedPeersMap)
+	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
+	networkMap := account.GetPeerNetworkMap(ctx, newPeer.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics())
 	return newPeer, networkMap, postureChecks, nil
 }
 
@@ -540,16 +549,25 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 		return nil, nil, nil, status.NewPeerNotRegisteredError()
 	}
 
-	err = checkIfPeerOwnerIsBlocked(peer, account)
-	if err != nil {
-		return nil, nil, nil, err
+	if peer.UserID != "" {
+		log.Infof("Peer has no userID")
+
+		user, err := account.FindUser(peer.UserID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		err = checkIfPeerOwnerIsBlocked(peer, user)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 	}
 
 	if peerLoginExpired(ctx, peer, account.Settings) {
 		return nil, nil, nil, status.NewPeerLoginExpiredError()
 	}
 
-	peer, updated := updatePeerMeta(peer, sync.Meta, account)
+	updated := peer.UpdateMetaIfNew(sync.Meta)
 	if updated {
 		err = am.Store.SavePeer(ctx, account.Id, peer)
 		if err != nil {
@@ -585,7 +603,8 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	}
 	postureChecks = am.getPeerPostureChecks(account, peer)
 
-	return peer, account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, validPeersMap), postureChecks, nil
+	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
+	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, validPeersMap, am.metrics.AccountManagerMetrics()), postureChecks, nil
 }
 
 // LoginPeer logs in or registers a peer.
@@ -614,31 +633,28 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	// it means that the client has already checked if it needs login and had been through the SSO flow
 	// so, we can skip this check and directly proceed with the login
 	if login.UserID == "" {
+		log.Info("Peer needs login")
 		err = am.checkIFPeerNeedsLoginWithoutLock(ctx, accountID, login)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 	}
 
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	unlockAccount := am.Store.AcquireReadLockByUID(ctx, accountID)
+	defer unlockAccount()
+	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, login.WireGuardPubKey)
 	defer func() {
-		if unlock != nil {
-			unlock()
+		if unlockPeer != nil {
+			unlockPeer()
 		}
 	}()
 
-	// fetch the account from the store once more after acquiring lock to avoid concurrent updates inconsistencies
-	account, err := am.Store.GetAccount(ctx, accountID)
+	peer, err := am.Store.GetPeerByPeerPubKey(ctx, login.WireGuardPubKey)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	peer, err := account.FindPeerByPubKey(login.WireGuardPubKey)
-	if err != nil {
-		return nil, nil, nil, status.NewPeerNotRegisteredError()
-	}
-
-	err = checkIfPeerOwnerIsBlocked(peer, account)
+	settings, err := am.Store.GetAccountSettings(ctx, accountID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -646,21 +662,39 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 	// this flag prevents unnecessary calls to the persistent store.
 	shouldStorePeer := false
 	updateRemotePeers := false
-	if peerLoginExpired(ctx, peer, account.Settings) {
-		err = am.handleExpiredPeer(ctx, login, account, peer)
+
+	if login.UserID != "" {
+		changed, err := am.handleUserPeer(ctx, peer, settings)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		updateRemotePeers = true
-		shouldStorePeer = true
+		if changed {
+			shouldStorePeer = true
+			updateRemotePeers = true
+		}
 	}
 
-	isRequiresApproval, isStatusChanged, err := am.integratedPeerValidator.IsNotValidPeer(ctx, account.Id, peer, account.GetPeerGroupsList(peer.ID), account.Settings.Extra)
+	groups, err := am.Store.GetAccountGroups(ctx, accountID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	peer, updated := updatePeerMeta(peer, login.Meta, account)
+	var grps []string
+	for _, group := range groups {
+		for _, id := range group.Peers {
+			if id == peer.ID {
+				grps = append(grps, group.ID)
+				break
+			}
+		}
+	}
+
+	isRequiresApproval, isStatusChanged, err := am.integratedPeerValidator.IsNotValidPeer(ctx, accountID, peer, grps, settings.Extra)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	updated := peer.UpdateMetaIfNew(login.Meta)
 	if updated {
 		shouldStorePeer = true
 	}
@@ -677,8 +711,13 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login PeerLogin)
 		}
 	}
 
-	unlock()
-	unlock = nil
+	unlockPeer()
+	unlockPeer = nil
+
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 
 	if updateRemotePeers || isStatusChanged {
 		am.updateAccountPeers(ctx, account)
@@ -732,39 +771,34 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 	}
 	postureChecks = am.getPeerPostureChecks(account, peer)
 
-	return peer, account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, approvedPeersMap), postureChecks, nil
+	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
+	return peer, account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics()), postureChecks, nil
 }
 
-func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, login PeerLogin, account *Account, peer *nbpeer.Peer) error {
-	err := checkAuth(ctx, login.UserID, peer)
+func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, user *User, peer *nbpeer.Peer) error {
+	err := checkAuth(ctx, user.Id, peer)
 	if err != nil {
 		return err
 	}
 	// If peer was expired before and if it reached this point, it is re-authenticated.
 	// UserID is present, meaning that JWT validation passed successfully in the API layer.
-	updatePeerLastLogin(peer, account)
-
-	// sync user last login with peer last login
-	user, err := account.FindUser(login.UserID)
-	if err != nil {
-		return status.Errorf(status.Internal, "couldn't find user")
-	}
-
-	err = am.Store.SaveUserLastLogin(account.Id, user.Id, peer.LastLogin)
+	peer = peer.UpdateLastLogin()
+	err = am.Store.SavePeer(ctx, peer.AccountID, peer)
 	if err != nil {
 		return err
 	}
 
-	am.StoreEvent(ctx, login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
+	err = am.Store.SaveUserLastLogin(user.AccountID, user.Id, peer.LastLogin)
+	if err != nil {
+		return err
+	}
+
+	am.StoreEvent(ctx, user.Id, peer.ID, user.AccountID, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
 	return nil
 }
 
-func checkIfPeerOwnerIsBlocked(peer *nbpeer.Peer, account *Account) error {
+func checkIfPeerOwnerIsBlocked(peer *nbpeer.Peer, user *User) error {
 	if peer.AddedWithSSOLogin() {
-		user, err := account.FindUser(peer.UserID)
-		if err != nil {
-			return status.Errorf(status.PermissionDenied, "user doesn't exist")
-		}
 		if user.IsBlocked() {
 			return status.Errorf(status.PermissionDenied, "user is blocked")
 		}
@@ -792,11 +826,6 @@ func peerLoginExpired(ctx context.Context, peer *nbpeer.Peer, settings *Settings
 		return true
 	}
 	return false
-}
-
-func updatePeerLastLogin(peer *nbpeer.Peer, account *Account) {
-	peer.UpdateLastLogin()
-	account.UpdatePeer(peer)
 }
 
 // UpdatePeerSSHKey updates peer's public SSH key
@@ -897,33 +926,48 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peerID, accountID)
 }
 
-func updatePeerMeta(peer *nbpeer.Peer, meta nbpeer.PeerSystemMeta, account *Account) (*nbpeer.Peer, bool) {
-	if peer.UpdateMetaIfNew(meta) {
-		account.UpdatePeer(peer)
-		return peer, true
-	}
-	return peer, false
-}
-
 // updateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) updateAccountPeers(ctx context.Context, account *Account) {
+	start := time.Now()
+	defer func() {
+		if am.metrics != nil {
+			am.metrics.AccountManagerMetrics().CountUpdateAccountPeersDuration(time.Since(start))
+		}
+	}()
+
 	peers := account.GetPeers()
 
 	approvedPeersMap, err := am.GetValidatedPeers(account)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed send out updates to peers, failed to validate peer: %v", err)
+		log.WithContext(ctx).Errorf("failed to send out updates to peers, failed to validate peer: %v", err)
 		return
 	}
+
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, 10)
+
+	dnsCache := &DNSConfigCache{}
+	customZone := account.GetPeersCustomZone(ctx, am.dnsDomain)
+
 	for _, peer := range peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
 			continue
 		}
 
-		postureChecks := am.getPeerPostureChecks(account, peer)
-		remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, peer.ID, am.dnsDomain, approvedPeersMap)
-		update := toSyncResponse(ctx, nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks)
-		am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update})
+		wg.Add(1)
+		semaphore <- struct{}{}
+		go func(p *nbpeer.Peer) {
+			defer wg.Done()
+			defer func() { <-semaphore }()
+
+			postureChecks := am.getPeerPostureChecks(account, p)
+			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, am.metrics.AccountManagerMetrics())
+			update := toSyncResponse(ctx, nil, p, nil, remotePeerNetworkMap, am.GetDNSDomain(), postureChecks, dnsCache)
+			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update})
+		}(peer)
 	}
+
+	wg.Wait()
 }

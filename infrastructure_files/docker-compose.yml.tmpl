@@ -77,6 +77,9 @@ services:
       options:
         max-size: "500m"
         max-file: "2"
+    environment:
+      - NETBIRD_STORE_ENGINE_POSTGRES_DSN=$NETBIRD_STORE_ENGINE_POSTGRES_DSN
+      
   # Coturn
   coturn:
     image: coturn/coturn:$COTURN_TAG
