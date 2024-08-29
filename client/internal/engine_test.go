@@ -215,14 +215,13 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		WgPrivateKey: key,
 		WgPort:       33100,
 	}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
-	newNet, err := stdnet.NewNet()
-	if err != nil {
-		t.Fatal(err)
+
+	wgIface := &iface.MockWGIface{
+		RemovePeerFunc: func(peerKey string) error {
+			return nil
+		},
 	}
-	engine.wgInterface, err = iface.NewWGIFace("utun102", "100.64.0.1/24", engine.config.WgPort, key.String(), iface.DefaultMTU, newNet, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	engine.wgInterface = wgIface
 	engine.routeManager = routemanager.NewManager(ctx, key.PublicKey().String(), time.Minute, engine.wgInterface, engine.statusRecorder, nil)
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },

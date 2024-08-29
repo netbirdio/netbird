@@ -19,7 +19,7 @@ type ExclusionCounter = refcounter.Counter[any, Nexthop]
 
 type SysOps struct {
 	refCounter  *ExclusionCounter
-	wgInterface *iface.WGIface
+	wgInterface iface.IWGIface
 	// prefixes is tracking all the current added prefixes im memory
 	// (this is used in iOS as all route updates require a full table update)
 	//nolint
@@ -30,7 +30,7 @@ type SysOps struct {
 	notifier *notifier.Notifier
 }
 
-func NewSysOps(wgInterface *iface.WGIface, notifier *notifier.Notifier) *SysOps {
+func NewSysOps(wgInterface iface.IWGIface, notifier *notifier.Notifier) *SysOps {
 	return &SysOps{
 		wgInterface: wgInterface,
 		notifier:    notifier,
