@@ -48,6 +48,7 @@ func init() {
 	)
 	upCmd.PersistentFlags().StringSliceVar(&extraIFaceBlackList, extraIFaceBlackListFlag, nil, "Extra list of default interfaces to ignore for listening")
 	upCmd.PersistentFlags().DurationVar(&dnsRouteInterval, dnsRouteIntervalFlag, time.Minute, "DNS route update interval")
+	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", "the profile to use")
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
@@ -188,6 +189,25 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 	}()
 
 	client := proto.NewDaemonServiceClient(conn)
+
+	if profileName != "" {
+		profilesDir, err := getUserProfilesDir()
+		if err != nil {
+			return err
+		}
+
+		usesSetupKey := setupKey != ""
+
+		_, err = client.SwitchProfile(ctx, &proto.SwitchProfileRequest{
+			Profile:            profileName,
+			UserProfilesPath:   profilesDir,
+			IsNewSystemProfile: &usesSetupKey,
+		})
+
+		if err != nil {
+			return err
+		}
+	}
 
 	status, err := client.Status(ctx, &proto.StatusRequest{})
 	if err != nil {

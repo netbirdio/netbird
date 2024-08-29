@@ -61,6 +61,7 @@ type Server struct {
 
 	statusRecorder *peer.Status
 	sessionWatcher *internal.SessionWatcher
+	profileState   *ProfileState
 
 	mgmProbe    *internal.Probe
 	signalProbe *internal.Probe
@@ -83,6 +84,8 @@ func New(ctx context.Context, configPath, logFile string) *Server {
 		latestConfigInput: internal.ConfigInput{
 			ConfigPath: configPath,
 		},
+		profileState: &ProfileState{},
+
 		logFile:     logFile,
 		mgmProbe:    internal.NewProbe(),
 		signalProbe: internal.NewProbe(),
@@ -110,6 +113,12 @@ func (s *Server) Start() error {
 
 	ctx, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
+
+	if err := s.profileState.Init(); err != nil {
+		return err
+	}
+
+	s.latestConfigInput = internal.ConfigInput{ConfigPath: s.profileState.currentProfile.Path}
 
 	// if configuration exists, we just start connections. if is new config we skip and set status NeedsLogin
 	// on failure we return error to retry

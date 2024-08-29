@@ -305,6 +305,7 @@ message SetLogLevelResponse {
 }
 
 message ListProfilesRequest {
+    string userProfilesPath = 1;
 }
 
 message ListProfilesResponse {
@@ -313,6 +314,9 @@ message ListProfilesResponse {
 
 message SwitchProfileRequest {
     string profile = 1;
+    string userProfilesPath = 2;
+
+    optional bool isNewSystemProfile = 3;
 }
 
 message SwitchProfileResponse {

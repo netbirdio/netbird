@@ -2,11 +2,28 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/spf13/cobra"
 )
+
+func getUserProfilesDir() (string, error) {
+	config, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+
+	profilesDir := path.Join(config, "netbird", "profiles")
+
+	if err := os.MkdirAll(profilesDir, os.ModeDir); err != nil {
+		return "", err
+	}
+
+	return profilesDir, nil
+}
 
 var (
 	profileCmd = &cobra.Command{
@@ -25,8 +42,13 @@ var (
 
 			daemonClient := proto.NewDaemonServiceClient(conn)
 
-			if (len(args)) == 1 {
-				if _, err := daemonClient.SwitchProfile(ctx, &proto.SwitchProfileRequest{Profile: args[0]}); err != nil {
+			profilesDir, err := getUserProfilesDir()
+			if err != nil {
+				return err
+			}
+
+			if len(args) == 1 {
+				if _, err := daemonClient.SwitchProfile(ctx, &proto.SwitchProfileRequest{Profile: args[0], UserProfilesPath: profilesDir}); err != nil {
 					return err
 				}
 
@@ -56,10 +78,15 @@ var (
 				return fmt.Errorf("failed to connect to service CLI interface %v", err)
 			}
 
+			profilesDir, err := getUserProfilesDir()
+			if err != nil {
+				return err
+			}
+
 			defer conn.Close()
 
 			daemonClient := proto.NewDaemonServiceClient(conn)
-			resp, err := daemonClient.ListProfiles(ctx, &proto.ListProfilesRequest{})
+			resp, err := daemonClient.ListProfiles(ctx, &proto.ListProfilesRequest{UserProfilesPath: profilesDir})
 
 			if err != nil {
 				return err

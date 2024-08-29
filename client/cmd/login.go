@@ -80,6 +80,25 @@ var loginCmd = &cobra.Command{
 
 		client := proto.NewDaemonServiceClient(conn)
 
+		if profileName != "" {
+			profilesDir, err := getUserProfilesDir()
+			if err != nil {
+				return err
+			}
+
+			usesSetupKey := setupKey != ""
+
+			_, err = client.SwitchProfile(ctx, &proto.SwitchProfileRequest{
+				Profile:            profileName,
+				UserProfilesPath:   profilesDir,
+				IsNewSystemProfile: &usesSetupKey,
+			})
+
+			if err != nil {
+				return err
+			}
+		}
+
 		loginRequest := proto.LoginRequest{
 			SetupKey:             setupKey,
 			ManagementUrl:        managementURL,
@@ -128,6 +147,10 @@ var loginCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+func init() {
+	logCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", "the profile to use")
 }
 
 func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.Config, setupKey string) error {
