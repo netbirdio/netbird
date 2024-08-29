@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/sha256"
+	"crypto/sha1"
 	"encoding/base64"
 	"testing"
 	"time"
@@ -125,7 +125,7 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 
 func validateMAC(t *testing.T, username string, actualMAC string, key []byte) {
 	t.Helper()
-	mac := hmac.New(sha256.New, key)
+	mac := hmac.New(sha1.New, key)
 
 	_, err := mac.Write([]byte(username))
 	if err != nil {
