@@ -99,7 +99,7 @@ func (p *Peer) Write(b []byte) (int, error) {
 // connection.
 func (p *Peer) CloseGracefully(ctx context.Context) {
 	p.connMu.Lock()
-	_, err := p.writeWithTimeout(ctx, messages.MarshalCloseMsg())
+	err := p.writeWithTimeout(ctx, messages.MarshalCloseMsg())
 	if err != nil {
 		p.log.Errorf("failed to send close message to peer: %s", p.String())
 	}
@@ -117,16 +117,12 @@ func (p *Peer) String() string {
 	return p.idS
 }
 
-func (p *Peer) writeWithTimeout(ctx context.Context, buf []byte) (int, error) {
+func (p *Peer) writeWithTimeout(ctx context.Context, buf []byte) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	writeDone := make(chan struct{})
-	var (
-		n   int
-		err error
-	)
-
+	var err error
 	go func() {
 		_, err = p.conn.Write(buf)
 		close(writeDone)
@@ -134,9 +130,9 @@ func (p *Peer) writeWithTimeout(ctx context.Context, buf []byte) (int, error) {
 
 	select {
 	case <-ctx.Done():
-		return 0, ctx.Err()
+		return ctx.Err()
 	case <-writeDone:
-		return n, err
+		return err
 	}
 }
 
