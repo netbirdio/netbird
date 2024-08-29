@@ -23,7 +23,7 @@ const (
 )
 
 // Setup configures sysctl settings for RP filtering and source validation.
-func Setup(wgIface *iface.WGIface) (map[string]int, error) {
+func Setup(wgIface iface.IWGIface) (map[string]int, error) {
 	keys := map[string]int{}
 	var result *multierror.Error
 
