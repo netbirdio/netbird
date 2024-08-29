@@ -17,9 +17,9 @@ const (
 	MsgTypeHealthCheck   MsgType = 4
 
 	sizeOfMsgType       = 1
-	sizeOfMagicBye      = 4
-	headerSizeTransport = sizeOfMsgType + IDSize                  // 1 byte for msg type, IDSize for peerID
-	headerSizeHello     = sizeOfMsgType + sizeOfMagicBye + IDSize // 1 byte for msg type, 4 byte for magic header, IDSize for peerID
+	sizeOfMagicByte     = 4
+	headerSizeTransport = sizeOfMsgType + IDSize                   // 1 byte for msg type, IDSize for peerID
+	headerSizeHello     = sizeOfMsgType + sizeOfMagicByte + IDSize // 1 byte for msg type, 4 byte for magic header, IDSize for peerID
 
 	MaxHandshakeSize = 8192
 )
