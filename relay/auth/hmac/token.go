@@ -97,8 +97,8 @@ func (m *TimedHMAC) generate(payload string) ([]byte, error) {
 	mac := hmac.New(sha256.New, []byte(m.secret))
 	_, err := mac.Write([]byte(payload))
 	if err != nil {
-		log.Errorf("failed to generate token: %s", err)
-		return nil, err
+		log.Debugf("failed to generate token: %s", err)
+		return nil, fmt.Errorf("failed to generate token: %w", err)
 	}
 
 	return mac.Sum(nil), nil
