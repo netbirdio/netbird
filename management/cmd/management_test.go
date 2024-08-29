@@ -8,7 +8,7 @@ import (
 
 const (
 	exampleConfig = `{	
-		"RelayConfig": {
+		"Relay": {
 		   "Address": "rels://relay.stage.npeer.io"
 		},
 		"HttpConfig": {
