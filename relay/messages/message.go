@@ -3,6 +3,7 @@ package messages
 import (
 	"bytes"
 	"encoding/gob"
+	"errors"
 	"fmt"
 
 	log "github.com/sirupsen/logrus"
@@ -24,7 +25,7 @@ const (
 )
 
 var (
-	ErrInvalidMessageLength = fmt.Errorf("invalid message length")
+	ErrInvalidMessageLength = errors.New("invalid message length")
 
 	magicHeader = []byte{0x21, 0x12, 0xA4, 0x42}
 
