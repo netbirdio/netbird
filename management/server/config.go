@@ -32,10 +32,10 @@ const (
 
 // Config of the Management service
 type Config struct {
-	Stuns       []*Host
-	TURNConfig  *TURNConfig
-	RelayConfig *RelayConfig `json:"relay"`
-	Signal      *Host
+	Stuns      []*Host
+	TURNConfig *TURNConfig
+	Relay      *Relay
+	Signal     *Host
 
 	Datadir                string
 	DataStoreEncryptionKey string
@@ -76,7 +76,7 @@ type TURNConfig struct {
 	Turns                []*Host
 }
 
-type RelayConfig struct {
+type Relay struct {
 	Address string
 }
 

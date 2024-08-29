@@ -430,7 +430,7 @@ func startManagement(t *testing.T, config *Config) (*grpc.Server, *DefaultAccoun
 		return nil, nil, "", err
 	}
 
-	rc := &RelayConfig{
+	rc := &Relay{
 		Address: "localhost:0",
 	}
 	turnManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, rc)

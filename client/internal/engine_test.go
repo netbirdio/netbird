@@ -36,8 +36,8 @@ import (
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
-	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
 	signal "github.com/netbirdio/netbird/signal/client"
 	"github.com/netbirdio/netbird/signal/proto"
@@ -1106,7 +1106,7 @@ func startManagement(t *testing.T, dataDir string) (*grpc.Server, string, error)
 	if err != nil {
 		return nil, "", err
 	}
-	rc := &server.RelayConfig{
+	rc := &server.Relay{
 		Address: "127.0.0.1:1234",
 	}
 	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, rc)
