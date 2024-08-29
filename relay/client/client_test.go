@@ -10,7 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 
-	"github.com/netbirdio/netbird/relay/auth"
+	"github.com/netbirdio/netbird/relay/auth/allow"
 	"github.com/netbirdio/netbird/relay/auth/hmac"
 	"github.com/netbirdio/netbird/util"
 
@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	av               = &auth.AllowAllAuth{}
+	av               = &allow.Auth{}
 	hmacTokenStore   = &hmac.TokenStore{}
 	serverListenAddr = "127.0.0.1:1234"
 	serverURL        = "rel://127.0.0.1:1234"

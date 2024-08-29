@@ -14,7 +14,7 @@ import (
 	"github.com/pion/turn/v3"
 	"go.opentelemetry.io/otel"
 
-	"github.com/netbirdio/netbird/relay/auth"
+	"github.com/netbirdio/netbird/relay/auth/allow"
 	"github.com/netbirdio/netbird/relay/auth/hmac"
 	"github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/relay/server"
@@ -22,7 +22,7 @@ import (
 )
 
 var (
-	av             = &auth.AllowAllAuth{}
+	av             = &allow.Auth{}
 	hmacTokenStore = &hmac.TokenStore{}
 	pairs          = []int{1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100}
 	dataSize       = 1024 * 1024 * 10
