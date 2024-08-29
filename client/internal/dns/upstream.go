@@ -149,7 +149,7 @@ func (u *upstreamResolverBase) watchPeersConnStatusChanges() {
 		case <-u.ctx.Done():
 			return
 		case <-u.statusRecorder.GetPeersConnStatusChangeNotifier():
-			log.Debugf("probing DNS availability on/off for 30s")
+			log.Infof("Peer ConnStatus changed, triggering DNS probe")
 			go continualProbe()
 		}
 	}
