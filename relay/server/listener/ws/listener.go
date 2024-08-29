@@ -33,7 +33,7 @@ func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 		TLSConfig: l.TLSConfig,
 	}
 
-	log.Infof("WS server is listening on address: %s", l.Address)
+	log.Infof("WS server listening address: %s", l.Address)
 	var err error
 	if l.TLSConfig != nil {
 		err = l.server.ListenAndServeTLS("", "")
