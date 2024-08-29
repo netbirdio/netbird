@@ -1,6 +1,7 @@
 package hmac
 
 import (
+	"fmt"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -18,7 +19,10 @@ func NewTimedHMACValidator(secret string, duration time.Duration) *TimedHMACVali
 }
 
 func (a *TimedHMACValidator) Validate(credentials any) error {
-	b := credentials.([]byte)
+	b, ok := credentials.([]byte)
+	if !ok {
+		return fmt.Errorf("invalid credentials type")
+	}
 	c, err := unmarshalToken(b)
 	if err != nil {
 		log.Debugf("failed to unmarshal token: %s", err)
