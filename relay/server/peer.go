@@ -82,7 +82,10 @@ func (p *Peer) Work() {
 			p.handleTransportMsg(msg)
 		case messages.MsgTypeClose:
 			p.log.Infof("peer exited gracefully")
-			_ = p.conn.Close()
+			err = p.conn.Close()
+			if err != nil {
+				log.Errorf("failed to close connection to peer: %s", err)
+			}
 			return
 		}
 	}
