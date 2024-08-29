@@ -68,13 +68,19 @@ func (l *Listener) onAccept(w http.ResponseWriter, r *http.Request) {
 
 	rAddr, err := net.ResolveTCPAddr("tcp", r.RemoteAddr)
 	if err != nil {
-		_ = wsConn.Close(websocket.StatusInternalError, "internal error")
+		err = wsConn.Close(websocket.StatusInternalError, "internal error")
+		if err != nil {
+			log.Errorf("failed to close ws connection: %s", err)
+		}
 		return
 	}
 
 	lAddr, err := net.ResolveTCPAddr("tcp", l.server.Addr)
 	if err != nil {
-		_ = wsConn.Close(websocket.StatusInternalError, "internal error")
+		err = wsConn.Close(websocket.StatusInternalError, "internal error")
+		if err != nil {
+			log.Errorf("failed to close ws connection: %s", err)
+		}
 		return
 	}
 
