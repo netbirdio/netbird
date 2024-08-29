@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+
+	"github.com/netbirdio/management-integrations/integrations"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -129,7 +130,7 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	if err != nil {
 		return nil, "", err
 	}
-	rc := &server.RelayConfig{
+	rc := &server.Relay{
 		Address: "localhost:0",
 	}
 	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, rc)

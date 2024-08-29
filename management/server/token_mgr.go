@@ -31,7 +31,7 @@ type TimeBasedAuthSecretsManager struct {
 
 type TURNRelayToken auth.Token
 
-func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *TURNConfig, relayConfig *RelayConfig) *TimeBasedAuthSecretsManager {
+func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *TURNConfig, relayConfig *Relay) *TimeBasedAuthSecretsManager {
 
 	var relayAddr string
 	if relayConfig != nil {

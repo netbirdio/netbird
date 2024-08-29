@@ -553,7 +553,7 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 		log.Fatalf("failed creating a manager: %v", err)
 	}
 
-	rc := &server.RelayConfig{
+	rc := &server.Relay{
 		Address: "localhost:0",
 	}
 	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, rc)

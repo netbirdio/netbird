@@ -99,7 +99,7 @@ func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Liste
 		t.Fatal(err)
 	}
 
-	rc := &mgmt.RelayConfig{
+	rc := &mgmt.Relay{
 		Address: "localhost:0",
 	}
 	turnManager := mgmt.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, rc)

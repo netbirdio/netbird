@@ -518,9 +518,9 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNRelayToken, relayT
 	}
 
 	var relayCfg *proto.RelayConfig
-	if config.RelayConfig != nil && config.RelayConfig.Address != "" {
+	if config.Relay != nil && config.Relay.Address != "" {
 		relayCfg = &proto.RelayConfig{
-			Urls: []string{config.RelayConfig.Address},
+			Urls: []string{config.Relay.Address},
 		}
 
 		if relayToken != nil {
