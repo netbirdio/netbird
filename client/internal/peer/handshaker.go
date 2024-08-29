@@ -79,7 +79,8 @@ func (h *Handshaker) Listen() {
 		h.log.Debugf("wait for remote offer confirmation")
 		remoteOfferAnswer, err := h.waitForRemoteOfferConfirmation()
 		if err != nil {
-			if _, ok := err.(*ConnectionClosedError); ok {
+			var connectionClosedError *ConnectionClosedError
+			if errors.As(err, &connectionClosedError) {
 				h.log.Tracef("stop handshaker")
 				return
 			}
