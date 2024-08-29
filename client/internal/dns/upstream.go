@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -73,13 +74,12 @@ func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status) *
 func (u *upstreamResolverBase) watchPeersConnStatusChanges() {
 	var probeRunning atomic.Bool
 	var cancelBackOff context.CancelFunc
-
 	exponentialBackOff := &backoff.ExponentialBackOff{
 		InitialInterval:     200 * time.Millisecond,
 		RandomizationFactor: 0.5,
 		Multiplier:          1.1,
-		MaxInterval:         5 * time.Second,
-		MaxElapsedTime:      15 * time.Second,
+		MaxInterval:         1 * time.Second,
+		MaxElapsedTime:      10 * time.Second,
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}
@@ -98,16 +98,19 @@ func (u *upstreamResolverBase) watchPeersConnStatusChanges() {
 	}
 
 	continualProbe := func() {
-		// probe continually for 30s when peer count >= 1
-		if u.statusRecorder.GetConnectedPeersCount() == 0 {
-			log.Debug("O peers connected, running one more DNS probe")
+		// probe continually for 10s when peer count >= 1
+		connectedPeersCount := u.statusRecorder.GetConnectedPeersCount()
+		if connectedPeersCount == 0 {
 			// cancel backoff operation
 			if cancelBackOff != nil {
 				cancelBackOff()
 				cancelBackOff = nil
 			}
-			u.probeAvailability()
-			return
+			if u.areNameServersAllPrivate(u.upstreamServers) {
+				log.Infof("O peers connected, disabling upstream servers %#v", u.upstreamServers)
+				u.disable(fmt.Errorf("0 peers connected"))
+				return
+			}
 		}
 
 		if probeRunning.Load() {
@@ -150,6 +153,18 @@ func (u *upstreamResolverBase) watchPeersConnStatusChanges() {
 			go continualProbe()
 		}
 	}
+}
+
+func (u *upstreamResolverBase) areNameServersAllPrivate(nameServers []string) bool {
+	u.mutex.Lock()
+	defer u.mutex.Unlock()
+	for _, n := range nameServers {
+		ip := net.ParseIP(strings.Split(n, ":")[0])
+		if !ip.IsPrivate() {
+			return false
+		}
+	}
+	return true
 }
 
 func (u *upstreamResolverBase) stop() {
