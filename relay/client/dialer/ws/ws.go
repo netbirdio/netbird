@@ -37,7 +37,7 @@ func Dial(address string) (net.Conn, error) {
 }
 
 func prepareURL(address string) (string, error) {
-	if !strings.HasPrefix(address, "rel:") || !strings.HasPrefix(address, "rels:") {
+	if !strings.HasPrefix(address, "rel:") && !strings.HasPrefix(address, "rels:") {
 		return "", fmt.Errorf("unsupported scheme: %s", address)
 	}
 
