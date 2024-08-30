@@ -142,12 +142,13 @@ func (s *Server) Start() error {
 		s.sessionWatcher.SetOnExpireListener(s.onSessionExpire)
 	}
 
-	running := make(chan error)
+	runningWg := sync.WaitGroup{}
+	runningWg.Add(1)
 	if !config.DisableAutoConnect {
-		go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe, running)
+		go s.connectWithRetryRuns(ctx, config, s.statusRecorder, &runningWg)
 	}
 
-	<-running
+	runningWg.Wait()
 
 	return nil
 }
@@ -156,7 +157,7 @@ func (s *Server) Start() error {
 // mechanism to keep the client connected even when the connection is lost.
 // we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
 func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Config, statusRecorder *peer.Status,
-	mgmProbe *internal.Probe, signalProbe *internal.Probe, relayProbe *internal.Probe, wgProbe *internal.Probe, running chan error,
+	runningWg *sync.WaitGroup,
 ) {
 	backOff := getConnectWithBackoff(ctx)
 	retryStarted := false
@@ -187,7 +188,15 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 	runOperation := func() error {
 		log.Tracef("running client connection")
 		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
-		err := s.connectClient.RunWithProbes(mgmProbe, signalProbe, relayProbe, wgProbe, running)
+
+		probes := internal.ProbeHolder{
+			MgmProbe:    s.mgmProbe,
+			SignalProbe: s.signalProbe,
+			RelayProbe:  s.relayProbe,
+			WgProbe:     s.wgProbe,
+		}
+
+		err := s.connectClient.RunWithProbes(&probes, runningWg)
 		if err != nil {
 			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
 		}
@@ -578,13 +587,11 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
-	running := make(chan error)
-	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.mgmProbe, s.signalProbe, s.relayProbe, s.wgProbe, running)
+	runningWg := sync.WaitGroup{}
+	runningWg.Add(1)
+	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, &runningWg)
 
-	err = <-running
-	if err != nil {
-		// todo
-	}
+	runningWg.Wait()
 
 	return &proto.UpResponse{}, nil
 }

@@ -155,10 +155,7 @@ type Engine struct {
 
 	dnsServer dns.Server
 
-	mgmProbe    *Probe
-	signalProbe *Probe
-	relayProbe  *Probe
-	wgProbe     *Probe
+	probes *ProbeHolder
 
 	wgConnWorker sync.WaitGroup
 
@@ -192,9 +189,6 @@ func NewEngine(
 		mobileDep,
 		statusRecorder,
 		nil,
-		nil,
-		nil,
-		nil,
 		checks,
 	)
 }
@@ -208,10 +202,7 @@ func NewEngineWithProbes(
 	config *EngineConfig,
 	mobileDep MobileDependency,
 	statusRecorder *peer.Status,
-	mgmProbe *Probe,
-	signalProbe *Probe,
-	relayProbe *Probe,
-	wgProbe *Probe,
+	probes *ProbeHolder,
 	checks []*mgmProto.Checks,
 ) *Engine {
 
@@ -229,10 +220,7 @@ func NewEngineWithProbes(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
-		mgmProbe:       mgmProbe,
-		signalProbe:    signalProbe,
-		relayProbe:     relayProbe,
-		wgProbe:        wgProbe,
+		probes:         probes,
 		checks:         checks,
 	}
 }
@@ -1408,24 +1396,27 @@ func (e *Engine) getRosenpassAddr() string {
 }
 
 func (e *Engine) receiveProbeEvents() {
-	if e.signalProbe != nil {
-		go e.signalProbe.Receive(e.ctx, func() bool {
+	if e.probes == nil {
+		return
+	}
+	if e.probes.SignalProbe != nil {
+		go e.probes.SignalProbe.Receive(e.ctx, func() bool {
 			healthy := e.signal.IsHealthy()
 			log.Debugf("received signal probe request, healthy: %t", healthy)
 			return healthy
 		})
 	}
 
-	if e.mgmProbe != nil {
-		go e.mgmProbe.Receive(e.ctx, func() bool {
+	if e.probes.MgmProbe != nil {
+		go e.probes.MgmProbe.Receive(e.ctx, func() bool {
 			healthy := e.mgmClient.IsHealthy()
 			log.Debugf("received management probe request, healthy: %t", healthy)
 			return healthy
 		})
 	}
 
-	if e.relayProbe != nil {
-		go e.relayProbe.Receive(e.ctx, func() bool {
+	if e.probes.RelayProbe != nil {
+		go e.probes.RelayProbe.Receive(e.ctx, func() bool {
 			healthy := true
 
 			results := append(e.probeSTUNs(), e.probeTURNs()...)
@@ -1444,8 +1435,8 @@ func (e *Engine) receiveProbeEvents() {
 		})
 	}
 
-	if e.wgProbe != nil {
-		go e.wgProbe.Receive(e.ctx, func() bool {
+	if e.probes.WgProbe != nil {
+		go e.probes.WgProbe.Receive(e.ctx, func() bool {
 			log.Debug("received wg probe request")
 
 			for _, peer := range e.peerConns {

@@ -55,18 +55,15 @@ func NewConnectClient(
 
 // Run with main logic.
 func (c *ConnectClient) Run() error {
-	return c.run(MobileDependency{}, nil, nil, nil, nil, make(chan error))
+	return c.run(MobileDependency{}, nil, nil)
 }
 
 // RunWithProbes runs the client's main logic with probes attached
 func (c *ConnectClient) RunWithProbes(
-	mgmProbe *Probe,
-	signalProbe *Probe,
-	relayProbe *Probe,
-	wgProbe *Probe,
-	running chan error,
+	probes *ProbeHolder,
+	runningWg *sync.WaitGroup,
 ) error {
-	return c.run(MobileDependency{}, mgmProbe, signalProbe, relayProbe, wgProbe, running)
+	return c.run(MobileDependency{}, probes, runningWg)
 }
 
 // RunOnAndroid with main logic on mobile system
@@ -85,7 +82,7 @@ func (c *ConnectClient) RunOnAndroid(
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 	}
-	return c.run(mobileDependency, nil, nil, nil, nil, make(chan error))
+	return c.run(mobileDependency, nil, nil)
 }
 
 func (c *ConnectClient) RunOniOS(
@@ -101,16 +98,13 @@ func (c *ConnectClient) RunOniOS(
 		NetworkChangeListener: networkChangeListener,
 		DnsManager:            dnsManager,
 	}
-	return c.run(mobileDependency, nil, nil, nil, nil, make(chan error))
+	return c.run(mobileDependency, nil, nil)
 }
 
 func (c *ConnectClient) run(
 	mobileDependency MobileDependency,
-	mgmProbe *Probe,
-	signalProbe *Probe,
-	relayProbe *Probe,
-	wgProbe *Probe,
-	running chan error,
+	probes *ProbeHolder,
+	runningWg *sync.WaitGroup,
 ) error {
 	defer func() {
 		if r := recover(); r != nil {
@@ -257,7 +251,7 @@ func (c *ConnectClient) run(
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, c.statusRecorder, mgmProbe, signalProbe, relayProbe, wgProbe, checks)
+		c.engine = NewEngineWithProbes(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, c.statusRecorder, probes, checks)
 		c.engineMutex.Unlock()
 
 		err = c.engine.Start()
@@ -269,7 +263,9 @@ func (c *ConnectClient) run(
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
 
-		running <- nil
+		if runningWg != nil {
+			runningWg.Done()
+		}
 
 		<-engineCtx.Done()
 		c.statusRecorder.ClientTeardown()
