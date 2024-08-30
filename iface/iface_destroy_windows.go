@@ -5,6 +5,8 @@ package iface
 import (
 	"fmt"
 	"os/exec"
+
+	log "github.com/sirupsen/logrus"
 )
 
 func (w *WGIface) Destroy() error {
