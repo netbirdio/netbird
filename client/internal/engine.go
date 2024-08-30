@@ -238,12 +238,13 @@ func NewEngineWithProbes(
 }
 
 func (e *Engine) Stop() error {
+	if e == nil {
+		// this seems to be a very odd case but there was the possibility if the netbird down command comes before the engine is fully started
+		log.Debugf("tried stopping engine that is nil")
+		return nil
+	}
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
-
-	if e.cancel != nil {
-		e.cancel()
-	}
 
 	// stopping network monitor first to avoid starting the engine again
 	if e.networkMonitor != nil {
@@ -265,7 +266,14 @@ func (e *Engine) Stop() error {
 	time.Sleep(500 * time.Millisecond)
 
 	e.close()
+
+	if e.cancel != nil {
+		e.cancel()
+	}
+
 	e.wgConnWorker.Wait()
+
+	log.Infof("Engine stopped")
 
 	return nil
 }
@@ -1257,8 +1265,6 @@ func (e *Engine) close() {
 	if e.rpManager != nil {
 		_ = e.rpManager.Close()
 	}
-
-	e.cancel()
 }
 
 func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {

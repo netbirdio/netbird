@@ -182,7 +182,8 @@ func (w *WGIface) GetStats(peerKey string) (WGStats, error) {
 
 func (w *WGIface) waitUntilRemoved() error {
 	maxWaitTime := 5 * time.Second
-	timeout := time.After(maxWaitTime)
+	timeout := time.NewTimer(maxWaitTime)
+	defer timeout.Stop()
 
 	for {
 		iface, err := net.InterfaceByName(w.Name())
@@ -198,7 +199,7 @@ func (w *WGIface) waitUntilRemoved() error {
 		}
 
 		select {
-		case <-timeout:
+		case <-timeout.C:
 			return fmt.Errorf("timeout when waiting for interface %s to be removed", w.Name())
 		default:
 			time.Sleep(100 * time.Millisecond)
