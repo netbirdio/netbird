@@ -58,7 +58,7 @@ require (
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/nadoo/ipset v0.5.0
 	github.com/netbirdio/management-integrations/integrations v0.0.0-20240703085513-32605f7ffd8e
-	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20240801161502-2171ea0babf1
+	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20240820130728-bc0683599080
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
