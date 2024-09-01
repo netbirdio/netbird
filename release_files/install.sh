@@ -242,6 +242,13 @@ install_netbird() {
             ${SUDO} dnf -y install netbird-ui
         fi
     ;;
+    rpm-ostree)
+        add_rpm_repo
+        ${SUDO} rpm-ostree -y install netbird
+        if ! $SKIP_UI_APP; then
+            ${SUDO} rpm-ostree -y install netbird-ui
+        fi
+    ;;
     pacman)
         ${SUDO} pacman -Syy
         add_aur_repo
@@ -403,6 +410,9 @@ if type uname >/dev/null 2>&1; then
               elif [ -x "$(command -v dnf)" ]; then
                   PACKAGE_MANAGER="dnf"
                   echo "The installation will be performed using dnf package manager"
+              elif [ -x "$(command -v rpm-ostree)" ]; then
+                  PACKAGE_MANAGER="rpm-ostree"
+                  echo "The installation will be performed using rpm-ostree package manager"
               elif [ -x "$(command -v yum)" ]; then
                   PACKAGE_MANAGER="yum"
                   echo "The installation will be performed using yum package manager"
