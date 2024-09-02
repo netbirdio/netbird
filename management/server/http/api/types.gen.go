@@ -995,7 +995,7 @@ type Route struct {
 	// Description Route description
 	Description string `json:"description"`
 
-	// Domains Domain list to be dynamically resolved. Conflicts with network
+	// Domains Domain list to be dynamically resolved. Max of 32 domains can be added per route configuration. Conflicts with network
 	Domains *[]string `json:"domains,omitempty"`
 
 	// Enabled Route status
@@ -1037,7 +1037,7 @@ type RouteRequest struct {
 	// Description Route description
 	Description string `json:"description"`
 
-	// Domains Domain list to be dynamically resolved. Conflicts with network
+	// Domains Domain list to be dynamically resolved. Max of 32 domains can be added per route configuration. Conflicts with network
 	Domains *[]string `json:"domains,omitempty"`
 
 	// Enabled Route status
