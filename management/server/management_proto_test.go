@@ -440,13 +440,10 @@ func startManagementForTest(t TestingT, config *Config) (*grpc.Server, *DefaultA
 		return nil, nil, "", err
 	}
 
-	rc := &Relay{
-		Address: "localhost:0",
-	}
-	turnManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, rc)
+	secretsManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
 
 	ephemeralMgr := NewEphemeralManager(store, accountManager)
-	mgmtServer, err := NewServer(context.Background(), config, accountManager, peersUpdateManager, turnManager, nil, ephemeralMgr)
+	mgmtServer, err := NewServer(context.Background(), config, accountManager, peersUpdateManager, secretsManager, nil, ephemeralMgr)
 	if err != nil {
 		return nil, nil, "", err
 	}

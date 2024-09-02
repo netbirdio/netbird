@@ -848,7 +848,7 @@ func TestToSyncResponse(t *testing.T) {
 		DNSLabel:   "peer1",
 		SSHKey:     "peer1-ssh-key",
 	}
-	turnRelayToken := &TURNRelayToken{
+	turnRelayToken := &Token{
 		Payload:   "turn-user",
 		Signature: "turn-pass",
 	}

@@ -32,7 +32,7 @@ func Test_loadMgmtConfig(t *testing.T) {
 	if cfg.Relay == nil {
 		t.Fatalf("config is nil")
 	}
-	if cfg.Relay.Address == "" {
+	if len(cfg.Relay.Addresses) == 0 {
 		t.Fatalf("relay address is empty")
 	}
 }

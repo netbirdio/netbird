@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -24,25 +27,41 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 	peersManager := NewPeersUpdateManager(nil)
 
 	rc := &Relay{
-		Address: "localhost:0",
-	}
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
+		Addresses:      []string{"localhost:0"},
 		CredentialsTTL: ttl,
 		Secret:         secret,
-		Turns:          []*Host{TurnTestHost},
+	}
+
+	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
+		CredentialsTTL:       ttl,
+		Secret:               secret,
+		Turns:                []*Host{TurnTestHost},
+		TimeBasedCredentials: true,
 	}, rc)
 
-	credentials, _ := tested.Generate()
+	turnCredentials, err := tested.GenerateTurnToken()
+	require.NoError(t, err)
 
-	if credentials.Payload == "" {
+	if turnCredentials.Payload == "" {
 		t.Errorf("expected generated TURN username not to be empty, got empty")
 	}
-	if credentials.Signature == "" {
+	if turnCredentials.Signature == "" {
 		t.Errorf("expected generated TURN password not to be empty, got empty")
 	}
 
-	validateMAC(t, credentials.Payload, credentials.Signature, []byte(secret))
+	validateMAC(t, turnCredentials.Payload, turnCredentials.Signature, []byte(secret))
 
+	relayCredentials, err := tested.GenerateRelayToken()
+	require.NoError(t, err)
+
+	if relayCredentials.Payload == "" {
+		t.Errorf("expected generated relay payload not to be empty, got empty")
+	}
+	if relayCredentials.Signature == "" {
+		t.Errorf("expected generated relay signature not to be empty, got empty")
+	}
+
+	validateMAC(t, relayCredentials.Payload, relayCredentials.Signature, []byte(secret))
 }
 
 func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
@@ -53,25 +72,34 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	updateChannel := peersManager.CreateChannel(context.Background(), peer)
 
 	rc := &Relay{
-		Address: "localhost:0",
-	}
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
+		Addresses:      []string{"localhost:0"},
 		CredentialsTTL: ttl,
 		Secret:         secret,
-		Turns:          []*Host{TurnTestHost},
+	}
+	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
+		CredentialsTTL:       ttl,
+		Secret:               secret,
+		Turns:                []*Host{TurnTestHost},
+		TimeBasedCredentials: true,
 	}, rc)
 
-	tested.SetupRefresh(context.Background(), peer)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	if _, ok := tested.cancelMap[peer]; !ok {
-		t.Errorf("expecting peer to be present in a cancel map, got not present")
+	tested.SetupRefresh(ctx, peer)
+
+	if _, ok := tested.turnCancelMap[peer]; !ok {
+		t.Errorf("expecting peer to be present in the turn cancel map, got not present")
+	}
+
+	if _, ok := tested.relayCancelMap[peer]; !ok {
+		t.Errorf("expecting peer to be present in the relay cancel map, got not present")
 	}
 
 	var updates []*UpdateMessage
 
 loop:
 	for timeout := time.After(5 * time.Second); ; {
-
 		select {
 		case update := <-updateChannel:
 			updates = append(updates, update)
@@ -85,16 +113,50 @@ loop:
 	}
 
 	if len(updates) < 2 {
-		t.Errorf("expecting 2 peer credentials updates, got %v", len(updates))
+		t.Errorf("expecting at least 2 peer credentials updates, got %v", len(updates))
 	}
 
-	firstUpdate := updates[0].Update.GetWiretrusteeConfig().Turns[0]
-	secondUpdate := updates[1].Update.GetWiretrusteeConfig().Turns[0]
+	var turnUpdates, relayUpdates int
+	var firstTurnUpdate, secondTurnUpdate *proto.ProtectedHostConfig
+	var firstRelayUpdate, secondRelayUpdate *proto.RelayConfig
 
-	if firstUpdate.Password == secondUpdate.Password {
-		t.Errorf("expecting first credential update password %v to be diffeerent from second, got equal", firstUpdate.Password)
+	for _, update := range updates {
+		if turns := update.Update.GetWiretrusteeConfig().GetTurns(); len(turns) > 0 {
+			turnUpdates++
+			if turnUpdates == 1 {
+				firstTurnUpdate = turns[0]
+			} else {
+				secondTurnUpdate = turns[0]
+			}
+		}
+		if relay := update.Update.GetWiretrusteeConfig().GetRelay(); relay != nil {
+			relayUpdates++
+			if relayUpdates == 1 {
+				firstRelayUpdate = relay
+			} else {
+				secondRelayUpdate = relay
+			}
+		}
 	}
 
+	if turnUpdates < 1 {
+		t.Errorf("expecting at least 1 TURN credential update, got %v", turnUpdates)
+	}
+	if relayUpdates < 1 {
+		t.Errorf("expecting at least 1 relay credential update, got %v", relayUpdates)
+	}
+
+	if firstTurnUpdate != nil && secondTurnUpdate != nil {
+		if firstTurnUpdate.Password == secondTurnUpdate.Password {
+			t.Errorf("expecting first TURN credential update password %v to be different from second, got equal", firstTurnUpdate.Password)
+		}
+	}
+
+	if firstRelayUpdate != nil && secondRelayUpdate != nil {
+		if firstRelayUpdate.TokenSignature == secondRelayUpdate.TokenSignature {
+			t.Errorf("expecting first relay credential update signature %v to be different from second, got equal", firstRelayUpdate.TokenSignature)
+		}
+	}
 }
 
 func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
@@ -104,22 +166,31 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	peer := "some_peer"
 
 	rc := &Relay{
-		Address: "localhost:0",
-	}
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
+		Addresses:      []string{"localhost:0"},
 		CredentialsTTL: ttl,
 		Secret:         secret,
-		Turns:          []*Host{TurnTestHost},
+	}
+	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
+		CredentialsTTL:       ttl,
+		Secret:               secret,
+		Turns:                []*Host{TurnTestHost},
+		TimeBasedCredentials: true,
 	}, rc)
 
 	tested.SetupRefresh(context.Background(), peer)
-	if _, ok := tested.cancelMap[peer]; !ok {
-		t.Errorf("expecting peer to be present in a cancel map, got not present")
+	if _, ok := tested.turnCancelMap[peer]; !ok {
+		t.Errorf("expecting peer to be present in turn cancel map, got not present")
+	}
+	if _, ok := tested.relayCancelMap[peer]; !ok {
+		t.Errorf("expecting peer to be present in relay cancel map, got not present")
 	}
 
 	tested.CancelRefresh(peer)
-	if _, ok := tested.cancelMap[peer]; ok {
-		t.Errorf("expecting peer to be not present in a cancel map, got present")
+	if _, ok := tested.turnCancelMap[peer]; ok {
+		t.Errorf("expecting peer to be not present in turn cancel map, got present")
+	}
+	if _, ok := tested.relayCancelMap[peer]; ok {
+		t.Errorf("expecting peer to be not present in relay cancel map, got present")
 	}
 }
 
