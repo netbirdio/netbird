@@ -132,9 +132,13 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 		log.Debugf("failed to read message from: %s, %s", conn.RemoteAddr(), err)
 		return nil, err
 	}
-	msgType, err := messages.DetermineClientMsgType(buf[:n])
+	version, msgType, err := messages.DetermineMessageType(buf[:n])
 	if err != nil {
 		return nil, err
+	}
+
+	if version != messages.CurrentProtocolVersion {
+		return nil, fmt.Errorf("unsupported protocol version: %d", version)
 	}
 
 	if msgType != messages.MsgTypeHello {
@@ -143,7 +147,7 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 		return nil, tErr
 	}
 
-	peerID, authPayload, err := messages.UnmarshalHelloMsg(buf[:n])
+	_, peerID, authPayload, err := messages.UnmarshalHelloMsg(buf[:n])
 	if err != nil {
 		log.Debugf("failed to handshake with: %s, %s", conn.RemoteAddr(), err)
 		return nil, err
