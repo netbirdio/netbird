@@ -249,13 +249,13 @@ func (e *Engine) Stop() error {
 	e.clientRoutes = nil
 	e.clientRoutesMu.Unlock()
 
-	// very ugly but we want to remove peers from the WireGuard interface first before removing interface.
-	// Removing peers happens in the conn.Close() asynchronously
-	time.Sleep(500 * time.Millisecond)
-
 	if e.cancel != nil {
 		e.cancel()
 	}
+
+	// very ugly but we want to remove peers from the WireGuard interface first before removing interface.
+	// Removing peers happens in the conn.Close() asynchronously
+	time.Sleep(500 * time.Millisecond)
 
 	e.close()
 
