@@ -258,10 +258,14 @@ func (c *Client) handShake() error {
 		return err
 	}
 
-	msgType, err := messages.DetermineServerMsgType(buf[:n])
+	version, msgType, err := messages.DetermineMessageType(buf[:n])
 	if err != nil {
 		log.Errorf("failed to determine message type: %s", err)
 		return err
+	}
+
+	if version != messages.CurrentProtocolVersion {
+		return fmt.Errorf("unsupported protocol version: %d", version)
 	}
 
 	if msgType != messages.MsgTypeHelloResponse {
@@ -269,7 +273,7 @@ func (c *Client) handShake() error {
 		return fmt.Errorf("unexpected message type")
 	}
 
-	ia, err := messages.UnmarshalHelloResponse(buf[:n])
+	_, ia, err := messages.UnmarshalHelloResponse(buf[:n])
 	if err != nil {
 		return err
 	}
@@ -301,9 +305,16 @@ func (c *Client) readLoop(relayConn net.Conn) {
 			break
 		}
 
-		msgType, err := messages.DetermineServerMsgType(buf[:n])
+		version, msgType, err := messages.DetermineMessageType(buf[:n])
 		if err != nil {
 			c.log.Errorf("failed to determine message type: %s", err)
+			c.bufPool.Put(bufPtr)
+			continue
+		}
+
+		if version != messages.CurrentProtocolVersion {
+			c.log.Errorf("unsupported protocol version: %d", version)
+			c.bufPool.Put(bufPtr)
 			continue
 		}
 
@@ -324,6 +335,19 @@ func (c *Client) readLoop(relayConn net.Conn) {
 }
 
 func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte, hc *healthcheck.Receiver, internallyStoppedFlag *internalStopFlag) (continueLoop bool) {
+	version, msgType, err := messages.DetermineMessageType(buf)
+	if err != nil {
+		c.log.Errorf("failed to determine message type: %s", err)
+		c.bufPool.Put(bufPtr)
+		return true
+	}
+
+	if version != messages.CurrentProtocolVersion {
+		c.log.Errorf("unsupported protocol version: %d", version)
+		c.bufPool.Put(bufPtr)
+		return true
+	}
+
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
 		c.handleHealthCheck(hc, internallyStoppedFlag)
@@ -351,7 +375,7 @@ func (c *Client) handleHealthCheck(hc *healthcheck.Receiver, internallyStoppedFl
 }
 
 func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppedFlag *internalStopFlag) bool {
-	peerID, payload, err := messages.UnmarshalTransportMsg(buf)
+	version, peerID, payload, err := messages.UnmarshalTransportMsg(buf)
 	if err != nil {
 		if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
 			c.log.Errorf("failed to parse transport message: %v", err)
@@ -360,6 +384,13 @@ func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppe
 		c.bufPool.Put(bufPtr)
 		return true
 	}
+
+	if version != messages.CurrentProtocolVersion {
+		c.log.Errorf("unsupported protocol version: %d", version)
+		c.bufPool.Put(bufPtr)
+		return true
+	}
+
 	stringID := messages.HashIDToString(peerID)
 
 	c.mu.Lock()
