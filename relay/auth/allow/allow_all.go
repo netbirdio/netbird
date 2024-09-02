@@ -5,6 +5,6 @@ package allow
 type Auth struct {
 }
 
-func (a *Auth) Validate(any) error {
+func (a *Auth) Validate(func() hash.Hash, any) error {
 	return nil
 }

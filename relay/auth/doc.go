@@ -8,7 +8,7 @@ Validator.
 
 Methods:
 
-Validate(any): This method is defined in the Validator interface and is used to validate the authentication.
+Validate(func() hash.Hash, any): This method is defined in the Validator interface and is used to validate the authentication.
 
 Usage:
 
@@ -18,7 +18,7 @@ To create a new AllowAllAuth validator, simply instantiate it:
 
 To validate the authentication, use the Validate method:
 
-	err := validator.Validate(any)
+	err := validator.Validate(sha256.New, any)
 
 This package provides a simple and effective way to manage authentication with the relay server, ensuring that the
 peers are authenticated properly.

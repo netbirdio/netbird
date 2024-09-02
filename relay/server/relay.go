@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"net"
 	"net/url"
@@ -149,7 +150,7 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 		return nil, err
 	}
 
-	if err := r.validator.Validate(authPayload); err != nil {
+	if err := r.validator.Validate(sha256.New, authPayload); err != nil {
 		log.Debugf("failed to authenticate connection with: %s, %s", conn.RemoteAddr(), err)
 		return nil, err
 	}

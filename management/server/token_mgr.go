@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha1"
+	"crypto/sha256"
 	"fmt"
 	"sync"
 	"time"
@@ -58,7 +60,7 @@ func (m *TimeBasedAuthSecretsManager) GenerateTurnToken() (*Token, error) {
 	if m.turnHmacToken == nil {
 		return nil, fmt.Errorf("TURN configuration is not set")
 	}
-	turnToken, err := m.turnHmacToken.GenerateToken()
+	turnToken, err := m.turnHmacToken.GenerateToken(sha1.New)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate TURN token: %s", err)
 	}
@@ -70,7 +72,7 @@ func (m *TimeBasedAuthSecretsManager) GenerateRelayToken() (*Token, error) {
 	if m.relayHmacToken == nil {
 		return nil, fmt.Errorf("relay configuration is not set")
 	}
-	relayToken, err := m.relayHmacToken.GenerateToken()
+	relayToken, err := m.relayHmacToken.GenerateToken(sha256.New)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate relay token: %s", err)
 	}
@@ -153,9 +155,9 @@ func (m *TimeBasedAuthSecretsManager) refreshRelayTokens(ctx context.Context, pe
 }
 
 func (m *TimeBasedAuthSecretsManager) pushNewTURNTokens(ctx context.Context, peerID string) {
-	turnToken, err := m.turnHmacToken.GenerateToken()
+	turnToken, err := m.turnHmacToken.GenerateToken(sha1.New)
 	if err != nil {
-		log.Errorf("failed to generate TURN token for peer '%s': %s", peerID, err)
+		log.Errorf("failed to generate token for peer '%s': %s", peerID, err)
 		return
 	}
 
@@ -184,7 +186,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNTokens(ctx context.Context, pee
 }
 
 func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, peerID string) {
-	relayToken, err := m.relayHmacToken.GenerateToken()
+	relayToken, err := m.relayHmacToken.GenerateToken(sha256.New)
 	if err != nil {
 		log.Errorf("failed to generate relay token for peer '%s': %s", peerID, err)
 		return

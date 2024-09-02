@@ -1,6 +1,7 @@
 package hmac
 
 import (
+	"crypto/sha1"
 	"encoding/base64"
 	"strconv"
 	"testing"
@@ -12,7 +13,7 @@ func TestGenerateCredentials(t *testing.T) {
 	timeToLive := 1 * time.Hour
 	v := NewTimedHMAC(secret, timeToLive)
 
-	creds, err := v.GenerateToken()
+	creds, err := v.GenerateToken(sha1.New)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -38,12 +39,12 @@ func TestValidateCredentials(t *testing.T) {
 	manager := NewTimedHMAC(secret, timeToLive)
 
 	// Test valid token
-	creds, err := manager.GenerateToken()
+	creds, err := manager.GenerateToken(sha1.New)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	if err := manager.Validate(*creds); err != nil {
+	if err := manager.Validate(sha1.New, *creds); err != nil {
 		t.Fatalf("expected valid token: %s", err)
 	}
 }
@@ -63,7 +64,7 @@ func TestInvalidSignature(t *testing.T) {
 		Signature: "invalidsignature",
 	}
 
-	if err = manager.Validate(*invalidCreds); err == nil {
+	if err = manager.Validate(sha1.New, *invalidCreds); err == nil {
 		t.Fatalf("expected invalid token due to signature mismatch")
 	}
 }
@@ -76,7 +77,7 @@ func TestExpired(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	if err = v.Validate(*expiredCreds); err == nil {
+	if err = v.Validate(sha1.New, *expiredCreds); err == nil {
 		t.Fatalf("expected invalid token due to expiration")
 	}
 }
@@ -97,7 +98,7 @@ func TestInvalidPayload(t *testing.T) {
 		Signature: creds.Signature,
 	}
 
-	if err = v.Validate(*invalidPayloadCreds); err == nil {
+	if err = v.Validate(sha1.New, *invalidPayloadCreds); err == nil {
 		t.Fatalf("expected invalid token due to invalid payload")
 	}
 }

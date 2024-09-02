@@ -3,10 +3,10 @@ package hmac
 import (
 	"bytes"
 	"crypto/hmac"
-	"crypto/sha1"
 	"encoding/base64"
 	"encoding/gob"
 	"fmt"
+	"hash"
 	"strconv"
 	"time"
 
@@ -53,11 +53,11 @@ func NewTimedHMAC(secret string, timeToLive time.Duration) *TimedHMAC {
 
 // GenerateToken generates new time-based secret token - basically Payload is a unix timestamp and Signature is a HMAC
 // hash of a timestamp with a preshared TURN secret
-func (m *TimedHMAC) GenerateToken() (*Token, error) {
+func (m *TimedHMAC) GenerateToken(algo func() hash.Hash) (*Token, error) {
 	timeAuth := time.Now().Add(m.timeToLive).Unix()
 	timeStamp := strconv.FormatInt(timeAuth, 10)
 
-	checksum, err := m.generate(timeStamp)
+	checksum, err := m.generate(algo, timeStamp)
 	if err != nil {
 		return nil, err
 	}
@@ -69,8 +69,8 @@ func (m *TimedHMAC) GenerateToken() (*Token, error) {
 }
 
 // Validate checks if the token is valid
-func (m *TimedHMAC) Validate(token Token) error {
-	expectedMAC, err := m.generate(token.Payload)
+func (m *TimedHMAC) Validate(algo func() hash.Hash, token Token) error {
+	expectedMAC, err := m.generate(algo, token.Payload)
 	if err != nil {
 		return err
 	}
@@ -93,8 +93,8 @@ func (m *TimedHMAC) Validate(token Token) error {
 	return nil
 }
 
-func (m *TimedHMAC) generate(payload string) ([]byte, error) {
-	mac := hmac.New(sha1.New, []byte(m.secret))
+func (m *TimedHMAC) generate(algo func() hash.Hash, payload string) ([]byte, error) {
+	mac := hmac.New(algo, []byte(m.secret))
 	_, err := mac.Write([]byte(payload))
 	if err != nil {
 		log.Debugf("failed to generate token: %s", err)
