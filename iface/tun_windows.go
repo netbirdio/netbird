@@ -59,7 +59,7 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 	log.Info("create tun interface")
 	tunDevice, err := tun.CreateTUNWithRequestedGUID(t.name, &guid, t.mtu)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error creating tun device: %s", err)
 	}
 	t.nativeTunDevice = tunDevice.(*tun.NativeTun)
 	t.wrapper = newDeviceWrapper(tunDevice)
@@ -89,7 +89,7 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 	err = t.assignAddr()
 	if err != nil {
 		t.device.Close()
-		return nil, err
+		return nil, fmt.Errorf("error assigning ip: %s", err)
 	}
 
 	t.configurer = newWGUSPConfigurer(t.device, t.name)
@@ -97,7 +97,7 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 	if err != nil {
 		t.device.Close()
 		t.configurer.close()
-		return nil, err
+		return nil, fmt.Errorf("error configuring interface: %s", err)
 	}
 	return t.configurer, nil
 }
