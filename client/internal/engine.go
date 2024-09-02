@@ -253,11 +253,11 @@ func (e *Engine) Stop() error {
 	// Removing peers happens in the conn.Close() asynchronously
 	time.Sleep(500 * time.Millisecond)
 
-	e.close()
-
 	if e.cancel != nil {
 		e.cancel()
 	}
+
+	e.close()
 
 	e.wgConnWorker.Wait()
 
