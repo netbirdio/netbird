@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/kardianos/service"
 	log "github.com/sirupsen/logrus"
@@ -61,6 +60,8 @@ func (p *program) Start(svc service.Service) error {
 		}
 		proto.RegisterDaemonServiceServer(p.serv, serverInstance)
 
+		p.serverInstance = serverInstance
+
 		log.Printf("started daemon server: %v", split[1])
 		if err := p.serv.Serve(listen); err != nil {
 			log.Errorf("failed to serve daemon requests: %v", err)
@@ -70,13 +71,20 @@ func (p *program) Start(svc service.Service) error {
 }
 
 func (p *program) Stop(srv service.Service) error {
+	if p.serverInstance != nil {
+		in := new(proto.DownRequest)
+		_, err := p.serverInstance.Down(p.ctx, in)
+		if err != nil {
+			return err
+		}
+	}
+
 	p.cancel()
 
 	if p.serv != nil {
 		p.serv.Stop()
 	}
 
-	time.Sleep(time.Second * 2)
 	log.Info("stopped Netbird service") //nolint
 	return nil
 }
