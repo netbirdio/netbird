@@ -70,7 +70,7 @@ func (t *tunKernelDevice) Create() (wgConfigurer, error) {
 	configurer := newWGConfigurer(t.name)
 
 	if err := configurer.configureInterface(t.key, t.wgPort); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error configuring interface: %s", err)
 	}
 
 	return configurer, nil
