@@ -68,17 +68,11 @@ func (p *Peer) Work() {
 
 		msg := buf[:n]
 
-		version, msgType, err := messages.DetermineMessageType(msg)
+		msgType, err := messages.DetermineClientMsgType(msg)
 		if err != nil {
 			p.log.Errorf("failed to determine message type: %s", err)
 			return
 		}
-
-		if version != messages.CurrentProtocolVersion {
-			// For now, we'll continue processing the message, but log a warning
-			p.log.Warnf("received message with unexpected version: %d, type: %s", version, msgType)
-		}
-
 		switch msgType {
 		case messages.MsgTypeHealthCheck:
 			hc.OnHCResponse()
@@ -93,8 +87,6 @@ func (p *Peer) Work() {
 				log.Errorf("failed to close connection to peer: %s", err)
 			}
 			return
-		default:
-			p.log.Warnf("received unexpected message type: %s", msgType)
 		}
 	}
 }
@@ -170,30 +162,22 @@ func (p *Peer) healthcheck(ctx context.Context, hc *healthcheck.Sender) {
 }
 
 func (p *Peer) handleTransportMsg(msg []byte) {
-	version, peerID, err := messages.UnmarshalTransportID(msg)
+	peerID, err := messages.UnmarshalTransportID(msg)
 	if err != nil {
 		p.log.Errorf("failed to unmarshal transport message: %s", err)
 		return
 	}
-
-	if version != messages.CurrentProtocolVersion {
-		// For now, we'll continue processing the message, but log a warning
-		p.log.Warnf("received transport message with unexpected version: %d", version)
-	}
-
 	stringPeerID := messages.HashIDToString(peerID)
 	dp, ok := p.store.Peer(stringPeerID)
 	if !ok {
 		p.log.Errorf("peer not found: %s", stringPeerID)
 		return
 	}
-
 	err = messages.UpdateTransportMsg(msg, p.idB)
 	if err != nil {
 		p.log.Errorf("failed to update transport message: %s", err)
 		return
 	}
-
 	n, err := dp.Write(msg)
 	if err != nil {
 		p.log.Errorf("failed to write transport message to: %s", dp.String())
