@@ -12,7 +12,7 @@ import (
 )
 
 func TestEmptyURL(t *testing.T) {
-	mgr := NewManager(context.Background(), "", "alice")
+	mgr := NewManager(context.Background(), nil, "alice")
 	err := mgr.Serve()
 	if err == nil {
 		t.Errorf("expected error, got nil")
@@ -195,7 +195,7 @@ func TestForeginConnClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
-	conn, err := mgr.OpenConn(toURL(srvCfg2), "anotherpeer")
+	conn, err := mgr.OpenConn(toURL(srvCfg2)[0], "anotherpeer")
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -277,7 +277,7 @@ func TestForeginAutoClose(t *testing.T) {
 	}
 
 	t.Log("open connection to another peer")
-	conn, err := mgr.OpenConn(toURL(srvCfg2), "anotherpeer")
+	conn, err := mgr.OpenConn(toURL(srvCfg2)[0], "anotherpeer")
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -401,7 +401,7 @@ func TestNotifierDoubleAdd(t *testing.T) {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
 
-	conn1, err := clientAlice.OpenConn(clientAlice.ServerURL(), "idBob")
+	conn1, err := clientAlice.OpenConn(clientAlice.ServerURLs()[0], "idBob")
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -410,12 +410,12 @@ func TestNotifierDoubleAdd(t *testing.T) {
 		log.Infof("close listener")
 	})
 
-	err = clientAlice.AddCloseListener(clientAlice.ServerURL(), fnCloseListener)
+	err = clientAlice.AddCloseListener(clientAlice.ServerURLs()[0], fnCloseListener)
 	if err != nil {
 		t.Fatalf("failed to add close listener: %s", err)
 	}
 
-	err = clientAlice.AddCloseListener(clientAlice.ServerURL(), fnCloseListener)
+	err = clientAlice.AddCloseListener(clientAlice.ServerURLs()[0], fnCloseListener)
 	if err != nil {
 		t.Fatalf("failed to add close listener: %s", err)
 	}
@@ -427,6 +427,6 @@ func TestNotifierDoubleAdd(t *testing.T) {
 
 }
 
-func toURL(address server.ListenerConfig) string {
-	return "rel://" + address.Address
+func toURL(address server.ListenerConfig) []string {
+	return []string{"rel://" + address.Address}
 }

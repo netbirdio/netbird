@@ -16,8 +16,10 @@ import (
 
 var (
 	relayCleanupInterval = 60 * time.Second
+	connectionTimeout    = 30 * time.Second
+	maxConcurrentServers = 7
 
-	errRelayClientNotConnected = fmt.Errorf("relay client not connected")
+	ErrRelayClientNotConnected = fmt.Errorf("relay client not connected")
 )
 
 // RelayTrack hold the relay clients for the foreign relay servers.
@@ -40,7 +42,7 @@ type ManagerService interface {
 	OpenConn(serverAddress, peerKey string) (net.Conn, error)
 	AddCloseListener(serverAddress string, onClosedListener OnServerCloseListener) error
 	RelayInstanceAddress() (string, error)
-	ServerURL() string
+	ServerURLs() []string
 	HasRelayAddress() bool
 	UpdateToken(token *relayAuth.Token) error
 }
@@ -53,7 +55,7 @@ type ManagerService interface {
 // unused relay connection and close it.
 type Manager struct {
 	ctx        context.Context
-	serverURL  string
+	serverURLs []string
 	peerID     string
 	tokenStore *relayAuth.TokenStore
 
@@ -69,10 +71,10 @@ type Manager struct {
 
 // NewManager creates a new manager instance.
 // The serverURL address can be empty. In this case, the manager will not serve.
-func NewManager(ctx context.Context, serverURL string, peerID string) *Manager {
+func NewManager(ctx context.Context, serverURLs []string, peerID string) *Manager {
 	return &Manager{
 		ctx:                     ctx,
-		serverURL:               serverURL,
+		serverURLs:              serverURLs,
 		peerID:                  peerID,
 		tokenStore:              &relayAuth.TokenStore{},
 		relayClients:            make(map[string]*RelayTrack),
@@ -86,21 +88,57 @@ func (m *Manager) Serve() error {
 	if m.relayClient != nil {
 		return fmt.Errorf("manager already serving")
 	}
+	log.Debugf("starting relay client manager with %v relay servers", m.serverURLs)
 
-	m.relayClient = NewClient(m.ctx, m.serverURL, m.tokenStore, m.peerID)
-	err := m.relayClient.Connect()
-	if err != nil {
-		log.Errorf("failed to connect to relay server: %s", err)
-		return err
+	successChan := make(chan *Client, 1)
+
+	ctx, cancel := context.WithTimeout(m.ctx, connectionTimeout)
+	defer cancel()
+
+	sem := make(chan struct{}, maxConcurrentServers)
+
+	for _, url := range m.serverURLs {
+		sem <- struct{}{}
+		go func(url string) {
+			defer func() { <-sem }()
+			m.connect(ctx, url, successChan)
+		}(url)
 	}
 
-	m.reconnectGuard = NewGuard(m.ctx, m.relayClient)
-	m.relayClient.SetOnDisconnectListener(func() {
-		m.onServerDisconnected(m.serverURL)
-	})
-	m.startCleanupLoop()
+	// Wait for the first successful connection or all attempts to fail
+	select {
+	case client := <-successChan:
+		log.Infof("Successfully connected to relay server: %s", client.connectionURL)
+
+		m.relayClient = client
+
+		m.reconnectGuard = NewGuard(m.ctx, m.relayClient)
+		m.relayClient.SetOnDisconnectListener(func() {
+			m.onServerDisconnected(client.connectionURL)
+		})
+		m.startCleanupLoop()
+	case <-ctx.Done():
+		return fmt.Errorf("failed to connect to any relay server: %w", ctx.Err())
+	}
 
 	return nil
+}
+
+func (m *Manager) connect(ctx context.Context, serverURL string, successChan chan<- *Client) {
+	relayClient := NewClient(ctx, serverURL, m.tokenStore, m.peerID)
+	if err := relayClient.Connect(); err != nil {
+		log.Errorf("failed to connect to relay server %s: %s", serverURL, err)
+		return
+	}
+
+	select {
+	case successChan <- relayClient:
+		// This client was the first to connect successfully
+	default:
+		if err := relayClient.Close(); err != nil {
+			log.Debugf("failed to close relay client: %s", err)
+		}
+	}
 }
 
 // OpenConn opens a connection to the given peer key. If the peer is on the same relay server, the connection will be
@@ -108,7 +146,7 @@ func (m *Manager) Serve() error {
 // connection to the relay server. It returns back with a net.Conn what represent the remote peer connection.
 func (m *Manager) OpenConn(serverAddress, peerKey string) (net.Conn, error) {
 	if m.relayClient == nil {
-		return nil, errRelayClientNotConnected
+		return nil, ErrRelayClientNotConnected
 	}
 
 	foreign, err := m.isForeignServer(serverAddress)
@@ -145,7 +183,7 @@ func (m *Manager) AddCloseListener(serverAddress string, onClosedListener OnServ
 	if foreign {
 		listenerAddr = serverAddress
 	} else {
-		listenerAddr = m.serverURL
+		listenerAddr = m.relayClient.connectionURL
 	}
 	m.addListener(listenerAddr, onClosedListener)
 	return nil
@@ -155,20 +193,20 @@ func (m *Manager) AddCloseListener(serverAddress string, onClosedListener OnServ
 // lost. This address will be sent to the target peer to choose the common relay server for the communication.
 func (m *Manager) RelayInstanceAddress() (string, error) {
 	if m.relayClient == nil {
-		return "", errRelayClientNotConnected
+		return "", ErrRelayClientNotConnected
 	}
 	return m.relayClient.ServerInstanceURL()
 }
 
-// ServerURL returns the address of the permanent relay server.
-func (m *Manager) ServerURL() string {
-	return m.serverURL
+// ServerURLs returns the addresses of the relay servers.
+func (m *Manager) ServerURLs() []string {
+	return m.serverURLs
 }
 
 // HasRelayAddress returns true if the manager is serving. With this method can check if the peer can communicate with
 // Relay service.
 func (m *Manager) HasRelayAddress() bool {
-	return m.serverURL != ""
+	return len(m.serverURLs) > 0
 }
 
 // UpdateToken updates the token in the token store.
@@ -229,7 +267,7 @@ func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
 }
 
 func (m *Manager) onServerDisconnected(serverAddress string) {
-	if serverAddress == m.serverURL {
+	if serverAddress == m.relayClient.connectionURL {
 		go m.reconnectGuard.OnDisconnected()
 	}
 
