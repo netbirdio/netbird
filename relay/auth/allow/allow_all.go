@@ -1,5 +1,7 @@
 package allow
 
+import "hash"
+
 // Auth is a Validator that allows all connections.
 // Used this for testing purposes only.
 type Auth struct {

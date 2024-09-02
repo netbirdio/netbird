@@ -2,6 +2,7 @@ package hmac
 
 import (
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/base64"
 	"strconv"
 	"testing"
@@ -54,7 +55,7 @@ func TestInvalidSignature(t *testing.T) {
 	timeToLive := 1 * time.Hour
 	manager := NewTimedHMAC(secret, timeToLive)
 
-	creds, err := manager.GenerateToken()
+	creds, err := manager.GenerateToken(sha256.New)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -72,7 +73,7 @@ func TestInvalidSignature(t *testing.T) {
 func TestExpired(t *testing.T) {
 	secret := "supersecret"
 	v := NewTimedHMAC(secret, -1*time.Hour)
-	expiredCreds, err := v.GenerateToken()
+	expiredCreds, err := v.GenerateToken(sha256.New)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -87,7 +88,7 @@ func TestInvalidPayload(t *testing.T) {
 	timeToLive := 1 * time.Hour
 	v := NewTimedHMAC(secret, timeToLive)
 
-	creds, err := v.GenerateToken()
+	creds, err := v.GenerateToken(sha256.New)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
