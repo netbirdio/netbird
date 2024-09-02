@@ -18,7 +18,31 @@ concurrency:
 jobs:
   test-docker-compose:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        store: [ 'sqlite', 'postgres' ]
+    services:
+      postgres:
+        image: ${{ (matrix.store == 'postgres') && 'postgres' || '' }}
+        env:
+          POSTGRES_USER: netbird
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: netbird
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+        ports:
+          - 5432:5432
     steps:
+      - name: Set Database Connection String
+        run: |
+          if [ "${{ matrix.store }}" == "postgres" ]; then
+            echo "NETBIRD_STORE_ENGINE_POSTGRES_DSN=host=$(hostname -I | awk '{print $1}') user=netbird password=postgres dbname=netbird port=5432" >> $GITHUB_ENV
+          else
+            echo "NETBIRD_STORE_ENGINE_POSTGRES_DSN==" >> $GITHUB_ENV
+          fi
+
       - name: Install jq
         run: sudo apt-get install -y jq
 
@@ -58,7 +82,8 @@ jobs:
           CI_NETBIRD_IDP_MGMT_CLIENT_ID: testing.client.id
           CI_NETBIRD_IDP_MGMT_CLIENT_SECRET: testing.client.secret
           CI_NETBIRD_AUTH_SUPPORTED_SCOPES: "openid profile email offline_access api email_verified"
-          CI_NETBIRD_STORE_CONFIG_ENGINE: "sqlite"
+          CI_NETBIRD_STORE_CONFIG_ENGINE: ${{ matrix.store }}
+          NETBIRD_STORE_ENGINE_POSTGRES_DSN: ${{ env.NETBIRD_STORE_ENGINE_POSTGRES_DSN }}
           CI_NETBIRD_MGMT_IDP_SIGNKEY_REFRESH: false
 
       - name: check values
@@ -85,7 +110,8 @@ jobs:
           CI_NETBIRD_IDP_MGMT_CLIENT_ID: testing.client.id
           CI_NETBIRD_IDP_MGMT_CLIENT_SECRET: testing.client.secret
           CI_NETBIRD_SIGNAL_PORT: 12345
-          CI_NETBIRD_STORE_CONFIG_ENGINE: "sqlite"
+          CI_NETBIRD_STORE_CONFIG_ENGINE: ${{ matrix.store }}
+          NETBIRD_STORE_ENGINE_POSTGRES_DSN: '${{ env.NETBIRD_STORE_ENGINE_POSTGRES_DSN }}$'
           CI_NETBIRD_MGMT_IDP_SIGNKEY_REFRESH: false
           CI_NETBIRD_TURN_EXTERNAL_IP: "1.2.3.4"
 
@@ -123,6 +149,7 @@ jobs:
           grep -A 10 PKCEAuthorizationFlow management.json | grep -A 10 ProviderConfig | grep Scope | grep "$CI_NETBIRD_AUTH_SUPPORTED_SCOPES"
           grep -A 10 PKCEAuthorizationFlow management.json | grep -A 10 ProviderConfig | grep -A 3 RedirectURLs | grep "http://localhost:53000"
           grep "external-ip" turnserver.conf | grep $CI_NETBIRD_TURN_EXTERNAL_IP
+          grep NETBIRD_STORE_ENGINE_POSTGRES_DSN docker-compose.yml | egrep "$NETBIRD_STORE_ENGINE_POSTGRES_DSN"
 
       - name: Install modules
         run: go mod tidy
@@ -159,7 +186,7 @@ jobs:
       - name: test running containers
         run: |
           count=$(docker compose ps --format json | jq '. | select(.Name | contains("artifacts")) | .State' | grep -c running)
-          test $count -eq 4
+          test $count -eq 4 || docker compose logs
         working-directory: infrastructure_files/artifacts
 
       - name: test geolocation databases

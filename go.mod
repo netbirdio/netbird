@@ -58,6 +58,7 @@ require (
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/nadoo/ipset v0.5.0
 	github.com/netbirdio/management-integrations/integrations v0.0.0-20240703085513-32605f7ffd8e
+	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20240820130728-bc0683599080
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
@@ -115,7 +116,7 @@ require (
 	github.com/dgraph-io/ristretto v0.1.1 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/distribution/reference v0.6.0 // indirect
-	github.com/docker/docker v26.1.4+incompatible // indirect
+	github.com/docker/docker v26.1.5+incompatible // indirect
 	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
