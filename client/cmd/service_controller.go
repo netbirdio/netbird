@@ -76,7 +76,7 @@ func (p *program) Stop(srv service.Service) error {
 		in := new(proto.DownRequest)
 		_, err := p.serverInstance.Down(p.ctx, in)
 		if err != nil {
-			return err
+			log.Errorf("failed to stop daemon: %v", err)
 		}
 	}
 
