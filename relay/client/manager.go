@@ -101,7 +101,7 @@ func (m *Manager) Serve() error {
 		sem <- struct{}{}
 		go func(url string) {
 			defer func() { <-sem }()
-			m.connect(ctx, url, successChan)
+			m.connect(m.ctx, url, successChan)
 		}(url)
 	}
 
@@ -125,6 +125,7 @@ func (m *Manager) Serve() error {
 }
 
 func (m *Manager) connect(ctx context.Context, serverURL string, successChan chan<- *Client) {
+	// TODO: abort the connection if another connection was successful
 	relayClient := NewClient(ctx, serverURL, m.tokenStore, m.peerID)
 	if err := relayClient.Connect(); err != nil {
 		log.Errorf("failed to connect to relay server %s: %s", serverURL, err)
