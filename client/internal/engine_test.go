@@ -1075,6 +1075,11 @@ func startManagement(t *testing.T, dataDir string) (*grpc.Server, string, error)
 	config := &server.Config{
 		Stuns:      []*server.Host{},
 		TURNConfig: &server.TURNConfig{},
+		Relay: &server.Relay{
+			Addresses:      []string{"127.0.0.1:1234"},
+			CredentialsTTL: util.Duration{Duration: time.Hour},
+			Secret:         "222222222222222222",
+		},
 		Signal: &server.Host{
 			Proto: "http",
 			URI:   "localhost:10000",
@@ -1110,10 +1115,7 @@ func startManagement(t *testing.T, dataDir string) (*grpc.Server, string, error)
 		return nil, "", err
 	}
 
-	rc := config.Relay
-	rc.Addresses = []string{"127.0.0.1:1234"}
-
-	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, rc)
+	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
 	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, peersUpdateManager, secretsManager, nil, nil)
 	if err != nil {
 		return nil, "", err
