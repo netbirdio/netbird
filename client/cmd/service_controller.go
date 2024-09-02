@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/kardianos/service"
 	log "github.com/sirupsen/logrus"
@@ -85,6 +86,7 @@ func (p *program) Stop(srv service.Service) error {
 		p.serv.Stop()
 	}
 
+	time.Sleep(time.Second * 2)
 	log.Info("stopped Netbird service") //nolint
 	return nil
 }
