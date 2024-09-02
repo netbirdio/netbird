@@ -3,6 +3,7 @@
 package iface
 
 import (
+	"fmt"
 	"os/exec"
 
 	"github.com/pion/transport/v3"
@@ -41,7 +42,7 @@ func newTunDevice(name string, address WGAddress, port int, key string, mtu int,
 func (t *tunDevice) Create() (wgConfigurer, error) {
 	tunDevice, err := tun.CreateTUN(t.name, t.mtu)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error creating tun device: %s", err)
 	}
 	t.wrapper = newDeviceWrapper(tunDevice)
 
@@ -55,7 +56,7 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 	err = t.assignAddr()
 	if err != nil {
 		t.device.Close()
-		return nil, err
+		return nil, fmt.Errorf("error assigning ip: %s", err)
 	}
 
 	t.configurer = newWGUSPConfigurer(t.device, t.name)
@@ -63,7 +64,7 @@ func (t *tunDevice) Create() (wgConfigurer, error) {
 	if err != nil {
 		t.device.Close()
 		t.configurer.close()
-		return nil, err
+		return nil, fmt.Errorf("error configuring interface: %s", err)
 	}
 	return t.configurer, nil
 }
