@@ -131,14 +131,14 @@ func MarshalHelloMsg(peerID []byte, additions []byte) ([]byte, error) {
 
 // UnmarshalHelloMsg extracts the version, peerID and the additional data from the hello message. The Additional data is used to
 // authenticate the client with the server.
-func UnmarshalHelloMsg(msg []byte) (byte, []byte, []byte, error) {
+func UnmarshalHelloMsg(msg []byte) ([]byte, []byte, error) {
 	if len(msg) < headerSizeHello {
-		return 0, nil, nil, fmt.Errorf("invalid 'hello' message")
+		return nil, nil, fmt.Errorf("invalid 'hello' message")
 	}
 	if !bytes.Equal(msg[2:6], magicHeader) {
-		return 0, nil, nil, fmt.Errorf("invalid magic header")
+		return nil, nil, fmt.Errorf("invalid magic header")
 	}
-	return msg[0], msg[6 : 6+IDSize], msg[headerSizeHello:], nil
+	return msg[6 : 6+IDSize], msg[headerSizeHello:], nil
 }
 
 // MarshalHelloResponse creates a response message to the hello message.
@@ -210,12 +210,12 @@ func MarshalTransportMsg(peerID []byte, payload []byte) ([]byte, error) {
 }
 
 // UnmarshalTransportMsg extracts the version, peerID and the payload from the transport message.
-func UnmarshalTransportMsg(buf []byte) (byte, []byte, []byte, error) {
+func UnmarshalTransportMsg(buf []byte) ([]byte, []byte, error) {
 	if len(buf) < headerSizeTransport {
-		return 0, nil, nil, ErrInvalidMessageLength
+		return nil, nil, ErrInvalidMessageLength
 	}
 
-	return buf[0], buf[2:headerSizeTransport], buf[headerSizeTransport:], nil
+	return buf[2:headerSizeTransport], buf[headerSizeTransport:], nil
 }
 
 // UnmarshalTransportID extracts the version and peerID from the transport message.

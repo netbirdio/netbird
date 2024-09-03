@@ -147,7 +147,7 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 		return nil, fmt.Errorf("invalid message type from %s", conn.RemoteAddr())
 	}
 
-	_, peerID, authPayload, err := messages.UnmarshalHelloMsg(buf[:n])
+	peerID, authPayload, err := messages.UnmarshalHelloMsg(buf[:n])
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal hello message: %w", err)
 	}

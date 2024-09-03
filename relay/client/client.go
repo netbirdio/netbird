@@ -366,18 +366,12 @@ func (c *Client) handleHealthCheck(hc *healthcheck.Receiver, internallyStoppedFl
 }
 
 func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppedFlag *internalStopFlag) bool {
-	version, peerID, payload, err := messages.UnmarshalTransportMsg(buf)
+	peerID, payload, err := messages.UnmarshalTransportMsg(buf)
 	if err != nil {
 		if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
 			c.log.Errorf("failed to parse transport message: %v", err)
 		}
 
-		c.bufPool.Put(bufPtr)
-		return true
-	}
-
-	if version != messages.CurrentProtocolVersion {
-		c.log.Errorf(errUnsupportedProtocolVersion, version)
 		c.bufPool.Put(bufPtr)
 		return true
 	}

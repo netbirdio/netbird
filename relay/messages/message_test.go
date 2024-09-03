@@ -11,7 +11,7 @@ func TestMarshalHelloMsg(t *testing.T) {
 		t.Fatalf("error: %v", err)
 	}
 
-	_, receivedPeerID, _, err := UnmarshalHelloMsg(bHello)
+	receivedPeerID, _, err := UnmarshalHelloMsg(bHello)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestMarshalTransportMsg(t *testing.T) {
 		t.Fatalf("error: %v", err)
 	}
 
-	_, id, respPayload, err := UnmarshalTransportMsg(msg)
+	id, respPayload, err := UnmarshalTransportMsg(msg)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
