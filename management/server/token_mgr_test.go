@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/base64"
+	"hash"
 	"testing"
 	"time"
 
@@ -49,7 +51,7 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 		t.Errorf("expected generated TURN password not to be empty, got empty")
 	}
 
-	validateMAC(t, turnCredentials.Payload, turnCredentials.Signature, []byte(secret))
+	validateMAC(sha1.New, t, turnCredentials.Payload, turnCredentials.Signature, []byte(secret))
 
 	relayCredentials, err := tested.GenerateRelayToken()
 	require.NoError(t, err)
@@ -61,7 +63,7 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 		t.Errorf("expected generated relay signature not to be empty, got empty")
 	}
 
-	validateMAC(t, relayCredentials.Payload, relayCredentials.Signature, []byte(secret))
+	validateMAC(sha256.New, t, relayCredentials.Payload, relayCredentials.Signature, []byte(secret))
 }
 
 func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
@@ -194,9 +196,9 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	}
 }
 
-func validateMAC(t *testing.T, username string, actualMAC string, key []byte) {
+func validateMAC(algo func() hash.Hash, t *testing.T, username string, actualMAC string, key []byte) {
 	t.Helper()
-	mac := hmac.New(sha1.New, key)
+	mac := hmac.New(algo, key)
 
 	_, err := mac.Write([]byte(username))
 	if err != nil {
