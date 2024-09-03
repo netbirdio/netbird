@@ -68,7 +68,7 @@ func (p *Peer) Work() {
 
 		msg := buf[:n]
 
-		version, msgType, err := messages.DetermineMessageType(msg)
+		version, msgType, err := messages.DetermineClientMessageType(msg)
 		if err != nil {
 			p.log.Errorf("failed to determine message type: %s", err)
 			return

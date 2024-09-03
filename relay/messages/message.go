@@ -59,8 +59,8 @@ type HelloResponse struct {
 	InstanceAddress string
 }
 
-// DetermineMessageType determines the message type and version from the first two bytes of the message
-func DetermineMessageType(msg []byte) (byte, MsgType, error) {
+// DetermineClientMessageType determines the message type and version from the first two bytes of the message
+func DetermineClientMessageType(msg []byte) (byte, MsgType, error) {
 	if len(msg) < 2 {
 		return 0, 0, fmt.Errorf("invalid message length")
 	}
@@ -75,7 +75,27 @@ func DetermineMessageType(msg []byte) (byte, MsgType, error) {
 		MsgTypeHealthCheck:
 		return version, msgType, nil
 	default:
-		return version, 0, fmt.Errorf("invalid msg type, len: %d", len(msg))
+		return version, 0, fmt.Errorf("invalid msg type %d, len: %d", msgType, len(msg))
+	}
+}
+
+// DetermineServerMessageType determines the message type and version from the first two bytes of the message
+func DetermineServerMessageType(msg []byte) (byte, MsgType, error) {
+	if len(msg) < 2 {
+		return 0, 0, fmt.Errorf("invalid message length")
+	}
+	version := msg[0]
+
+	msgType := MsgType(msg[1])
+	switch msgType {
+	case
+		MsgTypeHelloResponse,
+		MsgTypeTransport,
+		MsgTypeClose,
+		MsgTypeHealthCheck:
+		return version, msgType, nil
+	default:
+		return version, 0, fmt.Errorf("invalid msg type %d, len: %d", msgType, len(msg))
 	}
 }
 

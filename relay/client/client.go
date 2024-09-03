@@ -260,7 +260,7 @@ func (c *Client) handShake() error {
 		return err
 	}
 
-	version, msgType, err := messages.DetermineMessageType(buf[:n])
+	version, msgType, err := messages.DetermineServerMessageType(buf[:n])
 	if err != nil {
 		log.Errorf("failed to determine message type: %s", err)
 		return err
@@ -307,7 +307,7 @@ func (c *Client) readLoop(relayConn net.Conn) {
 			break
 		}
 
-		version, msgType, err := messages.DetermineMessageType(buf[:n])
+		version, msgType, err := messages.DetermineServerMessageType(buf[:n])
 		if err != nil {
 			c.log.Errorf("failed to determine message type: %s", err)
 			c.bufPool.Put(bufPtr)

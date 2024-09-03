@@ -132,7 +132,7 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 		log.Debugf("failed to read message from: %s, %s", conn.RemoteAddr(), err)
 		return nil, err
 	}
-	version, msgType, err := messages.DetermineMessageType(buf[:n])
+	version, msgType, err := messages.DetermineClientMessageType(buf[:n])
 	if err != nil {
 		return nil, err
 	}
