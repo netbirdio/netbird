@@ -10,11 +10,12 @@ import (
 )
 
 const (
-	MsgTypeHello         MsgType = 0
-	MsgTypeHelloResponse MsgType = 1
-	MsgTypeTransport     MsgType = 2
-	MsgTypeClose         MsgType = 3
-	MsgTypeHealthCheck   MsgType = 4
+	MsgTypeUnknown       MsgType = 0
+	MsgTypeHello         MsgType = 1
+	MsgTypeHelloResponse MsgType = 2
+	MsgTypeTransport     MsgType = 3
+	MsgTypeClose         MsgType = 4
+	MsgTypeHealthCheck   MsgType = 5
 
 	sizeOfMsgType       = 1
 	sizeOfVersionByte   = 1
@@ -86,7 +87,7 @@ func DetermineClientMessageType(msg []byte) (MsgType, error) {
 		MsgTypeHealthCheck:
 		return msgType, nil
 	default:
-		return 0, fmt.Errorf("invalid msg type %d", msgType)
+		return MsgTypeUnknown, fmt.Errorf("invalid msg type %d", msgType)
 	}
 }
 
@@ -105,7 +106,7 @@ func DetermineServerMessageType(msg []byte) (MsgType, error) {
 		MsgTypeHealthCheck:
 		return msgType, nil
 	default:
-		return 0, fmt.Errorf("invalid msg type %d, len: %d", msgType, len(msg))
+		return MsgTypeUnknown, fmt.Errorf("invalid msg type %d, len: %d", msgType, len(msg))
 	}
 }
 
