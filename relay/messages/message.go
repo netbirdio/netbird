@@ -29,7 +29,6 @@ const (
 
 var (
 	ErrInvalidMessageLength = errors.New("invalid message length")
-	ErrInvalidVersion       = errors.New("invalid protocol version")
 
 	magicHeader = []byte{0x21, 0x12, 0xA4, 0x42}
 
@@ -62,7 +61,7 @@ type HelloResponse struct {
 // DetermineClientMessageType determines the message type and version from the first two bytes of the message
 func DetermineClientMessageType(msg []byte) (byte, MsgType, error) {
 	if len(msg) < 2 {
-		return 0, 0, fmt.Errorf("invalid message length")
+		return 0, 0, ErrInvalidMessageLength
 	}
 	version := msg[0]
 
@@ -82,7 +81,7 @@ func DetermineClientMessageType(msg []byte) (byte, MsgType, error) {
 // DetermineServerMessageType determines the message type and version from the first two bytes of the message
 func DetermineServerMessageType(msg []byte) (byte, MsgType, error) {
 	if len(msg) < 2 {
-		return 0, 0, fmt.Errorf("invalid message length")
+		return 0, 0, ErrInvalidMessageLength
 	}
 	version := msg[0]
 
