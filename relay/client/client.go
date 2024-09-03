@@ -260,14 +260,15 @@ func (c *Client) handShake() error {
 		return err
 	}
 
-	version, msgType, err := messages.DetermineServerMessageType(buf[:n])
+	_, err = messages.ValidateVersion(buf[:n])
+	if err != nil {
+		return fmt.Errorf("validate version: %w", err)
+	}
+
+	msgType, err := messages.DetermineServerMessageType(buf[1:n])
 	if err != nil {
 		log.Errorf("failed to determine message type: %s", err)
 		return err
-	}
-
-	if version != messages.CurrentProtocolVersion {
-		return fmt.Errorf(errUnsupportedProtocolVersion, version)
 	}
 
 	if msgType != messages.MsgTypeHelloResponse {
@@ -307,15 +308,16 @@ func (c *Client) readLoop(relayConn net.Conn) {
 			break
 		}
 
-		version, msgType, err := messages.DetermineServerMessageType(buf[:n])
+		_, err := messages.ValidateVersion(buf[:n])
 		if err != nil {
-			c.log.Errorf("failed to determine message type: %s", err)
+			c.log.Errorf("failed to validate protocol version: %s", err)
 			c.bufPool.Put(bufPtr)
 			continue
 		}
 
-		if version != messages.CurrentProtocolVersion {
-			c.log.Errorf(errUnsupportedProtocolVersion, version)
+		msgType, err := messages.DetermineServerMessageType(buf[1:n])
+		if err != nil {
+			c.log.Errorf("failed to determine message type: %s", err)
 			c.bufPool.Put(bufPtr)
 			continue
 		}

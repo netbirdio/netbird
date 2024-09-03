@@ -132,13 +132,15 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read from %s: %w", conn.RemoteAddr(), err)
 	}
-	version, msgType, err := messages.DetermineClientMessageType(buf[:n])
+
+	_, err = messages.ValidateVersion(buf[:n])
 	if err != nil {
-		return nil, fmt.Errorf("determine message type from %s: %w", conn.RemoteAddr(), err)
+		return nil, fmt.Errorf("validate version from %s: %w", conn.RemoteAddr(), err)
 	}
 
-	if version != messages.CurrentProtocolVersion {
-		return nil, fmt.Errorf("unsupported protocol version: %d", version)
+	msgType, err := messages.DetermineClientMessageType(buf[1:n])
+	if err != nil {
+		return nil, fmt.Errorf("determine message type from %s: %w", conn.RemoteAddr(), err)
 	}
 
 	if msgType != messages.MsgTypeHello {

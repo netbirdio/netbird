@@ -68,15 +68,16 @@ func (p *Peer) Work() {
 
 		msg := buf[:n]
 
-		version, msgType, err := messages.DetermineClientMessageType(msg)
+		_, err = messages.ValidateVersion(msg)
 		if err != nil {
-			p.log.Errorf("failed to determine message type: %s", err)
+			p.log.Warnf("failed to validate protocol version: %s", err)
 			return
 		}
 
-		if version != messages.CurrentProtocolVersion {
-			// For now, we'll continue processing the message, but log a warning
-			p.log.Warnf("received message with unexpected version: %d, type: %s", version, msgType)
+		msgType, err := messages.DetermineClientMessageType(msg[1:])
+		if err != nil {
+			p.log.Errorf("failed to determine message type: %s", err)
+			return
 		}
 
 		p.handleMsgType(ctx, msgType, hc, n, msg)

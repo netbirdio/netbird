@@ -29,6 +29,7 @@ const (
 
 var (
 	ErrInvalidMessageLength = errors.New("invalid message length")
+	ErrUnsupportedVersion   = errors.New("unsupported version")
 
 	magicHeader = []byte{0x21, 0x12, 0xA4, 0x42}
 
@@ -58,43 +59,53 @@ type HelloResponse struct {
 	InstanceAddress string
 }
 
-// DetermineClientMessageType determines the message type and version from the first two bytes of the message
-func DetermineClientMessageType(msg []byte) (byte, MsgType, error) {
-	if len(msg) < 2 {
-		return 0, 0, ErrInvalidMessageLength
+// ValidateVersion checks if the given version is supported by the protocol
+func ValidateVersion(msg []byte) (int, error) {
+	if len(msg) < 1 {
+		return 0, ErrInvalidMessageLength
 	}
-	version := msg[0]
+	version := int(msg[0])
+	if version != CurrentProtocolVersion {
+		return 0, fmt.Errorf("%d: %w", version, ErrUnsupportedVersion)
+	}
+	return version, nil
+}
 
-	msgType := MsgType(msg[1])
+// DetermineClientMessageType determines the message type from the first the message
+func DetermineClientMessageType(msg []byte) (MsgType, error) {
+	if len(msg) < 1 {
+		return 0, ErrInvalidMessageLength
+	}
+
+	msgType := MsgType(msg[0])
 	switch msgType {
 	case
 		MsgTypeHello,
 		MsgTypeTransport,
 		MsgTypeClose,
 		MsgTypeHealthCheck:
-		return version, msgType, nil
+		return msgType, nil
 	default:
-		return version, 0, fmt.Errorf("invalid msg type %d, len: %d", msgType, len(msg))
+		return 0, fmt.Errorf("invalid msg type %d, len: %d", msgType, len(msg))
 	}
 }
 
-// DetermineServerMessageType determines the message type and version from the first two bytes of the message
-func DetermineServerMessageType(msg []byte) (byte, MsgType, error) {
-	if len(msg) < 2 {
-		return 0, 0, ErrInvalidMessageLength
+// DetermineServerMessageType determines the message type from the first the message
+func DetermineServerMessageType(msg []byte) (MsgType, error) {
+	if len(msg) < 1 {
+		return 0, ErrInvalidMessageLength
 	}
-	version := msg[0]
 
-	msgType := MsgType(msg[1])
+	msgType := MsgType(msg[0])
 	switch msgType {
 	case
 		MsgTypeHelloResponse,
 		MsgTypeTransport,
 		MsgTypeClose,
 		MsgTypeHealthCheck:
-		return version, msgType, nil
+		return msgType, nil
 	default:
-		return version, 0, fmt.Errorf("invalid msg type %d, len: %d", msgType, len(msg))
+		return 0, fmt.Errorf("invalid msg type %d, len: %d", msgType, len(msg))
 	}
 }
 
