@@ -112,7 +112,9 @@ func (c *ConnectClient) run(
 		}
 	}()
 	defer func(runningChan chan error) {
-		runningChan <- errors.New("NetBird client startup failed")
+		if runningChan != nil {
+			runningChan <- errors.New("NetBird client startup failed")
+		}
 	}(runningChan)
 
 	log.Infof("starting NetBird client version %s on %s/%s", version.NetbirdVersion(), runtime.GOOS, runtime.GOARCH)
@@ -268,6 +270,7 @@ func (c *ConnectClient) run(
 
 		if runningChan != nil {
 			runningChan <- nil
+			close(runningChan)
 		}
 
 		<-engineCtx.Done()
