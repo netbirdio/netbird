@@ -19,6 +19,8 @@ import (
 const (
 	bufferSize            = 8820
 	serverResponseTimeout = 8 * time.Second
+
+	errUnsupportedProtocolVersion = "unsupported protocol version: %d"
 )
 
 var (
@@ -265,7 +267,7 @@ func (c *Client) handShake() error {
 	}
 
 	if version != messages.CurrentProtocolVersion {
-		return fmt.Errorf("unsupported protocol version: %d", version)
+		return fmt.Errorf(errUnsupportedProtocolVersion, version)
 	}
 
 	if msgType != messages.MsgTypeHelloResponse {
@@ -313,7 +315,7 @@ func (c *Client) readLoop(relayConn net.Conn) {
 		}
 
 		if version != messages.CurrentProtocolVersion {
-			c.log.Errorf("unsupported protocol version: %d", version)
+			c.log.Errorf(errUnsupportedProtocolVersion, version)
 			c.bufPool.Put(bufPtr)
 			continue
 		}
@@ -373,7 +375,7 @@ func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppe
 	}
 
 	if version != messages.CurrentProtocolVersion {
-		c.log.Errorf("unsupported protocol version: %d", version)
+		c.log.Errorf(errUnsupportedProtocolVersion, version)
 		c.bufPool.Put(bufPtr)
 		return true
 	}
