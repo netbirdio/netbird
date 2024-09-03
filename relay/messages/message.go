@@ -77,8 +77,6 @@ func DetermineMessageType(msg []byte) (byte, MsgType, error) {
 	default:
 		return version, 0, fmt.Errorf("invalid msg type, len: %d", len(msg))
 	}
-
-	return version, msgType, nil
 }
 
 // MarshalHelloMsg initial hello message
