@@ -61,9 +61,9 @@ func (c *ConnectClient) Run() error {
 // RunWithProbes runs the client's main logic with probes attached
 func (c *ConnectClient) RunWithProbes(
 	probes *ProbeHolder,
-	runningWg *sync.WaitGroup,
+	runningChan chan error,
 ) error {
-	return c.run(MobileDependency{}, probes, runningWg)
+	return c.run(MobileDependency{}, probes, runningChan)
 }
 
 // RunOnAndroid with main logic on mobile system
@@ -104,13 +104,16 @@ func (c *ConnectClient) RunOniOS(
 func (c *ConnectClient) run(
 	mobileDependency MobileDependency,
 	probes *ProbeHolder,
-	runningWg *sync.WaitGroup,
+	runningChan chan error,
 ) error {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Panicf("Panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
 		}
 	}()
+	defer func(runningChan chan error) {
+		runningChan <- errors.New("NetBird client startup failed")
+	}(runningChan)
 
 	log.Infof("starting NetBird client version %s on %s/%s", version.NetbirdVersion(), runtime.GOOS, runtime.GOARCH)
 
@@ -263,8 +266,8 @@ func (c *ConnectClient) run(
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
 
-		if runningWg != nil {
-			runningWg.Done()
+		if runningChan != nil {
+			runningChan <- nil
 		}
 
 		<-engineCtx.Done()
