@@ -159,7 +159,7 @@ func (c *Client) Connect() error {
 	c.wgReadLoop.Add(1)
 	go c.readLoop(c.relayConn)
 
-	log.Infof("relay connection established with: %s", c.connectionURL)
+	c.log.Infof("relay connection established with: %s", c.connectionURL)
 	return nil
 }
 
