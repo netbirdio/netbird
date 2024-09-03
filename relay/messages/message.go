@@ -86,7 +86,7 @@ func DetermineClientMessageType(msg []byte) (MsgType, error) {
 		MsgTypeHealthCheck:
 		return msgType, nil
 	default:
-		return 0, fmt.Errorf("invalid msg type %d, len: %d", msgType, len(msg))
+		return 0, fmt.Errorf("invalid msg type %d", msgType)
 	}
 }
 
