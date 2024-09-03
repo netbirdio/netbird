@@ -37,7 +37,7 @@ func unmarshalToken(payload []byte) (Token, error) {
 	return creds, err
 }
 
-// TimedHMAC generates token with TTL and using pre-shared secret known to the TURN/relay server
+// TimedHMAC generates a token with TTL and uses a pre-shared secret known to the relay server
 type TimedHMAC struct {
 	secret     string
 	timeToLive time.Duration
