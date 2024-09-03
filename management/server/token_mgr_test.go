@@ -51,7 +51,7 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 		t.Errorf("expected generated TURN password not to be empty, got empty")
 	}
 
-	validateMAC(sha1.New, t, turnCredentials.Payload, turnCredentials.Signature, []byte(secret))
+	validateMAC(t, sha1.New, turnCredentials.Payload, turnCredentials.Signature, []byte(secret))
 
 	relayCredentials, err := tested.GenerateRelayToken()
 	require.NoError(t, err)
@@ -63,7 +63,7 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 		t.Errorf("expected generated relay signature not to be empty, got empty")
 	}
 
-	validateMAC(sha256.New, t, relayCredentials.Payload, relayCredentials.Signature, []byte(secret))
+	validateMAC(t, sha256.New, relayCredentials.Payload, relayCredentials.Signature, []byte(secret))
 }
 
 func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
@@ -196,7 +196,7 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	}
 }
 
-func validateMAC(algo func() hash.Hash, t *testing.T, username string, actualMAC string, key []byte) {
+func validateMAC(t *testing.T, algo func() hash.Hash, username string, actualMAC string, key []byte) {
 	t.Helper()
 	mac := hmac.New(algo, key)
 
