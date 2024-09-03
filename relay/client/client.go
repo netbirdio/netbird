@@ -19,8 +19,6 @@ import (
 const (
 	bufferSize            = 8820
 	serverResponseTimeout = 8 * time.Second
-
-	errUnsupportedProtocolVersion = "unsupported protocol version: %d"
 )
 
 var (
