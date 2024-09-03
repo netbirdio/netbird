@@ -82,7 +82,7 @@ func (r *Relay) Accept(conn net.Conn) {
 
 	peerID, err := r.handshake(conn)
 	if err != nil {
-		log.Errorf("failed to handshake with %s: %s", conn.RemoteAddr(), err)
+		log.Errorf("failed to handshake: %s", err)
 		cErr := conn.Close()
 		if cErr != nil {
 			log.Errorf("failed to close connection, %s: %s", conn.RemoteAddr(), cErr)
@@ -130,39 +130,35 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 	buf := make([]byte, messages.MaxHandshakeSize)
 	n, err := conn.Read(buf)
 	if err != nil {
-		log.Debugf("failed to read message from: %s, %s", conn.RemoteAddr(), err)
-		return nil, err
+		return nil, fmt.Errorf("read from %s: %w", conn.RemoteAddr(), err)
 	}
 	msgType, err := messages.DetermineClientMsgType(buf[:n])
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("determine message type from %s: %w", conn.RemoteAddr(), err)
 	}
 
 	if msgType != messages.MsgTypeHello {
-		tErr := fmt.Errorf("invalid message type")
-		log.Debugf("failed to handshake with: %s, %s", conn.RemoteAddr(), tErr)
-		return nil, tErr
+		return nil, fmt.Errorf("invalid message type from %s", conn.RemoteAddr())
 	}
 
 	peerID, authPayload, err := messages.UnmarshalHelloMsg(buf[:n])
 	if err != nil {
-		log.Debugf("failed to handshake with: %s, %s", conn.RemoteAddr(), err)
-		return nil, err
+		return nil, fmt.Errorf("unmarshal hello message: %w", err)
 	}
 
 	if err := r.validator.Validate(sha256.New, authPayload); err != nil {
-		log.Debugf("failed to authenticate connection of peer %s (%s), %s", peerID, conn.RemoteAddr(), err)
-		return nil, err
+		return nil, fmt.Errorf("validate %s (%s): %w", peerID, conn.RemoteAddr(), err)
 	}
 
 	msg, err := messages.MarshalHelloResponse(r.instanceURL)
 	if err != nil {
-		return nil, fmt.Errorf("marshal hello response to %s: %w", conn.RemoteAddr(), err)
+		return nil, fmt.Errorf("marshal hello response to %s (%s): %w", peerID, conn.RemoteAddr(), err)
 	}
 
 	_, err = conn.Write(msg)
 	if err != nil {
 		return nil, fmt.Errorf("write to %s (%s): %w", peerID, conn.RemoteAddr(), err)
 	}
+
 	return peerID, nil
 }
