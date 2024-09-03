@@ -335,19 +335,6 @@ func (c *Client) readLoop(relayConn net.Conn) {
 }
 
 func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte, hc *healthcheck.Receiver, internallyStoppedFlag *internalStopFlag) (continueLoop bool) {
-	version, msgType, err := messages.DetermineMessageType(buf)
-	if err != nil {
-		c.log.Errorf("failed to determine message type: %s", err)
-		c.bufPool.Put(bufPtr)
-		return true
-	}
-
-	if version != messages.CurrentProtocolVersion {
-		c.log.Errorf("unsupported protocol version: %d", version)
-		c.bufPool.Put(bufPtr)
-		return true
-	}
-
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
 		c.handleHealthCheck(hc, internallyStoppedFlag)
