@@ -79,23 +79,25 @@ func (p *Peer) Work() {
 			p.log.Warnf("received message with unexpected version: %d, type: %s", version, msgType)
 		}
 
-		switch msgType {
-		case messages.MsgTypeHealthCheck:
-			hc.OnHCResponse()
-		case messages.MsgTypeTransport:
-			p.metrics.TransferBytesRecv.Add(ctx, int64(n))
-			p.metrics.PeerActivity(p.String())
-			p.handleTransportMsg(msg)
-		case messages.MsgTypeClose:
-			p.log.Infof("peer exited gracefully")
-			err = p.conn.Close()
-			if err != nil {
-				log.Errorf("failed to close connection to peer: %s", err)
-			}
-			return
-		default:
-			p.log.Warnf("received unexpected message type: %s", msgType)
+		p.handleMsgType(ctx, msgType, hc, n, msg)
+	}
+}
+
+func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *healthcheck.Sender, n int, msg []byte) {
+	switch msgType {
+	case messages.MsgTypeHealthCheck:
+		hc.OnHCResponse()
+	case messages.MsgTypeTransport:
+		p.metrics.TransferBytesRecv.Add(ctx, int64(n))
+		p.metrics.PeerActivity(p.String())
+		p.handleTransportMsg(msg)
+	case messages.MsgTypeClose:
+		p.log.Infof("peer exited gracefully")
+		if err := p.conn.Close(); err != nil {
+			log.Errorf("failed to close connection to peer: %s", err)
 		}
+	default:
+		p.log.Warnf("received unexpected message type: %s", msgType)
 	}
 }
 
