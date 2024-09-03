@@ -17,11 +17,14 @@ const (
 	MsgTypeHealthCheck   MsgType = 4
 
 	sizeOfMsgType       = 1
+	sizeOfVersionByte   = 1
 	sizeOfMagicByte     = 4
-	headerSizeTransport = sizeOfMsgType + IDSize                   // 1 byte for msg type, IDSize for peerID
-	headerSizeHello     = sizeOfMsgType + sizeOfMagicByte + IDSize // 1 byte for msg type, 4 byte for magic header, IDSize for peerID
+	headerSizeTransport = sizeOfVersionByte + sizeOfMsgType + IDSize                   // 1 byte for version, 1 byte for msg type, IDSize for peerID
+	headerSizeHello     = sizeOfVersionByte + sizeOfMsgType + sizeOfMagicByte + IDSize // 1 byte for version, 1 byte for msg type, 4 byte for magic header, IDSize for peerID
 
 	MaxHandshakeSize = 8192
+
+	CurrentProtocolVersion = 1
 )
 
 var (
@@ -29,7 +32,7 @@ var (
 
 	magicHeader = []byte{0x21, 0x12, 0xA4, 0x42}
 
-	healthCheckMsg = []byte{byte(MsgTypeHealthCheck)}
+	healthCheckMsg = []byte{byte(CurrentProtocolVersion), byte(MsgTypeHealthCheck)}
 )
 
 type MsgType byte
@@ -55,37 +58,43 @@ type HelloResponse struct {
 	InstanceAddress string
 }
 
-// DetermineClientMsgType determines the message type from the first byte of the message
-func DetermineClientMsgType(msg []byte) (MsgType, error) {
-	msgType := MsgType(msg[0])
+// DetermineClientMessageType determines the message type and version from the first two bytes of the message
+func DetermineClientMessageType(msg []byte) (byte, MsgType, error) {
+	if len(msg) < 2 {
+		return 0, 0, ErrInvalidMessageLength
+	}
+	version := msg[0]
+
+	msgType := MsgType(msg[1])
 	switch msgType {
-	case MsgTypeHello:
-		return msgType, nil
-	case MsgTypeTransport:
-		return msgType, nil
-	case MsgTypeClose:
-		return msgType, nil
-	case MsgTypeHealthCheck:
-		return msgType, nil
+	case
+		MsgTypeHello,
+		MsgTypeTransport,
+		MsgTypeClose,
+		MsgTypeHealthCheck:
+		return version, msgType, nil
 	default:
-		return 0, fmt.Errorf("invalid msg type, len: %d", len(msg))
+		return version, 0, fmt.Errorf("invalid msg type %d, len: %d", msgType, len(msg))
 	}
 }
 
-// DetermineServerMsgType determines the message type from the first byte of the message
-func DetermineServerMsgType(msg []byte) (MsgType, error) {
-	msgType := MsgType(msg[0])
+// DetermineServerMessageType determines the message type and version from the first two bytes of the message
+func DetermineServerMessageType(msg []byte) (byte, MsgType, error) {
+	if len(msg) < 2 {
+		return 0, 0, ErrInvalidMessageLength
+	}
+	version := msg[0]
+
+	msgType := MsgType(msg[1])
 	switch msgType {
-	case MsgTypeHelloResponse:
-		return msgType, nil
-	case MsgTypeTransport:
-		return msgType, nil
-	case MsgTypeClose:
-		return msgType, nil
-	case MsgTypeHealthCheck:
-		return msgType, nil
+	case
+		MsgTypeHelloResponse,
+		MsgTypeTransport,
+		MsgTypeClose,
+		MsgTypeHealthCheck:
+		return version, msgType, nil
 	default:
-		return 0, fmt.Errorf("invalid msg type (len: %d)", len(msg))
+		return version, 0, fmt.Errorf("invalid msg type %d, len: %d", msgType, len(msg))
 	}
 }
 
@@ -99,25 +108,26 @@ func MarshalHelloMsg(peerID []byte, additions []byte) ([]byte, error) {
 		return nil, fmt.Errorf("invalid peerID length: %d", len(peerID))
 	}
 
-	// 5 = 1 byte for msg type, 4 byte for magic header
-	msg := make([]byte, 5, headerSizeHello+len(additions))
-	msg[0] = byte(MsgTypeHello)
-	copy(msg[1:5], magicHeader)
+	// 6 = 1 byte for version, 1 byte for msg type, 4 byte for magic header
+	msg := make([]byte, 6, headerSizeHello+len(additions))
+	msg[0] = byte(CurrentProtocolVersion)
+	msg[1] = byte(MsgTypeHello)
+	copy(msg[2:6], magicHeader)
 	msg = append(msg, peerID...)
 	msg = append(msg, additions...)
 	return msg, nil
 }
 
-// UnmarshalHelloMsg extracts the peerID and the additional data from the hello message. The Additional data is used to
+// UnmarshalHelloMsg extracts the version, peerID and the additional data from the hello message. The Additional data is used to
 // authenticate the client with the server.
-func UnmarshalHelloMsg(msg []byte) ([]byte, []byte, error) {
+func UnmarshalHelloMsg(msg []byte) (byte, []byte, []byte, error) {
 	if len(msg) < headerSizeHello {
-		return nil, nil, fmt.Errorf("invalid 'hello' message")
+		return 0, nil, nil, fmt.Errorf("invalid 'hello' message")
 	}
-	if !bytes.Equal(msg[1:5], magicHeader) {
-		return nil, nil, fmt.Errorf("invalid magic header")
+	if !bytes.Equal(msg[2:6], magicHeader) {
+		return 0, nil, nil, fmt.Errorf("invalid magic header")
 	}
-	return msg[5 : 5+IDSize], msg[headerSizeHello:], nil
+	return msg[0], msg[6 : 6+IDSize], msg[headerSizeHello:], nil
 }
 
 // MarshalHelloResponse creates a response message to the hello message.
@@ -138,35 +148,37 @@ func MarshalHelloResponse(DomainAddress string) ([]byte, error) {
 		return nil, err
 	}
 
-	msg := make([]byte, 1, 1+buf.Len())
-	msg[0] = byte(MsgTypeHelloResponse)
+	msg := make([]byte, 2, 2+buf.Len())
+	msg[0] = byte(CurrentProtocolVersion)
+	msg[1] = byte(MsgTypeHelloResponse)
 	msg = append(msg, buf.Bytes()...)
 	return msg, nil
 }
 
-// UnmarshalHelloResponse extracts the instance address from the hello response message
-func UnmarshalHelloResponse(msg []byte) (string, error) {
-	if len(msg) < 2 {
-		return "", fmt.Errorf("invalid 'hello response' message")
+// UnmarshalHelloResponse extracts the version and instance address from the hello response message
+func UnmarshalHelloResponse(msg []byte) (byte, string, error) {
+	if len(msg) < 3 {
+		return 0, "", fmt.Errorf("invalid 'hello response' message")
 	}
 	payload := HelloResponse{}
-	buf := bytes.NewBuffer(msg[1:])
+	buf := bytes.NewBuffer(msg[2:])
 	dec := gob.NewDecoder(buf)
 
 	err := dec.Decode(&payload)
 	if err != nil {
 		log.Errorf("failed to gob decode hello response: %s", err)
-		return "", err
+		return 0, "", err
 	}
-	return payload.InstanceAddress, nil
+	return msg[0], payload.InstanceAddress, nil
 }
 
 // MarshalCloseMsg creates a close message.
 // The close message is used to close the connection gracefully between the client and the server. The server and the
 // client can send this message. After receiving this message, the server or client will close the connection.
 func MarshalCloseMsg() []byte {
-	msg := make([]byte, 1)
-	msg[0] = byte(MsgTypeClose)
+	msg := make([]byte, 2)
+	msg[0] = byte(CurrentProtocolVersion)
+	msg[1] = byte(MsgTypeClose)
 	return msg
 }
 
@@ -179,38 +191,39 @@ func MarshalTransportMsg(peerID []byte, payload []byte) ([]byte, error) {
 	}
 
 	msg := make([]byte, headerSizeTransport, headerSizeTransport+len(payload))
-	msg[0] = byte(MsgTypeTransport)
-	copy(msg[1:], peerID)
+	msg[0] = byte(CurrentProtocolVersion)
+	msg[1] = byte(MsgTypeTransport)
+	copy(msg[2:], peerID)
 	msg = append(msg, payload...)
 	return msg, nil
 }
 
-// UnmarshalTransportMsg extracts the peerID and the payload from the transport message.
-func UnmarshalTransportMsg(buf []byte) ([]byte, []byte, error) {
+// UnmarshalTransportMsg extracts the version, peerID and the payload from the transport message.
+func UnmarshalTransportMsg(buf []byte) (byte, []byte, []byte, error) {
 	if len(buf) < headerSizeTransport {
-		return nil, nil, ErrInvalidMessageLength
+		return 0, nil, nil, ErrInvalidMessageLength
 	}
 
-	return buf[1:headerSizeTransport], buf[headerSizeTransport:], nil
+	return buf[0], buf[2:headerSizeTransport], buf[headerSizeTransport:], nil
 }
 
-// UnmarshalTransportID extracts the peerID from the transport message.
-func UnmarshalTransportID(buf []byte) ([]byte, error) {
+// UnmarshalTransportID extracts the version and peerID from the transport message.
+func UnmarshalTransportID(buf []byte) (byte, []byte, error) {
 	if len(buf) < headerSizeTransport {
 		log.Debugf("invalid message length: %d, expected: %d, %x", len(buf), headerSizeTransport, buf)
-		return nil, ErrInvalidMessageLength
+		return 0, nil, ErrInvalidMessageLength
 	}
-	return buf[1:headerSizeTransport], nil
+	return buf[0], buf[2:headerSizeTransport], nil
 }
 
 // UpdateTransportMsg updates the peerID in the transport message.
 // With this function the server can reuse the given byte slice to update the peerID in the transport message. So do
 // need to allocate a new byte slice.
 func UpdateTransportMsg(msg []byte, peerID []byte) error {
-	if len(msg) < 1+len(peerID) {
+	if len(msg) < 2+len(peerID) {
 		return ErrInvalidMessageLength
 	}
-	copy(msg[1:], peerID)
+	copy(msg[2:], peerID)
 	return nil
 }
 

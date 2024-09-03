@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"nhooyr.io/websocket"
 
+	"github.com/netbirdio/netbird/relay/server/listener/ws"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -23,7 +25,13 @@ func Dial(address string) (net.Conn, error) {
 		HTTPClient: httpClientNbDialer(),
 	}
 
-	wsConn, resp, err := websocket.Dial(context.Background(), wsURL, opts)
+	parsedURL, err := url.Parse(wsURL)
+	if err != nil {
+		return nil, err
+	}
+	parsedURL.Path = ws.URLPath
+
+	wsConn, resp, err := websocket.Dial(context.Background(), parsedURL.String(), opts)
 	if err != nil {
 		log.Errorf("failed to dial to Relay server '%s': %s", wsURL, err)
 		return nil, err

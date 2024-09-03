@@ -12,6 +12,9 @@ import (
 	"nhooyr.io/websocket"
 )
 
+// URLPath is the path for the websocket connection.
+const URLPath = "/relay"
+
 type Listener struct {
 	// Address is the address to listen on.
 	Address string
@@ -25,7 +28,7 @@ type Listener struct {
 func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 	l.acceptFn = acceptFn
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", l.onAccept)
+	mux.HandleFunc(URLPath, l.onAccept)
 
 	l.server = &http.Server{
 		Addr:      l.Address,
