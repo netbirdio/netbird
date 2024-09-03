@@ -142,11 +142,13 @@ func (s *Server) Start() error {
 		s.sessionWatcher.SetOnExpireListener(s.onSessionExpire)
 	}
 
+	if config.DisableAutoConnect {
+		return nil
+	}
+
 	runningWg := sync.WaitGroup{}
 	runningWg.Add(1)
-	if !config.DisableAutoConnect {
-		go s.connectWithRetryRuns(ctx, config, s.statusRecorder, &runningWg)
-	}
+	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, &runningWg)
 
 	runningWg.Wait()
 
