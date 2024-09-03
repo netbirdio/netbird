@@ -155,7 +155,11 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 		return nil, err
 	}
 
-	msg, _ := messages.MarshalHelloResponse(r.instanceURL)
+	msg, err := messages.MarshalHelloResponse(r.instanceURL)
+	if err != nil {
+		return nil, fmt.Errorf("marshal hello response to %s: %w", conn.RemoteAddr(), err)
+	}
+
 	_, err = conn.Write(msg)
 	if err != nil {
 		return nil, fmt.Errorf("write to %s (%s): %w", peerID, conn.RemoteAddr(), err)
