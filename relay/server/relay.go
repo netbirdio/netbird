@@ -151,14 +151,14 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 	}
 
 	if err := r.validator.Validate(sha256.New, authPayload); err != nil {
-		log.Debugf("failed to authenticate connection with: %s, %s", conn.RemoteAddr(), err)
+		log.Debugf("failed to authenticate connection of peer %s (%s), %s", peerID, conn.RemoteAddr(), err)
 		return nil, err
 	}
 
 	msg, _ := messages.MarshalHelloResponse(r.instanceURL)
 	_, err = conn.Write(msg)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("write to %s (%s): %w", peerID, conn.RemoteAddr(), err)
 	}
 	return peerID, nil
 }
