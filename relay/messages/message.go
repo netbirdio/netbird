@@ -65,7 +65,19 @@ func DetermineMessageType(msg []byte) (byte, MsgType, error) {
 		return 0, 0, fmt.Errorf("invalid message length")
 	}
 	version := msg[0]
+
 	msgType := MsgType(msg[1])
+	switch msgType {
+	case
+		MsgTypeHello,
+		MsgTypeTransport,
+		MsgTypeClose,
+		MsgTypeHealthCheck:
+		return version, msgType, nil
+	default:
+		return version, 0, fmt.Errorf("invalid msg type, len: %d", len(msg))
+	}
+
 	return version, msgType, nil
 }
 
