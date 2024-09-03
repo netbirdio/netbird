@@ -20,20 +20,17 @@ type Sender struct {
 	// Timeout is a channel to the health check signal is not received in a certain time
 	Timeout chan struct{}
 
-	ctx context.Context
 	ack chan struct{}
 }
 
 // NewSender creates a new healthcheck sender
-func NewSender(ctx context.Context) *Sender {
+func NewSender() *Sender {
 	hc := &Sender{
 		HealthCheck: make(chan struct{}, 1),
 		Timeout:     make(chan struct{}, 1),
-		ctx:         ctx,
 		ack:         make(chan struct{}, 1),
 	}
 
-	go hc.healthCheck()
 	return hc
 }
 
@@ -45,7 +42,7 @@ func (hc *Sender) OnHCResponse() {
 	}
 }
 
-func (hc *Sender) healthCheck() {
+func (hc *Sender) StartHealthCheck(ctx context.Context) {
 	ticker := time.NewTicker(healthCheckInterval)
 	defer ticker.Stop()
 
@@ -63,8 +60,8 @@ func (hc *Sender) healthCheck() {
 			hc.Timeout <- struct{}{}
 			return
 		case <-hc.ack:
-			timeoutTimer.Stop()
-		case <-hc.ctx.Done():
+			timeoutTimer.Reset(healthCheckInterval + healthCheckTimeout)
+		case <-ctx.Done():
 			return
 		}
 	}

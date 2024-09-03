@@ -47,9 +47,11 @@ func NewPeer(metrics *metrics.Metrics, id []byte, conn net.Conn, store *Store) *
 // the message accordingly.
 func (p *Peer) Work() {
 	ctx, cancel := context.WithCancel(context.Background())
-	hc := healthcheck.NewSender(ctx)
-	go p.healthcheck(ctx, hc)
 	defer cancel()
+
+	hc := healthcheck.NewSender()
+	go hc.StartHealthCheck(ctx)
+	go p.handleHealthcheckEvents(ctx, hc)
 
 	buf := make([]byte, bufferSize)
 	for {
@@ -139,7 +141,7 @@ func (p *Peer) writeWithTimeout(ctx context.Context, buf []byte) error {
 	}
 }
 
-func (p *Peer) healthcheck(ctx context.Context, hc *healthcheck.Sender) {
+func (p *Peer) handleHealthcheckEvents(ctx context.Context, hc *healthcheck.Sender) {
 	for {
 		select {
 		case <-hc.HealthCheck:
