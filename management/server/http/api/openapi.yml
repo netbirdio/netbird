@@ -1064,12 +1064,12 @@ components:
           type: string
           example: 10.64.0.0/24
         domains:
-          description: Domain list to be dynamically resolved. Conflicts with network
+          description: Domain list to be dynamically resolved. Max of 32 domains can be added per route configuration. Conflicts with network
           type: array
           items:
             type: string
             minLength: 1
-            maxLength: 255
+            maxLength: 32
             example: "example.com"
         metric:
           description: Route metric number. Lowest number has higher priority

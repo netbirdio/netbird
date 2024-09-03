@@ -161,10 +161,7 @@ type Engine struct {
 
 	dnsServer dns.Server
 
-	mgmProbe    *Probe
-	signalProbe *Probe
-	relayProbe  *Probe
-	wgProbe     *Probe
+	probes *ProbeHolder
 
 	// checks are the client-applied posture checks that need to be evaluated on the client
 	checks []*mgmProto.Checks
@@ -200,9 +197,6 @@ func NewEngine(
 		mobileDep,
 		statusRecorder,
 		nil,
-		nil,
-		nil,
-		nil,
 		checks,
 	)
 }
@@ -217,10 +211,7 @@ func NewEngineWithProbes(
 	config *EngineConfig,
 	mobileDep MobileDependency,
 	statusRecorder *peer.Status,
-	mgmProbe *Probe,
-	signalProbe *Probe,
-	relayProbe *Probe,
-	wgProbe *Probe,
+	probes *ProbeHolder,
 	checks []*mgmProto.Checks,
 ) *Engine {
 	return &Engine{
@@ -239,21 +230,19 @@ func NewEngineWithProbes(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
-		mgmProbe:       mgmProbe,
-		signalProbe:    signalProbe,
-		relayProbe:     relayProbe,
-		wgProbe:        wgProbe,
+		probes:         probes,
 		checks:         checks,
 	}
 }
 
 func (e *Engine) Stop() error {
+	if e == nil {
+		// this seems to be a very odd case but there was the possibility if the netbird down command comes before the engine is fully started
+		log.Debugf("tried stopping engine that is nil")
+		return nil
+	}
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
-
-	if e.cancel != nil {
-		e.cancel()
-	}
 
 	// stopping network monitor first to avoid starting the engine again
 	if e.networkMonitor != nil {
@@ -269,6 +258,10 @@ func (e *Engine) Stop() error {
 	e.clientRoutesMu.Lock()
 	e.clientRoutes = nil
 	e.clientRoutesMu.Unlock()
+
+	if e.cancel != nil {
+		e.cancel()
+	}
 
 	// very ugly but we want to remove peers from the WireGuard interface first before removing interface.
 	// Removing peers happens in the conn.Close() asynchronously
@@ -1298,24 +1291,27 @@ func (e *Engine) getRosenpassAddr() string {
 }
 
 func (e *Engine) receiveProbeEvents() {
-	if e.signalProbe != nil {
-		go e.signalProbe.Receive(e.ctx, func() bool {
+	if e.probes == nil {
+		return
+	}
+	if e.probes.SignalProbe != nil {
+		go e.probes.SignalProbe.Receive(e.ctx, func() bool {
 			healthy := e.signal.IsHealthy()
 			log.Debugf("received signal probe request, healthy: %t", healthy)
 			return healthy
 		})
 	}
 
-	if e.mgmProbe != nil {
-		go e.mgmProbe.Receive(e.ctx, func() bool {
+	if e.probes.MgmProbe != nil {
+		go e.probes.MgmProbe.Receive(e.ctx, func() bool {
 			healthy := e.mgmClient.IsHealthy()
 			log.Debugf("received management probe request, healthy: %t", healthy)
 			return healthy
 		})
 	}
 
-	if e.relayProbe != nil {
-		go e.relayProbe.Receive(e.ctx, func() bool {
+	if e.probes.RelayProbe != nil {
+		go e.probes.RelayProbe.Receive(e.ctx, func() bool {
 			healthy := true
 
 			results := append(e.probeSTUNs(), e.probeTURNs()...)
@@ -1334,8 +1330,8 @@ func (e *Engine) receiveProbeEvents() {
 		})
 	}
 
-	if e.wgProbe != nil {
-		go e.wgProbe.Receive(e.ctx, func() bool {
+	if e.probes.WgProbe != nil {
+		go e.probes.WgProbe.Receive(e.ctx, func() bool {
 			log.Debug("received wg probe request")
 
 			for _, peer := range e.peerConns {
@@ -1430,21 +1426,4 @@ func isChecksEqual(checks []*mgmProto.Checks, oChecks []*mgmProto.Checks) bool {
 	return slices.EqualFunc(checks, oChecks, func(checks, oChecks *mgmProto.Checks) bool {
 		return slices.Equal(checks.Files, oChecks.Files)
 	})
-}
-
-func (e *Engine) IsWGIfaceUp() bool {
-	if e == nil || e.wgInterface == nil {
-		return false
-	}
-	iface, err := net.InterfaceByName(e.wgInterface.Name())
-	if err != nil {
-		log.Debugf("failed to get interface by name %s: %v", e.wgInterface.Name(), err)
-		return false
-	}
-
-	if iface.Flags&net.FlagUp != 0 {
-		return true
-	}
-
-	return false
 }
