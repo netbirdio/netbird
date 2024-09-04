@@ -14,6 +14,8 @@ import (
 	"github.com/netbirdio/netbird/relay/client/dialer/ws"
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	"github.com/netbirdio/netbird/relay/messages"
+	"github.com/netbirdio/netbird/relay/messages/address"
+	auth2 "github.com/netbirdio/netbird/relay/messages/auth"
 )
 
 const (
@@ -239,13 +241,22 @@ func (c *Client) connect() error {
 }
 
 func (c *Client) handShake() error {
-	tb := c.authTokenStore.TokenBinary()
+	authMsg := &auth2.Msg{
+		AuthAlgorithm:  auth2.AlgoHMACSHA256,
+		AdditionalData: c.authTokenStore.TokenBinary(),
+	}
 
-	msg, err := messages.MarshalHelloMsg(c.hashedID, tb)
+	authData, err := authMsg.Marshal()
+	if err != nil {
+		return fmt.Errorf("marshal auth message: %w", err)
+	}
+
+	msg, err := messages.MarshalHelloMsg(c.hashedID, authData)
 	if err != nil {
 		log.Errorf("failed to marshal hello message: %s", err)
 		return err
 	}
+
 	_, err = c.relayConn.Write(msg)
 	if err != nil {
 		log.Errorf("failed to send hello message: %s", err)
@@ -263,7 +274,7 @@ func (c *Client) handShake() error {
 		return fmt.Errorf("validate version: %w", err)
 	}
 
-	msgType, err := messages.DetermineServerMessageType(buf[1:n])
+	msgType, err := messages.DetermineServerMessageType(buf[messages.SizeOfVersionByte:n])
 	if err != nil {
 		log.Errorf("failed to determine message type: %s", err)
 		return err
@@ -274,12 +285,18 @@ func (c *Client) handShake() error {
 		return fmt.Errorf("unexpected message type")
 	}
 
-	_, ia, err := messages.UnmarshalHelloResponse(buf[:n])
+	additionalData, err := messages.UnmarshalHelloResponse(buf[messages.SizeOfProtoHeader:n])
 	if err != nil {
 		return err
 	}
+
+	addr, err := address.Unmarshal(additionalData)
+	if err != nil {
+		return fmt.Errorf("unmarshal address: %w", err)
+	}
+
 	c.muInstanceURL.Lock()
-	c.instanceURL = &RelayAddr{addr: ia}
+	c.instanceURL = &RelayAddr{addr: addr.URL}
 	c.muInstanceURL.Unlock()
 	return nil
 }
@@ -313,14 +330,14 @@ func (c *Client) readLoop(relayConn net.Conn) {
 			continue
 		}
 
-		msgType, err := messages.DetermineServerMessageType(buf[1:n])
+		msgType, err := messages.DetermineServerMessageType(buf[messages.SizeOfVersionByte:n])
 		if err != nil {
 			c.log.Errorf("failed to determine message type: %s", err)
 			c.bufPool.Put(bufPtr)
 			continue
 		}
 
-		if !c.handleMsg(msgType, buf[:n], bufPtr, hc, internallyStoppedFlag) {
+		if !c.handleMsg(msgType, buf[messages.SizeOfProtoHeader:n], bufPtr, hc, internallyStoppedFlag) {
 			break
 		}
 	}

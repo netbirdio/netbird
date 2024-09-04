@@ -76,7 +76,7 @@ func (p *Peer) Work() {
 			return
 		}
 
-		msgType, err := messages.DetermineClientMessageType(msg[1:])
+		msgType, err := messages.DetermineClientMessageType(msg[messages.SizeOfVersionByte:])
 		if err != nil {
 			p.log.Errorf("failed to determine message type: %s", err)
 			return
@@ -175,15 +175,10 @@ func (p *Peer) handleHealthcheckEvents(ctx context.Context, hc *healthcheck.Send
 }
 
 func (p *Peer) handleTransportMsg(msg []byte) {
-	version, peerID, err := messages.UnmarshalTransportID(msg)
+	peerID, err := messages.UnmarshalTransportID(msg[messages.SizeOfProtoHeader:])
 	if err != nil {
 		p.log.Errorf("failed to unmarshal transport message: %s", err)
 		return
-	}
-
-	if version != messages.CurrentProtocolVersion {
-		// For now, we'll continue processing the message, but log a warning
-		p.log.Warnf("received transport message with unexpected version: %d", version)
 	}
 
 	stringPeerID := messages.HashIDToString(peerID)
@@ -193,7 +188,7 @@ func (p *Peer) handleTransportMsg(msg []byte) {
 		return
 	}
 
-	err = messages.UpdateTransportMsg(msg, p.idB)
+	err = messages.UpdateTransportMsg(msg[messages.SizeOfProtoHeader:], p.idB)
 	if err != nil {
 		p.log.Errorf("failed to update transport message: %s", err)
 		return
