@@ -13,6 +13,8 @@ import (
 
 	"github.com/netbirdio/netbird/relay/auth"
 	"github.com/netbirdio/netbird/relay/messages"
+	"github.com/netbirdio/netbird/relay/messages/address"
+	authmsg "github.com/netbirdio/netbird/relay/messages/auth"
 	"github.com/netbirdio/netbird/relay/metrics"
 )
 
@@ -138,7 +140,7 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 		return nil, fmt.Errorf("validate version from %s: %w", conn.RemoteAddr(), err)
 	}
 
-	msgType, err := messages.DetermineClientMessageType(buf[1:n])
+	msgType, err := messages.DetermineClientMessageType(buf[messages.SizeOfVersionByte:n])
 	if err != nil {
 		return nil, fmt.Errorf("determine message type from %s: %w", conn.RemoteAddr(), err)
 	}
@@ -147,16 +149,27 @@ func (r *Relay) handshake(conn net.Conn) ([]byte, error) {
 		return nil, fmt.Errorf("invalid message type from %s", conn.RemoteAddr())
 	}
 
-	peerID, authPayload, err := messages.UnmarshalHelloMsg(buf[:n])
+	peerID, authData, err := messages.UnmarshalHelloMsg(buf[messages.SizeOfProtoHeader:n])
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal hello message: %w", err)
 	}
 
-	if err := r.validator.Validate(sha256.New, authPayload); err != nil {
+	authMsg, err := authmsg.UnmarshalMsg(authData)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal auth message: %w", err)
+	}
+
+	if err := r.validator.Validate(sha256.New, authMsg.AdditionalData); err != nil {
 		return nil, fmt.Errorf("validate %s (%s): %w", peerID, conn.RemoteAddr(), err)
 	}
 
-	msg, err := messages.MarshalHelloResponse(r.instanceURL)
+	addr := &address.Address{URL: r.instanceURL}
+	addrData, err := addr.Marshal()
+	if err != nil {
+		return nil, fmt.Errorf("marshal addressc to %s (%s): %w", peerID, conn.RemoteAddr(), err)
+	}
+
+	msg, err := messages.MarshalHelloResponse(addrData)
 	if err != nil {
 		return nil, fmt.Errorf("marshal hello response to %s (%s): %w", peerID, conn.RemoteAddr(), err)
 	}

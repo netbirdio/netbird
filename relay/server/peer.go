@@ -93,7 +93,7 @@ func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *
 	case messages.MsgTypeTransport:
 		p.metrics.TransferBytesRecv.Add(ctx, int64(n))
 		p.metrics.PeerActivity(p.String())
-		p.handleTransportMsg(msg)
+		p.handleTransportMsg(msg[messages.SizeOfProtoHeader:])
 	case messages.MsgTypeClose:
 		p.log.Infof("peer exited gracefully")
 		if err := p.conn.Close(); err != nil {
@@ -175,15 +175,10 @@ func (p *Peer) handleHealthcheckEvents(ctx context.Context, hc *healthcheck.Send
 }
 
 func (p *Peer) handleTransportMsg(msg []byte) {
-	version, peerID, err := messages.UnmarshalTransportID(msg)
+	peerID, err := messages.UnmarshalTransportID(msg)
 	if err != nil {
 		p.log.Errorf("failed to unmarshal transport message: %s", err)
 		return
-	}
-
-	if version != messages.CurrentProtocolVersion {
-		// For now, we'll continue processing the message, but log a warning
-		p.log.Warnf("received transport message with unexpected version: %d", version)
 	}
 
 	stringPeerID := messages.HashIDToString(peerID)
