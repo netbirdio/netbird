@@ -589,11 +589,16 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, runningChan)
 
 	for {
-		err := <-runningChan
-		if err != nil {
-			log.Debugf("waiting for engine to become ready failed: %s", err)
-		} else {
-			return &proto.UpResponse{}, nil
+		select {
+		case err := <-runningChan:
+			if err != nil {
+				log.Debugf("waiting for engine to become ready failed: %s", err)
+			} else {
+				return &proto.UpResponse{}, nil
+			}
+		case <-callerCtx.Done():
+			log.Debug("context done, stopping the wait for engine to become ready")
+			return nil, callerCtx.Err()
 		}
 	}
 }
