@@ -337,7 +337,7 @@ func (c *Client) readLoop(relayConn net.Conn) {
 			continue
 		}
 
-		if !c.handleMsg(msgType, buf[:n], bufPtr, hc, internallyStoppedFlag) {
+		if !c.handleMsg(msgType, buf[messages.SizeOfProtoHeader:n], bufPtr, hc, internallyStoppedFlag) {
 			break
 		}
 	}
@@ -359,7 +359,7 @@ func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte,
 		c.handleHealthCheck(hc, internallyStoppedFlag)
 		c.bufPool.Put(bufPtr)
 	case messages.MsgTypeTransport:
-		return c.handleTransportMsg(buf[messages.SizeOfProtoHeader:], bufPtr, internallyStoppedFlag)
+		return c.handleTransportMsg(buf, bufPtr, internallyStoppedFlag)
 	case messages.MsgTypeClose:
 		log.Debugf("relay connection close by server")
 		c.bufPool.Put(bufPtr)
