@@ -142,13 +142,11 @@ func (s *Server) Start() error {
 		s.sessionWatcher.SetOnExpireListener(s.onSessionExpire)
 	}
 
-	runningWg := sync.WaitGroup{}
-	runningWg.Add(1)
-	if !config.DisableAutoConnect {
-		go s.connectWithRetryRuns(ctx, config, s.statusRecorder, &runningWg)
+	if config.DisableAutoConnect {
+		return nil
 	}
 
-	runningWg.Wait()
+	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil)
 
 	return nil
 }
@@ -157,7 +155,7 @@ func (s *Server) Start() error {
 // mechanism to keep the client connected even when the connection is lost.
 // we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
 func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Config, statusRecorder *peer.Status,
-	runningWg *sync.WaitGroup,
+	runningChan chan error,
 ) {
 	backOff := getConnectWithBackoff(ctx)
 	retryStarted := false
@@ -196,7 +194,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Conf
 			WgProbe:     s.wgProbe,
 		}
 
-		err := s.connectClient.RunWithProbes(&probes, runningWg)
+		err := s.connectClient.RunWithProbes(&probes, runningChan)
 		if err != nil {
 			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
 		}
@@ -587,13 +585,22 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
-	runningWg := sync.WaitGroup{}
-	runningWg.Add(1)
-	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, &runningWg)
+	runningChan := make(chan error)
+	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, runningChan)
 
-	runningWg.Wait()
-
-	return &proto.UpResponse{}, nil
+	for {
+		select {
+		case err := <-runningChan:
+			if err != nil {
+				log.Debugf("waiting for engine to become ready failed: %s", err)
+			} else {
+				return &proto.UpResponse{}, nil
+			}
+		case <-callerCtx.Done():
+			log.Debug("context done, stopping the wait for engine to become ready")
+			return nil, callerCtx.Err()
+		}
+	}
 }
 
 // Down engine work in the daemon.
