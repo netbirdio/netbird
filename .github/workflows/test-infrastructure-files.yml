@@ -155,7 +155,7 @@ jobs:
           grep "NB_LISTEN_ADDRESS=:33445" docker-compose.yml
           grep '33445:33445' docker-compose.yml
           grep -A 10 'relay:' docker-compose.yml | egrep 'NB_AUTH_SECRET=.+$'
-          grep -A 4 Relay management.json | grep "rel://$NB_LISTEN_ADDRESS=:33445"
+          grep -A 4 Relay management.json | grep "rel://$CI_NETBIRD_DOMAIN:33445"
           grep -A 4 Relay management.json | egrep '"Secret": ".+"'
 
       - name: Install modules
