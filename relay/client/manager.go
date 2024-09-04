@@ -3,6 +3,7 @@ package client
 import (
 	"container/list"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"reflect"
@@ -90,7 +91,10 @@ func (m *Manager) Serve() error {
 	}
 	log.Debugf("starting relay client manager with %v relay servers", m.serverURLs)
 
+	totalServers := len(m.serverURLs)
+
 	successChan := make(chan *Client, 1)
+	errChan := make(chan error, len(m.serverURLs))
 
 	ctx, cancel := context.WithTimeout(m.ctx, connectionTimeout)
 	defer cancel()
@@ -101,34 +105,42 @@ func (m *Manager) Serve() error {
 		sem <- struct{}{}
 		go func(url string) {
 			defer func() { <-sem }()
-			m.connect(m.ctx, url, successChan)
+			m.connect(m.ctx, url, successChan, errChan)
 		}(url)
 	}
 
-	// Wait for the first successful connection or all attempts to fail
-	select {
-	case client := <-successChan:
-		log.Infof("Successfully connected to relay server: %s", client.connectionURL)
+	var errCount int
 
-		m.relayClient = client
+	for {
+		select {
+		case client := <-successChan:
+			log.Infof("Successfully connected to relay server: %s", client.connectionURL)
 
-		m.reconnectGuard = NewGuard(m.ctx, m.relayClient)
-		m.relayClient.SetOnDisconnectListener(func() {
-			m.onServerDisconnected(client.connectionURL)
-		})
-		m.startCleanupLoop()
-	case <-ctx.Done():
-		return fmt.Errorf("failed to connect to any relay server: %w", ctx.Err())
+			m.relayClient = client
+
+			m.reconnectGuard = NewGuard(m.ctx, m.relayClient)
+			m.relayClient.SetOnDisconnectListener(func() {
+				m.onServerDisconnected(client.connectionURL)
+			})
+			m.startCleanupLoop()
+			return nil
+		case err := <-errChan:
+			errCount++
+			log.Warnf("Connection attempt failed: %v", err)
+			if errCount == totalServers {
+				return errors.New("failed to connect to any relay server: all attempts failed")
+			}
+		case <-ctx.Done():
+			return fmt.Errorf("failed to connect to any relay server: %w", ctx.Err())
+		}
 	}
-
-	return nil
 }
 
-func (m *Manager) connect(ctx context.Context, serverURL string, successChan chan<- *Client) {
+func (m *Manager) connect(ctx context.Context, serverURL string, successChan chan<- *Client, errChan chan<- error) {
 	// TODO: abort the connection if another connection was successful
 	relayClient := NewClient(ctx, serverURL, m.tokenStore, m.peerID)
 	if err := relayClient.Connect(); err != nil {
-		log.Errorf("failed to connect to relay server %s: %s", serverURL, err)
+		errChan <- fmt.Errorf("failed to connect to %s: %w", serverURL, err)
 		return
 	}
 
