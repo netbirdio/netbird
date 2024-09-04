@@ -238,17 +238,16 @@ func (c *ConnectClient) run(
 
 		c.statusRecorder.MarkSignalConnected()
 
-		relayURL, token := parseRelayInfo(loginResp)
-		relayManager := relayClient.NewManager(engineCtx, relayURL, myPrivateKey.PublicKey().String())
-		if relayURL != "" {
+		relayURLs, token := parseRelayInfo(loginResp)
+		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String())
+		if len(relayURLs) > 0 {
 			if token != nil {
 				if err := relayManager.UpdateToken(token); err != nil {
 					log.Errorf("failed to update token: %s", err)
 					return wrapErr(err)
 				}
-
 			}
-			log.Infof("connecting to the Relay service %s", relayURL)
+			log.Infof("connecting to the Relay service(s): %s", strings.Join(relayURLs, ", "))
 			if err = relayManager.Serve(); err != nil {
 				log.Error(err)
 				return wrapErr(err)
@@ -309,23 +308,18 @@ func (c *ConnectClient) run(
 	return nil
 }
 
-func parseRelayInfo(resp *mgmProto.LoginResponse) (string, *hmac.Token) {
-	msg := resp.GetWiretrusteeConfig().GetRelay()
-	if msg == nil {
-		return "", nil
-	}
-
-	var url string
-	if msg.GetUrls() != nil && len(msg.GetUrls()) > 0 {
-		url = msg.GetUrls()[0]
+func parseRelayInfo(loginResp *mgmProto.LoginResponse) ([]string, *hmac.Token) {
+	relayCfg := loginResp.GetWiretrusteeConfig().GetRelay()
+	if relayCfg == nil {
+		return nil, nil
 	}
 
 	token := &hmac.Token{
-		Payload:   msg.GetTokenPayload(),
-		Signature: msg.GetTokenSignature(),
+		Payload:   relayCfg.GetTokenPayload(),
+		Signature: relayCfg.GetTokenSignature(),
 	}
 
-	return url, token
+	return relayCfg.GetUrls(), token
 }
 
 func (c *ConnectClient) Engine() *Engine {

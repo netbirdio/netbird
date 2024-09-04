@@ -81,7 +81,7 @@ func TestEngine_SSH(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	relayMgr := relayClient.NewManager(ctx, "", key.PublicKey().String())
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
 	engine := NewEngine(
 		ctx, cancel,
 		&signal.MockClient{},
@@ -226,7 +226,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	relayMgr := relayClient.NewManager(ctx, "", key.PublicKey().String())
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
 	engine := NewEngine(
 		ctx, cancel,
 		&signal.MockClient{},
@@ -430,7 +430,7 @@ func TestEngine_Sync(t *testing.T) {
 		}
 		return nil
 	}
-	relayMgr := relayClient.NewManager(ctx, "", key.PublicKey().String())
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
 	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{SyncFunc: syncFunc}, relayMgr, &EngineConfig{
 		WgIfaceName:  "utun103",
 		WgAddr:       "100.64.0.1/24",
@@ -590,7 +590,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			wgIfaceName := fmt.Sprintf("utun%d", 104+n)
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
-			relayMgr := relayClient.NewManager(ctx, "", key.PublicKey().String())
+			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
 			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
@@ -761,7 +761,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			wgIfaceName := fmt.Sprintf("utun%d", 104+n)
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
-			relayMgr := relayClient.NewManager(ctx, "", key.PublicKey().String())
+			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
 			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
@@ -1040,7 +1040,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		WgPort:       wgPort,
 	}
 
-	relayMgr := relayClient.NewManager(ctx, "", key.PublicKey().String())
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
 	e, err := NewEngine(ctx, cancel, signalClient, mgmtClient, relayMgr, conf, MobileDependency{}, peer.NewRecorder("https://mgm"), nil), nil
 	e.ctx = ctx
 	return e, err
@@ -1075,6 +1075,11 @@ func startManagement(t *testing.T, dataDir string) (*grpc.Server, string, error)
 	config := &server.Config{
 		Stuns:      []*server.Host{},
 		TURNConfig: &server.TURNConfig{},
+		Relay: &server.Relay{
+			Addresses:      []string{"127.0.0.1:1234"},
+			CredentialsTTL: util.Duration{Duration: time.Hour},
+			Secret:         "222222222222222222",
+		},
 		Signal: &server.Host{
 			Proto: "http",
 			URI:   "localhost:10000",
@@ -1109,11 +1114,9 @@ func startManagement(t *testing.T, dataDir string) (*grpc.Server, string, error)
 	if err != nil {
 		return nil, "", err
 	}
-	rc := &server.Relay{
-		Address: "127.0.0.1:1234",
-	}
-	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, rc)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, peersUpdateManager, turnManager, nil, nil)
+
+	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, peersUpdateManager, secretsManager, nil, nil)
 	if err != nil {
 		return nil, "", err
 	}

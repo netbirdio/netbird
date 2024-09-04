@@ -3,6 +3,7 @@ package peer
 import (
 	"errors"
 	"net/netip"
+	"slices"
 	"sync"
 	"time"
 
@@ -657,23 +658,28 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 	}
 
 	// extend the list of stun, turn servers with relay address
-	relaysState := make([]relay.ProbeResult, len(d.relayStates), len(d.relayStates)+1)
-	copy(relaysState, d.relayStates)
+	relayStates := slices.Clone(d.relayStates)
 
-	relayState := relay.ProbeResult{}
+	var relayState relay.ProbeResult
 
 	// if the server connection is not established then we will use the general address
 	// in case of connection we will use the instance specific address
 	instanceAddr, err := d.relayMgr.RelayInstanceAddress()
 	if err != nil {
-		relayState.URI = d.relayMgr.ServerURL()
+		// TODO add their status
+		if errors.Is(err, relayClient.ErrRelayClientNotConnected) {
+			for _, r := range relayStates {
+				relayStates = append(relayStates, relay.ProbeResult{
+					URI: r.URI,
+				})
+			}
+			return relayStates
+		}
 		relayState.Err = err
-	} else {
-		relayState.URI = instanceAddr
 	}
 
-	relaysState = append(relaysState, relayState)
-	return relaysState
+	relayState.URI = instanceAddr
+	return append(relayStates, relayState)
 }
 
 func (d *Status) GetDNSStates() []NSGroupState {

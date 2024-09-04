@@ -480,12 +480,12 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		wCfg := update.GetWiretrusteeConfig()
 		err := e.updateTURNs(wCfg.GetTurns())
 		if err != nil {
-			return err
+			return fmt.Errorf("update TURNs: %w", err)
 		}
 
 		err = e.updateSTUNs(wCfg.GetStuns())
 		if err != nil {
-			return err
+			return fmt.Errorf("update STUNs: %w", err)
 		}
 
 		var stunTurn []*stun.URI
@@ -501,7 +501,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 			}
 			if err := e.relayManager.UpdateToken(c); err != nil {
 				log.Errorf("failed to update relay token: %v", err)
-				return err
+				return fmt.Errorf("update relay token: %w", err)
 			}
 		}
 

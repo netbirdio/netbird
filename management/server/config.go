@@ -77,7 +77,9 @@ type TURNConfig struct {
 }
 
 type Relay struct {
-	Address string
+	Addresses      []string
+	CredentialsTTL util.Duration
+	Secret         string
 }
 
 // HttpServerConfig is a config of the HTTP Management service server

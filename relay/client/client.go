@@ -159,7 +159,7 @@ func (c *Client) Connect() error {
 	c.wgReadLoop.Add(1)
 	go c.readLoop(c.relayConn)
 
-	log.Infof("relay connection established with: %s", c.connectionURL)
+	c.log.Infof("relay connection established with: %s", c.connectionURL)
 	return nil
 }
 
@@ -258,7 +258,12 @@ func (c *Client) handShake() error {
 		return err
 	}
 
-	msgType, err := messages.DetermineServerMsgType(buf[:n])
+	_, err = messages.ValidateVersion(buf[:n])
+	if err != nil {
+		return fmt.Errorf("validate version: %w", err)
+	}
+
+	msgType, err := messages.DetermineServerMessageType(buf[1:n])
 	if err != nil {
 		log.Errorf("failed to determine message type: %s", err)
 		return err
@@ -269,7 +274,7 @@ func (c *Client) handShake() error {
 		return fmt.Errorf("unexpected message type")
 	}
 
-	ia, err := messages.UnmarshalHelloResponse(buf[:n])
+	_, ia, err := messages.UnmarshalHelloResponse(buf[:n])
 	if err != nil {
 		return err
 	}
@@ -301,9 +306,17 @@ func (c *Client) readLoop(relayConn net.Conn) {
 			break
 		}
 
-		msgType, err := messages.DetermineServerMsgType(buf[:n])
+		_, err := messages.ValidateVersion(buf[:n])
+		if err != nil {
+			c.log.Errorf("failed to validate protocol version: %s", err)
+			c.bufPool.Put(bufPtr)
+			continue
+		}
+
+		msgType, err := messages.DetermineServerMessageType(buf[1:n])
 		if err != nil {
 			c.log.Errorf("failed to determine message type: %s", err)
+			c.bufPool.Put(bufPtr)
 			continue
 		}
 
@@ -360,6 +373,7 @@ func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppe
 		c.bufPool.Put(bufPtr)
 		return true
 	}
+
 	stringID := messages.HashIDToString(peerID)
 
 	c.mu.Lock()

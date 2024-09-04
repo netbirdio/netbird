@@ -195,7 +195,7 @@ var (
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}
 
-			turnRelayTokenManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
+			secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
 
 			trustedPeers := config.ReverseProxy.TrustedPeers
 			defaultTrustedPeers := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
@@ -271,7 +271,7 @@ var (
 			ephemeralManager.LoadInitialPeers(ctx)
 
 			gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
-			srv, err := server.NewServer(ctx, config, accountManager, peersUpdateManager, turnRelayTokenManager, appMetrics, ephemeralManager)
+			srv, err := server.NewServer(ctx, config, accountManager, peersUpdateManager, secretsManager, appMetrics, ephemeralManager)
 			if err != nil {
 				return fmt.Errorf("failed creating gRPC API handler: %v", err)
 			}
@@ -539,7 +539,7 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config,
 	}
 
 	if loadedConfig.Relay != nil {
-		log.Infof("Relay address: %v", loadedConfig.Relay.Address)
+		log.Infof("Relay addresses: %v", loadedConfig.Relay.Addresses)
 	}
 
 	return loadedConfig, err

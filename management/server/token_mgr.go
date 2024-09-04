@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha1"
+	"crypto/sha256"
 	"fmt"
 	"sync"
 	"time"
@@ -12,55 +14,82 @@ import (
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
 )
 
-// TURNRelayTokenManager used to manage TURN credentials
-type TURNRelayTokenManager interface {
-	Generate() (*TURNRelayToken, error)
+// SecretsManager used to manage TURN and relay secrets
+type SecretsManager interface {
+	GenerateTurnToken() (*Token, error)
+	GenerateRelayToken() (*Token, error)
 	SetupRefresh(ctx context.Context, peerKey string)
 	CancelRefresh(peerKey string)
 }
 
 // TimeBasedAuthSecretsManager generates credentials with TTL and using pre-shared secret known to TURN server
 type TimeBasedAuthSecretsManager struct {
-	mux           sync.Mutex
-	turnCfg       *TURNConfig
-	relayAddr     string
-	hmacToken     *auth.TimedHMAC
-	updateManager *PeersUpdateManager
-	cancelMap     map[string]chan struct{}
+	mux            sync.Mutex
+	turnCfg        *TURNConfig
+	relayCfg       *Relay
+	turnHmacToken  *auth.TimedHMAC
+	relayHmacToken *auth.TimedHMAC
+	updateManager  *PeersUpdateManager
+	turnCancelMap  map[string]chan struct{}
+	relayCancelMap map[string]chan struct{}
 }
 
-type TURNRelayToken auth.Token
+type Token auth.Token
 
-func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *TURNConfig, relayConfig *Relay) *TimeBasedAuthSecretsManager {
+func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *TURNConfig, relayCfg *Relay) *TimeBasedAuthSecretsManager {
+	mgr := &TimeBasedAuthSecretsManager{
+		updateManager:  updateManager,
+		turnCfg:        turnCfg,
+		relayCfg:       relayCfg,
+		turnCancelMap:  make(map[string]chan struct{}),
+		relayCancelMap: make(map[string]chan struct{}),
+	}
 
-	var relayAddr string
-	if relayConfig != nil {
-		relayAddr = relayConfig.Address
+	if turnCfg != nil {
+		mgr.turnHmacToken = auth.NewTimedHMAC(turnCfg.Secret, turnCfg.CredentialsTTL.Duration)
 	}
-	return &TimeBasedAuthSecretsManager{
-		mux:           sync.Mutex{},
-		updateManager: updateManager,
-		turnCfg:       turnCfg,
-		relayAddr:     relayAddr,
-		hmacToken:     auth.NewTimedHMAC(turnCfg.Secret, turnCfg.CredentialsTTL.Duration),
-		cancelMap:     make(map[string]chan struct{}),
+	if relayCfg != nil {
+		mgr.relayHmacToken = auth.NewTimedHMAC(relayCfg.Secret, relayCfg.CredentialsTTL.Duration)
 	}
+
+	return mgr
 }
 
-// Generate generates new time-based secret credentials - basically username is a unix timestamp and password is a HMAC hash of a timestamp with a preshared TURN secret
-func (m *TimeBasedAuthSecretsManager) Generate() (*TURNRelayToken, error) {
-	token, err := m.hmacToken.GenerateToken()
+// GenerateTurnToken generates new time-based secret credentials for TURN
+func (m *TimeBasedAuthSecretsManager) GenerateTurnToken() (*Token, error) {
+	if m.turnHmacToken == nil {
+		return nil, fmt.Errorf("TURN configuration is not set")
+	}
+	turnToken, err := m.turnHmacToken.GenerateToken(sha1.New)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate token: %s", err)
+		return nil, fmt.Errorf("failed to generate TURN token: %s", err)
 	}
-
-	return (*TURNRelayToken)(token), nil
+	return (*Token)(turnToken), nil
 }
 
-func (m *TimeBasedAuthSecretsManager) cancel(peerID string) {
-	if channel, ok := m.cancelMap[peerID]; ok {
+// GenerateRelayToken generates new time-based secret credentials for relay
+func (m *TimeBasedAuthSecretsManager) GenerateRelayToken() (*Token, error) {
+	if m.relayHmacToken == nil {
+		return nil, fmt.Errorf("relay configuration is not set")
+	}
+	relayToken, err := m.relayHmacToken.GenerateToken(sha256.New)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate relay token: %s", err)
+	}
+	return (*Token)(relayToken), nil
+}
+
+func (m *TimeBasedAuthSecretsManager) cancelTURN(peerID string) {
+	if channel, ok := m.turnCancelMap[peerID]; ok {
 		close(channel)
-		delete(m.cancelMap, peerID)
+		delete(m.turnCancelMap, peerID)
+	}
+}
+
+func (m *TimeBasedAuthSecretsManager) cancelRelay(peerID string) {
+	if channel, ok := m.relayCancelMap[peerID]; ok {
+		close(channel)
+		delete(m.relayCancelMap, peerID)
 	}
 }
 
@@ -68,38 +97,65 @@ func (m *TimeBasedAuthSecretsManager) cancel(peerID string) {
 func (m *TimeBasedAuthSecretsManager) CancelRefresh(peerID string) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
-	m.cancel(peerID)
+	m.cancelTURN(peerID)
+	m.cancelRelay(peerID)
 }
 
-// SetupRefresh starts peer credentials refresh. Since credentials are expiring (TTL) it is necessary to always generate them and send to the peer.
-// A goroutine is created and put into TimeBasedAuthSecretsManager.cancelMap. This routine should be cancelled if peer is gone.
+// SetupRefresh starts peer credentials refresh
 func (m *TimeBasedAuthSecretsManager) SetupRefresh(ctx context.Context, peerID string) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
-	m.cancel(peerID)
-	cancel := make(chan struct{}, 1)
-	m.cancelMap[peerID] = cancel
-	log.WithContext(ctx).Debugf("starting turn refresh for %s", peerID)
 
-	go func() {
-		// we don't want to regenerate credentials right on expiration, so we do it slightly before (at 3/4 of TTL)
-		ticker := time.NewTicker(m.turnCfg.CredentialsTTL.Duration / 4 * 3)
-		defer ticker.Stop()
+	m.cancelTURN(peerID)
+	m.cancelRelay(peerID)
 
-		for {
-			select {
-			case <-cancel:
-				log.WithContext(ctx).Debugf("stopping turn refresh for %s", peerID)
-				return
-			case <-ticker.C:
-				m.pushNewTokens(ctx, peerID)
-			}
-		}
-	}()
+	if m.turnCfg != nil && m.turnCfg.TimeBasedCredentials {
+		turnCancel := make(chan struct{}, 1)
+		m.turnCancelMap[peerID] = turnCancel
+		go m.refreshTURNTokens(ctx, peerID, turnCancel)
+		log.WithContext(ctx).Debugf("starting TURN refresh for %s", peerID)
+	}
+
+	if m.relayCfg != nil {
+		relayCancel := make(chan struct{}, 1)
+		m.relayCancelMap[peerID] = relayCancel
+		go m.refreshRelayTokens(ctx, peerID, relayCancel)
+		log.WithContext(ctx).Debugf("starting relay refresh for %s", peerID)
+	}
 }
 
-func (m *TimeBasedAuthSecretsManager) pushNewTokens(ctx context.Context, peerID string) {
-	token, err := m.hmacToken.GenerateToken()
+func (m *TimeBasedAuthSecretsManager) refreshTURNTokens(ctx context.Context, peerID string, cancel chan struct{}) {
+	ticker := time.NewTicker(m.turnCfg.CredentialsTTL.Duration / 4 * 3)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-cancel:
+			log.WithContext(ctx).Debugf("stopping TURN refresh for %s", peerID)
+			return
+		case <-ticker.C:
+			m.pushNewTURNTokens(ctx, peerID)
+		}
+	}
+}
+
+func (m *TimeBasedAuthSecretsManager) refreshRelayTokens(ctx context.Context, peerID string, cancel chan struct{}) {
+	ticker := time.NewTicker(m.relayCfg.CredentialsTTL.Duration / 4 * 3)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-cancel:
+			log.WithContext(ctx).Debugf("stopping relay refresh for %s", peerID)
+			return
+		case <-ticker.C:
+			m.pushNewRelayTokens(ctx, peerID)
+		}
+	}
+}
+
+func (m *TimeBasedAuthSecretsManager) pushNewTURNTokens(ctx context.Context, peerID string) {
+	turnToken, err := m.turnHmacToken.GenerateToken(sha1.New)
 	if err != nil {
 		log.Errorf("failed to generate token for peer '%s': %s", peerID, err)
 		return
@@ -107,26 +163,46 @@ func (m *TimeBasedAuthSecretsManager) pushNewTokens(ctx context.Context, peerID 
 
 	var turns []*proto.ProtectedHostConfig
 	for _, host := range m.turnCfg.Turns {
-		turns = append(turns, &proto.ProtectedHostConfig{
+		turn := &proto.ProtectedHostConfig{
 			HostConfig: &proto.HostConfig{
 				Uri:      host.URI,
 				Protocol: ToResponseProto(host.Proto),
 			},
-			User:     token.Payload,
-			Password: token.Signature,
-		})
+			User:     turnToken.Payload,
+			Password: turnToken.Signature,
+		}
+		turns = append(turns, turn)
 	}
 
 	update := &proto.SyncResponse{
 		WiretrusteeConfig: &proto.WiretrusteeConfig{
 			Turns: turns,
-			Relay: &proto.RelayConfig{
-				Urls:           []string{m.relayAddr},
-				TokenPayload:   token.Payload,
-				TokenSignature: token.Signature,
-			},
+			// omit Relay to avoid updates there
 		},
 	}
+
 	log.WithContext(ctx).Debugf("sending new TURN credentials to peer %s", peerID)
+	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
+}
+
+func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, peerID string) {
+	relayToken, err := m.relayHmacToken.GenerateToken(sha256.New)
+	if err != nil {
+		log.Errorf("failed to generate relay token for peer '%s': %s", peerID, err)
+		return
+	}
+
+	update := &proto.SyncResponse{
+		WiretrusteeConfig: &proto.WiretrusteeConfig{
+			Relay: &proto.RelayConfig{
+				Urls:           m.relayCfg.Addresses,
+				TokenPayload:   relayToken.Payload,
+				TokenSignature: relayToken.Signature,
+			},
+			// omit Turns to avoid updates there
+		},
+	}
+
+	log.WithContext(ctx).Debugf("sending new relay credentials to peer %s", peerID)
 	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
 }
