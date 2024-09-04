@@ -111,11 +111,6 @@ func (c *ConnectClient) run(
 			log.Panicf("Panic occurred: %v, stack trace: %s", r, string(debug.Stack()))
 		}
 	}()
-	defer func(runningChan chan error) {
-		if runningChan != nil {
-			runningChan <- errors.New("NetBird client startup failed")
-		}
-	}(runningChan)
 
 	log.Infof("starting NetBird client version %s on %s/%s", version.NetbirdVersion(), runtime.GOOS, runtime.GOARCH)
 
@@ -200,6 +195,7 @@ func (c *ConnectClient) run(
 			log.Debug(err)
 			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 				state.Set(StatusNeedsLogin)
+				c.Stop()
 				return backoff.Permanent(wrapErr(err)) // unrecoverable error
 			}
 			return wrapErr(err)
@@ -293,6 +289,7 @@ func (c *ConnectClient) run(
 		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 			state.Set(StatusNeedsLogin)
+			c.Stop()
 		}
 		return err
 	}
