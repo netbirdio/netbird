@@ -57,10 +57,14 @@ func TestNewHealthcheckStop(t *testing.T) {
 	cancel()
 
 	select {
-	case <-hc.HealthCheck:
-		t.Fatalf("health check on received")
-	case <-hc.Timeout:
-		t.Fatalf("health check timedout")
+	case _, ok := <-hc.HealthCheck:
+		if ok {
+			t.Fatalf("health check on received")
+		}
+	case _, ok := <-hc.Timeout:
+		if ok {
+			t.Fatalf("health check on received")
+		}
 	case <-ctx.Done():
 		// expected
 	case <-time.After(10 * time.Second):
