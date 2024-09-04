@@ -195,7 +195,7 @@ func (c *ConnectClient) run(
 			log.Debug(err)
 			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 				state.Set(StatusNeedsLogin)
-				c.Stop()
+				_ = c.Stop()
 				return backoff.Permanent(wrapErr(err)) // unrecoverable error
 			}
 			return wrapErr(err)
@@ -289,7 +289,7 @@ func (c *ConnectClient) run(
 		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 			state.Set(StatusNeedsLogin)
-			c.Stop()
+			_ = c.Stop()
 		}
 		return err
 	}
