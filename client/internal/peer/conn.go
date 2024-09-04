@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/ice/v3"
@@ -41,37 +42,41 @@ type WgConfig struct {
 	PreSharedKey *wgtypes.Key
 }
 
-// ConnConfig is a peer Connection configuration
-type ConnConfig struct {
-
-	// Key is a public key of a remote peer
-	Key string
-	// LocalKey is a public key of a local peer
-	LocalKey string
-
+type ICEConfig struct {
 	// StunTurn is a list of STUN and TURN URLs
-	StunTurn []*stun.URI
+	StunTurn *atomic.Value // []*stun.URI
 
 	// InterfaceBlackList is a list of machine interfaces that should be filtered out by ICE Candidate gathering
 	// (e.g. if eth0 is in the list, host candidate of this interface won't be used)
 	InterfaceBlackList   []string
 	DisableIPv6Discovery bool
 
+	UDPMux      ice.UDPMux
+	UDPMuxSrflx ice.UniversalUDPMux
+
+	NATExternalIPs []string
+}
+
+// ConnConfig is a peer Connection configuration
+type ConnConfig struct {
+	// Key is a public key of a remote peer
+	Key string
+	// LocalKey is a public key of a local peer
+	LocalKey string
+
 	Timeout time.Duration
 
 	WgConfig WgConfig
 
-	UDPMux      ice.UDPMux
-	UDPMuxSrflx ice.UniversalUDPMux
-
 	LocalWgPort int
-
-	NATExternalIPs []string
 
 	// RosenpassPubKey is this peer's Rosenpass public key
 	RosenpassPubKey []byte
 	// RosenpassPubKey is this peer's RosenpassAddr server address (IP:port)
 	RosenpassAddr string
+
+	// ICEConfig ICE protocol configuration
+	ICEConfig ICEConfig
 }
 
 // OfferAnswer represents a session establishment offer or answer
@@ -146,11 +151,6 @@ func (conn *Conn) WgConfig() WgConfig {
 	return conn.config.WgConfig
 }
 
-// UpdateStunTurn update the turn and stun addresses
-func (conn *Conn) UpdateStunTurn(turnStun []*stun.URI) {
-	conn.config.StunTurn = turnStun
-}
-
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
 func NewConn(config ConnConfig, statusRecorder *Status, wgProxyFactory *wgproxy.Factory, adapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) (*Conn, error) {
@@ -187,20 +187,20 @@ func (conn *Conn) reCreateAgent() error {
 	agentConfig := &ice.AgentConfig{
 		MulticastDNSMode:       ice.MulticastDNSModeDisabled,
 		NetworkTypes:           []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
-		Urls:                   conn.config.StunTurn,
+		Urls:                   conn.config.ICEConfig.StunTurn.Load().([]*stun.URI),
 		CandidateTypes:         conn.candidateTypes(),
 		FailedTimeout:          &failedTimeout,
-		InterfaceFilter:        stdnet.InterfaceFilter(conn.config.InterfaceBlackList),
-		UDPMux:                 conn.config.UDPMux,
-		UDPMuxSrflx:            conn.config.UDPMuxSrflx,
-		NAT1To1IPs:             conn.config.NATExternalIPs,
+		InterfaceFilter:        stdnet.InterfaceFilter(conn.config.ICEConfig.InterfaceBlackList),
+		UDPMux:                 conn.config.ICEConfig.UDPMux,
+		UDPMuxSrflx:            conn.config.ICEConfig.UDPMuxSrflx,
+		NAT1To1IPs:             conn.config.ICEConfig.NATExternalIPs,
 		Net:                    transportNet,
 		DisconnectedTimeout:    &iceDisconnectedTimeout,
 		KeepaliveInterval:      &iceKeepAlive,
 		RelayAcceptanceMinWait: &iceRelayAcceptanceMinWait,
 	}
 
-	if conn.config.DisableIPv6Discovery {
+	if conn.config.ICEConfig.DisableIPv6Discovery {
 		agentConfig.NetworkTypes = []ice.NetworkType{ice.NetworkTypeUDP4}
 	}
 
@@ -480,7 +480,7 @@ func (conn *Conn) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) {
 		return
 	}
 
-	mux, ok := conn.config.UDPMuxSrflx.(*bind.UniversalUDPMuxDefault)
+	mux, ok := conn.config.ICEConfig.UDPMuxSrflx.(*bind.UniversalUDPMuxDefault)
 	if !ok {
 		log.Warn("invalid udp mux conversion")
 		return
