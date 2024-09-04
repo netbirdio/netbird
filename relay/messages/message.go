@@ -141,8 +141,8 @@ func UnmarshalHelloMsg(msg []byte) ([]byte, []byte, error) {
 	if len(msg) < headerSizeHello {
 		return nil, nil, ErrInvalidMessageLength
 	}
-	if !bytes.Equal(msg[:SizeOfMsgType], magicHeader) {
-		return nil, nil, errors.New("invalid magic header")
+	if !bytes.Equal(msg[:sizeOfMagicByte], magicHeader) {
+		return nil, nil, fmt.Errorf("invalid magic header: %v != %v", msg[:SizeOfMsgType], magicHeader)
 	}
 
 	return msg[sizeOfMagicByte:headerSizeHello], msg[headerSizeHello:], nil
