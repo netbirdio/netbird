@@ -128,7 +128,7 @@ type Engine struct {
 	STUNs []*stun.URI
 	// TURNs is a list of STUN servers used by ICE
 	TURNs    []*stun.URI
-	StunTurn atomic.Value
+	stunTurn atomic.Value
 
 	// clientRoutes is the most recent list of clientRoutes received from the Management Service
 	clientRoutes   route.HAMap
@@ -491,7 +491,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		var stunTurn []*stun.URI
 		stunTurn = append(stunTurn, e.STUNs...)
 		stunTurn = append(stunTurn, e.TURNs...)
-		e.StunTurn.Store(stunTurn)
+		e.stunTurn.Store(stunTurn)
 
 		relayMsg := wCfg.GetRelay()
 		if relayMsg != nil {
@@ -948,7 +948,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		RosenpassPubKey: e.getRosenpassPubKey(),
 		RosenpassAddr:   e.getRosenpassAddr(),
 		ICEConfig: peer.ICEConfig{
-			StunTurn:             &e.StunTurn,
+			StunTurn:             &e.stunTurn,
 			InterfaceBlackList:   e.config.IFaceBlackList,
 			DisableIPv6Discovery: e.config.DisableIPv6Discovery,
 			UDPMux:               e.udpMux.UDPMuxDefault,
