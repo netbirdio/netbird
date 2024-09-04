@@ -146,17 +146,9 @@ func (s *Server) Start() error {
 		return nil
 	}
 
-	runningChan := make(chan error)
-	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, runningChan)
+	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil)
 
-	for {
-		err := <-runningChan
-		if err != nil {
-			log.Debugf("waiting for engine to become ready failed: %s", err)
-		} else {
-			return nil
-		}
-	}
+	return nil
 }
 
 // connectWithRetryRuns runs the client connection with a backoff strategy where we retry the operation as additional

@@ -56,11 +56,10 @@ func (p *program) Start(svc service.Service) error {
 		}
 
 		serverInstance := server.New(p.ctx, configPath, logFile)
-		proto.RegisterDaemonServiceServer(p.serv, serverInstance)
-
 		if err := serverInstance.Start(); err != nil {
 			log.Fatalf("failed to start daemon: %v", err)
 		}
+		proto.RegisterDaemonServiceServer(p.serv, serverInstance)
 
 		p.serverInstance = serverInstance
 
