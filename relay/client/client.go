@@ -285,7 +285,7 @@ func (c *Client) handShake() error {
 		return fmt.Errorf("unexpected message type")
 	}
 
-	additionalData, err := messages.UnmarshalHelloResponse(buf[:n])
+	additionalData, err := messages.UnmarshalHelloResponse(buf[messages.SizeOfProtoHeader:n])
 	if err != nil {
 		return err
 	}
