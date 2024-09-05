@@ -63,9 +63,9 @@ func (c *ConnectClient) Run() error {
 // RunWithProbes runs the client's main logic with probes attached
 func (c *ConnectClient) RunWithProbes(
 	probes *ProbeHolder,
-	runningWg *sync.WaitGroup,
+	runningChan chan error,
 ) error {
-	return c.run(MobileDependency{}, probes, runningWg)
+	return c.run(MobileDependency{}, probes, runningChan)
 }
 
 // RunOnAndroid with main logic on mobile system
@@ -106,7 +106,7 @@ func (c *ConnectClient) RunOniOS(
 func (c *ConnectClient) run(
 	mobileDependency MobileDependency,
 	probes *ProbeHolder,
-	runningWg *sync.WaitGroup,
+	runningChan chan error,
 ) error {
 	defer func() {
 		if r := recover(); r != nil {
@@ -194,6 +194,7 @@ func (c *ConnectClient) run(
 			log.Debug(err)
 			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 				state.Set(StatusNeedsLogin)
+				_ = c.Stop()
 				return backoff.Permanent(wrapErr(err)) // unrecoverable error
 			}
 			return wrapErr(err)
@@ -278,8 +279,9 @@ func (c *ConnectClient) run(
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
 
-		if runningWg != nil {
-			runningWg.Done()
+		if runningChan != nil {
+			runningChan <- nil
+			close(runningChan)
 		}
 
 		<-engineCtx.Done()
@@ -302,6 +304,7 @@ func (c *ConnectClient) run(
 		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 			state.Set(StatusNeedsLogin)
+			_ = c.Stop()
 		}
 		return err
 	}
