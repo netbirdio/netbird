@@ -326,6 +326,9 @@ func parseRelayInfo(loginResp *mgmProto.LoginResponse) ([]string, *hmac.Token) {
 }
 
 func (c *ConnectClient) Engine() *Engine {
+	if c == nil {
+		return nil
+	}
 	var e *Engine
 	c.engineMutex.Lock()
 	e = c.engine
@@ -334,8 +337,15 @@ func (c *ConnectClient) Engine() *Engine {
 }
 
 func (c *ConnectClient) Stop() error {
+	if c == nil {
+		return nil
+	}
 	c.engineMutex.Lock()
 	defer c.engineMutex.Unlock()
+
+	if c.engine == nil {
+		return nil
+	}
 	return c.engine.Stop()
 }
 
