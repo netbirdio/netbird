@@ -218,6 +218,20 @@ func (w *WorkerICE) GetLocalUserCredentials() (frag string, pwd string) {
 	return w.localUfrag, w.localPwd
 }
 
+func (w *WorkerICE) Close() {
+	w.muxAgent.Lock()
+	defer w.muxAgent.Unlock()
+
+	if w.agent == nil {
+		return
+	}
+
+	err := w.agent.Close()
+	if err != nil {
+		w.log.Warnf("failed to close ICE agent: %s", err)
+	}
+}
+
 func (w *WorkerICE) reCreateAgent(agentCancel context.CancelFunc, relaySupport []ice.CandidateType) (*ice.Agent, error) {
 	transportNet, err := w.newStdNet()
 	if err != nil {

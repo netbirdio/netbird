@@ -220,6 +220,8 @@ func (conn *Conn) Close() {
 	}
 
 	conn.workerRelay.DisableWgWatcher()
+	conn.workerRelay.CloseConn()
+	conn.workerICE.Close()
 
 	if conn.wgProxyRelay != nil {
 		err := conn.wgProxyRelay.CloseConn()
