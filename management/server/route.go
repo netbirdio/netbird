@@ -205,7 +205,7 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 		return nil, err
 	}
 
-	if isRouteChangeAffectPeers(&newRoute) {
+	if isRouteChangeAffectPeers(account, &newRoute) {
 		am.updateAccountPeers(ctx, account)
 	}
 
@@ -277,7 +277,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		return err
 	}
 
-	if isRouteChangeAffectPeers(oldRoute) || isRouteChangeAffectPeers(routeToSave) {
+	if isRouteChangeAffectPeers(account, oldRoute) || isRouteChangeAffectPeers(account, routeToSave) {
 		am.updateAccountPeers(ctx, account)
 	}
 
@@ -296,8 +296,8 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 		return err
 	}
 
-	routy := account.Routes[routeID]
-	if routy == nil {
+	route := account.Routes[routeID]
+	if route == nil {
 		return status.Errorf(status.NotFound, "route with ID %s doesn't exist", routeID)
 	}
 	delete(account.Routes, routeID)
@@ -307,11 +307,11 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 		return err
 	}
 
-	if isRouteChangeAffectPeers(routy) {
+	if isRouteChangeAffectPeers(account, route) {
 		am.updateAccountPeers(ctx, account)
 	}
 
-	am.StoreEvent(ctx, userID, string(routy.ID), accountID, activity.RouteRemoved, routy.EventMeta())
+	am.StoreEvent(ctx, userID, string(route.ID), accountID, activity.RouteRemoved, route.EventMeta())
 
 	return nil
 }
@@ -371,8 +371,8 @@ func getPlaceholderIP() netip.Prefix {
 	return netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 0, 2, 0}), 32)
 }
 
-// isRouteChangeAffectPeers checks if the given route affects any peers.
-// A route affects peers if it has distribution groups, peer groups, or a routing peer.
-func isRouteChangeAffectPeers(route *route.Route) bool {
-	return len(route.Groups) != 0 || len(route.PeerGroups) != 0 || route.Peer != ""
+// isRouteChangeAffectPeers checks if a given route affects peers by determining
+// if it has a routing peer, distribution, or peer groups that include peers
+func isRouteChangeAffectPeers(account *Account, route *route.Route) bool {
+	return anyGroupHasPeers(account, route.Groups) || anyGroupHasPeers(account, route.PeerGroups) || route.Peer != ""
 }
