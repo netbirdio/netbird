@@ -82,8 +82,8 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 
-	updateAccountPeers, _ := isPostureCheckLinkedToPolicy(account, postureChecks.ID)
-	if exists && updateAccountPeers {
+	isLinked, linkedPolicy := isPostureCheckLinkedToPolicy(account, postureChecks.ID)
+	if exists && isLinked && anyGroupHasPeers(account, linkedPolicy.ruleGroups()) {
 		am.updateAccountPeers(ctx, account)
 	}
 

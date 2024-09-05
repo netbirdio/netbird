@@ -191,11 +191,10 @@ func (p *Policy) UpgradeAndFix() {
 	}
 }
 
-// appliedGroups returns a list of groups applied in the policy, including
-// both Sources and Destinations from all rules.
-func (p *Policy) appliedGroups() []string {
+// ruleGroups returns a list of all groups referenced in the policy's rules,
+// including sources and destinations.
+func (p *Policy) ruleGroups() []string {
 	groups := make([]string, 0)
-
 	for _, rule := range p.Rules {
 		groups = append(groups, rule.Sources...)
 		groups = append(groups, rule.Destinations...)
@@ -405,7 +404,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 	am.StoreEvent(ctx, userID, policy.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
-	if anyGroupHasPeers(account, policy.appliedGroups()) {
+	if anyGroupHasPeers(account, policy.ruleGroups()) {
 		am.updateAccountPeers(ctx, account)
 	}
 
@@ -457,14 +456,14 @@ func (am *DefaultAccountManager) savePolicy(account *Account, policy *Policy) (e
 			account.Policies[i] = policy
 
 			exists = true
-			updateAccountPeers = anyGroupHasPeers(account, p.appliedGroups()) || anyGroupHasPeers(account, policy.appliedGroups())
+			updateAccountPeers = anyGroupHasPeers(account, p.ruleGroups()) || anyGroupHasPeers(account, policy.ruleGroups())
 
 			break
 		}
 	}
 	if !exists {
 		account.Policies = append(account.Policies, policy)
-		updateAccountPeers = anyGroupHasPeers(account, policy.appliedGroups())
+		updateAccountPeers = anyGroupHasPeers(account, policy.ruleGroups())
 	}
 	return
 }
