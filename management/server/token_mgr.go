@@ -14,6 +14,8 @@ import (
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
 )
 
+const defaultDuration = 12 * time.Hour
+
 // SecretsManager used to manage TURN and relay secrets
 type SecretsManager interface {
 	GenerateTurnToken() (*Token, error)
@@ -46,10 +48,22 @@ func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *
 	}
 
 	if turnCfg != nil {
-		mgr.turnHmacToken = auth.NewTimedHMAC(turnCfg.Secret, turnCfg.CredentialsTTL.Duration)
+		duration := turnCfg.CredentialsTTL.Duration
+		if turnCfg.CredentialsTTL.Duration <= 0 {
+			log.Warnf("TURN credentials TTL is not set or invalid, using default value %s", defaultDuration)
+			duration = defaultDuration
+		}
+		mgr.turnHmacToken = auth.NewTimedHMAC(turnCfg.Secret, duration)
 	}
+
 	if relayCfg != nil {
-		mgr.relayHmacToken = auth.NewTimedHMAC(relayCfg.Secret, relayCfg.CredentialsTTL.Duration)
+		duration := relayCfg.CredentialsTTL.Duration
+		if relayCfg.CredentialsTTL.Duration <= 0 {
+			log.Warnf("Relay credentials TTL is not set or invalid, using default value %s", defaultDuration)
+			duration = defaultDuration
+		}
+
+		mgr.relayHmacToken = auth.NewTimedHMAC(relayCfg.Secret, duration)
 	}
 
 	return mgr
