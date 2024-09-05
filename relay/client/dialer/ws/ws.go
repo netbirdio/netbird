@@ -59,9 +59,6 @@ func httpClientNbDialer() *http.Client {
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return customDialer.DialContext(ctx, network, addr)
 		},
-		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return customDialer.DialContext(ctx, network, addr)
-		},
 	}
 
 	return &http.Client{
