@@ -49,6 +49,8 @@ func RemoveDialerHooks() {
 
 // DialContext wraps the net.Dialer's DialContext method to use the custom connection
 func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	log.Debugf("Dialing %s", address)
+
 	if CustomRoutingDisabled() {
 		return d.Dialer.DialContext(ctx, network, address)
 	}
