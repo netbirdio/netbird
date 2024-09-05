@@ -56,7 +56,6 @@ func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *
 		mgr.turnHmacToken = auth.NewTimedHMAC(turnCfg.Secret, duration)
 	}
 
-	// same for relay cfg
 	if relayCfg != nil {
 		duration := relayCfg.CredentialsTTL.Duration
 		if relayCfg.CredentialsTTL.Duration <= 0 {
