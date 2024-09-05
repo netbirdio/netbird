@@ -185,7 +185,9 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		am.StoreEvent(ctx, userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
 	}
 
-	if peer.Name != update.Name {
+	peerLabelUpdated := peer.Name != update.Name
+
+	if peerLabelUpdated {
 		peer.Name = update.Name
 
 		existingLabels := account.getPeerDNSLabels()
@@ -226,7 +228,8 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	}
 
 	expired, _ := peer.LoginExpired(account.Settings.PeerLoginExpiration)
-	if expired && peer.LoginExpirationEnabled {
+
+	if peerLabelUpdated || (expired && peer.LoginExpirationEnabled) {
 		am.updateAccountPeers(ctx, account)
 	}
 

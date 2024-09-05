@@ -153,9 +153,7 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.GroupRemovedFromDisabledManagementGroups, meta)
 	}
 
-	updateAccountPeers := (areGroupChangesAffectPeers(account, addedGroups) && anyGroupHasPeers(account, addedGroups)) ||
-		areGroupChangesAffectPeers(account, removedGroups) && anyGroupHasPeers(account, removedGroups)
-	if updateAccountPeers {
+	if anyGroupHasPeers(account, addedGroups) || anyGroupHasPeers(account, removedGroups) {
 		am.updateAccountPeers(ctx, account)
 	}
 
