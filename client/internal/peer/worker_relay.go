@@ -36,6 +36,7 @@ type WorkerRelay struct {
 	callBacks    WorkerRelayCallbacks
 
 	relayedConn      net.Conn
+	relayLock        sync.Mutex
 	ctxWgWatch       context.Context
 	ctxCancelWgWatch context.CancelFunc
 	ctxLock          sync.Mutex
@@ -79,7 +80,9 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		w.log.Errorf("failed to open connection via Relay: %s", err)
 		return
 	}
+	w.relayLock.Lock()
 	w.relayedConn = relayedConn
+	w.relayLock.Unlock()
 
 	err = w.relayManager.AddCloseListener(srv, w.onRelayMGDisconnected)
 	if err != nil {
@@ -141,6 +144,19 @@ func (w *WorkerRelay) RelayIsSupportedLocally() bool {
 	return w.relayManager.HasRelayAddress()
 }
 
+func (w *WorkerRelay) CloseConn() {
+	w.relayLock.Lock()
+	defer w.relayLock.Unlock()
+	if w.relayedConn == nil {
+		return
+	}
+
+	err := w.relayedConn.Close()
+	if err != nil {
+		w.log.Warnf("failed to close relay connection: %v", err)
+	}
+}
+
 // wgStateCheck help to check the state of the wireguard handshake and relay connection
 func (w *WorkerRelay) wgStateCheck(ctx context.Context) {
 	timer := time.NewTimer(wgHandshakeOvertime)
@@ -158,7 +174,9 @@ func (w *WorkerRelay) wgStateCheck(ctx context.Context) {
 
 			if time.Since(lastHandshake) > expected {
 				w.log.Infof("Wireguard handshake timed out, closing relay connection")
+				w.relayLock.Lock()
 				_ = w.relayedConn.Close()
+				w.relayLock.Unlock()
 				w.callBacks.OnDisconnected()
 				return
 			}
