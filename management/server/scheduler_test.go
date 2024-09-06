@@ -63,6 +63,7 @@ func TestScheduler_Cancel(t *testing.T) {
 	scheduler.Schedule(context.Background(), scheduletime, jobID2, func() (nextRunIn time.Duration, reschedule bool) {
 		return scheduletime, true
 	})
+	defer scheduler.Cancel(context.Background(), []string{jobID2})
 
 	time.Sleep(sleepTime)
 	assert.Len(t, scheduler.jobs, 2)
