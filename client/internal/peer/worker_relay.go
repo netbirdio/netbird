@@ -219,5 +219,5 @@ func (w *WorkerRelay) onRelayMGDisconnected() {
 	if w.ctxCancelWgWatch != nil {
 		w.ctxCancelWgWatch()
 	}
-	w.callBacks.OnDisconnected()
+	go w.callBacks.OnDisconnected()
 }
