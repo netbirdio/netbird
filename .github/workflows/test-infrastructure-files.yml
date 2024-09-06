@@ -254,6 +254,9 @@ jobs:
       - name: test zdb.env file gen postgres
         run: test -f zdb.env
 
+      - name: handle insisting image   # remove after release
+        run: docker pull netbirdio/relay:latest || docker pull netbirdio/signal:latest && docker tag netbirdio/signal:latest netbirdio/relay:latest
+
       - name: Postgres run cleanup
         run: |
           docker compose down --volumes --rmi all
