@@ -245,6 +245,9 @@ jobs:
       - name: test dashboard.env file gen postgres
         run: test -f dashboard.env
 
+      - name: test relay.env file gen postgres
+        run: test -f relay.env
+
       - name: test zdb.env file gen postgres
         run: test -f zdb.env
 
@@ -279,6 +282,9 @@ jobs:
 
       - name: test dashboard.env file gen CockroachDB
         run: test -f dashboard.env
+
+      - name: test relay.env file gen CockroachDB
+        run: test -f relay.env
 
   test-download-geolite2-script:
     runs-on: ubuntu-latest
