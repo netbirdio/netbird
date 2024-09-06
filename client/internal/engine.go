@@ -244,7 +244,7 @@ func (e *Engine) Stop() error {
 
 	err := e.removeAllPeers()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to remove all peers: %s", err)
 	}
 
 	e.clientRoutesMu.Lock()
