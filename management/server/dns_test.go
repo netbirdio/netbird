@@ -485,7 +485,7 @@ func TestDNSAccountPeerUpdate(t *testing.T) {
 	err := manager.SaveGroup(context.Background(), account.Id, userID, &group.Group{
 		ID:    "group-id",
 		Name:  "GroupA",
-		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+		Peers: []string{},
 	})
 	assert.NoError(t, err)
 
@@ -494,7 +494,7 @@ func TestDNSAccountPeerUpdate(t *testing.T) {
 		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 	})
 
-	// Saving DNS settings with unused groups should not update account peers and not send peer update
+	// Saving DNS settings with groups that have no peers should not trigger updates to account peers or send peer updates
 	t.Run("saving dns setting with unused groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
@@ -514,6 +514,13 @@ func TestDNSAccountPeerUpdate(t *testing.T) {
 		}
 	})
 
+	err = manager.SaveGroup(context.Background(), account.Id, userID, &group.Group{
+		ID:    "group-id",
+		Name:  "GroupA",
+		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+	})
+	assert.NoError(t, err)
+
 	_, err = manager.CreateNameServerGroup(
 		context.Background(), account.Id, "ns-group-1", "ns-group-1", []dns.NameServer{{
 			IP:     netip.MustParseAddr(peer1.IP.String()),
@@ -525,7 +532,7 @@ func TestDNSAccountPeerUpdate(t *testing.T) {
 	)
 	assert.NoError(t, err)
 
-	// Saving DNS settings with used groups should update account peers and send peer update
+	// Saving DNS settings with groups that have peers should update account peers and send peer update
 	t.Run("saving dns setting with used groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
