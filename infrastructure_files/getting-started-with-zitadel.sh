@@ -541,7 +541,7 @@ renderCaddyfile() {
 
         # clickjacking protection
         # https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#x-frame-options
-        X-Frame-Options "DENY"
+        X-Frame-Options "SAMEORIGIN"
 
         # xss protection
         # https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#x-xss-protection
