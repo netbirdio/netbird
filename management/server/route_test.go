@@ -1272,11 +1272,12 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	}
 
 	peer1 := &nbpeer.Peer{
-		IP:     peer1IP,
-		ID:     peer1ID,
-		Key:    peer1Key,
-		Name:   "test-host1@netbird.io",
-		UserID: userID,
+		IP:       peer1IP,
+		ID:       peer1ID,
+		Key:      peer1Key,
+		Name:     "test-host1@netbird.io",
+		DNSLabel: "test-host1",
+		UserID:   userID,
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname:  "test-host1@netbird.io",
 			GoOS:      "linux",
@@ -1298,11 +1299,12 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	}
 
 	peer2 := &nbpeer.Peer{
-		IP:     peer2IP,
-		ID:     peer2ID,
-		Key:    peer2Key,
-		Name:   "test-host2@netbird.io",
-		UserID: userID,
+		IP:       peer2IP,
+		ID:       peer2ID,
+		Key:      peer2Key,
+		Name:     "test-host2@netbird.io",
+		DNSLabel: "test-host2",
+		UserID:   userID,
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname:  "test-host2@netbird.io",
 			GoOS:      "linux",
@@ -1324,11 +1326,12 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	}
 
 	peer3 := &nbpeer.Peer{
-		IP:     peer3IP,
-		ID:     peer3ID,
-		Key:    peer3Key,
-		Name:   "test-host3@netbird.io",
-		UserID: userID,
+		IP:       peer3IP,
+		ID:       peer3ID,
+		Key:      peer3Key,
+		Name:     "test-host3@netbird.io",
+		DNSLabel: "test-host3",
+		UserID:   userID,
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname:  "test-host3@netbird.io",
 			GoOS:      "darwin",
@@ -1350,11 +1353,12 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	}
 
 	peer4 := &nbpeer.Peer{
-		IP:     peer4IP,
-		ID:     peer4ID,
-		Key:    peer4Key,
-		Name:   "test-host4@netbird.io",
-		UserID: userID,
+		IP:       peer4IP,
+		ID:       peer4ID,
+		Key:      peer4Key,
+		Name:     "test-host4@netbird.io",
+		DNSLabel: "test-host4",
+		UserID:   userID,
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname:  "test-host4@netbird.io",
 			GoOS:      "linux",
@@ -1376,13 +1380,14 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	}
 
 	peer5 := &nbpeer.Peer{
-		IP:     peer5IP,
-		ID:     peer5ID,
-		Key:    peer5Key,
-		Name:   "test-host4@netbird.io",
-		UserID: userID,
+		IP:       peer5IP,
+		ID:       peer5ID,
+		Key:      peer5Key,
+		Name:     "test-host5@netbird.io",
+		DNSLabel: "test-host5",
+		UserID:   userID,
 		Meta: nbpeer.PeerSystemMeta{
-			Hostname:  "test-host4@netbird.io",
+			Hostname:  "test-host5@netbird.io",
 			GoOS:      "linux",
 			Kernel:    "Linux",
 			Core:      "21.04",
