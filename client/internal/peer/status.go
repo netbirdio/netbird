@@ -652,6 +652,7 @@ func (d *Status) GetSignalState() SignalState {
 	}
 }
 
+// GetRelayStates returns the stun/turn/permanent relay states
 func (d *Status) GetRelayStates() []relay.ProbeResult {
 	if d.relayMgr == nil {
 		return d.relayStates
@@ -668,9 +669,9 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 	if err != nil {
 		// TODO add their status
 		if errors.Is(err, relayClient.ErrRelayClientNotConnected) {
-			for _, r := range relayStates {
+			for _, r := range d.relayMgr.ServerURLs() {
 				relayStates = append(relayStates, relay.ProbeResult{
-					URI: r.URI,
+					URI: r,
 				})
 			}
 			return relayStates
