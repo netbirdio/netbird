@@ -221,6 +221,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: handle insisting image   # remove after release
+        run: docker pull netbirdio/relay:latest || docker pull netbirdio/signal:latest && docker tag netbirdio/signal:latest netbirdio/relay:latest
+
       - name: run script with Zitadel PostgreSQL
         run: NETBIRD_DOMAIN=use-ip bash -x infrastructure_files/getting-started-with-zitadel.sh
 
@@ -245,6 +248,9 @@ jobs:
       - name: test dashboard.env file gen postgres
         run: test -f dashboard.env
 
+      - name: test relay.env file gen postgres
+        run: test -f relay.env
+
       - name: test zdb.env file gen postgres
         run: test -f zdb.env
 
@@ -252,6 +258,9 @@ jobs:
         run: |
           docker compose down --volumes --rmi all
           rm -rf docker-compose.yml Caddyfile zitadel.env dashboard.env machinekey/zitadel-admin-sa.token turnserver.conf management.json zdb.env
+
+      - name: handle insisting image  gen CockroachDB # remove after release
+        run: docker pull netbirdio/relay:latest || docker pull netbirdio/signal:latest && docker tag netbirdio/signal:latest netbirdio/relay:latest
 
       - name: run script with Zitadel CockroachDB
         run: bash -x infrastructure_files/getting-started-with-zitadel.sh
@@ -279,6 +288,9 @@ jobs:
 
       - name: test dashboard.env file gen CockroachDB
         run: test -f dashboard.env
+
+      - name: test relay.env file gen CockroachDB
+        run: test -f relay.env
 
   test-download-geolite2-script:
     runs-on: ubuntu-latest
