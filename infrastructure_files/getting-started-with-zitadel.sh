@@ -108,6 +108,7 @@ wait_api() {
       FLAGS="-s"
       if [[ $counter -eq 45 ]]; then
         FLAGS="-v"
+        echo ""
       fi
 
       curl $FLAGS --fail -o /dev/null "$INSTANCE_URL/auth/v1/users/me" -H "Authorization: Bearer $PAT"
@@ -116,7 +117,7 @@ wait_api() {
       fi
       if [[ $counter -eq 45 ]]; then
         echo ""
-        echo "Unable to connect to Zitadel for more than 45s, please check the output above and the caddy container logs to confirm if there are any issues provisioning TLS certificates"
+        echo "Unable to connect to Zitadel for more than 45s, please check the output above, your firewall rules and the caddy container logs to confirm if there are any issues provisioning TLS certificates"
       fi
       echo -n " ."
       sleep 1
