@@ -111,7 +111,7 @@ wait_api() {
         echo ""
       fi
 
-      curl $FLAGS --fail -o /dev/null "$INSTANCE_URL/auth/v1/users/me" -H "Authorization: Bearer $PAT"
+      curl $FLAGS --fail --connect-timeout 1 -o /dev/null "$INSTANCE_URL/auth/v1/users/me" -H "Authorization: Bearer $PAT"
       if [[ $? -eq 0 ]]; then
         break
       fi
@@ -436,6 +436,7 @@ initEnvironment() {
   ZITADEL_MASTERKEY="$(openssl rand -base64 32 | head -c 32)"
   NETBIRD_PORT=80
   NETBIRD_HTTP_PROTOCOL="http"
+  NETBIRD_RELAY_PROTO="rel"
   TURN_USER="self"
   TURN_PASSWORD=$(openssl rand -base64 32 | sed 's/=//g')
   NETBIRD_RELAY_AUTH_SECRET=$(openssl rand -base64 32 | sed 's/=//g')
@@ -455,6 +456,7 @@ initEnvironment() {
     NETBIRD_PORT=443
     CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:$NETBIRD_PORT"
     NETBIRD_HTTP_PROTOCOL="https"
+    NETBIRD_RELAY_PROTO="rels"
   fi
 
   if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -647,7 +649,7 @@ renderManagementJson() {
         "TimeBasedCredentials": false
     },
     "Relay": {
-        "Addresses": ["rel://$NETBIRD_DOMAIN:80"],
+        "Addresses": ["$NETBIRD_RELAY_PROTO://$NETBIRD_DOMAIN:$NETBIRD_PORT"],
         "CredentialsTTL": "24h",
         "Secret": "$NETBIRD_RELAY_AUTH_SECRET"
     },
@@ -770,7 +772,7 @@ renderRelayEnv() {
   cat <<EOF
 NB_LOG_LEVEL=info
 NB_LISTEN_ADDRESS=:80
-NB_EXPOSED_ADDRESS=$NETBIRD_DOMAIN:80
+NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_PROTO://$NETBIRD_DOMAIN:$NETBIRD_PORT
 NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
 EOF
 }
