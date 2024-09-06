@@ -233,7 +233,6 @@ func (c *Client) connect() error {
 		if cErr != nil {
 			log.Errorf("failed to close connection: %s", cErr)
 		}
-		c.relayConn = nil
 		return err
 	}
 
