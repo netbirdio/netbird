@@ -254,13 +254,13 @@ jobs:
       - name: test zdb.env file gen postgres
         run: test -f zdb.env
 
-      - name: handle insisting image   # remove after release
-        run: docker pull netbirdio/relay:latest || docker pull netbirdio/signal:latest && docker tag netbirdio/signal:latest netbirdio/relay:latest
-
       - name: Postgres run cleanup
         run: |
           docker compose down --volumes --rmi all
           rm -rf docker-compose.yml Caddyfile zitadel.env dashboard.env machinekey/zitadel-admin-sa.token turnserver.conf management.json zdb.env
+
+      - name: handle insisting image  gen CockroachDB # remove after release
+        run: docker pull netbirdio/relay:latest || docker pull netbirdio/signal:latest && docker tag netbirdio/signal:latest netbirdio/relay:latest
 
       - name: run script with Zitadel CockroachDB
         run: bash -x infrastructure_files/getting-started-with-zitadel.sh
