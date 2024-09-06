@@ -1,3 +1,4 @@
-FROM gcr.io/distroless/base@sha256:1aae189e3baecbb4044c648d356ddb75025b2ba8d14cdc9c2a19ba784c90bfb9
+FROM gcr.io/distroless/base:debug
 ENTRYPOINT [ "/go/bin/netbird-relay" ]
+ENV NB_LOG_FILE=console
 COPY netbird-relay /go/bin/netbird-relay
