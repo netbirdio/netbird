@@ -848,9 +848,9 @@ func TestToSyncResponse(t *testing.T) {
 		DNSLabel:   "peer1",
 		SSHKey:     "peer1-ssh-key",
 	}
-	turnCredentials := &TURNCredentials{
-		Username: "turn-user",
-		Password: "turn-pass",
+	turnRelayToken := &Token{
+		Payload:   "turn-user",
+		Signature: "turn-pass",
 	}
 	networkMap := &NetworkMap{
 		Network:      &Network{Net: *ipnet, Serial: 1000},
@@ -916,7 +916,7 @@ func TestToSyncResponse(t *testing.T) {
 	}
 	dnsCache := &DNSConfigCache{}
 
-	response := toSyncResponse(context.Background(), config, peer, turnCredentials, networkMap, dnsName, checks, dnsCache)
+	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache)
 
 	assert.NotNil(t, response)
 	// assert peer config

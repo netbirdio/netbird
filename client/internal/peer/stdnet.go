@@ -6,6 +6,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 )
 
-func (conn *Conn) newStdNet() (*stdnet.Net, error) {
-	return stdnet.NewNet(conn.config.ICEConfig.InterfaceBlackList)
+func (w *WorkerICE) newStdNet() (*stdnet.Net, error) {
+	return stdnet.NewNet(w.config.ICEConfig.InterfaceBlackList)
 }
