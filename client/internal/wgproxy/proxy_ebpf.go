@@ -181,7 +181,7 @@ func (p *WGEBPFProxy) proxyToRemote() {
 			conn, ok := p.turnConnStore[uint16(addr.Port)]
 			p.turnConnMutex.Unlock()
 			if !ok {
-				log.Infof("turn conn not found by port: %d", addr.Port)
+				log.Debugf("turn conn not found by port because conn already has been closed: %d", addr.Port)
 				continue
 			}
 
@@ -206,7 +206,7 @@ func (p *WGEBPFProxy) storeTurnConn(turnConn net.Conn) (uint16, error) {
 }
 
 func (p *WGEBPFProxy) removeTurnConn(turnConnID uint16) {
-	log.Tracef("remove turn conn from store by port: %d", turnConnID)
+	log.Debugf("remove turn conn from store by port: %d", turnConnID)
 	p.turnConnMutex.Lock()
 	defer p.turnConnMutex.Unlock()
 	delete(p.turnConnStore, turnConnID)

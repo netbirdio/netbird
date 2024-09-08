@@ -369,8 +369,8 @@ func seedFromStatus(a *anonymize.Anonymizer, status *peer.FullStatus) {
 	}
 
 	for _, relay := range status.Relays {
-		if relay.URI != nil {
-			a.AnonymizeURI(relay.URI.String())
+		if relay.URI != "" {
+			a.AnonymizeURI(relay.URI)
 		}
 	}
 }
