@@ -89,6 +89,11 @@ fi
 
 export TURN_EXTERNAL_IP_CONFIG
 
+# if not provided, we generate a relay auth secret
+if [[ "x-$NETBIRD_RELAY_AUTH_SECRET" == "x-" ]]; then
+  export NETBIRD_RELAY_AUTH_SECRET=$(openssl rand -base64 32 | sed 's/=//g')
+fi
+
 artifacts_path="./artifacts"
 mkdir -p $artifacts_path
 

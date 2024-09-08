@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
+
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/relay"
@@ -40,6 +41,8 @@ import (
 	mgm "github.com/netbirdio/netbird/management/client"
 	"github.com/netbirdio/netbird/management/domain"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
+	auth "github.com/netbirdio/netbird/relay/auth/hmac"
+	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
@@ -102,7 +105,8 @@ type EngineConfig struct {
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
 type Engine struct {
 	// signal is a Signal Service client
-	signal signal.Client
+	signal   signal.Client
+	signaler *peer.Signaler
 	// mgmClient is a Management Service client
 	mgmClient mgm.Client
 	// peerConns is a map that holds all the peers that are known to this peer
@@ -159,10 +163,10 @@ type Engine struct {
 
 	probes *ProbeHolder
 
-	wgConnWorker sync.WaitGroup
-
 	// checks are the client-applied posture checks that need to be evaluated on the client
 	checks []*mgmProto.Checks
+
+	relayManager *relayClient.Manager
 }
 
 // Peer is an instance of the Connection Peer
@@ -177,6 +181,7 @@ func NewEngine(
 	clientCancel context.CancelFunc,
 	signalClient signal.Client,
 	mgmClient mgm.Client,
+	relayManager *relayClient.Manager,
 	config *EngineConfig,
 	mobileDep MobileDependency,
 	statusRecorder *peer.Status,
@@ -187,6 +192,7 @@ func NewEngine(
 		clientCancel,
 		signalClient,
 		mgmClient,
+		relayManager,
 		config,
 		mobileDep,
 		statusRecorder,
@@ -201,18 +207,20 @@ func NewEngineWithProbes(
 	clientCancel context.CancelFunc,
 	signalClient signal.Client,
 	mgmClient mgm.Client,
+	relayManager *relayClient.Manager,
 	config *EngineConfig,
 	mobileDep MobileDependency,
 	statusRecorder *peer.Status,
 	probes *ProbeHolder,
 	checks []*mgmProto.Checks,
 ) *Engine {
-
 	return &Engine{
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
 		signal:         signalClient,
+		signaler:       peer.NewSignaler(signalClient, config.WgPrivateKey),
 		mgmClient:      mgmClient,
+		relayManager:   relayManager,
 		peerConns:      make(map[string]*peer.Conn),
 		syncMsgMux:     &sync.Mutex{},
 		config:         config,
@@ -260,11 +268,7 @@ func (e *Engine) Stop() error {
 	time.Sleep(500 * time.Millisecond)
 
 	e.close()
-
-	e.wgConnWorker.Wait()
-
-	log.Infof("Engine stopped")
-
+	log.Infof("stopped Netbird Engine")
 	return nil
 }
 
@@ -314,7 +318,7 @@ func (e *Engine) Start() error {
 	}
 	e.dnsServer = dnsServer
 
-	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.config.DNSRouteInterval, e.wgInterface, e.statusRecorder, initialRoutes)
+	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.config.DNSRouteInterval, e.wgInterface, e.statusRecorder, e.relayManager, initialRoutes)
 	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
 	if err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)
@@ -463,62 +467,8 @@ func (e *Engine) removePeer(peerKey string) error {
 	conn, exists := e.peerConns[peerKey]
 	if exists {
 		delete(e.peerConns, peerKey)
-		err := conn.Close()
-		if err != nil {
-			switch err.(type) {
-			case *peer.ConnectionAlreadyClosedError:
-				return nil
-			default:
-				return err
-			}
-		}
+		conn.Close()
 	}
-	return nil
-}
-
-func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client) error {
-	err := s.Send(&sProto.Message{
-		Key:       myKey.PublicKey().String(),
-		RemoteKey: remoteKey.String(),
-		Body: &sProto.Body{
-			Type:    sProto.Body_CANDIDATE,
-			Payload: candidate.Marshal(),
-		},
-	})
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func sendSignal(message *sProto.Message, s signal.Client) error {
-	return s.Send(message)
-}
-
-// SignalOfferAnswer signals either an offer or an answer to remote peer
-func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client,
-	isAnswer bool) error {
-	var t sProto.Body_Type
-	if isAnswer {
-		t = sProto.Body_ANSWER
-	} else {
-		t = sProto.Body_OFFER
-	}
-
-	msg, err := signal.MarshalCredential(myKey, offerAnswer.WgListenPort, remoteKey, &signal.Credential{
-		UFrag: offerAnswer.IceCredentials.UFrag,
-		Pwd:   offerAnswer.IceCredentials.Pwd,
-	}, t, offerAnswer.RosenpassPubKey, offerAnswer.RosenpassAddr)
-	if err != nil {
-		return err
-	}
-
-	err = s.Send(msg)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -527,14 +477,15 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	defer e.syncMsgMux.Unlock()
 
 	if update.GetWiretrusteeConfig() != nil {
-		err := e.updateTURNs(update.GetWiretrusteeConfig().GetTurns())
+		wCfg := update.GetWiretrusteeConfig()
+		err := e.updateTURNs(wCfg.GetTurns())
 		if err != nil {
-			return err
+			return fmt.Errorf("update TURNs: %w", err)
 		}
 
-		err = e.updateSTUNs(update.GetWiretrusteeConfig().GetStuns())
+		err = e.updateSTUNs(wCfg.GetStuns())
 		if err != nil {
-			return err
+			return fmt.Errorf("update STUNs: %w", err)
 		}
 
 		var stunTurn []*stun.URI
@@ -542,6 +493,19 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		stunTurn = append(stunTurn, e.TURNs...)
 		e.stunTurn.Store(stunTurn)
 
+		relayMsg := wCfg.GetRelay()
+		if relayMsg != nil {
+			c := &auth.Token{
+				Payload:   relayMsg.GetTokenPayload(),
+				Signature: relayMsg.GetTokenSignature(),
+			}
+			if err := e.relayManager.UpdateToken(c); err != nil {
+				log.Errorf("failed to update relay token: %v", err)
+				return fmt.Errorf("update relay token: %w", err)
+			}
+		}
+
+		// todo update relay address in the relay manager
 		// todo update signal
 	}
 
@@ -937,56 +901,9 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 			log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
 		}
 
-		e.wgConnWorker.Add(1)
-		go e.connWorker(conn, peerKey)
+		conn.Open()
 	}
 	return nil
-}
-
-func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
-	defer e.wgConnWorker.Done()
-	for {
-
-		// randomize starting time a bit
-		minValue := 500
-		maxValue := 2000
-		duration := time.Duration(rand.Intn(maxValue-minValue)+minValue) * time.Millisecond
-		select {
-		case <-e.ctx.Done():
-			return
-		case <-time.After(duration):
-		}
-
-		// if peer has been removed -> give up
-		if !e.peerExists(peerKey) {
-			log.Debugf("peer %s doesn't exist anymore, won't retry connection", peerKey)
-			return
-		}
-
-		if !e.signal.Ready() {
-			log.Infof("signal client isn't ready, skipping connection attempt %s", peerKey)
-			continue
-		}
-
-		err := conn.Open(e.ctx)
-		if err != nil {
-			log.Debugf("connection to peer %s failed: %v", peerKey, err)
-			var connectionClosedError *peer.ConnectionClosedError
-			switch {
-			case errors.As(err, &connectionClosedError):
-				// conn has been forced to close, so we exit the loop
-				return
-			default:
-			}
-		}
-	}
-}
-
-func (e *Engine) peerExists(peerKey string) bool {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
-	_, ok := e.peerConns[peerKey]
-	return ok
 }
 
 func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error) {
@@ -1040,37 +957,12 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		},
 	}
 
-	peerConn, err := peer.NewConn(config, e.statusRecorder, e.wgProxyFactory, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover)
+	peerConn, err := peer.NewConn(e.ctx, config, e.statusRecorder, e.wgProxyFactory, e.signaler, e.mobileDep.IFaceDiscover, e.relayManager)
 	if err != nil {
 		return nil, err
 	}
-
-	wgPubKey, err := wgtypes.ParseKey(pubKey)
-	if err != nil {
-		return nil, err
-	}
-
-	signalOffer := func(offerAnswer peer.OfferAnswer) error {
-		return SignalOfferAnswer(offerAnswer, e.config.WgPrivateKey, wgPubKey, e.signal, false)
-	}
-
-	signalCandidate := func(candidate ice.Candidate) error {
-		return signalCandidate(candidate, e.config.WgPrivateKey, wgPubKey, e.signal)
-	}
-
-	signalAnswer := func(offerAnswer peer.OfferAnswer) error {
-		return SignalOfferAnswer(offerAnswer, e.config.WgPrivateKey, wgPubKey, e.signal, true)
-	}
-
-	peerConn.SetSignalCandidate(signalCandidate)
-	peerConn.SetSignalOffer(signalOffer)
-	peerConn.SetSignalAnswer(signalAnswer)
-	peerConn.SetSendSignalMessage(func(message *sProto.Message) error {
-		return sendSignal(message, e.signal)
-	})
 
 	if e.rpManager != nil {
-
 		peerConn.SetOnConnected(e.rpManager.OnConnected)
 		peerConn.SetOnDisconnected(e.rpManager.OnDisconnected)
 	}
@@ -1113,6 +1005,7 @@ func (e *Engine) receiveSignalEvents() {
 					Version:         msg.GetBody().GetNetBirdVersion(),
 					RosenpassPubKey: rosenpassPubKey,
 					RosenpassAddr:   rosenpassAddr,
+					RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
 				})
 			case sProto.Body_ANSWER:
 				remoteCred, err := signal.UnMarshalCredential(msg)
@@ -1135,6 +1028,7 @@ func (e *Engine) receiveSignalEvents() {
 					Version:         msg.GetBody().GetNetBirdVersion(),
 					RosenpassPubKey: rosenpassPubKey,
 					RosenpassAddr:   rosenpassAddr,
+					RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
 				})
 			case sProto.Body_CANDIDATE:
 				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)
@@ -1143,7 +1037,7 @@ func (e *Engine) receiveSignalEvents() {
 					return err
 				}
 
-				conn.OnRemoteCandidate(candidate, e.GetClientRoutes())
+				go conn.OnRemoteCandidate(candidate, e.GetClientRoutes())
 			case sProto.Body_MODE:
 			}
 
@@ -1442,7 +1336,7 @@ func (e *Engine) receiveProbeEvents() {
 
 			for _, peer := range e.peerConns {
 				key := peer.GetKey()
-				wgStats, err := peer.GetConf().WgConfig.WgInterface.GetStats(key)
+				wgStats, err := peer.WgConfig().WgInterface.GetStats(key)
 				if err != nil {
 					log.Debugf("failed to get wg stats for peer %s: %s", key, err)
 				}

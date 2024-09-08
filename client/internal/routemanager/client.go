@@ -22,7 +22,6 @@ import (
 type routerPeerStatus struct {
 	connected bool
 	relayed   bool
-	direct    bool
 	latency   time.Duration
 }
 
@@ -82,7 +81,6 @@ func (c *clientNetwork) getRouterPeerStatuses() map[route.ID]routerPeerStatus {
 		routePeerStatuses[r.ID] = routerPeerStatus{
 			connected: peerStatus.ConnStatus == peer.StatusConnected,
 			relayed:   peerStatus.Relayed,
-			direct:    peerStatus.Direct,
 			latency:   peerStatus.Latency,
 		}
 	}
@@ -97,8 +95,8 @@ func (c *clientNetwork) getRouterPeerStatuses() map[route.ID]routerPeerStatus {
 // * Connected peers: Only routes with connected peers are considered.
 // * Metric: Routes with lower metrics (better) are prioritized.
 // * Non-relayed: Routes without relays are preferred.
-// * Direct connections: Routes with direct peer connections are favored.
 // * Latency: Routes with lower latency are prioritized.
+// * we compare the current score + 10ms to the chosen score to avoid flapping between routes
 // * Stability: In case of equal scores, the currently active route (if any) is maintained.
 //
 // It returns the ID of the selected optimal route.
@@ -134,10 +132,6 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]
 		tempScore += 1 - latency.Seconds()
 
 		if !peerStatus.relayed {
-			tempScore++
-		}
-
-		if peerStatus.direct {
 			tempScore++
 		}
 

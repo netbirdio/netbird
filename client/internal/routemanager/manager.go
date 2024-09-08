@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
 	"github.com/netbirdio/netbird/iface"
+	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
 	nbnet "github.com/netbirdio/netbird/util/net"
 	"github.com/netbirdio/netbird/version"
@@ -49,6 +50,7 @@ type DefaultManager struct {
 	serverRouter         serverRouter
 	sysOps               *systemops.SysOps
 	statusRecorder       *peer.Status
+	relayMgr             *relayClient.Manager
 	wgInterface          iface.IWGIface
 	pubKey               string
 	notifier             *notifier.Notifier
@@ -63,6 +65,7 @@ func NewManager(
 	dnsRouteInterval time.Duration,
 	wgInterface iface.IWGIface,
 	statusRecorder *peer.Status,
+	relayMgr *relayClient.Manager,
 	initialRoutes []*route.Route,
 ) *DefaultManager {
 	mCTX, cancel := context.WithCancel(ctx)
@@ -74,6 +77,7 @@ func NewManager(
 		stop:             cancel,
 		dnsRouteInterval: dnsRouteInterval,
 		clientNetworks:   make(map[route.HAUniqueID]*clientNetwork),
+		relayMgr:         relayMgr,
 		routeSelector:    routeselector.NewRouteSelector(),
 		sysOps:           sysOps,
 		statusRecorder:   statusRecorder,
@@ -124,9 +128,12 @@ func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
 		log.Warnf("Failed cleaning up routing: %v", err)
 	}
 
-	mgmtAddress := m.statusRecorder.GetManagementState().URL
-	signalAddress := m.statusRecorder.GetSignalState().URL
-	ips := resolveURLsToIPs([]string{mgmtAddress, signalAddress})
+	initialAddresses := []string{m.statusRecorder.GetManagementState().URL, m.statusRecorder.GetSignalState().URL}
+	if m.relayMgr != nil {
+		initialAddresses = append(initialAddresses, m.relayMgr.ServerURLs()...)
+	}
+
+	ips := resolveURLsToIPs(initialAddresses)
 
 	beforePeerHook, afterPeerHook, err := m.sysOps.SetupRouting(ips)
 	if err != nil {
