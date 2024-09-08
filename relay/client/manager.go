@@ -29,6 +29,7 @@ var (
 type RelayTrack struct {
 	sync.RWMutex
 	relayClient *Client
+	err         error
 }
 
 func NewRelayTrack() *RelayTrack {
@@ -235,6 +236,9 @@ func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
 		rt.RLock()
 		m.relayClientsMutex.RUnlock()
 		defer rt.RUnlock()
+		if rt.err != nil {
+			return nil, rt.err
+		}
 		return rt.relayClient.OpenConn(peerKey)
 	}
 	m.relayClientsMutex.RUnlock()
@@ -247,6 +251,9 @@ func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
 		rt.RLock()
 		m.relayClientsMutex.Unlock()
 		defer rt.RUnlock()
+		if rt.err != nil {
+			return nil, rt.err
+		}
 		return rt.relayClient.OpenConn(peerKey)
 	}
 
@@ -259,6 +266,7 @@ func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
 	relayClient := NewClient(m.ctx, serverAddress, m.tokenStore, m.peerID)
 	err := relayClient.Connect()
 	if err != nil {
+		rt.err = err
 		rt.Unlock()
 		m.relayClientsMutex.Lock()
 		delete(m.relayClients, serverAddress)
