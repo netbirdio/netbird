@@ -1126,6 +1126,7 @@ func (e *Engine) close() {
 		if err := e.wgInterface.Close(); err != nil {
 			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
 		}
+		e.wgInterface = nil
 	}
 
 	if !isNil(e.sshServer) {
@@ -1360,6 +1361,7 @@ func (e *Engine) restartEngine() {
 	if err := e.Stop(); err != nil {
 		log.Errorf("Failed to stop engine: %v", err)
 	}
+
 	if err := e.Start(); err != nil {
 		log.Errorf("Failed to start engine: %v", err)
 	}
@@ -1384,6 +1386,7 @@ func (e *Engine) startNetworkMonitor() {
 			defer mu.Unlock()
 
 			if debounceTimer != nil {
+				log.Infof("Network monitor: detected network change, reset debounceTimer")
 				debounceTimer.Stop()
 			}
 
@@ -1393,7 +1396,7 @@ func (e *Engine) startNetworkMonitor() {
 				mu.Lock()
 				defer mu.Unlock()
 
-				log.Infof("Network monitor detected network change, restarting engine")
+				log.Infof("Network monitor: detected network change, restarting engine")
 				e.restartEngine()
 			})
 		})
