@@ -550,8 +550,6 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync PeerSync, ac
 	}
 
 	if peer.UserID != "" {
-		log.Infof("Peer has no userID")
-
 		user, err := account.FindUser(peer.UserID)
 		if err != nil {
 			return nil, nil, nil, err
