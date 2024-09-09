@@ -209,8 +209,8 @@ jobs:
         working-directory: infrastructure_files/artifacts
         run: |
           sleep 30
-          docker compose exec management ls -l /var/lib/netbird/ | grep -i GeoLite2-City.mmdb
-          docker compose exec management ls -l /var/lib/netbird/ | grep -i geonames.db
+          docker compose exec management ls -l /var/lib/netbird/ | grep -i GeoLite2-City_[0-9]*.mmdb
+          docker compose exec management ls -l /var/lib/netbird/ | grep -i geonames_[0-9]*.db
 
   test-getting-started-script:
     runs-on: ubuntu-latest
@@ -237,7 +237,7 @@ jobs:
         run: test -f management.json
 
       - name: test turnserver.conf file gen postgres
-        run: | 
+        run: |
           set -x
           test -f turnserver.conf
           grep external-ip turnserver.conf
@@ -278,7 +278,7 @@ jobs:
         run: test -f management.json
 
       - name: test turnserver.conf file gen CockroachDB
-        run: | 
+        run: |
           set -x
           test -f turnserver.conf
           grep external-ip turnserver.conf
@@ -291,21 +291,3 @@ jobs:
 
       - name: test relay.env file gen CockroachDB
         run: test -f relay.env
-
-  test-download-geolite2-script:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y unzip sqlite3
-
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: test script
-        run: bash -x infrastructure_files/download-geolite2.sh
-
-      - name: test mmdb file exists
-        run: test -f GeoLite2-City.mmdb
-
-      - name: test geonames file exists
-        run: test -f geonames.db

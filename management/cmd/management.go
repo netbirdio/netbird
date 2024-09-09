@@ -123,6 +123,8 @@ var (
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			flag.Parse()
+
 			ctx, cancel := context.WithCancel(cmd.Context())
 			defer cancel()
 			//nolint
@@ -178,11 +180,11 @@ var (
 				}
 			}
 
-			geo, err := geolocation.NewGeolocation(ctx, config.Datadir)
+			geo, err := geolocation.NewGeolocation(ctx, config.Datadir, !disableGeoliteUpdate)
 			if err != nil {
-				log.WithContext(ctx).Warnf("could not initialize geo location service: %v, we proceed without geo support", err)
+				log.WithContext(ctx).Warnf("could not initialize geolocation service. proceeding without geolocation support: %v", err)
 			} else {
-				log.WithContext(ctx).Infof("geo location service has been initialized from %s", config.Datadir)
+				log.WithContext(ctx).Infof("geolocation service has been initialized from %s", config.Datadir)
 			}
 
 			integratedPeerValidator, err := integrations.NewIntegratedValidator(ctx, eventStore)
