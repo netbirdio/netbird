@@ -1,4 +1,4 @@
-//go:build !android
+//go:build !android && !darwin
 
 package iface
 
