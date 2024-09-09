@@ -1,4 +1,4 @@
-//go:build !android && !darwin
+//go:build (!android && !darwin) || ios
 
 package iface
 
