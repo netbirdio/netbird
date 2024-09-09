@@ -1115,10 +1115,7 @@ func (e *Engine) close() {
 	}
 
 	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
-	if e.dnsServer != nil {
-		e.dnsServer.Stop()
-		e.dnsServer = nil
-	}
+	e.stopDNSServer()
 
 	if e.routeManager != nil {
 		e.routeManager.Stop()
@@ -1419,6 +1416,20 @@ func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
 	}
 
 	return false, netip.Prefix{}, nil
+}
+
+func (e *Engine) stopDNSServer() {
+	err := fmt.Errorf("DNS server stopped")
+	nsGroupStates := e.statusRecorder.GetDNSStates()
+	for i := range nsGroupStates {
+		nsGroupStates[i].Enabled = false
+		nsGroupStates[i].Error = err
+	}
+	e.statusRecorder.UpdateDNSStates(nsGroupStates)
+	if e.dnsServer != nil {
+		e.dnsServer.Stop()
+		e.dnsServer = nil
+	}
 }
 
 // isChecksEqual checks if two slices of checks are equal.
