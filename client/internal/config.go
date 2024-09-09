@@ -117,6 +117,11 @@ type Config struct {
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
 func ReadConfig(configPath string) (*Config, error) {
 	if configFileIsExists(configPath) {
+		err := util.EnforcePermission(configPath)
+		if err != nil {
+			log.Errorf("failed to enforce permission on config dir: %v", err)
+		}
+
 		config := &Config{}
 		if _, err := util.ReadJson(configPath, config); err != nil {
 			return nil, err
@@ -125,7 +130,7 @@ func ReadConfig(configPath string) (*Config, error) {
 		if changed, err := config.apply(ConfigInput{}); err != nil {
 			return nil, err
 		} else if changed {
-			if err = WriteOutConfig(configPath, config); err != nil {
+			if err = writeOutConfig(configPath, config); err != nil {
 				return nil, err
 			}
 		}
@@ -138,7 +143,7 @@ func ReadConfig(configPath string) (*Config, error) {
 		return nil, err
 	}
 
-	err = WriteOutConfig(configPath, cfg)
+	err = writeOutConfig(configPath, cfg)
 	return cfg, err
 }
 
@@ -159,12 +164,16 @@ func UpdateOrCreateConfig(input ConfigInput) (*Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		err = WriteOutConfig(input.ConfigPath, cfg)
+		err = util.WriteJsonWithRestrictedPermission(input.ConfigPath, cfg)
 		return cfg, err
 	}
 
 	if isPreSharedKeyHidden(input.PreSharedKey) {
 		input.PreSharedKey = nil
+	}
+	err := util.EnforcePermission(input.ConfigPath)
+	if err != nil {
+		log.Errorf("failed to enforce permission on config dir: %v", err)
 	}
 	return update(input)
 }
@@ -174,8 +183,8 @@ func CreateInMemoryConfig(input ConfigInput) (*Config, error) {
 	return createNewConfig(input)
 }
 
-// WriteOutConfig write put the prepared config to the given path
-func WriteOutConfig(path string, config *Config) error {
+// writeOutConfig write put the prepared config to the given path
+func writeOutConfig(path string, config *Config) error {
 	return util.WriteJson(path, config)
 }
 
