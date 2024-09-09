@@ -2,6 +2,6 @@
 
 package util
 
-func enforcePermission(dirPath string) error {
+func EnforcePermission(dirPath string) error {
 	return nil
 }
