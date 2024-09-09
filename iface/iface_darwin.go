@@ -49,6 +49,7 @@ func (w *WGIface) Create() error {
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval: 20 * time.Millisecond,
 		MaxElapsedTime:  500 * time.Millisecond,
+		Stop:            backoff.Stop,
 		Clock:           backoff.SystemClock,
 	}
 
