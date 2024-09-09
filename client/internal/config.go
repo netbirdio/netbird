@@ -130,7 +130,7 @@ func ReadConfig(configPath string) (*Config, error) {
 		if changed, err := config.apply(ConfigInput{}); err != nil {
 			return nil, err
 		} else if changed {
-			if err = writeOutConfig(configPath, config); err != nil {
+			if err = WriteOutConfig(configPath, config); err != nil {
 				return nil, err
 			}
 		}
@@ -143,7 +143,7 @@ func ReadConfig(configPath string) (*Config, error) {
 		return nil, err
 	}
 
-	err = writeOutConfig(configPath, cfg)
+	err = WriteOutConfig(configPath, cfg)
 	return cfg, err
 }
 
@@ -183,8 +183,8 @@ func CreateInMemoryConfig(input ConfigInput) (*Config, error) {
 	return createNewConfig(input)
 }
 
-// writeOutConfig write put the prepared config to the given path
-func writeOutConfig(path string, config *Config) error {
+// WriteOutConfig write put the prepared config to the given path
+func WriteOutConfig(path string, config *Config) error {
 	return util.WriteJson(path, config)
 }
 
