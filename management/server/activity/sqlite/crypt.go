@@ -13,6 +13,7 @@ var iv = []byte{10, 22, 13, 79, 05, 8, 52, 91, 87, 98, 88, 98, 35, 25, 13, 05}
 
 type FieldEncrypt struct {
 	block cipher.Block
+	gcm   cipher.AEAD
 }
 
 func GenerateKey() (string, error) {
@@ -35,14 +36,21 @@ func NewFieldEncrypt(key string) (*FieldEncrypt, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
 	ec := &FieldEncrypt{
 		block: block,
+		gcm:   gcm,
 	}
 
 	return ec, nil
 }
 
-func (ec *FieldEncrypt) Encrypt(payload string) string {
+func (ec *FieldEncrypt) LegacyEncrypt(payload string) string {
 	plainText := pkcs5Padding([]byte(payload))
 	cipherText := make([]byte, len(plainText))
 	cbc := cipher.NewCBCEncrypter(ec.block, iv)
@@ -50,7 +58,18 @@ func (ec *FieldEncrypt) Encrypt(payload string) string {
 	return base64.StdEncoding.EncodeToString(cipherText)
 }
 
-func (ec *FieldEncrypt) Decrypt(data string) (string, error) {
+// Encrypt encrypts plaintext using AES-GCM
+func (ec *FieldEncrypt) Encrypt(payload string) (string, error) {
+	nonce := make([]byte, ec.gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+
+	cipherText := ec.gcm.Seal(nonce, nonce, []byte(payload), nil)
+	return base64.StdEncoding.EncodeToString(cipherText), nil
+}
+
+func (ec *FieldEncrypt) LegacyDecrypt(data string) (string, error) {
 	cipherText, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
 		return "", err
@@ -63,6 +82,27 @@ func (ec *FieldEncrypt) Decrypt(data string) (string, error) {
 	}
 
 	return string(payload), nil
+}
+
+// Decrypt decrypts ciphertext using AES-GCM
+func (ec *FieldEncrypt) Decrypt(data string) (string, error) {
+	cipherText, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return "", err
+	}
+
+	nonceSize := ec.gcm.NonceSize()
+	if len(cipherText) < nonceSize {
+		return "", fmt.Errorf("cipher text too short")
+	}
+
+	nonce, cipherText := cipherText[:nonceSize], cipherText[nonceSize:]
+	plainText, err := ec.gcm.Open(nil, nonce, cipherText, nil)
+	if err != nil {
+		return "", err
+	}
+
+	return string(plainText), nil
 }
 
 func pkcs5Padding(ciphertext []byte) []byte {

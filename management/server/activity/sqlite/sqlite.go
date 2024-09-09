@@ -302,9 +302,16 @@ func (store *Store) saveDeletedUserEmailAndNameInEncrypted(event *activity.Event
 		return event.Meta, nil
 	}
 
-	encryptedEmail := store.fieldEncrypt.Encrypt(fmt.Sprintf("%s", email))
-	encryptedName := store.fieldEncrypt.Encrypt(fmt.Sprintf("%s", name))
-	_, err := store.deleteUserStmt.Exec(event.TargetID, encryptedEmail, encryptedName)
+	encryptedEmail, err := store.fieldEncrypt.Encrypt(fmt.Sprintf("%s", email))
+	if err != nil {
+		return nil, err
+	}
+	encryptedName, err := store.fieldEncrypt.Encrypt(fmt.Sprintf("%s", name))
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = store.deleteUserStmt.Exec(event.TargetID, encryptedEmail, encryptedName)
 	if err != nil {
 		return nil, err
 	}
