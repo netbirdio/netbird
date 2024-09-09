@@ -176,6 +176,72 @@ func Test_Close(t *testing.T) {
 	}
 }
 
+func TestRecreation(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		t.Run(fmt.Sprintf("down-%d", i), func(t *testing.T) {
+			ifaceName := fmt.Sprintf("utun%d", WgIntNumber+2)
+			wgIP := "10.99.99.2/32"
+			wgPort := 33100
+			newNet, err := stdnet.NewNet()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			iface, err := NewWGIFace(ifaceName, wgIP, wgPort, key, DefaultMTU, newNet, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			for {
+				_, err = net.InterfaceByName(ifaceName)
+				if err != nil {
+					t.Logf("interface %s not found: err: %s", ifaceName, err)
+					break
+				}
+				t.Logf("interface %s found", ifaceName)
+			}
+
+			err = iface.Create()
+			if err != nil {
+				t.Fatal(err)
+			}
+			wg, err := wgctrl.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				err = wg.Close()
+				if err != nil {
+					t.Error(err)
+				}
+			}()
+
+			_, err = iface.Up()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			for {
+				_, err = net.InterfaceByName(ifaceName)
+				if err == nil {
+					t.Logf("interface %s found", ifaceName)
+
+					break
+				}
+				t.Logf("interface %s not found: err: %s", ifaceName, err)
+
+			}
+
+			start := time.Now()
+			err = iface.Close()
+			t.Logf("down time: %s", time.Since(start))
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func Test_ConfigureInterface(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+3)
 	wgIP := "10.99.99.5/30"
