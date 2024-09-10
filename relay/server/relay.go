@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"net"
 	"net/url"
@@ -21,10 +20,10 @@ import (
 
 // Relay represents the relay server
 type Relay struct {
-	metrics        *metrics.Metrics
-	metricsCancel  context.CancelFunc
-	validator      auth.Validator
-	validatorDummy auth.Validator // todo: this is just a dummy variable. Replace it with the proper validator
+	metrics       *metrics.Metrics
+	metricsCancel context.CancelFunc
+	validator     auth.Validator
+	validatorV2   auth.Validator
 
 	store       *Store
 	instanceURL string
@@ -44,11 +43,13 @@ type Relay struct {
 // instance URL depends on this value.
 // validator: An instance of auth.Validator from the auth package. It is used to validate the authentication of the
 // peers.
+// validatorV2: An instance of authv2.Validator from the auth/hmac/v2 package. It is used to validate the authentication
+// of the peers for the auth message.
 //
 // Returns:
 // A pointer to a Relay instance and an error. If the Relay instance is successfully created, the error is nil.
 // Otherwise, the error contains the details of what went wrong.
-func NewRelay(meter metric.Meter, exposedAddress string, tlsSupport bool, validator auth.Validator) (*Relay, error) {
+func NewRelay(meter metric.Meter, exposedAddress string, tlsSupport bool, validator auth.Validator, validatorV2 auth.Validator) (*Relay, error) {
 	ctx, metricsCancel := context.WithCancel(context.Background())
 	m, err := metrics.NewMetrics(ctx, meter)
 	if err != nil {
@@ -60,6 +61,7 @@ func NewRelay(meter metric.Meter, exposedAddress string, tlsSupport bool, valida
 		metrics:       m,
 		metricsCancel: metricsCancel,
 		validator:     validator,
+		validatorV2:   validatorV2,
 		store:         NewStore(),
 	}
 
@@ -205,7 +207,7 @@ func (r *Relay) handleHelloMsg(buf []byte, remoteAddr net.Addr) ([]byte, error) 
 		return nil, fmt.Errorf("unmarshal auth message: %w", err)
 	}
 
-	if err := r.validator.Validate(sha256.New, authMsg.AdditionalData); err != nil {
+	if err := r.validator.Validate(authMsg.AdditionalData); err != nil {
 		return nil, fmt.Errorf("validate %s (%s): %w", peerID, remoteAddr, err)
 	}
 
@@ -228,8 +230,7 @@ func (r *Relay) handleAuthMsg(buf []byte, addr net.Addr) ([]byte, error) {
 		return nil, fmt.Errorf("unmarshal hello message: %w", err)
 	}
 
-	// todo use the proper validator
-	if err := r.validatorDummy.Validate(sha256.New, authPayload); err != nil {
+	if err := r.validatorV2.Validate(authPayload); err != nil {
 		return nil, fmt.Errorf("validate %s (%s): %w", peerID, addr, err)
 	}
 
