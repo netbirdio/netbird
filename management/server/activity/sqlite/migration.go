@@ -9,6 +9,14 @@ import (
 )
 
 func migrate(ctx context.Context, crypt *FieldEncrypt, db *sql.DB) error {
+	if _, err := db.Exec(createTableQuery); err != nil {
+		return err
+	}
+
+	if _, err := db.Exec(creatTableDeletedUsersQuery); err != nil {
+		return err
+	}
+
 	if err := updateDeletedUsersTable(ctx, db); err != nil {
 		return fmt.Errorf("failed to update deleted_users table: %v", err)
 	}
@@ -58,13 +66,19 @@ func updateDeletedUsersTable(ctx context.Context, db *sql.DB) error {
 func migrateLegacyEncryptedUsersToGCM(ctx context.Context, crypt *FieldEncrypt, db *sql.DB) error {
 	log.WithContext(ctx).Debug("Migrating CBC encrypted deleted users to GCM")
 
-	rows, err := db.Query(fmt.Sprintf(`SELECT id, email, name FROM deleted_users where enc_algo != '%s'`, gcmEncAlgo))
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query(fmt.Sprintf(`SELECT id, email, name FROM deleted_users where enc_algo IS NULL OR enc_algo != '%s'`, gcmEncAlgo))
 	if err != nil {
 		return fmt.Errorf("failed to execute select query: %v", err)
 	}
 	defer rows.Close()
 
-	updateStmt, err := db.Prepare(`UPDATE deleted_users SET email = ?, name = ?, enc_algo = ? WHERE id = ?`)
+	updateStmt, err := tx.Prepare(`UPDATE deleted_users SET email = ?, name = ?, enc_algo = ? WHERE id = ?`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %v", err)
 	}
@@ -74,6 +88,10 @@ func migrateLegacyEncryptedUsersToGCM(ctx context.Context, crypt *FieldEncrypt, 
 		return err
 	}
 
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %v", err)
+	}
+
 	log.WithContext(ctx).Debug("Successfully migrated CBC encrypted deleted users to GCM")
 	return nil
 }
@@ -81,33 +99,40 @@ func migrateLegacyEncryptedUsersToGCM(ctx context.Context, crypt *FieldEncrypt, 
 // processUserRows processes database rows of user data, decrypts legacy encryption fields, and re-encrypts them using GCM.
 func processUserRows(ctx context.Context, crypt *FieldEncrypt, rows *sql.Rows, updateStmt *sql.Stmt) error {
 	for rows.Next() {
-		var id int
-		var email, name string
+		var (
+			id, decryptedEmail, decryptedName string
+			email, name                       *string
+		)
 
-		if err := rows.Scan(&id, &email, &name); err != nil {
+		err := rows.Scan(&id, &email, &name)
+		if err != nil {
 			return err
 		}
 
-		decryptedEmail, err := crypt.LegacyDecrypt(email)
-		if err != nil {
-			log.WithContext(ctx).Warnf("failed to decrypt email for deleted user: %d", id)
-			email = fallbackEmail
+		if email != nil {
+			decryptedEmail, err = crypt.LegacyDecrypt(*email)
+			if err != nil {
+				log.WithContext(ctx).Warnf("failed to decrypt email for deleted user: %s", id)
+				decryptedEmail = fallbackEmail
+			}
 		}
 
-		decryptedName, err := crypt.LegacyDecrypt(name)
-		if err != nil {
-			log.WithContext(ctx).Warnf("failed to decrypt name for deleted user: %d", id)
-			name = fallbackName
+		if name != nil {
+			decryptedName, err = crypt.LegacyDecrypt(*name)
+			if err != nil {
+				log.WithContext(ctx).Warnf("failed to decrypt name for deleted user: %s", id)
+				decryptedName = fallbackName
+			}
 		}
 
 		encryptedEmail, err := crypt.Encrypt(decryptedEmail)
 		if err != nil {
-			return fmt.Errorf("failed to encrypt email for deleted user: %d", id)
+			return fmt.Errorf("failed to encrypt email for deleted user: %s", id)
 		}
 
 		encryptedName, err := crypt.Encrypt(decryptedName)
 		if err != nil {
-			return fmt.Errorf("failed to encrypt name for deleted user: %d", id)
+			return fmt.Errorf("failed to encrypt name for deleted user: %s", id)
 		}
 
 		_, err = updateStmt.Exec(encryptedEmail, encryptedName, gcmEncAlgo, id)

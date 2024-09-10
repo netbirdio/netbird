@@ -26,7 +26,7 @@ const (
 		"meta TEXT," +
 		" target_id TEXT);"
 
-	creatTableDeletedUsersQuery = `CREATE TABLE IF NOT EXISTS deleted_users (id TEXT NOT NULL, email TEXT NOT NULL, name TEXT);`
+	creatTableDeletedUsersQuery = `CREATE TABLE IF NOT EXISTS deleted_users (id TEXT NOT NULL, email TEXT NOT NULL, name TEXT, enc_algo TEXT NOT NULL);`
 
 	selectDescQuery = `SELECT events.id, activity, timestamp, initiator_id, i.name as "initiator_name", i.email as "initiator_email", target_id, t.name as "target_name", t.email as "target_email", account_id, meta
 		FROM events 
@@ -102,57 +102,12 @@ func NewSQLiteStore(ctx context.Context, dataDir string, encryptionKey string) (
 		return nil, err
 	}
 
-	_, err = db.Exec(createTableQuery)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	_, err = db.Exec(creatTableDeletedUsersQuery)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	if err := migrate(ctx, crypt, db); err != nil {
+	if err = migrate(ctx, crypt, db); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 
-	insertStmt, err := db.Prepare(insertQuery)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	selectDescStmt, err := db.Prepare(selectDescQuery)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	selectAscStmt, err := db.Prepare(selectAscQuery)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	deleteUserStmt, err := db.Prepare(insertDeleteUserQuery)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	s := &Store{
-		db:                  db,
-		fieldEncrypt:        crypt,
-		insertStatement:     insertStmt,
-		selectDescStatement: selectDescStmt,
-		selectAscStatement:  selectAscStmt,
-		deleteUserStmt:      deleteUserStmt,
-	}
-
-	return s, nil
+	return createStore(crypt, db)
 }
 
 func (store *Store) processResult(ctx context.Context, result *sql.Rows) ([]*activity.Event, error) {
@@ -331,6 +286,42 @@ func (store *Store) Close(_ context.Context) error {
 		return store.db.Close()
 	}
 	return nil
+}
+
+// createStore initializes and returns a new Store instance with prepared SQL statements.
+func createStore(crypt *FieldEncrypt, db *sql.DB) (*Store, error) {
+	insertStmt, err := db.Prepare(insertQuery)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	selectDescStmt, err := db.Prepare(selectDescQuery)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	selectAscStmt, err := db.Prepare(selectAscQuery)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	deleteUserStmt, err := db.Prepare(insertDeleteUserQuery)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	return &Store{
+		db:                  db,
+		fieldEncrypt:        crypt,
+		insertStatement:     insertStmt,
+		selectDescStatement: selectDescStmt,
+		selectAscStatement:  selectAscStmt,
+		deleteUserStmt:      deleteUserStmt,
+	}, nil
 }
 
 // checkColumnExists checks if a column exists in a specified table
