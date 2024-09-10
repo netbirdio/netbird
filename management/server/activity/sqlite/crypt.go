@@ -61,13 +61,17 @@ func (ec *FieldEncrypt) LegacyEncrypt(payload string) string {
 
 // Encrypt encrypts plaintext using AES-GCM
 func (ec *FieldEncrypt) Encrypt(payload string) (string, error) {
-	nonce := make([]byte, ec.gcm.NonceSize())
+	plaintext := []byte(payload)
+	nonceSize := ec.gcm.NonceSize()
+
+	nonce := make([]byte, nonceSize, len(plaintext)+nonceSize+ec.gcm.Overhead())
 	if _, err := rand.Read(nonce); err != nil {
 		return "", err
 	}
 
-	cipherText := ec.gcm.Seal(nonce, nonce, []byte(payload), nil)
-	return base64.StdEncoding.EncodeToString(cipherText), nil
+	ciphertext := ec.gcm.Seal(nonce, nonce, plaintext, nil)
+
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
 func (ec *FieldEncrypt) LegacyDecrypt(data string) (string, error) {
