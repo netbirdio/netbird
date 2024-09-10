@@ -7,6 +7,10 @@ import (
 )
 
 const (
+	MaxHandshakeSize = 8192
+
+	CurrentProtocolVersion = 1
+
 	MsgTypeUnknown MsgType = 0
 	// Deprecated: Use MsgTypeAuth instead.
 	MsgTypeHello MsgType = 1
@@ -26,12 +30,12 @@ const (
 	sizeOfMagicByte = 4
 
 	headerSizeTransport = IDSize
+
 	headerSizeHello     = sizeOfMagicByte + IDSize
 	headerSizeHelloResp = 0
 
-	MaxHandshakeSize = 8192
-
-	CurrentProtocolVersion = 1
+	headerSizeAuth     = sizeOfMagicByte + IDSize
+	headerSizeAuthResp = 0
 )
 
 var (
@@ -191,7 +195,7 @@ func MarshalAuthMsg(peerID []byte, authPayload []byte) ([]byte, error) {
 		return nil, fmt.Errorf("invalid peerID length: %d", len(peerID))
 	}
 
-	msg := make([]byte, SizeOfProtoHeader+sizeOfMagicByte, SizeOfProtoHeader+headerSizeHello+len(authPayload))
+	msg := make([]byte, SizeOfProtoHeader+sizeOfMagicByte, SizeOfProtoHeader+headerSizeAuth+len(authPayload))
 
 	msg[0] = byte(CurrentProtocolVersion)
 	msg[1] = byte(MsgTypeHello)
@@ -206,14 +210,14 @@ func MarshalAuthMsg(peerID []byte, authPayload []byte) ([]byte, error) {
 
 // UnmarshalAuthMsg extracts peerID and the auth payload from the message
 func UnmarshalAuthMsg(msg []byte) ([]byte, []byte, error) {
-	if len(msg) < headerSizeHello {
+	if len(msg) < headerSizeAuth {
 		return nil, nil, ErrInvalidMessageLength
 	}
 	if !bytes.Equal(msg[:sizeOfMagicByte], magicHeader) {
 		return nil, nil, errors.New("invalid magic header")
 	}
 
-	return msg[sizeOfMagicByte:headerSizeHello], msg[headerSizeHello:], nil
+	return msg[sizeOfMagicByte:headerSizeAuth], msg[headerSizeAuth:], nil
 }
 
 // MarshalAuthResponse creates a response message to the auth.
@@ -222,7 +226,7 @@ func UnmarshalAuthMsg(msg []byte) ([]byte, []byte, error) {
 // servers.
 func MarshalAuthResponse(address string) ([]byte, error) {
 	ab := []byte(address)
-	msg := make([]byte, SizeOfProtoHeader, SizeOfProtoHeader+headerSizeHelloResp+len(ab))
+	msg := make([]byte, SizeOfProtoHeader, SizeOfProtoHeader+headerSizeAuthResp+len(ab))
 
 	msg[0] = byte(CurrentProtocolVersion)
 	msg[1] = byte(MsgTypeHelloResponse)
@@ -234,7 +238,7 @@ func MarshalAuthResponse(address string) ([]byte, error) {
 
 // UnmarshalAuthResponse it is a confirmation message to auth success
 func UnmarshalAuthResponse(msg []byte) (string, error) {
-	if len(msg) < headerSizeHelloResp+1 {
+	if len(msg) < headerSizeAuthResp+1 {
 		return "", ErrInvalidMessageLength
 	}
 	return string(msg), nil
