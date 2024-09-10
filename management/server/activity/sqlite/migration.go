@@ -71,9 +71,7 @@ func migrateLegacyEncryptedUsersToGCM(ctx context.Context, crypt *FieldEncrypt, 
 		return fmt.Errorf("failed to begin transaction: %v", err)
 	}
 	defer func() {
-		if err = tx.Rollback(); err != nil {
-			log.WithContext(ctx).Warnf("failed to rollback transaction: %v", err)
-		}
+		_ = tx.Rollback()
 	}()
 
 	rows, err := tx.Query(fmt.Sprintf(`SELECT id, email, name FROM deleted_users where enc_algo IS NULL OR enc_algo != '%s'`, gcmEncAlgo))
@@ -116,27 +114,33 @@ func processUserRows(ctx context.Context, crypt *FieldEncrypt, rows *sql.Rows, u
 		if email != nil {
 			decryptedEmail, err = crypt.LegacyDecrypt(*email)
 			if err != nil {
-				log.WithContext(ctx).Warnf("failed to decrypt email for deleted user: %s", id)
-				decryptedEmail = fallbackEmail
+				log.WithContext(ctx).Warnf("skipping migrating deleted user %s: %v",
+					id,
+					fmt.Errorf("failed to decrypt email: %w", err),
+				)
+				continue
 			}
 		}
 
 		if name != nil {
 			decryptedName, err = crypt.LegacyDecrypt(*name)
 			if err != nil {
-				log.WithContext(ctx).Warnf("failed to decrypt name for deleted user: %s", id)
-				decryptedName = fallbackName
+				log.WithContext(ctx).Warnf("skipping migrating deleted user %s: %v",
+					id,
+					fmt.Errorf("failed to decrypt name: %w", err),
+				)
+				continue
 			}
 		}
 
 		encryptedEmail, err := crypt.Encrypt(decryptedEmail)
 		if err != nil {
-			return fmt.Errorf("failed to encrypt email for deleted user: %s", id)
+			return fmt.Errorf("failed to encrypt email: %w", err)
 		}
 
 		encryptedName, err := crypt.Encrypt(decryptedName)
 		if err != nil {
-			return fmt.Errorf("failed to encrypt name for deleted user: %s", id)
+			return fmt.Errorf("failed to encrypt name: %w", err)
 		}
 
 		_, err = updateStmt.Exec(encryptedEmail, encryptedName, gcmEncAlgo, id)

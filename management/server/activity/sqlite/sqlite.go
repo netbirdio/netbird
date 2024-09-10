@@ -104,7 +104,7 @@ func NewSQLiteStore(ctx context.Context, dataDir string, encryptionKey string) (
 
 	if err = migrate(ctx, crypt, db); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("failed to migrate database: %w", err)
+		return nil, fmt.Errorf("events database migration: %w", err)
 	}
 
 	return createStore(crypt, db)
