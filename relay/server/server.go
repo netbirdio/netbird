@@ -33,8 +33,8 @@ type Server struct {
 // exposedAddress: this address will be used as the instance URL. It should be a domain:port format.
 // tlsSupport: if true, the server will support TLS
 // authValidator: the auth validator to use for the server
-func NewServer(meter metric.Meter, exposedAddress string, tlsSupport bool, authValidator auth.Validator, authValidatorV2 auth.Validator) (*Server, error) {
-	relay, err := NewRelay(meter, exposedAddress, tlsSupport, authValidator, authValidatorV2)
+func NewServer(meter metric.Meter, exposedAddress string, tlsSupport bool, authValidator auth.Validator) (*Server, error) {
+	relay, err := NewRelay(meter, exposedAddress, tlsSupport, authValidator)
 	if err != nil {
 		return nil, err
 	}

@@ -23,7 +23,6 @@ type Relay struct {
 	metrics       *metrics.Metrics
 	metricsCancel context.CancelFunc
 	validator     auth.Validator
-	validatorV2   auth.Validator
 
 	store       *Store
 	instanceURL string
@@ -43,13 +42,11 @@ type Relay struct {
 // instance URL depends on this value.
 // validator: An instance of auth.Validator from the auth package. It is used to validate the authentication of the
 // peers.
-// validatorV2: An instance of authv2.Validator from the auth/hmac/v2 package. It is used to validate the authentication
-// of the peers for the auth message.
 //
 // Returns:
 // A pointer to a Relay instance and an error. If the Relay instance is successfully created, the error is nil.
 // Otherwise, the error contains the details of what went wrong.
-func NewRelay(meter metric.Meter, exposedAddress string, tlsSupport bool, validator auth.Validator, validatorV2 auth.Validator) (*Relay, error) {
+func NewRelay(meter metric.Meter, exposedAddress string, tlsSupport bool, validator auth.Validator) (*Relay, error) {
 	ctx, metricsCancel := context.WithCancel(context.Background())
 	m, err := metrics.NewMetrics(ctx, meter)
 	if err != nil {
@@ -61,7 +58,6 @@ func NewRelay(meter metric.Meter, exposedAddress string, tlsSupport bool, valida
 		metrics:       m,
 		metricsCancel: metricsCancel,
 		validator:     validator,
-		validatorV2:   validatorV2,
 		store:         NewStore(),
 	}
 
@@ -209,7 +205,7 @@ func (r *Relay) handleHelloMsg(buf []byte, remoteAddr net.Addr) ([]byte, []byte,
 		return nil, nil, fmt.Errorf("unmarshal auth message: %w", err)
 	}
 
-	if err := r.validator.Validate(authMsg.AdditionalData); err != nil {
+	if err := r.validator.ValidateHelloMsgType(authMsg.AdditionalData); err != nil {
 		return nil, nil, fmt.Errorf("validate %s (%s): %w", peerID, remoteAddr, err)
 	}
 
@@ -234,7 +230,7 @@ func (r *Relay) handleAuthMsg(buf []byte, addr net.Addr) ([]byte, []byte, error)
 
 	peerID := messages.HashIDToString(rawPeerID)
 
-	if err := r.validatorV2.Validate(authPayload); err != nil {
+	if err := r.validator.Validate(authPayload); err != nil {
 		return nil, nil, fmt.Errorf("validate %s (%s): %w", peerID, addr, err)
 	}
 
