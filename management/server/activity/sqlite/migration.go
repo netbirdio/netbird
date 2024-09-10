@@ -70,7 +70,11 @@ func migrateLegacyEncryptedUsersToGCM(ctx context.Context, crypt *FieldEncrypt, 
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %v", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err = tx.Rollback(); err != nil {
+			log.WithContext(ctx).Warnf("failed to rollback transaction: %v", err)
+		}
+	}()
 
 	rows, err := tx.Query(fmt.Sprintf(`SELECT id, email, name FROM deleted_users where enc_algo IS NULL OR enc_algo != '%s'`, gcmEncAlgo))
 	if err != nil {
