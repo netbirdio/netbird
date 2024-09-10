@@ -32,17 +32,23 @@ func EnforcePermission(file string) error {
 			windows.GENERIC_ALL,
 			windows.SET_ACCESS,
 			windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT,
-			windows.TRUSTEE{nil, windows.NO_MULTIPLE_TRUSTEE,
-				windows.TRUSTEE_IS_SID, windows.TRUSTEE_IS_USER,
-				(windows.TrusteeValueFromSID(user))},
+			windows.TRUSTEE{
+				MultipleTrusteeOperation: windows.NO_MULTIPLE_TRUSTEE,
+				TrusteeForm:              windows.TRUSTEE_IS_SID,
+				TrusteeType:              windows.TRUSTEE_IS_USER,
+				TrusteeValue:             windows.TrusteeValueFromSID(user),
+			},
 		},
 		{
 			windows.GENERIC_ALL,
 			windows.SET_ACCESS,
 			windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT,
-			windows.TRUSTEE{nil, windows.NO_MULTIPLE_TRUSTEE,
-				windows.TRUSTEE_IS_SID, windows.TRUSTEE_IS_WELL_KNOWN_GROUP,
-				windows.TrusteeValueFromSID(adminGroupSid)},
+			windows.TRUSTEE{
+				MultipleTrusteeOperation: windows.NO_MULTIPLE_TRUSTEE,
+				TrusteeForm:              windows.TRUSTEE_IS_SID,
+				TrusteeType:              windows.TRUSTEE_IS_WELL_KNOWN_GROUP,
+				TrusteeValue:             windows.TrusteeValueFromSID(adminGroupSid),
+			},
 		},
 	}
 
