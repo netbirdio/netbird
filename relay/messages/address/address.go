@@ -19,13 +19,3 @@ func (addr *Address) Marshal() ([]byte, error) {
 	}
 	return buf.Bytes(), nil
 }
-
-func Unmarshal(data []byte) (*Address, error) {
-	var addr Address
-	buf := bytes.NewBuffer(data)
-	dec := gob.NewDecoder(buf)
-	if err := dec.Decode(&addr); err != nil {
-		return nil, fmt.Errorf("decode Address: %w", err)
-	}
-	return &addr, nil
-}
