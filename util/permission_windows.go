@@ -62,7 +62,7 @@ func sids() (*windows.SID, *windows.SID, error) {
 	}
 	defer func() {
 		if err := token.Close(); err != nil {
-			log.Errorf("failed to close proces token: %v", err)
+			log.Errorf("failed to close process token: %v", err)
 		}
 	}()
 
