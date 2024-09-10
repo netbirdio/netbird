@@ -597,6 +597,8 @@ func (d *Status) DeleteResolvedDomainsStates(domain domain.Domain) {
 }
 
 func (d *Status) GetRosenpassState() RosenpassState {
+	d.mux.Lock()
+	defer d.mux.Unlock()
 	return RosenpassState{
 		d.rosenpassEnabled,
 		d.rosenpassPermissive,
@@ -658,6 +660,8 @@ func (d *Status) GetSignalState() SignalState {
 
 // GetRelayStates returns the stun/turn/permanent relay states
 func (d *Status) GetRelayStates() []relay.ProbeResult {
+	d.mux.Lock()
+	defer d.mux.Unlock()
 	if d.relayMgr == nil {
 		return d.relayStates
 	}
@@ -688,6 +692,8 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 }
 
 func (d *Status) GetDNSStates() []NSGroupState {
+	d.mux.Lock()
+	defer d.mux.Unlock()
 	return d.nsGroupStates
 }
 
@@ -699,17 +705,18 @@ func (d *Status) GetResolvedDomainsStates() map[domain.Domain][]netip.Prefix {
 
 // GetFullStatus gets full status
 func (d *Status) GetFullStatus() FullStatus {
-	d.mux.Lock()
-	defer d.mux.Unlock()
-
 	fullStatus := FullStatus{
 		ManagementState: d.GetManagementState(),
 		SignalState:     d.GetSignalState(),
-		LocalPeerState:  d.localPeer,
 		Relays:          d.GetRelayStates(),
 		RosenpassState:  d.GetRosenpassState(),
 		NSGroupStates:   d.GetDNSStates(),
 	}
+
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	fullStatus.LocalPeerState = d.localPeer
 
 	for _, status := range d.peers {
 		fullStatus.Peers = append(fullStatus.Peers, status)
