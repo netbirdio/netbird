@@ -22,7 +22,7 @@ type TimedHMACValidator struct {
 func NewTimedHMACValidator(secret []byte, duration time.Duration) *TimedHMACValidator {
 	return &TimedHMACValidator{
 		authenticatorV2: authv2.NewValidator(secret),
-		authenticator:   auth.NewTimedHMACValidator(string(secret[:]), duration),
+		authenticator:   auth.NewTimedHMACValidator(string(secret), duration),
 	}
 }
 
