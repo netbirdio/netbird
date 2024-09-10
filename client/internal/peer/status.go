@@ -604,6 +604,8 @@ func (d *Status) GetRosenpassState() RosenpassState {
 }
 
 func (d *Status) GetManagementState() ManagementState {
+	d.mux.Lock()
+	defer d.mux.Unlock()
 	return ManagementState{
 		d.mgmAddress,
 		d.managementState,
@@ -645,6 +647,8 @@ func (d *Status) IsLoginRequired() bool {
 }
 
 func (d *Status) GetSignalState() SignalState {
+	d.mux.Lock()
+	defer d.mux.Unlock()
 	return SignalState{
 		d.signalAddress,
 		d.signalState,
