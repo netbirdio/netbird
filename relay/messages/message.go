@@ -7,7 +7,8 @@ import (
 )
 
 const (
-	MaxHandshakeSize = 8192
+	MaxHandshakeSize     = 212
+	MaxHandshakeRespSize = 8192
 
 	CurrentProtocolVersion = 1
 

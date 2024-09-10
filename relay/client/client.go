@@ -249,7 +249,7 @@ func (c *Client) handShake() error {
 		log.Errorf("failed to send auth message: %s", err)
 		return err
 	}
-	buf := make([]byte, messages.MaxHandshakeSize)
+	buf := make([]byte, messages.MaxHandshakeRespSize)
 	n, err := c.readWithTimeout(buf)
 	if err != nil {
 		log.Errorf("failed to read auth response: %s", err)
